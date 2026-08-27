@@ -19,6 +19,7 @@ export enum Role {
   MAYOR = 'MAYOR',
   CITIZEN = 'CITIZEN',
   YOUNGER_BROTHER = 'YOUNGER_BROTHER',
+  PHOENIX = 'PHOENIX',
   JESTER = 'JESTER',
   ASSASSIN = 'ASSASSIN',
 }
@@ -49,6 +50,7 @@ export const ROLE_NAMES: Record<Role, string> = {
   [Role.MAYOR]: 'العمدة',
   [Role.CITIZEN]: 'مواطن صالح',
   [Role.YOUNGER_BROTHER]: 'الأخ الأصغر',
+  [Role.PHOENIX]: 'العنقاء',
   [Role.JESTER]: 'المهرج',
   [Role.ASSASSIN]: 'السفّاح',
 };
@@ -68,6 +70,7 @@ export const ROLE_ICONS: Record<Role, string> = {
   [Role.MAYOR]: '🎩',
   [Role.CITIZEN]: '👤',
   [Role.YOUNGER_BROTHER]: '👥',
+  [Role.PHOENIX]: '🔥',
   [Role.JESTER]: '🤡',
   [Role.ASSASSIN]: '🔪',
 };
@@ -135,7 +138,7 @@ export interface DealCandidate {
 export type Candidate = PlayerCandidate | DealCandidate;
 
 export interface MorningEvent {
-  type: 'ASSASSINATION' | 'ASSASSINATION_BLOCKED' | 'SNIPE_MAFIA' | 'SNIPE_CITIZEN' | 'SILENCED' | 'SHERIFF_RESULT' | 'SHERIFF_REVENGE' | 'ABILITY_DISABLED' | 'TWIN_SUICIDE' | 'TWIN_TRANSFORM';
+  type: 'ASSASSINATION' | 'ASSASSINATION_BLOCKED' | 'SNIPE_MAFIA' | 'SNIPE_CITIZEN' | 'SILENCED' | 'SHERIFF_RESULT' | 'SHERIFF_REVENGE' | 'ABILITY_DISABLED' | 'TWIN_SUICIDE' | 'TWIN_TRANSFORM' | 'PHOENIX_BURN' | 'PHOENIX_ASH';
   targetPhysicalId: number;
   targetName: string;
   extra?: Record<string, unknown>;

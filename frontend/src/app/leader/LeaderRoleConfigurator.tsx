@@ -19,6 +19,7 @@ export default function LeaderRoleConfigurator({ gameState, emit, setError, hide
   const [mayorVoteWeight, setMayorVoteWeight] = useState(2);              // 🎩 وزن صوت العمدة بعد كشفه
   const [jesterSurviveRounds, setJesterSurviveRounds] = useState(2);      // 🤡 عدد جولات نجاة المهرج
   const [witchDisableRounds, setWitchDisableRounds] = useState(3);        // 🧙‍♀️ عدد راوندات تعطيل الساحرة
+  const [phoenixRebirths, setPhoenixRebirths] = useState(1);             // 🔥 رصيد نهوض العنقاء
   // 🗣️ غرفة تشاور المافيا السرّية — خيار الليدر عند بداية كل جولة (يتذكّر آخر اختيار من config)
   const [mafiaChatOn, setMafiaChatOn] = useState<boolean>(gameState?.config?.mafiaChatEnabled === true);
   const [chatToggleBusy, setChatToggleBusy] = useState(false);
@@ -46,7 +47,8 @@ export default function LeaderRoleConfigurator({ gameState, emit, setError, hide
 
     const mafiaOrder = [Role.GODFATHER, Role.SILENCER, Role.CHAMELEON, Role.WITCH, Role.MAFIA_REGULAR];
     // 🎩 العمدة في المرتبة السادسة — لا يدخل تلقائيّاً إلا بستّة مقاعد مواطنين (≈ ٩+ لاعبين، كالمحرّك الديناميكيّ)
-    const citizenOrder = [Role.SHERIFF, Role.DOCTOR, Role.SNIPER, Role.POLICEWOMAN, Role.NURSE, Role.MAYOR, Role.CITIZEN];
+    // 🔥 العنقاء سابعاً: طاولةٌ صغيرةٌ تصير المافيا فيها عاجزةً عن الاغتيال ليلتين إن دخل مبكّراً
+    const citizenOrder = [Role.SHERIFF, Role.DOCTOR, Role.SNIPER, Role.POLICEWOMAN, Role.NURSE, Role.MAYOR, Role.PHOENIX, Role.CITIZEN];
 
     let generated: Role[] = [];
     
@@ -141,6 +143,7 @@ export default function LeaderRoleConfigurator({ gameState, emit, setError, hide
         mayorVoteWeight: roles.includes(Role.MAYOR) ? mayorVoteWeight : undefined,
         jesterSurviveRounds: roles.includes(Role.JESTER) ? jesterSurviveRounds : undefined,
         witchDisableRounds: roles.includes(Role.WITCH) ? witchDisableRounds : undefined,
+        phoenixRebirths: roles.includes(Role.PHOENIX) ? phoenixRebirths : undefined,
       });
     } catch (err: any) {
       setError(err.message);
@@ -157,6 +160,7 @@ export default function LeaderRoleConfigurator({ gameState, emit, setError, hide
   const neutralRoles = roles.filter(r => NEUTRAL_ROLES.includes(r));
   const hasJesterInRoles = roles.includes(Role.JESTER);
   const hasMayorInRoles = roles.includes(Role.MAYOR);
+  const hasPhoenixInRoles = roles.includes(Role.PHOENIX);
   const hasAssassinInRoles = roles.includes(Role.ASSASSIN);
   const hasTwinsInRoles = roles.includes(Role.OLDER_BROTHER) && roles.includes(Role.YOUNGER_BROTHER);
   const playerCount = gameState.players.filter((p: any) => p.isAlive !== false).length;
@@ -455,6 +459,33 @@ export default function LeaderRoleConfigurator({ gameState, emit, setError, hide
                   <button
                     onClick={() => setMayorVoteWeight(Math.min(4, mayorVoteWeight + 1))}
                     className="w-7 h-7 rounded bg-amber-500/10 text-amber-400 hover:bg-amber-500/20 text-sm font-bold transition-colors"
+                  >+</button>
+                </div>
+              </div>
+            </motion.div>
+          )}
+
+          {/* 🔥 إعدادات العنقاء */}
+          {hasPhoenixInRoles && (
+            <motion.div
+              initial={{ opacity: 0, height: 0 }}
+              animate={{ opacity: 1, height: 'auto' }}
+              className="mt-4 p-4 bg-orange-500/5 border border-orange-500/10 rounded-lg space-y-3"
+            >
+              <p className="text-orange-400/80 text-xs font-mono leading-relaxed" dir="rtl">
+                🔥 العنقاء: لا يستيقظ ولا يختار. مَن حاول إخراجه ليلاً احترق معه ونهض هو من رماده — والرصيدُ هنا هو عدد مرّات النهوض. وبعد نفاده يخرج ومعه مَن أخرجه.
+              </p>
+              <div className="flex items-center justify-between">
+                <span className="text-orange-400/60 text-xs font-mono" dir="rtl">مرّات النهوض:</span>
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={() => setPhoenixRebirths(Math.max(1, phoenixRebirths - 1))}
+                    className="w-7 h-7 rounded bg-orange-500/10 text-orange-400 hover:bg-orange-500/20 text-sm font-bold transition-colors"
+                  >−</button>
+                  <span className="text-orange-300 font-mono font-bold w-6 text-center">{phoenixRebirths}</span>
+                  <button
+                    onClick={() => setPhoenixRebirths(Math.min(3, phoenixRebirths + 1))}
+                    className="w-7 h-7 rounded bg-orange-500/10 text-orange-400 hover:bg-orange-500/20 text-sm font-bold transition-colors"
                   >+</button>
                 </div>
               </div>

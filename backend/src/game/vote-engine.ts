@@ -8,6 +8,7 @@ import { getGameState, setGameState } from '../config/redis.js';
 import { checkWinCondition, WinResult } from './win-checker.js';
 import { isMafiaRole, teamOfRole } from './roles.js';
 import { checkPolicewomanTrigger } from './night-resolver.js';
+import { armAshCurse } from './phoenix-engine.js';
 import { checkNeutralVoteWin, type NeutralResult } from './dynamic-win-checker.js';
 import { processTwinBond, applySuicide, applyTransform } from './twin-engine.js';
 
@@ -269,6 +270,11 @@ export async function resolveVoting(roomId: string): Promise<VoteResolution> {
         round: state.round || 1,
         team: teamOfRole(player.role), // المحايد NEUTRAL — لا مكافأة إقصاء لأحد
       });
+
+      // 🜂 لعنةُ الرماد — إن أعدمت المدينةُ العنقاء أخذ معه واحداً ممّن رفعوا أيديهم
+      // 🔴 على الإعدام المباشر وحده لا على الصفقة: العنقاءُ مواطنٌ صالحٌ في الصفقة،
+      //    فارتدادُها يُخرج صاحبَها أصلاً — واللعنةُ فوقها تجعلها ثلاثةً بضربةٍ واحدة.
+      if (player.role === 'PHOENIX') armAshCurse(state, player.physicalId);
 
       // 💣 قدرة القنبلة — إذا المُقصى شيخ المافيا بالتصويت + القنبلة مفعلة
       if (player.role === 'GODFATHER' && state.config.bombEnabled !== false) {

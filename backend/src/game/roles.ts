@@ -23,6 +23,7 @@ export enum Role {
   MAYOR = 'MAYOR',                   // 🎩 العمدة
   CITIZEN = 'CITIZEN',               // مواطن صالح
   YOUNGER_BROTHER = 'YOUNGER_BROTHER', // 👥 الأخ الأصغر (توأم مواطن)
+  PHOENIX = 'PHOENIX',               // 🔥 العنقاء — لا يُغتال، ومَن مدّ يده احترق
 
   // فريق محايد
   JESTER = 'JESTER',                 // المهرج 🤡
@@ -49,6 +50,9 @@ export const CITIZEN_ROLES: Role[] = [
   Role.MAYOR,
   Role.CITIZEN,
   Role.YOUNGER_BROTHER,
+  // 🔥 مواطنٌ بلا قدرةٍ ليليّة — فالشريفُ يراه «مواطن» بلا استثناءٍ مضاف،
+  //    والساحرةُ تبلغه (استهدافُها للمواطنين والمستقلّين)، وارتدادُ الصفقة يقع عليه.
+  Role.PHOENIX,
 ];
 
 export const NEUTRAL_ROLES: Role[] = [
@@ -130,6 +134,7 @@ export const ROLE_NAMES_AR: Record<Role, string> = {
   [Role.MAYOR]: 'العمدة',
   [Role.CITIZEN]: 'مواطن صالح',
   [Role.YOUNGER_BROTHER]: 'الأخ الأصغر',
+  [Role.PHOENIX]: 'العنقاء',
   [Role.JESTER]: 'المهرج',
   [Role.ASSASSIN]: 'السفّاح',
 };

@@ -11,6 +11,10 @@ import * as schema from '../schemas/game-config.schema.js';
 
 const DATABASE_URL = process.env.DATABASE_URL || 'postgresql://mafia_user:mafia_pass@localhost:5435/mafia_db_staging';
 
+// 🔥 وجهُ بطاقة العنقاء — الملفُّ يُنسَخ إلى volume الـuploads مع النشر.
+//    مصدرٌ واحدٌ يشاركه سكربتُ التركيب add-phoenix.ts.
+export const PHOENIX_FACE_URL = '/uploads/card-faces/phoenix_card-1756310000000.jpg';
+
 async function seed() {
   const pool = new pg.Pool({ connectionString: DATABASE_URL });
   const db = drizzle(pool, { schema });
@@ -93,6 +97,22 @@ async function seed() {
   await db.insert(schema.cardTemplates).values(mayorTemplate).onConflictDoNothing();
   console.log(`✅ تم بذر قالب بطاقة العمدة (mayor_card)`);
 
+  // 🔥 قالب بطاقة العنقاء — جمرٌ على فحم. الوجهُ صورةٌ مرسومة كاملةً (اسمٌ وشارةٌ
+  //    ووصف)، فالعناصرُ المولَّدة فوقها مُطفأة إلّا رقمَ اللاعب.
+  const phoenixTemplate = {
+    id: 'phoenix_card',
+    gradient: 'from-orange-800 via-red-950 to-stone-950',
+    borderColor: '#f97316',
+    textColor: '#fed7aa',
+    glowEffect: '0 0 34px rgba(249,115,22,0.40)',
+    teamBadge: { text: 'مواطنون', bgColor: '#064e3b', textColor: '#a7f3d0', borderColor: '#10b981' },
+    icon: { type: 'EMOJI', value: '🔥' },
+    secretFace: { type: 'custom', customImageUrl: PHOENIX_FACE_URL },
+    elements: { showPlayerNumber: true, showClubBranding: false, showDescription: false },
+  };
+  await db.insert(schema.cardTemplates).values(phoenixTemplate).onConflictDoNothing();
+  console.log(`✅ تم بذر قالب بطاقة العنقاء (phoenix_card)`);
+
   // ══════════════════════════════════════════════
   // 3. الأدوار — جميعها تشير للقالب الرئيسي
   // ══════════════════════════════════════════════
@@ -111,6 +131,7 @@ async function seed() {
     { id: 'POLICEWOMAN', nameAr: 'الشرطية', nameEn: 'Policewoman', team: 'CITIZEN' as const, abilities: [], genPriority: 4, genMaxCount: 1, genMinPlayers: 8, genIsRequired: false, cardTemplateId: 'master', description: 'عند إقصائها تكشف هوية قاتلها لاحقاً', cardOverrides: { icon: { type: 'lucide', value: 'BadgeAlert' } } },
     { id: 'NURSE', nameAr: 'الممرضة', nameEn: 'Nurse', team: 'CITIZEN' as const, abilities: ['PROTECT'], genPriority: 5, genMaxCount: 1, genMinPlayers: 9, genIsRequired: false, cardTemplateId: 'master', description: 'تُفعّل بعد موت الطبيب — نفس قدرة الحماية', cardOverrides: { icon: { type: 'lucide', value: 'Syringe' } } },
     { id: 'MAYOR', nameAr: 'العمدة', nameEn: 'Mayor', team: 'CITIZEN' as const, abilities: [], genPriority: 6, genMaxCount: 1, genMinPlayers: 9, genIsRequired: false, cardTemplateId: 'mayor_card', description: 'مرّة واحدة بعد فرز التصويت: يكشف نفسه ويلغي الإعدام — تصويت جديد على الجميع أو تأجيل بلا موت. بعد الكشف صوته ×2', cardOverrides: { icon: { type: 'EMOJI', value: '🎩' } } },
+    { id: 'PHOENIX', nameAr: 'العنقاء', nameEn: 'Phoenix', team: 'CITIZEN' as const, abilities: [], genPriority: 7, genMaxCount: 1, genMinPlayers: 10, genIsRequired: false, cardTemplateId: 'phoenix_card', description: 'لا يستيقظ ولا يختار. مَن حاول قتله ليلاً احترق معه، ونهض العنقاء من رماده. وإن أعدمته المدينة أخذ معه أحد مَن صوّتوا عليه', cardOverrides: { icon: { type: 'EMOJI', value: '🔥' } } },
     { id: 'CITIZEN', nameAr: 'مواطن صالح', nameEn: 'Citizen', team: 'CITIZEN' as const, abilities: [], genPriority: 99, genMaxCount: 10, genMinPlayers: 6, genIsRequired: false, cardTemplateId: 'master', description: 'مواطن عادي — يشارك بالنقاش والتصويت فقط', cardOverrides: { icon: { type: 'lucide', value: 'User' } } },
   ];
 

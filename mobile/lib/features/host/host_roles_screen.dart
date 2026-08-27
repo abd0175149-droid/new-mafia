@@ -126,6 +126,17 @@ class _HostRolesScreenState extends State<HostRolesScreen> {
             prefix: '×',
             onChanged: (v) => _c.setTuning(_c.tuning.copyWith(mayorVoteWeight: v)),
           ),
+        if (roles.contains('PHOENIX'))
+          _Tuner(
+            title: '🔥 العنقاء',
+            note: 'لا يستيقظ ولا يختار. مَن حاول إخراجه ليلاً احترق معه ونهض هو من '
+                'رماده — والرصيدُ هنا عدد مرّات النهوض. وبعد نفاده يخرج ومعه مَن أخرجه.',
+            label: 'مرّات النهوض:',
+            value: _c.tuning.phoenixRebirths,
+            min: 1,
+            max: 3,
+            onChanged: (v) => _c.setTuning(_c.tuning.copyWith(phoenixRebirths: v)),
+          ),
 
         const SizedBox(height: 14),
         _Section(

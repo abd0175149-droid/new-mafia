@@ -25,6 +25,8 @@ const EVENT_META: Record<string, { icon: string; title: string; color: string; d
   POLICEWOMAN_EXECUTION: { icon: '👮‍♀️', title: 'إعدام الشرطية', color: 'text-[#b98be0]', displayable: true },
   TWIN_SUICIDE:          { icon: '🩸', title: 'انتحار التوأم', color: 'text-[#e08a8a]', displayable: true },
   TWIN_TRANSFORM:        { icon: '🌑', title: 'الصحوة المظلمة', color: 'text-[#b98be0]', displayable: true },
+  PHOENIX_BURN:          { icon: '🔥', title: 'احترق بنار العنقاء', color: 'text-[#f0955a]', displayable: true },
+  PHOENIX_ASH:           { icon: '🜂', title: 'لعنة الرماد', color: 'text-[#f0a570]', displayable: true },
 };
 
 interface Props {

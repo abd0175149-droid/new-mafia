@@ -124,7 +124,7 @@ export interface NightActions {
 }
 
 export interface MorningEvent {
-  type: 'ASSASSINATION' | 'ASSASSINATION_BLOCKED' | 'PROTECTION_FAILED' | 'SNIPE_MAFIA' | 'SNIPE_CITIZEN' | 'SILENCED' | 'SHERIFF_RESULT' | 'SHERIFF_REVENGE' | 'ASSASSIN_KILL' | 'ASSASSIN_BLOCKED' | 'ABILITY_DISABLED' | 'TWIN_SUICIDE' | 'TWIN_TRANSFORM';
+  type: 'ASSASSINATION' | 'ASSASSINATION_BLOCKED' | 'PROTECTION_FAILED' | 'SNIPE_MAFIA' | 'SNIPE_CITIZEN' | 'SILENCED' | 'SHERIFF_RESULT' | 'SHERIFF_REVENGE' | 'ASSASSIN_KILL' | 'ASSASSIN_BLOCKED' | 'ABILITY_DISABLED' | 'TWIN_SUICIDE' | 'TWIN_TRANSFORM' | 'PHOENIX_BURN' | 'PHOENIX_ASH';
   targetPhysicalId: number;
   targetName: string;
   performerPhysicalId?: number;  // من نفذ هذا الإجراء
@@ -153,6 +153,7 @@ export const ROLE_NAMES_AR: Record<string, string> = {
   WITCH: 'الساحرة',
   OLDER_BROTHER: 'الأخ الأكبر',
   YOUNGER_BROTHER: 'الأخ الأصغر',
+  PHOENIX: 'العنقاء',   // 🔥 دورٌ مميّز ⇒ يدخل مجمّع عقود السفّاح تلقائيّاً
 };
 
 // الأدوار المؤهلة للعقود (كل دور مميز — ما عدا المواطن العادي والمافيا العادي)
@@ -219,6 +220,7 @@ export interface GameConfig {
   bombEnabled?: boolean;          // 💣 هل قدرة القنبلة لشيخ المافيا مفعلة (الافتراضي true)
   assassinContractCount?: number;  // 🔪 عدد عقود السفّاح (الافتراضي 4، المدى 2-6)
    jesterSurviveRounds?: number;    // 🤡 جولات نجاة المهرج (الافتراضي 2)
+  phoenixRebirths?: number;        // 🔥 مرّات نهوض العنقاء (الافتراضي 1) — يُضبط في صفحة اختيار الأدوار
   maxConsecutiveMafiaGames?: number; // ♟️ الحد الأقصى لتكرار المافيا المتتالية (الافتراضي 3)
   witchDisableRounds?: number;     // 🧙‍♀️ عدد راوندات تعطيل الساحرة (الافتراضي 3)
   mayorVoteWeight?: number;        // 🎩 وزن صوت العمدة بعد كشفه — يحدّده الليدر (الافتراضي 2، المدى 1-4)
@@ -290,6 +292,8 @@ export interface GameState {
     policewomanPhysicalId: number;
     policewomanName: string;
   } | null;
+  // 🔥 حالةُ العنقاء — لا تُبَثّ للاعبين ولا لشاشة العرض إطلاقاً (الرصيدُ للموجّه وحده)
+  phoenixState?: { seat: number; rebirthsLeft: number; burned: number[] } | null;
   // ── Auto Night Mode — تتبع إرسال اللاعبين ──
   playerNightActions: {
     submitted: Record<number, boolean>; // physicalId → هل أرسل إجراءه
@@ -337,6 +341,13 @@ export interface GameState {
     godfatherPlayerId: number | null;
     above: { physicalId: number; name: string; role: string } | null;
     below: { physicalId: number; name: string; role: string } | null;
+  } | null;
+  // 🜂 لعنةُ الرماد — معلّقة بانتظار اختيار الموجّه (على قالب pendingBomb)
+  pendingAshCurse?: {
+    phoenixPhysicalId: number;
+    phoenixName: string;
+    /** المقاعدُ المؤهَّلة: مَن صوّت عليه في الجولة النافذة، أحياءً. */
+    eligible: { physicalId: number; name: string }[];
   } | null;
   // 🔪 حالة السفّاح (عقود الاغتيال)
   assassinState?: AssassinState | null;

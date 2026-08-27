@@ -906,6 +906,55 @@ export default function NightAnimCinematic({ data, players }: NightAnimProps) {
     case 'ASSASSIN_BLOCKED':
       return <MorningProtectionAnim />;
 
+    // 🕵️ ثأرُ الشريف · 🔥 نارُ العنقاء · 🜂 لعنةُ الرماد — ثلاثةُ خروجٍ من
+    // نوعٍ واحد: يخرج المستهدَف لا بيدِ فاعلٍ ليليّ بل بقاعدةٍ ارتدّت على صاحبها.
+    case 'SHERIFF_REVENGE':
+    case 'PHOENIX_BURN':
+    case 'PHOENIX_ASH': {
+      const meta = data.type === 'SHERIFF_REVENGE'
+        ? { emoji: '🕵️', title: 'خرج مع الشريف', glow: 'rgba(197,160,89,0.85)', color: 'text-[#C5A059]' }
+        : data.type === 'PHOENIX_BURN'
+        ? { emoji: '🔥', title: 'احترق بنار العنقاء', glow: 'rgba(249,115,22,0.9)', color: 'text-[#f97316]' }
+        : { emoji: '🜂', title: 'لعنة الرماد', glow: 'rgba(251,146,60,0.9)', color: 'text-[#fb923c]' };
+      return (
+        <div className="text-center py-4">
+          <motion.div
+            className="text-8xl mb-4"
+            style={{ filter: `drop-shadow(0 0 40px ${meta.glow})` }}
+            animate={{ scale: [0.6, 1.35, 1], opacity: [0, 1, 1] }}
+            transition={{ duration: 0.8 }}
+          >
+            {meta.emoji}
+          </motion.div>
+          <motion.p
+            className={`text-3xl md:text-4xl font-black ${meta.color} tracking-widest mb-3`}
+            style={{ fontFamily: 'Amiri, serif' }}
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            transition={{ delay: 0.3 }}
+          >
+            {meta.title}
+          </motion.p>
+          <motion.p
+            className="text-2xl md:text-3xl font-bold text-white/90"
+            style={{ fontFamily: 'Amiri, serif' }}
+            initial={{ opacity: 0, y: 12 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 0.55 }}
+          >
+            #{data.targetPhysicalId} {data.targetName}
+          </motion.p>
+          <motion.div
+            className="w-64 h-[2px] mx-auto mt-6"
+            style={{ background: `linear-gradient(to right, transparent, ${meta.glow}, transparent)` }}
+            initial={{ scaleX: 0 }}
+            animate={{ scaleX: 1 }}
+            transition={{ delay: 0.5, duration: 0.6 }}
+          />
+        </div>
+      );
+    }
+
     // 👮‍♀️ إقصاء الشرطية
     case 'POLICEWOMAN_EXECUTION': {
       const isMafia = data.extra?.targetIsMafia;

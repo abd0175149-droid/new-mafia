@@ -75,6 +75,7 @@ const roleNamesAr = <String, String>{
   'POLICEWOMAN': 'الشرطية',
   'NURSE': 'الممرضة',
   'MAYOR': 'العمدة',
+  'PHOENIX': 'العنقاء',
   'CITIZEN': 'مواطن صالح',
   'WITCH': 'الساحرة',
   'OLDER_BROTHER': 'الأخ الأكبر',

@@ -24,6 +24,8 @@ import { checkWinCondition, WinResult } from './win-checker.js';
 import { checkNeutralVoteWin, type NeutralResult } from './dynamic-win-checker.js';
 import { processTwinBond, applySuicide, applyTransform, detectTwinDeaths } from './twin-engine.js';
 import { applySheriffRevenge } from './sheriff-revenge.js';
+import { applyPhoenix, isPhoenixDisabled, BURNING_ABILITIES, type PhoenixAttempt } from './phoenix-engine.js';
+import { bridgeLegacyNight } from './legacy-night-bridge.js';
 
 export interface NightResolution {
   events: MorningEvent[];
@@ -72,6 +74,25 @@ export async function resolveNight(roomId: string): Promise<NightResolution> {
   if (isDisabled(Role.NURSE)) { nightActions.nurseTarget = null; }
   if (isDisabled('ASSASSIN' as any)) { nightActions.assassinTarget = null; }
 
+  // ═══ 🔥 العنقاء — تُلتقط النوايا هنا قبل أن يسقط أحد ═══
+  // 🔴 الالتقاطُ قبل المرحلة ١: `findAssassinator` و`killHolderSeat` تُرجعان وارثاً
+  //    مختلفاً بعد أن يسقط مَن فوقه في هذه الليلة نفسِها، فلو التقطنا بعد القنص
+  //    لاحترق غيرُ مَن مدّ يدَه. والنيّةُ هي المِلاك لا مَن بقي حيّاً.
+  // 🔴 والحمايةُ تُلغي الثلاثةَ جميعاً في هذا المحرّك (القنصُ يخضع لها هنا أيضاً)،
+  //    فمقعدٌ محميٌّ ⇒ لا محاولةَ تصل ⇒ لا احتراقَ ولا استهلاكَ رصيد.
+  const phoenixSeatNow = state.phoenixState?.seat ?? null;
+  const phoenixLive = phoenixSeatNow != null
+    && state.players.find(p => p.physicalId === phoenixSeatNow)?.isAlive !== false
+    && !isPhoenixDisabled(state);
+  const phoenixProtected = phoenixLive
+    && phoenixSeatNow === (nightActions.doctorTarget ?? nightActions.nurseTarget);
+  const phoenixAttempts: PhoenixAttempt[] = (phoenixLive && !phoenixProtected)
+    ? Object.values(bridgeLegacyNight(state).actions)
+        .filter(a => a.targetPhysicalId === phoenixSeatNow && BURNING_ABILITIES.has(a.abilityId))
+        .map(a => ({ performerSeat: a.performerPhysicalId, abilityId: a.abilityId }))
+    : [];
+  const phoenixWillRebirth = phoenixAttempts.length > 0 && (state.phoenixState?.rebirthsLeft ?? 0) > 0;
+
   // ── 1. معالجة القنص ──────────────────────────
   if (nightActions.sniperTarget !== null) {
     const sniperTarget = state.players.find(p => p.physicalId === nightActions.sniperTarget);
@@ -91,6 +112,11 @@ export async function resolveNight(roomId: string): Promise<NightResolution> {
         events.push({ type: 'SNIPE_MAFIA', targetPhysicalId: sniperTarget.physicalId, targetName: sniperTarget.name, performerPhysicalId: sniper.physicalId, performerName: sniper.name, wasRandom: !!nightActions.randomSelections?.['SNIPER'], extra: { sniperName: sniper.name, targetRole: sniperTarget.role }, revealed: false });
         pt.abilityResults.push({ physicalId: sniper.physicalId, role: 'SNIPER', correct: true });
         pt.eliminationLog.push({ physicalId: sniperTarget.physicalId, eliminatedBy: 'SNIPER', round: state.round || 1, team: teamOfRole(sniperTarget.role) });
+      } else if (phoenixLive && sniperTarget.physicalId === phoenixSeatNow) {
+        // 🔥 العنقاء: يُخرَج مبدئيّاً ويُردّ في المرحلة ٥٫٣٥ إن كان له رصيد. ولا
+        //    ارتدادَ «إصابة مواطنٍ صالح» فوقه: القنّاصُ يحترق بالبعث لا بخطئه،
+        //    والإخراجُ واحدٌ لا اثنان — ولا حدثَ قنصٍ يُنشَر، الحدثُ حدثُ احتراق.
+        sniperTarget.isAlive = false;
       } else {
         // قنص مواطن → يموت المواطن + القناص معاً
         sniperTarget.isAlive = false;
@@ -206,7 +232,10 @@ export async function resolveNight(roomId: string): Promise<NightResolution> {
   // ✅ السفّاح له الأولوية: يُحتسب العقد حتى لو قتل القناص و/أو المافيا نفس الهدف في نفس الليلة.
   //    لذلك نعالجه حتى لو كان الهدف قد مات بالفعل بفعل غيره — نعرض حدث السفّاح بدقّة (للوضوح عند
   //    الليدر) ونُكمل العقد دون احتساب قتل مزدوج في سجل الإقصاء.
-  if (state.assassinState && nightActions.assassinTarget !== null) {
+  // 🔥 هدفٌ سيُبعَث ⇒ لا عقدَ ولا حدثَ إخراج: العقدُ مشروطٌ بخروج الهدف والعنقاءُ لا
+  //    يخرج، والسفّاحُ نفسُه يحترق في المرحلة ٥٫٣٥ فيخسر فوراً.
+  const assassinHitsRebirther = phoenixWillRebirth && nightActions.assassinTarget === phoenixSeatNow;
+  if (state.assassinState && nightActions.assassinTarget !== null && !assassinHitsRebirther) {
     const { evaluateAssassinKill } = await import('./assassin-engine.js');
     const targetId = nightActions.assassinTarget;
     const target = state.players.find(p => p.physicalId === targetId);
@@ -281,6 +310,23 @@ export async function resolveNight(roomId: string): Promise<NightResolution> {
     }
   }
 
+  // ── 5.35. 🔥 العنقاء — البعثُ والاحتراق ──
+  // 🔴 بعد استقرار وفيات الليل كلِّها وقبل الشرطيّة والتوأمين: المحترقُ يجب أن
+  //    يُحتسب في عتبة الشرطيّة وأن يُشعل رابطَ الأخوين إن كان أحدَهما.
+  if (phoenixAttempts.length > 0) {
+    const out = applyPhoenix(state, phoenixAttempts);
+    events.push(...out.events);
+    for (const seat of out.burned) {
+      const burnedPlayer = state.players.find(p => p.physicalId === seat);
+      pt.eliminationLog.push({
+        physicalId: seat,
+        eliminatedBy: 'NIGHT_KILL',
+        round: state.round || 1,
+        team: teamOfRole(burnedPlayer?.role),
+      });
+    }
+  }
+
   // ── 5.4. 🕵️ ثأرُ الشريف — مَن سأل عنه يموت معه ──
   // 🔴 بعد ٤٫٥ (السفّاح) لا عند بند الشريف (٤): موتُ الشريف قد يقع بيد السفّاح
   //    وهو يُعالَج بعده. الحكمُ في البند ٤ يفوته ذلك الموت.
@@ -297,7 +343,7 @@ export async function resolveNight(roomId: string): Promise<NightResolution> {
   // ── 5.5. فحص تفعيل الشرطية (لكل لاعب مات هذه الليلة) ──
   const deadThisNight: number[] = [];
   for (const ev of events) {
-    if (['ASSASSINATION', 'SNIPE_MAFIA', 'SNIPE_CITIZEN', 'ASSASSIN_KILL', 'SHERIFF_REVENGE'].includes(ev.type)) {
+    if (['ASSASSINATION', 'SNIPE_MAFIA', 'SNIPE_CITIZEN', 'ASSASSIN_KILL', 'SHERIFF_REVENGE', 'PHOENIX_BURN'].includes(ev.type)) {
       // إزالة التكرار: قد يظهر نفس اللاعب في حدثين (اغتيال المافيا + اغتيال السفّاح على نفس الهدف)
       if (!deadThisNight.includes(ev.targetPhysicalId)) deadThisNight.push(ev.targetPhysicalId);
       // القناص يموت أيضاً عند قنص مواطن

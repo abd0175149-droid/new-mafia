@@ -119,7 +119,8 @@ interface DisplayDayViewProps {
 }
 
 export default function DisplayDayView({ roomId, players, initialDiscussionState, teamCounts }: DisplayDayViewProps) {
-  const [phase, setPhase] = useState<'DISCUSSION' | 'VOTING' | 'JUSTIFICATION' | 'PENDING' | 'REVEALED' | 'TIE' | 'BOMB'>('DISCUSSION');
+  const [phase, setPhase] = useState<'DISCUSSION' | 'VOTING' | 'JUSTIFICATION' | 'PENDING' | 'REVEALED' | 'TIE' | 'BOMB' | 'ASH'>('DISCUSSION');
+  const [ashData, setAshData] = useState<any>(null);   // 🜂 لعنةُ الرماد
   const [bombData, setBombData] = useState<{ bombEliminated: number[]; bombRevealedRoles: { physicalId: number; role: string }[] } | null>(null);
   const [candidates, setCandidates] = useState<any[]>([]);
   const [totalVotesCast, setTotalVotesCast] = useState(0);
@@ -396,7 +397,14 @@ export default function DisplayDayView({ roomId, players, initialDiscussionState
     socket.on('day:justification-started', onJustificationStarted);
     socket.on('day:justification-timer-started', onJustificationTimerStarted);
     socket.on('day:justification-timer-stopped', onJustificationTimerStopped);
+    // 🜂 لعنةُ الرماد — نتيجةٌ فقط. النافذةُ نفسُها لا تصل هنا أبداً (سرُّ الموجّه).
+    const onAshResult = (data: any) => {
+      setAshData(data);
+      setPhase('ASH');
+    };
+
     socket.on('day:bomb-result', onBombResult);
+    socket.on('day:ash-curse-result', onAshResult);
     socket.on('day:mayor-revealed', onMayorRevealed);
 
     const onVotingComplete = () => {
@@ -511,6 +519,7 @@ export default function DisplayDayView({ roomId, players, initialDiscussionState
       socket.off('day:justification-timer-started', onJustificationTimerStarted);
       socket.off('day:justification-timer-stopped', onJustificationTimerStopped);
       socket.off('day:bomb-result', onBombResult);
+      socket.off('day:ash-curse-result', onAshResult);
       socket.off('day:mayor-revealed', onMayorRevealed);
       socket.off('day:voting-complete', onVotingComplete);
       socket.off('day:withdrawal-update', onWithdrawalUpdate);
@@ -1350,6 +1359,10 @@ export default function DisplayDayView({ roomId, players, initialDiscussionState
           <BombCeremony players={players} bombData={bombData} />
         )}
 
+        {phase === 'ASH' && ashData && (
+          <AshCeremony players={players} ashData={ashData} />
+        )}
+
       </AnimatePresence>
     </div>
   );
@@ -1602,6 +1615,99 @@ function RevealCeremony({ players, revealedRoles, revealType }: {
 // ══════════════════════════════════════════════════════
 // 💣 BombCeremony — أنيميشن القنبلة السينمائي
 // ══════════════════════════════════════════════════════
+// ══════════════════════════════════════════════════════
+// 🜂 AshCeremony — العنقاءُ يسحب معه واحداً ممّن رفعوا أيديهم
+// أقصرُ من مراسم القنبلة عمداً: خروجٌ واحدٌ لا اثنان، ويأتي مباشرةً بعد
+// مراسم كشف العنقاء نفسِه — فإطالتُه تُميت الإيقاع.
+// ══════════════════════════════════════════════════════
+function AshCeremony({ players, ashData }: {
+  players: any[];
+  ashData: { phoenixPhysicalId: number; phoenixName: string; targetPhysicalId: number; targetName: string; revealedRole: string };
+}) {
+  const [stage, setStage] = useState<'fire' | 'revealing' | 'done'>('fire');
+  const target = players.find((p: any) => p.physicalId === ashData.targetPhysicalId);
+
+  useEffect(() => {
+    const timers: NodeJS.Timeout[] = [];
+    timers.push(setTimeout(() => { playDrumroll(); setStage('revealing'); }, 2600));
+    timers.push(setTimeout(() => { playEliminationSound(ashData.revealedRole); }, 4200));
+    timers.push(setTimeout(() => { playImpactBoom(); setStage('done'); }, 5400));
+    return () => timers.forEach(clearTimeout);
+  }, [ashData]);
+
+  return (
+    <motion.div
+      key="ash-ceremony"
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      exit={{ opacity: 0 }}
+      className="w-full h-[calc(100vh-2rem)] flex flex-col items-center justify-center relative overflow-hidden"
+    >
+      <motion.div
+        className="absolute inset-0 pointer-events-none"
+        animate={{ opacity: [0.05, 0.3, 0.05] }}
+        transition={{ duration: 3, repeat: Infinity }}
+        style={{ background: 'radial-gradient(circle at center, rgba(249,115,22,0.35) 0%, rgba(120,20,0,0.25) 35%, transparent 72%)' }}
+      />
+
+      <motion.div
+        className="text-[7rem] leading-none mb-4"
+        style={{ filter: 'drop-shadow(0 0 50px rgba(249,115,22,0.9))' }}
+        animate={{ scale: [0.9, 1.08, 0.95, 1], rotate: [-3, 3, -2, 0] }}
+        transition={{ duration: 2.4, repeat: Infinity }}
+      >
+        🜂
+      </motion.div>
+
+      <motion.h2
+        className="text-5xl md:text-6xl font-black text-[#f97316] tracking-widest mb-3"
+        style={{ fontFamily: 'Amiri, serif' }}
+        initial={{ opacity: 0, y: 20 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ delay: 0.3 }}
+      >
+        لعنة الرماد
+      </motion.h2>
+
+      <motion.p
+        className="text-2xl md:text-3xl text-white/90 font-bold mb-8"
+        style={{ fontFamily: 'Amiri, serif' }}
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        transition={{ delay: 0.9 }}
+      >
+        العنقاءُ لا يخرج وحده
+      </motion.p>
+
+      {stage !== 'fire' && (
+        <motion.div
+          initial={{ opacity: 0, y: 40, scale: 0.8 }}
+          animate={{ opacity: 1, y: 0, scale: 1 }}
+          transition={{ type: 'spring', damping: 13 }}
+          className="flex flex-col items-center gap-4"
+        >
+          <MafiaCard
+            playerNumber={ashData.targetPhysicalId}
+            playerName={ashData.targetName || target?.name || 'Unknown'}
+            role={ashData.revealedRole}
+            avatarUrl={target?.avatarUrl || null}
+            rankTier={target?.rankTier}
+            cosmetics={target?.cosmetics}
+            isFlipped={stage === 'done' || stage === 'revealing'}
+            flippable={false}
+            isAlive={stage !== 'done'}
+            size="fluid"
+            className="w-52 h-[18rem] md:w-64 md:h-[22rem]"
+          />
+          <p className="text-xl text-[#fb923c] font-bold" style={{ fontFamily: 'Amiri, serif' }}>
+            خرج معه #{ashData.targetPhysicalId} {ashData.targetName || target?.name}
+          </p>
+        </motion.div>
+      )}
+    </motion.div>
+  );
+}
+
 function BombCeremony({ players, bombData }: {
   players: any[];
   bombData: { bombEliminated: number[]; bombRevealedRoles: { physicalId: number; role: string }[] };

@@ -36,7 +36,7 @@ const _kFaceRatio = 720 / 1073;
 const _fallbackIcon = <String, String>{
   'GODFATHER': '🎩', 'SILENCER': '🤫', 'CHAMELEON': '🦎', 'WITCH': '🧙',
   'OLDER_BROTHER': '👴', 'MAFIA_REGULAR': '🔪', 'SHERIFF': '🕵️', 'DOCTOR': '🩺',
-  'NURSE': '💉', 'SNIPER': '🎯', 'POLICEWOMAN': '👮', 'MAYOR': '🏛️',
+  'NURSE': '💉', 'SNIPER': '🎯', 'POLICEWOMAN': '👮', 'MAYOR': '🏛️', 'PHOENIX': '🔥',
   'YOUNGER_BROTHER': '👦', 'CITIZEN': '👤', 'JESTER': '🃏', 'ASSASSIN': '🗡️',
 };
 

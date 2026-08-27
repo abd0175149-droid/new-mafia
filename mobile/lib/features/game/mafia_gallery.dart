@@ -39,6 +39,7 @@ const roleIcons = <String, String>{
   'POLICEWOMAN': '👮',
   'NURSE': '🏥',
   'MAYOR': '🎩',
+  'PHOENIX': '🔥',
   'CITIZEN': '👤',
   'YOUNGER_BROTHER': '👥',
   'JESTER': '🤡',

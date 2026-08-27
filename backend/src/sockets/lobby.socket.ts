@@ -24,6 +24,7 @@ import { resolveRoomCapacity, clampCapacity } from '../services/capacity.service
 import { startGameTimer, clearGameTimer, getRemainingSeconds, restoreGameTimer } from '../game/game-timer.js';
 import { initTwinState, getSiblingInfoFor } from '../game/twin-engine.js';
 import { initMayorState } from '../game/mayor-engine.js';
+import { initPhoenixState } from '../game/phoenix-engine.js';
 import { applyRR } from '../services/progression.service.js';
 import { getProgressionConfig } from '../routes/progression-settings.routes.js';
 import { sendPushToPlayer } from '../services/fcm.service.js';
@@ -3478,6 +3479,7 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
     jesterSurviveRounds?: number;      // 🤡 جولات نجاة المهرج
     witchDisableRounds?: number;       // 🧙‍♀️ راوندات تعطيل الساحرة
     mayorVoteWeight?: number;          // 🎩 وزن صوت العمدة بعد الكشف
+    phoenixRebirths?: number;          // 🔥 رصيد نهوض العنقاء
   }, callback) => {
     try {
       if (socket.data.role !== 'leader') {
@@ -3507,6 +3509,10 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
       // 🎩 وزن صوت العمدة بعد كشفه (نمط عقود السفّاح)
       if (data.mayorVoteWeight !== undefined) {
         state.config.mayorVoteWeight = Math.min(4, Math.max(1, data.mayorVoteWeight));
+      }
+      // 🔥 رصيد نهوض العنقاء — يُقرأ عند ربط الأدوار ثمّ يثبت طوال اللعبة
+      if (data.phoenixRebirths !== undefined) {
+        state.config.phoenixRebirths = Math.min(3, Math.max(1, data.phoenixRebirths));
       }
 
       await updateRoom(data.roomId, { phase: Phase.ROLE_BINDING, rolesPool: data.roles, config: state.config });
@@ -3985,6 +3991,11 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
       if (state.mayorState) {
         console.log(`🎩 Mayor initialized at binding for room ${data.roomId}: #${state.mayorState.mayorPhysicalId}`);
       }
+
+      // ── 🔥 تهيئة العنقاء (كالتوأمين والعمدة: تُعاد دائماً — null إن لا عنقاء) ──
+      // رصيدُ البعث يُقرأ هنا من إعدادات الطاولة، فيثبت طوال اللعبة ولا يتأثّر
+      // بتغييرٍ لاحقٍ في الإعدادات.
+      state.phoenixState = initPhoenixState(state);
 
       // ── حفظ وقت البداية + إنشاء سجل المباراة في PostgreSQL ──
       state.startedAt = new Date().toISOString();

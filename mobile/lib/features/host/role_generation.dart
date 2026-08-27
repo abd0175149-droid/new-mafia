@@ -17,6 +17,8 @@ const kMafiaOrder = <String>[
 
 /// أدوار المواطنين بترتيب دخولها.
 /// العمدة **سادساً** عمداً: لا يدخل تلقائياً إلا بستّة مقاعد مواطنين.
+/// والعنقاء **سابعاً**: طاولةٌ صغيرةٌ تصير المافيا فيها عاجزةً عن الاغتيال
+/// ليلتين متتاليتين إن دخل مبكّراً.
 const kCitizenOrder = <String>[
   'SHERIFF',
   'DOCTOR',
@@ -24,6 +26,7 @@ const kCitizenOrder = <String>[
   'POLICEWOMAN',
   'NURSE',
   'MAYOR',
+  'PHOENIX',
   'CITIZEN',
 ];
 
@@ -48,24 +51,28 @@ class RoleTuning {
     this.mayorVoteWeight = 2,         // 1–4
     this.jesterSurviveRounds = 2,     // 1–6
     this.witchDisableRounds = 3,      // 1–6
+    this.phoenixRebirths = 1,         // 1–3
   });
 
   final int assassinContractCount;
   final int mayorVoteWeight;
   final int jesterSurviveRounds;
   final int witchDisableRounds;
+  final int phoenixRebirths;
 
   RoleTuning copyWith({
     int? assassinContractCount,
     int? mayorVoteWeight,
     int? jesterSurviveRounds,
     int? witchDisableRounds,
+    int? phoenixRebirths,
   }) =>
       RoleTuning(
         assassinContractCount: assassinContractCount ?? this.assassinContractCount,
         mayorVoteWeight: mayorVoteWeight ?? this.mayorVoteWeight,
         jesterSurviveRounds: jesterSurviveRounds ?? this.jesterSurviveRounds,
         witchDisableRounds: witchDisableRounds ?? this.witchDisableRounds,
+        phoenixRebirths: phoenixRebirths ?? this.phoenixRebirths,
       );
 
   /// الحقول الاختيارية تُرسَل **فقط** إن كان دورها حاضراً — وإلا `undefined`
@@ -75,6 +82,7 @@ class RoleTuning {
         if (roles.contains('MAYOR')) 'mayorVoteWeight': mayorVoteWeight,
         if (roles.contains('JESTER')) 'jesterSurviveRounds': jesterSurviveRounds,
         if (roles.contains('WITCH')) 'witchDisableRounds': witchDisableRounds,
+        if (roles.contains('PHOENIX')) 'phoenixRebirths': phoenixRebirths,
       };
 }
 

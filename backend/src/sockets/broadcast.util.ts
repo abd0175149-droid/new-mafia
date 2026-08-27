@@ -23,6 +23,11 @@ function stripSecrets(state: any): any {
     mayorState: state.mayorState?.revealed
       ? { mayorPhysicalId: state.mayorState.mayorPhysicalId, revealed: true, vetoUsed: state.mayorState.vetoUsed, decision: state.mayorState.decision, revealedAtRound: state.mayorState.revealedAtRound }
       : undefined,
+    // 🔥 مقعدُ العنقاء ورصيدُه سرٌّ مطلق: لا يُكشف حتى بعد بعثٍ ظاهرٍ للجميع —
+    //    فالمدينةُ ترى مَن احترق ولا تعرف لماذا. والرصيدُ للموجّه وحده.
+    phoenixState: undefined,
+    // 🜂 وقائمةُ مؤهَّلي اللعنة تفضح مَن صوّت على مَن — سرٌّ حتى عن شاشة العرض.
+    pendingAshCurse: undefined,
   };
 }
 

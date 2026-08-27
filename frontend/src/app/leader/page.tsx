@@ -73,6 +73,7 @@ interface GameState {
   assassinState?: any;
   // 💣 Bomb
   pendingBomb?: any;
+  pendingAshCurse?: any;   // 🜂 نافذةُ لعنة الرماد — للموجّه وحده
   // 📐 مقاعد القالب (Seat Template) — تُعرض كـ«المقاعد المثبّتة من القالب» في عرض الجلسة
   pinnedSeats?: any[];
   reservedTailSeats?: number;
@@ -207,6 +208,8 @@ export default function LeaderPage() {
     SILENCED: 'morning_silenced',
     SNIPE_MAFIA: 'morning_snipe_mafia',
     SHERIFF_REVENGE: 'morning_snipe_mafia',   // خروجُ مافيويٍّ — نغمةُ الإصابة نفسُها
+    PHOENIX_BURN: 'morning_assassination_success', // 🔥 خروجٌ ليليّ — نغمةُ الإخراج نفسُها
+    PHOENIX_ASH: 'morning_assassination_success',
     SNIPE_CITIZEN: 'morning_snipe_citizen',
     ABILITY_DISABLED: 'morning_ability_disabled',
     ASSASSIN_KILL: 'morning_assassin_kill',
@@ -488,6 +491,8 @@ export default function LeaderPage() {
             pendingWinner: data.state.pendingWinner || null,
             assassinState: data.state.assassinState || null,
             pendingBomb: data.state.pendingBomb || null,
+            // 🜂 لعنةُ الرماد — تصمد لتحديث الصفحة كالقنبلة
+            pendingAshCurse: data.state.pendingAshCurse || null,
             // 📐 مقاعد القالب — لإظهار «المقاعد المثبّتة من القالب» في الغرفة الفارغة عند الدخول/التحديث
             pinnedSeats: data.state.pinnedSeats || [],
             reservedTailSeats: data.state.reservedTailSeats || 0,
@@ -969,6 +974,28 @@ export default function LeaderPage() {
           phase: 'DAY_ELIMINATION',
           pendingResolution: data,
           pendingBomb: data.pendingBomb || null,
+        } as any;
+      });
+    });
+
+    // 🜂 نافذةُ لعنة الرماد — تصل للموجّه وحده (لا لشاشة العرض ولا للاعبين)
+    const offAshWindow = on('day:ash-curse-window', (data: any) => {
+      setGameState(prev => prev ? ({ ...prev, pendingAshCurse: data }) as any : prev);
+    });
+    const offAshClosed = on('day:ash-curse-closed', () => {
+      setGameState(prev => prev ? ({ ...prev, pendingAshCurse: null }) as any : prev);
+    });
+    const offAshResult = on('day:ash-curse-result', (data: any) => {
+      setGameState(prev => {
+        if (!prev) return prev;
+        return {
+          ...prev,
+          players: prev.players.map((p: any) =>
+            p.physicalId === data.targetPhysicalId ? { ...p, isAlive: false } : p),
+          pendingAshCurse: null,
+          pendingWinner: data.winResult !== 'GAME_CONTINUES'
+            ? (data.winResult === 'MAFIA_WIN' ? 'MAFIA' : data.winResult === 'ASSASSIN_WIN' ? 'ASSASSIN' : 'CITIZEN')
+            : (prev as any).pendingWinner || null,
         } as any;
       });
     });
@@ -1474,6 +1501,9 @@ export default function LeaderPage() {
       offJustTimerStarted();
       offEliminationPending();
       offBombResult();
+      offAshWindow();
+      offAshClosed();
+      offAshResult();
       offEliminationRevealed();
       offDiscussionUpdate();
       offGameClosed();

@@ -46,6 +46,9 @@ const EVENT_META: Record<string, { icon: string; title: string; color: string; d
   ABILITY_DISABLED:     { icon: '🔮', title: 'تعطيل قدرة',        color: 'text-[#9333ea]', displayable: true },
   TWIN_SUICIDE:         { icon: '🩸', title: 'انتحار التوأم',      color: 'text-[#8A0303]', displayable: true },
   TWIN_TRANSFORM:       { icon: '🌑', title: 'الصحوة المظلمة',     color: 'text-[#6b21a8]', displayable: true },
+  // 🔥 مَن مدّ يدَه إلى العنقاء — خروجٌ حقيقيّ يُعرض في القاعة كأيّ إقصاءٍ ليليّ
+  PHOENIX_BURN:         { icon: '🔥', title: 'احترق بنار العنقاء',  color: 'text-[#f97316]', displayable: true },
+  PHOENIX_ASH:          { icon: '🜂', title: 'لعنة الرماد',          color: 'text-[#fb923c]', displayable: true },
 };
 
 export default function LeaderNightView({ gameState, emit, setError }: LeaderNightViewProps) {

@@ -1315,6 +1315,66 @@ export default function LeaderDayView({ gameState, emit, setError }: LeaderDayVi
       );
     }
 
+    // 🜂 لعنةُ الرماد — قبل القنبلة: العنقاءُ يهمس باسمٍ ثمّ نمضي
+    // 🔴 شاشةُ الموجّه وحدها. لا تُبَثّ للعرض ولا للاعبين: قائمةُ المؤهَّلين
+    //    تفضح مَن صوّت على مَن، ووجودُها يفضح أنّ المُقصى عنقاء.
+    const ash = gameState.pendingAshCurse;
+    if (ash) {
+      const handleAsh = async (targetPhysicalId: number | null) => {
+        setLoading(true);
+        try {
+          await emit('day:ash-curse', {
+            roomId: gameState.roomId,
+            targetPhysicalId,
+            skip: targetPhysicalId == null,
+          });
+        } catch (err: any) {
+          setError(err.message);
+        } finally {
+          setLoading(false);
+        }
+      };
+
+      return renderContent(
+        <div className="flex flex-col items-center justify-center p-8 text-center">
+          <div className="w-full max-w-md bg-gradient-to-b from-[#1a0d05] to-[#0a0a0a] border-2 border-[#f97316]/40 rounded-2xl p-6 mb-6">
+            <p className="w-full text-center text-[#555] font-mono text-[10px] tracking-widest uppercase mb-3">🔒 LEADER EYES ONLY</p>
+            <div className="text-5xl mb-3">🜂</div>
+            <h2 className="text-2xl font-black text-[#f97316] mb-1" style={{ fontFamily: 'Amiri, serif' }}>لعنة الرماد</h2>
+            <p className="text-[#9a8f7d] text-sm leading-relaxed mb-1">
+              أعدمت المدينةُ <b className="text-white">#{ash.phoenixPhysicalId} {ash.phoenixName}</b> — وهو العنقاء.
+            </p>
+            <p className="text-[#808080] text-xs mb-6">
+              اسأله همساً: أيَّ واحدٍ ممّن صوّتوا عليه يأخذ معه؟ ثمّ اضغط اسمَه.
+            </p>
+
+            <div className="grid grid-cols-2 gap-3 mb-6">
+              {ash.eligible?.map((e: any) => (
+                <button
+                  key={e.physicalId}
+                  onClick={() => handleAsh(e.physicalId)}
+                  disabled={loading}
+                  className="bg-[#111] border border-[#333] rounded-xl p-4 text-center hover:border-[#f97316]/60 hover:bg-[#1a0d05] transition disabled:opacity-50"
+                >
+                  <p className="text-2xl font-black text-white mb-1">#{e.physicalId}</p>
+                  <p className="text-sm text-gray-300 font-bold">{e.name}</p>
+                  <p className="text-[10px] text-[#f97316] font-mono mt-2">🔥 يخرج معه</p>
+                </button>
+              ))}
+            </div>
+
+            <button
+              onClick={() => handleAsh(null)}
+              disabled={loading}
+              className="w-full py-3 bg-[#111] border border-[#444] text-gray-300 font-bold rounded-xl hover:bg-[#222] transition disabled:opacity-50"
+            >
+              ❌ إسقاط اللعنة — لا أحد يخرج معه
+            </button>
+          </div>
+        </div>
+      );
+    }
+
     // 💣 هل في قنبلة معلقة؟
     const bomb = gameState.pendingBomb;
     const isGodfatherEliminated = eliminatedIds.some((id: number) => {

@@ -21,6 +21,7 @@ import { checkWinConditionDynamic, checkNeutralVoteWin } from '../game/dynamic-w
 import { isMafiaRole, teamOfRole, getTeamCounts } from '../game/roles.js';
 import { getGameState, setGameState } from '../config/redis.js';
 import { checkPolicewomanTrigger } from '../game/night-resolver.js';
+import { armAshCurse, applyAshCurse } from '../game/phoenix-engine.js';
 import { finalizeMatch } from '../services/match.service.js';
 import { scheduleRevealGrace, clearRevealGrace } from '../game/reveal-grace.js';
 import { processTwinBond, applySuicide, applyTransform } from '../game/twin-engine.js';
@@ -1210,6 +1211,102 @@ export function registerDayEvents(io: Server, socket: Socket) {
     }
   });
 
+  // ── 🜂 قرارُ لعنة الرماد ─────────────────────────
+  // الموجّه يُدخل المقعدَ الذي همس به العنقاء، أو يُسقط اللعنة (skip).
+  socket.on('day:ash-curse', async (data: {
+    roomId: string;
+    targetPhysicalId?: number | null;
+    skip?: boolean;
+  }, callback) => {
+    try {
+      if (socket.data.role !== 'leader') return callback({ success: false, error: 'Only leader' });
+
+      const state = await getGameState(data.roomId);
+      if (!state) return callback({ success: false, error: 'Room not found' });
+      const pending = state.pendingAshCurse;
+      if (!pending) return callback({ success: false, error: 'No pending ash curse' });
+
+      // إسقاطُ اللعنة: خيارٌ صريحٌ للموجّه حين يرفض العنقاءُ أن يأخذ أحداً معه
+      if (data.skip || data.targetPhysicalId == null) {
+        state.pendingAshCurse = null;
+        await setGameState(data.roomId, state);
+        for (const s of await io.in(data.roomId).fetchSockets()) {
+          if (s.data.role === 'leader') s.emit('day:ash-curse-closed', {});
+        }
+        console.log(`🜂 Ash curse skipped by leader — room ${data.roomId}`);
+        return callback({ success: true, skipped: true });
+      }
+
+      // 🔴 الأهليّةُ تُعاد من الحالة لا من حمولة العميل: عميلٌ معدَّلٌ كان سيُخرج أيّ مقعد.
+      const eligible = pending.eligible.map(e => e.physicalId);
+      const event = applyAshCurse(state, data.targetPhysicalId, eligible);
+      if (!event) return callback({ success: false, error: 'مقعدٌ غير مؤهَّل' });
+
+      const target = state.players.find(p => p.physicalId === data.targetPhysicalId);
+      if (!state.performanceTracking) state.performanceTracking = { dealOutcomes: [], abilityResults: [], eliminationLog: [] };
+      state.performanceTracking.eliminationLog.push({
+        physicalId: data.targetPhysicalId,
+        eliminatedBy: 'DAY_VOTE',
+        round: state.round || 1,
+        team: teamOfRole(target?.role),
+      });
+      checkPolicewomanTrigger(state, data.targetPhysicalId);
+
+      // 👥 رابطُ الأخوين يسري على لعنة الرماد كما يسري على القنبلة
+      if (state.twinState) {
+        const twinResult = processTwinBond(state, data.targetPhysicalId, 'BOMB');
+        if (twinResult.triggered) {
+          if (twinResult.type === 'SUICIDE') {
+            const suicideEvent = applySuicide(state, twinResult);
+            if (suicideEvent) checkPolicewomanTrigger(state, twinResult.suicidePhysicalId!);
+          } else if (twinResult.type === 'TRANSFORM') {
+            applyTransform(state, twinResult);
+          }
+        }
+        notifyTwinTransform(io, data.roomId, state);
+      }
+
+      let winResult: string;
+      if (state.config.useDynamicEngine) {
+        const dyn = await checkWinConditionDynamic(state);
+        winResult = dyn.mainWinner === 'MAFIA' ? 'MAFIA_WIN'
+                  : dyn.mainWinner === 'CITIZEN' ? 'CITIZEN_WIN'
+                  : dyn.mainWinner === 'ASSASSIN' ? 'ASSASSIN_WIN' : 'GAME_CONTINUES';
+      } else {
+        const wc = checkWinCondition(state);
+        winResult = wc === WinResult.MAFIA_WIN ? 'MAFIA_WIN'
+                  : wc === WinResult.CITIZEN_WIN ? 'CITIZEN_WIN' : 'GAME_CONTINUES';
+      }
+      if (winResult !== 'GAME_CONTINUES') {
+        const w = winResult === 'MAFIA_WIN' ? 'MAFIA' : winResult === 'ASSASSIN_WIN' ? 'ASSASSIN' : 'CITIZEN';
+        state.winner = w as any;
+        state.pendingWinner = w as any;
+      }
+
+      state.pendingAshCurse = null;
+      await setGameState(data.roomId, state);
+
+      // 🔴 الإعلانُ للغرفة كلّها لكن **بلا تمييز أيّهما العنقاء**: «خرج فلانٌ وفلان،
+      //    احترق أحدُهما بالآخر». كشفُ الأدوار يبقى بيد الموجّه كأيّ إقصاء.
+      io.to(data.roomId).emit('day:ash-curse-result', {
+        phoenixPhysicalId: pending.phoenixPhysicalId,
+        phoenixName: pending.phoenixName,
+        targetPhysicalId: data.targetPhysicalId,
+        targetName: target?.name || '',
+        // دورُ المسحوب يُكشف كما يُكشف دورُ ضحيّة القنبلة — الخروجُ خروج
+        revealedRole: target?.role || 'UNKNOWN',
+        pairNames: (event.extra as any)?.pairNames || [],
+        winResult,
+        teamCounts: getTeamCounts(state.players),
+      });
+      console.log(`🜂 Ash curse executed: #${data.targetPhysicalId} taken by Phoenix #${pending.phoenixPhysicalId}`);
+      callback({ success: true, winResult });
+    } catch (err: any) {
+      console.error('❌ ash-curse error:', err.message);
+      callback({ success: false, error: err.message });
+    }
+  });
+
   // ── إجراء كسر التعادل ──────────────────────────
   socket.on('day:tie-action', async (data: {
     roomId: string;
@@ -1258,6 +1355,12 @@ export function registerDayEvents(io: Server, socket: Socket) {
                 }
               }
             }
+          }
+
+          // 🜂 لعنةُ الرماد — إن كان العنقاءُ بين المُقصيين في «إقصاء المتعادلين»
+          for (const elId of eliminated) {
+            const elPlayer = state.players.find((p: any) => p.physicalId === elId);
+            if (elPlayer?.role === 'PHOENIX') { armAshCurse(state, elId); break; }
           }
 
           // 💣 فحص القنبلة — إذا كان GODFATHER بين المُقصيين
@@ -1384,6 +1487,8 @@ export function registerDayEvents(io: Server, socket: Socket) {
           pendingBomb: state.pendingBomb || null,
           neutralWin: neutralWin || null,
         });
+
+        await emitAshCurseWindow(io, data.roomId, state);
 
         // ⏳ إن حُسم فائز (ولا قنبلة معلّقة) نبدأ مهلة الكشف التلقائي — كما في مسار التصويت العادي
         if ((neutralWin?.won || winResult !== WinResult.GAME_CONTINUES) && !state.pendingBomb) {
@@ -1845,6 +1950,18 @@ function sanitizeWindowForLeader(state: any, window: { winner: any; top2: any[];
   };
 }
 
+// 🜂 نافذةُ لعنة الرماد — **للموجّه وحده**، لا لشاشة العرض ولا للاعبين (قرارُ المالك).
+// شاشةُ العرض في وسط الطاولة يراها الجميع، فإرسالُها إليها إفشاءٌ لهويّة المصوّتين
+// ولوجود العنقاء معاً. والموجّهُ يقرأ الخيارات على جهازه ويسمعها من العنقاء همساً.
+async function emitAshCurseWindow(io: Server, roomId: string, state: any) {
+  if (!state?.pendingAshCurse) return;
+  const sockets = await io.in(roomId).fetchSockets();
+  for (const s of sockets) {
+    if (s.data.role === 'leader') s.emit('day:ash-curse-window', state.pendingAshCurse);
+  }
+  console.log(`🜂 ash-curse window sent to leader(s) — room ${roomId}`);
+}
+
 // بثّ نافذة العمدة سرّيّاً: الليدر/العرض لا يكشفان شيئاً، وهاتف العمدة وحده من اللاعبين
 // (بثّها للغرفة كلّها كان سيفضح وجود عمدةٍ في اللعبة قبل قراره).
 async function emitMayorWindow(io: Server, roomId: string, state: any, window: any) {
@@ -1898,6 +2015,7 @@ async function performElimination(io: Server, roomId: string) {
       neutralWin: result.neutralWin || null,
     });
     console.log(`📦 elimination-pending sent — pendingBomb: ${JSON.stringify(stateAfter?.pendingBomb || null)}${result.neutralWin?.won ? ' — 🤡 JESTER WIN!' : ''}`);
+    await emitAshCurseWindow(io, roomId, stateAfter);
     console.log(`📦 eliminated: ${result.eliminated}, revealedRoles: ${JSON.stringify(result.revealedRoles)}`);
     console.log(`📦 bombEnabled config: ${stateAfter?.config?.bombEnabled}`);
 

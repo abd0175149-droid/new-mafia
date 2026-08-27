@@ -15,6 +15,7 @@ import {
 import { isNeutralRole, Role } from './roles.js';
 import { processTwinBond, applySuicide, applyTransform, detectTwinDeaths } from './twin-engine.js';
 import { applySheriffRevenge } from './sheriff-revenge.js';
+import { applyPhoenix, isPhoenixDisabled, BURNING_ABILITIES, type PhoenixAttempt } from './phoenix-engine.js';
 import { checkPolicewomanTrigger } from './night-resolver.js';
 
 // ── أنواع ────────────────────────────────────────────
@@ -162,10 +163,13 @@ export async function getAvailableTargets(
     }
   }
 
-  // 🧙‍♀️ استثناء الأهداف السابقة للساحرة (لاعب مختلف كل مرة)
+  // 🧙‍♀️ قيودُ الساحرة — لاعبٌ مختلفٌ كلَّ مرّة، والشرطيّةُ محرّمة
   if (abilityId === 'DISABLE_ABILITY') {
     const previousTargets = state.witchPreviousTargets || [];
     candidates = candidates.filter(p => !previousTargets.includes(p.physicalId));
+    // 🔴 الشرطيّةُ كانت مُسقَطةً في المحرّك القديم وحده، فالطاولةُ الواحدة تسمح
+    //    بتعطيلها في وضعِ ليلٍ وتمنعه في آخر. القيدُ واحدٌ الآن في المحرّكين.
+    candidates = candidates.filter(p => p.role !== Role.POLICEWOMAN);
   }
 
   return candidates;
@@ -287,9 +291,20 @@ export async function resolveNightDynamic(
     }
   }
 
+  // 🔥 مقعدُ العنقاء ومحاولاتُ إخراجه — تُجمع أثناء الحلقة ويُحكم فيها بعدها
+  const phoenixSeatNow = state.phoenixState?.seat ?? null;
+  const phoenixLive = phoenixSeatNow != null
+    && state.players.find(p => p.physicalId === phoenixSeatNow)?.isAlive !== false
+    && !isPhoenixDisabled(state);
+  const phoenixAttempts: PhoenixAttempt[] = [];
+
   // تطبيق التأثيرات للإجراءات غير الملغاة
   for (const action of actions) {
     if (cancelledActions.has(actionKey(action))) continue;
+    // 🔥 تسجيلُ المحاولة قبل تنفيذها — الحكمُ يجري بعد استقرار الوفيات كلِّها
+    if (phoenixLive && action.targetPhysicalId === phoenixSeatNow && BURNING_ABILITIES.has(action.abilityId)) {
+      phoenixAttempts.push({ performerSeat: action.performerPhysicalId, abilityId: action.abilityId });
+    }
 
     const ability = allAbilities.find(a => a.id === action.abilityId);
     if (!ability) continue;
@@ -319,9 +334,16 @@ export async function resolveNightDynamic(
 
           target.isAlive = false;
 
+          // 🔥 هدفٌ سيُبعَث ⇒ لا عقدَ يُحتسب: العقدُ مشروطٌ بخروج الهدف، والعنقاءُ لا يخرج.
+          //    والسفّاحُ يحترق في المرحلة ٤٫٥ فيخسر فوراً.
+          const willRebirth = phoenixLive && target.physicalId === phoenixSeatNow
+            && (state.phoenixState?.rebirthsLeft ?? 0) > 0;
+
           // ✅ فحص إنجاز العقد — أولوية السفّاح: لا يُلغى الإنجاز عند مشاركة الهدف مع القناص/المافيا
           const { checkContractCompletion, completeContract, checkAssassinWin } = await import('./assassin-engine.js');
-          const result = checkContractCompletion(state, target.physicalId, false);
+          const result = willRebirth
+            ? { completed: false, contractId: -1, contractIndex: -1 }
+            : checkContractCompletion(state, target.physicalId, false);
           let assassinWon = false;
           if (result.completed) {
             completeContract(state, result.contractIndex, state.round || 1);
@@ -406,6 +428,11 @@ export async function resolveNightDynamic(
             targetName: target.name,
             revealed: false,
           });
+        } else if (phoenixLive && target.physicalId === phoenixSeatNow) {
+          // 🔥 العنقاء: يُخرَج مبدئيّاً ويُردّ في المرحلة ٤٫٥ إن كان له رصيد.
+          //    ولا يُطبَّق ارتدادُ «إصابة مواطنٍ صالح» فوقه — القنّاصُ يحترق بالبعث
+          //    والإخراجُ واحدٌ لا اثنان. ولا حدثَ قنصٍ يُنشَر: الحدثُ حدثُ احتراق.
+          target.isAlive = false;
         } else {
           target.isAlive = false;
           if (sniper) sniper.isAlive = false;
@@ -429,6 +456,15 @@ export async function resolveNightDynamic(
     dynamicNight.lastTargets[action.abilityId] = action.targetPhysicalId!;
   }
 
+  // ═══ 🔥 العنقاء — المرحلة ٤٫٥ ═══
+  // 🔴 بعد استقرار وفيات الليل كلِّها وقبل الشرطيّة والتوأمين: الحكمُ داخل حلقة
+  //    الآثار كان سيُحرق أوّلَ مُنفّذٍ وحده وينجو الباقيان لأنّ الهدفَ صار ميّتاً.
+  //    والمحترقُ يجب أن يُحسب في عتبة الشرطيّة ورابط الأخوين.
+  if (phoenixAttempts.length > 0) {
+    const out = applyPhoenix(state, phoenixAttempts);
+    events.push(...out.events);
+  }
+
   // ═══ 🕵️ ثأرُ الشريف — مَن سأل عنه يموت معه ═══
   // 🔴 هنا لا في حلقة التأثيرات: القاعدة معلَّقةٌ بموت الشريف، وموتُه قد يقع
   //    بأيّ قدرةٍ لاحقة في الترتيب (اغتيالٌ أو قنصٌ أو سفّاح). الحكمُ قبل
@@ -449,7 +485,7 @@ export async function resolveNightDynamic(
   //  وفيات المواطنين نحو عتبتها. هذا إصلاح لتطابق سلوك المحرك القديم.)
   const deadThisNight: number[] = [];
   for (const ev of events) {
-    if (['ASSASSINATION', 'SNIPE_MAFIA', 'SNIPE_CITIZEN', 'ASSASSIN_KILL', 'SHERIFF_REVENGE'].includes(ev.type)) {
+    if (['ASSASSINATION', 'SNIPE_MAFIA', 'SNIPE_CITIZEN', 'ASSASSIN_KILL', 'SHERIFF_REVENGE', 'PHOENIX_BURN'].includes(ev.type)) {
       // إزالة التكرار: قد يظهر نفس اللاعب في حدثين (اغتيال المافيا + اغتيال السفّاح على نفس الهدف)
       if (!deadThisNight.includes(ev.targetPhysicalId)) deadThisNight.push(ev.targetPhysicalId);
       if (ev.type === 'SNIPE_CITIZEN' && ev.extra?.sniperPhysicalId) {

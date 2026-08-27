@@ -666,7 +666,7 @@ class _MafiaCardViewState extends State<MafiaCardView>
       'GODFATHER': 'Crown', 'SILENCER': 'Scissors', 'CHAMELEON': 'Drama',
       'MAFIA_REGULAR': 'Skull', 'SHERIFF': 'Shield', 'DOCTOR': 'HeartPulse',
       'SNIPER': 'Crosshair', 'POLICEWOMAN': 'BadgeAlert', 'NURSE': 'Syringe',
-      'MAYOR': 'Landmark', 'CITIZEN': 'User',
+      'MAYOR': 'Landmark', 'CITIZEN': 'User', 'PHOENIX': 'Flame',
     };
     return byName[classic[roleId]] ?? Icons.person_outline;
   }
