@@ -275,9 +275,14 @@ export default function LeaderPage() {
       if (leaderAmbientKeyRef.current) { stopAmbientSound(); leaderAmbientKeyRef.current = null; }
       return;
     }
-    if (leaderAmbientKeyRef.current !== key) {
+    // 🔴 الحارسُ يحمل **الغرفةَ وجهوزيّةَ المرآة** مع المفتاح لا المفتاحَ وحده:
+    //    بثٌّ وقع والمرآةُ `null` هو بثٌّ لم تسمعه القاعة، ولو حرسنا بالمفتاح
+    //    وحده لمنع الحارسُ إعادتَه فورَ جهوزيّتها — فيبقى العطلُ كما هو ويبدو
+    //    مُصلَحاً. وتبديلُ الغرفة كذلك: الطورُ نفسُه في غرفةٍ أخرى بثٌّ آخر.
+    const guard = `${key}|${gameState?.roomId || ''}|${mirrorReady ? 1 : 0}`;
+    if (leaderAmbientKeyRef.current !== guard) {
       playAmbientSound(key);            // يوقف السابق داخلياً ثم يبدأ الجديد
-      leaderAmbientKeyRef.current = key;
+      leaderAmbientKeyRef.current = guard;
     }
   }, [gameState?.phase, gameState?.roomId, mirrorReady]);
 
