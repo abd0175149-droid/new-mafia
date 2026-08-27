@@ -1158,6 +1158,9 @@ export function registerDayEvents(io: Server, socket: Socket) {
                   type: 'TWIN_SUICIDE',
                   targetPhysicalId: twinResult.suicidePhysicalId,
                   targetName: twinResult.suicideName,
+                  // 🃏 بلا دورِ الخارج لا كرتَ له في الكشف — والمسار الثالث لهذا
+                  //    الحدث نفسِه كان يحمله وحده، فظهر الكرتُ من طريقٍ وغاب من طريقين.
+                  extra: { targetRole: state.players.find((p: any) => p.physicalId === twinResult.suicidePhysicalId)?.role },
                 });
               }
             } else if (twinResult.type === 'TRANSFORM') {
@@ -1416,6 +1419,7 @@ export function registerDayEvents(io: Server, socket: Socket) {
                     type: 'TWIN_SUICIDE',
                     targetPhysicalId: twinResult.suicidePhysicalId,
                     targetName: twinResult.suicideName,
+                    extra: { targetRole: state.players.find((p: any) => p.physicalId === twinResult.suicidePhysicalId)?.role },
                   });
                 }
               } else if (twinResult.type === 'TRANSFORM') {

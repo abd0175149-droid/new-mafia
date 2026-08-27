@@ -431,6 +431,10 @@ export async function resolveNightDynamic(
             type: 'SNIPE_MAFIA',
             targetPhysicalId: target.physicalId,
             targetName: target.name,
+            // 🃏 دورُ الهدف — بلا هذا الحقل لا كرتَ في كشف الصباح إطلاقاً:
+            //    كلُّ حدثِ خروجٍ في الواجهة مشروطٌ بـ`extra.targetRole`.
+            //    المحرّكُ القديم يحمله (night-resolver) وهذا أسقطه عند إعادة الكتابة.
+            extra: { sniperName: sniper?.name, targetRole: target.role },
             revealed: false,
           });
         } else if (phoenixLive && target.physicalId === phoenixSeatNow) {
@@ -445,7 +449,8 @@ export async function resolveNightDynamic(
             type: 'SNIPE_CITIZEN',
             targetPhysicalId: target.physicalId,
             targetName: target.name,
-            extra: { sniperPhysicalId: action.performerPhysicalId, sniperName: sniper?.name },
+            // 🃏 `targetRole` شرطُ ظهور الكرتين معاً (كرتُ القنّاص وكرتُ هدفه)
+            extra: { sniperPhysicalId: action.performerPhysicalId, sniperName: sniper?.name, targetRole: target.role },
             revealed: false,
           });
         }
