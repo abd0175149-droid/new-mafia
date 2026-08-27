@@ -103,7 +103,7 @@ class _MyTasksSheetState extends State<MyTasksSheet> {
           const Expanded(
             child: Text('مهامّي',
                 style: TextStyle(
-                    fontSize: 17, fontWeight: FontWeight.w900, color: Noir.vintageGold)),
+                    fontSize: 18.5, fontWeight: FontWeight.w900, color: Noir.vintageGold)),
           ),
           InkWell(
             onTap: () => Navigator.of(context).maybePop(),
@@ -182,7 +182,7 @@ class _MyTasksSheetState extends State<MyTasksSheet> {
             child: Row(children: [
               const Text('دورك',
                   style: TextStyle(
-                      fontSize: 10.5, fontWeight: FontWeight.w800, color: Color(0xFF7E7466))),
+                      fontSize: 11.5, fontWeight: FontWeight.w800, color: Color(0xFF7E7466))),
               const SizedBox(width: 9),
               Expanded(
                 child: Text(role.nameAr,
@@ -196,7 +196,7 @@ class _MyTasksSheetState extends State<MyTasksSheet> {
                   borderRadius: BorderRadius.circular(7),
                 ),
                 child: Text('فريق $teamAr',
-                    style: TextStyle(fontSize: 10.5, fontWeight: FontWeight.w800, color: c)),
+                    style: TextStyle(fontSize: 11.5, fontWeight: FontWeight.w800, color: c)),
               ),
             ]),
           ),
@@ -221,7 +221,7 @@ class _MyTasksSheetState extends State<MyTasksSheet> {
                     (curActs
                         ? 'لك دورٌ في هذه المرحلة.'
                         : 'لا فعلَ مطلوبٌ منك في هذه المرحلة — راقبْ وأنصت.'),
-                style: const TextStyle(fontSize: 13.5, height: 1.8, color: Color(0xFFEFE9DC)),
+                style: const TextStyle(fontSize: 15, height: 1.8, color: Color(0xFFEFE9DC)),
               ),
             ]),
           ),
@@ -294,7 +294,7 @@ class _MyTasksSheetState extends State<MyTasksSheet> {
                         Expanded(
                           child: Text(p.ar,
                               style: const TextStyle(
-                                  fontSize: 13.5, fontWeight: FontWeight.w800,
+                                  fontSize: 15, fontWeight: FontWeight.w800,
                                   color: Color(0xFFEFE9DC))),
                         ),
                         Container(
@@ -323,7 +323,7 @@ class _MyTasksSheetState extends State<MyTasksSheet> {
                                 ? 'لك دورٌ في هذه المرحلة.'
                                 : 'لا فعلَ مطلوبٌ منك — راقبْ وأنصت.'),
                         style: const TextStyle(
-                            fontSize: 12, height: 1.8, color: Color(0xFFB3A996)),
+                            fontSize: 13.5, height: 1.8, color: Color(0xFFB3A996)),
                       ),
                     ]),
                   );

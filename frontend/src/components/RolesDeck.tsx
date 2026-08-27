@@ -218,7 +218,7 @@ export default function RolesDeck({ open, onClose, roleIds }: {
         {/* الرأس */}
         <div className="flex items-center gap-2.5 px-4 py-3 border-b border-[#221f1a] shrink-0" style={{ background: '#0d0c0b' }}>
           <span className="text-base">🃏</span>
-          <b className="text-[15px] flex-1" style={{ fontFamily: 'Amiri, serif', color: '#c5a059' }}>الأدوار</b>
+          <b className="text-[16.5px] flex-1" style={{ fontFamily: 'Amiri, serif', color: '#c5a059' }}>الأدوار</b>
           {roleIds && roleIds.length ? (
             <span className="text-[10px] px-2 py-0.5 rounded-md border border-[#2b2621] text-[#8d8271]">
               أدوارُ هذه الطاولة
@@ -235,7 +235,7 @@ export default function RolesDeck({ open, onClose, roleIds }: {
               const on = team === tk;
               return (
                 <button key={tk} onClick={() => { setTeam(tk as any); setIdx(0); }}
-                  className="text-[11.5px] font-bold px-3 py-1.5 rounded-full border transition"
+                  className="text-[12.5px] font-bold px-3 py-1.5 rounded-full border transition"
                   style={on
                     ? { background: TEAMS[tk].c, borderColor: TEAMS[tk].c, color: '#0a0a0b' }
                     : { borderColor: '#2b2621', color: '#8d8271' }}>
@@ -254,13 +254,13 @@ export default function RolesDeck({ open, onClose, roleIds }: {
 
         {!loading && error && (
           <div className="flex-1 grid place-items-center text-center px-8">
-            <p className="text-[13px] text-[#8d8271]">تعذّر تحميل الأدوار — تحقّق من الاتّصال وأعد المحاولة.</p>
+            <p className="text-[14px] text-[#8d8271]">تعذّر تحميل الأدوار — تحقّق من الاتّصال وأعد المحاولة.</p>
           </div>
         )}
 
         {!loading && !error && !cur && (
           <div className="flex-1 grid place-items-center text-center px-8">
-            <p className="text-[13px] text-[#8d8271]">لا أدوارَ لعرضها.</p>
+            <p className="text-[14px] text-[#8d8271]">لا أدوارَ لعرضها.</p>
           </div>
         )}
 
@@ -302,18 +302,18 @@ export default function RolesDeck({ open, onClose, roleIds }: {
                   )}
                 </button>
 
-                <h3 className="text-center mt-3 text-[26px] leading-tight font-black"
+                <h3 className="text-center mt-3 text-[28px] leading-tight font-black"
                   style={{ fontFamily: 'Amiri, serif', color: c }}>{cur.nameAr}</h3>
-                <p className="text-center text-[10px] tracking-[0.22em] text-[#645c50]" dir="ltr">{cur.nameEn}</p>
+                <p className="text-center text-[11px] tracking-[0.22em] text-[#645c50]" dir="ltr">{cur.nameEn}</p>
 
                 {cur.oneLiner && (
-                  <p className="text-center text-[13px] leading-relaxed text-[#cdc3af] font-light mt-2">{cur.oneLiner}</p>
+                  <p className="text-center text-[14.5px] leading-relaxed text-[#cdc3af] font-light mt-2">{cur.oneLiner}</p>
                 )}
 
                 <div className="flex-1 overflow-y-auto mt-3 pt-3 border-t border-[#221f1a] space-y-3"
                   style={{ overscrollBehavior: 'contain', WebkitOverflowScrolling: 'touch' }}>
                   {cur.howItWorks && (
-                    <Block title="كيف يعمل"><p className="text-[12.5px] leading-[1.85] text-[#b3a996] font-light">{cur.howItWorks}</p></Block>
+                    <Block title="كيف يعمل"><p className="text-[14px] leading-[1.85] text-[#b3a996] font-light">{cur.howItWorks}</p></Block>
                   )}
                   {cur.limits.length > 0 && (
                     <Block title="القيود"><Lines items={cur.limits.map(l => ({ text: l.text, tag: l.auto }))} /></Block>
@@ -325,7 +325,7 @@ export default function RolesDeck({ open, onClose, roleIds }: {
                     <Block title="نصائح"><Lines items={cur.tips.map(text => ({ text }))} /></Block>
                   )}
                   {cur.winConditionDescription && (
-                    <div className="rounded-lg px-3 py-2 text-[11.5px] leading-relaxed font-light"
+                    <div className="rounded-lg px-3 py-2 text-[12.5px] leading-relaxed font-light"
                       style={{ background: 'rgba(197,160,89,.07)', border: '1px solid rgba(197,160,89,.2)', color: '#c5a059' }}>
                       🏆 {cur.winConditionDescription}
                     </div>
@@ -356,7 +356,7 @@ export default function RolesDeck({ open, onClose, roleIds }: {
                 const on = k === Math.min(idx, list.length - 1);
                 return (
                   <button key={r.id} onClick={() => setIdx(k)} data-on={on ? '1' : '0'}
-                    className="shrink-0 text-[10.5px] px-2.5 py-1 rounded-lg border whitespace-nowrap transition"
+                    className="shrink-0 text-[11.5px] px-2.5 py-1 rounded-lg border whitespace-nowrap transition"
                     style={on
                       ? { background: '#efe9dc', color: '#0a0a0b', borderColor: '#efe9dc', fontWeight: 700 }
                       : { borderColor: '#2b2621', color: '#8d8271' }}>
@@ -387,7 +387,7 @@ export default function RolesDeck({ open, onClose, roleIds }: {
 function Block({ title, children }: { title: string; children: React.ReactNode }) {
   return (
     <div>
-      <h5 className="text-[10.5px] tracking-[0.1em] font-bold mb-1.5" style={{ color: '#c5a059' }}>{title}</h5>
+      <h5 className="text-[11.5px] tracking-[0.1em] font-bold mb-1.5" style={{ color: '#c5a059' }}>{title}</h5>
       {children}
     </div>
   );
@@ -397,7 +397,7 @@ function Lines({ items }: { items: { text: string; tag?: boolean }[] }) {
   return (
     <ul className="space-y-1">
       {items.map((l, i) => (
-        <li key={i} className="text-[12px] leading-[1.75] text-[#b3a996] font-light flex gap-1.5">
+        <li key={i} className="text-[13.5px] leading-[1.75] text-[#b3a996] font-light flex gap-1.5">
           <span className="shrink-0" style={{ color: '#c5a059' }}>—</span>
           <span>{l.text}</span>
         </li>

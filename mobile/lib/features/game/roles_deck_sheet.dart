@@ -176,7 +176,7 @@ class _RolesDeckSheetState extends State<RolesDeckSheet> {
           const Expanded(
             child: Text('الأدوار',
                 style: TextStyle(
-                    fontSize: 17, fontWeight: FontWeight.w900, color: Noir.vintageGold)),
+                    fontSize: 18.5, fontWeight: FontWeight.w900, color: Noir.vintageGold)),
           ),
           if (widget.roleIds?.isNotEmpty ?? false)
             Container(
@@ -228,7 +228,7 @@ class _RolesDeckSheetState extends State<RolesDeckSheet> {
                   child: Text(
                     '${_teamAr[t]} ${pool.where((r) => r.team == t).length}',
                     style: TextStyle(
-                      fontSize: 11.5,
+                      fontSize: 12.5,
                       fontWeight: FontWeight.w800,
                       color: on ? const Color(0xFF0A0A0B) : const Color(0xFF8D8271),
                     ),
@@ -297,16 +297,16 @@ class _RolesDeckSheetState extends State<RolesDeckSheet> {
           const SizedBox(height: 12),
           Text(r.nameAr,
               textAlign: TextAlign.center,
-              style: TextStyle(fontSize: 25, fontWeight: FontWeight.w900, color: c, height: 1.25)),
+              style: TextStyle(fontSize: 27, fontWeight: FontWeight.w900, color: c, height: 1.25)),
           Text(r.nameEn,
               textAlign: TextAlign.center,
               textDirection: TextDirection.ltr,
-              style: const TextStyle(fontSize: 10, letterSpacing: 2.2, color: Color(0xFF645C50))),
+              style: const TextStyle(fontSize: 11, letterSpacing: 2.2, color: Color(0xFF645C50))),
           if (r.oneLiner != null) ...[
             const SizedBox(height: 8),
             Text(r.oneLiner!,
                 textAlign: TextAlign.center,
-                style: const TextStyle(fontSize: 13, height: 1.8, color: Color(0xFFCDC3AF))),
+                style: const TextStyle(fontSize: 14.5, height: 1.8, color: Color(0xFFCDC3AF))),
           ],
           const SizedBox(height: 12),
           const Divider(height: 1, color: Color(0xFF221F1A)),
@@ -316,7 +316,7 @@ class _RolesDeckSheetState extends State<RolesDeckSheet> {
                 _block('كيف يعمل',
                     Text(r.howItWorks!,
                         style: const TextStyle(
-                            fontSize: 12.5, height: 1.85, color: Color(0xFFB3A996)))),
+                            fontSize: 14, height: 1.85, color: Color(0xFFB3A996)))),
               if (r.limits.isNotEmpty)
                 _block('القيود', _lines(r.limits.map((l) => l.text).toList())),
               if (r.interactsWith.isNotEmpty) _block('يتقاطع مع', _lines(r.interactsWith)),
@@ -332,7 +332,7 @@ class _RolesDeckSheetState extends State<RolesDeckSheet> {
                   ),
                   child: Text('🏆 ${r.winLine}',
                       style: const TextStyle(
-                          fontSize: 11.5, height: 1.7, color: Noir.vintageGold)),
+                          fontSize: 12.5, height: 1.7, color: Noir.vintageGold)),
                 ),
             ]),
           ),
@@ -377,7 +377,7 @@ class _RolesDeckSheetState extends State<RolesDeckSheet> {
         child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
           Text(title,
               style: const TextStyle(
-                  fontSize: 10.5, fontWeight: FontWeight.w900,
+                  fontSize: 11.5, fontWeight: FontWeight.w900,
                   letterSpacing: 1, color: Noir.vintageGold)),
           const SizedBox(height: 5),
           child,
@@ -391,11 +391,11 @@ class _RolesDeckSheetState extends State<RolesDeckSheet> {
                   padding: const EdgeInsets.only(bottom: 4),
                   child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
                     const Text('— ',
-                        style: TextStyle(fontSize: 12, color: Noir.vintageGold)),
+                        style: TextStyle(fontSize: 13.5, color: Noir.vintageGold)),
                     Expanded(
                       child: Text(s,
                           style: const TextStyle(
-                              fontSize: 12, height: 1.75, color: Color(0xFFB3A996))),
+                              fontSize: 13.5, height: 1.75, color: Color(0xFFB3A996))),
                     ),
                   ]),
                 ))

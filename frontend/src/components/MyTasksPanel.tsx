@@ -131,7 +131,7 @@ export default function MyTasksPanel({ open, onClose, roleId, gamePhase, isDead,
 
         <div className="flex items-center gap-2.5 px-4 py-3 border-b border-[#221f1a] shrink-0" style={{ background: '#0d0c0b' }}>
           <span className="text-base">📋</span>
-          <b className="text-[15px] flex-1" style={{ fontFamily: 'Amiri, serif', color: '#c5a059' }}>مهامّي</b>
+          <b className="text-[16.5px] flex-1" style={{ fontFamily: 'Amiri, serif', color: '#c5a059' }}>مهامّي</b>
           <button onClick={onClose} aria-label="إغلاق"
             className="w-8 h-8 rounded-lg border border-[#2b2621] text-[#7e7466] hover:text-white grid place-items-center text-sm">✕</button>
         </div>
@@ -156,7 +156,7 @@ export default function MyTasksPanel({ open, onClose, roleId, gamePhase, isDead,
           <>
             {/* شريطُ الهويّة — بلا كارت */}
             <div className="flex items-center gap-2.5 px-4 py-3 border-b border-[#221f1a] shrink-0 flex-wrap">
-              <span className="text-[10.5px] tracking-[0.12em] font-bold text-[#7e7466]">دورك</span>
+              <span className="text-[11.5px] tracking-[0.12em] font-bold text-[#7e7466]">دورك</span>
               <b className="text-[20px]" style={{ fontFamily: 'Amiri, serif', color: c }}>{role.nameAr}</b>
               <span className="text-[10.5px] font-bold rounded-md px-2 py-0.5 mr-auto"
                 style={{ color: c, border: `1px solid ${c}55`, background: `${c}18` }}>
@@ -167,10 +167,10 @@ export default function MyTasksPanel({ open, onClose, roleId, gamePhase, isDead,
             {/* الآن */}
             <div className="mx-4 mt-3 rounded-xl p-3 shrink-0"
               style={{ border: '1px solid rgba(197,160,89,.28)', background: 'rgba(197,160,89,.06)' }}>
-              <div className="text-[10px] tracking-[0.12em] font-bold mb-1.5" style={{ color: '#c5a059' }}>
+              <div className="text-[11px] tracking-[0.12em] font-bold mb-1.5" style={{ color: '#c5a059' }}>
                 {cur.ic} {cur.ar} — الآن
               </div>
-              <p className="text-[13.5px] leading-[1.8] text-[#efe9dc] font-light">
+              <p className="text-[15px] leading-[1.8] text-[#efe9dc] font-light">
                 {curText || (curActs ? 'لك دورٌ في هذه المرحلة.' : 'لا فعلَ مطلوبٌ منك في هذه المرحلة — راقبْ وأنصت.')}
               </p>
             </div>
@@ -181,7 +181,7 @@ export default function MyTasksPanel({ open, onClose, roleId, gamePhase, isDead,
                 const on = sel === p.k;
                 return (
                   <button key={p.k} onClick={() => { setSel(p.k); setPinned(true); }}
-                    className="shrink-0 text-[11px] px-2.5 py-1.5 rounded-lg border whitespace-nowrap transition"
+                    className="shrink-0 text-[12px] px-2.5 py-1.5 rounded-lg border whitespace-nowrap transition"
                     style={on
                       ? { background: '#efe9dc', color: '#0a0a0b', borderColor: '#efe9dc', fontWeight: 700 }
                       : { borderColor: '#2b2621', color: '#8d8271' }}>
@@ -194,7 +194,7 @@ export default function MyTasksPanel({ open, onClose, roleId, gamePhase, isDead,
             {/* المهامُّ كلُّها */}
             <div className="flex-1 overflow-y-auto px-4 pt-3 pb-4"
               style={{ overscrollBehavior: 'contain', WebkitOverflowScrolling: 'touch' }}>
-              <div className="text-[10px] tracking-[0.12em] font-bold text-[#645c50] mb-2">مهامُّك في كلّ مرحلة</div>
+              <div className="text-[11px] tracking-[0.12em] font-bold text-[#645c50] mb-2">مهامُّك في كلّ مرحلة</div>
               {TASK_PHASES.map(p => {
                 const acts = !!role.actsIn?.includes(p.k);
                 const txt = role.phaseNotes?.[p.k] || '';
@@ -206,7 +206,7 @@ export default function MyTasksPanel({ open, onClose, roleId, gamePhase, isDead,
                       : { borderColor: '#1f1c18', background: '#111010' }}>
                     <div className="flex items-center gap-2 mb-1.5">
                       <span className="text-sm">{p.ic}</span>
-                      <b className="text-[13.5px] text-[#efe9dc]">{p.ar}</b>
+                      <b className="text-[15px] text-[#efe9dc]">{p.ar}</b>
                       <span className="text-[9.5px] font-bold rounded-md px-1.5 py-0.5 mr-auto whitespace-nowrap"
                         style={acts
                           ? { background: 'rgba(93,185,140,.14)', color: '#5db98c', border: '1px solid rgba(93,185,140,.3)' }
@@ -214,7 +214,7 @@ export default function MyTasksPanel({ open, onClose, roleId, gamePhase, isDead,
                         {acts ? 'لك دور' : 'بلا دور'}
                       </span>
                     </div>
-                    <p className="text-[12px] leading-[1.8] text-[#b3a996] font-light">
+                    <p className="text-[13.5px] leading-[1.8] text-[#b3a996] font-light">
                       {txt || (acts ? 'لك دورٌ في هذه المرحلة.' : 'لا فعلَ مطلوبٌ منك — راقبْ وأنصت.')}
                     </p>
                   </div>
@@ -223,10 +223,10 @@ export default function MyTasksPanel({ open, onClose, roleId, gamePhase, isDead,
 
               {role.limits?.length > 0 && (
                 <div className="rounded-xl p-3 border mt-3" style={{ borderColor: '#1f1c18', background: '#111010' }}>
-                  <div className="text-[10.5px] tracking-[0.1em] font-bold mb-1.5" style={{ color: '#c5a059' }}>قيودُ قدرتك</div>
+                  <div className="text-[11.5px] tracking-[0.1em] font-bold mb-1.5" style={{ color: '#c5a059' }}>قيودُ قدرتك</div>
                   <ul className="space-y-1">
                     {role.limits.map((l, i) => (
-                      <li key={i} className="text-[12px] leading-[1.75] text-[#b3a996] font-light flex gap-1.5">
+                      <li key={i} className="text-[13.5px] leading-[1.75] text-[#b3a996] font-light flex gap-1.5">
                         <span className="shrink-0" style={{ color: '#c5a059' }}>—</span><span>{l.text}</span>
                       </li>
                     ))}

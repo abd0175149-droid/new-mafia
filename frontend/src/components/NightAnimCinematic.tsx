@@ -944,6 +944,30 @@ export default function NightAnimCinematic({ data, players }: NightAnimProps) {
           >
             #{data.targetPhysicalId} {data.targetName}
           </motion.p>
+          {/* 🃏 كرتُ الخارج مكشوفاً — كما في كلّ حدثِ خروجٍ آخر.
+              الحمولةُ تحمل `extra.targetRole` أصلاً في الثلاثة، وغيابُ الكرت
+              كان يجعل هذه الأحداثَ وحدَها اسماً بلا وجه. */}
+          {data.extra?.targetRole && (
+            <motion.div
+              className="flex justify-center mt-6"
+              initial={{ opacity: 0, y: 30, scale: 0.85 }}
+              animate={{ opacity: 1, y: 0, scale: 1 }}
+              transition={{ delay: 0.85, type: 'spring', damping: 12 }}
+            >
+              <MafiaCard
+                playerNumber={data.targetPhysicalId!}
+                playerName={data.targetName || 'Unknown'}
+                role={String(data.extra.targetRole)}
+                isFlipped={true}
+                flippable={false}
+                isAlive={false}
+                size="fluid"
+                className="w-48 h-[16rem] md:w-56 md:h-[19rem]"
+                cosmetics={lookOf(players, data.targetPhysicalId!).cosmetics}
+                rankTier={lookOf(players, data.targetPhysicalId!).rankTier}
+              />
+            </motion.div>
+          )}
           <motion.div
             className="w-64 h-[2px] mx-auto mt-6"
             style={{ background: `linear-gradient(to right, transparent, ${meta.glow}, transparent)` }}
