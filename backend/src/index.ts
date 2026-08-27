@@ -643,6 +643,11 @@ async function main() {
     if (db) {
       await db.execute(sql`ALTER TABLE players ADD COLUMN IF NOT EXISTS can_host_remote BOOLEAN DEFAULT false`);
       await db.execute(sql`ALTER TABLE players ADD COLUMN IF NOT EXISTS remote_access_until TIMESTAMP`);
+      // 📍 إعفاء لاعبٍ بعينه من سياج الفعاليّة (جهازٌ لا يُنتج قراءة موقع)
+      await db.execute(sql`ALTER TABLE players ADD COLUMN IF NOT EXISTS geofence_exempt BOOLEAN DEFAULT false`);
+      await db.execute(sql`ALTER TABLE players ADD COLUMN IF NOT EXISTS geofence_exempt_reason VARCHAR(200) DEFAULT ''`);
+      await db.execute(sql`ALTER TABLE players ADD COLUMN IF NOT EXISTS geofence_exempt_by INTEGER`);
+      await db.execute(sql`ALTER TABLE players ADD COLUMN IF NOT EXISTS geofence_exempt_at TIMESTAMP`);
       await db.execute(sql`ALTER TABLE reservations ADD COLUMN IF NOT EXISTS player_id INTEGER`);
       // 🎁 مكافآت التقدّم اليدويّة (حجز مبكر وغيرها) — تدخل في إعادة الاحتساب فلا تُمحى
       await db.execute(sql`CREATE TABLE IF NOT EXISTS rank_bonuses (

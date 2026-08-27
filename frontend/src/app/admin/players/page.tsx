@@ -56,6 +56,7 @@ export default function PlayersManagementPage() {
   const [togglingTestId, setTogglingTestId] = useState<number | null>(null);
   const [togglingFreeId, setTogglingFreeId] = useState<number | null>(null);
   const [togglingHostId, setTogglingHostId] = useState<number | null>(null);
+  const [togglingGeoId, setTogglingGeoId] = useState<number | null>(null);
   const [toast, setToast] = useState<{ msg: string; type: 'success' | 'error' } | null>(null);
 
   // ── Pagination ──
@@ -189,6 +190,38 @@ export default function PlayersManagementPage() {
       showToast(err.message || 'فشل', 'error');
     } finally {
       setTogglingHostId(null);
+    }
+  }
+
+  // ── Toggle إعفاء سياج الموقع ──
+  // السبب يُطلب عند المنح وحده: إعفاءٌ بلا سببٍ مكتوب يصير بعد شهرٍ لغزاً
+  // لا يعرف أحدٌ أيُسحَب أم يُترك. والسحب لا يحتاج سبباً — العودة للأصل لا تُبرّر.
+  async function handleToggleGeofenceExempt(player: any) {
+    let reason = '';
+    if (!player.geofenceExempt) {
+      const ok = await swalConfirm(
+        `سيدخل «${player.name}» الغرف بلا فحص موقع إطلاقاً — في كلّ فعاليّة، حتّى إن كان خارج المكان.
+
+` +
+        `امنحه لمن لا يُنتج جهازُه قراءة موقع، لا لمن يتعذّر عليه الحضور.`,
+        { title: '📍 إعفاء من سياج الموقع', confirmText: 'نعم، أعفِه', icon: 'question' },
+      );
+      if (!ok) return;
+      reason = window.prompt('السبب (يظهر في السجلّ):', 'iOS — الجهاز لا يُنتج قراءة موقع') || '';
+    }
+    setTogglingGeoId(player.id);
+    try {
+      await apiFetch(`/api/player/${player.id}/toggle-geofence-exempt`, {
+        method: 'POST', body: JSON.stringify({ reason }),
+      });
+      setPlayers(prev => prev.map(p => p.id === player.id
+        ? { ...p, geofenceExempt: !p.geofenceExempt, geofenceExemptReason: p.geofenceExempt ? '' : (reason || 'جهاز لا يُنتج قراءة موقع') }
+        : p));
+      showToast(`${player.name}: ${player.geofenceExempt ? 'تمّ سحب إعفاء الموقع' : 'أُعفي من سياج الموقع'}`, 'success');
+    } catch (err: any) {
+      showToast(err.message || 'فشل', 'error');
+    } finally {
+      setTogglingGeoId(null);
     }
   }
 
@@ -355,6 +388,12 @@ export default function PlayersManagementPage() {
                           {p.canHostRemote && (
                             <span className="text-[10px] px-2 py-0.5 rounded-full border bg-sky-500/10 text-sky-400 border-sky-500/20">🌐 مضيف أونلاين</span>
                           )}
+                          {p.geofenceExempt && (
+                            <span
+                              className="text-[10px] px-2 py-0.5 rounded-full border bg-amber-500/10 text-amber-400 border-amber-500/20"
+                              title={p.geofenceExemptReason || 'معفى من فحص الموقع'}
+                            >📍 معفى من السياج</span>
+                          )}
                         </div>
                       </td>
                       {/* Actions */}
@@ -400,6 +439,14 @@ export default function PlayersManagementPage() {
                             title={p.canHostRemote ? 'سحب صلاحيّة إنشاء الغرف أونلاين' : 'منح صلاحيّة إنشاء الغرف أونلاين'}
                           >
                             {togglingHostId === p.id ? '⏳' : '🌐'}
+                          </button>
+                          <button
+                            onClick={() => handleToggleGeofenceExempt(p)}
+                            disabled={togglingGeoId === p.id}
+                            className={`p-1.5 rounded-lg transition ${p.geofenceExempt ? 'text-amber-400 hover:bg-amber-500/10' : 'text-gray-500/50 hover:text-amber-400 hover:bg-amber-500/10'}`}
+                            title={p.geofenceExempt ? 'سحب إعفاء سياج الموقع' : 'إعفاء من سياج الموقع (جهاز لا يُنتج قراءة)'}
+                          >
+                            {togglingGeoId === p.id ? '⏳' : '📍'}
                           </button>
                           <button
                             onClick={() => handleDeletePlayer(p)}

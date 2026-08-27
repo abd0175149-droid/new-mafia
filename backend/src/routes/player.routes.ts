@@ -52,6 +52,9 @@ router.get('/all', authenticate, authorize('admin', 'accountant'), async (_req: 
       isTestAccount: playersTable.isTestAccount,
       isFreeAccount: playersTable.isFreeAccount,
       canHostRemote: playersTable.canHostRemote,
+      geofenceExempt: playersTable.geofenceExempt,
+      geofenceExemptReason: playersTable.geofenceExemptReason,
+      geofenceExemptAt: playersTable.geofenceExemptAt,
       genderConstraint: playersTable.genderConstraint,
     }).from(playersTable).orderBy(desc(playersTable.createdAt));
 
@@ -204,6 +207,59 @@ router.post('/:id/toggle-host-remote', authenticate, adminOnly, async (req: Requ
     return res.json({ success: true, canHostRemote: newValue });
   } catch (err: any) {
     console.error('❌ toggle-host-remote error:', err.message);
+    return res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// ── POST /api/player/:id/toggle-geofence-exempt — إعفاء لاعب من سياج الفعاليّة (Admin only) ──
+// 📍 لماذا يوجد هذا أصلاً: السياج يقرأ موقع الجهاز، وبعض الأجهزة لا تُنتج قراءةً
+//    أبداً مهما مُنح الإذن (حالة PWA على iOS موثّقة في presence_checks: محاولاتٌ
+//    متكرّرة بنتيجة LOCATION_REQUIRED ودقّةٍ فارغة، ولا صفَّ في player_last_fix قطّ).
+//    مثل هذا اللاعب حاضرٌ في القاعة ولا يستطيع إثبات ذلك — ومنعُه عقوبةٌ على عطلٍ
+//    في هاتفه. الإعفاء يعترف بهذا، ويبقى مرئيّاً: وسمٌ في الجدول وسببٌ في السجلّ.
+// ⚠️ ليس ترخيصاً للّعب عن بُعد — من نال الإعفاء يُفترض حضورُه، والسياج أصلاً
+//    «يمنع التساهل لا الاحتيال» كما ينصّ geofence.service.
+router.post('/:id/toggle-geofence-exempt', authenticate, adminOnly, async (req: Request, res: Response) => {
+  try {
+    const playerId = parseInt(req.params.id);
+    if (!playerId || isNaN(playerId)) {
+      return res.status(400).json({ success: false, error: 'معرّف غير صالح' });
+    }
+
+    const db = getDB();
+    if (!db) return res.status(503).json({ success: false, error: 'DB unavailable' });
+
+    const [player] = await db.select({
+      id: playersTable.id, name: playersTable.name, exempt: playersTable.geofenceExempt,
+    }).from(playersTable).where(eq(playersTable.id, playerId)).limit(1);
+
+    if (!player) return res.status(404).json({ success: false, error: 'اللاعب غير موجود' });
+
+    const newValue = !player.exempt;
+    const reason = typeof req.body?.reason === 'string' ? req.body.reason.trim().slice(0, 200) : '';
+
+    await db.update(playersTable).set({
+      geofenceExempt: newValue,
+      // السبب ومن منح ومتى تُمسح عند السحب — صفٌّ لا يكذب على من يراجعه لاحقاً
+      geofenceExemptReason: newValue ? (reason || 'جهاز لا يُنتج قراءة موقع') : '',
+      geofenceExemptBy: newValue ? ((req as any).user?.id ?? null) : null,
+      geofenceExemptAt: newValue ? new Date() : null,
+    } as any).where(eq(playersTable.id, playerId));
+
+    console.log(`📍 Player #${playerId} (${player.name}) geofenceExempt → ${newValue}`);
+
+    try {
+      const { logStaffAction } = await import('../services/staff-action-log.service.js');
+      logStaffAction({
+        staffId: (req as any).user?.id, staffUsername: (req as any).user?.username,
+        staffRole: (req as any).user?.role, source: 'rest', action: 'rest:geofence-exempt',
+        details: { playerId, playerName: player.name, exempt: newValue, reason: reason || null },
+      });
+    } catch { /* غير حاجب */ }
+
+    return res.json({ success: true, geofenceExempt: newValue });
+  } catch (err: any) {
+    console.error('❌ toggle-geofence-exempt error:', err.message);
     return res.status(500).json({ success: false, error: err.message });
   }
 });

@@ -17,6 +17,7 @@
 import { eq } from 'drizzle-orm';
 import { getDB } from '../config/db.js';
 import { activities, locations, playerLastFix, presenceChecks } from '../schemas/admin.schema.js';
+import { players } from '../schemas/player.schema.js';
 
 /** قراءةُ موقعٍ كما يرسلها العميل. */
 export interface GeoFix {
@@ -34,6 +35,7 @@ export interface GeoFix {
 export type GeoReason =
   | 'OK'
   | 'EXEMPT'
+  | 'EXEMPT_PLAYER'
   | 'NO_VENUE_POINT'
   | 'LOCATION_REQUIRED'
   | 'LOCATION_STALE'
@@ -60,6 +62,7 @@ export const FIX_MAX_ACCURACY_M = 200;
 const MSG: Record<GeoReason, string> = {
   OK: '',
   EXEMPT: '',
+  EXEMPT_PLAYER: '',
   NO_VENUE_POINT: '',
   LOCATION_REQUIRED: 'تعذّرت قراءة موقعك — أعد المحاولة، وإن تكرّر اطلب من موجّه اللعبة إضافتك',
   LOCATION_STALE: 'قراءة موقعك قديمة — انتظر لحظةً وأعد المحاولة',
@@ -104,6 +107,8 @@ export interface VerifyArgs {
   fix: any;
   /** غرفةٌ بعيدة (أونلاين) — معفاةٌ دائماً. */
   isRemote?: boolean;
+  /** صاحب المحاولة — يُفحص إعفاؤه الشخصيّ. غيابه = لا إعفاء (فحصٌ أصرم لا أرخى). */
+  playerId?: number | null;
 }
 
 /**
@@ -136,6 +141,18 @@ export async function verifyPresence(args: VerifyArgs): Promise<GeoVerdict> {
   //    والإعفاء لا لزوم له أصلاً: geofence_enabled افتراضُه false،
   //    فمواقع الاختبار غير متأثّرة ما لم يُشعِله أحدٌ عمداً — وحينئذٍ يعنيه.
   if (row.geofenceEnabled !== true) return verdict(true, 'EXEMPT');
+
+  // 📍 إعفاءٌ شخصيّ — بعد التأكّد أنّ السياج مُشغَّل فعلاً (فلا استعلام بلا داع)،
+  //    وقبل نقطة المكان والقراءة معاً: المعفى يمرّ مهما كان حال جهازه أو موقعه.
+  //    وله سببُه الخاصّ في السجلّ لا 'EXEMPT' العامّ — وإلّا اختلط «لا سياج على
+  //    هذه الليلة» بـ«هذا اللاعب معفى»، وهما سؤالان مختلفان تماماً عند المراجعة.
+  if (Number.isFinite(Number(args.playerId))) {
+    try {
+      const [pl] = await db.select({ ex: players.geofenceExempt })
+        .from(players).where(eq(players.id, Number(args.playerId))).limit(1);
+      if (pl?.ex === true) return verdict(true, 'EXEMPT_PLAYER');
+    } catch { /* العمود لم يُضَف بعد — السياج يعمل كما كان */ }
+  }
 
   const vLat = num(row.lat), vLng = num(row.lng);
   // 🔴 مفتاحٌ مُشغَّلٌ على مكانٍ بلا نقطة: نمرّر ولا نمنع. سياجٌ حول لا شيء إمّا يمنع
@@ -268,14 +285,14 @@ export async function gateCheck(o: {
     const stored = await loadRecentStoredFix(o.playerId);
     if (stored) { fix = stored; viaStored = true; }
   }
-  const v = await verifyPresence({ activityId: o.activityId, fix, isRemote: o.isRemote });
+  const v = await verifyPresence({ activityId: o.activityId, fix, isRemote: o.isRemote, playerId: o.playerId });
   // 🔴 يُسجّل الإعفاء أيضاً. كان يُستثنى فصار سؤال «لماذا دخل وهو بعيد؟»
   //    بلا جواب: جدولٌ فارغ يبدو كأنّ البوّابة لم تُستدعَ أصلاً، وهي استُدعيت
   //    ومرّت. الصفّ المكتوب هو الفرق بين تشخيصٍ في دقيقة وتخمينٍ في ساعة.
   await logPresenceCheck({
     playerId: o.playerId, activityId: o.activityId, gate: o.gate, v,
     accuracyM: num((fix as any)?.accuracyM), isMocked: (fix as any)?.isMocked === true,
-    enforced: v.reason !== 'EXEMPT' && v.reason !== 'NO_VENUE_POINT',
+    enforced: v.reason !== 'EXEMPT' && v.reason !== 'EXEMPT_PLAYER' && v.reason !== 'NO_VENUE_POINT',
     viaStored: viaStored && v.ok,
   });
   return v;

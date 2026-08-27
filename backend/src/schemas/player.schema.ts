@@ -53,6 +53,13 @@ export const players = pgTable('players', {
   // ── ربط بحساب موظف (Staff) ──
   linkedStaffId: integer('linked_staff_id'),
   // ── 🌐 صلاحيّات اللعب عن بُعد ──
+  // 📍 إعفاء من سياج الفعاليّة — للاعب الذي لا يُنتج جهازُه قراءة موقع
+  // (حالة iOS الموثّقة: إذنٌ ممنوحٌ ومع ذلك لا إحداثيّات أبداً). ليس ثقةً بل اعترافٌ بأنّ
+  // السياج يمنع التساهل لا الاحتيال — ومن لا يملك موقعاً لا يُعاقَب بمنعه من اللعب.
+  geofenceExempt: boolean('geofence_exempt').default(false),
+  geofenceExemptReason: varchar('geofence_exempt_reason', { length: 200 }).default(''),
+  geofenceExemptBy: integer('geofence_exempt_by'),      // staff.id — من منحه
+  geofenceExemptAt: timestamp('geofence_exempt_at'),
   canHostRemote: boolean('can_host_remote').default(false),   // 👑 مسموح له إنشاء غرف عن بُعد (يضبطها الأدمن؛ لاحقاً اشتراك استضافة)
   remoteAccessUntil: timestamp('remote_access_until'),        // 🎟️ نهاية اشتراك الانضمام للغرف البعيدة (null = بلا اشتراك؛ مُتجاوَز أثناء فترة المجّانيّة)
   createdAt: timestamp('created_at').defaultNow().notNull(),
