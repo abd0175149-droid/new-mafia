@@ -416,10 +416,50 @@ export default function SoundsPage() {
     }
   }
 
-  // 📁 نموذجُ الرفع — يُعرض في تبويب الملفّات، أو داخل لوحة الحدث حين يبدأ الرفعُ منه
-  const uploadFormJsx = (
+  // 🔲 شبكةُ المفاتيح — تُعرض كاملةً في الرفع العامّ، ومطويّةً اختياريّةً في رفعٍ من حدث
+  const keyGrid = (
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+            {EVENT_GROUPS.map(group => (
+              <div key={group.label} className="bg-gray-800/50 border border-gray-700/50 rounded-xl p-3">
+                <h3 className="text-sm font-bold text-gray-300 mb-2">{group.label}</h3>
+                <div className="space-y-1.5">
+                  {group.events.map(ev => {
+                    const isSelected = selectedKeys.includes(ev.key);
+                    const assignedTo = activeKeyMap[ev.key];
+                    return (
+                      <button
+                        key={ev.key}
+                        onClick={() => toggleKey(ev.key, selectedKeys, setSelectedKeys)}
+                        className={`w-full text-right px-3 py-1.5 rounded-lg text-sm transition-all flex items-center gap-2 ${
+                          isSelected
+                            ? 'bg-amber-500/20 text-amber-300 border border-amber-500/40'
+                            : 'bg-gray-700/30 text-gray-400 border border-transparent hover:bg-gray-700/50 hover:text-gray-300'
+                        }`}
+                      >
+                        <span className="text-base">{isSelected ? '✅' : '⬜'}</span>
+                        <span className="flex-1">{ev.label}</span>
+                        {assignedTo && (
+                          <span className="text-[10px] text-gray-500 truncate max-w-[90px]" title={isSelected ? `الحاليّ «${assignedTo}» يبقى بديلاً — الجديد يصير الفعّال` : `الحاليّ: ${assignedTo}`}>
+                            {isSelected ? '↩ ' : ''}({assignedTo})
+                          </span>
+                        )}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            ))}
+          </div>
+  );
+
+  // 📁 نموذجُ الرفع — دالّةٌ بسياق: 'full' في تبويب الملفّات، 'event' داخل لوحة الحدث.
+  // 🔴 كان نموذجاً واحداً يُعاد كما هو في الموضعين، فحاملُ شبكة الثمانين حدثاً يظهر
+  //    لمن اختار حدثاً للتوّ — فيظنّ أنّ عليه الاختيارَ ثانيةً. الحدثُ في سياقه ثابت.
+  const renderUploadForm = (mode: 'full' | 'event') => (
       <div className="bg-gray-900/60 border border-gray-800/50 rounded-2xl p-6 backdrop-blur-sm">
-        <h2 ref={uploadFormRef as any} className="text-lg font-bold text-amber-400 mb-4">📁 رفع ملف صوتي جديد</h2>
+        <h2 ref={uploadFormRef as any} className={`font-bold text-amber-400 ${mode === 'event' ? 'text-[14px] mb-3' : 'text-lg mb-4'}`}>
+          {mode === 'event' ? '📁 ارفع الملفّ — الحدثُ محدَّد' : '📁 رفع ملف صوتي جديد'}
+        </h2>
 
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
           <div>
@@ -542,42 +582,21 @@ export default function SoundsPage() {
           </div>
         )}
 
-        {/* Event Keys Selection */}
-        <div className="mb-4">
-          <label className="block text-sm text-gray-400 mb-2">📋 اختر المراحل المرتبطة:</label>
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
-            {EVENT_GROUPS.map(group => (
-              <div key={group.label} className="bg-gray-800/50 border border-gray-700/50 rounded-xl p-3">
-                <h3 className="text-sm font-bold text-gray-300 mb-2">{group.label}</h3>
-                <div className="space-y-1.5">
-                  {group.events.map(ev => {
-                    const isSelected = selectedKeys.includes(ev.key);
-                    const assignedTo = activeKeyMap[ev.key];
-                    return (
-                      <button
-                        key={ev.key}
-                        onClick={() => toggleKey(ev.key, selectedKeys, setSelectedKeys)}
-                        className={`w-full text-right px-3 py-1.5 rounded-lg text-sm transition-all flex items-center gap-2 ${
-                          isSelected
-                            ? 'bg-amber-500/20 text-amber-300 border border-amber-500/40'
-                            : 'bg-gray-700/30 text-gray-400 border border-transparent hover:bg-gray-700/50 hover:text-gray-300'
-                        }`}
-                      >
-                        <span className="text-base">{isSelected ? '✅' : '⬜'}</span>
-                        <span className="flex-1">{ev.label}</span>
-                        {assignedTo && (
-                          <span className="text-[10px] text-amber-600 truncate max-w-[80px]" title={isSelected ? `سيُستبدل ملفّ «${assignedTo}» على هذا الحدث` : ''}>
-                            {isSelected ? '⚠️ يستبدل' : ''}({assignedTo})
-                          </span>
-                        )}
-                      </button>
-                    );
-                  })}
-                </div>
-              </div>
-            ))}
+        {/* Event Keys Selection — كاملةٌ في الرفع العامّ، مطويّةٌ اختياريّة في رفعٍ من حدث */}
+        {mode === 'full' ? (
+          <div className="mb-4">
+            <label className="block text-sm text-gray-400 mb-2">📋 اختر المراحل المرتبطة:</label>
+            {keyGrid}
           </div>
-        </div>
+        ) : (
+          <details className="mb-4 group">
+            <summary className="cursor-pointer text-[12px] text-gray-500 hover:text-gray-300 select-none list-none flex items-center gap-2">
+              <span className="text-gray-600 group-open:rotate-90 transition-transform">▸</span>
+              يخدم أحداثاً أخرى أيضاً؟ <span className="text-gray-600">(اختياريّ — الحدثُ المختار مربوطٌ أصلاً)</span>
+            </summary>
+            <div className="mt-3">{keyGrid}</div>
+          </details>
+        )}
 
         {/* Upload Button */}
         <div className="flex items-center gap-3 flex-wrap">
@@ -589,7 +608,11 @@ export default function SoundsPage() {
           </button>
           {uploadError && <span className="text-rose-400 text-sm">{uploadError}</span>}
           {selectedKeys.length > 0 && (
-            <span className="text-gray-500 text-xs">({selectedKeys.length} مرحلة مختارة)</span>
+            <span className="text-gray-500 text-xs">
+              {mode === 'event'
+                ? <>يُربط بـ<b className="text-gray-300">{getEventLabel(selectedKeys[0])}</b>{selectedKeys.length > 1 && ` +${selectedKeys.length - 1}`}</>
+                : `(${selectedKeys.length} مرحلة مختارة)`}
+            </span>
           )}
         </div>
       </div>
@@ -777,7 +800,7 @@ export default function SoundsPage() {
                           ℹ️ الجديدُ يصير الفعّال، ويبقى «{winner.name}» في البدائل — تعود إليه بضغطة.
                         </p>
                       )}
-                      {uploadFormJsx}
+                      {renderUploadForm('event')}
                       <button onClick={() => setUploadFor(null)} className="mt-2 text-[11px] text-gray-500 hover:text-white">إلغاء الرفع</button>
                     </div>
                   ) : (
@@ -794,7 +817,7 @@ export default function SoundsPage() {
       })()}
 
       {tab === 'files' && (<>
-      {uploadFor === null && uploadFormJsx}
+      {uploadFor === null && renderUploadForm('full')}
 
       {/* ═══ Sounds List ═══ */}
       <div>
