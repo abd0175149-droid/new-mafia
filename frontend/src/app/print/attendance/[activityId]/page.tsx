@@ -29,10 +29,20 @@ type Block = { type: 'label'; variant: 'members' | 'guests' } | { type: 'row'; c
 type Page = { first: boolean; footer: boolean; blocks: Block[] };
 
 // ترقيم يدويّ: كل صفحة A4 مستقلّة بحاشيتها؛ الصفحة ١ تحمل الترويسة+العدّاد فتسع صفوفاً أقلّ
-function paginate(members: Member[], guests: Guest[]): Page[] {
+/** 📷 قصُّ الصورة: ثلاثةُ صفوفٍ × أربعِ بطاقات. */
+const IMG_CUT = 12;
+
+// 🗓️ برنامجُ الليلة يأكل من الصفحة الأولى، وارتفاعُها ثابتٌ و`overflow:hidden`
+//    — فبلا تقليص السعة يُبتلع صفُّ بطاقاتٍ كاملٌ صامتاً.
+function firstPageCap(scheduleLen: number): number {
+  if (scheduleLen === 0) return 2;
+  return scheduleLen > 6 ? 0 : 1;
+}
+
+function paginate(members: Member[], guests: Guest[], scheduleLen = 0): Page[] {
   const memRows = chunk(members, 4), guestRows = chunk(guests, 4);
   const pages: Page[] = [];
-  let cur: Page & { slots: number; cap: number } = { first: true, footer: false, blocks: members.length ? [{ type: 'label', variant: 'members' }] : [], slots: 0, cap: 2 };
+  let cur: Page & { slots: number; cap: number } = { first: true, footer: false, blocks: members.length ? [{ type: 'label', variant: 'members' }] : [], slots: 0, cap: firstPageCap(scheduleLen) };
   const flush = (cap = 4) => { pages.push({ first: cur.first, footer: false, blocks: cur.blocks }); cur = { first: false, footer: false, blocks: [], slots: 0, cap }; };
   const addRow = (row: (Member | Guest)[], guest = false) => { if (cur.slots >= cur.cap) flush(); cur.blocks.push({ type: 'row', cards: row, guest }); cur.slots++; };
   const addLabel = (variant: 'guests') => { if (cur.slots >= cur.cap) flush(); cur.blocks.push({ type: 'label', variant }); };
@@ -50,41 +60,64 @@ export default function AttendancePrintPage() {
   const [light, setLight] = useState(false);
   const [capturing, setCapturing] = useState(false);
   const imgRef = useRef<HTMLDivElement>(null);
+  // 📷 جزءُ الصورة أثناء الالتقاط: 0 = الكشف كاملاً (المعاينة)، 1 = حتى نهاية
+  //    الصفّ الثالث، 2 = ما بعده. حالةٌ مؤقّتةٌ تعود صفراً بعد الحفظ.
+  const [imgPart, setImgPart] = useState<0 | 1 | 2>(0);
 
   // 📷 تصدير الكشف كصورة PNG واحدة — نلتقط «اللوحة المدمجة» (تصميمٌ مخصّصٌ للصورة،
   // متدفّقٌ بلا ارتفاع صفحاتٍ زائد) بأعلى كثافةٍ آمنةٍ ضمن حدود canvas في المتصفّح.
-  const saveImage = async () => {
+  /** التقاطُ اللوحة كما هي الآن وحفظُها باسمٍ معطى. */
+  const captureAndSave = async (baseName: string) => {
     const el = imgRef.current;
-    if (!el || capturing) return;
+    if (!el) return 'failed';
+    const { toCanvas } = await import('html-to-image');
+    await new Promise(r => setTimeout(r, 90)); // ترك اللمسات الأخيرة تستقرّ
+    const rect = el.getBoundingClientRect();
+    const W = Math.round(rect.width), H = Math.round(rect.height);
+    // أعلى كثافةٍ ممكنة (4× ← 3× ← 2×) تبقى ضمن حدود canvas — لتفادي خروج صورةٍ
+    // فارغة على بعض الهواتف (خاصّة آيفون) بسبب تجاوز حدّ المساحة/البُعد.
+    const SAFE_AREA = 16_000_000, SAFE_DIM = 16000;
+    let pr = 4;
+    while (pr > 2 && (W * pr > SAFE_DIM || H * pr > SAFE_DIM || W * H * pr * pr > SAFE_AREA)) pr--;
+    const canvas = await toCanvas(el, {
+      pixelRatio: pr, cacheBust: true,
+      backgroundColor: light ? '#f4efe2' : '#0a0805',
+      width: W, height: H,
+    });
+    // 🔴 blob لا dataURL: الثاني يُنتج نصَّ base64 بعشرات الميغابايت، وiOS
+    //    يمنع الانتقالَ إلى روابط data: أصلاً — فكانت الضغطةُ لا تفعل شيئاً
+    //    ولا ترمي، فيبدو الفشلُ نجاحاً.
+    const blob = await canvasToBlob(canvas, 'image/png');
+    return saveFile(blob, `${baseName}.png`, { title: baseName });
+  };
+
+  // 📷 كشفٌ طويلٌ يُحفظ صورتين: الأولى تنتهي بنهاية الصفّ الثالث، والثانية تحمل
+  //    الباقي. صورةٌ واحدةٌ بأربعين بطاقةً تخرج شريطاً لا يُقرأ على هاتف، وقد
+  //    تتجاوز حدَّ canvas فتخرج فارغةً — وهو فشلٌ يبدو نجاحاً.
+  const saveImage = async () => {
+    if (!imgRef.current || capturing) return;
     const baseName = `كشف الحضور - ${data?.activity?.name || 'الفعاليّة'}`;
     setCapturing(true);
     try {
-      const { toCanvas } = await import('html-to-image');
-      await new Promise(r => setTimeout(r, 60)); // ترك اللمسات الأخيرة تستقرّ
-      const rect = el.getBoundingClientRect();
-      const W = Math.round(rect.width), H = Math.round(rect.height);
-      // أعلى كثافةٍ ممكنة (4× ← 3× ← 2×) تبقى ضمن حدود canvas — لتفادي خروج صورةٍ
-      // فارغة على بعض الهواتف (خاصّة آيفون) بسبب تجاوز حدّ المساحة/البُعد.
-      const SAFE_AREA = 16_000_000, SAFE_DIM = 16000;
-      let pr = 4;
-      while (pr > 2 && (W * pr > SAFE_DIM || H * pr > SAFE_DIM || W * H * pr * pr > SAFE_AREA)) pr--;
-      const canvas = await toCanvas(el, {
-        pixelRatio: pr, cacheBust: true,
-        backgroundColor: light ? '#f4efe2' : '#0a0805',
-        width: W, height: H,
-      });
-      // 🔴 blob لا dataURL: الثاني يُنتج نصَّ base64 بعشرات الميغابايت، وiOS
-      //    يمنع الانتقالَ إلى روابط data: أصلاً — فكانت الضغطةُ لا تفعل شيئاً
-      //    ولا ترمي، فيبدو الفشلُ نجاحاً.
-      const blob = await canvasToBlob(canvas, 'image/png');
-      const res = await saveFile(blob, `${baseName}.png`, { title: baseName });
-      // 🔴 نتيجةٌ صريحةٌ تُفحص: «تمّ» بلا دليلٍ هو ما أنتج البلاغ
-      if (res === 'failed') {
-        alert('تعذّر حفظ الصورة — جرّبْ «طباعة / حفظ PDF» بدلاً منها');
+      const total = (data?.members?.length || 0) + (data?.guests?.length || 0);
+      if (total <= IMG_CUT) {
+        const res = await captureAndSave(baseName);
+        if (res === 'failed') alert('تعذّر حفظ الصورة — جرّبْ «طباعة / حفظ PDF» بدلاً منها');
+      } else {
+        setImgPart(1);
+        await new Promise(r => setTimeout(r, 170));   // ريثما يُعاد الرسم
+        const r1 = await captureAndSave(`${baseName} - ١`);
+        setImgPart(2);
+        await new Promise(r => setTimeout(r, 170));
+        const r2 = await captureAndSave(`${baseName} - ٢`);
+        if (r1 === 'failed' || r2 === 'failed') {
+          alert('تعذّر حفظ إحدى الصورتين — جرّبْ «طباعة / حفظ PDF» بدلاً منها');
+        }
       }
     } catch {
       alert('تعذّر إنشاء الصورة — يمكنك استخدام «طباعة / حفظ PDF» بدلاً منها');
     } finally {
+      setImgPart(0);
       setCapturing(false);
     }
   };
@@ -108,7 +141,6 @@ export default function AttendancePrintPage() {
   const cap = activity.maxCapacity || 0;
   const pct = cap > 0 ? Math.min(100, Math.round((stats.persons / cap) * 100)) : 0;
   const remaining = stats.remaining;
-  const pages = paginate(members, guests);
 
   // 🗓️ برنامج الليلة — يُطبع قبل بطاقات الحاجزين.
   // الوقتُ نصٌّ `HH:MM` كما كُتب، فلا منطقةَ زمنيّة تُزيحه عند الطباعة.
@@ -125,6 +157,8 @@ export default function AttendancePrintPage() {
   };
   const schedGames = schedule.filter(r => r.kind !== 'break').length;
   const schedTotal = schedule.length ? (sMin(schedule[schedule.length - 1].end) - sMin(schedule[0].start) + 1440) % 1440 : 0;
+
+  const pages = paginate(members, guests, schedule.length);
 
   const scheduleBlock = schedule.length > 0 ? (
     <>
@@ -149,6 +183,15 @@ export default function AttendancePrintPage() {
       </div>
     </>
   ) : null;
+
+  // 📷 شريحتا الصورة — الأعضاءُ والضيوفُ تدفّقٌ واحدٌ متّصل، فالقصُّ يقع حيث يقع
+  //    ولو داخل قسم. imgPart=0 يعرض الكلَّ (المعاينة على الشاشة).
+  const memShown: Member[] = imgPart === 1 ? members.slice(0, IMG_CUT)
+    : imgPart === 2 ? members.slice(IMG_CUT) : members;
+  const guestStart = Math.max(0, IMG_CUT - members.length);
+  const guestShown: Guest[] = imgPart === 1 ? guests.slice(0, guestStart)
+    : imgPart === 2 ? guests.slice(guestStart) : guests;
+  const memOffset = imgPart === 2 ? members.slice(0, IMG_CUT).length : 0;
 
   const memberCard = (m: Member, i: number) => {
     const rk = RANK[m.rankTier] || RANK.INFORMANT;
@@ -207,9 +250,10 @@ export default function AttendancePrintPage() {
           <div className="kicker">قائمة الحضور</div>
           <div className="wm serif">نادي المافيا</div>
           <h1 className="serif">{activity.name}</h1>
-          <div className="cbband"><span>🗓️ <b>{day}</b> — {time}</span>{activity.locationName && <span>📍 <b>{activity.locationName}</b></span>}</div>
+          <div className="cbband"><span>🗓️ <b>{day}</b> — {time}</span>{activity.locationName && <span>📍 <b>{activity.locationName}</b></span>}
+            {imgPart === 2 && <span>▸ <b>تتمّة القائمة</b></span>}</div>
         </div>
-        <div className="hero">
+        <div className="hero" style={imgPart === 2 ? { display: 'none' } : undefined}>
           <div className="count"><span className="big">{ar(stats.persons)}</span>{cap > 0 && <span className="of">/ {ar(cap)}</span>}</div>
           <div className="clabel"><b>شخصاً</b> حجزوا مكانهم حتى الآن</div>
           {cap > 0 && <div className="prog"><span style={{ width: pct + '%' }} /></div>}
@@ -217,17 +261,18 @@ export default function AttendancePrintPage() {
             ? <div className="cta">🔥 بقيت <b>&nbsp;{ar(remaining)}&nbsp;</b> مقعداً — سارِع بالحجز قبل اكتمال العدد</div>
             : <div className="cta">🔴 اكتمل العدد — انضمّ لقائمة الانتظار</div>)}
         </div>
-        {scheduleBlock}
-        {members.length > 0 && (
+        {imgPart !== 2 && scheduleBlock}
+        {memShown.length > 0 && (
           <>
-            <div className="seclabel"><span className="di">❖</span><h2>العائلة — الأعضاء</h2><i /><span className="c">مرتبطون بحساباتهم</span></div>
-            <div className="grid">{members.map((m: Member, i: number) => memberCard(m, i))}</div>
+            <div className="seclabel"><span className="di">❖</span><h2>العائلة — الأعضاء</h2><i />
+              <span className="c">{imgPart === 2 ? 'تتمّة' : 'مرتبطون بحساباتهم'}</span></div>
+            <div className="grid">{memShown.map((m: Member, i: number) => memberCard(m, i + memOffset))}</div>
           </>
         )}
-        {guests.length > 0 && (
+        {guestShown.length > 0 && (
           <>
             <div className="seclabel gsep"><span className="di">❖</span><h2>ضيوف وحجوزات جديدة</h2><i /><span className="c">تشمل الجماعيّة</span></div>
-            <div className="grid">{guests.map((g: Guest, i: number) => guestCard(g, i))}</div>
+            <div className="grid">{guestShown.map((g: Guest, i: number) => guestCard(g, i))}</div>
           </>
         )}
         <div className="ifoot"><i /><b>نادي المافيا</b> 🎭 — كشف حضورٍ رسميّ · أُعدّ آليّاً من متابعة الحجوزات</div>
