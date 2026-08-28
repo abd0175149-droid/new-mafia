@@ -270,138 +270,183 @@ function GamesContent() {
               const booked = isBooked(act.id);
               const actFollowers = followingBookers[act.id] || [];
               const diff = DIFFICULTY_LABELS[act.difficulty] || DIFFICULTY_LABELS.medium;
-              const isFull = (act.bookedCount || 0) >= (act.maxPlayers || 20);
               const offers: any[] = Array.isArray(act.locationOffers) ? act.locationOffers : [];
+
+              const d = new Date(act.date);
+              const dayNum = d.toLocaleDateString('ar-JO', { day: 'numeric' });
+              const monthAr = d.toLocaleDateString('ar-JO', { month: 'long' });
+              const weekdayAr = d.toLocaleDateString('ar-JO', { weekday: 'long' });
+              const timeAr = d.toLocaleTimeString('ar-JO', { hour: 'numeric', minute: '2-digit' });
+              // 👥 الطلب بلغةٍ تجذب — لا «مزدحم» ولا «مكتمل»: الحجز بلا سقف،
+              //    والإقبال دعوةٌ لا عائق. السعة مرجعُ نسبةٍ داخليّ لا تُعرض للّاعب.
+              const cnt = act.bookedCount || 0;
+              const cap = act.maxPlayers || 20;
+              const ratio = cap ? cnt / cap : 0;
+              const demand = ratio < 0.5
+                ? { t: 'مقاعد متاحة', c: '#22c55e' }
+                : ratio < 0.85
+                ? { t: 'إقبال جيّد', c: '#fbbf24' }
+                : { t: '🔥 الأكثر طلباً', c: '#fb923c' };
+              const shownBookers = actFollowers.slice(0, 4);
+              const followedCount = actFollowers.filter((b: any) => b.isFollowing).length;
 
               return (
                 <motion.div
                   key={act.id}
                   layout
-                  className="rounded-2xl p-4"
+                  className="rounded-2xl overflow-hidden"
                   style={{
-                    background: 'rgba(255,255,255,0.03)',
-                    border: booked ? '1px solid rgba(34,197,94,0.3)' : '1px solid rgba(255,255,255,0.06)',
+                    background: 'linear-gradient(155deg, rgba(245,158,11,0.13), rgba(5,5,5,0) 58%), rgba(255,255,255,0.03)',
+                    border: booked ? '1px solid rgba(34,197,94,0.3)' : '1px solid rgba(255,255,255,0.07)',
                   }}
                 >
-                  <div className="flex justify-between items-start">
-                    <div className="flex-1 min-w-0" onClick={() => setSelectedActivity(act)}>
-                      <div className="flex items-center gap-2 flex-wrap">
-                        <p className="text-white text-sm font-medium">{act.name}</p>
-                        <span className="text-[8px] px-1.5 py-0.5 rounded-full shrink-0" style={{
-                          background: `${diff.color}15`,
-                          color: diff.color,
-                        }}>{diff.icon} {diff.label}</span>
+                  <div className="p-4">
+                    {/* ── الرأس: اليوم رقماً ضخماً ثمّ المكان ── */}
+                    <div className="flex gap-3.5 items-start" onClick={() => setSelectedActivity(act)}>
+                      <div className="text-center shrink-0 border-l border-white/10 pl-3.5">
+                        <p className="text-2xl font-black text-amber-400 leading-none">{dayNum}</p>
+                        <p className="text-[9px] text-gray-400 mt-0.5">{monthAr}</p>
+                        <p className="text-[10px] text-white font-bold mt-1.5">{timeAr}</p>
                       </div>
-                      <p className="text-gray-500 text-[10px] mt-1">
-                        {new Date(act.date).toLocaleDateString('ar-JO', { weekday: 'long', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
-                      </p>
-                      {act.locationName && (
-                        <p className="text-gray-600 text-[10px] mt-0.5">📍 {act.locationName}</p>
-                      )}
-                      <p className="text-gray-600 text-[10px] mt-0.5">
-                        👥 {act.bookedCount}/{act.maxPlayers || 20} لاعب
-                        {act.basePrice && act.basePrice !== '0' && ` • 💰 ${act.basePrice} د.أ`}
-                      </p>
-                      {/* Capacity Bar */}
-                      <div className="h-1.5 bg-gray-800 rounded-full overflow-hidden mt-1.5 max-w-[140px]">
-                        <div className="h-full rounded-full transition-all" style={{
-                          width: `${Math.min(((act.bookedCount || 0) / (act.maxPlayers || 20)) * 100, 100)}%`,
-                          background: isFull
-                            ? 'linear-gradient(90deg, #ef4444, #dc2626)'
-                            : 'linear-gradient(90deg, #fbbf24, #f59e0b)',
-                        }} />
+                      <div className="flex-1 min-w-0">
+                        <p className="text-white text-sm font-bold leading-snug truncate">
+                          {act.locationName || act.name}
+                        </p>
+                        <p className="text-gray-500 text-[10px] mt-1">{weekdayAr}</p>
+                        <div className="flex items-center gap-1.5 mt-1.5 flex-wrap">
+                          <span
+                            className="text-[8px] px-1.5 py-0.5 rounded-full shrink-0"
+                            style={{ background: diff.color + '18', color: diff.color }}
+                          >
+                            {diff.icon} {diff.label}
+                          </span>
+                          {act.basePrice && act.basePrice !== '0' && (
+                            <span className="text-[9px] text-gray-500">{act.basePrice} د.أ</span>
+                          )}
+                          {act.hasMenu && (
+                            <button
+                              onClick={(e) => { e.stopPropagation(); openMenu(act); }}
+                              className="text-[9px] text-gray-500 hover:text-amber-400 transition-colors"
+                            >
+                              🍽️ المنيو
+                            </button>
+                          )}
+                        </div>
                       </div>
                     </div>
 
-                    {booked ? (
-                      <span className="text-green-400 text-xs px-3 py-1.5 rounded-lg bg-green-500/10 shrink-0">✅ محجوز</span>
-                    ) : (
-                      /* 🔴 كان اكتمالُ العدد يستبدل الزرّ بـ«🚫 مكتمل» فيمنع الحجز — وهو
-                         سقفُ حجزٍ يخالف قراراً مقفلاً: «الحجز بلا سقف نهائياً؛ اللاعبون
-                         يتناوبون والعبرة بالحضور». والخادم لا يفحص سعةً أصلاً، ونافذةُ
-                         التفاصيل لم تكن محجوبةً قطّ — فالحاجب كان يُرى في مكانٍ ويُتجاوَز
-                         بضغطةٍ من آخر. وأسوأ حالاته: من حُجز له ضمن مجموعة (لاعبٌ جديد أو
-                         مرافق) **محسوبٌ في العدد**، فإن فتح حساباً ليحجز رُدَّ بعددٍ هو
-                         نفسُه جزءٌ منه. العددُ يبقى ظاهراً — إخبارٌ لا منع. */
-                      <button
-                        onClick={() => {
-                          if (offers.length > 0) {
-                            setConfirmBooking(act);
-                          } else {
-                            setConfirmBooking(act);
-                          }
-                        }}
-                        disabled={bookingLoading === act.id}
-                        className="text-xs px-3 py-1.5 rounded-lg font-medium text-black disabled:opacity-50 shrink-0"
-                        style={{ background: 'linear-gradient(135deg, #fbbf24, #f59e0b)' }}
-                      >
-                        {bookingLoading === act.id ? '...' : isFull ? 'احجز · اكتمل العدد' : 'احجز'}
-                      </button>
+                    {/* ── العدد رقماً كبيراً + حالة الطلب ── */}
+                    <div className="flex items-end justify-between mt-3.5 pt-3.5 border-t border-white/[0.06]">
+                      <div className="flex items-baseline gap-2">
+                        <span className="text-[30px] font-black text-amber-400 leading-none">{cnt}</span>
+                        <div>
+                          <p className="text-[11.5px] font-bold text-gray-200 leading-none">قادماً</p>
+                          <p className="text-[9.5px] mt-1 leading-none" style={{ color: demand.c }}>{demand.t}</p>
+                        </div>
+                      </div>
+                      {booked ? (
+                        <span className="text-green-400 text-xs px-3 py-1.5 rounded-lg bg-green-500/10 shrink-0">✅ محجوز</span>
+                      ) : (
+                        <button
+                          onClick={() => setConfirmBooking(act)}
+                          disabled={bookingLoading === act.id}
+                          className="text-xs px-4 py-2 rounded-lg font-bold text-black disabled:opacity-50 shrink-0"
+                          style={{ background: 'linear-gradient(135deg, #fbbf24, #f59e0b)' }}
+                        >
+                          {bookingLoading === act.id ? '...' : 'احجز'}
+                        </button>
+                      )}
+                    </div>
+
+                    {/* ── مَن حجز: وجوهٌ تُفتح على القائمة كاملةً ── */}
+                    {actFollowers.length > 0 && (
+                      <div className="mt-3">
+                        <button
+                          onClick={() => setShowBookersFor(showBookersFor === act.id ? null : act.id)}
+                          className="flex items-center gap-2 w-full"
+                        >
+                          <div className="flex items-center">
+                            {shownBookers.map((b: any, bi: number) => (
+                              <div
+                                key={b.id}
+                                className="w-6 h-6 rounded-full overflow-hidden flex items-center justify-center text-[9px] bg-white/10 text-gray-300"
+                                style={{ border: '2px solid #050505', marginRight: bi === 0 ? 0 : '-8px' }}
+                              >
+                                {b.avatarUrl
+                                  ? <img src={b.avatarUrl} alt="" className="w-full h-full object-cover" />
+                                  : (b.name || '؟').charAt(0)}
+                              </div>
+                            ))}
+                            {actFollowers.length > 4 && (
+                              <div
+                                className="w-6 h-6 rounded-full bg-white/10 text-gray-300 flex items-center justify-center text-[8.5px] font-bold"
+                                style={{ border: '2px solid #050505', marginRight: '-8px' }}
+                              >
+                                +{actFollowers.length - 4}
+                              </div>
+                            )}
+                          </div>
+                          <span className="text-[10.5px] text-amber-400/90">
+                            {followedCount > 0
+                              ? followedCount + ' تتابعهم حجزوا'
+                              : actFollowers.length + ' لاعباً حجزوا'}
+                          </span>
+                          <span className="text-gray-600 text-[10px] mr-auto">
+                            {showBookersFor === act.id ? '▲' : '▼'}
+                          </span>
+                        </button>
+
+                        <AnimatePresence>
+                          {showBookersFor === act.id && (
+                            <motion.div
+                              initial={{ height: 0, opacity: 0 }}
+                              animate={{ height: 'auto', opacity: 1 }}
+                              exit={{ height: 0, opacity: 0 }}
+                              className="overflow-hidden"
+                            >
+                              <div className="mt-2.5 pt-2.5 border-t border-white/[0.06] space-y-2 max-h-52 overflow-y-auto">
+                                {actFollowers.map((b: any) => (
+                                  <div key={b.id} className="flex items-center gap-2.5">
+                                    <div className="w-7 h-7 rounded-full bg-white/5 flex items-center justify-center overflow-hidden shrink-0 text-[11px]">
+                                      {b.avatarUrl
+                                        ? <img src={b.avatarUrl} className="w-full h-full object-cover" alt="" />
+                                        : '🎭'}
+                                    </div>
+                                    <span className="text-[12px] text-gray-200 truncate flex-1">{b.name}</span>
+                                    <span className="text-[9.5px] text-gray-600 shrink-0">Lv.{b.level}</span>
+                                    {b.isFollowing && (
+                                      <span className="text-amber-400 text-[10px] shrink-0" title="تتابعه">⭐</span>
+                                    )}
+                                  </div>
+                                ))}
+                              </div>
+                            </motion.div>
+                          )}
+                        </AnimatePresence>
+                      </div>
+                    )}
+
+                    {/* ── الغرف المفتوحة ── */}
+                    {booked && activeRoomsMap[act.id] && activeRoomsMap[act.id].length > 0 && (
+                      <div className="mt-3 pt-3 border-t border-white/5">
+                        <p className="text-xs text-amber-400 mb-2 font-medium">🎮 الغرف المتاحة حالياً:</p>
+                        <div className="flex flex-col gap-2">
+                          {activeRoomsMap[act.id].map((room: any, idx: number) => (
+                            <a
+                              key={idx}
+                              href={'/player/join?code=' + room.sessionCode}
+                              className="flex items-center justify-between p-2 rounded-xl bg-amber-500/10 border border-amber-500/20 hover:bg-amber-500/20 transition-colors"
+                            >
+                              <span className="text-sm text-white font-bold">{room.sessionName || 'غرفة ' + (idx + 1)}</span>
+                              <span className="text-xs px-3 py-1.5 bg-amber-500 text-black font-bold rounded-lg">
+                                دخول ←
+                              </span>
+                            </a>
+                          ))}
+                        </div>
+                      </div>
                     )}
                   </div>
-
-                  {/* شارة الحاجزين */}
-                  {actFollowers.length > 0 && (
-                    <div className="mt-2">
-                      <button
-                        onClick={() => setShowBookersFor(showBookersFor === act.id ? null : act.id)}
-                        className="text-[11px] text-amber-400/80 hover:text-amber-400 transition-colors"
-                      >
-                        👥 {actFollowers.length} لاعب حجزوا
-                      </button>
-
-                      <AnimatePresence>
-                        {showBookersFor === act.id && (
-                          <motion.div
-                            initial={{ height: 0, opacity: 0 }}
-                            animate={{ height: 'auto', opacity: 1 }}
-                            exit={{ height: 0, opacity: 0 }}
-                            className="overflow-hidden"
-                          >
-                            <div className="mt-2 space-y-1.5">
-                              {actFollowers.map((b: any) => (
-                                <div key={b.id} className="flex items-center gap-2 text-[11px] text-gray-400">
-                                  <div className="w-5 h-5 rounded-full bg-white/5 flex items-center justify-center overflow-hidden">
-                                    {b.avatarUrl ? (
-                                      <img src={b.avatarUrl} className="w-full h-full object-cover" alt="" />
-                                    ) : '🎭'}
-                                  </div>
-                                  <span>{b.name}</span>
-                                  <span className="text-gray-600">Lv.{b.level}</span>
-                                  {b.isFollowing ? (
-                                    <span className="text-amber-400 text-[9px]" title="تتابعه">⭐</span>
-                                  ) : (
-                                    <span className="text-gray-600 text-[9px]" title="لاعب">👤</span>
-                                  )}
-                                </div>
-                              ))}
-                            </div>
-                          </motion.div>
-                        )}
-                      </AnimatePresence>
-                    </div>
-                  )}
-
-                  {/* أزرار الدخول للغرف النشطة (إن وجدت) */}
-                  {booked && activeRoomsMap[act.id] && activeRoomsMap[act.id].length > 0 && (
-                    <div className="mt-3 pt-3 border-t border-white/5">
-                      <p className="text-xs text-amber-400 mb-2 font-medium">🎮 الغرف المتاحة حالياً:</p>
-                      <div className="flex flex-col gap-2">
-                        {activeRoomsMap[act.id].map((room: any, idx: number) => (
-                          <a
-                            key={idx}
-                            href={`/player/join?code=${room.sessionCode}`}
-                            className="flex items-center justify-between p-2 rounded-xl bg-amber-500/10 border border-amber-500/20 hover:bg-amber-500/20 transition-colors"
-                          >
-                            <span className="text-sm text-white font-bold">{room.sessionName || `غرفة ${idx + 1}`}</span>
-                            <span className="text-xs px-3 py-1.5 bg-amber-500 text-black font-bold rounded-lg">
-                              دخول ←
-                            </span>
-                          </a>
-                        ))}
-                      </div>
-                    </div>
-                  )}
                 </motion.div>
               );
             })}
