@@ -315,9 +315,14 @@ function GamesContent() {
 
                     {booked ? (
                       <span className="text-green-400 text-xs px-3 py-1.5 rounded-lg bg-green-500/10 shrink-0">✅ محجوز</span>
-                    ) : isFull ? (
-                      <span className="text-red-400 text-xs px-3 py-1.5 rounded-lg bg-red-500/10 shrink-0">🚫 مكتمل</span>
                     ) : (
+                      /* 🔴 كان اكتمالُ العدد يستبدل الزرّ بـ«🚫 مكتمل» فيمنع الحجز — وهو
+                         سقفُ حجزٍ يخالف قراراً مقفلاً: «الحجز بلا سقف نهائياً؛ اللاعبون
+                         يتناوبون والعبرة بالحضور». والخادم لا يفحص سعةً أصلاً، ونافذةُ
+                         التفاصيل لم تكن محجوبةً قطّ — فالحاجب كان يُرى في مكانٍ ويُتجاوَز
+                         بضغطةٍ من آخر. وأسوأ حالاته: من حُجز له ضمن مجموعة (لاعبٌ جديد أو
+                         مرافق) **محسوبٌ في العدد**، فإن فتح حساباً ليحجز رُدَّ بعددٍ هو
+                         نفسُه جزءٌ منه. العددُ يبقى ظاهراً — إخبارٌ لا منع. */
                       <button
                         onClick={() => {
                           if (offers.length > 0) {
@@ -330,7 +335,7 @@ function GamesContent() {
                         className="text-xs px-3 py-1.5 rounded-lg font-medium text-black disabled:opacity-50 shrink-0"
                         style={{ background: 'linear-gradient(135deg, #fbbf24, #f59e0b)' }}
                       >
-                        {bookingLoading === act.id ? '...' : 'احجز'}
+                        {bookingLoading === act.id ? '...' : isFull ? 'احجز · اكتمل العدد' : 'احجز'}
                       </button>
                     )}
                   </div>
