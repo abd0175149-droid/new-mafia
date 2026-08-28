@@ -7,6 +7,7 @@ import dynamic from 'next/dynamic';
 import DriveFolderBrowser from '../../components/DriveFolderBrowser';
 import EditActivityForm from '../../components/EditActivityForm';
 import BookingBonusSection from '../../components/BookingBonusSection';
+import ScheduleEditor from '../../components/ScheduleEditor';
 import WhatsAppButton from '@/components/WhatsAppButton';
 import SeatMap2D from '@/components/SeatMap2D';
 import { computeRectLayout, type Numbering, type RectDoor } from '@/lib/rectLayout';
@@ -1718,6 +1719,9 @@ export default function ActivityDetailPage() {
       </div>
 
       {/* ══ 🎁 مكافأة الحجز المبكر — تحت قائمة الحجوزات مباشرةً لأنّها سكّانها ══ */}
+      {/* ══ 🗓️ برنامج الليلة — يُطبع في كشف الحضور ══ */}
+      <ScheduleEditor activityId={activity.id} activityDate={activity.date} initial={activity.gameSchedule || []} />
+
       <BookingBonusSection
         activityId={activity.id}
         activityName={activity.name}

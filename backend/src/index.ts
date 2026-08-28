@@ -683,6 +683,8 @@ async function main() {
       await db.execute(sql`CREATE TABLE IF NOT EXISTS analytics_config (key VARCHAR(40) PRIMARY KEY, value JSONB NOT NULL, updated_at TIMESTAMP DEFAULT NOW() NOT NULL)`);
       // ── 🍽️ نظام طلبات المنيو والفواتير (F&B) ──
       await db.execute(sql`ALTER TABLE activities ADD COLUMN IF NOT EXISTS menu_ordering_enabled BOOLEAN DEFAULT false`);
+      // 🗓️ برنامج الليلة (الجدول الزمنيّ للألعاب) — يُطبع في كشف الحضور
+      await db.execute(sql`ALTER TABLE activities ADD COLUMN IF NOT EXISTS game_schedule JSONB DEFAULT '[]'::jsonb`);
       await db.execute(sql`ALTER TABLE activities ADD COLUMN IF NOT EXISTS add_game_fee_to_bill BOOLEAN DEFAULT false`);
       await db.execute(sql`DO $$ BEGIN CREATE TYPE order_status AS ENUM ('new','preparing','delivered','cancelled'); EXCEPTION WHEN duplicate_object THEN NULL; END $$`);
       await db.execute(sql`CREATE TABLE IF NOT EXISTS menu_items (

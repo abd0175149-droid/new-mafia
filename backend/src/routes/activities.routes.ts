@@ -36,6 +36,25 @@ function parseJordanDate(dateStr: string): Date {
   return new Date(s);
 }
 
+/**
+ * 🗓️ تنقيةُ برنامج الليلة — يُقبل ما يُطبع فقط.
+ * الوقتُ نصٌّ `HH:MM` لا طابعٌ زمنيّ: البرنامج ساعاتُ ليلةٍ لا لحظاتٌ مطلقة،
+ * فلا منطقةَ زمنيّة تُزيحه ولا تاريخَ يجب أن يُطابق تاريخ الفعاليّة.
+ */
+function sanitizeSchedule(raw: any): Array<{ kind: string; label: string; start: string; end: string }> {
+  if (!Array.isArray(raw)) return [];
+  const hhmm = /^([01]\d|2[0-3]):[0-5]\d$/;
+  return raw
+    .filter((r: any) => r && hhmm.test(String(r.start)) && hhmm.test(String(r.end)))
+    .slice(0, 24)   // ليلةٌ لا تحتمل أكثر — والحدُّ يمنع حمولةً منتفخة
+    .map((r: any) => ({
+      kind: r.kind === 'break' ? 'break' : 'game',
+      label: String(r.label ?? '').trim().slice(0, 60) || (r.kind === 'break' ? '\u0627\u0633\u062A\u0631\u0627\u062D\u0629' : '\u0644\u0639\u0628\u0629'),
+      start: String(r.start),
+      end: String(r.end),
+    }));
+}
+
 const router = Router();
 
 // 📂 المجلد الرئيسي في Google Drive الذي يتم إنشاء مجلدات الأنشطة بداخله
@@ -913,7 +932,7 @@ router.put('/:id', authenticate, async (req: Request, res: Response) => {
   if (!db) return res.status(503).json({ error: 'قاعدة البيانات غير متوفرة' });
 
   const id = parseInt(req.params.id);
-  const { name, date, description, basePrice, status, locationId, driveLink, enabledOfferIds, isLocked, sessionId, maxCapacity, difficulty, requireTicket, seatConstraints, seatTemplateId, menuOrderingEnabled, addGameFeeToBill, receivedBy, geofenceEnabled, geofenceRadiusM } = req.body;
+  const { name, date, description, basePrice, status, locationId, driveLink, enabledOfferIds, isLocked, sessionId, maxCapacity, difficulty, requireTicket, seatConstraints, seatTemplateId, menuOrderingEnabled, addGameFeeToBill, receivedBy, geofenceEnabled, geofenceRadiusM, gameSchedule } = req.body;
 
   const updates: any = {};
   if (receivedBy !== undefined) updates.receivedBy = String(receivedBy ?? '').slice(0, 100);
@@ -932,6 +951,9 @@ router.put('/:id', authenticate, async (req: Request, res: Response) => {
   if (requireTicket !== undefined) updates.requireTicket = requireTicket;
   if (seatConstraints !== undefined) updates.seatConstraints = seatConstraints;
   if (seatTemplateId !== undefined) updates.seatTemplateId = seatTemplateId;
+  // 🗓️ برنامج الليلة — يُنقّى في الخادم لا يُقبل كما وصل: الحقلُ يُطبع
+  //    في كشفٍ رسميّ، وصفٌّ مشوّهٌ من عميلٍ معدَّل يُفسد الطباعة لا الشاشة وحدها.
+  if (gameSchedule !== undefined) updates.gameSchedule = sanitizeSchedule(gameSchedule);
   if (menuOrderingEnabled !== undefined) updates.menuOrderingEnabled = menuOrderingEnabled === true;
   if (geofenceEnabled === true) {
     // المكان قد يتغيّر في نفس الطلب — نفحص الوجهة لا المصدر

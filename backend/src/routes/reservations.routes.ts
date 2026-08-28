@@ -242,6 +242,8 @@ router.get('/attendance/:activityId', authenticate, async (req: Request, res: Re
     const [act] = await db.select({
       id: activities.id, name: activities.name, date: activities.date,
       maxCapacity: activities.maxCapacity, locationName: locations.name,
+      // 🗓️ برنامج الليلة — يُطبع قبل بطاقات الحاجزين
+      gameSchedule: activities.gameSchedule,
     }).from(activities).leftJoin(locations, eq(activities.locationId, locations.id))
       .where(and(eq(activities.id, actId), isNull(activities.deletedAt))).limit(1);
     if (!act) return res.status(404).json({ error: 'الفعاليّة غير موجودة' });

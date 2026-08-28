@@ -110,6 +110,46 @@ export default function AttendancePrintPage() {
   const remaining = stats.remaining;
   const pages = paginate(members, guests);
 
+  // 🗓️ برنامج الليلة — يُطبع قبل بطاقات الحاجزين.
+  // الوقتُ نصٌّ `HH:MM` كما كُتب، فلا منطقةَ زمنيّة تُزيحه عند الطباعة.
+  const schedule: Array<{ kind: string; label: string; start: string; end: string }> =
+    Array.isArray(activity.gameSchedule) ? activity.gameSchedule : [];
+  const sMin = (t: string) => { const x = String(t || '').split(':'); return (Number(x[0]) || 0) * 60 + (Number(x[1]) || 0); };
+  const sDur = (r: { start: string; end: string }) => { const d = sMin(r.end) - sMin(r.start); return d < 0 ? d + 1440 : d; };
+  const sDurTxt = (d: number) => { const h = Math.floor(d / 60), m = d % 60; return h && m ? `${ar(h)}س ${ar(m)}د` : h ? `${ar(h)}س` : `${ar(m)}د`; };
+  // رقمان عربيّان بصفرٍ متقدّم — ar() تُفرِد ولا تُبطّن
+  const ar2 = (n: number) => String(n).padStart(2, '0').replace(/[0-9]/g, (d) => '٠١٢٣٤٥٦٧٨٩'[Number(d)]);
+  const sClock = (t: string) => {
+    const x = sMin(t), h = Math.floor(x / 60), m = x % 60;
+    return `${ar(h % 12 || 12)}:${ar2(m)} ${h >= 12 ? 'م' : 'ص'}`;
+  };
+  const schedGames = schedule.filter(r => r.kind !== 'break').length;
+  const schedTotal = schedule.length ? (sMin(schedule[schedule.length - 1].end) - sMin(schedule[0].start) + 1440) % 1440 : 0;
+
+  const scheduleBlock = schedule.length > 0 ? (
+    <>
+      <div className="seclabel"><span className="di">❖</span><h2>برنامج الليلة</h2><i /><span className="c">مواعيد الألعاب</span></div>
+      <div className="tl">
+        {schedule.map((r, i) => {
+          const isGame = r.kind !== 'break';
+          const gi = schedule.slice(0, i + 1).filter(x => x.kind !== 'break').length;
+          return (
+            <div className={'trow' + (isGame ? '' : ' brk')} key={'s' + i}>
+              <span className="idx">{isGame ? ar(gi) : '☕'}</span>
+              <span className="lbl">{r.label}</span>
+              <span className="tm">{sClock(r.start)} — {sClock(r.end)}</span>
+              <span className="tdur">{sDur(r) > 0 ? sDurTxt(sDur(r)) : '—'}</span>
+            </div>
+          );
+        })}
+        <div className="tfoot">
+          <span>يبدأ <b>{sClock(schedule[0].start)}</b> · ينتهي <b>{sClock(schedule[schedule.length - 1].end)}</b></span>
+          <span>{ar(schedGames)} ألعاب · {sDurTxt(schedTotal)}</span>
+        </div>
+      </div>
+    </>
+  ) : null;
+
   const memberCard = (m: Member, i: number) => {
     const rk = RANK[m.rankTier] || RANK.INFORMANT;
     const group = (m.peopleCount || 1) > 1;   // 👥 حجز مجموعة مربوط بحساب: يظهر العدد الكامل (متوقَّع) — يلعب صاحب الحساب فقط
@@ -177,6 +217,7 @@ export default function AttendancePrintPage() {
             ? <div className="cta">🔥 بقيت <b>&nbsp;{ar(remaining)}&nbsp;</b> مقعداً — سارِع بالحجز قبل اكتمال العدد</div>
             : <div className="cta">🔴 اكتمل العدد — انضمّ لقائمة الانتظار</div>)}
         </div>
+        {scheduleBlock}
         {members.length > 0 && (
           <>
             <div className="seclabel"><span className="di">❖</span><h2>العائلة — الأعضاء</h2><i /><span className="c">مرتبطون بحساباتهم</span></div>
@@ -220,6 +261,7 @@ export default function AttendancePrintPage() {
               </div>
             </>
           )}
+              {pg.first && scheduleBlock}
           {pg.blocks.map((b, bi) => {
             if (b.type === 'label') {
               return b.variant === 'members'
@@ -301,6 +343,25 @@ const CSS = `
   .att .seclabel .di{color:var(--f-dim);font-size:8px}
   .att .seclabel i{height:1px;flex:1;background:linear-gradient(90deg,var(--f-dim),transparent)}
   .att .seclabel .c{font-size:10.5px;color:var(--faint)}
+
+  /* 🗓️ برنامج الليلة — بنفس ذهب الكشف وإطاره */
+  .att .tl{margin:0 auto 5mm;max-width:158mm;border-radius:14px;overflow:hidden;break-inside:avoid;
+    background:linear-gradient(180deg,var(--panel2),var(--panel));border:1px solid var(--line)}
+  .att .tl .trow{display:flex;align-items:center;gap:10px;padding:8px 14px;border-bottom:1px solid rgba(201,164,87,.1)}
+  .att .tl .trow:last-of-type{border-bottom:0}
+  .att .tl .trow.brk{background:rgba(0,0,0,.22)}
+  .att .tl .idx{width:20px;height:20px;border-radius:99px;flex-shrink:0;display:flex;align-items:center;justify-content:center;
+    font-size:9.5px;font-weight:800;color:#1a1206;background:linear-gradient(180deg,#f5e6b8,#c9a457)}
+  .att .tl .trow.brk .idx{background:transparent;border:1px solid var(--f-dim);color:var(--f-dim);font-size:10px}
+  .att .tl .lbl{flex:1;min-width:0;font-size:12px;font-weight:700;color:var(--cream);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .att .tl .trow.brk .lbl{font-weight:400;color:var(--mut);font-size:11.5px}
+  .att .tl .tm{font-size:11.5px;color:var(--f-hi);white-space:nowrap}
+  .att .tl .trow.brk .tm{color:var(--faint)}
+  .att .tl .tdur{font-size:10px;color:var(--faint);width:46px;text-align:left;white-space:nowrap}
+  .att .tl .tfoot{display:flex;justify-content:space-between;padding:7px 14px;background:rgba(0,0,0,.3);
+    font-size:10.5px;color:var(--mut);border-top:1px solid rgba(201,164,87,.14)}
+  .att .tl .tfoot b{color:var(--gold)}
+  .att.light .tl .lbl,.att.light .tl .tfoot b{color:#3a2c17}
 
   .att .grid{display:grid;grid-template-columns:repeat(4,1fr);gap:5mm;position:relative;margin-bottom:5mm}
 
