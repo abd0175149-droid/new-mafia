@@ -108,14 +108,19 @@ export const SOUND_GROUPS: SoundGroupDef[] = [
   {
     label: '🌙 الليل — خلفيّات',
     events: [
-      { key: 'ambient_night',             label: '🌙 خلفيّة الليل',    desc: 'الخلفيّة الافتراضيّة طوال الليل',        cat: 'ambientNight', ambient: true },
-      { key: 'ambient_night_kill',        label: '🔪 خلفيّة الاغتيال', desc: 'أثناء انتظار هدف الاغتيال (النمط اليدويّ)', cat: 'ambientNight', ambient: true },
-      { key: 'ambient_night_silence',     label: '🤐 خلفيّة الإسكات',  desc: 'أثناء انتظار هدف الإسكات',                cat: 'ambientNight', ambient: true },
-      { key: 'ambient_night_investigate', label: '👁️ خلفيّة التحقيق', desc: 'أثناء انتظار هدف التحقيق',                cat: 'ambientNight', ambient: true },
-      { key: 'ambient_night_protect',     label: '🛡️ خلفيّة الحماية', desc: 'أثناء انتظار هدف الحماية',                cat: 'ambientNight', ambient: true },
-      { key: 'ambient_night_snipe',       label: '🎯 خلفيّة القنص',    desc: 'أثناء انتظار هدف القنص',                  cat: 'ambientNight', ambient: true },
-      { key: 'ambient_night_assassin',    label: '🔪 خلفيّة السفّاح',  desc: 'أثناء انتظار هدف السفّاح',                cat: 'ambientNight', ambient: true },
-      { key: 'ambient_night_witch',       label: '🧙 خلفيّة الساحرة',  desc: 'أثناء انتظار هدف التعطيل',                cat: 'ambientNight', ambient: true },
+      { key: 'ambient_night',             label: '🌙 خلفيّة الليل',        desc: 'الخلفيّة الافتراضيّة طوال الليل — وفي شاشة المراجعة',              cat: 'ambientNight', ambient: true },
+      // 🌙 الليلةُ الواحدة: الجميعُ يختار معاً في نافذةٍ واحدة — لها صوتُها إن أردتَ تمييزها
+      //    عن هدوء الليل. بلا ملفٍّ يستمرّ `ambient_night` كما هو.
+      { key: 'ambient_night_choosing',    label: '⏳ نافذة الاختيار',      desc: 'الليلة الواحدة: من «ابدأ الليلة» حتى فتح المراجعة — الجميع يختار معاً', cat: 'ambientNight', ambient: true },
+      // ⚠️ السبعةُ التالية للنمط اليدويّ وحده (الموجّه يمرّ على كلّ دورٍ بدوره).
+      //    الليلةُ الواحدة لا تبثّ خطواتٍ فلا تنطلق فيها — رفعُ ملفٍّ لها هناك بلا أثر.
+      { key: 'ambient_night_kill',        label: '🔪 خلفيّة الاغتيال', desc: 'النمط اليدويّ فقط — أثناء انتظار هدف الاغتيال', cat: 'ambientNight', ambient: true },
+      { key: 'ambient_night_silence',     label: '🤐 خلفيّة الإسكات',  desc: 'النمط اليدويّ فقط — أثناء انتظار هدف الإسكات',   cat: 'ambientNight', ambient: true },
+      { key: 'ambient_night_investigate', label: '👁️ خلفيّة التحقيق', desc: 'النمط اليدويّ فقط — أثناء انتظار هدف التحقيق',   cat: 'ambientNight', ambient: true },
+      { key: 'ambient_night_protect',     label: '🛡️ خلفيّة الحماية', desc: 'النمط اليدويّ فقط — أثناء انتظار هدف الحماية',   cat: 'ambientNight', ambient: true },
+      { key: 'ambient_night_snipe',       label: '🎯 خلفيّة القنص',    desc: 'النمط اليدويّ فقط — أثناء انتظار هدف القنص',     cat: 'ambientNight', ambient: true },
+      { key: 'ambient_night_assassin',    label: '🔪 خلفيّة السفّاح',  desc: 'النمط اليدويّ فقط — أثناء انتظار هدف السفّاح',   cat: 'ambientNight', ambient: true },
+      { key: 'ambient_night_witch',       label: '🧙 خلفيّة الساحرة',  desc: 'النمط اليدويّ فقط — أثناء انتظار هدف التعطيل',   cat: 'ambientNight', ambient: true },
     ],
   },
   {

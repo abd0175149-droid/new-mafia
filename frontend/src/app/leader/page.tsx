@@ -1218,6 +1218,8 @@ export default function LeaderPage() {
 
     // 🌙 الليلةُ الواحدة — ثلاثةُ أحداثٍ تحلّ محلّ دورة الطابور
     const offOneStarted = on('night:one-started', (d: any) => {
+      // ⏳ نافذةُ الاختيار لها صوتُها — وبلا ملفٍّ يستمرّ فراشُ الليل كما هو
+      localSound(() => playAmbientSound('ambient_night_choosing'));
       setOneNight({ deadline: d?.deadline ?? null, acting: d?.acting ?? 0, total: d?.total ?? 0 });
       setOneNightProgress({ done: 0, total: d?.total ?? 0 });
       setOneNightRoster(Array.isArray(d?.roster) ? d.roster : []);
@@ -1228,6 +1230,8 @@ export default function LeaderPage() {
       if (Array.isArray(d?.roster)) setOneNightRoster(d.roster);
     });
     const offOneReview = on('night:one-review', (d: any) => {
+      // 🌙 انتهت نافذةُ الاختيار — يعود هدوءُ الليل حتى الصباح
+      localSound(() => playAmbientSound('ambient_night'));
       setOneNightReview({ acting: d?.acting || [], idle: d?.idle || [] });
       setOneNight(null);
       if (leaderSoundOnRef.current) playLocalSound('vote_cast');
@@ -1575,6 +1579,8 @@ export default function LeaderPage() {
         setOneNight({ deadline: r.deadline ?? null, acting: r.acting ?? 0, total: r.total ?? 0 });
         setOneNightProgress({ done: r.done ?? 0, total: r.total ?? 0 });
         setOneNightRoster(Array.isArray(r.roster) ? r.roster : []);
+        // ⏳ تحديثٌ وسط النافذة: أثرُ الطور أعاد فراشَ الليل — نُعيد صوتَ الاختيار
+        localSound(() => playAmbientSound('ambient_night_choosing'));
       } catch { /* لا ليلةَ جارية — الصمتُ صحيح */ }
     })();
 
