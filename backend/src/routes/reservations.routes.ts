@@ -274,7 +274,7 @@ router.get('/attendance/:activityId', authenticate, async (req: Request, res: Re
 
     res.json({
       success: true,
-      activity: { name: act.name, date: act.date, locationName: act.locationName || '', maxCapacity: cap },
+      activity: { name: act.name, date: act.date, locationName: act.locationName || '', maxCapacity: cap, gameSchedule: Array.isArray(act.gameSchedule) ? act.gameSchedule : [] },
       stats: {
         reservations: rows.length, persons, members: members.length, guests: guests.length,
         remaining: cap > 0 ? Math.max(0, cap - persons) : null,
