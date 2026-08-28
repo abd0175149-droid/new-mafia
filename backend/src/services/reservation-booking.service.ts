@@ -126,7 +126,10 @@ export async function removeBookingForReservation(db: Database, r: ResRow): Prom
   //    يخبره. (١٤ حالة في فعاليّة ١٥٣ وحدها.)
   //    الآن يُزال غيرُ المدفوع من المسارات الآليّة كلِّها — التثبيت والتطبيق والبوت —
   //    ويبقى محفوظاً ما دُفع وما أدخله موظّفٌ بيده.
-  if (existing.isPaid === true) return false;
+  // 🔴 المجّانيّ ليس مدفوعاً: الحساب المجّانيّ يُنشئ حجزه بـ`is_paid=true`
+  //    و`paid_amount=0` — لا مالَ فيه. وحارسُ «المدفوع لا يُمسّ» كان يحسبه
+  //    مدفوعاً فيرفض إزالته، فيبقى صاحبُه «محجوزاً» بعد فكّ التثبيت أو الحذف.
+  if (existing.isPaid === true && existing.isFree !== true) return false;
   const by = String(existing.createdBy || '');
   const automated = by === RES_CREATED_BY || by === 'player-app'
     || by.startsWith('\u{1F916}') || by.startsWith('\u{1F512}');

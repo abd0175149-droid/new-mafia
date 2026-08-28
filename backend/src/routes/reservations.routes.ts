@@ -166,8 +166,19 @@ router.delete('/:id', authenticate, async (req: Request, res: Response) => {
     .where(and(eq(reservations.id, id), isNull(reservations.deletedAt))).limit(1);
   if (existing.length === 0) return res.status(404).json({ error: 'الحجز غير موجود' });
 
+  // 🔗 المرآة قبل الحذف — بعده يصير الصفُّ محذوفاً فلا شيء يدلّ على حجزه.
+  //    كان الحذف يُسقط صفَّ المتابعة وحده ويترك صفَّ الحجز حيّاً، فيبقى اللاعب
+  //    «محجوزاً» في تطبيقه وقد مُحي حجزُه من المتابعة — وهو ثالثُ مسارٍ يكسر
+  //    المرآة بعد حذف الحجز وفكّ التثبيت. الثلاثة الآن تمرّ بالدالّة نفسها.
+  let bookingSync: boolean | null = null;
+  try {
+    bookingSync = await removeBookingForReservation(db, existing[0] as any);
+  } catch (err: any) {
+    console.error('❌ reservation delete → booking sync:', err.message);
+  }
+
   await db.update(reservations).set({ deletedAt: new Date() } as any).where(eq(reservations.id, id));
-  res.json({ success: true });
+  res.json({ success: true, bookingRemoved: bookingSync });
 });
 
 // ── GET /roster-groups/:activityId — مجموعات قائمة حجوزات الفعاليّة ──

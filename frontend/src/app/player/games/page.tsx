@@ -671,14 +671,14 @@ function GamesContent() {
             initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
             onClick={() => setConfirmCancel(null)}
             {...cancelModal.backdropProps}
-            className="fixed inset-0 z-50 flex items-end justify-center"
-            style={{ background: 'rgba(0,0,0,0.75)', backdropFilter: 'blur(4px)' }}
+            className="fixed top-0 left-0 right-0 bottom-20 z-40 flex items-end sm:items-center justify-center sm:p-4"
+            style={{ background: 'rgba(0,0,0,0.85)', backdropFilter: 'blur(6px)' }}
           >
             <motion.div
               initial={{ y: '100%' }} animate={{ y: 0 }} exit={{ y: '100%' }}
               transition={{ type: 'spring', damping: 30, stiffness: 300 }}
               onClick={(e) => e.stopPropagation()}
-              className="w-full max-w-lg rounded-t-3xl p-5 pb-8"
+              className="w-full max-w-sm rounded-t-3xl sm:rounded-2xl p-5 pb-6"
               style={{ background: '#0d0d0d', border: '1px solid rgba(255,255,255,0.08)' }}
             >
               <div className="w-10 h-1 rounded-full bg-white/15 mx-auto mb-4" />
