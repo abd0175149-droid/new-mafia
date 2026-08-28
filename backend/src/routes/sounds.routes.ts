@@ -77,17 +77,28 @@ router.get('/coverage', authenticate, async (_req: Request, res: Response) => {
     const rows = await db.select({
       id: soundEffects.id, name: soundEffects.name, filename: soundEffects.filename,
       isActive: soundEffects.isActive, eventKeys: soundEffects.eventKeys,
+      sizeBytes: soundEffects.sizeBytes, updatedAt: soundEffects.updatedAt,
     }).from(soundEffects);
 
-    // مفتاح → الملفُّ الفعّال إن وُجد، وإلّا آخرُ ملفٍّ معطَّل (كي يُرى أنّ هناك ما يُفعَّل)
-    const coverage: Record<string, { id: number; name: string; filename: string; isActive: boolean; others: number }> = {};
-    for (const r of rows) {
-      for (const k of ((r.eventKeys as string[]) || [])) {
-        const cur = coverage[k];
-        if (!cur) { coverage[k] = { id: r.id, name: r.name, filename: r.filename, isActive: !!r.isActive, others: 0 }; continue; }
-        cur.others++;
-        if (!cur.isActive && r.isActive) coverage[k] = { id: r.id, name: r.name, filename: r.filename, isActive: true, others: cur.others };
-      }
+    // 🏁 لكلّ مفتاح: الفائزُ (أحدثُ فعّالٍ تعييناً) + البدائلُ (كلُّ ملفٍّ آخر يحمل المفتاح).
+    //    نفسُ قاعدة /active-map حرفيّاً — قاعدتان تفترقان عند أوّل تعديل.
+    type Row = typeof rows[number];
+    const byKey: Record<string, Row[]> = {};
+    for (const r of rows) for (const k of ((r.eventKeys as string[]) || [])) (byKey[k] ||= []).push(r);
+    const ts = (r: Row) => (r.updatedAt ? new Date(r.updatedAt as any).getTime() : 0);
+    const brief = (r: Row) => ({ id: r.id, name: r.name, filename: r.filename, isActive: !!r.isActive, sizeBytes: r.sizeBytes || 0 });
+    const coverage: Record<string, { winner: ReturnType<typeof brief> | null; alternatives: ReturnType<typeof brief>[]; others: number; id?: number; name?: string; filename?: string; isActive?: boolean }> = {};
+    for (const [k, list] of Object.entries(byKey)) {
+      const active = list.filter(r => r.isActive).sort((a, b) => ts(b) - ts(a) || b.id - a.id);
+      const winner = active[0] || null;
+      const alternatives = list.filter(r => !winner || r.id !== winner.id).sort((a, b) => ts(b) - ts(a));
+      // الحقولُ المسطّحة (id/name/…) للتوافق مع واجهةٍ تقرأ الشكل القديم
+      coverage[k] = {
+        winner: winner ? brief(winner) : null,
+        alternatives: alternatives.map(brief),
+        others: alternatives.length,
+        ...(winner ? brief(winner) : (alternatives[0] ? brief(alternatives[0]) : {})),
+      };
     }
     res.json({ success: true, coverage });
   } catch (err: any) {
@@ -107,10 +118,19 @@ router.get('/active-map', async (_req: Request, res: Response) => {
     const rows = await db.select({
       filename: soundEffects.filename,
       eventKeys: soundEffects.eventKeys,
+      updatedAt: soundEffects.updatedAt,
+      id: soundEffects.id,
     })
     .from(soundEffects)
     .where(eq(soundEffects.isActive, true));
 
+    // 🏁 ملفّان فعّالان بمفتاحٍ واحد: الأحدثُ تعييناً يفوز. نرتّب تصاعديّاً فيكتب
+    //    الأحدثُ آخراً. (كان الخادم يمنع الحالة بنزع المفتاح من القديم — فلا بدائل.)
+    rows.sort((a, b) => {
+      const ta = a.updatedAt ? new Date(a.updatedAt as any).getTime() : 0;
+      const tb = b.updatedAt ? new Date(b.updatedAt as any).getTime() : 0;
+      return ta - tb || a.id - b.id;
+    });
     // بناء الخريطة: { eventKey: "/uploads/sounds/filename.mp3" }
     const map: Record<string, string> = {};
     for (const row of rows) {
@@ -159,25 +179,8 @@ router.post('/upload', authenticate, (req: Request, res: Response) => {
         }
       }
 
-      // إلغاء تفعيل الأصوات السابقة لنفس الـ eventKeys
-      if (eventKeys.length > 0) {
-        const allSounds = await db.select().from(soundEffects).where(eq(soundEffects.isActive, true));
-        for (const sound of allSounds) {
-          const existingKeys = (sound.eventKeys as string[]) || [];
-          const overlap = existingKeys.filter(k => eventKeys.includes(k));
-          if (overlap.length > 0) {
-            // إزالة الـ keys المتداخلة من الصوت القديم
-            const remainingKeys = existingKeys.filter(k => !eventKeys.includes(k));
-            if (remainingKeys.length === 0) {
-              // لا يوجد keys أخرى → إلغاء التفعيل
-              await db.update(soundEffects).set({ isActive: false } as any).where(eq(soundEffects.id, sound.id));
-            } else {
-              // بقي keys أخرى → تحديث القائمة فقط
-              await db.update(soundEffects).set({ eventKeys: remainingKeys } as any).where(eq(soundEffects.id, sound.id));
-            }
-          }
-        }
-      }
+      // 🔴 لا نزعَ للمفاتيح من الملفّات الأخرى: الجديدُ يفوز لأنّه الأحدثُ تعييناً،
+      //    والقديمُ يبقى بمفاتيحه «بديلاً» يعود بضغطة. (كان يُنزع نهائيّاً بلا سؤال.)
 
       // إنشاء السجل الجديد
       const [newSound] = await db.insert(soundEffects).values({
@@ -219,23 +222,8 @@ router.put('/:id', authenticate, async (req: Request, res: Response) => {
     if (name !== undefined) updates.name = name;
     if (eventKeys !== undefined) {
       updates.eventKeys = eventKeys;
-
-      // إلغاء تفعيل التداخلات مع أصوات أخرى
-      if (Array.isArray(eventKeys) && eventKeys.length > 0) {
-        const allSounds = await db.select().from(soundEffects).where(eq(soundEffects.isActive, true));
-        for (const sound of allSounds) {
-          if (sound.id === id) continue;
-          const existingKeys = (sound.eventKeys as string[]) || [];
-          const remaining = existingKeys.filter((k: string) => !eventKeys.includes(k));
-          if (remaining.length !== existingKeys.length) {
-            if (remaining.length === 0) {
-              await db.update(soundEffects).set({ isActive: false } as any).where(eq(soundEffects.id, sound.id));
-            } else {
-              await db.update(soundEffects).set({ eventKeys: remaining } as any).where(eq(soundEffects.id, sound.id));
-            }
-          }
-        }
-      }
+      // تعيينٌ جديد ⇒ هذا الملفّ هو الأحدث على مفاتيحه (لا نزعَ من غيره)
+      updates.updatedAt = new Date();
     }
 
     if (Object.keys(updates).length === 0) {
@@ -267,33 +255,37 @@ router.put('/:id/toggle', authenticate, async (req: Request, res: Response) => {
 
     const newActive = !sound.isActive;
 
-    // عند التفعيل → إلغاء تفعيل الأصوات المتداخلة
-    if (newActive) {
-      const eventKeys = (sound.eventKeys as string[]) || [];
-      if (eventKeys.length > 0) {
-        const allSounds = await db.select().from(soundEffects).where(eq(soundEffects.isActive, true));
-        for (const other of allSounds) {
-          if (other.id === id) continue;
-          const otherKeys = (other.eventKeys as string[]) || [];
-          const remaining = otherKeys.filter((k: string) => !eventKeys.includes(k));
-          if (remaining.length !== otherKeys.length) {
-            if (remaining.length === 0) {
-              await db.update(soundEffects).set({ isActive: false } as any).where(eq(soundEffects.id, other.id));
-            } else {
-              await db.update(soundEffects).set({ eventKeys: remaining } as any).where(eq(soundEffects.id, other.id));
-            }
-          }
-        }
-      }
-    }
-
-    await db.update(soundEffects).set({ isActive: newActive } as any).where(eq(soundEffects.id, id));
+    // التفعيلُ تعيينٌ جديد: يصير الأحدثَ على مفاتيحه فيفوز — بلا نزعٍ من غيره
+    await db.update(soundEffects)
+      .set(newActive ? { isActive: true, updatedAt: new Date() } as any : { isActive: false } as any)
+      .where(eq(soundEffects.id, id));
     const io = req.app.get('io');
     if (io) io.emit('admin:sounds-updated');
     res.json({ success: true, isActive: newActive });
   } catch (err: any) {
     console.error('❌ Failed to toggle sound:', err.message);
     res.status(500).json({ error: 'فشل تبديل حالة الصوت' });
+  }
+});
+
+// ══════════════════════════════════════════════════════
+// PUT /api/sounds/:id/promote — «اجعله الفعّال» على مفاتيحه
+// 🔴 المهمّةُ التي كانت مستحيلة: جرّبْ بديلاً وعُد. الترقيةُ تُفعّل الملفّ وتجعله
+//    الأحدثَ تعييناً فيفوز على مفاتيحه، والمهزومُ يبقى بمفاتيحه بديلاً — فالعودةُ ترقيةٌ أخرى.
+// ══════════════════════════════════════════════════════
+router.put('/:id/promote', authenticate, async (req: Request, res: Response) => {
+  const db = getDB();
+  if (!db) return res.status(503).json({ error: 'قاعدة البيانات غير متوفرة' });
+  try {
+    const id = parseInt(req.params.id);
+    const [sound] = await db.select().from(soundEffects).where(eq(soundEffects.id, id)).limit(1);
+    if (!sound) return res.status(404).json({ error: 'الصوت غير موجود' });
+    await db.update(soundEffects).set({ isActive: true, updatedAt: new Date() } as any).where(eq(soundEffects.id, id));
+    const io = req.app.get('io');
+    if (io) io.emit('admin:sounds-updated');
+    res.json({ success: true });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
   }
 });
 

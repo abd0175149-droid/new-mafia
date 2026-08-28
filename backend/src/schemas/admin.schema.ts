@@ -253,6 +253,11 @@ export const soundEffects = pgTable('sound_effects', {
   isActive: boolean('is_active').default(true),
   uploadedBy: varchar('uploaded_by', { length: 100 }).default(''),
   createdAt: timestamp('created_at').defaultNow().notNull(),
+  // 🏁 آخرُ تعيين — به يُحسم الفائزُ حين يحمل ملفّان فعّالان المفتاحَ نفسَه.
+  //    كان الخادم **ينزع** المفتاحَ من الملفّ القديم نهائيّاً عند أيّ تداخل، فمن جرّب
+  //    بديلاً خسر الأصل بلا رجعة. الآن يبقى الاثنان، والأحدثُ تعييناً هو ما يُسمع،
+  //    والقديم «بديلٌ» يعود بضغطة. (`/:id/promote` يُحدّثه.)
+  updatedAt: timestamp('updated_at').defaultNow(),
 });
 
 // ── Tickets (نظام التذاكر المركزي — مستقل عن الأنشطة) ──

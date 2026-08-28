@@ -12,13 +12,23 @@ import { SOUND_GROUPS, ALL_SOUND_KEYS, SOUND_CATEGORIES, type SoundKeyDef } from
 const EVENT_GROUPS = SOUND_GROUPS;
 const ALL_EVENTS = ALL_SOUND_KEYS;
 
-type Coverage = Record<string, { id: number; name: string; filename: string; isActive: boolean; others: number }>;
+type FileBrief = { id: number; name: string; filename: string; isActive: boolean; sizeBytes: number };
+type Coverage = Record<string, { winner: FileBrief | null; alternatives: FileBrief[]; others: number;
+  id?: number; name?: string; filename?: string; isActive?: boolean }>;
 type KeyStatus = 'file' | 'inactive' | 'synth' | 'silent';
 function keyStatus(k: SoundKeyDef, cov: Coverage): KeyStatus {
   const c = cov[k.key];
-  if (c?.isActive) return 'file';
-  if (c) return 'inactive';
+  if (c?.winner) return 'file';
+  if (c && c.alternatives.length) return 'inactive';
   return k.synth ? 'synth' : 'silent';
+}
+/** ⚠️ ملفٌّ يخدم خلفيّةَ ليلٍ وخلفيّةَ نهارٍ معاً — طوران مختلفا الطبيعة */
+function fileConflict(fileId: number | undefined, sounds: SoundRecord[]): boolean {
+  if (!fileId) return false;
+  const f = sounds.find(x => x.id === fileId);
+  if (!f) return false;
+  const cats = new Set(f.eventKeys.map(k => ALL_EVENTS.find(e => e.key === k)?.cat).filter(Boolean));
+  return cats.has('ambientNight') && cats.has('ambientDay');
 }
 const STATUS_UI: Record<KeyStatus, { label: string; cls: string }> = {
   file:     { label: '📁 ملفّ',        cls: 'bg-green-500/15 text-green-400 border-green-500/25' },
@@ -46,6 +56,11 @@ export default function SoundsPage() {
   const [tab, setTab] = useState<'events' | 'files'>('events');
   const [coverage, setCoverage] = useState<Coverage>({});
   const [statusFilter, setStatusFilter] = useState<'all' | KeyStatus>('all');
+  // 🗺️ خريطةُ الأحداث: الحدثُ المختار، البحث، «الصامت أوّلاً»، ورفعٌ من داخل لوحة الحدث
+  const [selectedKey, setSelectedKey] = useState<string | null>(null);
+  const [search, setSearch] = useState('');
+  const [silentFirst, setSilentFirst] = useState(true);
+  const [uploadFor, setUploadFor] = useState<string | null>(null);
   const uploadFormRef = useRef<HTMLDivElement | null>(null);
   const [loading, setLoading] = useState(true);
 
@@ -317,6 +332,7 @@ export default function SoundsPage() {
         setAudioBuffer(null); setWaveformData([]); setAudioDuration(0);
         setTrimStart(0); setTrimEnd(0);
         if (fileInputRef.current) fileInputRef.current.value = '';
+        setUploadFor(null);
         fetchSounds();
       } else {
         setUploadError(data.error || 'فشل الرفع');
@@ -336,6 +352,14 @@ export default function SoundsPage() {
   const handleToggle = async (id: number) => {
     try {
       await fetch(`${API_URL}/api/sounds/${id}/toggle`, { method: 'PUT', headers });
+      fetchSounds();
+    } catch {}
+  };
+
+  // ── ⇄ اجعله الفعّال: ترقيةُ بديلٍ — لا نزعَ من القديم، يبقى بديلاً يعود بضغطة ──
+  const handlePromote = async (id: number) => {
+    try {
+      await fetch(`${API_URL}/api/sounds/${id}/promote`, { method: 'PUT', headers });
       fetchSounds();
     } catch {}
   };
@@ -392,106 +416,8 @@ export default function SoundsPage() {
     }
   }
 
-  return (
-    <div className="space-y-8" dir="rtl">
-      {/* Header */}
-      <div>
-        <h1 className="text-3xl font-black text-white">🔊 المؤثرات الصوتية</h1>
-        <div className="flex gap-2 mt-4">
-          {([['events', '📋 الأحداث'], ['files', '📂 الملفّات']] as const).map(([k, l]) => (
-            <button key={k} onClick={() => setTab(k)}
-              className={`px-4 py-2 rounded-xl text-sm font-bold transition ${tab === k ? 'bg-amber-500/20 text-amber-400 border border-amber-500/40' : 'bg-gray-800/60 text-gray-400 border border-gray-700/50 hover:text-white'}`}>
-              {l}
-            </button>
-          ))}
-        </div>
-        <p className="text-gray-500 text-sm mt-1 font-mono tracking-wide">SOUND EFFECTS MANAGER</p>
-      </div>
-
-      {/* ═══ الأحداث — خريطةُ ما يُسمع ═══ */}
-      {tab === 'events' && (() => {
-        const all = ALL_EVENTS.map(k => ({ k, st: keyStatus(k, coverage) }));
-        const count = (st: KeyStatus) => all.filter(x => x.st === st).length;
-        const catLabel = (c: string) => SOUND_CATEGORIES.find(x => x.key === c)?.labelAr || c;
-        const gotoUpload = (key: string, replace = false) => {
-          setSelectedKeys([key]);
-          setUploadName(replace ? `${ALL_EVENTS.find(e => e.key === key)?.label || key} — بديل` : (ALL_EVENTS.find(e => e.key === key)?.label || key));
-          setTab('files');
-          setTimeout(() => uploadFormRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 60);
-        };
-        return (
-          <div className="mb-8">
-            <div className="flex flex-wrap gap-2 mb-5">
-              {([['all', `الكلّ ${all.length}`], ['silent', `🔇 صامت ${count('silent')}`], ['synth', `🎛️ مركّب ${count('synth')}`], ['file', `📁 ملفّ ${count('file')}`], ['inactive', `⏸ معطَّل ${count('inactive')}`]] as const).map(([k, l]) => (
-                <button key={k} onClick={() => setStatusFilter(k as any)}
-                  className={`text-xs px-3 py-1.5 rounded-lg border transition ${statusFilter === k ? 'bg-amber-500/15 text-amber-400 border-amber-500/40' : 'bg-gray-800/50 text-gray-400 border-gray-700/50 hover:text-white'}`}>
-                  {l}
-                </button>
-              ))}
-            </div>
-            {count('silent') > 0 && statusFilter === 'all' && (
-              <p className="text-xs text-rose-300 bg-rose-500/[0.07] border border-rose-500/25 rounded-xl px-4 py-2.5 mb-4">
-                🔇 <b>{count('silent')}</b> حدثاً يُنادى في اللعبة ولا يُصدر شيئاً — لا ملفَّ له ولا نغمة. اضغط ⬆ بجواره لرفع ملفّ.
-              </p>
-            )}
-            <div className="space-y-5">
-              {EVENT_GROUPS.map(group => {
-                const rows = group.events.map(k => ({ k, st: keyStatus(k, coverage) }))
-                  .filter(x => statusFilter === 'all' || x.st === statusFilter);
-                if (rows.length === 0) return null;
-                const covered = group.events.filter(k => keyStatus(k, coverage) === 'file').length;
-                return (
-                  <div key={group.label}>
-                    <div className="flex items-center gap-3 mb-2">
-                      <h3 className="text-sm font-bold text-amber-400">{group.label}</h3>
-                      <span className="flex-1 h-px bg-gray-800" />
-                      <span className="text-[11px] text-gray-500 font-mono">{covered} / {group.events.length} بملفّ</span>
-                    </div>
-                    <div className="space-y-1.5">
-                      {rows.map(({ k, st }) => {
-                        const c = coverage[k.key];
-                        const ui = STATUS_UI[st];
-                        return (
-                          <div key={k.key} className={`flex items-center gap-3 rounded-xl px-3.5 py-2.5 border ${st === 'silent' ? 'bg-rose-500/[0.04] border-rose-500/20' : 'bg-gray-900/50 border-gray-800/60'}`}>
-                            <div className="flex-1 min-w-0">
-                              <p className="text-sm text-white font-bold truncate">{k.label}</p>
-                              <p className="text-[11px] text-gray-500 truncate">{k.desc} · <span className="text-gray-600">{catLabel(k.cat)}</span></p>
-                            </div>
-                            {c && (
-                              <span className="text-[11px] text-gray-400 font-mono truncate max-w-[160px] hidden md:inline" title={c.filename}>
-                                {c.name}{c.others > 0 && <span className="text-gray-600"> +{c.others}</span>}
-                              </span>
-                            )}
-                            <span className={`text-[10.5px] px-2 py-0.5 rounded-full border whitespace-nowrap ${ui.cls}`}>{ui.label}</span>
-                            <div className="flex gap-1 shrink-0">
-                              {c && (
-                                <button onClick={() => { const snd = sounds.find(x => x.id === c.id); if (snd) handlePlay(snd); }}
-                                  className="w-8 h-8 rounded-lg bg-gray-800 text-gray-300 hover:bg-gray-700 text-xs" title="استمع">▶</button>
-                              )}
-                              {c && !c.isActive && (
-                                <button onClick={() => handleToggle(c.id)}
-                                  className="w-8 h-8 rounded-lg bg-green-500/15 text-green-400 hover:bg-green-500/25 text-xs" title="فعّل الملفّ">✅</button>
-                              )}
-                              <button onClick={() => gotoUpload(k.key, !!c)}
-                                className={`w-8 h-8 rounded-lg text-xs ${st === 'silent' ? 'bg-amber-500/20 text-amber-400 hover:bg-amber-500/30' : 'bg-gray-800 text-gray-400 hover:text-white'}`}
-                                title={c ? 'ارفع ملفّاً بديلاً' : 'ارفع ملفّاً لهذا الحدث'}>
-                                {c ? '⇄' : '⬆'}
-                              </button>
-                            </div>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          </div>
-        );
-      })()}
-
-      {tab === 'files' && (<>
-      {/* ═══ Upload Form ═══ */}
+  // 📁 نموذجُ الرفع — يُعرض في تبويب الملفّات، أو داخل لوحة الحدث حين يبدأ الرفعُ منه
+  const uploadFormJsx = (
       <div className="bg-gray-900/60 border border-gray-800/50 rounded-2xl p-6 backdrop-blur-sm">
         <h2 ref={uploadFormRef as any} className="text-lg font-bold text-amber-400 mb-4">📁 رفع ملف صوتي جديد</h2>
 
@@ -505,7 +431,7 @@ export default function SoundsPage() {
             />
           </div>
           <div>
-            <label className="block text-sm text-gray-400 mb-1">الملف الصوتي (mp3, wav, ogg — حد أقصى 5MB)</label>
+            <label className="block text-sm text-gray-400 mb-1">الملف الصوتي (mp3, wav, ogg — حتى 50 م.ب)</label>
             <input
               ref={fileInputRef} type="file" accept="audio/*"
               onChange={e => handleFileSelect(e.target.files?.[0] || null)}
@@ -667,6 +593,208 @@ export default function SoundsPage() {
           )}
         </div>
       </div>
+  );
+
+  return (
+    <div className="space-y-8" dir="rtl">
+      {/* Header */}
+      <div>
+        <h1 className="text-3xl font-black text-white">🔊 المؤثرات الصوتية</h1>
+        <div className="flex gap-2 mt-4">
+          {([['events', '📋 الأحداث'], ['files', '📂 الملفّات']] as const).map(([k, l]) => (
+            <button key={k} onClick={() => setTab(k)}
+              className={`px-4 py-2 rounded-xl text-sm font-bold transition ${tab === k ? 'bg-amber-500/20 text-amber-400 border border-amber-500/40' : 'bg-gray-800/60 text-gray-400 border border-gray-700/50 hover:text-white'}`}>
+              {l}
+            </button>
+          ))}
+        </div>
+        <p className="text-gray-500 text-sm mt-1 font-mono tracking-wide">SOUND EFFECTS MANAGER</p>
+      </div>
+
+      {/* ═══ الأحداث — خريطةُ ما يُسمع ═══ */}
+      {tab === 'events' && (() => {
+        const all = ALL_EVENTS.map(k => ({ k, st: keyStatus(k, coverage) }));
+        const count = (st: KeyStatus) => all.filter(x => x.st === st).length;
+        const catLabel = (c: string) => SOUND_CATEGORIES.find(x => x.key === c)?.labelAr || c;
+        const q = search.trim().toLowerCase();
+        const matches = (k: SoundKeyDef) => !q || k.label.toLowerCase().includes(q) || k.key.includes(q) || k.desc.toLowerCase().includes(q);
+        const visible = (k: SoundKeyDef) => matches(k) && (statusFilter === 'all' || keyStatus(k, coverage) === statusFilter);
+        const silents = ALL_EVENTS.filter(k => keyStatus(k, coverage) === 'silent' && matches(k));
+        const sel = selectedKey ? ALL_EVENTS.find(k => k.key === selectedKey) || null : null;
+        const selSt = sel ? keyStatus(sel, coverage) : null;
+        const cov = sel ? coverage[sel.key] : undefined;
+        const winner = cov?.winner || null;
+        const alts = cov?.alternatives || [];
+        const conflict = fileConflict(winner?.id, sounds);
+        const startUpload = (k: SoundKeyDef) => {
+          setSelectedKey(k.key);
+          setSelectedKeys([k.key]);
+          setUploadName(k.label.replace(/^\S+\s/, ''));
+          setUploadFor(k.key);
+        };
+        const fmt = (b: number) => b >= 1048576 ? `${(b / 1048576).toFixed(1)} م.ب` : `${Math.round(b / 1024)} ك.ب`;
+        const pick = (key: string) => { setSelectedKey(key); if (uploadFor && uploadFor !== key) setUploadFor(null); };
+
+        const EventRow = ({ k }: { k: SoundKeyDef }) => {
+          const st = keyStatus(k, coverage), c = coverage[k.key], ui = STATUS_UI[st];
+          const isSel = selectedKey === k.key;
+          return (
+            <button onClick={() => pick(k.key)}
+              className={`w-full text-right flex items-center gap-2.5 rounded-xl px-3 py-2 border transition ${
+                isSel ? 'bg-amber-500/[0.08] border-amber-500/50' : st === 'silent' ? 'bg-rose-500/[0.04] border-rose-500/20 hover:border-rose-500/40' : 'bg-gray-900/50 border-gray-800/60 hover:border-gray-700'
+              }`}>
+              <div className="flex-1 min-w-0">
+                <p className="text-[13px] text-white font-bold truncate">{k.label}</p>
+                <p className="text-[10.5px] text-gray-500 truncate">
+                  {c?.winner ? c.winner.name : st === 'synth' ? 'نغمة مركّبة' : '—'}
+                  {fileConflict(c?.winner?.id, sounds) && <span className="text-amber-400"> ⚠️</span>}
+                </p>
+              </div>
+              <span className={`text-[10px] px-2 py-0.5 rounded-full border whitespace-nowrap ${ui.cls}`}>{ui.label}</span>
+            </button>
+          );
+        };
+
+        return (
+          <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)] gap-5 mb-8">
+            {/* ── اليمين: الأحداث ── */}
+            <div className="min-w-0">
+              <div className="flex flex-wrap gap-2 mb-3 items-center">
+                <input value={search} onChange={e => setSearch(e.target.value)} placeholder="🔍 ابحث عن حدث…"
+                  className="flex-1 min-w-[160px] bg-gray-900 border border-gray-700/60 rounded-lg px-3 py-1.5 text-sm text-white focus:outline-none focus:border-amber-500/50" />
+                {([['all', `الكلّ ${all.length}`], ['silent', `🔇 ${count('silent')}`], ['synth', `🎛️ ${count('synth')}`], ['file', `📁 ${count('file')}`], ['inactive', `⏸ ${count('inactive')}`]] as const).map(([k, l]) => (
+                  <button key={k} onClick={() => setStatusFilter(k as any)}
+                    className={`text-[11px] px-2.5 py-1.5 rounded-lg border transition ${statusFilter === k ? 'bg-amber-500/15 text-amber-400 border-amber-500/40' : 'bg-gray-800/50 text-gray-400 border-gray-700/50 hover:text-white'}`}>
+                    {l}
+                  </button>
+                ))}
+              </div>
+
+              <div className="space-y-4 max-h-[70vh] overflow-y-auto pr-1">
+                {silentFirst && statusFilter === 'all' && silents.length > 0 && (
+                  <div className="bg-rose-500/[0.05] border border-rose-500/25 rounded-2xl p-3">
+                    <div className="flex items-center justify-between mb-2">
+                      <p className="text-[12.5px] font-bold text-rose-300">🔇 {silents.length} أحداثٍ لا تُصدر شيئاً</p>
+                      <button onClick={() => setSilentFirst(false)} className="text-[10px] text-gray-500 hover:text-white">أخفِ</button>
+                    </div>
+                    <div className="space-y-1.5">{silents.map(k => <EventRow key={k.key} k={k} />)}</div>
+                  </div>
+                )}
+                {EVENT_GROUPS.map(group => {
+                  const rows = group.events.filter(k => visible(k) && !(silentFirst && statusFilter === 'all' && keyStatus(k, coverage) === 'silent'));
+                  if (rows.length === 0) return null;
+                  const covered = group.events.filter(k => keyStatus(k, coverage) === 'file').length;
+                  return (
+                    <div key={group.label}>
+                      <div className="flex items-center gap-3 mb-1.5">
+                        <h3 className="text-[12px] font-bold text-amber-400 font-mono tracking-wide">{group.label}</h3>
+                        <span className="flex-1 h-px bg-gray-800" />
+                        <span className="text-[10.5px] text-gray-500 font-mono">{covered}/{group.events.length}</span>
+                      </div>
+                      <div className="space-y-1.5">{rows.map(k => <EventRow key={k.key} k={k} />)}</div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* ── اليسار: لوحةُ الحدث المختار ── */}
+            <div className="min-w-0 lg:sticky lg:top-4 self-start">
+              {!sel ? (
+                <div className="bg-gray-900/40 border border-dashed border-gray-700/60 rounded-2xl p-8 text-center text-gray-500 text-sm">
+                  اختر حدثاً من القائمة لترى ما يُسمع عنده وتبدّله
+                </div>
+              ) : (
+                <div className="bg-gray-900/60 border border-gray-800/60 rounded-2xl p-5 space-y-4">
+                  <div>
+                    <p className="text-[10.5px] text-gray-500 font-mono">{sel.key} · {catLabel(sel.cat)}</p>
+                    <h2 className="text-lg font-black text-white flex items-center gap-2 flex-wrap">
+                      {sel.label}
+                      <span className={`text-[10px] px-2 py-0.5 rounded-full border ${STATUS_UI[selSt!].cls}`}>{STATUS_UI[selSt!].label}</span>
+                    </h2>
+                    <p className="text-[12px] text-gray-400 mt-1">{sel.desc}</p>
+                  </div>
+
+                  {winner ? (
+                    <div className="bg-gray-950/60 border border-gray-800 rounded-xl p-3.5">
+                      <p className="text-[10.5px] text-gray-500 mb-1.5">الملفّ الحاليّ — ما يُسمع الآن</p>
+                      <div className="flex items-center justify-between gap-3">
+                        <div className="min-w-0">
+                          <p className="text-[13.5px] font-bold text-white truncate">{winner.name}</p>
+                          <p className="text-[10.5px] text-gray-500 font-mono">{fmt(winner.sizeBytes)}{(() => { const f = sounds.find(x => x.id === winner.id); return f && f.eventKeys.length > 1 ? ` · يخدم ${f.eventKeys.length} أحداث` : ''; })()}</p>
+                        </div>
+                        <button onClick={() => { const f = sounds.find(x => x.id === winner.id); if (f) handlePlay(f); }}
+                          className={`w-9 h-9 rounded-lg text-sm ${playingId === winner.id ? 'bg-amber-500 text-black' : 'bg-gray-800 text-gray-200 hover:bg-gray-700'}`}>
+                          {playingId === winner.id ? '⏹' : '▶'}
+                        </button>
+                      </div>
+                      {conflict && (
+                        <p className="mt-2.5 text-[11px] text-amber-300 bg-amber-500/[0.07] border border-amber-500/25 rounded-lg px-3 py-2">
+                          ⚠️ الملفُّ نفسه يخدم خلفيّةَ ليلٍ وخلفيّةَ نهارٍ معاً — طوران مختلفا الطبيعة. ارفع لهذا الحدث ملفّه الخاصّ أدناه.
+                        </p>
+                      )}
+                    </div>
+                  ) : (
+                    <div className={`rounded-xl p-3.5 text-[12px] border ${selSt === 'synth' ? 'bg-amber-500/[0.06] border-amber-500/25 text-amber-300' : 'bg-rose-500/[0.05] border-rose-500/25 text-rose-300'}`}>
+                      {selSt === 'synth' ? '🎛️ يعمل بنغمةٍ مركّبة اصطناعيّة — ارفع ملفّاً ليصير حقيقيّاً.' : selSt === 'inactive' ? '⏸ له ملفٌّ معطَّل في البدائل — فعّله أو ارفع غيره.' : '🔇 لا يُصدر شيئاً — ارفع ملفّاً.'}
+                    </div>
+                  )}
+
+                  <div>
+                    <div className="flex items-center gap-3 mb-1.5">
+                      <p className="text-[11px] font-bold text-gray-400">البدائل في المكتبة</p>
+                      <span className="flex-1 h-px bg-gray-800" />
+                      <span className="text-[10.5px] text-gray-600 font-mono">{alts.length}</span>
+                    </div>
+                    {alts.length === 0 ? (
+                      <p className="text-[11px] text-gray-600 px-1">لا بديل — ارفع واحداً ويبقى الحاليّ هنا للعودة إليه</p>
+                    ) : (
+                      <div className="space-y-1.5">
+                        {alts.map(a => (
+                          <div key={a.id} className="flex items-center gap-2.5 bg-gray-950/50 border border-gray-800 rounded-xl px-3 py-2">
+                            <div className="flex-1 min-w-0">
+                              <p className="text-[12.5px] text-gray-200 truncate">{a.name}</p>
+                              <p className="text-[10px] text-gray-600 font-mono">{fmt(a.sizeBytes)} · {a.isActive ? 'فعّال — مهزوم على هذا الحدث' : 'معطَّل'}</p>
+                            </div>
+                            <button onClick={() => { const f = sounds.find(x => x.id === a.id); if (f) handlePlay(f); }}
+                              className={`w-8 h-8 rounded-lg text-xs ${playingId === a.id ? 'bg-amber-500 text-black' : 'bg-gray-800 text-gray-300 hover:bg-gray-700'}`}>
+                              {playingId === a.id ? '⏹' : '▶'}
+                            </button>
+                            <button onClick={() => handlePromote(a.id)}
+                              className="text-[11px] font-bold px-2.5 py-1.5 rounded-lg border border-amber-500/40 bg-amber-500/10 text-amber-400 hover:bg-amber-500/20">
+                              ⇄ اجعله الفعّال
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+
+                  {uploadFor === sel.key ? (
+                    <div>
+                      {winner && (
+                        <p className="text-[11px] text-gray-400 bg-gray-950/60 border border-gray-800 rounded-lg px-3 py-2 mb-2">
+                          ℹ️ الجديدُ يصير الفعّال، ويبقى «{winner.name}» في البدائل — تعود إليه بضغطة.
+                        </p>
+                      )}
+                      {uploadFormJsx}
+                      <button onClick={() => setUploadFor(null)} className="mt-2 text-[11px] text-gray-500 hover:text-white">إلغاء الرفع</button>
+                    </div>
+                  ) : (
+                    <button onClick={() => startUpload(sel)}
+                      className={`w-full py-2.5 rounded-xl font-bold text-sm transition ${selSt === 'silent' ? 'bg-gradient-to-r from-amber-500 to-amber-600 text-black' : 'border border-amber-500/40 bg-amber-500/10 text-amber-400 hover:bg-amber-500/20'}`}>
+                      ⬆ {winner ? 'ارفع ملفّاً بديلاً لهذا الحدث' : 'ارفع ملفّاً لهذا الحدث'}
+                    </button>
+                  )}
+                </div>
+              )}
+            </div>
+          </div>
+        );
+      })()}
+
+      {tab === 'files' && (<>
+      {uploadFor === null && uploadFormJsx}
 
       {/* ═══ Sounds List ═══ */}
       <div>
