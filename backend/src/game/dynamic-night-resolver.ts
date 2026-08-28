@@ -155,9 +155,13 @@ export async function getAvailableTargets(
       return [];
   }
 
-  // استثناء آخر هدف (قيد الطبيب)
+  // استثناء آخر هدف (قيد الطبيب) — «لا تكرار جولتين متتاليتين»، والنفسُ هدفٌ كأيّ هدف
+  // 🔴 بمفتاح **اللاعب والقدرة** لا القدرةِ وحدها: كان المفتاح `PROTECT` مشتركاً، فحين
+  //    يموت الطبيب وتصحو الممرّضة ترث آخرَ هدفٍ حماه هو ويُحذف من قائمتها بلا سبب.
+  //    والاحتياطُ على المفتاح القديم للعبةٍ بدأت قبل هذا التغيير.
   if (ability.excludeLastTarget) {
-    const lastTarget = dynamicNight.lastTargets[abilityId];
+    const lastTarget = dynamicNight.lastTargets[actionKey({ performerPhysicalId, abilityId })]
+      ?? dynamicNight.lastTargets[abilityId];
     if (lastTarget !== undefined) {
       candidates = candidates.filter(p => p.physicalId !== lastTarget);
     }
@@ -462,8 +466,8 @@ export async function resolveNightDynamic(
         break;
     }
 
-    // تحديث آخر هدف
-    dynamicNight.lastTargets[action.abilityId] = action.targetPhysicalId!;
+    // تحديث آخر هدف — بمفتاح اللاعب والقدرة (انظر قيد excludeLastTarget أعلاه)
+    dynamicNight.lastTargets[actionKey(action)] = action.targetPhysicalId!;
   }
 
   // ═══ 🔥 العنقاء — المرحلة ٤٫٥ ═══
