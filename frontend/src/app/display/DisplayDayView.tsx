@@ -6,16 +6,12 @@ import { getSocket } from '@/lib/socket';
 import MafiaCard from '@/components/MafiaCard';
 import CircularTimer from '@/components/CircularTimer';
 import Image from 'next/image';
-import { playGameSound, playEliminationSound, playCeremonySound } from '@/lib/soundManager';
+import { playEliminationSound, playCeremonySound } from '@/lib/soundManager';
 import EliminationFx from '@/components/EliminationFx';
 
-// ── مؤثرات صوتية — يستخدم soundManager المركزي ──
-const playAudioBeep = (type: 'tick' | 'buzzer') => {
-  playGameSound(type === 'tick' ? 'timer_tick' : 'timer_buzzer');
-};
-
-const playVoteSound = () => playGameSound('vote_cast');
-const playShiftSound = () => playGameSound('vote_shift');
+// 🔊 لا نداءَ صوتٍ محلّيٍّ في هذه الشاشة — الموجّه هو المصدر (setLocalPlayback(false)).
+//    المؤقّتُ والتصويتُ وكشفُ المُسكَت واكتمالُ التصويت تُعزف عنده وتصل مرآةً.
+//    الاستثناءُ الوحيدُ المشروع: طبولُ المراسم وضربتُها — أدناه.
 
 // ── 🥁 مؤثرات مراسم الكشف — تمرّ بمدير الصوت لا بسياقٍ خاصّ ──
 //
@@ -175,9 +171,7 @@ export default function DisplayDayView({ roomId, players, initialDiscussionState
       
       if (remaining !== prevTimeRef.current) {
         if (remaining <= 10 && remaining > 0) {
-          playAudioBeep('tick');
         } else if (remaining === 0 && prevTimeRef.current > 0) {
-          playAudioBeep('buzzer');
         }
         prevTimeRef.current = remaining;
       }
@@ -192,8 +186,7 @@ export default function DisplayDayView({ roomId, players, initialDiscussionState
       const elapsed = Math.floor((Date.now() - justTimer.startTime) / 1000);
       const remaining = Math.max(0, justTimer.timeLimitSeconds - elapsed);
       setJustTimeRemaining(remaining);
-      if (remaining <= 10 && remaining > 0) playAudioBeep('tick');
-      if (remaining === 0) { playAudioBeep('buzzer'); clearInterval(interval); }
+      if (remaining === 0) clearInterval(interval);
     }, 200);
     return () => clearInterval(interval);
   }, [justTimer]);
@@ -274,7 +267,6 @@ export default function DisplayDayView({ roomId, players, initialDiscussionState
 
     const onShowSilenced = (data: { physicalId: number }) => {
       setSilencedPlayerId(data.physicalId);
-      playGameSound('day_show_silenced');
       // يبقى ظاهراً حتى الليدر يضغط NEXT — يختفي عند تغيّر currentSpeakerId عبر discussion-updated
     };
 
@@ -328,7 +320,6 @@ export default function DisplayDayView({ roomId, players, initialDiscussionState
     socket.on('day:mayor-revealed', onMayorRevealed);
 
     const onVotingComplete = () => {
-      playGameSound('voting_complete');
     };
     socket.on('day:voting-complete', onVotingComplete);
 
@@ -467,13 +458,11 @@ export default function DisplayDayView({ roomId, players, initialDiscussionState
   useEffect(() => {
     if (phase === 'VOTING') {
       if (totalVotesCast > prevVotesRef.current) {
-        playVoteSound();
       }
       prevVotesRef.current = totalVotesCast;
 
       if (currentOrderStr !== prevOrderRef.current) {
         if (prevOrderRef.current) {
-           playShiftSound();
         }
         prevOrderRef.current = currentOrderStr;
       }

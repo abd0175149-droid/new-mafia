@@ -3,7 +3,6 @@
 import { useEffect, useRef } from 'react';
 import { motion } from 'framer-motion';
 import MafiaCard from '@/components/MafiaCard';
-import { playEventSound, playGameSound } from '@/lib/soundManager';
 import { Role, ROLE_NAMES, ROLE_ICONS } from '@/lib/constants';
 
 // ══════════════════════════════════════════════════════
@@ -57,10 +56,6 @@ interface NightAnimProps {
 // ══════════════════════════════════════════
 function AssassinationAnim() {
   const slashRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    playEventSound('night_assassination');
-  }, []);
 
   return (
     <div className="relative w-full h-[300px] flex items-center justify-center overflow-hidden">
@@ -132,9 +127,6 @@ function AssassinationAnim() {
 // 👁️ Investigation Animation — عين تفتح وتغلق
 // ══════════════════════════════════════════
 function InvestigationAnim() {
-  useEffect(() => {
-    playEventSound('night_investigation');
-  }, []);
 
   return (
     <div className="relative w-full h-[300px] flex items-center justify-center overflow-hidden">
@@ -180,9 +172,6 @@ function InvestigationAnim() {
 // 🛡️ Protection Animation — درع يظهر ويتوهج
 // ══════════════════════════════════════════
 function ProtectionAnim() {
-  useEffect(() => {
-    playEventSound('night_protection');
-  }, []);
 
   return (
     <div className="relative w-full h-[300px] flex items-center justify-center overflow-hidden">
@@ -228,8 +217,6 @@ function ProtectionAnim() {
 // ══════════════════════════════════════════
 function SnipeAnim() {
   useEffect(() => {
-    const timer = setTimeout(() => playEventSound('night_snipe'), 600);
-    return () => clearTimeout(timer);
   }, []);
 
   return (
@@ -300,9 +287,6 @@ function SnipeAnim() {
 // 🤐 Silence Animation — شريط عبر الفم
 // ══════════════════════════════════════════
 function SilenceAnim() {
-  useEffect(() => {
-    playEventSound('night_silence');
-  }, []);
 
   return (
     <div className="relative w-full h-[300px] flex items-center justify-center overflow-hidden">
@@ -356,9 +340,6 @@ function SilenceAnim() {
 // 🔪 Assassinate Animation — السفّاح ليلاً
 // ══════════════════════════════════════════
 function AssassinateAnim() {
-  useEffect(() => {
-    playEventSound('night_assassin');
-  }, []);
 
   return (
     <div className="relative w-full h-[300px] flex items-center justify-center overflow-hidden">
@@ -407,7 +388,6 @@ function AssassinateAnim() {
 // 🔪 مساعد صوت: ASSASSIN_KILL (صباحي)
 // ══════════════════════════════════════════
 function AssassinKillSound() {
-  useEffect(() => { playGameSound('morning_assassin_kill'); }, []);
   return null;
 }
 
@@ -415,7 +395,6 @@ function AssassinKillSound() {
 // 👮 مساعد صوت: POLICEWOMAN_EXECUTION
 // ══════════════════════════════════════════
 function PolicewomanSound() {
-  useEffect(() => { playGameSound('morning_policewoman'); }, []);
   return null;
 }
 
@@ -423,7 +402,6 @@ function PolicewomanSound() {
 // 🩸 Morning: Assassination Success
 // ══════════════════════════════════════════
 function MorningAssassinationAnim({ data, players }: NightAnimProps) {
-  useEffect(() => { playGameSound('morning_assassination_success'); }, []);
   const targetRole = data.extra?.targetRole || null;
 
   return (
@@ -487,7 +465,6 @@ function MorningAssassinationAnim({ data, players }: NightAnimProps) {
 // 🛡️ Morning: Protection Success
 // ══════════════════════════════════════════
 function MorningProtectionAnim() {
-  useEffect(() => { playGameSound('morning_protection_success'); }, []);
 
   return (
     <div className="text-center py-4">
@@ -524,7 +501,6 @@ function MorningProtectionAnim() {
 // 🎯 Morning: Snipe Results
 // ══════════════════════════════════════════
 function MorningSnipeAnim({ data, players, success }: NightAnimProps & { success: boolean }) {
-  useEffect(() => { playGameSound(success ? 'morning_snipe_mafia' : 'morning_snipe_citizen'); }, []);
   const targetRole = data.extra?.targetRole || null;
   const sniperPhysicalId = data.extra?.sniperPhysicalId as number | undefined;
   const sniperName = data.extra?.sniperName as string | undefined;
@@ -632,7 +608,6 @@ function MorningSnipeAnim({ data, players, success }: NightAnimProps & { success
 // 🤐 Morning: Silenced Player
 // ══════════════════════════════════════════
 function MorningSilencedAnim({ data, players }: NightAnimProps) {
-  useEffect(() => { playGameSound('morning_silenced'); }, []);
 
   return (
     <div className="text-center py-4">
@@ -691,9 +666,6 @@ function MorningSilencedAnim({ data, players }: NightAnimProps) {
 // 🧙‍♀️ Witch Disable Ability Animation — سحر ووهج بنفسجي
 // ══════════════════════════════════════════
 function WitchAnim() {
-  useEffect(() => {
-    playEventSound('night_witch');
-  }, []);
 
   return (
     <div className="relative w-full h-[300px] flex items-center justify-center overflow-hidden">
@@ -757,7 +729,6 @@ function WitchAnim() {
 // 🧙‍♀️ Morning: Ability Disabled
 // ══════════════════════════════════════════
 function MorningAbilityDisabledAnim({ data, players }: NightAnimProps) {
-  useEffect(() => { playGameSound('morning_ability_disabled'); }, []);
   const disabledRole = data.extra?.disabledRole as Role | null;
   const roleNameAr = disabledRole ? (ROLE_NAMES[disabledRole] || disabledRole) : 'مجهول';
   const roleIcon = disabledRole ? (ROLE_ICONS[disabledRole] || '❓') : '❓';

@@ -14,7 +14,7 @@ import LeaderNightView from './LeaderNightView';
 import { SeatMoveProvider, SeatMoveConsumer, SeatMoveTargets, SeatMoveBoardToggle } from './SeatMove';
 import { AntiCheatProvider, AntiCheatToggle } from './AntiCheatWatch';
 import { AttendanceMapToggle } from './AttendanceMap';
-import { playGameSound, playAmbientSound, stopAmbientSound, stopOneShotSounds, playEliminationSound, playLocalSound, loadSoundMap, reloadSoundMap, setSoundMirror, primeAudio, setLocalMuted } from '@/lib/soundManager';
+import { playGameSound, playAmbientSound, stopAmbientSound, stopOneShotSounds, playEliminationSound, playLocalSound, loadSoundMap, reloadSoundMap, setSoundMirror, primeAudio, setLocalMuted, playNightStepAmbient, playEventSound } from '@/lib/soundManager';
 import { getSocket } from '@/lib/socket';
 import { ROLE_NAMES } from '@/lib/constants';
 import { swalConfirm, swalHtmlConfirm, swalToast, swalAlert } from '@/lib/swal';
@@ -201,6 +201,8 @@ export default function LeaderPage() {
   const PHASE_STING: Record<string, string> = {
     NIGHT: 'phase_night_start', DAY_DISCUSSION: 'phase_day_start',
     DAY_VOTING: 'phase_voting_start', DAY_ELIMINATION: 'phase_elimination',
+    // 🔄 التعادل — كان يُنادى من الشاشة وحدها (مقطوع) فلم يُسمع قطّ
+    DAY_TIEBREAKER: 'day_tie', DAY_REVEALED: 'day_tie',
   };
   // 🌅 خريطة صوت كل حدث في ملخّص الليلة (الأوتو) — لحظة كشفه على شاشة العرض
   const MORNING_SOUND_BY_TYPE: Record<string, string> = {
@@ -1040,6 +1042,9 @@ export default function LeaderPage() {
 
     // 💣 نتيجة القنبلة — بعد قرار الليدر
     const offBombResult = on('day:bomb-result', (data: any) => {
+      // 💣 الصوتُ من الموجّه (المصدر): مراسمُ القنبلة على الشاشة لها مرحلةُ «انفجار»
+      //    بلا أيّ نداء صوت، وملفُّ bomb_explosion مرفوعٌ وفعّالٌ ولم يُسمع مرّة.
+      if (data?.bombEliminated?.length > 0) localSound(() => playEventSound('bomb_explosion', 4000));
       setGameState(prev => {
         if (!prev) return prev;
         const updatedPlayers = prev.players.map((p: any) => {
@@ -1182,6 +1187,35 @@ export default function LeaderPage() {
       setAutoNightStep(prev => prev ? { ...prev, dispatched: true } : null);
     });
     // مرحلة الموافقة من الليدر
+    // 🌙 خطوةُ الليل (النمط اليدويّ): فراشُ الخطوة + صوتُ الساحرة — من الموجّه.
+    // 🔴 كان `playNightStepAmbient` يُنادى في الشاشة وحدها، وتشغيلُها المحلّيّ مطفأ —
+    //    فملفُّ ٤٫٧ ميغا المربوطُ بستّة مفاتيح خطواتٍ لم يُعزف مرّة. والساحرةُ لم يكن لها
+    //    نداءٌ عند الموجّه إطلاقاً. المصدرُ هو الموجّه، فمن هنا يُبَثّ.
+    const offNightStepSound = on('night:step-info', (d: any) => {
+      const st = String(d?.stepType || '').toUpperCase();
+      if (!st) return;
+      localSound(() => playNightStepAmbient(st));
+      if (st === 'WITCH' || st === 'DISABLE_ABILITY') localSound(() => playEventSound('night_witch', 2500));
+    });
+
+    // 🌙 أصواتُ تنفيذ خطوات الليل — كانت تُنادى من حركات الشاشة وحدها (مقطوعة)،
+    //    فسبعةُ أصواتٍ لها ملفّاتٌ حقيقيّة على الإنتاج لم تُسمع قطّ. الشاشةُ تعرض
+    //    الحركة على `night:animation`، والموجّهُ يعزف صوتَها على الحدث نفسه.
+    const NIGHT_ANIM_SOUND: Record<string, string> = {
+      ASSASSINATION_ATTEMPT: 'night_assassination', INVESTIGATION: 'night_investigation',
+      PROTECTION: 'night_protection', SNIPE: 'night_snipe', SILENCE: 'night_silence',
+      DISABLE_ABILITY: 'night_witch', ASSASSINATE: 'night_assassin',
+    };
+    const offNightAnimSound = on('night:animation', (d: any) => {
+      const key = NIGHT_ANIM_SOUND[String(d?.type || '')];
+      if (key) localSound(() => playEventSound(key, 3000));
+    });
+
+    // ✅ اكتمالُ التصويت — كان يُنادى من الشاشة وحدها (مقطوع) فلم يُسمع قطّ
+    const offVotingCompleteSound = on('day:voting-complete', () => {
+      localSound(() => playGameSound('voting_complete'));
+    });
+
     // 🌙 الليلةُ الواحدة — ثلاثةُ أحداثٍ تحلّ محلّ دورة الطابور
     const offOneStarted = on('night:one-started', (d: any) => {
       setOneNight({ deadline: d?.deadline ?? null, acting: d?.acting ?? 0, total: d?.total ?? 0 });
@@ -1576,6 +1610,9 @@ export default function LeaderPage() {
       offAutoStarted();
       offAutoStepReady();
       offAutoStepStarted();
+      offNightStepSound();
+      offNightAnimSound();
+      offVotingCompleteSound();
       offAutoStepApproval();
       offPolicewomanAvailable();
       offVictorySting();

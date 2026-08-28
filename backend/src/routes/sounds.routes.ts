@@ -65,6 +65,37 @@ router.get('/', authenticate, async (_req: Request, res: Response) => {
 });
 
 // ══════════════════════════════════════════════════════
+// GET /api/sounds/coverage — لكلّ مفتاحٍ له صفّ: ملفُّه وحالتُه
+// 🔴 تُجيب لوحةُ الأدمن بها عن سؤالها الحقيقيّ: «ماذا يُسمع عند كلّ حدث، وما الصامت؟»
+//    الكتالوجُ في الواجهة (lib/sound-keys.ts)، والخادمُ يقول فقط أيُّها له ملفٌّ —
+//    فالمفتاحُ الذي لا يعود هنا صامتٌ ما لم يكن له نغمةٌ مركّبة.
+// ══════════════════════════════════════════════════════
+router.get('/coverage', authenticate, async (_req: Request, res: Response) => {
+  const db = getDB();
+  if (!db) return res.json({ success: true, coverage: {} });
+  try {
+    const rows = await db.select({
+      id: soundEffects.id, name: soundEffects.name, filename: soundEffects.filename,
+      isActive: soundEffects.isActive, eventKeys: soundEffects.eventKeys,
+    }).from(soundEffects);
+
+    // مفتاح → الملفُّ الفعّال إن وُجد، وإلّا آخرُ ملفٍّ معطَّل (كي يُرى أنّ هناك ما يُفعَّل)
+    const coverage: Record<string, { id: number; name: string; filename: string; isActive: boolean; others: number }> = {};
+    for (const r of rows) {
+      for (const k of ((r.eventKeys as string[]) || [])) {
+        const cur = coverage[k];
+        if (!cur) { coverage[k] = { id: r.id, name: r.name, filename: r.filename, isActive: !!r.isActive, others: 0 }; continue; }
+        cur.others++;
+        if (!cur.isActive && r.isActive) coverage[k] = { id: r.id, name: r.name, filename: r.filename, isActive: true, others: cur.others };
+      }
+    }
+    res.json({ success: true, coverage });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ══════════════════════════════════════════════════════
 // GET /api/sounds/active-map — خريطة الأصوات المفعّلة
 // يُستخدم من شاشة العرض (Frontend) لتحميل الأصوات المخصصة
 // ══════════════════════════════════════════════════════

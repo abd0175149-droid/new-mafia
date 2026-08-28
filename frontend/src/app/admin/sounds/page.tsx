@@ -6,151 +6,26 @@ import { swalConfirm } from '@/lib/swal';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || '';
 
-// ── تعريف جميع الأحداث الصوتية ──
-const EVENT_GROUPS = [
-  {
-    label: '🏠 اللوبي',
-    events: [
-      { key: 'ambient_lobby', label: '🏠 صوت خلفي للوبي', desc: 'يعمل أثناء انتظار اللاعبين في اللوبي ويتكرر (اختياري)' },
-    ],
-  },
-  {
-    label: '☀️ مراحل النهار (خلفية)',
-    events: [
-      { key: 'ambient_day', label: '☀️ صوت خلفي للنقاش', desc: 'يعمل أثناء مرحلة النقاش ويتكرر' },
-      { key: 'ambient_voting', label: '🗳️ صوت خلفي للتصويت', desc: 'يعمل فقط أثناء مرحلة التصويت المفتوح ويتكرر' },
-      { key: 'ambient_justification', label: '⚖️ صوت خلفي للتبرير', desc: 'يعمل أثناء مرحلة التبرير ويتكرر' },
-    ],
-  },
-  {
-    label: '🌙 مراحل الليل (خلفية)',
-    events: [
-      { key: 'ambient_night', label: '🌙 صوت خلفي لليل', desc: 'يعمل كخلفية افتراضية طوال مرحلة الليل ويتكرر' },
-      { key: 'ambient_night_kill', label: '🔪 خلفية الاغتيال', desc: 'يعمل أثناء انتظار اختيار هدف الاغتيال' },
-      { key: 'ambient_night_silence', label: '🤐 خلفية الإسكات', desc: 'يعمل أثناء انتظار اختيار هدف الإسكات' },
-      { key: 'ambient_night_investigate', label: '👁️ خلفية التحقيق', desc: 'يعمل أثناء انتظار اختيار هدف التحقيق' },
-      { key: 'ambient_night_protect', label: '🛡️ خلفية الحماية', desc: 'يعمل أثناء انتظار اختيار هدف الحماية' },
-      { key: 'ambient_night_snipe', label: '🎯 خلفية القنص', desc: 'يعمل أثناء انتظار اختيار هدف القنص' },
-      { key: 'ambient_night_assassin', label: '🔪 خلفية السفّاح', desc: 'يعمل أثناء انتظار اختيار هدف السفّاح' },
-    ],
-  },
-  {
-    label: '🔪 أحداث الليل (تنفيذ)',
-    events: [
-      { key: 'night_assassination', label: '🔪 تنفيذ اغتيال', desc: 'عند تنفيذ حدث الاغتيال' },
-      { key: 'night_investigation', label: '👁️ تنفيذ تحقيق', desc: 'عند تنفيذ تحقيق الشريف' },
-      { key: 'night_protection', label: '🛡️ تنفيذ حماية', desc: 'عند تنفيذ الحماية الطبية' },
-      { key: 'night_snipe', label: '🎯 تنفيذ قنص', desc: 'عند تنفيذ تصويب القناص' },
-      { key: 'night_silence', label: '🤐 تنفيذ إسكات', desc: 'عند تنفيذ الإسكات' },
-      { key: 'night_assassin', label: '🔪 تنفيذ السفّاح', desc: 'عند تنفيذ اغتيال السفّاح' },
-    ],
-  },
-  {
-    label: '☀️ ملخص الصباح',
-    events: [
-      { key: 'ambient_morning', label: '☀️ صوت خلفي للصباح', desc: 'يعمل أثناء عرض ملخص الصباح ويتكرر (اختياري)' },
-      { key: 'morning_assassination_success', label: '🩸 اغتيال ناجح', desc: 'عند كشف نجاح الاغتيال' },
-      { key: 'morning_protection_success', label: '🛡️ نجاة بالحماية', desc: 'عند نجاح الحماية' },
-      { key: 'morning_snipe_mafia', label: '🎯 قنص ناجح', desc: 'القناص أصاب مافيا' },
-      { key: 'morning_snipe_citizen', label: '💀 قنص فاشل', desc: 'القناص أصاب مواطن' },
-      { key: 'morning_silenced', label: '🤐 إسكات لاعب', desc: 'تم إسكات لاعب' },
-      { key: 'morning_assassin_kill', label: '🔪 اغتيال السفّاح', desc: 'عند كشف أن السفّاح اغتال في الصباح' },
-      { key: 'morning_policewoman', label: '👮 صلاحية الشرطية', desc: 'عند تنفيذ صلاحية الشرطية' },
-      { key: 'morning_ability_disabled', label: '🧙 تعطيل قدرة', desc: 'عند كشف تعطيل الساحرة لقدرة لاعب' },
-      // 🔥 العنقاء — ثلاثةُ مواضعَ لا واحد: نهوضُه، واحتراقُ مَن مدّ يدَه، ولعنةُ رماده
-      { key: 'morning_phoenix_rebirth', label: '🔥 العنقاء نهض من رماده', desc: 'محاولةُ إخراجٍ ليليّة فشلت — العنقاء واقف' },
-      { key: 'morning_phoenix_burn', label: '🔥 احترق مَن حاول قتل العنقاء', desc: 'خروجُ المُنفّذ بنار العنقاء' },
-      { key: 'morning_phoenix_ash', label: '🜂 لعنة الرماد', desc: 'أعدمته المدينة فأخذ معه أحد مَن صوّتوا عليه' },
-    ],
-  },
-  {
-    label: '💀 أصوات الإقصاء',
-    events: [
-      { key: 'elimination_godfather', label: '👑 إقصاء شيخ المافيا', desc: 'صوت خاص عند إقصاء شيخ المافيا (اختياري — يستخدم صوت المافيا كبديل)' },
-      { key: 'elimination_silencer', label: '🤐 إقصاء قص المافيا', desc: 'صوت خاص عند إقصاء القص (اختياري — يستخدم صوت المافيا كبديل)' },
-      { key: 'elimination_chameleon', label: '🦎 إقصاء الحرباية', desc: 'صوت خاص عند إقصاء الحرباية (اختياري — يستخدم صوت المافيا كبديل)' },
-      { key: 'elimination_mafia', label: '🔴 إقصاء مافيا (افتراضي)', desc: 'صوت افتراضي لإقصاء أي عضو مافيا ليس له صوت خاص' },
-      { key: 'elimination_sheriff', label: '🔍 إقصاء الشريف', desc: 'صوت خاص عند إقصاء الشريف (اختياري — يستخدم صوت المواطن كبديل)' },
-      { key: 'elimination_doctor', label: '💉 إقصاء الطبيب', desc: 'صوت خاص عند إقصاء الطبيب (اختياري — يستخدم صوت المواطن كبديل)' },
-      { key: 'elimination_sniper', label: '🎯 إقصاء القناص', desc: 'صوت خاص عند إقصاء القناص (اختياري — يستخدم صوت المواطن كبديل)' },
-      { key: 'elimination_policewoman', label: '👮 إقصاء الشرطية', desc: 'صوت خاص عند إقصاء الشرطية (اختياري — يستخدم صوت المواطن كبديل)' },
-      { key: 'elimination_nurse', label: '🏥 إقصاء الممرضة', desc: 'صوت خاص عند إقصاء الممرضة (اختياري — يستخدم صوت المواطن كبديل)' },
-      { key: 'elimination_citizen', label: '👤 إقصاء مواطن (افتراضي)', desc: 'صوت افتراضي لإقصاء أي مواطن ليس له صوت خاص' },
-      { key: 'elimination_assassin', label: '🔪 إقصاء السفّاح', desc: 'صوت خاص عند إقصاء السفّاح (اختياري)' },
-      { key: 'elimination_jester', label: '🤡 إقصاء المهرج', desc: 'صوت خاص عند إقصاء المهرج (اختياري)' },
-      { key: 'elimination_phoenix', label: '🔥 إقصاء العنقاء', desc: 'يُعزف لحظة كشف كرت العنقاء عند إقصائه (اختياري — يستخدم صوت المواطن كبديل)' },
-    ],
-  },
-  {
-    label: '🃏 كشف الكروت',
-    events: [
-      { key: 'card_flip_godfather', label: '👑 شيخ المافيا', desc: 'كشف كارت الشيخ' },
-      { key: 'card_flip_sheriff', label: '⭐ الشريف', desc: 'كشف كارت الشريف' },
-      { key: 'card_flip_mafia', label: '🔴 مافيا', desc: 'كشف كارت أي مافيا' },
-      { key: 'card_flip_citizen', label: '🔵 مواطن', desc: 'كشف كارت مواطن' },
-    ],
-  },
-  {
-    label: '🏆 نهاية اللعبة',
-    events: [
-      { key: 'win_mafia', label: '🔴 فوز المافيا', desc: 'موسيقى فوز المافيا' },
-      { key: 'win_citizen', label: '🟢 فوز المواطنين', desc: 'موسيقى فوز المواطنين' },
-      { key: 'win_jester', label: '🤡 فوز المهرج', desc: 'موسيقى فوز المهرج' },
-      { key: 'win_assassin', label: '🔪 فوز السفّاح', desc: 'موسيقى فوز السفّاح' },
-    ],
-  },
-  {
-    label: '⏱️ المؤقت',
-    events: [
-      { key: 'timer_heartbeat_slow', label: '💓 دقات بطيئة', desc: 'آخر 10 ثوانٍ' },
-      { key: 'timer_heartbeat_fast', label: '💗 دقات سريعة', desc: 'آخر 5 ثوانٍ' },
-      { key: 'timer_tick', label: '⏱️ نقرة', desc: 'صوت تيك العداد' },
-      { key: 'timer_buzzer', label: '📢 صافرة', desc: 'انتهاء الوقت' },
-    ],
-  },
-  {
-    label: '🗳️ التصويت',
-    events: [
-      { key: 'vote_cast', label: '🗳️ إضافة صوت', desc: 'عند التصويت' },
-      { key: 'vote_shift', label: '🔄 تبديل مرشح', desc: 'عند تغيير المرشح المعروض' },
-    ],
-  },
-  {
-    label: '🔄 انتقال المراحل',
-    events: [
-      { key: 'phase_day_start', label: '☀️ بداية النهار', desc: 'صوت انتقال للنهار' },
-      { key: 'phase_night_start', label: '🌙 بداية الليل', desc: 'صوت انتقال لليل' },
-      { key: 'phase_voting_start', label: '🗳️ بداية التصويت', desc: 'صوت بدء التصويت' },
-      { key: 'phase_elimination', label: '⚡ لحظة الإقصاء', desc: 'صوت عند الإقصاء' },
-    ],
-  },
-  {
-    label: '💣 القنبلة والتعادل',
-    events: [
-      { key: 'bomb_explosion', label: '💣 انفجار القنبلة', desc: 'صوت انفجار عند تفعيل قنبلة شيخ المافيا' },
-      { key: 'day_tie', label: '🔄 صوت التعادل', desc: 'صوت عند حدوث تعادل في التصويت' },
-      { key: 'day_show_silenced', label: '🤐 كشف المُسكت', desc: 'صوت عند كشف اللاعب المُسكت في النهار' },
-      { key: 'voting_complete', label: '✅ انتهاء التصويت', desc: 'صوت عند اكتمال جميع الأصوات' },
-    ],
-  },
-  {
-    label: '🕵️ تنبيهات الليدر',
-    events: [
-      { key: 'leader_gallery_alert', label: '🔔 تنبيه فتح قائمة المافيا', desc: 'يُسمع على جهاز الليدر فقط عند ضغط لاعب زرّ التعرف على المافيا' },
-      { key: 'leader_departure_alert', label: '🚪 تنبيه خروج لاعب من التطبيق', desc: 'يُسمع على جهاز الليدر فقط — نغمة نازلة تميّزه عن فتح القائمة (صاعدة)' },
-    ],
-  },
-  {
-    label: '🎉 مناسبات النادي واقتصاد التشبس',
-    events: [
-      { key: 'birthday_song', label: '🎂 أغنية عيد الميلاد', desc: 'تُعزف عند إطلاق القائد احتفالية عيد الميلاد على شاشة العرض' },
-      { key: 'chips_victory_sting', label: '🪙 نغمة النصر المشتراة', desc: 'نغمة يستأجرها اللاعب من خزنة الدون وتُعزف عند فوز فريقه — بلا ملف مربوط هنا لا تُعرض للبيع إطلاقاً' },
-    ],
-  },
-];
+// 🔑 الكتالوجُ من المصدر الواحد — lib/sound-keys.ts. كانت نسخةٌ محلّيّة هنا تفترق
+//    عمّا يناديه الكود: مفتاحٌ يُنادى كلَّ ليلة لم يكن فيها فلا سبيل لرفع ملفٍّ له.
+import { SOUND_GROUPS, ALL_SOUND_KEYS, SOUND_CATEGORIES, type SoundKeyDef } from '@/lib/sound-keys';
+const EVENT_GROUPS = SOUND_GROUPS;
+const ALL_EVENTS = ALL_SOUND_KEYS;
 
-// Flatten for lookup
-const ALL_EVENTS = EVENT_GROUPS.flatMap(g => g.events);
+type Coverage = Record<string, { id: number; name: string; filename: string; isActive: boolean; others: number }>;
+type KeyStatus = 'file' | 'inactive' | 'synth' | 'silent';
+function keyStatus(k: SoundKeyDef, cov: Coverage): KeyStatus {
+  const c = cov[k.key];
+  if (c?.isActive) return 'file';
+  if (c) return 'inactive';
+  return k.synth ? 'synth' : 'silent';
+}
+const STATUS_UI: Record<KeyStatus, { label: string; cls: string }> = {
+  file:     { label: '📁 ملفّ',        cls: 'bg-green-500/15 text-green-400 border-green-500/25' },
+  inactive: { label: '⏸ ملفٌّ معطَّل', cls: 'bg-gray-500/15 text-gray-400 border-gray-600/30' },
+  synth:    { label: '🎛️ مركّب',       cls: 'bg-amber-500/15 text-amber-400 border-amber-500/25' },
+  silent:   { label: '🔇 صامت',        cls: 'bg-rose-500/15 text-rose-400 border-rose-500/30' },
+};
 
 interface SoundRecord {
   id: number;
@@ -167,6 +42,11 @@ interface SoundRecord {
 
 export default function SoundsPage() {
   const [sounds, setSounds] = useState<SoundRecord[]>([]);
+  // 📋 التبويب الرئيس «الأحداث»: يجيب «ماذا يُسمع عند كلّ حدث؟» — والملفّات تبويبٌ ثانٍ للإدارة الخام
+  const [tab, setTab] = useState<'events' | 'files'>('events');
+  const [coverage, setCoverage] = useState<Coverage>({});
+  const [statusFilter, setStatusFilter] = useState<'all' | KeyStatus>('all');
+  const uploadFormRef = useRef<HTMLDivElement | null>(null);
   const [loading, setLoading] = useState(true);
 
   // Upload form state
@@ -205,6 +85,9 @@ export default function SoundsPage() {
   // ── جلب الأصوات ──
   const fetchSounds = async () => {
     try {
+      // التغطية بالتوازي — لا تُعطّل القائمة إن فشلت
+      fetch(`${API_URL}/api/sounds/coverage`, { headers }).then(r => r.json())
+        .then(d => { if (d?.success) setCoverage(d.coverage || {}); }).catch(() => {});
       const res = await fetch(`${API_URL}/api/sounds`, { headers });
       const data = await res.json();
       if (data.success) setSounds(data.sounds || []);
@@ -514,12 +397,103 @@ export default function SoundsPage() {
       {/* Header */}
       <div>
         <h1 className="text-3xl font-black text-white">🔊 المؤثرات الصوتية</h1>
+        <div className="flex gap-2 mt-4">
+          {([['events', '📋 الأحداث'], ['files', '📂 الملفّات']] as const).map(([k, l]) => (
+            <button key={k} onClick={() => setTab(k)}
+              className={`px-4 py-2 rounded-xl text-sm font-bold transition ${tab === k ? 'bg-amber-500/20 text-amber-400 border border-amber-500/40' : 'bg-gray-800/60 text-gray-400 border border-gray-700/50 hover:text-white'}`}>
+              {l}
+            </button>
+          ))}
+        </div>
         <p className="text-gray-500 text-sm mt-1 font-mono tracking-wide">SOUND EFFECTS MANAGER</p>
       </div>
 
+      {/* ═══ الأحداث — خريطةُ ما يُسمع ═══ */}
+      {tab === 'events' && (() => {
+        const all = ALL_EVENTS.map(k => ({ k, st: keyStatus(k, coverage) }));
+        const count = (st: KeyStatus) => all.filter(x => x.st === st).length;
+        const catLabel = (c: string) => SOUND_CATEGORIES.find(x => x.key === c)?.labelAr || c;
+        const gotoUpload = (key: string, replace = false) => {
+          setSelectedKeys([key]);
+          setUploadName(replace ? `${ALL_EVENTS.find(e => e.key === key)?.label || key} — بديل` : (ALL_EVENTS.find(e => e.key === key)?.label || key));
+          setTab('files');
+          setTimeout(() => uploadFormRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 60);
+        };
+        return (
+          <div className="mb-8">
+            <div className="flex flex-wrap gap-2 mb-5">
+              {([['all', `الكلّ ${all.length}`], ['silent', `🔇 صامت ${count('silent')}`], ['synth', `🎛️ مركّب ${count('synth')}`], ['file', `📁 ملفّ ${count('file')}`], ['inactive', `⏸ معطَّل ${count('inactive')}`]] as const).map(([k, l]) => (
+                <button key={k} onClick={() => setStatusFilter(k as any)}
+                  className={`text-xs px-3 py-1.5 rounded-lg border transition ${statusFilter === k ? 'bg-amber-500/15 text-amber-400 border-amber-500/40' : 'bg-gray-800/50 text-gray-400 border-gray-700/50 hover:text-white'}`}>
+                  {l}
+                </button>
+              ))}
+            </div>
+            {count('silent') > 0 && statusFilter === 'all' && (
+              <p className="text-xs text-rose-300 bg-rose-500/[0.07] border border-rose-500/25 rounded-xl px-4 py-2.5 mb-4">
+                🔇 <b>{count('silent')}</b> حدثاً يُنادى في اللعبة ولا يُصدر شيئاً — لا ملفَّ له ولا نغمة. اضغط ⬆ بجواره لرفع ملفّ.
+              </p>
+            )}
+            <div className="space-y-5">
+              {EVENT_GROUPS.map(group => {
+                const rows = group.events.map(k => ({ k, st: keyStatus(k, coverage) }))
+                  .filter(x => statusFilter === 'all' || x.st === statusFilter);
+                if (rows.length === 0) return null;
+                const covered = group.events.filter(k => keyStatus(k, coverage) === 'file').length;
+                return (
+                  <div key={group.label}>
+                    <div className="flex items-center gap-3 mb-2">
+                      <h3 className="text-sm font-bold text-amber-400">{group.label}</h3>
+                      <span className="flex-1 h-px bg-gray-800" />
+                      <span className="text-[11px] text-gray-500 font-mono">{covered} / {group.events.length} بملفّ</span>
+                    </div>
+                    <div className="space-y-1.5">
+                      {rows.map(({ k, st }) => {
+                        const c = coverage[k.key];
+                        const ui = STATUS_UI[st];
+                        return (
+                          <div key={k.key} className={`flex items-center gap-3 rounded-xl px-3.5 py-2.5 border ${st === 'silent' ? 'bg-rose-500/[0.04] border-rose-500/20' : 'bg-gray-900/50 border-gray-800/60'}`}>
+                            <div className="flex-1 min-w-0">
+                              <p className="text-sm text-white font-bold truncate">{k.label}</p>
+                              <p className="text-[11px] text-gray-500 truncate">{k.desc} · <span className="text-gray-600">{catLabel(k.cat)}</span></p>
+                            </div>
+                            {c && (
+                              <span className="text-[11px] text-gray-400 font-mono truncate max-w-[160px] hidden md:inline" title={c.filename}>
+                                {c.name}{c.others > 0 && <span className="text-gray-600"> +{c.others}</span>}
+                              </span>
+                            )}
+                            <span className={`text-[10.5px] px-2 py-0.5 rounded-full border whitespace-nowrap ${ui.cls}`}>{ui.label}</span>
+                            <div className="flex gap-1 shrink-0">
+                              {c && (
+                                <button onClick={() => { const snd = sounds.find(x => x.id === c.id); if (snd) handlePlay(snd); }}
+                                  className="w-8 h-8 rounded-lg bg-gray-800 text-gray-300 hover:bg-gray-700 text-xs" title="استمع">▶</button>
+                              )}
+                              {c && !c.isActive && (
+                                <button onClick={() => handleToggle(c.id)}
+                                  className="w-8 h-8 rounded-lg bg-green-500/15 text-green-400 hover:bg-green-500/25 text-xs" title="فعّل الملفّ">✅</button>
+                              )}
+                              <button onClick={() => gotoUpload(k.key, !!c)}
+                                className={`w-8 h-8 rounded-lg text-xs ${st === 'silent' ? 'bg-amber-500/20 text-amber-400 hover:bg-amber-500/30' : 'bg-gray-800 text-gray-400 hover:text-white'}`}
+                                title={c ? 'ارفع ملفّاً بديلاً' : 'ارفع ملفّاً لهذا الحدث'}>
+                                {c ? '⇄' : '⬆'}
+                              </button>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        );
+      })()}
+
+      {tab === 'files' && (<>
       {/* ═══ Upload Form ═══ */}
       <div className="bg-gray-900/60 border border-gray-800/50 rounded-2xl p-6 backdrop-blur-sm">
-        <h2 className="text-lg font-bold text-amber-400 mb-4">📁 رفع ملف صوتي جديد</h2>
+        <h2 ref={uploadFormRef as any} className="text-lg font-bold text-amber-400 mb-4">📁 رفع ملف صوتي جديد</h2>
 
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
           <div>
@@ -665,8 +639,10 @@ export default function SoundsPage() {
                       >
                         <span className="text-base">{isSelected ? '✅' : '⬜'}</span>
                         <span className="flex-1">{ev.label}</span>
-                        {assignedTo && !isSelected && (
-                          <span className="text-[10px] text-amber-600 truncate max-w-[80px]">({assignedTo})</span>
+                        {assignedTo && (
+                          <span className="text-[10px] text-amber-600 truncate max-w-[80px]" title={isSelected ? `سيُستبدل ملفّ «${assignedTo}» على هذا الحدث` : ''}>
+                            {isSelected ? '⚠️ يستبدل' : ''}({assignedTo})
+                          </span>
                         )}
                       </button>
                     );
@@ -791,6 +767,7 @@ export default function SoundsPage() {
           </div>
         )}
       </div>
+      </>)}
     </div>
   );
 }

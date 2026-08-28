@@ -13,16 +13,14 @@ import NightAnimCinematic from '@/components/NightAnimCinematic';
 import EliminationFx from '@/components/EliminationFx';
 import { EntranceOverlay, ENTRANCE_FULL_MS, ENTRANCE_COMPACT_MS, type EntrancePayload } from '@/components/EntranceOverlay';
 import { BirthdayCelebration, type Celebrant } from '@/components/BirthdayCelebration';
-import { loadSoundMap, reloadSoundMap, playGameSound, playAmbientSound, stopAmbientSound, playEliminationSound, playNightStepAmbient, applyRemoteSound, setLocalPlayback, primeAudio, retryAmbient } from '@/lib/soundManager';
+// 🔊 الشاشةُ لا تعزف من تلقائها — الموجّه هو المصدر الوحيد (setLocalPlayback(false)).
+//    ما هنا: تحميلُ الخريطة لمعرفة أين الملفّ حين يصل نداءُ الموجّه، وتطبيقُ الوارد،
+//    وفكُّ القفل واستئنافُ الفراش عند اللمسة. لا نداءَ صوتٍ محلّيّ — أيُّ نداءٍ يُضاف
+//    هنا يعود بصمتٍ عند أوّل سطرٍ ويُضلّل من يقرأ.
+import { loadSoundMap, reloadSoundMap, applyRemoteSound, setLocalPlayback, primeAudio, retryAmbient } from '@/lib/soundManager';
 
 // مؤثرات صوتية — يستخدم soundManager المركزي
 // (الأصوات الافتراضية محفوظة في soundManager.ts كـ fallback)
-function playCardFlipSound(role: string | null, isMafia: boolean) {
-  if (role === 'GODFATHER') playGameSound('card_flip_godfather');
-  else if (role === 'SHERIFF') playGameSound('card_flip_sheriff');
-  else if (isMafia) playGameSound('card_flip_mafia');
-  else playGameSound('card_flip_citizen');
-}
 
 // ══════════════════════════════════════════════════════
 // 📺 شاشة العرض - Display Page
@@ -223,16 +221,13 @@ function DisplayPageContent() {
       if (rounded > 0 && rounded <= 60 && rounded !== lastTimerSoundRef.current) {
         lastTimerSoundRef.current = rounded;
         if (rounded <= 10) {
-          playGameSound('timer_heartbeat_fast');
         } else if (rounded % 5 === 0) {
-          playGameSound('timer_heartbeat_slow');
         }
       }
 
       if (remaining <= 0) {
         clearInterval(iv);
         if (lastTimerSoundRef.current !== 0) {
-          playGameSound('timer_buzzer');
           lastTimerSoundRef.current = 0;
         }
       }
@@ -249,7 +244,6 @@ function DisplayPageContent() {
 
   // ── 🔊 فتح قفل الصوت عند أول تفاعل (Autoplay Policy) ──
   // المتصفحات تمنع الصوت بدون تفاعل المستخدم — هذا يشغله عند أول نقرة/لمسة
-  const pendingAmbientRef = useRef<string | null>(null);
   useEffect(() => {
     const unlockAudio = () => {
       primeAudio();   // فكّ حظر السياق الصوتي المشترَك (Web Audio) داخل التفاعل
@@ -257,10 +251,6 @@ function DisplayPageContent() {
       //    `retryAmbient` تتجاوز بوّابة التشغيل المحلّيّ المُطفأة على هذه الشاشة
       //    كما تفعل `applyRemoteSound` — والنداءُ المحلّيّ أدناه بلا مفعولٍ أصلاً.
       retryAmbient();
-      if (pendingAmbientRef.current) {
-        playAmbientSound(pendingAmbientRef.current);
-        pendingAmbientRef.current = null;
-      }
       document.removeEventListener('click', unlockAudio);
       document.removeEventListener('touchstart', unlockAudio);
     };
@@ -449,38 +439,8 @@ function DisplayPageContent() {
       if (data.phase === Phase.LOBBY) {
         setWinner(null);
         setTeamCounts({ citizenAlive: 0, mafiaAlive: 0, neutralAlive: 0 });
-        stopAmbientSound();
-        playAmbientSound('ambient_lobby');
       }
-
-      // صوت خلفي حسب المرحلة
-      if (data.phase === Phase.NIGHT) {
-        playAmbientSound('ambient_night');
-        playGameSound('phase_night_start');
-      } else if (data.phase === 'DAY_DISCUSSION') {
-        stopAmbientSound();
-        playAmbientSound('ambient_day');
-        playGameSound('phase_day_start');
-      } else if (data.phase === 'DAY_VOTING') {
-        stopAmbientSound();
-        playAmbientSound('ambient_voting');
-        playGameSound('phase_voting_start');
-      } else if (data.phase === 'DAY_JUSTIFICATION') {
-        stopAmbientSound();
-        playAmbientSound('ambient_justification');
-      } else if (data.phase === 'DAY_TIEBREAKER' || data.phase === 'DAY_REVEALED') {
-        stopAmbientSound();
-        playGameSound('day_tie');
-      } else if (data.phase === 'DAY_ELIMINATION') {
-        stopAmbientSound();
-        playAmbientSound('ambient_elimination');
-        playGameSound('phase_elimination');
-      } else if (data.phase === 'MORNING_RECAP') {
-        stopAmbientSound();
-        playAmbientSound('ambient_morning');
-      } else if (data.phase === Phase.GAME_OVER) {
-        stopAmbientSound();
-      }
+      // 🔊 لا صوتَ هنا: خلفيّةُ الطور ونغمةُ افتتاحه تُعزفان عند الموجّه وتصلان مرآةً.
 
       // ✅ تحديث أعداد الفرق (يأتي مع الحدث مباشرة)
       if (data.teamCounts) setTeamCounts(data.teamCounts);
@@ -512,7 +472,6 @@ function DisplayPageContent() {
     // ── صوت خلفي مميز لكل خطوة ليلية ──
     const onNightStepInfo = (data: any) => {
       if (data.stepType) {
-        playNightStepAmbient(data.stepType);
       }
     };
 
@@ -522,14 +481,7 @@ function DisplayPageContent() {
       setWinner(data.winner);
       setPhase(Phase.GAME_OVER);
       if (data.players) setPlayers(data.players);
-      stopAmbientSound();
-      // 🎵 أولاً: شغّل صوت الفريق الفائز فوراً، وأبقِ شاشة التشويق 5 ثوانٍ قبل كشف الكروت
-      switch (data.winner) {
-        case 'JESTER': playGameSound('win_jester'); break;
-        case 'ASSASSIN': playGameSound('win_assassin'); break;
-        case 'MAFIA': playGameSound('win_mafia'); break;
-        default: playGameSound('win_citizen'); break;
-      }
+      // 🔊 نغمةُ الفوز من الموجّه (game:over) — تصل مرآةً؛ والخلفيّةُ تُوقَف من هناك
       setRevealWinner(false);
       if (winnerRevealTimer.current) clearTimeout(winnerRevealTimer.current);
       winnerRevealTimer.current = setTimeout(() => setRevealWinner(true), 5000);
@@ -691,7 +643,7 @@ function DisplayPageContent() {
 
     // 🔊 إيقاف صوت التصويت فوراً عند استلام أحداث ما بعد التصويت
     // (احتياط إضافي — game:phase-changed قد يتأخر أو يأتي بعد هذه الأحداث)
-    const onStopVotingSound = () => { stopAmbientSound(); };
+    const onStopVotingSound = () => { /* 🔊 الإيقافُ يصل مرآةً من الموجّه */ };
     socket.on('day:justification-started', onStopVotingSound);
     socket.on('day:elimination-pending', onStopVotingSound);
     socket.on('day:tie', onStopVotingSound);
@@ -953,9 +905,6 @@ function DisplayPageContent() {
       try { sessionStorage.setItem('display_session', JSON.stringify({ pin: currentPin, roomId })); } catch (_) {}
 
       setStep('lobby');
-      // 🔊 تشغيل صوت اللوبي عند الدخول الأول
-      playAmbientSound('ambient_lobby');
-      pendingAmbientRef.current = 'ambient_lobby';
     } catch (err: any) {
       setPinError('خطأ في الاتصال');
       console.error('Verify error:', err);
@@ -1010,21 +959,7 @@ function DisplayPageContent() {
       }
       try { sessionStorage.setItem('display_session', JSON.stringify({ pin: currentPin, roomId: data.roomId })); } catch (_) {}
       setStep('lobby');
-      // 🔊 تشغيل صوت المرحلة الحالية عند الاستعادة
-      const restoredPhase = data.state?.phase || 'LOBBY';
-      stopAmbientSound();
-      const ambientForPhase =
-        (restoredPhase === 'LOBBY' || restoredPhase === Phase.LOBBY) ? 'ambient_lobby' :
-        restoredPhase === Phase.NIGHT ? 'ambient_night' :
-        restoredPhase === 'DAY_DISCUSSION' ? 'ambient_day' :
-        restoredPhase === 'DAY_VOTING' ? 'ambient_voting' :
-        restoredPhase === 'DAY_JUSTIFICATION' ? 'ambient_justification' :
-        restoredPhase === 'MORNING_RECAP' ? 'ambient_morning' : null;
-      if (ambientForPhase) {
-        playAmbientSound(ambientForPhase);
-        // Fallback: حفظ الصوت للتشغيل عند أول تفاعل (Autoplay Policy)
-        pendingAmbientRef.current = ambientForPhase;
-      }
+      // 🔊 خلفيّةُ الطور بعد الاستعادة تصل من الموجّه عند أوّل بثّ — أو تُعاد بـretryAmbient عند اللمسة
     } catch (err: any) {
       setPinError('الغرفة غير نشطة — تأكد أن القائد دخلها');
       setStep('select-activity');
@@ -2031,7 +1966,8 @@ function GameOverCard({ player, role, isMafia, flipDelay, isAlive }: {
   useEffect(() => {
     const timer = setTimeout(() => {
       setFlipped(true);
-      playCardFlipSound(role, isMafia);
+      // 🔊 لا صوتَ هنا: الشاشة لا تعزف من تلقائها — كان النداء يعود بصمتٍ أصلاً.
+      //    صوتُ الكشف يُعزف عند الموجّه (playEliminationSound) ويصل مرآةً.
     }, flipDelay * 1000);
     return () => clearTimeout(timer);
   }, [flipDelay, role, isMafia]);

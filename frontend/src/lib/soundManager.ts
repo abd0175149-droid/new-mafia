@@ -203,59 +203,24 @@ const VOLUME_BY_KEY: Record<string, number> = {
 //    (playLocalSound لا يمرّ بالمرآة)، فمستواهما شأن أذنه لا شأن الطاولة.
 // ══════════════════════════════════════════════════════
 
-export type SoundCategory = 'alerts' | 'ambientVote' | 'ambientNight' | 'victory' | 'timer' | 'departure' | 'gallery';
-
-export const SOUND_CATEGORIES: { key: SoundCategory; labelAr: string; icon: string; hallToo: boolean }[] = [
-  { key: 'alerts',      labelAr: 'التنبيهات العامّة',   icon: '🔔', hallToo: true },
-  { key: 'ambientVote', labelAr: 'خلفيّة التصويت والتبرير', icon: '🗳️', hallToo: true },
-  { key: 'ambientNight',labelAr: 'خلفيّة الليل وباقي المراحل', icon: '🌙', hallToo: true },
-  { key: 'victory',   labelAr: 'موسيقى الفوز',      icon: '🏆', hallToo: true },
-  { key: 'timer',     labelAr: 'المؤقّت والصافرة',   icon: '⏱️', hallToo: true },
-  { key: 'departure', labelAr: 'خروجٌ من التطبيق',  icon: '🚪', hallToo: false },
-  { key: 'gallery',   labelAr: 'فتح قائمة المافيا', icon: '🎭', hallToo: false },
-];
-
-const DEFAULT_LEVELS: Record<SoundCategory, number> = {
-  alerts: 0.70, ambientVote: 0.30, ambientNight: 0.30,
-  victory: 0.90, timer: 1.00, departure: 0.45, gallery: 0.35,
-};
-
-/** المفاتيح التي لا تقع في «التنبيهات العامّة». ما عداها يقع فيها. */
-const CATEGORY_OF: Record<string, SoundCategory> = {
-  win_mafia: 'victory', win_citizen: 'victory', win_assassin: 'victory',
-  win_jester: 'victory', birthday_song: 'victory',
-  timer_tick: 'timer', timer_heartbeat_slow: 'timer',
-  timer_heartbeat_fast: 'timer', timer_buzzer: 'timer',
-  leader_departure_alert: 'departure',
-  leader_gallery_alert: 'gallery',
-  // 🔴 أصوات الخلفيّة تُفصَل عن التنبيهات: فراشٌ مستمرّ يزاحم الكلام
-  //    لا نغمةٌ عابرة، وحاجته للخفض مختلفة تماماً.
-  //    وخلفيّة التصويت وحدها لأنّها تعمل والطاولة تتكلّم وتتداول.
-  ambient_voting: 'ambientVote',
-  ambient_justification: 'ambientVote',   // التبرير امتدادُ التصويت: الطاولة تسمع وتتداول
-  ambient_night: 'ambientNight',
-  ambient_lobby: 'ambientNight',
-  ambient_night_kill: 'ambientNight',
-  ambient_night_silence: 'ambientNight',
-  ambient_night_assassin: 'ambientNight',
-  ambient_night_snipe: 'ambientNight',
-  ambient_night_protect: 'ambientNight',
-  ambient_night_investigate: 'ambientNight',
-};
+// 🔑 الفئاتُ والكتالوج من المصدر الواحد — lib/sound-keys.ts. لا قائمةَ ثانية هنا.
+export {
+  SOUND_CATEGORIES, CATEGORY_GROUPS, DEFAULT_LEVELS, categoryOfKey as categoryOf,
+  keysOfCategory, soundKeyDef, ALL_SOUND_KEYS,
+} from './sound-keys';
+export type { SoundCategory, CategoryDef, CategoryGroup } from './sound-keys';
+import {
+  SOUND_CATEGORIES as _CATS, DEFAULT_LEVELS as _DEFAULTS, LEGACY_LEVEL_MAP,
+  categoryOfKey, keysOfCategory, soundKeyDef, type SoundCategory as _Cat,
+} from './sound-keys';
+type SoundCategory = _Cat;
+const SOUND_CATEGORIES = _CATS;
+const DEFAULT_LEVELS = _DEFAULTS;
+const categoryOf = categoryOfKey;
 
 /** المستوى الأساسيّ لفراش الخلفيّة قبل ضربه بالفئة (وعند الخفض التلقائيّ). */
 const AMBIENT_BASE = 1.0;
 const AMBIENT_DUCK = 0.27;   // 0.08/0.3 — نفس النسبة القديمة، محفوظةً كنسبة لا رقماً
-
-export function categoryOf(eventKey: string): SoundCategory {
-  const c = CATEGORY_OF[eventKey];
-  if (c) return c;
-  // 🔴 قاعدةٌ لا تعداد: ambient_day وambient_morning وambient_elimination كانت
-  //    تقع في «التنبيهات العامّة» — فمقبض التنبيهات يخفض فراشاً، ومقبض الخلفيّة
-  //    لا يمسّه. وأيّ فراشٍ يُضاف غداً يدخل الفئة الصحيحة من تلقائه.
-  if (eventKey.startsWith('ambient_')) return 'ambientNight';
-  return 'alerts';
-}
 
 const LEVELS_KEY = 'mafia_sound_levels';
 let levels: Record<SoundCategory, number> = { ...DEFAULT_LEVELS };
@@ -265,6 +230,20 @@ let levels: Record<SoundCategory, number> = { ...DEFAULT_LEVELS };
     const raw = localStorage.getItem(LEVELS_KEY);
     if (!raw) return;
     const parsed = JSON.parse(raw);
+    // 🔄 هجرةٌ من الفئات السبع القديمة: كي لا يفقد الموجّه ضبطَه عند التحديث.
+    //    القديم الذي كان يحكم عدّة فئاتٍ جديدة يُنسخ إليها كلِّها.
+    const legacySeen = new Set<SoundCategory>();
+    for (const [oldKey, targets] of Object.entries(LEGACY_LEVEL_MAP)) {
+      const v = parsed?.[oldKey];
+      if (typeof v !== 'number' || v < 0 || v > 1) continue;
+      for (const t of targets) {
+        // مقبضُ المراقبة يأخذ متوسّط مقبضَيه القديمين لا آخرَهما
+        if (t === 'monitor' && legacySeen.has(t)) levels[t] = (levels[t] + v) / 2;
+        else levels[t] = v;
+        legacySeen.add(t);
+      }
+    }
+    // القيمُ الجديدة (إن وُجدت) تعلو الهجرة
     for (const c of SOUND_CATEGORIES) {
       const v = parsed?.[c.key];
       if (typeof v === 'number' && v >= 0 && v <= 1) levels[c.key] = v;
@@ -368,6 +347,16 @@ export function playAmbientSound(eventKey: string): void {
   if (!localMuted) _playAmbientSound(eventKey);
 }
 function _playAmbientSound(eventKey: string): void {
+  // 🔴 بلا ملفٍّ للمفتاح الجديد: يبقى الفراشُ الجاري ولا يُوقَف.
+  //    كان الإيقافُ أوّلاً ثمّ البحثُ عن الملفّ — فطورُ الإقصاء (ambient_elimination
+  //    بلا ملفّ) يُسكت خلفيّةَ النهار ويعزف لا شيء: أكثرُ لحظات الليلة توتّراً في صمتٍ
+  //    تامّ، كلَّ ليلة. الآن: فراشٌ بلا ملفٍّ = «أبقِ ما يعمل»، لا «أسكِت الجميع».
+  //    وإن لم يكن شيءٌ يعمل يُسجَّل المفتاحُ فقط كي تعيده retryAmbient إن رُفع ملفٌّ لاحقاً.
+  if (!customSoundMap[eventKey]) {
+    if (!ambientAudio) ambientKey = eventKey;
+    return;
+  }
+
   // إيقاف أي صوت خلفي سابق
   _stopAmbientSound();
 
@@ -539,12 +528,15 @@ const NIGHT_STEP_AMBIENT_MAP: Record<string, string> = {
   'NURSE': 'ambient_night_protect',
   'SNIPER': 'ambient_night_snipe',
   'ASSASSIN': 'ambient_night_assassin',
+  'WITCH': 'ambient_night_witch',
   // Dynamic engine ability IDs
   'KILL': 'ambient_night_kill',
   'SILENCE': 'ambient_night_silence',
   'INVESTIGATE': 'ambient_night_investigate',
   'PROTECT': 'ambient_night_protect',
   'SNIPE': 'ambient_night_snipe',
+  'DISABLE_ABILITY': 'ambient_night_witch',
+  'ASSASSINATE': 'ambient_night_assassin',
 };
 
 export function playNightStepAmbient(stepType: string): void {
@@ -1115,10 +1107,69 @@ function playDefaultSound(eventKey: string, vol: number = 1): void {
       }
 
       // ── انتقال المراحل (لا يوجد أصوات افتراضية) ──
-      case 'phase_day_start':
-      case 'phase_night_start':
-      case 'phase_voting_start':
-      case 'phase_elimination':
+      // ══ 🔄 انتقالات الأطوار — نغمتان قصيرتان، اتّجاهُهما يقول أين نحن ══
+      // 🔴 كانت هذه الأربع حالاتٍ **فارغة** تسقط في default فتصمت — والكودُ يوهم
+      //    بأنّ لها صوتاً. كلُّ انتقال طورٍ في كلّ ليلةٍ كان بلا نغمة.
+      case 'phase_night_start': {          // هابطة: النهار ينطفئ
+        for (const [f, d] of [[520, 0], [330, 0.22]] as [number, number][]) {
+          const osc = ctx.createOscillator(); const gain = ctx.createGain();
+          osc.connect(gain); gain.connect(dest(ctx)); osc.type = 'sine';
+          const t0 = ctx.currentTime + d;
+          osc.frequency.setValueAtTime(f, t0);
+          gain.gain.setValueAtTime(0.001, t0); gain.gain.linearRampToValueAtTime(0.28, t0 + 0.05);
+          gain.gain.exponentialRampToValueAtTime(0.001, t0 + 0.55);
+          osc.start(t0); osc.stop(t0 + 0.55);
+        }
+        break;
+      }
+      case 'phase_day_start': {            // صاعدة: الصباح يطلع
+        for (const [f, d] of [[330, 0], [520, 0.22]] as [number, number][]) {
+          const osc = ctx.createOscillator(); const gain = ctx.createGain();
+          osc.connect(gain); gain.connect(dest(ctx)); osc.type = 'triangle';
+          const t0 = ctx.currentTime + d;
+          osc.frequency.setValueAtTime(f, t0);
+          gain.gain.setValueAtTime(0.001, t0); gain.gain.linearRampToValueAtTime(0.3, t0 + 0.05);
+          gain.gain.exponentialRampToValueAtTime(0.001, t0 + 0.5);
+          osc.start(t0); osc.stop(t0 + 0.5);
+        }
+        break;
+      }
+      case 'phase_voting_start': {         // ثلاث نقراتٍ متصاعدة: الطاولة تقرّر
+        for (let i = 0; i < 3; i++) {
+          const osc = ctx.createOscillator(); const gain = ctx.createGain();
+          osc.connect(gain); gain.connect(dest(ctx)); osc.type = 'square';
+          const t0 = ctx.currentTime + i * 0.13;
+          osc.frequency.setValueAtTime(440 + i * 110, t0);
+          gain.gain.setValueAtTime(0.18, t0); gain.gain.exponentialRampToValueAtTime(0.001, t0 + 0.11);
+          osc.start(t0); osc.stop(t0 + 0.11);
+        }
+        break;
+      }
+      case 'phase_elimination': {          // ضربةٌ منخفضةٌ واحدة: الحكم
+        const osc = ctx.createOscillator(); const gain = ctx.createGain();
+        osc.connect(gain); gain.connect(dest(ctx)); osc.type = 'sine';
+        osc.frequency.setValueAtTime(110, ctx.currentTime);
+        osc.frequency.exponentialRampToValueAtTime(45, ctx.currentTime + 0.6);
+        gain.gain.setValueAtTime(0.45, ctx.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.7);
+        osc.start(ctx.currentTime); osc.stop(ctx.currentTime + 0.7);
+        break;
+      }
+      // 🧙 الساحرة: ذبذبةٌ مرتجفة تهبط — قدرةٌ تُطفأ
+      case 'night_witch': {
+        const osc = ctx.createOscillator(); const lfo = ctx.createOscillator();
+        const lfoGain = ctx.createGain(); const gain = ctx.createGain();
+        lfo.frequency.value = 9; lfoGain.gain.value = 40;
+        lfo.connect(lfoGain); lfoGain.connect(osc.frequency);
+        osc.connect(gain); gain.connect(dest(ctx)); osc.type = 'sawtooth';
+        osc.frequency.setValueAtTime(700, ctx.currentTime);
+        osc.frequency.exponentialRampToValueAtTime(140, ctx.currentTime + 0.8);
+        gain.gain.setValueAtTime(0.22, ctx.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.85);
+        lfo.start(ctx.currentTime); osc.start(ctx.currentTime);
+        lfo.stop(ctx.currentTime + 0.85); osc.stop(ctx.currentTime + 0.85);
+        break;
+      }
       default:
         break;
     }
@@ -1233,4 +1284,50 @@ export function applyRemoteSound(payload: { fn: string; args?: any[]; vol?: numb
   } catch { /* صامت */ } finally {
     volOverride = null;
   }
+}
+
+// ══════════════════════════════════════════════════════
+// 🎚️ للمازج — ما يُسمع، وما يحكمه المقبض، ومعاينةُ فراشٍ لا تُسكت الجاري
+// ══════════════════════════════════════════════════════
+
+/** المستوى المسموع فعلاً لمفتاح (الفئة × المفتاح) — لا مستوى الفئة الخام. */
+export function heardLevel(eventKey: string): number {
+  return Math.max(0, Math.min(1, resolveVol(eventKey)));
+}
+
+/** هل للمفتاح ملفٌّ فعّال محمَّل؟ */
+export function hasCustomSound(eventKey: string): boolean {
+  return !!customSoundMap[eventKey];
+}
+
+/**
+ * تغطيةُ فئةٍ: كم مفتاحاً فيها بملفّ، وكم بنغمةٍ مركّبة فقط، وكم صامتاً تماماً.
+ * النقطةُ الحمراء في المازج تُبنى على `silent` — «هذا المقبض يحكم صمتاً».
+ */
+export function categoryCoverage(cat: SoundCategory): { total: number; file: number; synth: number; silent: number } {
+  const keys = keysOfCategory(cat);
+  let file = 0, synth = 0, silent = 0;
+  for (const k of keys) {
+    if (customSoundMap[k]) file++;
+    else if (soundKeyDef(k)?.synth) synth++;
+    else silent++;
+  }
+  return { total: keys.length, file, synth, silent };
+}
+
+/**
+ * معاينةُ فراشٍ لثوانٍ معدودة **بلا أن يُوقَف الفراشُ الجاري**: يُعزف كعنصرٍ
+ * مستقلٍّ غير حلقيّ ويُوقَف بعد المدّة. محلّيٌّ على جهاز الموجّه فقط — لا بثّ.
+ */
+export function previewAmbient(eventKey: string, ms = 3000): void {
+  if (localMuted) return;
+  const url = customSoundMap[eventKey];
+  if (!url) { _playGameSound(eventKey); return; }   // بلا ملفٍّ — يمرّ للمركّب إن وُجد
+  try {
+    const a = new Audio(`${API_URL}${url}`);
+    a.volume = clampVol(resolveVol(eventKey) * AMBIENT_BASE);
+    trackOneShot(a);
+    a.play().catch(() => {});
+    setTimeout(() => { try { a.pause(); a.currentTime = 0; oneShotAudios.delete(a); } catch { /* تجاهل */ } }, ms);
+  } catch { /* تجاهل */ }
 }
