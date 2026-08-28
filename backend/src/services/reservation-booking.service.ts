@@ -120,8 +120,17 @@ export async function removeBookingForReservation(db: Database, r: ResRow): Prom
 
   const existing = await findBooking(db, r);
   if (!existing) return false;
-  if (existing.createdBy !== RES_CREATED_BY) return false;
+  // 🔴 القاعدة المكتوبة أعلاه: «حجزٌ دُفع أو أُدخل يدويّاً لا يُمسّ». وكان الشرط
+  //    أضيقَ من قاعدته: يُبقي كلَّ ما لم يُنشئه هذا المسار — ومنه حجزُ اللاعب من
+  //    التطبيق. فيفكّ الموظّف التثبيت ويبقى اللاعب «محجوزاً» في تطبيقه، ولا شيء
+  //    يخبره. (١٤ حالة في فعاليّة ١٥٣ وحدها.)
+  //    الآن يُزال غيرُ المدفوع من المسارات الآليّة كلِّها — التثبيت والتطبيق والبوت —
+  //    ويبقى محفوظاً ما دُفع وما أدخله موظّفٌ بيده.
   if (existing.isPaid === true) return false;
+  const by = String(existing.createdBy || '');
+  const automated = by === RES_CREATED_BY || by === 'player-app'
+    || by.startsWith('\u{1F916}') || by.startsWith('\u{1F512}');
+  if (!automated) return false;
 
   await db.update(bookings).set({ deletedAt: new Date() } as any).where(eq(bookings.id, existing.id));
   return true;

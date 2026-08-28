@@ -30,6 +30,8 @@ function GamesContent() {
   const [selectedDate, setSelectedDate] = useState<string | null>(null); // null = الكل
   const [selectedActivity, setSelectedActivity] = useState<any>(null);
   const [confirmBooking, setConfirmBooking] = useState<any>(null);
+  const [confirmCancel, setConfirmCancel] = useState<any>(null);
+  const [cancelLoading, setCancelLoading] = useState(false);
   const [selectedOffer, setSelectedOffer] = useState<number | null>(null);
   const [offerError, setOfferError] = useState(false);
   // 🍽️ استعراض منيو المكان وقت الحجز (عرضٌ فقط — الطلب يبقى داخل نافذته)
@@ -46,6 +48,10 @@ function GamesContent() {
   const activityModal = useModalScrollLock({
     isOpen: !!selectedActivity,
     onClose: () => setSelectedActivity(null),
+  });
+  const cancelModal = useModalScrollLock({
+    isOpen: !!confirmCancel,
+    onClose: () => setConfirmCancel(null),
   });
   const bookingModal = useModalScrollLock({
     isOpen: !!confirmBooking,
@@ -143,6 +149,31 @@ function GamesContent() {
       }
     } catch { /* ignore */ }
     setBookingLoading(null);
+  };
+
+  // ❌ إلغاء الحجز — بتأكيدٍ دائماً، ولا يُنادى إلّا من نافذة التأكيد
+  const handleCancel = async (activityId: number) => {
+    if (!player) return;
+    setCancelLoading(true);
+    try {
+      const res = await fetch(`/api/player-app/book/${activityId}`, {
+        method: 'DELETE',
+        headers: { Authorization: `Bearer ${player.token}` },
+      });
+      const data = await res.json();
+      if (data.success) {
+        setMyBookings(prev => prev.filter((b: any) => b.activityId !== activityId));
+        setActivities(prev => prev.map(a =>
+          a.id === activityId ? { ...a, bookedCount: Math.max(0, (a.bookedCount || 1) - 1) } : a
+        ));
+        setConfirmCancel(null);
+      } else {
+        alert(data.error || 'تعذّر إلغاء الحجز');
+      }
+    } catch {
+      alert('تعذّر الاتصال — أعد المحاولة');
+    }
+    setCancelLoading(false);
   };
 
   // ── شريط التقويم ──
@@ -345,7 +376,12 @@ function GamesContent() {
                         </div>
                       </div>
                       {booked ? (
-                        <span className="text-green-400 text-xs px-3 py-1.5 rounded-lg bg-green-500/10 shrink-0">✅ محجوز</span>
+                        <button
+                          onClick={() => setConfirmCancel(act)}
+                          className="text-green-400 text-xs px-3 py-1.5 rounded-lg bg-green-500/10 border border-green-500/20 shrink-0 active:bg-green-500/20 transition-colors"
+                        >
+                          ✅ محجوز
+                        </button>
                       ) : (
                         <button
                           onClick={() => setConfirmBooking(act)}
@@ -622,6 +658,58 @@ function GamesContent() {
                     📍 الموقع
                   </a>
                 )}
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* ── Modal تأكيد إلغاء الحجز ── */}
+      <AnimatePresence>
+        {confirmCancel && (
+          <motion.div
+            initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+            onClick={() => setConfirmCancel(null)}
+            {...cancelModal.backdropProps}
+            className="fixed inset-0 z-50 flex items-end justify-center"
+            style={{ background: 'rgba(0,0,0,0.75)', backdropFilter: 'blur(4px)' }}
+          >
+            <motion.div
+              initial={{ y: '100%' }} animate={{ y: 0 }} exit={{ y: '100%' }}
+              transition={{ type: 'spring', damping: 30, stiffness: 300 }}
+              onClick={(e) => e.stopPropagation()}
+              className="w-full max-w-lg rounded-t-3xl p-5 pb-8"
+              style={{ background: '#0d0d0d', border: '1px solid rgba(255,255,255,0.08)' }}
+            >
+              <div className="w-10 h-1 rounded-full bg-white/15 mx-auto mb-4" />
+              <p className="text-white text-base font-bold text-center">إلغاء حجزك؟</p>
+              <p className="text-gray-400 text-xs text-center mt-2 leading-relaxed">
+                {confirmCancel.locationName || confirmCancel.name}
+                <br />
+                {new Date(confirmCancel.date).toLocaleDateString('ar-JO', {
+                  weekday: 'long', day: 'numeric', month: 'long',
+                })} · {new Date(confirmCancel.date).toLocaleTimeString('ar-JO', {
+                  hour: 'numeric', minute: '2-digit',
+                })}
+              </p>
+              <p className="text-gray-600 text-[11px] text-center mt-3">
+                يُفتح مقعدك لغيرك، وتستطيع الحجز ثانيةً ما دام في الوقت متّسع.
+              </p>
+              <div className="flex gap-2.5 mt-5">
+                <button
+                  onClick={() => setConfirmCancel(null)}
+                  disabled={cancelLoading}
+                  className="flex-1 py-3 rounded-xl text-sm font-bold text-gray-300 bg-white/5 border border-white/10 disabled:opacity-50"
+                >
+                  تراجع
+                </button>
+                <button
+                  onClick={() => handleCancel(confirmCancel.id)}
+                  disabled={cancelLoading}
+                  className="flex-1 py-3 rounded-xl text-sm font-bold text-red-300 bg-red-500/15 border border-red-500/30 disabled:opacity-50"
+                >
+                  {cancelLoading ? '...' : 'نعم، ألغِ الحجز'}
+                </button>
               </div>
             </motion.div>
           </motion.div>

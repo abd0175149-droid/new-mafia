@@ -6,7 +6,7 @@
 import { Router, type Request, type Response } from 'express';
 import { eq, desc, and, like, or, sql, isNull } from 'drizzle-orm';
 import { getDB } from '../config/db.js';
-import { bookings, activities, notifications, staff } from '../schemas/admin.schema.js';
+import { bookings, activities, notifications, staff, reservations } from '../schemas/admin.schema.js';
 import { sessions } from '../schemas/game.schema.js';
 import { players } from '../schemas/player.schema.js';
 import { authenticate } from '../middleware/auth.js';
@@ -204,9 +204,33 @@ router.delete('/:id', authenticate, async (req: Request, res: Response) => {
   if (existing.length === 0) return res.status(404).json({ error: 'الحجز غير موجود' });
 
   await db.update(bookings).set({ deletedAt: new Date() } as any).where(eq(bookings.id, id));
-  res.json({ success: true });
 
-  // تحديث maxPlayers في الغرفة حسب عدد الأشخاص
+  // 🔗 مرآة المتابعة — بدونها يبقى الطرفان يقولان قولين مختلفين:
+  //    صفُّ المتابعة يظلّ «مثبَّتاً» و`app_confirmed=true`، ومعناه «لصاحبه صفُّ حجز»
+  //    وقد حُذف. فيسقط الرجل من العدّ كلّه (الصيغة تحسب people−1 لصاحبٍ لا وجود له)،
+  //    ويبقى في قائمة المتابعة مثبَّتاً، ويُردّ إن حاول الحجز ثانيةً بأنّه «محجوز».
+  //    (٦ حالات في فعاليّة ٢٢٢ وحدها.) نُعيده «غير مثبَّت» — نفس ما يفعله فكّ
+  //    التثبيت بالضبط، فلا نخترع دلالةً ثالثة لحدثٍ معناه واحد.
+  try {
+    const bk = existing[0];
+    const phone = String(bk.phone || '').trim();
+    if (bk.activityId && (bk.playerId || phone)) {
+      await db.update(reservations).set({
+        appConfirmed: false, appConfirmedAt: null, status: 'pending', updatedAt: new Date(),
+      } as any).where(and(
+        eq(reservations.activityId, bk.activityId),
+        isNull(reservations.deletedAt),
+        or(
+          bk.playerId ? eq(reservations.playerId, bk.playerId) : sql`false`,
+          phone ? eq(reservations.phone, phone) : sql`false`,
+        ),
+      ));
+    }
+  } catch (err: any) {
+    console.warn('\u26A0\uFE0F [bookings] \u062A\u0639\u0630\u0651\u0631 \u062A\u062D\u062F\u064A\u062B \u0645\u0631\u0622\u0629 \u0627\u0644\u0645\u062A\u0627\u0628\u0639\u0629:', err.message);
+  }
+
+  res.json({ success: true });
 });
 
 export default router;

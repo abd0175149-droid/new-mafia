@@ -95,6 +95,85 @@ router.get('/search', authenticatePlayer, async (req: Request, res: Response) =>
     res.status(500).json({ error: err.message });
   }
 });
+// ══════════════════════════════════════════════════════
+// ❌ DELETE /book/:activityId — اللاعب يُلغي حجزه بنفسه
+// ══════════════════════════════════════════════════════
+// 🔴 يمرّ بالمرآة كما يمرّ حذفُ الموظّف: يُحذف صفُّ الحجز **ويُنزَّل وسمُ المتابعة**
+//    ويعود صفُّها «غير مثبَّت». وإلّا بقيت المتابعة تقول «له حجز» ولا حجز، فيسقط
+//    من العدّ ويُردّ إن حاول الحجز ثانيةً.
+// 🔴 حارسان لا ثالث لهما: المدفوع لا يُلغى من التطبيق (مالٌ يحتاج يداً بشريّة)،
+//    والفعاليّةُ التي بدأت لا يُنسحب منها — الإلغاء بعد البدء إخلالٌ لا اعتذار.
+router.delete('/book/:activityId', authenticatePlayer, async (req: Request, res: Response) => {
+  const db = getDB();
+  if (!db) return res.status(503).json({ error: 'DB unavailable' });
+
+  const player = (req as any).playerAccount;
+  if (!player?.playerId) return res.status(401).json({ error: 'غير مصادق' });
+
+  const activityId = parseInt(req.params.activityId);
+  if (!Number.isFinite(activityId)) return res.status(400).json({ error: 'معرّف غير صالح' });
+
+  try {
+    const [act] = await db.select({ id: activities.id, name: activities.name, date: activities.date })
+      .from(activities)
+      .where(and(eq(activities.id, activityId), isNull(activities.deletedAt)))
+      .limit(1);
+    if (!act) return res.status(404).json({ error: 'النشاط غير موجود' });
+
+    if (act.date && new Date(act.date).getTime() <= Date.now()) {
+      return res.status(409).json({ error: 'بدأت الفعاليّة — تعذّر الإلغاء. كلّم موجّه اللعبة' });
+    }
+
+    const [bk] = await db.select()
+      .from(bookings)
+      .where(and(
+        eq(bookings.activityId, activityId),
+        isNull(bookings.deletedAt),
+        or(
+          eq(bookings.playerId, player.playerId),
+          player.phone ? eq(bookings.phone, player.phone) : sql`false`,
+        ),
+      ))
+      .limit(1);
+    if (!bk) return res.status(404).json({ error: 'لا حجزَ لك في هذه الفعاليّة' });
+
+    if (bk.isPaid === true && bk.isFree !== true) {
+      return res.status(409).json({ error: 'حجزك مدفوع — راجع الإدارة للإلغاء' });
+    }
+
+    await db.update(bookings).set({ deletedAt: new Date() } as any).where(eq(bookings.id, bk.id));
+
+    // 🔗 المرآة — نفس ما يفعله حذفُ الموظّف وفكُّ التثبيت
+    await db.update(reservations).set({
+      appConfirmed: false, appConfirmedAt: null, status: 'pending', updatedAt: new Date(),
+    } as any).where(and(
+      eq(reservations.activityId, activityId),
+      isNull(reservations.deletedAt),
+      or(
+        eq(reservations.playerId, player.playerId),
+        player.phone ? eq(reservations.phone, player.phone) : sql`false`,
+      ),
+    ));
+
+    console.log(`❌ [player-app] اللاعب #${player.playerId} ألغى حجزه في الفعاليّة #${activityId}`);
+
+    // 🔔 الإدارة تعرف بالإلغاء كما تعرف بالحجز — الغيابُ المفاجئ يُربك الطاولة
+    try {
+      const { sendPushToStaffByPermission } = await import('../services/fcm.service.js');
+      sendPushToStaffByPermission(
+        'bookings', '❌ إلغاء حجز (تطبيق)',
+        `${player.name} ألغى حجزه في ${act.name}`,
+        'booking_cancelled', { activityId: String(activityId), url: '/admin/reservations' },
+      );
+    } catch { /* الإشعار خدمةٌ لا شرط */ }
+
+    res.json({ success: true, activityId });
+  } catch (err: any) {
+    console.error('❌ cancel booking error:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 
 // ── 🎟️ POST /book — حجز نشاط (لنفسه فقط) — يتطلب إكمال استبيانات الفعاليات السابقة ──
 router.post('/book', authenticatePlayer, requireNoPendingFeedback, async (req: Request, res: Response) => {
