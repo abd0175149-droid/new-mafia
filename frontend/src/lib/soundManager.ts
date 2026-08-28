@@ -636,6 +636,33 @@ function playDefaultSound(eventKey: string, vol: number = 1): void {
         break;
       }
 
+      // سقوطُ العنقاء: لهبٌ يخبو ثمّ ضربةٌ منخفضة — لا نهوضَ هذه المرّة
+      case 'morning_phoenix_fall': {
+        const dur = 0.7;
+        const buf = ctx.createBuffer(1, Math.floor(ctx.sampleRate * dur), ctx.sampleRate);
+        const data = buf.getChannelData(0);
+        for (let i = 0; i < data.length; i++) data[i] = (Math.random() * 2 - 1) * (1 - i / data.length);
+        const src = ctx.createBufferSource(); src.buffer = buf;
+        const filter = ctx.createBiquadFilter(); filter.type = 'bandpass';
+        filter.frequency.setValueAtTime(1400, ctx.currentTime);
+        filter.frequency.exponentialRampToValueAtTime(120, ctx.currentTime + dur);
+        const ng = ctx.createGain();
+        ng.gain.setValueAtTime(0.4, ctx.currentTime);
+        ng.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + dur);
+        src.connect(filter); filter.connect(ng); ng.connect(dest(ctx));
+        src.start(ctx.currentTime); src.stop(ctx.currentTime + dur);
+        // الضربةُ بعد اللهب
+        const osc = ctx.createOscillator(); const og = ctx.createGain();
+        osc.connect(og); og.connect(dest(ctx)); osc.type = 'sine';
+        const t0 = ctx.currentTime + 0.55;
+        osc.frequency.setValueAtTime(90, t0);
+        osc.frequency.exponentialRampToValueAtTime(35, t0 + 0.5);
+        og.gain.setValueAtTime(0.5, t0);
+        og.gain.exponentialRampToValueAtTime(0.001, t0 + 0.6);
+        osc.start(t0); osc.stop(t0 + 0.6);
+        break;
+      }
+
       // لعنةُ الرماد: نغمتان تهبطان معاً — اثنان يخرجان لا واحد
       case 'morning_phoenix_ash': {
         for (const [f, delay] of [[660, 0], [440, 0.18]] as [number, number][]) {

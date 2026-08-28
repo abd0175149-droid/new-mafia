@@ -42,6 +42,8 @@ for (const file of walk(FRONT)) {
   for (const m of src.matchAll(new RegExp(`\\?\\s*'(${SK})'\\s*:\\s*'(${SK})'`, 'g'))) { add(m[1], rel); add(m[2], rel); }
   // ثلاثيّةٌ أحدُ طرفيها فقط مفتاحُ صوت (كسلسلة الفوز عند الموجّه)
   for (const m of src.matchAll(new RegExp(`[?:]\\s*'(${SK})'\\s*[:;,)]`, 'g'))) add(m[1], rel);
+  // إسنادٌ صريح: key = 'morning_phoenix_fall'
+  for (const m of src.matchAll(new RegExp(`=\\s*'(${SK})'\\s*;`, 'g'))) add(m[1], rel);
 }
 // المفاتيحُ المشتقّةُ برمجيّاً
 const ROLES = ['godfather','silencer','chameleon','witch','older_brother','mafia_regular','sheriff','doctor','sniper','policewoman','nurse','mayor','citizen','younger_brother','jester','assassin','phoenix'];

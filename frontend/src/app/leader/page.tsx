@@ -1504,7 +1504,12 @@ export default function LeaderPage() {
 
     // ── 🌅 ملخّص الليلة (أوتو): صوت كل حدث (اغتيال/حماية/قنص/إسكات/شرطية…) لحظة كشفه ──
     const offMorningEventSound = on('display:morning-event', (d: any) => {
-      const key = MORNING_SOUND_BY_TYPE[String(d?.type || '')];
+      const type = String(d?.type || '');
+      let key = MORNING_SOUND_BY_TYPE[type];
+      // 🔥 سقوطُ العنقاء: لا حدثَ خاصّاً له في المحرّك — موتُه يبقى حدثَ القتل الأصليّ
+      //    بدور PHOENIX (والنهوضُ حدثٌ مستقلّ حين ينجو). فحدثُ قتلٍ على العنقاء = سقط.
+      const KILL_TYPES = ['ASSASSINATION', 'SNIPE_MAFIA', 'SNIPE_CITIZEN', 'ASSASSIN_KILL', 'SHERIFF_REVENGE'];
+      if (String(d?.extra?.targetRole || '') === 'PHOENIX' && KILL_TYPES.includes(type)) key = 'morning_phoenix_fall';
       if (key) localSound(() => playGameSound(key));
     });
 

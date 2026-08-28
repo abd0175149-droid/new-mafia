@@ -150,6 +150,9 @@ export const SOUND_GROUPS: SoundGroupDef[] = [
       { key: 'morning_phoenix_rebirth',       label: '🔥 نهوض العنقاء',        desc: 'محاولةُ إخراجٍ فشلت — العنقاء واقف',   cat: 'events', synth: true },
       { key: 'morning_phoenix_burn',          label: '🔥 نار العنقاء',         desc: 'خروجُ من مدّ يده إلى العنقاء',         cat: 'events', synth: true },
       { key: 'morning_phoenix_ash',           label: '🜂 لعنة الرماد',         desc: 'أعدمته المدينة فأخذ معه من صوّت عليه', cat: 'events', synth: true },
+      // 🔥 لا حدثَ خاصّاً في المحرّك لسقوط العنقاء: موتُه يبقى حدثَ القتل الأصليّ
+      //    (اغتيال/قنص/سفّاح) بدور PHOENIX، ومعه احتراقُ المنفّذ. الموجّه يميّزه بالدور.
+      { key: 'morning_phoenix_fall',          label: '🔥 سقوط العنقاء',        desc: 'لا رصيدَ نهوضٍ بقي — خرج مع من حاول قتله', cat: 'events', synth: true },
     ],
   },
   {
