@@ -1071,6 +1071,7 @@ export default function ActivityDetailPage() {
   const [bookings, setBookings] = useState<any[]>([]);
   // 👥 مجموعات القائمة: لاعبون جدد (بلا حساب) + مرافقو اللاعبين — تُشتقّ من المتابعة
   const [rosterGroups, setRosterGroups] = useState<{ newcomers: any; companions: any } | null>(null);
+  const [bookedCount, setBookedCount] = useState<{ total: number; booked: number; newcomers: number; companions: number } | null>(null);
   const [playerGames, setPlayerGames] = useState<any[]>([]); // عدد الألعاب لكل لاعب في هذا النشاط
   const [costs, setCosts] = useState<any[]>([]);
   const [locations, setLocations] = useState<any[]>([]);
@@ -1091,7 +1092,7 @@ export default function ActivityDetailPage() {
   useEffect(() => {
     (async () => {
       try {
-        const [act, bks, csts, locs, stf, pg, groups] = await Promise.all([
+        const [act, bks, csts, locs, stf, pg, groups, booked] = await Promise.all([
           apiFetch(`/api/activities/${activityId}`),
           apiFetch(`/api/bookings?activityId=${activityId}`),
           apiFetch(`/api/costs?activityId=${activityId}`),
@@ -1099,6 +1100,7 @@ export default function ActivityDetailPage() {
           apiFetch('/api/staff/names').catch(() => []),   // أسماء العرض وحدها — متاحة لكل موظّف
           apiFetch(`/api/activities/${activityId}/games-per-player`).catch(() => ({ players: [] })),
           apiFetch(`/api/reservations/roster-groups/${activityId}`).catch(() => null),
+          apiFetch(`/api/activities/${activityId}/booked-count`).catch(() => null),
         ]);
         setActivity(act);
         setBookings(bks);
@@ -1107,6 +1109,7 @@ export default function ActivityDetailPage() {
         setStaffList(stf);
         setPlayerGames(pg?.players || []);
         if (groups?.success) setRosterGroups({ newcomers: groups.newcomers, companions: groups.companions });
+        if (booked?.success) setBookedCount(booked);
       } catch (err) {
         console.error(err);
       } finally {
@@ -1148,7 +1151,12 @@ export default function ActivityDetailPage() {
   // 🔢 الحضور = صفوف الحجز + المجمَّعون (لاعبون جدد + مرافقون) — نفس صيغة المقاعد
   //    في seatAvailability. قبل ذلك كانت السعة تُحسب ناقصةً بمن لا صفَّ حجزٍ له.
   const groupedExtra = (rosterGroups?.newcomers?.count ?? 0) + (rosterGroups?.companions?.count ?? 0);
-  const totalAttendees = actBookings.reduce((s: number, b: any) => s + (b.count || 1), 0) + groupedExtra;
+  // 👥 العدد الحقيقيّ من المصدر الموحّد (حجوزات + متابعة بلا قائمة الانتظار).
+  // 🔴 الحساب المحليّ احتياطٌ فقط: كان يجمع الحجوزات مع مجموعات المتابعة
+  //    **المثبَّتة وحدها**، فيسقط كلُّ حجزٍ غير مثبَّت — وهي ٢–٩ أشخاصٍ في كلّ
+  //    ليلةٍ تقريباً. وعلى هذا الرقم يُقال للزبون «فيه مجال» أو «امتلأنا».
+  const totalAttendees = bookedCount?.total
+    ?? (actBookings.reduce((s: number, b: any) => s + (b.count || 1), 0) + groupedExtra);
   const paidAttendees = actBookings.filter((b: any) => b.isPaid && !b.isFree).reduce((s: number, b: any) => s + (b.count || 1), 0);
   const freeAttendees = actBookings.filter((b: any) => b.isFree).reduce((s: number, b: any) => s + (b.count || 1), 0);
   const unpaidAttendees = actBookings.filter((b: any) => !b.isPaid && !b.isFree).reduce((s: number, b: any) => s + (b.count || 1), 0);

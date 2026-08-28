@@ -647,6 +647,20 @@ router.delete('/:id/booking-bonus', authenticate, authorize('admin'), async (req
   }
 });
 
+// ── GET /api/activities/:id/booked-count — العدد الحقيقيّ للمحجوزين ──
+// من المصدر الموحّد: حجوزات + متابعة (بلا قائمة الانتظار). يُرجِع التفصيل أيضاً
+// كي تعرض الصفحةُ الرقمَ وتشرحه: كم صفَّ حجزٍ، وكم لاعباً جديداً، وكم مرافقاً.
+router.get('/:id/booked-count', authenticate, async (req: Request, res: Response) => {
+  const id = parseInt(req.params.id);
+  if (!Number.isFinite(id)) return res.status(400).json({ error: 'معرّف غير صالح' });
+  try {
+    const { bookedBreakdown } = await import('../services/booking-count.service.js');
+    res.json({ success: true, ...(await bookedBreakdown(id)) });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // GET /api/activities/:id — جلب نشاط واحد
 router.get('/:id', authenticate, async (req: Request, res: Response) => {
   const db = getDB();

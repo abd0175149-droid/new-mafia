@@ -295,11 +295,14 @@ router.get('/activities/upcoming', async (req: Request, res: Response) => {
       : new Set<number>();
     const borrowMap = new Map(borrowRows.filter(r => r.src && liveSrc.has(r.src)).map(r => [r.id, r.src as number]));
 
-    // لكل نشاط: عدد الحاجزين
+    // 👥 عدد الحاجزين — من المصدر الموحّد، دفعةً واحدة لكلّ الفعاليّات.
+    // 🔴 كان هنا `SUM(bookings.count)` وحده داخل حلقة: لا يرى متابعةَ الحجوزات،
+    //    فمن أُدخل يدويّاً بلا حساب ومرافقو اللاعبين يختفون من الرقم الذي يقرؤه
+    //    اللاعب ليقرّر أفيه مجالٌ أم لا. (فعاليّة ٢٢٤: ٢٠ معروضاً و٢٧ حقيقةً.)
+    const { countBookedPeopleBatch } = await import('../services/booking-count.service.js');
+    const bookedMap = await countBookedPeopleBatch(filtered.map((a: any) => a.id));
+
     const enriched = await Promise.all(filtered.map(async (act) => {
-      const [countResult] = await db.select({
-        total: sql<number>`COALESCE(SUM(${bookings.count}), 0)::int`,
-      }).from(bookings).where(and(eq(bookings.activityId, act.id), isNull(bookings.deletedAt)));
 
       // 🎯 توحيد 2026-08-06: العروض مسارٌ مهجور يخدم الفعاليّات القديمة فقط.
       // لا يُعرض عرضٌ إلا إذا اختاره الأدمن صراحةً — أُلغيت قاعدة «الفارغ = اعرض الكل»
@@ -315,7 +318,7 @@ router.get('/activities/upcoming', async (req: Request, res: Response) => {
         locationOffers: activeOffers,
         // 🍽️ للاعب: زرّ استعراض المنيو وقت الحجز — بالمنيو الفعّال (قد يكون مستعاراً)
         hasMenu: act.locationId ? menuLocIds.has(borrowMap.get(act.locationId) ?? act.locationId) : false,
-        bookedCount: countResult?.total || 0,
+        bookedCount: bookedMap.get(act.id) ?? 0,
         maxPlayers: act.maxCapacity || 20,
       };
     }));

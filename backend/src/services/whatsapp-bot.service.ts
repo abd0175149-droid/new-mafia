@@ -1040,24 +1040,10 @@ async function mirrorBotReservationToBookings(
 async function seatAvailability(db: any, activityId: number): Promise<{ total: number; booked: number; remaining: number }> {
   const { resolveRoomCapacity } = await import('./capacity.service.js');
   const total = await resolveRoomCapacity(activityId);
-  const [bk] = await db
-    .select({ total: sql<number>`COALESCE(SUM(${bookings.count}), 0)` })
-    .from(bookings)
-    .where(and(eq(bookings.activityId, activityId), isNull(bookings.deletedAt)));
-  const resRows = await db
-    .select({ people: reservations.peopleCount, appConfirmed: reservations.appConfirmed })
-    .from(reservations)
-    .where(and(
-      eq(reservations.activityId, activityId),
-      isNull(reservations.deletedAt),
-      sql`${reservations.status} != 'waitlist'`,
-    ));
-  let resSeats = 0;
-  for (const r of resRows) {
-    const ppl = Number(r.people || 1);
-    resSeats += r.appConfirmed ? Math.max(0, ppl - 1) : ppl;
-  }
-  const booked = Number(bk?.total || 0) + resSeats;
+  // 🔴 الصيغةُ كانت مكتوبةً هنا نسخةً ثانية. صارت في booking-count.service —
+  //    مصدرٌ واحد يخدم البوت وتطبيق اللاعب معاً، فلا يفترق رقمٌ عن رقم.
+  const { countBookedPeople } = await import('./booking-count.service.js');
+  const booked = await countBookedPeople(activityId);
   return { total, booked, remaining: Math.max(0, total - booked) };
 }
 

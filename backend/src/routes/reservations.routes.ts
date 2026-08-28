@@ -124,7 +124,36 @@ router.put('/:id', authenticate, async (req: Request, res: Response) => {
     bookingSync = 'error';
   }
 
-  res.json({ ...row, bookingSync });
+  // 🔔 إشعارُ التثبيت — عند الانتقال إلى «مثبَّت» وحده.
+  // 🔴 كان اللاعب يُخبَر بتأكيد حجزه **فقط إن حجز بنفسه** من التطبيق
+  //    (player-app.routes → 'booking_confirmed')، أمّا من أدخلتَه أنت وثبّتّه
+  //    فلا يصله شيء: حجزُه مؤكَّدٌ عندنا ومجهولٌ عنده.
+  // 🔴 وعلى الانتقال لا على الحالة: تعديلُ عددٍ أو ملاحظةٍ على حجزٍ مثبَّتٍ
+  //    أصلاً يمرّ من هنا أيضاً، وإشعارٌ مع كلّ حفظٍ إزعاجٌ لا خدمة.
+  let notified = false;
+  if (nowConfirmed && !wasConfirmed && row.playerId) {
+    try {
+      const [act] = row.activityId
+        ? await db.select({ name: activities.name }).from(activities)
+            .where(eq(activities.id, row.activityId)).limit(1)
+        : [undefined as any];
+      const actName = act?.name || 'الفعاليّة';
+      const { sendPushToPlayer } = await import('../services/fcm.service.js');
+      await sendPushToPlayer(
+        Number(row.playerId),
+        '✅ تثبّت حجزك',
+        `حجزك في «${actName}» صار مثبَّتاً — نراك هناك!`,
+        'booking_confirmed',
+        { activityId: String(row.activityId ?? '') },
+      );
+      notified = true;
+    } catch (e: any) {
+      // الإشعار خدمةٌ لا شرط: فشلُه لا يُبطل تثبيتاً تمّ فعلاً
+      console.warn(`⚠️ [reservations] إشعار تثبيت الحجز #${row.id} فشل:`, e?.message || e);
+    }
+  }
+
+  res.json({ ...row, bookingSync, notified });
 });
 
 // DELETE /api/reservations/:id (soft delete)
