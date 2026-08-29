@@ -61,6 +61,18 @@ const mmss = (sec: number) => {
   return toAr(`${String(Math.floor(s / 60)).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}`);
 };
 
+/**
+ * اسمُ الغرفة في القاعدة هو «اسمُ الفعاليّة — غرفة ن»، فيبتلع السطر ويُبتر
+ * عند الطرف المهمّ (رقم الغرفة). نأخذ ما بعد الشرطة إن وُجد.
+ */
+const shortRoom = (name?: string | null) => {
+  if (!name) return 'الغرفة';
+  const m = name.match(/غرفة\s*[٠-٩\d]+\s*$/);
+  if (m) return toAr(m[0].trim());
+  const dash = name.lastIndexOf('—');
+  return dash > 0 ? name.slice(dash + 1).trim() : name;
+};
+
 /** وقتٌ بأرقامٍ عربيّة — خطُّ النصّ لا الأحاديّ، وأرقامٌ جدوليّة للاصطفاف */
 const Time = ({ ms, className = '', style }: { ms: number; className?: string; style?: React.CSSProperties }) => (
   <span className={className} style={{ fontVariantNumeric: 'tabular-nums', ...style }}>{hhmm(ms)}</span>
@@ -221,10 +233,10 @@ export default function NightPulse({ pulse, serverNow, onSelectActivity, onSelec
           )}
           {pulse.rooms.length > 1 && (
             <Picker
-              label={(room?.name || 'الغرفة') + (room?.isMine ? ' · أنت' : '')}
+              label={shortRoom(room?.name) + (room?.isMine ? ' · أنت' : '')}
               items={pulse.rooms.map(r => ({
                 id: r.id,
-                label: r.name + (r.isMine ? ' · غرفتك' : ''),
+                label: shortRoom(r.name) + (r.isMine ? ' · غرفتك' : ''),
                 sub: `كود ${r.joinCode}`,
                 on: r.selected,
               }))}
@@ -244,7 +256,7 @@ export default function NightPulse({ pulse, serverNow, onSelectActivity, onSelec
                   {liveSlot.label}
                 </p>
                 <p className="text-[11px] text-gray-500">
-                  اللعبة {toAr(live.roomOrdinal)} من {toAr(live.ofRoom)} · {room?.name}
+                  اللعبة {toAr(live.roomOrdinal)} من {toAr(live.ofRoom)} · {shortRoom(room?.name)}
                 </p>
                 {live.outsidePlan && <p className="text-[10px] mt-0.5" style={{ color: '#C5A059' }}>↑ خارج الجدول المكتوب</p>}
                 <div className="flex items-center gap-1.5 mt-1.5 flex-wrap">
@@ -310,7 +322,7 @@ export default function NightPulse({ pulse, serverNow, onSelectActivity, onSelec
         <Block accent>
           <div className="flex items-center justify-between gap-2.5">
             <div className="min-w-0">
-              <p className="text-[14px] font-bold text-white truncate">{room.name}</p>
+              <p className="text-[14px] font-bold text-white">{shortRoom(room.name)}</p>
               <p className="text-[11px] text-gray-500">
                 كود <span className="font-mono" dir="ltr">{room.joinCode}</span>
               </p>
@@ -368,7 +380,7 @@ export default function NightPulse({ pulse, serverNow, onSelectActivity, onSelec
 
       {/* ── ٤ · جدول ألعاب الغرفة — صفٌّ لكلّ لعبة، والوقتان جنباً إلى جنب ── */}
       {pulse.slots.length > 0 && (
-        <Block label={`جدول ألعاب ${room?.name || 'الغرفة'}`}>
+        <Block label={`جدول ألعاب ${shortRoom(room?.name)}`}>
           <div className="flex flex-col gap-1.5">
             {pulse.slots.map(s => <SlotRow key={s.ordinal} slot={s} now={now} />)}
           </div>
@@ -396,7 +408,9 @@ export default function NightPulse({ pulse, serverNow, onSelectActivity, onSelec
                 {nextSlot.projectedStart <= now ? 'الآن تقريباً' : `≈ ${hhmm(nextSlot.projectedStart)}`}
               </span>
               {nextSlot.projectedStart > now && nextSlot.driftMin != null && Math.abs(nextSlot.driftMin) >= DRIFT_FLOOR && nextSlot.planStart && (
-                <span className="block text-[11px] text-gray-600 line-through">{toAr(nextSlot.planStart)}</span>
+                <span className="block text-[11px]" style={{ color: '#7A736A' }}>
+                  بدل {toAr(nextSlot.planStart)}
+                </span>
               )}
             </span>
           </div>
@@ -417,7 +431,8 @@ function SlotRow({ slot, now }: { slot: PulseSlot; now: number }) {
   const moved = slot.planStart != null && slot.driftMin != null && Math.abs(slot.driftMin) >= DRIFT_FLOOR;
   const dueNow = slot.state === 'future' && slot.projectedStart <= now;
 
-  const accent = live ? '#C5A059' : done ? (WINNER_COLOR[slot.winner || ''] || '#6B655C') : '#6B655C';
+  const timeColor = live ? '#C5A059' : done ? '#E7E2D6' : '#9C958A';
+  const winColor = WINNER_COLOR[slot.winner || ''] || '#9C958A';
 
   return (
     <div
@@ -444,7 +459,11 @@ function SlotRow({ slot, now }: { slot: PulseSlot; now: number }) {
           {slot.label}
           {slot.outsidePlan && <span className="text-[10px] font-normal mr-1.5" style={{ color: '#C5A059' }}>· خارج الجدول</span>}
         </p>
-        <p className="text-[10.5px] text-gray-500 mt-0.5">
+        <p className="text-[10.5px] mt-0.5 flex items-center gap-1.5"
+          style={{ color: done && slot.winner ? winColor : '#9C958A' }}>
+          {done && slot.winner && (
+            <span className="w-1.5 h-1.5 rounded-full shrink-0" style={{ background: winColor }} />
+          )}
           {live ? '● تجري الآن'
             : done ? (slot.winner ? `فاز ${WINNER_AR[slot.winner] || slot.winner}` : 'انتهت')
             : dueNow ? 'على وشك البدء'
@@ -454,12 +473,12 @@ function SlotRow({ slot, now }: { slot: PulseSlot; now: number }) {
 
       {/* الوقتان */}
       <div className="text-left shrink-0">
-        <p className="text-[14px] font-bold leading-tight" style={{ color: accent, fontVariantNumeric: 'tabular-nums' }}>
+        <p className="text-[14px] font-bold leading-tight" style={{ color: timeColor, fontVariantNumeric: 'tabular-nums' }}>
           {slot.state === 'future' && !dueNow ? '≈ ' : ''}{hhmm(t)}
         </p>
         {moved && slot.planStart && (
-          <p className="text-[10px] text-gray-600 line-through leading-tight" style={{ fontVariantNumeric: 'tabular-nums' }}>
-            {toAr(slot.planStart)}
+          <p className="text-[11px] leading-tight mt-0.5" style={{ color: '#7A736A', fontVariantNumeric: 'tabular-nums' }}>
+            بدل {toAr(slot.planStart)}
           </p>
         )}
       </div>
