@@ -164,10 +164,15 @@ export function bindRoomSchedule(
   const n = Math.max(slots.length, played.length);
   const out: BoundSlot[] = [];
   let lastEnd: number | null = null;
-  // هل السلسلة مرتكزةٌ على لعبةٍ بدأت فعلاً؟ ما دامت الليلة لم تبدأ فالورقة هي
-  // كلّ ما نملك، فلا نَعِد ببدايةٍ أبكر منها. وحين تبدأ، يصير الواقع هو المرجع
-  // في الاتجاهين: تأخّرُ لعبةٍ يؤخّر ما بعدها، وتبكيرُها يُقدّمه بالمقدار نفسه.
-  let chainIsReal = false;
+  // 📐 الإزاحة المحمولة: انحرافُ آخر لعبةٍ **بدأت فعلاً** يُطبَّق على أوقات الخطّة
+  //    لما بعدها — فتنزاح الليلة كلُّها بالمقدار نفسه لا بمقدارٍ متضاعف.
+  //
+  //    كان التقدير يُشتقّ من مدد ليلتك فيتضاعف الأثر: لعبةٌ بدأت وانتهت مبكّرةً
+  //    نصف ساعة تُقدّم الثانية ٣٠د والثالثة ٦٠د — وهذا يُغري لاعباً بالحضور
+  //    لموعدٍ لن يقع. الآن المدّةُ المرصودة تحدّد النهاية المتوقّعة فقط، والبدايةُ
+  //    تتبع الخطّة مزاحةً، مع أرضيّةٍ فيزيائيّة: لا لعبةَ تبدأ قبل أن تنتهي
+  //    سابقتُها وتمرّ استراحتُها.
+  let carryMs = 0;
 
   for (let i = 0; i < n; i++) {
     const slot = slots[i] ?? null;
@@ -204,13 +209,14 @@ export function bindRoomSchedule(
         winner: ended ? m.winner : null,
       });
       lastEnd = projectedEnd;
-      chainIsReal = true;
+      if (planStart != null) carryMs = started - planStart;
     } else {
       const chained = lastEnd == null
         ? (planStart ?? now)
         : lastEnd + plannedBreakBefore(gameSchedule, i) * MIN;
-      // سلسلةٌ مرتكزةٌ على واقعٍ تُتَّبع كما هي؛ وإلّا فالورقة أرضيّةٌ لا نُبكّر عنها.
-      const ps = planStart == null || chainIsReal ? chained : Math.max(planStart, chained);
+      const shifted = planStart == null ? null : planStart + carryMs;
+      // الخطّةُ مزاحةً هي الوعد، والسلسلةُ الفيزيائيّة أرضيّةٌ لا تُخترق.
+      const ps = shifted == null ? chained : Math.max(shifted, chained);
 
       out.push({
         ordinal: i + 1, label,

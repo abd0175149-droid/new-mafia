@@ -104,13 +104,23 @@ console.log('\n🧪 تقدير ما لم يبدأ');
   check('التأخّر يُورَّث للثالثة', slots[2].projectedStart > at(22, 50));
 }
 {
-  // ليلةٌ سبقت ورقتها: الواقع مرجعٌ في الاتجاهين بعد أن تبدأ الليلة.
-  // الأولى انتهت 20:25 + استراحة ٢٠د ⇒ الثانية ≈ 20:45 لا 21:20.
-  const now = at(20, 30);
-  const slots = bindRoomSchedule(PLAN, [m(1, at(19, 40), at(20, 25), 'MAFIA')], DATE, now);
-  check('التبكير ينعكس على ما بعده', slots[1].projectedStart === at(20, 45));
-  check('انحرافٌ سالب يُبلَّغ', slots[1].driftMin === -35);
-  check('والتبكير يُورَّث للثالثة أيضاً', slots[2].projectedStart < at(22, 50));
+  // 📐 الإزاحة المحمولة: بدايةٌ مبكّرة ٣٠د تُقدّم كلَّ ما بعدها ٣٠د — لا ٦٠ ولا ٩٠.
+  const slots = bindRoomSchedule(PLAN, [m(1, at(19, 15), at(20, 0), 'MAFIA')], DATE, at(20, 10));
+  check('تبكير البداية ٣٠د ⇒ الثانية ‎−٣٠', slots[1].driftMin === -30 && slots[1].projectedStart === at(20, 50));
+  check('والثالثة ‎−٣٠ أيضاً لا ‎−٦٠', slots[2].driftMin === -30 && slots[2].projectedStart === at(22, 20));
+  check('الانزياح واحدٌ عبر الليلة كلّها', slots[1].driftMin === slots[2].driftMin);
+}
+{
+  // والتأخّر كذلك: بدايةٌ متأخّرة ٢٥د تُؤخّر كلَّ ما بعدها ٢٥د بالضبط.
+  const slots = bindRoomSchedule(PLAN, [m(1, at(20, 10), at(21, 25), 'MAFIA')], DATE, at(21, 30));
+  check('تأخير البداية ٢٥د ⇒ الثانية +٢٥', slots[1].driftMin === 25);
+  check('والثالثة +٢٥ أيضاً', slots[2].driftMin === 25);
+}
+{
+  // الأرضيّة الفيزيائيّة: لعبةٌ طالت لا تسمح للتالية أن تبدأ في موعدها المزاح
+  const slots = bindRoomSchedule(PLAN, [m(1, at(19, 45), at(22, 0), 'MAFIA')], DATE, at(22, 5));
+  check('لعبةٌ طالت تدفع التالية رغم انزياحٍ صفريّ', slots[1].projectedStart === at(22, 20));
+  check('والانحراف يعكس الدفع لا الانزياح', slots[1].driftMin === 60);
 }
 {
   // قبل أن تبدأ الليلة لا واقعَ يُتَّبع: الورقة أرضيّةٌ لا نَعِد بأبكرَ منها
