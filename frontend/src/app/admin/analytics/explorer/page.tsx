@@ -13,11 +13,12 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { exportReport } from '@/app/admin/reports/lib/reportsApi';
 import {
   EMPTY_LENS, WA_DEFAULT, WA_VARS,
-  fetchExplore, fetchOptions, fetchViews, saveView, removeView,
+  fetchExplore, fetchOptions, fetchViews, saveView, removeView, fillTemplate,
   fmtMoney, fmtNum, lensToReportParams, pctOf, shiftDays, todayISO,
   type ExploreResult, type Lens, type Option, type Player, type SavedView,
 } from './lib';
 import { CohortMatrix, ConversionStrip, Funnel, Kpi, SignupWeeks, Waffle } from './panels';
+import MessageTemplateEditor from '@/components/MessageTemplateEditor';
 import { COLUMNS, COL_GROUPS, DEFAULT_COLS, PlayerTable, type ColKey } from './table';
 
 const COLS_KEY = 'explorer_cols';
@@ -62,6 +63,10 @@ export default function ExplorerPage() {
       const n = localStorage.getItem(TITLE_KEY); if (n) setNotifTitle(n);
     } catch { /* تجاهل */ }
   }, []);
+  const saveTpl = (t: string) => {
+    setWaTemplate(t);
+    try { localStorage.setItem(TPL_KEY, t); } catch { /* تجاهل */ }
+  };
   const persistCols = (next: ColKey[]) => {
     setCols(next);
     try { localStorage.setItem(COLS_KEY, JSON.stringify(next)); } catch { /* تجاهل */ }
@@ -343,28 +348,21 @@ export default function ExplorerPage() {
           </div>
 
           {showTpl && (
-            <div className="bg-gray-800/30 border border-green-500/20 rounded-2xl p-4 space-y-2.5 mb-3">
-              <div className="flex items-center justify-between">
-                <h3 className="text-sm font-bold text-green-400">💬 قالب الرسالة — واتساب وإشعار</h3>
-                <button type="button" onClick={() => { setWaTemplate(WA_DEFAULT); localStorage.setItem(TPL_KEY, WA_DEFAULT); }}
-                  className="text-[11px] text-gray-400 hover:text-white">استعادة الافتراضيّ</button>
-              </div>
-              <input value={notifTitle}
-                onChange={(e) => { setNotifTitle(e.target.value); localStorage.setItem(TITLE_KEY, e.target.value); }}
-                placeholder="عنوان الإشعار" className={inputCls + ' w-full'} />
-              <textarea value={waTemplate} rows={4}
-                onChange={(e) => { setWaTemplate(e.target.value); localStorage.setItem(TPL_KEY, e.target.value); }}
-                className={inputCls + ' w-full leading-relaxed resize-y'} />
-              <div className="flex flex-wrap gap-1.5 items-center">
-                <span className="text-[11px] text-gray-500">أدرِج متغيّراً:</span>
-                {WA_VARS.map((v) => (
-                  <button key={v.token} type="button" title={v.token}
-                    onClick={() => { const n = waTemplate + v.token; setWaTemplate(n); localStorage.setItem(TPL_KEY, n); }}
-                    className="text-[11px] px-2 py-1 rounded-lg bg-green-500/10 border border-green-500/25 text-green-300 hover:bg-green-500/20">
-                    {v.label}
-                  </button>
-                ))}
-              </div>
+            <div className="mb-3">
+              <MessageTemplateEditor<Player>
+                titleAr="💬 قالب الرسالة — واتساب وإشعار"
+                value={waTemplate}
+                onChange={saveTpl}
+                onReset={() => saveTpl(WA_DEFAULT)}
+                vars={WA_VARS}
+                preview={shown[0] ? fillTemplate(waTemplate, shown[0]) : undefined}
+                previewOfAr={shown[0] ? `على ${shown[0].name}` : undefined}
+              >
+                <input value={notifTitle}
+                  onChange={(e) => { setNotifTitle(e.target.value); try { localStorage.setItem(TITLE_KEY, e.target.value); } catch { /* تجاهل */ } }}
+                  placeholder="🔔 عنوان الإشعار (لا يُستخدم في الواتساب)"
+                  className={inputCls + ' w-full'} dir="rtl" />
+              </MessageTemplateEditor>
             </div>
           )}
 

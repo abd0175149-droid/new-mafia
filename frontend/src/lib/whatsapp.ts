@@ -45,3 +45,45 @@ export function openWhatsApp(rawPhone: string, text?: string): boolean {
   window.open(whatsappUrl(intl, text), '_blank');
   return true;
 }
+
+// ══════════════════════════════════════════════════════
+// 🧩 محرّك القوالب — مشترك بين كلّ صفحةٍ تُرسل رسالةً قابلةً للتحرير
+// ══════════════════════════════════════════════════════
+
+export interface TemplateVar<T> {
+  /** الرمز كما يُكتب في القالب، مثل `{الاسم}` */
+  token: string;
+  /** اسمه في أزرار الإدراج */
+  label: string;
+  /** استخراج قيمته من بيانات الصفّ */
+  get: (data: T) => string;
+  /**
+   * 🔑 اختياريّ = قد لا تتوفّر قيمته أصلاً (رابط خريطة، موعد، مكان).
+   * السطر الذي كلُّ متغيّراته اختياريّةٌ وفارغة **يسقط كاملاً**، وإلّا بقيت
+   * لافتةٌ عارية مثل «🗺️ الموقع على الخريطة:» بلا رابط. أمّا `{الاسم}` فليس
+   * اختياريّاً: سطرُ التحيّة يبقى ولو غاب الاسم، تماماً كسلوك الرسالة الثابتة قبله.
+   */
+  optional?: boolean;
+}
+
+/** يستبدل الرموز بقيمها، ويُسقط الأسطر الاختياريّة الفارغة (انظر `optional`). */
+export function fillTemplate<T>(tpl: string, vars: TemplateVar<T>[], data: T): string {
+  return String(tpl || '').split('\n').map((line) => {
+    let filled = line, hasToken = false, hasValue = false, anyOptional = false;
+    for (const v of vars) {
+      if (!filled.includes(v.token)) continue;
+      hasToken = true;
+      if (v.optional) anyOptional = true;
+      const value = String(v.get(data) ?? '').trim();
+      if (value) hasValue = true;
+      filled = filled.split(v.token).join(value);
+    }
+    return (hasToken && anyOptional && !hasValue) ? null : filled;
+  }).filter((l): l is string => l !== null).join('\n');
+}
+
+/** يُكمل رابطاً بلا بروتوكول — وإلّا لم يصر قابلاً للنقر داخل واتساب. */
+export function ensureHttp(raw?: string | null): string {
+  const s = String(raw || '').trim();
+  return s && !/^https?:\/\//i.test(s) ? `https://${s}` : s;
+}

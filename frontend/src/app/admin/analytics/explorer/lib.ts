@@ -188,28 +188,24 @@ export function buildCohorts(players: Player[], maxWeeks = 8): { rows: CohortRow
 }
 
 // ── واتساب ───────────────────────────────────────────
-const WA_COUNTRY = '962';
-export function normalizePhone(raw: string): string | null {
-  let p = String(raw || '').replace(/\D/g, '');
-  if (!p || p.length < 6) return null;
-  if (p.startsWith('00')) p = p.slice(2);
-  if (p.startsWith(WA_COUNTRY)) return p;
-  if (p.startsWith('0')) return WA_COUNTRY + p.slice(1);
-  return WA_COUNTRY + p;
-}
+// المحرّك والنطاق من المصدر المشترك lib/whatsapp.ts — لا نسخةَ ثانية هنا.
+import { normalizePhoneIntl, fillTemplate as fill, type TemplateVar } from '@/lib/whatsapp';
 
-export const WA_VARS: { token: string; label: string; get: (p: Player) => string }[] = [
+export const normalizePhone = normalizePhoneIntl;
+
+export const WA_VARS: TemplateVar<Player>[] = [
   { token: '{الاسم}', label: 'الاسم', get: (p) => p.name },
   { token: '{الفعاليات}', label: 'عدد فعاليّاته', get: (p) => String(p.activities) },
-  { token: '{آخر_حضور}', label: 'آخر حضور', get: (p) => p.lastActivityAt || '—' },
-  { token: '{الأيام}', label: 'أيّام منذ آخر حضور', get: (p) => String(p.daysSinceLastActivity ?? '') },
+  { token: '{آخر_حضور}', label: 'آخر حضور', optional: true, get: (p) => p.lastActivityAt || '' },
+  { token: '{الأيام}', label: 'أيّام منذ آخر حضور', optional: true,
+    get: (p) => (p.daysSinceLastActivity == null ? '' : String(p.daysSinceLastActivity)) },
   { token: '{الغياب}', label: 'فعاليّات فاتته', get: (p) => String(p.activitiesMissedSince) },
 ];
 
-export const WA_DEFAULT = 'مرحباً {الاسم} 👋\nاشتقنالك في نادي المافيا 🎭 فاتتك {الغياب} فعاليّة من آخر مرّة لعبت معنا.\nفي فعاليّات جديدة قريباً — احجز مكانك! 🎟️';
+export const WA_DEFAULT = [
+  'مرحباً {الاسم} 👋',
+  'اشتقنالك في نادي المافيا 🎭 فاتتك {الغياب} فعاليّة من آخر مرّة لعبت معنا.',
+  'في فعاليّات جديدة قريباً — احجز مكانك! 🎟️',
+].join('\n');
 
-export function fillTemplate(tpl: string, p: Player): string {
-  let out = tpl || '';
-  for (const v of WA_VARS) out = out.split(v.token).join(v.get(p));
-  return out;
-}
+export const fillTemplate = (tpl: string, p: Player): string => fill(tpl, WA_VARS, p);

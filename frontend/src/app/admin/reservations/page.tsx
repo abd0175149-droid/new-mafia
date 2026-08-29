@@ -4,7 +4,8 @@ import { useEffect, useState, useMemo, useCallback } from 'react';
 import { saveFile, isIOS, isStandalone } from '@/lib/saveFile';
 import { motion, AnimatePresence } from 'framer-motion';
 import { swalConfirm } from '@/lib/swal';
-import { openWhatsApp } from '@/lib/whatsapp';
+import { openWhatsApp, fillTemplate, ensureHttp, type TemplateVar } from '@/lib/whatsapp';
+import MessageTemplateEditor from '@/components/MessageTemplateEditor';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || '';
 
@@ -52,25 +53,39 @@ function normalizePhoneIntl(raw: string): string | null {
 function normPhoneKey(p: string): string {
   return String(p || '').replace(/\D/g, '').replace(/^0+/, '');
 }
+/** بيانات الصفّ التي تُغذّي رموز القالب. */
+export interface ResVars {
+  name: string; activityName: string; count: number;
+  locationName?: string; region?: string; when?: string; mapUrl?: string;
+}
+
 // 📍 المكان والمنطقة ورابط الخريطة ضمن نصّ التأكيد: اسم الفعاليّة وحده لا يدلّ
 // على موقعها، ومن لا يعرف الكافيه يحتاج المنطقة قبل أن يوافق — والرابط يغنيه
 // عن السؤال «وين بالضبط؟». الرابط مخزَّنٌ في بيانات المكان (locations.map_url).
-function confirmMessage(
-  name: string, activityName: string, count: number,
-  locationName?: string, region?: string, when?: string, mapUrl?: string,
-): string {
-  const ppl = count === 1 ? 'شخص واحد' : count === 2 ? 'شخصين' : `${count} أشخاص`;
-  const place = [locationName, region].filter(Boolean).join(' — ');
-  // رابطٌ بلا بروتوكول لا يُصبح قابلاً للنقر في واتساب — نُكمله
-  const raw = String(mapUrl || '').trim();
-  const link = raw && !/^https?:\/\//i.test(raw) ? `https://${raw}` : raw;
-  return `مرحباً ${name || ''} 👋\n`
-    + `نؤكّد حجزك في «${activityName}» لعدد ${ppl}.\n`
-    + (place ? `📍 المكان: ${place}\n` : '')
-    + (link ? `🗺️ الموقع على الخريطة: ${link}\n` : '')
-    + (when ? `🗓️ الموعد: ${when}\n` : '')
-    + `\nيُرجى الردّ على هذه الرسالة لتثبيت الحجز بشكلٍ نهائيّ. بانتظارك! 🎭`;
-}
+// الثلاثة موسومةٌ optional: سطرُها يسقط كاملاً إن غابت قيمته.
+const RES_VARS: TemplateVar<ResVars>[] = [
+  { token: '{الاسم}', label: 'الاسم', get: (r) => r.name || '' },
+  { token: '{الفعالية}', label: 'الفعاليّة', get: (r) => r.activityName || '' },
+  { token: '{العدد}', label: 'عدد الأشخاص',
+    get: (r) => (r.count === 1 ? 'شخص واحد' : r.count === 2 ? 'شخصين' : `${r.count} أشخاص`) },
+  { token: '{المكان}', label: 'المكان', optional: true,
+    get: (r) => [r.locationName, r.region].filter(Boolean).join(' — ') },
+  { token: '{الخريطة}', label: 'رابط الخريطة', optional: true, get: (r) => ensureHttp(r.mapUrl) },
+  { token: '{الموعد}', label: 'الموعد', optional: true, get: (r) => r.when || '' },
+];
+
+// النصّ الافتراضيّ = الرسالة التي كانت مثبَّتةً في الكود حرفاً بحرف
+const RES_TPL_DEFAULT = [
+  'مرحباً {الاسم} 👋',
+  'نؤكّد حجزك في «{الفعالية}» لعدد {العدد}.',
+  '📍 المكان: {المكان}',
+  '🗺️ الموقع على الخريطة: {الخريطة}',
+  '🗓️ الموعد: {الموعد}',
+  '',
+  'يُرجى الردّ على هذه الرسالة لتثبيت الحجز بشكلٍ نهائيّ. بانتظارك! 🎭',
+].join('\n');
+
+const RES_TPL_KEY = 'reservations_wa_template';
 
 export default function ReservationsPage() {
   const user = useMemo(() => getUser(), []);
@@ -83,6 +98,18 @@ export default function ReservationsPage() {
 
   // ── 🖨️ كشف الحاجزين (PDF/Excel عبر نظام التقارير) ──
   const [rosterBusy, setRosterBusy] = useState<null | 'pdf' | 'excel'>(null);
+
+  // 💬 قالب رسالة التأكيد — محفوظ على جهاز الموظّف، لا على الخادم:
+  //    كلُّ موظّفٍ يصوغ رسالته كما يحبّ بلا أن يفرضها على غيره.
+  const [waTemplate, setWaTemplate] = useState(RES_TPL_DEFAULT);
+  const [showTpl, setShowTpl] = useState(false);
+  useEffect(() => {
+    try { const t = localStorage.getItem(RES_TPL_KEY); if (t) setWaTemplate(t); } catch { /* تجاهل */ }
+  }, []);
+  const saveTemplate = (t: string) => {
+    setWaTemplate(t);
+    try { localStorage.setItem(RES_TPL_KEY, t); } catch { /* تجاهل */ }
+  };
 
   // ── Filters ── (default: no activity selected → don't show reservations)
   const [filterActivity, setFilterActivity] = useState('');
@@ -231,6 +258,34 @@ export default function ReservationsPage() {
     if (!activityId) return 'بدون نشاط';
     return activities.find(a => a.id === activityId)?.name || 'غير معروف';
   }
+
+  // 👁️ صفّ المعاينة: أوّل حجزٍ معروض فعليّاً — كي يرى الموظّف رسالته على بياناتٍ
+  //    حقيقيّة بما فيها الأسطر التي تسقط حين ينقص مكانٌ أو موعد. وإن لم يكن ثمّة
+  //    حجزٌ معروض فمثالٌ كاملٌ موسومٌ بوضوح، لا فراغ.
+  const previewRow = useMemo((): { data: ResVars; labelAr: string } => {
+    const r = filtered[0];
+    if (r) {
+      const act = activities.find(a => a.id === r.activityId);
+      const loc = act ? locations.find(l => l.id === act.locationId) : null;
+      return {
+        labelAr: `على حجز ${r.contactName || 'بلا اسم'}`,
+        data: {
+          name: r.contactName, activityName: getActivityName(r.activityId),
+          count: r.peopleCount || 1, locationName: loc?.name, region: loc?.region,
+          mapUrl: loc?.mapUrl,
+          when: act?.date ? new Date(act.date).toLocaleString('ar-JO',
+            { weekday: 'long', day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit' }) : '',
+        },
+      };
+    }
+    return {
+      labelAr: 'مثال (لا حجوزات معروضة)',
+      data: { name: 'أحمد', activityName: 'سهرة الخميس', count: 2,
+              locationName: 'مزاج افندينا', region: 'عبدون',
+              when: 'الخميس ٤ أيلول ٨:٠٠ م', mapUrl: 'maps.app.goo.gl/example' },
+    };
+  }, [filtered, activities, locations]);
+
 
   // ══ 🖨️ توليد كشف الحاجزين — عبر نظام التقارير (يرث تخطيط الطباعة والترويسة) ══
   async function exportRoster(format: 'pdf' | 'excel') {
@@ -539,6 +594,16 @@ export default function ReservationsPage() {
         </div>
         {activitySelected && (
           <div className="flex items-center gap-2">
+            {/* 💬 قالب رسالة التأكيد — يتحكّم بنصّ ما يُرسَل من زرّ الواتساب في كلّ صفّ */}
+            <button
+              onClick={() => setShowTpl(v => !v)}
+              title="تحرير نصّ رسالة التأكيد التي يرسلها زرّ الواتساب"
+              className={`px-3 py-2.5 rounded-xl text-sm transition-all border ${showTpl
+                ? 'bg-green-500/15 border-green-500/40 text-green-400'
+                : 'bg-gray-800/60 border-gray-600/40 text-gray-400 hover:border-green-500/40 hover:text-green-400'}`}
+            >
+              💬 القالب
+            </button>
             {/* 🖨️ كشف الحاجزين — PDF للطباعة + Excel (لنشاط محدّد فقط) */}
             {filterActivity !== 'all' && (
               <>
@@ -590,6 +655,21 @@ export default function ReservationsPage() {
           </div>
         )}
       </div>
+
+      {/* ══════ 💬 محرّر قالب رسالة التأكيد ══════ */}
+      {showTpl && (
+        <div className="mb-3">
+          <MessageTemplateEditor<ResVars>
+            titleAr="💬 قالب رسالة التأكيد — يُرسله زرّ الواتساب في كلّ صفّ"
+            value={waTemplate}
+            onChange={saveTemplate}
+            onReset={() => saveTemplate(RES_TPL_DEFAULT)}
+            vars={RES_VARS}
+            preview={fillTemplate(waTemplate, RES_VARS, previewRow.data)}
+            previewOfAr={previewRow.labelAr}
+          />
+        </div>
+      )}
 
       {/* ══════ FILTER BAR (Activity Selector) ══════ */}
       <div className="flex gap-2 mb-3">
@@ -948,11 +1028,11 @@ export default function ReservationsPage() {
                             const when = act?.date
                               ? new Date(act.date).toLocaleString('ar-JO', { weekday: 'long', day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit' })
                               : '';
-                            const msg = confirmMessage(
-                              r.contactName, getActivityName(r.activityId), r.peopleCount || 1,
-                              loc?.name, loc?.region, when, loc?.mapUrl,
-                            );
-                            openWhatsApp(r.phone, msg);
+                            openWhatsApp(r.phone, fillTemplate(waTemplate, RES_VARS, {
+                              name: r.contactName, activityName: getActivityName(r.activityId),
+                              count: r.peopleCount || 1, locationName: loc?.name,
+                              region: loc?.region, when, mapUrl: loc?.mapUrl,
+                            }));
                           }}
                           className="w-9 h-9 rounded-full flex items-center justify-center bg-green-500/15 border border-green-500/30 text-green-400 hover:bg-green-500/25 transition shrink-0"
                           title="واتساب — إرسال رسالة تأكيد"
