@@ -62,6 +62,13 @@ export const players = pgTable('players', {
   geofenceExemptAt: timestamp('geofence_exempt_at'),
   canHostRemote: boolean('can_host_remote').default(false),   // 👑 مسموح له إنشاء غرف عن بُعد (يضبطها الأدمن؛ لاحقاً اشتراك استضافة)
   remoteAccessUntil: timestamp('remote_access_until'),        // 🎟️ نهاية اشتراك الانضمام للغرف البعيدة (null = بلا اشتراك؛ مُتجاوَز أثناء فترة المجّانيّة)
+  // 🗑️ الحذف المؤجّل — قانون ٢٤/٢٠٢٣ + شرط آبل 5.1.1(v)
+  //    الحسابُ يُعطَّل فوراً ويبقى قابلاً للاستعادة حتّى `deletionDueAt`، ثمّ يُجهَّل.
+  //    ⚠️ لا يُحذف الصفّ إطلاقاً: صفوفُ المباريات تشير إليه، وحذفُه يُفسد تاريخ خصومه.
+  deletedAt: timestamp('deleted_at'),
+  deletionDueAt: timestamp('deletion_due_at'),
+  deletionReason: varchar('deletion_reason', { length: 30 }),
+  anonymizedAt: timestamp('anonymized_at'),
   createdAt: timestamp('created_at').defaultNow().notNull(),
 });
 

@@ -36,6 +36,9 @@ class ApiClient {
   late final AppConfig _config;
   bool _ready = false;
 
+  /// عنوانُ الخادم — يلزم لفتح صفحاتٍ عامّة (السياسة والشروط) في المتصفّح.
+  String get baseUrl => _ready ? _config.baseUrl : '';
+
   /// يُستدعى مرّة في bootstrap بعد تحميل الجلسة.
   void init(AppConfig config) {
     if (_ready) return;

@@ -7,6 +7,7 @@ import BottomNav from '@/components/BottomNav';
 import BirthdayGate from '@/components/BirthdayGate';
 import LocationGate from '@/components/LocationGate';
 import { usePushNotifications } from '@/hooks/usePushNotifications';
+import ConsentGate from '@/components/ConsentGate';
 
 // ── الصفحات التي لا تحتاج تسجيل دخول ──
 const PUBLIC_PATHS = ['/player/login', '/player/debug-push'];
@@ -98,7 +99,7 @@ function usePullToRefresh() {
   return pulling;
 }
 
-function PlayerLayoutInner({ children }: { children: React.ReactNode }) {
+function PlayerLayoutBody({ children }: { children: React.ReactNode }) {
   const { player, isLoading } = usePlayer();
   const router = useRouter();
   const pathname = usePathname();
@@ -199,6 +200,7 @@ function PlayerLayoutInner({ children }: { children: React.ReactNode }) {
   if (isPublic) {
     return <>{children}</>;
   }
+
 
   // 🛡️ حجب لوحة اللاعب إذا لم يتم تفعيل الإشعارات (لغير الصفحات العامة)
   // أُعيد تفعيله بعد إصلاح نظام الإشعارات (VAPID الثابت + توحيد مصدر العرض + إعادة التسجيل)
@@ -433,6 +435,23 @@ function PlayerLayoutInner({ children }: { children: React.ReactNode }) {
       <LocationGate />
       <BottomNav />
     </div>
+  );
+}
+
+// 🔐 بوّابة الموافقة تسبق **كلّ** شاشةٍ خلف الدخول — بما فيها بوّابةُ الإشعارات.
+//
+//    رمزُ الجهاز الذي تطلبه بوّابةُ الإشعارات بيانٌ يُجمع، فطلبُه قبل الموافقة
+//    معالجةٌ بلا إذن (قانون ٢٤/٢٠٢٣). ولذلك تُغلَّف الشاشاتُ كلُّها لا الأطفالُ
+//    وحدهم — وجسمُ التخطيط لا يُركَّب أصلاً قبل الإذن.
+//
+//    والمساراتُ العامّة (الدخول) تمرّ بلا بوّابة: لا حسابَ بعدُ لتُؤخذ موافقتُه.
+function PlayerLayoutInner({ children }: { children: React.ReactNode }) {
+  const pathname = usePathname();
+  if (PUBLIC_PATHS.includes(pathname)) return <>{children}</>;
+  return (
+    <ConsentGate>
+      <PlayerLayoutBody>{children}</PlayerLayoutBody>
+    </ConsentGate>
   );
 }
 

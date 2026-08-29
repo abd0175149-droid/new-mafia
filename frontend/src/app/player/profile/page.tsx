@@ -750,6 +750,20 @@ export default function PlayerProfilePage(){
           </button>
         </div>
 
+        {/* 🔐 مركز الخصوصيّة — الحقوق في مكانٍ واحد يسهل بلوغه */}
+        <a
+          href="/player/privacy"
+          className="flex items-center gap-3 rounded-2xl px-4 py-3 mt-4 transition-colors"
+          style={{ background: 'rgba(255,255,255,.028)', border: '1px solid rgba(255,255,255,.07)' }}
+        >
+          <span className="text-lg">🔐</span>
+          <span className="flex-1 min-w-0 text-right">
+            <b className="block text-[14px] text-white font-bold">مركز الخصوصيّة</b>
+            <span className="block text-[11px] text-gray-500">بياناتك · موافقاتك · حذف الحساب</span>
+          </span>
+          <span className="text-[13px]" style={{ color: '#C5A059' }}>←</span>
+        </a>
+
         {/* Logout */}
         <div className="text-center pt-4 pb-2 space-y-2">
           <button

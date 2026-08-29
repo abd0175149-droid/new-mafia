@@ -32,6 +32,7 @@ import driveRoutes from './routes/drive.routes.js';
 import playerRoutes from './routes/player.routes.js';
 import playerAuthRoutes from './routes/player-auth.routes.js';
 import playerAppRoutes from './routes/player-app.routes.js';
+import playerPrivacyRoutes from './routes/player-privacy.routes.js';
 import playerNotificationRoutes from './routes/player-notification.routes.js';
 import staffNotificationRoutes from './routes/staff-notification.routes.js';
 import playerFeedbackRoutes from './routes/player-feedback.routes.js';
@@ -175,6 +176,7 @@ app.use('/api/drive', driveRoutes);
 app.use('/api/player', playerRoutes);
 app.use('/api/player-auth', playerAuthRoutes);
 app.use('/api/player-app', playerAppRoutes);
+app.use('/api/privacy', playerPrivacyRoutes);   // 🔐 الوثائق العامّة + حقوق صاحب البيانات
 app.use('/api/player-notifications', playerNotificationRoutes);
 app.use('/api/dashboard', dashboardRoutes);
 app.use('/api/staff-notifications', staffNotificationRoutes);
@@ -693,6 +695,57 @@ async function main() {
       // ⏱ مدّةُ التشغيل لكلّ حدث — { eventKey: ms }
       await db.execute(sql`ALTER TABLE sound_effects ADD COLUMN IF NOT EXISTS durations JSONB DEFAULT '{}'::jsonb`);
       await db.execute(sql`ALTER TABLE activities ADD COLUMN IF NOT EXISTS add_game_fee_to_bill BOOLEAN DEFAULT false`);
+
+      // ── 🔐 الخصوصيّة والموافقة (قانون ٢٤/٢٠٢٣) ──
+      await db.execute(sql`ALTER TABLE players ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMP`);
+      await db.execute(sql`ALTER TABLE players ADD COLUMN IF NOT EXISTS deletion_due_at TIMESTAMP`);
+      await db.execute(sql`ALTER TABLE players ADD COLUMN IF NOT EXISTS deletion_reason VARCHAR(30)`);
+      await db.execute(sql`ALTER TABLE players ADD COLUMN IF NOT EXISTS anonymized_at TIMESTAMP`);
+      await db.execute(sql`CREATE INDEX IF NOT EXISTS players_deleted_idx ON players (deleted_at)`);
+
+      await db.execute(sql`CREATE TABLE IF NOT EXISTS policy_versions (
+        id SERIAL PRIMARY KEY,
+        kind VARCHAR(20) NOT NULL,
+        version VARCHAR(20) NOT NULL,
+        lang VARCHAR(5) DEFAULT 'ar' NOT NULL,
+        title VARCHAR(200) NOT NULL,
+        body TEXT NOT NULL,
+        change_summary TEXT DEFAULT '',
+        requires_reconsent BOOLEAN DEFAULT true NOT NULL,
+        published_at TIMESTAMP,
+        created_at TIMESTAMP DEFAULT NOW() NOT NULL
+      )`);
+      await db.execute(sql`CREATE INDEX IF NOT EXISTS policy_versions_kind_idx ON policy_versions (kind, version)`);
+
+      await db.execute(sql`CREATE TABLE IF NOT EXISTS player_consents (
+        id SERIAL PRIMARY KEY,
+        player_id INTEGER NOT NULL,
+        kind VARCHAR(20) NOT NULL,
+        version VARCHAR(20) NOT NULL,
+        action VARCHAR(12) NOT NULL,
+        platform VARCHAR(10) DEFAULT 'web',
+        guardian_phone VARCHAR(20),
+        guardian_name VARCHAR(100),
+        guardian_relation VARCHAR(30),
+        created_at TIMESTAMP DEFAULT NOW() NOT NULL
+      )`);
+      await db.execute(sql`CREATE INDEX IF NOT EXISTS player_consents_player_idx ON player_consents (player_id, kind)`);
+
+      await db.execute(sql`CREATE TABLE IF NOT EXISTS deletion_requests (
+        id SERIAL PRIMARY KEY,
+        player_id INTEGER NOT NULL,
+        reason VARCHAR(30) NOT NULL,
+        requested_at TIMESTAMP DEFAULT NOW() NOT NULL,
+        due_at TIMESTAMP NOT NULL,
+        status VARCHAR(12) DEFAULT 'pending' NOT NULL,
+        restored_at TIMESTAMP,
+        completed_at TIMESTAMP,
+        chips_at_request INTEGER DEFAULT 0,
+        note VARCHAR(300) DEFAULT '',
+        platform VARCHAR(10) DEFAULT 'web'
+      )`);
+      await db.execute(sql`CREATE INDEX IF NOT EXISTS deletion_requests_due_idx ON deletion_requests (status, due_at)`);
+      await db.execute(sql`CREATE INDEX IF NOT EXISTS deletion_requests_player_idx ON deletion_requests (player_id)`);
       await db.execute(sql`DO $$ BEGIN CREATE TYPE order_status AS ENUM ('new','preparing','delivered','cancelled'); EXCEPTION WHEN duplicate_object THEN NULL; END $$`);
       await db.execute(sql`CREATE TABLE IF NOT EXISTS menu_items (
         id SERIAL PRIMARY KEY, location_id INTEGER NOT NULL REFERENCES locations(id) ON DELETE CASCADE,
@@ -1877,6 +1930,34 @@ async function main() {
       }
     }, 60 * 60 * 1000);
   } catch (e: any) { console.warn('⚠️ analytics scheduler init:', e.message); }
+
+  // ── 📜 نشرُ نسخة السياسة والشروط (مرّةً واحدة) ──
+  try {
+    const { seedPolicies } = await import('./services/policy-seed.service.js');
+    await seedPolicies();
+  } catch (e: any) { console.warn('⚠️ policy seed:', e.message); }
+
+  // ── 🔐 الخصوصيّة: إتمامُ الحذف المؤجّل ثمّ تطبيقُ مدد الاحتفاظ ──
+  // 🔴 الترتيب مقصود: التجهيلُ أوّلاً ثمّ التنظيف، وإلّا حُذفت صفوفٌ كان
+  //    التجهيلُ سيمرّ عليها فبقيت آثارٌ في جداولَ أخرى تشير إليها.
+  try {
+    const { runDeletionSweep } = await import('./services/account-deletion.service.js');
+    const { runRetentionSweep } = await import('./services/retention.service.js');
+    let lastPrivacyDay = -1;
+    const sweep = async () => {
+      try { await runDeletionSweep(); } catch (e: any) { console.warn('⚠️ deletion sweep:', e.message); }
+      try { await runRetentionSweep(); } catch (e: any) { console.warn('⚠️ retention sweep:', e.message); }
+    };
+    setInterval(async () => {
+      const now = new Date();
+      if (now.getHours() === 3 && now.getDate() !== lastPrivacyDay) {
+        lastPrivacyDay = now.getDate();
+        await sweep();
+      }
+    }, 60 * 60 * 1000);
+    // مرّةً عند الإقلاع بعد دقيقتين — خادمٌ توقّف أيّاماً لا ينتظر الثالثة فجراً
+    setTimeout(sweep, 120_000);
+  } catch (e: any) { console.warn('⚠️ privacy scheduler init:', e.message); }
 }
 
 main().catch(console.error);

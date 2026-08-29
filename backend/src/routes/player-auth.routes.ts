@@ -7,6 +7,7 @@
 // ══════════════════════════════════════════════════════
 
 import { Router, type Request, type Response } from 'express';
+import { ageFromDob, ADULT_AGE } from '../services/consent.service.js';
 import { eq } from 'drizzle-orm';
 import { getDB } from '../config/db.js';
 import { players, PLAYER_DEFAULT_PASSWORD } from '../schemas/player.schema.js';
@@ -33,11 +34,36 @@ router.post('/register', async (req: Request, res: Response) => {
       });
     }
 
-    if (password.length < 4) {
+    // 🔐 أربعةُ محارف لا تصلح لادّعاء «تدابيرَ مناسبة» أمام قانونٍ يفرضها.
+    //    ستّةٌ حدٌّ أدنى يحتمله المستخدمُ الحاليّ ولا يُبطل حساباتٍ قائمة
+    //    (الفحصُ على التسجيل والتغيير فقط، لا على الدخول).
+    if (String(password).length < 6) {
       return res.status(400).json({
         success: false,
-        error: 'كلمة المرور يجب أن تكون 4 أحرف على الأقل',
+        error: 'كلمة المرور يجب أن تكون ٦ محارف على الأقل',
       });
+    }
+    if (String(password) === '1234' || String(password) === '123456') {
+      return res.status(400).json({
+        success: false,
+        error: 'اختر كلمة مرور أقوى — هذه شائعةٌ جدّاً',
+      });
+    }
+
+    // 🎂 حدُّ السنّ يُفرض على الخادم: الواجهةُ وحدها لا تُلزم أحداً.
+    //    دون الثامنة عشرة مسموحٌ به لكن بموافقة وليّ الأمر — تُؤخذ في البوّابة
+    //    بعد الدخول لا هنا، فالحسابُ يُنشأ ولا يُخدَم قبلها.
+    if (dob) {
+      const age = ageFromDob(dob);
+      if (age == null) {
+        return res.status(400).json({ success: false, error: 'تاريخ الميلاد غير صالح — الصيغة YYYY-MM-DD' });
+      }
+      if (age < 8) {
+        return res.status(400).json({ success: false, error: 'الحدُّ الأدنى للعمر ثمانِ سنوات' });
+      }
+      if (age > 100) {
+        return res.status(400).json({ success: false, error: 'تاريخ الميلاد غير صالح' });
+      }
     }
 
     const db = getDB();
@@ -92,6 +118,10 @@ router.post('/register', async (req: Request, res: Response) => {
       success: true,
       token,
       welcomeBonus: 200,
+      // 🗑️ مجدولٌ للحذف: يدخل ليستعيد، والواجهةُ تعرض شاشة الاستعادة أوّلاً
+      deletion: (player as any).deletedAt
+        ? { scheduled: true, dueAt: (player as any).deletionDueAt }
+        : null,
       player: {
         id: player.id,
         playerId: player.id,
@@ -147,6 +177,11 @@ router.post('/login', rateLimit({ windowMs: 15 * 60 * 1000, max: 120, keyPrefix:
         success: false,
         error: 'رقم الهاتف أو كلمة المرور غير صحيحة',
       });
+    }
+
+    // 🗑️ حسابٌ جُهّل نهائيّاً — لا رجوع
+    if ((player as any).anonymizedAt) {
+      return res.status(401).json({ success: false, error: 'رقم الهاتف أو كلمة المرور غير صحيحة' });
     }
 
     // تحديث آخر نشاط

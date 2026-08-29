@@ -62,7 +62,17 @@ export async function verifyPlayerPassword(password: string, hash: string): Prom
 
 // ── Middleware: التحقق من توكن اللاعب ─────────────
 
-export function authenticatePlayer(req: Request, res: Response, next: NextFunction): void {
+// 🔐 الهويّةُ تُقرأ من القاعدة لا من الرمز.
+//
+//    الرمزُ كان يحمل الهاتف والاسم داخله وصلاحيّتُه ثلاثون يوماً — أيْ أنّ فكّ
+//    ترميزه (وهو متاحٌ بلا مفتاح) يكشف بياناتٍ شخصيّة. صار يُقرأ منه المعرّفُ
+//    وحده، ويُهيّأ الباقي من القاعدة في كلّ طلب.
+//
+//    وفائدةٌ ثانية: تغيّرُ الحالة يسري فوراً — حسابٌ جُهّل أو جُدول للحذف
+//    يُمنَع هنا لا بعد أن يصل إلى مسارٍ نسي فحصه.
+//
+//    ⚠️ الرموزُ القديمة تبقى صالحة: نقرأ `playerId` منها ونتجاهل ما سواه.
+export async function authenticatePlayer(req: Request, res: Response, next: NextFunction): Promise<void> {
   const authHeader = req.headers.authorization;
 
   if (!authHeader || !authHeader.startsWith('Bearer ')) {
@@ -70,15 +80,55 @@ export function authenticatePlayer(req: Request, res: Response, next: NextFuncti
     return;
   }
 
-  const token = authHeader.split(' ')[1];
-  const decoded = verifyPlayerToken(token);
-
-  if (!decoded) {
+  const decoded = verifyPlayerToken(authHeader.split(' ')[1]);
+  if (!decoded?.playerId) {
     res.status(401).json({ error: 'توكن غير صالح أو منتهي الصلاحية' });
     return;
   }
 
-  req.playerAccount = decoded;
+  try {
+    const { getDB } = await import('../config/db.js');
+    const { players } = await import('../schemas/player.schema.js');
+    const { eq } = await import('drizzle-orm');
+    const db = getDB();
+    if (!db) { req.playerAccount = decoded; return next(); }
+
+    const [row] = await db.select({
+      id: players.id, phone: players.phone, name: players.name,
+      deletedAt: players.deletedAt, anonymizedAt: players.anonymizedAt,
+    }).from(players).where(eq(players.id, decoded.playerId)).limit(1);
+
+    if (!row || row.anonymizedAt) {
+      res.status(401).json({ error: 'الحساب لم يعد موجوداً', code: 'ACCOUNT_GONE' });
+      return;
+    }
+
+    req.playerAccount = { playerId: row.id, phone: row.phone, name: row.name };
+    (req as any).playerDeletion = row.deletedAt
+      ? { scheduled: true, dueAt: (row as any).deletionDueAt ?? null }
+      : null;
+    next();
+  } catch (err: any) {
+    // خللٌ في القاعدة لا يُسقط المصادقة: نمرّ بحمولة الرمز كما كان السلوك سابقاً
+    console.warn('⚠️ authenticatePlayer hydrate:', err.message);
+    req.playerAccount = decoded;
+    next();
+  }
+}
+
+// ── حارسُ الحساب المجدول للحذف ──
+// 🔴 يُركَّب على مسارات الفعل لا القراءة: صاحبُ الحساب يجب أن يبقى قادراً على
+//    رؤية حالته واستعادته، وأن يُمنع من إنشاء حجزٍ أو طلبٍ جديد أثناء المهلة.
+export function blockIfDeleting(req: Request, res: Response, next: NextFunction): void {
+  const d = (req as any).playerDeletion;
+  if (d?.scheduled) {
+    res.status(403).json({
+      success: false, code: 'ACCOUNT_DELETING',
+      error: 'حسابُك مجدولٌ للحذف. استعِده أوّلاً من مركز الخصوصيّة.',
+      dueAt: d.dueAt ?? null,
+    });
+    return;
+  }
   next();
 }
 

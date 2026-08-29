@@ -163,12 +163,34 @@ router.post('/file/:id/copy', authenticate, async (req: Request, res: Response) 
 });
 
 // ══ POST /api/drive/file/:id/share ══
+// 🔴 كان الافتراضُ `type: 'anyone'` — أيْ رابطٌ يفتحه أيُّ إنسانٍ يملكه بلا تسجيل
+//    دخول. ووسائطُ الفعاليّات صورُ أشخاصٍ يُعرَفون، وفيهم قاصرون. مشاركةٌ عامّةٌ
+//    لصورةِ شخصٍ نشرٌ لبياناته الشخصيّة بلا سندٍ من قانون ٢٤/٢٠٢٣.
+//
+//    الافتراضُ الآن مشاركةٌ بالبريد لشخصٍ محدّد. والعموميّةُ تبقى ممكنةً لكن
+//    بطلبٍ صريحٍ من أدمن وحده (`type:'anyone'` + `confirmPublic:true`) — كي لا
+//    تقع سهواً ولا يقع بها موظّفٌ لا يملك القرار.
 router.post('/file/:id/share', authenticate, async (req: Request, res: Response) => {
   try {
     const fileId = req.params.id;
-    const { role = 'reader', type = 'anyone', emailAddress } = req.body;
-    
+    const { role = 'reader', type = 'user', emailAddress, confirmPublic } = req.body;
+
     if (!fileId) return res.status(400).json({ error: 'مطلوب fileId' });
+
+    if (type === 'anyone') {
+      const isAdmin = (req as any).user?.role === 'admin';
+      if (!isAdmin || confirmPublic !== true) {
+        return res.status(403).json({
+          error: 'المشاركة العامّة تُنشر صور الحاضرين لأيّ إنسان. تحتاج صلاحيّة أدمن وتأكيداً صريحاً (confirmPublic).',
+          code: 'PUBLIC_SHARE_BLOCKED',
+        });
+      }
+      console.warn(`⚠️ مشاركةٌ عامّة لملفّ ${fileId} — بطلب أدمن صريح`);
+    }
+
+    if (type === 'user' && !emailAddress) {
+      return res.status(400).json({ error: 'مطلوب بريدٌ إلكترونيّ للمشاركة الموجّهة' });
+    }
 
     const drive = getDriveService();
     const requestBody: any = { role, type };

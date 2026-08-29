@@ -12,6 +12,7 @@ import '../core/push/push_service.dart';
 import '../core/ui/atmosphere.dart';
 import '../core/ui/in_app_banner.dart';
 import '../features/gates/birthday_gate.dart';
+import '../features/gates/consent_gate.dart';
 import '../features/gates/notification_gate.dart';
 import 'dart:async';
 
@@ -52,10 +53,28 @@ class _MafiaAppState extends State<MafiaApp> {
     unawaited(ReleaseGate.instance.check().then((s) {
       if (mounted && s.blocked) setState(() => _blocked = s);
     }));
+    // 🔐 بوّابة الموافقة — فحصٌ عند الإقلاع
+    unawaited(_checkConsent());
   }
 
   /// النسخة محجوبة — تحجب كلّ شيءٍ فوقها
   ReleaseStatus? _blocked;
+
+  /// 🔐 حالةُ الموافقة — تُجلب من الخادم عند الإقلاع وبعد كلّ حسمٍ للجلسة.
+  ///    فشلُ الشبكة **لا يمنح موافقةً ولا يحجب**: نُبقيها null فتمرّ الشاشة،
+  ///    والحارسُ الحقيقيّ على الخادم يرفض الخدمة لغير الموافق.
+  ConsentState? _consent;
+
+  Future<void> _checkConsent() async {
+    if (_app.session != SessionState.authenticated) {
+      if (mounted && _consent != null) setState(() => _consent = null);
+      return;
+    }
+    try {
+      final st = await fetchConsentState();
+      if (mounted) setState(() => _consent = st);
+    } catch (_) { /* الشبكةُ ساقطة — لا نحجب */ }
+  }
 
   @override
   void dispose() {
@@ -141,6 +160,16 @@ class _MafiaAppState extends State<MafiaApp> {
                   ),
                 // ⬆️ التحديث المطلوب **أعلى المكدّس**: نسخةٌ قديمة قد تتحدّث مع خادمٍ
                 //    تغيّر عقده فتُنتج أعطالاً غامضة على طاولةٍ حيّة — والحجب أصدق.
+                // 🔐 بوّابة الموافقة — فوق بوّابتَي الإشعارات والميلاد لأنّ كلتيهما
+                //    تجمع بياناً، ودون بوّابة الإصدار لأنّ نسخةً قديمةً قد لا تفهم
+                //    عقدَ الموافقة أصلاً.
+                if (_showConsent)
+                  Positioned.fill(
+                    child: ConsentGate(
+                      state: _consent!,
+                      onResolved: () { setState(() => _consent = null); unawaited(_checkConsent()); },
+                    ),
+                  ),
                 if (_blocked != null)
                   Positioned.fill(child: UpdateGate(status: _blocked!)),
                 // 📣 ORDER-3: بانر الإشعار — تحت الضجيج وفوق كلّ شيءٍ آخر،
@@ -161,7 +190,7 @@ class _MafiaAppState extends State<MafiaApp> {
   /// الإشعارات، وخارج مسار الانضمام — من يمسح QR لغرفةٍ بدأت لا يُحجب.
   bool get _showBirthday {
     if (_app.session != SessionState.authenticated) return false;
-    if (_showGate) return false;
+    if (_showGate || _showConsent) return false;
     if (!_app.needsBirthday) return false;
     final loc = currentLocation ?? '';
     final path = Uri.tryParse(loc)?.path ?? loc;
@@ -169,9 +198,22 @@ class _MafiaAppState extends State<MafiaApp> {
     return !Routes.publicPaths.contains(path);
   }
 
+  /// 🔐 بوّابة الموافقة: للمسجّل الذي ينقصه إذنٌ أو جُدول حسابه للحذف.
+  ///    وتُعرض حتّى في مسار الانضمام — الموافقة شرطُ معالجةٍ لا رفاهيّةَ توقيت.
+  bool get _showConsent {
+    if (_app.session != SessionState.authenticated) return false;
+    final c = _consent;
+    if (c == null) return false;
+    if (!c.required_ && c.deletionDueAt == null) return false;
+    final loc = currentLocation ?? '';
+    final path = Uri.tryParse(loc)?.path ?? loc;
+    return !Routes.publicPaths.contains(path);
+  }
+
   /// البوّابة تُعرض للمسجّل وحده، وخارج المسارات العامّة ومسار الكود.
   bool get _showGate {
     if (_app.session != SessionState.authenticated || _app.gatePassed) return false;
+    if (_showConsent) return false;   // 🔐 الموافقةُ أوّلاً
     final loc = currentLocation ?? '';
     final path = Uri.tryParse(loc)?.path ?? loc;
     if (path.startsWith('/join/')) return false;
