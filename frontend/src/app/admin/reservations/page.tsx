@@ -4,6 +4,7 @@ import { useEffect, useState, useMemo, useCallback } from 'react';
 import { saveFile, isIOS, isStandalone } from '@/lib/saveFile';
 import { motion, AnimatePresence } from 'framer-motion';
 import { swalConfirm } from '@/lib/swal';
+import { openWhatsApp } from '@/lib/whatsapp';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || '';
 
@@ -951,7 +952,7 @@ export default function ReservationsPage() {
                               r.contactName, getActivityName(r.activityId), r.peopleCount || 1,
                               loc?.name, loc?.region, when, loc?.mapUrl,
                             );
-                            window.open(`https://wa.me/${intl}?text=${encodeURIComponent(msg)}`, '_blank');
+                            openWhatsApp(r.phone, msg);
                           }}
                           className="w-9 h-9 rounded-full flex items-center justify-center bg-green-500/15 border border-green-500/30 text-green-400 hover:bg-green-500/25 transition shrink-0"
                           title="واتساب — إرسال رسالة تأكيد"

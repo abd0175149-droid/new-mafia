@@ -6,6 +6,7 @@
 // ══════════════════════════════════════════════════════
 
 import { useEffect, useState, useMemo } from 'react';
+import { openWhatsApp as openWaChat } from '@/lib/whatsapp';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || '';
 function getToken() { return typeof window !== 'undefined' ? localStorage.getItem('token') : null; }
@@ -72,9 +73,10 @@ function fillTemplate(tpl: string, p: any): string {
   return out;
 }
 function openWhatsApp(p: any, tpl: string, onErr: (m: string) => void) {
-  const intl = normalizePhoneIntl(p.phone);
-  if (!intl) { onErr('رقم هاتف اللاعب غير صالح — لا يمكن فتح واتساب'); return; }
-  window.open(`https://wa.me/${intl}?text=${encodeURIComponent(fillTemplate(tpl, p))}`, '_blank');
+  // النطاق ونصّه من المصدر المشترك — انظر التحذير في lib/whatsapp.ts
+  if (!openWaChat(p.phone, fillTemplate(tpl, p))) {
+    onErr('رقم هاتف اللاعب غير صالح — لا يمكن فتح واتساب');
+  }
 }
 
 export default function AnalyticsPlayersPage() {
