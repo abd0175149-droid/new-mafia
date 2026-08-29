@@ -116,6 +116,19 @@ function Field({ param, value, onChange }: { param: ReportParam; value: any; onC
           })}
         </div>
       );
+    case 'number':
+      return (
+        <input
+          type="number"
+          value={value ?? ''}
+          min={param.min}
+          max={param.max}
+          placeholder={param.helpAr || 'بلا حدّ'}
+          // الفراغ يعني «بلا حدّ» لا صفراً — يُمرَّر undefined كي يسقط المعامل أصلاً
+          onChange={(e) => onChange(e.target.value === '' ? undefined : Number(e.target.value))}
+          className="bg-gray-900/60 border border-gray-700/50 rounded-lg px-2.5 py-1.5 text-xs text-white outline-none focus:border-amber-500/50 w-24 text-center tabular-nums"
+        />
+      );
     case 'toggle':
       return (
         <label className="flex items-center gap-1.5 text-xs text-gray-300 cursor-pointer">

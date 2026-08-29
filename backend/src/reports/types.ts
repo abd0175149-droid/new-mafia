@@ -15,6 +15,7 @@ export type ReportParamType =
   | 'date-range'        // → { from: string; to: string }  (ISO YYYY-MM-DD)
   | 'select'            // → string
   | 'multi-select'      // → string[]
+  | 'number'            // → number | undefined  (فارغ = بلا حدّ)
   | 'toggle';           // → boolean
 
 export type OptionSource =
@@ -28,6 +29,8 @@ export interface ReportParam {
   defaultValue?: unknown;
   options?: { value: string; labelAr: string }[];   // ثابتة (select / multi-select)
   optionsSource?: OptionSource;                      // ديناميكية (pickers)
+  min?: number;                                      // number فقط
+  max?: number;                                      // number فقط
   helpAr?: string;
 }
 

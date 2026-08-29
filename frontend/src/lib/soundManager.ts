@@ -41,7 +41,7 @@ function trackOneShot(a: HTMLAudioElement): void {
 // - الـ impl الداخلية (_fn) تستدعي بعضها فقط ⇒ بثّ واحد بالضبط لكل نداء، بلا حلقة.
 // - المُستقبِل (الليدر) لا يُسجّل باعثاً ⇒ applyRemoteSound تستدعي impl مباشرةً بلا بثّ راجع.
 // ══════════════════════════════════════════════════════
-type MirrorPayload = { fn: string; args: any[]; vol?: number };
+type MirrorPayload = { fn: string; args: any[]; vol?: number; to?: string };
 let mirrorEmit: ((p: MirrorPayload) => void) | null = null;
 
 export function setSoundMirror(cb: ((p: MirrorPayload) => void) | null): void {
@@ -202,6 +202,17 @@ function resumePendingAmbient(): void {
   const prev = volOverride;
   volOverride = ambientVol;
   try { _playAmbientSound(ambientKey); } finally { volOverride = prev; }
+}
+
+/**
+ * يُعيد بثَّ فراش الطور الجاري إلى **شاشةٍ بعينها** — بلا أن يمسّ التشغيلَ المحلّيّ
+ * ولا فراشَ الشاشات الأخرى. تُنادى حين تنضمّ شاشةٌ وسطَ الطور (أو يعود اتصالُها).
+ */
+export function resendAmbientTo(socketId: string): boolean {
+  const key = intendedAmbientKey ?? ambientKey;
+  if (!key || !socketId || !mirrorEmit) return false;
+  mirrorEmit({ fn: 'playAmbientSound', args: [key], vol: resolveVol(key), to: socketId });
+  return true;
 }
 
 /** المدّة المضبوطة لمفتاح (مللي ثانية) أو null = المقطع كاملاً. */

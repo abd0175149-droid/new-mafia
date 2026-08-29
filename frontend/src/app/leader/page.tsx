@@ -14,7 +14,7 @@ import LeaderNightView from './LeaderNightView';
 import { SeatMoveProvider, SeatMoveConsumer, SeatMoveTargets, SeatMoveBoardToggle } from './SeatMove';
 import { AntiCheatProvider, AntiCheatToggle } from './AntiCheatWatch';
 import { AttendanceMapToggle } from './AttendanceMap';
-import { playGameSound, playAmbientSound, stopAmbientSound, stopOneShotSounds, playEliminationSound, playLocalSound, loadSoundMap, reloadSoundMap, setSoundMirror, primeAudio, setLocalMuted, playNightStepAmbient, playEventSound } from '@/lib/soundManager';
+import { playGameSound, playAmbientSound, stopAmbientSound, stopOneShotSounds, playEliminationSound, playLocalSound, loadSoundMap, reloadSoundMap, setSoundMirror, primeAudio, setLocalMuted, playNightStepAmbient, playEventSound, resendAmbientTo } from '@/lib/soundManager';
 import { getSocket } from '@/lib/socket';
 import { ROLE_NAMES } from '@/lib/constants';
 import { swalConfirm, swalHtmlConfirm, swalToast, swalAlert } from '@/lib/swal';
@@ -251,7 +251,7 @@ export default function LeaderPage() {
     const roomId = gameState?.roomId;
     if (!roomId) { setMirrorReady(false); return; }
     setSoundMirror((p) => {
-      try { getSocket().emit('leader:sound-play', { roomId, fn: p.fn, args: p.args, vol: p.vol }); } catch {}
+      try { getSocket().emit('leader:sound-play', { roomId, fn: p.fn, args: p.args, vol: p.vol, to: p.to }); } catch {}
     });
     setMirrorReady(true);
     return () => { setSoundMirror(null); setMirrorReady(false); };
@@ -1499,6 +1499,14 @@ export default function LeaderPage() {
       }
     };
 
+    // ── 🔊 شاشةٌ انضمّت وسطَ الطور: أَلحِقها بالفراش الجاري (لها وحدَها) ──
+    // 🔴 الفراشُ كان يُبَثّ لحظةَ الانتقال فقط، فشاشةٌ تُفتح أو تُحدَّث أو يعود
+    //    اتصالُها في منتصف طورٍ تبقى صامتةً حتى الطور التالي — وهذا سببُ
+    //    «مرّاتٍ يشتغل الصوتُ على العرض ومرّاتٍ لا» الذي لا يُعاد إنتاجُه بالطلب.
+    const offDisplayJoined = on('leader:display-joined', (d: any) => {
+      if (d?.socketId) resendAmbientTo(String(d.socketId));
+    });
+
     // ── 🔊 عند تحديث الأصوات من لوحة التحكم: إعادة تحميل الخريطة المخصّصة ──
     const offSoundsUpdated = on('admin:sounds-updated', () => { reloadSoundMap(); });
 
@@ -1644,6 +1652,7 @@ export default function LeaderPage() {
       offOneProgress();
       offOneReview();
       offSoundsUpdated();
+      offDisplayJoined();
       offMorningEventSound();
       offShowSilencedSound();
       offPinnedConflict();

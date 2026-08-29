@@ -54,6 +54,16 @@ function coerceOne(p: ReportParam, raw: any): { value?: any; errorAr?: string } 
       return { value: filtered };
     }
 
+    case 'number': {
+      // فارغ ليس صفراً: «بلا حدّ» تُترك غير معرّفة كي لا تُفلتر الاستعلام
+      if (missing) return p.required ? { errorAr: `المعامل "${p.labelAr}" مطلوب` } : {};
+      const n = Number(raw);
+      if (!Number.isFinite(n)) return { errorAr: `قيمة غير رقمية في "${p.labelAr}"` };
+      if (p.min !== undefined && n < p.min) return { errorAr: `"${p.labelAr}" أصغر من ${p.min}` };
+      if (p.max !== undefined && n > p.max) return { errorAr: `"${p.labelAr}" أكبر من ${p.max}` };
+      return { value: n };
+    }
+
     case 'toggle':
       return { value: raw === true || raw === 'true' || raw === 1 || raw === '1' };
 

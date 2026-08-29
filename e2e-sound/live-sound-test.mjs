@@ -56,7 +56,8 @@ const rpc = (s, ev, payload) => new Promise((res, rej) => {
   s.emit(ev, payload, (r) => { clearTimeout(t); (r && r.success === false) ? rej(new Error(r.error || ev)) : res(r); });
 });
 const connect = (auth) => new Promise((res, rej) => {
-  const s = io(URL, { transports: ['websocket'], auth, reconnection: false, timeout: 20000 });
+  // polling أوّلاً ثمّ الترقية: websocket وحدَه لا يعبر من كلّ شبكة
+  const s = io(URL, { transports: ['polling', 'websocket'], auth, reconnection: false, timeout: 20000 });
   s.on('connect', () => res(s));
   s.on('connect_error', rej);
 });
@@ -138,6 +139,30 @@ const RECORDER = () => {
       });
     }
   } catch (e) { W.__snd.ev.push({ k: 'hook-error', where: 'ws', err: String(e) }); }
+
+  // ④ نقلُ polling — socket.io يبدأ به ويترقّى، وقد يبقى عليه خلف وسيطٍ.
+  //    بلا هذا يبدو أنّ «لا شيء وصل» بينما الرسائل تمرّ عبر XHR.
+  const scan = (txt) => {
+    try {
+      for (const part of String(txt).split('')) {
+        if (!part.startsWith('42')) continue;
+        const arr = JSON.parse(part.slice(2));
+        if (Array.isArray(arr) && typeof arr[0] === 'string' && /sound|phase-changed|state-sync/.test(arr[0])) {
+          W.__snd.ws.push({ t: at(), ev: arr[0], data: arr[1], via: 'poll' });
+        }
+      }
+    } catch {}
+  };
+  try {
+    const rawOpen = XMLHttpRequest.prototype.open, rawSend = XMLHttpRequest.prototype.send;
+    XMLHttpRequest.prototype.open = function (m, u, ...r) { this.__u = String(u || ''); return rawOpen.call(this, m, u, ...r); };
+    XMLHttpRequest.prototype.send = function (...a) {
+      if (this.__u && this.__u.includes('socket.io')) {
+        this.addEventListener('load', () => { try { scan(this.responseText); } catch {} });
+      }
+      return rawSend.apply(this, a);
+    };
+  } catch (e) { W.__snd.ev.push({ k: 'hook-error', where: 'xhr', err: String(e) }); }
 };
 
 // ══════════════════════════════════════════════════════
@@ -240,6 +265,30 @@ async function main() {
   const display = d1.page;
   await sleep(1500);
 
+  // 🎚️ فتحُ المازج إن لم يكن مفتوحاً — نقرُ أيّ زرٍّ خارجَه يُغلقه (سلوكٌ مقصود)
+  // ⚠️ زرُّ المازج نفسُه يحمل data-mixer (كي لا تُحسب نقرتُه «خارج اللوحة»)،
+  //    فاللوحةُ تُميَّز بـ div[data-mixer] لا بالسمة وحدَها.
+  const PANEL = 'div[data-mixer]';
+  const openMixer = async () => {
+    if (await leader.locator(PANEL).count()) return true;
+    const btn = leader.locator('button[data-mixer]').first();
+    if (!(await btn.count())) return false;
+    await btn.click().catch(() => {});
+    await sleep(700);
+    return (await leader.locator(PANEL).count()) > 0;
+  };
+  const setSlider = async (labelAr, pct) => {
+    const sl = leader.locator(`input[type=range][aria-label="${labelAr}"]`).first();
+    if (!(await sl.count())) return false;
+    await sl.evaluate((el, v) => {
+      const set = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set;
+      set.call(el, String(v));
+      el.dispatchEvent(new Event('input', { bubbles: true }));
+      el.dispatchEvent(new Event('change', { bubbles: true }));
+    }, pct);
+    return true;
+  };
+
   const run = (id) => ONLY.length === 0 || ONLY.includes(id);
   const head = (id, title) => console.log(`\n${id} · ${title}\n${'─'.repeat(52)}`);
 
@@ -320,19 +369,11 @@ async function main() {
     await phase('NIGHT'); await sleep(800);
     await clear(display);
     // فتحُ المازج بزرّه الحقيقيّ
-    const opened = await leader.getByText('🎚️ الصوت', { exact: false }).first().click().then(() => true).catch(() => false);
+    const opened = await openMixer();
     ok('لوحةُ المازج فُتحت من زرّها', opened);
-    await sleep(600);
-    const slider = leader.locator('input[type=range][aria-label="خلفيّة الليل والصباح"]').first();
-    const exists = await slider.count();
-    ok('مقبضُ خلفيّة الليل موجود', exists > 0);
-    if (exists) {
-      await slider.evaluate((el) => {
-        const set = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set;
-        set.call(el, '80');
-        el.dispatchEvent(new Event('input', { bubbles: true }));
-        el.dispatchEvent(new Event('change', { bubbles: true }));
-      });
+    const moved = await setSlider('خلفيّة الليل والصباح', 80);
+    ok('مقبضُ خلفيّة الليل موجود ويتحرّك', moved);
+    if (moved) {
       await sleep(1200);
       const D = await until(display, s => s.ws.some(w => w.ev === 'display:sound-play' && w.data && w.data.fn === 'setAmbientVolume'), 5000);
       const relay = D.ws.filter(w => w.ev === 'display:sound-play' && w.data.fn === 'setAmbientVolume');
@@ -380,15 +421,13 @@ async function main() {
       ok('القاعةُ ما زالت تسمع رغم كتم الموجّه', D.ev.some(e => e.k === 'play'), JSON.stringify(D.ev.slice(0, 5)));
 
       // ⭐ الانحدارُ المُصلَح: مقبضُ المستوى وجهازُ الموجّه مكتوم
+      // (نقرُ زرّ الكتم أغلق المازجَ — نُعيد فتحَه كما يفعل الموجّه)
       await clear(display);
-      const slider = leader.locator('input[type=range][aria-label="خلفيّة النهار"]').first();
-      if (await slider.count()) {
-        await slider.evaluate((el) => {
-          const set = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set;
-          set.call(el, '15');
-          el.dispatchEvent(new Event('input', { bubbles: true }));
-          el.dispatchEvent(new Event('change', { bubbles: true }));
-        });
+      const reopened = await openMixer();
+      ok('المازجُ يُفتح والجهازُ مكتوم', reopened);
+      const moved7 = await setSlider('خلفيّة النهار', 15);
+      ok('مقبضُ خلفيّة النهار متاح', moved7);
+      if (moved7) {
         const D2 = await until(display, s => s.ws.some(w => w.data && w.data.fn === 'setAmbientVolume'), 5000);
         const rel = D2.ws.filter(w => w.data && w.data.fn === 'setAmbientVolume');
         ok('المقبضُ يعمل والموجّهُ مكتوم', rel.length > 0, 'لم يُبثَّ تغييرُ مستوى — المقبضُ صامتٌ عن القاعة');
@@ -399,7 +438,10 @@ async function main() {
           ok('وطُبِّق على فراش الشاشة', dd && Math.abs(dd.ambientVolume - 0.15) < 0.03, `ambientVolume=${dd && dd.ambientVolume}`);
         }
       }
-      await muteBtn.click(); await sleep(500);   // إعادةُ الصوت
+      // رفعُ الكتم: الزرُّ نفسُه غيّر اسمَه (aria-label يتبع الحالة)
+      const unmute = leader.locator('button[aria-label="تشغيل الصوت"]').first();
+      ok('زرُّ رفعِ الكتم ظهر مكانَه', await unmute.count() > 0);
+      await unmute.click().catch(() => {}); await sleep(600);
       const L2 = await dbg(leader);
       ok('رُفع الكتمُ بنجاح', L2 && L2.muted === false);
     }
@@ -449,19 +491,22 @@ async function main() {
   // ════════════════════════════════════════════════
   if (run('S10')) {
     head('S10', 'حقلُ المدّة: قطعُ مقطعٍ لحظيّ عند ثانيتين');
-    const id = await setDuration('vote_cast', 2000);
-    ok('حُفظت المدّةُ على الملفّ الفائز', !!id, 'لا ملفَّ فائزاً لـ vote_cast');
+    // 🔑 مفتاحٌ ملفُّه **طويل** (أغنيةُ فوز): نقرةُ تصويتٍ مدّتُها أقلُّ من السقف
+    //    فتنتهي وحدَها — فيمرّ الفحصُ بلا أن يُثبت أنّ السقفَ يعمل.
+    const KEY = 'win_mafia';
+    const id = await setDuration(KEY, 2000);
+    ok('حُفظت المدّةُ على الملفّ الفائز', !!id, `لا ملفَّ فائزاً لـ ${KEY}`)
     if (id) {
       const map = await (await fetch(`${URL}/api/sounds/active-map`)).json();
-      ok('الخريطةُ تُصدِّر المدّة', map.durations && map.durations.vote_cast === 2000, JSON.stringify(map.durations && map.durations.vote_cast));
+      ok('الخريطةُ تُصدِّر المدّة', map.durations && map.durations[KEY] === 2000, JSON.stringify(map.durations && map.durations[KEY]));
       await display.evaluate(() => window.location.reload());
       await display.waitForFunction(() => !!window.__mafiaSoundDebug, null, { timeout: 30000 }).catch(() => {});
       await display.mouse.click(640, 400).catch(() => {});
       await sleep(2500);
       const dd = await dbg(display);
-      ok('الشاشةُ تعرف المدّة', dd && dd.durations && dd.durations.vote_cast === 2000, JSON.stringify(dd && dd.durations));
+      ok('الشاشةُ تعرف المدّة', dd && dd.durations && dd.durations[KEY] === 2000, JSON.stringify(dd && dd.durations));
       await clear(display);
-      driver.emit('leader:sound-play', { roomId, fn: 'playGameSound', args: ['vote_cast'], vol: 0.8 });
+      driver.emit('leader:sound-play', { roomId, fn: 'playGameSound', args: [KEY], vol: 0.8 });
       const D = await until(display, s => s.ev.some(e => e.k === 'pause'), 5000);
       const started = D.ev.find(e => e.k === 'play');
       const stopped = D.ev.find(e => e.k === 'pause');
@@ -501,7 +546,7 @@ async function main() {
       ok('ولا يُستأنف تلقائيّاً', dd && dd.ambientDone === true, `ambientDone=${dd && dd.ambientDone}`);
     }
     await setDuration('ambient_night', null);
-    await setDuration('vote_cast', null);
+    await setDuration('win_mafia', null);
   }
 
   // ════════════════════════════════════════════════
@@ -520,7 +565,13 @@ async function main() {
     const caught = !!(D && D.ambientPlaying);
     ok('الشاشةُ المتأخّرة تسمع فراشَ الطور', caught,
       'لا فراشَ عندها — البثُّ يقع عند الانتقال فقط، فمن فتح شاشةً وسطَ الطور يبقى صامتاً حتى الانتقال التالي');
-    if (!caught) note('فجوةٌ حقيقيّة: شاشةٌ تُفتح (أو تُحدَّث) وسطَ طورٍ لا تتلقّى الفراشَ حتى الطور التالي.');
+    ok('وبالمفتاح الصحيح', D && D.ambientKey === 'ambient_night', `ambientKey=${D && D.ambientKey}`);
+    const S = await snap(d2.page);
+    ok('وصلها بثُّ فراشٍ موجَّهٌ إليها وحدَها', S.ws.some(w => w.ev === 'display:sound-play' && w.data && w.data.fn === 'playAmbientSound'),
+      JSON.stringify(S.ws.map(w => w.data && w.data.fn)));
+    // والشاشةُ القديمة لا يُقطع فراشُها من أجل الجديدة
+    const Dold = await dbg(display);
+    ok('ولم يُقطع فراشُ الشاشة القائمة', Dold && Dold.ambientPlaying === true, `ambientPlaying=${Dold && Dold.ambientPlaying}`);
     await d2.ctx.close();
   }
 

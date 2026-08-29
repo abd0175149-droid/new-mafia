@@ -2823,7 +2823,7 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
 
   // ── 🔊 مرآة الأصوات: شاشة الليدر هي «القائد» الحصري — تبثّ كل صوت إلى شاشات العرض ──
   // مصدر كل الأصوات هو جهاز الليدر؛ شاشة العرض «تابع» تُشغّل ما يصلها بنفس الخريطة المخصّصة.
-  socket.on('leader:sound-play', async (data: { fn: string; args?: any[]; vol?: number }) => {
+  socket.on('leader:sound-play', async (data: { fn: string; args?: any[]; vol?: number; to?: string }) => {
     try {
       if (socket.data.role !== 'leader') return;               // يُقبل من الليدر حصراً
       const roomId = socket.data.roomId;
@@ -2836,7 +2836,14 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
       //    مقيّد بـ[0,1] هنا لا في العميل وحده — قيمةٌ شاذّة تصمّ القاعة أو تُسكتها.
       const vol = typeof data.vol === 'number' && Number.isFinite(data.vol)
         ? Math.max(0, Math.min(1, data.vol)) : undefined;
-      for (const s of sockets) if ((s as any).data?.role === 'display') s.emit('display:sound-play', { fn: data.fn, args, vol });
+      // 🎯 بثٌّ موجَّه لشاشةٍ بعينها: تُستعمل لإلحاق شاشةٍ انضمّت وسطَ الطور بالفراش
+      //    الجاري، بلا أن يُقطع فراشُ الشاشات الأخرى ويُستأنف من أوّله أمام الطاولة.
+      const only = typeof data.to === 'string' && data.to ? data.to : null;
+      for (const s of sockets) {
+        if ((s as any).data?.role !== 'display') continue;
+        if (only && s.id !== only) continue;
+        s.emit('display:sound-play', { fn: data.fn, args, vol });
+      }
     } catch { /* صامت — لا يؤثّر على مجرى اللعبة */ }
   });
 
@@ -4076,6 +4083,20 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
       socket.data.role = 'display';
       socket.data.roomId = data.roomId;
       console.log(`📺 Display joined room: ${data.roomId}`);
+
+      // 🔊 أَلحِقِ الشاشةَ الجديدةَ بفراش الطور الجاري.
+      //
+      // 🔴 الفراشُ يُبَثّ **لحظةَ الانتقال** فقط — فشاشةٌ تُفتح أو تُحدَّث أو يعود
+      //    اتصالُها وسطَ طورٍ تبقى صامتةً حتى الانتقال التالي. وهو بالضبط
+      //    «مرّاتٍ يشتغل الصوتُ على شاشة العرض ومرّاتٍ لا»: يعتمد على أن تكون
+      //    الشاشةُ متّصلةً في اللحظة التي انتقل فيها الطور، لا على شيءٍ آخر.
+      //    الموجّهُ هو مالكُ الحقيقة، فنسأله أن يُعيد البثَّ لهذه الشاشة وحدَها.
+      try {
+        const peers = await io.in(data.roomId).fetchSockets();
+        for (const s of peers) {
+          if ((s as any).data?.role === 'leader') s.emit('leader:display-joined', { roomId: data.roomId, socketId: socket.id });
+        }
+      } catch { /* الإلحاقُ تحسينٌ — لا يُفشل الانضمام */ }
 
       // إرجاع الحالة الحالية للعرض الفوري
       if (typeof callback === 'function') {

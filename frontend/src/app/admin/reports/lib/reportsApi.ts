@@ -13,7 +13,7 @@ function authHeaders(): Record<string, string> {
 // ── الأنواع ──
 export type ParamType =
   | 'activity-picker' | 'player-picker' | 'location-picker' | 'season-picker'
-  | 'date-range' | 'select' | 'multi-select' | 'toggle';
+  | 'date-range' | 'select' | 'multi-select' | 'number' | 'toggle';
 
 export interface ReportParam {
   key: string;
@@ -23,6 +23,8 @@ export interface ReportParam {
   defaultValue?: unknown;
   options?: { value: string; labelAr: string }[];
   optionsSource?: string;
+  min?: number;
+  max?: number;
   helpAr?: string;
 }
 

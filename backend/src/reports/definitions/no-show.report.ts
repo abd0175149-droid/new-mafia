@@ -1,9 +1,14 @@
 // ══════════════════════════════════════════════════════
 // 🚫 تقرير عدم الحضور — No-show
-// حجوزات مدفوعة/غير مجانية لم يُسجَّل لها حضور (checked_in=false) ضمن الفترة.
+// حجوزات غير مجانية لا يقابلها حضورٌ فعليّ في فعاليّتها، ضمن الفترة.
+//
+// 🐞 كان هذا التقرير يعتمد `bookings.checked_in = false`، والحقل عمليّاً ميّت:
+//    ١٢ صفّاً فقط من ٢٠٨٠ على الإنتاج. فكان يبلّغ عن ١٦٥٩ متخلّفاً من ١٦٦٩ حجزاً
+//    مدفوعاً (٩٩٫٤٪) بينما الحقيقة ٣٣. الحضور الآن يُشتقّ من مصدره الوحيد
+//    الموثوق: وجود صفّ في match_players لنفس اللاعب في نفس الفعاليّة.
 // ══════════════════════════════════════════════════════
 
-import { and, eq, isNull, gte, lte, desc } from 'drizzle-orm';
+import { and, eq, isNull, gte, lte, desc, sql } from 'drizzle-orm';
 import type { ReportDefinition, ReportDocument } from '../types.js';
 import { bookings, activities, locations } from '../../schemas/admin.schema.js';
 import { num, rangeDates, rangeLabel, notTestActivity } from '../helpers.js';
@@ -26,13 +31,20 @@ export const noShowReport: ReportDefinition = {
 
     const rows = await db.select({
       name: bookings.name, phone: bookings.phone, count: bookings.count,
-      isPaid: bookings.isPaid, amount: bookings.paidAmount,
+      isPaid: bookings.isPaid, amount: bookings.paidAmount, playerId: bookings.playerId,
       activityName: activities.name, date: activities.date, locationName: locations.name,
     }).from(bookings)
       .innerJoin(activities, eq(bookings.activityId, activities.id))
       .leftJoin(locations, eq(activities.locationId, locations.id))
       .where(and(
-        eq(bookings.checkedIn, false), eq(bookings.isFree, false),
+        // الحضور الفعليّ لا الوسم اليدويّ — انظر التعليق أعلى الملفّ
+        sql`NOT EXISTS (
+          SELECT 1 FROM match_players mp
+          JOIN matches m  ON m.id = mp.match_id AND m.deleted_at IS NULL
+          JOIN sessions s ON s.id = m.session_id
+          WHERE mp.player_id = ${bookings.playerId} AND s.activity_id = ${bookings.activityId}
+        )`,
+        eq(bookings.isFree, false),
         isNull(bookings.deletedAt), isNull(activities.deletedAt),
         gte(activities.date, from), lte(activities.date, to),
         actId ? eq(activities.id, actId) : undefined,
