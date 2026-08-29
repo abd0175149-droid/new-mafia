@@ -297,15 +297,18 @@ async function main() {
     await sleep(700);
     return (await leader.locator(PANEL).count()) > 0;
   };
-  const setSlider = async (labelAr, pct) => {
+  // ⚠️ المعاينةُ في المازج معلّقةٌ على pointerup/keyup لا على input — فتحريكُ
+  //    القيمة وحدَه لا يُطلقها. `preview:true` يحاكي رفعَ الإصبع كما يفعل الموجّه.
+  const setSlider = async (labelAr, pct, preview = false) => {
     const sl = leader.locator(`input[type=range][aria-label="${labelAr}"]`).first();
     if (!(await sl.count())) return false;
-    await sl.evaluate((el, v) => {
+    await sl.evaluate((el, [v, prev]) => {
       const set = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set;
       set.call(el, String(v));
       el.dispatchEvent(new Event('input', { bubbles: true }));
       el.dispatchEvent(new Event('change', { bubbles: true }));
-    }, pct);
+      if (prev) el.dispatchEvent(new KeyboardEvent('keyup', { bubbles: true, key: 'ArrowRight' }));
+    }, [pct, preview]);
     return true;
   };
 
@@ -774,7 +777,7 @@ async function main() {
     const opened = await openMixer();
     ok('المازجُ مفتوح', opened);
     await clear(leader); await clear(display);
-    const moved = await setSlider('الاحتفالات', 60);
+    const moved = await setSlider('الاحتفالات', 60, true);
     ok('مقبضُ الاحتفالات تحرّك', moved);
     if (moved) {
       const L = await until(leader, x => x.ev.some(e => e.k === 'play'), 5000);
