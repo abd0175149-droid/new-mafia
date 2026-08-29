@@ -144,6 +144,15 @@ export function primeAudio(): void {
 // 📥 تحميل خريطة الأصوات المخصصة من السيرفر
 // يُستدعى مرة واحدة عند فتح شاشة العرض
 // ══════════════════════════════════════════════════════
+// 📣 من يريد أن يعرف متى صارت الخريطةُ جاهزة (أو تحدّثت) — أثرُ الفراش في صفحة
+//    الموجّه يحتاجها: قرارُه «ملفٌّ أم صمت» يعتمد على خريطةٍ قد تصل بعد أوّل طور.
+const mapListeners: Set<() => void> = new Set();
+export function onSoundMapReady(cb: () => void): () => void {
+  mapListeners.add(cb);
+  if (isLoaded) { try { cb(); } catch { /* تجاهل */ } }
+  return () => { mapListeners.delete(cb); };
+}
+
 let loadAttempt = 0;
 let loadRetryTimer: ReturnType<typeof setTimeout> | null = null;
 export async function loadSoundMap(): Promise<void> {
@@ -179,6 +188,7 @@ export async function loadSoundMap(): Promise<void> {
     const count = Object.keys(customSoundMap).length;
     if (count > 0) console.log(`🔊 SoundManager: Loaded ${count} custom sound(s)`);
     resumePendingAmbient();
+    mapListeners.forEach((cb) => { try { cb(); } catch { /* مستمعٌ يرمي لا يمنع البقيّة */ } });
   } catch (err) {
     // 🔴 كان الفشلُ يُعلَّم «محمَّلاً»: عثرةُ شبكةٍ واحدة عند فتح الشاشة تُبقيها
     //    بخريطةٍ فارغة طوال الليلة — كلُّ ما يصل من الموجّه بلا ملفٍّ فصامت.
@@ -403,7 +413,21 @@ function clampVol(v: number): number {
   return Number.isFinite(v) ? Math.max(0, Math.min(1, v)) : 0.3;
 }
 
+/**
+ * 🔊 أصواتٌ «إضافيّة» لا تُسكت غيرَها ولا تُحسب مقاطعَ رئيسيّة: تكّةُ المؤقّت
+ *    ونقرةُ التصويت تتكرّران عشرات المرّات في الدقيقة، فلو أسكتت كلُّ واحدةٍ ما
+ *    قبلها لقطعت تكّةُ الثانية أغنيةَ الفوز.
+ */
+function isAdditiveKey(eventKey: string): boolean {
+  const c = categoryOf(eventKey);
+  return c === 'timer' || c === 'votes';
+}
+
 function _playGameSound(eventKey: string): void {
+  // 🔴 الصوتُ الجديد يُسكت الجاري. كان كلُّ صوتٍ يُضاف فوق ما قبله: نغمةُ إقصاء
+  //    العنقاء تُكمل فوق افتتاحيّة الليل، وأغنيةُ الفوز تُعزف فوق كلّ شيء —
+  //    فتسمع الطاولةُ ثلاثةَ أصواتٍ معاً ولا تفهم أيَّها يعنيها.
+  if (!isAdditiveKey(eventKey)) { _stopOneShotSounds(); stopSynths(); }
   const vol = resolveVol(eventKey);
   // أولاً: فحص الأصوات المخصصة
   if (customSoundMap[eventKey]) {
@@ -548,6 +572,7 @@ function _stopOneShotSounds(): void {
     try { a.pause(); a.currentTime = 0; } catch {}
   });
   oneShotAudios.clear();
+  stopSynths();
 }
 
 // ══════════════════════════════════════════════════════
@@ -683,6 +708,25 @@ function _playNightStepAmbient(stepType: string): void {
 //    ومقبضٌ مشترك كان سيغيّر مستوى صوتٍ ما زال يعمل. وبناء الرسم
 //    متزامنٌ داخل النداء، فالعقدة الجارية صحيحةٌ طوال بنائه.
 // ════════════════════════════════════════
+// 🔇 النغماتُ المركَّبة كانت **غيرَ قابلةٍ للإيقاف**: لا عنصرَ صوتٍ لها فلا تدخل
+//    oneShotAudios. فنغمةُ حدثٍ مركَّبة تُكمل صداها فوق الطور التالي مهما فعلنا.
+//    نتعقّب بوّابةَ كلّ نداء فنُخفِتها ونفصلها عند الإيقاف.
+const activeSynthGains: Set<GainNode> = new Set();
+function stopSynths(): void {
+  activeSynthGains.forEach((g) => {
+    try {
+      const ctx = sharedCtx;
+      if (ctx) {
+        g.gain.cancelScheduledValues(ctx.currentTime);
+        g.gain.setValueAtTime(g.gain.value, ctx.currentTime);
+        g.gain.linearRampToValueAtTime(0.0001, ctx.currentTime + 0.08);
+      }
+      setTimeout(() => { try { g.disconnect(); } catch { /* مفصولةٌ سلفاً */ } }, 120);
+    } catch { /* تجاهل */ }
+  });
+  activeSynthGains.clear();
+}
+
 let callGain: GainNode | null = null;
 function dest(ctx: AudioContext): AudioNode { return callGain ?? ctx.destination; }
 
@@ -694,6 +738,8 @@ function playDefaultSound(eventKey: string, vol: number = 1): void {
     g.gain.value = Math.max(0, Math.min(1, vol));
     g.connect(ctx.destination);
     callGain = g;
+    activeSynthGains.add(g);
+    setTimeout(() => { activeSynthGains.delete(g); try { g.disconnect(); } catch { /* تجاهل */ } }, 8000);
 
     switch (eventKey) {
       // ── أحداث الليل ──
@@ -1460,16 +1506,48 @@ export function categoryCoverage(cat: SoundCategory): { total: number; file: num
  * معاينةُ فراشٍ لثوانٍ معدودة **بلا أن يُوقَف الفراشُ الجاري**: يُعزف كعنصرٍ
  * مستقلٍّ غير حلقيّ ويُوقَف بعد المدّة. محلّيٌّ على جهاز الموجّه فقط — لا بثّ.
  */
+/**
+ * 🎧 معاينةٌ محلّيّةٌ **مقطوعةٌ بمدّة** لأيّ مفتاح — للمازج.
+ *
+ * 🔴 كان المازج يعاين النغمات اللحظيّة بـ`playLocalSound`، وهي تعزف المقطعَ
+ *    **كاملاً**: فمقبضُ الاحتفالات معاينتُه `win_citizen` — أغنيةُ فوزٍ كاملة
+ *    تنطلق لمجرّد تحريك المقبض، ولا شيء يوقفها. المعاينةُ ثوانٍ لا أغنية.
+ */
+export function previewSound(eventKey: string, ms = 2500): void {
+  if (localMuted) return;
+  stopPreview();
+  const url = customSoundMap[eventKey];
+  if (!url) { _playGameSound(eventKey); return; }   // مركَّبةٌ قصيرةٌ أصلاً
+  try {
+    const a = new Audio(`${API_URL}${url}`);
+    a.volume = clampVol(resolveVol(eventKey));
+    previewEl = a;
+    a.play().catch(() => {});
+    previewTimer = setTimeout(() => stopPreview(), ms);
+  } catch { /* تجاهل */ }
+}
+
+let previewEl: HTMLAudioElement | null = null;
+let previewTimer: ReturnType<typeof setTimeout> | null = null;
+/** يوقف معاينةً جارية — تُنادى قبل كلّ معاينةٍ جديدة وعند إغلاق المازج. */
+export function stopPreview(): void {
+  if (previewTimer) { clearTimeout(previewTimer); previewTimer = null; }
+  if (previewEl) { try { previewEl.pause(); previewEl.currentTime = 0; } catch { /* تجاهل */ } previewEl = null; }
+}
+
 export function previewAmbient(eventKey: string, ms = 3000): void {
   if (localMuted) return;
+  stopPreview();
   const url = customSoundMap[eventKey];
   if (!url) { _playGameSound(eventKey); return; }   // بلا ملفٍّ — يمرّ للمركّب إن وُجد
   try {
     const a = new Audio(`${API_URL}${url}`);
     a.volume = clampVol(resolveVol(eventKey) * AMBIENT_BASE);
-    trackOneShot(a);
+    // 🔴 خارجَ oneShotAudios عمداً: معاينةٌ محلّيّةٌ لا يجوز أن يُسكتها صوتُ لعبةٍ
+    //    قادم، ولا أن تُحسب مقطعاً تُوقفه أوامرُ الإيقاف العامّة.
+    previewEl = a;
     a.play().catch(() => {});
-    setTimeout(() => { try { a.pause(); a.currentTime = 0; oneShotAudios.delete(a); } catch { /* تجاهل */ } }, ms);
+    previewTimer = setTimeout(() => stopPreview(), ms);
   } catch { /* تجاهل */ }
 }
 

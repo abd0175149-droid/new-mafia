@@ -14,7 +14,7 @@ import LeaderNightView from './LeaderNightView';
 import { SeatMoveProvider, SeatMoveConsumer, SeatMoveTargets, SeatMoveBoardToggle } from './SeatMove';
 import { AntiCheatProvider, AntiCheatToggle } from './AntiCheatWatch';
 import { AttendanceMapToggle } from './AttendanceMap';
-import { playGameSound, playAmbientSound, stopAmbientSound, stopOneShotSounds, playEliminationSound, playLocalSound, loadSoundMap, reloadSoundMap, setSoundMirror, primeAudio, setLocalMuted, playNightStepAmbient, playEventSound, resendAmbientTo } from '@/lib/soundManager';
+import { playGameSound, playAmbientSound, stopAmbientSound, stopOneShotSounds, playEliminationSound, playLocalSound, loadSoundMap, reloadSoundMap, setSoundMirror, primeAudio, setLocalMuted, playNightStepAmbient, playEventSound, resendAmbientTo, hasCustomSound, onSoundMapReady } from '@/lib/soundManager';
 import { getSocket } from '@/lib/socket';
 import { ROLE_NAMES } from '@/lib/constants';
 import { swalConfirm, swalHtmlConfirm, swalToast, swalAlert } from '@/lib/swal';
@@ -246,6 +246,11 @@ export default function LeaderPage() {
   //    والمرآةُ ما زالت `null` — فلا يصل صوتُ اللوبي إلى القاعة أبداً، ولا يُعاد
   //    لأنّ مفتاح الأثر (الطور) لم يتغيّر. وباقي الأطوار تعمل لأنّها تأتي لاحقاً،
   //    فيبدو العطلُ خاصّاً باللوبي وهو ترتيبُ آثارٍ لا شيءَ في اللوبي نفسه.
+  // 🗺️ نسخةُ خريطة الأصوات: قرارُ «ملفٌّ أم صمت» أدناه يعتمد عليها، وقد تصل
+  //    بعد أوّل طور (أو تتغيّر برفعِ ملفٍّ من اللوحة) — فيجب أن يُعاد الحساب.
+  const [soundMapVersion, setSoundMapVersion] = useState(0);
+  useEffect(() => onSoundMapReady(() => setSoundMapVersion(v => v + 1)), []);
+
   const [mirrorReady, setMirrorReady] = useState(false);
   useEffect(() => {
     const roomId = gameState?.roomId;
@@ -265,6 +270,13 @@ export default function LeaderPage() {
     DAY_VOTING: 'ambient_voting', DAY_JUSTIFICATION: 'ambient_justification',
     DAY_ELIMINATION: 'ambient_elimination', MORNING_RECAP: 'ambient_morning',
   };
+  // 🔇 طورٌ مفتاحُه بلا ملفّ: هل يبقى فراشُ الطور السابق أم يصمت؟
+  //
+  // 🔴 كان «يبقى» **دائماً** — وهو صحيحٌ للحظة الإقصاء وحدها (لا تُترك أشدُّ
+  //    لحظات النهار في صمتٍ تامّ)، وخطأٌ في كلّ ما عداها: موسيقى التصويت تُكمل
+  //    فوق التبرير، وفراشُ الليل يُكمل فوق ملخّص الصباح — فيبدو أنّ «الصوت لا
+  //    يتوقّف». الصمتُ هو الأصل، والوراثةُ استثناءٌ مُعلَن.
+  const AMBIENT_INHERIT_ON_MISSING = new Set(['DAY_ELIMINATION']);
   const leaderAmbientKeyRef = useRef<string | null>(null);
   useEffect(() => {
     // 🔴 `mirrorReady` في التبعيّات لا زينة: أوّلُ تشغيلٍ يقع قبل تسجيل المرآة
@@ -282,12 +294,16 @@ export default function LeaderPage() {
     //    بثٌّ وقع والمرآةُ `null` هو بثٌّ لم تسمعه القاعة، ولو حرسنا بالمفتاح
     //    وحده لمنع الحارسُ إعادتَه فورَ جهوزيّتها — فيبقى العطلُ كما هو ويبدو
     //    مُصلَحاً. وتبديلُ الغرفة كذلك: الطورُ نفسُه في غرفةٍ أخرى بثٌّ آخر.
-    const guard = `${key}|${gameState?.roomId || ''}|${mirrorReady ? 1 : 0}`;
+    const guard = `${key}|${gameState?.roomId || ''}|${mirrorReady ? 1 : 0}|${soundMapVersion}`;
     if (leaderAmbientKeyRef.current !== guard) {
-      playAmbientSound(key);            // يوقف السابق داخلياً ثم يبدأ الجديد
+      if (hasCustomSound(key)) {
+        playAmbientSound(key);          // يوقف السابق داخلياً ثم يبدأ الجديد
+      } else if (!AMBIENT_INHERIT_ON_MISSING.has(phase as string)) {
+        stopAmbientSound();             // لا ملفَّ لهذا الطور ⇒ صمتٌ لا وراثة
+      }
       leaderAmbientKeyRef.current = guard;
     }
-  }, [gameState?.phase, gameState?.roomId, mirrorReady]);
+  }, [gameState?.phase, gameState?.roomId, mirrorReady, soundMapVersion]);
 
   // ── 🔇 تبديلُ الغرفة يُسكت ما بقي من الغرفة السابقة ──
   // 🔴 أغنيةُ الفوز تدوم دقائق، و`stopOneShotSounds` كانت تُنادى عند
@@ -840,8 +856,9 @@ export default function LeaderPage() {
 
     // Phase changed
     const offPhaseChanged = on('game:phase-changed', async (data: any) => {
-      // 🔊 العودة للوبي: أوقف أي صوت مقطعي جارٍ (كأغنية الفوز) — محلياً وعلى شاشة العرض
-      if (data.phase === 'LOBBY') stopOneShotSounds();
+      // 🔊 كلُّ انتقالٍ يُسكت ما بقي من الطور السابق — لا نغمةَ إقصاءٍ تُكمل صداها
+      //    فوق افتتاحيّة الليل. يُستثنى انتهاءُ اللعبة: نغمةُ الفوز تبدأ هناك.
+      if (data.phase !== 'GAME_OVER') stopOneShotSounds();
       // 🔊 صوت افتتاحية المرحلة (الليدر هو المصدر) — الخلفية تُدار بأثر gameState.phase
       const sting = PHASE_STING[data.phase as string];
       if (sting) localSound(() => playGameSound(sting));
@@ -1025,7 +1042,7 @@ export default function LeaderPage() {
     const offAshResult = on('day:ash-curse-result', (data: any) => {
       // 🜂 حدثُ نهارٍ لا يمرّ بملخّص الصباح، فلا تبلغه خريطةُ أصوات الصباح.
       //    وهو خروجٌ حقيقيّ يستحقّ نغمتَه كأيّ إقصاء.
-      localSound(() => playGameSound('morning_phoenix_ash'));
+      localSound(() => playEventSound('morning_phoenix_ash', 2500));
       setGameState(prev => {
         if (!prev) return prev;
         return {

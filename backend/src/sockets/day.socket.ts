@@ -1023,6 +1023,14 @@ export function registerDayEvents(io: Server, socket: Socket) {
         teamCounts: currentState ? getTeamCounts(currentState.players) : undefined,
       });
 
+      // 🜂 لعنةُ الرماد **بعد** الكشف (قرارُ المالك 2026-08-29).
+      //
+      // 🔴 كانت تُفتح مع `day:elimination-pending`، أي **قبل** أن تُكشف الأدوار:
+      //    فيرى الموجّهُ «هذا عنقاء، من يأخذ معه؟» والطاولةُ لا تعرف بعدُ من خرج
+      //    ولا أنّه عنقاء — فيهمس ويقرّر في فراغ، ثمّ يُعلن الكشفَ متأخّراً بلا
+      //    أثر. الترتيبُ الصحيح: تُكشف هويّتُه أمام الجميع أوّلاً، ثمّ يُسأل.
+      await emitAshCurseWindow(io, data.roomId, currentState);
+
       // 👥 إشعار + إظهار تحوّل الأخ الأصغر إن حدث بالتصويت (vote-engine نفّذ التحوّل)
       if (currentState) {
         notifyTwinTransform(io, data.roomId, currentState);
@@ -1492,7 +1500,7 @@ export function registerDayEvents(io: Server, socket: Socket) {
           neutralWin: neutralWin || null,
         });
 
-        await emitAshCurseWindow(io, data.roomId, state);
+        // 🜂 لا نافذةَ رمادٍ هنا: تُفتح بعد الكشف (day:trigger-reveal)
 
         // ⏳ إن حُسم فائز (ولا قنبلة معلّقة) نبدأ مهلة الكشف التلقائي — كما في مسار التصويت العادي
         if ((neutralWin?.won || winResult !== WinResult.GAME_CONTINUES) && !state.pendingBomb) {
@@ -2019,7 +2027,7 @@ async function performElimination(io: Server, roomId: string) {
       neutralWin: result.neutralWin || null,
     });
     console.log(`📦 elimination-pending sent — pendingBomb: ${JSON.stringify(stateAfter?.pendingBomb || null)}${result.neutralWin?.won ? ' — 🤡 JESTER WIN!' : ''}`);
-    await emitAshCurseWindow(io, roomId, stateAfter);
+    // 🜂 لا نافذةَ رمادٍ هنا: تُفتح بعد الكشف (day:trigger-reveal)
     console.log(`📦 eliminated: ${result.eliminated}, revealedRoles: ${JSON.stringify(result.revealedRoles)}`);
     console.log(`📦 bombEnabled config: ${stateAfter?.config?.bombEnabled}`);
 

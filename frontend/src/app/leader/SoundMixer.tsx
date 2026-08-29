@@ -18,7 +18,7 @@
 import { useEffect, useRef, useState } from 'react';
 import {
   SOUND_CATEGORIES, CATEGORY_GROUPS, getSoundLevels, setSoundLevel, resetSoundLevels,
-  getDefaultSoundLevels, playLocalSound, previewAmbient, heardLevel, categoryCoverage,
+  getDefaultSoundLevels, previewSound, previewAmbient, stopPreview, heardLevel, categoryCoverage,
   type SoundCategory,
 } from '@/lib/soundManager';
 
@@ -41,6 +41,7 @@ export default function SoundMixer({ open, onClose }: { open: boolean; onClose: 
     return () => {
       window.removeEventListener('keydown', onKey);
       document.removeEventListener('pointerdown', onDown, true);
+      stopPreview();   // إغلاقُ اللوحة يُسكت معاينةً جارية
     };
   }, [open, onClose]);
 
@@ -55,8 +56,10 @@ export default function SoundMixer({ open, onClose }: { open: boolean; onClose: 
   //    كان يُسكت فراش القاعة وسط تصويتٍ حيّ.
   const preview = (c: typeof SOUND_CATEGORIES[number]) => {
     try {
+      // 🔴 مقطوعةٌ في الحالتين: مقبضُ الاحتفالات كان يُطلق أغنيةَ الفوز كاملةً
+      //    لمجرّد تحريكه، ولا شيء يوقفها حتى تنتهي.
       if (c.group === 'hallAmbient') previewAmbient(c.preview, 3000);
-      else playLocalSound(c.preview);
+      else previewSound(c.preview, 2500);
     } catch { /* الصوت لا يحجب */ }
   };
 

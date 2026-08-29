@@ -366,21 +366,65 @@ async function main() {
   }
 
   // ════════════════════════════════════════════════
-  // S04 — طورٌ بلا ملفّ: يبقى الجاري ولا يُسكَت
+  // S04 — طورٌ بلا ملفّ: صمتٌ لا وراثة (إلّا الإقصاء)
   // ════════════════════════════════════════════════
   if (run('S04')) {
-    head('S04', 'طورٌ بلا ملفِّ خلفيّة: القاعةُ لا تصمت');
+    head('S04', 'طورٌ بلا ملفِّ خلفيّة: يصمت — والإقصاءُ وحدَه يرث');
+    await phase('NIGHT'); await sleep(1500);
+    const night = await dbg(display);
+    ok('فراشُ الليل يعمل قبل الانتقال', night && night.ambientPlaying, JSON.stringify(night && night.ambientKey));
+
+    // ambient_day بلا ملفٍّ على الإنتاج ⇒ يجب أن يصمت لا أن يرث فراشَ الليل
     await clear(display);
-    const before = (await dbg(display)) || {};
     await phase('DAY_DISCUSSION');
-    await sleep(2500);
-    const D = await dbg(display);
-    const hasDayFile = false;   // ambient_day بلا ملفٍّ على الإنتاج
-    if (!hasDayFile) {
-      ok('لم تصمت القاعةُ عند طورٍ بلا ملفّ', D && D.ambientPlaying === true,
-        `ambientPlaying=${D && D.ambientPlaying} key=${D && D.ambientKey}`);
-      ok('بقي الفراشُ السابقُ نفسُه', D && D.ambientKey === before.ambientKey, `${before.ambientKey} → ${D && D.ambientKey}`);
-    }
+    const D = await until(display, x => x.dbg && x.dbg.ambientPlaying === false, 6000);
+    ok('لا يُكمل فراشُ الليل فوق النهار', D.dbg && D.dbg.ambientPlaying === false,
+      `ambientPlaying=${D.dbg && D.dbg.ambientPlaying} key=${D.dbg && D.dbg.ambientKey}`);
+    const relay = D.ws.filter(w => w.ev === 'display:sound-play').map(w => w.data && w.data.fn);
+    ok('وبُثَّ أمرُ الإيقاف صراحةً', relay.includes('stopAmbientSound'), JSON.stringify(relay));
+
+    // والإقصاءُ يرث: لا يُترك أشدُّ لحظات النهار في صمتٍ تامّ
+    await phase('DAY_VOTING'); await sleep(1800);
+    const voting = await dbg(display);
+    ok('فراشُ التصويت يعمل', voting && voting.ambientPlaying && voting.ambientKey === 'ambient_voting',
+      JSON.stringify(voting && voting.ambientKey));
+    await phase('DAY_ELIMINATION'); await sleep(2500);
+    const elim = await dbg(display);
+    ok('الإقصاءُ يرث فراشَ التصويت (استثناءٌ مقصود)', elim && elim.ambientPlaying === true,
+      `ambientPlaying=${elim && elim.ambientPlaying}`);
+    ok('وبالمفتاح نفسِه', elim && elim.ambientKey === 'ambient_voting', JSON.stringify(elim && elim.ambientKey));
+  }
+
+  // ════════════════════════════════════════════════
+  // S04b — موسيقى التصويت تتوقّف عند التبرير
+  // ════════════════════════════════════════════════
+  if (run('S04b')) {
+    head('S04b', 'موسيقى التصويت تصمت عند بدء التبرير');
+    await phase('DAY_VOTING'); await sleep(1800);
+    const before = await dbg(display);
+    ok('التصويتُ يعزف', before && before.ambientPlaying && before.ambientKey === 'ambient_voting',
+      JSON.stringify(before && before.ambientKey));
+    await clear(display);
+    await phase('DAY_JUSTIFICATION');
+    const D = await until(display, x => x.dbg && x.dbg.ambientPlaying === false, 6000);
+    ok('صمتت عند التبرير', D.dbg && D.dbg.ambientPlaying === false,
+      `ما زالت تعمل: ${D.dbg && D.dbg.ambientKey}`);
+  }
+
+  // ════════════════════════════════════════════════
+  // S04c — فراشُ الليل يتوقّف عند ملخّص الصباح
+  // ════════════════════════════════════════════════
+  if (run('S04c')) {
+    head('S04c', 'فراشُ الليل يصمت عند الانتقال لملخّص الليلة');
+    await phase('NIGHT'); await sleep(1800);
+    const before = await dbg(display);
+    ok('فراشُ الليل يعزف', before && before.ambientPlaying && before.ambientKey === 'ambient_night',
+      JSON.stringify(before && before.ambientKey));
+    await clear(display);
+    await phase('MORNING_RECAP');
+    const D = await until(display, x => x.dbg && x.dbg.ambientPlaying === false, 6000);
+    ok('صمت عند ملخّص الليلة', D.dbg && D.dbg.ambientPlaying === false,
+      `ما زال يعمل: ${D.dbg && D.dbg.ambientKey}`);
   }
 
   // ════════════════════════════════════════════════
@@ -668,6 +712,83 @@ async function main() {
     ok(`وعُزفت كلُّها (${plays}/${N})`, plays >= N - 1, `عُزف ${plays}`);
     const dd = await dbg(display);
     ok('ولا مقاطعَ عالقة', dd && dd.oneShots <= N, `oneShots=${dd && dd.oneShots}`);
+  }
+
+
+  // ════════════════════════════════════════════════
+  // S17 — الحصريّة: صوتٌ جديد يُسكت الجاري
+  // ════════════════════════════════════════════════
+  if (run('S17')) {
+    head('S17', 'صوتٌ جديد يُسكت ما قبله — والتكّاتُ لا تقطع شيئاً');
+    await phase('DAY_DISCUSSION'); await sleep(900);
+    await clear(display);
+    driver.emit('leader:sound-play', { roomId, fn: 'playGameSound', args: ['win_mafia'], vol: 0.5 });
+    await until(display, x => x.ev.some(e => e.k === 'play'), 5000);
+    await sleep(900);
+
+    // ① نقرةُ تصويتٍ **لا** تقطع الأغنية (صوتٌ إضافيّ)
+    await clear(display);
+    driver.emit('leader:sound-play', { roomId, fn: 'playGameSound', args: ['vote_cast'], vol: 0.5 });
+    await sleep(1400);
+    let D = await snap(display);
+    const pausedByTick = D.ev.some(e => e.k === 'pause' && /Mafia|Ramadan|win/i.test(e.src));
+    ok('نقرةُ التصويت لا تقطع أغنيةَ الفوز', !pausedByTick, JSON.stringify(D.ev.filter(e => e.k === 'pause')));
+
+    // ② نغمةُ إقصاءٍ **تقطعها** (صوتٌ رئيسيّ)
+    await clear(display);
+    driver.emit('leader:sound-play', { roomId, fn: 'playGameSound', args: ['elimination_citizen'], vol: 0.6 });
+    D = await until(display, x => x.ev.some(e => e.k === 'pause'), 5000);
+    ok('نغمةُ الإقصاء تقطع الأغنية', D.ev.some(e => e.k === 'pause'), JSON.stringify(D.ev.slice(0, 6)));
+    ok('ثمّ تُعزف هي', D.ev.some(e => e.k === 'play'), JSON.stringify(D.ev.filter(e => e.k === 'play')));
+    const dd = await dbg(display);
+    ok('لا تراكمَ مقاطع', dd && dd.oneShots <= 2, `oneShots=${dd && dd.oneShots}`);
+  }
+
+  // ════════════════════════════════════════════════
+  // S18 — الانتقالُ يُسكت ما بقي معلّقاً من الطور السابق
+  // ════════════════════════════════════════════════
+  if (run('S18')) {
+    head('S18', 'صوتٌ طويلٌ من طورٍ لا يُكمل فوق الطور التالي');
+    await phase('DAY_ELIMINATION'); await sleep(900);
+    await clear(display);
+    driver.emit('leader:sound-play', { roomId, fn: 'playGameSound', args: ['elimination_phoenix'], vol: 0.6 });
+    await until(display, x => x.ev.some(e => e.k === 'play'), 5000);
+    await sleep(600);
+    await clear(display);
+    await phase('NIGHT');
+    const D = await until(display, x => x.ev.some(e => e.k === 'pause'), 6000);
+    ok('أُوقف صوتُ الطور السابق عند الانتقال', D.ev.some(e => e.k === 'pause'), JSON.stringify(D.ev.slice(0, 6)));
+    const fns = D.ws.filter(w => w.ev === 'display:sound-play').map(w => w.data && w.data.fn);
+    ok('وبُثَّ أمرُ الإيقاف للقاعة', fns.includes('stopOneShotSounds'), JSON.stringify(fns));
+    await sleep(1800);
+    const dd = await dbg(display);
+    ok('وفراشُ الليل يعمل وحدَه', dd && dd.ambientPlaying && dd.ambientKey === 'ambient_night',
+      JSON.stringify(dd && { k: dd.ambientKey, p: dd.ambientPlaying }));
+  }
+
+  // ════════════════════════════════════════════════
+  // S19 — معاينةُ المازج مقطوعةٌ لا أغنيةٌ كاملة
+  // ════════════════════════════════════════════════
+  if (run('S19')) {
+    head('S19', 'تحريكُ مقبض الاحتفالات لا يُطلق أغنيةَ الفوز كاملةً');
+    const opened = await openMixer();
+    ok('المازجُ مفتوح', opened);
+    await clear(leader); await clear(display);
+    const moved = await setSlider('الاحتفالات', 60);
+    ok('مقبضُ الاحتفالات تحرّك', moved);
+    if (moved) {
+      const L = await until(leader, x => x.ev.some(e => e.k === 'play'), 5000);
+      const started = L.ev.find(e => e.k === 'play');
+      ok('عُزفت معاينةٌ على جهاز الموجّه', !!started, JSON.stringify(L.ev.slice(0, 4)));
+      await sleep(3600);
+      const L2 = await snap(leader);
+      const stopped = L2.ev.find(e => e.k === 'pause');
+      ok('وتوقّفت خلال ثوانٍ (لا أغنيةَ كاملة)', !!stopped, 'ما زالت تعمل — المعاينةُ غيرُ مقطوعة');
+      if (started && stopped) ok('المدّةُ ≤ ٣٫٥ث', stopped.t - started.t < 3500, `${stopped.t - started.t}ms`);
+      const D = await snap(display);
+      ok('ولم تُبَثَّ للقاعة (معاينةٌ محلّيّة)', !D.ws.some(w => w.ev === 'display:sound-play'),
+        JSON.stringify(D.ws.map(w => w.data && w.data.fn)));
+    }
   }
 
   } catch (e) {
