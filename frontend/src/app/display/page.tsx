@@ -17,7 +17,7 @@ import { BirthdayCelebration, type Celebrant } from '@/components/BirthdayCelebr
 //    ما هنا: تحميلُ الخريطة لمعرفة أين الملفّ حين يصل نداءُ الموجّه، وتطبيقُ الوارد،
 //    وفكُّ القفل واستئنافُ الفراش عند اللمسة. لا نداءَ صوتٍ محلّيّ — أيُّ نداءٍ يُضاف
 //    هنا يعود بصمتٍ عند أوّل سطرٍ ويُضلّل من يقرأ.
-import { loadSoundMap, reloadSoundMap, applyRemoteSound, setLocalPlayback, primeAudio, retryAmbient } from '@/lib/soundManager';
+import { loadSoundMap, reloadSoundMap, applyRemoteSound, setLocalPlayback, primeAudio, retryAmbient, heardLevel } from '@/lib/soundManager';
 
 // مؤثرات صوتية — يستخدم soundManager المركزي
 // (الأصوات الافتراضية محفوظة في soundManager.ts كـ fallback)
@@ -599,7 +599,10 @@ function DisplayPageContent() {
           //    بيع أكثر من نغمة. الآن العنصر يشير إلى ملفّه بعينه.
           if (d.soundUrl) {
             const a = new Audio(String(d.soundUrl));
-            a.volume = 0.9;
+            // 🔴 كان 0.9 مطبوعاً في الشيفرة: النغمةُ الوحيدة التي تعزفها الشاشةُ
+            //    بنفسها، فلا رسالةَ صوتٍ تحمل مستوى الموجّه — ومقبضُ الاحتفالات
+            //    لا أثرَ له عليها. الآن تتبع المستوى المبثوث (setCategoryLevel).
+            a.volume = heardLevel('chips_victory_sting');
             void a.play().catch(() => { /* المتصفح قد يمنع التشغيل التلقائي */ });
           } else {
             applyRemoteSound({ fn: 'playGameSound', args: [String(d.soundKey)] });

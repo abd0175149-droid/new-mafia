@@ -28,9 +28,12 @@ let ambientDone = false;
 let ambientCapTimer: ReturnType<typeof setTimeout> | null = null;
 
 // ── الأصوات المقطعية الجارية (one-shot) — تُتعقَّب ليمكن إيقافها (مثل أغنية الفوز عند العودة للوبي) ──
-const oneShotAudios: Set<HTMLAudioElement> = new Set();
-function trackOneShot(a: HTMLAudioElement): void {
-  oneShotAudios.add(a);
+// 🔑 مقطعٌ جارٍ ← مفتاحُه. كان مجرّدَ مجموعةٍ بلا هويّة، فاستحال إعادةُ حساب
+//    مستواه حين يحرّك الموجّه المقبض: أغنيةُ الفوز تبدأ بمستوىً ويبقى مطبوعاً
+//    فيها حتى تنتهي، مهما فعل بالمقبض.
+const oneShotAudios: Map<HTMLAudioElement, string> = new Map();
+function trackOneShot(a: HTMLAudioElement, eventKey: string): void {
+  oneShotAudios.set(a, eventKey);
   a.addEventListener('ended', () => oneShotAudios.delete(a));
 }
 
@@ -344,6 +347,11 @@ export function setSoundLevel(cat: SoundCategory, v: number): void {
   levels[cat] = Math.max(0, Math.min(1, v));
   try { localStorage.setItem(LEVELS_KEY, JSON.stringify(levels)); } catch { /* تصفّح خاصّ */ }
   syncAmbientVolume(cat);
+  // 🔴 والمقاطعُ الجارية معه: مقبضُ الاحتفالات لا معنى له إن لم يُخفض أغنيةَ
+  //    الفوز **وهي تُعزف** — تلك اللحظةُ الوحيدة التي يمدّ فيها الموجّهُ يدَه إليه.
+  //    والبثُّ غيرُ مشروطٍ بوجود صوتٍ محلّيّ: جهازُه قد يكون مكتوماً والقاعةُ تسمع.
+  if (localPlaybackEnabled) mirrorEmit?.({ fn: 'setCategoryLevel', args: [cat, levels[cat]] });
+  applyLevelToActive(cat);
 }
 
 /**
@@ -393,6 +401,32 @@ export function resetSoundLevels(): void {
 //    الموجّه، فلو حسبت بنفسها لسمعت القاعة مستوىً غير الذي ضبطه.
 let volOverride: number | null = null;
 
+// 🎚️ مستوياتُ الموجّه كما بثّها — للشاشة التابعة وحدَها.
+//
+// 🔴 كانت الشاشةُ تعتمد مستوى الرسالة الواصلة مع كلّ صوت، وهذا يكفي لما يُبَثّ.
+//    لكنّها تعزف شيئاً **بنفسها**: نغمةَ النصر المشتراة. تلك لا رسالةَ لها،
+//    فكانت تُعزف بمستوىً مطبوعٍ في الشيفرة (0.9) لا يمسّه مقبضُ الاحتفالات.
+const remoteLevels: Partial<Record<SoundCategory, number>> = {};
+function _setCategoryLevel(cat: string, level: number): void {
+  const c = cat as SoundCategory;
+  if (!SOUND_CATEGORIES.some(x => x.key === c)) return;
+  if (!Number.isFinite(level)) return;
+  remoteLevels[c] = Math.max(0, Math.min(1, level));
+  applyLevelToActive(c);
+}
+
+/** يُعيد حساب مستوى كلّ ما يعمل الآن في هذه الفئة — الفراشُ والمقاطع. */
+function applyLevelToActive(cat: SoundCategory): void {
+  if (ambientAudio && ambientKey && categoryOf(ambientKey) === cat) {
+    ambientVol = resolveVol(ambientKey);
+    try { ambientAudio.volume = clampVol(ambientVol * AMBIENT_BASE); } catch { /* تجاهل */ }
+  }
+  oneShotAudios.forEach((key, el) => {
+    if (categoryOf(key) !== cat) return;
+    try { el.volume = clampVol(resolveVol(key)); } catch { /* تجاهل */ }
+  });
+}
+
 /**
  * المستوى النهائيّ لمفتاح — أو ما فرضه الموجّه إن كنّا شاشةً تابعة.
  *
@@ -405,7 +439,10 @@ let volOverride: number | null = null;
 function resolveVol(eventKey: string): number {
   if (volOverride != null) return volOverride;
   const keyMul = VOLUME_BY_KEY[eventKey] ?? (eventKey.startsWith('ambient_') ? 1 : 0.7);
-  return levels[categoryOf(eventKey)] * keyMul;
+  const cat = categoryOf(eventKey);
+  // على الشاشة التابعة: مستوى الموجّه يعلو افتراضيّاتها المحلّيّة
+  const lvl = (!localPlaybackEnabled && remoteLevels[cat] != null) ? (remoteLevels[cat] as number) : levels[cat];
+  return lvl * keyMul;
 }
 
 /** حارسٌ للإسناد: volume خارج [0,1] أو NaN يرمي فيُسكت الفراش بلا أثر. */
@@ -437,7 +474,7 @@ function _playGameSound(eventKey: string): void {
         // إنشاء نسخة جديدة لتجنب تداخل التشغيل
         const clone = audio.cloneNode(true) as HTMLAudioElement;
         clone.volume = vol;
-        trackOneShot(clone);
+        trackOneShot(clone, eventKey);
         clone.play().catch(() => {});
         applyDurationCap(clone, eventKey);
         return;
@@ -445,7 +482,7 @@ function _playGameSound(eventKey: string): void {
       // Fallback: تحميل مباشر
       const newAudio = new Audio(`${API_URL}${customSoundMap[eventKey]}`);
       newAudio.volume = vol;
-      trackOneShot(newAudio);
+      trackOneShot(newAudio, eventKey);
       newAudio.play().catch(() => {});
       applyDurationCap(newAudio, eventKey);
       return;
@@ -568,7 +605,7 @@ export function stopOneShotSounds(): void {
   if (!localMuted) _stopOneShotSounds();
 }
 function _stopOneShotSounds(): void {
-  oneShotAudios.forEach((a) => {
+  oneShotAudios.forEach((_k, a) => {
     try { a.pause(); a.currentTime = 0; } catch {}
   });
   oneShotAudios.clear();
@@ -1459,6 +1496,7 @@ const REMOTE_SOUND_FNS: Record<string, (...a: any[]) => void> = {
   playDrumroll: _playDrumroll,
   playImpactBoom: _playImpactBoom,
   setAmbientVolume: _setAmbientVolume,
+  setCategoryLevel: _setCategoryLevel,
 };
 
 export function applyRemoteSound(payload: { fn: string; args?: any[]; vol?: number }): void {

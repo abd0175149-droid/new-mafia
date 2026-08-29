@@ -270,13 +270,14 @@ export default function LeaderPage() {
     DAY_VOTING: 'ambient_voting', DAY_JUSTIFICATION: 'ambient_justification',
     DAY_ELIMINATION: 'ambient_elimination', MORNING_RECAP: 'ambient_morning',
   };
-  // 🔇 طورٌ مفتاحُه بلا ملفّ: هل يبقى فراشُ الطور السابق أم يصمت؟
+  // 🔇 طورٌ مفتاحُه بلا ملفّ ⇒ **صمت**. بلا استثناء.
   //
-  // 🔴 كان «يبقى» **دائماً** — وهو صحيحٌ للحظة الإقصاء وحدها (لا تُترك أشدُّ
-  //    لحظات النهار في صمتٍ تامّ)، وخطأٌ في كلّ ما عداها: موسيقى التصويت تُكمل
-  //    فوق التبرير، وفراشُ الليل يُكمل فوق ملخّص الصباح — فيبدو أنّ «الصوت لا
-  //    يتوقّف». الصمتُ هو الأصل، والوراثةُ استثناءٌ مُعلَن.
-  const AMBIENT_INHERIT_ON_MISSING = new Set(['DAY_ELIMINATION']);
+  // 🔴 كان يرث فراشَ الطور السابق دائماً، فبدا أنّ «الصوت لا يتوقّف»: موسيقى
+  //    التصويت تُكمل فوق التبرير، وفراشُ الليل فوق ملخّص الصباح. واستثنيتُ
+  //    الإقصاءَ أوّلاً كي لا تُترك أشدُّ لحظات النهار في صمت — فبقيت موسيقى
+  //    التصويت تُكمل فوقه إلى الليل، وهي الشكوى نفسُها. القاعدةُ الآن واحدةٌ
+  //    ومفهومة: **لكلّ طورٍ فراشُه أو صمتُه**. ومن أراد فراشاً للإقصاء يرفع
+  //    `ambient_elimination` من لوحة الأصوات فيعمل فوراً بلا نشرةِ كود.
   const leaderAmbientKeyRef = useRef<string | null>(null);
   useEffect(() => {
     // 🔴 `mirrorReady` في التبعيّات لا زينة: أوّلُ تشغيلٍ يقع قبل تسجيل المرآة
@@ -296,11 +297,8 @@ export default function LeaderPage() {
     //    مُصلَحاً. وتبديلُ الغرفة كذلك: الطورُ نفسُه في غرفةٍ أخرى بثٌّ آخر.
     const guard = `${key}|${gameState?.roomId || ''}|${mirrorReady ? 1 : 0}|${soundMapVersion}`;
     if (leaderAmbientKeyRef.current !== guard) {
-      if (hasCustomSound(key)) {
-        playAmbientSound(key);          // يوقف السابق داخلياً ثم يبدأ الجديد
-      } else if (!AMBIENT_INHERIT_ON_MISSING.has(phase as string)) {
-        stopAmbientSound();             // لا ملفَّ لهذا الطور ⇒ صمتٌ لا وراثة
-      }
+      if (hasCustomSound(key)) playAmbientSound(key);   // يوقف السابق داخلياً ثم يبدأ الجديد
+      else stopAmbientSound();                           // لا ملفَّ لهذا الطور ⇒ صمت
       leaderAmbientKeyRef.current = guard;
     }
   }, [gameState?.phase, gameState?.roomId, mirrorReady, soundMapVersion]);

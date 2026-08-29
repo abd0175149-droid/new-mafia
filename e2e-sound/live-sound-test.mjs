@@ -386,16 +386,15 @@ async function main() {
     const relay = D.ws.filter(w => w.ev === 'display:sound-play').map(w => w.data && w.data.fn);
     ok('وبُثَّ أمرُ الإيقاف صراحةً', relay.includes('stopAmbientSound'), JSON.stringify(relay));
 
-    // والإقصاءُ يرث: لا يُترك أشدُّ لحظات النهار في صمتٍ تامّ
+    // والإقصاءُ يصمت كغيره: لا وراثةَ بعد اليوم (القاعدةُ واحدة)
     await phase('DAY_VOTING'); await sleep(1800);
     const voting = await dbg(display);
     ok('فراشُ التصويت يعمل', voting && voting.ambientPlaying && voting.ambientKey === 'ambient_voting',
       JSON.stringify(voting && voting.ambientKey));
     await phase('DAY_ELIMINATION'); await sleep(2500);
     const elim = await dbg(display);
-    ok('الإقصاءُ يرث فراشَ التصويت (استثناءٌ مقصود)', elim && elim.ambientPlaying === true,
-      `ambientPlaying=${elim && elim.ambientPlaying}`);
-    ok('وبالمفتاح نفسِه', elim && elim.ambientKey === 'ambient_voting', JSON.stringify(elim && elim.ambientKey));
+    ok('موسيقى التصويت لا تُكمل فوق الإقصاء', !(elim && elim.ambientPlaying),
+      `ما زالت تعمل: ${elim && elim.ambientKey}`);
   }
 
   // ════════════════════════════════════════════════
@@ -792,6 +791,40 @@ async function main() {
       ok('ولم تُبَثَّ للقاعة (معاينةٌ محلّيّة)', !D.ws.some(w => w.ev === 'display:sound-play'),
         JSON.stringify(D.ws.map(w => w.data && w.data.fn)));
     }
+  }
+
+
+  // ════════════════════════════════════════════════
+  // S20 — المقبضُ يسري على ما يُعزف الآن لا على ما بعده
+  // ════════════════════════════════════════════════
+  if (run('S20')) {
+    head('S20', 'خفضُ مقبض الاحتفالات يخفض أغنيةَ الفوز وهي تُعزف');
+    await phase('DAY_DISCUSSION'); await sleep(700);
+    await openMixer();
+    await setSlider('الاحتفالات', 90);
+    await sleep(400);
+    await clear(display);
+    driver.emit('leader:sound-play', { roomId, fn: 'playGameSound', args: ['win_mafia'], vol: 0.63 });
+    const P = await until(display, s => s.ev.some(e => e.k === 'play'), 6000);
+    const started = P.ev.find(e => e.k === 'play');
+    ok('الأغنيةُ تُعزف في القاعة', !!started, JSON.stringify(P.ev.slice(0, 4)));
+    ok('بمستوىً مرتفع', started && started.vol > 0.5, `vol=${started && started.vol}`);
+
+    // ⬇️ الآن نخفض المقبضَ **والأغنيةُ تعمل**
+    await clear(display);
+    await setSlider('الاحتفالات', 15);
+    const D = await until(display, s => s.ws.some(w => w.data && w.data.fn === 'setCategoryLevel'), 6000);
+    const rel = D.ws.filter(w => w.data && w.data.fn === 'setCategoryLevel');
+    ok('بُثَّ مستوى الفئة للقاعة', rel.length > 0, JSON.stringify(D.ws.map(w => w.data && w.data.fn)));
+    await sleep(600);
+    const vols = (await snap(display)).ev.filter(e => e.k === 'vol');
+    ok('وانخفض مستوى الأغنية الجارية فعلاً', vols.some(v => v.vol < 0.3),
+      JSON.stringify(vols.map(v => v.vol)));
+    const L = await snap(leader);
+    const lv = L.ev.filter(e => e.k === 'vol');
+    ok('وعلى جهاز الموجّه كذلك', lv.some(v => v.vol < 0.3), JSON.stringify(lv.map(v => v.vol)));
+    driver.emit('leader:sound-play', { roomId, fn: 'stopOneShotSounds', args: [] });
+    await setSlider('الاحتفالات', 90);
   }
 
   } catch (e) {
