@@ -39,7 +39,7 @@ const ONLY = (process.env.ONLY || '').split(',').map(s => s.trim()).filter(Boole
 if (!TOKEN) { console.error('❌ MAFIA_STAFF_TOKEN مطلوب'); process.exit(1); }
 
 // ── عدّادات ─────────────────────────────────────────────
-let pass = 0, fail = 0;
+let pass = 0, fail = 0, crashed = false;
 const failures = [];
 const notes = [];
 const ok = (name, cond, detail = '') => {
@@ -51,15 +51,31 @@ const note = (t) => { notes.push(t); console.log(`    📝 ${t}`); };
 const sleep = (ms) => new Promise(r => setTimeout(r, ms));
 
 // ── سوكِتُ القيادة ───────────────────────────────────────
-const rpc = (s, ev, payload) => new Promise((res, rej) => {
-  const t = setTimeout(() => rej(new Error(`timeout ${ev}`)), 20000);
+const rpcOnce = (s, ev, payload, ms = 20000) => new Promise((res, rej) => {
+  const t = setTimeout(() => rej(new Error(`timeout ${ev}`)), ms);
   s.emit(ev, payload, (r) => { clearTimeout(t); (r && r.success === false) ? rej(new Error(r.error || ev)) : res(r); });
 });
-const connect = (auth) => new Promise((res, rej) => {
+/**
+ * 🔁 محاولةٌ ثانية بعد انتظار الاتصال: الجولةُ تدوم دقائق، وأيُّ انقطاعٍ عابر
+ *    (وسيطٌ يُغلق اتّصالَ polling خاملاً) كان يُسقط الفحصَ كلَّه بـ«timeout».
+ */
+const rpc = async (s, ev, payload) => {
+  try { return await rpcOnce(s, ev, payload); }
+  catch (e) {
+    if (!s.connected) { for (let i = 0; i < 30 && !s.connected; i++) await sleep(500); }
+    await sleep(400);
+    return rpcOnce(s, ev, payload, 25000);
+  }
+};
+const connect = (auth, opts = {}) => new Promise((res, rej) => {
   // polling أوّلاً ثمّ الترقية: websocket وحدَه لا يعبر من كلّ شبكة
-  const s = io(URL, { transports: ['polling', 'websocket'], auth, reconnection: false, timeout: 20000 });
+  const s = io(URL, {
+    transports: ['polling', 'websocket'], auth, timeout: 20000,
+    reconnection: opts.reconnect !== false, reconnectionAttempts: Infinity, reconnectionDelay: 700,
+  });
   s.on('connect', () => res(s));
-  s.on('connect_error', rej);
+  s.on('connect_error', (e) => { if (!s.__up) rej(e); });
+  s.once('connect', () => { s.__up = true; });
 });
 
 // ══════════════════════════════════════════════════════
@@ -192,12 +208,16 @@ async function main() {
 
   // ── الغرفة ──
   const driver = await connect({ token: TOKEN, leaderToken: TOKEN });
+  // إعادةُ الاتصال تُفقد socket.data.roomId على الخادم — نُعيد الانضمام تلقائيّاً
+  let joinedRoom = null;
+  driver.on('connect', () => { if (joinedRoom) driver.emit('room:rejoin-leader', { roomId: joinedRoom }); });
   const room = await rpc(driver, 'room:create', {
     gameName: '🧪 فحصُ الصوت',
     maxPlayers: 12, maxJustifications: 1, maxPenalties: 3, penaltyScope: 'game',
     activityId: ACTIVITY_ID,
   });
   const roomId = room.roomId, pin = String(room.displayPin);
+  joinedRoom = roomId;
   console.log(`🏠 غرفة ${room.roomCode} · ${roomId} · رمز الشاشة ${pin}\n`);
 
   const phase = async (p) => { await rpc(driver, 'game:transition-phase', { roomId, targetPhase: p }); await sleep(900); };
@@ -291,6 +311,8 @@ async function main() {
 
   const run = (id) => ONLY.length === 0 || ONLY.includes(id);
   const head = (id, title) => console.log(`\n${id} · ${title}\n${'─'.repeat(52)}`);
+
+  try {
 
   // ════════════════════════════════════════════════
   // S01 — الأدوار والخريطة
@@ -478,7 +500,7 @@ async function main() {
     let D = await snap(display);
     ok('دالّةٌ خارج القائمة لا تصل', !D.ws.some(w => w.ev === 'display:sound-play'), JSON.stringify(D.ws));
 
-    const anon = await connect({});          // بلا توكن — لا دورَ leader
+    const anon = await connect({}, { reconnect: false });          // بلا توكن — لا دورَ leader
     anon.emit('leader:sound-play', { roomId, fn: 'playGameSound', args: ['win_mafia'], vol: 1 });
     await sleep(1200);
     D = await snap(display);
@@ -648,7 +670,15 @@ async function main() {
     ok('ولا مقاطعَ عالقة', dd && dd.oneShots <= N, `oneShots=${dd && dd.oneShots}`);
   }
 
-  // ── التنظيف ──
+  } catch (e) {
+    crashed = true;
+    console.error(`
+💥 انهيارٌ داخل السيناريوهات: ${e && e.message}`);
+    failures.push(`انهيار: ${e && e.message}`);
+    fail++;
+  } finally {
+  // ── التنظيف — في finally عمداً: سيناريو ينهار كان يترك غرفةً حيّةً ومدداً
+  //    معدَّلةً على الإنتاج، فيُفسد الجولةَ التالية ويربك الموجّه.
   console.log(`\n${'─'.repeat(52)}\n🧹 التنظيف…`);
   for (const r of restoreDur) {
     await api(`/api/sounds/${r.id}`, {
@@ -659,12 +689,13 @@ async function main() {
   console.log(`   أُعيدت مددُ ${restoreDur.length} ملفّ إلى ما كانت`);
   try { await rpc(driver, 'room:delete-room', { roomId }); console.log('   حُذفت غرفةُ الفحص'); }
   catch { try { driver.emit('room:close', { roomId }); } catch {} }
-  driver.close();
-  await browser.close();
+  try { driver.close(); } catch {}
+  try { await browser.close(); } catch {}
+  }
 
   // ── الخلاصة ──
   console.log(`\n${'═'.repeat(58)}`);
-  console.log(`📊 ${pass} ✅   ${fail} ❌`);
+  console.log(`📊 ${pass} ✅   ${fail} ❌${crashed ? '   💥 انهيارٌ أثناء التنفيذ' : ''}`);
   if (failures.length) { console.log('\n❌ الإخفاقات:'); failures.forEach(f => console.log(`   • ${f}`)); }
   if (notes.length) { console.log('\n📝 ملاحظات:'); notes.forEach(n => console.log(`   • ${n}`)); }
   process.exit(fail ? 1 : 0);
