@@ -74,17 +74,47 @@ export function slotDuration(s: RawSlot): number {
   return d < 0 ? d + DAY_MIN : d;
 }
 
+// 🔴 ساعاتُ الجدول بتوقيت عمّان لا بتوقيت الخادم.
+//    `setHours` كانت تُرسي «19:00» على منتصف ليل الخادم — وحاويةُ الإنتاج على
+//    UTC — فظهر انحرافُ ١٨٠ دقيقة على بياناتٍ حقيقيّة (لعبةٌ بدأت 19:49 قُرئت
+//    كأنّها سبقت خطّتها بساعتين). الإرساء يجب أن يكون على اليوم المدنيّ في عمّان.
+const TZ = 'Asia/Amman';
+const TZ_FMT = new Intl.DateTimeFormat('en-US', {
+  timeZone: TZ, hour12: false,
+  year: 'numeric', month: '2-digit', day: '2-digit',
+  hour: '2-digit', minute: '2-digit', second: '2-digit',
+});
+
+function tzFields(d: Date) {
+  const p: Record<string, string> = {};
+  for (const x of TZ_FMT.formatToParts(d)) if (x.type !== 'literal') p[x.type] = x.value;
+  return {
+    y: Number(p.year), mo: Number(p.month), d: Number(p.day),
+    h: Number(p.hour) % 24, mi: Number(p.minute), s: Number(p.second),
+  };
+}
+
+/** إزاحةُ عمّان عن UTC عند لحظةٍ بعينها — تُحسب ولا تُفترض */
+function tzOffsetMs(d: Date): number {
+  const f = tzFields(d);
+  return Date.UTC(f.y, f.mo - 1, f.d, f.h, f.mi, f.s) - Math.floor(d.getTime() / 1000) * 1000;
+}
+
 /**
- * تحويل ساعةِ ليلةٍ (`HH:MM`) إلى لحظةٍ مطلقة، مرتكزةً على تاريخ الفعاليّة.
- * ساعةٌ أبكرُ من بداية الليلة بكثير تُفهم على أنّها بعد منتصف الليل.
+ * تحويل ساعةِ ليلةٍ (`HH:MM`) إلى لحظةٍ مطلقة، مرتكزةً على **اليوم المدنيّ
+ * للفعاليّة في عمّان**. ساعةٌ أبكرُ من بداية الليلة بكثير تُفهم على أنّها بعد
+ * منتصف الليل.
  */
 export function slotToEpoch(hhmm: string, activityDate: Date, anchorMin: number): number {
   const mins = toMinutes(hhmm);
   if (mins == null) return activityDate.getTime();
-  const base = new Date(activityDate);
-  base.setHours(0, 0, 0, 0);
+  const { y, mo, d } = tzFields(activityDate);
   const shifted = mins < anchorMin - 720 ? mins + DAY_MIN : mins;
-  return base.getTime() + shifted * MIN;
+  const civil = Date.UTC(y, mo - 1, d, 0, 0, 0) + shifted * MIN;
+  // تخمينٌ بإزاحة لحظة الفعاليّة ثمّ تصحيحٌ بإزاحة اللحظة الهدف نفسها،
+  // فلا تنكسر ليلةٌ تعبر تغييراً في التوقيت.
+  const guess = civil - tzOffsetMs(activityDate);
+  return civil - tzOffsetMs(new Date(guess));
 }
 
 /** ترتيبُ شرائح اللعب زمنيّاً مع لفّ منتصف الليل، والاستراحات تُطوى */

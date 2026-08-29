@@ -13,10 +13,13 @@ function check(name: string, cond: boolean) {
 }
 const MIN = 60_000;
 
-// ليلةُ الفعاليّة: الخميس ٢٠:٠٠ بتوقيت الجهاز
-const DATE = new Date(2026, 7, 27, 20, 0, 0, 0);
+// ليلةُ الفعاليّة: الخميس ٢٠:٠٠ **بتوقيت عمّان**، مكتوبةً كلحظةٍ مطلقة.
+// ⚠️ لا تُبنَ التجهيزات بـ`new Date(y,m,d,h,m)` — ذلك توقيتُ الجهاز، فتمرّ
+//    الاختبارات على جهاز المطوّر وتسقط على خادمٍ يعمل بـUTC.
+const AMMAN_OFFSET_MIN = 180;   // الأردنّ +03:00 دائماً (أُلغي التوقيت الصيفيّ ٢٠٢٢)
 const at = (h: number, m: number, plusDay = false) =>
-  new Date(2026, 7, 27 + (plusDay ? 1 : 0), h, m, 0, 0).getTime();
+  Date.UTC(2026, 7, 27 + (plusDay ? 1 : 0), h, m, 0, 0) - AMMAN_OFFSET_MIN * 60_000;
+const DATE = new Date(at(20, 0));
 
 const PLAN: RawSlot[] = [
   { kind: 'game',  label: 'اللعبة الأولى',  start: '19:45', end: '21:00' },
@@ -304,6 +307,55 @@ check('كلّ الألعاب بدأت ⇒ لا شيء يُزاح', typeof reflow
 {
   const out = reflow(PLAN, 1, -15) as RawSlot[];
   check('إزاحةٌ سالبة (تبكير) تعمل', out[2].start === '21:05');
+}
+
+// ══════════════ ١٤ · الإرساء الزمنيّ — العطب الذي كشفه الإنتاج ══════════════
+// ساعاتُ الجدول بتوقيت عمّان. حاويةُ الإنتاج على UTC، وكان الإرساء يجري بتوقيت
+// الخادم فظهر انحرافُ ١٨٠ دقيقة على بياناتٍ حقيقيّة. هذه التأكيدات مطلقةٌ لا
+// تعتمد على منطقة الجهاز، فتفشل لو عاد العطب.
+console.log('');
+console.log('🧪 الإرساء بتوقيت عمّان');
+{
+  // فعاليّةُ ٢٨ أغسطس ٢٠٢٦ · 19:00 بعمّان = 16:00Z (الأردنّ +03:00 دائماً)
+  const actDate = new Date('2026-08-28T16:00:00.000Z');
+  const realPlan: RawSlot[] = [
+    { kind: 'game',  label: 'اللعبة الأولى',  start: '19:00', end: '19:55' },
+    { kind: 'break', label: 'استراحة',         start: '19:55', end: '20:05' },
+    { kind: 'game',  label: 'اللعبة الثانية',  start: '20:05', end: '21:30' },
+    { kind: 'break', label: 'استراحة',         start: '21:30', end: '21:40' },
+    { kind: 'game',  label: 'اللعبة الثالثة',  start: '21:40', end: '23:05' },
+    { kind: 'break', label: 'استراحة',         start: '23:05', end: '23:15' },
+    { kind: 'game',  label: 'اللعبة الرابعة',  start: '23:15', end: '00:40' },
+  ];
+  // أوقاتٌ حقيقيّة من الإنتاج (غرفة 9978)، مكتوبةً بـZ فلا تتأثّر بمنطقة الجهاز
+  const real: RoomMatchRow[] = [
+    { id: 1, createdAt: new Date('2026-08-28T16:49:00Z'), endedAt: new Date('2026-08-28T17:55:00Z'), isActive: false, winner: 'MAFIA', totalRounds: 5 },
+    { id: 2, createdAt: new Date('2026-08-28T18:14:00Z'), endedAt: new Date('2026-08-28T19:49:00Z'), isActive: false, winner: 'CITIZEN', totalRounds: 6 },
+    { id: 3, createdAt: new Date('2026-08-28T19:58:00Z'), endedAt: new Date('2026-08-28T21:06:00Z'), isActive: false, winner: 'MAFIA', totalRounds: 5 },
+    { id: 4, createdAt: new Date('2026-08-28T21:15:00Z'), endedAt: new Date('2026-08-28T21:59:00Z'), isActive: false, winner: 'CITIZEN', totalRounds: 4 },
+  ];
+  const out = bindRoomSchedule(realPlan, real, actDate, Date.parse('2026-08-29T09:00:00Z'));
+  check('بيانات إنتاج: أربع شرائح', out.length === 4);
+  check('انحراف الأولى +49 لا −131', out[0].driftMin === 49);
+  check('انحراف الثانية +69 لا −110', out[1].driftMin === 69);
+  check('انحراف الثالثة +78 لا −101', out[2].driftMin === 78);
+  check('انحراف الرابعة +60 لا −120', out[3].driftMin === 60);
+  check('كلّ الانحرافات موجبة — الليلة تأخّرت فعلاً', out.every(x => (x.driftMin ?? 0) > 0));
+  check('كلّها منتهية', roomStatus(out) === 'ended');
+}
+{
+  // «00:40» بعد «19:00» تعني اليوم التالي لا اليوم نفسه
+  const actDate = new Date('2026-08-28T16:00:00.000Z');
+  const plan: RawSlot[] = [
+    { kind: 'game', label: 'أولى', start: '19:00', end: '20:00' },
+    { kind: 'game', label: 'ليليّة', start: '23:15', end: '00:40' },
+  ];
+  const out = bindRoomSchedule(plan, [
+    { id: 1, createdAt: new Date('2026-08-28T16:00:00Z'), endedAt: new Date('2026-08-28T17:00:00Z'), isActive: false, winner: 'MAFIA', totalRounds: 4 },
+    { id: 2, createdAt: new Date('2026-08-28T20:15:00Z'), endedAt: null, isActive: true, winner: null, totalRounds: 2 },
+  ], actDate, Date.parse('2026-08-28T21:00:00Z'));
+  check('شريحةٌ بعد منتصف الليل تُرسى في اليوم التالي', out[1].driftMin === 0);
+  check('الأولى بلا انحراف (بدأت في وقتها)', out[0].driftMin === 0);
 }
 
 console.log(`\n${fail === 0 ? '🎉' : '⚠️'} النتيجة: ${pass} نجح · ${fail} فشل`);
