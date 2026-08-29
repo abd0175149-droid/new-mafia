@@ -788,8 +788,12 @@ async function main() {
       ok('وتوقّفت خلال ثوانٍ (لا أغنيةَ كاملة)', !!stopped, 'ما زالت تعمل — المعاينةُ غيرُ مقطوعة');
       if (started && stopped) ok('المدّةُ ≤ ٣٫٥ث', stopped.t - started.t < 3500, `${stopped.t - started.t}ms`);
       const D = await snap(display);
-      ok('ولم تُبَثَّ للقاعة (معاينةٌ محلّيّة)', !D.ws.some(w => w.ev === 'display:sound-play'),
-        JSON.stringify(D.ws.map(w => w.data && w.data.fn)));
+      // ⚠️ `setCategoryLevel` بثٌّ مشروع (المقبضُ يضبط القاعة أيضاً) — المقصود
+      //    ألّا يُبَثَّ **صوتُ** المعاينة نفسُه.
+      const played = D.ws.filter(w => w.ev === 'display:sound-play')
+        .map(w => w.data && w.data.fn)
+        .filter(f => f && f !== 'setCategoryLevel' && f !== 'setAmbientVolume');
+      ok('ولم يُبَثَّ صوتُ المعاينة للقاعة (محلّيّةٌ للموجّه)', played.length === 0, JSON.stringify(played));
     }
   }
 
@@ -820,9 +824,12 @@ async function main() {
     const vols = (await snap(display)).ev.filter(e => e.k === 'vol');
     ok('وانخفض مستوى الأغنية الجارية فعلاً', vols.some(v => v.vol < 0.3),
       JSON.stringify(vols.map(v => v.vol)));
-    const L = await snap(leader);
-    const lv = L.ev.filter(e => e.k === 'vol');
-    ok('وعلى جهاز الموجّه كذلك', lv.some(v => v.vol < 0.3), JSON.stringify(lv.map(v => v.vol)));
+    // القيمةُ المتوقّعة: مستوى الفئة (٠٫١٥) × معامل المفتاح (٠٫٧) = ٠٫١٠٥
+    ok('وبالقيمة المحسوبة بدقّة (فئة × مفتاح)', vols.some(v => Math.abs(v.vol - 0.105) < 0.02),
+      JSON.stringify(vols.map(v => v.vol)));
+    // ⚠️ لا نفحص جهازَ الموجّه هنا: السائقُ يبثّ إلى القاعة مباشرةً، فالموجّهُ
+    //    لم يعزف الأغنيةَ أصلاً ولا شيءَ عنده ليُخفَض. مسارُه المحلّيّ هو نفسُه
+    //    `applyLevelToActive`، ويُغطّيه S05 على الفراش.
     driver.emit('leader:sound-play', { roomId, fn: 'stopOneShotSounds', args: [] });
     await setSlider('الاحتفالات', 90);
   }
