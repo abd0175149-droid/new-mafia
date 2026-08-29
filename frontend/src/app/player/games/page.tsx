@@ -6,8 +6,10 @@ import { ROLE_NAMES } from '@/lib/constants';
 import { usePlayer } from '@/context/PlayerContext';
 import { useSearchParams } from 'next/navigation';
 import { useModalScrollLock } from '@/hooks/useModalScrollLock';
+import { useActivityPulse } from '@/hooks/useActivityPulse';
+import NightPulse from '@/components/NightPulse';
 
-type Tab = 'upcoming' | 'history';
+type Tab = 'upcoming' | 'pulse' | 'history';
 
 const DIFFICULTY_LABELS: Record<string, { label: string; color: string; icon: string }> = {
   easy: { label: 'سهل', color: '#22c55e', icon: '🟢' },
@@ -43,6 +45,9 @@ function GamesContent() {
   useEffect(() => { if (!menuFor) setBrowseQ(''); }, [menuFor]);
   const searchParams = useSearchParams();
   const highlightActivityId = searchParams.get('activityId');
+
+  // 🌙 نبض الليلة — يُشتقّ كاملاً من الخادم، ولا يُجلب إلّا حين يُفتح تبويبه
+  const nightPulse = useActivityPulse(player?.token, tab === 'pulse');
 
   // ── منع السكرول + swipe-to-close ──
   const activityModal = useModalScrollLock({
@@ -212,8 +217,8 @@ function GamesContent() {
         <span className="text-xs text-gray-500">{monthNames[today.getMonth()]} {today.getFullYear()}</span>
       </div>
 
-      {/* ── شريط التقويم ── */}
-      <div className="flex gap-1.5 overflow-x-auto pb-3 mb-1 scrollbar-hide">
+      {/* ── شريط التقويم — لا معنى له داخل نبض الليلة ── */}
+      <div className={`flex gap-1.5 overflow-x-auto pb-3 mb-1 scrollbar-hide ${tab === 'pulse' ? 'hidden' : ''}`}>
         {/* زر "الكل" */}
         <button
           onClick={() => setSelectedDate(null)}
@@ -264,26 +269,30 @@ function GamesContent() {
         })}
       </div>
 
-      {selectedDate && (
+      {selectedDate && tab !== 'pulse' && (
         <p className="text-amber-500/60 text-[10px] text-center mb-2">
           عرض أنشطة يوم {new Date(selectedDate).toLocaleDateString('ar-JO', { weekday: 'long', month: 'short', day: 'numeric' })}
           <button onClick={() => setSelectedDate(null)} className="text-amber-400 mr-2 underline">عرض الكل</button>
         </p>
       )}
 
-      {/* Tabs */}
-      <div className="flex gap-2 mb-4">
-        {(['upcoming', 'history'] as Tab[]).map(t => (
+      {/* Tabs — ثلاثةٌ الآن: النصوص أقصر لأنّ flex-1 يوزّع العرض بالتساوي */}
+      <div className="flex gap-1.5 mb-4">
+        {([
+          ['upcoming', '📅 قادمة'],
+          ['pulse', '🌙 نبض الليلة'],
+          ['history', '📊 مبارياتي'],
+        ] as [Tab, string][]).map(([t, label]) => (
           <button
             key={t}
             onClick={() => setTab(t)}
-            className={`flex-1 py-2.5 rounded-xl text-sm font-medium transition-all ${
+            className={`flex-1 py-2.5 rounded-xl text-[13px] font-medium transition-all whitespace-nowrap ${
               tab === t
                 ? 'bg-amber-500/15 text-amber-400 border border-amber-500/30'
                 : 'bg-white/5 text-gray-500 border border-white/5'
             }`}
           >
-            {t === 'upcoming' ? '📅 أنشطة قادمة' : '📊 تاريخ مبارياتي'}
+            {label}
           </button>
         ))}
       </div>
@@ -489,7 +498,21 @@ function GamesContent() {
           </motion.div>
         )}
 
-        {/* ── Tab 2: تاريخ المباريات ── */}
+        {/* ── Tab 2: نبض الليلة ── */}
+        {tab === 'pulse' && (
+          <motion.div key="pulse" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
+            <NightPulse
+              pulse={nightPulse.pulse}
+              serverNow={nightPulse.serverNow}
+              onSelectActivity={nightPulse.selectActivity}
+              onSelectRoom={nightPulse.selectRoom}
+              loading={nightPulse.loading}
+              denied={nightPulse.denied}
+            />
+          </motion.div>
+        )}
+
+        {/* ── Tab 3: تاريخ المباريات ── */}
         {tab === 'history' && (
           <motion.div key="history" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="space-y-2 pb-6">
             {matchHistory.length === 0 && (

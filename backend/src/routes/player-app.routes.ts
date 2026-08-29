@@ -14,6 +14,7 @@ import { buildPlayerMenu, effectiveMenuLocation } from './fnb.routes.js';
 import { authenticatePlayer, requireNoPendingFeedback } from '../middleware/player-auth.middleware.js';
 import { buildDisplayBreakdown } from '../services/progression.service.js';
 import { getProgressionConfig } from './progression-settings.routes.js';
+import { buildActivityPulse, hasBooking } from '../services/activity-pulse.query.js';
 
 const router = Router();
 
@@ -567,6 +568,48 @@ router.get('/my-active-rooms', authenticatePlayer, async (req: Request, res: Res
     res.json({ success: true, rooms: result });
   } catch (err: any) {
     console.error('❌ my-active-rooms error:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ── 🌙 GET /pulse — نبض الليلة: أين نحن الآن في غرفةٍ مختارة ──
+// البوّابةُ الوحيدة هي الحجز: غيرُ الحاجز لا يرى التبويب أصلاً ويُردّ هنا بـ403.
+// المعاملان اختياريّان — بدونهما تُختار الفعاليّة الأقرب زمناً والغرفةُ التي
+// للّاعب مقعدٌ فيها، وإلّا فأبكرُ الغرف بدايةً.
+router.get('/pulse', authenticatePlayer, async (req: Request, res: Response) => {
+  const db = getDB();
+  if (!db) return res.status(503).json({ error: 'DB unavailable' });
+
+  const account = (req as any).playerAccount;
+  if (!account) return res.status(401).json({ error: 'غير مصادق' });
+
+  try {
+    const num = (v: any) => {
+      const n = Number(v);
+      return Number.isFinite(n) && n > 0 ? n : null;
+    };
+    const activityId = num(req.query.activityId);
+    const roomId = num(req.query.roomId);
+
+    // 🔒 حارسُ الحجز يسبق أيّ قراءة: فعاليّةٌ مطلوبةٌ بلا حجزٍ عليها تُردّ فوراً.
+    if (activityId != null) {
+      const ok = await hasBooking(activityId, account.playerId ?? null, account.phone ?? null);
+      if (!ok) return res.status(403).json({ error: 'لا حجز لك على هذه الفعاليّة' });
+    }
+
+    const pulse = await buildActivityPulse({
+      playerId: account.playerId ?? null,
+      phone: account.phone ?? null,
+      activityId,
+      roomId,
+    });
+
+    // لا فعاليّةَ جاريةً محجوزة ⇒ التبويب لا يظهر أصلاً
+    if (!pulse) return res.status(403).json({ error: 'لا فعاليّة جارية محجوزة' });
+
+    res.json({ success: true, pulse });
+  } catch (err: any) {
+    console.error('❌ pulse error:', err.message);
     res.status(500).json({ error: err.message });
   }
 });

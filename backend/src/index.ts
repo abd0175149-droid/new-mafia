@@ -61,6 +61,7 @@ import { registerGeofenceEvents } from './sockets/geofence.socket.js';
 
 // ── Socket Handlers (Game Engine) ───────────────────
 import { registerLobbyEvents, seedDummyGame, rehydrateActiveRooms } from './sockets/lobby.socket.js';
+import { registerActivityPulseEvents } from './sockets/activity-pulse.socket.js';
 import { registerAuditLogging } from './services/staff-action-log.service.js';
 import { registerDayEvents } from './sockets/day.socket.js';
 import { registerNightEvents } from './sockets/night.socket.js';
@@ -569,6 +570,7 @@ io.on('connection', (socket) => {
   registerConfrontationEvents(io, socket);
   registerVenueEvents(io, socket);  // 🏪 انضمام حسابات الأماكن لغرف location:{id}
   registerGeofenceEvents(io, socket);  // 🗺️ خريطة الحضور — لليدر وحده
+  registerActivityPulseEvents(io, socket);  // 🌙 نبض الليلة — الحاجزون خارج غرف اللعب
 });
 
 // ══════════════════════════════════════════════════════

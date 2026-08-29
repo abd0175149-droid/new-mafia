@@ -74,6 +74,40 @@ export async function swalHtmlConfirm(
   return r.isConfirmed;
 }
 
+/**
+ * اختيارٌ من أزرارٍ معدودة — بديلُ حقلٍ حرّ حين تكون الخيارات معروفةً سلفاً.
+ * يعيد قيمة الخيار المختار أو null عند الإلغاء.
+ */
+export async function swalPick<T extends string | number>(
+  title: string,
+  html: string,
+  options: { value: T; label: string }[],
+): Promise<T | null> {
+  const r = await themed.fire({
+    title,
+    html:
+      html +
+      '<div style="display:flex;flex-wrap:wrap;gap:6px;justify-content:center;margin-top:12px">' +
+      options
+        .map(
+          (o, i) =>
+            `<button type="button" data-pick="${i}" class="swal-pick" style="background:#2F2A24;color:#E7E2D6;border:1px solid rgba(197,160,89,.35);border-radius:10px;padding:7px 14px;font-size:13px;font-weight:700;cursor:pointer">${o.label}</button>`,
+        )
+        .join('') +
+      '</div>',
+    showConfirmButton: false,
+    showCancelButton: true,
+    cancelButtonText: 'إلغاء',
+    didOpen: () => {
+      document.querySelectorAll<HTMLButtonElement>('.swal-pick').forEach(b => {
+        b.addEventListener('click', () => Swal.close({ isConfirmed: true, isDenied: false, isDismissed: false, value: b.dataset.pick } as any));
+      });
+    },
+  });
+  const idx = Number((r as any)?.value);
+  return Number.isInteger(idx) && options[idx] ? options[idx].value : null;
+}
+
 /** إشعار زاوية سريع. */
 export function swalToast(text: string, icon: 'success' | 'error' | 'info' | 'warning' = 'info'): void {
   void Swal.fire({

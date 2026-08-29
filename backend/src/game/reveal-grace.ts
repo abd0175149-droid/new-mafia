@@ -6,6 +6,7 @@
 // ══════════════════════════════════════════════════════
 
 import type { Server } from 'socket.io';
+import { notifyPulseForRoom } from '../sockets/activity-pulse.socket.js';
 import { getGameState, setGameState } from '../config/redis.js';
 import { Phase, setPhase } from './state.js';
 import { WinResult } from './win-checker.js';
@@ -91,6 +92,8 @@ async function autoFinalizeIfStuck(io: Server, roomId: string): Promise<void> {
       gameOverPayload.neutralResults = dyn.neutralResults || [];
     } catch { /* fallback بدون نتائج المحايدين */ }
   }
+  // 🌙 بدءُ مباراةٍ وانتهاؤها لحظتان يُنتظران — تُرسلان فوراً بلا كبح.
+  void notifyPulseForRoom(io, roomId, state, true);
   io.to(roomId).emit('game:over', gameOverPayload);
   await setGameState(roomId, state);
 

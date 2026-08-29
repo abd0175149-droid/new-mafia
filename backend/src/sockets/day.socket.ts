@@ -4,6 +4,7 @@
 // ══════════════════════════════════════════════════════
 
 import { Server, Socket } from 'socket.io';
+import { notifyPulseForRoom } from './activity-pulse.socket.js';
 import { getRoom, setPhase, Phase, SpeakerStatus } from '../game/state.js';
 import { createDeal, removeDeal, dealLockedList } from '../game/deal-engine.js';
 import {
@@ -1901,6 +1902,8 @@ export function registerDayEvents(io: Server, socket: Socket) {
             gameOverData.neutralResults = dynGameOver.neutralResults || [];
           } catch { /* fallback */ }
         }
+        // 🌙 بدءُ مباراةٍ وانتهاؤها لحظتان يُنتظران — تُرسلان فوراً بلا كبح.
+        void notifyPulseForRoom(io, data.roomId, state, true);
         io.to(data.roomId).emit('game:over', gameOverData);
         // حفظ نتيجة المباراة في PostgreSQL
         await finalizeMatch(state);

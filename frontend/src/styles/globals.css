@@ -98,6 +98,13 @@
     radial-gradient(ellipse at center, transparent 40%, rgba(0,0,0,0.4) 100%);
 }
 
+@layer utilities {
+  /* كان مستعملاً في games/page.tsx بلا تعريفٍ في المشروع ولا إضافة في tailwind.config
+     — صنفٌ ميّت يُظهر شريط التمرير على سطح المكتب. */
+  .scrollbar-hide { -ms-overflow-style: none; scrollbar-width: none; }
+  .scrollbar-hide::-webkit-scrollbar { display: none; }
+}
+
 @layer components {
   /* ── Noir Card (Classic, Sharp, Serious) ─────────────────── */
   .noir-card {

@@ -4,6 +4,7 @@
 // ══════════════════════════════════════════════════════
 
 import { Server, Socket } from 'socket.io';
+import { notifyPulseForRoom } from './activity-pulse.socket.js';
 import { setPhase, Phase } from '../game/state.js';
 import { getGameState, setGameState } from '../config/redis.js';
 import { resolveNight, resetNightActions, getAvailableTargets, checkPolicewomanTrigger } from '../game/night-resolver.js';
@@ -1429,6 +1430,8 @@ export function registerNightEvents(io: Server, socket: Socket) {
           gameOverPayload.neutralResults = winResult.neutralResults || [];
         } catch { /* fallback: بدون neutral results */ }
       }
+      // 🌙 بدءُ مباراةٍ وانتهاؤها لحظتان يُنتظران — تُرسلان فوراً بلا كبح.
+      void notifyPulseForRoom(io, data.roomId, state, true);
       io.to(data.roomId).emit('game:over', gameOverPayload);
       await setPhase(data.roomId, Phase.GAME_OVER);
       state.phase = Phase.GAME_OVER;
@@ -1546,6 +1549,8 @@ export function registerNightEvents(io: Server, socket: Socket) {
             gameOverPayload.neutralResults = winResult.neutralResults || [];
           } catch { /* fallback */ }
         }
+        // 🌙 المسار الثاني لانتهاء المباراة — يُشار له فوراً كسابقه
+        void notifyPulseForRoom(io, data.roomId, state, true);
         io.to(data.roomId).emit('game:over', gameOverPayload);
         await setPhase(data.roomId, Phase.GAME_OVER);
         state.phase = Phase.GAME_OVER;

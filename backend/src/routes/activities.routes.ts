@@ -15,6 +15,8 @@ import { linkSessionToActivity, unlinkSessionFromActivity, createSession, delete
 import { getActivityAttendanceStats } from '../services/booking.service.js';
 import { generateRoomCode } from '../game/state.js';
 import { resolveRoomCapacity, clampCapacity } from '../services/capacity.service.js';
+import { toMinutes, orderedGameSlots, slotDuration, type RawSlot } from '../services/activity-pulse.service.js';
+import { notifyActivityPulse } from '../sockets/activity-pulse.socket.js';
 
 // ── تحويل التاريخ بتوقيت الأردن (UTC+3) ──
 // datetime-local يرسل "2026-04-28T18:30" بدون timezone
@@ -56,6 +58,116 @@ function sanitizeSchedule(raw: any): Array<{ kind: string; label: string; start:
 }
 
 const router = Router();
+
+// ══════════════════════════════════════════════════════
+// 🗓️ إعادة جدولة ما تبقّى — للموجّه من شاشته
+//
+// 🔴 نقطةٌ منفصلة عن PUT /:id عمداً وأضيقُ صلاحيّة: الموجّه ليس موظّفاً بالضرورة،
+//    و PUT يكتب كلّ حقول الفعاليّة. هذه تكتب الجدول وحده.
+// 🔴 لا تمسّ شريحةً بدأت مباراتُها: الماضي لا يُعاد جدولته. الحارس عدديّ
+//    (playedCount) لا نصّيّ، فلا يعتمد على لاصقٍ قد يُحرَّر.
+// 🔴 is_locked يُحترم صراحةً — قفلُ الجدول قرارٌ إداريّ لا يُتجاوز صمتاً.
+// ══════════════════════════════════════════════════════
+const toHHMM = (x: number) => {
+  const v = ((x % 1440) + 1440) % 1440;
+  return `${String(Math.floor(v / 60)).padStart(2, '0')}:${String(v % 60).padStart(2, '0')}`;
+};
+
+router.patch('/:id/schedule/reflow', authenticate, leaderOrAbove, async (req: Request, res: Response) => {
+  const db = getDB();
+  if (!db) return res.status(503).json({ error: 'DB unavailable' });
+
+  const id = Number(req.params.id);
+  if (!Number.isFinite(id)) return res.status(400).json({ error: 'معرّف غير صالح' });
+
+  try {
+    const [act] = await db.select({
+      id: activities.id, gameSchedule: activities.gameSchedule, isLocked: activities.isLocked,
+    }).from(activities).where(and(eq(activities.id, id), isNull(activities.deletedAt))).limit(1);
+    if (!act) return res.status(404).json({ error: 'الفعاليّة غير موجودة' });
+    if (act.isLocked) return res.status(409).json({ error: 'الجدول مقفل — افتح القفل من لوحة الإدارة أوّلاً' });
+
+    const raw: RawSlot[] = Array.isArray(act.gameSchedule) ? (act.gameSchedule as RawSlot[]) : [];
+    if (!raw.length) return res.status(400).json({ error: 'لا جدول مكتوب لهذه الفعاليّة' });
+
+    // كم لعبةً بدأت فعلاً في هذه الفعاليّة (أكثرُ غرفةٍ تقدّماً)؟
+    // العدّ داخل الغرفة، والحارس يأخذ الأكبر كي لا تُزاح شريحةٌ بدأتها غرفةٌ واحدة.
+    const rows = await db.select({ sessionId: matches.sessionId })
+      .from(matches)
+      .innerJoin(sessions, eq(matches.sessionId, sessions.id))
+      .where(and(eq(sessions.activityId, id), isNull(matches.deletedAt)));
+    const perRoom = new Map<number, number>();
+    for (const r of rows) if (r.sessionId != null) perRoom.set(r.sessionId, (perRoom.get(r.sessionId) ?? 0) + 1);
+    const playedCount = perRoom.size ? Math.max(...perRoom.values()) : 0;
+
+    // الفعل: shift = إزاحة · cancel = إلغاء شريحة · append = إضافة لعبة
+    const action = String(req.body?.action ?? 'shift');
+    const gameSlots = orderedGameSlots(raw);
+    let next: RawSlot[];
+
+    if (action === 'cancel') {
+      const ordinal = Number(req.body?.ordinal);
+      if (!Number.isFinite(ordinal) || ordinal < 1 || ordinal > gameSlots.length)
+        return res.status(400).json({ error: 'رقم شريحة غير صالح' });
+      if (ordinal <= playedCount)
+        return res.status(409).json({ error: 'هذه اللعبة بدأت — لا تُلغى' });
+      const victim = gameSlots[ordinal - 1];
+      next = raw.filter(r => !(r.kind === 'game' && r.start === victim.start && r.label === victim.label));
+    } else if (action === 'append') {
+      const dur = Math.max(15, Math.min(180, Number(req.body?.durationMin) || 75));
+      const gap = Math.max(0, Math.min(60, Number(req.body?.breakMin) ?? 15));
+      const lastEnd = raw.length ? toMinutes(raw[raw.length - 1].end) : null;
+      if (lastEnd == null) return res.status(400).json({ error: 'جدول غير صالح' });
+      const startAt = lastEnd + gap;
+      next = [...raw];
+      if (gap > 0) next.push({ kind: 'break', label: 'استراحة', start: toHHMM(lastEnd), end: toHHMM(startAt) });
+      next.push({ kind: 'game', label: `اللعبة ${gameSlots.length + 1}`, start: toHHMM(startAt), end: toHHMM(startAt + dur) });
+    } else {
+      // shift: تُزاح كلّ شريحةٍ لم تبدأ بالمقدار المطلوب، ومدّتُها محفوظة.
+      const minutes = Math.round(Number(req.body?.minutes));
+      if (!Number.isFinite(minutes) || minutes === 0 || Math.abs(minutes) > 240)
+        return res.status(400).json({ error: 'الإزاحة بين −٢٤٠ و٢٤٠ دقيقة ولا تساوي صفراً' });
+
+      // أوّلُ شريحةِ لعبٍ لم تبدأ — وما بعدها في الترتيب الأصليّ يُزاح كذلك.
+      const firstUnplayed = gameSlots[playedCount];
+      if (!firstUnplayed) return res.status(409).json({ error: 'لم يبقَ ما يُعاد جدولته' });
+      const cut = raw.findIndex(r => r.kind === 'game' && r.start === firstUnplayed.start && r.label === firstUnplayed.label);
+      if (cut < 0) return res.status(409).json({ error: 'تعذّر تحديد أوّل شريحة غير مبدوءة' });
+
+      // الاستراحاتُ الملاصقةُ لنقطة القطع تمتدّ ولا تُزاح: بدايتُها تتبع اللعبة
+      // المنتهية قبلها، ونهايتُها تتبع اللعبة المؤجَّلة بعدها. إزاحتُها كاملةً
+      // تفتح فراغاً بين نهاية ما لُعب وبداية الاستراحة.
+      let stretchFrom = cut;
+      while (stretchFrom > 0 && raw[stretchFrom - 1].kind === 'break') stretchFrom--;
+
+      next = raw.map((r, i) => {
+        const a = toMinutes(r.start);
+        if (a == null) return r;
+        const d = slotDuration(r);
+        if (i >= cut) return { ...r, start: toHHMM(a + minutes), end: toHHMM(a + minutes + d) };
+        if (i >= stretchFrom) {
+          const end = Math.max(a, a + d + minutes);   // لا تنقلب الاستراحة على نفسها
+          return { ...r, end: toHHMM(end) };
+        }
+        return r;
+      });
+    }
+
+    // نمرّ من المنقّي نفسه الذي يمرّ منه التحرير اليدويّ — بوّابةُ كتابةٍ واحدة
+    const clean = sanitizeSchedule(next);
+    const patch: any = { gameSchedule: clean };
+    await db.update(activities).set(patch).where(eq(activities.id, id));
+
+    // 🌙 الجدول تغيّر ⇒ توقّعُ كلّ حاجزٍ تغيّر. إشارةٌ فوريّة لا مكبوحة.
+    try { notifyActivityPulse(req.app.get('io'), id, true); } catch { /* النبض رفاهيّة */ }
+
+    res.json({ success: true, gameSchedule: clean, playedCount });
+  } catch (err: any) {
+    console.error('❌ schedule reflow error:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 
 // 📂 المجلد الرئيسي في Google Drive الذي يتم إنشاء مجلدات الأنشطة بداخله
 const ACTIVITIES_PARENT_FOLDER_ID = '1MLgq3qx0by7pi_MStkAofEiUYb4n33ml';

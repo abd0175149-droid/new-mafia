@@ -17,7 +17,7 @@ import { AttendanceMapToggle } from './AttendanceMap';
 import { playGameSound, playAmbientSound, stopAmbientSound, stopOneShotSounds, playEliminationSound, playLocalSound, loadSoundMap, reloadSoundMap, setSoundMirror, primeAudio, setLocalMuted, playNightStepAmbient, playEventSound, resendAmbientTo, hasCustomSound, onSoundMapReady } from '@/lib/soundManager';
 import { getSocket } from '@/lib/socket';
 import { ROLE_NAMES } from '@/lib/constants';
-import { swalConfirm, swalHtmlConfirm, swalToast, swalAlert } from '@/lib/swal';
+import { swalConfirm, swalHtmlConfirm, swalToast, swalAlert, swalPick } from '@/lib/swal';
 import SoundMixer from './SoundMixer';
 import OneNightReview from './OneNightReview';
 
@@ -1944,6 +1944,46 @@ export default function LeaderPage() {
     );
   }
 
+  // ── 🗓️ أعِد جدولة ما تبقّى ──
+  // الموجّه في القاعة هو الوحيد الذي يعرف أنّ اللعبة الرابعة أُلغيت. بلا هذا الزرّ
+  // يعرض «نبض الليلة» للاعبين توقّعاً لن يقع — وهو أسوأ من ألّا يعرض شيئاً.
+  // النقطة تُزيح ما لم يبدأ فقط، ولا تمسّ شريحةً بدأت مباراتُها.
+  const handleReflowSchedule = async () => {
+    const activityId = gameState?.activityId;
+    if (!activityId) return swalToast('هذه الغرفة غير مرتبطة بفعاليّة', 'warning');
+
+    const minutes = await swalPick<number>(
+      'أعِد جدولة ما تبقّى',
+      '<div style="font-size:13px;line-height:1.8;color:#9C958A">'
+      + 'تُزاح الألعاب التي <b>لم تبدأ</b> بالمقدار المختار، ويُحدَّث توقّع كلّ حاجزٍ فوراً.'
+      + '<br>الألعاب التي بدأت لا تُمسّ.</div>',
+      [
+        { value: 15, label: '+15 د' },
+        { value: 30, label: '+30 د' },
+        { value: 45, label: '+45 د' },
+        { value: 60, label: '+60 د' },
+        { value: -15, label: '−15 د' },
+      ],
+    );
+    if (minutes == null) return;
+
+    try {
+      const res = await fetch(`/api/activities/${activityId}/schedule/reflow`, {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${localStorage.getItem('leader_token') || localStorage.getItem('token') || ''}`,
+        },
+        body: JSON.stringify({ action: 'shift', minutes }),
+      });
+      const data = await res.json();
+      if (!res.ok || !data.success) return swalAlert(data.error || 'تعذّرت إعادة الجدولة', 'error');
+      swalToast(`أُزيح ما تبقّى ${minutes > 0 ? '+' : ''}${minutes} دقيقة`, 'success');
+    } catch {
+      swalAlert('تعذّر الاتّصال — أعد المحاولة', 'error');
+    }
+  };
+
   const handleCloseRoom = async () => {
     if (!gameState) return;
     if (!(await swalConfirm('هل أنت متأكد من إنهاء اللعبة الحالية؟ سيتم إعادة جميع اللاعبين للغرفة.'))) return;
@@ -3622,6 +3662,15 @@ export default function LeaderPage() {
               >
                 ← Return
               </button>
+              {gameState.activityId && (
+                <button
+                  onClick={handleReflowSchedule}
+                  title="إزاحة الألعاب التي لم تبدأ — يُحدَّث توقّع كل حاجز فوراً"
+                  className="text-[#C5A059] text-[10px] font-mono uppercase tracking-[0.15em] hover:text-amber-300 transition-colors border border-[#C5A059]/30 px-3 py-1.5 hover:border-[#C5A059]"
+                >
+                  🗓️ Reflow
+                </button>
+              )}
               <button
                 onClick={handleCloseRoom}
                 className="text-[#8A0303] text-[10px] font-mono uppercase tracking-[0.15em] hover:text-red-500 transition-colors border border-[#8A0303]/30 px-3 py-1.5 hover:border-[#8A0303]"

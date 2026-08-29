@@ -4,6 +4,7 @@
 // ══════════════════════════════════════════════════════
 
 import { Server, Socket } from 'socket.io';
+import { notifyPulseForRoom } from './activity-pulse.socket.js';
 import {
   verifyDisplayToken, displayAuthEnforced, pinAttemptKeyFromSocket, pinLockState, recordPinFailure, clearPinFailures, pinEquals, mintDisplayToken,
 } from '../services/display-auth.service.js';
@@ -4043,6 +4044,8 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
         teamCounts: getTeamCounts(state.players),
       });
 
+      // 🌙 بدءُ مباراةٍ وانتهاؤها لحظتان يُنتظران — تُرسلان فوراً بلا كبح.
+      void notifyPulseForRoom(io, data.roomId, state, true);
       io.to(data.roomId).emit('game:started', {
         round: 1,
         phase: Phase.DAY_DISCUSSION,

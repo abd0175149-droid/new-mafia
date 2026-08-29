@@ -8,6 +8,7 @@
 // السبب: مقبس اللاعب في الغرفة نفسها، ويمكن قراءة الحمولة الخام عبر devtools.
 
 import type { Server } from 'socket.io';
+import { notifyPulseForRoom } from './activity-pulse.socket.js';
 
 // إزالة كل ما يكشف الأدوار أو نيّات الليل من نسخة اللاعب
 // ⚰️ دور الميت يُكشف: أُعلن للجميع لحظة الإقصاء/الصباح أصلاً — إبقاؤه في الروستر
@@ -80,6 +81,9 @@ export async function emitPhaseChangedSanitized(
   payload: any,
 ): Promise<void> {
   const state = payload?.state;
+  // 🌙 مِشبكُ نبض الليلة — مكانٌ واحد بدل عشرين نداءً متفرّقاً.
+  //    إشارةٌ مكبوحة لا حمولة؛ الحاجزون خارج الغرفة يسحبون لقطتهم.
+  void notifyPulseForRoom(io, roomId, state);
   if (!state?.config?.isRemote) {
     io.to(roomId).emit('game:phase-changed', payload); // بلا state أو محلي: بلا تغيير
     return;
