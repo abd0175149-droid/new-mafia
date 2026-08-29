@@ -100,7 +100,10 @@ export function Waffle({ players, lens, onRange, dimmed }: {
   const ordered = useMemo(
     () => [...players].sort((a, b) => a.activities - b.activities || a.id - b.id), [players]);
   const bucketOf = (n: number) => BUCKETS.findIndex((b) => n >= b.min && n <= b.max);
-  const activeBucket = BUCKETS.findIndex((b) => lens.minActivities === b.min && lens.maxActivities === b.max);
+  // شريحة «١٠ فأكثر» تُخزَّن بحدٍّ أعلى null لا 9999 — فالمقارنة تراعي الحالتين
+  const activeBucket = BUCKETS.findIndex((b) =>
+    lens.minActivities === b.min &&
+    (b.max === 9999 ? lens.maxActivities === null : lens.maxActivities === b.max));
 
   return (
     <div className="bg-gray-800/20 border border-gray-700/30 rounded-2xl p-4">

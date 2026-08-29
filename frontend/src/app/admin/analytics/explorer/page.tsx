@@ -333,6 +333,10 @@ export default function ExplorerPage() {
               {exporting === 'excel' ? '⏳' : '📊'} Excel
             </button>
             <button type="button" onClick={copyTable} className={btnCls}>📋 نسخ</button>
+            {q && (
+              // التصدير يتبع العدسة لا البحث — يُقال صراحةً بدل أن يُكتشَف من فرقٍ في الأرقام
+              <span className="text-[11px] text-amber-400/90">التصدير يشمل الفوج كاملاً ({fmtNum(t.players)})، لا نتيجة البحث</span>
+            )}
             <span className="mr-auto text-[12px] text-gray-500">
               يعرض <b className="text-amber-400 tabular-nums">{fmtNum(shown.length)}</b> من {fmtNum(t.players)}
             </span>
