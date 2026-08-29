@@ -17,6 +17,7 @@ import { generateRoomCode } from '../game/state.js';
 import { resolveRoomCapacity, clampCapacity } from '../services/capacity.service.js';
 import { toMinutes, orderedGameSlots, slotDuration, type RawSlot } from '../services/activity-pulse.service.js';
 import { notifyActivityPulse } from '../sockets/activity-pulse.socket.js';
+import { resetDriftNotices } from '../services/activity-pulse.notify.js';
 
 // ── تحويل التاريخ بتوقيت الأردن (UTC+3) ──
 // datetime-local يرسل "2026-04-28T18:30" بدون timezone
@@ -160,6 +161,9 @@ router.patch('/:id/schedule/reflow', authenticate, leaderOrAbove, async (req: Re
 
     // 🌙 الجدول تغيّر ⇒ توقّعُ كلّ حاجزٍ تغيّر. إشارةٌ فوريّة لا مكبوحة.
     try { notifyActivityPulse(req.app.get('io'), id, true); } catch { /* النبض رفاهيّة */ }
+    // الانحرافُ يُقاس على الجدول الجديد، فتُمسح تنبيهاتُ الجدول القديم
+    // وإلّا بقي «أُبلغ» مانعاً لتنبيهٍ صار له معنًى مختلف.
+    void resetDriftNotices(id);
 
     res.json({ success: true, gameSchedule: clean, playedCount });
   } catch (err: any) {

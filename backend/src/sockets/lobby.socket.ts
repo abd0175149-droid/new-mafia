@@ -5,6 +5,7 @@
 
 import { Server, Socket } from 'socket.io';
 import { notifyPulseForRoom } from './activity-pulse.socket.js';
+import { notifyScheduleDrift } from '../services/activity-pulse.notify.js';
 import {
   verifyDisplayToken, displayAuthEnforced, pinAttemptKeyFromSocket, pinLockState, recordPinFailure, clearPinFailures, pinEquals, mintDisplayToken,
 } from '../services/display-auth.service.js';
@@ -4046,6 +4047,10 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
 
       // 🌙 بدءُ مباراةٍ وانتهاؤها لحظتان يُنتظران — تُرسلان فوراً بلا كبح.
       void notifyPulseForRoom(io, data.roomId, state, true);
+      // 🔔 ومَن حجز ولم يدخل غرفةً لا يصله النبض — يُنبَّه بإشعارٍ إن انزاحت ليلتُه.
+      if (state.activityId && state.sessionId) {
+        void notifyScheduleDrift(Number(state.activityId), Number(state.sessionId));
+      }
       io.to(data.roomId).emit('game:started', {
         round: 1,
         phase: Phase.DAY_DISCUSSION,

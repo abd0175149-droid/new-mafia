@@ -44,13 +44,27 @@ const TEAMS = [
 /** عتبةُ الصمت: انحرافٌ دون سبع دقائق لا يُذكر — ليلةٌ تُعلن تأخّرها خمس دقائق تبدو متعثّرة وهي تسير جيّداً */
 const DRIFT_FLOOR = 7;
 
+// 🔢 الأرقام العربيّة (٠١٢…) لكلّ وقتٍ يُعرض — قرار المالك.
+// ⚠️ لا تُكتب هذه الأرقام بخطٍّ أحاديّ لاتينيّ: JetBrains Mono بلا محارف
+//    عربيّة-هنديّة فتسقط إلى خطٍّ بديل ويختلّ الاصطفاف. Tajawal يحملها.
+const AR_DIGITS = ['٠', '١', '٢', '٣', '٤', '٥', '٦', '٧', '٨', '٩'];
+export const toAr = (v: string | number) =>
+  String(v).replace(/[0-9]/g, d => AR_DIGITS[+d]);
+
 const hhmm = (ms: number) =>
-  new Date(ms).toLocaleTimeString('ar-JO', { hour: '2-digit', minute: '2-digit', hour12: false, timeZone: 'Asia/Amman' });
+  toAr(new Date(ms).toLocaleTimeString('en-GB', {
+    hour: '2-digit', minute: '2-digit', hour12: false, timeZone: 'Asia/Amman',
+  }));
 
 const mmss = (sec: number) => {
   const s = Math.max(0, Math.floor(sec));
-  return `${String(Math.floor(s / 60)).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}`;
+  return toAr(`${String(Math.floor(s / 60)).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}`);
 };
+
+/** وقتٌ بأرقامٍ عربيّة — خطُّ النصّ لا الأحاديّ، وأرقامٌ جدوليّة للاصطفاف */
+const Time = ({ ms, className = '', style }: { ms: number; className?: string; style?: React.CSSProperties }) => (
+  <span className={className} style={{ fontVariantNumeric: 'tabular-nums', ...style }}>{hhmm(ms)}</span>
+);
 
 // ══════════ قائمةٌ منسدلة ══════════
 function Picker({ label, items, onPick }: {
@@ -123,7 +137,7 @@ function TimerRing({ remaining, total }: { remaining: number; total: number }) {
           strokeDasharray={C} strokeDashoffset={C * (1 - frac)} style={{ transition: 'stroke-dashoffset .9s linear' }} />
       </svg>
       <div className="absolute inset-0 flex flex-col items-center justify-center">
-        <span className="font-mono text-[15px] font-bold text-white tabular-nums" dir="ltr">{mmss(remaining)}</span>
+        <span className="text-[15px] font-bold text-white" style={{ fontVariantNumeric: 'tabular-nums' }}>{mmss(remaining)}</span>
         <span className="text-[9px] text-gray-500">بقي للّعبة</span>
       </div>
     </div>
@@ -229,8 +243,8 @@ export default function NightPulse({ pulse, serverNow, onSelectActivity, onSelec
                 <p className="text-[20px] font-bold text-white leading-tight" style={{ fontFamily: 'Amiri, serif' }}>
                   {liveSlot.label}
                 </p>
-                <p className="text-[11px] text-gray-500 font-mono" dir="ltr">
-                  {live.roomOrdinal} / {live.ofRoom} · {room?.name}
+                <p className="text-[11px] text-gray-500">
+                  اللعبة {toAr(live.roomOrdinal)} من {toAr(live.ofRoom)} · {room?.name}
                 </p>
                 {live.outsidePlan && <p className="text-[10px] mt-0.5" style={{ color: '#C5A059' }}>↑ خارج الجدول المكتوب</p>}
                 <div className="flex items-center gap-1.5 mt-1.5 flex-wrap">
@@ -245,7 +259,7 @@ export default function NightPulse({ pulse, serverNow, onSelectActivity, onSelec
                     <>
                       <span className="text-[11px] px-2 py-0.5 rounded-full font-bold"
                         style={{ color: '#C5A059', border: '1px solid rgba(197,160,89,.35)', background: 'rgba(197,160,89,.14)' }}>
-                        الجولة {live.round}
+                        الجولة {toAr(live.round)}
                       </span>
                       <span className="text-[12px] text-gray-300">{PHASE_AR[live.phase] || live.phase}</span>
                     </>
@@ -259,8 +273,8 @@ export default function NightPulse({ pulse, serverNow, onSelectActivity, onSelec
             {showDrift && (
               <div className="flex items-center justify-between mt-3 pt-2.5 text-[12px]" style={{ borderTop: '1px solid rgba(255,255,255,.06)' }}>
                 <span className="text-gray-400">{liveSlot.driftMin! > 0 ? 'بدأت متأخّرةً عن الخطّة' : 'بدأت قبل الخطّة'}</span>
-                <span className="font-mono font-bold" style={{ color: '#C5A059' }} dir="ltr">
-                  {liveSlot.driftMin! > 0 ? '+' : ''}{liveSlot.driftMin} د
+                <span className="font-bold" style={{ color: '#C5A059' }}>
+                  {toAr(Math.abs(liveSlot.driftMin!))} دقيقة
                 </span>
               </div>
             )}
@@ -281,7 +295,7 @@ export default function NightPulse({ pulse, serverNow, onSelectActivity, onSelec
                 </span>
               )}
               {pulse.status === 'ended' && lastDone?.actualEnd && (
-                <span>{pulse.slots.length} ألعاب · آخرها {hhmm(lastDone.actualEnd)}</span>
+                <span>{toAr(pulse.slots.length)} ألعاب · آخرها {hhmm(lastDone.actualEnd)}</span>
               )}
               {(pulse.status === 'pre' || pulse.status === 'no-room') && nextSlot && (
                 <span>تبدأ ≈ {hhmm(nextSlot.projectedStart)}</span>
@@ -304,7 +318,7 @@ export default function NightPulse({ pulse, serverNow, onSelectActivity, onSelec
             {room.isMine ? (
               <span className="text-[11px] px-2.5 py-1 rounded-full font-bold shrink-0"
                 style={{ color: '#2A8FD4', border: '1px solid rgba(42,143,212,.45)', background: 'rgba(42,143,212,.1)' }}>
-                {pulse.me?.isAlive === false ? `مقعدك ${pulse.me.seat} · أُقصيت` : `أنت هنا · مقعد ${pulse.me?.seat ?? ''}`}
+                {pulse.me?.isAlive === false ? `مقعدك ${toAr(pulse.me.seat)} · أُقصيت` : `أنت هنا · مقعد ${toAr(pulse.me?.seat ?? '')}`}
               </span>
             ) : pulse.status === 'ended' ? (
               <span className="text-[12px] text-gray-600 shrink-0">أُغلقت</span>
@@ -336,8 +350,8 @@ export default function NightPulse({ pulse, serverNow, onSelectActivity, onSelec
                     <span className="w-2 h-2 rounded-sm shrink-0" style={{ background: t.c }} />
                     {t.icon} {t.label}
                   </span>
-                  <span className="font-mono text-[15px] font-bold text-white tabular-nums" dir="ltr">
-                    {counts[t.k]}<span className="text-[11px] text-gray-600 font-normal"> / {totals[t.k]}</span>
+                  <span className="text-[15px] font-bold text-white" style={{ fontVariantNumeric: 'tabular-nums' }}>
+                    {toAr(counts[t.k])}<span className="text-[11px] text-gray-600 font-normal"> / {toAr(totals[t.k])}</span>
                   </span>
                 </div>
               ))}
@@ -352,19 +366,19 @@ export default function NightPulse({ pulse, serverNow, onSelectActivity, onSelec
         )}
       </Block>
 
-      {/* ── ٤ · ألعاب هذه الغرفة ── */}
+      {/* ── ٤ · جدول ألعاب الغرفة — صفٌّ لكلّ لعبة، والوقتان جنباً إلى جنب ── */}
       {pulse.slots.length > 0 && (
-        <Block label="ألعاب هذه الغرفة">
-          <div className="flex gap-1 h-7">
-            {pulse.slots.map(s => (
-              <SlotChip key={s.ordinal} slot={s} />
-            ))}
+        <Block label={`جدول ألعاب ${room?.name || 'الغرفة'}`}>
+          <div className="flex flex-col gap-1.5">
+            {pulse.slots.map(s => <SlotRow key={s.ordinal} slot={s} now={now} />)}
           </div>
-          <div className="flex justify-between mt-1.5 text-[10px] text-gray-600 font-mono">
-            <span dir="ltr">{hhmm(pulse.slots[0].actualStart ?? pulse.slots[0].projectedStart)}</span>
-            <span dir="ltr">
-              {pulse.status === 'ended' ? '' : '≈ '}
-              {hhmm(pulse.slots[pulse.slots.length - 1].actualEnd ?? pulse.slots[pulse.slots.length - 1].projectedEnd)}
+          <div className="flex items-center justify-between mt-3 pt-2.5 text-[11px] text-gray-500"
+            style={{ borderTop: '1px solid rgba(255,255,255,.06)' }}>
+            <span>{toAr(pulse.slots.length)} ألعاب</span>
+            <span>
+              تنتهي {pulse.status === 'ended' ? '' : '≈ '}
+              <Time ms={pulse.slots[pulse.slots.length - 1].actualEnd ?? pulse.slots[pulse.slots.length - 1].projectedEnd}
+                style={{ color: '#C5A059', fontWeight: 700 }} />
             </span>
           </div>
         </Block>
@@ -378,11 +392,11 @@ export default function NightPulse({ pulse, serverNow, onSelectActivity, onSelec
               {nextSlot.label}{nextSlot.outsidePlan ? ' · خارج الجدول' : ''}
             </span>
             <span className="text-left">
-              <span className="block font-mono text-[17px] font-bold" style={{ color: '#C5A059' }} dir="ltr">
+              <span className="block text-[17px] font-bold" style={{ color: '#C5A059', fontVariantNumeric: 'tabular-nums' }}>
                 {nextSlot.projectedStart <= now ? 'الآن تقريباً' : `≈ ${hhmm(nextSlot.projectedStart)}`}
               </span>
               {nextSlot.projectedStart > now && nextSlot.driftMin != null && Math.abs(nextSlot.driftMin) >= DRIFT_FLOOR && nextSlot.planStart && (
-                <span className="block text-[11px] text-gray-600 line-through font-mono" dir="ltr">{nextSlot.planStart}</span>
+                <span className="block text-[11px] text-gray-600 line-through">{toAr(nextSlot.planStart)}</span>
               )}
             </span>
           </div>
@@ -392,23 +406,63 @@ export default function NightPulse({ pulse, serverNow, onSelectActivity, onSelec
   );
 }
 
-function SlotChip({ slot }: { slot: PulseSlot }) {
-  const done = slot.state === 'done';
+/**
+ * صفُّ لعبةٍ في الجدول. الوقتُ المخطّط يبقى مشطوباً بجانب الجديد حين يختلفان —
+ * حقيقةٌ لا عذر، فاللاعب يرى بعينه أنّ الورقة تغيّرت ولا يُترك يخمّن.
+ */
+function SlotRow({ slot, now }: { slot: PulseSlot; now: number }) {
   const live = slot.state === 'live';
+  const done = slot.state === 'done';
   const t = slot.actualStart ?? slot.projectedStart;
+  const moved = slot.planStart != null && slot.driftMin != null && Math.abs(slot.driftMin) >= DRIFT_FLOOR;
+  const dueNow = slot.state === 'future' && slot.projectedStart <= now;
+
+  const accent = live ? '#C5A059' : done ? (WINNER_COLOR[slot.winner || ''] || '#6B655C') : '#6B655C';
+
   return (
     <div
-      className="flex-1 rounded-lg flex items-center justify-center text-[10px] font-mono overflow-hidden whitespace-nowrap px-1"
+      className="flex items-center gap-2.5 rounded-xl px-2.5 py-2"
       style={{
-        flexGrow: live ? 1.5 : 1,
-        background: live ? 'rgba(197,160,89,.14)' : done ? 'rgba(255,255,255,.05)' : 'transparent',
-        border: `1px ${slot.state === 'future' ? 'dashed' : 'solid'} ${live ? 'rgba(197,160,89,.5)' : 'rgba(255,255,255,.07)'}`,
-        color: live ? '#C5A059' : '#6B655C',
+        background: live ? 'rgba(197,160,89,.1)' : done ? 'rgba(255,255,255,.03)' : 'transparent',
+        border: `1px ${slot.state === 'future' ? 'dashed' : 'solid'} ${live ? 'rgba(197,160,89,.45)' : 'rgba(255,255,255,.07)'}`,
       }}
-      title={slot.label}
-      dir="ltr"
     >
-      {live ? '● ' : slot.state === 'future' ? '≈' : ''}{hhmm(t)}
+      {/* الترتيب */}
+      <span
+        className="w-6 h-6 shrink-0 rounded-lg flex items-center justify-center text-[12px] font-bold"
+        style={{
+          background: live ? '#C5A059' : 'rgba(255,255,255,.06)',
+          color: live ? '#100D08' : '#9C958A',
+        }}
+      >
+        {toAr(slot.ordinal)}
+      </span>
+
+      {/* الاسم والحالة */}
+      <div className="flex-1 min-w-0">
+        <p className="text-[13px] font-bold truncate" style={{ color: live ? '#C5A059' : done ? '#E7E2D6' : '#9C958A' }}>
+          {slot.label}
+          {slot.outsidePlan && <span className="text-[10px] font-normal mr-1.5" style={{ color: '#C5A059' }}>· خارج الجدول</span>}
+        </p>
+        <p className="text-[10.5px] text-gray-500 mt-0.5">
+          {live ? '● تجري الآن'
+            : done ? (slot.winner ? `فاز ${WINNER_AR[slot.winner] || slot.winner}` : 'انتهت')
+            : dueNow ? 'على وشك البدء'
+            : 'لم تبدأ'}
+        </p>
+      </div>
+
+      {/* الوقتان */}
+      <div className="text-left shrink-0">
+        <p className="text-[14px] font-bold leading-tight" style={{ color: accent, fontVariantNumeric: 'tabular-nums' }}>
+          {slot.state === 'future' && !dueNow ? '≈ ' : ''}{hhmm(t)}
+        </p>
+        {moved && slot.planStart && (
+          <p className="text-[10px] text-gray-600 line-through leading-tight" style={{ fontVariantNumeric: 'tabular-nums' }}>
+            {toAr(slot.planStart)}
+          </p>
+        )}
+      </div>
     </div>
   );
 }

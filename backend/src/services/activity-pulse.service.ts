@@ -164,6 +164,10 @@ export function bindRoomSchedule(
   const n = Math.max(slots.length, played.length);
   const out: BoundSlot[] = [];
   let lastEnd: number | null = null;
+  // هل السلسلة مرتكزةٌ على لعبةٍ بدأت فعلاً؟ ما دامت الليلة لم تبدأ فالورقة هي
+  // كلّ ما نملك، فلا نَعِد ببدايةٍ أبكر منها. وحين تبدأ، يصير الواقع هو المرجع
+  // في الاتجاهين: تأخّرُ لعبةٍ يؤخّر ما بعدها، وتبكيرُها يُقدّمه بالمقدار نفسه.
+  let chainIsReal = false;
 
   for (let i = 0; i < n; i++) {
     const slot = slots[i] ?? null;
@@ -200,12 +204,13 @@ export function bindRoomSchedule(
         winner: ended ? m.winner : null,
       });
       lastEnd = projectedEnd;
+      chainIsReal = true;
     } else {
-      // لا نُبكّر قبل الورقة، ولا نتجاهل الواقع.
       const chained = lastEnd == null
         ? (planStart ?? now)
         : lastEnd + plannedBreakBefore(gameSchedule, i) * MIN;
-      const ps = planStart == null ? chained : Math.max(planStart, chained);
+      // سلسلةٌ مرتكزةٌ على واقعٍ تُتَّبع كما هي؛ وإلّا فالورقة أرضيّةٌ لا نُبكّر عنها.
+      const ps = planStart == null || chainIsReal ? chained : Math.max(planStart, chained);
 
       out.push({
         ordinal: i + 1, label,
