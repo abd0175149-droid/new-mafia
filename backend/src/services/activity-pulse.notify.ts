@@ -20,7 +20,8 @@ import { sessions } from '../schemas/game.schema.js';
 import { getAux, setAux } from '../config/redis.js';
 import { getRoomByCode } from '../game/state.js';
 import { sendPushToPlayers } from './fcm.service.js';
-import { bindRoomSchedule, slotToEpoch, orderedGameSlots, toMinutes } from './activity-pulse.service.js';
+import { bindRoomSchedule, orderedGameSlots } from './activity-pulse.service.js';
+import { withSetupStart } from './activity-pulse.query.js';
 
 /** نفس عتبة الواجهة — رقمٌ واحد لا يفترق بين قناتين */
 export const DRIFT_FLOOR_MIN = 7;
@@ -59,10 +60,20 @@ export async function notifyScheduleDrift(activityId: number, sessionId: number)
     }).from(matches)
       .where(and(eq(matches.sessionId, sessionId), isNull(matches.deletedAt)))
       .orderBy(matches.createdAt);
-    if (!rows.length) return;
+
+    // نفسُ إسقاط العرض: اللعبة تبدأ عند دخول شاشة الأدوار لا عند الاعتماد،
+    // وإلّا وصل التنبيه متأخّراً بقدر ما استغرق الليدر في التوزيع.
+    const [sess] = await db.select({ code: sessions.sessionCode })
+      .from(sessions).where(eq(sessions.id, sessionId)).limit(1);
+    const state = sess?.code ? await getRoomByCode(sess.code).catch(() => null) : null;
+
+    // لا صفَّ ولا إعداد ⇒ لا لعبةَ بدأت
+    if (!rows.length && !state?.setupStartedAt) return;
 
     const now = Date.now();
-    const slots = bindRoomSchedule(act.gameSchedule, rows as any, new Date(act.date), now);
+    const slots = bindRoomSchedule(
+      act.gameSchedule, withSetupStart(rows as any[], state) as any, new Date(act.date), now,
+    );
     const live = slots.find(s => s.state === 'live') ?? slots[slots.length - 1];
     if (!live || live.driftMin == null) return;               // لعبةٌ خارج الجدول: لا شريحة تُقارن بها
     if (Math.abs(live.driftMin) < DRIFT_FLOOR_MIN) return;    // عتبة الصمت

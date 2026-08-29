@@ -19,7 +19,7 @@ import type { ActivityPulse, PulseSlot } from '@/hooks/useActivityPulse';
 
 const PHASE_AR: Record<string, string> = {
   LOBBY: 'غرفة الانتظار',
-  ROLE_GENERATION: 'تجهيز الأدوار',
+  ROLE_GENERATION: 'اختيار الأدوار',
   ROLE_BINDING: 'توزيع الأدوار',
   DAY_DISCUSSION: 'نقاش النهار',
   DAY_VOTING: 'التصويت',
@@ -266,7 +266,11 @@ export default function NightPulse({ pulse, serverNow, onSelectActivity, onSelec
                       فاز {WINNER_AR[liveSlot.winner] || liveSlot.winner}
                     </span>
                   ) : !live.rolesConfirmed ? (
-                    <span className="text-[12px] text-gray-400">يجري توزيع الأدوار</span>
+                    // 🌙 قبل اعتماد التوزيع لا جولةَ بعد — يُعرض الطورُ باسمه.
+                    <span className="text-[12px] px-2 py-0.5 rounded-full font-bold"
+                      style={{ color: '#C5A059', border: '1px solid rgba(197,160,89,.35)', background: 'rgba(197,160,89,.14)' }}>
+                      {PHASE_AR[live.phase] || 'تجهيز اللعبة'}
+                    </span>
                   ) : (
                     <>
                       <span className="text-[11px] px-2 py-0.5 rounded-full font-bold"
@@ -371,7 +375,7 @@ export default function NightPulse({ pulse, serverNow, onSelectActivity, onSelec
           </>
         ) : (
           <p className="text-[12px] text-gray-600 text-center py-2 leading-relaxed">
-            {live && !live.rolesConfirmed ? 'الأدوار قيد التوزيع — لا أعداد بعد'
+            {live && !live.rolesConfirmed ? 'اللعبة قيد التجهيز — الأعداد تظهر بعد اعتماد الأدوار'
               : live?.isRemote ? 'غرفة عن بُعد — الأعداد محجوبة'
               : 'لا مباراةَ تجري في هذه الغرفة'}
           </p>
@@ -382,7 +386,10 @@ export default function NightPulse({ pulse, serverNow, onSelectActivity, onSelec
       {pulse.slots.length > 0 && (
         <Block label={`جدول ألعاب ${shortRoom(room?.name)}`}>
           <div className="flex flex-col gap-1.5">
-            {pulse.slots.map(s => <SlotRow key={s.ordinal} slot={s} now={now} />)}
+            {pulse.slots.map(s => (
+              <SlotRow key={s.ordinal} slot={s} now={now}
+                setupLabel={s.state === 'live' && live && !live.rolesConfirmed ? (PHASE_AR[live.phase] || null) : null} />
+            ))}
           </div>
           <div className="flex items-center justify-between mt-3 pt-2.5 text-[11px] text-gray-500"
             style={{ borderTop: '1px solid rgba(255,255,255,.06)' }}>
@@ -424,7 +431,7 @@ export default function NightPulse({ pulse, serverNow, onSelectActivity, onSelec
  * صفُّ لعبةٍ في الجدول. الوقتُ المخطّط يبقى مشطوباً بجانب الجديد حين يختلفان —
  * حقيقةٌ لا عذر، فاللاعب يرى بعينه أنّ الورقة تغيّرت ولا يُترك يخمّن.
  */
-function SlotRow({ slot, now }: { slot: PulseSlot; now: number }) {
+function SlotRow({ slot, now, setupLabel }: { slot: PulseSlot; now: number; setupLabel?: string | null }) {
   const live = slot.state === 'live';
   const done = slot.state === 'done';
   const t = slot.actualStart ?? slot.projectedStart;
@@ -464,7 +471,7 @@ function SlotRow({ slot, now }: { slot: PulseSlot; now: number }) {
           {done && slot.winner && (
             <span className="w-1.5 h-1.5 rounded-full shrink-0" style={{ background: winColor }} />
           )}
-          {live ? '● تجري الآن'
+          {live ? (setupLabel ? `● ${setupLabel}` : '● تجري الآن')
             : done ? (slot.winner ? `فاز ${WINNER_AR[slot.winner] || slot.winner}` : 'انتهت')
             : dueNow ? 'على وشك البدء'
             : 'لم تبدأ'}

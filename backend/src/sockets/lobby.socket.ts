@@ -3431,6 +3431,15 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
         return callback({ success: false, error: 'يجب أن يكون هناك 6 لاعبين على الأقل' });
       }
 
+      // 🌙 بدايةُ اللعبة عند اللاعب هي هذه اللحظة — دخولُ شاشة اختيار الأدوار —
+      //    لا لحظةَ اعتماد التوزيع. تُختم مرّةً واحدة فلا تُزحزحها إعادةُ توليد.
+      //    (مؤقّتُ اللعبة يبقى يبدأ بعد الاعتماد — سلوكٌ مقصود لا يُمسّ.)
+      if (!state.setupStartedAt) {
+        state.setupStartedAt = Date.now();
+        await updateRoom(data.roomId, { setupStartedAt: state.setupStartedAt });
+        if (state.activityId) void notifyScheduleDrift(Number(state.activityId), Number(state.sessionId));
+      }
+
       // 🧩 Feature Flag: المحرك الديناميكي أو القديم
       if (state.config.useDynamicEngine) {
         try {
@@ -4599,6 +4608,7 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
     state.rolesConfirmed = false;
     state.matchId = undefined;
     state.startedAt = undefined;
+    state.setupStartedAt = undefined;   // 🌙 وإلّا ورثت اللعبةُ التالية بدايةَ سابقتها
     state.votingState = {
       totalVotesCast: 0,
       deals: [],

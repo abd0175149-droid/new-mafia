@@ -43,6 +43,50 @@ export interface ActivityPulse {
   me: PulseMe | null;
 }
 
+/** أطوارُ الإعداد: اللعبة بدأت عند اللاعب وإن لم يُعتمد التوزيع بعد */
+const SETUP_PHASES = new Set(['ROLE_GENERATION', 'ROLE_BINDING']);
+
+/** معرّفُ الصفّ الاصطناعيّ — لعبةٌ بدأت ولمّا يُنشأ سجلُّها بعد */
+export const PENDING_MATCH_ID = -1;
+
+/**
+ * بدايةُ اللعبة كما يراها اللاعب هي دخولُ الليدر شاشة اختيار الأدوار، لا لحظةَ
+ * اعتماد التوزيع (وهي لحظةُ إنشاء صفّ `matches`). فرقٌ قد يبلغ دقائق.
+ *
+ * • قبل الاعتماد: لا صفَّ أصلاً ⇒ نُركّب صفّاً معلّقاً كي تظهر اللعبة «تجري».
+ * • بعده: نُقدّم بدايةَ الصفّ الحيّ إلى لحظة الإعداد — وإلّا قفز الوقتُ المعروض
+ *   أمام اللاعب من ١٩:١٦ إلى ١٩:٢٤ فجأةً، وتغيّر الانحرافُ بلا سبب.
+ *
+ * ⚠️ لا يُمسّ `matches.created_at` في القاعدة: مدّةُ المباراة وإحصاءاتُها تُقاس
+ *    من الاعتماد كما كانت. هذا إسقاطُ عرضٍ لا تعديلُ سجلّ.
+ */
+export function withSetupStart<T extends { id: number; createdAt: any; endedAt: any; isActive: any }>(
+  rows: T[], state: any,
+): T[] {
+  const setupAt = Number(state?.setupStartedAt) || 0;
+  if (!setupAt) return rows;
+
+  const liveIdx = rows.findIndex(r => !r.endedAt && r.isActive !== false);
+  if (liveIdx >= 0) {
+    const r = rows[liveIdx];
+    const started = new Date(r.createdAt).getTime();
+    if (started > setupAt) {
+      const copy = [...rows];
+      copy[liveIdx] = { ...r, createdAt: new Date(setupAt) };
+      return copy;
+    }
+    return rows;
+  }
+
+  if (SETUP_PHASES.has(String(state?.phase))) {
+    return [...rows, {
+      id: PENDING_MATCH_ID, createdAt: new Date(setupAt), endedAt: null,
+      isActive: true, winner: null, totalRounds: 0,
+    } as unknown as T];
+  }
+  return rows;
+}
+
 const bookedBy = (playerId: number | null, phone: string | null) => or(
   phone ? eq(bookings.phone, phone) : sql`false`,
   playerId != null ? eq(bookings.playerId, playerId) : sql`false`,
@@ -186,7 +230,9 @@ export async function buildActivityPulse(opts: {
     .where(and(eq(matches.sessionId, room.id), isNull(matches.deletedAt)))
     .orderBy(matches.createdAt);
 
-  const slots = bindRoomSchedule(actRow.gameSchedule, matchRows as any, new Date(actRow.date), now);
+  const rows = withSetupStart(matchRows as any[], state);
+  const slots = bindRoomSchedule(actRow.gameSchedule, rows as any, new Date(actRow.date), now);
+  for (const sl of slots) if (sl.matchId === PENDING_MATCH_ID) sl.matchId = null;
   const liveSlot = slots.find(s => s.state === 'live') || null;
   const projected = projectActivityPulse(state, seats[idx]);
 

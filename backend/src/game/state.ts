@@ -265,6 +265,9 @@ export interface GameState {
   nurseActivated?: boolean; // هل الليدر فعّل الممرضة في بداية هذا الليل
   rolesConfirmed?: boolean; // هل الليدر أكد توزيع الأدوار (يمنع إرسالها للاعبين قبل التأكيد)
   startedAt?: string; // وقت بداية اللعبة (عند اعتماد الأدوار)
+  // 🌙 لحظةُ دخول الليدر شاشة اختيار الأدوار — بدايةُ اللعبة كما يراها اللاعب.
+  //    مؤقّتُ اللعبة يبقى يبدأ عند اعتماد الأدوار (مقصود)، وهذا حقلٌ للعرض فقط.
+  setupStartedAt?: number;
   matchId?: number; // ID السجل في PostgreSQL
   sessionId?: number; // ID الغرفة في PostgreSQL
   sessionCode?: string; // كود الغرفة الثابت

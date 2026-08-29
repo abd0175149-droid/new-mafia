@@ -4,6 +4,7 @@ import {
   toMinutes, slotDuration, orderedGameSlots, plannedBreakBefore,
   bindRoomSchedule, roomStatus, ordinalLabel, type RawSlot, type RoomMatchRow,
 } from './src/services/activity-pulse.service.js';
+import { withSetupStart, PENDING_MATCH_ID } from './src/services/activity-pulse.query.js';
 import { projectActivityPulse, findMySeat } from './src/services/activity-pulse.projection.js';
 
 let pass = 0, fail = 0;
@@ -374,6 +375,52 @@ console.log('🧪 الإرساء بتوقيت عمّان');
   ], actDate, Date.parse('2026-08-28T21:00:00Z'));
   check('شريحةٌ بعد منتصف الليل تُرسى في اليوم التالي', out[1].driftMin === 0);
   check('الأولى بلا انحراف (بدأت في وقتها)', out[0].driftMin === 0);
+}
+
+// ══════════════ ١٥ · اللعبة تبدأ عند شاشة اختيار الأدوار ══════════════
+// صفُّ `matches` يُنشأ عند اعتماد التوزيع، أمّا اللاعب فيرى اللعبة بدأت قبل ذلك
+// بدقائق. الإسقاط يُركّب صفّاً معلّقاً، ويُقدّم بدايةَ الصفّ الحقيقيّ بعد ظهوره.
+console.log('');
+console.log('🧪 بدايةُ اللعبة عند الإعداد');
+{
+  const setupAt = at(19, 50);
+  const st = { phase: 'ROLE_GENERATION', setupStartedAt: setupAt };
+  const rows = withSetupStart([] as any[], st);
+  check('لا صفَّ + طورُ إعداد ⇒ صفٌّ معلّق', rows.length === 1 && rows[0].id === PENDING_MATCH_ID);
+
+  const slots = bindRoomSchedule(PLAN, rows as any, DATE, at(19, 55));
+  check('اللعبة الأولى تظهر live قبل اعتماد الأدوار', slots[0].state === 'live');
+  check('وبدايتُها لحظةُ الإعداد', slots[0].actualStart === setupAt);
+  check('والانحراف يُقاس منها (+5)', slots[0].driftMin === 5);
+  check('والثانية تنزاح بنفس المقدار', slots[1].driftMin === 5);
+}
+{
+  // بعد الاعتماد: الصفّ الحقيقيّ موجود لكن بدايتُه متأخّرة عن لحظة الإعداد
+  const setupAt = at(19, 50), bindAt = at(19, 58);
+  const st = { phase: 'DAY_DISCUSSION', setupStartedAt: setupAt };
+  const rows = withSetupStart([m(1, bindAt, null)] as any[], st);
+  check('لا يُضاف صفٌّ ثانٍ بعد الاعتماد', rows.length === 1 && rows[0].id === 1);
+  check('البدايةُ تُقدَّم إلى لحظة الإعداد — لا قفزَ أمام اللاعب',
+    new Date(rows[0].createdAt).getTime() === setupAt);
+}
+{
+  // طورُ لوبي بلا إعداد: لا شيء يُركَّب
+  check('لوبي بلا إعداد ⇒ بلا صفوف', withSetupStart([] as any[], { phase: 'LOBBY' }).length === 0);
+  check('بلا حالةٍ إطلاقاً ⇒ الصفوف كما هي', withSetupStart([m(1, at(20, 0), null)] as any[], null).length === 1);
+}
+{
+  // لعبةٌ منتهية + إعدادُ التالية ⇒ صفّان: منتهٍ ومعلّق
+  const st = { phase: 'ROLE_BINDING', setupStartedAt: at(21, 30) };
+  const rows = withSetupStart([m(1, at(19, 45), at(21, 0), 'MAFIA')] as any[], st);
+  check('لعبةٌ منتهية + إعدادُ التالية ⇒ صفّان', rows.length === 2);
+  const slots = bindRoomSchedule(PLAN, rows as any, DATE, at(21, 35));
+  check('الثانية live من لحظة إعدادها', slots[1].state === 'live' && slots[1].actualStart === at(21, 30));
+  check('والأولى تبقى منتهية', slots[0].state === 'done');
+}
+{
+  // لا يُقدَّم صفٌّ بدأ قبل لحظة الإعداد (لا رجوعَ بالزمن)
+  const rows = withSetupStart([m(1, at(19, 40), null)] as any[], { phase: 'NIGHT', setupStartedAt: at(19, 50) });
+  check('بدايةٌ أسبقُ من الإعداد لا تُزحزح', new Date(rows[0].createdAt).getTime() === at(19, 40));
 }
 
 console.log(`\n${fail === 0 ? '🎉' : '⚠️'} النتيجة: ${pass} نجح · ${fail} فشل`);

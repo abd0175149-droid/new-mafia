@@ -342,7 +342,9 @@ router.get('/activities/upcoming', async (req: Request, res: Response) => {
         or(eq(activities.status, 'planned'), eq(activities.status, 'active')),
         isNull(activities.deletedAt)
       ))
-      .orderBy(desc(activities.date));
+      // 🔴 الأقربُ موعداً أوّلاً: القائمة تُقرأ من أعلاها، ومَن يفتحها الليلة
+      //    يريد ليلته لا ليلةَ الشهر القادم. (كان desc فيتصدّرها الأبعد.)
+      .orderBy(activities.date);
 
     // فلترة أنشطة الاختبار: لا تظهر إلا لحسابات الاختبار
     let isTestUser = false;

@@ -11,6 +11,9 @@ import NightPulse from '@/components/NightPulse';
 
 type Tab = 'upcoming' | 'pulse' | 'history';
 
+const AR_D = ['٠', '١', '٢', '٣', '٤', '٥', '٦', '٧', '٨', '٩'];
+const toArNum = (v: string | number) => String(v).replace(/[0-9]/g, c => AR_D[+c]);
+
 const DIFFICULTY_LABELS: Record<string, { label: string; color: string; icon: string }> = {
   easy: { label: 'سهل', color: '#22c55e', icon: '🟢' },
   medium: { label: 'متوسط', color: '#f59e0b', icon: '🟡' },
@@ -313,10 +316,13 @@ function GamesContent() {
               const offers: any[] = Array.isArray(act.locationOffers) ? act.locationOffers : [];
 
               const d = new Date(act.date);
-              const dayNum = d.toLocaleDateString('ar-JO', { day: 'numeric' });
-              const monthAr = d.toLocaleDateString('ar-JO', { month: 'long' });
-              const weekdayAr = d.toLocaleDateString('ar-JO', { weekday: 'long' });
-              const timeAr = d.toLocaleTimeString('ar-JO', { hour: 'numeric', minute: '2-digit' });
+              // أرقامٌ عربيّة (٠١٢…) في كلّ ما يُعرض من تاريخٍ ووقت
+              const dayNum = toArNum(d.toLocaleDateString('en-GB', { day: 'numeric', timeZone: 'Asia/Amman' }));
+              const monthAr = d.toLocaleDateString('ar-JO', { month: 'long', timeZone: 'Asia/Amman' });
+              const weekdayAr = d.toLocaleDateString('ar-JO', { weekday: 'long', timeZone: 'Asia/Amman' });
+              const timeAr = toArNum(d.toLocaleTimeString('en-GB', {
+                hour: '2-digit', minute: '2-digit', hour12: false, timeZone: 'Asia/Amman',
+              }));
               // 👥 الطلب بلغةٍ تجذب — لا «مزدحم» ولا «مكتمل»: الحجز بلا سقف،
               //    والإقبال دعوةٌ لا عائق. السعة مرجعُ نسبةٍ داخليّ لا تُعرض للّاعب.
               const cnt = act.bookedCount || 0;
@@ -341,18 +347,20 @@ function GamesContent() {
                   }}
                 >
                   <div className="p-4">
-                    {/* ── الرأس: اليوم رقماً ضخماً ثمّ المكان ── */}
+                    {/* ── الرأس: التاريخ والوقت أوّلَ ما تقع عليه العين ──
+                        كانا ٩–١٠ بكسل لا يُقرآن من مسافة الذراع؛ اليومُ والساعة
+                        هما ما يبحث عنه فاتحُ الصفحة، فرُفعا وأُبرزا. */}
                     <div className="flex gap-3.5 items-start" onClick={() => setSelectedActivity(act)}>
-                      <div className="text-center shrink-0 border-l border-white/10 pl-3.5">
-                        <p className="text-2xl font-black text-amber-400 leading-none">{dayNum}</p>
-                        <p className="text-[9px] text-gray-400 mt-0.5">{monthAr}</p>
-                        <p className="text-[10px] text-white font-bold mt-1.5">{timeAr}</p>
+                      <div className="text-center shrink-0 border-l border-white/10 pl-3.5 pt-0.5">
+                        <p className="text-[34px] font-black text-amber-400 leading-none tracking-tight">{dayNum}</p>
+                        <p className="text-[13px] text-gray-300 font-bold mt-1 leading-none">{monthAr}</p>
+                        <p className="text-[16px] font-black mt-2 leading-none" style={{ color: '#fbbf24' }}>{timeAr}</p>
                       </div>
                       <div className="flex-1 min-w-0">
-                        <p className="text-white text-sm font-bold leading-snug truncate">
+                        <p className="text-white text-[15px] font-bold leading-snug truncate">
                           {act.locationName || act.name}
                         </p>
-                        <p className="text-gray-500 text-[10px] mt-1">{weekdayAr}</p>
+                        <p className="text-gray-300 text-[13px] font-bold mt-1">{weekdayAr}</p>
                         <div className="flex items-center gap-1.5 mt-1.5 flex-wrap">
                           <span
                             className="text-[8px] px-1.5 py-0.5 rounded-full shrink-0"
