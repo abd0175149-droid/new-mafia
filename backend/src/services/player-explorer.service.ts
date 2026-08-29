@@ -378,6 +378,12 @@ export async function explore(db: Database, rawLens: any): Promise<ExplorerResul
 // ── التجميعات (تُحسب من نفس الصفوف كي تتطابق الشاشة والتصدير حرفيّاً) ──
 const sum = (a: ExplorerPlayer[], f: (p: ExplorerPlayer) => number) => a.reduce((s, p) => s + (f(p) || 0), 0);
 const round2 = (n: number) => Math.round(n * 100) / 100;
+/** نسبةٌ مئويّة: صحيحةٌ فوق ١٪، وبخانةٍ عشريّةٍ تحتها — «٠٪» فوق حالاتٍ فعليّةٍ كذبٌ صغير. */
+const rate = (part: number, whole: number): number => {
+  if (!whole) return 0;
+  const v = (part / whole) * 100;
+  return v > 0 && v < 1 ? Math.round(v * 10) / 10 : Math.round(v);
+};
 
 export function computeTotals(a: ExplorerPlayer[]): ExplorerTotals {
   const players = a.length;
@@ -406,20 +412,23 @@ export function computeTotals(a: ExplorerPlayer[]): ExplorerTotals {
     feedbackAvg: fbCount ? round2(fbSum / fbCount) : null,
     withPush: a.filter((p) => p.hasPush).length,
     avgActivities: attended ? round2(activities / attended) : 0,
-    returnRate: attended ? Math.round((returned / attended) * 100) : 0,
-    noShowRate: bookings ? Math.round((noShows / bookings) * 100) : 0,
-    winRate: matches ? Math.round((wins / matches) * 100) : 0,
+    returnRate: rate(returned, attended),
+    noShowRate: rate(noShows, bookings),
+    winRate: rate(wins, matches),
   };
 }
 
+// 🔴 لا خطوةَ «حجزوا» هنا رغم أنّها كانت في التصميم: الحجز ليس مرحلةً سابقةً
+//    للحضور بل مسارٌ موازٍ له. على بيانات الإنتاج ٢٦٩ حجزوا مقابل ٢٧١ حضروا،
+//    فكان القمع **يرتفع** — وقمعٌ يرتفع ليس قمعاً. تحليل الحجز مقابل الحضور
+//    يعيش في ConversionStrip حيث المقارنة بين المسارَين هي المقصودة أصلاً.
 export function computeFunnel(a: ExplorerPlayer[]): ExplorerResult['funnel'] {
   const n = a.length || 1;
   const steps: [string, string, number][] = [
-    ['signed',   'أنشأوا حساباً',            a.length],
-    ['booked',   'حجزوا مرّةً على الأقلّ',    a.filter((p) => p.bookedActivities > 0).length],
-    ['attended', 'حضروا فعاليّةً واحدة',      a.filter((p) => p.activities >= 1).length],
-    ['returned', 'عادوا لفعاليّةٍ ثانية',     a.filter((p) => p.activities >= 2).length],
-    ['regular',  'انتظموا (٣ فأكثر)',        a.filter((p) => p.activities >= 3).length],
+    ['signed',   'أنشأوا حساباً',        a.length],
+    ['attended', 'حضروا فعاليّةً واحدة',  a.filter((p) => p.activities >= 1).length],
+    ['returned', 'عادوا لفعاليّةٍ ثانية', a.filter((p) => p.activities >= 2).length],
+    ['regular',  'انتظموا (٣ فأكثر)',    a.filter((p) => p.activities >= 3).length],
   ];
   return steps.map(([key, labelAr, count]) => ({ key, labelAr, count, pct: Math.round((count / n) * 100) }));
 }

@@ -33,7 +33,7 @@ export function Kpi({ icon, label, value, sub, tone = 'gray' }: {
 // ── قمع التحويل ──────────────────────────────────────
 // الضغط على درجةٍ يضبط «فعاليّات من = العتبة» في العدسة، فيتبعه الجدول والتصدير.
 const FUNNEL_GATE: Record<string, number | null> = {
-  signed: null, booked: null, attended: 1, returned: 2, regular: 3,
+  signed: null, attended: 1, returned: 2, regular: 3,
 };
 
 export function Funnel({ data, total, lens, onGate }: {
