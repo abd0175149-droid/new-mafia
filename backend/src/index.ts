@@ -688,6 +688,8 @@ async function main() {
       // 🔊 آخرُ تعيينٍ للملفّ الصوتيّ — حسمُ المفتاح المشترك بلا نزع
       await db.execute(sql`ALTER TABLE sound_effects ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP DEFAULT NOW()`);
       await db.execute(sql`UPDATE sound_effects SET updated_at = COALESCE(updated_at, created_at)`);
+      // ⏱ مدّةُ التشغيل لكلّ حدث — { eventKey: ms }
+      await db.execute(sql`ALTER TABLE sound_effects ADD COLUMN IF NOT EXISTS durations JSONB DEFAULT '{}'::jsonb`);
       await db.execute(sql`ALTER TABLE activities ADD COLUMN IF NOT EXISTS add_game_fee_to_bill BOOLEAN DEFAULT false`);
       await db.execute(sql`DO $$ BEGIN CREATE TYPE order_status AS ENUM ('new','preparing','delivered','cancelled'); EXCEPTION WHEN duplicate_object THEN NULL; END $$`);
       await db.execute(sql`CREATE TABLE IF NOT EXISTS menu_items (

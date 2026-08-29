@@ -13,7 +13,7 @@ const EVENT_GROUPS = SOUND_GROUPS;
 const ALL_EVENTS = ALL_SOUND_KEYS;
 
 type FileBrief = { id: number; name: string; filename: string; isActive: boolean; sizeBytes: number };
-type Coverage = Record<string, { winner: FileBrief | null; alternatives: FileBrief[]; others: number;
+type Coverage = Record<string, { winner: FileBrief | null; alternatives: FileBrief[]; others: number; durationMs?: number | null;
   id?: number; name?: string; filename?: string; isActive?: boolean }>;
 type KeyStatus = 'file' | 'inactive' | 'synth' | 'silent';
 function keyStatus(k: SoundKeyDef, cov: Coverage): KeyStatus {
@@ -48,6 +48,7 @@ interface SoundRecord {
   isActive: boolean;
   uploadedBy: string;
   createdAt: string;
+  durations?: Record<string, number> | null;
 }
 
 export default function SoundsPage() {
@@ -61,6 +62,10 @@ export default function SoundsPage() {
   const [search, setSearch] = useState('');
   const [silentFirst, setSilentFirst] = useState(true);
   const [uploadFor, setUploadFor] = useState<string | null>(null);
+  // ⏱ مسوّدةُ المدّة للحدث المختار (بالثواني، نصّاً كي يقبل الحقلُ الفراغَ أثناء الكتابة)
+  const [durDraft, setDurDraft] = useState<string>('');
+  const [durSaving, setDurSaving] = useState(false);
+  const durPreviewRef = useRef<{ el: HTMLAudioElement; t: ReturnType<typeof setTimeout> | null } | null>(null);
   const uploadFormRef = useRef<HTMLDivElement | null>(null);
   const [loading, setLoading] = useState(true);
 
@@ -357,6 +362,46 @@ export default function SoundsPage() {
   };
 
   // ── ⇄ اجعله الفعّال: ترقيةُ بديلٍ — لا نزعَ من القديم، يبقى بديلاً يعود بضغطة ──
+  // ⏱ حفظُ مدّةِ حدثٍ واحدٍ على الملفّ الفائز — دمجٌ لا استبدال كي لا تُمحى مدد الأحداث الأخرى
+  const handleSaveDuration = async (eventKey: string, fileId: number, secs: number | null) => {
+    const file = sounds.find(x => x.id === fileId);
+    if (!file) return;
+    setDurSaving(true);
+    try {
+      const merged: Record<string, number> = { ...(file.durations || {}) };
+      if (secs && secs > 0) merged[eventKey] = Math.round(secs * 1000);
+      else delete merged[eventKey];
+      const res = await fetch(`${API_URL}/api/sounds/${fileId}`, {
+        method: 'PUT',
+        headers: { ...headers, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ durations: merged }),
+      });
+      if (!res.ok) throw new Error('save failed');
+      await fetchSounds();
+    } catch {
+      alert('تعذّر حفظ المدّة');
+    } finally {
+      setDurSaving(false);
+    }
+  };
+
+  // ▶ «استمع كما سيُسمع»: يعزف الملفّ ويقطعه عند المدّة المكتوبة — لا عند المحفوظة
+  const previewCut = (filename: string, secs: number | null) => {
+    if (durPreviewRef.current) {
+      const { el, t } = durPreviewRef.current;
+      if (t) clearTimeout(t);
+      try { el.pause(); } catch {}
+      durPreviewRef.current = null;
+    }
+    if (audioRef.current) { audioRef.current.pause(); audioRef.current = null; setPlayingId(null); }
+    const el = new Audio(`${API_URL}/uploads/sounds/${filename}`);
+    const t = secs && secs > 0
+      ? setTimeout(() => { try { el.pause(); } catch {} durPreviewRef.current = null; }, secs * 1000)
+      : null;
+    durPreviewRef.current = { el, t };
+    el.play().catch(() => {});
+  };
+
   const handlePromote = async (id: number) => {
     try {
       await fetch(`${API_URL}/api/sounds/${id}/promote`, { method: 'PUT', headers });
@@ -656,7 +701,12 @@ export default function SoundsPage() {
           setUploadFor(k.key);
         };
         const fmt = (b: number) => b >= 1048576 ? `${(b / 1048576).toFixed(1)} م.ب` : `${Math.round(b / 1024)} ك.ب`;
-        const pick = (key: string) => { setSelectedKey(key); if (uploadFor && uploadFor !== key) setUploadFor(null); };
+        const pick = (key: string) => {
+          setSelectedKey(key);
+          if (uploadFor && uploadFor !== key) setUploadFor(null);
+          const ms = coverage[key]?.durationMs;
+          setDurDraft(ms && ms > 0 ? String(+(ms / 1000).toFixed(1)) : '');
+        };
 
         const EventRow = ({ k }: { k: SoundKeyDef }) => {
           const st = keyStatus(k, coverage), c = coverage[k.key], ui = STATUS_UI[st];
@@ -756,6 +806,61 @@ export default function SoundsPage() {
                           ⚠️ الملفُّ نفسه يخدم خلفيّةَ ليلٍ وخلفيّةَ نهارٍ معاً — طوران مختلفا الطبيعة. ارفع لهذا الحدث ملفّه الخاصّ أدناه.
                         </p>
                       )}
+
+                      {/* ⏱ مدّةُ التشغيل على هذا الحدث — لكلّ حدثٍ مدّتُه ولو تشارك الملفّ */}
+                      {(() => {
+                        const savedMs = cov?.durationMs ?? null;
+                        const draftSecs = durDraft.trim() === '' ? null : Number(durDraft);
+                        const valid = draftSecs === null || (Number.isFinite(draftSecs) && draftSecs > 0 && draftSecs <= 600);
+                        const dirty = valid && Math.round((draftSecs ?? 0) * 1000) !== (savedMs ?? 0);
+                        const isAmbient = sel.key.startsWith('ambient_');
+                        return (
+                          <div className="mt-3 pt-3 border-t border-gray-800">
+                            <div className="flex items-center justify-between gap-2 mb-1.5">
+                              <p className="text-[10.5px] text-gray-500">⏱ مدّةُ التشغيل على هذا الحدث</p>
+                              <span className="text-[10px] font-mono text-gray-600">
+                                {savedMs ? `${+(savedMs / 1000).toFixed(1)}ث محفوظة` : 'المقطع كاملاً'}
+                              </span>
+                            </div>
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <input
+                                type="number" min={0.5} max={600} step={0.5} value={durDraft}
+                                onChange={e => setDurDraft(e.target.value)}
+                                placeholder="كامل"
+                                className={`w-24 bg-gray-900 border rounded-lg px-2.5 py-1.5 text-[12.5px] text-white font-mono tabular-nums focus:outline-none ${valid ? 'border-gray-700 focus:border-amber-500' : 'border-rose-500'}`}
+                              />
+                              <span className="text-[11px] text-gray-500">ثانية</span>
+                              {[3, 5, 8, 15].map(v => (
+                                <button key={v} onClick={() => setDurDraft(String(v))}
+                                  className="text-[10.5px] px-2 py-1 rounded-md border border-gray-700 text-gray-400 hover:border-amber-500/50 hover:text-amber-300 font-mono tabular-nums">
+                                  {v}ث
+                                </button>
+                              ))}
+                              <button onClick={() => setDurDraft('')}
+                                className="text-[10.5px] px-2 py-1 rounded-md border border-gray-700 text-gray-400 hover:border-gray-500 hover:text-gray-200">
+                                كامل
+                              </button>
+                              <span className="flex-1" />
+                              <button onClick={() => previewCut(winner.filename, valid ? draftSecs : null)}
+                                className="text-[10.5px] px-2.5 py-1.5 rounded-lg border border-gray-700 text-gray-300 hover:bg-gray-800">
+                                ▶ كما سيُسمع
+                              </button>
+                              <button
+                                disabled={!dirty || durSaving}
+                                onClick={() => handleSaveDuration(sel.key, winner.id, valid ? draftSecs : null)}
+                                className={`text-[11px] font-bold px-3 py-1.5 rounded-lg border ${dirty && !durSaving ? 'border-amber-500/50 bg-amber-500/15 text-amber-300 hover:bg-amber-500/25' : 'border-gray-800 text-gray-600 cursor-not-allowed'}`}>
+                                {durSaving ? '…' : 'احفظ المدّة'}
+                              </button>
+                            </div>
+                            {!valid && <p className="mt-1.5 text-[10.5px] text-rose-400">المدّة بين نصف ثانية و٦٠٠ ثانية — أو اتركها فارغةً للمقطع كاملاً.</p>}
+                            <p className="mt-1.5 text-[10.5px] text-gray-600 leading-relaxed">
+                              {isAmbient
+                                ? 'مدّةٌ للخلفيّة تعني: تُعزف مرّةً واحدةً بلا تكرار ثمّ تصمت. اتركها فارغةً لتستمرّ حلقةً حتى نهاية الطور.'
+                                : 'تُقطع بخفضٍ لطيف لا ببتر. تسري على جهاز الموجّه وشاشة العرض معاً.'}
+                            </p>
+                          </div>
+                        );
+                      })()}
                     </div>
                   ) : (
                     <div className={`rounded-xl p-3.5 text-[12px] border ${selSt === 'synth' ? 'bg-amber-500/[0.06] border-amber-500/25 text-amber-300' : 'bg-rose-500/[0.05] border-rose-500/25 text-rose-300'}`}>

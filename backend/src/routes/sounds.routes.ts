@@ -78,6 +78,7 @@ router.get('/coverage', authenticate, async (_req: Request, res: Response) => {
       id: soundEffects.id, name: soundEffects.name, filename: soundEffects.filename,
       isActive: soundEffects.isActive, eventKeys: soundEffects.eventKeys,
       sizeBytes: soundEffects.sizeBytes, updatedAt: soundEffects.updatedAt,
+      durations: soundEffects.durations,
     }).from(soundEffects);
 
     // 🏁 لكلّ مفتاح: الفائزُ (أحدثُ فعّالٍ تعييناً) + البدائلُ (كلُّ ملفٍّ آخر يحمل المفتاح).
@@ -87,16 +88,19 @@ router.get('/coverage', authenticate, async (_req: Request, res: Response) => {
     for (const r of rows) for (const k of ((r.eventKeys as string[]) || [])) (byKey[k] ||= []).push(r);
     const ts = (r: Row) => (r.updatedAt ? new Date(r.updatedAt as any).getTime() : 0);
     const brief = (r: Row) => ({ id: r.id, name: r.name, filename: r.filename, isActive: !!r.isActive, sizeBytes: r.sizeBytes || 0 });
-    const coverage: Record<string, { winner: ReturnType<typeof brief> | null; alternatives: ReturnType<typeof brief>[]; others: number; id?: number; name?: string; filename?: string; isActive?: boolean }> = {};
+    const coverage: Record<string, { winner: ReturnType<typeof brief> | null; alternatives: ReturnType<typeof brief>[]; others: number; durationMs?: number | null; id?: number; name?: string; filename?: string; isActive?: boolean }> = {};
     for (const [k, list] of Object.entries(byKey)) {
       const active = list.filter(r => r.isActive).sort((a, b) => ts(b) - ts(a) || b.id - a.id);
       const winner = active[0] || null;
       const alternatives = list.filter(r => !winner || r.id !== winner.id).sort((a, b) => ts(b) - ts(a));
       // الحقولُ المسطّحة (id/name/…) للتوافق مع واجهةٍ تقرأ الشكل القديم
+      // مدّةُ هذا الحدثِ من الملفِّ الفائز — لا من ملفٍّ آخرَ يحمل المفتاح
+      const wd = Number(((winner?.durations as Record<string, unknown>) || {})[k]);
       coverage[k] = {
         winner: winner ? brief(winner) : null,
         alternatives: alternatives.map(brief),
         others: alternatives.length,
+        durationMs: Number.isFinite(wd) && wd > 0 ? Math.round(wd) : null,
         ...(winner ? brief(winner) : (alternatives[0] ? brief(alternatives[0]) : {})),
       };
     }
@@ -119,6 +123,7 @@ router.get('/active-map', async (_req: Request, res: Response) => {
       filename: soundEffects.filename,
       eventKeys: soundEffects.eventKeys,
       updatedAt: soundEffects.updatedAt,
+      durations: soundEffects.durations,
       id: soundEffects.id,
     })
     .from(soundEffects)
@@ -133,14 +138,21 @@ router.get('/active-map', async (_req: Request, res: Response) => {
     });
     // بناء الخريطة: { eventKey: "/uploads/sounds/filename.mp3" }
     const map: Record<string, string> = {};
+    // ⏱ المدّةُ تتبع الملفَّ الفائزَ نفسَه: مدّةُ ملفٍّ مهزومٍ على المفتاح لا تُطبَّق
+    //    على الملفّ الذي يُسمع فعلاً — وإلّا قُطع المقطعُ بمدّةِ مقطعٍ آخر.
+    const durations: Record<string, number> = {};
     for (const row of rows) {
       const keys = (row.eventKeys as string[]) || [];
+      const d = (row.durations as Record<string, unknown>) || {};
       for (const key of keys) {
         map[key] = `/uploads/sounds/${row.filename}`;
+        const ms = Number(d?.[key]);
+        if (Number.isFinite(ms) && ms > 0) durations[key] = Math.round(ms);
+        else delete durations[key];   // الفائزُ بلا مدّة يمسح مدّةَ المهزوم
       }
     }
 
-    res.json({ success: true, map });
+    res.json({ success: true, map, durations });
   } catch (err: any) {
     console.error('❌ Failed to fetch active sound map:', err.message);
     res.json({ success: true, map: {} });
@@ -216,7 +228,7 @@ router.put('/:id', authenticate, async (req: Request, res: Response) => {
 
   try {
     const id = parseInt(req.params.id);
-    const { name, eventKeys } = req.body;
+    const { name, eventKeys, durations } = req.body;
 
     const updates: any = {};
     if (name !== undefined) updates.name = name;
@@ -224,6 +236,19 @@ router.put('/:id', authenticate, async (req: Request, res: Response) => {
       updates.eventKeys = eventKeys;
       // تعيينٌ جديد ⇒ هذا الملفّ هو الأحدث على مفاتيحه (لا نزعَ من غيره)
       updates.updatedAt = new Date();
+    }
+    if (durations !== undefined) {
+      // ⏱ تنقيةٌ صارمة: أرقامٌ موجبةٌ فقط بمفاتيحَ نصّيّة — الصفرُ والسالبُ وNaN تعني «كاملاً»
+      const clean: Record<string, number> = {};
+      if (durations && typeof durations === 'object') {
+        for (const [k, v] of Object.entries(durations as Record<string, unknown>)) {
+          const ms = Number(v);
+          if (typeof k === 'string' && k && Number.isFinite(ms) && ms > 0) {
+            clean[k] = Math.min(600000, Math.round(ms));   // سقفٌ عشرُ دقائق
+          }
+        }
+      }
+      updates.durations = clean;
     }
 
     if (Object.keys(updates).length === 0) {

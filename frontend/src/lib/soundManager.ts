@@ -15,6 +15,17 @@ let ambientAudio: HTMLAudioElement | null = null;
 let ambientKey: string | null = null;
 /** مستوى الفراش كما أرسله الموجّه — تُعيده `retryAmbient` بدل حسابه محلّيّاً. */
 let ambientVol: number | null = null;
+/**
+ * المفتاح الذي **يريده** الموجّه للقاعة — مستقلٌّ عن كتم جهازه وعن وجود الملفّ محلّيّاً.
+ * 🔴 `ambientKey` يسقط حين يكتم الموجّه جهازه (setLocalMuted توقف فراشه)، فكان مقبضُ
+ *    المستوى يصمت عن القاعة كلّها لأنّه يفحص ما يعزفه الجهاز لا ما يريده للقاعة.
+ */
+let intendedAmbientKey: string | null = null;
+/** مدّة التشغيل القصوى لكلّ مفتاح (مللي ثانية) — من لوحة الأصوات؛ غيابها = المقطع كاملاً. */
+let customSoundDur: Record<string, number> = {};
+/** فراشٌ مقطوعُ المدّة انتهى — لا يُعاد عند اللمسة ولا عند وصول الخريطة. */
+let ambientDone = false;
+let ambientCapTimer: ReturnType<typeof setTimeout> | null = null;
 
 // ── الأصوات المقطعية الجارية (one-shot) — تُتعقَّب ليمكن إيقافها (مثل أغنية الفوز عند العودة للوبي) ──
 const oneShotAudios: Set<HTMLAudioElement> = new Set();
@@ -133,43 +144,97 @@ export function primeAudio(): void {
 // 📥 تحميل خريطة الأصوات المخصصة من السيرفر
 // يُستدعى مرة واحدة عند فتح شاشة العرض
 // ══════════════════════════════════════════════════════
+let loadAttempt = 0;
+let loadRetryTimer: ReturnType<typeof setTimeout> | null = null;
 export async function loadSoundMap(): Promise<void> {
   if (isLoaded) return;
   try {
     const res = await fetch(`${API_URL}/api/sounds/active-map`);
     const data = await res.json();
-    if (data.success && data.map) {
-      customSoundMap = data.map;
-
-      // Pre-load كل الملفات الصوتية
-      for (const [key, url] of Object.entries(customSoundMap)) {
-        try {
-          const fullUrl = `${API_URL}${url}`;
-          const audio = new Audio(fullUrl);
-          audio.preload = 'auto';
-          audio.load();
-          preloadedAudios[key] = audio;
-        } catch {}
-      }
-
-      const count = Object.keys(customSoundMap).length;
-      if (count > 0) {
-        console.log(`🔊 SoundManager: Loaded ${count} custom sound(s)`);
+    if (!data?.success) throw new Error('active-map: success=false');
+    const nextMap: Record<string, string> = (data.map && typeof data.map === 'object') ? data.map : {};
+    const nextPre: Record<string, HTMLAudioElement> = {};
+    // Pre-load كل الملفات الصوتية
+    for (const [key, url] of Object.entries(nextMap)) {
+      try {
+        const audio = new Audio(`${API_URL}${url}`);
+        audio.preload = 'auto';
+        audio.load();
+        nextPre[key] = audio;
+      } catch {}
+    }
+    // 🔴 التبديل بعد اكتمال البناء: كانت الخريطة تُفرَّغ قبل الجلب، فبين الطلب وردّه
+    //    نافذةٌ يصل فيها صوتٌ من الموجّه إلى خريطةٍ فارغة ويضيع.
+    customSoundMap = nextMap;
+    preloadedAudios = nextPre;
+    customSoundDur = {};
+    if (data.durations && typeof data.durations === 'object') {
+      for (const [k, v] of Object.entries(data.durations as Record<string, unknown>)) {
+        const n = Number(v);
+        if (Number.isFinite(n) && n > 0) customSoundDur[k] = n;
       }
     }
+    isLoaded = true;
+    loadAttempt = 0;
+    const count = Object.keys(customSoundMap).length;
+    if (count > 0) console.log(`🔊 SoundManager: Loaded ${count} custom sound(s)`);
+    resumePendingAmbient();
   } catch (err) {
-    console.warn('⚠️ SoundManager: Failed to load custom sounds', err);
+    // 🔴 كان الفشلُ يُعلَّم «محمَّلاً»: عثرةُ شبكةٍ واحدة عند فتح الشاشة تُبقيها
+    //    بخريطةٍ فارغة طوال الليلة — كلُّ ما يصل من الموجّه بلا ملفٍّ فصامت.
+    //    الآن يُعاد الجلبُ بتصاعدٍ (٢ث…٣٠ث) حتى ينجح، ويُستأنف الفراشُ المعلّق.
+    loadAttempt++;
+    const delay = Math.min(30000, 2000 * 2 ** Math.min(loadAttempt - 1, 4));
+    console.warn(`⚠️ SoundManager: فشل تحميل الخريطة — إعادة بعد ${delay}ms`, err);
+    if (loadRetryTimer) clearTimeout(loadRetryTimer);
+    loadRetryTimer = setTimeout(() => { loadRetryTimer = null; void loadSoundMap(); }, delay);
   }
-  isLoaded = true;
+}
+
+/**
+ * فراشٌ طُلب قبل وصول الخريطة (أو رُفض تشغيلُه) يُعاد فورَ توفّر ملفّه — بمستوى الموجّه.
+ * تتجاوز بوّابة التشغيل المحلّيّ كما تفعل applyRemoteSound: الشاشةُ لا تُقرّر، لكنّها تُنفّذ ما قُرّر.
+ */
+function resumePendingAmbient(): void {
+  if (!ambientKey || localMuted || ambientDone) return;
+  if (ambientAudio && !ambientAudio.paused) return;
+  if (!customSoundMap[ambientKey]) return;
+  const prev = volOverride;
+  volOverride = ambientVol;
+  try { _playAmbientSound(ambientKey); } finally { volOverride = prev; }
+}
+
+/** المدّة المضبوطة لمفتاح (مللي ثانية) أو null = المقطع كاملاً. */
+export function soundDuration(eventKey: string): number | null {
+  const d = customSoundDur[eventKey];
+  return d && d > 0 ? d : null;
+}
+
+/** يوقف العنصر بعد المدّة المضبوطة للمفتاح — بخفضٍ قصير كي لا يُقطع بحدّة. */
+function applyDurationCap(a: HTMLAudioElement, eventKey: string): void {
+  const cap = customSoundDur[eventKey];
+  if (!cap || cap <= 0) return;
+  const FADE = 180, STEPS = 6;
+  setTimeout(() => {
+    const v0 = a.volume;
+    let i = 0;
+    const iv = setInterval(() => {
+      i++;
+      try { a.volume = clampVol(v0 * (1 - i / STEPS)); } catch { /* تجاهل */ }
+      if (i >= STEPS) {
+        clearInterval(iv);
+        try { a.pause(); a.currentTime = 0; } catch { /* تجاهل */ }
+        oneShotAudios.delete(a);
+      }
+    }, FADE / STEPS);
+  }, Math.max(0, cap - FADE));
 }
 
 // ══════════════════════════════════════════════════════
 // 🔄 إعادة تحميل الخريطة (عند تحديث الأصوات من الأدمن)
 // ══════════════════════════════════════════════════════
 export async function reloadSoundMap(): Promise<void> {
-  isLoaded = false;
-  customSoundMap = {};
-  preloadedAudios = {};
+  isLoaded = false;   // الخريطةُ القديمة تبقى حتى تصل الجديدة — لا نافذةَ صمت
   await loadSoundMap();
 }
 
@@ -266,19 +331,35 @@ export function setSoundLevel(cat: SoundCategory, v: number): void {
  * يخفض صوتاً يزاحم الطاولة الآن. ويُبَثّ للقاعة فتتغيّر معه.
  */
 function syncAmbientVolume(cat?: SoundCategory): void {
+  // 🔴 البثُّ أوّلاً وعلى ما **يريده** الموجّه للقاعة: كان مشروطاً بـ ambientAudio
+  //    المحلّيّ، وكتمُ جهازه يُسقطه — فمقبضٌ يعمل والجهاز مسموع، ويصمت وهو مكتوم.
+  const hallKey = intendedAmbientKey ?? ambientKey;
+  if (hallKey && (!cat || categoryOf(hallKey) === cat)) {
+    mirrorEmit?.({ fn: 'setAmbientVolume', args: [], vol: resolveVol(hallKey) * AMBIENT_BASE });
+  }
   if (!ambientKey || !ambientAudio) return;
   if (cat && categoryOf(ambientKey) !== cat) return;
-  const v = resolveVol(ambientKey) * AMBIENT_BASE;
-  try { ambientAudio.volume = Math.max(0, Math.min(1, v)); } catch { /* تجاهل */ }
-  mirrorEmit?.({ fn: 'setAmbientVolume', args: [], vol: v });
+  try { ambientAudio.volume = clampVol(resolveVol(ambientKey) * AMBIENT_BASE); } catch { /* تجاهل */ }
 }
 
-/** يُطبّق مستوى الموجّه على فراش الشاشة الجاري. */
+/** يُطبّق مستوى الموجّه على فراش الشاشة الجاري — ويحفظه مرجعاً للخفض والاستئناف. */
 function _setAmbientVolume(): void {
-  if (!ambientAudio) return;
   const v = volOverride;
   if (typeof v !== 'number') return;
-  try { ambientAudio.volume = Math.max(0, Math.min(1, v)); } catch { /* تجاهل */ }
+  ambientVol = v;
+  if (!ambientAudio) return;
+  try { ambientAudio.volume = clampVol(v); } catch { /* تجاهل */ }
+}
+
+/**
+ * مستوى الفراش المرجعيّ للخفض والرفع التلقائيَّين.
+ * 🔴 على الشاشة التابعة هو **ما أرسله الموجّه** لا حسابُها: مستوى الموجّه يركب رسالةَ
+ *    التشغيل وحدها، فكان الرفعُ بعد كلّ صوتِ حدثٍ يُعيد فراشَ القاعة إلى افتراضيّات
+ *    الشاشة — والموجّه يرى مقبضه على ٣٠٪ والقاعة تسمع ٧٠٪ «أحياناً».
+ */
+function ambientBaseVol(): number {
+  if (!localPlaybackEnabled && ambientVol != null) return ambientVol;
+  return ambientKey ? resolveVol(ambientKey) : 0;
 }
 
 export function resetSoundLevels(): void {
@@ -323,6 +404,7 @@ function _playGameSound(eventKey: string): void {
         clone.volume = vol;
         trackOneShot(clone);
         clone.play().catch(() => {});
+        applyDurationCap(clone, eventKey);
         return;
       }
       // Fallback: تحميل مباشر
@@ -330,6 +412,7 @@ function _playGameSound(eventKey: string): void {
       newAudio.volume = vol;
       trackOneShot(newAudio);
       newAudio.play().catch(() => {});
+      applyDurationCap(newAudio, eventKey);
       return;
     } catch {}
   }
@@ -343,6 +426,7 @@ function _playGameSound(eventKey: string): void {
 // ══════════════════════════════════════════════════════
 export function playAmbientSound(eventKey: string): void {
   if (!localPlaybackEnabled) return;
+  intendedAmbientKey = eventKey;
   mirrorEmit?.({ fn: 'playAmbientSound', args: [eventKey], vol: resolveVol(eventKey) });
   if (!localMuted) _playAmbientSound(eventKey);
 }
@@ -353,12 +437,14 @@ function _playAmbientSound(eventKey: string): void {
   //    تامّ، كلَّ ليلة. الآن: فراشٌ بلا ملفٍّ = «أبقِ ما يعمل»، لا «أسكِت الجميع».
   //    وإن لم يكن شيءٌ يعمل يُسجَّل المفتاحُ فقط كي تعيده retryAmbient إن رُفع ملفٌّ لاحقاً.
   if (!customSoundMap[eventKey]) {
-    if (!ambientAudio) ambientKey = eventKey;
+    // يُسجَّل المستوى معه كي يُستأنف بمستوى الموجّه حين تصل الخريطة (resumePendingAmbient)
+    if (!ambientAudio) { ambientKey = eventKey; ambientVol = resolveVol(eventKey); ambientDone = false; }
     return;
   }
 
   // إيقاف أي صوت خلفي سابق
   _stopAmbientSound();
+  ambientDone = false;
 
   if (customSoundMap[eventKey]) {
     try {
@@ -373,6 +459,17 @@ function _playAmbientSound(eventKey: string): void {
         ambientVol = resolveVol(eventKey);
         audio.volume = clampVol(ambientVol * AMBIENT_BASE);
       } catch { /* يبقى الافتراضيّ */ }
+      // ⏱ مدّةٌ مضبوطة للفراش = يُعزف مرّةً ثمّ يسكت — لا حلقة ولا استئناف
+      const cap = customSoundDur[eventKey];
+      if (cap && cap > 0) {
+        audio.loop = false;
+        ambientCapTimer = setTimeout(() => {
+          ambientCapTimer = null;
+          if (ambientAudio !== audio) return;
+          try { audio.pause(); } catch { /* تجاهل */ }
+          ambientDone = true;
+        }, cap);
+      }
       audio.play().catch(() => {});
       return;
     } catch {}
@@ -395,7 +492,7 @@ function _playAmbientSound(eventKey: string): void {
  *    ومتوقّفاً، فاختبارُ الوجود وحده كان سيراه «يعمل».
  */
 export function retryAmbient(): boolean {
-  if (!ambientKey || localMuted) return false;
+  if (!ambientKey || localMuted || ambientDone) return false;
   if (ambientAudio && !ambientAudio.paused) return false;
   // 🔴 يُعاد بمستوى الموجّه لا بحساب الشاشة: هي جهازٌ آخر بلا إعداداته،
   //    ولو حسبت بنفسها لعادت القاعةُ بمستوىً غير الذي ضُبط لها.
@@ -410,10 +507,13 @@ export function retryAmbient(): boolean {
 // ══════════════════════════════════════════════════════
 export function stopAmbientSound(): void {
   if (!localPlaybackEnabled) return;
+  intendedAmbientKey = null;
   mirrorEmit?.({ fn: 'stopAmbientSound', args: [] });
   if (!localMuted) _stopAmbientSound();
 }
 function _stopAmbientSound(): void {
+  if (ambientCapTimer) { clearTimeout(ambientCapTimer); ambientCapTimer = null; }
+  ambientDone = false;
   if (ambientAudio) {
     ambientAudio.pause();
     ambientAudio.currentTime = 0;
@@ -451,7 +551,7 @@ function _duckAmbient(): void {
   // 🔴 نسبةٌ من مستوى الفئة لا رقمٌ مطلق: من خفض الخلفيّة إلى ١٠٪
   //    كان الخفض التلقائيّ **يرفعها** إلى 0.08 بدل أن يخفضها.
   if (ambientAudio && ambientKey) {
-    ambientAudio.volume = clampVol(resolveVol(ambientKey) * AMBIENT_BASE * AMBIENT_DUCK);
+    ambientAudio.volume = clampVol(ambientBaseVol() * AMBIENT_BASE * AMBIENT_DUCK);
   }
 }
 
@@ -462,7 +562,7 @@ export function unduckAmbient(): void {
 }
 function _unduckAmbient(): void {
   if (ambientAudio && ambientKey) {
-    ambientAudio.volume = clampVol(resolveVol(ambientKey) * AMBIENT_BASE);
+    ambientAudio.volume = clampVol(ambientBaseVol() * AMBIENT_BASE);
   }
 }
 
@@ -481,8 +581,10 @@ function _playEventSound(eventKey: string, durationMs: number = 3000): void {
   // تشغيل صوت الحدث
   _playGameSound(eventKey);
 
-  // إعادة الخلفية بعد المدة
-  setTimeout(() => _unduckAmbient(), durationMs);
+  // إعادة الخلفية بعد المدة — أو بعد مدّة المقطع المضبوطة إن كانت أقصر (متّسقةٌ مع القطع)
+  const cap = customSoundDur[eventKey];
+  const hold = cap && cap > 0 ? Math.min(cap, durationMs) : durationMs;
+  setTimeout(() => _unduckAmbient(), hold);
 }
 
 // ══════════════════════════════════════════════════════
@@ -544,6 +646,7 @@ export function playNightStepAmbient(stepType: string): void {
   // 🔴 المستوى يُرسَل معه كبقيّة الأصوات: كان يُبثّ عارياً فتحسبه الشاشة
   //    بمقابضها هي لا بمقابض الموجّه — فينفلت فراشُ الخطوة وحده من المازج.
   const stepKey = NIGHT_STEP_AMBIENT_MAP[stepType.toUpperCase()];
+  if (stepKey && customSoundMap[stepKey]) intendedAmbientKey = stepKey;   // بلا ملفٍّ يبقى الجاري
   mirrorEmit?.({ fn: 'playNightStepAmbient', args: [stepType], vol: stepKey ? resolveVol(stepKey) : undefined });
   if (!localMuted) _playNightStepAmbient(stepType);
 }
@@ -1358,3 +1461,20 @@ export function previewAmbient(eventKey: string, ms = 3000): void {
     setTimeout(() => { try { a.pause(); a.currentTime = 0; oneShotAudios.delete(a); } catch { /* تجاهل */ } }, ms);
   } catch { /* تجاهل */ }
 }
+
+// ══════════════════════════════════════════════════════
+// 🧪 نافذةُ تشخيصٍ للاختبار الحيّ — تُقرأ من Playwright عبر window.__mafiaSoundDebug()
+// ══════════════════════════════════════════════════════
+export function getSoundDebug(): Record<string, unknown> {
+  return {
+    follower: !localPlaybackEnabled, muted: localMuted, loaded: isLoaded,
+    mapKeys: Object.keys(customSoundMap).length,
+    ambientKey, intendedAmbientKey, ambientVol, ambientDone,
+    ambientSrc: ambientAudio?.src ?? null,
+    ambientPlaying: !!ambientAudio && !ambientAudio.paused,
+    ambientVolume: ambientAudio?.volume ?? null,
+    ambientLoop: ambientAudio?.loop ?? null,
+    levels: { ...levels }, durations: { ...customSoundDur }, oneShots: oneShotAudios.size,
+  };
+}
+if (typeof window !== 'undefined') (window as any).__mafiaSoundDebug = getSoundDebug;

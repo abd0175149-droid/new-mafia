@@ -1,0 +1,14 @@
+{
+  "name": "mafia-e2e-sound",
+  "private": true,
+  "type": "module",
+  "version": "1.0.0",
+  "scripts": {
+    "browser": "node browser-sound.mjs",
+    "relay": "node ../backend/src/scripts/e2e-sound-relay.mjs"
+  },
+  "dependencies": {
+    "playwright": "^1.55.0",
+    "socket.io-client": "^4.8.3"
+  }
+}
