@@ -1,6 +1,7 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
+import { useRouter } from 'next/navigation';
 import { motion, AnimatePresence } from 'framer-motion';
 import { usePlayer } from '@/context/PlayerContext';
 import Image from 'next/image';
@@ -9,7 +10,8 @@ import AndroidAppButton from '@/components/AndroidAppButton';
 type Mode = 'welcome' | 'login' | 'register' | 'change_password';
 
 export default function LoginPage() {
-  const { setPlayer } = usePlayer();
+  const { player, isLoading, setPlayer } = usePlayer();
+  const router = useRouter();
   const [mode, setMode] = useState<Mode>('welcome');
   const [phone, setPhone] = useState('');
   const [password, setPassword] = useState('');
@@ -21,6 +23,18 @@ export default function LoginPage() {
   const [tempToken, setTempToken] = useState('');
   const [tempPlayer, setTempPlayer] = useState<any>(null);
   const [welcomeBonus, setWelcomeBonus] = useState<{ show: boolean; amount: number; playerData: any; token: string }>({ show: false, amount: 0, playerData: null, token: '' });
+
+  // 🔴 التوجيه بعد الدخول يعيش هنا لا في تخطيط اللاعب.
+  //    كان في PlayerLayoutBody، لكنّ بوّابةَ الموافقة (ac5a1f8) صارت تقصُر
+  //    المساراتِ العامّة قبل تركيب الجسم — فلم يعد ذلك التأثير يُركَّب على صفحة
+  //    الدخول أصلاً، فنجح الدخولُ صامتاً وبقي المستخدِم أمام النموذج بلا رسالة.
+  //    القصرُ نفسُه صحيح (لا حسابَ بعدُ لتُؤخذ موافقتُه)، فالمكانُ الصحيح للتوجيه
+  //    هو الصفحةُ التي تملك الجلسةَ لحظةَ نشوئها.
+  //    وشرطٌ واحدٌ يغطّي المداخل الأربعة: الدخول · التسجيل · تغيير كلمة المرور
+  //    الإجباريّ · متابعة المكافأة الترحيبيّة — كلُّها تنتهي بـsetPlayer.
+  useEffect(() => {
+    if (!isLoading && player) router.replace('/player/home');
+  }, [player, isLoading, router]);
 
   const handleLogin = async () => {
     if (!phone || !password) return setError('أدخل رقم الهاتف وكلمة المرور');
@@ -41,7 +55,10 @@ export default function LoginPage() {
       }
 
       // هل يحتاج تغيير كلمة المرور؟
-      if (data.mustChangePassword) {
+      // 🔴 من data.player لا من جذر الردّ: الخادم يضعها داخل player
+      //    (player-auth.routes.ts)، فكان الشرطُ يقرأ undefined دائماً ويتخطّى
+      //    الشاشةَ الإجباريّة لـ٨٩ لاعباً موسومين بها على الإنتاج.
+      if (data.player?.mustChangePassword) {
         setTempToken(data.token);
         setTempPlayer(data.player);
         setMode('change_password');

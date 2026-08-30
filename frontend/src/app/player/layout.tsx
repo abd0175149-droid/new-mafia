@@ -130,10 +130,9 @@ function PlayerLayoutBody({ children }: { children: React.ReactNode }) {
     if (!player && !isPublic) {
       router.replace('/player/login');
     }
-
-    if (player && isPublic && pathname === '/player/login') {
-      router.replace('/player/home');
-    }
+    // 🔴 لا توجيهَ من الدخول إلى الهوم هنا: PlayerLayoutInner يقصُر المساراتِ
+    //    العامّة فلا يُركَّب هذا الجسمُ على /player/login إطلاقاً — وشرطٌ هنا
+    //    يبدو أنّه يعمل وهو ميّت أخطرُ من غيابه. التوجيهُ في صفحة الدخول نفسها.
   }, [player, isLoading, isPublic, isGamePage, router]);
 
   // ── توجيه دقيق عند فتح التطبيق من إشعار في حالة الفتح البارد ──
