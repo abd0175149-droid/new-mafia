@@ -330,6 +330,10 @@ router.get('/activities/upcoming', async (req: Request, res: Response) => {
       maxCapacity: activities.maxCapacity,
       difficulty: activities.difficulty,
       enabledOfferIds: activities.enabledOfferIds,
+      // 🗓️ برنامج الليلة كما كتبه الأدمن — يعرضه اللاعب ليعرف متى يحضر.
+      //    خطّةٌ مكتوبة لا تُشتقّ من الغرف (انظر تعليق العمود في المخطّط)،
+      //    وقد يكون فارغاً فتختفي القائمة عند اللاعب.
+      gameSchedule: activities.gameSchedule,
       locationName: locations.name,
       locationRegion: locations.region,
       locationMapUrl: locations.mapUrl,

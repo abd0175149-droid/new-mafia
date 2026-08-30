@@ -32,6 +32,8 @@ function GamesContent() {
   const [bookingLoading, setBookingLoading] = useState<number | null>(null);
   const [followingBookers, setFollowingBookers] = useState<Record<number, any[]>>({});
   const [showBookersFor, setShowBookersFor] = useState<number | null>(null);
+  // 🗓️ أيّ فعاليّةٍ جدولُها مفتوح — واحدٌ في كلّ مرّة كنمط قائمة الحاجزين
+  const [showScheduleFor, setShowScheduleFor] = useState<number | null>(null);
   const [selectedDate, setSelectedDate] = useState<string | null>(null); // null = الكل
   const [selectedActivity, setSelectedActivity] = useState<any>(null);
   const [confirmBooking, setConfirmBooking] = useState<any>(null);
@@ -478,6 +480,61 @@ function GamesContent() {
                         </AnimatePresence>
                       </div>
                     )}
+
+                    {/* ── 🗓️ جدول الليلة — يختفي كلّيّاً إن لم يُدخِله الأدمن ── */}
+                    {(() => {
+                      const slots = Array.isArray(act.gameSchedule) ? act.gameSchedule : [];
+                      if (slots.length === 0) return null;   // لا جدول ⇒ لا زرّ
+                      const open = showScheduleFor === act.id;
+                      const gamesN = slots.filter((x: any) => x?.kind !== 'break').length;
+                      return (
+                        <div className="mt-3">
+                          <button
+                            onClick={() => setShowScheduleFor(open ? null : act.id)}
+                            aria-expanded={open}
+                            className="flex items-center gap-2 w-full text-right"
+                          >
+                            <span className="text-[13px]">🗓️</span>
+                            <span className="text-[11px] text-sky-300/90">
+                              جدول الليلة — {gamesN} {gamesN === 1 ? 'لعبة' : gamesN === 2 ? 'لعبتان' : 'ألعاب'}
+                            </span>
+                            <span className="text-gray-600 text-[10px] mr-auto">{open ? '▲' : '▼'}</span>
+                          </button>
+
+                          <AnimatePresence>
+                            {open && (
+                              <motion.div
+                                initial={{ height: 0, opacity: 0 }}
+                                animate={{ height: 'auto', opacity: 1 }}
+                                exit={{ height: 0, opacity: 0 }}
+                                className="overflow-hidden"
+                              >
+                                <div className="mt-2.5 pt-2.5 border-t border-white/[0.06] space-y-1.5">
+                                  {slots.map((sl: any, si: number) => {
+                                    const isBreak = sl?.kind === 'break';
+                                    // ترقيمُ الألعاب بترتيبها بينها وحدها — كما في محرّر الأدمن
+                                    const n = slots.slice(0, si + 1).filter((x: any) => x?.kind !== 'break').length;
+                                    return (
+                                      <div key={si} className={`flex items-center gap-2.5 rounded-lg px-2.5 py-1.5 ${isBreak ? 'bg-white/[0.02] border border-dashed border-white/10' : 'bg-white/[0.04]'}`}>
+                                        <span className={`w-5 h-5 rounded-md flex items-center justify-center text-[10px] shrink-0 ${isBreak ? 'text-gray-500' : 'bg-sky-500/15 text-sky-300 font-bold'}`}>
+                                          {isBreak ? '☕' : n}
+                                        </span>
+                                        <span className={`text-[12px] truncate flex-1 ${isBreak ? 'text-gray-500' : 'text-gray-200'}`}>
+                                          {sl?.label || (isBreak ? 'استراحة' : 'لعبة')}
+                                        </span>
+                                        <span className="text-[11px] text-gray-400 tabular-nums shrink-0" dir="ltr">
+                                          {sl?.start || '—'} – {sl?.end || '—'}
+                                        </span>
+                                      </div>
+                                    );
+                                  })}
+                                </div>
+                              </motion.div>
+                            )}
+                          </AnimatePresence>
+                        </div>
+                      );
+                    })()}
 
                     {/* ── الغرف المفتوحة ── */}
                     {booked && activeRoomsMap[act.id] && activeRoomsMap[act.id].length > 0 && (
