@@ -12,7 +12,10 @@ import { players } from '../../schemas/player.schema.js';
 import { num } from '../helpers.js';
 
 // الحالة الثنائيّة كما في صفحة المتابعة: pending = غير مثبّت، وما عداها (confirmed + paid_all القديمة) = مثبّت
-const isConfirmed = (status: string) => status !== 'pending';
+// 🔴 كان `status !== 'pending'` فيعدّ قائمةَ الانتظار مثبّتة — والشاشةُ تعدّها
+//    غيرَ مثبّتة. رقمٌ على الورق يخالف الرقمَ على الشاشة.
+import { isConfirmedStatus, statusLabelAr } from '../../lib/reservation-status.js';
+const isConfirmed = (status: string) => isConfirmedStatus(status);
 
 export const reservationRosterReport: ReportDefinition = {
   key: 'reservation-roster',
@@ -99,7 +102,7 @@ export const reservationRosterReport: ReportDefinition = {
             contactName: r.contactName,
             phone: r.phone || '—',
             peopleCount: num(r.peopleCount) || 1,
-            statusAr: `${isConfirmed(r.status) ? 'مثبّت' : 'غير مثبّت'}${r.appConfirmed ? ' (تطبيق)' : ''}`,
+            statusAr: `${statusLabelAr(r.status)}${r.appConfirmed ? ' (تطبيق)' : ''}`,
             attendedAr: r.attended === true ? 'حضر' : r.attended === false ? 'لم يحضر' : '—',
             linkedAr: r.linkedPlayerName ? '✓ مرتبط' : '—',
             notes: r.notes || '',

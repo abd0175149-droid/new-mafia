@@ -479,7 +479,9 @@ export default function AdminLayout({ children }: { children: ReactNode }) {
 
       {/* Main Content */}
       <main
-        className="flex-1 transition-all duration-300"
+        // min-w-0: بدونها يتمدّد عنصرُ الفليكس بعرضِ أعرضِ محتوًى داخله،
+        // فشريطُ شرائحَ أفقيٌّ في أيّ صفحة يجرّ اللوحةَ كلَّها لتمريرٍ جانبيّ
+        className="flex-1 min-w-0 transition-all duration-300"
         style={{ 
           marginRight: isMobile ? 0 : (sidebarOpen ? 260 : 72),
           paddingTop: isMobile ? 56 : 0,

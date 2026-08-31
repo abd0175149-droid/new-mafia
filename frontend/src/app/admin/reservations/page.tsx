@@ -1,68 +1,50 @@
 'use client';
 
-import { useEffect, useState, useMemo, useCallback, useRef } from 'react';
-import { saveFile, isIOS, isStandalone } from '@/lib/saveFile';
+// ══════════════════════════════════════════════════════
+// 📋 متابعة الحجوزات — مرجعُ التصميم هو الهاتف
+//
+// الصفحةُ تُستعمل من داخل WebView في تطبيق الموظّفين. وكانت مصمّمةً كجدول
+// إدارةٍ مُصغَّر، فقِيست على ٣٩٠×٨٤٤ فظهر:
+//   • فائضٌ أفقيٌّ ١٤٠ بكسل — صفُّ رأسٍ بستّة أزرارٍ بلا التفافٍ ولا تمرير،
+//     و«＋ حجز سريع» عند `left: −140` أيْ خارج الشاشة تماماً.
+//   • «عبدالرزاق الخطيب» يُقصّ إلى «عبدا…» لأنّ خمسَ شاراتٍ لا تنكمش والاسمَ
+//     وحده يملك `truncate`.
+//   • صفر من ٢٣ زرّاً يبلغ ٤٤ بكسل. أصغرها ٣٠×٣١.
+//   • ١٧٥ بكسل للحجز الواحد ⇒ ثماني شاشاتٍ لواحدٍ وثلاثين حجزاً.
+//
+// فالبنيةُ الآن: رأسٌ ثابتٌ فيه الاسمُ وشريطُ التقدّم والبحثُ والشرائح ·
+// صفوفٌ ٧٦ بكسل تُسحب لتعليم الحضور · وأوراقٌ سفليّة لكلّ فعل ·
+// وشريطٌ في قوس الإبهام. والأدواتُ الموسميّة في «⋯».
+//
+// ⚠️ لا قدرةَ حُذفت — كلُّ فعلٍ كان موجوداً له موضعٌ جديد.
+// ══════════════════════════════════════════════════════
+
+import { useCallback, useMemo, useState } from 'react';
+import Link from 'next/link';
 import { motion, AnimatePresence } from 'framer-motion';
-import { swalConfirm } from '@/lib/swal';
-import { openWhatsApp, fillTemplate, ensureHttp, type TemplateVar } from '@/lib/whatsapp';
+import { saveFile, isIOS, isStandalone } from '@/lib/saveFile';
+import { fillTemplate, ensureHttp, type TemplateVar } from '@/lib/whatsapp';
 import MessageTemplateEditor from '@/components/MessageTemplateEditor';
+import { swalConfirm } from '@/lib/swal';
+import {
+  RES_COLORS, isPending, normPhoneKey, statusMeta,
+} from '@/lib/reservation-status';
+import { useReservations, getToken, type Reservation } from '@/hooks/useReservations';
+import ResRow, { ar } from '@/components/reservations/ResRow';
+import PersonSheet from '@/components/reservations/PersonSheet';
+import QuickAddSheet from '@/components/reservations/QuickAddSheet';
+import { Sheet, SheetHead, ActionRow } from '@/components/reservations/Sheet';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || '';
 
-function getToken() { return typeof window !== 'undefined' ? localStorage.getItem('token') : null; }
-function getUser() { try { return JSON.parse(localStorage.getItem('user') || '{}'); } catch { return {}; } }
-
-async function apiFetch(path: string, opts?: RequestInit) {
-  const token = getToken();
-  const res = await fetch(`${API_URL}${path}`, {
-    ...opts,
-    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}`, ...opts?.headers },
-  });
-  if (!res.ok) {
-    const err = await res.json().catch(() => ({}));
-    throw new Error(err.error || `API error ${res.status}`);
-  }
-  return res.json();
-}
-
-// ── حالة التثبيت: ثنائية مثبّت/غير مثبّت (paid_all القديم يُعامَل كمثبّت) ──
-function isConfirmed(r: any): boolean {
-  return r?.status === 'confirmed' || r?.status === 'paid_all';
-}
-function confirmMeta(confirmed: boolean, waitlist = false) {
-  if (waitlist) {
-    // حجز من البوت والمقاعد لم تكفِ — بانتظار تأكيد الإدارة (لا يُحسب من المقاعد)
-    return { label: 'قائمة انتظار', emoji: '📋', bg: 'bg-violet-500/10', text: 'text-violet-400', border: 'border-violet-500/25', glow: 'shadow-[0_0_12px_rgba(139,92,246,0.15)]' };
-  }
-  return confirmed
-    ? { label: 'مثبّت', emoji: '✅', bg: 'bg-emerald-500/10', text: 'text-emerald-400', border: 'border-emerald-500/25', glow: 'shadow-[0_0_12px_rgba(16,185,129,0.15)]' }
-    : { label: 'غير مثبّت', emoji: '⏳', bg: 'bg-amber-500/10', text: 'text-amber-400', border: 'border-amber-500/25', glow: 'shadow-[0_0_12px_rgba(245,158,11,0.15)]' };
-}
-
-// ── واتساب: تطبيع رقم أردنيّ للصيغة الدوليّة + رسالة تأكيد جاهزة ──
-const WA_COUNTRY = '962';
-function normalizePhoneIntl(raw: string): string | null {
-  let p = String(raw || '').replace(/\D/g, '');
-  if (!p || p.length < 6) return null;
-  if (p.startsWith('00')) p = p.slice(2);
-  if (p.startsWith(WA_COUNTRY)) return p;
-  if (p.startsWith('0')) return WA_COUNTRY + p.slice(1);
-  return WA_COUNTRY + p; // رقم محلّيّ بلا صفر بادئ
-}
-// أرقام فقط بلا صفرٍ بادئ — لمقارنة الهواتف بصرف النظر عن التنسيق
-function normPhoneKey(p: string): string {
-  return String(p || '').replace(/\D/g, '').replace(/^0+/, '');
-}
-/** بيانات الصفّ التي تُغذّي رموز القالب. */
+// ── قالبُ رسالة التأكيد ──
 export interface ResVars {
   name: string; activityName: string; count: number;
   locationName?: string; region?: string; when?: string; mapUrl?: string;
 }
-
-// 📍 المكان والمنطقة ورابط الخريطة ضمن نصّ التأكيد: اسم الفعاليّة وحده لا يدلّ
-// على موقعها، ومن لا يعرف الكافيه يحتاج المنطقة قبل أن يوافق — والرابط يغنيه
-// عن السؤال «وين بالضبط؟». الرابط مخزَّنٌ في بيانات المكان (locations.map_url).
-// الثلاثة موسومةٌ optional: سطرُها يسقط كاملاً إن غابت قيمته.
+// النصُّ الافتراضيّ ومتغيّراتُه — منقولان حرفاً بحرف عن النسخة السابقة.
+// 🔴 القالبُ محفوظٌ على جهاز الموظّف لا على الخادم: كلٌّ يصوغ رسالته بلا أن
+//    يفرضها على غيره. والمفتاحُ نفسُه، فلا يفقد أحدٌ قالبه بهذا التغيير.
 const RES_VARS: TemplateVar<ResVars>[] = [
   { token: '{الاسم}', label: 'الاسم', get: (r) => r.name || '' },
   { token: '{الفعالية}', label: 'الفعاليّة', get: (r) => r.activityName || '' },
@@ -74,7 +56,6 @@ const RES_VARS: TemplateVar<ResVars>[] = [
   { token: '{الموعد}', label: 'الموعد', optional: true, get: (r) => r.when || '' },
 ];
 
-// النصّ الافتراضيّ = الرسالة التي كانت مثبَّتةً في الكود حرفاً بحرف
 const RES_TPL_DEFAULT = [
   'مرحباً {الاسم} 👋',
   'نؤكّد حجزك في «{الفعالية}» لعدد {العدد}.',
@@ -83,1168 +64,392 @@ const RES_TPL_DEFAULT = [
   '🗓️ الموعد: {الموعد}',
   '',
   'يُرجى الردّ على هذه الرسالة لتثبيت الحجز بشكلٍ نهائيّ. بانتظارك! 🎭',
-].join('\n');
+].join(String.fromCharCode(10));
 
-const RES_TPL_KEY = 'reservations_wa_template';
+const TPL_KEY = 'reservations_wa_template';
 
 export default function ReservationsPage() {
-  const user = useMemo(() => getUser(), []);
-
-  // ── Data ──
-  const [reservations, setReservations] = useState<any[]>([]);
-  const [activities, setActivities] = useState<any[]>([]);
-  const [locations, setLocations] = useState<any[]>([]);
-  const [loading, setLoading] = useState(true);
-
-  // ── 🖨️ كشف الحاجزين (PDF/Excel عبر نظام التقارير) ──
-  const [rosterBusy, setRosterBusy] = useState<null | 'pdf' | 'excel'>(null);
-
-  // 💬 قالب رسالة التأكيد — محفوظ على جهاز الموظّف، لا على الخادم:
-  //    كلُّ موظّفٍ يصوغ رسالته كما يحبّ بلا أن يفرضها على غيره.
-  const [waTemplate, setWaTemplate] = useState(RES_TPL_DEFAULT);
+  const R = useReservations();
+  const [sel, setSel] = useState<Reservation | null>(null);
+  const [showAdd, setShowAdd] = useState(false);
+  const [showMore, setShowMore] = useState(false);
   const [showTpl, setShowTpl] = useState(false);
-  useEffect(() => {
-    try { const t = localStorage.getItem(RES_TPL_KEY); if (t) setWaTemplate(t); } catch { /* تجاهل */ }
-  }, []);
-  const saveTemplate = (t: string) => {
-    setWaTemplate(t);
-    try { localStorage.setItem(RES_TPL_KEY, t); } catch { /* تجاهل */ }
-  };
+  const [busy, setBusy] = useState<string | null>(null);
+  const [toast, setToast] = useState<{ text: string; id: number; prev: boolean | null } | null>(null);
 
-  // ── Filters ── (default: no activity selected → don't show reservations)
-  const [filterActivity, setFilterActivity] = useState('');
-  const [filterStatus, setFilterStatus] = useState('all');
-  const [filterSearch, setFilterSearch] = useState('');
-  const [filterAttendance, setFilterAttendance] = useState('all');
+  const [tpl, setTpl] = useState(() => {
+    if (typeof window === 'undefined') return RES_TPL_DEFAULT;
+    return localStorage.getItem(TPL_KEY) || RES_TPL_DEFAULT;
+  });
+  const saveTpl = (v: string) => { setTpl(v); try { localStorage.setItem(TPL_KEY, v); } catch { /* لا شيء */ } };
 
-  // ── Quick Add Form ──
-  const [showForm, setShowForm] = useState(false);
-  const [formName, setFormName] = useState('');
-  const [formContact, setFormContact] = useState('');
-  const [formPhone, setFormPhone] = useState('');
-  const [formCount, setFormCount] = useState(1);
-  const [formNotes, setFormNotes] = useState('');
-  const [formActivity, setFormActivity] = useState('');
-  const [formSubmitting, setFormSubmitting] = useState(false);
-  // 🔗 الربط الذكي باللاعب: اقتراحات أثناء كتابة الاسم/الرقم + مُعرّف اللاعب المربوط
-  const [formPlayerId, setFormPlayerId] = useState<number | null>(null);
-  const [playerSuggest, setPlayerSuggest] = useState<any[]>([]);
-  const [showSuggest, setShowSuggest] = useState(false);
-  const [phoneSuggest, setPhoneSuggest] = useState<any[]>([]);
-  const [showPhoneSuggest, setShowPhoneSuggest] = useState(false);
-  // ⚠️ كشف تكرار الحجز: تمييز الحجز الموجود + رسالة تنبيه
-  const [highlightId, setHighlightId] = useState<number | null>(null);
-  const [dupWarn, setDupWarn] = useState<string>('');
+  const single = R.activityId && R.activityId !== 'all';
 
-  // ── Edit Modal ──
-  const [editing, setEditing] = useState<any | null>(null);
-  const [editName, setEditName] = useState('');
-  const [editContact, setEditContact] = useState('');
-  const [editPhone, setEditPhone] = useState('');
-  const [editCount, setEditCount] = useState(1);
-  const [editNotes, setEditNotes] = useState('');
-  const [editStatus, setEditStatus] = useState('pending');
-  const [editSubmitting, setEditSubmitting] = useState(false);
-
-  // ══ Data Fetching ══
-  const fetchAll = useCallback(async () => {
-    try {
-      const [res, acts, locs] = await Promise.all([
-        apiFetch('/api/reservations'),
-        apiFetch('/api/activities'),
-        apiFetch('/api/locations').catch(() => []),
-      ]);
-      setReservations(res);
-      setActivities(acts);
-      setLocations(Array.isArray(locs) ? locs : []);
-    } catch (err) {
-      console.error('Fetch error:', err);
-    } finally {
-      setLoading(false);
-    }
-  }, []);
-
-  useEffect(() => {
-    fetchAll();
-    const interval = setInterval(fetchAll, 30000);
-    return () => clearInterval(interval);
-  }, [fetchAll]);
-
-  // ══ Activities with reservations (show completed too) ══
-  const activitiesWithReservations = useMemo(() => {
-    // IDs of activities that have at least one reservation
-    const reservedActivityIds = new Set(
-      reservations.map(r => r.activityId).filter(Boolean)
-    );
-    // Show: planned, active, OR completed with existing reservations
-    return activities.filter(a =>
-      a.status === 'planned' || a.status === 'active' ||
-      (a.status === 'completed' && reservedActivityIds.has(a.id))
-    );
-  }, [activities, reservations]);
-
-  // ══ 🎯 الاختيار الافتراضيّ: أقرب فعاليّة قادمة غير منتهية ══
-  //
-  // من يفتح هذه الصفحة يفتحها لليلةٍ بعينها، لا ليختار من قائمة. فالمقارنة مع
-  // **بداية اليوم** لا مع اللحظة: فعاليّةُ السابعة مساءً تبقى «فعاليّة اليوم»
-  // للموظّف الذي يفتح الصفحة في التاسعة وسط الليلة نفسها — وهي أحوجُ ما يكون
-  // إليها. وبلا هذا القيد كانت تقفز إلى ليلةِ الغد بينما الحجوزات تُدار الآن.
-  //
-  // ومرّةً واحدة فقط: الجلبُ يتكرّر كلّ ٣٠ث، فلولا الحارس لألغى اختيارَ
-  // الموظّف كلَّ نصف دقيقة وأعاده إلى الافتراضيّ.
-  const autoPickedRef = useRef(false);
-  useEffect(() => {
-    if (autoPickedRef.current) return;
-    if (filterActivity !== '') { autoPickedRef.current = true; return; } // اختار بنفسه
-    if (!activities.length) return;
-
-    const startOfToday = new Date();
-    startOfToday.setHours(0, 0, 0, 0);
-
-    const next = activities
-      .filter(a => (a.status === 'planned' || a.status === 'active') && a.date)
-      .filter(a => new Date(a.date).getTime() >= startOfToday.getTime())
-      .sort((x, y) => new Date(x.date).getTime() - new Date(y.date).getTime())[0];
-
-    // لا فعاليّة قادمة ⇒ تبقى «— اختر النشاط —» ولا نفرض ماضياً
-    if (!next) return;
-    setFilterActivity(String(next.id));
-    // نفسُ ما يفعله الاختيار اليدويّ: يُمهّد نموذجَ الحجز السريع بالفعاليّة ذاتها
-    setFormActivity(prev => prev || String(next.id));
-    autoPickedRef.current = true;
-  }, [activities, filterActivity]);
-
-  // ══ Filtered ══
-  const filtered = useMemo(() => {
-    if (!filterActivity) return []; // لا يظهر شيء حتى يتم اختيار نشاط
-    return reservations
-      .filter(r => {
-        const matchActivity = filterActivity === 'all' || r.activityId === Number(filterActivity);
-        const matchStatus = filterStatus === 'all' || (filterStatus === 'confirmed' ? isConfirmed(r) : !isConfirmed(r));
-        
-        let matchAttendance = true;
-        if (filterAttendance === 'attended') matchAttendance = r.attended === true;
-        else if (filterAttendance === 'noShow') matchAttendance = r.attended === false;
-        else if (filterAttendance === 'unmarked') matchAttendance = r.attended === null || r.attended === undefined;
-
-        let matchSearch = true;
-        if (filterSearch) {
-          const s = filterSearch.toLowerCase();
-          matchSearch = (r.contactName && r.contactName.toLowerCase().includes(s)) || (r.phone && r.phone.includes(s));
-        }
-
-        return matchActivity && matchStatus && matchAttendance && matchSearch;
-      })
-      .sort((a, b) => {
-        // ترتيب: غير محدد الحضور أولاً، ثم حضر (أخضر)، ثم لم يحضر (أحمر)
-        const attendOrder = (r: any) => r.attended === null || r.attended === undefined ? 0 : r.attended ? 1 : 2;
-        return attendOrder(a) - attendOrder(b);
-      });
-  }, [reservations, filterActivity, filterStatus, filterAttendance, filterSearch]);
-
-  // ══ Stats ══ (فقط بعد اختيار نشاط)
-  const stats = useMemo(() => {
-    if (!filterActivity) return null;
-    const data = filterActivity === 'all' ? reservations : reservations.filter(r => r.activityId === Number(filterActivity));
-    const result: Record<'confirmed' | 'unconfirmed', { count: number; people: number }> = {
-      confirmed: { count: 0, people: 0 }, unconfirmed: { count: 0, people: 0 },
-    };
-    data.forEach(r => {
-      const k = isConfirmed(r) ? 'confirmed' : 'unconfirmed';
-      result[k].count++;
-      result[k].people += r.peopleCount || 1;
+  // ── نصُّ رسالة الواتساب لصفٍّ بعينه ──
+  const waMessage = useCallback((r: Reservation) => {
+    const act = R.activities.find(a => a.id === r.activityId);
+    const loc = act?.locationId ? R.locations.find(l => l.id === act.locationId) : null;
+    const when = act?.date
+      ? new Date(act.date).toLocaleString('ar-JO', { weekday: 'long', day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit' })
+      : '';
+    return fillTemplate(tpl, RES_VARS, {
+      name: r.contactName, activityName: act?.name || '', count: r.peopleCount || 1,
+      locationName: loc?.name, region: loc?.region, when, mapUrl: loc?.mapUrl,
     });
-    return result;
-  }, [reservations, filterActivity]);
+  }, [R.activities, R.locations, tpl]);
 
-  const totalPeople = useMemo(() => {
-    if (!stats) return 0;
-    return Object.values(stats).reduce((s, v) => s + v.people, 0);
-  }, [stats]);
+  // ── كشفُ التكرار — على صفوف الفعاليّة المستهدَفة ──
+  const findDuplicate = useCallback((activityId: number, name: string, phone: string, playerId: number | null) => {
+    const nm = name.trim().toLowerCase();
+    const ph = normPhoneKey(phone);
+    return R.reservations.find(r => {
+      if (r.deletedAt || r.activityId !== activityId) return false;
+      if (playerId && r.playerId === playerId) return true;
+      if (ph.length >= 6 && normPhoneKey(r.phone) === ph) return true;
+      return !playerId && ph.length < 6 && !!nm && (r.contactName || '').trim().toLowerCase() === nm;
+    }) || null;
+  }, [R.reservations]);
 
-  // صفوف غير المثبَّت للفعاليّة المختارة — مصدر التحذير والتثبيت الجماعيّ.
-  // مستقلٌّ عن فلاتر العرض: التحذير عن واقع الفعاليّة لا عمّا يُعرض الآن.
-  const pendingRows = useMemo(() => {
-    if (!filterActivity) return [] as any[];
-    const data = filterActivity === 'all' ? reservations : reservations.filter(r => r.activityId === Number(filterActivity));
-    return data.filter(r => !isConfirmed(r) && r.status !== 'waitlist');
-  }, [reservations, filterActivity]);
+  // ── تعليمُ الحضور مع «تراجع» بدل نافذة تأكيد ──
+  const markAttend = useCallback((id: number, v: boolean | null) => {
+    const row = R.reservations.find(x => x.id === id);
+    const prev = row?.attended ?? null;
+    R.setAttendance(id, v);
+    setToast({
+      id, prev,
+      text: `${row?.contactName ?? ''} — ${v === true ? 'حضر' : v === false ? 'لم يحضر' : 'أُزيل التعليم'}`,
+    });
+    window.setTimeout(() => setToast(t => (t && t.id === id ? null : t)), 4200);
+  }, [R]);
 
-  // ══ Attendance Stats ══
-  // فصل المتوقَّع عن الفعليّ: «متوقَّع» = مجموع الأشخاص (peopleCount) للتخطيط والصورة،
-  // أمّا «حضر/لعب فعليّاً» فكلّ حجز = لاعبٌ واحد فعليّ (المرافقون لا يحجزون من التطبيق ولا يدخلون اللعبة).
-  const attendanceStats = useMemo(() => {
-    if (!filterActivity) return null;
-    const data = filterActivity === 'all' ? reservations : reservations.filter(r => r.activityId === Number(filterActivity));
-    const attended = data.filter(r => r.attended === true).length;
-    const noShow = data.filter(r => r.attended === false).length;
-    const unmarked = data.filter(r => r.attended === null || r.attended === undefined).length;
-    const total = data.length;                                            // لاعبون فعليّون (حجوزات)
-    const expectedPeople = data.reduce((s, r) => s + (r.peopleCount || 1), 0); // أشخاص متوقَّعون
-    return { attended, noShow, unmarked, total, expectedPeople };
-  }, [reservations, filterActivity]);
-
-  // ══ Helpers ══
-  function getActivityName(activityId: number | null) {
-    if (!activityId) return 'بدون نشاط';
-    return activities.find(a => a.id === activityId)?.name || 'غير معروف';
-  }
-
-  // 👁️ صفّ المعاينة: أوّل حجزٍ معروض فعليّاً — كي يرى الموظّف رسالته على بياناتٍ
-  //    حقيقيّة بما فيها الأسطر التي تسقط حين ينقص مكانٌ أو موعد. وإن لم يكن ثمّة
-  //    حجزٌ معروض فمثالٌ كاملٌ موسومٌ بوضوح، لا فراغ.
-  const previewRow = useMemo((): { data: ResVars; labelAr: string } => {
-    const r = filtered[0];
-    if (r) {
-      const act = activities.find(a => a.id === r.activityId);
-      const loc = act ? locations.find(l => l.id === act.locationId) : null;
-      return {
-        labelAr: `على حجز ${r.contactName || 'بلا اسم'}`,
-        data: {
-          name: r.contactName, activityName: getActivityName(r.activityId),
-          count: r.peopleCount || 1, locationName: loc?.name, region: loc?.region,
-          mapUrl: loc?.mapUrl,
-          when: act?.date ? new Date(act.date).toLocaleString('ar-JO',
-            { weekday: 'long', day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit' }) : '',
-        },
-      };
-    }
-    return {
-      labelAr: 'مثال (لا حجوزات معروضة)',
-      data: { name: 'أحمد', activityName: 'سهرة الخميس', count: 2,
-              locationName: 'مزاج افندينا', region: 'عبدون',
-              when: 'الخميس ٤ أيلول ٨:٠٠ م', mapUrl: 'maps.app.goo.gl/example' },
-    };
-  }, [filtered, activities, locations]);
-
-
-  // ══ 🖨️ توليد كشف الحاجزين — عبر نظام التقارير (يرث تخطيط الطباعة والترويسة) ══
+  // ══ كشفُ الحاجزين (PDF / Excel) ══
   async function exportRoster(format: 'pdf' | 'excel') {
-    if (!filterActivity || filterActivity === 'all') return;
-    setRosterBusy(format);
+    if (!single) return;
+    setBusy(format);
     try {
       const res = await fetch(`${API_URL}/api/reports/export`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${getToken()}` },
-        body: JSON.stringify({
-          key: 'reservation-roster',
-          format,
-          params: { activityId: Number(filterActivity) },
-        }),
+        body: JSON.stringify({ key: 'reservation-roster', format, params: { activityId: Number(R.activityId) } }),
       });
       if (!res.ok) {
         const d = await res.json().catch(() => ({} as any));
         throw new Error(d?.error || 'فشل توليد الكشف');
       }
       const blob = await res.blob();
-      const base = `كشف حجوزات - ${getActivityName(Number(filterActivity))}`;
-      // 🔴 المسارُ نفسُه للاثنين: `<a download>` و`window.open(blob:)` كلاهما
-      //    يسقط في التطبيق المثبَّت على iOS — لا مدير تنزيلاتٍ هناك أصلاً.
-      //    saveFile يجرّب ورقةَ المشاركة أوّلاً (فيها «حفظ في الملفّات»).
+      const base = `كشف حجوزات - ${R.activityName(Number(R.activityId))}`;
+      // 🔴 `<a download>` و`window.open(blob:)` يسقطان في التطبيق المثبَّت على iOS
+      //    — لا مديرَ تنزيلاتٍ هناك. saveFile يجرّب ورقةَ المشاركة أوّلاً.
       if (format === 'pdf' && !isIOS() && !isStandalone()) {
-        // سطحُ المكتب: الفتحُ في تبويبٍ أفضل — الطباعةُ من عارض المتصفّح
         const url = URL.createObjectURL(blob);
         window.open(url, '_blank');
         setTimeout(() => URL.revokeObjectURL(url), 60000);
       } else {
-        const ext = format === 'pdf' ? 'pdf' : 'xlsx';
-        const r = await saveFile(blob, `${base}.${ext}`, { title: base });
+        const r = await saveFile(blob, `${base}.${format === 'pdf' ? 'pdf' : 'xlsx'}`, { title: base });
         if (r === 'failed') alert('تعذّر حفظ الكشف على هذا الجهاز');
       }
     } catch (err: any) {
-      alert('فشل توليد الكشف: ' + (err.message || ''));
-    } finally {
-      setRosterBusy(null);
-    }
+      alert('فشل توليد الكشف: ' + (err?.message || ''));
+    } finally { setBusy(null); }
   }
 
-  // ══ ✅ تحديث الحضور من الألعاب — يحوّل المثبّت إلى «حاضر» لمن له لعبة مسجّلة في يوم فعاليّته ══
-  const [attBusy, setAttBusy] = useState(false);
-  async function markAttendanceFromGames() {
-    if (attBusy) return;
-    const scope = filterActivity && filterActivity !== 'all' ? getActivityName(Number(filterActivity)) : 'كلّ الفعاليّات';
-    if (!confirm(`مراجعة الحجوزات المثبّتة في «${scope}» وتحويل من له لعبة مسجّلة إلى «حاضر»؟`)) return;
-    setAttBusy(true);
+  // ══ تحديثُ الحضور من الألعاب ══
+  async function markFromGames() {
+    const scope = single ? R.activityName(Number(R.activityId)) : 'كلّ الفعاليّات';
+    if (!(await swalConfirm(`مراجعة الحجوزات المثبّتة في «${scope}» وتحويل من له لعبة مسجّلة إلى «حاضر»؟`))) return;
+    setBusy('games');
     try {
-      const r = await apiFetch('/api/reservations/mark-attendance-from-games', {
-        method: 'POST',
-        body: JSON.stringify({ activityId: filterActivity || 'all' }),
-      });
-      await fetchAll();
-      alert(r.marked > 0 ? `✅ حُوّل ${r.marked} حجزاً إلى «حاضر» بناءً على الألعاب المسجّلة.` : 'لا حجوزات جديدة للتحويل — كلّ من له ألعاب مُعلَّم حاضراً بالفعل.');
-    } catch (err: any) {
-      alert('فشل التحديث: ' + (err.message || ''));
-    } finally {
-      setAttBusy(false);
-    }
+      const r = await (await import('@/hooks/useReservations')).apiFetch(
+        '/api/reservations/mark-attendance-from-games',
+        { method: 'POST', body: JSON.stringify({ activityId: R.activityId || 'all' }) },
+      );
+      await R.fetchAll();
+      alert(r.marked > 0
+        ? `✅ حُوّل ${r.marked} حجزاً إلى «حاضر» بناءً على الألعاب المسجّلة.`
+        : 'لا حجوزات جديدة للتحويل — كلّ من له ألعاب مُعلَّم حاضراً بالفعل.');
+    } catch (err: any) { alert('فشل التحديث: ' + (err?.message || '')); }
+    finally { setBusy(null); }
   }
 
-  // ══ 🔗 بحث اللاعبين أثناء الكتابة (اسم أو رقم) — للربط الذكيّ ══
-  useEffect(() => {
-    const term = formName.trim();
-    if (!showForm || term.length < 2 || formPlayerId) { setPlayerSuggest([]); return; }
-    const t = setTimeout(async () => {
-      try {
-        const data = await apiFetch(`/api/staff-notifications/players/search?q=${encodeURIComponent(term)}`);
-        setPlayerSuggest(Array.isArray(data?.players) ? data.players.slice(0, 6) : []);
-      } catch { setPlayerSuggest([]); }
-    }, 300);
-    return () => clearTimeout(t);
-  }, [formName, showForm, formPlayerId]);
-
-  // 🔗 بحث اللاعبين برقم الهاتف (حقل الهاتف) — مطابقة جزئيّة (لا يلزم الرقم كاملاً)
-  useEffect(() => {
-    const term = formPhone.trim();
-    if (!showForm || term.length < 2 || formPlayerId) { setPhoneSuggest([]); return; }
-    const t = setTimeout(async () => {
-      try {
-        const data = await apiFetch(`/api/staff-notifications/players/search?q=${encodeURIComponent(term)}`);
-        setPhoneSuggest(Array.isArray(data?.players) ? data.players.slice(0, 6) : []);
-      } catch { setPhoneSuggest([]); }
-    }, 300);
-    return () => clearTimeout(t);
-  }, [formPhone, showForm, formPlayerId]);
-
-  function selectPlayer(p: any) {
-    setFormName(p.name || '');
-    if (p.phone) setFormPhone(p.phone);
-    setFormPlayerId(p.id);
-    setPlayerSuggest([]);
-    setShowSuggest(false);
-    setPhoneSuggest([]);
-    setShowPhoneSuggest(false);
-  }
-
-  // ⚠️ كشف حجزٍ مسبق لنفس اللاعب في نفس الفعالية (بالمُعرّف أو الهاتف أو الاسم)
-  function findDuplicate(activityId: number | null): any | null {
-    const nm = formName.trim().toLowerCase();
-    const ph = normPhoneKey(formPhone);
-    return reservations.find((r: any) => {
-      if (r.deletedAt) return false;
-      if ((r.activityId ?? null) !== (activityId ?? null)) return false;
-      const pidMatch = !!formPlayerId && r.playerId === formPlayerId;
-      const phoneMatch = ph.length >= 6 && normPhoneKey(r.phone) === ph;
-      const nameMatch = !formPlayerId && ph.length < 6 && !!nm && (r.contactName || '').trim().toLowerCase() === nm;
-      return pidMatch || phoneMatch || nameMatch;
-    }) || null;
-  }
-
-  // سكرول تلقائيّ للحجز المميَّز عند اكتشاف تكرار
-  useEffect(() => {
-    if (highlightId == null) return;
-    const el = document.getElementById(`res-${highlightId}`);
-    if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' });
-  }, [highlightId, filtered]);
-
-  // ══ Create ══
-  async function handleCreate() {
-    if (!formName.trim()) return;
-    // منع التكرار: إن وُجد حجزٌ مسبق لنفس الشخص في الفعالية → تنبيه + سكرول إليه بلا إنشاء
-    const targetActivityId = formActivity ? Number(formActivity) : (filterActivity && filterActivity !== 'all' ? Number(filterActivity) : null);
-    const dup = findDuplicate(targetActivityId);
-    if (dup) {
-      if (targetActivityId != null) setFilterActivity(String(targetActivityId));
-      setFilterStatus('all'); setFilterAttendance('all'); setFilterSearch('');
-      setDupWarn(`⚠️ يوجد حجز مسبق لـ«${dup.contactName}» في هذه الفعالية — تمّ الانتقال إليه.`);
-      setHighlightId(dup.id);
-      setTimeout(() => setDupWarn(''), 5000);
-      setTimeout(() => setHighlightId(null), 3500);
-      return;
-    }
-    setFormSubmitting(true);
-    try {
-      await apiFetch('/api/reservations', {
-        method: 'POST',
-        body: JSON.stringify({
-          activityId: formActivity ? Number(formActivity) : (filterActivity && filterActivity !== 'all' ? Number(filterActivity) : null),
-          contactName: formName.trim(),
-          contactMethod: formContact.trim(),
-          phone: formPhone.trim(),
-          peopleCount: formCount,
-          notes: formNotes.trim(),
-          playerId: formPlayerId,
-        }),
-      });
-      setFormName('');
-      setFormContact('');
-      setFormPhone('');
-      setFormCount(1);
-      setFormNotes('');
-      setFormPlayerId(null);
-      setPlayerSuggest([]);
-      await fetchAll();
-    } catch (err: any) {
-      alert('فشل التسجيل: ' + err.message);
-    } finally {
-      setFormSubmitting(false);
-    }
-  }
-
-  // ══ تبديل التثبيت (مثبّت/غير مثبّت) — تحديث فوريّ (optimistic) ══
-  async function toggleConfirmed(r: any) {
-    const newStatus = isConfirmed(r) ? 'pending' : 'confirmed';
-    setReservations(prev => prev.map(x => x.id === r.id ? { ...x, status: newStatus } : x));
-    try {
-      const res = await apiFetch(`/api/reservations/${r.id}`, {
-        method: 'PUT',
-        body: JSON.stringify({ status: newStatus }),
-      });
-      // نتيجة مزامنة الحجز كانت تُعاد ثمّ تُهمَل — فيظنّ الموظّف أنّ حجزاً أُنشئ
-      // بينما الرقم غير مربوطٍ بحساب (فيُعرض مجمَّعاً «لاعبون جدد» لا صفّاً)
-      if (res?.bookingSync === 'unlinked') {
-        alert('ثُبّت الحجز ✅\n\nلكنّ الرقم غير مربوطٍ بحساب لاعب، فلا يظهر صفٌّ باسمه —\nيُحتسب ضمن «لاعبون جدد» في تفاصيل الفعاليّة.');
-      } else if (res?.bookingSync === 'error') {
-        alert('⚠️ ثُبّت الحجز لكنْ تعذّر إنشاء حجز الفعاليّة. راجع تفاصيل الفعاليّة.');
-      }
-    } catch (err: any) {
-      alert('فشل تغيير الحالة: ' + err.message);
-      await fetchAll();
-    }
-  }
-
-  // ══ تثبيت جماعيّ ══
-  // 🔴 السبب الذي أوجب هذا: التثبيت صار هو ما يُنشئ حجز الفعاليّة، لكنّ إدخال
-  //    الأسماء وتثبيتها فعلان منفصلان في الواجهة — فكان الموظّف يُدخل عشرات
-  //    الأسماء ولا يظهر منها أحدٌ في تفاصيل الفعاليّة ولا في تطبيق اللاعب.
-  //    الزرّ يُغلق الفجوة بضغطةٍ واحدة، والتتابع (لا التوازي) يحمي ترقيم الحجوزات.
-  const [bulkBusy, setBulkBusy] = useState(false);
-  async function confirmAllPending(rows: any[]) {
-    if (!rows.length || bulkBusy) return;
+  // ══ تثبيتُ كلّ المعلَّق — تتابعاً لا توازياً (يحمي ترقيم الحجوزات) ══
+  async function confirmAllPending() {
+    const rows = R.pendingRows;
+    if (!rows.length) return;
     const people = rows.reduce((s, r) => s + (r.peopleCount || 1), 0);
-    if (!window.confirm(`تثبيت ${rows.length} حجزاً (${people} شخصاً)؟\n\nسيُسجَّل لكلّ حسابٍ مربوطٍ حجزٌ في الفعاليّة يظهر له في التطبيق.`)) return;
-    setBulkBusy(true);
+    if (!(await swalConfirm(
+      `تثبيت ${rows.length} حجزاً (${people} شخصاً)؟\n\nسيُسجَّل لكلّ حسابٍ مربوطٍ حجزٌ في الفعاليّة يظهر له في التطبيق.`,
+    ))) return;
+    setBusy('bulk');
     let ok = 0; const failed: string[] = [];
+    const { apiFetch } = await import('@/hooks/useReservations');
     for (const r of rows) {
       try {
         await apiFetch(`/api/reservations/${r.id}`, { method: 'PUT', body: JSON.stringify({ status: 'confirmed' }) });
         ok++;
       } catch { failed.push(r.contactName || `#${r.id}`); }
     }
-    setBulkBusy(false);
-    await fetchAll();
-    alert(failed.length
-      ? `ثُبّت ${ok} — وتعذّر ${failed.length}: ${failed.slice(0, 5).join('، ')}`
-      : `✅ ثُبّت ${ok} حجزاً`);
+    setBusy(null);
+    await R.fetchAll();
+    alert(failed.length ? `ثُبّت ${ok} — وتعذّر ${failed.length}: ${failed.slice(0, 5).join('، ')}` : `✅ ثُبّت ${ok} حجزاً`);
   }
 
-  // ══ Attendance Toggle ══
-  async function toggleAttendance(id: number, newValue: boolean | null) {
-    try {
-      await apiFetch(`/api/reservations/${id}`, {
-        method: 'PUT',
-        body: JSON.stringify({ attended: newValue }),
-      });
-      // تحديث مباشر (optimistic) لتجنب انتظار الـ API
-      setReservations(prev => prev.map(r => r.id === id ? { ...r, attended: newValue } : r));
-    } catch (err: any) {
-      alert('فشل تحديث الحضور: ' + err.message);
+  const previewRow = useMemo((): { data: ResVars; labelAr: string } => {
+    const r = R.filtered[0];
+    if (r) {
+      const act = R.activities.find(a => a.id === r.activityId);
+      const loc = act?.locationId ? R.locations.find(l => l.id === act.locationId) : null;
+      return {
+        labelAr: `معاينة على: ${r.contactName}`,
+        data: {
+          name: r.contactName, activityName: act?.name || '', count: r.peopleCount || 1,
+          locationName: loc?.name, region: loc?.region, mapUrl: loc?.mapUrl,
+          when: act?.date ? new Date(act.date).toLocaleString('ar-JO', { weekday: 'long', day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit' }) : '',
+        },
+      };
     }
+    return {
+      labelAr: 'معاينة على مثال',
+      data: { name: 'محمد', activityName: 'ليلة الخميس', count: 2, locationName: 'مقهى النخبة', region: 'وسط البلد', when: 'الخميس ٨:٠٠ م', mapUrl: 'https://maps.app.goo.gl/xxx' },
+    };
+  }, [R.filtered, R.activities, R.locations]);
+
+  if (R.loading) {
+    return (
+      <div className="flex items-center justify-center h-96">
+        <div className="animate-spin h-8 w-8 border-4 border-amber-500 border-t-transparent rounded-full" />
+      </div>
+    );
   }
 
-  // ══ Edit ══
-  function openEdit(r: any) {
-    setEditing(r);
-    setEditName(r.contactName || '');
-    setEditContact(r.contactMethod || '');
-    setEditPhone(r.phone || '');
-    setEditCount(r.peopleCount || 1);
-    setEditNotes(r.notes || '');
-    setEditStatus(r.status || 'pending');
-  }
-
-  async function handleEditSave() {
-    if (!editing) return;
-    setEditSubmitting(true);
-    try {
-      await apiFetch(`/api/reservations/${editing.id}`, {
-        method: 'PUT',
-        body: JSON.stringify({
-          contactName: editName,
-          contactMethod: editContact,
-          phone: editPhone,
-          peopleCount: editCount,
-          notes: editNotes,
-          status: editStatus,
-        }),
-      });
-      setEditing(null);
-      await fetchAll();
-    } catch (err: any) {
-      alert('فشل الحفظ: ' + err.message);
-    } finally {
-      setEditSubmitting(false);
-    }
-  }
-
-  // ══ Delete ══
-  async function handleDelete(id: number) {
-    if (!(await swalConfirm('هل أنت متأكد من حذف هذا الحجز؟'))) return;
-    try {
-      await apiFetch(`/api/reservations/${id}`, { method: 'DELETE' });
-      await fetchAll();
-    } catch (err: any) {
-      alert('فشل الحذف: ' + err.message);
-    }
-  }
-
-  // ══ Loading ══
-  if (loading) return (
-    <div className="flex items-center justify-center h-96">
-      <div className="animate-spin h-8 w-8 border-4 border-amber-500 border-t-transparent rounded-full" />
-    </div>
-  );
-
-  // ══ Activity not selected state ══
-  const activitySelected = filterActivity !== '';
+  const c = R.counts;
+  const chips: { k: typeof R.status | 'unmarked' | 'attended' | 'noShow'; label: string; n: number; kind: 'status' | 'attend' }[] = [
+    { k: 'all', label: 'الكلّ', n: c.total, kind: 'status' },
+    { k: 'pending', label: 'غير مثبّت', n: c.pending, kind: 'status' },
+    { k: 'waitlist', label: 'انتظار', n: c.waitlist, kind: 'status' },
+    { k: 'unmarked', label: 'لم يُعلَّم', n: c.unmarked, kind: 'attend' },
+    { k: 'attended', label: 'حضر', n: c.attended, kind: 'attend' },
+    { k: 'noShow', label: 'لم يحضر', n: c.noShow, kind: 'attend' },
+  ];
 
   return (
-    <div className="space-y-4 max-w-2xl mx-auto" dir="rtl">
-
-      {/* ⚠️ تنبيه تكرار الحجز */}
-      <AnimatePresence>
-        {dupWarn && (
-          <motion.div
-            initial={{ opacity: 0, y: -20 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: -20 }}
-            className="fixed top-4 left-1/2 -translate-x-1/2 z-[80] px-4 py-2.5 rounded-xl bg-amber-500/15 border border-amber-500/40 text-amber-200 text-sm font-bold shadow-xl backdrop-blur-md max-w-[92vw] text-center"
-            onClick={() => setDupWarn('')}
+    <div dir="rtl" className="max-w-2xl mx-auto -mx-3 sm:mx-auto">
+      {/* ══ الرأسُ الثابت ══ */}
+      <div className="sticky top-0 z-30 px-3 pt-2 pb-2 space-y-2"
+        style={{ background: 'rgba(10,10,12,.96)', backdropFilter: 'blur(12px)', borderBottom: '1px solid rgba(255,255,255,.07)' }}>
+        <div className="flex items-center gap-2">
+          <select
+            value={R.activityId}
+            onChange={e => R.setActivityId(e.target.value)}
+            className="flex-1 min-w-0 h-11 px-2 rounded-xl text-[14px] font-bold text-white outline-none"
+            style={{ background: 'rgba(255,255,255,.045)', border: '1px solid rgba(255,255,255,.09)' }}
           >
-            {dupWarn}
-          </motion.div>
-        )}
-      </AnimatePresence>
-
-      {/* ══════ HEADER ══════ */}
-      <div className="flex items-center justify-between gap-3">
-        <div>
-          <h1 className="text-xl font-bold text-white">📋 متابعة الحجوزات</h1>
-          {activitySelected && (
-            <p className="text-gray-500 text-xs mt-0.5">{totalPeople} شخص — {filtered.length} حجز</p>
+            <option value="">— اختر الفعاليّة —</option>
+            <option value="all">كلّ الفعاليّات</option>
+            {R.activityOptions.map(a => (
+              <option key={a.id} value={a.id}>{a.name}{a.status === 'completed' ? ' (منتهي)' : ''}</option>
+            ))}
+          </select>
+          {single && (
+            <Link href="/admin/reservations/door"
+              title="وضع الباب — تعليمُ الحضور سريعاً"
+              className="w-11 h-11 shrink-0 rounded-xl flex items-center justify-center text-[18px]"
+              style={{ background: RES_COLORS.attended + '1a', border: `1px solid ${RES_COLORS.attended}55`, color: RES_COLORS.attended }}>
+              🚪
+            </Link>
           )}
         </div>
-        {activitySelected && (
-          <div className="flex items-center gap-2">
-            {/* 💬 قالب رسالة التأكيد — يتحكّم بنصّ ما يُرسَل من زرّ الواتساب في كلّ صفّ */}
-            <button
-              onClick={() => setShowTpl(v => !v)}
-              title="تحرير نصّ رسالة التأكيد التي يرسلها زرّ الواتساب"
-              className={`px-3 py-2.5 rounded-xl text-sm transition-all border ${showTpl
-                ? 'bg-green-500/15 border-green-500/40 text-green-400'
-                : 'bg-gray-800/60 border-gray-600/40 text-gray-400 hover:border-green-500/40 hover:text-green-400'}`}
-            >
-              💬 القالب
-            </button>
-            {/* 🖨️ كشف الحاجزين — PDF للطباعة + Excel (لنشاط محدّد فقط) */}
-            {filterActivity !== 'all' && (
-              <>
-                <button
-                  onClick={() => exportRoster('pdf')}
-                  disabled={rosterBusy !== null}
-                  title="كشف الحاجزين PDF — يُفتح للعرض والطباعة"
-                  className="px-3.5 py-2.5 rounded-xl text-sm font-bold bg-gray-800/60 border border-gray-600/40 text-gray-200 hover:border-amber-500/40 hover:text-amber-400 transition-all disabled:opacity-50"
-                >
-                  {rosterBusy === 'pdf' ? '⏳' : '🖨️'} كشف
-                </button>
-                <button
-                  onClick={() => exportRoster('excel')}
-                  disabled={rosterBusy !== null}
-                  title="تنزيل الكشف Excel"
-                  className="px-3 py-2.5 rounded-xl text-sm bg-gray-800/60 border border-gray-600/40 text-gray-400 hover:border-emerald-500/40 hover:text-emerald-400 transition-all disabled:opacity-50"
-                >
-                  {rosterBusy === 'excel' ? '⏳' : '📊'}
-                </button>
-                {/* 🖼️ كشف الحضور المصوّر (بطاقات) — يُفتح في تبويب جديد للعرض/الطباعة/المشاركة */}
-                <button
-                  onClick={() => window.open(`/print/attendance/${filterActivity}`, '_blank')}
-                  title="كشف الحضور المصوّر — بطاقات بالصور والرتب، للطباعة أو المشاركة"
-                  className="px-3.5 py-2.5 rounded-xl text-sm font-bold bg-gradient-to-l from-amber-600/20 to-yellow-700/10 border border-amber-500/40 text-amber-300 hover:from-amber-600/30 hover:text-amber-200 transition-all"
-                >
-                  🖼️ كشف مصوّر
-                </button>
-              </>
-            )}
-            {/* ✅ تحديث الحضور من الألعاب المسجّلة */}
-            <button
-              onClick={markAttendanceFromGames}
-              disabled={attBusy}
-              title="مراجعة المثبّتين وتحويل من لعب فعليّاً إلى «حاضر»"
-              className="px-3.5 py-2.5 rounded-xl text-sm font-bold bg-emerald-600/15 border border-emerald-500/40 text-emerald-400 hover:bg-emerald-600/25 transition-all disabled:opacity-50"
-            >
-              {attBusy ? '⏳ يراجع…' : '✅ تحديث الحضور'}
-            </button>
-            <button
-              onClick={() => setShowForm(!showForm)}
-              className={`px-4 py-2.5 rounded-xl text-sm font-bold transition-all ${
-                showForm
-                  ? 'bg-gray-700/50 text-gray-300 hover:bg-gray-700/70'
-                  : 'bg-gradient-to-r from-amber-500 to-rose-600 text-white hover:opacity-90 shadow-[0_0_20px_rgba(245,158,11,0.2)]'
-              }`}
-            >
-              {showForm ? '✕ إغلاق' : '+ حجز سريع'}
-            </button>
-          </div>
-        )}
-      </div>
 
-      {/* ══════ 💬 محرّر قالب رسالة التأكيد ══════ */}
-      {showTpl && (
-        <div className="mb-3">
-          <MessageTemplateEditor<ResVars>
-            titleAr="💬 قالب رسالة التأكيد — يُرسله زرّ الواتساب في كلّ صفّ"
-            value={waTemplate}
-            onChange={saveTemplate}
-            onReset={() => saveTemplate(RES_TPL_DEFAULT)}
-            vars={RES_VARS}
-            preview={fillTemplate(waTemplate, RES_VARS, previewRow.data)}
-            previewOfAr={previewRow.labelAr}
-          />
-        </div>
-      )}
+        {R.activityId && (
+          <>
+            {/* شريطُ التقدّم — رقمٌ واحدٌ يُقرأ بلمحة بدل بطاقتين تأكلان ثلث الشاشة */}
+            <div className="flex items-center gap-2.5">
+              <div className="flex-1 h-2 rounded-full overflow-hidden flex gap-0.5" style={{ background: 'rgba(255,255,255,.06)' }}>
+                {c.attended > 0 && <div style={{ flex: c.attended, background: RES_COLORS.attended, borderRadius: 99 }} />}
+                {c.noShow > 0 && <div style={{ flex: c.noShow, background: RES_COLORS.noShow, borderRadius: 99 }} />}
+                {c.unmarked > 0 && <div style={{ flex: c.unmarked, background: 'rgba(255,255,255,.10)', borderRadius: 99 }} />}
+              </div>
+              <span className="text-[12.5px] text-gray-400 whitespace-nowrap">
+                <b className="text-white tabular-nums">{ar(c.attended)}</b> من {ar(c.total)} حضروا
+                <span className="text-gray-600"> · {ar(c.people)} شخصاً</span>
+              </span>
+            </div>
 
-      {/* ══════ FILTER BAR (Activity Selector) ══════ */}
-      <div className="flex gap-2 mb-3">
-        <select
-          value={filterActivity}
-          onChange={e => { setFilterActivity(e.target.value); if (!formActivity) setFormActivity(e.target.value !== 'all' && e.target.value !== '' ? e.target.value : ''); }}
-          className="flex-1 px-3 py-2.5 bg-gray-800/50 border border-gray-700/30 rounded-xl text-white text-sm focus:outline-none focus:ring-1 focus:ring-amber-500/30"
-        >
-          <option value="">— اختر النشاط —</option>
-          <option value="all">كل الأنشطة</option>
-          {activitiesWithReservations.map(a => (
-            <option key={a.id} value={a.id}>
-              {a.name}
-              {a.status === 'completed' ? ' (منتهي)' : ''}
-            </option>
-          ))}
-        </select>
-        {filterStatus !== 'all' && activitySelected && (
-          <button
-            onClick={() => setFilterStatus('all')}
-            className="px-3 py-2 bg-gray-800/50 border border-gray-700/30 rounded-xl text-xs text-gray-400 hover:text-white transition"
-          >
-            كل الحالات ✕
-          </button>
-        )}
-      </div>
+            <div className="flex items-center gap-2 h-11 px-3 rounded-xl"
+              style={{ background: 'rgba(255,255,255,.045)', border: '1px solid rgba(255,255,255,.09)' }}>
+              <span className="text-[15px]">🔍</span>
+              <input
+                value={R.search}
+                onChange={e => R.setSearch(e.target.value)}
+                placeholder="ابحث بالاسم أو الرقم…"
+                className="flex-1 min-w-0 h-full bg-transparent border-0 outline-none text-white text-[15px] placeholder-gray-600"
+              />
+              {R.search && (
+                <button onClick={() => R.setSearch('')} className="text-gray-500 text-[15px] px-1">✕</button>
+              )}
+            </div>
 
-      {activitySelected && (
-        <div className="mb-4">
-          <input
-            type="text"
-            placeholder="🔍 بحث باسم الشخص أو رقم الهاتف..."
-            value={filterSearch}
-            onChange={e => setFilterSearch(e.target.value)}
-            className="w-full px-4 py-2.5 bg-gray-900/50 border border-gray-700/50 rounded-xl text-white text-sm focus:outline-none focus:ring-1 focus:ring-amber-500/50 placeholder-gray-500"
-          />
-        </div>
-      )}
-
-      {/* ══════ NO ACTIVITY SELECTED ══════ */}
-      {!activitySelected && (
-        <div className="text-center py-20">
-          <span className="text-5xl block mb-4 opacity-20">🎯</span>
-          <p className="text-gray-500 text-sm">اختر نشاطاً من القائمة أعلاه لعرض الحجوزات</p>
-        </div>
-      )}
-
-      {/* ══════ CONTENT AFTER ACTIVITY SELECTED ══════ */}
-      {activitySelected && (
-        <>
-          {/* ══════ STATS CARDS ══════ */}
-          {stats && (
-            <div className="grid grid-cols-2 gap-2">
-              {(['unconfirmed', 'confirmed'] as const).map(k => {
-                const cfg = confirmMeta(k === 'confirmed');
-                const st = stats[k] || { count: 0, people: 0 };
-                const isActive = filterStatus === k;
+            <div className="flex gap-1.5 overflow-x-auto pb-0.5" style={{ scrollbarWidth: 'none' }}>
+              {chips.map(ch => {
+                const on = ch.kind === 'status' ? R.status === ch.k : R.attend === ch.k;
                 return (
                   <button
-                    key={k}
-                    onClick={() => setFilterStatus(filterStatus === k ? 'all' : k)}
-                    className={`p-3 rounded-xl border transition-all text-center ${
-                      isActive
-                        ? `${cfg.bg} ${cfg.border} ${cfg.glow}`
-                        : 'bg-gray-800/30 border-gray-700/30 hover:bg-gray-800/50'
-                    }`}
+                    key={ch.k}
+                    onClick={() => {
+                      if (ch.kind === 'status') { R.setStatus(on ? 'all' : ch.k as any); R.setAttend('all'); }
+                      else { R.setAttend(on ? 'all' : ch.k as any); R.setStatus('all'); }
+                    }}
+                    className="shrink-0 h-11 px-3 rounded-full text-[13px] font-bold flex items-center gap-1.5 whitespace-nowrap"
+                    style={on
+                      ? { background: RES_COLORS.pending + '28', border: `1px solid ${RES_COLORS.pending}80`, color: RES_COLORS.pending }
+                      : { background: 'rgba(255,255,255,.04)', border: '1px solid rgba(255,255,255,.08)', color: '#9ca3af' }}
                   >
-                    <div className="text-lg mb-0.5">{cfg.emoji}</div>
-                    <div className={`text-xl font-black ${isActive ? cfg.text : 'text-white'}`}>{st.people}</div>
-                    <div className={`text-[10px] font-medium ${isActive ? cfg.text : 'text-gray-500'}`}>
-                      {cfg.label} ({st.count})
-                    </div>
+                    {ch.label}
+                    <span className="text-[11.5px] opacity-70 tabular-nums">{ar(ch.n)}</span>
                   </button>
                 );
               })}
             </div>
+          </>
+        )}
+      </div>
+
+      {/* ══ القائمة ══ */}
+      {!R.activityId ? (
+        <div className="text-center py-24 px-6">
+          <span className="text-5xl block mb-4 opacity-20">🎯</span>
+          <p className="text-gray-500 text-sm">اختر فعاليّةً من الأعلى لعرض حجوزاتها</p>
+        </div>
+      ) : (
+        <div className="px-3 pt-2 pb-28 space-y-1.5">
+          {R.pendingRows.length > 0 && R.status === 'all' && (
+            <button
+              onClick={() => R.setStatus('pending')}
+              className="w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-right"
+              style={{ background: RES_COLORS.pending + '12', border: `1px solid ${RES_COLORS.pending}44` }}
+            >
+              <span className="text-[15px]">⚠️</span>
+              <span className="flex-1 text-[12.5px] leading-relaxed" style={{ color: RES_COLORS.pending }}>
+                <b>{ar(R.pendingRows.length)} حجزاً غير مثبَّت</b> — لا يظهر للّاعب ولا في الفعاليّة
+              </span>
+              <span className="text-[12px] text-gray-500">←</span>
+            </button>
           )}
 
-          {/* ══════ تحذير: غير المثبَّت لا يظهر في الفعاليّة ══════ */}
-          {pendingRows.length > 0 && (
-            <div className="rounded-xl px-3.5 py-3 flex items-start gap-3 flex-wrap"
-              style={{ background: 'rgba(245,158,11,0.08)', border: '1px solid rgba(245,158,11,0.28)' }}>
-              <span className="text-lg leading-none mt-0.5">⚠️</span>
-              <div className="flex-1 min-w-[200px]">
-                <p className="text-[12px] font-bold text-amber-300">
-                  {pendingRows.length} حجزاً غير مثبَّت ({pendingRows.reduce((s, r) => s + (r.peopleCount || 1), 0)} شخصاً)
-                </p>
-                <p className="text-[11px] text-gray-400 mt-0.5 leading-relaxed">
-                  غير المثبَّت لا يظهر في قائمة حجوزات الفعاليّة ولا في تطبيق اللاعب.
-                  التثبيت هو ما يُنشئ الحجز الفعليّ.
-                </p>
-              </div>
-              <button
-                onClick={() => confirmAllPending(pendingRows)}
-                disabled={bulkBusy}
-                className="px-3 py-2 rounded-lg text-[11px] font-bold border transition-all active:scale-95 disabled:opacity-50 shrink-0"
-                style={{ background: 'rgba(16,185,129,0.15)', borderColor: 'rgba(16,185,129,0.4)', color: '#6EE7B7' }}
-              >
-                {bulkBusy ? '… جارٍ التثبيت' : `✅ تثبيت الكلّ (${pendingRows.length})`}
-              </button>
-            </div>
-          )}
-
-          {/* ══════ ATTENDANCE STATS BAR ══════ */}
-          {attendanceStats && attendanceStats.total > 0 && (
-            <div className="flex flex-wrap items-center gap-2 px-3 py-2.5 bg-gray-800/30 border border-gray-700/20 rounded-xl text-xs">
-              <span className="text-gray-500 font-medium">الحضور — لاعبون فعليّون ({attendanceStats.total}) · متوقَّع {attendanceStats.expectedPeople} شخص:</span>
-              
-              <button 
-                onClick={() => setFilterAttendance(filterAttendance === 'attended' ? 'all' : 'attended')}
-                className={`font-bold transition-colors ${filterAttendance === 'attended' ? 'text-emerald-300 bg-emerald-500/20 px-2 py-0.5 rounded' : 'text-emerald-400 hover:text-emerald-300'}`}
-              >
-                ✓ {attendanceStats.attended}
-              </button>
-              
-              <span className="text-gray-600">|</span>
-              
-              <button 
-                onClick={() => setFilterAttendance(filterAttendance === 'noShow' ? 'all' : 'noShow')}
-                className={`font-bold transition-colors ${filterAttendance === 'noShow' ? 'text-rose-300 bg-rose-500/20 px-2 py-0.5 rounded' : 'text-rose-400 hover:text-rose-300'}`}
-              >
-                ✗ {attendanceStats.noShow}
-              </button>
-              
-              <span className="text-gray-600">|</span>
-              
-              <button 
-                onClick={() => setFilterAttendance(filterAttendance === 'unmarked' ? 'all' : 'unmarked')}
-                className={`transition-colors ${filterAttendance === 'unmarked' ? 'text-gray-200 bg-gray-700/50 px-2 py-0.5 rounded font-bold' : 'text-gray-400 hover:text-gray-300'}`}
-              >
-                ⏳ {attendanceStats.unmarked}
-              </button>
-            </div>
-          )}
-
-          {/* ══════ QUICK ADD FORM ══════ */}
-          <AnimatePresence>
-            {showForm && (
-              <motion.div
-                initial={{ opacity: 0, height: 0 }}
-                animate={{ opacity: 1, height: 'auto' }}
-                exit={{ opacity: 0, height: 0 }}
-                className="overflow-hidden"
-              >
-                <div className="bg-gray-800/40 border border-gray-700/30 rounded-2xl p-4 space-y-3">
-                  <p className="text-xs text-gray-400 font-bold">تسجيل حجز جديد</p>
-
-                  {/* النشاط (إذا لم يكن مختاراً من الفلتر) */}
-                  {filterActivity === 'all' && (
-                    <select
-                      value={formActivity}
-                      onChange={e => setFormActivity(e.target.value)}
-                      className="w-full px-3 py-2.5 bg-gray-900/60 border border-gray-600/40 rounded-xl text-white text-sm focus:outline-none focus:ring-1 focus:ring-amber-500/30"
-                    >
-                      <option value="">اختر النشاط (اختياري)</option>
-                      {activitiesWithReservations.map(a => (
-                        <option key={a.id} value={a.id}>{a.name}</option>
-                      ))}
-                    </select>
-                  )}
-
-                  {/* الاسم — بحثٌ ذكيّ يربط بحساب لاعب مسجّل أثناء الكتابة */}
-                  <div className="relative">
-                    <input
-                      type="text"
-                      value={formName}
-                      onChange={e => { setFormName(e.target.value); setFormPlayerId(null); setShowSuggest(true); }}
-                      onFocus={() => setShowSuggest(true)}
-                      onBlur={() => setTimeout(() => setShowSuggest(false), 150)}
-                      placeholder="اسم الشخص أو رقمه *"
-                      className={`w-full px-3 py-2.5 bg-gray-900/60 border rounded-xl text-white text-sm placeholder-gray-600 focus:outline-none focus:ring-1 focus:ring-amber-500/30 ${formPlayerId ? 'border-sky-500/50' : 'border-gray-600/40'}`}
-                      autoFocus
-                    />
-                    {formPlayerId && (
-                      <span className="absolute left-3 top-1/2 -translate-y-1/2 text-[10px] px-2 py-0.5 rounded-full bg-sky-500/15 text-sky-400 border border-sky-500/30 pointer-events-none">👤 مربوط</span>
-                    )}
-                    {showSuggest && playerSuggest.length > 0 && (
-                      <div className="absolute z-20 top-full mt-1 w-full bg-[#0d0d0d] border border-gray-700/50 rounded-xl overflow-hidden shadow-xl max-h-60 overflow-y-auto">
-                        <div className="px-3 py-1.5 text-[10px] text-gray-500 border-b border-gray-800/60">لاعبون مسجّلون — اختر للربط</div>
-                        {playerSuggest.map(p => (
-                          <button
-                            key={p.id}
-                            type="button"
-                            onClick={() => selectPlayer(p)}
-                            className="w-full flex items-center gap-2 px-3 py-2 hover:bg-gray-800/60 text-right border-b border-gray-800/40 last:border-0"
-                          >
-                            <img src={p.avatarUrl || '/avatars/male.png'} alt="" className="w-7 h-7 rounded-full object-cover bg-gray-700 shrink-0" onError={e => { (e.target as HTMLImageElement).src = '/avatars/male.png'; }} />
-                            <span className="flex-1 text-white text-sm truncate">{p.name}</span>
-                            <span className="text-gray-500 text-[11px] font-mono" dir="ltr">{p.phone}</span>
-                          </button>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                  <div className="grid grid-cols-2 gap-2">
-                    <div className="relative">
-                      <input
-                        type="tel"
-                        value={formPhone}
-                        onChange={e => { setFormPhone(e.target.value); setFormPlayerId(null); setShowPhoneSuggest(true); }}
-                        onFocus={() => setShowPhoneSuggest(true)}
-                        onBlur={() => setTimeout(() => setShowPhoneSuggest(false), 150)}
-                        placeholder="📞 رقم الهاتف"
-                        dir="ltr"
-                        className={`w-full px-3 py-2.5 bg-gray-900/60 border rounded-xl text-white text-sm placeholder-gray-600 focus:outline-none focus:ring-1 focus:ring-amber-500/30 ${formPlayerId ? 'border-sky-500/50' : 'border-gray-600/40'}`}
-                      />
-                      {showPhoneSuggest && phoneSuggest.length > 0 && (
-                        <div className="absolute z-20 top-full mt-1 w-[240px] max-w-[80vw] bg-[#0d0d0d] border border-gray-700/50 rounded-xl overflow-hidden shadow-xl max-h-60 overflow-y-auto" dir="rtl">
-                          <div className="px-3 py-1.5 text-[10px] text-gray-500 border-b border-gray-800/60">مطابقة بالرقم — اختر للربط</div>
-                          {phoneSuggest.map(p => (
-                            <button
-                              key={p.id}
-                              type="button"
-                              onClick={() => selectPlayer(p)}
-                              className="w-full flex items-center gap-2 px-3 py-2 hover:bg-gray-800/60 text-right border-b border-gray-800/40 last:border-0"
-                            >
-                              <img src={p.avatarUrl || '/avatars/male.png'} alt="" className="w-7 h-7 rounded-full object-cover bg-gray-700 shrink-0" onError={e => { (e.target as HTMLImageElement).src = '/avatars/male.png'; }} />
-                              <span className="flex-1 text-white text-sm truncate">{p.name}</span>
-                              <span className="text-gray-500 text-[11px] font-mono" dir="ltr">{p.phone}</span>
-                            </button>
-                          ))}
-                        </div>
-                      )}
-                    </div>
-                    <input
-                      type="text"
-                      value={formContact}
-                      onChange={e => setFormContact(e.target.value)}
-                      placeholder="واتساب / انستا"
-                      dir="ltr"
-                      className="w-full px-3 py-2.5 bg-gray-900/60 border border-gray-600/40 rounded-xl text-white text-sm placeholder-gray-600 focus:outline-none focus:ring-1 focus:ring-amber-500/30"
-                    />
-                  </div>
-
-                  {/* العدد + ملاحظات */}
-                  <div className="grid grid-cols-[auto_1fr] gap-2">
-                    {/* عداد الأشخاص */}
-                    <div className="flex items-center gap-1 bg-gray-900/60 border border-gray-600/40 rounded-xl px-2">
-                      <button
-                        type="button"
-                        onClick={() => setFormCount(c => Math.max(1, c - 1))}
-                        className="w-8 h-8 rounded-lg text-gray-400 hover:text-white hover:bg-gray-700/50 transition text-lg"
-                      >−</button>
-                      <span className="w-8 text-center text-white font-bold text-sm">{formCount}</span>
-                      <button
-                        type="button"
-                        onClick={() => setFormCount(c => c + 1)}
-                        className="w-8 h-8 rounded-lg text-amber-400 hover:text-amber-300 hover:bg-amber-500/10 transition text-lg"
-                      >+</button>
-                      <span className="text-[10px] text-gray-500 mr-1">شخص</span>
-                    </div>
-                    <input
-                      type="text"
-                      value={formNotes}
-                      onChange={e => setFormNotes(e.target.value)}
-                      placeholder="ملاحظات (اختياري)"
-                      className="w-full px-3 py-2.5 bg-gray-900/60 border border-gray-600/40 rounded-xl text-white text-sm placeholder-gray-600 focus:outline-none focus:ring-1 focus:ring-amber-500/30"
-                    />
-                  </div>
-
-                  {/* زر التسجيل */}
-                  <button
-                    onClick={handleCreate}
-                    disabled={formSubmitting || !formName.trim()}
-                    className="w-full py-3 bg-gradient-to-r from-amber-500 to-rose-600 text-white font-bold rounded-xl text-sm hover:opacity-90 transition disabled:opacity-40 shadow-[0_0_20px_rgba(245,158,11,0.2)]"
-                  >
-                    {formSubmitting ? 'جاري التسجيل...' : '✓ تسجيل الحجز'}
-                  </button>
-                </div>
-              </motion.div>
-            )}
+          <AnimatePresence initial={false}>
+            {R.filtered.map(r => (
+              <ResRow key={r.id} r={r} onOpen={setSel} onAttend={markAttend} />
+            ))}
           </AnimatePresence>
 
-          {/* ══════ RESERVATION CARDS ══════ */}
-          <div className="space-y-2">
-            {filtered.length === 0 ? (
-              <div className="text-center py-16">
-                <span className="text-4xl block mb-3 opacity-20">📋</span>
-                <p className="text-gray-600 text-sm">لا توجد حجوزات{filterStatus !== 'all' ? ' مطابقة للفلتر' : ' بعد'}</p>
-              </div>
-            ) : (
-              filtered.map(r => {
-                const confirmed = isConfirmed(r);
-                const cfg = confirmMeta(confirmed, r.status === 'waitlist');
-                const isAttended = r.attended === true;
-                const isNoShow = r.attended === false;
-                const isUnmarked = r.attended === null || r.attended === undefined;
-
-                // تحديد ألوان الكارد بناءً على حالة الحضور
-                let cardBorder = cfg.border;
-                let cardBg = 'bg-gray-800/30';
-                let cardGlow = '';
-                if (isAttended) {
-                  cardBorder = 'border-emerald-500/40';
-                  cardBg = 'bg-emerald-500/5';
-                  cardGlow = 'shadow-[0_0_8px_rgba(16,185,129,0.1)]';
-                } else if (isNoShow) {
-                  cardBorder = 'border-rose-500/40';
-                  cardBg = 'bg-rose-500/5';
-                  cardGlow = 'shadow-[0_0_8px_rgba(244,63,94,0.1)]';
-                }
-
-                return (
-                  <motion.div
-                    key={r.id}
-                    id={`res-${r.id}`}
-                    layout
-                    initial={{ opacity: 0, y: 10 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    className={`${cardBg} border rounded-xl p-3.5 transition-all ${cardBorder} ${cardGlow} ${highlightId === r.id ? 'ring-2 ring-amber-400 ring-offset-2 ring-offset-black' : ''}`}
-                  >
-                    {/* الصف الأول: الاسم + Badge + حالة الحضور */}
-                    <div className="flex items-start justify-between gap-2 mb-2">
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-2 mb-0.5">
-                          <span className="text-white font-bold text-sm truncate">{r.contactName}</span>
-                          <span className={`text-[10px] px-2 py-0.5 rounded-full border ${cfg.bg} ${cfg.text} ${cfg.border} font-medium whitespace-nowrap`}>
-                            {cfg.emoji} {cfg.label}
-                          </span>
-                          {isAttended && (
-                            <span className="text-[10px] px-2 py-0.5 rounded-full bg-emerald-500/15 text-emerald-400 border border-emerald-500/30 font-bold whitespace-nowrap">
-                              ✓ حضر
-                            </span>
-                          )}
-                          {isNoShow && (
-                            <span className="text-[10px] px-2 py-0.5 rounded-full bg-rose-500/15 text-rose-400 border border-rose-500/30 font-bold whitespace-nowrap">
-                              ✗ لم يحضر
-                            </span>
-                          )}
-                          {r.playerId && (
-                            <span className="text-[10px] px-2 py-0.5 rounded-full bg-sky-500/15 text-sky-400 border border-sky-500/30 font-bold whitespace-nowrap" title="مربوط بحساب لاعب مسجّل">
-                              👤 لاعب
-                            </span>
-                          )}
-                          {r.appConfirmed && (
-                            <span
-                              className="text-[10px] px-2 py-0.5 rounded-full bg-violet-500/15 text-violet-300 border border-violet-500/40 font-bold whitespace-nowrap shadow-[0_0_10px_rgba(139,92,246,0.15)]"
-                              title={`اللاعب حجز بنفسه من التطبيق${r.appConfirmedAt ? ' — ' + new Date(r.appConfirmedAt).toLocaleString('ar-JO', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : ''}`}
-                            >
-                              📱 تأكّد من التطبيق
-                            </span>
-                          )}
-                        </div>
-                        {r.contactMethod && (
-                          <p className="text-gray-500 text-xs" dir="ltr">{r.contactMethod}</p>
-                        )}
-                      </div>
-                      {/* زر واتساب — يفتح محادثة برسالة تأكيد جاهزة */}
-                      {r.phone && normalizePhoneIntl(r.phone) && (
-                        <button
-                          onClick={() => {
-                            const intl = normalizePhoneIntl(r.phone);
-                            if (!intl) return;
-                            const act = activities.find(a => a.id === r.activityId);
-                            const loc = act ? locations.find(l => l.id === act.locationId) : null;
-                            const when = act?.date
-                              ? new Date(act.date).toLocaleString('ar-JO', { weekday: 'long', day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit' })
-                              : '';
-                            openWhatsApp(r.phone, fillTemplate(waTemplate, RES_VARS, {
-                              name: r.contactName, activityName: getActivityName(r.activityId),
-                              count: r.peopleCount || 1, locationName: loc?.name,
-                              region: loc?.region, when, mapUrl: loc?.mapUrl,
-                            }));
-                          }}
-                          className="w-9 h-9 rounded-full flex items-center justify-center bg-green-500/15 border border-green-500/30 text-green-400 hover:bg-green-500/25 transition shrink-0"
-                          title="واتساب — إرسال رسالة تأكيد"
-                        >
-                          💬
-                        </button>
-                      )}
-                      {/* زر اتصال */}
-                      {r.phone && (
-                        <a
-                          href={`tel:${r.phone}`}
-                          className="w-9 h-9 rounded-full flex items-center justify-center bg-emerald-500/15 border border-emerald-500/30 text-emerald-400 hover:bg-emerald-500/25 transition shrink-0"
-                          title={`اتصال: ${r.phone}`}
-                        >
-                          📞
-                        </a>
-                      )}
-                      <div className="text-center shrink-0">
-                        <div className="text-white font-black text-lg leading-none">{r.peopleCount || 1}</div>
-                        <div className="text-[9px] text-gray-600">شخص</div>
-                      </div>
-                    </div>
-
-                    {/* ملاحظات */}
-                    {r.notes && (
-                      <div className="mb-2 px-2 py-1.5 bg-gray-900/40 rounded-lg">
-                        <p className="text-[11px] text-gray-400">💬 {r.notes}</p>
-                      </div>
-                    )}
-
-                    {/* النشاط + التاريخ */}
-                    <div className="flex items-center justify-between text-[10px] text-gray-600 mb-2.5">
-                      <span>🎯 {getActivityName(r.activityId)}</span>
-                      <span>{r.createdAt ? new Date(r.createdAt).toLocaleDateString('ar-EG', { day: 'numeric', month: 'short' }) : ''}</span>
-                    </div>
-
-                    {/* ══ الحضور — ضبطٌ مباشر بنقرة (لا إعادة تعيين بالخطأ) ══ */}
-                    <div className="flex items-center gap-1.5 mb-2">
-                      <button
-                        onClick={() => toggleAttendance(r.id, true)}
-                        className={`flex-1 py-2 rounded-lg border text-xs font-bold transition-all active:scale-95 ${
-                          isAttended
-                            ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40 shadow-[0_0_10px_rgba(16,185,129,0.15)]'
-                            : 'bg-gray-800/40 text-gray-500 border-gray-700/30 hover:bg-emerald-500/10 hover:text-emerald-400 hover:border-emerald-500/30'
-                        }`}
-                      >
-                        ✓ حضر
-                      </button>
-                      <button
-                        onClick={() => toggleAttendance(r.id, false)}
-                        className={`flex-1 py-2 rounded-lg border text-xs font-bold transition-all active:scale-95 ${
-                          isNoShow
-                            ? 'bg-rose-500/20 text-rose-300 border-rose-500/40 shadow-[0_0_10px_rgba(244,63,94,0.15)]'
-                            : 'bg-gray-800/40 text-gray-500 border-gray-700/30 hover:bg-rose-500/10 hover:text-rose-400 hover:border-rose-500/30'
-                        }`}
-                      >
-                        ✗ لم يحضر
-                      </button>
-                      {!isUnmarked && (
-                        <button
-                          onClick={() => toggleAttendance(r.id, null)}
-                          title="مسح تحديد الحضور"
-                          className="px-2.5 py-2 rounded-lg border border-gray-700/30 text-gray-500 hover:text-gray-200 hover:bg-gray-700/30 text-xs transition"
-                        >
-                          ↺
-                        </button>
-                      )}
-                    </div>
-
-                    {/* ══ التثبيت (زرّ إجراء واحد واضح) + تعديل/حذف ══ */}
-                    <div className="flex items-center gap-1.5">
-                      <button
-                        onClick={() => toggleConfirmed(r)}
-                        className={`flex-1 py-1.5 rounded-lg border text-[11px] font-bold transition-all active:scale-95 ${
-                          confirmed
-                            ? 'bg-gray-800/40 text-gray-400 border-gray-700/30 hover:bg-gray-700/40'
-                            : 'bg-emerald-500/15 text-emerald-300 border-emerald-500/40 hover:bg-emerald-500/25 shadow-[0_0_10px_rgba(16,185,129,0.12)]'
-                        }`}
-                      >
-                        {confirmed ? '↩ إلغاء التثبيت' : '✅ تثبيت الحجز'}
-                      </button>
-                      <button
-                        onClick={() => openEdit(r)}
-                        className="py-1.5 px-2.5 rounded-lg border border-gray-700/30 text-gray-500 hover:text-white hover:bg-gray-700/30 text-[11px] transition"
-                      >
-                        ✏️
-                      </button>
-                      <button
-                        onClick={() => handleDelete(r.id)}
-                        className="py-1.5 px-2.5 rounded-lg border border-gray-700/30 text-gray-600 hover:text-rose-400 hover:bg-rose-500/10 hover:border-rose-500/30 text-[11px] transition"
-                      >
-                        🗑
-                      </button>
-                    </div>
-                  </motion.div>
-                );
-              })
-            )}
-          </div>
-        </>
+          {!R.filtered.length && (
+            <p className="text-center text-gray-600 text-sm py-16">
+              {R.search ? 'لا نتائج لهذا البحث' : 'لا حجوزات في هذا التصنيف'}
+            </p>
+          )}
+        </div>
       )}
 
-      {/* ══════ EDIT MODAL (Bottom Sheet Style) ══════ */}
+      {/* ══ «تراجع» بدل نافذة تأكيد ══ */}
       <AnimatePresence>
-        {editing && (
+        {toast && (
           <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/60 backdrop-blur-sm"
-            onClick={() => setEditing(null)}
+            initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 20 }}
+            className="fixed left-3 right-3 z-40 flex items-center gap-2.5 px-4 py-3 rounded-2xl max-w-lg mx-auto"
+            style={{ bottom: 84, background: '#12211d', border: `1px solid ${RES_COLORS.attended}66` }}
           >
-            <motion.div
-              initial={{ y: 100, opacity: 0 }}
-              animate={{ y: 0, opacity: 1 }}
-              exit={{ y: 100, opacity: 0 }}
-              onClick={e => e.stopPropagation()}
-              className="bg-gray-800 border border-gray-700/50 rounded-t-2xl sm:rounded-2xl p-5 w-full max-w-md space-y-3 max-h-[85vh] overflow-y-auto"
-              dir="rtl"
+            <span style={{ color: RES_COLORS.attended }}>✓</span>
+            <span className="flex-1 text-[13.5px] text-gray-200 truncate">{toast.text}</span>
+            <button
+              onClick={() => { R.setAttendance(toast.id, toast.prev); setToast(null); }}
+              className="text-[13.5px] font-extrabold px-2" style={{ color: RES_COLORS.pending }}
             >
-              <div className="flex items-center justify-between">
-                <h3 className="text-base font-bold text-white">تعديل الحجز</h3>
-                <button onClick={() => setEditing(null)} className="text-gray-500 hover:text-white transition text-lg">✕</button>
-              </div>
-
-              <div>
-                <label className="block text-xs text-gray-400 mb-1">اسم الشخص *</label>
-                <input type="text" value={editName} onChange={e => setEditName(e.target.value)}
-                  className="w-full px-3 py-2.5 bg-gray-900/60 border border-gray-600/40 rounded-xl text-white text-sm focus:outline-none focus:ring-1 focus:ring-amber-500/30" />
-              </div>
-
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-xs text-gray-400 mb-1">📞 رقم الهاتف</label>
-                  <input type="tel" value={editPhone} onChange={e => setEditPhone(e.target.value)} dir="ltr"
-                    className="w-full px-3 py-2.5 bg-gray-900/60 border border-gray-600/40 rounded-xl text-white text-sm focus:outline-none focus:ring-1 focus:ring-amber-500/30" />
-                </div>
-                <div>
-                  <label className="block text-xs text-gray-400 mb-1">طريقة التواصل</label>
-                  <input type="text" value={editContact} onChange={e => setEditContact(e.target.value)} dir="ltr"
-                    className="w-full px-3 py-2.5 bg-gray-900/60 border border-gray-600/40 rounded-xl text-white text-sm focus:outline-none focus:ring-1 focus:ring-amber-500/30" />
-                </div>
-              </div>
-
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-xs text-gray-400 mb-1">عدد الأشخاص</label>
-                  <div className="flex items-center gap-1 bg-gray-900/60 border border-gray-600/40 rounded-xl px-2 py-1">
-                    <button type="button" onClick={() => setEditCount(c => Math.max(1, c - 1))} className="w-8 h-8 rounded-lg text-gray-400 hover:text-white hover:bg-gray-700/50 transition text-lg">−</button>
-                    <span className="flex-1 text-center text-white font-bold text-sm">{editCount}</span>
-                    <button type="button" onClick={() => setEditCount(c => c + 1)} className="w-8 h-8 rounded-lg text-amber-400 hover:text-amber-300 hover:bg-amber-500/10 transition text-lg">+</button>
-                  </div>
-                </div>
-                <div>
-                  <label className="block text-xs text-gray-400 mb-1">حالة التثبيت</label>
-                  <select value={editStatus === 'confirmed' || editStatus === 'paid_all' ? 'confirmed' : 'pending'} onChange={e => setEditStatus(e.target.value)}
-                    className="w-full px-3 py-2.5 bg-gray-900/60 border border-gray-600/40 rounded-xl text-white text-sm focus:outline-none focus:ring-1 focus:ring-amber-500/30">
-                    <option value="pending">⏳ غير مثبّت</option>
-                    <option value="confirmed">✅ مثبّت</option>
-                  </select>
-                </div>
-              </div>
-
-              <div>
-                <label className="block text-xs text-gray-400 mb-1">ملاحظات</label>
-                <input type="text" value={editNotes} onChange={e => setEditNotes(e.target.value)}
-                  className="w-full px-3 py-2.5 bg-gray-900/60 border border-gray-600/40 rounded-xl text-white text-sm focus:outline-none focus:ring-1 focus:ring-amber-500/30" />
-              </div>
-
-              <div className="flex gap-2 pt-1">
-                <button onClick={handleEditSave} disabled={editSubmitting}
-                  className="flex-1 py-3 bg-gradient-to-r from-amber-500 to-rose-600 text-white font-bold rounded-xl text-sm hover:opacity-90 transition disabled:opacity-50">
-                  {editSubmitting ? 'جاري الحفظ...' : '✓ حفظ التعديلات'}
-                </button>
-                <button onClick={() => setEditing(null)}
-                  className="px-5 py-3 bg-gray-700/50 text-gray-300 rounded-xl hover:bg-gray-700/70 transition text-sm">إلغاء</button>
-              </div>
-            </motion.div>
+              تراجع
+            </button>
           </motion.div>
         )}
       </AnimatePresence>
+
+      {/* ══ الشريطُ السفليّ — قوسُ الإبهام ══ */}
+      {R.activityId && (
+        <div className="fixed left-0 right-0 bottom-0 z-30 px-3 pt-3 pb-[max(12px,env(safe-area-inset-bottom))]"
+          style={{ background: 'linear-gradient(to top,#0a0a0c 62%,rgba(10,10,12,0))' }}>
+          <div className="max-w-lg mx-auto flex gap-2">
+            <button
+              onClick={() => setShowAdd(true)}
+              className="flex-1 h-[50px] rounded-2xl text-[16px] font-extrabold"
+              style={{ background: 'linear-gradient(135deg,#E8B84B,#DCA83C)', color: '#1a1408' }}
+            >
+              ＋ حجز سريع
+            </button>
+            <button
+              onClick={() => setShowMore(true)}
+              className="w-[50px] h-[50px] shrink-0 rounded-2xl text-[20px] text-gray-300"
+              style={{ background: 'rgba(255,255,255,.06)', border: '1px solid rgba(255,255,255,.1)' }}
+            >
+              ⋯
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* ══ الأوراق ══ */}
+      <PersonSheet
+        row={sel} open={!!sel} onClose={() => setSel(null)}
+        onAttend={markAttend} onConfirm={R.setConfirmed}
+        onUpdate={R.updateRow} onDelete={R.removeRow}
+        waMessage={waMessage}
+      />
+
+      <QuickAddSheet
+        open={showAdd} onClose={() => setShowAdd(false)}
+        activityId={R.activityId} activities={R.activityOptions}
+        onCreate={R.createRow} findDuplicate={findDuplicate}
+      />
+
+      <Sheet open={showMore} onClose={() => setShowMore(false)}>
+        <SheetHead title="المزيد" sub={single ? R.activityName(Number(R.activityId)) : 'كلّ الفعاليّات'} />
+        {R.pendingRows.length > 0 && (
+          <button
+            onClick={() => { setShowMore(false); confirmAllPending(); }}
+            disabled={busy === 'bulk'}
+            className="w-full flex items-center gap-3 p-3 rounded-2xl mb-2.5 text-right disabled:opacity-50"
+            style={{ background: RES_COLORS.pending + '14', border: `1px solid ${RES_COLORS.pending}55` }}
+          >
+            <span className="text-[17px]">✅</span>
+            <span className="flex-1">
+              <b className="block text-[14.5px] font-bold" style={{ color: RES_COLORS.pending }}>
+                ثبّت المعلَّق ({ar(R.pendingRows.length)})
+              </b>
+              <span className="block text-[11.5px] text-gray-500">غيرُ المثبَّت لا يظهر للّاعب ولا في الفعاليّة</span>
+            </span>
+          </button>
+        )}
+        {single && (
+          <>
+            <ActionRow icon="🖨️" title="كشف الحاجزين" sub={busy === 'pdf' ? 'يُجهَّز…' : 'PDF للطباعة'}
+              onClick={() => exportRoster('pdf')} disabled={!!busy} />
+            <ActionRow icon="🖼️" title="الكشف المصوّر" sub="بطاقاتٌ بالصور والرتب"
+              onClick={() => window.open(`/print/attendance/${R.activityId}`, '_blank')} />
+            <ActionRow icon="📊" title="تنزيل Excel" sub={busy === 'excel' ? 'يُجهَّز…' : 'جدولٌ كامل'}
+              onClick={() => exportRoster('excel')} disabled={!!busy} />
+          </>
+        )}
+        <ActionRow icon="✅" title="تحديث الحضور من الألعاب" sub="مَن لعب فعلاً يصير «حاضراً»"
+          onClick={() => { setShowMore(false); markFromGames(); }} disabled={!!busy} />
+        <ActionRow icon="💬" title="قالب رسالة التأكيد" sub="النصّ الذي يرسله زرّ الواتساب"
+          onClick={() => { setShowMore(false); setShowTpl(true); }} />
+      </Sheet>
+
+      <Sheet open={showTpl} onClose={() => setShowTpl(false)}>
+        <SheetHead title="قالب رسالة التأكيد" />
+        <MessageTemplateEditor<ResVars>
+          titleAr="💬 النصّ الذي يرسله زرّ الواتساب"
+          value={tpl} onChange={saveTpl} onReset={() => saveTpl(RES_TPL_DEFAULT)}
+          vars={RES_VARS}
+          preview={fillTemplate(tpl, RES_VARS, previewRow.data)}
+          previewOfAr={previewRow.labelAr}
+        />
+      </Sheet>
     </div>
   );
 }

@@ -4,6 +4,7 @@
 // ══════════════════════════════════════════════════════
 
 import { Router, type Request, type Response } from 'express';
+import { isConfirmedStatus, WRITABLE_STATUSES, type ResStatus } from '../lib/reservation-status.js';
 import { eq, desc, and, isNull, inArray, sql } from 'drizzle-orm';
 import { getDB } from '../config/db.js';
 import { reservations, activities, locations } from '../schemas/admin.schema.js';
@@ -95,7 +96,14 @@ router.put('/:id', authenticate, async (req: Request, res: Response) => {
   if (contactMethod !== undefined) updates.contactMethod = contactMethod;
   if (phone !== undefined) updates.phone = phone;
   if (peopleCount !== undefined) updates.peopleCount = peopleCount;
-  if (status !== undefined) updates.status = status;
+  // 🔴 حالةٌ خارج الثلاث لا تُكتب: نافذةُ التعديل القديمة كانت تُرسل 'pending'
+  //    دائماً فتدهس `waitlist` صامتةً، ويضيع أنّ صاحبَها رُفض لامتلاء المقاعد.
+  if (status !== undefined) {
+    if (!WRITABLE_STATUSES.includes(status as ResStatus)) {
+      return res.status(400).json({ error: 'حالةُ حجزٍ غير معروفة' });
+    }
+    updates.status = status;
+  }
   if (notes !== undefined) updates.notes = notes;
   if (attended !== undefined) updates.attended = attended;
   if (playerId !== undefined) updates.playerId = playerId === null ? null : Number(playerId);
@@ -106,8 +114,8 @@ router.put('/:id', authenticate, async (req: Request, res: Response) => {
   // 🔗 التثبيت يُنشئ حجزاً فعليّاً في الفعاليّة — وإلّا بقي وسماً بلا أثر:
   // اللاعب يُخبَر أنّ حجزه مؤكَّد ثمّ لا يجده في تطبيقه ولا في قائمة الفعاليّة.
   // «مثبّت» يشمل paid_all القديمة (تُعامَل كمثبّت في كلّ النظام).
-  const wasConfirmed = existing[0].status === 'confirmed' || existing[0].status === 'paid_all';
-  const nowConfirmed = row.status === 'confirmed' || row.status === 'paid_all';
+  const wasConfirmed = isConfirmedStatus(existing[0].status);
+  const nowConfirmed = isConfirmedStatus(row.status);
   let bookingSync: string | null = null;
   try {
     if (nowConfirmed && !wasConfirmed) {
@@ -205,7 +213,7 @@ router.get('/roster-groups/:activityId', authenticate, async (req: Request, res:
       .where(and(eq(reservations.activityId, activityId), isNull(reservations.deletedAt)));
 
     // المثبَّت فقط — «قائمة الانتظار» وغير المثبَّت لا يُحجز لهما مقعد
-    const confirmed = rows.filter(r => r.status === 'confirmed' || r.status === 'paid_all');
+    const confirmed = rows.filter(r => isConfirmedStatus(r.status));
 
     const newcomers = confirmed.filter(r => !r.playerId);
     const linked = confirmed.filter(r => r.playerId);
@@ -303,7 +311,9 @@ router.post('/mark-attendance-from-games', authenticate, async (req: Request, re
       UPDATE reservations r
       SET attended = true, updated_at = now()
       WHERE r.deleted_at IS NULL
-        AND r.status <> 'pending'                 -- المثبّتة فقط
+        AND r.status IN ('confirmed','paid_all')   -- المثبّتة وحدها
+        -- 🔴 كان الشرطُ «مختلفاً عن pending» فيشمل قائمةَ الانتظار، فيُحوَّل
+        --    مَن رُفض لامتلاء المقاعد إلى «حاضر» تلقائيّاً.
         AND r.attended IS DISTINCT FROM true       -- لا نلمس من ثبت حضوره
         AND r.activity_id IS NOT NULL
         ${activityId ? sql`AND r.activity_id = ${activityId}` : sql``}
