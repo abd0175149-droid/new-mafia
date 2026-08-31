@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState, useMemo, useCallback } from 'react';
+import { useEffect, useState, useMemo, useCallback, useRef } from 'react';
 import { saveFile, isIOS, isStandalone } from '@/lib/saveFile';
 import { motion, AnimatePresence } from 'framer-motion';
 import { swalConfirm } from '@/lib/swal';
@@ -182,6 +182,37 @@ export default function ReservationsPage() {
       (a.status === 'completed' && reservedActivityIds.has(a.id))
     );
   }, [activities, reservations]);
+
+  // ══ 🎯 الاختيار الافتراضيّ: أقرب فعاليّة قادمة غير منتهية ══
+  //
+  // من يفتح هذه الصفحة يفتحها لليلةٍ بعينها، لا ليختار من قائمة. فالمقارنة مع
+  // **بداية اليوم** لا مع اللحظة: فعاليّةُ السابعة مساءً تبقى «فعاليّة اليوم»
+  // للموظّف الذي يفتح الصفحة في التاسعة وسط الليلة نفسها — وهي أحوجُ ما يكون
+  // إليها. وبلا هذا القيد كانت تقفز إلى ليلةِ الغد بينما الحجوزات تُدار الآن.
+  //
+  // ومرّةً واحدة فقط: الجلبُ يتكرّر كلّ ٣٠ث، فلولا الحارس لألغى اختيارَ
+  // الموظّف كلَّ نصف دقيقة وأعاده إلى الافتراضيّ.
+  const autoPickedRef = useRef(false);
+  useEffect(() => {
+    if (autoPickedRef.current) return;
+    if (filterActivity !== '') { autoPickedRef.current = true; return; } // اختار بنفسه
+    if (!activities.length) return;
+
+    const startOfToday = new Date();
+    startOfToday.setHours(0, 0, 0, 0);
+
+    const next = activities
+      .filter(a => (a.status === 'planned' || a.status === 'active') && a.date)
+      .filter(a => new Date(a.date).getTime() >= startOfToday.getTime())
+      .sort((x, y) => new Date(x.date).getTime() - new Date(y.date).getTime())[0];
+
+    // لا فعاليّة قادمة ⇒ تبقى «— اختر النشاط —» ولا نفرض ماضياً
+    if (!next) return;
+    setFilterActivity(String(next.id));
+    // نفسُ ما يفعله الاختيار اليدويّ: يُمهّد نموذجَ الحجز السريع بالفعاليّة ذاتها
+    setFormActivity(prev => prev || String(next.id));
+    autoPickedRef.current = true;
+  }, [activities, filterActivity]);
 
   // ══ Filtered ══
   const filtered = useMemo(() => {
