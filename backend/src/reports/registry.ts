@@ -26,6 +26,7 @@ import { ticketsReport } from './definitions/tickets.report.js';
 import { seasonLeaderboardReport } from './definitions/season-leaderboard.report.js';
 import { playerRetentionReport } from './definitions/player-retention.report.js';
 import { playerExplorerReport } from './definitions/player-explorer.report.js';
+import { consentRegisterReport } from './definitions/consent-register.report.js';
 import { gameAnalyticsReport } from './definitions/game-analytics.report.js';
 import { revenueTrendReport } from './definitions/revenue-trend.report.js';
 import { staffActionAuditReport } from './definitions/staff-action-audit.report.js';
@@ -56,6 +57,7 @@ export const REPORT_DEFINITIONS: ReportDefinition[] = [
   playerStatementReport,
   seasonLeaderboardReport,
   playerExplorerReport,
+  consentRegisterReport,
   playerRetentionReport,
   // مباريات
   gameAnalyticsReport,

@@ -52,6 +52,7 @@ import seatTemplatesRoutes from './routes/seat-templates.routes.js';
 import reservationsRoutes from './routes/reservations.routes.js';
 import seasonsRoutes from './routes/seasons.routes.js';
 import analyticsRoutes from './routes/analytics.routes.js';
+import adminConsentsRoutes from './routes/admin-consents.routes.js';
 import staffActionLogRoutes from './routes/staff-action-log.routes.js';
 import { venueRouter, playerFnbRouter } from './routes/fnb.routes.js';
 import chipsRoutes from './routes/chips.routes.js';
@@ -192,6 +193,7 @@ app.use('/api/progression-settings', progressionSettingsRoutes);
 app.use('/api/anticheat', anticheatRoutes);
 app.use('/api/seasons', seasonsRoutes);
 app.use('/api/analytics', analyticsRoutes);
+app.use('/api/admin/consents', adminConsentsRoutes); // ⚖️ سجلّ الموافقات (adminOnly · قراءةٌ فقط)
 app.use('/api/whatsapp', whatsappRoutes);
 app.use('/api/whatsapp', whatsappInboxRoutes);  // 💬 مركز المحادثات: webhook + send + inbox
 app.use('/api/seating', seatingRoutes);

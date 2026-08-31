@@ -51,6 +51,7 @@ const NAV_GROUPS: NavGroup[] = [
       { href: '/admin/players', icon: '🎮', label: 'اللاعبون', roles: ['admin', 'accountant'] },
       { href: '/admin/analytics/players', icon: '📊', label: 'تحليل اللاعبين', roles: ['admin', 'manager'] },
       { href: '/admin/analytics/explorer', icon: '🔎', label: 'مستكشف اللاعبين', roles: ['admin', 'manager'] },
+      { href: '/admin/players/consents', icon: '⚖️', label: 'سجلّ الموافقات', roles: ['admin'] },
       { href: '/admin/players/map', icon: '🗺️', label: 'مواقع اللاعبين', roles: ['admin', 'manager'] },
       { href: '/admin/feedback', icon: '📋', label: 'تقييمات اللاعبين', roles: ['admin', 'manager'] },
       { href: '/admin/notifications', icon: '🔔', label: 'الإشعارات' },
