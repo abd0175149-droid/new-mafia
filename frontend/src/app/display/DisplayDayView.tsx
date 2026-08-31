@@ -933,8 +933,6 @@ export default function DisplayDayView({ roomId, players, initialDiscussionState
                 const isActiveJust = justTimer?.physicalId === acc.targetPhysicalId;
                 const isSomeoneSpeaking = !!justTimer;
                 const hue = hueOf(i);   // 🎨 لونٌ يربط البطاقة بشرائح مصوّتيها
-                // حساب موقع التايمر (يمين أو يسار حسب الترتيب)
-                const timerSide = i === 0 ? 'left' : 'right';
 
                 return (
                   <motion.div
@@ -955,6 +953,52 @@ export default function DisplayDayView({ roomId, players, initialDiscussionState
                     {isActiveJust && (
                       <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[280px] h-[400px] bg-[#C5A059]/25 blur-[60px] rounded-full pointer-events-none -z-10" />
                     )}
+
+                    {/* ── ⏱️ خانةُ المؤقّت — محجوزةٌ فوق كلّ بطاقة، فارغةٌ لغير المتكلّم ──
+                        🔴 داخل التدفّق لا `absolute`. كان المؤقّت يهرب من عمود صاحبه
+                           بنسبةٍ مئويّة (`left/right-[115%]`)، والعمودُ الذي يجب أن
+                           يتجنّبه (قائمة المصوّتين) يُقاس في مكانٍ آخر — قراران
+                           مستقلّان لا شيء يوفّق بينهما، فيقع التراكب حتماً.
+                        🔴 والجهةُ كانت تُحسب `i === 0 ? 'left' : 'right'` بافتراض LTR،
+                           والمستندُ rtl فالفهرسُ صفر يُرسَم يميناً — فكان المؤقّتان
+                           يشيران **إلى الداخل** كلاهما، إلى الفجوة وعمود الجار. وهذا
+                           عينُ ما ظهر عند متعادلَين.
+                        الخانةُ ثابتةُ الارتفاع لكلّ الأعمدة فلا تقفز البطاقاتُ حين
+                        ينتقل الدور، ولا يمكن أن تتراكب مع شيء مهما كان عددُ المتّهمين
+                        أو اتّجاهُ الصفحة أو التفَّ الصفّ. */}
+                    <div className="h-[168px] flex flex-col items-center justify-end pb-3 w-full">
+                      {isActiveJust && justTimer && (
+                        <motion.div
+                          initial={{ opacity: 0, y: 12 }}
+                          animate={{ opacity: 1, y: 0 }}
+                          transition={{ duration: 0.4 }}
+                          className="flex flex-col items-center"
+                        >
+                          <CircularTimer
+                            timeRemaining={justTimeRemaining}
+                            totalTime={justTimer.timeLimitSeconds}
+                            size={120}
+                            enableHeartbeat={true}
+                            enableShake={true}
+                          />
+                          <motion.p
+                            animate={{ opacity: [0.5, 1, 0.5] }}
+                            transition={{ duration: 1.5, repeat: Infinity }}
+                            className="text-[#C5A059] text-[9px] font-mono tracking-[0.3em] uppercase mt-2"
+                          >
+                            🎙 DEFENDING
+                          </motion.p>
+                        </motion.div>
+                      )}
+                      {isActiveJust && !justTimer && justTimeRemaining === 0 && isSomeoneSpeaking && (
+                        <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="flex flex-col items-center">
+                          <div className="w-[120px] h-[120px] rounded-full border-4 border-[#8A0303] flex items-center justify-center">
+                            <span className="text-3xl font-mono font-black text-[#8A0303] animate-pulse">00</span>
+                          </div>
+                          <span className="text-[#8A0303] text-[8px] font-mono tracking-widest uppercase mt-2 animate-pulse">TIME EXPIRED</span>
+                        </motion.div>
+                      )}
+                    </div>
 
                     {/* الكارد */}
                     <div className="relative rounded-2xl transition-all duration-500"
@@ -980,51 +1024,6 @@ export default function DisplayDayView({ roomId, players, initialDiscussionState
                         <div className="absolute -top-2 left-1/2 -translate-x-1/2 bg-[#8A0303] text-white text-[8px] font-mono px-4 py-0.5 tracking-widest rounded-full z-30">DEAL</div>
                       )}
                     </div>
-
-                    {/* Dynamic Timer — يظهر بجانب المتكلم النشط */}
-                    {isActiveJust && justTimer && (
-                      <motion.div
-                        initial={{ opacity: 0, x: timerSide === 'right' ? -30 : 30 }}
-                        animate={{ opacity: 1, x: 0 }}
-                        transition={{ delay: 0.3, duration: 0.5 }}
-                        className={accusedCount <= 2
-                          ? `absolute top-1/2 -translate-y-1/2 flex flex-col items-center ${timerSide === 'right' ? 'left-[115%]' : 'right-[115%]'}`
-                          // 🔴 ثلاثة فأكثر: الموضع الجانبيّ يتراكب مع عمود الجار — فوق البطاقة
-                          : 'absolute bottom-[104%] left-1/2 -translate-x-1/2 flex flex-col items-center'}
-                      >
-                        <CircularTimer
-                          timeRemaining={justTimeRemaining}
-                          totalTime={justTimer.timeLimitSeconds}
-                          size={120}
-                          enableHeartbeat={true}
-                          enableShake={true}
-                        />
-                        <motion.p
-                          animate={{ opacity: [0.5, 1, 0.5] }}
-                          transition={{ duration: 1.5, repeat: Infinity }}
-                          className="text-[#C5A059] text-[9px] font-mono tracking-[0.3em] uppercase mt-3"
-                        >
-                          🎙 DEFENDING
-                        </motion.p>
-                      </motion.div>
-                    )}
-
-                    {/* Time Expired */}
-                    {isActiveJust && !justTimer && justTimeRemaining === 0 && isSomeoneSpeaking && (
-                      <motion.div
-                        initial={{ opacity: 0 }}
-                        animate={{ opacity: 1 }}
-                        className={accusedCount <= 2
-                          ? `absolute top-1/2 -translate-y-1/2 flex flex-col items-center ${timerSide === 'right' ? 'left-[115%]' : 'right-[115%]'}`
-                          // 🔴 ثلاثة فأكثر: الموضع الجانبيّ يتراكب مع عمود الجار — فوق البطاقة
-                          : 'absolute bottom-[104%] left-1/2 -translate-x-1/2 flex flex-col items-center'}
-                      >
-                        <div className="w-[120px] h-[120px] rounded-full border-4 border-[#8A0303] flex items-center justify-center">
-                          <span className="text-3xl font-mono font-black text-[#8A0303] animate-pulse">00</span>
-                        </div>
-                        <span className="text-[#8A0303] text-[8px] font-mono tracking-widest uppercase mt-3 animate-pulse">TIME EXPIRED</span>
-                      </motion.div>
-                    )}
 
                     {/* ── قائمة المصوّتين — تحت البطاقة لا بجانبها ──
                         الانتماء يُقرأ بالمحاذاة العموديّة، فلا تتراكب قائمتان

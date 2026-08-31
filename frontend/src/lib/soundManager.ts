@@ -234,9 +234,21 @@ export function soundDuration(eventKey: string): number | null {
   return d && d > 0 ? d : null;
 }
 
-/** يوقف العنصر بعد المدّة المضبوطة للمفتاح — بخفضٍ قصير كي لا يُقطع بحدّة. */
+/**
+ * يوقف العنصر بعد المدّة المضبوطة للمفتاح — بخفضٍ قصير كي لا يُقطع بحدّة.
+ *
+ * السقفُ الفعليّ = الأصغرُ بين ما ضبطه الأدمن وحدِّ التكرار المعلَن في
+ * sound-keys (`repeatMs` ناقص هامشٍ صغير). فحدُّ التكرار يُفرض دائماً ولو لم
+ * يضبط أحدٌ شيئاً — وهو ما يمنع عودةَ التراكب مع أوّل ملفٍّ جديد.
+ */
+const REPEAT_MARGIN_MS = 120;
 function applyDurationCap(a: HTMLAudioElement, eventKey: string): void {
-  const cap = customSoundDur[eventKey];
+  const admin = customSoundDur[eventKey];
+  const repeat = soundKeyDef(eventKey)?.repeatMs;
+  const hard = repeat ? Math.max(150, repeat - REPEAT_MARGIN_MS) : 0;
+  const cap = admin && admin > 0
+    ? (hard ? Math.min(admin, hard) : admin)
+    : hard;
   if (!cap || cap <= 0) return;
   const FADE = 180, STEPS = 6;
   setTimeout(() => {
@@ -1109,23 +1121,29 @@ function playDefaultSound(eventKey: string, vol: number = 1): void {
       }
 
       case 'timer_tick': {
-        // نقرة مزدوجة الطبقات — أعلى وأوضح من السابق بكثير
-        const osc = ctx.createOscillator();
-        const gain = ctx.createGain();
-        osc.connect(gain); gain.connect(dest(ctx));
-        osc.type = 'square';
-        osc.frequency.setValueAtTime(1100, ctx.currentTime);
-        gain.gain.setValueAtTime(0.45, ctx.currentTime);
-        gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.09);
-        osc.start(ctx.currentTime); osc.stop(ctx.currentTime + 0.09);
-        const osc2 = ctx.createOscillator();
-        const g2 = ctx.createGain();
-        osc2.connect(g2); g2.connect(dest(ctx));
-        osc2.type = 'sine';
-        osc2.frequency.setValueAtTime(2200, ctx.currentTime);
-        g2.gain.setValueAtTime(0.18, ctx.currentTime);
-        g2.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.06);
-        osc2.start(ctx.currentTime); osc2.stop(ctx.currentTime + 0.06);
+        // 🔴 كانت موجةً **مربّعة** عند 1100Hz — أقسى شكلٍ موجيّ (سلسلة توافقيّات
+        //    فرديّة كاملة)، تُسمع صفيراً حادّاً يتكرّر عشر مرّات فيُتعب الأذن.
+        //    الآن نغمةٌ خشبيّة: أساسٌ جيبيّ 880Hz + توافقيّتان تضمحلّان أسرع —
+        //    نفسُ الوضوح فوق ضجيج القاعة بلا حدّة. مطابقةٌ لطابع الملفّ المرفوع
+        //    كي لا يختلف الصوتُ حين يغيب الملفّ.
+        const t0 = ctx.currentTime;
+        const partials: [number, number, number][] = [
+          [880, 0.42, 0.13],   // [تردّد، ذروة، مدّة الاضمحلال]
+          [1760, 0.16, 0.05],
+          [2640, 0.06, 0.03],
+        ];
+        for (const [freq, peak, dur] of partials) {
+          const osc = ctx.createOscillator();
+          const gain = ctx.createGain();
+          osc.connect(gain); gain.connect(dest(ctx));
+          osc.type = 'sine';
+          osc.frequency.setValueAtTime(freq, t0);
+          // هجومٌ قصيرٌ جدّاً بدل البدء من الذروة — يمنع نقرةَ الحافّة
+          gain.gain.setValueAtTime(0.0001, t0);
+          gain.gain.exponentialRampToValueAtTime(peak, t0 + 0.0015);
+          gain.gain.exponentialRampToValueAtTime(0.0001, t0 + dur);
+          osc.start(t0); osc.stop(t0 + dur + 0.01);
+        }
         break;
       }
 

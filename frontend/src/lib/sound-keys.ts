@@ -85,6 +85,18 @@ export interface SoundKeyDef {
   synth?: boolean;
   /** فراشٌ يتكرّر (لا نغمةٌ عابرة) */
   ambient?: boolean;
+  /**
+   * ⏱️ الفاصلُ بين نداءَين متتاليَين لهذا المفتاح (مللي ثانية).
+   *
+   * 🔴 مفتاحٌ يُنادى دوريّاً وملفُّه أطولُ من فاصله **يتراكب مع نفسه**، وفئةُ
+   *    المؤقّت تراكميّة (isAdditiveKey) فلا يوقف الجديدُ القديم — فتُسمع
+   *    التكّاتُ العشر طنيناً متّصلاً لا عدّاً تنازليّاً. حدث فعلاً: ملفُّ
+   *    timer_tick كان ١٥٦٧ms على فاصل ١٠٠٠ms، وheartbeat_fast ١٥٩٣ms.
+   *
+   *    الرقمُ هنا سقفٌ **يُفرض عند التشغيل** لا اقتراح: أيُّ ملفٍّ يُرفع
+   *    لاحقاً يُقصّ تلقائيّاً دونه، فلا يعود العطبُ بحسن نيّة.
+   */
+  repeatMs?: number;
 }
 
 export interface SoundGroupDef { label: string; events: SoundKeyDef[] }
@@ -212,9 +224,9 @@ export const SOUND_GROUPS: SoundGroupDef[] = [
   {
     label: '⏱️ المؤقّت',
     events: [
-      { key: 'timer_tick',           label: '⏱️ تكّة',         desc: 'آخر ١٠ ثوانٍ من النقاش', cat: 'timer', synth: true },
-      { key: 'timer_heartbeat_slow', label: '💓 نبض بطيء',     desc: 'مؤقّت اللعبة: آخر ٦٠ث',  cat: 'timer', synth: true },
-      { key: 'timer_heartbeat_fast', label: '💗 نبض سريع',     desc: 'مؤقّت اللعبة: آخر ١٠ث',  cat: 'timer', synth: true },
+      { key: 'timer_tick',           label: '⏱️ تكّة',         desc: 'آخر ١٠ ثوانٍ من النقاش', cat: 'timer', synth: true, repeatMs: 1000 },
+      { key: 'timer_heartbeat_slow', label: '💓 نبض بطيء',     desc: 'مؤقّت اللعبة: آخر ٦٠ث',  cat: 'timer', synth: true, repeatMs: 5000 },
+      { key: 'timer_heartbeat_fast', label: '💗 نبض سريع',     desc: 'مؤقّت اللعبة: آخر ١٠ث',  cat: 'timer', synth: true, repeatMs: 1000 },
       { key: 'timer_buzzer',         label: '📢 صافرة',        desc: 'انتهاء الوقت',            cat: 'timer', synth: true },
     ],
   },
