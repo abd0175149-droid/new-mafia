@@ -420,7 +420,8 @@ function PlayerLayoutBody({ children }: { children: React.ReactNode }) {
 
   // صفحات عادية — مع بار
   return (
-    <div className="min-h-screen bg-[#050505] pb-20" style={{ overscrollBehavior: 'none' }}>
+    <div className="min-h-screen bg-[#050505]"
+      style={{ overscrollBehavior: 'none', paddingBottom: 'calc(var(--nav-h) + 16px)' }}>
       {/* مؤشر السحب للتحديث */}
       {pulling && (
         <div className="fixed top-0 left-0 right-0 z-[200] flex justify-center pt-4">

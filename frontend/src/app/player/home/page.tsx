@@ -802,8 +802,8 @@ export default function HomePage() {
         target="_blank"
         rel="noopener noreferrer"
         aria-label="راسلنا على إنستغرام"
-        className="fixed bottom-24 left-4 z-50 w-14 h-14 rounded-full flex items-center justify-center shadow-lg shadow-fuchsia-500/30 transition-transform hover:scale-110 active:scale-95"
-        style={{ background: 'linear-gradient(135deg, #f9ce34, #ee2a7b 45%, #6228d7)' }}
+        className="fixed left-4 z-50 w-14 h-14 rounded-full flex items-center justify-center shadow-lg shadow-fuchsia-500/30 transition-transform hover:scale-110 active:scale-95"
+        style={{ bottom: 'calc(var(--nav-h) + 12px)', background: 'linear-gradient(135deg, #f9ce34, #ee2a7b 45%, #6228d7)' }}
       >
         <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
           <rect x="2" y="2" width="20" height="20" rx="5.5" />

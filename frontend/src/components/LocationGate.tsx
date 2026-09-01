@@ -105,7 +105,10 @@ export default function LocationGate() {
   if (!showIntro || dismissed) return <LocationHelp />;
 
   return (
-    <div className="fixed inset-0 z-[300] flex items-end sm:items-center justify-center bg-black/85 backdrop-blur-sm p-4" dir="rtl">
+    <div className="fixed inset-0 z-[300] flex items-end sm:items-center justify-center bg-black/85 backdrop-blur-sm p-4" dir="rtl"
+      // 🔴 الورقةُ ملتصقةٌ بالأسفل، وp-4 وحدها (16px) أقلُّ من شريط مؤشّر آيفون
+      //    (34px) — فيقع «تابع» في مسار إيماءة النظام فتُسرق لمستُه.
+      style={{ paddingBottom: 'calc(1rem + var(--safe-b))' }}>
       <div className="w-full max-w-sm rounded-3xl overflow-hidden border"
         style={{ background: '#0b0f0d', borderColor: 'rgba(16,185,129,0.28)' }}>
 

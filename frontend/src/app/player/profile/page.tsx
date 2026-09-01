@@ -784,7 +784,8 @@ export default function PlayerProfilePage(){
       <AnimatePresence>
         {saveMsg&&(
           <motion.div initial={{opacity:0,y:50}} animate={{opacity:1,y:0}} exit={{opacity:0,y:50}}
-            className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 px-5 py-2.5 rounded-xl text-sm font-bold bg-gray-800 border border-gray-700 text-amber-400 shadow-xl">
+            style={{ bottom: 'calc(var(--nav-h) + 12px)' }}
+            className="fixed left-1/2 -translate-x-1/2 z-50 px-5 py-2.5 rounded-xl text-sm font-bold bg-gray-800 border border-gray-700 text-amber-400 shadow-xl">
             {saveMsg}
           </motion.div>
         )}

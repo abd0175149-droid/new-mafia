@@ -65,9 +65,9 @@ export default function BottomNav() {
       background: 'linear-gradient(180deg, rgba(10,10,10,0.95) 0%, rgba(5,5,5,1) 100%)',
       borderTop: '1px solid rgba(251,191,36,0.15)',
       backdropFilter: 'blur(20px)',
-      paddingBottom: 'env(safe-area-inset-bottom)',
+      paddingBottom: 'var(--safe-b)',
     }}>
-      <div className="flex items-end justify-around max-w-lg mx-auto px-2" style={{ height: '64px' }}>
+      <div className="flex items-end justify-around max-w-lg mx-auto px-2" style={{ height: 'var(--nav-content-h)' }}>
         {tabs.map((tab) => {
           const isActive = pathname === tab.href || (tab.href === '/player/home' && pathname === '/player');
 

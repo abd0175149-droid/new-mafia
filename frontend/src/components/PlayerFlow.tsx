@@ -4017,7 +4017,8 @@ export default function PlayerFlow({ initialRoomCode = '', inviteFlag = false, i
             animate={{ opacity: 1, scale: 1, y: 0 }}
             exit={{ opacity: 0, scale: 0.9, y: 30 }}
             transition={{ type: 'spring', damping: 15, stiffness: 200 }}
-            className="fixed bottom-6 left-4 right-4 z-[200] flex flex-col items-center"
+            style={{ bottom: 'calc(var(--nav-h) + 12px)' }}
+            className="fixed left-4 right-4 z-[200] flex flex-col items-center"
           >
             <motion.div
               animate={{
@@ -4197,7 +4198,8 @@ export default function PlayerFlow({ initialRoomCode = '', inviteFlag = false, i
             if (isPlayerDead) return;
             setIsGalleryOpen(true);
           }}
-          className="fixed bottom-[110px] left-4 z-[90] bg-[#8A0303]/90 hover:bg-[#8A0303] text-white border border-red-500/50 p-3 rounded-full shadow-[0_0_15px_rgba(138,3,3,0.5)] transition-transform hover:scale-110 flex items-center justify-center backdrop-blur-sm"
+          style={{ bottom: 'calc(var(--nav-h) + 46px)' }}
+          className="fixed left-4 z-[90] bg-[#8A0303]/90 hover:bg-[#8A0303] text-white border border-red-500/50 p-3 rounded-full shadow-[0_0_15px_rgba(138,3,3,0.5)] transition-transform hover:scale-110 flex items-center justify-center backdrop-blur-sm"
           title="التعرف على المافيا"
         >
           <Users className="w-6 h-6" />
@@ -4208,7 +4210,8 @@ export default function PlayerFlow({ initialRoomCode = '', inviteFlag = false, i
       {(step === 'done' || step === 'rejoined') && (
         <button
           onClick={() => setIsNotepadOpen(true)}
-          className="fixed bottom-[88px] right-4 w-12 h-12 bg-[#111] border-2 border-[#C5A059] text-xl flex items-center justify-center rounded-full shadow-[0_0_20px_rgba(197,160,89,0.3)] z-[90] hover:scale-105 transition-transform"
+          style={{ bottom: 'calc(var(--nav-h) + 24px)' }}
+          className="fixed right-4 w-12 h-12 bg-[#111] border-2 border-[#C5A059] text-xl flex items-center justify-center rounded-full shadow-[0_0_20px_rgba(197,160,89,0.3)] z-[90] hover:scale-105 transition-transform"
           title="مفكرة التحري"
         >
           📝
@@ -4221,7 +4224,8 @@ export default function PlayerFlow({ initialRoomCode = '', inviteFlag = false, i
       {(step === 'done' || step === 'rejoined') && fnbReady && (
         <button
           onClick={() => setIsOrderOpen(true)}
-          className="fixed bottom-[152px] right-4 w-12 h-12 bg-[#0d1f18] border-2 border-emerald-500/70 text-xl flex items-center justify-center rounded-full shadow-[0_0_20px_rgba(16,185,129,0.35)] z-[90] hover:scale-105 transition-transform"
+          style={{ bottom: 'calc(var(--nav-h) + 88px)' }}
+          className="fixed right-4 w-12 h-12 bg-[#0d1f18] border-2 border-emerald-500/70 text-xl flex items-center justify-center rounded-full shadow-[0_0_20px_rgba(16,185,129,0.35)] z-[90] hover:scale-105 transition-transform"
           title="اطلب من المكان"
         >
           🍽️

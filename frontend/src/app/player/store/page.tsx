@@ -798,7 +798,8 @@ export default function StorePage() {
         {toast && (
           <motion.div
             initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 20 }}
-            className={`fixed bottom-24 left-1/2 -translate-x-1/2 z-[80] px-4 py-2.5 rounded-xl text-xs font-bold border shadow-2xl max-w-[90%] text-center ${
+            style={{ bottom: 'calc(var(--nav-h) + 12px)' }}
+            className={`fixed left-1/2 -translate-x-1/2 z-[80] px-4 py-2.5 rounded-xl text-xs font-bold border shadow-2xl max-w-[90%] text-center ${
               toast.ok ? 'bg-emerald-900/90 border-emerald-500/50 text-emerald-200' : 'bg-rose-900/90 border-rose-500/50 text-rose-200'
             }`}>
             {toast.text}
