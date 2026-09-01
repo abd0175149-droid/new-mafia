@@ -80,6 +80,43 @@ router.post('/', authenticate, async (req: Request, res: Response) => {
 });
 
 // PUT /api/reservations/:id
+// ══════════════════════════════════════════════════════
+// 💬 تعليمُ رسالةِ الواتساب اليدويّة
+//
+// 🔴 منفذٌ مستقلٌّ لا حقلٌ في PUT — عن قصد: PUT يجرّ معه مزامنةَ الحجوزات
+//    (ensureBooking / removeBooking)، وتعليمُ رسالةٍ يجب ألّا يلمس مقعداً
+//    ولا يُنشئ حجزاً ولا يُلغيه. الفعلُ صغيرٌ فليبقَ مسارُه صغيراً.
+//
+// 🔴 ولا يُحدَّث updatedAt: العمودُ يُقرأ كـ«آخرُ تعديلٍ على بيانات الحجز»،
+//    وفتحُ محادثةٍ ليس تعديلاً عليها.
+// ══════════════════════════════════════════════════════
+router.post('/:id/wa-sent', authenticate, async (req: Request, res: Response) => {
+  const db = getDB();
+  if (!db) return res.status(503).json({ error: 'قاعدة البيانات غير متوفرة' });
+
+  const id = parseInt(req.params.id);
+  if (!Number.isFinite(id)) return res.status(400).json({ error: 'معرّفٌ غير صالح' });
+
+  // `sent` غير المذكورة = إرسال (المسارُ الشائع)، والتراجعُ يُرسلها صراحةً false
+  const sent = req.body?.sent !== false;
+  const by = req.user?.displayName || req.user?.username || '';
+
+  // النوعُ مصرَّحٌ به هنا لأنّ ‏.set() في هذا الملفّ لا يستدلّ أعمدةَ الجدول
+  // (يرفض `notes` و`remindSentAt` أيضاً — عطبٌ سابقٌ لهذا العمود، ولذلك
+  // يستعمل PUT أدناه `updates: any`). فالتحقّقُ يقع على patch لا على .set().
+  const patch: { waSentAt: Date | null; waSentBy: string } = sent
+    ? { waSentAt: new Date(), waSentBy: by }
+    : { waSentAt: null, waSentBy: '' };
+
+  const result = await db.update(reservations)
+    .set(patch as any)
+    .where(and(eq(reservations.id, id), isNull(reservations.deletedAt)))
+    .returning({ id: reservations.id, waSentAt: reservations.waSentAt, waSentBy: reservations.waSentBy });
+
+  if (!result.length) return res.status(404).json({ error: 'الحجز غير موجود' });
+  res.json(result[0]);
+});
+
 router.put('/:id', authenticate, async (req: Request, res: Response) => {
   const db = getDB();
   if (!db) return res.status(503).json({ error: 'قاعدة البيانات غير متوفرة' });

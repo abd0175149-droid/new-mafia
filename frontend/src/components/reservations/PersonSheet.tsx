@@ -15,8 +15,8 @@ import { useEffect, useState } from 'react';
 import { swalConfirm } from '@/lib/swal';
 // 🔴 لا نسخةَ محلّيّة من تطبيع الرقم: كانت مكرّرةً حرفيّاً في الصفحة
 //    رغم أنّ المكتبة تُصدّرها — نسختان تنحرفان يوماً.
-import { openWhatsApp, normalizePhoneIntl } from '@/lib/whatsapp';
-import { RES_COLORS, resStatus, statusMeta, type ResStatus } from '@/lib/reservation-status';
+import { normalizePhoneIntl } from '@/lib/whatsapp';
+import { RES_COLORS, resStatus, statusMeta, isWaSent, waAgo, type ResStatus } from '@/lib/reservation-status';
 import { Sheet, SheetHead, ActionRow, Field, Counter, PrimaryButton } from './Sheet';
 import { ar } from './ResRow';
 import type { Reservation } from '@/hooks/useReservations';
@@ -28,7 +28,7 @@ const STATUSES: { v: ResStatus; label: string; color: string }[] = [
 ];
 
 export default function PersonSheet({
-  row, open, onClose, onAttend, onConfirm, onUpdate, onDelete, waMessage,
+  row, open, onClose, onAttend, onConfirm, onUpdate, onDelete, waMessage, onWaSend, onWaClear,
 }: {
   row: Reservation | null;
   open: boolean;
@@ -39,6 +39,10 @@ export default function PersonSheet({
   onDelete: (id: number) => Promise<void>;
   /** نصُّ رسالة التأكيد جاهزاً — يُبنى في الصفحة حيث القالبُ ومتغيّراتُه */
   waMessage: (r: Reservation) => string;
+  /** تفتح واتساب وتُعلّم الصفَّ مُرسَلاً — الصفحةُ تملك شريطَ التأكيد عند العودة */
+  onWaSend: (r: Reservation) => void;
+  /** تراجعٌ عن التعليم */
+  onWaClear: (r: Reservation) => void;
 }) {
   const [mode, setMode] = useState<'view' | 'edit'>('view');
   const [name, setName] = useState('');
@@ -169,8 +173,21 @@ export default function PersonSheet({
           )}
 
           {intl && (
-            <ActionRow icon="💬" title="رسالة واتساب" sub="بنصّ التأكيد الجاهز"
-              onClick={() => openWhatsApp(row.phone!, waMessage(row))} />
+            <ActionRow
+              icon="💬"
+              title={isWaSent(row) ? 'أرسل مرّةً أخرى' : 'رسالة واتساب'}
+              sub={isWaSent(row)
+                ? `أُرسلت ${waAgo(row.waSentAt)}${row.waSentBy ? ' · ' + row.waSentBy : ''}`
+                : 'بنصّ التأكيد الجاهز'}
+              onClick={() => { onWaSend(row); onClose(); }}
+            />
+          )}
+          {/* 🔴 التعليمُ متفائل، فلا بدّ من طريقٍ لنفيه: رقمٌ خاطئ أو رقمٌ بلا
+              حسابِ واتساب يعني أنّ المحادثة فُتحت ولم تصل رسالة. */}
+          {isWaSent(row) && (
+            <ActionRow icon="↺" title="لم أُرسلها فعليّاً"
+              sub="يُزيل علامةَ الإرسال ويُعيده إلى «لم تُرسل»"
+              onClick={() => onWaClear(row)} />
           )}
           {row.phone && (
             <ActionRow icon="📞" title="اتّصال" sub={row.phone}

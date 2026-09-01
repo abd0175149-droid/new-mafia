@@ -126,6 +126,10 @@ ALTER TABLE activities ADD COLUMN IF NOT EXISTS difficulty VARCHAR(20) DEFAULT '
 ALTER TABLE activities ADD COLUMN IF NOT EXISTS seat_assignments JSONB DEFAULT '[]';
 ALTER TABLE reservations ADD COLUMN IF NOT EXISTS remind_opt_in BOOLEAN NOT NULL DEFAULT true;
 ALTER TABLE reservations ADD COLUMN IF NOT EXISTS remind_sent_at TIMESTAMP;
+-- تعليمُ رسالةِ الواتساب اليدويّة — منفصلٌ عن remind_sent_at (تذكيرُ البوت الآليّ):
+-- الأوّل «موظّفٌ راسل هذا الشخص»، والثاني «النظامُ ذكّره قبل ساعة». خلطُهما يُفقد المعنيين.
+ALTER TABLE reservations ADD COLUMN IF NOT EXISTS wa_sent_at TIMESTAMP;
+ALTER TABLE reservations ADD COLUMN IF NOT EXISTS wa_sent_by VARCHAR(100) DEFAULT '';
 ALTER TABLE wa_bot_settings ADD COLUMN IF NOT EXISTS admin_only_tools JSONB DEFAULT '[]';
 -- 📍 سياج الفعاليّة — النقطة على المكان، والقرار على الفعاليّة
 ALTER TABLE locations  ADD COLUMN IF NOT EXISTS latitude NUMERIC(9,6);

@@ -573,6 +573,10 @@ export const reservations = pgTable('reservations', {
   // 🔔 تذكير واتساب قبل اللعبة بساعة — موافقة ضمنيّة افتراضيّة (يُرسَل لمن نافذته مفتوحة وقت الإرسال)
   remindOptIn: boolean('remind_opt_in').default(true).notNull(),
   remindSentAt: timestamp('remind_sent_at'),
+  // 💬 رسالةُ الواتساب اليدويّة — «موظّفٌ راسل هذا الشخص»، لا يخلط مع remindSentAt
+  // (تذكيرُ البوت الآليّ قبل ساعة). التمييزُ مقصود: أحدهما فعلُ إنسانٍ والآخر فعلُ نظام.
+  waSentAt: timestamp('wa_sent_at'),
+  waSentBy: varchar('wa_sent_by', { length: 100 }).default(''),
   createdAt: timestamp('created_at').defaultNow().notNull(),
   updatedAt: timestamp('updated_at').defaultNow().notNull(),
   deletedAt: timestamp('deleted_at'),

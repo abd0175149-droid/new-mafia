@@ -23,16 +23,17 @@ import { useCallback, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { motion, AnimatePresence } from 'framer-motion';
 import { saveFile, isIOS, isStandalone } from '@/lib/saveFile';
-import { fillTemplate, ensureHttp, type TemplateVar } from '@/lib/whatsapp';
+import { fillTemplate, ensureHttp, openWhatsApp, type TemplateVar } from '@/lib/whatsapp';
 import MessageTemplateEditor from '@/components/MessageTemplateEditor';
 import { swalConfirm } from '@/lib/swal';
 import {
-  RES_COLORS, isPending, normPhoneKey, statusMeta,
+  RES_COLORS, isPending, normPhoneKey, statusMeta, needsWa,
 } from '@/lib/reservation-status';
 import { useReservations, getToken, type Reservation } from '@/hooks/useReservations';
 import ResRow, { ar } from '@/components/reservations/ResRow';
 import PersonSheet from '@/components/reservations/PersonSheet';
 import QuickAddSheet from '@/components/reservations/QuickAddSheet';
+import WaConfirmBar from '@/components/reservations/WaConfirmBar';
 import { Sheet, SheetHead, ActionRow } from '@/components/reservations/Sheet';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || '';
@@ -76,6 +77,7 @@ export default function ReservationsPage() {
   const [showTpl, setShowTpl] = useState(false);
   const [busy, setBusy] = useState<string | null>(null);
   const [toast, setToast] = useState<{ text: string; id: number; prev: boolean | null } | null>(null);
+  const [waJust, setWaJust] = useState<Reservation | null>(null);
 
   const [tpl, setTpl] = useState(() => {
     if (typeof window === 'undefined') return RES_TPL_DEFAULT;
@@ -97,6 +99,28 @@ export default function ReservationsPage() {
       locationName: loc?.name, region: loc?.region, when, mapUrl: loc?.mapUrl,
     });
   }, [R.activities, R.locations, tpl]);
+
+  // ══════════════════════════════════════════════════════
+  // 💬 إرسالُ رسالةٍ يدويّةٍ وتسجيلُها
+  //
+  // يفتح واتساب فوراً ثمّ يُعلّم — بهذا الترتيب: فتحُ نافذةٍ بعد `await`
+  // يعدّه المتصفّحُ نافذةً منبثقةً لا استجابةً للمسة، فيحجبها.
+  // ══════════════════════════════════════════════════════
+  const sendWa = useCallback((r: Reservation) => {
+    if (!openWhatsApp(r.phone || '', waMessage(r))) {
+      alert('رقمٌ غير صالحٍ للواتساب — صحّحه من «تعديل البيانات».');
+      return;
+    }
+    R.markWaSent(r.id, true);
+    setToast(null);   // يتشاركان الموضعَ نفسَه أسفلَ الشاشة
+    setWaJust(r);
+  }, [R, waMessage]);
+
+  /** مَن ينتظر رسالةً في العرض الحاليّ — بترتيب الشاشة نفسِه لئلّا يقفز المؤشّر */
+  const waQueue = useMemo(
+    () => R.filtered.filter(x => needsWa(x) && x.id !== waJust?.id),
+    [R.filtered, waJust],
+  );
 
   // ── كشفُ التكرار — على صفوف الفعاليّة المستهدَفة ──
   const findDuplicate = useCallback((activityId: number, name: string, phone: string, playerId: number | null) => {
@@ -222,10 +246,11 @@ export default function ReservationsPage() {
   }
 
   const c = R.counts;
-  const chips: { k: typeof R.status | 'unmarked' | 'attended' | 'noShow'; label: string; n: number; kind: 'status' | 'attend' }[] = [
+  const chips: { k: typeof R.status | 'unmarked' | 'attended' | 'noShow' | 'needsWa'; label: string; n: number; kind: 'status' | 'attend' | 'wa' }[] = [
     { k: 'all', label: 'الكلّ', n: c.total, kind: 'status' },
     { k: 'pending', label: 'غير مثبّت', n: c.pending, kind: 'status' },
     { k: 'waitlist', label: 'انتظار', n: c.waitlist, kind: 'status' },
+    { k: 'needsWa', label: 'لم تُرسل', n: c.needsWa, kind: 'wa' },
     { k: 'unmarked', label: 'لم يُعلَّم', n: c.unmarked, kind: 'attend' },
     { k: 'attended', label: 'حضر', n: c.attended, kind: 'attend' },
     { k: 'noShow', label: 'لم يحضر', n: c.noShow, kind: 'attend' },
@@ -290,13 +315,15 @@ export default function ReservationsPage() {
 
             <div className="flex gap-1.5 overflow-x-auto pb-0.5" style={{ scrollbarWidth: 'none' }}>
               {chips.map(ch => {
-                const on = ch.kind === 'status' ? R.status === ch.k : R.attend === ch.k;
+                const on = ch.kind === 'status' ? R.status === ch.k
+                  : ch.kind === 'wa' ? R.wa === 'needs' : R.attend === ch.k;
                 return (
                   <button
                     key={ch.k}
                     onClick={() => {
-                      if (ch.kind === 'status') { R.setStatus(on ? 'all' : ch.k as any); R.setAttend('all'); }
-                      else { R.setAttend(on ? 'all' : ch.k as any); R.setStatus('all'); }
+                      if (ch.kind === 'status') { R.setStatus(on ? 'all' : ch.k as any); R.setAttend('all'); R.setWa('all'); }
+                      else if (ch.kind === 'wa') { R.setWa(on ? 'all' : 'needs'); R.setStatus('all'); R.setAttend('all'); }
+                      else { R.setAttend(on ? 'all' : ch.k as any); R.setStatus('all'); R.setWa('all'); }
                     }}
                     className="shrink-0 h-11 px-3 rounded-full text-[13px] font-bold flex items-center gap-1.5 whitespace-nowrap"
                     style={on
@@ -398,6 +425,17 @@ export default function ReservationsPage() {
         onAttend={markAttend} onConfirm={R.setConfirmed}
         onUpdate={R.updateRow} onDelete={R.removeRow}
         waMessage={waMessage}
+        onWaSend={sendWa}
+        onWaClear={(r) => { R.markWaSent(r.id, false); if (waJust?.id === r.id) setWaJust(null); }}
+      />
+
+      {/* ══ تأكيدُ الإرسال — يظهر عند العودة من واتساب ══ */}
+      <WaConfirmBar
+        row={waJust}
+        remaining={waQueue.length}
+        onUndo={() => { if (waJust) R.markWaSent(waJust.id, false); setWaJust(null); }}
+        onNext={() => { const n = waQueue[0]; if (n) sendWa(n); else setWaJust(null); }}
+        onClose={() => setWaJust(null)}
       />
 
       <QuickAddSheet

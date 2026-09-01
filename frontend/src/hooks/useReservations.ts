@@ -15,7 +15,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
-  isConfirmed, isPending, matchesSearch, attendOrder, countRows,
+  isConfirmed, isPending, matchesSearch, attendOrder, countRows, needsWa,
   type ResCounts,
 } from '@/lib/reservation-status';
 
@@ -36,6 +36,9 @@ export interface Reservation {
   attended: boolean | null;
   notes: string | null;
   remindOptIn: boolean | null;
+  /** آخرُ رسالةِ واتساب يدويّةٍ أرسلها موظّفٌ من حسابه — لا علاقة لها بالبوت */
+  waSentAt: string | null;
+  waSentBy: string | null;
   createdBy: string | null;
   createdAt: string | null;
   deletedAt: string | null;
@@ -61,6 +64,8 @@ export async function apiFetch(path: string, opts?: RequestInit) {
 
 export type AttendFilter = 'all' | 'attended' | 'noShow' | 'unmarked';
 export type StatusFilter = 'all' | 'confirmed' | 'pending' | 'waitlist';
+/** مرشِّحُ رسالةِ الواتساب اليدويّة — «مَن لم أراسله بعد» */
+export type WaFilter = 'all' | 'needs';
 
 export function useReservations() {
   const [reservations, setReservations] = useState<Reservation[]>([]);
@@ -72,6 +77,7 @@ export function useReservations() {
   const [search, setSearch] = useState('');
   const [status, setStatus] = useState<StatusFilter>('all');
   const [attend, setAttend] = useState<AttendFilter>('all');
+  const [wa, setWa] = useState<WaFilter>('all');
 
   const inflight = useRef(false);
 
@@ -156,10 +162,11 @@ export function useReservations() {
       if (attend === 'attended' && r.attended !== true) return false;
       if (attend === 'noShow' && r.attended !== false) return false;
       if (attend === 'unmarked' && r.attended != null) return false;
+      if (wa === 'needs' && !needsWa(r)) return false;
       return matchesSearch(r, search);
     })
     .sort((a, b) => attendOrder(a) - attendOrder(b)),
-  [scoped, status, attend, search]);
+  [scoped, status, attend, wa, search]);
 
   const counts: ResCounts = useMemo(() => countRows(scoped), [scoped]);
   const pendingRows = useMemo(() => scoped.filter(isPending), [scoped]);
@@ -220,6 +227,37 @@ export function useReservations() {
     }
   }, []);
 
+  /**
+   * 💬 تعليمُ «أُرسلت له رسالة» — تحديثٌ فوريٌّ ثمّ إرسال.
+   *
+   * 🔴 التعليمُ متفائل: يُكتب لحظةَ فتح واتساب لا بعد تأكيدٍ لاحق. السببُ أنّ
+   *    الموظّف ينتقل إلى تطبيقٍ آخر فوراً، وقد لا يعود إلى هذه الصفحة أصلاً —
+   *    فانتظارُ تأكيدٍ يعني ثقباً في السجلّ في أكثر الحالات شيوعاً. والتأكيدُ
+   *    عند العودة وظيفتُه **النفي** لا الإثبات.
+   *
+   * 🔴 ولا يمرّ عبر PUT: ذاك يُشغّل مزامنةَ الحجوزات، وفتحُ محادثةٍ لا يُنشئ مقعداً.
+   */
+  const markWaSent = useCallback(async (id: number, sent: boolean) => {
+    const prevAt = reservations.find(r => r.id === id)?.waSentAt ?? null;
+    const prevBy = reservations.find(r => r.id === id)?.waSentBy ?? null;
+    setReservations(p => p.map(r => (r.id === id
+      ? { ...r, waSentAt: sent ? new Date().toISOString() : null, waSentBy: sent ? (r.waSentBy || '') : null }
+      : r)));
+    try {
+      const res = await apiFetch(`/api/reservations/${id}/wa-sent`, {
+        method: 'POST', body: JSON.stringify({ sent }),
+      });
+      setReservations(p => p.map(r => (r.id === id
+        ? { ...r, waSentAt: res?.waSentAt ?? null, waSentBy: res?.waSentBy ?? null } : r)));
+      return true;
+    } catch {
+      // الفشلُ يُرجع الحالةَ السابقة بلا نافذةِ تنبيه: الموظّفُ الآن داخل واتساب،
+      // ونافذةٌ تنتظره عند العودة تعترض إيقاعَه من أجل حقلٍ ثانويّ.
+      setReservations(p => p.map(r => (r.id === id ? { ...r, waSentAt: prevAt, waSentBy: prevBy } : r)));
+      return false;
+    }
+  }, [reservations]);
+
   const updateRow = useCallback(async (id: number, patch: Record<string, any>) => {
     await apiFetch(`/api/reservations/${id}`, { method: 'PUT', body: JSON.stringify(patch) });
     await fetchAll();
@@ -242,8 +280,8 @@ export function useReservations() {
     activityOptions, activity, location, activityName,
     // مرشِّحات
     activityId, setActivityId, search, setSearch,
-    status, setStatus, attend, setAttend,
+    status, setStatus, attend, setAttend, wa, setWa,
     // أفعال
-    fetchAll, setAttendance, setConfirmed, updateRow, removeRow, createRow,
+    fetchAll, setAttendance, setConfirmed, markWaSent, updateRow, removeRow, createRow,
   };
 }

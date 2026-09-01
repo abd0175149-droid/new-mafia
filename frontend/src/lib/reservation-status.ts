@@ -25,6 +25,7 @@ export const RES_COLORS = {
   waitlist: '#A78BFA',
   attended: '#2FA88C',
   noShow: '#D9453F',
+  waSent: '#25D366',   // أخضرُ واتساب — يُقرأ فوراً بلا تعلُّم
   neutral: 'rgba(255,255,255,.14)',
 } as const;
 
@@ -41,6 +42,34 @@ export const isConfirmed = (r: any) => resStatus(r) === 'confirmed';
 /** بانتظار التثبيت — لا يشمل قائمة الانتظار */
 export const isPending = (r: any) => resStatus(r) === 'pending';
 export const isWaitlist = (r: any) => resStatus(r) === 'waitlist';
+
+// ══════════════════════════════════════════════════════
+// 💬 رسالةُ الواتساب اليدويّة — يرسلها الموظّفُ من حسابه هو
+//
+// لا علاقةَ لها بالبوت: طبقةُ الإرسال الرسميّة ترفض أيَّ رسالةٍ خارج نافذة
+// الـ٢٤ ساعة («لا نراسل إلا مَن راسلنا أوّلاً»)، فالمراسلةُ الاستباقيّة تبقى
+// يدويّةً من هاتف الموظّف. وهذا العمودُ يسجّل فعلَه هو.
+// ══════════════════════════════════════════════════════
+
+/** أُرسلت له رسالةٌ يدويّة */
+export const isWaSent = (r: any) => !!r?.waSentAt;
+
+/** يحتاج رسالةً: له رقمٌ ولم تُرسل بعد. مَن لا رقمَ له لا يُحتسب — لا سبيل إليه. */
+export const needsWa = (r: any) => !!String(r?.phone || '').trim() && !r?.waSentAt;
+
+/** «قبل ٥ د» — بالأرقام العربيّة، ومختصرةٌ لتسع في شارةِ صفّ */
+export function waAgo(iso: string | null | undefined): string {
+  if (!iso) return '';
+  const ms = Date.now() - new Date(iso).getTime();
+  if (!Number.isFinite(ms) || ms < 0) return 'الآن';
+  const m = Math.floor(ms / 60000);
+  if (m < 1) return 'الآن';
+  const arNum = (n: number) => String(n).replace(/\d/g, d => '٠١٢٣٤٥٦٧٨٩'[+d]);
+  if (m < 60) return `قبل ${arNum(m)} د`;
+  const h = Math.floor(m / 60);
+  if (h < 24) return `قبل ${arNum(h)} س`;
+  return `قبل ${arNum(Math.floor(h / 24))} ي`;
+}
 
 export interface StatusMeta { label: string; short: string; color: string; emoji: string }
 
@@ -89,13 +118,15 @@ export interface ResCounts {
   total: number; people: number;
   confirmed: number; pending: number; waitlist: number;
   attended: number; noShow: number; unmarked: number;
+  /** له رقمٌ ولم تُرسل له رسالةٌ يدويّة بعد */
+  needsWa: number;
 }
 
 /** عدٌّ واحدٌ لكلّ الأرقام المعروضة — فلا يختلف رقمان على شاشةٍ واحدة */
 export function countRows(rows: any[]): ResCounts {
   const c: ResCounts = {
     total: 0, people: 0, confirmed: 0, pending: 0, waitlist: 0,
-    attended: 0, noShow: 0, unmarked: 0,
+    attended: 0, noShow: 0, unmarked: 0, needsWa: 0,
   };
   for (const r of rows) {
     c.total++;
@@ -103,6 +134,7 @@ export function countRows(rows: any[]): ResCounts {
     const s = resStatus(r);
     if (s === 'confirmed') c.confirmed++; else if (s === 'waitlist') c.waitlist++; else c.pending++;
     if (r?.attended === true) c.attended++; else if (r?.attended === false) c.noShow++; else c.unmarked++;
+    if (needsWa(r)) c.needsWa++;
   }
   return c;
 }

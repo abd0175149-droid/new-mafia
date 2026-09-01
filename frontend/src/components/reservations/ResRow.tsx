@@ -18,7 +18,7 @@
 
 import { useRef, useState } from 'react';
 import { motion } from 'framer-motion';
-import { RES_COLORS, rowAccent, statusMeta, resStatus } from '@/lib/reservation-status';
+import { RES_COLORS, rowAccent, statusMeta, resStatus, isWaSent, waAgo } from '@/lib/reservation-status';
 import type { Reservation } from '@/hooks/useReservations';
 
 const AR = ['٠', '١', '٢', '٣', '٤', '٥', '٦', '٧', '٨', '٩'];
@@ -125,6 +125,18 @@ export default function ResRow({ r, onOpen, onAttend }: {
                 style={{ color: meta.color, borderColor: meta.color + '66' }}
               >
                 {meta.short}
+              </span>
+            )}
+            {/* 💬 أُرسلت له رسالةٌ يدويّة — الوقتُ جزءٌ من الشارة، فـ«أُرسلت»
+                وحدها لا تُميّز رسالةَ اليوم من رسالةِ الأسبوع الماضي. */}
+            {isWaSent(r) && (
+              <span
+                className="text-[10.5px] px-1.5 py-px rounded-full border font-bold flex items-center gap-1"
+                style={{ color: RES_COLORS.waSent, borderColor: RES_COLORS.waSent + '55' }}
+                title={`رسالةُ واتساب${r.waSentBy ? ' — ' + r.waSentBy : ''}`}
+              >
+                <span>✓</span>
+                <span className="tabular-nums">{waAgo(r.waSentAt)}</span>
               </span>
             )}
             {r.appConfirmed && <span className="text-[11px]" title="تأكّد من التطبيق">📱</span>}
