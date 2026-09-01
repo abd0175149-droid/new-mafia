@@ -71,6 +71,8 @@ export function useReservations() {
   const [reservations, setReservations] = useState<Reservation[]>([]);
   const [activities, setActivities] = useState<Activity[]>([]);
   const [locations, setLocations] = useState<Loc[]>([]);
+  /** معرّفاتُ الفعاليّات التي لها حجوزات — من الخادم لا من الصفوف المحمَّلة */
+  const [withRes, setWithRes] = useState<Set<number>>(new Set());
   const [loading, setLoading] = useState(true);
 
   const [activityId, setActivityId] = useState('');      // '' | 'all' | '<id>'
@@ -88,14 +90,18 @@ export function useReservations() {
       const id = scope ?? activityId;
       // نطاقُ الجلب يتبع الاختيار — لا تُسحب القاعدةُ كلُّها بلا سبب
       const q = id && id !== 'all' ? `?activityId=${encodeURIComponent(id)}` : '';
-      const [res, acts, locs] = await Promise.all([
+      const [res, acts, locs, summary] = await Promise.all([
         apiFetch(`/api/reservations${q}`),
         apiFetch('/api/activities'),
         apiFetch('/api/locations').catch(() => []),
+        apiFetch('/api/reservations/activity-summary').catch(() => []),
       ]);
       setReservations(Array.isArray(res) ? res : []);
       setActivities(Array.isArray(acts) ? acts : []);
       setLocations(Array.isArray(locs) ? locs : []);
+      if (Array.isArray(summary)) {
+        setWithRes(new Set(summary.map((x: any) => Number(x.activityId)).filter(Boolean)));
+      }
     } catch (err) {
       console.error('reservations fetch:', err);
     } finally {
@@ -119,31 +125,48 @@ export function useReservations() {
   }, [fetchAll]);
 
   // ── الفعاليّات المعروضة في القائمة ──
-  const activityOptions = useMemo(() => {
-    const withRes = new Set(reservations.map(r => r.activityId).filter(Boolean));
-    return activities.filter(a =>
+  // 🔴 `withRes` من الخادم لا من `reservations`: الصفوفُ المحمَّلة صارت صفوفَ
+  //    الفعاليّة المختارة وحدها، فاستنتاجُها منها يُخفي كلَّ فعاليّةٍ منتهيةٍ سواها.
+  const activityOptions = useMemo(() =>
+    activities.filter(a =>
       a.status === 'planned' || a.status === 'active' ||
-      (a.status === 'completed' && withRes.has(a.id)));
-  }, [activities, reservations]);
+      (a.status === 'completed' && withRes.has(a.id))),
+  [activities, withRes]);
 
-  // ══ 🎯 الاختيارُ الافتراضيّ: أقرب فعاليّة قادمة ══
-  // المقارنةُ مع **بداية اليوم** لا اللحظة: فعاليّةُ السابعة مساءً تبقى فعاليّةَ
-  // اليوم لمن يفتح الصفحة في التاسعة وسط الليلة نفسها.
+  // ══ 🎯 الاختيارُ الافتراضيّ ══
+  // فعاليّةُ **اليوم** أوّلاً أيّاً كانت حالتُها، ثمّ أقربُ قادمة.
+  //
+  // 🔴 اشتراطُ `planned|active` كان يُسقط فعاليّةَ الليلة نفسِها: الحالةُ تصير
+  //    `completed` عند موعد البدء، فتقفز الصفحةُ إلى فعاليّةِ الأسبوع القادم
+  //    بينما الموظّفُ واقفٌ على الباب يستقبل حجوزاتِ الليلة.
+  //
+  // 🔴 والمقارنةُ مع **بداية اليوم** لا اللحظة: فعاليّةُ السابعة مساءً تبقى
+  //    فعاليّةَ اليوم لمن يفتح الصفحة في التاسعة وسط الليلة نفسها.
+  //
   // ومرّةً واحدة: الاستطلاعُ يتكرّر، ولولا الحارس لألغى اختيار الموظّف كلّ نصف دقيقة.
   const autoPicked = useRef(false);
   useEffect(() => {
     if (autoPicked.current) return;
     if (activityId !== '') { autoPicked.current = true; return; }
-    if (!activities.length) return;
+    if (!activityOptions.length) return;
+
     const start = new Date(); start.setHours(0, 0, 0, 0);
-    const next = activities
-      .filter(a => (a.status === 'planned' || a.status === 'active') && a.date)
-      .filter(a => new Date(a.date).getTime() >= start.getTime())
-      .sort((x, y) => new Date(x.date).getTime() - new Date(y.date).getTime())[0];
-    if (!next) return;
+    const end = start.getTime() + 86_400_000;
+    const dated = activityOptions.filter(a => a.date);
+    const at = (a: Activity) => new Date(a.date).getTime();
+
+    const today = dated
+      .filter(a => at(a) >= start.getTime() && at(a) < end)
+      .sort((x, y) => at(x) - at(y))[0];
+    const upcoming = dated
+      .filter(a => at(a) >= end)
+      .sort((x, y) => at(x) - at(y))[0];
+    const pick = today || upcoming;
+    if (!pick) return;
+
     autoPicked.current = true;
-    setActivityId(String(next.id));
-  }, [activities, activityId]);
+    setActivityId(String(pick.id));
+  }, [activityOptions, activityId]);
 
   /** صفوفُ الفعاليّة المختارة — قبل مرشِّحات العرض. أساسُ كلّ عدّ. */
   const scoped = useMemo(() => {

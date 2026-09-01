@@ -51,6 +51,28 @@ router.get('/', authenticate, async (req: Request, res: Response) => {
 });
 
 // POST /api/reservations
+// ══════════════════════════════════════════════════════
+// 🗂️ أيُّ الفعاليّات لها حجوزات — قائمةُ معرّفاتٍ وأعداد
+//
+// 🔴 ضروريّةٌ منذ صار الجلبُ مقيَّداً بالفعاليّة المختارة: قائمةُ الاختيار
+//    تُظهر الفعاليّةَ المنتهية **إن كانت لها حجوزات**، وكانت تستنتج ذلك من
+//    الصفوف المحمَّلة — فلمّا صارت الصفوفُ صفوفَ فعاليّةٍ واحدةٍ فقط، اختفت
+//    كلُّ فعاليّةٍ منتهيةٍ سواها، وصارت حلقةً مفرغة: لا تظهر فلا تُختار،
+//    ولا تُختار فلا تُجلب حجوزاتُها. فالخادمُ يقولها في استعلامٍ واحدٍ رخيص.
+// ══════════════════════════════════════════════════════
+router.get('/activity-summary', authenticate, async (_req: Request, res: Response) => {
+  const db = getDB();
+  if (!db) return res.status(503).json({ error: 'قاعدة البيانات غير متوفرة' });
+
+  const rows = await db
+    .select({ activityId: reservations.activityId, count: sql<number>`count(*)::int` })
+    .from(reservations)
+    .where(isNull(reservations.deletedAt))
+    .groupBy(reservations.activityId);
+
+  res.json(rows.filter(r => r.activityId != null));
+});
+
 router.post('/', authenticate, async (req: Request, res: Response) => {
   const db = getDB();
   if (!db) return res.status(503).json({ error: 'قاعدة البيانات غير متوفرة' });
