@@ -7,7 +7,7 @@
 // ══════════════════════════════════════════════════════
 
 import { useEffect, useRef, useState } from 'react';
-import { saveFile, canvasToBlob } from '@/lib/saveFile';
+import { saveFile, saveFiles, canvasToBlob } from '@/lib/saveFile';
 import { useParams } from 'next/navigation';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || '';
@@ -66,10 +66,10 @@ export default function AttendancePrintPage() {
 
   // 📷 تصدير الكشف كصورة PNG واحدة — نلتقط «اللوحة المدمجة» (تصميمٌ مخصّصٌ للصورة،
   // متدفّقٌ بلا ارتفاع صفحاتٍ زائد) بأعلى كثافةٍ آمنةٍ ضمن حدود canvas في المتصفّح.
-  /** التقاطُ اللوحة كما هي الآن وحفظُها باسمٍ معطى. */
-  const captureAndSave = async (baseName: string) => {
+  /** التقاطُ اللوحة كما هي الآن وإعادةُ صورتها — الحفظُ قرارٌ منفصل. */
+  const captureBlob = async (): Promise<Blob | null> => {
     const el = imgRef.current;
-    if (!el) return 'failed';
+    if (!el) return null;
     const { toCanvas } = await import('html-to-image');
     await new Promise(r => setTimeout(r, 90)); // ترك اللمسات الأخيرة تستقرّ
     const rect = el.getBoundingClientRect();
@@ -87,9 +87,13 @@ export default function AttendancePrintPage() {
     // 🔴 blob لا dataURL: الثاني يُنتج نصَّ base64 بعشرات الميغابايت، وiOS
     //    يمنع الانتقالَ إلى روابط data: أصلاً — فكانت الضغطةُ لا تفعل شيئاً
     //    ولا ترمي، فيبدو الفشلُ نجاحاً.
-    const blob = await canvasToBlob(canvas, 'image/png');
-    return saveFile(blob, `${baseName}.png`, { title: baseName });
+    return canvasToBlob(canvas, 'image/png');
   };
+
+  /** ينتظر دورةَ رسمٍ حقيقيّةً بعد تغيير الجزء — لا مهلةً تُخمَّن. */
+  const nextPaint = () => new Promise<void>(res => {
+    requestAnimationFrame(() => requestAnimationFrame(() => setTimeout(res, 120)));
+  });
 
   // 📷 كشفٌ طويلٌ يُحفظ صورتين: الأولى تنتهي بنهاية الصفّ الثالث، والثانية تحمل
   //    الباقي. صورةٌ واحدةٌ بأربعين بطاقةً تخرج شريطاً لا يُقرأ على هاتف، وقد
@@ -101,17 +105,30 @@ export default function AttendancePrintPage() {
     try {
       const total = (data?.members?.length || 0) + (data?.guests?.length || 0);
       if (total <= IMG_CUT) {
-        const res = await captureAndSave(baseName);
+        const blob = await captureBlob();
+        const res = blob ? await saveFile(blob, `${baseName}.png`, { title: baseName }) : 'failed';
         if (res === 'failed') alert('تعذّر حفظ الصورة — جرّبْ «طباعة / حفظ PDF» بدلاً منها');
       } else {
+        // 🔴 تُولَّد الصورتان **قبل** أيّ مشاركة، ثمّ تُسلَّمان معاً في ورقةٍ واحدة.
+        //    كان كلٌّ منهما يُحفظ بنداءٍ مستقلّ، فتستهلك الأولى إيماءةَ المستخدم
+        //    ويُرفض نداءُ الثانية على iOS بـ`AbortError` — وهو نفسُ خطأ الإلغاء،
+        //    فيُبتلع صامتاً: تُحفظ صورةٌ وتختفي الأخرى بلا أيّ رسالة.
         setImgPart(1);
-        await new Promise(r => setTimeout(r, 170));   // ريثما يُعاد الرسم
-        const r1 = await captureAndSave(`${baseName} - ١`);
+        await nextPaint();
+        const b1 = await captureBlob();
         setImgPart(2);
-        await new Promise(r => setTimeout(r, 170));
-        const r2 = await captureAndSave(`${baseName} - ٢`);
-        if (r1 === 'failed' || r2 === 'failed') {
-          alert('تعذّر حفظ إحدى الصورتين — جرّبْ «طباعة / حفظ PDF» بدلاً منها');
+        await nextPaint();
+        const b2 = await captureBlob();
+        setImgPart(0);
+
+        if (!b1 || !b2) {
+          alert('تعذّر إنشاء إحدى الصورتين — جرّبْ «طباعة / حفظ PDF» بدلاً منها');
+        } else {
+          const res = await saveFiles(
+            [{ blob: b1, filename: `${baseName} - ١.png` }, { blob: b2, filename: `${baseName} - ٢.png` }],
+            { title: baseName },
+          );
+          if (res === 'failed') alert('تعذّر حفظ الصورتين — جرّبْ «طباعة / حفظ PDF» بدلاً منها');
         }
       }
     } catch {

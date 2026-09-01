@@ -20,6 +20,8 @@
 //    فإن رُفضت لهذا السبب نعرض الصورةَ في طبقةٍ فيها زرُّ مشاركةٍ بإيماءةٍ جديدة.
 // ══════════════════════════════════════════════════════
 
+export interface SaveItem { blob: Blob; filename: string }
+
 export type SaveResult =
   | 'shared'      // مرّت عبر ورقة المشاركة
   | 'downloaded'  // نزلت كملفّ
@@ -48,9 +50,19 @@ export function canShareFile(file: File): boolean {
   } catch { return false; }
 }
 
-async function shareFile(file: File, title?: string): Promise<SaveResult> {
+/** هل يستطيع هذا المتصفّح مشاركةَ هذه المجموعة دفعةً واحدة؟ */
+export function canShareFiles(files: File[]): boolean {
   try {
-    await (navigator as any).share({ files: [file], title: title || file.name });
+    return typeof navigator !== 'undefined' &&
+      typeof (navigator as any).share === 'function' &&
+      typeof (navigator as any).canShare === 'function' &&
+      (navigator as any).canShare({ files });
+  } catch { return false; }
+}
+
+async function shareFiles(files: File[], title?: string): Promise<SaveResult> {
+  try {
+    await (navigator as any).share({ files, title: title || files[0]?.name });
     return 'shared';
   } catch (e: any) {
     // 🔴 إلغاءُ المستخدم ليس فشلاً — ولا يُعرض له خطأ
@@ -59,6 +71,8 @@ async function shareFile(file: File, title?: string): Promise<SaveResult> {
     return 'failed';
   }
 }
+
+const shareFile = (file: File, title?: string) => shareFiles([file], title);
 
 function downloadBlob(blob: Blob, filename: string): SaveResult {
   try {
@@ -80,49 +94,67 @@ function downloadBlob(blob: Blob, filename: string): SaveResult {
  * طبقةُ الحفظ اليدويّ — الملاذُ الذي لا يفشل على iOS.
  * الضغطُ المطوّل على `<img>` سلوكٌ أصليٌّ في iOS يحفظ الصورة بلا إذنٍ ولا واجهة.
  */
-function showPreviewOverlay(blob: Blob, filename: string, isImage: boolean): SaveResult {
+function showPreviewOverlay(items: SaveItem[]): SaveResult {
   try {
-    const url = URL.createObjectURL(blob);
+    const urls = items.map(i => URL.createObjectURL(i.blob));
+    const isImage = (items[0]?.blob.type || '').startsWith('image/');
     const wrap = document.createElement('div');
     wrap.dir = 'rtl';
     Object.assign(wrap.style, {
       position: 'fixed', inset: '0', zIndex: '2147483000',
       background: 'rgba(6,5,4,0.97)', display: 'flex', flexDirection: 'column',
       alignItems: 'center', justifyContent: 'center', padding: '14px', gap: '12px',
+      overflowY: 'auto',
       fontFamily: 'system-ui, -apple-system, "Segoe UI", sans-serif',
     } as CSSStyleDeclaration);
 
-    const close = () => { wrap.remove(); setTimeout(() => URL.revokeObjectURL(url), 5_000); };
+    const close = () => { wrap.remove(); setTimeout(() => urls.forEach(u => URL.revokeObjectURL(u)), 5_000); };
 
+    const many = items.length > 1;
     const hint = document.createElement('p');
     hint.textContent = isImage
-      ? 'اضغطْ مطوّلاً على الصورة ثمّ اختر «حفظ الصورة»'
+      ? (many
+        ? `اضغطْ مطوّلاً على كلّ صورةٍ من الصورتين ثمّ «حفظ الصورة» — أو استعمل زرّ المشاركة`
+        : 'اضغطْ مطوّلاً على الصورة ثمّ اختر «حفظ الصورة»')
       : 'اضغطْ «مشاركة» ثمّ «حفظ في الملفّات»';
     Object.assign(hint.style, {
       color: '#c9a457', fontSize: '13.5px', fontWeight: '700', margin: '0', textAlign: 'center',
     } as CSSStyleDeclaration);
 
-    let media: HTMLElement;
-    if (isImage) {
-      const img = document.createElement('img');
-      img.src = url;
-      img.alt = filename;
-      Object.assign(img.style, {
-        maxWidth: '100%', maxHeight: '72vh', objectFit: 'contain',
-        borderRadius: '10px', border: '1px solid #2b2621',
-        // 🔴 ضروريّان: بلاهما يمنع WebKit قائمةَ «حفظ الصورة» عند الضغط المطوّل
-        WebkitTouchCallout: 'default', WebkitUserSelect: 'auto',
-      } as any);
-      media = img;
-    } else {
-      const box = document.createElement('div');
-      box.textContent = `📄 ${filename}`;
-      Object.assign(box.style, {
-        color: '#efe9dc', fontSize: '14px', padding: '26px 20px',
-        border: '1px dashed #2b2621', borderRadius: '12px', textAlign: 'center',
-      } as CSSStyleDeclaration);
-      media = box;
-    }
+    const media = document.createElement('div');
+    Object.assign(media.style, {
+      display: 'flex', flexDirection: 'column', gap: '10px',
+      alignItems: 'center', width: '100%', overflowY: 'auto', minHeight: '0',
+    } as CSSStyleDeclaration);
+
+    items.forEach((it, i) => {
+      if (many) {
+        const cap = document.createElement('span');
+        cap.textContent = `${i + 1} من ${items.length}`;
+        Object.assign(cap.style, { color: '#8b8579', fontSize: '11.5px', fontWeight: '700' } as CSSStyleDeclaration);
+        media.appendChild(cap);
+      }
+      if (isImage) {
+        const img = document.createElement('img');
+        img.src = urls[i];
+        img.alt = it.filename;
+        Object.assign(img.style, {
+          maxWidth: '100%', maxHeight: many ? '46vh' : '72vh', objectFit: 'contain',
+          borderRadius: '10px', border: '1px solid #2b2621',
+          // 🔴 ضروريّان: بلاهما يمنع WebKit قائمةَ «حفظ الصورة» عند الضغط المطوّل
+          WebkitTouchCallout: 'default', WebkitUserSelect: 'auto',
+        } as any);
+        media.appendChild(img);
+      } else {
+        const box = document.createElement('div');
+        box.textContent = `📄 ${it.filename}`;
+        Object.assign(box.style, {
+          color: '#efe9dc', fontSize: '14px', padding: '26px 20px',
+          border: '1px dashed #2b2621', borderRadius: '12px', textAlign: 'center',
+        } as CSSStyleDeclaration);
+        media.appendChild(box);
+      }
+    });
 
     const row = document.createElement('div');
     Object.assign(row.style, { display: 'flex', gap: '8px', flexWrap: 'wrap', justifyContent: 'center' } as CSSStyleDeclaration);
@@ -140,14 +172,14 @@ function showPreviewOverlay(blob: Blob, filename: string, isImage: boolean): Sav
 
     // 🔴 زرُّ مشاركةٍ بإيماءةٍ **جديدة**: إن رُفضت المشاركةُ أوّلاً لانقضاء إيماءة
     //    التوليد، فهذه ضغطةٌ حيّةٌ تنجح.
-    const file = new File([blob], filename, { type: blob.type || 'application/octet-stream' });
-    if (canShareFile(file)) {
-      const sh = mkBtn('📤 مشاركة / حفظ', true);
-      sh.onclick = async () => { const r = await shareFile(file); if (r === 'shared') close(); };
+    const files = items.map(i => new File([i.blob], i.filename, { type: i.blob.type || 'application/octet-stream' }));
+    if (canShareFiles(files)) {
+      const sh = mkBtn(many ? '📤 مشاركة الصورتين / حفظ' : '📤 مشاركة / حفظ', true);
+      sh.onclick = async () => { const r = await shareFiles(files); if (r === 'shared') close(); };
       row.appendChild(sh);
     }
-    const dl = mkBtn('⬇️ تنزيل', false);
-    dl.onclick = () => downloadBlob(blob, filename);
+    const dl = mkBtn(many ? '⬇️ تنزيل الكلّ' : '⬇️ تنزيل', false);
+    dl.onclick = () => { items.forEach((it, i) => setTimeout(() => downloadBlob(it.blob, it.filename), i * 350)); };
     row.appendChild(dl);
 
     const x = mkBtn('إغلاق', false);
@@ -184,7 +216,7 @@ export async function saveFile(
     const r = await shareFile(file, opts?.title);
     if (r === 'shared' || r === 'cancelled') return r;
     // فشلت (انقضت الإيماءةُ غالباً) ⇒ طبقةٌ فيها زرٌّ بإيماءةٍ جديدة
-    return showPreviewOverlay(blob, filename, isImage);
+    return showPreviewOverlay([{ blob, filename }]);
   }
 
   // سطحُ المكتب وأندرويد: التنزيلُ المباشر يعمل ويُبقي التجربةَ كما اعتادها
@@ -197,7 +229,46 @@ export async function saveFile(
     const r = await shareFile(file, opts?.title);
     if (r === 'shared' || r === 'cancelled') return r;
   }
-  return showPreviewOverlay(blob, filename, isImage);
+  return showPreviewOverlay([{ blob, filename }]);
+}
+
+/**
+ * 💾 حفظُ عدّة ملفّاتٍ بإيماءةٍ واحدة.
+ *
+ * 🔴 لماذا لا نستدعي saveFile مرّتين: iOS يشترط لـ`navigator.share` **إيماءةَ
+ *    مستخدمٍ حيّة**، والضغطةُ الواحدة تستهلكها ورقةُ المشاركة الأولى. فالنداءُ
+ *    الثاني يُرفض — و WebKit يرميه `AbortError` وهو نفسُ خطأ «أغلق المستخدمُ
+ *    الورقة»، فيُقرأ إلغاءً ويُبتلع صامتاً: تُحفظ صورةٌ وتختفي الأخرى بلا رسالة.
+ *    فالمخرجُ ورقةٌ واحدةٌ تحمل الملفّات كلَّها — و«حفظ صورتين» فعلٌ واحدٌ في iOS.
+ */
+export async function saveFiles(items: SaveItem[], opts?: { title?: string }): Promise<SaveResult> {
+  const list = items.filter(i => i && i.blob);
+  if (!list.length) return 'failed';
+  if (list.length === 1) return saveFile(list[0].blob, list[0].filename, opts);
+
+  const files = list.map(i => new File([i.blob], i.filename, { type: i.blob.type || 'application/octet-stream' }));
+
+  if ((isIOS() || isStandalone()) && canShareFiles(files)) {
+    const r = await shareFiles(files, opts?.title);
+    if (r === 'shared' || r === 'cancelled') return r;
+    return showPreviewOverlay(list);
+  }
+
+  // سطحُ المكتب وأندرويد: تنزيلاتٌ متتابعة — بفاصلٍ لأنّ المتصفّحات تخنق المتلاحقة
+  if (!isIOS()) {
+    let ok = true;
+    for (let i = 0; i < list.length; i++) {
+      if (i) await new Promise(r => setTimeout(r, 350));
+      if (downloadBlob(list[i].blob, list[i].filename) !== 'downloaded') ok = false;
+    }
+    if (ok) return 'downloaded';
+  }
+
+  if (canShareFiles(files)) {
+    const r = await shareFiles(files, opts?.title);
+    if (r === 'shared' || r === 'cancelled') return r;
+  }
+  return showPreviewOverlay(list);
 }
 
 /** يحوّل canvas إلى Blob — أخفُّ من toDataURL بمراحل ولا يمرّ بنصِّ base64. */
