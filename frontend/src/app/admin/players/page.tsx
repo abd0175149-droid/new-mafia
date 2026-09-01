@@ -57,6 +57,10 @@ export default function PlayersManagementPage() {
   const [togglingFreeId, setTogglingFreeId] = useState<number | null>(null);
   const [togglingHostId, setTogglingHostId] = useState<number | null>(null);
   const [togglingGeoId, setTogglingGeoId] = useState<number | null>(null);
+  const [togglingLockId, setTogglingLockId] = useState<number | null>(null);
+  // 📍 محاولاتُ الدخول على حسابٍ مقفول — تُجلب عند الطلب لا مع القائمة
+  const [attemptsFor, setAttemptsFor] = useState<any | null>(null);
+  const [attempts, setAttempts] = useState<any[] | null>(null);
   const [toast, setToast] = useState<{ msg: string; type: 'success' | 'error' } | null>(null);
 
   // ── Pagination ──
@@ -222,6 +226,58 @@ export default function PlayersManagementPage() {
       showToast(err.message || 'فشل', 'error');
     } finally {
       setTogglingGeoId(null);
+    }
+  }
+
+  // ── 🔒 قفلُ الحساب وفكُّه ──
+  // السبب يُطلب عند القفل وحده: الفكُّ عودةٌ إلى الأصل ولا يحتاج تبريراً،
+  // والقفلُ قرارٌ يقرؤه غيرُك بعد أسبوعٍ فيحتاج أن يعرف لِمَ.
+  async function handleToggleLock(player: any) {
+    let reason = '';
+    if (!player.isLocked) {
+      const ok = await swalConfirm(
+        `لن يستطيع «${player.name}» تسجيل الدخول، وستُقطع جلستُه الحاليّة فوراً.
+
+` +
+        `ولا تُخبره الشاشةُ بالسبب — يرى «حدث خطأ، يرجى التواصل مع الإدارة.» فقط.
+
+` +
+        `الحسابُ وبياناتُه تبقى كما هي، والفكُّ بضغطةٍ واحدة.`,
+        { title: '🔒 قفل الحساب', confirmText: 'نعم، اقفِله', icon: 'warning' },
+      );
+      if (!ok) return;
+      reason = window.prompt('السبب (يظهر في السجلّ ولا يراه اللاعب):', '') || '';
+    } else {
+      const ok = await swalConfirm(
+        `سيعود «${player.name}» إلى الدخول فوراً.`,
+        { title: '🔓 فكّ القفل', confirmText: 'نعم، افكّه', icon: 'question' },
+      );
+      if (!ok) return;
+    }
+    setTogglingLockId(player.id);
+    try {
+      await apiFetch(`/api/player/${player.id}/toggle-lock`, {
+        method: 'POST', body: JSON.stringify({ reason }),
+      });
+      setPlayers(prev => prev.map(p => p.id === player.id
+        ? { ...p, isLocked: !p.isLocked, lockedReason: p.isLocked ? '' : reason }
+        : p));
+      showToast(`${player.name}: ${player.isLocked ? 'فُكّ القفل' : 'قُفل الحساب'}`, 'success');
+    } catch (err: any) {
+      showToast(err.message || 'فشل', 'error');
+    } finally {
+      setTogglingLockId(null);
+    }
+  }
+
+  // ── 📍 عرضُ محاولات الدخول على حسابٍ مقفول ──
+  async function showLockAttempts(player: any) {
+    setAttemptsFor(player); setAttempts(null);
+    try {
+      const d = await apiFetch(`/api/player/${player.id}/lock-attempts`);
+      setAttempts(Array.isArray(d?.attempts) ? d.attempts : []);
+    } catch {
+      setAttempts([]);
     }
   }
 
@@ -449,6 +505,23 @@ export default function PlayersManagementPage() {
                             {togglingGeoId === p.id ? '⏳' : '📍'}
                           </button>
                           <button
+                            onClick={() => handleToggleLock(p)}
+                            disabled={togglingLockId === p.id}
+                            className={`p-1.5 rounded-lg transition ${p.isLocked ? 'text-rose-400 bg-rose-500/10 hover:bg-rose-500/20' : 'text-gray-500/50 hover:text-rose-400 hover:bg-rose-500/10'}`}
+                            title={p.isLocked ? `مقفول${p.lockedReason ? ' — ' + p.lockedReason : ''} · اضغط لفكّ القفل` : 'قفل الحساب (يمنع الدخول)'}
+                          >
+                            {togglingLockId === p.id ? '⏳' : p.isLocked ? '🔒' : '🔓'}
+                          </button>
+                          {p.isLocked && (
+                            <button
+                              onClick={() => showLockAttempts(p)}
+                              className="p-1.5 rounded-lg text-gray-500/60 hover:text-amber-400 hover:bg-amber-500/10 transition"
+                              title="محاولات الدخول على هذا الحساب"
+                            >
+                              📍
+                            </button>
+                          )}
+                          <button
                             onClick={() => handleDeletePlayer(p)}
                             className="p-1.5 rounded-lg text-rose-400/70 hover:text-rose-400 hover:bg-rose-500/10 transition"
                             title="حذف اللاعب"
@@ -524,6 +597,71 @@ export default function PlayersManagementPage() {
             }`}
           >
             {toast.msg}
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* ══ 📍 محاولاتُ الدخول على حسابٍ مقفول ══ */}
+      <AnimatePresence>
+        {attemptsFor && (
+          <motion.div
+            initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+            className="fixed inset-0 z-[400] bg-black/80 backdrop-blur-sm flex items-end sm:items-center justify-center p-4"
+            onClick={() => setAttemptsFor(null)}
+            dir="rtl"
+          >
+            <motion.div
+              initial={{ y: 24, opacity: 0 }} animate={{ y: 0, opacity: 1 }} exit={{ y: 24, opacity: 0 }}
+              onClick={e => e.stopPropagation()}
+              className="w-full max-w-lg rounded-2xl border border-gray-700 bg-[#0c0c0e] overflow-hidden"
+              style={{ maxHeight: '80vh' }}
+            >
+              <div className="px-4 py-3 border-b border-gray-800 flex items-center gap-2">
+                <span className="text-lg">📍</span>
+                <span className="flex-1 min-w-0">
+                  <b className="block text-[14px] text-white truncate">محاولات الدخول</b>
+                  <span className="block text-[11px] text-gray-500 truncate">{attemptsFor.name}</span>
+                </span>
+                <button onClick={() => setAttemptsFor(null)} className="w-9 h-9 rounded-lg text-gray-500 hover:text-white">✕</button>
+              </div>
+
+              <div className="overflow-y-auto p-3 space-y-2" style={{ maxHeight: 'calc(80vh - 110px)' }}>
+                {attempts === null ? (
+                  <p className="text-center text-gray-500 text-sm py-8">…</p>
+                ) : !attempts.length ? (
+                  <p className="text-center text-gray-500 text-sm py-8">لا محاولةَ دخولٍ منذ القفل</p>
+                ) : attempts.map((a: any) => (
+                  <div key={a.id} className="rounded-xl border border-gray-800 bg-gray-900/40 px-3 py-2.5">
+                    <div className="flex items-center gap-2 mb-1">
+                      <span className="text-[11px] font-bold px-1.5 py-px rounded-full border"
+                        style={a.passwordOk
+                          ? { color: '#D9453F', borderColor: 'rgba(217,69,63,.5)' }
+                          : { color: '#9ca3af', borderColor: 'rgba(255,255,255,.15)' }}>
+                        {a.passwordOk ? 'كلمة السرّ صحيحة' : 'كلمة سرّ خاطئة'}
+                      </span>
+                      <span className="flex-1" />
+                      <span className="text-[11px] text-gray-500">
+                        {new Date(a.at).toLocaleString('ar-JO', { dateStyle: 'short', timeStyle: 'short' })}
+                      </span>
+                    </div>
+                    <p className="text-[12px] text-gray-300 font-mono" dir="ltr">{a.ip || '—'}</p>
+                    {a.phoneTried && a.phoneTried !== attemptsFor.phone && (
+                      <p className="text-[11px] text-amber-500/80 mt-0.5">كُتب الرقم: {a.phoneTried}</p>
+                    )}
+                    {a.userAgent && (
+                      <p className="text-[10.5px] text-gray-600 mt-1 leading-snug break-all" dir="ltr">{a.userAgent}</p>
+                    )}
+                  </div>
+                ))}
+              </div>
+
+              <div className="px-4 py-2.5 border-t border-gray-800">
+                <p className="text-[10.5px] text-gray-600 leading-relaxed">
+                  العنوانُ يُقرأ من الاتّصال نفسِه لا من ترويسةٍ يرسلها الجهاز — فلا يُنتحل.
+                  ولا تُحدَّد مدينةٌ أو بلد: ذلك يقتضي إرسالَ العناوين إلى خدمةٍ خارجيّة.
+                </p>
+              </div>
+            </motion.div>
           </motion.div>
         )}
       </AnimatePresence>

@@ -8,9 +8,11 @@
 
 import { Router, type Request, type Response } from 'express';
 import { ageFromDob, ADULT_AGE } from '../services/consent.service.js';
+import { LOCKED_MESSAGE } from '../lib/account-lock.js';
+import { clientIp } from '../middleware/client-ip.js';
 import { eq } from 'drizzle-orm';
 import { getDB } from '../config/db.js';
-import { players, PLAYER_DEFAULT_PASSWORD } from '../schemas/player.schema.js';
+import { players, PLAYER_DEFAULT_PASSWORD, lockedLoginAttempts } from '../schemas/player.schema.js';
 import {
   generatePlayerToken,
   hashPlayerPassword,
@@ -172,6 +174,24 @@ router.post('/login', rateLimit({ windowMs: 15 * 60 * 1000, max: 120, keyPrefix:
     }
 
     const valid = await verifyPlayerPassword(password, player.passwordHash);
+
+    // 📍 محاولةٌ على حسابٍ مقفول تُسجَّل أيّاً كانت كلمةُ السرّ — ومَن يجرّب
+    //    كلمةً خاطئةً إشارةٌ لا تقلّ. والتسجيلُ صامتٌ لا يُغيّر ما يراه المحاوِل.
+    if ((player as any).isLocked) {
+      try {
+        await db.insert(lockedLoginAttempts).values({
+          playerId: player.id,
+          phoneTried: String(phone).slice(0, 30),
+          ip: clientIp(req).slice(0, 60),
+          userAgent: String(req.headers['user-agent'] || '').slice(0, 300),
+          passwordOk: valid,
+        } as any);
+      } catch (e: any) {
+        // تعذّرُ التسجيل لا يفتح الباب — القفلُ يبقى نافذاً
+        console.error('⚠️ locked-attempt log failed:', e?.message);
+      }
+    }
+
     if (!valid) {
       return res.status(401).json({
         success: false,
@@ -182,6 +202,20 @@ router.post('/login', rateLimit({ windowMs: 15 * 60 * 1000, max: 120, keyPrefix:
     // 🗑️ حسابٌ جُهّل نهائيّاً — لا رجوع
     if ((player as any).anonymizedAt) {
       return res.status(401).json({ success: false, error: 'رقم الهاتف أو كلمة المرور غير صحيحة' });
+    }
+
+    // ══════════════════════════════════════════════════════
+    // 🔒 حسابٌ مقفول — الفحصُ هنا في الخادم لا في الواجهة
+    //
+    // 🔴 وبعد التحقّق من كلمة السرّ عمداً: لو سبقه لأخبر أيَّ مجهولٍ أنّ الرقم
+    //    موجودٌ ومقفول (فرقٌ في الرسالة = كشفُ حساب). الآن لا يبلغه إلّا صاحبُه.
+    //
+    // 🔴 والرسالةُ محايدة (قرار المالك): لا تقول «مقفول» ولا سبباً — الشرحُ
+    //    عند الإدارة لا في شاشة الدخول.
+    // ══════════════════════════════════════════════════════
+    if ((player as any).isLocked) {
+      console.log(`🔒 Locked player login attempt → ID: ${player.id}`);
+      return res.status(403).json({ success: false, code: 'ACCOUNT_LOCKED', error: LOCKED_MESSAGE });
     }
 
     // تحديث آخر نشاط

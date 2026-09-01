@@ -7,7 +7,7 @@
 import { Router, Request, Response } from 'express';
 import { getDB } from '../config/db.js';
 import { sessionPlayers } from '../schemas/game.schema.js';
-import { players as playersTable, PLAYER_DEFAULT_PASSWORD } from '../schemas/player.schema.js';
+import { players as playersTable, PLAYER_DEFAULT_PASSWORD, lockedLoginAttempts } from '../schemas/player.schema.js';
 import { eq, desc, sql, isNull } from 'drizzle-orm';
 import { locations } from '../schemas/admin.schema.js';
 import { haversineM } from '../services/geofence.service.js';
@@ -53,6 +53,9 @@ router.get('/all', authenticate, authorize('admin', 'accountant'), async (_req: 
       isFreeAccount: playersTable.isFreeAccount,
       canHostRemote: playersTable.canHostRemote,
       geofenceExempt: playersTable.geofenceExempt,
+      isLocked: playersTable.isLocked,
+      lockedReason: playersTable.lockedReason,
+      lockedAt: playersTable.lockedAt,
       geofenceExemptReason: playersTable.geofenceExemptReason,
       geofenceExemptAt: playersTable.geofenceExemptAt,
       genderConstraint: playersTable.genderConstraint,
@@ -260,6 +263,82 @@ router.post('/:id/toggle-geofence-exempt', authenticate, adminOnly, async (req: 
     return res.json({ success: true, geofenceExempt: newValue });
   } catch (err: any) {
     console.error('❌ toggle-geofence-exempt error:', err.message);
+    return res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// ══════════════════════════════════════════════════════
+// 🔒 POST /api/player/:id/toggle-lock — قفلُ الحساب وفكُّه (أدمن فقط)
+//
+// 🔴 القفلُ ليس حذفاً: البياناتُ كاملةٌ والقرارُ يُفكّ بضغطة. ولذلك حقولٌ
+//    مستقلّةٌ عن deletedAt/anonymizedAt — خلطُهما يُفقد الفرقَ بين إجراءٍ
+//    مؤقّتٍ ونهايةٍ للحساب.
+//
+// 🔴 والسببُ يُطلب عند القفل وحده ويُسجَّل: قفلٌ بلا سببٍ مكتوب يصير بعد
+//    أسبوعٍ لغزاً لا يعرف أحدٌ أيُفكّ أم يُترك — نفسُ درس إعفاء السياج.
+// ══════════════════════════════════════════════════════
+router.post('/:id/toggle-lock', authenticate, adminOnly, async (req: Request, res: Response) => {
+  try {
+    const playerId = parseInt(req.params.id);
+    if (!playerId || isNaN(playerId)) {
+      return res.status(400).json({ success: false, error: 'معرّف غير صالح' });
+    }
+
+    const db = getDB();
+    if (!db) return res.status(503).json({ success: false, error: 'DB unavailable' });
+
+    const [player] = await db.select({
+      id: playersTable.id, name: playersTable.name, locked: playersTable.isLocked,
+    }).from(playersTable).where(eq(playersTable.id, playerId)).limit(1);
+
+    if (!player) return res.status(404).json({ success: false, error: 'اللاعب غير موجود' });
+
+    const newValue = !player.locked;
+    const reason = typeof req.body?.reason === 'string' ? req.body.reason.trim().slice(0, 200) : '';
+
+    await db.update(playersTable).set({
+      isLocked: newValue,
+      lockedReason: newValue ? reason : '',
+      lockedBy: newValue ? ((req as any).user?.id ?? null) : null,
+      lockedAt: newValue ? new Date() : null,
+    } as any).where(eq(playersTable.id, playerId));
+
+    console.log(`🔒 Player #${playerId} (${player.name}) isLocked → ${newValue}`);
+
+    try {
+      const { logStaffAction } = await import('../services/staff-action-log.service.js');
+      logStaffAction({
+        staffId: (req as any).user?.id, staffUsername: (req as any).user?.username,
+        staffRole: (req as any).user?.role, source: 'rest', action: 'rest:player-lock',
+        details: { playerId, playerName: player.name, locked: newValue, reason: reason || null },
+      });
+    } catch { /* غير حاجب */ }
+
+    return res.json({ success: true, isLocked: newValue });
+  } catch (err: any) {
+    console.error('❌ toggle-lock error:', err.message);
+    return res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// ── 📍 GET /api/player/:id/lock-attempts — محاولاتُ الدخول على حسابٍ مقفول ──
+router.get('/:id/lock-attempts', authenticate, adminOnly, async (req: Request, res: Response) => {
+  try {
+    const playerId = parseInt(req.params.id);
+    if (!playerId || isNaN(playerId)) return res.status(400).json({ success: false, error: 'معرّف غير صالح' });
+
+    const db = getDB();
+    if (!db) return res.status(503).json({ success: false, error: 'DB unavailable' });
+
+    const rows = await db.select()
+      .from(lockedLoginAttempts)
+      .where(eq(lockedLoginAttempts.playerId, playerId))
+      .orderBy(desc(lockedLoginAttempts.at))
+      .limit(50);
+
+    return res.json({ success: true, attempts: rows });
+  } catch (err: any) {
+    console.error('❌ lock-attempts error:', err.message);
     return res.status(500).json({ success: false, error: err.message });
   }
 });

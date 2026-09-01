@@ -130,6 +130,22 @@ ALTER TABLE reservations ADD COLUMN IF NOT EXISTS remind_sent_at TIMESTAMP;
 -- الأوّل «موظّفٌ راسل هذا الشخص»، والثاني «النظامُ ذكّره قبل ساعة». خلطُهما يُفقد المعنيين.
 ALTER TABLE reservations ADD COLUMN IF NOT EXISTS wa_sent_at TIMESTAMP;
 ALTER TABLE reservations ADD COLUMN IF NOT EXISTS wa_sent_by VARCHAR(100) DEFAULT '';
+-- 🔒 قفلُ حساب اللاعب — منعُ الدخول بقرارٍ إداريّ، منفصلٌ عن الحذف
+ALTER TABLE players ADD COLUMN IF NOT EXISTS is_locked BOOLEAN NOT NULL DEFAULT false;
+ALTER TABLE players ADD COLUMN IF NOT EXISTS locked_at TIMESTAMP;
+ALTER TABLE players ADD COLUMN IF NOT EXISTS locked_by INTEGER;
+ALTER TABLE players ADD COLUMN IF NOT EXISTS locked_reason VARCHAR(200) DEFAULT '';
+-- 🔒📍 محاولاتُ الدخول على الحسابات المقفولة — مصدرُ المحاولة وزمنُها
+CREATE TABLE IF NOT EXISTS locked_login_attempts (
+  id SERIAL PRIMARY KEY,
+  player_id INTEGER NOT NULL,
+  phone_tried VARCHAR(30) DEFAULT '',
+  ip VARCHAR(60) DEFAULT '',
+  user_agent VARCHAR(300) DEFAULT '',
+  password_ok BOOLEAN NOT NULL DEFAULT false,
+  at TIMESTAMP NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_locked_attempts_player ON locked_login_attempts (player_id, at DESC);
 ALTER TABLE wa_bot_settings ADD COLUMN IF NOT EXISTS admin_only_tools JSONB DEFAULT '[]';
 -- 📍 سياج الفعاليّة — النقطة على المكان، والقرار على الفعاليّة
 ALTER TABLE locations  ADD COLUMN IF NOT EXISTS latitude NUMERIC(9,6);

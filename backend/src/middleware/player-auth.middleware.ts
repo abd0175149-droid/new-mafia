@@ -8,6 +8,7 @@ import jwt from 'jsonwebtoken';
 import bcrypt from 'bcryptjs';
 import { env } from '../config/env.js';
 import { PLAYER_TOKEN_EXPIRY } from '../schemas/player.schema.js';
+import { LOCKED_MESSAGE, LOCKED_CODE } from '../lib/account-lock.js';
 
 // ── أنواع البيانات ──────────────────────────────────
 
@@ -96,10 +97,19 @@ export async function authenticatePlayer(req: Request, res: Response, next: Next
     const [row] = await db.select({
       id: players.id, phone: players.phone, name: players.name,
       deletedAt: players.deletedAt, anonymizedAt: players.anonymizedAt,
+      isLocked: players.isLocked,
     }).from(players).where(eq(players.id, decoded.playerId)).limit(1);
 
     if (!row || row.anonymizedAt) {
       res.status(401).json({ error: 'الحساب لم يعد موجوداً', code: 'ACCOUNT_GONE' });
+      return;
+    }
+
+    // 🔒 القفلُ يسري على الجلسة القائمة لا على الدخول التالي وحده.
+    //    الرمزُ يعيش ثلاثين يوماً، فمنعُ الدخول وحده يترك المقفولَ يلعب شهراً
+    //    كاملاً — وهو نقضٌ للقرار الإداريّ لا تأخيرٌ في تنفيذه.
+    if (row.isLocked) {
+      res.status(403).json({ success: false, code: LOCKED_CODE, error: LOCKED_MESSAGE });
       return;
     }
 

@@ -69,6 +69,13 @@ export const players = pgTable('players', {
   deletionDueAt: timestamp('deletion_due_at'),
   deletionReason: varchar('deletion_reason', { length: 30 }),
   anonymizedAt: timestamp('anonymized_at'),
+  // 🔒 قفلُ الحساب — قرارٌ إداريٌّ يمنع الدخول حتّى يُفكّ.
+  //    منفصلٌ عن الحذف (deletedAt/anonymizedAt): القفلُ إجراءٌ مؤقّتٌ قابلٌ للرجوع
+  //    والحسابُ كامل، والحذفُ نهايةٌ للحساب. خلطُهما يُفقد الفرق.
+  isLocked: boolean('is_locked').default(false).notNull(),
+  lockedAt: timestamp('locked_at'),
+  lockedBy: integer('locked_by'),
+  lockedReason: varchar('locked_reason', { length: 200 }).default(''),
   createdAt: timestamp('created_at').defaultNow().notNull(),
 });
 
@@ -94,4 +101,29 @@ export const playerFollows = pgTable('player_follows', {
   followerId: integer('follower_id').notNull(),   // FK → players.id (اللي بيتابع)
   followingId: integer('following_id').notNull(),  // FK → players.id (اللي متابَع)
   createdAt: timestamp('created_at').defaultNow().notNull(),
+});
+
+// ══════════════════════════════════════════════════════
+// 🔒📍 محاولاتُ الدخول على حسابٍ مقفول
+//
+// 🔴 تُسجَّل **قبل** فحص كلمة السرّ: مَن يجرّب كلمةً خاطئةً على حسابٍ مقفول
+//    إشارةٌ مثل مَن يعرفها — وربّما أهمّ. والتسجيلُ لا يُغيّر ما يراه المحاوِل
+//    (الرسالةُ تبقى كما هي) فلا يكشف شيئاً.
+//
+// 🔴 والعنوانُ يُؤخذ عبر clientIp() لا من x-forwarded-for[0]: الأوّلُ عنصرٌ
+//    **يرسله العميل** فينتحله بحرّيّة، فيصير السجلُّ يوثّق ما يختاره المحاوِل.
+//
+// ⚠️ لا مدينةَ ولا بلد: ذلك يقتضي خدمةَ استعلامٍ خارجيّةً تُرسَل إليها عناوينُ
+//    مستعملينا — نقلٌ للبيانات خارج الحدود يحتاج قراراً صريحاً (قانون ٢٤/٢٠٢٣).
+// ══════════════════════════════════════════════════════
+export const lockedLoginAttempts = pgTable('locked_login_attempts', {
+  id: serial('id').primaryKey(),
+  playerId: integer('player_id').notNull(),
+  /** الرقمُ كما كُتب في الشاشة — قد يختلف عن رقم الحساب بصيغته */
+  phoneTried: varchar('phone_tried', { length: 30 }).default(''),
+  ip: varchar('ip', { length: 60 }).default(''),
+  userAgent: varchar('user_agent', { length: 300 }).default(''),
+  /** هل كانت كلمةُ السرّ صحيحة؟ يفرّق بين صاحب الحساب وبين مَن يجرّب */
+  passwordOk: boolean('password_ok').default(false).notNull(),
+  at: timestamp('at').defaultNow().notNull(),
 });
