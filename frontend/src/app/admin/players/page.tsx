@@ -648,6 +648,36 @@ export default function PlayersManagementPage() {
                     {a.phoneTried && a.phoneTried !== attemptsFor.phone && (
                       <p className="text-[11px] text-amber-500/80 mt-0.5">كُتب الرقم: {a.phoneTried}</p>
                     )}
+                    {/* 📍 النقطة — تُقرأ بمنطق صفحة مواقع اللاعبين: الدقّة تُذكر
+                        لأنّها تُضاف لا تُقارَن، والتزييفُ يُعلَّم، وعمرُ القراءة
+                        من capturedAt لا من وقت وصولها. */}
+                    {a.latitude != null && a.longitude != null ? (
+                      <div className="mt-1.5 flex items-center gap-2 flex-wrap">
+                        <a
+                          href={`https://www.google.com/maps?q=${a.latitude},${a.longitude}`}
+                          target="_blank" rel="noopener noreferrer"
+                          className="text-[12px] font-bold text-emerald-400 hover:text-emerald-300 underline"
+                          dir="ltr"
+                        >
+                          📍 {Number(a.latitude).toFixed(5)}, {Number(a.longitude).toFixed(5)}
+                        </a>
+                        {a.accuracyM != null && (
+                          <span className="text-[11px] text-gray-500">دقّة ±{Math.round(a.accuracyM)}م</span>
+                        )}
+                        {a.fixSource && <span className="text-[11px] text-gray-600">{a.fixSource === 'app' ? 'تطبيق' : 'ويب'}</span>}
+                        {a.isMocked && (
+                          <span className="text-[11px] font-bold px-1.5 rounded-full border"
+                            style={{ color: '#D9453F', borderColor: 'rgba(217,69,63,.5)' }}>موقعٌ مزيّف</span>
+                        )}
+                        {a.capturedAt && Math.abs(new Date(a.at).getTime() - new Date(a.capturedAt).getTime()) > 120000 && (
+                          <span className="text-[11px] text-amber-500/80">
+                            قراءةٌ أقدمُ من المحاولة
+                          </span>
+                        )}
+                      </div>
+                    ) : (
+                      <p className="text-[11px] text-gray-600 mt-1">لا نقطةَ موقع — الإذنُ غير ممنوحٍ على ذلك الجهاز</p>
+                    )}
                     {a.userAgent && (
                       <p className="text-[10.5px] text-gray-600 mt-1 leading-snug break-all" dir="ltr">{a.userAgent}</p>
                     )}
@@ -658,7 +688,7 @@ export default function PlayersManagementPage() {
               <div className="px-4 py-2.5 border-t border-gray-800">
                 <p className="text-[10.5px] text-gray-600 leading-relaxed">
                   العنوانُ يُقرأ من الاتّصال نفسِه لا من ترويسةٍ يرسلها الجهاز — فلا يُنتحل.
-                  ولا تُحدَّد مدينةٌ أو بلد: ذلك يقتضي إرسالَ العناوين إلى خدمةٍ خارجيّة.
+                  والنقطةُ تصل من الجهاز إن كان إذنُ الموقع ممنوحاً عليه سلفاً — ولا تُطلب في شاشة الدخول.
                 </p>
               </div>
             </motion.div>

@@ -10,7 +10,7 @@ import { Router, type Request, type Response } from 'express';
 import { ageFromDob, ADULT_AGE } from '../services/consent.service.js';
 import { LOCKED_MESSAGE } from '../lib/account-lock.js';
 import { clientIp } from '../middleware/client-ip.js';
-import { eq } from 'drizzle-orm';
+import { eq, and, desc, gte } from 'drizzle-orm';
 import { getDB } from '../config/db.js';
 import { players, PLAYER_DEFAULT_PASSWORD, lockedLoginAttempts } from '../schemas/player.schema.js';
 import {
@@ -247,6 +247,69 @@ router.post('/login', rateLimit({ windowMs: 15 * 60 * 1000, max: 120, keyPrefix:
   } catch (err: any) {
     console.error('❌ Player login error:', err.message);
     return res.status(500).json({ success: false, error: 'خطأ في تسجيل الدخول' });
+  }
+});
+
+// ══════════════════════════════════════════════════════
+// 📍 POST /api/player-auth/locked-fix — نقطةُ الجهاز لمحاولةٍ على حسابٍ مقفول
+//
+// 🔴 خطوةٌ ثانيةٌ عمداً، لا حقلٌ في نداء الدخول: لو أُرسلت مع الدخول لانتقل
+//    موقعُ **كلّ** مَن يسجّل دخوله، ولا يُخزَّن إلّا القليل. هنا لا يُرسل شيءٌ
+//    أصلاً إلّا بعد أن يردّ الخادمُ ACCOUNT_LOCKED — فحسابٌ سليمٌ لا يُنقل
+//    موقعُه ولا مرّة.
+//
+// 🔴 ولا مصادقةَ هنا (المحاوِلُ ليس داخلاً)، فالربطُ بمحاولةٍ حقيقيّة هو
+//    الحارس: تُحدَّث آخرُ محاولةٍ لهذا الحساب **من نفس العنوان** وخلال دقيقتين.
+//    فلا يستطيع أحدٌ حقنَ إحداثيّاتٍ لحسابٍ لم يُحاول عليه.
+//
+// 🔴 والردُّ واحدٌ دائماً: نجاحٌ فارغ. لو فرّق بين «سُجّلت» و«لا محاولة» لصار
+//    مِجَسّاً يكشف أيُّ رقمٍ لحسابٍ مقفول.
+// ══════════════════════════════════════════════════════
+router.post('/locked-fix', rateLimit({ windowMs: 10 * 60 * 1000, max: 60, keyPrefix: 'locked-fix' }), async (req: Request, res: Response) => {
+  const ok = () => res.json({ success: true });
+  try {
+    const { phone, fix } = req.body || {};
+    if (!phone || !fix || typeof fix !== 'object') return ok();
+
+    const lat = Number(fix.lat), lng = Number(fix.lng);
+    if (!Number.isFinite(lat) || !Number.isFinite(lng)) return ok();
+    if (lat < -90 || lat > 90 || lng < -180 || lng > 180) return ok();
+
+    const db = getDB();
+    if (!db) return ok();
+
+    const [player] = await db.select({ id: players.id, isLocked: players.isLocked })
+      .from(players).where(eq(players.phone, String(phone))).limit(1);
+    if (!player || !player.isLocked) return ok();
+
+    const ip = clientIp(req).slice(0, 60);
+    const since = new Date(Date.now() - 2 * 60_000);
+
+    const [recent] = await db.select({ id: lockedLoginAttempts.id })
+      .from(lockedLoginAttempts)
+      .where(and(
+        eq(lockedLoginAttempts.playerId, player.id),
+        eq(lockedLoginAttempts.ip, ip),
+        gte(lockedLoginAttempts.at, since),
+      ))
+      .orderBy(desc(lockedLoginAttempts.at))
+      .limit(1);
+    if (!recent) return ok();
+
+    const acc = Number(fix.accuracyM);
+    const cap = Number(fix.capturedAt);
+    await db.update(lockedLoginAttempts).set({
+      latitude: String(lat), longitude: String(lng),
+      accuracyM: Number.isFinite(acc) ? Math.round(acc) : null,
+      isMocked: fix.isMocked === true,
+      fixSource: fix.source === 'app' ? 'app' : 'web',
+      capturedAt: new Date(Number.isFinite(cap) ? cap : Date.now()),
+    } as any).where(eq(lockedLoginAttempts.id, recent.id));
+
+    return ok();
+  } catch (e: any) {
+    console.error('⚠️ locked-fix failed:', e?.message);
+    return ok();
   }
 });
 

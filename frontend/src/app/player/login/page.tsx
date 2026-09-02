@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
+import { reportLockedFix } from '@/lib/locked-fix';
 import { motion, AnimatePresence } from 'framer-motion';
 import { usePlayer } from '@/context/PlayerContext';
 import Image from 'next/image';
@@ -51,6 +52,9 @@ export default function LoginPage() {
       if (!data.success) {
         setError(data.error || 'خطأ في تسجيل الدخول');
         setLoading(false);
+        // 📍 حسابٌ مقفول: نُبلّغ الإدارةَ بنقطة المحاولة — بلا طلبِ إذنٍ ولا
+        //    انتظار. تفشل صامتةً إن لم يكن الإذنُ ممنوحاً سلفاً.
+        if (data.code === 'ACCOUNT_LOCKED') { void reportLockedFix(phone); }
         return;
       }
 

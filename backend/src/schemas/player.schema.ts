@@ -5,7 +5,7 @@
 
 import {
   pgTable, serial, text, timestamp, integer,
-  varchar, boolean,
+  varchar, boolean, decimal,
 } from 'drizzle-orm/pg-core';
 
 // ── إعدادات المصادقة ──────────────────────────────
@@ -126,4 +126,18 @@ export const lockedLoginAttempts = pgTable('locked_login_attempts', {
   /** هل كانت كلمةُ السرّ صحيحة؟ يفرّق بين صاحب الحساب وبين مَن يجرّب */
   passwordOk: boolean('password_ok').default(false).notNull(),
   at: timestamp('at').defaultNow().notNull(),
+
+  // 📍 نقطةُ الجهاز — نفسُ شكل GeoFix وحقول player_last_fix حرفيّاً، فتُقرأ
+  //    بنفس منطق صفحة مواقع اللاعبين (الدقّة تُضاف لا تُقارَن، والتزييفُ يُعلَّم،
+  //    وcapturedAt هو زمنُ القراءة على الجهاز لا زمنُ وصولها).
+  //
+  // 🔴 تصل في خطوةٍ ثانيةٍ بعد ردّ القفل لا مع الدخول: فلا يُنقل موقعُ أحدٍ
+  //    إلّا إن كان حسابُه مقفولاً فعلاً. ولا تُطلب صلاحيّةُ الموقع في شاشة
+  //    الدخول أبداً — تُقرأ إن كانت ممنوحةً سلفاً، وإلّا تبقى فارغة.
+  latitude: decimal('latitude', { precision: 9, scale: 6 }),
+  longitude: decimal('longitude', { precision: 9, scale: 6 }),
+  accuracyM: integer('accuracy_m'),
+  isMocked: boolean('is_mocked').default(false),
+  fixSource: varchar('fix_source', { length: 10 }),
+  capturedAt: timestamp('captured_at'),
 });

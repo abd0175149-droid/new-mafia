@@ -79,5 +79,35 @@ check('يقع قبل ردّ كلمة السرّ الخاطئة', iLog > 0 && iWr
 check('وفشلُ التسجيل لا يفتح الباب', code(auth).includes("console.error('⚠️ locked-attempt log failed"));
 
 console.log('');
+console.log('🧪 نقطةُ الموقع — نفسُ شكل GeoFix وحقول player_last_fix');
+const client = read('../frontend/src/lib/locked-fix.ts');
+const loginPage = read('../frontend/src/app/player/login/page.tsx');
+for (const f of ['latitude', 'longitude', 'accuracyM', 'isMocked', 'capturedAt'])
+  check(`الحقل ${f} في الجدول`, schema.includes(f + ':'));
+check('والترحيلُ يُنشئها', deploy.includes('ADD COLUMN IF NOT EXISTS latitude NUMERIC(9,6)'));
+
+console.log('');
+console.log('🧪 لا يُنقل موقعُ حسابٍ سليم');
+check('العميلُ لا يُبلّغ إلّا على ACCOUNT_LOCKED', code(loginPage).includes("data.code === 'ACCOUNT_LOCKED'"));
+check('ولا يُرسل الموقعَ مع نداء الدخول', !code(loginPage).includes('fix') || !/login[\s\S]{0,400}?fix:/.test(code(loginPage)));
+check('الخادمُ يرفض غيرَ المقفول', code(auth).includes('!player.isLocked) return ok()'));
+
+console.log('');
+console.log('🧪 لا يُطلب إذنُ الموقع في شاشة الدخول');
+check('يُفحص الإذنُ لا يُطلب', code(client).includes("state === 'granted'"));
+check('ولا يُنادى getCurrentPosition قبل الفحص',
+  code(client).indexOf('alreadyGranted') < code(client).indexOf('getCurrentPosition'));
+check('ويفشل صامتاً بمهلة', code(client).includes('TIMEOUT_MS') && code(client).includes('finish(null)'));
+
+console.log('');
+console.log('🧪 المنفذُ المفتوح محروسٌ بالربط لا بالمصادقة');
+check('مربوطٌ بمحاولةٍ من نفس العنوان', code(auth).includes('eq(lockedLoginAttempts.ip, ip)'));
+check('وضمن نافذةٍ زمنيّة', code(auth).includes('gte(lockedLoginAttempts.at, since)'));
+check('ومحدودُ المعدّل', code(auth).includes("keyPrefix: 'locked-fix'"));
+check('وردُّه واحدٌ دائماً فلا يصير مِجَسّاً',
+  (code(auth).match(/return ok\(\)/g) || []).length >= 5);
+check('ويتحقّق من مدى الإحداثيّات', code(auth).includes('lat < -90') && code(auth).includes('lng > 180'));
+
+console.log('');
 console.log(`${fail === 0 ? '🎉' : '⚠️'} النتيجة: ${pass} نجح · ${fail} فشل`);
 process.exit(fail === 0 ? 0 : 1);

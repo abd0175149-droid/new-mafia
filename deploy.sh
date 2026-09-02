@@ -146,6 +146,13 @@ CREATE TABLE IF NOT EXISTS locked_login_attempts (
   at TIMESTAMP NOT NULL DEFAULT NOW()
 );
 CREATE INDEX IF NOT EXISTS idx_locked_attempts_player ON locked_login_attempts (player_id, at DESC);
+-- 📍 نقطةُ الجهاز بنفس حقول player_last_fix
+ALTER TABLE locked_login_attempts ADD COLUMN IF NOT EXISTS latitude NUMERIC(9,6);
+ALTER TABLE locked_login_attempts ADD COLUMN IF NOT EXISTS longitude NUMERIC(9,6);
+ALTER TABLE locked_login_attempts ADD COLUMN IF NOT EXISTS accuracy_m INTEGER;
+ALTER TABLE locked_login_attempts ADD COLUMN IF NOT EXISTS is_mocked BOOLEAN DEFAULT false;
+ALTER TABLE locked_login_attempts ADD COLUMN IF NOT EXISTS fix_source VARCHAR(10);
+ALTER TABLE locked_login_attempts ADD COLUMN IF NOT EXISTS captured_at TIMESTAMP;
 ALTER TABLE wa_bot_settings ADD COLUMN IF NOT EXISTS admin_only_tools JSONB DEFAULT '[]';
 -- 📍 سياج الفعاليّة — النقطة على المكان، والقرار على الفعاليّة
 ALTER TABLE locations  ADD COLUMN IF NOT EXISTS latitude NUMERIC(9,6);
