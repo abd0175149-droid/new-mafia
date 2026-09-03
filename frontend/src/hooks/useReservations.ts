@@ -44,7 +44,7 @@ export interface Reservation {
   deletedAt: string | null;
 }
 
-export interface Activity { id: number; name: string; date: string; status: string; locationId: number | null }
+export interface Activity { id: number; name: string; date: string; status: string; locationId: number | null; gameSchedule?: any[] }
 export interface Loc { id: number; name: string; region?: string; mapUrl?: string }
 
 export const getToken = () =>

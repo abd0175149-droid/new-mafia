@@ -42,6 +42,61 @@ const API_URL = process.env.NEXT_PUBLIC_API_URL || '';
 export interface ResVars {
   name: string; activityName: string; count: number;
   locationName?: string; region?: string; when?: string; mapUrl?: string;
+  /** برنامجُ الليلة كما هو في الفعاليّة — أوقاتٌ محلّيّة بصيغة HH:MM */
+  schedule?: any[];
+}
+
+// ══════════════════════════════════════════════════════
+// 🕹️ برنامجُ الليلة داخل الرسالة
+//
+// 🔴 الألعابُ بأوقاتها والاستراحةُ سطرٌ واحد: سردُ كلّ استراحةٍ على حدة يضاعف
+//    طولَ الرسالة بلا معلومةٍ جديدة — الاستراحاتُ متساويةٌ عادةً. فإن اختلفت
+//    فعلاً لا نكذب بتلخيصها، بل نقول «بينها استراحات» بلا رقم.
+//
+// 🔴 والأوقاتُ بالأرقام العربيّة و«ص/م»: الرسالةُ عربيّةٌ كلُّها، ورقمٌ لاتينيٌّ
+//    وسطَها يقطع القراءة. و«19:30» لا تُقرأ في نصٍّ عربيٍّ كما تُقرأ «٧:٣٠ م».
+// ══════════════════════════════════════════════════════
+const arDigits = (t: string) => String(t).replace(/[0-9]/g, d => '٠١٢٣٤٥٦٧٨٩'[Number(d)]);
+
+function hhmmAr(t: unknown): string {
+  const m = /^(\d{1,2}):(\d{2})$/.exec(String(t || '').trim());
+  if (!m) return '';
+  let h = Number(m[1]);
+  const period = h >= 12 ? 'م' : 'ص';
+  h = h % 12 || 12;
+  return `${arDigits(String(h))}:${arDigits(m[2])} ${period}`;
+}
+
+function minutesOf(t: unknown): number | null {
+  const m = /^(\d{1,2}):(\d{2})$/.exec(String(t || '').trim());
+  return m ? Number(m[1]) * 60 + Number(m[2]) : null;
+}
+
+/** يُعيد كتلةَ البرنامج مسبوقةً بسطرٍ فارغ — أو '' فيسقط السطرُ كلُّه. */
+function scheduleBlock(slots?: any[]): string {
+  const list = Array.isArray(slots) ? slots : [];
+  const games = list.filter(x => x && x.kind !== 'break' && x.start);
+  if (!games.length) return '';
+
+  const durs = list
+    .filter(x => x && x.kind === 'break')
+    .map(b => {
+      const a = minutesOf(b.start), z = minutesOf(b.end);
+      return a == null || z == null ? null : ((z - a) + 1440) % 1440;
+    })
+    .filter((d): d is number => d != null && d > 0);
+
+  const lines = ['', '🕹️ برنامج الليلة:'];
+  for (const g of games) lines.push(`• ${g.label || 'لعبة'} — ${hhmmAr(g.start)}`);
+
+  if (durs.length && durs.every(d => d === durs[0])) {
+    const d = durs[0];
+    const unit = d === 1 ? 'دقيقة' : d === 2 ? 'دقيقتان' : d <= 10 ? 'دقائق' : 'دقيقة';
+    lines.push(`وبين كلّ لعبتين استراحة ${arDigits(String(d))} ${unit}.`);
+  } else if (durs.length) {
+    lines.push('وبين الألعاب استراحات.');
+  }
+  return lines.join(String.fromCharCode(10));
 }
 // النصُّ الافتراضيّ ومتغيّراتُه — منقولان حرفاً بحرف عن النسخة السابقة.
 // 🔴 القالبُ محفوظٌ على جهاز الموظّف لا على الخادم: كلٌّ يصوغ رسالته بلا أن
@@ -55,6 +110,7 @@ const RES_VARS: TemplateVar<ResVars>[] = [
     get: (r) => [r.locationName, r.region].filter(Boolean).join(' — ') },
   { token: '{الخريطة}', label: 'رابط الخريطة', optional: true, get: (r) => ensureHttp(r.mapUrl) },
   { token: '{الموعد}', label: 'الموعد', optional: true, get: (r) => r.when || '' },
+  { token: '{الجدول}', label: 'برنامج الليلة', optional: true, get: (r) => scheduleBlock(r.schedule) },
 ];
 
 // 🔴 النقاطُ الثلاث تُقال **قبل** الليلة لا فيها: تذكيرُ اللاعب بالمقعد أو
@@ -72,6 +128,7 @@ const RES_TPL_DEFAULT = [
   '📍 المكان: {المكان}',
   '🗺️ الموقع على الخريطة: {الخريطة}',
   '🗓️ الموعد: {الموعد}',
+  '{الجدول}',
   '',
   'وقبل الحضور، ثلاثُ نقاطٍ تجعل الليلة أمتعَ للجميع:',
   '',
@@ -79,8 +136,7 @@ const RES_TPL_DEFAULT = [
   'المقاعد تُوزَّع قبل البداية والجولة تنطلق بوقتها — والمتأخّر قد يفوته الدور الأوّل.',
   '',
   '🎭 تنظيم اللعبة',
-  'اللعب بجولات، ولكلّ لاعبٍ مقعدُه المحدَّد. ويبقى الهاتف بعيداً أثناء الجولة —',
-  'فعليه تقوم عدالةُ اللعبة وسِرُّها.',
+  'اللعب بجولات، ولكلّ لاعبٍ مقعدُه المحدَّد — فنرجو التعاون مع فريق التنظيم في الجلوس والترتيب.',
   '',
   '🎙️ تعليمات الليدر',
   'الليدر يدير الجولة، وقرارُه أثناء اللعب نهائيّ — والنقاشُ بعد انتهائها.',
@@ -89,6 +145,66 @@ const RES_TPL_DEFAULT = [
 ].join(String.fromCharCode(10));
 
 const TPL_KEY = 'reservations_wa_template';
+
+// ══════════════════════════════════════════════════════
+// 🔴 القوالبُ الافتراضيّة السابقة — بها وحدها يصل التحديثُ إلى مَن لم يعدّل.
+//
+//    العطبُ الذي تُصلحه: القالبُ محفوظٌ على الجهاز ويغلب الافتراضيَّ دائماً.
+//    فيكفي أن يفتح الموظّفُ المحرّرَ ويلمس حرفاً — أو يضغط «استعادة» يوماً —
+//    ليتجمّد على نصّ ذلك اليوم إلى الأبد، ولا يبلغه أيُّ تحسينٍ بعده.
+//    قِيس فعلاً: حُدِّث الافتراضيُّ ولم يتغيّر شيءٌ على جهاز المالك.
+//
+//    الآن: المحفوظُ الذي يطابق افتراضيّاً **سابقاً** = «لم يعدّله أحد»، فيُرقّى
+//    صامتاً. وما خالفها كلَّها صياغةٌ يملكها صاحبُها — لا تُدهس، بل يُنبَّه.
+// ══════════════════════════════════════════════════════
+const RES_TPL_LEGACY: string[] = [
+  // الأصليّ — قبل إضافة نقاط التنظيم
+  [
+    'مرحباً {الاسم} 👋',
+    'نؤكّد حجزك في «{الفعالية}» لعدد {العدد}.',
+    '📍 المكان: {المكان}',
+    '🗺️ الموقع على الخريطة: {الخريطة}',
+    '🗓️ الموعد: {الموعد}',
+    '',
+    'يُرجى الردّ على هذه الرسالة لتثبيت الحجز بشكلٍ نهائيّ. بانتظارك! 🎭',
+  ].join(String.fromCharCode(10)),
+  // نسخةُ ٣ أيلول — كانت تذكر الهاتف، وأُلغيت النقطة بطلب المالك
+  [
+    'مرحباً {الاسم} 👋',
+    'نؤكّد حجزك في «{الفعالية}» لعدد {العدد}.',
+    '📍 المكان: {المكان}',
+    '🗺️ الموقع على الخريطة: {الخريطة}',
+    '🗓️ الموعد: {الموعد}',
+    '',
+    'وقبل الحضور، ثلاثُ نقاطٍ تجعل الليلة أمتعَ للجميع:',
+    '',
+    '⏰ الحضور في الموعد',
+    'المقاعد تُوزَّع قبل البداية والجولة تنطلق بوقتها — والمتأخّر قد يفوته الدور الأوّل.',
+    '',
+    '🎭 تنظيم اللعبة',
+    'اللعب بجولات، ولكلّ لاعبٍ مقعدُه المحدَّد. ويبقى الهاتف بعيداً أثناء الجولة —',
+    'فعليه تقوم عدالةُ اللعبة وسِرُّها.',
+    '',
+    '🎙️ تعليمات الليدر',
+    'الليدر يدير الجولة، وقرارُه أثناء اللعب نهائيّ — والنقاشُ بعد انتهائها.',
+    '',
+    'يُرجى الردّ على هذه الرسالة لتثبيت الحجز نهائيّاً. بانتظارك! 🎭',
+  ].join(String.fromCharCode(10)),
+];
+
+/** نصُّ القالب عند الإقلاع — يُرقّي غيرَ المعدَّل ويُبقي المعدَّل. */
+function initialTpl(): string {
+  if (typeof window === 'undefined') return RES_TPL_DEFAULT;
+  let saved: string | null = null;
+  try { saved = localStorage.getItem(TPL_KEY); } catch { /* تصفّحٌ خاصّ */ }
+  if (!saved) return RES_TPL_DEFAULT;
+  if (saved.trim() === RES_TPL_DEFAULT.trim()) return RES_TPL_DEFAULT;
+  if (RES_TPL_LEGACY.some(v => v.trim() === saved!.trim())) {
+    try { localStorage.setItem(TPL_KEY, RES_TPL_DEFAULT); } catch { /* لا شيء */ }
+    return RES_TPL_DEFAULT;
+  }
+  return saved;
+}
 
 export default function ReservationsPage() {
   const R = useReservations();
@@ -100,10 +216,9 @@ export default function ReservationsPage() {
   const [toast, setToast] = useState<{ text: string; id: number; prev: boolean | null } | null>(null);
   const [waJust, setWaJust] = useState<Reservation | null>(null);
 
-  const [tpl, setTpl] = useState(() => {
-    if (typeof window === 'undefined') return RES_TPL_DEFAULT;
-    return localStorage.getItem(TPL_KEY) || RES_TPL_DEFAULT;
-  });
+  const [tpl, setTpl] = useState(initialTpl);
+  /** قالبٌ صاغه صاحبُه ويختلف عن الافتراضيّ الحاليّ — يُنبَّه ولا يُدهس */
+  const tplCustomised = tpl.trim() !== RES_TPL_DEFAULT.trim();
   const saveTpl = (v: string) => { setTpl(v); try { localStorage.setItem(TPL_KEY, v); } catch { /* لا شيء */ } };
 
   const single = R.activityId && R.activityId !== 'all';
@@ -118,6 +233,7 @@ export default function ReservationsPage() {
     return fillTemplate(tpl, RES_VARS, {
       name: r.contactName, activityName: act?.name || '', count: r.peopleCount || 1,
       locationName: loc?.name, region: loc?.region, when, mapUrl: loc?.mapUrl,
+      schedule: (act as any)?.gameSchedule,
     });
   }, [R.activities, R.locations, tpl]);
 
@@ -501,6 +617,22 @@ export default function ReservationsPage() {
 
       <Sheet open={showTpl} onClose={() => setShowTpl(false)}>
         <SheetHead title="قالب رسالة التأكيد" />
+        {/* 🔴 لا يُدهس قالبٌ صاغه صاحبُه — لكنّه لا يُترك يجهل أنّ الافتراضيّ
+            تطوّر. التنبيهُ يجعل الترقيةَ اختياراً معروضاً لا سرّاً. */}
+        {tplCustomised && (
+          <button
+            onClick={() => saveTpl(RES_TPL_DEFAULT)}
+            className="w-full text-right rounded-2xl px-3.5 py-3 mb-2.5"
+            style={{ background: 'rgba(197,160,89,.09)', border: '1px solid rgba(197,160,89,.35)' }}
+          >
+            <b className="block text-[13.5px]" style={{ color: '#C5A059' }}>
+              ✨ النصُّ الافتراضيّ تطوّر — اضغط لاعتماده
+            </b>
+            <span className="block text-[11.5px] text-gray-500 mt-0.5">
+              قالبُك الحاليّ مكتوبٌ بيدك، فلا يُستبدَل إلّا بطلبك.
+            </span>
+          </button>
+        )}
         <MessageTemplateEditor<ResVars>
           titleAr="💬 النصّ الذي يرسله زرّ الواتساب"
           value={tpl} onChange={saveTpl} onReset={() => saveTpl(RES_TPL_DEFAULT)}
