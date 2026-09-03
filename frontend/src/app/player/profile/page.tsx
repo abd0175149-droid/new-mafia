@@ -3,6 +3,7 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import Link from 'next/link';
 import { ImageCropper } from '@/components/ImageCropper';
+import { CropBoundary } from '@/components/CropBoundary';
 import RolesDeck from '@/components/RolesDeck';
 import DynamicMafiaCard from '@/components/DynamicMafiaCard';
 import { usePlayerCosmetics } from '@/hooks/usePlayerCosmetics';
@@ -378,12 +379,14 @@ export default function PlayerProfilePage(){
 
           {/* ── واجهة القص التفاعلية ── */}
           {cropFile && (
-            <ImageCropper
-              file={cropFile}
-              onCrop={handleCroppedUpload}
-              onCancel={() => setCropFile(null)}
-              outputSize={512}
-            />
+            <CropBoundary onClose={() => setCropFile(null)}>
+              <ImageCropper
+                file={cropFile}
+                onCrop={handleCroppedUpload}
+                onCancel={() => setCropFile(null)}
+                outputSize={512}
+              />
+            </CropBoundary>
           )}
 
           {/* Name */}

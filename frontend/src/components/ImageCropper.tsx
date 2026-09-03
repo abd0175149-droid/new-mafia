@@ -18,7 +18,8 @@ interface ImageCropperProps {
 
 export function ImageCropper({ file, onCrop, onCancel, outputSize = 512 }: ImageCropperProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
-  const imgRef = useRef<HTMLImageElement | null>(null);
+  // المصدرُ قد يكون canvas بعد التصغير — كلاهما صالحٌ لـdrawImage
+  const imgRef = useRef<HTMLImageElement | HTMLCanvasElement | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const overlayRef = useRef<HTMLDivElement>(null);
 
@@ -26,6 +27,7 @@ export function ImageCropper({ file, onCrop, onCancel, outputSize = 512 }: Image
   const [scale, setScale] = useState(1);
   const [offset, setOffset] = useState({ x: 0, y: 0 });
   const [imgLoaded, setImgLoaded] = useState(false);
+  const [loadError, setLoadError] = useState('');
   const [saving, setSaving] = useState(false);
 
   // Drag state
@@ -35,27 +37,50 @@ export function ImageCropper({ file, onCrop, onCancel, outputSize = 512 }: Image
 
   const CANVAS_SIZE = 280; // حجم المعاينة
 
-  // ── تحميل الصورة ──
+  // ══════════════════════════════════════════════════════
+  // 🖼️ تحميلُ الصورة
+  //
+  // 🔴 blob: لا FileReader/data:. صورةُ آيفون ٣م.ب تصير نصَّ base64 بأربعة —
+  //    يُحتفظ به كاملاً في الذاكرة إلى جانب الصورة المفكوكة. وسفاري في التطبيق
+  //    المثبَّت له سقفُ ذاكرةٍ ضيّق، فتجاوزُه يُسقط الصفحة. وblob مؤشّرٌ لا نسخة.
+  //
+  // 🔴 وonerror كان غائباً: ملفٌّ لا يُفكّ ترميزُه (HEIC غير مدعوم · ملفٌّ تالف)
+  //    كان يترك الشاشةَ فارغةً وزرَّ الحفظ ميّتاً بلا كلمة — قِيس فعلاً على WebKit.
+  //
+  // 🔴 وتُصغَّر الصورةُ الضخمة مرّةً واحدةً قبل الاستعمال: سفاري على iOS يرفض
+  //    الرسمَ من مصدرٍ يتجاوز حدَّ البكسلات، فتخرج صورةٌ فارغةً أو تُسقط الصفحة.
+  // ══════════════════════════════════════════════════════
   useEffect(() => {
+    const url = URL.createObjectURL(file);
     const img = new Image();
+    let dead = false;
+
     img.onload = () => {
-      imgRef.current = img;
+      if (dead) return;
+      const w = img.naturalWidth || img.width;
+      const h = img.naturalHeight || img.height;
+      // أبعادٌ صفريّة = فشلُ فكّ ترميزٍ صامت (يقع على iOS مع الصور الضخمة)
+      if (!w || !h) { setLoadError('تعذّر فتح هذه الصورة — جرّبْ صورةً أخرى'); return; }
 
-      // حساب الحجم الأولي ليملأ المربع
-      const minDim = Math.min(img.width, img.height);
-      const initialScale = CANVAS_SIZE / minDim;
+      const source = shrinkIfHuge(img, w, h);
+      imgRef.current = source;
 
+      const sw = source.width, sh = source.height;
+      const initialScale = CANVAS_SIZE / Math.min(sw, sh);
       setScale(initialScale);
       setOffset({
-        x: (CANVAS_SIZE - img.width * initialScale) / 2,
-        y: (CANVAS_SIZE - img.height * initialScale) / 2,
+        x: (CANVAS_SIZE - sw * initialScale) / 2,
+        y: (CANVAS_SIZE - sh * initialScale) / 2,
       });
       setImgLoaded(true);
     };
 
-    const reader = new FileReader();
-    reader.onload = (e) => { img.src = e.target?.result as string; };
-    reader.readAsDataURL(file);
+    img.onerror = () => {
+      if (!dead) setLoadError('تعذّر فتح هذه الصورة — جرّبْ صورةً أخرى');
+    };
+
+    img.src = url;
+    return () => { dead = true; URL.revokeObjectURL(url); };
   }, [file]);
 
   // ── رسم المعاينة ──
@@ -204,35 +229,41 @@ export function ImageCropper({ file, onCrop, onCancel, outputSize = 512 }: Image
 
   // ── حفظ الصورة المقصوصة ──
   // ⚠️ الناتج مربع بدون clip دائري — الكارد يعرض الصورة بـ object-cover
+  // 🔴 كلُّه داخل try: خطأٌ من toDataURL أو drawImage كان يخرج من معالج حدثٍ
+  //    فيصل إلى حاجز Next.js — أيْ «Application error» تبتلع التطبيقَ كلَّه
+  //    بدل أن تُفسد رفعَ صورة. وsaving كان يبقى true عند الخروج المبكر فيتجمّد الزرّ.
   const handleCrop = () => {
     const img = imgRef.current;
-    if (!img) return;
+    if (!img) { setLoadError('لم تُفتح الصورة بعد'); return; }
 
     setSaving(true);
+    try {
+      const outCanvas = document.createElement('canvas');
+      outCanvas.width = outputSize;
+      outCanvas.height = outputSize;
+      const ctx = outCanvas.getContext('2d');
+      if (!ctx) throw new Error('canvas unavailable');
 
-    const outCanvas = document.createElement('canvas');
-    outCanvas.width = outputSize;
-    outCanvas.height = outputSize;
-    const ctx = outCanvas.getContext('2d');
-    if (!ctx) return;
+      const ratio = outputSize / CANVAS_SIZE;
+      const dw = img.width * scale * ratio;
+      const dh = img.height * scale * ratio;
+      const dx = offset.x * ratio;
+      const dy = offset.y * ratio;
+      if (![dw, dh, dx, dy].every(Number.isFinite)) throw new Error('bad geometry');
 
-    // حساب نسبة التحويل من المعاينة للناتج
-    const ratio = outputSize / CANVAS_SIZE;
+      ctx.imageSmoothingEnabled = true;
+      try { ctx.imageSmoothingQuality = 'high'; } catch { /* قديمٌ لا يعرفها */ }
 
-    ctx.imageSmoothingEnabled = true;
-    ctx.imageSmoothingQuality = 'high';
+      // بدون clip دائري — مربع كامل لملء الكارد
+      ctx.drawImage(img, dx, dy, dw, dh);
 
-    // بدون clip دائري — مربع كامل لملء الكارد
-    ctx.drawImage(
-      img,
-      offset.x * ratio,
-      offset.y * ratio,
-      img.width * scale * ratio,
-      img.height * scale * ratio,
-    );
-
-    const result = outCanvas.toDataURL('image/jpeg', 0.92);
-    onCrop(result);
+      const result = outCanvas.toDataURL('image/jpeg', 0.92);
+      if (!result || result.length < 64) throw new Error('empty output');
+      onCrop(result);
+    } catch (e: any) {
+      setSaving(false);
+      setLoadError('تعذّر حفظ الصورة على هذا الجهاز' + (e?.message ? ` (${e.message})` : ''));
+    }
   };
 
   // ── أزرار Zoom ──
@@ -259,7 +290,7 @@ export function ImageCropper({ file, onCrop, onCancel, outputSize = 512 }: Image
         </h3>
 
         <p style={{ color: 'rgba(255,255,255,0.4)', fontSize: 12, marginBottom: 12 }}>
-          حرّك الصورة وكبّرها لاختيار المنطقة المطلوبة
+          {loadError || 'حرّك الصورة وكبّرها لاختيار المنطقة المطلوبة'}
         </p>
 
         {/* ── منطقة المعاينة ── */}
@@ -317,7 +348,7 @@ export function ImageCropper({ file, onCrop, onCancel, outputSize = 512 }: Image
           </button>
           <button
             onClick={handleCrop}
-            disabled={saving}
+            disabled={saving || !imgLoaded || !!loadError}
             style={{
               padding: '10px 28px', borderRadius: 12, border: 'none',
               background: saving ? 'rgba(251,191,36,0.3)' : 'linear-gradient(135deg, #fbbf24, #f59e0b)',
@@ -331,6 +362,30 @@ export function ImageCropper({ file, onCrop, onCancel, outputSize = 512 }: Image
       </motion.div>
     </AnimatePresence>
   );
+}
+
+// ══════════════════════════════════════════════════════
+// 📉 تصغيرُ المصدر الضخم مرّةً واحدة
+//
+// سفاري على iOS يحدّ بكسلاتِ الصورة التي يرسم منها، وتجاوزُ الحدّ يُنتج رسماً
+// فارغاً أو يُنهك ذاكرةَ التطبيق المثبَّت. صورةُ آيفون ١٢م.ب.س = ٤٨ ميغابايت
+// مفكوكةً — أكثرُ ممّا يحتمله سياقٌ يعمل فيه التطبيقُ كلُّه.
+// والمعاينةُ ٢٨٠ والناتجُ ٥١٢، فلا قيمةَ لأكثر من بضعة ملايين بكسل.
+// ══════════════════════════════════════════════════════
+const MAX_SRC_PIXELS = 4_000_000;
+
+function shrinkIfHuge(img: HTMLImageElement, w: number, h: number): HTMLImageElement | HTMLCanvasElement {
+  if (w * h <= MAX_SRC_PIXELS) return img;
+  try {
+    const k = Math.sqrt(MAX_SRC_PIXELS / (w * h));
+    const c = document.createElement('canvas');
+    c.width = Math.max(1, Math.round(w * k));
+    c.height = Math.max(1, Math.round(h * k));
+    const x = c.getContext('2d');
+    if (!x) return img;
+    x.drawImage(img, 0, 0, c.width, c.height);
+    return c;
+  } catch { return img; }
 }
 
 const zoomBtnStyle: React.CSSProperties = {
