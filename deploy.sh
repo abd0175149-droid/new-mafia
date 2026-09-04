@@ -70,8 +70,8 @@ UNKNOWN=0
 if [ -n "$LIVE_JSON" ] && [ "${LIVE_ROOMS:-0}" -gt 0 ]; then
   # أيّ غرفةٍ ليست في اللوبي/نهاية اللعبة تُعدّ «جارية»
   for RC in $(printf '%s' "$LIVE_JSON" | grep -o '"roomCode":"[^"]*"' | cut -d'"' -f4); do
-    # مفتاحُ الربط يُخزَّن بـJSON.stringify فيعود بين علامتَي اقتباس — تُنزع قبل الاستعمال
-    RID="$(docker exec mafia-prod-redis-1 redis-cli --raw GET "game:code:${RC}" 2>/dev/null | tr -d '"')"
+    # مفتاحُ الربط يخزّن كائناً {"roomId":"..."} لا نصّاً — يُستخرج الحقل لا تُنزع الاقتباسات
+    RID="$(docker exec mafia-prod-redis-1 redis-cli --raw GET "game:code:${RC}" 2>/dev/null | grep -o '"roomId":"[^"]*"' | cut -d'"' -f4)"
     PH=""
     if [ -n "$RID" ]; then
       PH="$(docker exec mafia-prod-redis-1 redis-cli --raw GET "game:${RID}" 2>/dev/null | grep -o '"phase":"[^"]*"' | head -1 | cut -d'"' -f4)"
@@ -146,6 +146,24 @@ if docker exec mafia-prod-redis-1 redis-cli SAVE >/dev/null 2>&1; then
   say "   💾 Redis حُفظ على القرص"
 else
   say "   ⚠️ تعذّر حفظ Redis يدويّاً — نكمل (اللقطة الدوريّة قائمة)"
+fi
+
+# 🔁 إعادةُ فحصٍ قبل اللمس مباشرةً: البناء يستغرق دقائق، وقد تبدأ لعبةٌ خلاله.
+#    الفحصُ الأوّل وحده لا يكفي — القرارُ يجب أن يُتّخذ بحالة اللحظة لا بحالة البداية.
+RECHECK_BUSY=0
+for RC in $(printf '%s' "$LIVE_JSON" | grep -o '"roomCode":"[^"]*"' | cut -d'"' -f4); do
+  RID2="$(docker exec mafia-prod-redis-1 redis-cli --raw GET "game:code:${RC}" 2>/dev/null | grep -o '"roomId":"[^"]*"' | cut -d'"' -f4)"
+  [ -z "$RID2" ] && continue
+  PH2="$(docker exec mafia-prod-redis-1 redis-cli --raw GET "game:${RID2}" 2>/dev/null | grep -o '"phase":"[^"]*"' | head -1 | cut -d'"' -f4)"
+  case "${PH2:-}" in
+    ''|LOBBY|GAME_OVER) ;;
+    *) RECHECK_BUSY=1; say "   ⛔ غرفة ${RC} دخلت الطور ${PH2} أثناء البناء" ;;
+  esac
+done
+if [ "$RECHECK_BUSY" = "1" ] && [ "${FORCE_DEPLOY:-0}" != "1" ]; then
+  fail "بدأت لعبةٌ أثناء البناء — أُوقف قبل استبدال الحاويات (لم يُلمس شيء)."
+  say "   الصورُ الجديدة جاهزة. أعد التشغيل بعد نهاية اللعبة."
+  exit 1
 fi
 
 # 🎯 backend و frontend وحدهما. الأمرُ السابق كان يعيد إنشاء **كلّ** الحاويات
