@@ -857,6 +857,11 @@ function buildToolDeclarations(toolsConfig: any, opts?: { adminOnlyTools?: strin
       parameters: { type: 'OBJECT', properties: {}, required: [] },
     });
     decls.push({
+      name: 'get_my_seat',
+      description: 'رقمُ مقعد العميل في غرفة نشاطه: مقعدُه الحاليّ إن كان جالساً، أو مقعدُه المحجوز إن وصل متأخّراً وينتظر اللعبة القادمة، أو مقعدُه المثبَّت في القالب قبل وصوله. «وين بقعد؟ شو رقمي؟».',
+      parameters: { type: 'OBJECT', properties: {}, required: [] },
+    });
+    decls.push({
       name: 'get_game_progress',
       description: 'تقدم لعبة العميل الحية (غرفة نشاطه المحجوز أو مقعده): الجولة الحالية، الوقت المتبقي على مؤقت اللعبة، وأعداد الأحياء لكل فريق (أرقام فقط بلا أسماء أبداً). «كم ضل وقت؟ كم مافيا باقي؟».',
       parameters: { type: 'OBJECT', properties: {}, required: [] },
@@ -1803,6 +1808,32 @@ async function execTool(name: string, args: any, ctx: ToolCtx): Promise<any> {
           ? 'هذه غرف نشاطه — اللعبة بدأت فعلياً: أخبره بالمرحلة والجولة (وإن تعددت الغرف اذكر حالة كل غرفة باسمها)'
           : 'الكروت لم تُوزَّع وتُعتمد بعد بغرف نشاطه ⇒ اللعبة لم تبدأ — طمّنه أنه يلحق ويحفّزه يوصل بسرعة',
       };
+    }
+
+    case 'get_my_seat': {
+      // 🪑 كان البوت يعرف الغرفة والمرحلة ولا يعرف المقعد رغم أنّ الحساب موجود،
+      //    فيبقى سؤال «وين أقعد؟» على الباب وفي القاعة.
+      const room = await resolveGameRoom(conv);
+      if (!room) return { hasSeat: false, note: 'لا غرفة حيّة مرتبطة به — اسأله إن كان حاجزاً بنشاط اليوم' };
+      const { state, seat } = room as any;
+      if (seat) {
+        return { hasSeat: true, seat, status: 'seated', room: state.config?.gameName || state.roomCode,
+          note: 'هذا مقعده الحاليّ على الطاولة' };
+      }
+      const norm = (v: any) => String(v || '').replace(/\D/g, '').slice(-9);
+      const mine = norm(conv?.phone);
+      const waiting = (state.spectators || []).find((x: any) => mine && norm(x.phone) === mine);
+      if (waiting) {
+        return { hasSeat: true, seat: waiting.physicalId, status: 'waiting', room: state.config?.gameName || state.roomCode,
+          note: 'وصل واللعبة جارية — مقعده محجوز له ويدخل اللعبة القادمة تلقائيّاً' };
+      }
+      const pin = ((state as any).pinnedSeats || []).find((x: any) => mine && norm(x.phone) === mine);
+      if (pin) {
+        return { hasSeat: true, seat: Number(pin.seatNumber), status: 'reserved', room: state.config?.gameName || state.roomCode,
+          note: 'مقعدٌ مثبَّت له مسبقاً — يجلس فيه فور وصوله' };
+      }
+      return { hasSeat: false, room: state.config?.gameName || state.roomCode,
+        note: 'لا مقعد له بعد — يُخصَّص فور دخوله الغرفة من التطبيق' };
     }
 
     case 'get_game_progress': {

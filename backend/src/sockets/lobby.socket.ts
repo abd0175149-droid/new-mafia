@@ -884,18 +884,33 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
 
             if (bookedPlayers.length === 0) return;
 
-            // إرسال push لكل الحاجزين
-            const ids = bookedPlayers.filter(b => b.playerId).map(b => b.playerId!);
-            import('../services/fcm.service.js').then(({ sendPushToPlayers }) => {
+            // 🪑 مَن له مقعدٌ مثبَّت في القالب يُخبَر برقمه؛ والنصّ القديم كان يَعِد
+            //    باختيار المقعد بينما الواجهة لا ترسل تفضيلاً أصلاً والخادم يوزّع.
+            const pinned = new Map<number, number>();
+            for (const pin of ((state as any).pinnedSeats || [])) {
+              if (pin?.playerId) pinned.set(Number(pin.playerId), Number(pin.seatNumber));
+            }
+            const withSeat = bookedPlayers.filter(b => b.playerId && pinned.has(b.playerId!));
+            const withoutSeat = bookedPlayers.filter(b => b.playerId && !pinned.has(b.playerId!));
+
+            import('../services/fcm.service.js').then(async ({ sendPushToPlayers, sendPushToPlayer }) => {
+              for (const b of withSeat) {
+                await sendPushToPlayer(b.playerId!, '🎮 النشاط بدأ!',
+                  `${gameName} — مقعدك رقم ${pinned.get(b.playerId!)}`,
+                  'activity_started',
+                  { roomCode: state.roomCode, seat: pinned.get(b.playerId!), url: `/player/join?code=${state.roomCode}` });
+              }
+              const ids = withoutSeat.map(b => b.playerId!);
+              if (ids.length === 0) return;
               sendPushToPlayers(ids,
                 '🎮 النشاط بدأ!',
-                `${gameName} — ادخل واختر رقم مقعدك الآن!`,
+                `${gameName} — ادخل ليُخصَّص لك مقعدك`,
                 'activity_started',
                 { roomCode: state.roomCode, url: `/player/join?code=${state.roomCode}` }
               );
             }).catch(() => {});
 
-            console.log(`🔔 Notified ${ids.length} booked players for room ${state.roomId}`);
+            console.log(`🔔 Notified ${bookedPlayers.length} booked players for room ${state.roomId} (${withSeat.length} with a pinned seat)`);
           } catch (err: any) {
             console.error('❌ Notify booked players error:', err.message);
           }
@@ -1508,7 +1523,7 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
               await setGameState(otherState.roomId, oldState);
               await emitStateSanitized(io, otherState.roomId, 'game:state-sync', oldState);
               const oldRoom = activeRooms.get(otherState.roomId);
-              if (oldRoom) oldRoom.playerCount = oldState.players.filter((p: any) => !p.seatHeld).length;
+              if (oldRoom) oldRoom.playerCount = presentPlayers(oldState).length;
               console.log(`🚪 Auto-removed Player #${existing.physicalId} from room ${otherState.roomId}`);
             }
           }
@@ -1541,7 +1556,7 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
         // تحديث العداد
         const room = activeRooms.get(data.roomId);
         if (room) {
-          room.playerCount = state.players.filter((p: any) => !p.seatHeld).length;
+          room.playerCount = presentPlayers(state).length;
         }
 
         await emitStateSanitized(io, data.roomId, 'game:state-sync', state);
@@ -2130,7 +2145,7 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
       // تحديث العداد
       const room = activeRooms.get(data.roomId);
       if (room) {
-        room.playerCount = addedState.players.filter((p: any) => !p.seatHeld).length;
+        room.playerCount = presentPlayers(addedState).length;
       }
 
       // جلب الحالة المحدثة بعد كل التعديلات
@@ -2246,7 +2261,7 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
         // تحديث العداد
         const room = activeRooms.get(data.roomId);
         if (room) {
-          room.playerCount = state.players.filter((p: any) => !p.seatHeld).length;
+          room.playerCount = presentPlayers(state).length;
         }
         await emitStateSanitized(io, data.roomId, 'game:state-sync', state);
       }
@@ -2580,6 +2595,56 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
       seatMoveInFlight.delete(data.roomId);
       callback({ success: false, error: err.message });
     }
+  });
+
+  // ── 🌙 «الليلة الآن» للطاقم (C3) ──
+  // نفس حساب نبض الليلة، بلا حارس «هل لديه حجز؟». يخدم الليدر وموظّف الباب:
+  // أيّ لعبةٍ جارية في كلّ غرفة، ومتى تبدأ القادمة، وكم جالساً وكم ينتظر.
+  socket.on('staff:activity-pulse', async (data: { activityId: number }, callback) => {
+    try {
+      if (socket.data.role !== 'leader' && socket.data.role !== 'display' && !socket.data.authStaff) {
+        return callback?.({ success: false, error: 'غير مصرّح' });
+      }
+      const { buildStaffActivityPulse } = await import('../services/activity-pulse.query.js');
+      const pulse = await buildStaffActivityPulse(Number(data.activityId));
+      callback?.({ success: true, pulse });
+    } catch (err: any) { callback?.({ success: false, error: err.message }); }
+  });
+
+  // ── 📢 رسالة حرّة من الليدر إلى شاشة القاعة (D4) ──
+  // كانت أحداث display:* محصورة في الإعادة والقرعة والصوت وعيد الميلاد، فالليدر
+  // يُعلن الاستراحة وموعد الجولة بالنداء الصوتي. القناة هنا للشاشات وحدها.
+  socket.on('leader:display-notice', async (data: {
+    roomId: string; text: string; kind?: 'break' | 'info' | 'warn'; ttlMs?: number;
+  }, callback) => {
+    try {
+      if (socket.data.role !== 'leader') return callback?.({ success: false, error: 'Only leader' });
+      const text = String(data.text || '').slice(0, 160).trim();
+      if (!text) return callback?.({ success: false, error: 'النصّ فارغ' });
+      const payload = { text, kind: data.kind || 'info', ttlMs: Math.min(60000, Math.max(3000, data.ttlMs || 12000)), at: Date.now() };
+      const sockets = await io.in(data.roomId).fetchSockets();
+      for (const sk of sockets) if (sk.data.role === 'display') sk.emit('display:notice', payload);
+      // يُحفظ كي تستعيده شاشةٌ تنضمّ بعد الإعلان مباشرةً
+      try {
+        const { setAux } = await import('../config/redis.js');
+        await setAux(`display-notice:${data.roomId}`, payload);
+      } catch {}
+      callback?.({ success: true });
+    } catch (err: any) { callback?.({ success: false, error: err.message }); }
+  });
+
+  // ── ⏱️ موعد الجولة القادمة (D2) ──
+  // يُضبط تلقائيّاً من جدول الفعاليّة عند العودة للوبي، ويتجاوزه الليدر بزرّ استراحة.
+  socket.on('room:set-next-game-at', async (data: { roomId: string; at: number | null }, callback) => {
+    try {
+      if (socket.data.role !== 'leader') return callback?.({ success: false, error: 'Only leader' });
+      const state = await getRoom(data.roomId);
+      if (!state) return callback?.({ success: false, error: 'Room not found' });
+      (state as any).nextGameAt = data.at && data.at > Date.now() ? data.at : null;
+      await setGameState(data.roomId, state);
+      await emitStateSanitized(io, data.roomId, 'game:state-sync', state);
+      callback?.({ success: true, nextGameAt: (state as any).nextGameAt });
+    } catch (err: any) { callback?.({ success: false, error: err.message }); }
   });
 
   // ── 🪑 نقل/تبديل مقعد بلمستين — خاضع لنفس قفل السرّ الخاص بمودال تعديل الأرقام ──
@@ -3215,7 +3280,7 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
 
       const room = activeRooms.get(data.roomId);
       if (room) {
-        room.playerCount = state.players.length;
+        room.playerCount = presentPlayers(state).length;
       }
 
       console.log(`[Backend-Socket] 📢 Emitting room:player-joined to room ${data.roomId}`);
@@ -3266,7 +3331,7 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
 
       const room = activeRooms.get(data.roomId);
       if (room) {
-        room.playerCount = state.players.length;
+        room.playerCount = presentPlayers(state).length;
       }
 
       io.to(data.roomId).emit('room:player-kicked', {
@@ -3618,6 +3683,34 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
       // زيادة عدد العقوبات بمقدار 1
       player.penalties = (player.penalties || 0) + 1;
 
+      // 🪑 تسجيل جيرانه لحظة العقوبة — يغذّي PENALTY_NEIGHBOR_AVOIDANCE في اللعبة
+      //    التالية. المسار REST كان موجوداً ولا يستدعيه أيّ عميل، فبقي الجدول فارغاً
+      //    والقيدُ بلا بيانات. الكتابة هنا غير حاجبة.
+      void (async () => {
+        try {
+          if (!player.playerId) return;
+          const db = getDB();
+          if (!db) return;
+          const cap = state.config.maxPlayers;
+          const left = player.physicalId === 1 ? cap : player.physicalId - 1;
+          const right = player.physicalId === cap ? 1 : player.physicalId + 1;
+          for (const seat of [left, right]) {
+            const nb = state.players.find((x: any) => x.physicalId === seat);
+            if (!nb?.playerId) continue;
+            const aId = Math.min(player.playerId, nb.playerId);
+            const bId = Math.max(player.playerId, nb.playerId);
+            await db.execute(sql`
+              INSERT INTO penalty_neighbor_history
+                (player_a_id, player_b_id, session_id, match_id, seat_a, seat_b, penalty_player_id)
+              VALUES (${aId}, ${bId}, ${state.sessionId ?? null}, ${state.matchId ?? null},
+                      ${aId === player.playerId ? player.physicalId : seat},
+                      ${bId === player.playerId ? player.physicalId : seat},
+                      ${player.playerId})
+            `);
+          }
+        } catch (e: any) { console.warn('⚠️ penalty-neighbor record skipped:', e.message); }
+      })();
+
       // جلب إعدادات التقدم من قاعدة البيانات لمعرفة قيمة الخصومات الفعالة
       const config = await getProgressionConfig();
       const penaltyDeduction = config?.rr?.penaltyDeduction ?? -10;
@@ -3817,7 +3910,7 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
           }
           const room = activeRooms.get(data.roomId);
           if (room) {
-            room.playerCount = state.players.length;
+            room.playerCount = presentPlayers(state).length;
           }
           io.to(data.roomId).emit('room:player-kicked', {
             physicalId: data.targetPhysicalId,
@@ -3920,7 +4013,7 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
 
       const room = activeRooms.get(data.roomId);
       if (room) {
-        room.playerCount = state.players.length;
+        room.playerCount = presentPlayers(state).length;
         room.maxPlayers = newMax;
       }
 
@@ -4183,7 +4276,7 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
         state.players = state.players.filter((p: any) => !p.seatHeld && !p.frozen);
         await setGameState(data.roomId, state);
         const rm = activeRooms.get(data.roomId);
-        if (rm) rm.playerCount = state.players.length;
+        if (rm) rm.playerCount = presentPlayers(state).length;
         io.to(data.roomId).emit('room:absent-released', { seats: freed });
         console.log(`🧹 Released ${freed.length} absent seat(s) before role generation: ${freed.join(', ')}`);
       }
@@ -5203,7 +5296,7 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
                 await setGameState(data.roomId, freshState);
                 await emitStateSanitized(io, data.roomId, 'game:state-sync', freshState);
                 const room = activeRooms.get(data.roomId);
-                if (room) room.playerCount = freshState.players.filter((p: any) => !p.seatHeld).length;
+                if (room) room.playerCount = presentPlayers(freshState).length;
               }
             }
           } catch (e: any) {
@@ -5229,7 +5322,7 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
       // تحديث العداد (اللاعبين الفعليين بدون المحجوزين)
       const room = activeRooms.get(data.roomId);
       if (room) {
-        room.playerCount = state.players.filter((p: any) => !p.seatHeld).length;
+        room.playerCount = presentPlayers(state).length;
       }
 
       callback({ success: true });
@@ -5268,7 +5361,7 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
       // تحديث العداد
       const room = activeRooms.get(data.roomId);
       if (room) {
-        room.playerCount = state.players.filter((p: any) => !p.seatHeld).length;
+        room.playerCount = presentPlayers(state).length;
       }
 
       // إبلاغ الجميع
@@ -5367,6 +5460,24 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
    * 👁️ ما بعد ترقية المتفرّجين: صفّ الجلسة، إعلام الليدر والشاشة،
    * نقل سوكِت المتفرّج من الغرفة المعقّمة إلى الغرفة الأصليّة، ودفعة «مقعدك N».
    */
+  /**
+   * ⏱️ يشتقّ موعد الجولة القادمة من جدول الفعاليّة (نفس محرّك «نبض الليلة»).
+   * الشاشة والحاضرون كانوا بلا أيّ إشارة زمنيّة بين الألعاب فيسأل الجميع الليدر.
+   */
+  async function deriveNextGameAt(state: any): Promise<void> {
+    try {
+      if (!state.activityId) { (state as any).nextGameAt = null; return; }
+      const { buildStaffActivityPulse } = await import('../services/activity-pulse.query.js');
+      const pulse = await buildStaffActivityPulse(Number(state.activityId));
+      const room = pulse?.rooms.find(r => r.joinCode === state.sessionCode) || pulse?.rooms[0];
+      const ts = room?.nextStartAt ?? null;
+      (state as any).nextGameAt = ts && ts > Date.now() ? ts : null;
+    } catch (e: any) {
+      (state as any).nextGameAt = null;
+      console.warn('⚠️ deriveNextGameAt skipped:', e.message);
+    }
+  }
+
   async function finishPromotions(state: any): Promise<void> {
     const promoted: Array<{ physicalId: number; name: string; playerId: number | null; phone: string | null }> =
       (state as any).__promotedSpectators || [];
@@ -5575,6 +5686,7 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
       // كان `?? true` يصفّر العقوبات دائماً لأي عميل لا يرسل العلم، فيُبطل إعداد «room».
       resetRoomState(state, [], data.resetPenalties);
       await finishPromotions(state);
+      await deriveNextGameAt(state);
       await setGameState(data.roomId, state);
 
       await emitPhaseChangedSanitized(io, data.roomId, { phase: 'LOBBY', state });
@@ -5750,6 +5862,7 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
       // ⚖️ بلا `?? true`: العميل الذي لا يرسل العلم يترك القرار لإعداد الغرفة penaltyScope
       resetRoomState(state, excludeIds, data.resetPenalties);
       await finishPromotions(state);
+      await deriveNextGameAt(state);
       await setGameState(data.roomId, state);
 
       // ── إبلاغ المستبعدين قبل بث الحالة الجديدة ──
@@ -5766,7 +5879,7 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
       // تحديث عدد اللاعبين في activeRooms
       const room = activeRooms.get(data.roomId);
       if (room) {
-        room.playerCount = state.players.length;
+        room.playerCount = presentPlayers(state).length;
       }
 
       // إعلام الجميع بالتحول للوبي

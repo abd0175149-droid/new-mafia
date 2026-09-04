@@ -37,5 +37,23 @@ export function projectDisplayState(state: any) {
     //    المحايد مواطناً — وهي ثالثة ثلاث نسخٍ من الخطأ نفسه.
     teamCounts: getTeamCounts(state.players as any),
     gameTimer: state.gameTimer || null,
+
+    // ── 🗺️ ما تحتاجه خريطة المقاعد على الشاشة (D1) ──
+    // البيانات كانت في الحالة الخام وتصل الشاشة عبر السوكِت، لكنّ مسار REST
+    // كان يُسقطها فتختلف أوّل رسمة عن كلّ ما بعدها.
+    maxPlayers: state.config?.maxPlayers ?? null,
+    pinnedSeats: state.pinnedSeats || [],
+    reservedTailSeats: state.reservedTailSeats || 0,
+    doorSeats: state.doorSeats || [],
+    // مقاعدُ محجوزة/مجمَّدة: تُعرض شاغرةً-محجوزة كي لا يجلس فيها واصلٌ جديد
+    heldSeats: players.filter((p: any) => p.seatHeld).map((p: any) => p.physicalId),
+    frozenSeats: players.filter((p: any) => p.frozen).map((p: any) => p.physicalId),
+    // 👁️ المنتظرون — الاسم الأوّل ورقم المقعد فقط (القرار المقفل ٦)
+    spectators: (Array.isArray(state.spectators) ? state.spectators : []).map((sp: any) => ({
+      physicalId: sp.physicalId,
+      firstName: String(sp.name || '').trim().split(/\s+/)[0] || sp.name,
+    })),
+    // ⏱️ موعد الجولة القادمة (D2)
+    nextGameAt: (state as any).nextGameAt || null,
   };
 }

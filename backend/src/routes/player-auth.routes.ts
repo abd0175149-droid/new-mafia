@@ -368,6 +368,7 @@ router.get('/me', authenticatePlayer, async (req: Request, res: Response) => {
 
     // البحث عن لعبة نشطة + ألعاب مجمدة
     let activeGame = null;
+    let spectatingGame: any = null;
     const frozenGames: any[] = [];
     try {
       const { getAllGameStates } = await import('../config/redis.js');
@@ -394,6 +395,22 @@ router.get('/me', authenticatePlayer, async (req: Request, res: Response) => {
           } else if (!activeGame) {
             activeGame = gameInfo;
           }
+          continue;
+        }
+
+        // 👁️ متفرّجٌ ينتظر اللعبة القادمة — بدونه كان التطبيق يفقد شاشة
+        //    المشاهدة عند أوّل إعادة تشغيل ويعود لشاشة إدخال الكود.
+        const sp = (state as any).spectators?.find((x: any) =>
+          (x.playerId && x.playerId === player.id) || (x.phone && x.phone === player.phone));
+        if (sp && !spectatingGame) {
+          spectatingGame = {
+            roomId: state.roomId,
+            roomCode: state.roomCode,
+            gameName: state.config?.gameName,
+            physicalId: sp.physicalId,
+            phase: state.phase,
+            spectator: true,
+          };
         }
       }
     } catch { /* Redis might be unavailable */ }
@@ -417,6 +434,7 @@ router.get('/me', authenticatePlayer, async (req: Request, res: Response) => {
       staffInfo,
       staffToken,
       activeGame,
+      spectatingGame,
       frozenGames,
     });
   } catch (err: any) {

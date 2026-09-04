@@ -282,6 +282,134 @@ router.post('/reshuffle', authenticate, leaderOrAbove, async (req: Request, res:
 });
 
 // ══════════════════════════════════════════════════════
+// ══════════════════════════════════════════════════════
+// 🚪 POST /api/seating/door-assign — الباب يعيّن المقعد (C1)
+// ══════════════════════════════════════════════════════
+// كان المقعد يُقرَّر في لحظة `room:auto-join` وحدها، فموظّف الباب يقول «تفضّل»
+// بلا رقم، واللاعب يكتشف مقعده على هاتفه بعد الدخول، والليدر يعيد التوزيع
+// يدويّاً حين يتضح أنّ الأصدقاء تجاوروا. هنا يُحسب المقعد لحظة الوصول
+// بنفس المحرّك والقيود، ويُثبَّت للشخص فلا يأخذه غيره.
+router.post('/door-assign', authenticate, leaderOrAbove, async (req: Request, res: Response) => {
+  const { activityId, phone, name, playerId } = req.body || {};
+  if (!activityId || (!phone && !playerId && !name)) {
+    return res.status(400).json({ error: 'activityId وهويّةُ الشخص مطلوبة' });
+  }
+
+  try {
+    const { getDB } = await import('../config/db.js');
+    const db = getDB();
+    if (!db) return res.status(503).json({ error: 'قاعدة البيانات غير متوفرة' });
+
+    const { eq, and, isNull, sql } = await import('drizzle-orm');
+    const { activities } = await import('../schemas/admin.schema.js');
+    const { sessions } = await import('../schemas/game.schema.js');
+    const { getRoomByCode } = await import('../game/state.js');
+    const { setGameState } = await import('../config/redis.js');
+    const { allocateSeat } = await import('../game/seat-allocator.js');
+    const { buildAffinityPairs, loadPairRules, mergeRulesIntoAffinity } = await import('../services/seat-affinity.service.js');
+
+    // الغرفة الحيّة لهذه الفعاليّة (أوّل غرفةٍ نشطة)
+    const roomRows = await db.select({ code: sessions.sessionCode })
+      .from(sessions)
+      .where(and(eq(sessions.activityId, Number(activityId)), eq(sessions.isActive, true), isNull(sessions.deletedAt)))
+      .orderBy(sessions.createdAt);
+    if (!roomRows.length) return res.status(409).json({ error: 'لا غرفة مفتوحة لهذه الفعاليّة بعد' });
+
+    let state: any = null;
+    for (const r of roomRows) {
+      const st = await getRoomByCode(r.code).catch(() => null);
+      if (st) { state = st; break; }
+    }
+    if (!state) return res.status(409).json({ error: 'الغرفة غير متاحة' });
+
+    // إن كان له مقعدٌ أصلاً (جالسٌ أو مثبَّت أو منتظر) فأعِده كما هو
+    const norm = (v: any) => String(v || '').replace(/\D/g, '').slice(-9);
+    const target = norm(phone);
+    const seated = state.players?.find((p: any) =>
+      (playerId && p.playerId === Number(playerId)) || (target && norm(p.phone) === target));
+    if (seated) return res.json({ success: true, seat: seated.physicalId, already: 'seated' });
+
+    const waiting = (state.spectators || []).find((p: any) =>
+      (playerId && p.playerId === Number(playerId)) || (target && norm(p.phone) === target));
+    if (waiting) return res.json({ success: true, seat: waiting.physicalId, already: 'waiting' });
+
+    const pins = (state.pinnedSeats || []);
+    const pinned = pins.find((p: any) =>
+      (playerId && p.playerId && Number(p.playerId) === Number(playerId)) ||
+      (target && norm(p.phone) === target));
+    if (pinned) return res.json({ success: true, seat: Number(pinned.seatNumber), already: 'pinned' });
+
+    // شواغل الطاولة: اللاعبون + المتفرّجون + المقاعد المثبَّتة لغير هذا الشخص
+    const occupants = (state.players || []).map((p: any) => ({
+      physicalId: p.physicalId, phone: p.phone, gender: p.gender || null,
+      seatHeld: !!p.seatHeld, playerId: p.playerId ?? null, name: p.name,
+    }));
+    for (const sp of (state.spectators || [])) {
+      if (sp.physicalId > 0 && !occupants.some((o: any) => o.physicalId === sp.physicalId)) {
+        occupants.push({ physicalId: sp.physicalId, phone: sp.phone, gender: sp.gender || null,
+          seatHeld: false, playerId: sp.playerId ?? null, name: sp.name });
+      }
+    }
+
+    // قيود الفعاليّة + أوزان التقارب (الوصول المتزامن أثقلها)
+    let constraints: any = null;
+    try {
+      const rows: any = await db.execute(sql`SELECT seat_constraints FROM activities WHERE id = ${Number(activityId)}`);
+      constraints = ((rows as any).rows || rows || [])[0]?.seat_constraints || null;
+    } catch {}
+    constraints = await mergeGlobalBlockedPairs(constraints);
+    (constraints as any).engineEnabled = true;
+
+    let affinityPairs: Map<string, number> | undefined;
+    try {
+      affinityPairs = await buildAffinityPairs({
+        sessionId: state.sessionId, activityId: Number(activityId),
+        people: [...occupants.map((o: any) => ({ playerId: o.playerId, phone: o.phone, name: o.name })),
+                 { playerId: playerId ?? null, phone: phone ?? null, name: name || '' }],
+      });
+      const rules = await loadPairRules({ activityId: Number(activityId), roomId: state.roomId });
+      affinityPairs = mergeRulesIntoAffinity(affinityPairs, rules);
+    } catch {}
+
+    const { seat } = allocateSeat({
+      maxPlayers: state.config.maxPlayers,
+      players: occupants as any,
+      constraints: constraints as any,
+      newPlayer: { phone: phone || '', gender: 'MALE', playerId: playerId ?? null, name: name || '' },
+      pinnedSeats: pins,
+      reservedTailSeats: state.reservedTailSeats || 0,
+      doorSeats: state.doorSeats || [],
+      affinityPairs,
+      // يبتعد عن آخر ثلاثة جالسين — من وصلوا معاً لا يجلسون معاً
+      spreadFromSeats: (state.players || []).slice(-3).map((p: any) => p.physicalId),
+    });
+
+    // يُثبَّت للشخص في الفعاليّة كي لا يأخذه غيره قبل وصوله إلى الطاولة
+    const [act] = await db.select({ seatAssignments: activities.seatAssignments })
+      .from(activities).where(eq(activities.id, Number(activityId))).limit(1);
+    const list: any[] = Array.isArray(act?.seatAssignments) ? [...(act!.seatAssignments as any[])] : [];
+    const idx = list.findIndex((a: any) =>
+      (playerId && a.playerId && Number(a.playerId) === Number(playerId)) || (target && norm(a.phone) === target));
+    const entry = { seatNumber: seat, playerId: playerId ?? null, phone: phone || null, playerName: name || '' };
+    if (idx >= 0) list[idx] = entry; else list.push(entry);
+    await db.update(activities).set({ seatAssignments: list } as any).where(eq(activities.id, Number(activityId)));
+
+    // ينعكس على الغرفة الحيّة فوراً: المقعد يصير محجوزاً في المحرّك
+    if (!Array.isArray(state.pinnedSeats)) state.pinnedSeats = [];
+    const pIdx = state.pinnedSeats.findIndex((p: any) => Number(p.seatNumber) === seat);
+    if (pIdx >= 0) state.pinnedSeats[pIdx] = entry; else state.pinnedSeats.push(entry);
+    await setGameState(state.roomId, state);
+
+    const io = req.app.get('io');
+    if (io) io.to(state.roomId).emit('room:door-assigned', { seat, name: name || '', roomId: state.roomId });
+
+    return res.json({ success: true, seat, roomCode: state.roomCode });
+  } catch (err: any) {
+    console.error('❌ door-assign failed:', err.message);
+    return res.status(500).json({ error: err.message });
+  }
+});
+
 // POST /api/seating/record-penalty-neighbors
 // تسجيل جيران اللاعب المعاقب
 // ══════════════════════════════════════════════════════

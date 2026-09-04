@@ -114,7 +114,35 @@ export async function listLiveBookedActivities(playerId: number | null, phone: s
     ))
     .orderBy(desc(activities.date));
 
-  return rows.filter(a => {
+  // 📋 ومَن ثُبِّت في جدول المتابعة بلا صفّ حجز (رقمٌ غير مربوط بحساب، أو مرافق):
+  //    كان خارج النبض تماماً — وهم أكثر من يصل متأخّراً ولا يعرف الإيقاع.
+  const extra: typeof rows = [];
+  try {
+    const digits = String(phone || '').replace(/\D/g, '');
+    const tail = digits.length >= 9 ? digits.slice(-9) : '';
+    if (playerId != null || tail) {
+      const resRows: any = await db.execute(sql`
+        SELECT DISTINCT a.id, a.name, a.date, l.name AS location_name
+        FROM reservations r
+        JOIN activities a ON a.id = r.activity_id
+        LEFT JOIN locations l ON l.id = a.location_id
+        WHERE r.status = 'confirmed'
+          AND a.deleted_at IS NULL
+          AND (
+            (${playerId ?? null}::int IS NOT NULL AND r.player_id = ${playerId ?? null}::int)
+            OR (${tail} <> '' AND RIGHT(REGEXP_REPLACE(COALESCE(r.phone, ''), '\\D', '', 'g'), 9) = ${tail})
+          )
+      `);
+      for (const r of ((resRows as any).rows || resRows || [])) {
+        extra.push({ id: Number(r.id), name: r.name, date: r.date, locationName: r.location_name ?? null } as any);
+      }
+    }
+  } catch { /* غير حاجب — النبض يبقى للحاجزين على الأقلّ */ }
+
+  const seen = new Set(rows.map(r => r.id));
+  const all = [...rows, ...extra.filter(e => !seen.has(e.id))];
+
+  return all.filter(a => {
     const t = new Date(a.date).getTime();
     return now >= t - WINDOW_BEFORE_MS && now <= t + WINDOW_AFTER_MS;
   });
@@ -134,7 +162,24 @@ export async function hasBooking(
       bookedBy(playerId, phone),
     ))
     .limit(1);
-  return !!row;
+  if (row) return true;
+
+  // ومَن ثُبِّت في المتابعة بلا صفّ حجز (C4)
+  try {
+    const digits = String(phone || '').replace(/\D/g, '');
+    const tail = digits.length >= 9 ? digits.slice(-9) : '';
+    if (playerId == null && !tail) return false;
+    const r: any = await db.execute(sql`
+      SELECT 1 FROM reservations
+      WHERE activity_id = ${activityId} AND status = 'confirmed'
+        AND (
+          (${playerId ?? null}::int IS NOT NULL AND player_id = ${playerId ?? null}::int)
+          OR (${tail} <> '' AND RIGHT(REGEXP_REPLACE(COALESCE(phone, ''), '\\D', '', 'g'), 9) = ${tail})
+        )
+      LIMIT 1
+    `);
+    return (((r as any).rows || r || []) as any[]).length > 0;
+  } catch { return false; }
 }
 
 /**
@@ -252,6 +297,90 @@ export async function buildActivityPulse(opts: {
       : null,
     me: projected?.me ?? null,
   };
+}
+
+/**
+ * 👮 نبضُ الليلة كما يراه الطاقم (C3) — بلا حارس «هل لديه حجز؟».
+ *
+ * المحرّك نفسه كان يحسب لكلّ غرفة: أيّ لعبةٍ جارية، ومتى تبدأ القادمة تقريباً،
+ * وكم جالساً من السعة — لكنّه محجوبٌ خلف `listLiveBookedActivities` فلا يراه
+ * إلّا حاجزٌ في تطبيق اللاعب. موظّفُ الباب والليدر كانا يسألان بعضهما شفهيّاً.
+ *
+ * يُعيد صفّاً لكلّ غرفة، ولا يرمي أبداً.
+ */
+export async function buildStaffActivityPulse(activityId: number): Promise<{
+  activityId: number;
+  serverNow: number;
+  rooms: Array<{
+    sessionId: number;
+    name: string | null;
+    joinCode: string;
+    status: string;
+    ordinal: number | null;
+    ofRoom: number;
+    seated: number;
+    capacity: number;
+    waiting: number;
+    nextStartAt: number | null;
+  }>;
+} | null> {
+  const db = getDB();
+  if (!db) return null;
+  const now = Date.now();
+
+  try {
+    const [actRow] = await db.select({
+      id: activities.id, date: activities.date, gameSchedule: activities.gameSchedule,
+    }).from(activities).where(eq(activities.id, activityId)).limit(1);
+    if (!actRow) return null;
+
+    const roomRows = await db.select({
+      id: sessions.id, name: sessions.sessionName, code: sessions.sessionCode,
+    })
+      .from(sessions)
+      .where(and(
+        eq(sessions.activityId, activityId),
+        eq(sessions.isActive, true),
+        isNull(sessions.deletedAt),
+      ))
+      .orderBy(sessions.createdAt);
+
+    const out = [];
+    for (const r of roomRows) {
+      const state: any = await getRoomByCode(r.code).catch(() => null);
+      const matchRows = await db.select({
+        id: matches.id, createdAt: matches.createdAt, endedAt: matches.endedAt,
+        isActive: matches.isActive, winner: matches.winner, totalRounds: matches.totalRounds,
+      })
+        .from(matches)
+        .where(and(eq(matches.sessionId, r.id), isNull(matches.deletedAt)))
+        .orderBy(matches.createdAt);
+
+      const rows = withSetupStart(matchRows as any[], state);
+      const slots = bindRoomSchedule(actRow.gameSchedule, rows as any, new Date(actRow.date), now);
+      const liveSlot = slots.find(sl => sl.state === 'live') || null;
+      const nextSlot = slots.find(sl => sl.state === 'future') || null;
+      const nextTs = nextSlot?.projectedStart ? Date.parse(String(nextSlot.projectedStart)) : NaN;
+
+      const players = Array.isArray(state?.players) ? state.players : [];
+      out.push({
+        sessionId: r.id,
+        name: r.name,
+        joinCode: r.code,
+        status: liveSlot ? 'live' : roomStatus(slots),
+        ordinal: liveSlot?.ordinal ?? null,
+        ofRoom: slots.length,
+        seated: players.filter((p: any) => !p.seatHeld && !p.frozen).length,
+        capacity: state?.config?.maxPlayers ?? 0,
+        waiting: Array.isArray(state?.spectators) ? state.spectators.length : 0,
+        nextStartAt: Number.isFinite(nextTs) ? nextTs : null,
+      });
+    }
+    return { activityId, serverNow: now, rooms: out };
+  } catch (e: any) {
+    console.warn('⚠️ buildStaffActivityPulse failed:', e.message);
+    return null;
+  }
 }
 
 /**
