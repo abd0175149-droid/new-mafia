@@ -592,6 +592,53 @@ export async function rehydrateActiveRooms(): Promise<void> {
       }
     }
 
+    // ⏳ كنسُ حجوزات المقاعد المنتهية — مؤقّتاتها setTimeout في ذاكرة العملية
+    //    تضيع مع كلّ نشرٍ أو إعادة تشغيل، فتبقى المقاعد محجوزةً إلى الأبد ويعدّها
+    //    المحرّك مشغولةً حتّى يفكّها الليدر يدويّاً.
+    for (const state of allStates) {
+      if (!state?.roomId || !Array.isArray(state.players)) continue;
+      const now = Date.now();
+      let touched = false;
+      for (const p of state.players as any[]) {
+        if (!p.seatHeld || !p.heldUntil || p.heldUntil > now) continue;
+        const inLobby = state.phase === Phase.LOBBY || state.phase === Phase.GAME_OVER;
+        if (inLobby) {
+          // انتهت المهلة والغرفة في اللوبي ⇒ يُحرَّر المقعد
+          state.players = state.players.filter((x: any) => x.physicalId !== p.physicalId);
+        } else {
+          // لعبةٌ جارية ⇒ يُجمَّد ودورُه محفوظ (نفس سلوك المؤقّت الأصليّ)
+          p.seatHeld = false;
+          p.heldUntil = undefined;
+          p.frozen = true;
+          p.isConnected = false;
+        }
+        touched = true;
+      }
+      if (touched) {
+        await setGameState(state.roomId, state);
+        console.log(`⏳ Swept expired seat-holds in ${state.roomId} (phase: ${state.phase})`);
+      }
+    }
+
+    // 🌙 مؤقّت خطوة الليل الآليّة يعيش في الذاكرة ولا يُعاد تسليحه هنا عمداً:
+    //    إعادةُ الإرسال تمسح اختيارات اللاعبين المُرسَلة فعلاً. بدل الصمت
+    //    نُعلِم الموجّه أنّ العدّاد سقط ليمرّر الخطوة يدويّاً — الأدوات موجودة.
+    if (rehydrateIo) {
+      for (const state of allStates) {
+        if (!state?.roomId) continue;
+        if (state.phase !== Phase.NIGHT) continue;
+        if (!(state as any).autoNightStepDispatched) continue;
+        try {
+          rehydrateIo.to(state.roomId).emit('night:refresh-required', {});
+          await emitTrustedOnly(rehydrateIo, state.roomId, 'leader:auto-night-timer-lost', {
+            role: (state as any).autoNightStepRole || null,
+            note: 'أُعيد تشغيل الخادم وسط خطوة ليل آليّة — العدّاد سقط، مرّر الخطوة يدويّاً',
+          });
+          console.warn(`⚠️ Auto-night timer lost on restart for ${state.roomId} — leader notified`);
+        } catch {}
+      }
+    }
+
     if (activeRooms.size > 0) {
       console.log(`♻️  Rehydrated ${activeRooms.size} active room(s) from Redis`);
 
@@ -4245,7 +4292,7 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
   });
 
   // ── بدء توليد الأدوار ──────────────────────────
-  socket.on('room:start-generation', async (data: { roomId: string; releaseAbsent?: boolean }, callback) => {
+  socket.on('room:start-generation', async (data: { roomId: string; releaseAbsent?: boolean; supportsAbsentPrompt?: boolean }, callback) => {
     try {
       if (socket.data.role !== 'leader') {
         return callback({ success: false, error: 'Only leader can start generation' });
@@ -4259,7 +4306,14 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
       // أو مجمّد) دوراً ويبدأ اللعبة «حيّاً»: يدخل طابور النقاش وقوائم الأهداف
       // ومعادلة الفوز ويُسجّل له رانك — بينما شاشة العرض تُخفيه فيحتار الليدر.
       const absent = state.players.filter((p: any) => p.seatHeld || p.frozen);
-      if (absent.length > 0 && !data.releaseAbsent) {
+
+      // 🤝 تفاوضٌ على القدرة — لا يُحبَس عميلٌ قديم.
+      // بعد النشر يبقى متصفّح الليدر على الحزمة السابقة حتى يُحدَّث، وهي لا تعرف
+      // رمز ABSENT_PLAYERS. لو رددنا به لوقف عند «بدء لعبة جديدة» بلا مخرج —
+      // عطبٌ في منتصف ليلةٍ عاملة. فالسؤال يُطرح على من يعرف الجواب فقط،
+      // ومن لا يعرفه تُحرَّر مقاعده تلقائيّاً (وهو أفضل من السلوك القديم الذي
+      // كان يمنح الغائبَ دوراً ويُدخله معادلة الفوز والرانك) مع تنبيهٍ صريح.
+      if (absent.length > 0 && !data.releaseAbsent && data.supportsAbsentPrompt) {
         return callback({
           success: false,
           code: 'ABSENT_PLAYERS',
@@ -4271,7 +4325,16 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
           })),
         });
       }
-      if (absent.length > 0 && data.releaseAbsent) {
+      if (absent.length > 0 && !data.releaseAbsent && !data.supportsAbsentPrompt) {
+        console.log(`ℹ️ Legacy client: auto-releasing ${absent.length} absent seat(s) in ${data.roomId}`);
+        try {
+          await emitTrustedOnly(io, data.roomId, 'leader:absent-auto-released', {
+            seats: absent.map((p: any) => ({ physicalId: p.physicalId, name: p.name })),
+            note: 'حُرّرت مقاعد مغادرين تلقائيّاً قبل توزيع الأدوار',
+          });
+        } catch {}
+      }
+      if (absent.length > 0) {
         const freed = absent.map((p: any) => p.physicalId);
         state.players = state.players.filter((p: any) => !p.seatHeld && !p.frozen);
         await setGameState(data.roomId, state);

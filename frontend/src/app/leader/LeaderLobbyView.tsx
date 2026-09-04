@@ -1016,7 +1016,7 @@ export default function LeaderLobbyView({ gameState, emit, setError, hideOffline
             onClick={async () => {
               try {
                 try {
-                  await emit('room:start-generation', { roomId: gameState.roomId });
+                  await emit('room:start-generation', { roomId: gameState.roomId, supportsAbsentPrompt: true });
                 } catch (e: any) {
                   // 🧹 مقاعدُ مغادرين — تُحرَّر بتأكيدٍ واحد ثمّ يُعاد الطلب
                   if (e?.response?.code !== 'ABSENT_PLAYERS') throw e;

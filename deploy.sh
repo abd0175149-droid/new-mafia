@@ -57,6 +57,49 @@ say "🎭 ═══════════════════════�
 say "   Unified Mafia Platform — Deployment"
 say "══════════════════════════════════════════════"
 
+# ── 0.0 بوّابة اللعبة الجارية ──
+# النشر يعيد تشغيل الخادم: مؤقّت خطوة الليل الآليّة يعيش في الذاكرة ويسقط،
+# وحجوزات المقاعد تسقط، وكلّ متصفّح يبقى على حزمته القديمة حتى يُحدَّث.
+# فلا نلمس ليلةً في منتصفها إلّا بقرارٍ صريح.
+say ""
+say "0️⃣  فحصُ الغرف الحيّة…"
+LIVE_JSON="$(curl -fsS --max-time 8 "${HEALTH_URL%/api/health}/api/game/activities-with-rooms" 2>/dev/null || echo '')"
+LIVE_ROOMS="$(printf '%s' "$LIVE_JSON" | grep -o '"roomCode"' | wc -l | tr -d ' ')"
+BUSY=0
+UNKNOWN=0
+if [ -n "$LIVE_JSON" ] && [ "${LIVE_ROOMS:-0}" -gt 0 ]; then
+  # أيّ غرفةٍ ليست في اللوبي/نهاية اللعبة تُعدّ «جارية»
+  for RC in $(printf '%s' "$LIVE_JSON" | grep -o '"roomCode":"[^"]*"' | cut -d'"' -f4); do
+    # مفتاحُ الربط يُخزَّن بـJSON.stringify فيعود بين علامتَي اقتباس — تُنزع قبل الاستعمال
+    RID="$(docker exec mafia-prod-redis-1 redis-cli --raw GET "game:code:${RC}" 2>/dev/null | tr -d '"')"
+    PH=""
+    if [ -n "$RID" ]; then
+      PH="$(docker exec mafia-prod-redis-1 redis-cli --raw GET "game:${RID}" 2>/dev/null | grep -o '"phase":"[^"]*"' | head -1 | cut -d'"' -f4)"
+    fi
+    say "   • غرفة ${RC} — الطور: ${PH:-غير معروف}"
+    case "${PH:-}" in
+      '') UNKNOWN=$((UNKNOWN+1)) ;;
+      LOBBY|GAME_OVER) ;;
+      *) BUSY=1 ;;
+    esac
+  done
+fi
+# قراءةٌ فاشلة لكلّ الأطوار تعني بوّابةً عمياء — تُقال بصوتٍ عالٍ لا تُبتلع
+if [ "${UNKNOWN:-0}" -gt 0 ] && [ "$BUSY" = "0" ]; then
+  say "   ⚠️ تعذّرت قراءة طور ${UNKNOWN} غرفة من Redis — البوّابة عمياء تجاهها"
+  say "      تحقّق يدويّاً أنّ لا لعبة جارية قبل المتابعة."
+fi
+if [ "$BUSY" = "1" ] && [ "${FORCE_DEPLOY:-0}" != "1" ]; then
+  fail "لعبةٌ جارية الآن — أُلغي النشر."
+  say "   الانتظارُ حتى نهاية الليلة أأمن. للتجاوز عمداً:  FORCE_DEPLOY=1 ./deploy.sh"
+  exit 1
+fi
+if [ "$BUSY" = "1" ]; then
+  say "   ⚠️ تجاوزٌ صريح: النشر أثناء لعبةٍ جارية (FORCE_DEPLOY=1)"
+else
+  say "   ✅ لا لعبة في منتصفها"
+fi
+
 # ── 0. نسخة احتياطية — قبل كل شيء ──
 say ""
 say "0️⃣  نسخة احتياطية من قاعدة البيانات…"
@@ -96,7 +139,20 @@ docker compose build --no-cache
 # ── 4. الاستبدال ──
 say ""
 say "3️⃣  استبدال الحاويات…"
-docker compose up -d --force-recreate
+
+# 💾 حالةُ اللعبة كلّها في Redis، والحاوية بلا appendonly — تعتمد لقطاتٍ دوريّة.
+#    حفظٌ متزامن قبل اللمس يغلق نافذةَ فقدان آخر الكتابات لو لم تُغلَق الحاوية بلطف.
+if docker exec mafia-prod-redis-1 redis-cli SAVE >/dev/null 2>&1; then
+  say "   💾 Redis حُفظ على القرص"
+else
+  say "   ⚠️ تعذّر حفظ Redis يدويّاً — نكمل (اللقطة الدوريّة قائمة)"
+fi
+
+# 🎯 backend و frontend وحدهما. الأمرُ السابق كان يعيد إنشاء **كلّ** الحاويات
+#    بما فيها قاعدة البيانات و Redis — إعادةُ إنشاءٍ لا داعي لها تُعرّض حالة
+#    اللعبة لخطرٍ مجّانيّ في كلّ نشر. (مسارُ التراجع كان يفعل الصواب أصلاً.)
+docker compose up -d --force-recreate backend frontend
+docker compose up -d database redis
 
 # ── 5. الترحيل — الخطأ يُظهَر لا يُبتلع ──
 say ""

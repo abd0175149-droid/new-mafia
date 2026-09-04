@@ -438,7 +438,7 @@ void _applyState(Map<String, dynamic> s) {
     _busy = true;
     notifyListeners();
     var res = await SocketService.instance
-        .ask('room:start-generation', {'roomId': id});
+        .ask('room:start-generation', {'roomId': id, 'supportsAbsentPrompt': true});
     // 🧹 مقاعدُ مغادرين: قياسُ الأدوار يعدّهم فيأخذ الغائب دوراً ويدخل معادلة
     //    الفوز. نُعيد الطلب بتحريرها — المضيفُ البعيد بلا حوارٍ منفصل هنا.
     if (res != null && res['code'] == 'ABSENT_PLAYERS') {

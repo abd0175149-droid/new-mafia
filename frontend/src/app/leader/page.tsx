@@ -93,7 +93,8 @@ export default function LeaderPage() {
   //    ونعيد الطلب بتحرير المقاعد.
   const startGeneration = useCallback(async (roomId: string) => {
     try {
-      return await emit('room:start-generation', { roomId });
+      // 🤝 نُعلن أنّنا نفهم ردّ «مقاعد المغادرين» — الخادم لا يسأل من لا يفهم
+      return await emit('room:start-generation', { roomId, supportsAbsentPrompt: true });
     } catch (err: any) {
       if (err?.response?.code !== 'ABSENT_PLAYERS') throw err;
       const absent = (err.response.absent || []) as Array<{ physicalId: number; name: string; reason: string }>;

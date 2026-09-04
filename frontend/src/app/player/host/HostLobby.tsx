@@ -116,7 +116,7 @@ export default function HostLobby({ gameState, emit, setError }: Props) {
         {canStart ? (
           <button disabled={busy} onClick={() => run(async () => {
             // 🧹 مقاعدُ المغادرين تُحرَّر قبل القياس (وإلّا أخذ الغائب دوراً)
-            try { return await emit('room:start-generation', { roomId: gameState.roomId }); }
+            try { return await emit('room:start-generation', { roomId: gameState.roomId, supportsAbsentPrompt: true }); }
             catch (e: any) {
               if (e?.response?.code !== 'ABSENT_PLAYERS') throw e;
               return await emit('room:start-generation', { roomId: gameState.roomId, releaseAbsent: true });
