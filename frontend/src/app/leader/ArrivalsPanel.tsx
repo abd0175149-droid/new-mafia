@@ -57,6 +57,9 @@ export default function ArrivalsPanel({ roomId, gameState, emit, on }: Props) {
     violationsBefore: number; violationsAfter: number;
   }>(null);
   const [pairPick, setPairPick] = useState<number[]>([]);
+  // 👥 المتوقَّعون: حاجزون لم يجلسوا بعد. قرارُ «نبدأ أم ننتظر؟» كان يُتّخذ
+  //    بالنظر إلى الباب لأنّ كونسول الليدر لا يجلب الحجوزات إطلاقاً.
+  const [expected, setExpected] = useState<Array<{ name: string; playerId: number | null }> | null>(null);
 
   const spectators: Spectator[] = useMemo(
     () => (Array.isArray(gameState?.spectators) ? gameState.spectators : []),
@@ -99,7 +102,36 @@ export default function ArrivalsPanel({ roomId, gameState, emit, on }: Props) {
     } catch { /* غير حاجب */ }
   }, [emit, gameState?.activityId]);
 
-  useEffect(() => { if (open && tab === 'night') void loadPulse(); }, [open, tab, loadPulse]);
+  const loadExpected = useCallback(async () => {
+    if (!gameState?.activityId) return;
+    try {
+      const base = process.env.NEXT_PUBLIC_API_URL || '';
+      const tok = typeof window !== 'undefined' ? localStorage.getItem('token') : null;
+      const r = await fetch(`${base}/api/reservations/attendance/${gameState.activityId}`, {
+        headers: { Authorization: `Bearer ${tok}` },
+      });
+      if (!r.ok) return;
+      const data = await r.json();
+      const rows: any[] = data?.rows || data?.reservations || data?.players || [];
+      const seatedIds = new Set(players.map((p: any) => p.playerId).filter(Boolean));
+      const seatedNames = new Set(players.map((p: any) => String(p.name || '').trim()));
+      const waitingIds = new Set(spectators.map(sp => sp.playerId).filter(Boolean));
+      setExpected(rows
+        .filter((x: any) => (x.status ?? 'confirmed') === 'confirmed')
+        .filter((x: any) => {
+          const nm = String(x.pName || x.contactName || '').trim();
+          if (x.playerId && (seatedIds.has(x.playerId) || waitingIds.has(x.playerId))) return false;
+          return !seatedNames.has(nm);
+        })
+        .map((x: any) => ({ name: x.pName || x.contactName || '—', playerId: x.playerId ?? null })));
+    } catch { /* غير حاجب */ }
+  }, [gameState?.activityId, players, spectators]);
+
+  useEffect(() => {
+    if (!open || tab !== 'night') return;
+    void loadPulse();
+    void loadExpected();
+  }, [open, tab, loadPulse, loadExpected]);
 
   // ── 🗺️ الخريطة + التعارضات ──
   const ringSeats: RingSeat[] = useMemo(() => {
@@ -386,6 +418,24 @@ export default function ArrivalsPanel({ roomId, gameState, emit, on }: Props) {
                   </div>
                 </div>
               ))}
+
+              {expected && (
+                <div className="mt-3 pt-3" style={{ borderTop: '1px solid #262c3a' }}>
+                  <div className="text-[13px] font-bold text-[#9cc0ff] mb-1.5">
+                    👥 حجزوا ولم يجلسوا ({expected.length})
+                  </div>
+                  {expected.length === 0 ? (
+                    <p className="text-[11.5px] text-[#5f6779]">كلّ الحاجزين على الطاولة.</p>
+                  ) : (
+                    <div className="max-h-[110px] overflow-auto">
+                      {expected.slice(0, 20).map((e, i) => (
+                        <div key={i} className="text-[11.5px] text-[#c9d0dd] py-0.5"
+                          style={{ borderBottom: '1px dashed rgba(255,255,255,.05)' }}>{e.name}</div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
 
               <div className="mt-3 pt-3" style={{ borderTop: '1px solid #262c3a' }}>
                 <div className="text-[13px] font-bold text-[#C5A059] mb-1.5">📢 أعلِن على الشاشة</div>

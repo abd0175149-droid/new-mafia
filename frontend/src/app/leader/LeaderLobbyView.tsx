@@ -1005,8 +1005,12 @@ export default function LeaderLobbyView({ gameState, emit, setError, hideOffline
       </div>
       )}
 
-      {/* ── زر الإطلاق (يظهر عند اكتمال الغرفة، أو 6+ لاعبين للغرف البعيدة) ── */}
-      {(allowStartBeforeFull ? gameState.players.length >= MIN_PLAYERS_TO_START : gameState.players.length === gameState.config.maxPlayers) && (
+      {/* ── زر الإطلاق: ٦ حاضرين فأكثر ──
+          كان الشرط في الغرف الوجاهيّة **الامتلاءَ التامّ** (`length === maxPlayers`)،
+          وهو شبه مستحيل بسعةٍ ٢٧ وحجزٍ بلا سقف — فيجد الليدر نفسه في لوبيٍّ بلا
+          زرّ بدء ويعود إلى لوحة البداية ليدخل من المسار الآخر. والعدُّ صار على
+          الحاضرين فعلاً: المحجوزُ والمجمَّد لا يُحسبان لأنّهما لن يلعبا. */}
+      {gameState.players.filter((p: any) => !p.seatHeld && !p.frozen).length >= MIN_PLAYERS_TO_START && (
         <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="text-center mt-4 mb-8">
           <button
             onClick={async () => {
@@ -1035,7 +1039,7 @@ export default function LeaderLobbyView({ gameState, emit, setError, hideOffline
           </button>
         </motion.div>
       )}
-      {allowStartBeforeFull && gameState.players.length < MIN_PLAYERS_TO_START && (
+      {gameState.players.filter((p: any) => !p.seatHeld && !p.frozen).length < MIN_PLAYERS_TO_START && (
         <div className="text-center text-[#808080] text-xs mt-4 mb-8">
           تحتاج {MIN_PLAYERS_TO_START} لاعبين على الأقل للبدء — لديك {gameState.players.length}
         </div>
