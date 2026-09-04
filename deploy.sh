@@ -64,17 +64,20 @@ say "═════════════════════════
 say ""
 say "0️⃣  فحصُ الغرف الحيّة…"
 LIVE_JSON="$(curl -fsS --max-time 8 "${HEALTH_URL%/api/health}/api/game/activities-with-rooms" 2>/dev/null || echo '')"
-LIVE_ROOMS="$(printf '%s' "$LIVE_JSON" | grep -o '"roomCode"' | wc -l | tr -d ' ')"
+# ⚠️ pipefail مفعّل: grep بلا تطابق يُرجع 1 فيُسقط السكربت — كلّ أنبوبٍ هنا محصَّن
+# grep -c يطبع 0 ويخرج بـ1 عند عدم التطابق: `|| true` تبتلع الحالة لا الناتج
+LIVE_ROOMS="$( { printf '%s' "$LIVE_JSON" | grep -c '"roomCode"' || true; } 2>/dev/null | head -1 | tr -dc '0-9' )"
+LIVE_ROOMS="${LIVE_ROOMS:-0}"
 BUSY=0
 UNKNOWN=0
 if [ -n "$LIVE_JSON" ] && [ "${LIVE_ROOMS:-0}" -gt 0 ]; then
   # أيّ غرفةٍ ليست في اللوبي/نهاية اللعبة تُعدّ «جارية»
-  for RC in $(printf '%s' "$LIVE_JSON" | grep -o '"roomCode":"[^"]*"' | cut -d'"' -f4); do
+  for RC in $( { printf '%s' "$LIVE_JSON" | grep -o '"roomCode":"[^"]*"' | cut -d'"' -f4; } 2>/dev/null || true ); do
     # مفتاحُ الربط يخزّن كائناً {"roomId":"..."} لا نصّاً — يُستخرج الحقل لا تُنزع الاقتباسات
-    RID="$(docker exec mafia-prod-redis-1 redis-cli --raw GET "game:code:${RC}" 2>/dev/null | grep -o '"roomId":"[^"]*"' | cut -d'"' -f4)"
+    RID="$( { docker exec mafia-prod-redis-1 redis-cli --raw GET "game:code:${RC}" 2>/dev/null | grep -o '"roomId":"[^"]*"' | cut -d'"' -f4; } 2>/dev/null || true )"
     PH=""
     if [ -n "$RID" ]; then
-      PH="$(docker exec mafia-prod-redis-1 redis-cli --raw GET "game:${RID}" 2>/dev/null | grep -o '"phase":"[^"]*"' | head -1 | cut -d'"' -f4)"
+      PH="$( { docker exec mafia-prod-redis-1 redis-cli --raw GET "game:${RID}" 2>/dev/null | grep -o '"phase":"[^"]*"' | head -1 | cut -d'"' -f4; } 2>/dev/null || true )"
     fi
     say "   • غرفة ${RC} — الطور: ${PH:-غير معروف}"
     case "${PH:-}" in
@@ -151,10 +154,10 @@ fi
 # 🔁 إعادةُ فحصٍ قبل اللمس مباشرةً: البناء يستغرق دقائق، وقد تبدأ لعبةٌ خلاله.
 #    الفحصُ الأوّل وحده لا يكفي — القرارُ يجب أن يُتّخذ بحالة اللحظة لا بحالة البداية.
 RECHECK_BUSY=0
-for RC in $(printf '%s' "$LIVE_JSON" | grep -o '"roomCode":"[^"]*"' | cut -d'"' -f4); do
-  RID2="$(docker exec mafia-prod-redis-1 redis-cli --raw GET "game:code:${RC}" 2>/dev/null | grep -o '"roomId":"[^"]*"' | cut -d'"' -f4)"
-  [ -z "$RID2" ] && continue
-  PH2="$(docker exec mafia-prod-redis-1 redis-cli --raw GET "game:${RID2}" 2>/dev/null | grep -o '"phase":"[^"]*"' | head -1 | cut -d'"' -f4)"
+for RC in $( { printf '%s' "$LIVE_JSON" | grep -o '"roomCode":"[^"]*"' | cut -d'"' -f4; } 2>/dev/null || true ); do
+  RID2="$( { docker exec mafia-prod-redis-1 redis-cli --raw GET "game:code:${RC}" 2>/dev/null | grep -o '"roomId":"[^"]*"' | cut -d'"' -f4; } 2>/dev/null || true )"
+  if [ -z "$RID2" ]; then continue; fi
+  PH2="$( { docker exec mafia-prod-redis-1 redis-cli --raw GET "game:${RID2}" 2>/dev/null | grep -o '"phase":"[^"]*"' | head -1 | cut -d'"' -f4; } 2>/dev/null || true )"
   case "${PH2:-}" in
     ''|LOBBY|GAME_OVER) ;;
     *) RECHECK_BUSY=1; say "   ⛔ غرفة ${RC} دخلت الطور ${PH2} أثناء البناء" ;;
