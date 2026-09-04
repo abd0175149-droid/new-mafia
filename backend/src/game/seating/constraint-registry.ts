@@ -11,6 +11,7 @@ import { GenderSeparationConstraint } from './constraints/gender-separation.cons
 import { NoAdjacentPairsConstraint } from './constraints/no-adjacent-pairs.constraint.js';
 import { PlayerGenderConstraint } from './constraints/player-gender.constraint.js';
 import { DoorProximityConstraint } from './constraints/door-proximity.constraint.js';
+import { SocialAffinityConstraint } from './constraints/social-affinity.constraint.js';
 
 // ── نوع مصنع القيد ──────────────────────────────
 type ConstraintFactory = (config: { enabled?: boolean; priority?: number; params?: Record<string, any> }) => SeatingConstraint;
@@ -24,6 +25,7 @@ const FACTORIES: Record<string, ConstraintFactory> = {
   NO_ADJACENT_PAIRS: (c) => new NoAdjacentPairsConstraint(c),
   PLAYER_GENDER_CONSTRAINT: (c) => new PlayerGenderConstraint(c),
   DOOR_PROXIMITY_AVOIDANCE: (c) => new DoorProximityConstraint(c),
+  SOCIAL_AFFINITY_SEPARATION: (c) => new SocialAffinityConstraint(c),
 };
 
 // ── وصف القيود المتاحة (للعرض في الواجهة) ──────
@@ -63,6 +65,15 @@ export const CONSTRAINT_TYPES = [
     defaultPriority: 3,
     defaultEnabled: true,
     paramsSchema: { threshold: 'number' },
+  },
+  {
+    type: 'SOCIAL_AFFINITY_SEPARATION',
+    nameAr: 'تباعد الأصدقاء',
+    icon: '🤝',
+    description: 'الأصدقاء لا يجلسون متجاورين — الوصول المتزامن أثقل إشارة، ثمّ الحجز الجماعيّ والمتابعة المتبادلة والتجاور المتكرّر',
+    defaultPriority: 3,
+    defaultEnabled: true,
+    paramsSchema: { minDistance: 'number', minWeight: 'number' },
   },
   {
     type: 'HIGH_RANK_SEPARATION',
@@ -163,6 +174,7 @@ export function migrateOldConstraints(old: {
   configs.push({ type: 'PLAYER_GENDER_CONSTRAINT', enabled: true, priority: 2, params: {} });
   configs.push({ type: 'PENALTY_NEIGHBOR_AVOIDANCE', enabled: true, priority: 2, params: {} });
   configs.push({ type: 'NEW_PLAYER_SEPARATION', enabled: true, priority: 3, params: { threshold: 3 } });
+  configs.push({ type: 'SOCIAL_AFFINITY_SEPARATION', enabled: true, priority: 3, params: {} });
   configs.push({ type: 'HIGH_RANK_SEPARATION', enabled: false, priority: 4, params: { rankThreshold: 500 } });
 
   return configs;

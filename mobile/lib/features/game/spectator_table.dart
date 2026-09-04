@@ -1364,15 +1364,22 @@ class RemoteSpectatorTable extends StatelessWidget {
     required this.controller,
     this.hostView = false,
     this.revealRoles = false,
+    this.allowInHall = false,
   });
 
   final GameSessionController controller;
   final bool hostView, revealRoles;
 
+  /// 👁️ استثناءُ الحارس للمتفرّج المتأخّر وحده (قرار المالك المقفل ١):
+  /// يجلس في الحلقة ليشاهد، فيحتاج أن يعرف من أمامه. الرُوستر معقّم
+  /// (بلا أدوارٍ حيّة) فلا يُكسر ثابتُ عدم الكشف. يبقى الحارس قائماً
+  /// على اللاعبين الأحياء في القاعة كما هو.
+  final bool allowInHall;
+
   @override
   Widget build(BuildContext context) {
     final c = controller;
-    if (!c.isRemote) return const SizedBox.shrink();
+    if (!c.isRemote && !allowInHall) return const SizedBox.shrink();
 
     final accused = c.justification?.accused;
     return PhoneSpectatorView(

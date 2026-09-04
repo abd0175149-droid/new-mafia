@@ -19,6 +19,7 @@ import 'join_flow.dart';
 import '../voice/remote_voice.dart';
 import '../voice/voice_service.dart';
 import 'lobby_view.dart';
+import 'spectator_table.dart';
 
 // ══════════════════════════════════════════════════════
 // 🎬 شاشة اللعب — §4 في الملفّ 21
@@ -189,9 +190,13 @@ class _GameScreenState extends State<GameScreen> {
               key: ValueKey(_c.step),
               child: switch (_c.step) {
                 GameStep.code => _codeStep(),
-                GameStep.autoJoining => const _Spinner(
+                // ⚠️ الخطأ يُعرض هنا: كانت الودجة const بلا apiError فيبقى
+                //    السبينر يدور أبداً بلا أيّ تفسير («التطبيق معلّق»).
+                GameStep.autoJoining => _Spinner(
                     label: 'جاري تخصيص مقعدك...',
-                    sub: 'يتم اختيار أفضل مقعد لك'),
+                    sub: 'يتم اختيار أفضل مقعد لك',
+                    error: _c.apiError),
+                GameStep.spectating => _SpectatingView(controller: _c),
                 GameStep.ticket => _ticketStep(),
                 GameStep.done || GameStep.rejoined => LobbyView(controller: _c),
                 // خطوات المصادقة تصل مع الملفّ ٠٥ — الحساب هنا مسجَّلٌ أصلاً
@@ -974,9 +979,11 @@ class _StepHead extends StatelessWidget {
 }
 
 class _Spinner extends StatelessWidget {
-  const _Spinner({required this.label, this.sub});
+  const _Spinner({required this.label, this.sub, this.error});
   final String label;
   final String? sub;
+  /// رسالةُ الخادم عند الفشل — بدونها كان السبينر يدور بلا نهاية ولا تفسير.
+  final String? error;
 
   @override
   Widget build(BuildContext context) => Padding(
@@ -1000,8 +1007,110 @@ class _Spinner extends StatelessWidget {
             const SizedBox(height: 6),
             Text(sub!, style: ar(13, color: const Color(0xFF808080))),
           ],
+          if (error != null && error!.isNotEmpty) ...[
+            const SizedBox(height: 14),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+              decoration: BoxDecoration(
+                color: const Color(0x1A8A0303),
+                border: Border.all(color: const Color(0x668A0303)),
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: Text(error!,
+                  textAlign: TextAlign.center,
+                  style: ar(12.5, color: const Color(0xFFFF8D90))),
+            ),
+          ],
         ]),
       );
+}
+
+// ══════════════════════════════════════════════════════
+// 👁️ شاشةُ المتفرّج المتأخّر
+// ══════════════════════════════════════════════════════
+// وصل واللعبةُ جارية: يعرف مقعده، يجلس في الحلقة، ويشاهد الطاولة برُوستر
+// معقّم (بلا أدوارٍ حيّة) — ثمّ يُرقَّى لاعباً تلقائيّاً عند اللعبة التالية.
+// لا بطاقةَ دور ولا تصويت ولا ليل ولا مفكّرة سرّية.
+class _SpectatingView extends StatelessWidget {
+  const _SpectatingView({required this.controller});
+  final GameSessionController controller;
+
+  @override
+  Widget build(BuildContext context) {
+    final seat = controller.spectatorSeat;
+    final pos = controller.waitingPosition;
+    return SingleChildScrollView(
+      padding: const EdgeInsets.symmetric(vertical: 12),
+      child: Column(children: [
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+          decoration: BoxDecoration(
+            gradient: const LinearGradient(
+              colors: [Color(0x33A78BFA), Color(0x0AA78BFA)],
+            ),
+            border: Border.all(color: const Color(0x73A78BFA)),
+            borderRadius: BorderRadius.circular(12),
+          ),
+          child: Column(children: [
+            Text(
+              pos > 0 ? 'اللعبة جارية · دورك $pos في الانتظار' : 'اللعبة جارية',
+              textAlign: TextAlign.center,
+              style: ar(14, color: const Color(0xFFCBBCFF), weight: FontWeight.w900),
+            ),
+            const SizedBox(height: 4),
+            Text('اجلس في مقعدك وشاهد — ستدخل اللعبة القادمة تلقائيّاً',
+                textAlign: TextAlign.center,
+                style: ar(11.5, color: const Color(0xFF9F95C9))),
+          ]),
+        ),
+        const SizedBox(height: 14),
+        if (seat != null && seat > 0)
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 26, vertical: 18),
+            decoration: BoxDecoration(
+              gradient: const LinearGradient(
+                colors: [Color(0x26C5A059), Color(0x08C5A059)],
+              ),
+              border: Border.all(color: const Color(0x66C5A059), width: 2),
+              borderRadius: BorderRadius.circular(18),
+            ),
+            child: Column(children: [
+              Text('YOUR SEAT',
+                  style: ar(10, color: const Color(0xFF808080), weight: FontWeight.w600)),
+              const SizedBox(height: 4),
+              Text('$seat',
+                  style: const TextStyle(
+                      fontFamily: 'Amiri',
+                      fontSize: 46,
+                      height: 1.05,
+                      fontWeight: FontWeight.w900,
+                      color: _gold)),
+              const SizedBox(height: 6),
+              Text('مقعدك محجوز لك',
+                  style: ar(12.5, color: const Color(0xB3C5A059))),
+            ]),
+          )
+        else
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
+            decoration: BoxDecoration(
+              border: Border.all(color: const Color(0x4DC5A059)),
+              borderRadius: BorderRadius.circular(18),
+            ),
+            child: Column(children: [
+              Text('القاعة ممتلئة الآن',
+                  style: ar(16, color: _gold, weight: FontWeight.w900)),
+              const SizedBox(height: 4),
+              Text('أنت في قائمة الانتظار — سيُخصّص لك مقعد',
+                  textAlign: TextAlign.center,
+                  style: ar(11.5, color: const Color(0xFF808080))),
+            ]),
+          ),
+        const SizedBox(height: 16),
+        RemoteSpectatorTable(controller: controller, allowInHall: true),
+      ]),
+    );
+  }
 }
 
 class _PremiumButton extends StatelessWidget {

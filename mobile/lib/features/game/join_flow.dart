@@ -172,6 +172,19 @@ extension JoinFlow on GameSessionController {
     });
     setBusy(false);
 
+    // 👁️ وصل واللعبة جارية → متفرّج بمقعدٍ محجوز (كان يُرفض ويبقى سبينر أبديّ)
+    if (res != null && res['success'] == true && res['spectator'] == true) {
+      await applySpectator(
+        roomId: target,
+        seat: (res['assignedSeat'] as num?)?.toInt() ?? 0,
+        phase: res['phase'] as String?,
+        phone: normalizePhone(player?.phone),
+        playerId: player?.id,
+        name: name,
+      );
+      return;
+    }
+
     if (res != null && res['success'] != false && res['assignedSeat'] != null) {
       await applyJoined(
         roomId: target,

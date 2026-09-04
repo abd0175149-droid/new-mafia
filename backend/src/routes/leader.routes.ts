@@ -139,6 +139,21 @@ router.post('/force-add-player', requireLeader, async (req: Request, res: Respon
       return res.status(400).json({ success: false, error: 'بيانات غير مكتملة' });
     }
 
+    // 🔒 حارس المرحلة — نظير المسار عبر السوكِت.
+    // كان هذا المسار بلا حارس إطلاقاً: إضافةٌ أثناء لعبةٍ جارية تدفع «حيّاً بلا دور»
+    // إلى state.players فيدخل التصويت والليل ومعادلة الفوز، والأسوأ أنّه لا يبثّ
+    // game:state-sync فتتباعد حالة الليدر عن الشاشة.
+    {
+      const cur = await getRoom(roomId);
+      if (cur && cur.phase !== 'LOBBY' && cur.phase !== 'ROLE_GENERATION') {
+        return res.status(409).json({
+          success: false,
+          code: 'GAME_IN_PROGRESS',
+          error: 'اللعبة جارية — استخدم «إجلاس متفرّج» من لوحة الوصول بدل الإضافة المباشرة',
+        });
+      }
+    }
+
     // ── تسجيل اللاعب في جدول players الموحد (PostgreSQL) ──
     // هذا يضمن أن findPlayerByPhone سيجده عند دخوله من واجهة اللاعب
     let resolvedPlayerId = playerId || null;

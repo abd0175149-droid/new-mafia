@@ -13,7 +13,18 @@ import { notifyPulseForRoom } from './activity-pulse.socket.js';
 // إزالة كل ما يكشف الأدوار أو نيّات الليل من نسخة اللاعب
 // ⚰️ دور الميت يُكشف: أُعلن للجميع لحظة الإقصاء/الصباح أصلاً — إبقاؤه في الروستر
 // يجعل الكارد المقلوب على الحلقة يصمد لتحديث الصفحة والمنضمّين الجدد.
-function stripSecrets(state: any): any {
+/**
+ * 👁️ غرفة المتفرّجين المعقّمة.
+ *
+ * المتفرّج لا ينضمّ إلى `roomId` إطلاقاً: البثّ المحلّيّ هناك خامٌّ بالأدوار
+ * (`io.to(roomId).emit(event, state)` بلا تعقيم)، فمن يفتح أدوات المتصفّح
+ * يقرأ أدوار الجميع. بدلاً منها غرفةٌ فرعيّة لا يصلها إلّا ما مرّ بـstripSecrets.
+ */
+export function spectatorRoom(roomId: string): string {
+  return `${roomId}:spectators`;
+}
+
+export function stripSecrets(state: any): any {
   if (!state || !Array.isArray(state.players)) return state;
   return {
     ...state,
@@ -64,9 +75,11 @@ export async function emitStateSanitized(
 ): Promise<void> {
   if (!state?.config?.isRemote) {
     io.to(roomId).emit(event, state); // محلي: بلا تغيير
+    io.to(spectatorRoom(roomId)).emit(event, stripSecrets(state)); // 👁️ نسخة معقّمة
     return;
   }
   const stripped = stripSecrets(state);
+  io.to(spectatorRoom(roomId)).emit(event, stripped);
   const sockets = await io.in(roomId).fetchSockets();
   for (const s of sockets) {
     s.emit(event, isTrusted(s) ? state : stripped);
@@ -84,6 +97,8 @@ export async function emitPhaseChangedSanitized(
   // 🌙 مِشبكُ نبض الليلة — مكانٌ واحد بدل عشرين نداءً متفرّقاً.
   //    إشارةٌ مكبوحة لا حمولة؛ الحاجزون خارج الغرفة يسحبون لقطتهم.
   void notifyPulseForRoom(io, roomId, state);
+  const spectatorPayload = state ? { ...payload, state: stripSecrets(state) } : payload;
+  io.to(spectatorRoom(roomId)).emit('game:phase-changed', spectatorPayload); // 👁️ معقّمة دائماً
   if (!state?.config?.isRemote) {
     io.to(roomId).emit('game:phase-changed', payload); // بلا state أو محلي: بلا تغيير
     return;

@@ -14,6 +14,7 @@ export interface PlayerSeatData {
   rankTier: string;
   hasPenalty?: boolean;        // هل عليه عقوبة في هذه اللعبة
   physicalId?: number;         // المقعد الحالي (إن وُجد)
+  originSeat?: number;         // المقعد قبل إعادة الترتيب (يملؤه المحرّك الدُفعيّ)
   seatHeld?: boolean;
   genderConstraint?: string;
 }
@@ -46,6 +47,30 @@ export interface EvaluationContext {
   reservedTailSeats?: number;
   // ── أرقام المقاعد المجاورة للأبواب (من القالب) — لتجنّبها في التوزيع ──
   doorSeats?: number[];
+
+  // ══ قرارات المالك المقفلة 2026-09-04 ══
+
+  /**
+   * 🤝 أوزان التقارب الاجتماعيّ: seatKey(a)|seatKey(b) → وزن (0..1].
+   * يبنيها lobby.socket من إشارات موجودة (الوصول المتزامن أثقلها = 1.0).
+   * يقرؤها SOCIAL_AFFINITY_SEPARATION وحده.
+   */
+  affinityPairs?: Map<string, number>;
+
+  /**
+   * 🎲 كسر التعادل بالتباعد (S1 — القرار المقفل ٣ يجعله متمّماً لقيد الصداقة):
+   * عند تساوي نقاط مقعدين يُفضَّل الأبعد دائريّاً عن هذه المقاعد.
+   * للانضمام العاديّ = مقاعد آخر الواصلين؛ وللمتفرّج = مقاعد الأحياء.
+   * كان الترتيب سابقاً «الأصغر رقماً» فيجلس الواصلون معاً في 1,2,3 حتماً.
+   */
+  spreadFromSeats?: number[];
+
+  /**
+   * 👁️ المتفرّج المتأخّر يجلس **داخل الحلقة** (القرار المقفل ١) لكن في الذيل
+   * والأبعد عن الأحياء كي لا يلتصق بمن يتهامسون بالأدوار: يقلب خصمَ مقاعد
+   * الذيل (−2.0) إلى مكافأة (+2.0).
+   */
+  preferTailSeats?: boolean;
 }
 
 // ── واجهة القيد (Strategy Pattern) ─────────────────
@@ -113,7 +138,13 @@ export interface SeatAllocationResult {
 // ── نتيجة إعادة الترتيب (Batch) ──────────────────
 export interface ReshuffleResult {
   success: boolean;
-  arrangement: Array<{ playerId: number | null; phone: string; seatNumber: number }>;
+  arrangement: Array<{
+    playerId: number | null;
+    phone: string;
+    seatNumber: number;
+    fromSeat?: number;   // المقعد الأصليّ — مفتاح المطابقة الوحيد الآمن
+    name?: string;
+  }>;
   totalScore: number;
   violations: string[];
   relaxedConstraints: string[];
@@ -153,4 +184,46 @@ export function circularDistance(seatA: number, seatB: number, maxPlayers: numbe
 // ── مفتاح الجار (ترتيب أبجدي لمنع التكرار) ──────
 export function neighborKey(idA: number, idB: number): string {
   return idA < idB ? `${idA}-${idB}` : `${idB}-${idA}`;
+}
+
+/**
+ * أصغر مسافة دائريّة بين مقعد ومجموعة مقاعد (Infinity إن كانت المجموعة فارغة).
+ * يُستعمل في كسر التعادل بالتباعد.
+ */
+export function minCircularDistance(seat: number, others: number[] | undefined, maxPlayers: number): number {
+  if (!others || others.length === 0) return Infinity;
+  let best = Infinity;
+  for (const o of others) {
+    if (o === seat) return 0;
+    const d = circularDistance(seat, o, maxPlayers);
+    if (d < best) best = d;
+  }
+  return best;
+}
+
+// ── تطبيع الهاتف الموحَّد (نسخة واحدة لكلّ طبقات الجلوس) ──
+// كانت ثلاث نسخ متباينة: engine يزيل 962، والقيد يضيف 0 فقط، وseat-merge نسخة ثالثة.
+export function normalizeSeatPhone(phone: string | null | undefined): string {
+  if (!phone) return '';
+  let c = String(phone).replace(/[\s\-()+]/g, '');
+  if (c.startsWith('00962')) c = c.substring(5);
+  else if (c.startsWith('962')) c = c.substring(3);
+  if (!c) return '';
+  return c.startsWith('0') ? c : '0' + c;
+}
+
+/**
+ * هويّة قابلة للمطابقة عبر الطبقات: الحساب أوّلاً ثمّ الهاتف المطبَّع ثمّ الاسم.
+ * تُستعمل مفتاحاً لأزواج التقارب كي تعمل مع اللاعبين بلا حساب.
+ */
+export function personKey(p: { playerId?: number | null; phone?: string | null; name?: string }): string {
+  if (p.playerId) return `p${p.playerId}`;
+  const ph = normalizeSeatPhone(p.phone);
+  if (ph) return `h${ph}`;
+  return `n${(p.name || '').trim().toLowerCase()}`;
+}
+
+/** مفتاح زوجٍ لا يتأثّر بترتيب الطرفين */
+export function pairKey(a: string, b: string): string {
+  return a < b ? `${a}|${b}` : `${b}|${a}`;
 }

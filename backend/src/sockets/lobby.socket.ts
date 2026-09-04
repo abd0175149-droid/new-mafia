@@ -10,8 +10,10 @@ import {
   verifyDisplayToken, displayAuthEnforced, pinAttemptKeyFromSocket, pinLockState, recordPinFailure, clearPinFailures, pinEquals, mintDisplayToken,
 } from '../services/display-auth.service.js';
 import { projectDisplayState } from '../services/display-state.projection.js';
-import { createRoom, addPlayer, updatePlayer, updateRoom, getRoom, getRoomByCode, bindRole, unbindRole, setPhase, Phase } from '../game/state.js';
+import { createRoom, addPlayer, updatePlayer, updateRoom, getRoom, getRoomByCode, bindRole, unbindRole, setPhase, Phase, presentPlayers, getSpectators, findSpectator } from '../game/state.js';
+import type { Spectator } from '../game/state.js';
 import { allocateSeat } from '../game/seat-allocator.js';
+import { reshuffleSeating } from '../game/seating/engine.js';
 import type { SeatConstraints } from '../game/seat-allocator.js';
 import { generateRoles, validateRoleDistribution, Role, getTeamCounts, isMafiaRole, MAFIA_ROLES, ROLE_NAMES_AR } from '../game/roles.js';
 import { generateRolesDynamic } from '../game/dynamic-role-generator.js';
@@ -34,9 +36,46 @@ import { sendPushToPlayer } from '../services/fcm.service.js';
 import { getDB } from '../config/db.js';
 import { matchPlayers, cheatSignals } from '../schemas/game.schema.js';
 import { eq, sql, and } from 'drizzle-orm';
-import { emitStateSanitized, emitPhaseChangedSanitized } from './broadcast.util.js';
+import { emitStateSanitized, emitPhaseChangedSanitized, emitTrustedOnly, spectatorRoom, stripSecrets } from './broadcast.util.js';
+import { buildAffinityPairs, loadPairRules, mergeRulesIntoAffinity, upsertPairRule } from '../services/seat-affinity.service.js';
+import { personKey, pairKey } from '../game/seating/types.js';
 
 export const activeRooms: Map<string, { roomId: string; roomCode: string; gameName: string; playerCount: number; maxPlayers: number; displayPin: string; activityId?: number; activityName?: string }> = new Map();
+
+/**
+ * ✅ حقيقة حضورٍ واحدة: دخول الغرفة يعلّم الحجز حاضراً فوراً.
+ *
+ * كان الحضور يُعلّم يدويّاً على الباب أو يُستنتَج بزرٍّ بعد الليلة، فلا موظّف الباب
+ * يعرف من جلس فعلاً ولا الليدر يعرف من عُلّم حاضراً ولم يدخل. لا يرمي أبداً.
+ * المطابقة بالحساب ثمّ بآخر تسعة أرقام — ولا مطابقة بالاسم («محمد» يُعلّم غيره).
+ */
+export async function markArrivalAttended(
+  activityId: number | undefined,
+  playerId: number | null,
+  phone: string | null,
+  _name?: string,
+): Promise<void> {
+  if (!activityId) return;
+  const db = getDB();
+  if (!db) return;
+  try {
+    const digits = String(phone || '').replace(/\D/g, '');
+    const tail = digits.length >= 9 ? digits.slice(-9) : '';
+    if (!playerId && !tail) return;
+    await db.execute(sql`
+      UPDATE reservations SET attended = TRUE
+      WHERE activity_id = ${activityId}
+        AND (attended IS NULL OR attended = FALSE)
+        AND (
+          (${playerId}::int IS NOT NULL AND player_id = ${playerId}::int)
+          OR (${tail} <> '' AND RIGHT(REGEXP_REPLACE(COALESCE(phone, ''), '\\D', '', 'g'), 9) = ${tail})
+        )
+    `);
+  } catch (e: any) {
+    console.warn('⚠️ markArrivalAttended skipped:', e.message);
+  }
+}
+
 
 // 🔊 قائمة بيضاء لدوالّ مرآة الأصوات (display → leader) — تطابق أسماء دوالّ soundManager العامّة
 const SOUND_MIRROR_FNS = new Set([
@@ -53,8 +92,22 @@ const SOUND_MIRROR_FNS = new Set([
 // 🔒 فتح مؤقّت للأدوات الحسّاسة (تعديل الأرقام/الأسماء) — يتطلب رقماً سرّياً يُضبط في env (RENUMBER_SECRET).
 // يُخزَّن وقت انتهاء الصلاحية على الاتصال نفسه (socket.data)، فلا يدوم بعد قطع الاتصال أو انتهاء المدة.
 const TOOLS_UNLOCK_MS = 10 * 60 * 1000; // 10 دقائق
+/**
+ * 🔑 فتحُ الأدوات مفهرساً بهويّة الموظّف — يعيش عبر انقطاعات الاتصال.
+ * كان مخزَّناً على socket.data وحده، فينقطع الـWi-Fi في القاعة فيُطالَب الليدر
+ * بالسرّ من جديد عند أوّل نقلة، وفي ذروة الوصول يتكرّر ذلك مراراً.
+ */
+const toolsUnlockByStaff = new Map<string, number>();
 function toolsUnlocked(socket: any): boolean {
-  return (socket?.data?.toolsUnlockedUntil || 0) > Date.now();
+  const now = Date.now();
+  if ((socket?.data?.toolsUnlockedUntil || 0) > now) return true;
+  // سقوطٌ على الفتح المفهرس بالموظّف: نفس الشخص على اتّصالٍ جديد بعد انقطاع
+  const staffId = socket?.data?.authStaff?.id;
+  if (!staffId) return false;
+  const until = toolsUnlockByStaff.get(String(staffId)) || 0;
+  if (until <= now) { toolsUnlockByStaff.delete(String(staffId)); return false; }
+  socket.data.toolsUnlockedUntil = until;   // يُرطَّب على الاتصال الجديد
+  return true;
 }
 
 // ══════════════════════════════════════════════════════
@@ -225,6 +278,29 @@ export interface SeatMoveHazard {
  * القاعدة: النقل مسموح في كل المراحل — لكن ما يغيّر نتيجةَ قرارٍ منظورٍ أمام الليدر يُمنع،
  * وما يحتاج انتباهه فقط يُمرَّر بتأكيد صريح.
  */
+/**
+ * يعدّ التجاورات المخالفة الآن: كم زوجاً متقارباً يجلس على بُعد مقعد واحد.
+ * يُستعمل لعرض «قبل/بعد» في معاينة إعادة الترتيب، ولإظهار زرّ «رتّب» عند اللزوم.
+ */
+export function countAdjacencyIssues(state: any, affinity?: Map<string, number>): number {
+  if (!affinity || affinity.size === 0) return 0;
+  const cap = state.config?.maxPlayers || 27;
+  const bySeat = new Map<number, any>();
+  for (const p of state.players) bySeat.set(p.physicalId, p);
+  let n = 0;
+  for (const p of state.players) {
+    const right = p.physicalId === cap ? 1 : p.physicalId + 1;
+    const other = bySeat.get(right);
+    if (!other) continue;
+    const w = affinity.get(pairKey(
+      personKey({ playerId: p.playerId, phone: p.phone, name: p.name }),
+      personKey({ playerId: other.playerId, phone: other.phone, name: other.name }),
+    )) ?? 0;
+    if (w >= 0.3) n++;
+  }
+  return n;
+}
+
 export function detectSeatMoveHazard(state: any): SeatMoveHazard | null {
   // 💣 القنبلة: هدفاها يُحدَّدان بالجيرة الرقمية، والنقل يغيّر الجيران — فيتبدّل الضحايا
   //    الذين يراهم الليدر على شاشته الآن. الحسم ثوانٍ، فالمنع أنظف من إعادة الحساب.
@@ -1038,16 +1114,23 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
         }
       }
 
-      // ══ حماية حرجة: منع انضمام لاعبين جدد بعد بدء اللعبة ══
+      // ══ بوّابة «اللعبة بدأت»: عودةٌ لمقعده، أو دخولٌ متفرّجاً (لا رفض) ══
       const isGameStarted = state.phase !== 'LOBBY' && state.phase !== 'ROLE_GENERATION';
+      // 👁️ يُضبط للوافد الجديد أثناء لعبةٍ جارية: يكمل كلّ البوّابات (التذكرة،
+      //    الحجز، الغرفة الأخرى، القالب) ثمّ يتفرّع عند التخصيص إلى مقعدٍ محجوز.
+      let joinAsSpectator = false;
 
       if (isGameStarted) {
         // ── فحص: هل هذا لاعب كان في اللعبة ويحاول العودة؟ ──
-        const normalizedPhone = data.phone?.startsWith('0') ? data.phone : (data.phone ? '0' + data.phone : '');
-        const existingPlayer = state.players.find((p: any) =>
-          (data.playerId && p.playerId === data.playerId) ||
-          (normalizedPhone && p.phone === normalizedPhone)
-        );
+        // 🔐 الهويّة من التوكن أوّلاً: كانت المطابقة على data.playerId/data.phone
+        //    القادمَين من العميل، فأيّ جهازٍ يعرف هاتف غائبٍ يسترجع مقعده ودوره.
+        //    والتطبيع كان بإضافة 0 فقط، فرقمٌ بصيغة 962… يُرفض كوافدٍ جديد.
+        const authId = socket.data.authPlayer?.playerId;
+        const claimedId = authId || data.playerId;
+        const existingPlayer =
+          (claimedId ? state.players.find((p: any) => p.playerId && p.playerId === claimedId) : undefined) ||
+          (data.phone ? state.players.find((p: any) => p.phone === data.phone) : undefined) ||
+          (data.phone ? state.players.find((p: any) => samePhone(p.phone, data.phone)) : undefined);
 
         if (existingPlayer) {
           // ── فك التجميد والحجز عند العودة ──
@@ -1084,12 +1167,32 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
           });
         }
 
-        // ── لاعب جديد تماماً → رفض الانضمام ──
-        console.log(`🛡️ Blocked new player ${data.name} from joining room ${data.roomId} — game already started (phase: ${state.phase})`);
-        return callback({
-          success: false,
-          error: 'اللعبة بدأت بالفعل، لا يمكن الانضمام الآن. انتظر حتى تنتهي اللعبة الحالية.',
-        });
+        // ── وافدٌ جديد أثناء لعبةٍ جارية → متفرّج بمقعدٍ محجوز، لا رفض ──
+        // كان يُردّ بنصٍّ ثابت بلا رمز: الليدر لا يُخطَر، والتذكرة لا تُستهلك،
+        // وفي تطبيق فلاتر لا تظهر الرسالة أصلاً (سبينر أبديّ). يكمل الآن بقيّة
+        // البوّابات ثمّ يجلس **داخل الحلقة** في الذيل والأبعد عن الأحياء.
+        // 🔒 عودةٌ لمتفرّجٍ سبق تسجيله: يُعاد لمقعده نفسه بلا تكرار.
+        const already = findSpectator(state, { playerId: claimedId, phone: data.phone });
+        if (already) {
+          socket.join(spectatorRoom(data.roomId));
+          socket.data.role = 'spectator';
+          socket.data.roomId = data.roomId;
+          socket.data.physicalId = already.physicalId;
+          console.log(`👁️ Spectator ${already.name} reconnected to seat #${already.physicalId} (${state.phase})`);
+          return callback({
+            success: true,
+            spectator: true,
+            code: 'GAME_IN_PROGRESS',
+            assignedSeat: already.physicalId,
+            gameName: state.config.gameName,
+            phase: state.phase,
+            round: state.round,
+            restoredSeat: true,
+            isRemote: !!state.config?.isRemote,
+          });
+        }
+        joinAsSpectator = true;
+        console.log(`👁️ Late arrival ${data.name} → spectator path (phase: ${state.phase})`);
       }
 
       // ── 1. جلب constraints + requireTicket من DB (السعة تُحسم لاحقاً من القالب/الافتراضي) ──
@@ -1640,6 +1743,26 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
           }
         }
 
+        // ── 👁️ المتفرّجون شاغلون فعليّون: يجلسون في الحلقة على مقاعد مرقَّمة ──
+        // بدونهم يُمنح مقعد المتفرّج لعائدٍ آخر فيجلس اثنان على كرسيّ واحد.
+        for (const sp of getSpectators(state)) {
+          if (enrichedPlayers.some((e: any) => e.physicalId === sp.physicalId)) continue;
+          enrichedPlayers.push({
+            physicalId: sp.physicalId,
+            phone: sp.phone,
+            gender: sp.gender || 'MALE',
+            seatHeld: false,
+            playerId: sp.playerId,
+            name: sp.name,
+            totalMatches: 0,
+            activityCount: 0,
+            rankRR: 0,
+            rankTier: sp.rankTier || 'INFORMANT',
+            hasPenalty: false,
+            genderConstraint: 'NONE',
+          } as any);
+        }
+
         // جلب تاريخ جيران المعاقبين — يقتصر على آخر 3 مباريات للّاعب الداخل (عبر كل الجلسات).
         // الفكرة: إن عوقب اللاعب وكان X بجانبه ضمن آخر 3 مباريات، يُمنع جلوسه بجانب X الآن.
         penaltyNeighborHistory = new Map();
@@ -1716,20 +1839,60 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
           } catch {}
         }
 
-        const { seat: assignedSeatResult, constraintViolation: cvResult } = allocateSeat({
+        // ── 🤝 أوزان التقارب الاجتماعيّ (الوصول المتزامن أثقلها — قرار مقفل ٣) ──
+        let affinityPairs: Map<string, number> | undefined;
+        try {
+          affinityPairs = await buildAffinityPairs({
+            sessionId: state.sessionId,
+            activityId,
+            people: [
+              ...enrichedPlayers.map((e: any) => ({ playerId: e.playerId ?? null, phone: e.phone, name: e.name })),
+              { playerId: data.playerId ?? null, phone: data.phone ?? null, name: data.name },
+            ],
+          });
+          const rules = await loadPairRules({ activityId, roomId: state.roomId });
+          affinityPairs = mergeRulesIntoAffinity(affinityPairs, rules);
+          // القواعد الصارمة (block) تُحقن كأزواج ممنوعة بأولويّة ١
+          const hardPairs = rules.filter(r => r.kind === 'block' && r.personA.startsWith('h') && r.personB.startsWith('h'));
+          if (hardPairs.length > 0) {
+            if (!constraints) constraints = { genderSeparation: false, noAdjacentPairs: [] } as any;
+            (constraints as any).engineEnabled = true;
+            if (!(constraints as any).constraints) (constraints as any).constraints = [];
+            const extra = hardPairs.map(r => ({
+              player1Phone: r.personA.slice(1), player1Name: r.nameA || '',
+              player2Phone: r.personB.slice(1), player2Name: r.nameB || '',
+            }));
+            const nap = (constraints as any).constraints.find((c: any) => c.type === 'NO_ADJACENT_PAIRS');
+            if (nap) nap.params = { ...(nap.params || {}), pairs: [...(((nap.params || {}).pairs) || []), ...extra] };
+            else (constraints as any).constraints.push({ type: 'NO_ADJACENT_PAIRS', enabled: true, priority: 1, params: { pairs: extra } });
+          }
+        } catch (e: any) { console.warn('⚠️ affinity build skipped:', e.message); }
+
+        // 🎲 مقاعد التباعد: للمتفرّج = الأحياء (يجلس بعيداً عن الهمس)،
+        //    وللاعب العاديّ = آخر ثلاثة واصلين (يكسر تجاور من وصلوا معاً).
+        const spreadFromSeats = joinAsSpectator
+          ? state.players.filter((p: any) => p.isAlive !== false).map((p: any) => p.physicalId)
+          : state.players.slice(-3).map((p: any) => p.physicalId);
+
+        const { seat: assignedSeatResult, constraintViolation: cvResult, violations: vioResult } = allocateSeat({
           maxPlayers: state.config.maxPlayers,
           players: enrichedPlayers,
           constraints,
           newPlayer: newPlayerEnriched,
-          preferredSeat: data.preferredSeat,
+          // 🔒 preferredSeat من الليدر وحده: عميلٌ معدَّل كان يستطيع اختيار مقعد صديقه
+          preferredSeat: socket.data.role === 'leader' ? data.preferredSeat : undefined,
           penaltyNeighborHistory,
           sessionId: state.sessionId,
           pinnedSeats: pinnedSeatsFromTemplate,
           reservedTailSeats: reservedTailFromTemplate,
           doorSeats: doorSeatsFromTemplate,
+          affinityPairs,
+          spreadFromSeats,
+          preferTailSeats: joinAsSpectator,
         });
         var assignedSeat = assignedSeatResult;
         var constraintViolation = cvResult;
+        var seatViolations: string[] = vioResult || [];
       } else {
         // الوضع القديم — بيانات أساسية فقط
         const seatPlayers = state.players.map(p => ({
@@ -1747,15 +1910,113 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
             phone: data.phone || '',
             gender: data.gender || 'MALE',
           },
-          preferredSeat: data.preferredSeat,
+          preferredSeat: socket.data.role === 'leader' ? data.preferredSeat : undefined,
         });
         var assignedSeat = assignedSeatResult;
         var constraintViolation = cvResult;
+        var seatViolations: string[] = [];
       }
 
       if (constraintViolation) {
         console.warn(`⚠️ Seat constraints violated for player ${data.name} — assigned seat #${assignedSeat} anyway`);
+        // 🔔 الليدر يرى المخالفة لحظة وقوعها (كانت console.warn صامتة تماماً)
+        try {
+          await emitTrustedOnly(io, data.roomId, 'leader:seat-constraint-warning', {
+            physicalId: assignedSeat,
+            name: data.name,
+            violations: (typeof seatViolations !== 'undefined' ? seatViolations : []).slice(0, 4),
+            spectator: joinAsSpectator,
+            at: Date.now(),
+          });
+        } catch {}
       }
+
+      // ══ 👁️ مسار المتفرّج: يجلس في الحلقة ولا يدخل players ══
+      // كلُّ محرّكات اللعبة تشتقّ طوابيرها من state.players، فأيّ إضافةٍ هناك تجعل الوافد
+      // متحدّثاً ومرشّحاً وهدفاً ليليّاً وتدخله في معادلة الفوز.
+      if (joinAsSpectator) {
+        const fresh = await getRoom(data.roomId);
+        if (!fresh) return callback({ success: false, error: 'الغرفة غير موجودة' });
+        if (!Array.isArray((fresh as any).spectators)) (fresh as any).spectators = [];
+
+        // سباقٌ ضيّق: قد يكون المقعد شُغل بين الحساب والكتابة
+        const taken = new Set<number>([
+          ...fresh.players.map((pp: any) => pp.physicalId),
+          ...getSpectators(fresh).map(sp => sp.physicalId),
+        ]);
+        let seat = assignedSeat;
+        if (taken.has(seat)) {
+          let alt = 0;
+          for (let i = fresh.config.maxPlayers; i >= 1; i--) if (!taken.has(i)) { alt = i; break; }
+          seat = alt || 0;
+        }
+        if (!seat) {
+          // القاعة ممتلئة — ينتظر بلا رقم مقعد ويُنبّه الليدر
+          seat = 0;
+        }
+
+        const spec: Spectator = {
+          physicalId: seat,
+          name: data.name,
+          phone: data.phone || null,
+          playerId: data.playerId || null,
+          gender: data.gender || null,
+          dob: data.dob || null,
+          avatarUrl: null,
+          rankTier: null,
+          cosmetics: null,
+          joinedAt: Date.now(),
+          addedBy: 'self',
+        };
+        (fresh as any).spectators.push(spec);
+        await setGameState(data.roomId, fresh);
+
+        // 📝 القرار المقفل ٢: يُسجّل في session_players والحضور فوراً،
+        //    ولا يُحسب في السعة إلّا عند الترقية. حدّ F&B سليم لأنّ أساسه «لعب مباراة».
+        if (fresh.sessionId && seat > 0) {
+          try {
+            await addPlayerToSession(fresh.sessionId, seat, data.name, data.phone || undefined,
+              data.gender || undefined, data.dob || undefined, data.playerId || null);
+          } catch (e: any) { console.warn('⚠️ spectator session row failed:', e.message); }
+        }
+        void markArrivalAttended(activityId, data.playerId || null, data.phone || null, data.name);
+
+        socket.join(spectatorRoom(data.roomId));
+        socket.data.role = 'spectator';
+        socket.data.roomId = data.roomId;
+        socket.data.physicalId = seat;
+
+        // 📢 الليدر والشاشة فقط (القرار المقفل ٦: الاسم الأوّل + رقم المقعد)
+        const firstName = String(data.name || '').trim().split(/\s+/)[0] || data.name;
+        try {
+          await emitTrustedOnly(io, data.roomId, 'room:spectator-joined', {
+            physicalId: seat, name: data.name, firstName,
+            phone: data.phone || null, playerId: data.playerId || null,
+            gender: data.gender || null, joinedAt: spec.joinedAt,
+            waitingCount: getSpectators(fresh).length,
+            phase: fresh.phase, round: fresh.round,
+          });
+        } catch {}
+
+        // بثّ الحالة كي تظهر قائمة الوصول عند الليدر والشاشة فوراً
+        // (قائمة المتفرّجين بلا أسرار — لا دور ولا نيّة ليل)
+        await emitStateSanitized(io, data.roomId, 'game:state-sync', fresh);
+
+        console.log(`👁️ Spectator ${data.name} seated #${seat} (phase: ${fresh.phase})`);
+        return callback({
+          success: true,
+          spectator: true,
+          code: 'GAME_IN_PROGRESS',
+          assignedSeat: seat,
+          gameName: fresh.config.gameName,
+          phase: fresh.phase,
+          round: fresh.round,
+          constraintViolation,
+          isRemote: !!fresh.config?.isRemote,
+        });
+      }
+
+      void markArrivalAttended(activityId, data.playerId || null, data.phone || null, data.name);
 
       // ── 5. إضافة اللاعب ──
       const addedState = await addPlayer(
@@ -2133,48 +2394,82 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
   // الواجهة ترسل الرقم المُدخَل عبر إيماءة مموّهة؛ السرّ يعيش في env فقط (لا في كود الواجهة).
   socket.on('leader:tools-ping', (data: { code?: string | number }, callback) => {
     // success مطلوب لغلاف emit() في الواجهة (يرفض أي رد بدونه) — ok يبقى للتوافق
-    const reply = (ok: boolean) => { if (typeof callback === 'function') callback({ ok, success: ok }); };
+    const reply = (ok: boolean, extra: any = {}) => {
+      if (typeof callback === 'function') callback({ ok, success: ok, ...extra });
+    };
     try {
       if (socket.data.role !== 'leader') return reply(false);
       const now = Date.now();
       // تحديد المحاولات: 5 كل 10 دقائق لكل اتصال (يمنع التخمين بالقوة)
       let rl = socket.data._toolsRL as { count: number; resetAt: number } | undefined;
       if (!rl || now > rl.resetAt) rl = { count: 0, resetAt: now + 10 * 60 * 1000 };
-      if (rl.count >= 5) { socket.data._toolsRL = rl; return reply(false); }
+      if (rl.count >= 5) {
+        socket.data._toolsRL = rl;
+        // ⏳ ردٌّ مميَّز: كان يعود «رقم غير صحيح» فيظنّ الليدر أنّه أخطأ الكتابة
+        //    ويكرّر بلا جدوى عشر دقائق كاملة.
+        return reply(false, { code: 'RATE_LIMITED', retryInSec: Math.max(1, Math.ceil((rl.resetAt - now) / 1000)) });
+      }
       rl.count++;
       socket.data._toolsRL = rl;
 
       const secret = process.env.RENUMBER_SECRET || '';
-      const ok = secret.length > 0 && String(data?.code ?? '') === secret;
+      if (secret.length === 0) {
+        // 🚨 سرٌّ فارغ في البيئة ⇒ كلّ أدوات المقاعد ميّتة صامتة. يُشخَّص بدل أن يُخمَّن.
+        console.error('❌ RENUMBER_SECRET is empty — every seat tool is permanently locked');
+        return reply(false, { code: 'SECRET_NOT_CONFIGURED' });
+      }
+      const ok = String(data?.code ?? '') === secret;
       if (ok) {
         socket.data.toolsUnlockedUntil = now + TOOLS_UNLOCK_MS;
         socket.data._toolsRL = { count: 0, resetAt: now + 10 * 60 * 1000 };
+        // 🔑 الفتح يتبع هويّة الموظّف لا الاتصال: كان يموت مع كلّ انقطاع Wi-Fi
+        //    فيُعاد إدخال السرّ عند أوّل نقلة بعد كلّ إعادة اتصال.
+        const staffId = socket.data.authStaff?.id;
+        if (staffId) toolsUnlockByStaff.set(String(staffId), socket.data.toolsUnlockedUntil);
       }
-      reply(ok);
+      reply(ok, ok ? { until: socket.data.toolsUnlockedUntil } : { code: 'BAD_CODE' });
     } catch { reply(false); }
   });
 
   socket.on('room:renumber-players', async (data: {
     roomId: string;
     changes: Array<{ oldPhysicalId: number; newPhysicalId: number }>;
+    confirmHazard?: boolean;
+    reason?: string;
   }, callback) => {
     try {
       if (socket.data.role !== 'leader') {
         return callback({ success: false, error: 'Only leader' });
       }
-      // 🔒 الأداة مقفلة حتى يُدخَل الرقم السرّي — خطأ عام يوحي بعطل مؤقّت
+      // 🔒 الأداة مقفلة حتى يُدخَل الرقم السرّي.
+      // كان الردّ خطأً عامّاً «مشكلة مؤقتة» بلا code، فيظلّ الليدر يعيد المحاولة
+      // دون أن يعرف أنّ عليه الضغط المطوّل على كود الغرفة لفتح حقلٍ مخفيّ.
       if (!toolsUnlocked(socket)) {
-        return callback({ success: false, error: 'تعذّر حفظ الترتيب — مشكلة مؤقتة، حاول لاحقاً' });
+        return callback({ success: false, code: 'TOOLS_LOCKED', error: 'الأدوات مقفلة — أدخل الرقم السرّي' });
       }
 
       let state = await getRoom(data.roomId);
       if (!state) return callback({ success: false, error: 'Room not found' });
 
-      // يُسمح بتعديل المقاعد في حالات إدارة الروستر: اللوبي، توليد الأدوار، وبعد انتهاء اللعبة
-      // (الغرفة تبقى مفتوحة للعبة التالية — عرض الجلسة يُعرض لـ GAME_OVER أيضاً). لا يُسمح أثناء اللعب.
-      if (state.phase !== Phase.LOBBY && state.phase !== Phase.ROLE_GENERATION && state.phase !== Phase.GAME_OVER) {
-        return callback({ success: false, error: 'لا يمكن تغيير الأرقام أثناء اللعب' });
+      // أثناء اللعب يُسمح الآن بالدفعة خلف رصد المخاطر نفسه الذي يحرس النقل الفرديّ
+      // — بتأكيدٍ **واحد للدفعة كلّها** بدل تأكيدٍ لكلّ نقلة على حدة.
+      const inPlay = state.phase !== Phase.LOBBY && state.phase !== Phase.ROLE_GENERATION && state.phase !== Phase.GAME_OVER;
+      if (inPlay) {
+        const hz = detectSeatMoveHazard(state);
+        if (hz?.blocking) {
+          return callback({ success: false, code: 'HAZARD_BLOCKED', error: hz.message });
+        }
+        if (hz && !data.confirmHazard) {
+          return callback({ success: false, code: 'HAZARD_CONFIRM', hazard: hz.kind, error: hz.message });
+        }
       }
+
+      // 🔒 قفل تسلسل لكلّ غرفة — كان الترقيم يتقاطع مع نقلٍ جارٍ فيتلف الترتيب
+      if (seatMoveInFlight.has(data.roomId)) {
+        return callback({ success: false, error: 'هناك عملية نقل جارية — أعد المحاولة' });
+      }
+      seatMoveInFlight.add(data.roomId);
+      try {
 
       // فلترة التغييرات الفعلية فقط
       const actualChanges = data.changes.filter(c => c.oldPhysicalId !== c.newPhysicalId);
@@ -2189,9 +2484,16 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
         return callback({ success: false, error: 'يوجد أرقام مكررة في القائمة الجديدة' });
       }
 
-      // التحقق أن كل الأرقام بين 1-99
-      if (allNewIds.some(id => id < 1 || id > 99)) {
-        return callback({ success: false, error: 'الأرقام يجب أن تكون بين 1 و 99' });
+      // النطاق = سعة الغرفة (كان 1..99 فيُرقّم لاعبٌ إلى مقعد خارج السعة فيختفي)
+      const capMax = state.config.maxPlayers;
+      if (allNewIds.some(id => id < 1 || id > capMax)) {
+        return callback({ success: false, error: `الأرقام يجب أن تكون بين 1 و ${capMax}` });
+      }
+      // 👁️ مقاعد المتفرّجين مشغولة — لا يُرقّم أحد إليها
+      const specSeats = new Set(getSpectators(state).map(sp => sp.physicalId));
+      const hitSpec = allNewIds.find(id => specSeats.has(id));
+      if (hitSpec) {
+        return callback({ success: false, error: `المقعد ${hitSpec} محجوز لمتفرّج` });
       }
 
       // 🛡️ التحقق من التصادم مع لاعبين خارج قائمة التغييرات
@@ -2242,11 +2544,40 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
         console.log(`📤 Seat change notification sent: #${sc.oldId} → #${sc.newId}`);
       }
 
+      // 🗺️ إشارة الإبطال العامّة — كانت غائبة عن هذا المسار وحده.
+      // بدونها لا تمسح الأجهزة ذاكرتها المفهرسة بالمقاعد (خطرٌ ظاهر في GAME_OVER
+      // حيث للعرض طبقات كشفٍ مثبّتة على المقاعد).
+      io.to(data.roomId).emit('room:seats-remapped', {
+        map: Object.fromEntries(idMap),
+        swapped: actualChanges.length > 1,
+        bulk: true,
+        at: Date.now(),
+      });
+
+      // 🗣️ سجلّ دردشة المافيا يعيش خارج حالة اللعبة فلا يراه الجوّال — يُرقّم يدويّاً
+      try { await remapMafiaChatSeats(data.roomId, idMap); } catch {}
+
       // بث التحديث الكامل لكل الشاشات (الآلية الرئيسية للمزامنة)
       await emitStateSanitized(io, data.roomId, 'game:state-sync', state);
 
-      callback({ success: true });
+      // إعادة دفع الأسرار للمنقولين (الدور، فريق المافيا، التوأم، عقود السفّاح)
+      try { await republishAfterSeatMove(io, data.roomId, state, actualChanges.map(c => c.newPhysicalId)); } catch {}
+
+      try {
+        const { logStaffAction } = await import('../services/staff-action-log.service.js');
+        logStaffAction({
+          staffId: socket.data.authStaff?.id, staffUsername: socket.data.authStaff?.username, staffRole: socket.data.authStaff?.role,
+          source: 'socket', action: 'socket:renumber-players',
+          details: { roomId: data.roomId, phase: state.phase, changes: actualChanges, reason: data.reason || null },
+        });
+      } catch { /* غير حاجب */ }
+
+      callback({ success: true, applied: actualChanges.length });
+      } finally {
+        seatMoveInFlight.delete(data.roomId);
+      }
     } catch (err: any) {
+      seatMoveInFlight.delete(data.roomId);
       callback({ success: false, error: err.message });
     }
   });
@@ -2371,6 +2702,369 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
   });
 
   // ── صلاحية الليدر: تعديل/إضافة لاعب يدوياً ──
+  // ══════════════════════════════════════════════════════
+  // 🪄 أدواتُ المقاعد الجماعيّة (القرارات المقفلة ٣ · ٤ · ٥ · ٨)
+  // ══════════════════════════════════════════════════════
+
+  /** يطبّق دفعةَ تغييرات بعقد النقل الكامل: ربط عميق ← DB ← دردشة ← أجهزة ← بثّ. */
+  async function applySeatChanges(
+    roomId: string,
+    changes: Array<{ oldPhysicalId: number; newPhysicalId: number }>,
+    meta: { action: string; reason?: string | null; confirmHazard?: boolean },
+  ): Promise<{ ok: true } | { ok: false; code?: string; error: string }> {
+    const state = await getRoom(roomId);
+    if (!state) return { ok: false, error: 'Room not found' };
+
+    const actual = changes.filter(c => c.oldPhysicalId !== c.newPhysicalId);
+    if (actual.length === 0) return { ok: true };
+
+    const inPlay = state.phase !== Phase.LOBBY && state.phase !== Phase.ROLE_GENERATION && state.phase !== Phase.GAME_OVER;
+    if (inPlay) {
+      const hz = detectSeatMoveHazard(state);
+      if (hz?.blocking) return { ok: false, code: 'HAZARD_BLOCKED', error: hz.message };
+      if (hz && !meta.confirmHazard) return { ok: false, code: 'HAZARD_CONFIRM', error: hz.message };
+    }
+
+    const collision = validateRenumberChanges(state.players, actual);
+    if (collision) return { ok: false, error: collision };
+
+    const specSeats = new Set(getSpectators(state).map(sp => sp.physicalId));
+    const hitSpec = actual.find(c => specSeats.has(c.newPhysicalId));
+    if (hitSpec) return { ok: false, error: `المقعد ${hitSpec.newPhysicalId} محجوز لمتفرّج` };
+
+    const idMap = new Map<number, number>(actual.map(c => [c.oldPhysicalId, c.newPhysicalId]));
+    remapPhysicalIds(state, idMap);
+    await setGameState(roomId, state);
+    if (state.sessionId) { try { await remapSessionPlayerSeats(state.sessionId, actual); } catch {} }
+
+    const allSockets = await io.in(roomId).fetchSockets();
+    const pending: Array<{ sk: any; oldId: number; newId: number }> = [];
+    for (const c of actual) {
+      for (const sk of allSockets) {
+        if (sk.data.role === 'player' && sk.data.physicalId === c.oldPhysicalId) {
+          pending.push({ sk, oldId: c.oldPhysicalId, newId: c.newPhysicalId });
+        }
+      }
+    }
+    for (const q of pending) {
+      q.sk.data.physicalId = q.newId;
+      q.sk.emit('player:seat-changed', { oldPhysicalId: q.oldId, newPhysicalId: q.newId });
+    }
+
+    io.to(roomId).emit('room:seats-remapped', {
+      map: Object.fromEntries(idMap), swapped: actual.length > 1, bulk: true, at: Date.now(),
+    });
+    try { await remapMafiaChatSeats(roomId, idMap); } catch {}
+    await emitStateSanitized(io, roomId, 'game:state-sync', state);
+    try { await republishAfterSeatMove(io, roomId, state, actual.map(c => c.newPhysicalId)); } catch {}
+
+    try {
+      const { logStaffAction } = await import('../services/staff-action-log.service.js');
+      logStaffAction({
+        staffId: socket.data.authStaff?.id, staffUsername: socket.data.authStaff?.username, staffRole: socket.data.authStaff?.role,
+        source: 'socket', action: meta.action,
+        details: { roomId, phase: state.phase, changes: actual, reason: meta.reason || null },
+      });
+    } catch {}
+
+    return { ok: true };
+  }
+
+  /** يبني بيانات الجلوس المُثراة + سياق التقييم لغرفةٍ كاملة (مشترك بين الاقتراح والتحذيرات). */
+  async function buildSeatingContextFor(state: any) {
+    const db = getDB();
+    const dbById = new Map<number, any>();
+    const ids = state.players.map((p: any) => p.playerId).filter((x: any) => typeof x === 'number' && x > 0);
+    if (db && ids.length > 0) {
+      try {
+        const { inArray } = await import('drizzle-orm');
+        const { players: pTable } = await import('../schemas/player.schema.js');
+        const rows = await db.select({
+          id: pTable.id, totalMatches: pTable.lifetimeMatches, rankRR: pTable.rankRR,
+          rankTier: pTable.rankTier, genderConstraint: pTable.genderConstraint,
+        }).from(pTable).where(inArray(pTable.id, ids));
+        for (const r of rows) dbById.set(r.id, r);
+      } catch {}
+    }
+    const toSeatData = (p: any) => {
+      const d = p.playerId ? dbById.get(p.playerId) : undefined;
+      return {
+        playerId: p.playerId ?? null, phone: p.phone || '', name: p.name,
+        gender: p.gender || 'MALE', totalMatches: d?.totalMatches || 0,
+        activityCount: Math.floor((d?.totalMatches || 0) / 3),
+        rankRR: d?.rankRR || 0, rankTier: d?.rankTier || 'INFORMANT',
+        hasPenalty: (p.penalties || 0) > 0, physicalId: p.physicalId,
+        seatHeld: !!p.seatHeld, genderConstraint: d?.genderConstraint || 'NONE',
+      };
+    };
+
+    let affinityPairs = new Map<string, number>();
+    try {
+      affinityPairs = await buildAffinityPairs({
+        sessionId: state.sessionId, activityId: state.activityId,
+        people: state.players.map((p: any) => ({ playerId: p.playerId ?? null, phone: p.phone, name: p.name })),
+      });
+      const rules = await loadPairRules({ activityId: state.activityId, roomId: state.roomId });
+      affinityPairs = mergeRulesIntoAffinity(affinityPairs, rules);
+    } catch {}
+
+    let seatingConfig: any = null;
+    if (state.activityId && db) {
+      try {
+        const rows: any = await db.execute(sql`SELECT seat_constraints FROM activities WHERE id = ${state.activityId}`);
+        seatingConfig = ((rows as any).rows || rows || [])[0]?.seat_constraints || null;
+      } catch {}
+    }
+    if (!seatingConfig) seatingConfig = { engineEnabled: true, strictness: 'relaxed' };
+    else seatingConfig.engineEnabled = true;
+
+    return {
+      toSeatData,
+      seatingConfig,
+      context: {
+        maxPlayers: state.config.maxPlayers,
+        sessionId: state.sessionId,
+        penaltyNeighborHistory: new Map<string, number>(),
+        constraintParams: {},
+        pinnedSeats: (state as any).pinnedSeats || [],
+        reservedTailSeats: (state as any).reservedTailSeats || 0,
+        doorSeats: (state as any).doorSeats || [],
+        affinityPairs,
+      },
+    };
+  }
+
+  // ── 🪄 «رتّب تلقائيّاً»: اقتراحٌ بمعاينة ثمّ تطبيقٌ ذرّيّ (S2) ──
+  // القرار المقفل ٨: المقاعد ثابتة عبر الليلة، وهذا الزرّ يدويّ يظهر عند وجود تعارض.
+  // القرار المقفل ٥: بلا رقمٍ سرّيّ في اللوبي (مع سجلّ موظّفين لكلّ عمليّة).
+  socket.on('room:reshuffle-seats', async (data: {
+    roomId: string; dryRun?: boolean; lockedSeats?: number[];
+  }, callback) => {
+    try {
+      if (socket.data.role !== 'leader') return callback({ success: false, error: 'Only leader' });
+      const state = await getRoom(data.roomId);
+      if (!state) return callback({ success: false, error: 'Room not found' });
+
+      // ⚠️ إعادةُ ترتيبٍ شاملة أثناء اللعب تُغيّر جيرانَ القنبلة وأهدافَ الليل دفعةً
+      //    واحدة — تبقى محصورةً في نوافذ إدارة الروستر.
+      if (state.phase !== Phase.LOBBY && state.phase !== Phase.ROLE_GENERATION && state.phase !== Phase.GAME_OVER) {
+        return callback({ success: false, error: 'إعادة الترتيب متاحة في اللوبي أو بعد انتهاء اللعبة فقط' });
+      }
+      if (seatMoveInFlight.has(data.roomId)) {
+        return callback({ success: false, error: 'هناك عملية نقل جارية — أعد المحاولة' });
+      }
+
+      const { toSeatData, seatingConfig, context } = await buildSeatingContextFor(state);
+      const lockedIds = new Set<number>(data.lockedSeats || []);
+      const locked = new Map<number, any>();
+      const movable: any[] = [];
+      for (const p of state.players) {
+        // المحجوز والمجمّد ومن قفله الليدر لا يتحرّكون
+        if (p.seatHeld || p.frozen || lockedIds.has(p.physicalId)) locked.set(p.physicalId, toSeatData(p));
+        else movable.push(toSeatData(p));
+      }
+      // 👁️ مقاعد المتفرّجين مشغولة ولا تدخل التوزيع
+      for (const sp of getSpectators(state)) {
+        if (sp.physicalId > 0 && !locked.has(sp.physicalId)) {
+          locked.set(sp.physicalId, {
+            playerId: sp.playerId ?? null, phone: sp.phone || '', name: sp.name,
+            gender: sp.gender || 'MALE', totalMatches: 0, activityCount: 0,
+            rankRR: 0, rankTier: 'INFORMANT', physicalId: sp.physicalId, genderConstraint: 'NONE',
+          });
+        }
+      }
+
+      if (movable.length === 0) return callback({ success: false, error: 'لا يوجد لاعبون قابلون للنقل' });
+
+      const before = countAdjacencyIssues(state, context.affinityPairs);
+      const result = reshuffleSeating({
+        maxPlayers: state.config.maxPlayers,
+        players: movable,
+        seatingConfig,
+        context: context as any,
+        lockedSeats: locked,
+      });
+
+      const changes = result.arrangement
+        .filter(a => a.fromSeat && a.fromSeat !== a.seatNumber && !locked.has(a.fromSeat))
+        .map(a => ({ oldPhysicalId: a.fromSeat as number, newPhysicalId: a.seatNumber }));
+
+      const preview = changes.map(c => {
+        const pl = state.players.find((x: any) => x.physicalId === c.oldPhysicalId);
+        return { from: c.oldPhysicalId, to: c.newPhysicalId, name: pl?.name || '' };
+      });
+
+      if (data.dryRun !== false) {
+        return callback({
+          success: true, dryRun: true, changes: preview,
+          violationsBefore: before, violationsAfter: result.violations.length,
+          score: Number(result.totalScore.toFixed(2)),
+        });
+      }
+
+      if (changes.length === 0) return callback({ success: true, applied: 0, changes: [] });
+      seatMoveInFlight.add(data.roomId);
+      let res;
+      try {
+        res = await applySeatChanges(data.roomId, changes, { action: 'socket:reshuffle-seats', reason: 'auto-arrange' });
+      } finally {
+        seatMoveInFlight.delete(data.roomId);
+      }
+      if (!res.ok) return callback({ success: false, code: (res as any).code, error: (res as any).error });
+      return callback({ success: true, applied: changes.length, changes: preview });
+    } catch (err: any) {
+      callback({ success: false, error: err.message });
+    }
+  });
+
+  // ── ✂️ «افصل هذين» (S5 · القرار المقفل ٤: الافتراضيّ «دائم») ──
+  socket.on('room:separate-pair', async (data: {
+    roomId: string;
+    aPhysicalId: number;
+    bPhysicalId: number;
+    scope?: 'room' | 'activity' | 'global';
+    autoMove?: boolean;
+    confirmHazard?: boolean;
+    reason?: string;
+  }, callback) => {
+    try {
+      if (socket.data.role !== 'leader') return callback({ success: false, error: 'Only leader' });
+      const state = await getRoom(data.roomId);
+      if (!state) return callback({ success: false, error: 'Room not found' });
+
+      const a = state.players.find((p: any) => p.physicalId === data.aPhysicalId);
+      const b = state.players.find((p: any) => p.physicalId === data.bPhysicalId);
+      if (!a || !b) return callback({ success: false, error: 'أحد اللاعبَين غير موجود' });
+
+      // 🔐 القرار المقفل ٥: بلا سرّ في نوافذ إدارة الروستر، وبالسرّ أثناء اللعب.
+      const inPlay = state.phase !== Phase.LOBBY && state.phase !== Phase.ROLE_GENERATION && state.phase !== Phase.GAME_OVER;
+      if (inPlay && !toolsUnlocked(socket)) {
+        return callback({ success: false, code: 'TOOLS_LOCKED', error: 'الأدوات مقفلة — أدخل الرقم السرّي' });
+      }
+
+      // 📏 القاعدة تُخزَّن بالهويّة لا بالمقعد: المقاعد تتغيّر، والأشخاص لا.
+      const scope = data.scope || 'global';   // ← الافتراضيّ «دائم» بقرار المالك
+      const keyA = personKey({ playerId: a.playerId, phone: a.phone, name: a.name });
+      const keyB = personKey({ playerId: b.playerId, phone: b.phone, name: b.name });
+      const saved = await upsertPairRule({
+        // ⚖️ «يثرثران» ليست عداوة: تُسجَّل تباعداً مرناً لا منعاً صارماً، وإلّا تراكمت
+        //    أزواجٌ صارمة دائمة حتّى تعجز الغرفة الممتلئة عن الحلّ فتُجلسهم متجاورين بصمت.
+        kind: 'separate',
+        personA: keyA, personB: keyB, nameA: a.name, nameB: b.name,
+        weight: 1.0, scope,
+        activityId: scope === 'activity' ? (state.activityId ?? null) : null,
+        roomId: scope === 'room' ? data.roomId : null,
+        source: 'leader',
+        reason: data.reason || null,
+        createdBy: socket.data.authStaff?.id ?? null,
+        expiresAt: null,
+      });
+
+      let moved: { from: number; to: number } | null = null;
+      if (data.autoMove !== false) {
+        // أفضل وجهة للطرف الثاني: أبعد مقعدٍ فارغ عن الأوّل (أو تبديل إن امتلأت)
+        const taken = new Set<number>([
+          ...state.players.map((p: any) => p.physicalId),
+          ...getSpectators(state).map(sp => sp.physicalId),
+        ]);
+        const cap = state.config.maxPlayers;
+        let best = 0, bestDist = -1;
+        for (let seat = 1; seat <= cap; seat++) {
+          if (taken.has(seat)) continue;
+          const d = Math.min(Math.abs(seat - a.physicalId), cap - Math.abs(seat - a.physicalId));
+          if (d > bestDist) { bestDist = d; best = seat; }
+        }
+        if (best > 0) {
+          const res = await applySeatChanges(
+            data.roomId,
+            [{ oldPhysicalId: b.physicalId, newPhysicalId: best }],
+            { action: 'socket:separate-pair', reason: `separate ${a.name}/${b.name}`, confirmHazard: data.confirmHazard },
+          );
+          if (!res.ok) return callback({ success: false, code: (res as any).code, error: (res as any).error, ruleSaved: saved });
+          moved = { from: b.physicalId, to: best };
+        }
+      }
+
+      return callback({ success: true, ruleSaved: saved, scope, moved });
+    } catch (err: any) {
+      callback({ success: false, error: err.message });
+    }
+  });
+
+  // ── 👁️ إدارة المتفرّجين عند الليدر ──
+  socket.on('room:remove-spectator', async (data: { roomId: string; physicalId: number }, callback) => {
+    try {
+      if (socket.data.role !== 'leader') return callback({ success: false, error: 'Only leader' });
+      const state = await getRoom(data.roomId);
+      if (!state) return callback({ success: false, error: 'Room not found' });
+      const before = getSpectators(state).length;
+      (state as any).spectators = getSpectators(state).filter(sp => sp.physicalId !== data.physicalId);
+      if (getSpectators(state).length === before) return callback({ success: false, error: 'المتفرّج غير موجود' });
+      await setGameState(data.roomId, state);
+      await emitTrustedOnly(io, data.roomId, 'room:spectator-removed', { physicalId: data.physicalId, waitingCount: getSpectators(state).length });
+      await emitStateSanitized(io, data.roomId, 'game:state-sync', state);
+      const sockets = await io.in(spectatorRoom(data.roomId)).fetchSockets();
+      for (const sk of sockets) if (sk.data.physicalId === data.physicalId) { sk.emit('spectator:removed', {}); sk.leave(spectatorRoom(data.roomId)); }
+      callback({ success: true, waitingCount: getSpectators(state).length });
+    } catch (err: any) { callback({ success: false, error: err.message }); }
+  });
+
+  // ── ✅ «أدخله الآن» أثناء ربط الأدوار قبل اعتمادها (القرار المقفل ٧) ──
+  // لا إدخال تلقائيّ: الزرّ للّيدر وحده، وما دام rolesConfirmed=false فلا سرّ عند أحد.
+  socket.on('setup:admit-spectator', async (data: { roomId: string; physicalId: number }, callback) => {
+    try {
+      if (socket.data.role !== 'leader') return callback({ success: false, error: 'Only leader' });
+      const state = await getRoom(data.roomId);
+      if (!state) return callback({ success: false, error: 'Room not found' });
+      if (state.rolesConfirmed) {
+        return callback({ success: false, error: 'اعتُمدت الأدوار — ينتظر اللعبة القادمة' });
+      }
+      if (state.phase !== Phase.ROLE_BINDING && state.phase !== Phase.ROLE_GENERATION) {
+        return callback({ success: false, error: 'الإدخال الفوريّ متاح قبل اعتماد الأدوار فقط' });
+      }
+      const spec = getSpectators(state).find(sp => sp.physicalId === data.physicalId);
+      if (!spec) return callback({ success: false, error: 'المتفرّج غير موجود' });
+      if (state.players.some((p: any) => p.physicalId === spec.physicalId)) {
+        return callback({ success: false, error: 'المقعد صار مشغولاً' });
+      }
+
+      state.players.push({
+        physicalId: spec.physicalId, name: spec.name, phone: spec.phone ?? null,
+        dob: spec.dob ?? null, gender: spec.gender ?? null, playerId: spec.playerId ?? null,
+        role: null, isAlive: true, isSilenced: false, justificationCount: 0,
+        addedBy: spec.addedBy || 'self', avatarUrl: spec.avatarUrl ?? null,
+        rankTier: spec.rankTier ?? null, cosmetics: spec.cosmetics ?? null,
+        isConnected: true, penalties: 0,
+      } as any);
+      state.players.sort((a: any, b: any) => a.physicalId - b.physicalId);
+      (state as any).spectators = getSpectators(state).filter(sp => sp.physicalId !== data.physicalId);
+      // مجمّع الأدوار يكبر بمواطن، وتسقط المصادقة كي يعيد الليدر الاعتماد
+      if (Array.isArray(state.rolesPool) && state.rolesPool.length > 0) {
+        state.rolesPool.push('CITIZEN' as any);
+      }
+      state.rolesConfirmed = false;
+      await setGameState(data.roomId, state);
+
+      if (state.sessionId) {
+        try { await addPlayerToSession(state.sessionId, spec.physicalId, spec.name, spec.phone || undefined, spec.gender || undefined, spec.dob || undefined, spec.playerId || null); } catch {}
+      }
+      const sockets = await io.in(spectatorRoom(data.roomId)).fetchSockets();
+      for (const sk of sockets) {
+        if (sk.data.physicalId === spec.physicalId) {
+          sk.leave(spectatorRoom(data.roomId)); sk.join(data.roomId);
+          sk.data.role = 'player';
+          sk.emit('spectator:promoted', { physicalId: spec.physicalId, roomId: data.roomId });
+        }
+      }
+      io.to(data.roomId).emit('room:player-joined', {
+        physicalId: spec.physicalId, name: spec.name, playerId: spec.playerId,
+        promotedFromSpectator: true, totalPlayers: state.players.length, maxPlayers: state.config.maxPlayers,
+      });
+      await emitStateSanitized(io, data.roomId, 'game:state-sync', state);
+      callback({ success: true, physicalId: spec.physicalId, rolesPoolSize: state.rolesPool?.length || 0 });
+    } catch (err: any) { callback({ success: false, error: err.message }); }
+  });
+
   socket.on('room:override-player', async (data: {
     roomId: string;
     physicalId: number;
@@ -2469,6 +3163,47 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
         return callback({
           success: false,
           error: `المقعد ${data.physicalId} مشغول بـ«${occupant.name}» — اختر مقعداً آخر أو استخدم «نقل مقعد» للتبديل`,
+        });
+      }
+      const specHere = preState ? getSpectators(preState).find(sp => sp.physicalId === data.physicalId) : undefined;
+      if (specHere) {
+        return callback({
+          success: false,
+          error: `المقعد ${data.physicalId} محجوز للمتفرّج «${specHere.name}»`,
+        });
+      }
+
+      // ══ 🔒 حارس المرحلة ══
+      // addPlayer بلا حارسٍ أصلاً، والواجهة تُخفي الزرّ فقط — فإن نُفّذ أثناء لعبةٍ
+      // جارية دخل «حيٌّ بلا دور» إلى players: يظهر على الشاشة، ويدخل قوائم الأهداف
+      // والتصويت، ويُحسب في totalAlive للفائز المنفرد. الآن: يُسجّل متفرّجاً.
+      if (preState && preState.phase !== 'LOBBY' && preState.phase !== 'ROLE_GENERATION') {
+        if (!Array.isArray((preState as any).spectators)) (preState as any).spectators = [];
+        (preState as any).spectators.push({
+          physicalId: data.physicalId,
+          name: data.name,
+          phone: data.phone || null,
+          playerId: null,
+          gender: data.gender || null,
+          dob: data.dob || null,
+          avatarUrl: null, rankTier: null, cosmetics: null,
+          joinedAt: Date.now(),
+          addedBy: 'leader',
+        });
+        await setGameState(data.roomId, preState);
+        await emitTrustedOnly(io, data.roomId, 'room:spectator-joined', {
+          physicalId: data.physicalId, name: data.name,
+          firstName: String(data.name || '').trim().split(/\s+/)[0] || data.name,
+          phone: data.phone || null, playerId: null, gender: data.gender || null,
+          joinedAt: Date.now(), waitingCount: getSpectators(preState).length,
+          phase: preState.phase, round: preState.round,
+        });
+        console.log(`👁️ force-add during ${preState.phase} → registered as spectator #${data.physicalId}`);
+        return callback({
+          success: true,
+          spectator: true,
+          physicalId: data.physicalId,
+          message: 'أُضيف متفرّجاً — يدخل اللعبة القادمة تلقائيّاً',
         });
       }
 
@@ -3417,7 +4152,7 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
   });
 
   // ── بدء توليد الأدوار ──────────────────────────
-  socket.on('room:start-generation', async (data: { roomId: string }, callback) => {
+  socket.on('room:start-generation', async (data: { roomId: string; releaseAbsent?: boolean }, callback) => {
     try {
       if (socket.data.role !== 'leader') {
         return callback({ success: false, error: 'Only leader can start generation' });
@@ -3426,7 +4161,34 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
       const state = await getRoom(data.roomId);
       if (!state) return callback({ success: false, error: 'Room not found' });
 
-      const playerCount = state.players.length;
+      // ══ 👥 قياس الأدوار على الحاضرين فعلاً ══
+      // كان يُقاس بـ players.length الخام، فيأخذ من غادر القاعة (مقعده محجوز ١٠ دقائق
+      // أو مجمّد) دوراً ويبدأ اللعبة «حيّاً»: يدخل طابور النقاش وقوائم الأهداف
+      // ومعادلة الفوز ويُسجّل له رانك — بينما شاشة العرض تُخفيه فيحتار الليدر.
+      const absent = state.players.filter((p: any) => p.seatHeld || p.frozen);
+      if (absent.length > 0 && !data.releaseAbsent) {
+        return callback({
+          success: false,
+          code: 'ABSENT_PLAYERS',
+          error: `${absent.length} مقعدً لمغادرين — حرّرها أو انتظر عودتهم`,
+          absent: absent.map((p: any) => ({
+            physicalId: p.physicalId,
+            name: p.name,
+            reason: p.frozen ? 'frozen' : 'seatHeld',
+          })),
+        });
+      }
+      if (absent.length > 0 && data.releaseAbsent) {
+        const freed = absent.map((p: any) => p.physicalId);
+        state.players = state.players.filter((p: any) => !p.seatHeld && !p.frozen);
+        await setGameState(data.roomId, state);
+        const rm = activeRooms.get(data.roomId);
+        if (rm) rm.playerCount = state.players.length;
+        io.to(data.roomId).emit('room:absent-released', { seats: freed });
+        console.log(`🧹 Released ${freed.length} absent seat(s) before role generation: ${freed.join(', ')}`);
+      }
+
+      const playerCount = presentPlayers(state).length;
       if (playerCount < 6) {
         return callback({ success: false, error: 'يجب أن يكون هناك 6 لاعبين على الأقل' });
       }
@@ -3817,6 +4579,37 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
       }
 
       if (!player) {
+        // 👁️ متفرّجٌ وصل متأخّراً: ليس في players ولكنّه ليس غريباً.
+        // كان يُردّ بـ«Player not found» فيبتلعه العميلان صامتين ويبقى على شاشةٍ ميّتة.
+        // الحمولة معقّمة: روستر بلا أدوار حيّة، ولا نيّات ليل، ولا تصويت.
+        const spec = findSpectator(state, { playerId: data.playerId, phone: data.phone });
+        if (spec) {
+          return callback({
+            success: true,
+            spectator: true,
+            reservedSeat: spec.physicalId,
+            phase: state.phase,
+            round: state.round,
+            gameName: state.config.gameName,
+            teamCounts: state.rolesConfirmed ? getTeamCounts(state.players as any) : null,
+            maxPlayers: state.config.maxPlayers,
+            discussionState: state.discussionState || null,
+            rosterInfo: state.players.map((p: any) => ({
+              physicalId: p.physicalId,
+              name: p.name,
+              isAlive: p.isAlive,
+              avatarUrl: p.avatarUrl || null,
+              gender: p.gender || 'MALE',
+              rankTier: p.rankTier || null,
+              // ⚰️ دور المُقصى أُعلن للجميع لحظة إقصائه — وحده يُمرّر
+              role: p.isAlive === false ? (p.role || null) : null,
+            })),
+            waitingCount: getSpectators(state).length,
+            waitingPosition: getSpectators(state)
+              .slice().sort((a, b) => a.joinedAt - b.joinedAt)
+              .findIndex(x => x.physicalId === spec.physicalId) + 1,
+          });
+        }
         return callback({ success: false, error: 'Player not found' });
       }
 
@@ -4570,6 +5363,58 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
   });
 
   // ── دالة مشتركة: إعادة تعيين حالة الغرفة للوبي ──
+  /**
+   * 👁️ ما بعد ترقية المتفرّجين: صفّ الجلسة، إعلام الليدر والشاشة،
+   * نقل سوكِت المتفرّج من الغرفة المعقّمة إلى الغرفة الأصليّة، ودفعة «مقعدك N».
+   */
+  async function finishPromotions(state: any): Promise<void> {
+    const promoted: Array<{ physicalId: number; name: string; playerId: number | null; phone: string | null }> =
+      (state as any).__promotedSpectators || [];
+    delete (state as any).__promotedSpectators;
+    if (promoted.length === 0) return;
+
+    for (const pr of promoted) {
+      if (state.sessionId) {
+        try {
+          await addPlayerToSession(state.sessionId, pr.physicalId, pr.name, pr.phone || undefined,
+            undefined, undefined, pr.playerId || null);
+        } catch (e: any) { console.warn('⚠️ promote session row failed:', e.message); }
+      }
+      io.to(state.roomId).emit('room:player-joined', {
+        physicalId: pr.physicalId,
+        name: pr.name,
+        playerId: pr.playerId,
+        promotedFromSpectator: true,
+        totalPlayers: state.players.length,
+        maxPlayers: state.config.maxPlayers,
+      });
+      if (pr.playerId) {
+        try {
+          await sendPushToPlayer(pr.playerId, '🎮 بدأت اللعبة',
+            `مقعدك رقم ${pr.physicalId} — تفضّل إلى الطاولة`, 'promoted', { roomId: state.roomId, seat: pr.physicalId });
+        } catch {}
+      }
+    }
+
+    // نقل سوكِتات المتفرّجين المُرقّين إلى الغرفة الأصليّة
+    try {
+      const specSockets = await io.in(spectatorRoom(state.roomId)).fetchSockets();
+      for (const sk of specSockets) {
+        const match = promoted.find(pr =>
+          (pr.playerId && sk.data.authPlayer?.playerId === pr.playerId) ||
+          sk.data.physicalId === pr.physicalId);
+        if (!match) continue;
+        sk.leave(spectatorRoom(state.roomId));
+        sk.join(state.roomId);
+        sk.data.role = 'player';
+        sk.data.physicalId = match.physicalId;
+        sk.emit('spectator:promoted', { physicalId: match.physicalId, roomId: state.roomId });
+      }
+    } catch (e: any) { console.warn('⚠️ spectator socket promotion failed:', e.message); }
+
+    console.log(`👁️ Promoted ${promoted.length} spectator(s) to players in ${state.roomId}`);
+  }
+
   function resetRoomState(state: any, excludeIds: number[] = [], resetPenalties?: boolean): any {
     // تحديد سلوك العقوبات: إذا لم يُحدد صراحة → يعتمد على penaltyScope
     const shouldResetPenalties = resetPenalties !== undefined 
@@ -4596,7 +5441,55 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
       disabledRoleName: undefined,
       penalties: shouldResetPenalties ? 0 : (p.penalties || 0),
       penaltyKicked: shouldResetPenalties ? false : (p.penaltyKicked || false),
+      // ❄️ أعلام الغياب لا تُورَّث: من جُمّد في لعبةٍ سابقة كان يبقى مجمّداً
+      //    في اللوبي الجديد: الشاشة تُخفيه وقياسُ الأدوار يعدّه — شبحٌ بلا سبب ظاهر.
+      frozen: false,
+      seatHeld: false,
+      heldUntil: undefined,
     }));
+
+    // ══ 👁️ ترقية المتفرّجين إلى لاعبين — نقطة الاختناق الوحيدة ══
+    // هذه الدالّة يستدعيها room:new-game وroom:reset-to-lobby معاً، وهي تسبق أيّ
+    // توليدٍ للأدوار — فالمترقّي يدخل اللوبي لاعباً كاملاً قبل قياس المجمّع.
+    const promoted: Array<{ physicalId: number; name: string; playerId: number | null; phone: string | null }> = [];
+    const specs: any[] = Array.isArray(state.spectators) ? state.spectators : [];
+    if (specs.length > 0) {
+      const taken = new Set<number>(state.players.map((pp: any) => pp.physicalId));
+      const cap = state.config?.maxPlayers || 27;
+      const leftover: any[] = [];
+      for (const sp of specs.slice().sort((a: any, b: any) => (a.joinedAt || 0) - (b.joinedAt || 0))) {
+        // مقعده المحجوز إن بقي حرّاً، وإلّا أوّل مقعدٍ فارغ
+        let seat = sp.physicalId;
+        if (!seat || seat > cap || taken.has(seat)) {
+          seat = 0;
+          for (let i = 1; i <= cap; i++) if (!taken.has(i)) { seat = i; break; }
+        }
+        if (!seat) { leftover.push(sp); continue; }   // الغرفة ممتلئة — يبقى منتظراً
+        taken.add(seat);
+        state.players.push({
+          physicalId: seat,
+          name: sp.name,
+          phone: sp.phone ?? null,
+          dob: sp.dob ?? null,
+          gender: sp.gender ?? null,
+          playerId: sp.playerId ?? null,
+          role: null,
+          isAlive: true,
+          isSilenced: false,
+          justificationCount: 0,
+          addedBy: sp.addedBy || 'self',
+          avatarUrl: sp.avatarUrl ?? null,
+          rankTier: sp.rankTier ?? null,
+          cosmetics: sp.cosmetics ?? null,
+          isConnected: true,
+          penalties: 0,
+        });
+        promoted.push({ physicalId: seat, name: sp.name, playerId: sp.playerId ?? null, phone: sp.phone ?? null });
+      }
+      state.spectators = leftover;
+      state.players.sort((a: any, b: any) => a.physicalId - b.physicalId);
+    }
+    (state as any).__promotedSpectators = promoted;   // يقرأه المُستدعي ثمّ يُزيله
 
     state.phase = Phase.LOBBY;
     state.round = 0;
@@ -4681,6 +5574,7 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
       // ⚖️ تمرير الاختيار كما ورد (قد يكون undefined) — عندئذٍ يحكم إعداد الغرفة penaltyScope.
       // كان `?? true` يصفّر العقوبات دائماً لأي عميل لا يرسل العلم، فيُبطل إعداد «room».
       resetRoomState(state, [], data.resetPenalties);
+      await finishPromotions(state);
       await setGameState(data.roomId, state);
 
       await emitPhaseChangedSanitized(io, data.roomId, { phase: 'LOBBY', state });
@@ -4855,6 +5749,7 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
       // إعادة تعيين الحالة باستخدام الدالة المشتركة
       // ⚖️ بلا `?? true`: العميل الذي لا يرسل العلم يترك القرار لإعداد الغرفة penaltyScope
       resetRoomState(state, excludeIds, data.resetPenalties);
+      await finishPromotions(state);
       await setGameState(data.roomId, state);
 
       // ── إبلاغ المستبعدين قبل بث الحالة الجديدة ──

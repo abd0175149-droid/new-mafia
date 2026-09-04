@@ -142,6 +142,10 @@ function DisplayPageContent() {
   // 🪑 إعادة ترتيب المقاعد (نقل/تبديل من الليدر أثناء أي طور):
   //    لافتة تنبيه قصيرة على الشاشة + راية «أعد الاشتقاق من الحالة القادمة».
   const [seatsRemapNotice, setSeatsRemapNotice] = useState(false);
+  // 🚶 لافتة الواصل متأخّراً (القرار المقفل ٦: الاسم الأوّل + رقم المقعد فقط)
+  const [lateArrival, setLateArrival] = useState<{ firstName: string; seat: number } | null>(null);
+  const lateArrivalTimerRef = useRef<any>(null);
+  const lateQueueRef = useRef<Array<{ firstName: string; seat: number }>>([]);
   const seatsRemapTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const seatResyncPendingRef = useRef(false);
   const hasAutoRejoined = useRef(false);
@@ -718,6 +722,27 @@ function DisplayPageContent() {
     //
     // العقد: امحُ (بلا أي «تصحيح حسابي» للأرقام) ← دع `game:state-sync` التالي
     // — يبثّه الخادم فور هذا الحدث — يعيد الرسم من الصفر.
+    // 🚶 وصل متأخّراً → لافتة قصيرة تدلّه على مقعده بلا مقاطعة الليدر.
+    // لا يدخل players ولا تُطلَق له تشريفة الدخول — فهو ليس لاعباً في هذه الجولة.
+    // وفي الليل تُؤجّل إلى الطور التالي كي لا تُكسر عتمة المشهد.
+    const showNextLate = () => {
+      if (lateArrivalTimerRef.current) return;
+      const next = lateQueueRef.current.shift();
+      if (!next) return;
+      setLateArrival(next);
+      lateArrivalTimerRef.current = setTimeout(() => {
+        setLateArrival(null);
+        lateArrivalTimerRef.current = null;
+        setTimeout(showNextLate, 400);
+      }, 6500);
+    };
+    const onSpectatorJoined = (data: { firstName?: string; name?: string; physicalId?: number }) => {
+      const entry = { firstName: data?.firstName || data?.name || 'ضيف', seat: Number(data?.physicalId || 0) };
+      lateQueueRef.current.push(entry);
+      if (phaseRef.current === 'NIGHT' || phaseRef.current === 'MORNING_RECAP') return;
+      showNextLate();
+    };
+
     const onSeatsRemapped = (data: { map?: Record<string, number>; swapped?: boolean; at?: number }) => {
       console.log('🪑 Display: room:seats-remapped — purging seat-keyed state', data?.map);
 
@@ -727,6 +752,10 @@ function DisplayPageContent() {
 
       if (entranceTimerRef.current) { clearTimeout(entranceTimerRef.current); entranceTimerRef.current = null; }
       setEntrance(null);                        // تشريفة دخول لمقعد بعينه
+
+      if (lateArrivalTimerRef.current) { clearTimeout(lateArrivalTimerRef.current); lateArrivalTimerRef.current = null; }
+      setLateArrival(null);                     // لافتة وصول تحمل رقم مقعد قديم
+      lateQueueRef.current = [];
 
       if (adminRevealTimerRef.current) { clearTimeout(adminRevealTimerRef.current); adminRevealTimerRef.current = null; }
       if (adminRevealFlipTimerRef.current) { clearTimeout(adminRevealFlipTimerRef.current); adminRevealFlipTimerRef.current = null; }
@@ -752,11 +781,14 @@ function DisplayPageContent() {
       seatsRemapTimerRef.current = setTimeout(() => setSeatsRemapNotice(false), 3500);
     };
     socket.on('room:seats-remapped', onSeatsRemapped);
+    socket.on('room:spectator-joined', onSpectatorJoined);
 
     // ── تنظيف ──
     return () => {
       clearLuckyTimers();
       socket.off('room:seats-remapped', onSeatsRemapped);
+      socket.off('room:spectator-joined', onSpectatorJoined);
+      if (lateArrivalTimerRef.current) { clearTimeout(lateArrivalTimerRef.current); lateArrivalTimerRef.current = null; }
       if (seatsRemapTimerRef.current) clearTimeout(seatsRemapTimerRef.current);
       socket.off('display:lucky-draw', onLuckyDraw);
       socket.off('display:lucky-draw:clear', onLuckyClear);
@@ -1922,6 +1954,31 @@ function DisplayPageContent() {
                 ADMIN ELIMINATION — IDENTITY REVEALED
               </p>
             </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* ═══ 🚶 لافتة الواصل متأخّراً ═══ */}
+      {/* طبقة بمستوى الصفحة (درس القرعة): تظهر في كلّ الأطوار لا داخل فرع طور */}
+      <AnimatePresence>
+        {lateArrival && (
+          <motion.div
+            key={`late-${lateArrival.seat}-${lateArrival.firstName}`}
+            initial={{ opacity: 0, y: -24 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -24 }}
+            transition={{ duration: 0.45, ease: 'easeOut' }}
+            className="fixed top-8 left-0 right-0 z-[295] flex justify-center pointer-events-none"
+          >
+            <div className="noir-card border-[#a78bfa]/40 bg-black/85 backdrop-blur-md px-8 py-3 flex items-center gap-5">
+              <span className="text-3xl opacity-90">🚶</span>
+              <div className="text-center leading-tight">
+                <p className="text-[#cbbcff] text-2xl font-black" style={{ fontFamily: 'Amiri, serif' }}>
+                  {lateArrival.firstName}{lateArrival.seat > 0 ? ` — مقعدك رقم ${lateArrival.seat}` : ''}
+                </p>
+                <p className="text-[#6b5f8f] text-[10px] font-mono tracking-[0.3em] uppercase mt-0.5">NEXT GAME</p>
+              </div>
+            </div>
           </motion.div>
         )}
       </AnimatePresence>

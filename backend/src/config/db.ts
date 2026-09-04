@@ -136,6 +136,39 @@ async function runAutoMigrations(pool: pg.Pool): Promise<void> {
       ON blocked_pairs (LEAST(player1_id, player2_id), GREATEST(player1_id, player2_id))
     `);
 
+    // ── 4.2 🪑 قواعد أزواج المقاعد بنطاق وانتهاء (يُكمل blocked_pairs العالميّ الدائم) ──
+    // القرار المقفل ٤: إيماءة الليدر «افصل هذين» تعرض ثلاثة نطاقات وافتراضيّها «دائم».
+    // «الليلة» و«هذه الفعاليّة» يحتاجان نطاقاً وانتهاءً لا يملكهما blocked_pairs.
+    // kind: 'block' = ممنوع صارم (أدمن) · 'separate' = تباعد مرن (ليدر) · 'affinity' = تقارب مشتقّ
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS seat_pair_rules (
+        id            SERIAL PRIMARY KEY,
+        kind          VARCHAR(16) NOT NULL DEFAULT 'separate',
+        person_a      VARCHAR(64) NOT NULL,
+        person_b      VARCHAR(64) NOT NULL,
+        name_a        VARCHAR(100),
+        name_b        VARCHAR(100),
+        weight        REAL NOT NULL DEFAULT 1.0,
+        scope         VARCHAR(16) NOT NULL DEFAULT 'global',
+        activity_id   INTEGER,
+        room_id       VARCHAR(50),
+        source        VARCHAR(16) NOT NULL DEFAULT 'leader',
+        reason        TEXT,
+        created_by    INTEGER,
+        expires_at    TIMESTAMP,
+        created_at    TIMESTAMP DEFAULT NOW()
+      )
+    `);
+    await client.query(`
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_seat_pair_rules_unique
+      ON seat_pair_rules (LEAST(person_a, person_b), GREATEST(person_a, person_b), scope,
+                          COALESCE(activity_id, 0), COALESCE(room_id, ''))
+    `);
+    await client.query(`
+      CREATE INDEX IF NOT EXISTS idx_seat_pair_rules_lookup
+      ON seat_pair_rules (scope, activity_id, room_id)
+    `);
+
     // ── 4.5 🪑 عمود إعدادات التخطيط المستطيل (3D) في قوالب المقاعد ──
     try {
       const tblExists = await client.query(`SELECT to_regclass('public.seat_templates') AS t`);

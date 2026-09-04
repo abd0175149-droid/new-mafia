@@ -1109,8 +1109,59 @@ class GameSessionController extends ChangeNotifier with WidgetsBindingObserver {
     }
   }
 
+  // ══ 👁️ حالة المتفرّج المتأخّر ══
+  // وصل واللعبة جارية: له مقعدٌ محجوز داخل الحلقة، ويرى الطاولة
+  // بروسترٍ معقّم (بلا أدوار حيّة)، ويُرقّى تلقائيّاً عند اللعبة التالية.
+  int? _spectatorSeat;
+  int _waitingPosition = 0;
+  int? get spectatorSeat => _spectatorSeat;
+  int get waitingPosition => _waitingPosition;
+
+  void _applySpectatorState(Map<String, dynamic> res) {
+    final seat = (res['reservedSeat'] as num?)?.toInt();
+    if (seat != null) {
+      _spectatorSeat = seat > 0 ? seat : null;
+      if (seat != _physicalId) _physicalId = seat;
+    }
+    final pos = (res['waitingPosition'] as num?)?.toInt();
+    if (pos != null) _waitingPosition = pos;
+
+    if (res['rosterInfo'] is List) _roster = _players(res['rosterInfo']);
+    _readTeamCounts(res['teamCounts']);
+    _setPhase(GamePhase.map(res['phase']), fromSocket: false);
+
+    final cap = (res['maxPlayers'] as num?)?.toInt();
+    if (cap != null && cap > 0) _maxPlayers = cap;
+
+    if (_step != GameStep.spectating) setStep(GameStep.spectating);
+    notifyListeners();
+  }
+
+  /// يُستدعى من مسار الانضمام حين يردّ الخادم `spectator: true`.
+  Future<void> applySpectator({
+    required String roomId,
+    required int seat,
+    String? phase,
+    String? phone,
+    int? playerId,
+    String? name,
+  }) async {
+    _roomId = roomId;
+    _spectatorSeat = seat > 0 ? seat : null;
+    _physicalId = seat;
+    if (phase != null) _setPhase(GamePhase.map(phase), fromSocket: false);
+    if (phone != null && phone.isNotEmpty) _phone = phone;
+    if (playerId != null) _playerId = playerId;
+    if (name != null && name.isNotEmpty) _displayName = name;
+    setApiError('');
+    setStep(GameStep.spectating);
+    unawaited(_saveSession());
+    _startPolling();
+    notifyListeners();
+  }
+
   Future<void> _pollOnce() async {
-    if (!_step.inGame || _roomId.isEmpty) return;
+    if (!_step.polls || _roomId.isEmpty) return;
     final res = await SocketService.instance.ask('room:get-my-state', {
       'roomId': _roomId,
       if (_playerId != null) 'playerId': _playerId,
@@ -1118,6 +1169,19 @@ class GameSessionController extends ChangeNotifier with WidgetsBindingObserver {
     });
     // أخطاء الاستطلاع تُبتلع — دورةٌ فائتة تُعوَّض بالتالية
     if (res == null || res['success'] != true) return;
+
+    // 👁️ ردُّ المتفرّج: بلا حقل player وبلا تصويت/ليل.
+    // كان الخادم يردّ «Player not found» فيُبتلع صامتاً ويبقى على سبينر أبديّ.
+    if (res['spectator'] == true) {
+      _applySpectatorState(res);
+      return;
+    }
+    // ✅ تُرقّي: صار لاعباً في اللعبة الجديدة
+    if (_step == GameStep.spectating && res['player'] is Map) {
+      _spectatorSeat = null;
+      setStep(GameStep.done);
+    }
+
     _syncFromState(res);
     _syncNightFromState(res);
   }
@@ -1734,6 +1798,25 @@ class GameSessionController extends ChangeNotifier with WidgetsBindingObserver {
 
     // 🌙 الخادم يطلب إعادة اشتقاق خطوة الليل بعد النقل. لا خطر تكرار:
     //    `nightFromResume` تردّ فارغاً لمن أرسل فعله (`playerSubmitted`).
+    // 👁️ ترقية المتفرّج إلى لاعب عند بدء اللعبة التالية
+    _on('spectator:promoted', (d) {
+      final seat = d is Map ? (d['physicalId'] as num?)?.toInt() : null;
+      _spectatorSeat = null;
+      if (seat != null && seat > 0) _physicalId = seat;
+      setStep(GameStep.done);
+      _flashSeatChange();
+      unawaited(_saveSession());
+      unawaited(_pollOnce());
+      notifyListeners();
+    });
+
+    _on('spectator:removed', (_) {
+      _spectatorSeat = null;
+      setApiError('أُزيلت من قائمة الانتظار — راجِع المنظّم');
+      setStep(GameStep.code);
+      notifyListeners();
+    });
+
     _on('night:refresh-required', (_) {
       _closeNight();
       _nightDoneKey = null;

@@ -15,7 +15,7 @@ import type {
   ConstraintConfig,
   PinnedSeat,
 } from './types.js';
-import { getCircularNeighborSeats } from './types.js';
+import { getCircularNeighborSeats, minCircularDistance } from './types.js';
 
 // ── تطبيع رقم الهاتف ──
 function normalizePhone(phone: string): string {
@@ -150,27 +150,40 @@ export function allocateSeatWithConstraints(params: {
   const frontFull = frontSeats.length === 0;
 
   // ── تقييم كل مقعد فارغ ──
-  type ScoredSeat = { seat: number; totalScore: number; hardFail: boolean; violations: string[] };
+  type ScoredSeat = { seat: number; totalScore: number; hardFail: boolean; violations: string[]; spread: number };
   const scored: ScoredSeat[] = [];
 
-  for (const seat of allEmpty) {
+  // 🎲 ترتيبٌ عشوائيّ للمدخلات: فرزُ JS مستقرّ، فالمقاعد المتساوية تماماً في كلّ
+  //    شيء تبقى بترتيبها العشوائيّ بدل أن تُحسم دوماً لصالح الرقم الأصغر.
+  for (const seat of shuffle(allEmpty)) {
     let { totalScore, hardFail, violations } = evaluateSeat(
       occupiedSeats, seat, newPlayer, activeConstraints, context
     );
 
-    // عقوبة المقاعد المؤخرة (إلا إذا المقاعد الأمامية ممتلئة)
-    if (tailCount > 0 && seat >= tailStart && !frontFull) {
-      totalScore -= 2.0;
+    // مقاعد المؤخرة: خصمٌ للاعب العاديّ (تُملأ الأماميّة أوّلاً)،
+    // ومكافأةٌ للمتفرّج المتأخّر (القرار المقفل ١ — يجلس في الحلقة لكن بعيداً).
+    if (tailCount > 0 && seat >= tailStart) {
+      if (context.preferTailSeats) totalScore += 2.0;
+      else if (!frontFull) totalScore -= 2.0;
     }
 
-    scored.push({ seat, totalScore, hardFail, violations });
+    scored.push({
+      seat,
+      totalScore,
+      hardFail,
+      violations,
+      spread: minCircularDistance(seat, context.spreadFromSeats, maxPlayers),
+    });
   }
 
-  // ترتيب: الأفضل أولاً (غير الفاشلين → الأعلى نقاطاً → الأقل رقماً)
+  // ترتيب: الأفضل أولاً (غير الفاشلين → الأعلى نقاطاً → الأبعد عن مقاعد التباعد)
+  // ⚠️ لا تُعِد كسر التعادل إلى `a.seat - b.seat`: كان يُجلس كلَّ من يصل في اللحظة
+  //    نفسها (الأصدقاء) في مقاعد متتالية 1,2,3 حتماً — وهو سببُ إعادة التوزيع اليدويّة.
   scored.sort((a, b) => {
     if (a.hardFail !== b.hardFail) return a.hardFail ? 1 : -1;
     if (b.totalScore !== a.totalScore) return b.totalScore - a.totalScore;
-    return a.seat - b.seat; // تفضيل الأرقام الأقل
+    if (b.spread !== a.spread) return b.spread - a.spread; // الأبعد أوّلاً
+    return 0; // تعادلٌ تامّ → يحسمه الترتيب العشوائيّ المستقرّ
   });
 
   // 1. المقعد المفضل (إذا حقق القيود)
@@ -230,8 +243,14 @@ export function reshuffleSeating(params: {
   players: PlayerSeatData[];
   seatingConfig: SeatingConfig | null;
   context: EvaluationContext;
+  /**
+   * 🔒 مقاعد لا تتحرّك: المثبَّتون الحاضرون، المقاعد المحجوزة (seatHeld)،
+   * المتفرّجون، ومن قفلهم الليدر. تُحجز أصحابها ويُقيَّم الباقون ضدّها.
+   */
+  lockedSeats?: Map<number, PlayerSeatData>;
 }): ReshuffleResult {
   const { maxPlayers, players, seatingConfig, context } = params;
+  const lockedSeats = params.lockedSeats ?? new Map<number, PlayerSeatData>();
   const constraints = resolveConstraints(seatingConfig).filter(c => c.enabled);
 
   if (players.length === 0) {
@@ -261,18 +280,33 @@ export function reshuffleSeating(params: {
   // ── عدة محاولات بترتيب مختلف ──
   const MAX_ATTEMPTS = 50;
 
+  const pins = context.pinnedSeats ?? [];
+
   for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
     const candidatePlayers = attempt === 0 ? sortedPlayers : shuffle(sortedPlayers);
-    const arrangement = new Map<number, PlayerSeatData>();
+    // المقاعد المقفلة تدخل التقييم شاغلةً منذ البداية ولا تُمنح لأحد
+    const arrangement = new Map<number, PlayerSeatData>(lockedSeats);
     let totalScore = 0;
     let violations: string[] = [];
     let success = true;
 
     for (const player of candidatePlayers) {
-      // أفضل مقعد فارغ لهذا اللاعب
-      const allEmpty: number[] = [];
+      // 📌 مقعدٌ مثبّت لهذا اللاعب ولم يُشغل → يأخذه بلا تقييم (كالوضع التفاعليّ)
+      const ownPin = pins.find(pin => !isPinnedToSomeoneElse(pin.seatNumber, player, pins));
+      if (ownPin && !arrangement.has(ownPin.seatNumber)) {
+        arrangement.set(ownPin.seatNumber, { ...player, physicalId: ownPin.seatNumber, originSeat: player.physicalId });
+        totalScore += 10;
+        continue;
+      }
+
+      // أفضل مقعد فارغ لهذا اللاعب (باستثناء المثبَّت لغيره ما دام ثمّة بديل)
+      let allEmpty: number[] = [];
       for (let i = 1; i <= maxPlayers; i++) {
         if (!arrangement.has(i)) allEmpty.push(i);
+      }
+      if (pins.length > 0) {
+        const unreserved = allEmpty.filter(s => !isPinnedToSomeoneElse(s, player, pins));
+        if (unreserved.length > 0) allEmpty = unreserved;
       }
 
       if (allEmpty.length === 0) { success = false; break; }
@@ -281,7 +315,8 @@ export function reshuffleSeating(params: {
       let bestSeatScore = -Infinity;
       let bestSeatViolations: string[] = [];
 
-      for (const seat of allEmpty) {
+      // ترتيب عشوائيّ + مقارنة صارمة ⇒ التعادل يُحسم عشوائيّاً لا بأصغر رقم
+      for (const seat of shuffle(allEmpty)) {
         const result = evaluateSeat(arrangement, seat, player, constraints, context);
         if (result.totalScore > bestSeatScore) {
           bestSeatScore = result.totalScore;
@@ -290,7 +325,7 @@ export function reshuffleSeating(params: {
         }
       }
 
-      arrangement.set(bestSeat, { ...player, physicalId: bestSeat });
+      arrangement.set(bestSeat, { ...player, physicalId: bestSeat, originSeat: player.physicalId });
       totalScore += bestSeatScore;
       violations.push(...bestSeatViolations);
     }
@@ -331,6 +366,11 @@ export function reshuffleSeating(params: {
       playerId: player.playerId,
       phone: player.phone,
       seatNumber: seatNum,
+      // 🔑 المقعد الأصليّ — الهويّة الوحيدة الصالحة للاعبٍ أضافه الليدر بلا حساب
+      //    ولا هاتف. بدونه كان التطبيق يطابق بالهاتف فيترك مثل هؤلاء بأرقامهم
+      //    القديمة بينما يُمنح مقعدهم لغيرهم ⇒ رقمان متطابقان.
+      fromSeat: player.originSeat ?? seatNum,
+      name: player.name,
     });
   }
 

@@ -14,6 +14,7 @@ import LeaderNightView from './LeaderNightView';
 import { SeatMoveProvider, SeatMoveConsumer, SeatMoveTargets, SeatMoveBoardToggle } from './SeatMove';
 import { AntiCheatProvider, AntiCheatToggle } from './AntiCheatWatch';
 import { AttendanceMapToggle } from './AttendanceMap';
+import ArrivalsPanel from './ArrivalsPanel';
 import { playGameSound, playAmbientSound, stopAmbientSound, stopOneShotSounds, playEliminationSound, playLocalSound, loadSoundMap, reloadSoundMap, setSoundMirror, primeAudio, setLocalMuted, playNightStepAmbient, playEventSound, resendAmbientTo, hasCustomSound, onSoundMapReady } from '@/lib/soundManager';
 import { getSocket } from '@/lib/socket';
 import { ROLE_NAMES } from '@/lib/constants';
@@ -2364,6 +2365,8 @@ export default function LeaderPage() {
               {/* 🕵️ لوحة المراقبة — متاحة في كل المراحل (على جهاز الليدر وحده) */}
               <AntiCheatToggle />
               <AttendanceMapToggle roomId={gameState.roomId} />
+              {/* 🚶 لوحة الوصول + إعادة الترتيب الذكيّة */}
+              <ArrivalsPanel roomId={gameState.roomId} gameState={gameState} emit={emit} on={on} />
               {soundMixerBtn}
               {/* زر تعديل الأسماء — Session View */}
               {gameState.players.length > 0 && (
@@ -3633,6 +3636,8 @@ export default function LeaderPage() {
               {/* 🕵️ لوحة المراقبة — متاحة في كل المراحل (على جهاز الليدر وحده) */}
               <AntiCheatToggle />
               <AttendanceMapToggle roomId={gameState.roomId} />
+              {/* 🚶 لوحة الوصول + إعادة الترتيب الذكيّة */}
+              <ArrivalsPanel roomId={gameState.roomId} gameState={gameState} emit={emit} on={on} />
               {soundMixerBtn}
               {/* زر تعديل الأسماء — يظهر فقط قبل توزيع الأدوار */}
               {(gameState.phase === 'LOBBY' || gameState.phase === 'ROLE_GENERATION') && gameState.players.length > 0 && (

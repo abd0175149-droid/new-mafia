@@ -25,7 +25,7 @@ import SecretWatermark from './SecretWatermark';
 import PlayerNotepad from './PlayerNotepad';
 import OrderPanel from './OrderPanel';
 import TeamBar from './TeamBar';
-type Step = 'code' | 'phone' | 'login' | 'register' | 'change_password' | 'ticket' | 'auto_joining' | 'done' | 'rejoined';
+type Step = 'code' | 'phone' | 'login' | 'register' | 'change_password' | 'ticket' | 'auto_joining' | 'done' | 'rejoined' | 'spectating';
 
 interface PlayerFlowProps {
   initialRoomCode?: string;
@@ -131,6 +131,9 @@ function migrateNotesForSeatRemap(
 
 export default function PlayerFlow({ initialRoomCode = '', inviteFlag = false, inviterName = '' }: PlayerFlowProps) {
   const { joinRoom, isConnected, error, loading, emit, on } = useGameState();
+  // 👁️ حالة المتفرّج المتأخّر: وصل وسط لعبةٍ جارية فجلس في الحلقة يشاهد
+  const [spectatorSeat, setSpectatorSeat] = useState<number | null>(null);
+  const [waitingPosition, setWaitingPosition] = useState<number>(0);
   const [step, setStep] = useState<Step>(() => {
     // إذا فيه كود QR + توكن محفوظ → نبدأ بـ code مؤقتاً (الـ auto-find يتكفل)
     if (initialRoomCode && typeof window !== 'undefined' && getSavedToken()) {
@@ -1539,7 +1542,7 @@ export default function PlayerFlow({ initialRoomCode = '', inviteFlag = false, i
   // هذا هو الحل النهائي: حتى لو الـ WebSocket events ما وصلت،
   // الـ polling بيجلب الرقم الصحيح من السيرفر كل 3 ثواني
   useEffect(() => {
-    if ((step !== 'done' && step !== 'rejoined') || !emit) return;
+    if ((step !== 'done' && step !== 'rejoined' && step !== 'spectating') || !emit) return;
     if (!roomId) return;
 
     const normalizedPhone = phone.startsWith('0') ? phone : '0' + phone;
@@ -1552,6 +1555,24 @@ export default function PlayerFlow({ initialRoomCode = '', inviteFlag = false, i
           phone: normalizedPhone || undefined,
         });
         console.log(`📊 Poll: phase=${res.phase}, hasVotingState=${!!res.votingState}, candidates=${res.votingState?.candidates?.length || 0}`);
+
+        // 👁️ ردّ المتفرّج: بلا حقل player وبلا تصويت/ليل — روستر معقّم فقط
+        if (res.success && res.spectator) {
+          setSpectatorSeat(res.reservedSeat ?? null);
+          if (res.reservedSeat) setPhysicalId(String(res.reservedSeat));
+          if (res.phase) setGamePhase(res.phase);
+          if (Array.isArray(res.rosterInfo)) setRoster(res.rosterInfo);
+          if (res.teamCounts) setTeamCounts(res.teamCounts);
+          if (typeof res.waitingPosition === 'number') setWaitingPosition(res.waitingPosition);
+          if (step !== 'spectating') setStep('spectating');
+          return;
+        }
+        // ✅ ترقية: صار لاعباً فعليّاً في اللعبة الجديدة
+        if (res.success && res.player && step === 'spectating') {
+          setSpectatorSeat(null);
+          setStep('done');
+        }
+
         if (res.success && res.player) {
           // 🗣️ تحديث علم غرفة التشاور (إعداد عام)
           setMafiaChatEnabled(res.mafiaChatEnabled === true);
@@ -2289,6 +2310,21 @@ export default function PlayerFlow({ initialRoomCode = '', inviteFlag = false, i
       }
       if (res?.isRemote != null) setIsRemote(!!res.isRemote); // 🌐 كشف مبكر للغرفة البعيدة
 
+      // 👁️ وصل واللعبة جارية → متفرّج بمقعدٍ محجوز (لا طريق مسدود بعد اليوم)
+      if (res?.spectator) {
+        setSpectatorSeat(assignedSeat || null);
+        if (res.phase) setGamePhase(res.phase);
+        localStorage.setItem('mafia_session', JSON.stringify({
+          roomId: effectiveRoomId, physicalId: assignedSeat || 0, phone,
+          displayName, roomCode, playerId: playerId || null, spectator: true,
+        }));
+        localStorage.removeItem('mafia_user_exited');
+        setJoinConfirmation(null);
+        setApiError('');
+        setStep('spectating');
+        return;
+      }
+
       // حفظ الجلسة في localStorage
       localStorage.setItem('mafia_session', JSON.stringify({
         roomId: effectiveRoomId,
@@ -2323,6 +2359,25 @@ export default function PlayerFlow({ initialRoomCode = '', inviteFlag = false, i
       }
     }
   };
+
+  // ── 👁️ ترقية المتفرّج إلى لاعب عند بدء اللعبة التالية ──
+  useEffect(() => {
+    if (!on) return;
+    const offPromoted = on('spectator:promoted', (d: any) => {
+      setSpectatorSeat(null);
+      if (d?.physicalId) setPhysicalId(String(d.physicalId));
+      setStep('done');
+      setSeatChangeAlert(`بدأت اللعبة — مقعدك ${d?.physicalId ?? ''}`);
+      setTimeout(() => setSeatChangeAlert(null), 6000);
+      if (navigator.vibrate) navigator.vibrate([200, 100, 200]);
+    });
+    const offRemoved = on('spectator:removed', () => {
+      setSpectatorSeat(null);
+      setApiError('أُزيلت من قائمة الانتظار — راجِع المنظّم');
+      setStep('code');
+    });
+    return () => { offPromoted?.(); offRemoved?.(); };
+  }, [on]);
 
   // ── دالة الانضمام القديمة (للتوافق مع confirmation dialog) ──
   const handleJoinGame = async (forceJoin: boolean = false) => {
@@ -3041,6 +3096,66 @@ export default function PlayerFlow({ initialRoomCode = '', inviteFlag = false, i
               </div>
               <h2 className="text-xl font-black text-white mb-2" style={{ fontFamily: 'Amiri, serif' }}>جاري تخصيص مقعدك...</h2>
               <p className="text-[#808080] text-sm" style={{ fontFamily: 'Amiri, serif' }}>يتم اختيار أفضل مقعد لك</p>
+              {apiError && <p className="text-[#8A0303] text-xs font-mono text-center mt-4 bg-[#8A0303]/10 p-2 rounded">{apiError}</p>}
+            </motion.div>
+          )}
+
+          {/* ── 👁️ خطوة المتفرّج المتأخّر ── */}
+          {/* وصل واللعبة جارية: يعرف مقعده، يجلس في الحلقة، ويشاهد بروستر معقّم */}
+          {step === 'spectating' && (
+            <motion.div key="spectating" initial={{ scale: 0.95, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} className="text-center py-4">
+              <div
+                className="mb-4 rounded-xl p-3 text-center"
+                style={{
+                  background: 'linear-gradient(135deg, rgba(167,139,250,0.20), rgba(167,139,250,0.04))',
+                  border: '1px solid rgba(167,139,250,0.45)',
+                }}
+              >
+                <p className="text-[#cbbcff] text-sm font-bold" style={{ fontFamily: 'Amiri, serif' }}>
+                  اللعبة جارية{gamePhase ? '' : ''}{typeof waitingPosition === 'number' && waitingPosition > 0 ? ` · دورك ${waitingPosition} في الانتظار` : ''}
+                </p>
+                <p className="text-[#9f95c9] text-[11px] mt-1" style={{ fontFamily: 'Amiri, serif' }}>
+                  اجلس في مقعدك وشاهد — ستدخل اللعبة القادمة تلقائيّاً
+                </p>
+              </div>
+
+              {spectatorSeat && spectatorSeat > 0 ? (
+                <motion.div
+                  initial={{ scale: 0.9, opacity: 0 }}
+                  animate={{ scale: 1, opacity: 1 }}
+                  transition={{ type: 'spring', damping: 15, stiffness: 200 }}
+                  className="mb-4 rounded-2xl p-5 relative overflow-hidden"
+                  style={{
+                    background: 'linear-gradient(135deg, rgba(197,160,89,0.15), rgba(197,160,89,0.03))',
+                    border: '2px solid rgba(197,160,89,0.4)',
+                  }}
+                >
+                  <p className="text-[#808080] text-[11px] tracking-[0.2em] mb-1" style={{ fontFamily: 'monospace' }}>YOUR SEAT</p>
+                  <p className="text-[#C5A059] text-5xl font-black leading-none" style={{ fontFamily: 'Amiri, serif' }}>
+                    {spectatorSeat}
+                  </p>
+                  <p className="text-[#C5A059]/70 text-sm mt-2" style={{ fontFamily: 'Amiri, serif' }}>مقعدك محجوز لك</p>
+                </motion.div>
+              ) : (
+                <div className="mb-4 rounded-2xl p-5 border-2 border-dashed border-[#C5A059]/30">
+                  <p className="text-[#C5A059] text-lg font-black" style={{ fontFamily: 'Amiri, serif' }}>القاعة ممتلئة الآن</p>
+                  <p className="text-[#808080] text-xs mt-1" style={{ fontFamily: 'Amiri, serif' }}>أنت في قائمة الانتظار — سيُخصّص لك مقعد</p>
+                </div>
+              )}
+
+              <TeamBar counts={teamCounts} className="mb-4" />
+
+              {/* طاولة المشاهدة — روستر معقّم من get-my-state (لا من البثّ الخام) */}
+              {gamePhase && !['LOBBY', 'ROLE_GENERATION', 'ROLE_BINDING'].includes(gamePhase) && (
+                <PhoneSpectatorView
+                  roster={roster}
+                  physicalId={spectatorSeat ? String(spectatorSeat) : ''}
+                  gamePhase={gamePhase}
+                  on={on}
+                  maxPlayers={maxPlayers}
+                />
+              )}
+
               {apiError && <p className="text-[#8A0303] text-xs font-mono text-center mt-4 bg-[#8A0303]/10 p-2 rounded">{apiError}</p>}
             </motion.div>
           )}

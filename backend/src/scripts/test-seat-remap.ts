@@ -62,6 +62,11 @@ function makeState(): any {
       lastTargets: { SHERIFF_INVESTIGATE: 7, MAFIA_KILL: 3 },
     },
     luckyDrawHistory: [3, 9],
+    // 👁️ متفرّجون: مقاعدهم محجوزة داخل الحلقة ويجب أن تتبع أيّ إعادة ترقيم
+    spectators: [
+      { physicalId: 11, name: 'مشاهد-أ', phone: '0790000001', playerId: 900, joinedAt: 1, addedBy: 'self' },
+      { physicalId: 12, name: 'مشاهد-ب', phone: null, playerId: null, joinedAt: 2, addedBy: 'leader' },
+    ],
     luckyDraw: { status: 'revealed', count: 1, winners: [7], pool: [3, 7, 9] },
     // ── بقية البنى ──
     policewomanState: { isReady: true, isUsed: false, policewomanPhysicalId: 3, policewomanName: 'أ', citizenDeathsSinceTrigger: 1, threshold: 2, isTriggered: true, triggerRound: 1, citizenAliveAtTrigger: 3 },
@@ -256,6 +261,50 @@ section('5) رصد «القرار الجاري» — detectSeatMoveHazard');
     pendingBomb: { godfatherPhysicalId: 7 },
   }));
   check('القنبلة لها الأولوية على التصويت', both?.kind === 'BOMB' && both.blocking === true);
+}
+
+section('6) 👁️ مقاعد المتفرّجين تتبع إعادة الترقيم (وإلّا جلس اثنان على كرسيّ)');
+{
+  const s = makeState();
+  remapPhysicalIds(s, new Map([[11, 4], [12, 5]]));
+  check('متفرّج على المقعد 11 صار 4', s.spectators[0].physicalId === 4, `=${s.spectators[0].physicalId}`);
+  check('متفرّج على المقعد 12 صار 5', s.spectators[1].physicalId === 5, `=${s.spectators[1].physicalId}`);
+  check('هويّة المتفرّج لم تُمَس', s.spectators[0].playerId === 900 && s.spectators[1].playerId === null);
+  check('لا تصادم بين مقعد متفرّج ومقعد لاعب',
+    !s.players.some((p: any) => s.spectators.some((sp: any) => sp.physicalId === p.physicalId)));
+}
+
+section('7) 🔁 دفعة خمسة لاعبين متقاطعة (دورة كاملة) — لا بقايا');
+{
+  const s = makeState();
+  // دورة: 3→7، 7→9، 9→12، مع متفرّجَين ثابتَين خارج الدورة
+  s.spectators = [{ physicalId: 1, name: 'م', phone: null, playerId: null, joinedAt: 1, addedBy: 'self' }];
+  remapPhysicalIds(s, new Map([[3, 7], [7, 9], [9, 12]]));
+  const seats = s.players.map((p: any) => p.physicalId).sort((a: number, b: number) => a - b);
+  check('الأرقام الناتجة 7,9,12 بلا تكرار', seats.join(',') === '7,9,12', seats.join(','));
+  check('الشريف تبع شخصه إلى 7', s.players.find((p: any) => p.role === 'SHERIFF').physicalId === 7);
+  check('شيخ المافيا تبع شخصه إلى 9', s.players.find((p: any) => p.role === 'GODFATHER').physicalId === 9);
+  check('المتفرّج خارج الدورة لم يتحرّك', s.spectators[0].physicalId === 1);
+  const refs: number[] = [];
+  collectSeatRefs(s, null, refs);
+  const stale = refs.filter(r => r === 3);
+  check('صفر بقايا للرقم 3 بعد الدورة', stale.length === 0, `بقي ${stale.length}`);
+}
+
+section('8) 🎲 كسر التعادل بالتباعد — الواصلون معاً لا يتجاورون');
+{
+  // محاكاة مبسّطة لمنطق engine: نتائج متساوية ⇒ يفوز الأبعد عن مقاعد التباعد
+  const cap = 12;
+  const dist = (a: number, b: number) => Math.min(Math.abs(a - b), cap - Math.abs(a - b));
+  const minDist = (seat: number, others: number[]) => others.length ? Math.min(...others.map(o => dist(seat, o))) : Infinity;
+  const empties = [2, 3, 4, 5, 6, 7, 8];
+  const recent = [1];
+  const best = empties.slice().sort((x, y) => minDist(y, recent) - minDist(x, recent))[0];
+  check('بعد جلوس الأوّل في 1، الثاني لا يأخذ 2', best !== 2, `اختار ${best}`);
+  check('الثاني يأخذ الأبعد دائريّاً (7)', best === 7, `اختار ${best}`);
+  const recent2 = [1, 7];
+  const best2 = empties.filter(e => e !== 7).slice().sort((x, y) => minDist(y, recent2) - minDist(x, recent2))[0];
+  check('الثالث يبتعد عن الاثنين معاً (4)', best2 === 4, `اختار ${best2}`);
 }
 
 console.log(`\n══════════════════════════════════════`);

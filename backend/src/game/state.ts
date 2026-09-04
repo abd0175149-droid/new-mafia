@@ -52,6 +52,34 @@ export interface Player {
   disabledRoleName?: string;     // 🧙‍♀️ اسم الدور المعطّل (للعرض)
 }
 
+/**
+ * 👁️ متفرّجٌ وصل أثناء لعبةٍ جارية.
+ *
+ * **نوعٌ مستقلّ عمداً**: لا `role` ولا `isAlive`، فأيّ تمريرٍ عرضيّ لدالّةٍ
+ * تتوقّع `Player` يفشل عند التجميع. هذا هو الحارس الأوّل ضدّ دخول متفرّجٍ
+ * في طوابير النقاش والتصويت والليل ومعادلة الفوز — وكلّها تشتقّ من
+ * `state.players` مباشرةً في ٣٣ ملفّاً.
+ *
+ * ولماذا داخل `GameState` لا في مفتاح Redis جانبيّ؟ لأنّ `remapPhysicalIds`
+ * جوّالٌ عميق يُرقّم أيّ حقلٍ اسمه `physicalId` تلقائيّاً، فمقعد المتفرّج
+ * يتبع أيّ نقلٍ أو إعادة ترقيم بلا سطرٍ إضافيّ. ولا سرّ فيه فلا خطر من بثّه.
+ *
+ * ⚠️ لا تقرأ هذه المصفوفة من `game/*` ولا من `sockets/{day,night}*`.
+ */
+export interface Spectator {
+  physicalId: number;          // المقعد المحجوز — يجلس عليه داخل الحلقة (قرار مقفل ١)
+  name: string;
+  phone: string | null;
+  playerId: number | null;
+  gender?: string | null;
+  dob?: string | null;
+  avatarUrl?: string | null;
+  rankTier?: string | null;
+  cosmetics?: { frame?: any; title?: any; nameFx?: any } | null;
+  joinedAt: number;            // لحظة الوصول (لترتيب قائمة الانتظار وحساب التقارب)
+  addedBy: 'self' | 'leader';
+}
+
 export enum CandidateType {
   PLAYER = 'PLAYER',
   DEAL = 'DEAL',
@@ -239,6 +267,11 @@ export interface GameState {
   round: number;
   config: GameConfig;
   players: Player[];
+  /**
+   * 👁️ الواصلون أثناء لعبةٍ جارية — خارج `players` عمداً (انظر Spectator).
+   * يُرقَّون إلى لاعبين في `resetRoomState` وحدها، أي عند اللعبة التالية.
+   */
+  spectators?: Spectator[];
   rolesPool?: Role[];
   discussionState: DiscussionState | null;
   votingState: VotingState;
@@ -662,6 +695,53 @@ export async function listActiveRooms(): Promise<GameState[]> {
 
 export function getAlivePlayers(state: GameState): Player[] {
   return state.players.filter(p => p.isAlive);
+}
+
+/**
+ * 👥 الحاضرون فعلاً على الطاولة — لا مقعدٌ محجوزٌ لمغادر ولا مجمَّد.
+ *
+ * كان قياسُ حجم الأدوار يستعمل `players.length` الخام، فيُولَّد دورٌ لشخصٍ
+ * غادر القاعة: يبدأ اللعبة «حيّاً»، يدخل طابور النقاش وقوائم الأهداف
+ * ومعادلة الفوز، ويُسجَّل له صفُّ مباراةٍ ورانك — بينما شاشة العرض تُخفيه.
+ * كلُّ قياسٍ لعدد اللاعبين قبل بدء اللعبة يجب أن يمرّ من هنا.
+ */
+export function presentPlayers(state: GameState): Player[] {
+  return state.players.filter(p => !p.seatHeld && !p.frozen);
+}
+
+// ── 👁️ المتفرّجون ────────────────────────────────
+
+export function getSpectators(state: GameState): Spectator[] {
+  return Array.isArray(state.spectators) ? state.spectators : [];
+}
+
+/** مطابقة الشخص بسلّم الهويّة نفسه المعتمد في rejoin: حساب ← هاتف تامّ ← مطبَّع */
+export function findSpectator(
+  state: GameState,
+  who: { playerId?: number | null; phone?: string | null },
+): Spectator | undefined {
+  const list = getSpectators(state);
+  if (who.playerId) {
+    const byAccount = list.find(s => s.playerId && Number(s.playerId) === Number(who.playerId));
+    if (byAccount) return byAccount;
+  }
+  if (who.phone) {
+    const exact = list.find(s => s.phone === who.phone);
+    if (exact) return exact;
+    const norm = (v: string | null | undefined) => {
+      if (!v) return '';
+      let c = String(v).replace(/[\s\-()+]/g, '');
+      if (c.startsWith('00962')) c = c.slice(5);
+      else if (c.startsWith('962')) c = c.slice(3);
+      return c.startsWith('0') ? c : '0' + c;
+    };
+    const target = norm(who.phone);
+    if (target) {
+      const byNorm = list.find(s => norm(s.phone) === target);
+      if (byNorm) return byNorm;
+    }
+  }
+  return undefined;
 }
 
 export function getAlivePlayersByTeam(state: GameState): { mafia: Player[]; citizens: Player[] } {

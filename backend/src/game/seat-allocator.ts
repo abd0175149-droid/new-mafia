@@ -56,6 +56,13 @@ export interface AllocateParams {
   pinnedSeats?: PinnedSeat[];
   reservedTailSeats?: number;
   doorSeats?: number[];
+  // ── قرارات المالك المقفلة ──
+  /** 🤝 أوزان التقارب (الوصول المتزامن أثقلها) — يقرؤها SOCIAL_AFFINITY_SEPARATION */
+  affinityPairs?: Map<string, number>;
+  /** 🎲 كسر التعادل بالتباعد عن هذه المقاعد بدل «الأصغر رقماً» */
+  spreadFromSeats?: number[];
+  /** 👁️ للمتفرّج: يُفضَّل الذيل والأبعد عن الأحياء */
+  preferTailSeats?: boolean;
 }
 
 // ── دالة الجوار الدائري (مربع) ──
@@ -80,7 +87,7 @@ function shuffle<T>(arr: T[]): T[] {
  * تخصيص مقعد للاعب بشكل تلقائي مع مراعاة القيود.
  * يدعم: الوضع القديم + المحرك الذكي الجديد
  */
-export function allocateSeat(params: AllocateParams): { seat: number; constraintViolation: boolean } {
+export function allocateSeat(params: AllocateParams): { seat: number; constraintViolation: boolean; violations?: string[] } {
   const { maxPlayers, players, constraints, newPlayer, preferredSeat } = params;
 
   // ═══ المحرك الذكي الجديد ═══
@@ -139,6 +146,9 @@ export function allocateSeat(params: AllocateParams): { seat: number; constraint
       pinnedSeats: params.pinnedSeats || [],
       reservedTailSeats: params.reservedTailSeats ?? 0,
       doorSeats: params.doorSeats || [],
+      affinityPairs: params.affinityPairs,
+      spreadFromSeats: params.spreadFromSeats,
+      preferTailSeats: params.preferTailSeats,
     };
 
     const result = allocateSeatWithConstraints({
@@ -150,7 +160,7 @@ export function allocateSeat(params: AllocateParams): { seat: number; constraint
       preferredSeat,
     });
 
-    return { seat: result.seat, constraintViolation: result.constraintViolation };
+    return { seat: result.seat, constraintViolation: result.constraintViolation, violations: result.violations };
   }
 
   // ═══ الوضع القديم (Legacy) ═══
