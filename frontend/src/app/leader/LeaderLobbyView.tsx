@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import MafiaCard from '@/components/MafiaCard';
 import { useSeatMove, SeatMoveTargets } from './SeatMove';
+import { swalConfirm } from '@/lib/swal';
 
 interface LeaderLobbyViewProps {
 
@@ -985,7 +986,19 @@ export default function LeaderLobbyView({ gameState, emit, setError, hideOffline
           <button
             onClick={async () => {
               try {
-                await emit('room:start-generation', { roomId: gameState.roomId });
+                try {
+                  await emit('room:start-generation', { roomId: gameState.roomId });
+                } catch (e: any) {
+                  // 🧹 مقاعدُ مغادرين — تُحرَّر بتأكيدٍ واحد ثمّ يُعاد الطلب
+                  if (e?.response?.code !== 'ABSENT_PLAYERS') throw e;
+                  const absent = (e.response.absent || []) as Array<{ physicalId: number; name: string }>;
+                  const ok = await swalConfirm(
+                    `${absent.length} مقعداً لمن غادر: <b>${absent.map(a => `#${a.physicalId} ${a.name}`).join('، ')}</b><br/><br/>حرِّر مقاعدهم وابدأ؟`,
+                    { title: 'مقاعدُ مغادرين', confirmText: 'حرِّر وابدأ', cancelText: 'انتظرهم' },
+                  );
+                  if (!ok) return;
+                  await emit('room:start-generation', { roomId: gameState.roomId, releaseAbsent: true });
+                }
               } catch (err: any) {
                 setError(err.message);
               }

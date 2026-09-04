@@ -437,8 +437,14 @@ void _applyState(Map<String, dynamic> s) {
     if (id == null || _busy || !canStart) return false;
     _busy = true;
     notifyListeners();
-    final res = await SocketService.instance
+    var res = await SocketService.instance
         .ask('room:start-generation', {'roomId': id});
+    // 🧹 مقاعدُ مغادرين: قياسُ الأدوار يعدّهم فيأخذ الغائب دوراً ويدخل معادلة
+    //    الفوز. نُعيد الطلب بتحريرها — المضيفُ البعيد بلا حوارٍ منفصل هنا.
+    if (res != null && res['code'] == 'ABSENT_PLAYERS') {
+      res = await SocketService.instance
+          .ask('room:start-generation', {'roomId': id, 'releaseAbsent': true});
+    }
     _busy = false;
     notifyListeners();
     if (res == null || res['success'] != true) {

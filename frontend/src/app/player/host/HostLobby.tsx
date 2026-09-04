@@ -114,7 +114,14 @@ export default function HostLobby({ gameState, emit, setError }: Props) {
       {/* بدء التوزيع */}
       <div className="mt-4">
         {canStart ? (
-          <button disabled={busy} onClick={() => run(() => emit('room:start-generation', { roomId: gameState.roomId }))}
+          <button disabled={busy} onClick={() => run(async () => {
+            // 🧹 مقاعدُ المغادرين تُحرَّر قبل القياس (وإلّا أخذ الغائب دوراً)
+            try { return await emit('room:start-generation', { roomId: gameState.roomId }); }
+            catch (e: any) {
+              if (e?.response?.code !== 'ABSENT_PLAYERS') throw e;
+              return await emit('room:start-generation', { roomId: gameState.roomId, releaseAbsent: true });
+            }
+          })}
             className="w-full py-3.5 rounded-xl font-black text-base text-black bg-gradient-to-b from-[#C5A059] to-[#8a6d3b] disabled:opacity-40"
             style={{ boxShadow: '0 0 18px rgba(197,160,89,0.4)' }}>🎴 بدء توزيع الأدوار</button>
         ) : (

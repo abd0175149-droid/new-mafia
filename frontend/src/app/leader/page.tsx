@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useRouter } from 'next/navigation';
 import Image from 'next/image';
@@ -86,6 +86,27 @@ interface GameState {
 export default function LeaderPage() {
   const router = useRouter();
   const { emit, on, isConnected } = useSocket();
+
+  // 🧹 بدءُ التوليد صار يرفض إن وُجدت مقاعدُ لمغادرين (محجوزة/مجمَّدة)، لأنّ قياس
+  //    الأدوار كان يعدّهم فيأخذ الغائب دوراً ويبدأ اللعبة «حيّاً»: يدخل طابور
+  //    النقاش وقوائم الأهداف ومعادلة الفوز ويُسجَّل له رانك. هنا نسأل الليدر مرّةً
+  //    ونعيد الطلب بتحرير المقاعد.
+  const startGeneration = useCallback(async (roomId: string) => {
+    try {
+      return await emit('room:start-generation', { roomId });
+    } catch (err: any) {
+      if (err?.response?.code !== 'ABSENT_PLAYERS') throw err;
+      const absent = (err.response.absent || []) as Array<{ physicalId: number; name: string; reason: string }>;
+      const list = absent.map(a => `#${a.physicalId} ${a.name}`).join('، ');
+      const ok = await swalConfirm(
+        `${absent.length} مقعداً لمن غادر: <b>${list}</b><br/><br/>` +
+        'إن بدأتَ الآن سيأخذون أدواراً ويدخلون التصويت والليل ومعادلة الفوز.<br/>حرِّر مقاعدهم وابدأ؟',
+        { title: 'مقاعدُ مغادرين', confirmText: 'حرِّر وابدأ', cancelText: 'انتظرهم' },
+      );
+      if (!ok) return { success: false, cancelled: true };
+      return await emit('room:start-generation', { roomId, releaseAbsent: true });
+    }
+  }, [emit]);
 
   // Auth
   const [isAuthenticated, setIsAuthenticated] = useState(false);
@@ -3258,7 +3279,7 @@ export default function LeaderPage() {
                         } : prev);
                       }
                     }
-                    await emit('room:start-generation', { roomId: gameState.roomId });
+                    await startGeneration(gameState.roomId);
                     setExcludedPlayers([]);
                     setShowExcludeUI(false);
                     setInSession(false);
@@ -3529,7 +3550,7 @@ export default function LeaderPage() {
                             const res = await emit('room:new-game', { roomId: gs.roomId, excludePlayerIds: action.excludePlayerIds, resetPenalties: false });
                             if (res.success) setGameState((prev: any) => prev ? { ...prev, players: (res.players || []).map((p: any) => ({ ...p, isAlive: true, isSilenced: false, role: null })), winner: undefined, phase: 'LOBBY' } : prev);
                           }
-                          await emit('room:start-generation', { roomId: gs.roomId });
+                          await startGeneration(gs.roomId);
                           setExcludedPlayers([]); setShowExcludeUI(false); setInSession(false);
                         } else if (action.type === 'new-game-return') {
                           const res = await emit('room:new-game', { roomId: gs.roomId, excludePlayerIds: action.excludePlayerIds || [], resetPenalties: false });
@@ -3557,7 +3578,7 @@ export default function LeaderPage() {
                             const res = await emit('room:new-game', { roomId: gs.roomId, excludePlayerIds: action.excludePlayerIds, resetPenalties: true });
                             if (res.success) setGameState((prev: any) => prev ? { ...prev, players: (res.players || []).map((p: any) => ({ ...p, isAlive: true, isSilenced: false, role: null })), winner: undefined, phase: 'LOBBY' } : prev);
                           }
-                          await emit('room:start-generation', { roomId: gs.roomId });
+                          await startGeneration(gs.roomId);
                           setExcludedPlayers([]); setShowExcludeUI(false); setInSession(false);
                         } else if (action.type === 'new-game-return') {
                           const res = await emit('room:new-game', { roomId: gs.roomId, excludePlayerIds: action.excludePlayerIds || [], resetPenalties: true });
@@ -5408,7 +5429,7 @@ export default function LeaderPage() {
                           const res = await emit('room:new-game', { roomId: gs.roomId, excludePlayerIds: action.excludePlayerIds, resetPenalties: false });
                           if (res.success) setGameState((prev: any) => prev ? { ...prev, players: (res.players || []).map((p: any) => ({ ...p, isAlive: true, isSilenced: false, role: null })), winner: undefined, phase: 'LOBBY' } : prev);
                         }
-                        await emit('room:start-generation', { roomId: gs.roomId });
+                        await startGeneration(gs.roomId);
                         setExcludedPlayers([]); setShowExcludeUI(false); setInSession(false);
                       } else if (action.type === 'new-game-return') {
                         const res = await emit('room:new-game', { roomId: gs.roomId, excludePlayerIds: action.excludePlayerIds || [], resetPenalties: false });
@@ -5438,7 +5459,7 @@ export default function LeaderPage() {
                           const res = await emit('room:new-game', { roomId: gs.roomId, excludePlayerIds: action.excludePlayerIds, resetPenalties: true });
                           if (res.success) setGameState((prev: any) => prev ? { ...prev, players: (res.players || []).map((p: any) => ({ ...p, isAlive: true, isSilenced: false, role: null })), winner: undefined, phase: 'LOBBY' } : prev);
                         }
-                        await emit('room:start-generation', { roomId: gs.roomId });
+                        await startGeneration(gs.roomId);
                         setExcludedPlayers([]); setShowExcludeUI(false); setInSession(false);
                       } else if (action.type === 'new-game-return') {
                         const res = await emit('room:new-game', { roomId: gs.roomId, excludePlayerIds: action.excludePlayerIds || [], resetPenalties: true });
