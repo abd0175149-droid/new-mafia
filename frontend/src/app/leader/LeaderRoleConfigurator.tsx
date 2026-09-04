@@ -36,8 +36,16 @@ export default function LeaderRoleConfigurator({ gameState, emit, setError, hide
     }
   };
 
+  // 🔒 العددُ وحده يُطلق إعادة التوليد — لا مرجعُ المصفوفة.
+  // كان الاعتماد على `gameState.players` يعيد بناء التركيبة من الصفر عند أيّ
+  // تعديل اسمٍ أو تحديث مظهرٍ أو انضمام، فتُمحى تعديلات الليدر اليدويّة
+  // (المهرّج/السفّاح/التوأمان) وهو في منتصف الضبط.
+  const presentCount = gameState.players.filter(
+    (p: any) => p.isAlive !== false && !p.seatHeld && !p.frozen,
+  ).length;
+
   useEffect(() => {
-    const playerCount = gameState.players.filter((p: any) => p.isAlive !== false).length;
+    const playerCount = presentCount;
     const totalMafia = Math.ceil(playerCount / 4);
 
     // خوارزمية المهرج: يُضاف تلقائياً عند 8+ لاعبين (يأخذ مقعد مواطن)
@@ -67,7 +75,7 @@ export default function LeaderRoleConfigurator({ gameState, emit, setError, hide
 
     setRoles(generated);
     setLoading(false);
-  }, [gameState.players]);
+  }, [presentCount]);
 
   const handleRoleChange = (index: number, newRole: Role) => {
     const newRoles = [...roles];

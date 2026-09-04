@@ -562,12 +562,37 @@ export default function LeaderLobbyView({ gameState, emit, setError, hideOffline
                   </div>
                 )}
 
+                {/* 🏷️ شاراتُ الحالة — كانت isConnected/frozen/seatHeld تصل في كلّ بثّ
+                    ولا تُرسَم في أيّ شاشة، فيكتشف الليدر الغياب حين يُنادى الاسم. */}
+                {(player.frozen || player.seatHeld || player.isConnected === false) && (
+                  <div className="absolute top-1 left-1 z-20 flex flex-col gap-0.5 items-start">
+                    {player.frozen && (
+                      <span className="px-1.5 py-0.5 rounded text-[9px] font-bold"
+                        style={{ background: 'rgba(76,141,255,.18)', border: '1px solid rgba(76,141,255,.5)', color: '#9cc0ff' }}>
+                        ❄️ غادر
+                      </span>
+                    )}
+                    {player.seatHeld && (
+                      <span className="px-1.5 py-0.5 rounded text-[9px] font-bold"
+                        style={{ background: 'rgba(240,160,48,.18)', border: '1px solid rgba(240,160,48,.5)', color: '#ffc575' }}>
+                        ⏳ محجوز
+                      </span>
+                    )}
+                    {!player.frozen && !player.seatHeld && player.isConnected === false && (
+                      <span className="px-1.5 py-0.5 rounded text-[9px] font-bold"
+                        style={{ background: 'rgba(95,103,121,.2)', border: '1px solid rgba(95,103,121,.5)', color: '#8f98ab' }}>
+                        ○ غير متّصل
+                      </span>
+                    )}
+                  </div>
+                )}
+
                 {/* 🪑 زر نقل المقعد — يظهر عند Hover (يدخل وضع النقل بلمستين) */}
                 {!isKicking && !isEditing && movingId === null && (
                   <button
                     data-seat-move="1"
                     onClick={(e) => { e.stopPropagation(); seatMove.beginMove(player.physicalId); }}
-                    className="absolute -bottom-2 -right-2 w-8 h-8 rounded-full bg-[#051520] border border-sky-500/60 text-sky-400 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity hover:bg-sky-950 hover:scale-110 z-20 shadow-lg"
+                    className="absolute -bottom-2 -right-2 w-8 h-8 rounded-full bg-[#051520] border border-sky-500/60 text-sky-400 flex items-center justify-center opacity-0 group-hover:opacity-100 [@media(hover:none)]:opacity-100 transition-opacity hover:bg-sky-950 hover:scale-110 z-20 shadow-lg"
                     title="نقل/تبديل المقعد"
                   >
                     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="m16 3 4 4-4 4"/><path d="M20 7H4"/><path d="m8 21-4-4 4-4"/><path d="M4 17h16"/></svg>
@@ -578,7 +603,7 @@ export default function LeaderLobbyView({ gameState, emit, setError, hideOffline
                 {!isKicking && !isEditing && movingId === null && (
                   <button
                     onClick={() => setKickingId(player.physicalId)}
-                    className="absolute -top-2 -right-2 w-8 h-8 rounded-full bg-red-900 border border-red-500 text-white flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity hover:bg-red-800 hover:scale-110 z-20 shadow-lg"
+                    className="absolute -top-2 -right-2 w-8 h-8 rounded-full bg-red-900 border border-red-500 text-white flex items-center justify-center opacity-0 group-hover:opacity-100 [@media(hover:none)]:opacity-100 transition-opacity hover:bg-red-800 hover:scale-110 z-20 shadow-lg"
                     title="طرد اللاعب"
                   >
                     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>
@@ -589,7 +614,7 @@ export default function LeaderLobbyView({ gameState, emit, setError, hideOffline
                 {!isKicking && !isEditing && movingId === null && (
                   <button
                     onClick={() => { setEditingId(player.physicalId); setEditName(player.name); }}
-                    className="absolute -top-2 -left-2 w-8 h-8 rounded-full bg-[#1a1a1a] border border-[#C5A059]/50 text-[#C5A059] flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity hover:bg-[#C5A059]/20 hover:scale-110 z-20 shadow-lg"
+                    className="absolute -top-2 -left-2 w-8 h-8 rounded-full bg-[#1a1a1a] border border-[#C5A059]/50 text-[#C5A059] flex items-center justify-center opacity-0 group-hover:opacity-100 [@media(hover:none)]:opacity-100 transition-opacity hover:bg-[#C5A059]/20 hover:scale-110 z-20 shadow-lg"
                     title="تعديل الاسم"
                   >
                     <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/><path d="m15 5 4 4"/></svg>
@@ -600,7 +625,7 @@ export default function LeaderLobbyView({ gameState, emit, setError, hideOffline
                 {!isKicking && !isEditing && movingId === null && (
                   <button
                     onClick={() => setPenalizingId(player.physicalId)}
-                    className="absolute -bottom-2 -left-2 w-8 h-8 rounded-full bg-[#201505] border border-amber-500/60 text-amber-500 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity hover:bg-amber-950 hover:scale-110 z-20 shadow-lg"
+                    className="absolute -bottom-2 -left-2 w-8 h-8 rounded-full bg-[#201505] border border-amber-500/60 text-amber-500 flex items-center justify-center opacity-0 group-hover:opacity-100 [@media(hover:none)]:opacity-100 transition-opacity hover:bg-amber-950 hover:scale-110 z-20 shadow-lg"
                     title="تسجيل عقوبة"
                   >
                     ⚠️

@@ -2713,7 +2713,7 @@ export default function LeaderPage() {
                         <button
                           data-seat-move="1"
                           onClick={(e) => { e.stopPropagation(); sm.beginMove(p.physicalId); }}
-                          className="absolute -bottom-2 -right-2 w-6 h-6 rounded-full bg-[#051520] border border-sky-500/60 text-sky-400 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity hover:bg-sky-950 hover:scale-110 z-20 shadow-lg"
+                          className="absolute -bottom-2 -right-2 w-6 h-6 rounded-full bg-[#051520] border border-sky-500/60 text-sky-400 flex items-center justify-center opacity-0 group-hover:opacity-100 [@media(hover:none)]:opacity-100 transition-opacity hover:bg-sky-950 hover:scale-110 z-20 shadow-lg"
                           title="نقل/تبديل المقعد"
                         >
                           <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="m16 3 4 4-4 4"/><path d="M20 7H4"/><path d="m8 21-4-4 4-4"/><path d="M4 17h16"/></svg>
@@ -2731,7 +2731,7 @@ export default function LeaderPage() {
                               setError(err.message);
                             }
                           }}
-                          className="absolute -top-2 -right-2 w-6 h-6 rounded-full bg-[#8A0303] border border-red-500 text-white flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity hover:scale-110 z-20 text-[10px]"
+                          className="absolute -top-2 -right-2 w-6 h-6 rounded-full bg-[#8A0303] border border-red-500 text-white flex items-center justify-center opacity-0 group-hover:opacity-100 [@media(hover:none)]:opacity-100 transition-opacity hover:scale-110 z-20 text-[10px]"
                           title="حذف اللاعب"
                         >✕</button>
                       )}
@@ -2739,7 +2739,7 @@ export default function LeaderPage() {
                       {!showExcludeUI && !isSessionEditing && sessionMovingId === null && (
                         <button
                           onClick={() => { setSessionEditingId(p.physicalId); setSessionEditName(p.name); }}
-                          className="absolute -top-2 -left-2 w-6 h-6 rounded-full bg-[#1a1a1a] border border-[#C5A059]/50 text-[#C5A059] flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity hover:bg-[#C5A059]/20 hover:scale-110 z-20 text-[10px]"
+                          className="absolute -top-2 -left-2 w-6 h-6 rounded-full bg-[#1a1a1a] border border-[#C5A059]/50 text-[#C5A059] flex items-center justify-center opacity-0 group-hover:opacity-100 [@media(hover:none)]:opacity-100 transition-opacity hover:bg-[#C5A059]/20 hover:scale-110 z-20 text-[10px]"
                           title="تعديل الاسم"
                         >
                           <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/><path d="m15 5 4 4"/></svg>

@@ -163,7 +163,7 @@ function VotingCard({
             e.stopPropagation();
             onPenalizeClick(physicalId);
           }}
-          className="absolute -bottom-2 -left-2 w-8 h-8 rounded-full bg-[#201505] border border-amber-500/60 text-amber-500 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity hover:bg-amber-950 hover:scale-110 z-20 shadow-lg"
+          className="absolute -bottom-2 -left-2 w-8 h-8 rounded-full bg-[#201505] border border-amber-500/60 text-amber-500 flex items-center justify-center opacity-0 group-hover:opacity-100 [@media(hover:none)]:opacity-100 transition-opacity hover:bg-amber-950 hover:scale-110 z-20 shadow-lg"
           title="تسجيل عقوبة"
         >
           ⚠️
@@ -1021,7 +1021,7 @@ export default function LeaderDayView({ gameState, emit, setError }: LeaderDayVi
                   {/* Penalty button for defense hearing */}
                   <button
                     onClick={() => setPenalizingId(currentAccused.targetPhysicalId)}
-                    className="absolute -bottom-2 -left-2 w-8 h-8 rounded-full bg-[#201505] border border-amber-500/60 text-amber-500 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity hover:bg-amber-950 hover:scale-110 z-20 shadow-lg"
+                    className="absolute -bottom-2 -left-2 w-8 h-8 rounded-full bg-[#201505] border border-amber-500/60 text-amber-500 flex items-center justify-center opacity-0 group-hover:opacity-100 [@media(hover:none)]:opacity-100 transition-opacity hover:bg-amber-950 hover:scale-110 z-20 shadow-lg"
                     title="تسجيل عقوبة"
                   >
                     ⚠️
@@ -1178,7 +1178,7 @@ export default function LeaderDayView({ gameState, emit, setError }: LeaderDayVi
                         e.stopPropagation();
                         setPenalizingId(acc.targetPhysicalId);
                       }}
-                      className="absolute -bottom-1 -left-1 w-6 h-6 rounded-full bg-[#201505] border border-amber-500/60 text-amber-500 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity hover:bg-amber-950 hover:scale-110 z-20 shadow-lg text-[10px]"
+                      className="absolute -bottom-1 -left-1 w-6 h-6 rounded-full bg-[#201505] border border-amber-500/60 text-amber-500 flex items-center justify-center opacity-0 group-hover:opacity-100 [@media(hover:none)]:opacity-100 transition-opacity hover:bg-amber-950 hover:scale-110 z-20 shadow-lg text-[10px]"
                       title="تسجيل عقوبة"
                     >
                       ⚠️
@@ -1804,7 +1804,7 @@ export default function LeaderDayView({ gameState, emit, setError }: LeaderDayVi
                 {activePlayer && (
                   <button
                     onClick={() => setPenalizingId(activePlayer.physicalId)}
-                    className="absolute -bottom-2 -left-2 w-8 h-8 rounded-full bg-[#201505] border border-amber-500/60 text-amber-500 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity hover:bg-amber-950 hover:scale-110 z-20 shadow-lg"
+                    className="absolute -bottom-2 -left-2 w-8 h-8 rounded-full bg-[#201505] border border-amber-500/60 text-amber-500 flex items-center justify-center opacity-0 group-hover:opacity-100 [@media(hover:none)]:opacity-100 transition-opacity hover:bg-amber-950 hover:scale-110 z-20 shadow-lg"
                     title="تسجيل عقوبة"
                   >
                     ⚠️

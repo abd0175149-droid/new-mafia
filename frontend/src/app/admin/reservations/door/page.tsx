@@ -15,7 +15,7 @@ import { useCallback, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { motion, AnimatePresence } from 'framer-motion';
 import { RES_COLORS, matchesSearch, isPending, isWaitlist } from '@/lib/reservation-status';
-import { useReservations } from '@/hooks/useReservations';
+import { useReservations, apiFetch } from '@/hooks/useReservations';
 import { ar } from '@/components/reservations/ResRow';
 
 export default function DoorMode() {
@@ -40,6 +40,37 @@ export default function DoorMode() {
     R.setAttendance(id, true);
     setToast({ id, name });
     window.setTimeout(() => setToast(t => (t && t.id === id ? null : t)), 4200);
+  }, [R]);
+
+  // 🪑 المقعدُ يُقرَّر لحظة الوصول لا لحظة الانضمام (C1).
+  // كان الموظّف يقول «تفضّل» بلا رقم، واللاعب يكتشف مقعده على هاتفه بعد الدخول،
+  // والليدر يعيد التوزيع يدويّاً حين يتضح أنّ الأصدقاء تجاوروا. الرقم هنا محسوبٌ
+  // بمحرّك القيود نفسه ومثبَّتٌ للشخص فلا يأخذه غيره.
+  const [seatBusy, setSeatBusy] = useState<number | null>(null);
+  const [seatOf, setSeatOf] = useState<Record<number, number>>({});
+  const assignSeat = useCallback(async (r: any) => {
+    if (!R.activityId || R.activityId === 'all') return;
+    setSeatBusy(r.id);
+    try {
+      const res = await apiFetch('/api/seating/door-assign', {
+        method: 'POST',
+        body: JSON.stringify({
+          activityId: Number(R.activityId),
+          phone: r.phone || null,
+          name: r.contactName,
+          playerId: r.playerId || null,
+        }),
+      });
+      const seat = (res as any)?.seat;
+      if (seat) {
+        setSeatOf(prev => ({ ...prev, [r.id]: seat }));
+        if (r.attended == null) R.setAttendance(r.id, true);
+      }
+    } catch (e: any) {
+      alert(e?.message || 'تعذّر تخصيص مقعد — تأكّد أنّ الليدر فتح الغرفة');
+    } finally {
+      setSeatBusy(null);
+    }
   }, [R]);
 
   if (R.loading) {
@@ -156,8 +187,29 @@ export default function DoorMode() {
                           غير مثبّت
                         </span>
                       )}
+                      {seatOf[r.id] && (
+                        <span className="text-[12px] px-2 rounded-full border font-black"
+                          style={{ color: '#C5A059', borderColor: '#C5A05988', background: '#C5A05918' }}>
+                          🪑 مقعد {ar(seatOf[r.id])}
+                        </span>
+                      )}
                     </span>
                   </span>
+
+                  {/* 🪑 اعطِه رقمه على الباب — قبل أن يدخل ويجلس عشوائيّاً */}
+                  {!seatOf[r.id] && R.activityId && R.activityId !== 'all' && (
+                    <span
+                      role="button"
+                      onClick={(e) => { e.stopPropagation(); void assignSeat(r); }}
+                      className="w-14 h-14 shrink-0 rounded-2xl flex items-center justify-center text-[12px] font-bold border-2 leading-tight text-center"
+                      style={{
+                        borderColor: '#C5A05966', background: '#C5A05910', color: '#C5A059',
+                        opacity: seatBusy === r.id ? 0.5 : 1,
+                      }}
+                    >
+                      {seatBusy === r.id ? '…' : 'أعطِ مقعداً'}
+                    </span>
+                  )}
                   <span
                     className="w-16 h-16 shrink-0 rounded-2xl flex items-center justify-center text-[24px] border-2"
                     style={

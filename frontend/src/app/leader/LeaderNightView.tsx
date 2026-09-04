@@ -647,7 +647,7 @@ export default function LeaderNightView({ gameState, emit, setError }: LeaderNig
                       e.stopPropagation();
                       setPenalizingId(t.physicalId);
                     }}
-                    className="absolute -top-2 -left-2 w-7 h-7 rounded-full bg-[#201505] border border-amber-500/60 text-amber-500 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity hover:bg-amber-950 hover:scale-110 z-20 shadow-lg"
+                    className="absolute -top-2 -left-2 w-7 h-7 rounded-full bg-[#201505] border border-amber-500/60 text-amber-500 flex items-center justify-center opacity-0 group-hover:opacity-100 [@media(hover:none)]:opacity-100 transition-opacity hover:bg-amber-950 hover:scale-110 z-20 shadow-lg"
                     title="تسجيل عقوبة"
                   >
                     ⚠️
@@ -1108,7 +1108,7 @@ export default function LeaderNightView({ gameState, emit, setError }: LeaderNig
                         e.stopPropagation();
                         setPenalizingId(p.physicalId);
                       }}
-                      className="absolute -top-2 -left-2 w-7 h-7 rounded-full bg-[#201505] border border-amber-500/60 text-amber-500 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity hover:bg-amber-950 hover:scale-110 z-20 shadow-lg"
+                      className="absolute -top-2 -left-2 w-7 h-7 rounded-full bg-[#201505] border border-amber-500/60 text-amber-500 flex items-center justify-center opacity-0 group-hover:opacity-100 [@media(hover:none)]:opacity-100 transition-opacity hover:bg-amber-950 hover:scale-110 z-20 shadow-lg"
                       title="تسجيل عقوبة"
                     >
                       ⚠️
@@ -1117,7 +1117,7 @@ export default function LeaderNightView({ gameState, emit, setError }: LeaderNig
                     {/* 🪑 نقل/تبديل المقعد — لمستان من البطاقة نفسها بلا فتح لوحة.
                         تظهر دائماً أثناء «اختر الوجهة» كي تكون هذه البطاقة وجهةً بلمسة. */}
                     <div className={`absolute -top-2 -right-2 z-20 transition-opacity ${
-                      seatMove.movingId !== null ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'
+                      seatMove.movingId !== null ? 'opacity-100' : 'opacity-0 group-hover:opacity-100 [@media(hover:none)]:opacity-100'
                     }`}>
                       <SeatMoveChip physicalId={p.physicalId} />
                     </div>
@@ -1370,7 +1370,7 @@ export default function LeaderNightView({ gameState, emit, setError }: LeaderNig
                         e.stopPropagation();
                         setPenalizingId(target.physicalId);
                       }}
-                      className="absolute -top-2 -left-2 w-7 h-7 rounded-full bg-[#201505] border border-amber-500/60 text-amber-500 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity hover:bg-amber-950 hover:scale-110 z-20 shadow-lg"
+                      className="absolute -top-2 -left-2 w-7 h-7 rounded-full bg-[#201505] border border-amber-500/60 text-amber-500 flex items-center justify-center opacity-0 group-hover:opacity-100 [@media(hover:none)]:opacity-100 transition-opacity hover:bg-amber-950 hover:scale-110 z-20 shadow-lg"
                       title="تسجيل عقوبة"
                     >
                       ⚠️

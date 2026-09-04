@@ -10,6 +10,7 @@ import type { Socket } from 'socket.io-client';
 import DisplayDayView from './DisplayDayView';
 import MafiaCard from '@/components/MafiaCard';
 import NightAnimCinematic from '@/components/NightAnimCinematic';
+import SeatMapRing, { type RingSeat } from '@/components/SeatMapRing';
 import EliminationFx from '@/components/EliminationFx';
 import { EntranceOverlay, ENTRANCE_FULL_MS, ENTRANCE_COMPACT_MS, type EntrancePayload } from '@/components/EntranceOverlay';
 import { BirthdayCelebration, type Celebrant } from '@/components/BirthdayCelebration';
@@ -142,6 +143,16 @@ function DisplayPageContent() {
   // 🪑 إعادة ترتيب المقاعد (نقل/تبديل من الليدر أثناء أي طور):
   //    لافتة تنبيه قصيرة على الشاشة + راية «أعد الاشتقاق من الحالة القادمة».
   const [seatsRemapNotice, setSeatsRemapNotice] = useState(false);
+  // 🗺️ خريطة المقاعد + ⏱️ الجولة القادمة + 📢 إعلان الليدر
+  const [seatMeta, setSeatMeta] = useState<{
+    maxPlayers: number; heldSeats: number[]; frozenSeats: number[];
+    doorSeats: number[]; spectators: Array<{ physicalId: number; firstName: string }>;
+    pinnedSeats: Array<{ seatNumber: number; playerName?: string }>;
+  }>({ maxPlayers: 0, heldSeats: [], frozenSeats: [], doorSeats: [], spectators: [], pinnedSeats: [] });
+  const [nextGameAt, setNextGameAt] = useState<number | null>(null);
+  const [nextGameLeft, setNextGameLeft] = useState<number>(0);
+  const [notice, setNotice] = useState<{ text: string; kind: string } | null>(null);
+  const noticeTimerRef = useRef<any>(null);
   // 🚶 لافتة الواصل متأخّراً (القرار المقفل ٦: الاسم الأوّل + رقم المقعد فقط)
   const [lateArrival, setLateArrival] = useState<{ firstName: string; seat: number } | null>(null);
   const lateArrivalTimerRef = useRef<any>(null);
@@ -302,6 +313,19 @@ function DisplayPageContent() {
         })));
         setPlayerCount(activePlayers.filter((p: any) => p.isAlive !== false).length);
       }
+      // 🗺️ ما ترسمه الخريطة: يصل خاماً من السوكِت ومُسقَطاً من REST — كلاهما يحمله الآن
+      setSeatMeta({
+        maxPlayers: state.config?.maxPlayers ?? state.maxPlayers ?? 0,
+        heldSeats: state.heldSeats ?? (state.players || []).filter((p: any) => p.seatHeld).map((p: any) => p.physicalId),
+        frozenSeats: state.frozenSeats ?? (state.players || []).filter((p: any) => p.frozen).map((p: any) => p.physicalId),
+        doorSeats: state.doorSeats || [],
+        spectators: (state.spectators || []).map((sp: any) => ({
+          physicalId: sp.physicalId,
+          firstName: sp.firstName || String(sp.name || '').trim().split(/\s+/)[0] || '',
+        })),
+        pinnedSeats: state.pinnedSeats || [],
+      });
+      setNextGameAt(typeof state.nextGameAt === 'number' ? state.nextGameAt : null);
       if (state.config?.maxPenalties) setDisplayMaxPenalties(state.config.maxPenalties);
       // phaseOverride يتجاوز phase القديم في state
       if (phaseOverride) setPhase(phaseOverride as Phase);
@@ -736,6 +760,14 @@ function DisplayPageContent() {
         setTimeout(showNextLate, 400);
       }, 6500);
     };
+    // 📢 إعلانُ الليدر (استراحة/موعد/تنبيه) — يُغني عن النداء الصوتيّ
+    const onDisplayNotice = (d: { text?: string; kind?: string; ttlMs?: number }) => {
+      if (!d?.text) return;
+      if (noticeTimerRef.current) clearTimeout(noticeTimerRef.current);
+      setNotice({ text: d.text, kind: d.kind || 'info' });
+      noticeTimerRef.current = setTimeout(() => { setNotice(null); noticeTimerRef.current = null; }, d.ttlMs || 12000);
+    };
+
     const onSpectatorJoined = (data: { firstName?: string; name?: string; physicalId?: number }) => {
       const entry = { firstName: data?.firstName || data?.name || 'ضيف', seat: Number(data?.physicalId || 0) };
       lateQueueRef.current.push(entry);
@@ -782,12 +814,15 @@ function DisplayPageContent() {
     };
     socket.on('room:seats-remapped', onSeatsRemapped);
     socket.on('room:spectator-joined', onSpectatorJoined);
+    socket.on('display:notice', onDisplayNotice);
 
     // ── تنظيف ──
     return () => {
       clearLuckyTimers();
       socket.off('room:seats-remapped', onSeatsRemapped);
       socket.off('room:spectator-joined', onSpectatorJoined);
+      socket.off('display:notice', onDisplayNotice);
+      if (noticeTimerRef.current) { clearTimeout(noticeTimerRef.current); noticeTimerRef.current = null; }
       if (lateArrivalTimerRef.current) { clearTimeout(lateArrivalTimerRef.current); lateArrivalTimerRef.current = null; }
       if (seatsRemapTimerRef.current) clearTimeout(seatsRemapTimerRef.current);
       socket.off('display:lucky-draw', onLuckyDraw);
@@ -1004,7 +1039,49 @@ function DisplayPageContent() {
   };
 
   // ── QR URL — دائماً يوجه لصفحة تسجيل الدخول ──
-  const joinUrl = 'https://club-mafia.grade.sbs/player/login';
+  // 🔗 رابطٌ عميق برمز الغرفة (نفس صيغة الدعوات): كان ثابتاً على صفحة الدخول
+  //    العامّة فيبحث الماسحُ عن غرفته يدويّاً.
+  const joinUrl = roomCode && roomCode !== '------'
+    ? `https://club-mafia.grade.sbs/player/join?code=${roomCode}`
+    : 'https://club-mafia.grade.sbs/player/login';
+
+  // ⏱️ عدّاد الجولة القادمة
+  useEffect(() => {
+    if (!nextGameAt) { setNextGameLeft(0); return; }
+    const tick = () => setNextGameLeft(Math.max(0, Math.floor((nextGameAt - Date.now()) / 1000)));
+    tick();
+    const id = setInterval(tick, 1000);
+    return () => clearInterval(id);
+  }, [nextGameAt]);
+
+  // 🗺️ مقاعد الخريطة — مشتقّة بالكامل من الحالة في كلّ رسمة
+  const ringSeats: RingSeat[] = (() => {
+    const out: RingSeat[] = [];
+    const cap = seatMeta.maxPlayers || maxPlayers || 0;
+    const held = new Set(seatMeta.heldSeats);
+    const frozen = new Set(seatMeta.frozenSeats);
+    const specs = new Map(seatMeta.spectators.map(sp => [sp.physicalId, sp.firstName]));
+    const pins = new Map(seatMeta.pinnedSeats.map((p: any) => [Number(p.seatNumber), p.playerName]));
+    const byId = new Map(players.map(p => [p.physicalId, p]));
+    for (let i = 1; i <= cap; i++) {
+      const p = byId.get(i);
+      if (p) {
+        out.push({ seat: i, name: p.name, state: p.isAlive === false ? 'dead' : 'occupied' });
+      } else if (held.has(i)) {
+        out.push({ seat: i, name: '⏳', state: 'held' });
+      } else if (frozen.has(i)) {
+        out.push({ seat: i, name: '❄️', state: 'frozen' });
+      } else if (specs.has(i)) {
+        out.push({ seat: i, name: specs.get(i) || '', state: 'spectator' });
+      } else if (pins.has(i)) {
+        out.push({ seat: i, name: pins.get(i) || '📌', state: 'pinned' });
+      } else {
+        out.push({ seat: i, state: 'empty' });
+      }
+    }
+    return out;
+  })();
+
 
   // ══════════════════════════════════════════════════
   // 🖥️ واجهة العرض
@@ -1425,7 +1502,29 @@ function DisplayPageContent() {
                   <p className="text-[#808080] text-xs font-mono text-center tracking-widest uppercase">
                     SCAN TO ENTER
                   </p>
+                  {roomCode && roomCode !== '------' && (
+                    <p className="text-[#C5A059] text-lg font-black mt-2 tracking-[0.3em]" style={{ fontFamily: 'monospace' }}>{roomCode}</p>
+                  )}
                 </div>
+
+                {/* 🗺️ خريطة الطاولة — الواصل يجد مقعده بلا أن يسأل أحداً */}
+                {(seatMeta.maxPlayers || maxPlayers) > 0 && (
+                  <div className="noir-card p-4 mb-6 border-[#C5A059]/25 w-full">
+                    <SeatMapRing
+                      maxPlayers={seatMeta.maxPlayers || maxPlayers}
+                      seats={ringSeats}
+                      doorSeats={seatMeta.doorSeats}
+                      size={360}
+                      showNextEmpty
+                    />
+                    <div className="flex flex-wrap justify-center gap-3 mt-2 text-[10px] text-[#666]">
+                      <span><span className="text-[#C5A059]">◌</span> شاغر</span>
+                      <span><span className="text-[#ffc575]">⏳</span> محجوز</span>
+                      <span><span className="text-[#cbbcff]">👁</span> ينتظر</span>
+                      <span><span className="text-[#f3cd6f]">📌</span> مثبَّت</span>
+                    </div>
+                  </div>
+                )}
 
                 <div className="w-full text-center font-mono noir-card p-4 border-[#2a2a2a]">
                   <p className="text-[#555] text-xs mb-2 tracking-[0.3em] uppercase">AGENTS REGISTERED</p>
@@ -1954,6 +2053,44 @@ function DisplayPageContent() {
                 ADMIN ELIMINATION — IDENTITY REVEALED
               </p>
             </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* ═══ 📢 إعلانُ الليدر (D4) ═══ */}
+      <AnimatePresence>
+        {notice && (
+          <motion.div
+            key={`notice-${notice.text}`}
+            initial={{ opacity: 0, y: -20 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -20 }}
+            transition={{ duration: 0.4 }}
+            className="fixed top-24 left-0 right-0 z-[290] flex justify-center pointer-events-none"
+          >
+            <div className="noir-card bg-black/85 backdrop-blur-md px-8 py-4"
+              style={{ borderColor: notice.kind === 'warn' ? 'rgba(229,72,77,.5)' : 'rgba(197,160,89,.45)' }}>
+              <p className="text-2xl font-black text-center"
+                style={{ fontFamily: 'Amiri, serif', color: notice.kind === 'warn' ? '#ff8d90' : '#C5A059' }}>
+                {notice.text}
+              </p>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* ═══ ⏱️ الجولة القادمة (D2) ═══ */}
+      <AnimatePresence>
+        {nextGameLeft > 0 && (phase === Phase.LOBBY || phase === Phase.GAME_OVER) && (
+          <motion.div
+            key="next-game"
+            initial={{ opacity: 0, y: 24 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 24 }}
+            className="fixed bottom-8 left-8 z-[200] pointer-events-none"
+          >
+            <div className="noir-card bg-black/80 backdrop-blur-md px-6 py-3 border-[#C5A059]/30">
+              <p className="text-[#555] text-[9px] font-mono tracking-[0.3em] uppercase mb-1">NEXT GAME</p>
+              <p className="text-[#C5A059] text-3xl font-black tabular-nums" style={{ fontFamily: 'monospace' }}>
+                {String(Math.floor(nextGameLeft / 60)).padStart(2, '0')}:{String(nextGameLeft % 60).padStart(2, '0')}
+              </p>
+            </div>
           </motion.div>
         )}
       </AnimatePresence>
