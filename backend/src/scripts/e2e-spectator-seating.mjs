@@ -23,8 +23,16 @@ import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const require = createRequire(path.join(__dirname, '../../../frontend/package.json'));
-const { io } = require('socket.io-client');
+// socket.io-client يعيش في اعتماديّات الواجهة محلّيّاً، وقد يُثبَّت جانباً على
+// الخادم (حيث لا node_modules للواجهة) — نجرّب الاثنين.
+let io;
+try {
+  const req = createRequire(path.join(__dirname, '../../../frontend/package.json'));
+  ({ io } = req('socket.io-client'));
+} catch {
+  const req = createRequire(import.meta.url);
+  ({ io } = req('socket.io-client'));
+}
 
 const URL = process.env.MAFIA_URL || 'http://localhost:4000';
 const TOKEN = process.env.MAFIA_STAFF_TOKEN;
@@ -55,6 +63,13 @@ let roomId = null;
 const sockets = [];
 const spectatorEvents = [];
 leader.on('room:spectator-joined', d => spectatorEvents.push(d));
+// قائمةُ الأدوار تصل بحدثٍ للّيدر وحده لا في ردّ النداء
+let generatedRoles = null;
+leader.on('setup:roles-generated', d => {
+  generatedRoles = [
+    ...(d.mafiaRoles || []), ...(d.citizenRoles || []), ...(d.neutralRoles || []),
+  ];
+});
 
 try {
   // ══ ١) غرفة + ٦ لاعبين ══
@@ -107,8 +122,10 @@ try {
   console.log('\n━━━ ٤) بدء اللعبة ━━━');
   const gen = await rpc(leader, 'room:start-generation', { roomId, supportsAbsentPrompt: true });
   ok('بدأ توليد الأدوار', gen?.success === true, gen?.error || gen?.code);
-  const roles = gen?.roles || gen?.state?.rolesPool;
-  const conf = await rpc(leader, 'setup:roles-confirmed', { roomId, roles: roles || undefined });
+  await sleep(600);   // الحدث يصل بعد الردّ
+  ok('وصلت قائمة الأدوار المولَّدة', Array.isArray(generatedRoles) && generatedRoles.length === 8,
+     `${generatedRoles?.length}`);
+  const conf = await rpc(leader, 'setup:roles-confirmed', { roomId, roles: generatedRoles });
   ok('اعتُمدت قائمة الأدوار', conf?.success === true, conf?.error);
   const rnd = await rpc(leader, 'setup:random-assign', { roomId, lockedPhysicalIds: [] });
   ok('وُزّعت الأدوار عشوائيّاً', rnd?.success === true, rnd?.error);

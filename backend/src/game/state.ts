@@ -540,9 +540,48 @@ export async function updateRoom(roomId: string, updates: Partial<GameState>): P
   return updated;
 }
 
+// ══════════════════════════════════════════════════════
+// 🔒 قفلُ تسلسلٍ لكلّ غرفة على «اقرأ ← عدّل ← اكتب»
+// ══════════════════════════════════════════════════════
+// كلُّ تعديلٍ على الحالة يقرأ من Redis ثمّ يكتب. نداءان متزامنان على الغرفة
+// نفسها ⇒ تضييعُ تحديث: الثاني يكتب فوق الأوّل فيختفي لاعبٌ أُضيف للتوّ،
+// ثمّ يفشل النداء التالي بـ«Player #N not found».
+//
+// ظهر هذا فعليّاً في اختبارٍ حيّ: صديقان ضغطا «انضمّ» في اللحظة نفسها فدخل
+// واحدٌ فقط — وهو بالضبط السلوك الذي تستهدفه ميزةُ تفريق الواصلين معاً.
+// (وقراءاتُ التقارب الاجتماعيّ وسّعت النافذة لأنّها تُدخل استعلاماتٍ بين
+//  القراءة والكتابة.)
+//
+// سلسلةُ وعودٍ لكلّ غرفة: النداءات تُنفَّذ بالتتابع، وفشلُ أحدها لا يقطع البقيّة.
+const roomWriteChains = new Map<string, Promise<unknown>>();
+
+export function withRoomLock<T>(roomId: string, fn: () => Promise<T>): Promise<T> {
+  const prev = roomWriteChains.get(roomId) ?? Promise.resolve();
+  const run = prev.then(fn, fn);          // يعمل سواء نجح السابق أم أخفق
+  // نحتفظ بنسخةٍ مُبتلَعة الخطأ في السلسلة كي لا يسقط اللاحق برفضٍ غير مُلتقَط
+  roomWriteChains.set(roomId, run.catch(() => undefined));
+  void run.catch(() => undefined).finally(() => {
+    // تنظيف: إن كانت هذه آخر عمليّة في السلسلة نُسقط المدخل كي لا تتضخّم الخريطة
+    if (roomWriteChains.get(roomId) === undefined) roomWriteChains.delete(roomId);
+  });
+  return run;
+}
+
 // ── إضافة لاعب ──────────────────────────────────
 
 export async function addPlayer(
+  roomId: string,
+  physicalId: number,
+  name: string,
+  phone: string | null = null,
+  playerId: number | null = null,
+  addedBy: 'self' | 'leader' = 'self',
+): Promise<GameState> {
+  // 🔒 مسلسَلٌ لكلّ غرفة — وإلّا ضاع لاعبٌ عند انضمامَين متزامنَين
+  return withRoomLock(roomId, () => addPlayerUnlocked(roomId, physicalId, name, phone, playerId, addedBy));
+}
+
+async function addPlayerUnlocked(
   roomId: string,
   physicalId: number,
   name: string,
@@ -608,6 +647,15 @@ export async function addPlayer(
 // ── تعديل لاعب (Override الليدر) ────────────────
 
 export async function updatePlayer(
+  roomId: string,
+  physicalId: number,
+  updates: Partial<Pick<Player, 'name' | 'physicalId' | 'dob' | 'gender' | 'avatarUrl' | 'rankTier' | 'cosmetics'>>
+): Promise<GameState> {
+  // 🔒 نفس القفل: يقرأ ويكتب، ويجب ألّا يتقاطع مع إضافةٍ جارية
+  return withRoomLock(roomId, () => updatePlayerUnlocked(roomId, physicalId, updates));
+}
+
+async function updatePlayerUnlocked(
   roomId: string,
   physicalId: number,
   updates: Partial<Pick<Player, 'name' | 'physicalId' | 'dob' | 'gender' | 'avatarUrl' | 'rankTier' | 'cosmetics'>>
