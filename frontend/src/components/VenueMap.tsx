@@ -187,13 +187,26 @@ export default function VenueMap({
     const data: any = coords.length >= 2
       ? { type: 'Feature', geometry: { type: 'LineString', coordinates: coords } }
       : { type: 'FeatureCollection', features: [] };
-    const apply = () => {
+    // 🔴 لا `isStyleLoaded()` ولا `once('load')` هنا، وكلاهما يبدو صحيحاً:
+    //    الأولى ليست «هل حُمّل النمط» بل «هل اكتمل كلُّ شيء الآن»، فتعود false
+    //    كلّما كانت بلاطةٌ قيد التحميل. والثانية تنتظر حدثاً وقع منذ دقائق ولن
+    //    يقع ثانيةً — فالتأثيرُ هنا يعمل حين **يختار** الليدر لاعباً، أي بعد
+    //    التحميل بوقتٍ طويل. صادفت false مرّةً ⇒ ضاع الخطّ إلى الأبد بلا خطأ.
+    //    (طبقةُ السياج نجت لأنّها تُهيَّأ عند التركيب قبل وقوع الحدث.)
+    //
+    //    الشرطُ الصادق هو وجودُ المصدر نفسِه: نحاول الآن، وإن لم يوجد بعد
+    //    نُعاود عند كلّ `styledata` حتّى يوجد — ثمّ نفكّ الاشتراك.
+    const apply = (): boolean => {
       const src = map.getSource('trail') as maplibregl.GeoJSONSource | undefined;
-      if (!src) return;                       // أُنشئت عند التهيئة — لا شيء يُنشأ هنا
+      if (!src) return false;
       src.setData(data);
-      try { map.setPaintProperty('trail-line', 'line-color', pathColor); } catch { /* الطبقةُ تُبنى بعد لحظة */ }
+      try { map.setPaintProperty('trail-line', 'line-color', pathColor); } catch { /* الطبقةُ بعد لحظة */ }
+      return true;
     };
-    if (map.isStyleLoaded()) apply(); else map.once('load', apply);
+    if (apply()) return;
+    const retry = () => { if (apply()) map.off('styledata', retry); };
+    map.on('styledata', retry);
+    return () => { map.off('styledata', retry); };
   }, [path, pathColor]);
 
   // ── إعادة التوسيط عند وصول نقطةٍ لأوّل مرّة ──
