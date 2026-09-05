@@ -13,7 +13,8 @@
 // القرارات المقفلة: ١ · ٥ (بلا سرّ في اللوبي) · ٦ · ٧ · ٨.
 // ══════════════════════════════════════════════════════
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import SeatMapRing, { type RingSeat } from '@/components/SeatMapRing';
 import { checkSeatConflicts } from '@/lib/seatConflicts';
 
@@ -57,6 +58,56 @@ export default function ArrivalsPanel({ roomId, gameState, emit, on }: Props) {
     violationsBefore: number; violationsAfter: number;
   }>(null);
   const [pairPick, setPairPick] = useState<number[]>([]);
+
+  // 📐 موضعُ اللوحة يُحسب من موقع الزرّ ويُقصّ داخل النافذة.
+  // كانت موضوعةً بـ`inset-inline-start:0` وهي في واجهةٍ عربيّة تعني `right:0`،
+  // فتمتدّ اللوحةُ يساراً من زرٍّ يقع أصلاً قرب الحافّة اليسرى وتخرج عن الشاشة
+  // فتُقصّ. والآن: طبقةٌ مثبَّتة على النافذة عبر بوّابة إلى body — لا يقصّها
+  // إطارٌ أب، ولا يقلبها اتّجاهُ الصفحة.
+  const btnRef = useRef<HTMLButtonElement | null>(null);
+  const [pos, setPos] = useState<{ top: number; left: number; width: number } | null>(null);
+
+  const placePanel = useCallback(() => {
+    const el = btnRef.current;
+    if (!el) return;
+    const r = el.getBoundingClientRect();
+    const margin = 12;
+    const width = Math.min(380, window.innerWidth - margin * 2);
+    // نبدأ من حافّة الزرّ اليسرى ثمّ نقصّ داخل النافذة من الجهتين
+    let left = r.left;
+    if (left + width > window.innerWidth - margin) left = window.innerWidth - margin - width;
+    if (left < margin) left = margin;
+    setPos({ top: r.bottom + 8, left, width });
+  }, []);
+
+  useEffect(() => {
+    if (!open) return;
+    placePanel();
+    const onMove = () => placePanel();
+    window.addEventListener('resize', onMove);
+    window.addEventListener('scroll', onMove, true);
+    return () => {
+      window.removeEventListener('resize', onMove);
+      window.removeEventListener('scroll', onMove, true);
+    };
+  }, [open, placePanel]);
+
+  // إغلاقٌ بالنقر خارجها أو بـEsc — لوحةٌ مثبَّتة تحتاج مخرجاً واضحاً
+  useEffect(() => {
+    if (!open) return;
+    const onDown = (e: MouseEvent) => {
+      const t = e.target as HTMLElement;
+      if (t.closest('[data-arrivals]') || t.closest('[data-arrivals-panel]')) return;
+      setOpen(false);
+    };
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setOpen(false); };
+    document.addEventListener('mousedown', onDown);
+    document.addEventListener('keydown', onKey);
+    return () => {
+      document.removeEventListener('mousedown', onDown);
+      document.removeEventListener('keydown', onKey);
+    };
+  }, [open]);
   // 👥 المتوقَّعون: حاجزون لم يجلسوا بعد. قرارُ «نبدأ أم ننتظر؟» كان يُتّخذ
   //    بالنظر إلى الباب لأنّ كونسول الليدر لا يجلب الحجوزات إطلاقاً.
   const [expected, setExpected] = useState<Array<{ name: string; playerId: number | null }> | null>(null);
@@ -240,6 +291,7 @@ export default function ArrivalsPanel({ roomId, gameState, emit, on }: Props) {
   return (
     <div data-arrivals className="relative inline-block">
       <button
+        ref={btnRef}
         onClick={() => setOpen(o => !o)}
         className="px-3 py-1.5 rounded-lg text-xs font-bold border transition-colors"
         style={{
@@ -259,9 +311,14 @@ export default function ArrivalsPanel({ roomId, gameState, emit, on }: Props) {
         </div>
       )}
 
-      {open && (
-        <div className="absolute z-[300] mt-2 w-[380px] max-h-[76vh] overflow-auto rounded-xl p-3 text-right"
-          style={{ background: '#12151c', border: '1px solid #262c3a', boxShadow: '0 20px 60px rgba(0,0,0,.6)', insetInlineStart: 0 }}>
+      {open && pos && typeof document !== 'undefined' && createPortal(
+        <div data-arrivals-panel dir="rtl"
+          className="fixed z-[400] max-h-[76vh] overflow-auto rounded-xl p-3 text-right"
+          style={{
+            top: pos.top, left: pos.left, width: pos.width,
+            background: '#12151c', border: '1px solid #262c3a',
+            boxShadow: '0 20px 60px rgba(0,0,0,.6)',
+          }}>
 
           <div className="flex gap-1 mb-3 pb-2" style={{ borderBottom: '1px solid #262c3a' }}>
             <TabBtn id="arrivals" label={`🚶 الوصول${count ? ` (${count})` : ''}`} />
@@ -461,7 +518,8 @@ export default function ArrivalsPanel({ roomId, gameState, emit, on }: Props) {
               </div>
             </>
           )}
-        </div>
+        </div>,
+        document.body,
       )}
     </div>
   );
