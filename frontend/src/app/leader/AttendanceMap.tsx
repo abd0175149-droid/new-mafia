@@ -14,6 +14,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import dynamic from 'next/dynamic';
 import { getSocket } from '@/lib/socket';
+import FixedLayer from '@/components/FixedLayer';
 
 const VenueMap = dynamic(() => import('@/components/VenueMap'), { ssr: false });
 
@@ -150,6 +151,7 @@ export function AttendanceMapToggle({ roomId, label = '🗺️ الحضور' }: 
       </button>
 
       {open && (
+        <FixedLayer>
         <div data-attmap
           className="fixed bottom-4 right-4 z-[115] w-[min(96vw,44rem)] max-h-[84vh] flex flex-col rounded-2xl border border-[#C5A059]/30 bg-[#080808]/97 backdrop-blur-md shadow-2xl overflow-hidden"
           dir="rtl">
@@ -259,6 +261,7 @@ export function AttendanceMapToggle({ roomId, label = '🗺️ الحضور' }: 
             </div>
           )}
         </div>
+        </FixedLayer>
       )}
     </>
   );

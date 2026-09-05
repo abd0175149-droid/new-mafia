@@ -14,6 +14,21 @@ import { OrbitControls, Html, RoundedBox, ContactShadows, MeshReflectorMaterial 
 import type { RectSeat, DoorNode, Dims } from '@/lib/rectLayout';
 import { SPACING } from '@/lib/rectLayout';
 
+/**
+ * إشغالٌ حيّ لمقعد — تستعمله واجهةُ الليدر أثناء الفعاليّة.
+ * حين يُمرَّر `occupancy` يتقدّم على تثبيت القالب: القالبُ يقول «لمن يُفترض أن
+ * يكون المقعد»، وهذا يقول «من يجلس فيه الآن».
+ */
+export interface LiveSeat {
+  name: string;
+  kind: 'player' | 'spectator' | 'held';
+  isAlive?: boolean;
+  /** متجاورٌ مع من يجب أن يفترق عنه — يُلوَّن أحمر ويتوهّج */
+  conflict?: boolean;
+  /** سيتحرّك في الاقتراح المعروض */
+  proposed?: boolean;
+}
+
 interface Props {
   dims: Dims;
   seats: RectSeat[];
@@ -26,6 +41,12 @@ interface Props {
   selectedDoorId: string | null;
   onSelectSeat: (n: number) => void;
   onSelectDoor: (id: string) => void;
+  /** طبقةُ الحالة الحيّة — مفتاحُها رقمُ المقعد لا الكرسيّ */
+  occupancy?: Record<number, LiveSeat>;
+  /** اختيارٌ متعدّد (لفصل زوج) — يُعرض كتحديدٍ مع `selectedSeat` */
+  selectedSeats?: number[];
+  /** مقاعدُ الأبواب — تُظلَّل كي يرى الليدر لماذا تُتجنَّب */
+  doorSeats?: number[];
 }
 
 const chairKey = (s: RectSeat) => `${s.side}:${s.sideIndex}`;
@@ -37,6 +58,14 @@ const STATE = {
   assign:   '#a78bfa',
   tail:     '#64748b',
   selected: '#5aa0ff',
+  // ── الطبقة الحيّة ──
+  player:   '#e6b54a',   // جالسٌ في اللعبة
+  spectator:'#38bdf8',   // متفرّجٌ متأخّر
+  held:     '#a16207',   // مقعدٌ محجوز لغائب
+  dead:     '#4b5563',   // خارج اللعبة
+  conflict: '#ef4444',   // تجاورٌ مخالف
+  proposed: '#a78bfa',   // سيتحرّك في الاقتراح
+  door:     '#7c2d12',   // مقعدُ باب
 };
 const WALL_H = 2.65;      // ارتفاع الجدار
 const WALL_T = 0.17;      // سماكة الجدار
@@ -262,7 +291,7 @@ function Table({ dims }: { dims: Dims }) {
   );
 }
 
-function Scene({ dims, seats, doorNodes, pinnedByChair, assignedByChair, reservedTailCount, selectedSeat, selectedDoorId, onSelectSeat, onSelectDoor }: Props) {
+function Scene({ dims, seats, doorNodes, pinnedByChair, assignedByChair, reservedTailCount, selectedSeat, selectedDoorId, onSelectSeat, onSelectDoor, occupancy, selectedSeats, doorSeats }: Props) {
   const [hover, setHover] = useState<number | null>(null);
   const bound = Math.max(dims.halfW, dims.halfD);
   const total = seats.length;
@@ -326,13 +355,31 @@ function Scene({ dims, seats, doorNodes, pinnedByChair, assignedByChair, reserve
         const k = chairKey(s);
         const assigned = assignedByChair?.[k];
         const pinned = pinnedByChair[k];
-        const name = assigned || pinned;
         const isTail = s.seatNum >= tailStart && reservedTailCount > 0;
-        const sel = selectedSeat === s.seatNum;
-        const state = sel ? STATE.selected : assigned ? STATE.assign : pinned ? STATE.pin : isTail ? STATE.tail : STATE.empty;
+        const sel = selectedSeat === s.seatNum || !!selectedSeats?.includes(s.seatNum);
         const isHover = hover === s.seatNum;
+
+        // 🔴 الحالةُ الحيّة تتقدّم على القالب: القالب يقول «لمن يُفترض أن يكون
+        //    هذا المقعد»، والحيّةُ تقول «من يجلس فيه الآن». وأثناء الفعاليّة
+        //    الثانية هي الحقيقة — أمّا الأولى فتبقى مرجعاً لا واقعاً.
+        const live = occupancy?.[s.seatNum];
+        const name = live ? live.name : (assigned || pinned);
+        // ترتيبُ الأولويّة مقصود: التحديدُ ثمّ التعارض ثمّ الاقتراح، فالمخالفةُ
+        // يجب أن تُرى ولو كان المقعد مقترحاً للنقل.
+        const state = sel ? STATE.selected
+          : live?.conflict ? STATE.conflict
+          : live?.proposed ? STATE.proposed
+          : live?.kind === 'spectator' ? STATE.spectator
+          : live?.kind === 'held' ? STATE.held
+          : live && live.isAlive === false ? STATE.dead
+          : live ? STATE.player
+          : occupancy && doorSeats?.includes(s.seatNum) ? STATE.door
+          : assigned ? STATE.assign : pinned ? STATE.pin : isTail ? STATE.tail : STATE.empty;
+
         return (
-          <Chair key={k} seat={s} state={state} name={name} glow={isHover || sel} selected={sel}
+          <Chair key={k} seat={s} state={state} name={name}
+            glow={isHover || sel || !!live?.conflict}
+            selected={sel}
             dimmed={hover !== null && !isHover && !sel && !name}
             onClick={() => onSelectSeat(s.seatNum)} onOver={() => setHover(s.seatNum)} onOut={() => setHover(h => h === s.seatNum ? null : h)} />
         );

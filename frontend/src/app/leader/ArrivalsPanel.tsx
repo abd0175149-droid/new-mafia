@@ -15,8 +15,20 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
+import dynamic from 'next/dynamic';
 import SeatMapRing, { type RingSeat } from '@/components/SeatMapRing';
 import { checkSeatConflicts } from '@/lib/seatConflicts';
+import { computeRectLayout, type Sides, type Numbering, type RectDoor } from '@/lib/rectLayout';
+import type { LiveSeat } from '@/components/SeatTemplate3DEditor';
+
+// 🏛️ القاعة الحقيقيّة — ثقيلةٌ (three.js) فلا تُحمَّل إلّا عند فتح تبويب الخريطة.
+const Venue3D = dynamic(() => import('@/components/SeatTemplate3DEditor'), {
+  ssr: false,
+  loading: () => (
+    <div className="flex items-center justify-center text-[12px] text-[#5f6779]"
+      style={{ height: 340 }}>⏳ تُبنى القاعة…</div>
+  ),
+});
 
 interface Spectator {
   physicalId: number;
@@ -67,12 +79,14 @@ export default function ArrivalsPanel({ roomId, gameState, emit, on }: Props) {
   const btnRef = useRef<HTMLButtonElement | null>(null);
   const [pos, setPos] = useState<{ top: number; left: number; width: number } | null>(null);
 
+  const wideRef = useRef(false);
   const placePanel = useCallback(() => {
     const el = btnRef.current;
     if (!el) return;
     const r = el.getBoundingClientRect();
     const margin = 12;
-    const width = Math.min(380, window.innerWidth - margin * 2);
+    // القاعةُ ثلاثيّة الأبعاد تحتاج مساحةً: ٣٨٠ بكسلاً تجعلها ثقبَ مفتاح.
+    const width = Math.min(wideRef.current ? 900 : 380, window.innerWidth - margin * 2);
     // نبدأ من حافّة الزرّ اليسرى ثمّ نقصّ داخل النافذة من الجهتين
     let left = r.left;
     if (left + width > window.innerWidth - margin) left = window.innerWidth - margin - width;
@@ -91,6 +105,12 @@ export default function ArrivalsPanel({ roomId, gameState, emit, on }: Props) {
       window.removeEventListener('scroll', onMove, true);
     };
   }, [open, placePanel]);
+
+  // عرضُ اللوحة يتّسع للخريطة ويضيق لغيرها — يُعاد القياس عند كلّ تبديل
+  useEffect(() => {
+    wideRef.current = tab === 'map';
+    if (open) placePanel();
+  }, [tab, open, placePanel]);
 
   // إغلاقٌ بالنقر خارجها أو بـEsc — لوحةٌ مثبَّتة تحتاج مخرجاً واضحاً
   useEffect(() => {
@@ -205,6 +225,31 @@ export default function ArrivalsPanel({ roomId, gameState, emit, on }: Props) {
     return out;
   }, [players, spectators, maxPlayers, gameState?.pinnedSeats, gameState?.discussionState]);
 
+  // ── 🏛️ تخطيطُ القاعة الهندسيّ ──
+  // القالبُ يعرف أضلاعَ الغرفة وترقيمَها وأبوابَها؛ حالةُ الغرفة تحمله منذ
+  // إضافتنا له، والغرفُ الأقدم تُشفى بنداءٍ واحد عند أوّل فتحٍ للخريطة.
+  const [layout, setLayout] = useState<null | {
+    shape: string; sides: Sides; numbering: Numbering; doors: RectDoor[]; totalSeats: number;
+  }>(gameState?.seatLayout || null);
+  const [layoutTried, setLayoutTried] = useState(false);
+
+  useEffect(() => { if (gameState?.seatLayout) setLayout(gameState.seatLayout); }, [gameState?.seatLayout]);
+
+  useEffect(() => {
+    if (tab !== 'map' || layout || layoutTried || !roomId) return;
+    setLayoutTried(true);
+    emit('room:get-seat-layout', { roomId })
+      .then((r: any) => { if (r?.success && r.seatLayout) setLayout(r.seatLayout); })
+      .catch(() => {});
+  }, [tab, layout, layoutTried, roomId, emit]);
+
+  const rect = useMemo(() => {
+    if (!layout || layout.shape !== 'rectangle' || !layout.sides) return null;
+    try {
+      return computeRectLayout(layout.sides, layout.numbering || { start: null, direction: 'cw' }, layout.doors || []);
+    } catch { return null; }
+  }, [layout]);
+
   // تعارضاتُ الجوار المباشر — تُحسب محلّيّاً بالدالّة النقيّة الموجودة
   const conflicts: Array<[number, number]> = useMemo(() => {
     const out: Array<[number, number]> = [];
@@ -230,6 +275,54 @@ export default function ArrivalsPanel({ roomId, gameState, emit, on }: Props) {
     }
     return out;
   }, [players, maxPlayers]);
+
+  // ── 🪑 طبقةُ الإشغال الحيّ فوق القالب ──
+  // القالبُ يقول «لمن يُفترض أن يكون المقعد»، وهذه تقول «من يجلس فيه الآن».
+  // أثناء الفعاليّة الثانيةُ هي الحقيقة.
+  const occupancy = useMemo(() => {
+    const out: Record<number, LiveSeat> = {};
+    for (const p of players) {
+      out[p.physicalId] = {
+        name: p.name,
+        kind: p.seatHeld ? 'held' : 'player',
+        isAlive: p.isAlive !== false,
+      };
+    }
+    for (const sp of spectators) {
+      if (sp.physicalId > 0 && !out[sp.physicalId]) out[sp.physicalId] = { name: sp.name, kind: 'spectator' };
+    }
+    for (const [a, b] of conflicts) {
+      if (out[a]) out[a].conflict = true;
+      if (out[b]) out[b].conflict = true;
+    }
+    for (const c of preview?.changes || []) {
+      if (out[c.from]) out[c.from].proposed = true;
+    }
+    return out;
+  }, [players, spectators, conflicts, preview]);
+
+  // تثبيتُ القالب مُسقَطاً على الكراسي — يُعرض حيث لا جالسَ بعد
+  const pinnedByChair = useMemo(() => {
+    const out: Record<string, string> = {};
+    if (!rect) return out;
+    const chairOf = new Map(rect.seats.map(sq => [sq.seatNum, `${sq.side}:${sq.sideIndex}`]));
+    for (const pin of (gameState?.pinnedSeats || [])) {
+      const k = chairOf.get(Number(pin.seatNumber));
+      if (k) out[k] = pin.playerName || '📌';
+    }
+    return out;
+  }, [rect, gameState?.pinnedSeats]);
+
+  // 🔴 مقاعدُ خارج القالب: سعةُ الغرفة قد تتجاوز كراسيَّ القالب (يرفعها الليدر
+  //    يدويّاً). من يجلس هناك لا كرسيَّ له في المشهد — فيُذكر صراحةً بدل أن
+  //    يختفي، لأنّ لاعباً غير مرئيّ في خريطةٍ أسوأ من خريطةٍ لا تُعرض.
+  const outsideLayout = useMemo(() => {
+    if (!rect) return [] as Array<{ seat: number; name: string }>;
+    return Object.entries(occupancy)
+      .map(([k, v]) => ({ seat: Number(k), name: v.name }))
+      .filter(x => x.seat > rect.totalChairs)
+      .sort((a, b) => a.seat - b.seat);
+  }, [rect, occupancy]);
 
   // ── الإجراءات ──
   const act = async (fn: () => Promise<any>, okMsg?: string) => {
@@ -376,17 +469,67 @@ export default function ArrivalsPanel({ roomId, gameState, emit, on }: Props) {
             <>
               {maxPlayers > 0 ? (
                 <>
-                  <SeatMapRing
-                    maxPlayers={maxPlayers}
-                    seats={ringSeats}
-                    conflicts={conflicts}
-                    doorSeats={gameState?.doorSeats || []}
-                    size={340}
-                    onSeatClick={onSeatClick}
-                  />
-                  <p className="text-[11px] text-[#8f98ab] mt-1 mb-2">
-                    الخطُّ الأحمر تجاورٌ مخالف. انقر لاعبَين ثمّ اختر «افصل».
-                  </p>
+                  {rect ? (
+                    <>
+                      {/* 🏛️ القاعةُ كما هي: أضلاعُها وأبوابُها وترقيمُها من القالب،
+                          والأسماءُ والحالاتُ من اللحظة. */}
+                      <div className="rounded-xl overflow-hidden mb-2"
+                        style={{ height: 380, border: '1px solid #262c3a' }}>
+                        <Venue3D
+                          dims={rect.dims}
+                          seats={rect.seats}
+                          doorNodes={rect.doorNodes}
+                          pinnedByChair={pinnedByChair}
+                          reservedTailCount={gameState?.reservedTailSeats || 0}
+                          viewMode={false}
+                          selectedSeat={null}
+                          selectedDoorId={null}
+                          onSelectSeat={onSeatClick}
+                          onSelectDoor={() => {}}
+                          occupancy={occupancy}
+                          selectedSeats={pairPick}
+                          doorSeats={gameState?.doorSeats || []}
+                        />
+                      </div>
+                      <div className="flex flex-wrap gap-x-3 gap-y-1 text-[10.5px] mb-2">
+                        {([
+                          ['#e6b54a', 'جالس'], ['#38bdf8', 'متفرّج'], ['#ef4444', 'تجاورٌ مخالف'],
+                          ['#a78bfa', 'سيتحرّك'], ['#a16207', 'مقعدٌ محجوز'], ['#4b5563', 'خارج اللعبة'],
+                          ['#34d399', 'شاغر'], ['#7c2d12', 'مقعدُ باب'],
+                        ] as Array<[string, string]>).map(([c, l]) => (
+                          <span key={l} className="flex items-center gap-1 text-[#8f98ab]">
+                            <i className="inline-block w-2 h-2 rounded-full" style={{ background: c }} />{l}
+                          </span>
+                        ))}
+                      </div>
+                      {outsideLayout.length > 0 && (
+                        <div className="mb-2 p-2 rounded-lg text-[11px]"
+                          style={{ background: 'rgba(201,138,43,.1)', border: '1px solid rgba(201,138,43,.35)', color: '#d8a24a' }}>
+                          ⚠️ خارج كراسي القالب ({rect.totalChairs} كرسيّاً):{' '}
+                          {outsideLayout.map(x => `${x.name} #${x.seat}`).join(' · ')}
+                        </div>
+                      )}
+                      <p className="text-[11px] text-[#8f98ab] mb-2">
+                        اسحب لتدور حول القاعة. انقر كرسيَّين ثمّ اختر «افصل».
+                      </p>
+                    </>
+                  ) : (
+                    <>
+                      <SeatMapRing
+                        maxPlayers={maxPlayers}
+                        seats={ringSeats}
+                        conflicts={conflicts}
+                        doorSeats={gameState?.doorSeats || []}
+                        size={340}
+                        onSeatClick={onSeatClick}
+                      />
+                      <p className="text-[11px] text-[#8f98ab] mt-1 mb-2">
+                        {layoutTried && !layout
+                          ? 'لا قالبَ مقاعد لهذا النشاط — تُعرض الحلقة المجرّدة.'
+                          : 'الخطُّ الأحمر تجاورٌ مخالف. انقر لاعبَين ثمّ اختر «افصل».'}
+                      </p>
+                    </>
+                  )}
 
                   {pairPick.length === 2 && (
                     <div className="p-2 rounded-lg mb-2" style={{ background: '#181d29', border: '1px solid rgba(230,181,74,.4)' }}>

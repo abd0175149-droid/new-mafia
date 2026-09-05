@@ -16,19 +16,9 @@
 
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
-import { createPortal } from 'react-dom';
 import { AnimatePresence, motion } from 'framer-motion';
+import FixedLayer from '@/components/FixedLayer';
 
-/**
- * طبقة ثابتة معلّقة على body — ضرورية لأن رؤوس لوحة الليدر تستعمل backdrop-blur،
- * وأيّ مرشِّح يُنشئ «كتلة احتواء» تجعل position:fixed يُقاس من الرأس لا من الشاشة.
- */
-function FixedLayer({ children }: { children: ReactNode }) {
-  const [mounted, setMounted] = useState(false);
-  useEffect(() => { setMounted(true); }, []);
-  if (!mounted || typeof document === 'undefined') return null;
-  return createPortal(<>{children}</>, document.body);
-}
 
 export type SeatMoveEmit = (event: string, payload: any) => Promise<any>;
 export type SeatMoveOn = (event: string, handler: (...args: any[]) => void) => () => void;

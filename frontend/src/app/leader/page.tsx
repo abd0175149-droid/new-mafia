@@ -21,6 +21,7 @@ import { ROLE_NAMES } from '@/lib/constants';
 import { swalConfirm, swalHtmlConfirm, swalToast, swalAlert, swalPick } from '@/lib/swal';
 import SoundMixer from './SoundMixer';
 import OneNightReview from './OneNightReview';
+import FixedLayer from '@/components/FixedLayer';
 
 interface ActiveGame {
   roomId: string;
@@ -2362,10 +2363,13 @@ export default function LeaderPage() {
       <AntiCheatProvider roomId={gameState.roomId} on={on} soundOn={() => leaderSoundOnRef.current}>
       <div className="display-bg min-h-screen font-sans relative overflow-hidden blood-vignette selection:bg-[#8A0303] selection:text-white flex flex-col">
         <div className="relative z-10 w-full h-full flex flex-col flex-1">
-          {soundToggleBtn}
-          {stingNoticeBadge}
-      {soundMixerPanel}
-          {mafiaChatBtn}
+          {/* 📌 كلُّ ما يجب أن يُقاس بالشاشة يُعلَّق على body — انظر FixedLayer */}
+          <FixedLayer>
+            {soundToggleBtn}
+            {stingNoticeBadge}
+            {soundMixerPanel}
+            {mafiaChatBtn}
+          </FixedLayer>
           {/* Header */}
           {/* 🔴 ممنوعٌ `backdrop-blur` على هذا الرأس مهما أغرى المظهر:
               العنصرُ الذي يحمل backdrop-filter يصير هو الإطارَ المرجعيّ لكلّ
@@ -3647,10 +3651,13 @@ export default function LeaderPage() {
       <AntiCheatProvider roomId={gameState.roomId} on={on} soundOn={() => leaderSoundOnRef.current}>
       <div className="display-bg min-h-screen font-sans relative overflow-hidden blood-vignette selection:bg-[#8A0303] selection:text-white flex flex-col">
         <div className="relative z-10 w-full h-full flex flex-col flex-1">
-          {soundToggleBtn}
-          {stingNoticeBadge}
-      {soundMixerPanel}
-          {mafiaChatBtn}
+          {/* 📌 كلُّ ما يجب أن يُقاس بالشاشة يُعلَّق على body — انظر FixedLayer */}
+          <FixedLayer>
+            {soundToggleBtn}
+            {stingNoticeBadge}
+            {soundMixerPanel}
+            {mafiaChatBtn}
+          </FixedLayer>
           {mafiaChatModal}
           {/* 🎁 مودال اختيار رابح — مشترك (كلّ المراحل) */}
           {luckyDrawModal}

@@ -445,11 +445,25 @@ async function loadSeatTemplateIntoState(state: any): Promise<boolean> {
     const layout = typeof tplRow.layout_config === 'string'
       ? (tplRow.layout_config ? JSON.parse(tplRow.layout_config) : null)
       : tplRow.layout_config;
+    // 🏛️ التخطيط الهندسيّ كاملاً — القاعةُ الحقيقيّة لا حلقةٌ مجرّدة.
+    //    `sides` و`numbering` هما ما يحوّل رقمَ المقعد إلى كرسيٍّ على ضلعٍ
+    //    بإحداثيّاتٍ ودوران، وبدونهما لا يستطيع الليدر رؤية قاعته كما هي.
+    //    غيرُ سرّيّ إطلاقاً (لا دور ولا نيّة) فيمرّ بالمعقّم بلا استثناء.
+    let seatLayout: any = null;
     if (layout) {
       doors = Array.isArray(layout.doors) ? layout.doors : [];
       doorSeats = Array.isArray(layout.doorSeats)
         ? layout.doorSeats.map((n: any) => Number(n)).filter((n: number) => Number.isFinite(n))
         : [];
+      if (layout.shape === 'rectangle' && layout.sides) {
+        seatLayout = {
+          shape: 'rectangle',
+          sides: layout.sides,
+          numbering: layout.numbering || { start: null, direction: 'cw' },
+          doors,
+          totalSeats: templateTotalSeats,
+        };
+      }
     }
     // سعة المقاعد من القالب (القالب يفرض السعة الافتراضية) — إلا إذا عدّلها الليدر يدوياً
     if (templateTotalSeats >= 6 && !state.config.maxPlayersManual) {
@@ -466,6 +480,7 @@ async function loadSeatTemplateIntoState(state: any): Promise<boolean> {
     state.reservedTailSeats = reservedTailSeats;
     state.doors = doors;
     state.doorSeats = doorSeats;
+    state.seatLayout = seatLayout;
     console.log(`📐 [template] Preloaded seat template #${actRow.seat_template_id} into room ${state.roomId}: ${pinnedSeats.length} pinned (${activityPins.length} من تخصيص النشاط), ${reservedTailSeats} tail, ${doorSeats.length} doorSeats`);
     return true;
   } catch (e: any) {
@@ -538,6 +553,9 @@ async function resyncSeatTemplate(state: any): Promise<{
   state.reservedTailSeats = newTail;
   state.doors = newDoors;
   state.doorSeats = newDoorSeats;
+  state.seatLayout = (layout && layout.shape === 'rectangle' && layout.sides)
+    ? { shape: 'rectangle', sides: layout.sides, numbering: layout.numbering || { start: null, direction: 'cw' }, doors: newDoors, totalSeats: newTotal }
+    : null;
   await setGameState(state.roomId, state);
   return { ok: true, conflicts, capacityWarning, pinned: newPinned.length };
 }
@@ -3014,6 +3032,67 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
   // ── 🪄 «رتّب تلقائيّاً»: اقتراحٌ بمعاينة ثمّ تطبيقٌ ذرّيّ (S2) ──
   // القرار المقفل ٨: المقاعد ثابتة عبر الليلة، وهذا الزرّ يدويّ يظهر عند وجود تعارض.
   // القرار المقفل ٥: بلا رقمٍ سرّيّ في اللوبي (مع سجلّ موظّفين لكلّ عمليّة).
+// 📐 قراءةُ هندسة القالب وحدها — بلا أيّ أثرٍ على حالة الغرفة.
+// (نظيرتُها loadSeatTemplateIntoState تكتب السعةَ والتثبيتَ والأبواب، وهذا
+//  ما لا نريده لمجرّد عرض خريطة.)
+async function readSeatLayoutOnly(activityId: any): Promise<any> {
+  const db = getDB();
+  if (!activityId || !db) return null;
+  try {
+    const [actRow] = await db.execute(sql`
+      SELECT seat_template_id FROM activities WHERE id = ${activityId} LIMIT 1
+    `).then((r: any) => (r.rows || r || []));
+    if (!actRow?.seat_template_id) return null;
+    const [tplRow] = await db.execute(sql`
+      SELECT total_seats, layout_config FROM seat_templates
+      WHERE id = ${actRow.seat_template_id} AND deleted_at IS NULL LIMIT 1
+    `).then((r: any) => (r.rows || r || []));
+    if (!tplRow) return null;
+    const layout = typeof tplRow.layout_config === 'string'
+      ? (tplRow.layout_config ? JSON.parse(tplRow.layout_config) : null)
+      : tplRow.layout_config;
+    if (!layout || layout.shape !== 'rectangle' || !layout.sides) return null;
+    return {
+      shape: 'rectangle',
+      sides: layout.sides,
+      numbering: layout.numbering || { start: null, direction: 'cw' },
+      doors: Array.isArray(layout.doors) ? layout.doors : [],
+      totalSeats: Number(tplRow.total_seats || 0),
+    };
+  } catch { return null; }
+}
+
+  // ── 🏛️ تخطيطُ القاعة الهندسيّ (للخريطة ثلاثيّة الأبعاد عند الليدر) ──
+  // غرفٌ أُنشئت قبل إضافة `seatLayout` لا تحمله، فنقرأه هنا مرّةً ونُثبّته في
+  // الحالة كي تحمله كلُّ مزامنةٍ بعدها. ليس مساراً ساخناً: يُنادى عند فتح
+  // تبويب الخريطة لا مع كلّ تحديث.
+  socket.on('room:get-seat-layout', async (data: { roomId: string }, callback) => {
+    try {
+      if (socket.data.role !== 'leader') return callback({ success: false, error: 'Only leader' });
+      const state = await getRoom(data.roomId);
+      if (!state) return callback({ success: false, error: 'Room not found' });
+
+      // 🔴 قراءةٌ محضة — لا تستدعي loadSeatTemplateIntoState هنا مهما بدا مغرياً:
+      //    تلك تُعيد ضبط السعة والتثبيت والأبواب من القالب. غرفةٌ رفع ليدرُها
+      //    السعةَ يدويّاً فوق كراسي القالب وأجلس لاعبين في المقاعد الزائدة
+      //    كانت ستفقدهم لمجرّد أنّه فتح تبويب الخريطة.
+      if ((state as any).seatLayout === undefined) {
+        (state as any).seatLayout = await readSeatLayoutOnly(state.activityId);
+        await setGameState(state.roomId, state);
+      }
+      return callback({
+        success: true,
+        seatLayout: (state as any).seatLayout || null,
+        doorSeats: (state as any).doorSeats || [],
+        reservedTailSeats: (state as any).reservedTailSeats || 0,
+        pinnedSeats: (state as any).pinnedSeats || [],
+        maxPlayers: state.config.maxPlayers,
+      });
+    } catch (e: any) {
+      return callback({ success: false, error: e.message });
+    }
+  });
+
   socket.on('room:reshuffle-seats', async (data: {
     roomId: string; dryRun?: boolean; lockedSeats?: number[];
   }, callback) => {
