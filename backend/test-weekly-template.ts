@@ -75,6 +75,18 @@ check('٠٠:٣٠ الأحد عمّان ⇒ أسبوعٌ جديد',
 const sun = new Date('2026-09-06T10:00:00Z');
 check('الأحدُ نفسُه ⇒ بدايتُه هو', ammanDay(new Date(weekStartAmman(sun).getTime() - 3 * 3600000)) === '2026-09-06');
 
+// 🔴 السبتُ خارج الأسبوع: مَن يجهّز يومَ السبت يريد أسبوعاً لم يبدأ.
+//    كان يرجع إلى أحدِ الأسبوع المنقضي فلا يجد شيئاً لإنشائه.
+const sat = new Date('2026-09-05T10:00:00Z');        // السبت ٥ أيلول، ١:٠٠ ظهراً عمّان
+check('السبتُ ⇒ أحدُ الغد (٦ أيلول)',
+  ammanDay(new Date(weekStartAmman(sat).getTime() - 3 * 3600000)) === '2026-09-06');
+const satNight = new Date('2026-09-05T20:00:00Z');   // ٢٣:٠٠ السبت عمّان
+check('وليلُ السبت كذلك',
+  ammanDay(new Date(weekStartAmman(satNight).getTime() - 3 * 3600000)) === '2026-09-06');
+const friNight = new Date('2026-09-04T20:00:00Z');   // ٢٣:٠٠ الجمعة عمّان — آخرُ الأسبوع
+check('وليلُ الجمعة يبقى في أسبوعه',
+  ammanDay(new Date(weekStartAmman(friNight).getTime() - 3 * 3600000)) === '2026-08-30');
+
 console.log('');
 console.log('🧪 لحظةُ فتح الأبواب');
 const start = weekStartAmman(sun);
@@ -114,6 +126,19 @@ check('يُعاد فحصُ التعارض عند الكتابة', weekBlock.incl
 check('ومجلّدُ درايف لكلّ فعاليّة', weekBlock.includes('drive.files.create'));
 check('وفشلُ المجلّد لا يُسقط الفعاليّة',
   weekBlock.indexOf('Drive folder failed') > 0 && weekBlock.includes('created.push(act)'));
+
+console.log('');
+console.log('🧪 ليلةٌ خارج القالب');
+check('التخطّي مشروطٌ بـallowSameDay', weekBlock.includes('!d.allowSameDay'));
+check('وللإضافيّة مكانُها وقالبُها إن خُصّا',
+  weekBlock.includes('d.locationId ?? locationId') && weekBlock.includes('d.seatTemplateId ?? seatTemplateId'));
+check('وحارسٌ على مدى التاريخ', weekBlock.includes('خارج المدى المعقول'));
+
+const modal = readFileSync('../frontend/src/app/admin/components/WeekGamesModal.tsx', 'utf8');
+check('النافذةُ ترسل allowSameDay', modal.includes('allowSameDay: !!r.extra'));
+check('وفيها زرُّ الإضافة', modal.includes('أضِفْ ليلةً خارج القالب'));
+check('وتمنع تكرارَ نفس اللحظة', modal.includes('مضافةٌ سلفاً'));
+check('ومفاتيحُ الصفوف لا تتصادم', modal.includes('`x-${r.dateUtc}`') && modal.includes('`t-${r.dow}`'));
 
 console.log('');
 console.log(`${fail === 0 ? '🎉' : '⚠️'} النتيجة: ${pass} نجح · ${fail} فشل`);

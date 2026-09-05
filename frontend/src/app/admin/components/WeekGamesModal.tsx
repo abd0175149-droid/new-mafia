@@ -26,6 +26,22 @@ interface DayPlan {
   name: string;
   maxCapacity: number;
   exists: null | { id: number; name: string; status: string };
+  /** ليلةٌ أضافها المالكُ بيده — خارج القالب، وتمرّ ولو كان لليوم نشاطٌ سلفاً */
+  extra?: boolean;
+}
+
+const DOW_AR = ['الأحد', 'الاثنين', 'الثلاثاء', 'الأربعاء', 'الخميس', 'الجمعة', 'السبت'];
+
+/** «٢٠٢٦-٠٩-٠٦» + «19:00» ⇒ لحظةُ UTC. عمّان +٣ ثابتةً منذ إلغاء التوقيت الصيفيّ. */
+function ammanToUtcIso(day: string, hhmm: string): string {
+  const [y, m, d] = day.split('-').map(Number);
+  const [h, mi] = hhmm.split(':').map(Number);
+  return new Date(Date.UTC(y, m - 1, d, h - 3, mi)).toISOString();
+}
+
+function dowOf(day: string): number {
+  const [y, m, d] = day.split('-').map(Number);
+  return new Date(Date.UTC(y, m - 1, d)).getUTCDay();
 }
 
 interface Preview {
@@ -76,6 +92,8 @@ export default function WeekGamesModal({
   const [pv, setPv] = useState<Preview | null>(null);
   const [rows, setRows] = useState<DayPlan[]>([]);
   const [showSchedule, setShowSchedule] = useState(false);
+  const [addOpen, setAddOpen] = useState(false);
+  const [nd, setNd] = useState({ day: '', time: '19:00', name: '', cap: 30 });
 
   const load = useCallback(async () => {
     setLoading(true); setErr('');
@@ -83,6 +101,14 @@ export default function WeekGamesModal({
       const d: Preview = await apiFetch('/api/activities/week/preview');
       setPv(d);
       setRows(d.days || []);
+      // الاثنينُ افتراضاً: أوّلُ يومٍ في الأسبوع لا يشغله القالب
+      const start = d.weekStartAmman;
+      const taken = new Set((d.days || []).map(x => x.dow));
+      const firstFree = [1, 3, 0, 2, 4, 5].find(x => !taken.has(x)) ?? 1;
+      const [yy, mm, dd] = start.split('-').map(Number);
+      const dt = new Date(Date.UTC(yy, mm - 1, dd + firstFree));
+      setNd({ day: dt.toISOString().slice(0, 10), time: '19:00',
+        name: '', cap: 30 });
     } catch (e: any) {
       setErr(e?.message || 'تعذّر تحميل المعاينة');
     } finally {
@@ -101,7 +127,10 @@ export default function WeekGamesModal({
       const res = await apiFetch('/api/activities/week', {
         method: 'POST',
         body: JSON.stringify({
-          days: pending.map(r => ({ dateUtc: r.dateUtc, name: r.name, maxCapacity: r.maxCapacity })),
+          days: pending.map(r => ({
+            dateUtc: r.dateUtc, name: r.name, maxCapacity: r.maxCapacity,
+            allowSameDay: !!r.extra,
+          })),
           locationId: pv.locationId,
           seatTemplateId: pv.seatTemplateId,
           schedule: pv.schedule,
@@ -121,6 +150,25 @@ export default function WeekGamesModal({
 
   const patch = (i: number, k: 'name' | 'maxCapacity', v: any) =>
     setRows(prev => prev.map((r, idx) => (idx === i ? { ...r, [k]: v } : r)));
+
+  const dropExtra = (i: number) => setRows(prev => prev.filter((_, idx) => idx !== i));
+
+  /** يضيف ليلةً خارج القالب بإعداداتها — بنفس برنامج الليلة والقيود. */
+  const addExtra = () => {
+    if (!nd.day || !/^\d{2}:\d{2}$/.test(nd.time)) { setErr('حدّدْ اليومَ والساعة'); return; }
+    const dateUtc = ammanToUtcIso(nd.day, nd.time);
+    if (rows.some(r => r.dateUtc === dateUtc)) { setErr('هذه الليلةُ مضافةٌ سلفاً'); return; }
+    const dow = dowOf(nd.day);
+    const name = nd.name.trim() || `${pv?.locationName || 'فعاليّة'} ${Number(nd.day.slice(8, 10))}`;
+    setErr('');
+    setRows(prev => [...prev, {
+      dow, labelAr: DOW_AR[dow], dateUtc,
+      dateAmman: `${nd.day} ${nd.time}`,
+      name, maxCapacity: Number(nd.cap) || 30,
+      exists: null, extra: true,
+    }].sort((a, b) => a.dateUtc.localeCompare(b.dateUtc)));
+    setAddOpen(false);
+  };
 
   return (
     <AnimatePresence>
@@ -159,10 +207,12 @@ export default function WeekGamesModal({
                 <>
                   {rows.map((r, i) => (
                     <div
-                      key={r.dow}
+                      key={r.extra ? `x-${r.dateUtc}` : `t-${r.dow}`}
                       className="rounded-xl px-3.5 py-3"
                       style={r.exists
                         ? { background: 'rgba(255,255,255,.025)', border: '1px solid rgba(255,255,255,.06)' }
+                        : r.extra
+                        ? { background: 'rgba(139,123,232,.08)', border: '1px solid rgba(139,123,232,.35)' }
                         : { background: 'rgba(197,160,89,.07)', border: '1px solid rgba(197,160,89,.3)' }}
                     >
                       <div className="flex items-center gap-2 mb-1.5">
@@ -174,6 +224,16 @@ export default function WeekGamesModal({
                             style={{ color: '#9ca3af', borderColor: 'rgba(255,255,255,.15)' }}>
                             موجودٌ سلفاً
                           </span>
+                        ) : r.extra ? (
+                          <>
+                            <span className="text-[11px] font-bold px-2 py-0.5 rounded-full border"
+                              style={{ color: '#8B7BE8', borderColor: 'rgba(139,123,232,.55)' }}>
+                              إضافيّة
+                            </span>
+                            <button onClick={() => dropExtra(i)}
+                              className="w-7 h-7 rounded-lg text-gray-600 hover:text-rose-400 text-[13px]"
+                              title="أزِلْ هذه الليلة">✕</button>
+                          </>
                         ) : (
                           <span className="text-[11px] font-bold px-2 py-0.5 rounded-full border"
                             style={{ color: '#C5A059', borderColor: 'rgba(197,160,89,.5)' }}>
@@ -206,6 +266,76 @@ export default function WeekGamesModal({
                       )}
                     </div>
                   ))}
+
+                  {/* ══ ➕ ليلةٌ خارج القالب ══
+                      🔴 في النافذة نفسِها لا في نموذجٍ آخر: مَن يجهّز الأسبوع
+                      يقرّر الاستثناءَ وهو يرى الأربعةَ أمامه — لا بعد أن يُغلق
+                      ويفتح شاشةً ثانية فينسى ما رآه. */}
+                  {!addOpen ? (
+                    <button
+                      onClick={() => { setAddOpen(true); setErr(''); }}
+                      className="w-full h-11 rounded-xl text-[13px] font-bold border border-dashed"
+                      style={{ borderColor: 'rgba(139,123,232,.45)', color: '#8B7BE8', background: 'rgba(139,123,232,.05)' }}
+                    >
+                      ➕ أضِفْ ليلةً خارج القالب
+                    </button>
+                  ) : (
+                    <div className="rounded-xl px-3.5 py-3 space-y-2.5"
+                      style={{ background: 'rgba(139,123,232,.07)', border: '1px solid rgba(139,123,232,.35)' }}>
+                      <div className="flex items-center gap-2">
+                        <b className="flex-1 text-[13px]" style={{ color: '#8B7BE8' }}>ليلةٌ إضافيّة</b>
+                        <button onClick={() => setAddOpen(false)}
+                          className="w-7 h-7 rounded-lg text-gray-500 hover:text-white text-[13px]">✕</button>
+                      </div>
+
+                      <div className="flex items-center gap-2">
+                        <input
+                          type="date" value={nd.day}
+                          onChange={e => setNd(v => ({ ...v, day: e.target.value }))}
+                          className="flex-1 min-w-0 h-10 px-2.5 rounded-lg bg-gray-900/60 border border-gray-700 text-white text-[13px] outline-none"
+                        />
+                        <input
+                          type="time" value={nd.time}
+                          onChange={e => setNd(v => ({ ...v, time: e.target.value }))}
+                          className="w-28 h-10 px-2.5 rounded-lg bg-gray-900/60 border border-gray-700 text-white text-[13px] outline-none"
+                        />
+                      </div>
+                      {nd.day && (
+                        <p className="text-[11px] text-gray-500">
+                          {DOW_AR[dowOf(nd.day)]} · {prettyAmman(`${nd.day} ${nd.time}`)}
+                        </p>
+                      )}
+
+                      <div className="flex items-center gap-2">
+                        <input
+                          value={nd.name}
+                          onChange={e => setNd(v => ({ ...v, name: e.target.value }))}
+                          placeholder={`${pv?.locationName || 'فعاليّة'} …  (يُولَّد تلقائيّاً إن تُرك فارغاً)`}
+                          className="flex-1 min-w-0 h-10 px-3 rounded-lg bg-gray-900/60 border border-gray-700 text-white text-[13px] outline-none placeholder-gray-600"
+                        />
+                        <div className="flex items-center gap-1.5 shrink-0">
+                          <span className="text-[11.5px] text-gray-500">سعة</span>
+                          <input
+                            type="number" min={1} max={200} value={nd.cap}
+                            onChange={e => setNd(v => ({ ...v, cap: Number(e.target.value) }))}
+                            className="w-16 h-10 px-2 rounded-lg bg-gray-900/60 border border-gray-700 text-white text-[13px] text-center outline-none"
+                          />
+                        </div>
+                      </div>
+
+                      <button
+                        onClick={addExtra}
+                        className="w-full h-10 rounded-lg text-[13px] font-bold"
+                        style={{ background: 'rgba(139,123,232,.9)', color: '#0a0812' }}
+                      >
+                        أضِفْها إلى القائمة
+                      </button>
+                      <p className="text-[10.5px] text-gray-500 leading-relaxed">
+                        تأخذ برنامجَ الليلة وقيودَ الجلوس نفسَها. وتُنشأ ولو كان لليوم نشاطٌ سلفاً —
+                        بخلاف أيّام القالب التي تُستثنى.
+                      </p>
+                    </div>
+                  )}
 
                   {/* ── برنامجُ الليلة — مشتركٌ للأربع ── */}
                   {pv && (

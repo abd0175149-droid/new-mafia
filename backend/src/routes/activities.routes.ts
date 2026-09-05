@@ -1127,6 +1127,13 @@ router.post('/week', authenticate, leaderOrAbove, async (req: Request, res: Resp
         skipped.push({ name: d?.name, why: 'تاريخٌ غير صالح' });
         continue;
       }
+      // 🔴 حارسٌ على المدى: النافذةُ تُنشئ أسبوعاً، فتاريخٌ بعيدٌ عن الآن سنةً
+      //    خطأُ إدخالٍ لا نيّة — وقد وقع مثلُه (نشاطُ ٤:٠٠ فجراً أُلغي).
+      const drift = Math.abs(when.getTime() - Date.now());
+      if (drift > 60 * 86400000) {
+        skipped.push({ name: d?.name, why: 'تاريخٌ خارج المدى المعقول' });
+        continue;
+      }
 
       // 🔴 يُعاد فحصُ «موجودٌ سلفاً» عند الكتابة لا في المعاينة وحدها: بين فتح
       //    النافذة والضغط قد يُنشئ زميلٌ نشاطَ ذلك اليوم — فالفحصُ هنا هو الحارس.
@@ -1137,7 +1144,10 @@ router.post('/week', authenticate, leaderOrAbove, async (req: Request, res: Resp
           sql`${activities.date} >= ${new Date(when.getTime() - 36 * 3600000).toISOString()}`,
           sql`${activities.date} <= ${new Date(when.getTime() + 36 * 3600000).toISOString()}`));
       const clash = near.find(x => ammanCivil(new Date(x.date)).day === civil);
-      if (clash) {
+      // 🔴 التخطّي قاعدةُ القالب لا قاعدةٌ مطلقة: صفُّ القالب يُستثنى إن كان
+      //    لليوم نشاطٌ سلفاً، أمّا ليلةٌ أضافها المالكُ بيده في هذه النافذة فهي
+      //    قرارٌ واعٍ — وقد وقع فعلاً (جمعةُ ٧/٨ بمكانَين). فتمرّ بعلمِه.
+      if (clash && !d.allowSameDay) {
         skipped.push({ name: d.name, why: 'يوجد نشاطٌ في هذا اليوم', existingId: clash.id });
         continue;
       }
@@ -1149,14 +1159,14 @@ router.post('/week', authenticate, leaderOrAbove, async (req: Request, res: Resp
         description: '',
         basePrice: WEEKLY_DEFAULTS.basePrice,
         status: WEEKLY_DEFAULTS.status,
-        locationId: locationId ?? null,
+        locationId: d.locationId ?? locationId ?? null,
         driveLink: '',
         enabledOfferIds: [],
         maxCapacity: Number.isFinite(cap) && cap > 0 ? Math.min(200, Math.round(cap)) : 30,
         difficulty: WEEKLY_DEFAULTS.difficulty,
         requireTicket: WEEKLY_DEFAULTS.requireTicket,
         seatConstraints: seatConstraints ?? WEEKLY_SEAT_CONSTRAINTS,
-        seatTemplateId: seatTemplateId ?? null,
+        seatTemplateId: d.seatTemplateId ?? seatTemplateId ?? null,
         menuOrderingEnabled: WEEKLY_DEFAULTS.menuOrderingEnabled,
         addGameFeeToBill: WEEKLY_DEFAULTS.addGameFeeToBill,
         geofenceEnabled: WEEKLY_DEFAULTS.geofenceEnabled,
