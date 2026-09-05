@@ -265,6 +265,14 @@ CREATE TABLE IF NOT EXISTS player_fixes (
 );
 CREATE INDEX IF NOT EXISTS idx_player_fixes_player_time
   ON player_fixes (player_id, captured_at DESC);
+-- 🔴 القراءةُ ثمّ الكتابة سباق: بوّابتان في اللحظة نفسها تقرآن «لا نقطةَ سابقة»
+--    فتُدرجان كلتاهما. العتبةُ في الشيفرة لا تحمي من ذلك — القيدُ هنا يحمي.
+--    زمنُ القراءة على الجهاز بدقّة المِلّي ثانية: قراءتان مختلفتان لجهازٍ واحد
+--    في المِلّي ثانية نفسها لا وجود لهما.
+DELETE FROM player_fixes a USING player_fixes b
+  WHERE a.id > b.id AND a.player_id = b.player_id AND a.captured_at = b.captured_at;
+CREATE UNIQUE INDEX IF NOT EXISTS ux_player_fixes_player_captured
+  ON player_fixes (player_id, captured_at);
 CREATE TABLE IF NOT EXISTS presence_checks (
   id          SERIAL PRIMARY KEY,
   player_id   INTEGER NOT NULL,

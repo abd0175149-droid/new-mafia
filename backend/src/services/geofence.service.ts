@@ -265,6 +265,10 @@ async function appendFix(playerId: number, v: {
       capturedAt: v.capturedAt.getTime() },
   )) return;
 
+  // 🔴 onConflictDoNothing لا زينة: الفحصُ أعلاه يقرأ ثمّ يُدرج، وبينهما نافذةٌ
+  //    يمرّ منها نداءان متزامنان فيُدرجان القراءةَ نفسها مرّتين — حدث هذا فعلاً
+  //    وسجّل نقطتين تفصلهما ٠٫٨ مِلّي ثانية وصفرُ أمتار. القيدُ الفريد على
+  //    (player_id, captured_at) يحسمه في القاعدة، وهذا يبتلع رفضَه بهدوء.
   await db.insert(playerFixes).values({
     playerId,
     latitude: v.latitude,
@@ -273,7 +277,7 @@ async function appendFix(playerId: number, v: {
     isMocked: v.isMocked,
     source: v.source,
     capturedAt: v.capturedAt,
-  } as any);
+  } as any).onConflictDoNothing();
 }
 
 /**
