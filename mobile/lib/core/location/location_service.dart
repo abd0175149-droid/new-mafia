@@ -66,6 +66,10 @@ class LocationService extends ChangeNotifier with WidgetsBindingObserver {
   Timer? _pulse;
   bool _started = false;
   DateTime? _lastSent;
+  // 🔴 الخانقُ كان للجهاز لا للحساب — والخدمةُ مفردةٌ تعيش عبر تبديل الحسابات.
+  //    من يخرج ويدخل بحسابٍ آخر كان بلاغُه الأوّل يُبتلع لأنّ سابقَه بلّغ قبل
+  //    ثوانٍ. نتتبّع صاحبَ آخر بلاغ: الحسابُ الجديد يبدأ بخانقٍ نظيف.
+  String? _lastSentToken;
 
   LocationStatus get status => _status;
   GeoFix? get last => _last;
@@ -181,6 +185,8 @@ class LocationService extends ChangeNotifier with WidgetsBindingObserver {
   Future<void> readAndReport() async {
     if (!SessionStore.instance.isLoggedIn) return;
     if (_status != LocationStatus.granted) return;
+    final tok = SessionStore.instance.token;
+    if (tok != _lastSentToken) { _lastSentToken = tok; _lastSent = null; }
     final now = DateTime.now();
     if (_lastSent != null && now.difference(_lastSent!) < _minGap) return;
 

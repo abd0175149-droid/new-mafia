@@ -35,6 +35,11 @@ export default function LocationGate() {
   const [showIntro, setShowIntro] = useState(false);
   const [dismissed, setDismissed] = useState(false);
   const lastSent = useRef(0);
+  // 🔴 الخانقُ كان للجهاز لا للحساب. من يخرج من حسابٍ ويدخل بآخر على الهاتف
+  //    نفسه — وهذا يحدث كثيراً على أجهزة النادي — كان بلاغُه الأوّل يُبتلع
+  //    لأنّ الحساب السابق بلّغ قبل ثوانٍ. فيبقى الحسابُ الجديد بلا موقعٍ حتّى
+  //    النبضة التالية (أربع دقائق) أو أطول. الحسابُ الجديد يبدأ بخانقٍ نظيف.
+  const lastToken = useRef<string | null>(null);
 
   /** هل سبق أن قبِل اللاعب التمهيد على هذا الجهاز؟ */
   const introAccepted = () => {
@@ -43,7 +48,9 @@ export default function LocationGate() {
 
   // ── التبليغ: قراءةٌ ثمّ إرسال ──
   const pulse = useCallback(async () => {
-    if (!token()) return;
+    const t = token();
+    if (!t) return;
+    if (t !== lastToken.current) { lastToken.current = t; lastSent.current = 0; }
     if (Date.now() - lastSent.current < 30_000) return;   // لا إغراق
 
     let f = null;

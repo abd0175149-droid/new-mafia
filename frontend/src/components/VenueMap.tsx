@@ -108,6 +108,18 @@ export default function VenueMap({
       map.addSource('fence', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } as any });
       map.addLayer({ id: 'fence-fill', type: 'fill', source: 'fence', paint: { 'fill-color': '#0E6F68', 'fill-opacity': 0.14 } });
       map.addLayer({ id: 'fence-line', type: 'line', source: 'fence', paint: { 'line-color': '#0E6F68', 'line-width': 2, 'line-dasharray': [3, 2] } });
+      // 🔴 طبقةُ المسار تُنشأ هنا فارغةً مع البقيّة، لا لاحقاً داخل التأثير.
+      //    الإنشاءُ المتأخّر كان يسقط صامتاً: التأثيرُ يعمل حين يختار الليدر
+      //    لاعباً، وعندها إمّا أن يكون النمطُ قد اكتمل (فيمرّ) أو لا (فيُسجَّل
+      //    `once('load')` على حدثٍ وقع منذ ثوانٍ ولن يقع ثانيةً) — فلا خطّ،
+      //    ولا خطأ في الطرفيّة. النقاطُ عناصرُ DOM فتظهر، والخطُّ WebGL فيغيب،
+      //    فتبدو الخريطةُ نصفَ عاملة. هذا هو نمطُ `fence` المجرَّب نفسه.
+      map.addSource('trail', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } as any });
+      map.addLayer({
+        id: 'trail-line', type: 'line', source: 'trail',
+        layout: { 'line-cap': 'round', 'line-join': 'round' },
+        paint: { 'line-color': '#0f766e', 'line-width': 2.5, 'line-opacity': 0.7 },
+      });
     });
 
     return () => { map.remove(); mapRef.current = null; };
@@ -170,29 +182,16 @@ export default function VenueMap({
   useEffect(() => {
     const map = mapRef.current;
     if (!map) return;
-    const data: any = {
-      type: 'Feature',
-      geometry: {
-        type: 'LineString',
-        coordinates: (path || []).map(p => [p.lng, p.lat]),
-      },
-    };
+    // لاعبٌ بنقطةٍ واحدة لا مسارَ له — تُفرَّغ الطبقة بدل أن تحتفظ بمسار سابقه
+    const coords = (path || []).map(p => [p.lng, p.lat]);
+    const data: any = coords.length >= 2
+      ? { type: 'Feature', geometry: { type: 'LineString', coordinates: coords } }
+      : { type: 'FeatureCollection', features: [] };
     const apply = () => {
       const src = map.getSource('trail') as maplibregl.GeoJSONSource | undefined;
-      if (src) { src.setData(data); return; }
-      if (!path || path.length < 2) return;   // لا طبقةَ قبل الحاجة
-      map.addSource('trail', { type: 'geojson', data });
-      map.addLayer({
-        id: 'trail-line',
-        type: 'line',
-        source: 'trail',
-        layout: { 'line-cap': 'round', 'line-join': 'round' },
-        paint: {
-          'line-color': pathColor,
-          'line-width': 2.5,
-          'line-opacity': 0.65,
-        },
-      });
+      if (!src) return;                       // أُنشئت عند التهيئة — لا شيء يُنشأ هنا
+      src.setData(data);
+      try { map.setPaintProperty('trail-line', 'line-color', pathColor); } catch { /* الطبقةُ تُبنى بعد لحظة */ }
     };
     if (map.isStyleLoaded()) apply(); else map.once('load', apply);
   }, [path, pathColor]);
