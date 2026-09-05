@@ -10,7 +10,6 @@ import type { Socket } from 'socket.io-client';
 import DisplayDayView from './DisplayDayView';
 import MafiaCard from '@/components/MafiaCard';
 import NightAnimCinematic from '@/components/NightAnimCinematic';
-import SeatMapRing, { type RingSeat } from '@/components/SeatMapRing';
 import EliminationFx from '@/components/EliminationFx';
 import { EntranceOverlay, ENTRANCE_FULL_MS, ENTRANCE_COMPACT_MS, type EntrancePayload } from '@/components/EntranceOverlay';
 import { BirthdayCelebration, type Celebrant } from '@/components/BirthdayCelebration';
@@ -144,11 +143,6 @@ function DisplayPageContent() {
   //    لافتة تنبيه قصيرة على الشاشة + راية «أعد الاشتقاق من الحالة القادمة».
   const [seatsRemapNotice, setSeatsRemapNotice] = useState(false);
   // 🗺️ خريطة المقاعد + ⏱️ الجولة القادمة + 📢 إعلان الليدر
-  const [seatMeta, setSeatMeta] = useState<{
-    maxPlayers: number; heldSeats: number[]; frozenSeats: number[];
-    doorSeats: number[]; spectators: Array<{ physicalId: number; firstName: string }>;
-    pinnedSeats: Array<{ seatNumber: number; playerName?: string }>;
-  }>({ maxPlayers: 0, heldSeats: [], frozenSeats: [], doorSeats: [], spectators: [], pinnedSeats: [] });
   const [nextGameAt, setNextGameAt] = useState<number | null>(null);
   const [nextGameLeft, setNextGameLeft] = useState<number>(0);
   const [notice, setNotice] = useState<{ text: string; kind: string } | null>(null);
@@ -313,18 +307,6 @@ function DisplayPageContent() {
         })));
         setPlayerCount(activePlayers.filter((p: any) => p.isAlive !== false).length);
       }
-      // 🗺️ ما ترسمه الخريطة: يصل خاماً من السوكِت ومُسقَطاً من REST — كلاهما يحمله الآن
-      setSeatMeta({
-        maxPlayers: state.config?.maxPlayers ?? state.maxPlayers ?? 0,
-        heldSeats: state.heldSeats ?? (state.players || []).filter((p: any) => p.seatHeld).map((p: any) => p.physicalId),
-        frozenSeats: state.frozenSeats ?? (state.players || []).filter((p: any) => p.frozen).map((p: any) => p.physicalId),
-        doorSeats: state.doorSeats || [],
-        spectators: (state.spectators || []).map((sp: any) => ({
-          physicalId: sp.physicalId,
-          firstName: sp.firstName || String(sp.name || '').trim().split(/\s+/)[0] || '',
-        })),
-        pinnedSeats: state.pinnedSeats || [],
-      });
       setNextGameAt(typeof state.nextGameAt === 'number' ? state.nextGameAt : null);
       if (state.config?.maxPenalties) setDisplayMaxPenalties(state.config.maxPenalties);
       // phaseOverride يتجاوز phase القديم في state
@@ -1038,12 +1020,12 @@ function DisplayPageContent() {
     }
   };
 
-  // ── QR URL — دائماً يوجه لصفحة تسجيل الدخول ──
-  // 🔗 رابطٌ عميق برمز الغرفة (نفس صيغة الدعوات): كان ثابتاً على صفحة الدخول
-  //    العامّة فيبحث الماسحُ عن غرفته يدويّاً.
-  const joinUrl = roomCode && roomCode !== '------'
-    ? `https://club-mafia.grade.sbs/player/join?code=${roomCode}`
-    : 'https://club-mafia.grade.sbs/player/login';
+  // ── QR URL — صفحةُ الدخول، ثابتةً ──
+  // 🔴 قرارُ المالك: الرمزُ يوجّه إلى /player/login دائماً.
+  //    كان يوجّه إلى /player/join?code=XXXX ظنّاً أنّ الرابط العميق أوفر خطوةً
+  //    على الماسح؛ لكنّ الوجهة العمليّة هي الدخول، ومنه يمضي اللاعب.
+  //    لا تُعِد الرابطَ العميق إلّا بطلبٍ صريح.
+  const joinUrl = 'https://club-mafia.grade.sbs/player/login';
 
   // ⏱️ عدّاد الجولة القادمة
   useEffect(() => {
@@ -1054,33 +1036,6 @@ function DisplayPageContent() {
     return () => clearInterval(id);
   }, [nextGameAt]);
 
-  // 🗺️ مقاعد الخريطة — مشتقّة بالكامل من الحالة في كلّ رسمة
-  const ringSeats: RingSeat[] = (() => {
-    const out: RingSeat[] = [];
-    const cap = seatMeta.maxPlayers || maxPlayers || 0;
-    const held = new Set(seatMeta.heldSeats);
-    const frozen = new Set(seatMeta.frozenSeats);
-    const specs = new Map(seatMeta.spectators.map(sp => [sp.physicalId, sp.firstName]));
-    const pins = new Map(seatMeta.pinnedSeats.map((p: any) => [Number(p.seatNumber), p.playerName]));
-    const byId = new Map(players.map(p => [p.physicalId, p]));
-    for (let i = 1; i <= cap; i++) {
-      const p = byId.get(i);
-      if (p) {
-        out.push({ seat: i, name: p.name, state: p.isAlive === false ? 'dead' : 'occupied' });
-      } else if (held.has(i)) {
-        out.push({ seat: i, name: '⏳', state: 'held' });
-      } else if (frozen.has(i)) {
-        out.push({ seat: i, name: '❄️', state: 'frozen' });
-      } else if (specs.has(i)) {
-        out.push({ seat: i, name: specs.get(i) || '', state: 'spectator' });
-      } else if (pins.has(i)) {
-        out.push({ seat: i, name: pins.get(i) || '📌', state: 'pinned' });
-      } else {
-        out.push({ seat: i, state: 'empty' });
-      }
-    }
-    return out;
-  })();
 
 
   // ══════════════════════════════════════════════════
@@ -1507,24 +1462,11 @@ function DisplayPageContent() {
                   )}
                 </div>
 
-                {/* 🗺️ خريطة الطاولة — الواصل يجد مقعده بلا أن يسأل أحداً */}
-                {(seatMeta.maxPlayers || maxPlayers) > 0 && (
-                  <div className="noir-card p-4 mb-6 border-[#C5A059]/25 w-full">
-                    <SeatMapRing
-                      maxPlayers={seatMeta.maxPlayers || maxPlayers}
-                      seats={ringSeats}
-                      doorSeats={seatMeta.doorSeats}
-                      size={360}
-                      showNextEmpty
-                    />
-                    <div className="flex flex-wrap justify-center gap-3 mt-2 text-[10px] text-[#666]">
-                      <span><span className="text-[#C5A059]">◌</span> شاغر</span>
-                      <span><span className="text-[#ffc575]">⏳</span> محجوز</span>
-                      <span><span className="text-[#cbbcff]">👁</span> ينتظر</span>
-                      <span><span className="text-[#f3cd6f]">📌</span> مثبَّت</span>
-                    </div>
-                  </div>
-                )}
+                {/* 🔴 لا خريطةَ مقاعد على شاشة القاعة — قرارُ المالك.
+                    كانت حلقةً تعرض الأسماءَ ومَن ينتظر ومَن مُثبَّت؛ وموضعُها
+                    الصحيح كونسولُ الليدر لا الشاشةُ التي يراها الجميع.
+                    وحُذف معها ما كان يغذّيها وحدها (`ringSeats` و`seatMeta`):
+                    كانت تُكتَب في كلّ مزامنةِ حالة فتُعيد رسمَ الشاشة بلا قارئ. */}
 
                 <div className="w-full text-center font-mono noir-card p-4 border-[#2a2a2a]">
                   <p className="text-[#555] text-xs mb-2 tracking-[0.3em] uppercase">AGENTS REGISTERED</p>
@@ -2196,15 +2138,29 @@ function GameOverCard({ player, role, isMafia, flipDelay, isAlive }: {
 // ══════════════════════════════════════════════════════
 function QRDisplay({ url }: { url: string }) {
   const [QRComponent, setQRComponent] = useState<any>(null);
+  const [failed, setFailed] = useState(false);
 
   useEffect(() => {
     import('qrcode.react')
       .then(mod => setQRComponent(() => mod.QRCodeSVG || mod.default))
-      .catch(() => console.warn('QR library not available'));
+      .catch(() => setFailed(true));
   }, []);
 
-  if (!QRComponent || !url) {
-    return <div className="w-[250px] h-[250px] bg-gray-100 rounded flex items-center justify-center text-gray-400">QR</div>;
+  // 🔴 مربّعٌ رماديّ مكتوبٌ فيه «QR» لا يقول شيئاً: من في القاعة لا يعرف
+  //    أيُصبر أم يكتب العنوان بيده. فإن سقطت المكتبة نعرض العنوان نفسه
+  //    كبيراً مقروءاً — الوجهةُ هي المقصد، والرمزُ مجرّد اختصارٍ إليها.
+  if (failed || !url) {
+    return (
+      <div className="w-[250px] h-[250px] rounded flex flex-col items-center justify-center text-center px-3"
+        style={{ background: '#ffffff', color: '#111' }}>
+        <div className="text-[11px] font-bold mb-2 text-[#8A0303]">افتح من المتصفّح</div>
+        <div className="text-[13px] font-mono leading-tight break-all">{url || '—'}</div>
+      </div>
+    );
+  }
+
+  if (!QRComponent) {
+    return <div className="w-[250px] h-[250px] bg-white/10 rounded animate-pulse" />;
   }
 
   return <QRComponent value={url} size={250} bgColor="#ffffff" fgColor="#000000" level="M" />;
