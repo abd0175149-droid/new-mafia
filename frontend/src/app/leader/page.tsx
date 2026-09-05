@@ -2367,7 +2367,13 @@ export default function LeaderPage() {
       {soundMixerPanel}
           {mafiaChatBtn}
           {/* Header */}
-          <div className="flex items-center justify-between px-4 py-3 border-b border-[#2a2a2a]/60 bg-[#050505]/70 backdrop-blur-sm shrink-0">
+          {/* 🔴 ممنوعٌ `backdrop-blur` على هذا الرأس مهما أغرى المظهر:
+              العنصرُ الذي يحمل backdrop-filter يصير هو الإطارَ المرجعيّ لكلّ
+              `position:fixed` بداخله. ولوحاتُ الرأس كلّها مثبَّتة — الحضور
+              والمقاعد والمراقبة والوصول — فكانت تُحسب بالنسبة لشريطٍ ارتفاعه
+              ٦٠ بكسلاً لا بالنسبة للشاشة، فتخرج عن حافّتها وتُقصّ.
+              الخلفيّة المعتمة /95 تعطي الأثر البصريّ نفسه بلا هذا الفخّ. */}
+          <div className="flex items-center justify-between px-4 py-3 border-b border-[#2a2a2a]/60 bg-[#050505]/95 shrink-0">
             <div className="flex items-center gap-3">
               <Image src="/mafia_logo.png" alt="Mafia" width={36} height={36} className="w-[32px] h-[32px] drop-shadow-[0_0_10px_rgba(138,3,3,0.3)]" priority />
               <div className="flex flex-col items-start leading-none">
@@ -3650,7 +3656,13 @@ export default function LeaderPage() {
           {luckyDrawModal}
           {birthdayModal}
           {/* ═══ Unified Global Header ═══ */}
-          <div className="flex items-center justify-between px-4 py-3 border-b border-[#2a2a2a]/60 bg-[#050505]/70 backdrop-blur-sm shrink-0">
+          {/* 🔴 ممنوعٌ `backdrop-blur` على هذا الرأس مهما أغرى المظهر:
+              العنصرُ الذي يحمل backdrop-filter يصير هو الإطارَ المرجعيّ لكلّ
+              `position:fixed` بداخله. ولوحاتُ الرأس كلّها مثبَّتة — الحضور
+              والمقاعد والمراقبة والوصول — فكانت تُحسب بالنسبة لشريطٍ ارتفاعه
+              ٦٠ بكسلاً لا بالنسبة للشاشة، فتخرج عن حافّتها وتُقصّ.
+              الخلفيّة المعتمة /95 تعطي الأثر البصريّ نفسه بلا هذا الفخّ. */}
+          <div className="flex items-center justify-between px-4 py-3 border-b border-[#2a2a2a]/60 bg-[#050505]/95 shrink-0">
             {/* Left: Logo + MAFIA CLUB */}
             <div className="flex items-center gap-3">
               <Image src="/mafia_logo.png" alt="Mafia" width={36} height={36} className="w-[32px] h-[32px] drop-shadow-[0_0_10px_rgba(138,3,3,0.3)]" priority />
