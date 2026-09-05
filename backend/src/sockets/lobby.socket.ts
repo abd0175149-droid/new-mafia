@@ -420,6 +420,36 @@ export async function republishAfterSeatMove(
 // 📐 تحميل مقاعد قالب الفعالية إلى حالة الغرفة (المقاعد المثبّتة + المؤخّرة + الأبواب + سعة المقاعد).
 // يُستدعى عند إنشاء الغرفة لتظهر «المقاعد المحجوزة» فوراً في الغرفة الفارغة (قبل جلوس أي لاعب) —
 // بدلاً من تحميلها كسولاً عند أول توزيع مقعد. الاستدعاء idempotent. لا يحفظ الحالة (المُستدعي يحفظ).
+// 🎨 مظهرُ اللاعب من قاعدة البيانات: الصورة والرتبة والمظهر المشترى.
+// كانت هذه القراءة محشورةً في مسار الانضمام العاديّ وحده، فكلُّ مسارٍ آخر
+// يُنشئ لاعباً (المتفرّج مثلاً) كان يضع `null` ويظنّها تُملأ لاحقاً — ولا شيء
+// يملؤها. استُخرجت هنا كي يكون للمظهر مصدرٌ واحد.
+async function fetchAppearance(playerId: number | null | undefined): Promise<{
+  avatarUrl: string | null; rankTier: string | null; cosmetics: any;
+}> {
+  const empty = { avatarUrl: null, rankTier: null, cosmetics: null };
+  if (!playerId) return empty;
+  try {
+    const { getDB } = await import('../config/db.js');
+    const { players } = await import('../schemas/player.schema.js');
+    const { eq } = await import('drizzle-orm');
+    const db = getDB();
+    if (!db) return empty;
+    const [row] = await db.select({ avatarUrl: players.avatarUrl, rankTier: players.rankTier })
+      .from(players).where(eq(players.id, playerId)).limit(1);
+    let cosmetics: any = null;
+    try {
+      const { getPlayerCosmetics } = await import('../services/chips-store.service.js');
+      cosmetics = await getPlayerCosmetics(playerId);
+    } catch { /* المظهر تحسينٌ بصريّ — لا يعطّل شيئاً */ }
+    return {
+      avatarUrl: row?.avatarUrl ?? null,
+      rankTier: row?.rankTier ?? null,
+      cosmetics: cosmetics ?? null,
+    };
+  } catch { return empty; }
+}
+
 async function loadSeatTemplateIntoState(state: any): Promise<boolean> {
   const db = getDB();
   const activityId = state?.activityId;
@@ -593,6 +623,30 @@ export async function rehydrateActiveRooms(): Promise<void> {
         activityId: state.activityId || undefined,
       });
     }
+
+    // 🎨 تعويضُ المظاهر الناقصة — شبكةُ أمانٍ لا مسارٌ عاديّ.
+    // بطاقةٌ بلا صورة لا يُصلحها تحديثُ الصفحة، لأنّ الفراغ محفوظٌ في Redis
+    // ولا أحد يعود ليملأه. أيّ صفٍّ له حسابٌ وبلا صورة يُقرأ مرّةً هنا.
+    // (بضعُ قراءاتٍ عند الإقلاع وحده؛ ولا شيء يُقرأ إن كانت المظاهر كاملة.)
+    try {
+      let healed = 0;
+      for (const state of allStates) {
+        if (!state?.roomId || !Array.isArray(state.players)) continue;
+        const gaps = state.players.filter((p: any) => p.playerId && !p.avatarUrl);
+        if (gaps.length === 0) continue;
+        for (const p of gaps) {
+          const look = await fetchAppearance(p.playerId);
+          if (!look.avatarUrl && !look.rankTier && !look.cosmetics) continue;
+          if (look.avatarUrl) p.avatarUrl = look.avatarUrl;
+          if (look.rankTier) p.rankTier = look.rankTier;
+          if (look.cosmetics) p.cosmetics = look.cosmetics;
+          healed++;
+        }
+        const { setGameState } = await import('../config/redis.js');
+        await setGameState(state.roomId, state);
+      }
+      if (healed > 0) console.log(`🎨 عُوّض مظهرُ ${healed} لاعباً عند الإقلاع`);
+    } catch (e: any) { console.warn('⚠️ appearance backfill skipped:', e.message); }
 
     // ⏱️ إعادة تسليح مؤقّتات اللعبة — الحرج: مؤقّت اللعبة هو setTimeout في ذاكرة السيرفر،
     // فيضيع عند أيّ إعادة تشغيل/نشر. بدون هذا لا يُعلَن فوز المافيا عند انتهاء الوقت.
@@ -2037,6 +2091,10 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
           seat = 0;
         }
 
+        // 🔴 المظهرُ يُجلب هنا لا يُترك فارغاً: المتفرّج يُرقّى لاعباً في اللعبة
+        //    التالية، والترقيةُ تنسخ ما وجدت. تركُ `null` هنا يعني بطاقةً بلا
+        //    صورة لا يُصلحها تحديثُ الصفحة، لأنّ لا أحد يعود ليملأها.
+        const look = await fetchAppearance(data.playerId);
         const spec: Spectator = {
           physicalId: seat,
           name: data.name,
@@ -2044,9 +2102,9 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
           playerId: data.playerId || null,
           gender: data.gender || null,
           dob: data.dob || null,
-          avatarUrl: null,
-          rankTier: null,
-          cosmetics: null,
+          avatarUrl: look.avatarUrl,
+          rankTier: look.rankTier,
+          cosmetics: look.cosmetics,
           joinedAt: Date.now(),
           addedBy: 'self',
         };
@@ -3284,12 +3342,16 @@ async function readSeatLayoutOnly(activityId: any): Promise<any> {
         return callback({ success: false, error: 'المقعد صار مشغولاً' });
       }
 
+      // نفسُ التعويض في «أدخله الآن» — المسارُ الثاني للترقية
+      const look = spec.avatarUrl ? null : await fetchAppearance(spec.playerId);
       state.players.push({
         physicalId: spec.physicalId, name: spec.name, phone: spec.phone ?? null,
         dob: spec.dob ?? null, gender: spec.gender ?? null, playerId: spec.playerId ?? null,
         role: null, isAlive: true, isSilenced: false, justificationCount: 0,
-        addedBy: spec.addedBy || 'self', avatarUrl: spec.avatarUrl ?? null,
-        rankTier: spec.rankTier ?? null, cosmetics: spec.cosmetics ?? null,
+        addedBy: spec.addedBy || 'self',
+        avatarUrl: spec.avatarUrl ?? look?.avatarUrl ?? null,
+        rankTier: spec.rankTier ?? look?.rankTier ?? null,
+        cosmetics: spec.cosmetics ?? look?.cosmetics ?? null,
         isConnected: true, penalties: 0,
       } as any);
       state.players.sort((a: any, b: any) => a.physicalId - b.physicalId);
@@ -5690,6 +5752,19 @@ async function readSeatLayoutOnly(activityId: any): Promise<any> {
       (state as any).__promotedSpectators || [];
     delete (state as any).__promotedSpectators;
     if (promoted.length === 0) return;
+
+    // 🔧 تعويضُ المظهر: متفرّجون سجّلوا قبل أن يُجلب مظهرُهم عند الإنشاء
+    //    يحملون `null`، وresetRoomState متزامنة فلا تستطيع القراءة. تُقرأ هنا.
+    //    ويُصلح هذا أيضاً من كان جالساً في الغرف وقتَ نشر الإصلاح.
+    for (const pr of promoted) {
+      const row = state.players.find((p: any) => p.physicalId === pr.physicalId);
+      if (row && pr.playerId && !row.avatarUrl) {
+        const look = await fetchAppearance(pr.playerId);
+        if (look.avatarUrl) row.avatarUrl = look.avatarUrl;
+        if (look.rankTier) row.rankTier = look.rankTier;
+        if (look.cosmetics) row.cosmetics = look.cosmetics;
+      }
+    }
 
     for (const pr of promoted) {
       if (state.sessionId) {
