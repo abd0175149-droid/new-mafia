@@ -20,6 +20,7 @@ import SeatMapRing, { type RingSeat } from '@/components/SeatMapRing';
 import { checkSeatConflicts } from '@/lib/seatConflicts';
 import { computeRectLayout, type Sides, type Numbering, type RectDoor } from '@/lib/rectLayout';
 import type { LiveSeat } from '@/components/SeatTemplate3DEditor';
+import FixedLayer from '@/components/FixedLayer';
 
 // 🏛️ القاعة الحقيقيّة — ثقيلةٌ (three.js) فلا تُحمَّل إلّا عند فتح تبويب الخريطة.
 const Venue3D = dynamic(() => import('@/components/SeatTemplate3DEditor'), {
@@ -343,14 +344,29 @@ export default function ArrivalsPanel({ roomId, gameState, emit, on }: Props) {
     flash(`✅ طُبّق الترتيب — تحرّك ${res.applied ?? 0} لاعباً`, 6000);
   });
 
+  // 🔴 النقرةُ التي لا تفعل شيئاً تُقرأ «الزرّ معطوب» لا «هذا المقعد غير قابل
+  //    للاختيار». كان النداءُ يعود صامتاً على كلّ مقعدٍ بلا لاعب — فارغاً كان
+  //    أو متفرّجاً — فبدا المشهدُ كلّه غيرَ تفاعليّ. الآن يقول لماذا.
   const onSeatClick = (seat: number) => {
-    if (!players.some(p => p.physicalId === seat)) return;
+    const p = players.find(x => x.physicalId === seat);
+    if (!p) {
+      const sp = spectators.find(x => x.physicalId === seat);
+      flash(sp
+        ? `👁️ ${sp.name} متفرّج — لا يدخل ترتيبَ المقاعد بعد`
+        : `المقعد #${seat} فارغ — اختر مقعدَ لاعبٍ جالس`, 2600);
+      return;
+    }
+    if (p.seatHeld) { flash(`#${seat} مقعدٌ محجوز لغائب — لا يُفصل`, 2600); return; }
     setPairPick(prev => {
       if (prev.includes(seat)) return prev.filter(x => x !== seat);
-      const next = [...prev, seat].slice(-2);
-      return next;
+      return [...prev, seat].slice(-2);
     });
   };
+
+  const nameOfSeat = useCallback(
+    (seat: number) => players.find(p => p.physicalId === seat)?.name || `#${seat}`,
+    [players],
+  );
 
   const doSeparate = (scope: 'room' | 'activity' | 'global') => act(async () => {
     const [a, b] = pairPick;
@@ -398,10 +414,12 @@ export default function ArrivalsPanel({ roomId, gameState, emit, on }: Props) {
       </button>
 
       {toast && (
-        <div className="fixed bottom-4 left-1/2 -translate-x-1/2 z-[400] px-4 py-2 rounded-lg text-sm font-bold"
-          style={{ background: 'rgba(20,22,30,0.97)', border: '1px solid rgba(167,139,250,0.5)', color: '#e7ebf2' }}>
-          {toast}
-        </div>
+        <FixedLayer>
+          <div className="fixed bottom-4 left-1/2 -translate-x-1/2 z-[420] px-4 py-2 rounded-lg text-sm font-bold"
+            style={{ background: 'rgba(20,22,30,0.97)', border: '1px solid rgba(167,139,250,0.5)', color: '#e7ebf2' }}>
+            {toast}
+          </div>
+        </FixedLayer>
       )}
 
       {open && pos && typeof document !== 'undefined' && createPortal(
@@ -469,6 +487,74 @@ export default function ArrivalsPanel({ roomId, gameState, emit, on }: Props) {
             <>
               {maxPlayers > 0 ? (
                 <>
+                  {/* ✂️ شريطُ الفصل — فوق المشهد لا تحته.
+                      اللوحة تُمرَّر رأسيّاً، والمشهدُ ثلاثيُّ الأبعاد يبتلع عجلةَ
+                      الفأرة (يُقرّب بها)، فأزرارٌ أسفلَه كانت تعني أنّ الليدر
+                      يختار كرسيَّين ثمّ لا يصل إلى ما يفعله بهما. */}
+                  <div className="mb-2 p-2 rounded-lg" style={{ background: '#181d29', border: `1px solid ${pairPick.length === 2 ? 'rgba(230,181,74,.55)' : '#262c3a'}` }}>
+                    {pairPick.length === 0 ? (
+                      <div className="text-[11.5px] text-[#8f98ab]">
+                        ✂️ <b className="text-[#c9d0dd]">لفصل صديقَين:</b> اختر لاعبَين — بالنقر على كرسيَّيهما أو من القائمة أدناه.
+                      </div>
+                    ) : (
+                      <>
+                        <div className="flex items-center flex-wrap gap-1.5 mb-1.5">
+                          {pairPick.map(sn => (
+                            <button key={sn} onClick={() => setPairPick(prev => prev.filter(x => x !== sn))}
+                              className="px-2 py-1 rounded-full text-[11px] font-bold"
+                              style={{ background: 'rgba(90,160,255,.16)', border: '1px solid rgba(90,160,255,.5)', color: '#9ec5ff' }}>
+                              #{sn} {nameOfSeat(sn)} ✕
+                            </button>
+                          ))}
+                          {pairPick.length === 1 && (
+                            <span className="text-[11.5px] text-[#8f98ab]">← اختر الثاني</span>
+                          )}
+                        </div>
+                        {pairPick.length === 2 && (
+                          <>
+                            <div className="text-[11.5px] text-[#8f98ab] mb-1.5">
+                              لا يجلسان متجاورَين بعد اليوم — إلى متى؟
+                            </div>
+                            <div className="flex gap-1.5">
+                              <button disabled={busy} onClick={() => doSeparate('global')}
+                                className="flex-1 py-1.5 rounded text-[11.5px] font-bold disabled:opacity-40"
+                                style={{ background: '#e6b54a', color: '#1a1405' }}>دائماً</button>
+                              <button disabled={busy} onClick={() => doSeparate('activity')}
+                                className="flex-1 py-1.5 rounded text-[11.5px] disabled:opacity-40"
+                                style={{ background: 'rgba(255,255,255,.05)', border: '1px solid #323a4b', color: '#c9d0dd' }}>هذه الفعاليّة</button>
+                              <button disabled={busy} onClick={() => doSeparate('room')}
+                                className="flex-1 py-1.5 rounded text-[11.5px] disabled:opacity-40"
+                                style={{ background: 'rgba(255,255,255,.05)', border: '1px solid #323a4b', color: '#c9d0dd' }}>الليلة</button>
+                            </div>
+                          </>
+                        )}
+                      </>
+                    )}
+                  </div>
+
+                  {/* 🔴 منتقٍ بالقائمة إلى جانب النقر في المشهد: اصطيادُ كرسيٍّ
+                      صغيرٍ في مشهدٍ يدور ليس طريقاً يُعتمد عليه ليلةَ فعاليّة. */}
+                  {players.filter(p => !p.seatHeld).length > 0 && (
+                    <div className="mb-2 flex flex-wrap gap-1 max-h-[92px] overflow-auto">
+                      {players.filter(p => !p.seatHeld)
+                        .slice().sort((a, b) => a.physicalId - b.physicalId)
+                        .map(p => {
+                          const on = pairPick.includes(p.physicalId);
+                          return (
+                            <button key={p.physicalId} onClick={() => onSeatClick(p.physicalId)}
+                              className="px-1.5 py-0.5 rounded text-[10.5px] font-mono"
+                              style={{
+                                background: on ? 'rgba(90,160,255,.18)' : 'rgba(255,255,255,.04)',
+                                border: `1px solid ${on ? 'rgba(90,160,255,.55)' : '#262c3a'}`,
+                                color: on ? '#9ec5ff' : '#8f98ab',
+                              }}>
+                              {p.physicalId} · {p.name}
+                            </button>
+                          );
+                        })}
+                    </div>
+                  )}
+
                   {rect ? (
                     <>
                       {/* 🏛️ القاعةُ كما هي: أضلاعُها وأبوابُها وترقيمُها من القالب،
@@ -510,7 +596,7 @@ export default function ArrivalsPanel({ roomId, gameState, emit, on }: Props) {
                         </div>
                       )}
                       <p className="text-[11px] text-[#8f98ab] mb-2">
-                        اسحب لتدور حول القاعة. انقر كرسيَّين ثمّ اختر «افصل».
+                        اسحب لتدور حول القاعة · عجلةُ الفأرة تُقرّب · انقر كرسيّاً لتختار من فيه.
                       </p>
                     </>
                   ) : (
@@ -526,28 +612,9 @@ export default function ArrivalsPanel({ roomId, gameState, emit, on }: Props) {
                       <p className="text-[11px] text-[#8f98ab] mt-1 mb-2">
                         {layoutTried && !layout
                           ? 'لا قالبَ مقاعد لهذا النشاط — تُعرض الحلقة المجرّدة.'
-                          : 'الخطُّ الأحمر تجاورٌ مخالف. انقر لاعبَين ثمّ اختر «افصل».'}
+                          : 'الخطُّ الأحمر تجاورٌ مخالف. انقر مقعداً لتختار من فيه.'}
                       </p>
                     </>
-                  )}
-
-                  {pairPick.length === 2 && (
-                    <div className="p-2 rounded-lg mb-2" style={{ background: '#181d29', border: '1px solid rgba(230,181,74,.4)' }}>
-                      <div className="text-[12px] text-[#f3cd6f] mb-1.5">
-                        ✂️ افصل {players.find(p => p.physicalId === pairPick[0])?.name} و{players.find(p => p.physicalId === pairPick[1])?.name}
-                      </div>
-                      <div className="flex gap-1.5">
-                        <button disabled={busy} onClick={() => doSeparate('global')}
-                          className="flex-1 py-1.5 rounded text-[11.5px] font-bold disabled:opacity-40"
-                          style={{ background: '#e6b54a', color: '#1a1405' }}>دائماً</button>
-                        <button disabled={busy} onClick={() => doSeparate('activity')}
-                          className="flex-1 py-1.5 rounded text-[11.5px] disabled:opacity-40"
-                          style={{ background: 'rgba(255,255,255,.05)', border: '1px solid #323a4b', color: '#c9d0dd' }}>هذه الفعاليّة</button>
-                        <button disabled={busy} onClick={() => doSeparate('room')}
-                          className="flex-1 py-1.5 rounded text-[11.5px] disabled:opacity-40"
-                          style={{ background: 'rgba(255,255,255,.05)', border: '1px solid #323a4b', color: '#c9d0dd' }}>الليلة</button>
-                      </div>
-                    </div>
                   )}
 
                   <div className="pt-2" style={{ borderTop: '1px solid #262c3a' }}>

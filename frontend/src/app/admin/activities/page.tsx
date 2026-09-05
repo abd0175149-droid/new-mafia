@@ -7,6 +7,7 @@ import ActivityCard from '../components/ActivityCard';
 import ActivityForm from '../components/ActivityForm';
 import BookingForm from '../components/BookingForm';
 import EditActivityForm from '../components/EditActivityForm';
+import WeekGamesModal from '../components/WeekGamesModal';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || '';
 
@@ -61,6 +62,8 @@ export default function ActivitiesPage() {
 
   // Forms
   const [showActivityForm, setShowActivityForm] = useState(false);
+  const [showWeek, setShowWeek] = useState(false);
+  const [weekMsg, setWeekMsg] = useState('');
   const [showBookingForm, setShowBookingForm] = useState(false);
   const [showEditForm, setShowEditForm] = useState<any | null>(null);
 
@@ -258,6 +261,15 @@ export default function ActivitiesPage() {
             >
               📅 حجز جديد
             </button>
+            {/* 🔴 زرٌّ مستقلٌّ لا خيارٌ داخل نموذج النشاط: هذا فعلٌ أسبوعيٌّ
+                واحد، ودفنُه في نموذجٍ يُنشئ نشاطاً واحداً يجعله أداةً لا تُوجد. */}
+            <button
+              onClick={() => { setShowWeek(true); setShowActivityForm(false); setShowBookingForm(false); }}
+              className="px-4 py-2.5 border rounded-xl text-sm font-bold transition"
+              style={{ borderColor: 'rgba(197,160,89,.45)', color: '#C5A059', background: 'rgba(197,160,89,.08)' }}
+            >
+              🗓️ ألعاب الأسبوع
+            </button>
             <button
               onClick={() => { setShowActivityForm(!showActivityForm); setShowBookingForm(false); }}
               className="px-4 py-2.5 bg-gradient-to-r from-amber-500 to-rose-600 text-white rounded-xl text-sm font-bold hover:opacity-90 transition"
@@ -267,6 +279,25 @@ export default function ActivitiesPage() {
           </div>
         )}
       </div>
+
+      {/* ══ 🗓️ ألعاب الأسبوع ══ */}
+      <WeekGamesModal
+        open={showWeek}
+        onClose={() => setShowWeek(false)}
+        apiFetch={apiFetch}
+        onDone={async (msg) => { setWeekMsg(msg); await fetchAll(); setTimeout(() => setWeekMsg(''), 6000); }}
+      />
+      <AnimatePresence>
+        {weekMsg && (
+          <motion.div
+            initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 16 }}
+            className="fixed bottom-6 left-1/2 -translate-x-1/2 z-[320] px-5 py-3 rounded-xl text-sm font-bold shadow-xl"
+            style={{ background: '#12211d', border: '1px solid rgba(47,168,140,.5)', color: '#8fe0c9' }}
+          >
+            ✓ {weekMsg}
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       {/* ══ Forms ══ */}
       <AnimatePresence>

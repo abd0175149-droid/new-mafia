@@ -15,6 +15,10 @@ import { linkSessionToActivity, unlinkSessionFromActivity, createSession, delete
 import { getActivityAttendanceStats } from '../services/booking.service.js';
 import { generateRoomCode } from '../game/state.js';
 import { resolveRoomCapacity, clampCapacity } from '../services/capacity.service.js';
+import {
+  WEEKLY_DAYS, WEEKLY_SCHEDULE, WEEKLY_SEAT_CONSTRAINTS, WEEKLY_DEFAULTS,
+  weeklyActivityName, weekStartAmman, ammanWallToUtc,
+} from '../lib/weekly-template.js';
 import { toMinutes, orderedGameSlots, slotDuration, type RawSlot } from '../services/activity-pulse.service.js';
 import { notifyActivityPulse } from '../sockets/activity-pulse.socket.js';
 import { resetDriftNotices } from '../services/activity-pulse.notify.js';
@@ -998,6 +1002,237 @@ router.post('/', authenticate, async (req: Request, res: Response) => {
       url: '/admin/activities',
     }, req.user!.id);
   }).catch((err: any) => { console.error('❌ Activity push error:', err?.message || err); });
+});
+
+// ══════════════════════════════════════════════════════
+// 📅 ألعابُ الأسبوع — معاينةٌ ثمّ إنشاءٌ دفعةً واحدة
+//
+// 🔴 الغرضُ ليس اختصارَ نقرات: أربعُ فعاليّاتٍ تُنشأ يدويّاً كلَّ أسبوعٍ بنفس
+//    الإعدادات، وكلُّ حقلٍ يُكتب بيدٍ فرصةُ خطأ — سعةٌ منسيّة، قالبُ مقاعدٍ
+//    خطأ، أو توقيتٌ ٤:٠٠ فجراً كما وقع فعلاً يوم ٣/٩ فأُلغيت الفعاليّة.
+//
+// 🔴 والمعاينةُ منفصلةٌ عن الإنشاء عمداً: المالكُ يرى ما سيُنشأ وما هو موجودٌ
+//    سلفاً **قبل** أن يُكتب شيء، ويعدّل. والإنشاءُ يأخذ ما رآه لا ما يستنتجه
+//    الخادمُ ثانيةً — فلا فجوةَ بين المعروض والمنفَّذ.
+// ══════════════════════════════════════════════════════
+
+interface WeekDayPlan {
+  dow: number;
+  labelAr: string;
+  dateUtc: string;
+  dateAmman: string;
+  name: string;
+  maxCapacity: number;
+  exists: null | { id: number; name: string; status: string };
+}
+
+function ammanCivil(d: Date): { day: string; time: string } {
+  const f = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Asia/Amman', year: 'numeric', month: '2-digit', day: '2-digit',
+    hour: '2-digit', minute: '2-digit', hour12: false,
+  }).formatToParts(d);
+  const g = (t: string) => f.find(p => p.type === t)?.value || '';
+  return { day: g('year') + '-' + g('month') + '-' + g('day'), time: g('hour') + ':' + g('minute') };
+}
+
+// ── GET /api/activities/week/preview — ما سيُنشأ هذا الأسبوع ──
+router.get('/week/preview', authenticate, leaderOrAbove, async (req: Request, res: Response) => {
+  const db = getDB();
+  if (!db) return res.status(503).json({ error: 'قاعدة البيانات غير متوفرة' });
+
+  try {
+    const refRaw = req.query.ref ? new Date(String(req.query.ref)) : new Date();
+    const ref = Number.isNaN(refRaw.getTime()) ? new Date() : refRaw;
+    const start = weekStartAmman(ref);
+
+    // المكانُ الافتراضيّ: آخرُ مكانٍ استُعمل فعلاً — لا أوّلُ صفٍّ في الجدول
+    const [lastAct] = await db.select({
+      locationId: activities.locationId, seatTemplateId: activities.seatTemplateId,
+    }).from(activities)
+      .where(and(isNull(activities.deletedAt), isNotNull(activities.locationId)))
+      .orderBy(desc(activities.date)).limit(1);
+
+    const locationId = lastAct?.locationId ?? null;
+    let locationName = '';
+    if (locationId) {
+      const [loc] = await db.select({ name: locations.name }).from(locations)
+        .where(eq(locations.id, locationId)).limit(1);
+      locationName = loc?.name || '';
+    }
+
+    // نطاقُ الأسبوع بـUTC: الأحد ٠٠:٠٠ عمّان ← بعد ستّة أيّام
+    const from = new Date(start.getTime() - 3 * 3600000);
+    const to = new Date(from.getTime() + 7 * 86400000);
+    const existing = await db.select({
+      id: activities.id, name: activities.name, date: activities.date, status: activities.status,
+    }).from(activities)
+      .where(and(isNull(activities.deletedAt),
+        sql`${activities.date} >= ${from.toISOString()}`,
+        sql`${activities.date} < ${to.toISOString()}`))
+      .orderBy(activities.date);
+
+    const days: WeekDayPlan[] = WEEKLY_DAYS.map((d) => {
+      const civilDay = new Date(start.getTime() + d.dow * 86400000);
+      const doors = ammanWallToUtc(civilDay, d.doorsAmman);
+      const a = ammanCivil(doors);
+      // 🔴 «موجودٌ سلفاً» يُقاس باليوم المدنيّ في عمّان لا بالساعة: نشاطٌ أنشأه
+      //    المالكُ يدويّاً في ذلك اليوم بأيّ ساعةٍ يستثني اليومَ كلَّه.
+      const hit = existing.find(e => ammanCivil(new Date(e.date)).day === a.day);
+      return {
+        dow: d.dow,
+        labelAr: d.labelAr,
+        dateUtc: doors.toISOString(),
+        dateAmman: a.day + ' ' + a.time,
+        name: weeklyActivityName(locationName || 'فعاليّة', civilDay),
+        maxCapacity: d.maxCapacity,
+        exists: hit ? { id: hit.id, name: hit.name, status: String(hit.status) } : null,
+      };
+    });
+
+    res.json({
+      weekStartAmman: ammanCivil(from).day,
+      locationId,
+      locationName,
+      seatTemplateId: lastAct?.seatTemplateId ?? null,
+      defaults: WEEKLY_DEFAULTS,
+      schedule: WEEKLY_SCHEDULE,
+      seatConstraints: WEEKLY_SEAT_CONSTRAINTS,
+      days,
+      toCreate: days.filter(d => !d.exists).length,
+    });
+  } catch (err: any) {
+    console.error('❌ week/preview:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ── POST /api/activities/week — إنشاءُ ما اعتُمد في المعاينة ──
+router.post('/week', authenticate, leaderOrAbove, async (req: Request, res: Response) => {
+  const db = getDB();
+  if (!db) return res.status(503).json({ error: 'قاعدة البيانات غير متوفرة' });
+
+  const { days, locationId, seatTemplateId, schedule, seatConstraints } = req.body || {};
+  if (!Array.isArray(days) || days.length === 0) {
+    return res.status(400).json({ error: 'لا أيّامَ للإنشاء' });
+  }
+  if (days.length > 7) return res.status(400).json({ error: 'أكثرُ من أسبوعٍ في طلبٍ واحد' });
+
+  const created: any[] = [];
+  const skipped: any[] = [];
+
+  try {
+    for (const d of days) {
+      const when = new Date(String(d?.dateUtc));
+      if (Number.isNaN(when.getTime())) {
+        skipped.push({ name: d?.name, why: 'تاريخٌ غير صالح' });
+        continue;
+      }
+
+      // 🔴 يُعاد فحصُ «موجودٌ سلفاً» عند الكتابة لا في المعاينة وحدها: بين فتح
+      //    النافذة والضغط قد يُنشئ زميلٌ نشاطَ ذلك اليوم — فالفحصُ هنا هو الحارس.
+      const civil = ammanCivil(when).day;
+      const near = await db.select({ id: activities.id, name: activities.name, date: activities.date })
+        .from(activities)
+        .where(and(isNull(activities.deletedAt),
+          sql`${activities.date} >= ${new Date(when.getTime() - 36 * 3600000).toISOString()}`,
+          sql`${activities.date} <= ${new Date(when.getTime() + 36 * 3600000).toISOString()}`));
+      const clash = near.find(x => ammanCivil(new Date(x.date)).day === civil);
+      if (clash) {
+        skipped.push({ name: d.name, why: 'يوجد نشاطٌ في هذا اليوم', existingId: clash.id });
+        continue;
+      }
+
+      const cap = Number(d.maxCapacity);
+      const [act] = await db.insert(activities).values({
+        name: String(d.name || '').slice(0, 200),
+        date: when,
+        description: '',
+        basePrice: WEEKLY_DEFAULTS.basePrice,
+        status: WEEKLY_DEFAULTS.status,
+        locationId: locationId ?? null,
+        driveLink: '',
+        enabledOfferIds: [],
+        maxCapacity: Number.isFinite(cap) && cap > 0 ? Math.min(200, Math.round(cap)) : 30,
+        difficulty: WEEKLY_DEFAULTS.difficulty,
+        requireTicket: WEEKLY_DEFAULTS.requireTicket,
+        seatConstraints: seatConstraints ?? WEEKLY_SEAT_CONSTRAINTS,
+        seatTemplateId: seatTemplateId ?? null,
+        menuOrderingEnabled: WEEKLY_DEFAULTS.menuOrderingEnabled,
+        addGameFeeToBill: WEEKLY_DEFAULTS.addGameFeeToBill,
+        geofenceEnabled: WEEKLY_DEFAULTS.geofenceEnabled,
+        gameSchedule: schedule ?? WEEKLY_SCHEDULE,
+        createdBy: req.user?.id ?? null,
+      } as any).returning();
+
+      // 📂 مجلّدُ درايف مستقلٌّ لكلّ فعاليّة — كما في الإنشاء المفرد
+      try {
+        const drive = getDriveService();
+        const folderRes: any = await drive.files.create({
+          requestBody: {
+            name: act.name,
+            mimeType: 'application/vnd.google-apps.folder',
+            parents: process.env.DRIVE_PARENT_FOLDER_ID ? [process.env.DRIVE_PARENT_FOLDER_ID] : undefined,
+          },
+          fields: 'id',
+          supportsAllDrives: true,
+        } as any);
+        if (folderRes?.data?.id) {
+          const driveLink = 'https://drive.google.com/drive/folders/' + folderRes.data.id;
+          await db.update(activities).set({ driveLink } as any).where(eq(activities.id, act.id));
+          (act as any).driveLink = driveLink;
+        }
+      } catch (e: any) {
+        // 🔴 فشلُ المجلّد لا يُسقط الفعاليّة: الفعاليّةُ هي الأصل، والمجلّد
+        //    يُنشأ لاحقاً بزرّ «إنشاء مجلّد» الموجود أصلاً.
+        console.error('⚠️ Drive folder failed for #' + act.id + ':', e?.message);
+      }
+
+      created.push(act);
+    }
+
+    res.status(201).json({ success: true, created, skipped });
+
+    // ══════════════════════════════════════════════════════
+    // 🔔 إشعارٌ **واحد** للأسبوع كلِّه
+    //
+    // 🔴 الإنشاءُ المفرد يُطلق إشعاراً لكلّ نشاط. ولو استُعمل هنا أربعَ مرّاتٍ
+    //    لوصل كلَّ لاعبٍ أربعةُ إشعاراتٍ في ثانيةٍ واحدة — وهذا أقصرُ طريقٍ إلى
+    //    أن يُطفئ الإشعاراتِ أو يحذف التطبيق. الأسبوعُ خبرٌ واحدٌ فليكن إشعاراً واحداً.
+    // ══════════════════════════════════════════════════════
+    if (created.length > 0) {
+      import('../services/fcm.service.js').then(async (fcm: any) => {
+        const fmt = new Intl.DateTimeFormat('ar-JO', {
+          timeZone: 'Asia/Amman', weekday: 'long', day: 'numeric', month: 'long',
+        });
+        const list = created.map(a => fmt.format(new Date(a.date))).join(' · ');
+        const title = created.length === 1
+          ? '📅 نشاط جديد'
+          : '📅 جدول الأسبوع — ' + created.length + ' ليالٍ';
+        fcm.sendPushToAllPlayers(title, list, 'new_activity', {
+          url: '/player/games',
+          activityId: created[0].id,
+        });
+        fcm.sendPushToStaffByPermission('activities', title,
+          'أُنشئت ' + created.length + ' فعاليّة: ' + list,
+          'new_activity', { url: '/admin/activities' }, req.user!.id);
+      }).catch((e: any) => console.error('❌ week push:', e?.message));
+
+      try {
+        const { logStaffAction } = await import('../services/staff-action-log.service.js');
+        logStaffAction({
+          staffId: req.user?.id,
+          staffUsername: (req as any).user?.username,
+          staffRole: (req as any).user?.role,
+          source: 'rest',
+          action: 'rest:create-week',
+          details: { created: created.map(a => ({ id: a.id, name: a.name })), skipped },
+        });
+      } catch { /* غير حاجب */ }
+    }
+  } catch (err: any) {
+    console.error('❌ POST /week:', err);
+    if (!res.headersSent) res.status(500).json({ error: err.message });
+  }
 });
 
 // POST /api/activities/:id/create-drive-folder — إنشاء مجلد Drive لنشاط قديم بدون مجلد

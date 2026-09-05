@@ -101,6 +101,22 @@ function Chair({ seat, state, name, glow, selected, dimmed, onClick, onOver, onO
         <meshBasicMaterial color={state} transparent opacity={selected ? 0.26 : 0.08} />
       </mesh>
 
+      {/* 🎯 هدفُ النقر — أسطوانةٌ شفّافة تغطّي بقعةَ الكرسيّ كاملةً وترتفع إلى
+          مستوى اللوحة. جسمُ الكرسيّ وحده عرضُه نصفُ متر، وفي مشهدٍ يُعرض داخل
+          لوحةٍ جانبيّة يصير ذلك بضعةَ بكسلات فيتحوّل الاختيارُ إلى مطاردة.
+          شفّافةٌ لا `visible={false}`: الأخيرُ يُسقطها من الراي‑كاستر فلا تلتقط
+          شيئاً. ونصفُ قطرها ٠٫٥ < نصفِ التباعد (٠٫٧٥) فلا تبتلع جارَها، وارتفاعُها
+          بقامة الكرسيّ لا أعلى كي لا تحجب باباً خلفها في محرّر القوالب. */}
+      <mesh
+        position={[0, 0.6, 0]}
+        onClick={(e) => { e.stopPropagation(); onClick(); }}
+        onPointerOver={(e) => { e.stopPropagation(); onOver(); document.body.style.cursor = 'pointer'; }}
+        onPointerOut={() => { onOut(); document.body.style.cursor = 'auto'; }}
+      >
+        <cylinderGeometry args={[0.5, 0.5, 1.2, 12]} />
+        <meshBasicMaterial transparent opacity={0} depthWrite={false} />
+      </mesh>
+
       {/* جسم الكرسيّ */}
       <group
         position={[0, lift, 0]}
