@@ -34,6 +34,10 @@ const URL = process.env.MAFIA_URL || 'http://localhost:4000';
 const TOKEN = process.env.MAFIA_STAFF_TOKEN;
 const ROOM = process.env.MAFIA_ROOM;
 const COUNT = Number(process.argv[2] || process.env.MAFIA_COUNT || 16);
+const FROM = Number(process.env.MAFIA_FROM || 0);          // بدايةُ الترقيم (لإضافةٍ فوق الموجود)
+// أزواجٌ متزامنة افتراضاً — وهي المدخل الذي يُفعّل تقاربَ «الوصول معاً».
+// اجعلها 1 حين تريد ملءَ الغرفة بلا إثارة السباق (مثلاً أثناء اختبارٍ جارٍ).
+const STEP = process.env.MAFIA_SEQUENTIAL === '1' ? 1 : 2;
 if (!TOKEN) { console.error('❌ MAFIA_STAFF_TOKEN مطلوب'); process.exit(1); }
 if (!ROOM) { console.error('❌ MAFIA_ROOM مطلوب (معرّف الغرفة)'); process.exit(1); }
 
@@ -67,10 +71,10 @@ console.log(`🎯 «${before.state.config?.gameName}» — ${before.state.phase}
 
 // ── نُدخلهم أزواجاً متزامنة: كلُّ زوجٍ «وصل معاً» فيجب أن يفترقا ──
 const results = [];
-for (let i = 0; i < COUNT; i += 2) {
+for (let i = 0; i < COUNT; i += STEP) {
   const batch = [];
-  for (let k = 0; k < 2 && i + k < COUNT; k++) {
-    const n = i + k;
+  for (let k = 0; k < STEP && i + k < COUNT; k++) {
+    const n = FROM + i + k;
     const name = NAMES[n % NAMES.length];
     const phone = `07700${String(10000 + n).slice(1)}`;   // 0770000000+
     batch.push((async () => {

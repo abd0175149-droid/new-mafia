@@ -1622,6 +1622,9 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
       // جلب بيانات اللاعبين الموسّعة للمحرك الذكي
       let penaltyNeighborHistory: Map<string, number> | undefined;
       let enrichedPlayers: any[] = [];
+      // مرفوعان إلى هنا لأنّ إعادةَ الاختيار عند تصادُم المقاعد (أسفل) تحتاجهما
+      let newPlayerEnriched: any = null;
+      let affinityPairs: Map<string, number> | undefined;
       const db = getDB();
 
       // استرجاع activityId من قاعدة البيانات كـ fallback إذا كان مفقوداً في Redis
@@ -1856,7 +1859,7 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
         }
 
         // جلب بيانات اللاعب الجديد
-        let newPlayerEnriched: any = {
+        newPlayerEnriched = {
           phone: data.phone || '',
           gender: data.gender || 'MALE',
           playerId: data.playerId || null,
@@ -1902,7 +1905,6 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
         }
 
         // ── 🤝 أوزان التقارب الاجتماعيّ (الوصول المتزامن أثقلها — قرار مقفل ٣) ──
-        let affinityPairs: Map<string, number> | undefined;
         try {
           affinityPairs = await buildAffinityPairs({
             sessionId: state.sessionId,
@@ -2081,13 +2083,76 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
       void markArrivalAttended(activityId, data.playerId || null, data.phone || null, data.name);
 
       // ── 5. إضافة اللاعب ──
-      const addedState = await addPlayer(
-        data.roomId,
-        assignedSeat,
-        data.name,
-        data.phone || null,
-        data.playerId || null,
-      );
+      // 🔴 اختيارُ المقعد يقرأ الحالة، والإضافةُ تكتبها، وبينهما استعلاماتُ
+      //    التقارب الاجتماعيّ. صديقان يضغطان «انضمّ» في اللحظة نفسها يخرجان
+      //    من `allocateSeat` بالمقعد نفسه، فيفوز الأوّل ويُصفع الثاني بخطأ
+      //    «الرقم N مسجل مسبقاً» — وهو بالضبط الحدث الذي بُنيت هذه الميزةُ له.
+      //    (القفل في state.ts يمنع ضياع اللاعب، لا تصادمَ الاختيار.)
+      //
+      //    فنُعيد الاختيار على حالةٍ طازجة بدل إسقاط الوافد. ونُعيد الحساب
+      //    كاملاً لا «ننزلق للمقعد التالي»: الانزلاقُ قد يُجلسه بجانب صاحبه
+      //    فيُبطل السبب كلّه. مسارُ المتفرّج يفعل هذا منذ البداية.
+      const MAX_SEAT_RETRIES = 3;
+      let addedState: Awaited<ReturnType<typeof addPlayer>> | null = null;
+      for (let attempt = 0; attempt <= MAX_SEAT_RETRIES; attempt++) {
+        try {
+          addedState = await addPlayer(
+            data.roomId,
+            assignedSeat,
+            data.name,
+            data.phone || null,
+            data.playerId || null,
+          );
+          break;
+        } catch (e: any) {
+          const seatTaken = /الرقم \d+ مسجل مسبقاً/.test(String(e?.message || ''));
+          if (!seatTaken || attempt === MAX_SEAT_RETRIES) throw e;
+
+          const fresh = await getRoom(data.roomId);
+          if (!fresh) return callback({ success: false, error: 'الغرفة غير موجودة' });
+          const takenNow = new Set<number>([
+            ...fresh.players.map((pp: any) => pp.physicalId),
+            ...getSpectators(fresh).map(sp => sp.physicalId),
+          ]);
+          // الجالسون الذين لم نكن نعرفهم يدخلون كشاغلين بلا سماتٍ اجتماعيّة:
+          // يكفي أن يحجبوا مقاعدهم عن المحرّك.
+          const known = new Set<number>(enrichedPlayers.map((p: any) => p.physicalId));
+          for (const t of takenNow) {
+            if (!known.has(t)) {
+              const src = fresh.players.find((pp: any) => pp.physicalId === t);
+              enrichedPlayers.push({
+                physicalId: t,
+                phone: src?.phone || '',
+                gender: src?.gender || null,
+                seatHeld: false,
+              } as any);
+            }
+          }
+          const retry = allocateSeat({
+            maxPlayers: fresh.config.maxPlayers,
+            players: enrichedPlayers.length ? enrichedPlayers : fresh.players.map((pp: any) => ({
+              physicalId: pp.physicalId, phone: pp.phone, gender: pp.gender || null, seatHeld: pp.seatHeld || false,
+            })),
+            constraints,
+            newPlayer: newPlayerEnriched || { phone: data.phone || '', gender: data.gender || 'MALE' },
+            preferredSeat: undefined,        // المفضّل سقط مع أوّل تصادم
+            penaltyNeighborHistory,
+            sessionId: fresh.sessionId,
+            pinnedSeats: pinnedSeatsFromTemplate,
+            reservedTailSeats: reservedTailFromTemplate,
+            doorSeats: doorSeatsFromTemplate,
+            affinityPairs,
+            spreadFromSeats: fresh.players.slice(-3).map((p: any) => p.physicalId),
+          });
+          if (!retry.seat || takenNow.has(retry.seat)) {
+            return callback({ success: false, error: 'لا مقعد شاغر — القاعة ممتلئة' });
+          }
+          console.warn(`♻️ تصادمُ مقعد #${assignedSeat} لـ${data.name} — يُعاد الاختيار (${attempt + 1}) → #${retry.seat}`);
+          assignedSeat = retry.seat;
+          seatViolations = retry.violations || [];
+        }
+      }
+      if (!addedState) return callback({ success: false, error: 'تعذّر إجلاسك — أعد المحاولة' });
 
       // البحث عن اللاعب الفعلي (قد يكون تم ربطه بمقعد ليدر موجود)
       const actualPlayer = data.phone
