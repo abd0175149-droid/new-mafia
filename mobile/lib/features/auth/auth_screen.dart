@@ -7,6 +7,7 @@ import 'package:flutter/services.dart';
 import '../../app/theme/theme.dart';
 import '../../core/api/api_client.dart';
 import '../../core/api/auth_repository.dart';
+import '../gates/location_intro_sheet.dart';
 
 // ══════════════════════════════════════════════════════
 // 🔑 الدخول والتسجيل — الملفّ 10
@@ -45,6 +46,24 @@ class _AuthScreenState extends State<AuthScreen> {
 
   bool _loading = false;
   String? _error;
+
+  // 📍 إذنُ الموقع فورَ فتح التطبيق — قبل الدخول (قرار المالك).
+  //
+  // 🔴 هنا لا في القوقعة: القوقعةُ خلف الدخول، فمن يفتح التطبيق ولم يسجّل بعد
+  //    لا يُسأل إطلاقاً، ولا يُسأل إلّا حين يقف على بوّابةٍ تحتاج الموقع —
+  //    وهي أسوأُ لحظةٍ للسؤال.
+  //
+  // 🔴 والتبليغ يبقى بعد الدخول: player_last_fix يشترط player_id، فلا موقعَ
+  //    يُخزَّن لمن لا هويّةَ له. readAndReport تتكفّل بذلك بنفسها.
+  //
+  // بعد الإطار الأوّل كي يكون للسياق شجرةٌ يعرض عليها الورقة.
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) maybeShowLocationIntro(context);
+    });
+  }
 
   @override
   void dispose() {

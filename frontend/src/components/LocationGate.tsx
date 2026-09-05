@@ -67,8 +67,12 @@ export default function LocationGate() {
     if (geo.permission === 'prompt' || geo.permission === 'unknown') {
       let seen = false;
       try { seen = localStorage.getItem(SEEN_KEY) === '1'; } catch { /* تصفّح خاصّ */ }
-      // من ضغط «ليس الآن» يُسأل في الفتحة التالية — لا في هذه
-      if (!seen && token()) setShowIntro(true);
+      // 🔴 بلا اشتراط الدخول (قرار المالك): الإذن يُطلب فورَ فتح التطبيق،
+      //    فمن يفتحه أوّلَ مرّة يمنحه قبل أن يصل إلى شاشةٍ تحتاجه — بدل أن
+      //    يُصدَم بالنافذة عند بوّابةٍ وهو واقفٌ على الباب.
+      //    ويبقى التبليغُ بعد الدخول: لا هويّةَ تُعلَّق عليها نقطةٌ قبله.
+      // ومن ضغط «ليس الآن» يُسأل في الفتحة التالية — لا في هذه
+      if (!seen) setShowIntro(true);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [geo.permission, player?.token]);
@@ -126,7 +130,11 @@ export default function LocationGate() {
           {[
             ['✅', 'الحجز يبقى متاحاً من أيّ مكان'],
             ['🔕', 'لا نتتبّعك في الخلفيّة — يُقرأ الموقع وأنت داخل التطبيق فقط'],
-            ['📍', 'نحفظ آخر نقطةٍ فقط — لا سجلّ تحرّكات'],
+            // 🔴 كان مكتوباً هنا «نحفظ آخر نقطةٍ فقط — لا سجلّ تحرّكات»، وصار
+            //    كذباً يوم شُحن تاريخُ المواقع. ادّعاءُ خصوصيّةٍ خاطئ أمام كلّ
+            //    لاعب أسوأُ من غيابه. إن تغيّرت مدّةُ الاحتفاظ في
+            //    retention.service.ts فهذا السطر يتغيّر معها.
+            ['🗓️', 'تُحفظ المواقع ٩٠ يوماً ثمّ تُمحى — وتُحذف كلّها مع حسابك'],
           ].map(([icon, text]) => (
             <div key={text} className="flex items-start gap-2.5 text-[12px] rounded-xl px-3 py-2"
               style={{ background: 'rgba(255,255,255,0.03)', color: '#c8d6ce' }}>
