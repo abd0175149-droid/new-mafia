@@ -8,6 +8,7 @@ import CircularTimer from '@/components/CircularTimer';
 import Image from 'next/image';
 import { playEliminationSound, playCeremonySound } from '@/lib/soundManager';
 import EliminationFx from '@/components/EliminationFx';
+import DiscussionQueueRail from './DiscussionQueueRail';
 
 // 🔊 لا نداءَ صوتٍ محلّيٍّ في هذه الشاشة — الموجّه هو المصدر (setLocalPlayback(false)).
 //    المؤقّتُ والتصويتُ وكشفُ المُسكَت واكتمالُ التصويت تُعزف عنده وتصل مرآةً.
@@ -712,6 +713,10 @@ export default function DisplayDayView({ roomId, players, initialDiscussionState
                     })}
                   </motion.div>
                 </div>
+
+                {/* 🎤 شريطُ ترتيب النقاش — معلَّقٌ على body فلا يقتطع عرضاً من
+                    اللوح، وإلّا أبطل المرجعَ الذي تلتقطه الكاميرا عند الراحة. */}
+                <DiscussionQueueRail discussionState={discussionState} players={players} />
               </>
             )}
           </motion.div>
