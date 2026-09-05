@@ -868,4 +868,62 @@ router.get('/locations/map', authenticate, authorize('admin', 'manager'), async 
   }
 });
 
+// ══════════════════════════════════════════════════════
+// 🗺️ تاريخُ مواقع لاعبٍ واحد — للصفحة عند اختياره
+// ══════════════════════════════════════════════════════
+// 🔴 نقطةُ نهايةٍ منفصلة عن /locations/map عمداً: العرضُ الافتراضيّ يبقى آخرَ
+//    موقعٍ لكلّ لاعب، وتاريخُ الجميع دفعةً واحدة حملٌ لا يُعرض. تُنادى عند
+//    اختيار لاعبٍ بعينه لا مع تحميل الصفحة.
+router.get('/locations/history', authenticate, authorize('admin', 'manager'), async (req: Request, res: Response) => {
+  const db = getDB();
+  if (!db) return res.status(503).json({ error: 'DB unavailable' });
+
+  const playerId = parseInt(String(req.query.playerId || ''));
+  if (!Number.isFinite(playerId) || playerId <= 0) {
+    return res.status(400).json({ error: 'playerId مطلوب' });
+  }
+  // سقفُ العرض قرارُ مالك: آخر ٢٠٠ نقطة
+  const limit = Math.min(Math.max(parseInt(String(req.query.limit || '200')) || 200, 1), 500);
+  const locId = parseInt(String(req.query.locationId || ''));
+
+  try {
+    let vLat: number | null = null, vLng: number | null = null;
+    if (Number.isFinite(locId)) {
+      const [v] = await db.select({ latitude: locations.latitude, longitude: locations.longitude })
+        .from(locations).where(eq(locations.id, locId)).limit(1);
+      if (v?.latitude && v?.longitude) {
+        vLat = parseFloat(String(v.latitude));
+        vLng = parseFloat(String(v.longitude));
+      }
+    }
+
+    const rows: any = await db.execute(sql`
+      SELECT latitude, longitude, accuracy_m, is_mocked, source, captured_at
+      FROM player_fixes
+      WHERE player_id = ${playerId}
+      ORDER BY captured_at DESC
+      LIMIT ${limit}
+    `);
+    const list = (rows.rows ?? rows) as any[];
+
+    // الأحدثُ أوّلاً كما جاءت — الواجهة تتكفّل بالترتيب البصريّ
+    const points = list.map(r => {
+      const lat = parseFloat(String(r.latitude));
+      const lng = parseFloat(String(r.longitude));
+      return {
+        lat, lng,
+        accuracyM: r.accuracy_m === null ? null : Number(r.accuracy_m),
+        isMocked: r.is_mocked === true,
+        source: r.source || null,
+        capturedAt: new Date(r.captured_at).getTime(),
+        distanceM: (vLat !== null && vLng !== null) ? haversineM(vLat, vLng, lat, lng) : null,
+      };
+    });
+
+    res.json({ success: true, playerId, points, at: Date.now() });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 export default router;

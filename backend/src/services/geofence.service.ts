@@ -14,9 +14,9 @@
 //    هو الليدر (room:force-add-player).
 // ══════════════════════════════════════════════════════
 
-import { eq } from 'drizzle-orm';
+import { desc, eq } from 'drizzle-orm';
 import { getDB } from '../config/db.js';
-import { activities, locations, playerLastFix, presenceChecks } from '../schemas/admin.schema.js';
+import { activities, locations, playerFixes, playerLastFix, presenceChecks } from '../schemas/admin.schema.js';
 import { players } from '../schemas/player.schema.js';
 
 /** قراءةُ موقعٍ كما يرسلها العميل. */
@@ -210,6 +210,70 @@ export async function saveLastFix(playerId: number, fix: GeoFix): Promise<void> 
   const { playerId: _drop, ...onUpdate } = values;
   await db.insert(playerLastFix).values(values)
     .onConflictDoUpdate({ target: playerLastFix.playerId, set: onUpdate as any });
+
+  // 🗺️ ثمّ التاريخ — لا يُسقط حفظَ «الأخير» إن أخفق
+  try { await appendFix(playerId, values); } catch { /* التاريخ عرضٌ لا بوّابة */ }
+}
+
+// ── عتبةُ منع التكرار (قرارُ المالك) ──
+// القراءاتُ حدثيّةٌ لا دوريّة: تأتي عند البوّابات (دخول · طلب · خدمة). فمن
+// يطلب خمسةَ أصنافٍ في ساعة يترك خمسَ نقاطٍ متطابقة، ويصير «التدرّج الزمنيّ»
+// بقعةً واحدة لا مساراً. نقطةٌ جديدة إن بَعُدت ١٠٠م **أو** مرّت ٣ دقائق.
+const FIX_MIN_MOVE_M = 100;
+const FIX_MIN_GAP_MS = 3 * 60 * 1000;
+
+/**
+ * أيُسجَّل هذا الموقعُ الجديد، أم هو تكرارٌ لآخر ما سُجّل؟
+ * نقيّةٌ عمداً — هذا القرارُ هو كلُّ المنطق في تاريخ المواقع، فيجب أن يُختبَر
+ * بلا قاعدة بيانات. (test-fix-history.ts)
+ */
+export function shouldAppendFix(
+  prev: { lat: number; lng: number; capturedAt: number },
+  next: { lat: number; lng: number; capturedAt: number },
+): boolean {
+  const gap = next.capturedAt - prev.capturedAt;
+  // 🔴 قراءةٌ أقدم ممّا لدينا (ساعةُ جهازٍ منحرفة) تُرفض قبل كلّ شيء: إدراجُها
+  //    يقلب ترتيبَ المسار، فيصير الخطُّ يرتدّ إلى الوراء بلا معنى.
+  if (gap < 0) return false;
+  const moved = haversineM(prev.lat, prev.lng, next.lat, next.lng);
+  // 🔴 «أو» لا «و»: نقطةٌ بعيدة تُسجَّل ولو بعد ثانية (تحرّكَ فعلاً)، ونقطةٌ في
+  //    المكان نفسه تُسجَّل بعد ثلاث دقائق (بقاؤه هناك معلومةٌ أيضاً).
+  return moved >= FIX_MIN_MOVE_M || gap >= FIX_MIN_GAP_MS;
+}
+
+/** يُلحق قراءةً بتاريخ اللاعب ما لم تكن تكراراً لآخر ما سُجّل. */
+async function appendFix(playerId: number, v: {
+  latitude: string; longitude: string; accuracyM: number | null;
+  isMocked: boolean; source: string; capturedAt: Date;
+}): Promise<void> {
+  const db = getDB();
+  if (!db) return;
+
+  const [prev] = await db.select({
+    latitude: playerFixes.latitude,
+    longitude: playerFixes.longitude,
+    capturedAt: playerFixes.capturedAt,
+  }).from(playerFixes)
+    .where(eq(playerFixes.playerId, playerId))
+    .orderBy(desc(playerFixes.capturedAt))
+    .limit(1);
+
+  if (prev && !shouldAppendFix(
+    { lat: parseFloat(String(prev.latitude)), lng: parseFloat(String(prev.longitude)),
+      capturedAt: new Date(prev.capturedAt).getTime() },
+    { lat: parseFloat(v.latitude), lng: parseFloat(v.longitude),
+      capturedAt: v.capturedAt.getTime() },
+  )) return;
+
+  await db.insert(playerFixes).values({
+    playerId,
+    latitude: v.latitude,
+    longitude: v.longitude,
+    accuracyM: v.accuracyM,
+    isMocked: v.isMocked,
+    source: v.source,
+    capturedAt: v.capturedAt,
+  } as any);
 }
 
 /**

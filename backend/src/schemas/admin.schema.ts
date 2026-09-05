@@ -615,6 +615,33 @@ export const playerLastFix = pgTable('player_last_fix', {
 });
 
 // ══════════════════════════════════════════════════════
+// 🗺️ تاريخُ المواقع — صفٌّ لكلّ قراءةٍ تُقبل
+// ══════════════════════════════════════════════════════
+// بجانب player_last_fix لا بدلاً منه: الأخيرُ مؤشّرٌ سريع لـ«الآن» تقرؤه
+// البوّابةُ (احتياطُ العشر دقائق) وخريطةُ الليدر والعرضُ الافتراضيّ للصفحة،
+// وتحويلُه إلى تاريخٍ كان سيجعل كلَّ قراءةٍ منها ORDER BY … LIMIT 1.
+//
+// 🔴 لا يُكتب صفٌّ لكلّ قراءة: القراءاتُ تأتي عند البوّابات (دخول · طلب ·
+//    خدمة)، ومن يطلب خمسةَ أصناف في ساعةٍ يترك خمسَ نقاطٍ متطابقة فيصير
+//    «التدرّج الزمنيّ» بقعةً واحدة. العتبةُ في geofence.service.ts.
+//
+// 🔴 يُكنَس بعد ٩٠ يوماً ويُحذف مع الحساب — انظر retention.service.ts
+//    و account-deletion.service.ts. تاريخُ مواقعَ يبقى بعد حذف الحساب
+//    مخالفةٌ لقانون ٢٤/٢٠٢٣ لا ترتيبٌ مؤجَّل.
+// ══════════════════════════════════════════════════════
+export const playerFixes = pgTable('player_fixes', {
+  id: serial('id').primaryKey(),
+  playerId: integer('player_id').notNull(),
+  latitude: decimal('latitude', { precision: 9, scale: 6 }).notNull(),
+  longitude: decimal('longitude', { precision: 9, scale: 6 }).notNull(),
+  accuracyM: integer('accuracy_m'),
+  isMocked: boolean('is_mocked').default(false),
+  source: varchar('source', { length: 10 }).default('web'),
+  capturedAt: timestamp('captured_at').notNull(),            // زمن القراءة على الجهاز
+  createdAt: timestamp('created_at').defaultNow().notNull(), // زمن وصولها للخادم
+});
+
+// ══════════════════════════════════════════════════════
 // 📋 سجلّ فحوصات الحضور — النتيجة لا الإحداثيّات الخام
 // يكفي لضبط نصف القطر من بياناتٍ حقيقيّة ولمراجعة نزاعٍ مع لاعب، بلا خريطة تحرّكات.
 // ══════════════════════════════════════════════════════

@@ -182,8 +182,10 @@ export async function anonymizePlayer(playerId: number): Promise<void> {
   await db.execute(sql`UPDATE orders SET player_name = ${TOMB}, note = '' WHERE player_id = ${id}`);
   await db.execute(sql`UPDATE service_requests SET player_name = ${TOMB}, note = '' WHERE player_id = ${id}`);
 
-  // 4) الموقع — يُحذف حذفاً: لا قيمةَ إحصائيّةً لموقعٍ بلا صاحب
+  // 4) الموقع — يُحذف حذفاً: لا قيمةَ إحصائيّةً لموقعٍ بلا صاحب.
+  //    والتاريخُ معه: تركُ مسار تحرّكاتٍ بعد حذف الحساب أثقلُ ممّا حُذف.
   await db.execute(sql`DELETE FROM player_last_fix WHERE player_id = ${id}`);
+  await db.execute(sql`DELETE FROM player_fixes WHERE player_id = ${id}`);
   await db.execute(sql`DELETE FROM presence_checks WHERE player_id = ${id}`);
 
   // 5) الاشتباه والمراقبة — تُحذف: رأيٌ عن شخصٍ لم يعد له حساب

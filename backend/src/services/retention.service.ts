@@ -20,6 +20,8 @@ export const RETENTION = {
   cheatSignals: 365,
   /** آخرُ موقعٍ مسجَّل بلا تحديثٍ منذ مدّة — لاعبٌ لم يحضر */
   lastFix: 90,
+  /** تاريخُ المواقع — المدّةُ نفسها عمداً: سياستان للموقع الواحد تربكان */
+  fixHistory: 90,
   /** أرشيفُ محادثات واتساب من آخر رسالة */
   waMessages: 730,
   /** الإشعاراتُ المقروءة — لا معنى لحفظها سنوات */
@@ -55,6 +57,10 @@ export async function runRetentionSweep(): Promise<Record<string, number>> {
   // آخرُ موقعٍ لم يُحدَّث منذ مدّة — الصفُّ يُستبدل عادةً، فالقديمُ يعني انقطاعاً
   out.lastFix = await del('آخر موقع', sql`
     DELETE FROM player_last_fix WHERE updated_at < NOW() - INTERVAL '${sql.raw(String(RETENTION.lastFix))} days'`);
+  // 🔴 يُكنَس بالنقطة لا باللاعب: تاريخُ حاضرٍ اليوم يُقلَّم قديمُه ويبقى جديدُه،
+  //    بخلاف «آخر موقع» الذي يُحذف صفُّه كاملاً حين يهجر صاحبُه المكان.
+  out.fixHistory = await del('تاريخ المواقع', sql`
+    DELETE FROM player_fixes WHERE captured_at < NOW() - INTERVAL '${sql.raw(String(RETENTION.fixHistory))} days'`);
 
   out.waMessages = await del('رسائل واتساب', sql`
     DELETE FROM wa_messages WHERE created_at < NOW() - INTERVAL '${sql.raw(String(RETENTION.waMessages))} days'`);

@@ -42,6 +42,23 @@ const ago = (t: number, now: number) => {
 };
 const dist = (d: number | null) => d === null ? '—' : (d >= 1000 ? `${(d / 1000).toFixed(1)} كم` : `${d} م`);
 
+interface TrailPoint {
+  lat: number; lng: number;
+  accuracyM: number | null; isMocked: boolean;
+  source: string | null; capturedAt: number; distanceM: number | null;
+}
+
+// 🎨 تدرّجٌ زمنيّ: الغامقُ للأحدث والفاتحُ للأقدم (قرار المالك).
+// 🔴 لكنّ بلاطاتِ OSM فاتحة، فتدرّجٌ ينتهي إلى الأبيض يُخفي القديمَ لا يُخفته.
+//    فالمدى يقف عند نعناعيٍّ شاحبٍ ما زال يُرى، ويُسنَد بقناةٍ ثانية: القطر
+//    يصغر مع القِدَم. لونان يقولان الشيء نفسه أوضحُ من لونٍ وحده.
+const TRAIL_NEW = [4, 47, 46];      // #042f2e — زمرّديٌّ عميق
+const TRAIL_OLD = [153, 246, 228];  // #99f6e4 — نعناعيٌّ شاحب
+function trailColor(t: number): string {
+  const c = TRAIL_NEW.map((n, i) => Math.round(n + (TRAIL_OLD[i] - n) * t));
+  return `rgb(${c[0]},${c[1]},${c[2]})`;
+}
+
 export default function PlayersMapPage() {
   const [venues, setVenues] = useState<Venue[]>([]);
   const [venueId, setVenueId] = useState<number | null>(null);
@@ -53,6 +70,12 @@ export default function PlayersMapPage() {
   const [filter, setFilter] = useState<string | null>(null);
   const [showTest, setShowTest] = useState(false);
   const [sel, setSel] = useState<number | null>(null);
+
+  // ── 🗺️ تاريخُ اللاعب المختار ──
+  // 🔴 لا يُحمَّل مع الصفحة: العرضُ الافتراضيّ آخرُ موقعٍ لكلّ لاعب، وتاريخُ
+  //    الجميع دفعةً واحدة حملٌ لا يُعرض. يُجلب عند الاختيار وحده.
+  const [trail, setTrail] = useState<TrailPoint[] | null>(null);
+  const [trailBusy, setTrailBusy] = useState(false);
 
   const load = useCallback(async (vid: number | null) => {
     setLoading(true); setErr('');
@@ -105,6 +128,48 @@ export default function PlayersMapPage() {
       .sort((a, b) => b.capturedAt - a.capturedAt);
   }, [withStatus, filter, q]);
 
+  // يُجلب التاريخُ عند كلّ اختيار، ويُمسح عند إلغائه أو تبديل المكان
+  useEffect(() => {
+    if (sel === null) { setTrail(null); return; }
+    let cancelled = false;
+    setTrailBusy(true);
+    const url = `${API_URL}/api/player/locations/history?playerId=${sel}&limit=200`
+      + (venueId ? `&locationId=${venueId}` : '');
+    fetch(url, { headers: { Authorization: `Bearer ${tok()}` } })
+      .then(r => r.json())
+      .then(d => { if (!cancelled) setTrail(Array.isArray(d?.points) ? d.points : []); })
+      .catch(() => { if (!cancelled) setTrail([]); })
+      .finally(() => { if (!cancelled) setTrailBusy(false); });
+    return () => { cancelled = true; };
+  }, [sel, venueId]);
+
+  // نقاطُ المسار — الأحدثُ أوّلاً كما تصل، فالنسبةُ ٠ للأحدث و١ للأقدم
+  const trailDots = useMemo(() => {
+    if (!trail || trail.length === 0) return null;
+    const n = trail.length;
+    return trail.map((p, i) => {
+      const t = n === 1 ? 0 : i / (n - 1);
+      return {
+        id: `t${i}`,
+        lat: p.lat, lng: p.lng,
+        color: trailColor(t),
+        sizePx: Math.round(18 - t * 8),          // ١٨ للأحدث ← ١٠ للأقدم
+        haloColor: 'rgba(255,255,255,.9)',        // هالةٌ تفصلها عن بلاطةٍ فاتحة
+        label: `${i === 0 ? '● الأحدث · ' : ''}${ago(p.capturedAt, now)}`
+          + `${p.distanceM !== null ? ` · ${dist(p.distanceM)}` : ''}`
+          + `${p.isMocked ? ' · ⚠️ مزيَّف' : ''}`,
+      };
+    });
+  }, [trail, now]);
+
+  // الخطّ يُرسم بالترتيب الزمنيّ الصاعد كي يُقرأ كمسار
+  const trailPath = useMemo(
+    () => (trail && trail.length > 1)
+      ? trail.slice().reverse().map(p => ({ lat: p.lat, lng: p.lng }))
+      : undefined,
+    [trail],
+  );
+
   const dots = useMemo(() => shown.map(r => ({
     id: r.playerId, lat: r.lat, lng: r.lng, color: CLR[r.st],
     faded: r.st === 'old',
@@ -114,6 +179,10 @@ export default function PlayersMapPage() {
 
   const selRow = withStatus.find(r => r.playerId === sel) || null;
 
+  // 🔴 عند اختيار لاعب تُعرض نقاطُه وحدها: مسارٌ بين ثلاثين دبّوساً لغيره
+  //    لا يُقرأ. وحين لا اختيار — أو لا تاريخ له — يعود العرضُ الافتراضيّ كما كان.
+  const mapDots = (sel !== null && trailDots && trailDots.length > 0) ? trailDots : dots;
+
   return (
     <div className="p-4 md:p-6 max-w-7xl mx-auto" dir="rtl">
 
@@ -121,7 +190,7 @@ export default function PlayersMapPage() {
         <span className="w-11 h-11 rounded-2xl grid place-items-center text-xl bg-emerald-500/10 border border-emerald-500/25">🗺️</span>
         <div className="flex-1 min-w-0">
           <h1 className="text-xl font-black text-white">مواقع اللاعبين</h1>
-          <p className="text-xs text-gray-500 mt-0.5">آخر موقعٍ مسجَّل لكلّ لاعب — يُحدَّث عند كلّ فتحةٍ للتطبيق</p>
+          <p className="text-xs text-gray-500 mt-0.5">آخر موقعٍ مسجَّل لكلّ لاعب — واختر لاعباً لترى كلّ مواقعه زمنيّاً</p>
         </div>
         <button onClick={() => load(venueId)}
           className="px-3 py-2 rounded-xl text-xs font-bold bg-gray-800/60 border border-gray-700/50 text-gray-300 hover:text-white">
@@ -171,9 +240,11 @@ export default function PlayersMapPage() {
 
         <div className="rounded-2xl overflow-hidden border border-gray-800 bg-gray-900/40">
           {hasPoint ? (
-            <VenueMap center={{ lat: venue!.latitude!, lng: venue!.longitude! }} radiusM={radiusM} dots={dots} height={440} />
-          ) : dots.length > 0 ? (
-            <VenueMap center={{ lat: dots[0].lat, lng: dots[0].lng }} dots={dots} height={440} />
+            <VenueMap center={{ lat: venue!.latitude!, lng: venue!.longitude! }} radiusM={radiusM}
+              dots={mapDots} path={trailPath} height={440} />
+          ) : mapDots.length > 0 ? (
+            <VenueMap center={{ lat: mapDots[0].lat, lng: mapDots[0].lng }}
+              dots={mapDots} path={trailPath} height={440} />
           ) : (
             <div className="h-[440px] grid place-items-center p-8">
               <div className="text-center max-w-md">
@@ -235,6 +306,34 @@ export default function PlayersMapPage() {
               <div className="flex items-center gap-2 mb-2.5">
                 <b className="text-sm text-white">{selRow.name}</b>
                 <span className="text-[11px] text-gray-500 font-mono" dir="ltr">{selRow.phone}</span>
+              </div>
+
+              {/* 🗺️ مفتاحُ المسار — تدرّجٌ بلا مفتاحٍ لا يُقرأ */}
+              <div className="mb-2.5 rounded-lg border border-gray-800 bg-black/40 px-2.5 py-2">
+                {trailBusy ? (
+                  <span className="text-[11px] text-gray-500">… يُحمَّل المسار</span>
+                ) : !trail || trail.length === 0 ? (
+                  <span className="text-[11px] text-gray-500">
+                    لا مواقع مسجَّلة له بعد — التاريخ يبدأ من أوّل فحصٍ للحضور
+                  </span>
+                ) : (
+                  <>
+                    <div className="flex items-center justify-between mb-1.5">
+                      <span className="text-[11px] font-bold text-gray-300">
+                        المسار · {trail.length} موقعاً
+                      </span>
+                      <span className="text-[10px] text-gray-600 font-mono" dir="ltr">
+                        {trail.length >= 200 ? 'أحدث 200' : ''}
+                      </span>
+                    </div>
+                    <div className="h-[7px] rounded-full mb-1"
+                      style={{ background: `linear-gradient(to left, rgb(${TRAIL_NEW.join(',')}), rgb(${TRAIL_OLD.join(',')}))` }} />
+                    <div className="flex items-center justify-between text-[10px] text-gray-500">
+                      <span>الأحدث · {ago(trail[0].capturedAt, now)}</span>
+                      <span>الأقدم · {ago(trail[trail.length - 1].capturedAt, now)}</span>
+                    </div>
+                  </>
+                )}
               </div>
               <div className="grid grid-cols-4 gap-2">
                 {[

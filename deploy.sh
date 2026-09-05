@@ -249,6 +249,22 @@ CREATE TABLE IF NOT EXISTS player_last_fix (
   captured_at TIMESTAMP NOT NULL,
   updated_at  TIMESTAMP DEFAULT NOW() NOT NULL
 );
+-- 🗺️ تاريخُ المواقع — صفٌّ لكلّ قراءةٍ تُقبل، بجانب player_last_fix لا بدلاً منه.
+-- (الأخيرُ يبقى مؤشّراً سريعاً لـ«الآن»: تقرؤه البوّابةُ وخريطةُ الليدر والصفحة،
+--  وتحويلُه إلى تاريخٍ كان سيجعل كلَّ قراءةٍ منها ORDER BY … LIMIT 1.)
+CREATE TABLE IF NOT EXISTS player_fixes (
+  id          SERIAL PRIMARY KEY,
+  player_id   INTEGER NOT NULL,
+  latitude    NUMERIC(9,6) NOT NULL,
+  longitude   NUMERIC(9,6) NOT NULL,
+  accuracy_m  INTEGER,
+  is_mocked   BOOLEAN DEFAULT false,
+  source      VARCHAR(10) DEFAULT 'web',
+  captured_at TIMESTAMP NOT NULL,
+  created_at  TIMESTAMP DEFAULT NOW() NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_player_fixes_player_time
+  ON player_fixes (player_id, captured_at DESC);
 CREATE TABLE IF NOT EXISTS presence_checks (
   id          SERIAL PRIMARY KEY,
   player_id   INTEGER NOT NULL,

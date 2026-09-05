@@ -21,6 +21,10 @@ export interface MapDot {
   label?: string;
   /** باهتة = آخر موقعٍ معروف لا موقعٌ حاليّ */
   faded?: boolean;
+  /** قطرُ النقطة — يُستعمل لترميز القِدَم في مسارِ لاعب */
+  sizePx?: number;
+  /** لونُ الحافّة — هالةٌ فاتحة تفصل النقطة عن بلاطةٍ فاتحة */
+  haloColor?: string;
   onClick?: () => void;
 }
 
@@ -36,6 +40,10 @@ interface Props {
    *  ليس فيه (المدير من مكتبه) لا يملك «خذ موقعي» أيضاً. */
   onMapClick?: (lat: number, lng: number) => void;
   dots?: MapDot[];
+  /** 🧭 مسارٌ يصل النقاط بترتيبها الزمنيّ — نقاطٌ بلا خطٍّ لا تُقرأ كتتابع.
+   *  اختياريّ تماماً: من لا يمرّره لا يتغيّر عنده شيء. */
+  path?: Array<{ lat: number; lng: number }>;
+  pathColor?: string;
   height?: number;
   className?: string;
 }
@@ -67,7 +75,8 @@ function circleGeoJSON(lat: number, lng: number, radiusM: number, steps = 72) {
 }
 
 export default function VenueMap({
-  center, radiusM, draggablePin, onPinMove, onMapClick, dots = [], height = 380, className = '',
+  center, radiusM, draggablePin, onPinMove, onMapClick, dots = [],
+  path, pathColor = '#0f766e', height = 380, className = '',
 }: Props) {
   const boxRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<maplibregl.Map | null>(null);
@@ -142,14 +151,51 @@ export default function VenueMap({
     dotRefs.current = [];
     for (const d of dots) {
       const el = document.createElement('div');
+      // القطرُ اختياريّ: مسارُ لاعبٍ يُقرأ زمنُه باللون **وبالحجم** معاً،
+      // فبلاطاتُ OSM فاتحة والتدرّجُ وحده يُخفي القديم لا يُخفته.
+      const sz = d.sizePx ?? 16;
       el.style.cssText =
-        `width:16px;height:16px;border-radius:50%;background:${d.color};border:2px solid rgba(0,0,0,.55);` +
+        `width:${sz}px;height:${sz}px;border-radius:50%;background:${d.color};` +
+        `border:2px solid ${d.haloColor || 'rgba(0,0,0,.55)'};box-sizing:border-box;` +
         `opacity:${d.faded ? 0.45 : 1};cursor:${d.onClick ? 'pointer' : 'default'};`;
       if (d.label) el.title = d.label;
       if (d.onClick) el.addEventListener('click', d.onClick);
       dotRefs.current.push(new maplibregl.Marker({ element: el }).setLngLat([d.lng, d.lat]).addTo(map));
     }
   }, [dots]);
+
+  // ── المسار ──
+  // 🔴 طبقةُ خطٍّ لا علاماتٌ إضافيّة: العلامات عناصرُ DOM تتحرّك مع كلّ إطارِ
+  //    تحريك، ومسارٌ من مئتَي نقطة كان سيُثقل الخريطة. الخطُّ يُرسم في WebGL.
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map) return;
+    const data: any = {
+      type: 'Feature',
+      geometry: {
+        type: 'LineString',
+        coordinates: (path || []).map(p => [p.lng, p.lat]),
+      },
+    };
+    const apply = () => {
+      const src = map.getSource('trail') as maplibregl.GeoJSONSource | undefined;
+      if (src) { src.setData(data); return; }
+      if (!path || path.length < 2) return;   // لا طبقةَ قبل الحاجة
+      map.addSource('trail', { type: 'geojson', data });
+      map.addLayer({
+        id: 'trail-line',
+        type: 'line',
+        source: 'trail',
+        layout: { 'line-cap': 'round', 'line-join': 'round' },
+        paint: {
+          'line-color': pathColor,
+          'line-width': 2.5,
+          'line-opacity': 0.65,
+        },
+      });
+    };
+    if (map.isStyleLoaded()) apply(); else map.once('load', apply);
+  }, [path, pathColor]);
 
   // ── إعادة التوسيط عند وصول نقطةٍ لأوّل مرّة ──
   const centered = useRef(false);
