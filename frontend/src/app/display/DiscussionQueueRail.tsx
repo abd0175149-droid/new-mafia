@@ -17,9 +17,12 @@
 //    الراحة، فأيّ عنصرٍ يغيّر عرضَ اللوح أثناء الجولة يُبطل ذلك المرجع
 //    وتنحرف كلُّ حركةٍ بعده — بلا خطأٍ ولا تحذير.
 //
-// 🔴 ويخفت أثناء الحديث عمداً. الشاشةُ تُضبّب كلَّ من عدا المتحدّث وتنزع
-//    ألوانَهم؛ فقائمةُ أسماءٍ ساطعة في تلك اللحظة تُنافسه على الانتباه.
-//    يبقى صفُّ المتحدّث وحده بكامل وضوحه — هو المعلومة التي تُطلب حينها.
+// 🔴 الشفافيّةُ في الخلفيّة وحدها، لا في النصّ.
+//    أوّلُ نسخةٍ خفّضت شفافيّةَ العنصر كلّه أثناء الحديث فذهب معها النصّ:
+//    اسمٌ عند ٤٦٪ فوق صفٍّ عند ٤٢٪ يساوي ١٩٪ — أي لا شيء يُقرأ من آخر
+//    القاعة. الآن يزداد السطحُ شفافيّةً حين يتحدّث أحد (فلا يحجب المشهد)
+//    بينما تبقى الأسماءُ والأرقام بكامل عتامتها، ومعها ظلُّ نصٍّ يفصلها
+//    عمّا يمرّ خلفها. التمييزُ بين الحالات باللون والوزن لا بالشفافيّة.
 // ══════════════════════════════════════════════════════
 
 import { useEffect, useMemo, useRef } from 'react';
@@ -79,36 +82,43 @@ export default function DiscussionQueueRail({ discussionState, players }: Props)
         aria-label="ترتيب النقاش"
         className="fixed top-0 bottom-0 right-0 z-[45] flex flex-col pointer-events-none select-none"
         style={{
-          width: 'clamp(196px, 14.5vw, 268px)',
-          background:
-            'linear-gradient(to left, rgba(6,6,8,0.94) 0%, rgba(6,6,8,0.90) 62%, rgba(6,6,8,0.72) 100%)',
-          borderInlineStart: '1px solid rgba(197,160,89,0.16)',
-          boxShadow: '-24px 0 60px rgba(0,0,0,0.55)',
-          // يخفت مع القاعة حين يتحدّث أحد — ولا يختفي
-          opacity: speaking ? 0.46 : 1,
-          filter: speaking ? 'saturate(0.55)' : 'none',
-          transition: 'opacity .7s ease, filter .7s ease',
+          width: 'clamp(214px, 15.5vw, 300px)',
+          // السطحُ وحده يرقّ أثناء الحديث — النصّ لا يُمَسّ
+          background: speaking
+            ? 'linear-gradient(to left, rgba(5,5,7,0.80) 0%, rgba(5,5,7,0.66) 68%, rgba(5,5,7,0.34) 100%)'
+            : 'linear-gradient(to left, rgba(5,5,7,0.93) 0%, rgba(5,5,7,0.86) 68%, rgba(5,5,7,0.58) 100%)',
+          backdropFilter: 'blur(9px)',
+          WebkitBackdropFilter: 'blur(9px)',
+          borderInlineStart: `1px solid rgba(197,160,89,${speaking ? 0.18 : 0.3})`,
+          boxShadow: '-26px 0 64px rgba(0,0,0,0.6)',
+          transition: 'background .7s ease, border-color .7s ease',
         }}
       >
         {/* ── الرأس ── */}
         <div className="px-4 pt-5 pb-3">
           <div className="flex items-baseline justify-between gap-2">
             <span
-              className="text-[15px] font-black text-[#C5A059]"
-              style={{ fontFamily: 'Amiri, serif' }}
+              className="font-black text-[#E3C179]"
+              style={{
+                fontFamily: 'Amiri, serif',
+                fontSize: 'clamp(17px, 1.25vw, 23px)',
+                textShadow: '0 2px 8px rgba(0,0,0,0.95)',
+              }}
             >
               ترتيب النقاش
             </span>
             <span
-              className="text-[11px] font-mono tabular-nums text-[#6b6862]"
+              className="font-mono tabular-nums font-bold text-[#9a968e]"
               dir="ltr"
+              style={{ fontSize: 'clamp(12px, 0.85vw, 16px)', textShadow: '0 1px 4px rgba(0,0,0,0.9)' }}
             >
               {doneCount}/{order.length}
             </span>
           </div>
           <div
-            className="mt-1 text-[8px] font-mono tracking-[0.34em] text-[#4a4842]"
+            className="mt-1 font-mono tracking-[0.34em] text-[#5d5a54]"
             dir="ltr"
+            style={{ fontSize: 'clamp(8px, 0.5vw, 10px)' }}
           >
             SPEAKING ORDER
           </div>
@@ -131,7 +141,7 @@ export default function DiscussionQueueRail({ discussionState, players }: Props)
         <div
           ref={listRef}
           className="flex-1 overflow-y-auto px-3 pb-5"
-          style={{ scrollbarWidth: 'none', maskImage: 'linear-gradient(to bottom, transparent 0, #000 14px, #000 calc(100% - 20px), transparent 100%)' }}
+          style={{ scrollbarWidth: 'none', maskImage: 'linear-gradient(to bottom, transparent 0, #000 6px, #000 calc(100% - 8px), transparent 100%)' }}
         >
           <style>{`aside[aria-label="ترتيب النقاش"] ::-webkit-scrollbar{width:0;height:0}`}</style>
 
@@ -144,54 +154,75 @@ export default function DiscussionQueueRail({ discussionState, players }: Props)
               <div
                 key={`${seat}-${i}`}
                 ref={isCurrent ? curRef : undefined}
-                className="flex items-center gap-2.5 mb-[5px] rounded-[7px] px-2.5 py-[7px]"
+                className="flex items-center gap-2.5 mb-[6px] rounded-[8px] px-2.5 py-[8px]"
                 style={{
                   background:
                     state === 'current'
-                      ? 'linear-gradient(90deg, rgba(197,160,89,0.24), rgba(197,160,89,0.08))'
-                      : 'rgba(255,255,255,0.035)',
-                  border: `1px solid ${state === 'current' ? 'rgba(197,160,89,0.5)' : 'transparent'}`,
-                  boxShadow: state === 'current' ? '0 0 24px rgba(197,160,89,0.18)' : 'none',
-                  // صفُّ المتحدّث يقاوم خفوتَ الشريط: هو المعلومة المطلوبة حينها
-                  opacity: state === 'done' ? 0.42 : 1,
-                  transition: 'background .5s, border-color .5s, opacity .5s',
+                      ? 'linear-gradient(90deg, rgba(197,160,89,0.42), rgba(197,160,89,0.14))'
+                      : state === 'done'
+                        ? 'rgba(255,255,255,0.03)'
+                        : 'rgba(255,255,255,0.075)',
+                  border: `1px solid ${
+                    state === 'current' ? 'rgba(230,190,110,0.75)'
+                      : state === 'done' ? 'transparent'
+                      : 'rgba(255,255,255,0.09)'
+                  }`,
+                  boxShadow: state === 'current' ? '0 0 30px rgba(197,160,89,0.3)' : 'none',
+                  // 🔴 لا تخفيتَ بالشفافيّة: من تكلّم يُميَّز بلونٍ أخفت وشطبٍ،
+                  //    لا بطبقةٍ ثانية تُذيب النصّ فوق سطحٍ شفّافٍ أصلاً.
+                  transition: 'background .5s, border-color .5s',
                 }}
               >
-                {/* رقمُ المقعد — لا ترتيبُ الدور: القاعةُ تعرف الناس بمقاعدهم */}
+                {/* رقمُ المقعد — لا ترتيبُ الدور: القاعةُ تعرف الناس بمقاعدهم.
+                    وهو أوّلُ ما يُبحث عنه من آخر القاعة، فيُعطى شارةً مصمتة. */}
                 <span
-                  className="flex-none w-[26px] text-center font-mono tabular-nums rounded-[4px] py-[1px] text-[11px]"
+                  className="flex-none text-center font-mono tabular-nums rounded-[5px] py-[2px]"
                   style={{
-                    color: state === 'current' ? '#1a1405' : state === 'done' ? '#4f4d48' : '#8a8780',
-                    background: state === 'current' ? '#C5A059' : 'rgba(255,255,255,0.05)',
-                    fontWeight: state === 'current' ? 700 : 400,
+                    minWidth: 'clamp(28px, 2.1vw, 40px)',
+                    fontSize: 'clamp(13px, 0.92vw, 18px)',
+                    fontWeight: 700,
+                    color: state === 'current' ? '#15100a' : state === 'done' ? '#6f6c65' : '#0d0d10',
+                    background:
+                      state === 'current' ? '#F0CE7E'
+                        : state === 'done' ? 'rgba(255,255,255,0.06)'
+                        : 'rgba(212,208,199,0.82)',
+                    textShadow: 'none',
                   }}
                 >
                   {seat}
                 </span>
 
                 <span
-                  className="flex-1 min-w-0 truncate text-[13.5px]"
+                  className="flex-1 min-w-0 truncate"
                   style={{
-                    color: state === 'current' ? '#ffffff' : state === 'done' ? '#5f5d58' : '#a6a39c',
-                    fontWeight: state === 'current' ? 700 : 400,
+                    fontSize: 'clamp(14.5px, 1.05vw, 20px)',
+                    lineHeight: 1.35,
+                    color: state === 'current' ? '#ffffff' : state === 'done' ? '#8b877f' : '#EFECE5',
+                    fontWeight: state === 'current' ? 800 : state === 'done' ? 400 : 600,
                     textDecoration: state === 'done' ? 'line-through' : 'none',
+                    textDecorationColor: 'rgba(139,135,127,0.7)',
+                    // ظلٌّ يفصل الحرفَ عمّا يمرّ خلف السطح الشفّاف
+                    textShadow: '0 1px 4px rgba(0,0,0,0.95), 0 0 14px rgba(0,0,0,0.75)',
                   }}
                 >
                   {name}
                 </span>
 
-                <span className="flex-none text-[10px] w-[12px] text-center">
+                <span
+                  className="flex-none text-center"
+                  style={{ width: 'clamp(13px, 0.9vw, 18px)', fontSize: 'clamp(11px, 0.75vw, 15px)' }}
+                >
                   {state === 'current' ? (
                     <span
                       style={{
-                        color: '#C5A059',
+                        color: '#F0CE7E',
                         animation: 'dqrBlink 1.15s steps(2, start) infinite',
                       }}
                     >
                       ●
                     </span>
                   ) : state === 'done' ? (
-                    <span style={{ color: '#3f8f5c' }}>✓</span>
+                    <span style={{ color: '#5FBF85' }}>✓</span>
                   ) : null}
                 </span>
               </div>
