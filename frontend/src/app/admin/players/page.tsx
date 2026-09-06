@@ -129,6 +129,120 @@ type FlagState = 'yes' | 'no' | null;
 //    حاويةُ الجدول `overflow-hidden` (لتستدير حوافّها)، فقائمةٌ داخلها تُقصّ
 //    عند أوّل صفٍّ — تظهر نصفَ قائمةٍ بلا سببٍ ظاهر.
 // ══════════════════════════════════════════════════════
+// ══════════════════════════════════════════════════════
+// ↕️ ترتيبُ الأعمدة
+//
+// 🔴 «المجهول» يبقى في الذيل في الاتّجاهين. لاعبٌ بلا «آخر نشاط» ليس أقدمَ
+//    الناس ولا أحدثَهم — لا قيمةَ له أصلاً. ولو عومل صفراً لتصدّر ٢٨٧ صفّاً
+//    فارغاً ترتيبَ «الأقدم» وأخفى مَن يُسأل عنهم فعلاً.
+//
+// 🔴 واتّجاهُ النقرة الأولى يختلف بالنوع: الأرقامُ والتواريخ تنازليّاً (الأكثرُ
+//    والأحدثُ أوّلاً)، والنصوصُ تصاعديّاً (أ ← ي). النقرةُ الأولى يجب أن تُظهر
+//    ما يريده الناسُ عادةً، لا أن تُجبرهم على نقرتين.
+//
+// 🔴 والمعرّفُ فاصلٌ أخير دائماً: بلاه تتبادل الصفوفُ المتساوية مواضعَها بين
+//    عرضٍ وآخر — كلَّما بُدّل علمٌ أو وصل استطلاعٌ جديد.
+// ══════════════════════════════════════════════════════
+const RANK_ORDER: Record<string, number> = {
+  INFORMANT: 1, ASSOCIATE: 2, SOLDIER: 3, CAPO: 4, UNDERBOSS: 5, GODFATHER: 6,
+};
+
+type SortDir = 'asc' | 'desc';
+interface SortDef {
+  key: string;
+  /** القيمةُ المقارَنة — `null` تعني «مجهول» فيُذيَّل دائماً */
+  get: (p: any) => number | string | null;
+  type: 'num' | 'text';
+  first: SortDir;
+  /** فاصلٌ ثانٍ حين تتساوى القيمة الأولى */
+  tie?: (p: any) => number;
+}
+
+const digits = (v: any) => Number(String(v ?? '').replace(/\D/g, '')) || 0;
+
+const SORTS: Record<string, SortDef> = {
+  name:    { key: 'name',    type: 'text', first: 'asc',
+             get: p => String(p.name || '').trim() || null },
+  phone:   { key: 'phone',   type: 'num',  first: 'asc',
+             get: p => (p.phone ? digits(p.phone) : null) },
+  matches: { key: 'matches', type: 'num',  first: 'desc',
+             get: p => p.totalMatches || 0 },
+  // 🔴 يُرتَّب بعددِ الفوز لا بنسبته: العددُ هو الرقمُ الرئيسيّ في الخليّة،
+  //    والنسبةُ بين قوسين. ولو رُتِّب بالنسبة لتصدّر مَن فاز مرّةً من مرّة.
+  //    والنسبةُ فاصلٌ ثانٍ فقط.
+  wins:    { key: 'wins',    type: 'num',  first: 'desc',
+             get: p => p.totalWins || 0,
+             tie: p => (p.totalMatches > 0 ? (p.totalWins || 0) / p.totalMatches : 0) },
+  survived:{ key: 'survived', type: 'num', first: 'desc',
+             get: p => p.totalSurvived || 0 },
+  // 🔴 بترتيبِ التقدّم لا بأبجديّةِ الاسم: «الأب الروحي» قبل «الجندي» أبجديّاً
+  //    وبعده رتبةً. ثمّ نقاطُ الرتبة ثمّ المستوى.
+  rank:    { key: 'rank',    type: 'num',  first: 'desc',
+             get: p => (RANK_ORDER[p.rankTier] || 1) * 1e9 + (p.rankRR || 0) * 1e3 + (p.level || 1) },
+  // 🔴 الزمنُ نفسُه لا رقمُ الدلو: داخل «نشط» ترتيبٌ حقيقيّ بالساعات.
+  //    والمجهولُ (٢٨٧ صفّاً) لا زمنَ له فيُذيَّل — ومع ذلك يُرتَّب بينه:
+  //    مَن لعب قبل مَن لم يلعب، فالذيلُ نفسُه ليس عشوائيّاً.
+  activity:{ key: 'activity', type: 'num', first: 'desc',
+             get: p => (p.lastActiveAt ? new Date(p.lastActiveAt).getTime() : null),
+             tie: p => (p.totalMatches || 0) },
+  // 🔴 «الحالة» ترتيبُها بالحاجةِ إلى الانتباه: المقفولُ أوّلاً عند التنازليّ.
+  status:  { key: 'status',  type: 'num',  first: 'desc',
+             get: p => (p.isLocked ? 1 : 0) },
+  // 🔴 «الإجراءات» خمسةُ أيقوناتٍ لا ترتيبَ طبيعيَّ لها. فالمفتاحُ الوحيد ذو
+  //    المعنى: كم علماً خاصّاً على هذا الحساب — أيْ مَن خرج عن الإعداد الافتراضيّ.
+  flags:   { key: 'flags',   type: 'num',  first: 'desc',
+             get: p => ACTION_FLAGS.reduce((n, f) => n + (p[f.key] ? 1 : 0), 0) },
+};
+
+function compareBy(def: SortDef, dir: SortDir) {
+  const sign = dir === 'asc' ? 1 : -1;
+  return (a: any, b: any) => {
+    const va = def.get(a), vb = def.get(b);
+    // المجهولُ في الذيل دائماً — لا يقلبه اتّجاهُ الترتيب
+    if (va === null && vb === null) {
+      const ta = def.tie?.(a) ?? 0, tb = def.tie?.(b) ?? 0;
+      return (tb - ta) || (a.id - b.id);
+    }
+    if (va === null) return 1;
+    if (vb === null) return -1;
+
+    let d = def.type === 'text'
+      ? String(va).localeCompare(String(vb), 'ar', { numeric: true, sensitivity: 'base' })
+      : (va as number) - (vb as number);
+    if (d === 0 && def.tie) d = def.tie(a) - def.tie(b);
+    return d * sign || (a.id - b.id);
+  };
+}
+
+/** رأسٌ قابلٌ للترتيب — نقرةٌ تُفعّل، ثانيةٌ تعكس، ثالثةٌ تُلغي. */
+function SortHead({ id, label, sort, onSort, children }: {
+  id: string; label: string;
+  sort: { key: string; dir: SortDir } | null;
+  onSort: (key: string) => void;
+  children?: React.ReactNode;
+}) {
+  const on = sort?.key === id;
+  return (
+    <span className="inline-flex items-center gap-1.5">
+      <button
+        onClick={() => onSort(id)}
+        title={on ? (sort!.dir === 'asc' ? 'تصاعدي — اضغط للعكس' : 'تنازلي — اضغط للعكس') : 'رتّبْ'}
+        className={`inline-flex items-center gap-1 transition ${
+          on ? 'text-amber-400 font-bold' : 'text-gray-500 hover:text-gray-300'
+        }`}
+      >
+        <span>{label}</span>
+        {/* 🔴 سهامٌ لا مثلّثات: زرُّ الترشيح في نفس الرأس رمزُه ▼، ورمزان
+            متطابقان يجعلان الزرَّين واحداً في العين. */}
+        <span className="text-[10px] leading-none">
+          {on ? (sort!.dir === 'asc' ? '↑' : '↓') : '⇅'}
+        </span>
+      </button>
+      {children}
+    </span>
+  );
+}
+
 /** عرضُ القائمة — ثابتٌ هنا وفي CSS معاً كي لا يتفرّقا */
 const MENU_W = 224;
 
@@ -245,6 +359,7 @@ export default function PlayersManagementPage() {
   const [fActivity, setFActivity] = useState<ActivityBucket | null>(null);
   const [fFlags, setFFlags] = useState<Record<string, FlagState>>({});
   const [openFilter, setOpenFilter] = useState<string | null>(null);
+  const [sort, setSort] = useState<{ key: string; dir: SortDir } | null>(null);
   const [currentPage, setCurrentPage] = useState(1);
   const itemsPerPage = 15;
 
@@ -489,7 +604,21 @@ export default function PlayersManagementPage() {
     return true;
   };
 
-  const filtered = players.filter(p => matchesFilters(p));
+  // 🔴 الترتيبُ **بعد** الترشيح لا قبله: ترتيبُ ٧٥١ صفّاً ثمّ رميُ معظمها هدرٌ،
+  //    والأهمّ أنّ المستعمل يقرأ «الأوّل» على أنّه أوّلُ ما يراه لا أوّلَ القاعدة.
+  const filteredRaw = players.filter(p => matchesFilters(p));
+  const filtered = sort
+    ? [...filteredRaw].sort(compareBy(SORTS[sort.key], sort.dir))
+    : filteredRaw;
+
+  /** نقرةٌ تُفعّل بالاتّجاه المفيد · ثانيةٌ تعكس · ثالثةٌ تُلغي الترتيب */
+  const cycleSort = (key: string) => {
+    setSort(prev => {
+      if (!prev || prev.key !== key) return { key, dir: SORTS[key].first };
+      const flipped: SortDir = prev.dir === 'asc' ? 'desc' : 'asc';
+      return flipped === SORTS[key].first ? null : { key, dir: flipped };
+    });
+  };
 
   /** عددُ ما ستراه لو اخترتَ هذا الخيار — بكلّ المرشِّحات إلّا مرشِّحَ عموده. */
   const facet = (col: string, pred: (p: any) => boolean) =>
@@ -506,7 +635,7 @@ export default function PlayersManagementPage() {
 
   // 🔴 العودةُ للصفحة الأولى عند أيّ تضييق: البقاءُ في الصفحة ٧ بعد ترشيحٍ
   //    يترك ٤٠ نتيجةً يعني شاشةً فارغةً يظنّها المستعمل «لا نتائج».
-  useEffect(() => { setCurrentPage(1); }, [search, fActivity, fFlags]);
+  useEffect(() => { setCurrentPage(1); }, [search, fActivity, fFlags, sort]);
 
   // إغلاقُ قائمة الترشيح بالنقر خارجها أو بمفتاح الهروب
   useEffect(() => {
@@ -626,15 +755,18 @@ export default function PlayersManagementPage() {
             <table className="w-full text-sm">
               <thead>
                 <tr className="bg-gray-900/50 text-gray-500 text-xs border-b border-gray-700/30">
-                  <th className="text-right px-4 py-3 font-medium">اللاعب</th>
-                  <th className="text-center px-4 py-3 font-medium" dir="ltr">الهاتف</th>
-                  <th className="text-center px-4 py-3 font-medium">مباريات</th>
-                  <th className="text-center px-4 py-3 font-medium">فوز</th>
-                  <th className="text-center px-4 py-3 font-medium">نجا</th>
-                  <th className="text-center px-4 py-3 font-medium">المستوى / الرانك</th>
+                  <th className="text-right px-4 py-3 font-medium"><SortHead id="name" label="اللاعب" sort={sort} onSort={cycleSort} /></th>
+                  <th className="text-center px-4 py-3 font-medium" dir="ltr">
+                    <SortHead id="phone" label="الهاتف" sort={sort} onSort={cycleSort} /></th>
+                  <th className="text-center px-4 py-3 font-medium"><SortHead id="matches" label="مباريات" sort={sort} onSort={cycleSort} /></th>
+                  <th className="text-center px-4 py-3 font-medium"><SortHead id="wins" label="فوز" sort={sort} onSort={cycleSort} /></th>
+                  <th className="text-center px-4 py-3 font-medium"><SortHead id="survived" label="نجا" sort={sort} onSort={cycleSort} /></th>
                   <th className="text-center px-4 py-3 font-medium">
+                    <SortHead id="rank" label="المستوى / الرانك" sort={sort} onSort={cycleSort} /></th>
+                  <th className="text-center px-4 py-3 font-medium">
+                    <SortHead id="activity" label="آخر نشاط" sort={sort} onSort={cycleSort}>
                     <ColumnFilter
-                      id="activity" label="آخر نشاط"
+                      id="activity" label=""
                       open={openFilter === 'activity'} onOpen={setOpenFilter}
                       active={!!fActivity}
                       onClear={() => setFActivity(null)}
@@ -645,14 +777,16 @@ export default function PlayersManagementPage() {
                         count: facet('activity', p => activityBucket(p) === b.key),
                       }))}
                     />
+                    </SortHead>
                   </th>
-                  <th className="text-center px-4 py-3 font-medium">الحالة</th>
+                  <th className="text-center px-4 py-3 font-medium"><SortHead id="status" label="الحالة" sort={sort} onSort={cycleSort} /></th>
                   <th className="text-center px-4 py-3 font-medium">
                     {/* 🔴 عمودٌ واحدٌ يحمل خمسةَ أعلام، فقائمتُه تجمعها كلَّها:
                         قائمةٌ لكلّ علمٍ في رأسٍ واحدٍ تعني خمسةَ أزرارٍ متلاصقة
                         لا يفرّقها أحد. */}
+                    <SortHead id="flags" label="الإجراءات" sort={sort} onSort={cycleSort}>
                     <ColumnFilter
-                      id="flags" label="الإجراءات"
+                      id="flags" label=""
                       open={openFilter === 'flags'} onOpen={setOpenFilter}
                       active={ACTION_FLAGS.some(f => fFlags[f.key])}
                       onClear={() => setFFlags({})}
@@ -669,6 +803,7 @@ export default function PlayersManagementPage() {
                           count: facet(f.key, p => !p[f.key]) },
                       ]))}
                     />
+                    </SortHead>
                   </th>
                 </tr>
               </thead>

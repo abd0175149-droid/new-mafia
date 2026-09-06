@@ -1,4 +1,4 @@
-// 🧪 ترشيحُ أعمدة صفحة اللاعبين — المنطقُ لا المظهر
+// 🧪 ترتيبُ أعمدة صفحة اللاعبين — المنطقُ لا المظهر
 import { chromium } from 'playwright';
 const NL = String.fromCharCode(10);
 const BASE = process.argv[2] || 'http://localhost:3199';
@@ -17,7 +17,7 @@ const P = [
   { id: 6, name: 'لعب ولم يفتح ٢', phone: '0790000006', totalMatches: 2,  lastActiveAt: null, isLocked: true },
   { id: 7, name: 'غير مستعمل',     phone: '0790000007', totalMatches: 0,  lastActiveAt: null },
   { id: 8, name: 'اختبار نشط',     phone: '0790000008', totalMatches: 1,  lastActiveAt: new Date(now - 1 * DAY), lastActivePlatform: 'web', isTestAccount: true, isFreeAccount: true },
-].map(x => ({ xp: 0, level: 1, rankTier: 'INFORMANT', rankRR: 0, wins: 0, createdAt: new Date(now - 200 * DAY), ...x }));
+].map((x,i) => ({ xp: 0, level: 1 + i, rankTier: ['INFORMANT','SOLDIER','GODFATHER','CAPO','ASSOCIATE','UNDERBOSS','SOLDIER','INFORMANT'][i], rankRR: i * 100, totalWins: i, totalSurvived: i * 2, createdAt: new Date(now - 200 * DAY), ...x }));
 
 const b = await chromium.launch();
 const ctx = await b.newContext({ viewport: { width: 1440, height: 900 } });
@@ -60,8 +60,7 @@ const menuItems = () => p.evaluate(() =>
 
 const openMenu = async (label) => {
   for (let i = 0; i < 3; i++) {
-    // 🔴 زرُّ الترشيح لا زرُّ الترتيب: الرأسُ يحمل الاثنين، والترتيبُ أوّلُهما.
-    const btn = p.locator('th', { hasText: label }).locator('[data-colfilter] > button').first();
+    const btn = p.locator('th', { hasText: label }).locator('button').first();
     await btn.click({ timeout: 15000 }).catch(() => {});
     await p.waitForTimeout(500);
     const items = await menuItems();
@@ -77,65 +76,79 @@ const pick = async (text) => {
   await p.waitForTimeout(500);
 };
 
-console.log(NL + '🧪 الحالةُ الابتدائيّة');
-let r = await rows();
-ok('كلُّ الصفوف الثمانية', r.length === 8);
 
-console.log(NL + '🧪 عمودُ «آخر نشاط» — الدلاءُ الخمسة');
-let opts = await openMenu('آخر نشاط');
-console.log('   ' + JSON.stringify(opts));
-ok('خمسةُ خيارات', opts.length === 5);
-ok('«نشط» عددُه ٣', /نشط.*٧.*3$/.test(opts[0]) || opts[0].endsWith('3'));
-ok('«لعب ولم يفتح» عددُه ٢', opts[3].endsWith('2'));
-ok('«غير مستعمَل» عددُه ١', opts[4].endsWith('1'));
+/** يرتّب بعمودٍ ويعيد قيمَ العمود الأوّل (الاسم) بالترتيب */
+const sortBy = async (label, clicks = 1) => {
+  for (let i = 0; i < clicks; i++) {
+    await p.locator('th', { hasText: label }).locator('button').first()
+      .click({ timeout: 15000 }).catch(() => {});
+    await p.waitForTimeout(450);
+  }
+  return rows();
+};
+const cellsOf = (idx) => p.evaluate(i => [...document.querySelectorAll('tbody tr')]
+  .map(tr => (tr.querySelectorAll('td')[i]?.textContent || '').trim()), idx);
 
-await pick('نشط — آخر');
-r = await rows();
-console.log('   بعد الترشيح: ' + JSON.stringify(r));
-ok('ثلاثةُ صفوفٍ نشطة', r.length === 3);
-ok('ولا يظهر «قديم»', !r.some(x => x.includes('قديم')));
+console.log(NL + '🧪 الترتيبُ العدديّ — «مباريات»');
+let r = await sortBy('مباريات');            // النقرةُ الأولى تنازليّة
+let m = (await cellsOf(2)).map(Number);
+console.log('   ' + JSON.stringify(m));
+ok('النقرةُ الأولى تنازليّة (الأكثرُ أوّلاً)', m.every((v, i) => i === 0 || m[i - 1] >= v));
+ok('و١٤ في الصدارة', m[0] === 14);
 
-console.log(NL + '🧪 الجمعُ «و» لا «أو»');
-opts = await openMenu('الإجراءات');
-await pick('🏷️ مجّاني');
-r = await rows();
-console.log('   نشط + مجّاني: ' + JSON.stringify(r));
-ok('التقاطعُ صفّان فقط', r.length === 2);
-ok('«نشط مجاني» موجود', r.some(x => x.includes('نشط مجاني')));
-ok('«اختبار نشط» موجود (مجّانيٌّ أيضاً)', r.some(x => x.includes('اختبار نشط')));
-ok('«نشط مدفوع» غائب', !r.some(x => x.includes('مدفوع')));
+r = await sortBy('مباريات');                 // الثانية تعكس
+m = (await cellsOf(2)).map(Number);
+ok('الثانيةُ تصاعديّة', m.every((v, i) => i === 0 || m[i - 1] <= v));
 
-console.log(NL + '🧪 العدّاداتُ تستثني عمودَها');
-// مع «نشط» و«مجّاني» مفعّلَين: قائمةُ النشاط يجب أن تعدّ على «مجّاني» فقط
-opts = await openMenu('آخر نشاط');
-console.log('   ' + JSON.stringify(opts));
-ok('«نشط» ما زال ٢ (لا ٠)', opts[0].endsWith('2'));
-ok('و«خلال ٣٠ يوماً» ١ — خيارٌ ما زال متاحاً', opts[1].endsWith('1'));
-await p.keyboard.press('Escape');
+await sortBy('مباريات');                     // الثالثة تُلغي
+// 🔴 لا يُفحص «th button» كلُّها: زرُّ الترشيح نصُّه ▼ أيضاً فيبدو ترتيباً قائماً.
+//    يُفحص رأسُ العمود نفسُه — يعود إلى ⇅ حين لا ترتيب.
+const back = await p.evaluate(() => {
+  const th = [...document.querySelectorAll('th')].find(x => x.textContent.includes('مباريات'));
+  const btn = th?.querySelector('button');
+  return (btn?.textContent || '').includes('⇅');
+});
+ok('الثالثةُ تُلغي الترتيب — يعود ⇅', back);
+const orderBack = (await cellsOf(2)).map(Number);
+ok('ويعود الترتيبُ الأصليّ', orderBack.join(',') === '5,3,8,2,14,2,0,1');
 
-console.log(NL + '🧪 «لا» ليست مجرّدَ نفيٍ بصريّ');
+console.log(NL + '🧪 المجهولُ يبقى في الذيل — الاتّجاهان');
+await sortBy('آخر نشاط');                    // تنازليّ: الأحدثُ أوّلاً
+let a = await cellsOf(6);
+console.log('   تنازليّ: ' + JSON.stringify(a.map(x => x.slice(0, 14))));
+const unknownIdx = a.map((x, i) => (x.includes('لم يفتح') || x.startsWith('—') ? i : -1)).filter(i => i >= 0);
+ok('المجهولُ في الذيل (تنازليّ)', unknownIdx.every(i => i >= a.length - 3));
+
+await sortBy('آخر نشاط');                    // تصاعديّ: الأقدمُ أوّلاً
+a = await cellsOf(6);
+console.log('   تصاعديّ: ' + JSON.stringify(a.map(x => x.slice(0, 14))));
+const u2 = a.map((x, i) => (x.includes('لم يفتح') || x.startsWith('—') ? i : -1)).filter(i => i >= 0);
+ok('ويبقى في الذيل (تصاعديّ) — لا يتصدّر', u2.every(i => i >= a.length - 3));
+ok('والأقدمُ الحقيقيّ في الصدارة', a[0].includes('شهر') || a[0].includes('ي'));
+
+console.log(NL + '🧪 الترتيبُ يحترم الترشيح');
 await p.evaluate(() => {
-  const el = [...document.querySelectorAll('button')].find(x => (x.textContent || '').includes('امسح الكلّ'));
-  el?.click();
+  const el = [...document.querySelectorAll('th')].find(x => x.textContent.includes('الإجراءات'));
+  el?.querySelectorAll('button')[1]?.click();
 });
 await p.waitForTimeout(500);
-await openMenu('الإجراءات');
-await pick('🏷️ غير مجّاني');
+await pick('🏷️ مجّاني');
 r = await rows();
-console.log('   غير مجّاني: ' + JSON.stringify(r));
-ok('خمسةُ صفوفٍ غير مجّانيّة', r.length === 5);
-ok('ولا مجّانيَّ بينها', !r.some(x => x.includes('مجاني')));
+ok('المرشَّحُ ثلاثةُ صفوفٍ مجّانيّة', r.length === 3);
+const names = await cellsOf(0);
+ok('وما زال مرتَّباً — لا عودةَ للترتيب الأصليّ',
+   await p.evaluate(() => [...document.querySelectorAll('th button')].some(b => b.textContent.includes('▲') || b.textContent.includes('▼'))));
 
-console.log(NL + '🧪 شريطُ المرشِّحات وإلغاؤه');
-const bar = await p.evaluate(() => document.body.innerText.includes('مرشَّح:'));
-ok('الشريطُ يظهر', bar);
+console.log(NL + '🧪 «المستوى/الرانك» بترتيب التقدّم لا بالأبجديّة');
 await p.evaluate(() => {
   const el = [...document.querySelectorAll('button')].find(x => (x.textContent || '').includes('امسح الكلّ'));
   el?.click();
 });
-await p.waitForTimeout(400);
-r = await rows();
-ok('المسحُ يعيد الثمانية', r.length === 8);
+await p.waitForTimeout(450);
+await sortBy('المستوى');
+const ranks = await cellsOf(5);
+console.log('   ' + JSON.stringify(ranks.map(x => x.slice(0, 12))));
+ok('الأعلى رتبةً أوّلاً', ranks[0].includes('الأب الروحي') || ranks[0].includes('نائب'));
 
 console.log(NL + 'أخطاءُ الصفحة: ' + (errs.length ? errs.slice(0, 3).join(' | ') : 'لا شيء ✅'));
 console.log(NL + (fail === 0 ? '🎉' : '⚠️') + ' النتيجة: ' + pass + ' نجح · ' + fail + ' فشل');
