@@ -192,6 +192,19 @@ fi
 # 🎯 backend و frontend وحدهما. الأمرُ السابق كان يعيد إنشاء **كلّ** الحاويات
 #    بما فيها قاعدة البيانات و Redis — إعادةُ إنشاءٍ لا داعي لها تُعرّض حالة
 #    اللعبة لخطرٍ مجّانيّ في كلّ نشر. (مسارُ التراجع كان يفعل الصواب أصلاً.)
+# 🧹 حاوياتٌ يتيمة: إعادةُ الإنشاء تُعيد تسمية القديمة إلى <hash>_<name> ثمّ
+#    تحذفها. فإن تعثّر النشر بينهما بقي الاسمُ محجوزاً، وأفشل كلَّ نشرةٍ بعده
+#    بـ«Conflict. The container name is already in use» — بل أفشل التراجعَ
+#    نفسَه في آخر مرّة، فكادت الخدمةُ تبقى ساقطة.
+#    وقع ثلاثَ مرّات وكنّا ننظّفه يدويّاً قبل كلّ نشرة. هنا موضعُه.
+for svc in backend frontend; do
+  docker ps -a --filter "name=mafia-prod-${svc}" --format "{{.Names}}" \
+    | grep -v "^mafia-prod-${svc}-1$" | while read -r orphan; do
+      say "   🧹 أُزيلت حاويةٌ يتيمة: ${orphan}"
+      docker rm -f "$orphan" >/dev/null 2>&1 || true
+    done
+done
+
 docker compose up -d --force-recreate backend frontend
 docker compose up -d database redis
 

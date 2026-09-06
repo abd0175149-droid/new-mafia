@@ -48,25 +48,29 @@ const rows = () => p.evaluate(() =>
     .filter(Boolean));
 
 /** يفتح قائمةَ عمودٍ ويُرجع خياراتِها مع أعدادها */
+/** القائمةُ تُفتح بنقرةٍ حقيقيّة (mousedown/up/click) لا بـel.click():
+    الأخيرةُ لا تُنتج mousedown، وسلوكُ الفتح/الإغلاق مبنيٌّ عليه. */
+const menuItems = () => p.evaluate(() =>
+  [...document.querySelectorAll('[data-colfilter] button')]
+    .map(x => (x.textContent || '').trim())
+    .filter(t => t && t !== '▼' && !t.startsWith('إلغاء')));
+
 const openMenu = async (label) => {
-  await p.evaluate(l => {
-    const th = [...document.querySelectorAll('th')].find(x => x.textContent.includes(l));
-    th?.querySelector('button')?.click();
-  }, label);
-  await p.waitForTimeout(350);
-  return p.evaluate(() =>
-    [...document.querySelectorAll('[data-colfilter] button')]
-      .map(x => (x.textContent || '').trim())
-      .filter(t => t && t !== '▼' && !t.startsWith('إلغاء')));
+  for (let i = 0; i < 3; i++) {
+    const btn = p.locator('th', { hasText: label }).locator('button').first();
+    await btn.click({ timeout: 15000 }).catch(() => {});
+    await p.waitForTimeout(500);
+    const items = await menuItems();
+    if (items.length) return items;
+    await p.waitForTimeout(900);
+  }
+  return menuItems();
 };
 
 const pick = async (text) => {
-  await p.evaluate(t => {
-    const el = [...document.querySelectorAll('[data-colfilter] button')]
-      .find(x => (x.textContent || '').includes(t));
-    el?.click();
-  }, text);
-  await p.waitForTimeout(450);
+  await p.locator('[data-colfilter] button', { hasText: text }).first()
+    .click({ timeout: 15000 }).catch(() => {});
+  await p.waitForTimeout(500);
 };
 
 console.log(NL + '🧪 الحالةُ الابتدائيّة');
@@ -110,7 +114,7 @@ await p.evaluate(() => {
   const el = [...document.querySelectorAll('button')].find(x => (x.textContent || '').includes('امسح الكلّ'));
   el?.click();
 });
-await p.waitForTimeout(400);
+await p.waitForTimeout(500);
 await openMenu('الإجراءات');
 await pick('🏷️ غير مجّاني');
 r = await rows();
