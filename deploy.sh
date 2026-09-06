@@ -195,14 +195,22 @@ fi
 # 🧹 حاوياتٌ يتيمة: إعادةُ الإنشاء تُعيد تسمية القديمة إلى <hash>_<name> ثمّ
 #    تحذفها. فإن تعثّر النشر بينهما بقي الاسمُ محجوزاً، وأفشل كلَّ نشرةٍ بعده
 #    بـ«Conflict. The container name is already in use» — بل أفشل التراجعَ
-#    نفسَه في آخر مرّة، فكادت الخدمةُ تبقى ساقطة.
-#    وقع ثلاثَ مرّات وكنّا ننظّفه يدويّاً قبل كلّ نشرة. هنا موضعُه.
+#    نفسَه مرّةً، فكادت الخدمةُ تبقى ساقطة.
+#
+# 🔴 و`|| true` ليست زينة: تحت `pipefail` يخرج `grep -v` بالرمز ١ حين لا يبقى
+#    شيءٌ بعد الترشيح — أي في الحالة الطبيعيّة تماماً: لا يتامى. فبدونها
+#    يسقط النشرُ كلّما كان كلُّ شيءٍ سليماً. (وقعنا في هذا مرّتين في هذا
+#    الملفّ: هنا وفي بوّابة الغرف الحيّة.)
 for svc in backend frontend; do
-  docker ps -a --filter "name=mafia-prod-${svc}" --format "{{.Names}}" \
-    | grep -v "^mafia-prod-${svc}-1$" | while read -r orphan; do
+  orphans="$(docker ps -a --filter "name=mafia-prod-${svc}" --format "{{.Names}}" \
+    | grep -v "^mafia-prod-${svc}-1$" || true)"
+  if [ -n "$orphans" ]; then
+    while read -r orphan; do
+      [ -n "$orphan" ] || continue
       say "   🧹 أُزيلت حاويةٌ يتيمة: ${orphan}"
       docker rm -f "$orphan" >/dev/null 2>&1 || true
-    done
+    done <<< "$orphans"
+  fi
 done
 
 docker compose up -d --force-recreate backend frontend
