@@ -20,7 +20,12 @@ import { getDB } from '../config/db.js';
 /** نافذةُ الخنق (قرار المالك): ±٥ دقائق مقابل ~٢٦٠٠ كتابةٍ يوميّاً. */
 export const TOUCH_THROTTLE_MS = 5 * 60_000;
 
-export type ActiveSource = 'request' | 'socket' | 'socket_end' | 'backfill';
+export type ActiveSource =
+  | 'request'      // طلبٌ مصادَقٌ عبر الوسيط — الويب المثبَّت وفلاتر
+  | 'socket'       // اتّصالُ سوكِت
+  | 'socket_end'   // فصلُ السوكِت — نهايةُ الجلسة بدقّةٍ تامّة
+  | 'backfill'     // تعبئةٌ رجعيّةٌ من توكن أو موقع (بعد اليوم الأوّل)
+  | 'legacy_login';// كتابةُ الدخول القديمة قبل وجود عمود المصدر
 export type ActivePlatform = 'web' | 'android' | 'ios' | 'app';
 
 /**

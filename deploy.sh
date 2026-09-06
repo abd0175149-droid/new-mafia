@@ -288,6 +288,13 @@ FROM (
 WHERE p.id = s.id
   AND s.best > 'epoch'::timestamp
   AND (p.last_active_at IS NULL OR s.best > p.last_active_at);
+
+-- ③ تسميةُ الإرث: قيمٌ بقيت من كتابةِ الدخول القديمة قبل وجود عمود المصدر.
+--    هي تواريخُ دخولٍ حقيقيّة (لم تُصفَّر في ① لأنّها لا تساوي لحظةَ الإنشاء)،
+--    لكنّها بلا نسب. وتركُها كذلك يُفسد الحارس «لا قيمةَ بلا مصدر» — فيصير
+--    ٢٤٥ صفّاً ضجيجاً دائماً في فحصٍ وُضع ليكشف مساراً يكتب من وراء الدالّة.
+UPDATE players SET last_active_source = 'legacy_login'
+WHERE last_active_at IS NOT NULL AND last_active_source IS NULL;
 ALTER TABLE wa_bot_settings ADD COLUMN IF NOT EXISTS admin_only_tools JSONB DEFAULT '[]';
 -- 📍 سياج الفعاليّة — النقطة على المكان، والقرار على الفعاليّة
 ALTER TABLE locations  ADD COLUMN IF NOT EXISTS latitude NUMERIC(9,6);
