@@ -3280,6 +3280,46 @@ async function readSeatLayoutOnly(activityId: any): Promise<any> {
         expiresAt: null,
       });
 
+      // ══ 🚫 «دائماً» ⇒ منعٌ صلب في blocked_pairs (قرار المالك) ══
+      //
+      // كان النطاقُ «دائماً» يُسجَّل وزناً ليّناً كبقيّة النطاقات، فيبقى أضعفَ
+      // ممّا يُسجّله المالك بيده في صفحة اللاعبين رغم أنّ الكلمة نفسها.
+      // الآن يكتب في الجدول نفسِه فيصير قيداً لا يُخرَق.
+      //
+      // 🔴 والوزنُ الليّن يبقى معه لا بدلاً منه: القيدُ الصلب يمنع التجاور،
+      //    والوزنُ يُبقي الزوجَ ظاهراً في لوحة التعارضات وفي ترجيح المسافة.
+      //
+      // ⚠️ والحارسُ الذي دفع للتصميم الليّن أوّلاً ما زال قائماً: أزواجٌ صلبةٌ
+      //    متراكمة قد تجعل غرفةً ممتلئة غيرَ قابلةٍ للحلّ. لا تُبتلع تلك
+      //    الحالة — المحرّك يُرجع constraintViolation والليدر يُنبَّه بـ
+      //    `leader:seat-constraint-warning`، فيرى أنّ القيد خُرق ولا يُفاجأ.
+      let hardBlocked = false;
+      let hardSkip: string | null = null;
+      if (scope === 'global') {
+        const db = getDB();
+        if (!db) hardSkip = 'قاعدة البيانات غير متاحة';
+        else if (!a.playerId || !b.playerId) {
+          // الجدولُ يفهرس بالمعرّف، فمن لا حساب له لا يُسجَّل فيه
+          hardSkip = 'أحدهما بلا حساب — سُجّل تباعداً مرناً فقط';
+        } else {
+          try {
+            await db.execute(sql`
+              INSERT INTO blocked_pairs
+                (player1_id, player1_phone, player1_name, player2_id, player2_phone, player2_name, reason, created_by)
+              VALUES (${a.playerId}, ${a.phone || ''}, ${a.name || ''},
+                      ${b.playerId}, ${b.phone || ''}, ${b.name || ''},
+                      ${data.reason || 'فُصلا من لوحة الليلة'},
+                      ${socket.data.authStaff?.id ?? null})
+              ON CONFLICT DO NOTHING
+            `);
+            hardBlocked = true;
+          } catch (e: any) {
+            hardSkip = e.message;
+            console.warn('⚠️ [separate-pair] تعذّر المنع الصلب:', e.message);
+          }
+        }
+      }
+
       let moved: { from: number; to: number } | null = null;
       if (data.autoMove !== false) {
         // أفضل وجهة للطرف الثاني: أبعد مقعدٍ فارغ عن الأوّل (أو تبديل إن امتلأت)
@@ -3305,7 +3345,7 @@ async function readSeatLayoutOnly(activityId: any): Promise<any> {
         }
       }
 
-      return callback({ success: true, ruleSaved: saved, scope, moved });
+      return callback({ success: true, ruleSaved: saved, scope, moved, hardBlocked, hardSkip });
     } catch (err: any) {
       callback({ success: false, error: err.message });
     }

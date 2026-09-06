@@ -372,7 +372,15 @@ export default function ArrivalsPanel({ roomId, gameState, emit, on }: Props) {
     const [a, b] = pairPick;
     const res = await emit('room:separate-pair', { roomId, aPhysicalId: a, bPhysicalId: b, scope, autoMove: true });
     setPairPick([]);
-    flash(res?.moved ? `✂️ نُقل إلى المقعد ${res.moved.to}` : '✂️ سُجّلت القاعدة', 6000);
+    // 🔴 «دائماً» يكتب منعاً صلباً في الأزواج الممنوعة، وبقيّةُ النطاقات تباعدٌ
+    //    مرن. رسالةٌ واحدة للحالتين تُخفي فرقاً يهمّ الليدر: الصلبُ لا يُخرَق،
+    //    والمرنُ يُرجَّح وقد يُخرَق في غرفةٍ ممتلئة.
+    const kind = res?.hardBlocked
+      ? '🚫 منعٌ دائم — لن يتجاورا في أيّ ليلة'
+      : res?.hardSkip
+        ? `⚠️ تباعدٌ مرن فقط (${res.hardSkip})`
+        : '✂️ سُجّل تباعدٌ مرن';
+    flash(res?.moved ? `${kind} · نُقل إلى المقعد ${res.moved.to}` : kind, 7000);
   });
 
   const sendNotice = (text: string, kind: 'break' | 'info' = 'info') =>
@@ -513,7 +521,8 @@ export default function ArrivalsPanel({ roomId, gameState, emit, on }: Props) {
                         {pairPick.length === 2 && (
                           <>
                             <div className="text-[11.5px] text-[#8f98ab] mb-1.5">
-                              لا يجلسان متجاورَين بعد اليوم — إلى متى؟
+                              لا يجلسان متجاورَين — إلى متى؟{' '}
+                              <b className="text-[#f3cd6f]">«دائماً» منعٌ صارم</b>، والباقي ترجيحٌ قد يُخرَق في غرفةٍ ممتلئة.
                             </div>
                             <div className="flex gap-1.5">
                               <button disabled={busy} onClick={() => doSeparate('global')}
