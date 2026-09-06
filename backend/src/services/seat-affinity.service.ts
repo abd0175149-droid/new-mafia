@@ -172,7 +172,18 @@ export async function buildAffinityPairs(params: {
 }
 
 // ══════════════════════════════════════════════════════
-// 📏 قواعد الأزواج المسجَّلة (blocked_pairs + seat_pair_rules)
+// 📏 قواعد الأزواج المسجَّلة — جدولان لا جدول، ولكلٍّ معنى مختلف
+// ══════════════════════════════════════════════════════
+//
+// 🔴 `blocked_pairs`     — منعٌ **عالميّ دائم** من صفحة اللاعبين. يدخل قيداً
+//                          **صلباً** (NO_ADJACENT_PAIRS) لا يُخرَق. اقرأه
+//                          بـ`mergeGlobalBlockedPairs` أدناه.
+// 🔴 `seat_pair_rules`   — ما يُنشئه زرّ «افصل» بنطاقٍ ومدّة (الليلة · هذه
+//                          الفعاليّة · دائماً). يدخل **وزناً** في التقارب،
+//                          أي قيدٌ ليّن يُرجَّح ولا يُلزم. اقرأه بـ`loadPairRules`.
+//
+// ⚠️ من يقرأ أحدهما ويظنّ أنّه قرأ الاثنين يُنتج ترتيباً يخالف ما ضبطه المالك
+//    في اللوحة وهو يظنّ نفسه محسناً — وقع هذا فعلاً في لوحة «الليلة».
 // ══════════════════════════════════════════════════════
 
 export interface PairRule {
@@ -273,4 +284,46 @@ export function mergeRulesIntoAffinity(map: Map<string, number>, rules: PairRule
     map.set(k, Math.max(map.get(k) ?? 0, r.weight)); // المسجَّل يفوز صعوداً
   }
   return map;
+}
+
+/**
+ * يدمج الأزواج الممنوعة العالميّة (blocked_pairs) في إعدادات القيود.
+ *
+ * 🔴 مصدرٌ واحد لهذا الدمج عمداً: كان محشوراً في seating.routes.ts، فبُني
+ *    مسارُ ترتيبٍ ثانٍ في لوحة «الليلة» لا يمرّ به — فصارت أزواجُ اللوحة
+ *    تُحترَم عند انضمام اللاعب وتُتجاهَل عند «اقترح ترتيباً».
+ *    كلُّ مسارٍ يرتّب مقاعد يمرّ من هنا.
+ */
+export async function mergeGlobalBlockedPairs(seatingConfig: any): Promise<any> {
+  const config: any = seatingConfig ? { ...seatingConfig } : { engineEnabled: true, constraints: [] };
+  try {
+    const db = getDB();
+    if (!db) return config;
+    const rows = await db.execute(sql`SELECT * FROM blocked_pairs`);
+    const globalPairs: any[] = rowsOf(rows);
+    if (globalPairs.length === 0) return config;
+
+    const pairs = globalPairs.map((p: any) => ({
+      player1Phone: p.player1_phone,
+      player1Name: p.player1_name,
+      player2Phone: p.player2_phone,
+      player2Name: p.player2_name,
+    }));
+
+    if (!config.constraints) config.constraints = [];
+    const i = config.constraints.findIndex((c: any) => c.type === 'NO_ADJACENT_PAIRS');
+    if (i >= 0) {
+      const existing = config.constraints[i];
+      config.constraints[i] = {
+        ...existing,
+        enabled: true,
+        params: { ...existing.params, pairs: [...(existing.params?.pairs || []), ...pairs] },
+      };
+    } else {
+      config.constraints.push({ type: 'NO_ADJACENT_PAIRS', enabled: true, priority: 1, params: { pairs } });
+    }
+  } catch (e: any) {
+    console.warn('⚠️ تعذّر جلب الأزواج الممنوعة العالميّة:', e.message);
+  }
+  return config;
 }

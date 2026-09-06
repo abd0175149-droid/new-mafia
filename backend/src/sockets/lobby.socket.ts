@@ -37,7 +37,7 @@ import { getDB } from '../config/db.js';
 import { matchPlayers, cheatSignals } from '../schemas/game.schema.js';
 import { eq, sql, and } from 'drizzle-orm';
 import { emitStateSanitized, emitPhaseChangedSanitized, emitTrustedOnly, spectatorRoom, stripSecrets } from './broadcast.util.js';
-import { buildAffinityPairs, loadPairRules, mergeRulesIntoAffinity, upsertPairRule } from '../services/seat-affinity.service.js';
+import { buildAffinityPairs, loadPairRules, mergeRulesIntoAffinity, mergeGlobalBlockedPairs, upsertPairRule } from '../services/seat-affinity.service.js';
 import { personKey, pairKey } from '../game/seating/types.js';
 
 export const activeRooms: Map<string, { roomId: string; roomCode: string; gameName: string; playerCount: number; maxPlayers: number; displayPin: string; activityId?: number; activityName?: string }> = new Map();
@@ -3070,6 +3070,12 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
     }
     if (!seatingConfig) seatingConfig = { engineEnabled: true, strictness: 'relaxed' };
     else seatingConfig.engineEnabled = true;
+
+    // 🔴 الأزواجُ الممنوعة العالميّة من صفحة اللاعبين — قيدٌ صلب لا وزن.
+    //    كان هذا المسار يقرأ `seat_constraints` وحدها ويتجاهلها، فتُحترَم
+    //    حين ينضمّ اللاعب وتُتجاهَل حين يضغط الليدر «اقترح ترتيباً» — ويضع
+    //    المحرّكُ زوجاً ممنوعاً متجاورَين وهو يظنّ نفسه محسناً.
+    seatingConfig = await mergeGlobalBlockedPairs(seatingConfig);
 
     return {
       toSeatData,

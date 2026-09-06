@@ -196,6 +196,62 @@ section('4) 🪄 إعادة الترتيب الدفعيّة: تحترم المق
 }
 
 // ══════════════════════════════════════════════════════
+section('4ب) 🚫 الأزواج الممنوعة العالميّة تصل مسارَ إعادة الترتيب');
+{
+  // 🔴 الفجوة التي كُشفت: لوحةُ «الليلة» كانت تقرأ `seat_constraints` وحدها،
+  //    فأزواجُ صفحة اللاعبين (blocked_pairs) تُحترَم عند انضمام اللاعب
+  //    وتُتجاهَل عند «اقترح ترتيباً». صار كلا المسارين يمرّ بدمجٍ واحد.
+  //
+  //    هنا نُثبت الطرفَ الذي يُختبَر بلا قاعدة بيانات: أنّ الشكل الذي يُنتجه
+  //    الدمج (NO_ADJACENT_PAIRS بأزواج الهواتف) يفصل الزوجَ فعلاً — وأنّه
+  //    **قيدٌ صلب** لا مجرّد ترجيح، فيفصل حتّى بلا أيّ وزنِ تقارب.
+  const mk = (n: string, ph: string, seat: number) => P({ name: n, phone: ph, physicalId: seat });
+  const blockedConf: SeatingConfig = {
+    engineEnabled: true,
+    strictness: 'relaxed',
+    constraints: [{
+      type: 'NO_ADJACENT_PAIRS',
+      enabled: true,
+      priority: 1,
+      params: {
+        pairs: [{
+          player1Phone: '0791111111', player1Name: 'ممنوع-أ',
+          player2Phone: '0791111112', player2Name: 'ممنوع-ب',
+        }],
+      },
+    }],
+  } as any;
+
+  const res = reshuffleSeating({
+    maxPlayers: 12,
+    players: [
+      mk('ممنوع-أ', '0791111111', 1), mk('ممنوع-ب', '0791111112', 2),
+      mk('ثالث', '0791111113', 3), mk('رابع', '0791111114', 4),
+      mk('خامس', '0791111115', 5), mk('سادس', '0791111116', 6),
+    ],
+    seatingConfig: blockedConf,
+    // 🔴 بلا affinityPairs عمداً: الفصلُ هنا يجب أن يأتي من القيد الصلب وحده
+    context: ctx({ maxPlayers: 12 }),
+  });
+
+  check('نجحت إعادة الترتيب بقيد الأزواج الممنوعة', res.success);
+  const seatOf = (ph: string) => res.arrangement.find(x => x.phone === ph)?.seatNumber ?? -1;
+  const d = circularDistance(seatOf('0791111111'), seatOf('0791111112'), 12);
+  check('الزوجُ الممنوع غيرُ متجاور بعد الترتيب', d >= 2, `المسافة ${d}`);
+  check('لا مقعد مكرّر', new Set(res.arrangement.map(x => x.seatNumber)).size === res.arrangement.length);
+
+  // وبلا القيد يعود التجاور ممكناً — كي لا يمرّ الاختبار لسببٍ آخر
+  const noConf = reshuffleSeating({
+    maxPlayers: 12,
+    players: [mk('ممنوع-أ', '0791111111', 1), mk('ممنوع-ب', '0791111112', 2)],
+    seatingConfig: { engineEnabled: true, strictness: 'relaxed', constraints: [] } as any,
+    context: ctx({ maxPlayers: 12 }),
+  });
+  check('بلا القيد لا يُفرض الفصل (الاختبار يقيس القيد لا الصدفة)',
+    noConf.success && noConf.arrangement.length === 2);
+}
+
+// ══════════════════════════════════════════════════════
 section('5) 🛡️ الحارس البنيويّ: لا محرّك لعبةٍ يقرأ state.spectators');
 {
   // المتفرّجون خارج players عمداً. لو قرأ أيّ محرّكٍ هذه المصفوفة لدخلوا

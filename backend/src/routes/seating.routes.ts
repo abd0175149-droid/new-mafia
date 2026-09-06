@@ -8,60 +8,8 @@ import { CONSTRAINT_TYPES } from '../game/seating/constraint-registry.js';
 import { reshuffleSeating } from '../game/seating/engine.js';
 import type { PlayerSeatData, EvaluationContext, SeatingConfig, ConstraintConfig } from '../game/seating/types.js';
 import { neighborKey } from '../game/seating/types.js';
-
-/**
- * جلب الأزواج الممنوعة العالمية من DB ودمجها في إعدادات القيود
- */
-async function mergeGlobalBlockedPairs(seatingConfig: SeatingConfig | null): Promise<SeatingConfig> {
-  const config: SeatingConfig = seatingConfig ? { ...seatingConfig } : { engineEnabled: true, constraints: [] };
-
-  try {
-    const { getDB } = await import('../config/db.js');
-    const db = getDB();
-    if (!db) return config;
-
-    const { sql } = await import('drizzle-orm');
-    const rows = await db.execute(sql`SELECT * FROM blocked_pairs`);
-    const globalPairs: any[] = (rows as any).rows || rows || [];
-
-    if (globalPairs.length === 0) return config;
-
-    // تحويل إلى صيغة الأزواج المطلوبة
-    const pairs = globalPairs.map((p: any) => ({
-      player1Phone: p.player1_phone,
-      player1Name: p.player1_name,
-      player2Phone: p.player2_phone,
-      player2Name: p.player2_name,
-    }));
-
-    // دمج مع القيود الموجودة
-    if (!config.constraints) config.constraints = [];
-
-    const existingIdx = config.constraints.findIndex(c => c.type === 'NO_ADJACENT_PAIRS');
-    if (existingIdx >= 0) {
-      // دمج الأزواج العالمية مع أزواج النشاط
-      const existing = config.constraints[existingIdx];
-      const existingPairs = existing.params?.pairs || [];
-      config.constraints[existingIdx] = {
-        ...existing,
-        enabled: true,
-        params: { ...existing.params, pairs: [...existingPairs, ...pairs] },
-      };
-    } else {
-      // إضافة قيد جديد
-      config.constraints.push({
-        type: 'NO_ADJACENT_PAIRS',
-        enabled: true,
-        priority: 1,
-        params: { pairs },
-      });
-    }
-  } catch (err) {
-    console.warn('⚠️ Failed to fetch global blocked pairs:', err);
-  }
-
-  return config;
-}
+// 🔴 مصدرٌ واحد للدمج — كانت نسخةٌ محلّيّةٌ هنا، وبُني مسارٌ ثانٍ لا يمرّ بها
+import { mergeGlobalBlockedPairs } from '../services/seat-affinity.service.js';
 
 const router = Router();
 
