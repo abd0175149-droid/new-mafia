@@ -1939,7 +1939,14 @@ playerFnbRouter.post('/orders', authenticatePlayer, async (req: Request, res: Re
 playerFnbRouter.post('/fix', authenticatePlayer, async (req: Request, res: Response) => {
   const playerId = req.playerAccount!.playerId;
   const fix = req.body?.fix;
-  if (!isUsableFix(fix)) return res.json({ success: true, stored: false });
+  // 🔴 سطرُ رصدٍ واحد. قضينا وقتاً نخمّن «هل وصل البلاغ أصلاً؟» لأنّ المسار
+  //    كان صامتاً في النجاح والرفض معاً — فغيابُ السجلّ لا يعني غيابَ الطلب،
+  //    ولا يفرّق بين عميلٍ لم يُرسل وقراءةٍ وصلت غيرَ صالحة.
+  if (!isUsableFix(fix)) {
+    console.log(`📍 [fix] لاعب ${playerId} — قراءةٌ غيرُ صالحة، لم تُحفَظ`);
+    return res.json({ success: true, stored: false });
+  }
+  console.log(`📍 [fix] لاعب ${playerId} — ${fix.lat},${fix.lng} ±${fix.accuracyM ?? '?'}م (${fix.source || 'web'})`);
   try {
     await saveLastFix(playerId, fix);
     // 🗺️ دفعةٌ لحظيّة لخريطة الليدر — تصل سوكتات الموجّهين وحدهم (التصفية في السوكت)
