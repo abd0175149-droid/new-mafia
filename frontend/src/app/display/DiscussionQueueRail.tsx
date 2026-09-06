@@ -82,7 +82,9 @@ export default function DiscussionQueueRail({ discussionState, players }: Props)
         aria-label="ترتيب النقاش"
         className="fixed top-0 bottom-0 right-0 z-[45] flex flex-col pointer-events-none select-none"
         style={{
-          width: 'clamp(214px, 15.5vw, 300px)',
+          // 🔴 العرضُ يكبر مع الخطّ لا بعده: خطٌّ أكبر في شريطٍ بالعرض نفسه
+          //    يقصّ الأسماءَ بالنقاط الثلاث — وهو أسوأ من خطٍّ أصغر يُقرأ كاملاً.
+          width: 'clamp(248px, 18.5vw, 380px)',
           // السطحُ وحده يرقّ أثناء الحديث — النصّ لا يُمَسّ
           background: speaking
             ? 'linear-gradient(to left, rgba(5,5,7,0.80) 0%, rgba(5,5,7,0.66) 68%, rgba(5,5,7,0.34) 100%)'
@@ -101,7 +103,7 @@ export default function DiscussionQueueRail({ discussionState, players }: Props)
               className="font-black text-[#E3C179]"
               style={{
                 fontFamily: 'Amiri, serif',
-                fontSize: 'clamp(17px, 1.25vw, 23px)',
+                fontSize: 'clamp(20px, 1.55vw, 30px)',
                 textShadow: '0 2px 8px rgba(0,0,0,0.95)',
               }}
             >
@@ -110,7 +112,7 @@ export default function DiscussionQueueRail({ discussionState, players }: Props)
             <span
               className="font-mono tabular-nums font-bold text-[#9a968e]"
               dir="ltr"
-              style={{ fontSize: 'clamp(12px, 0.85vw, 16px)', textShadow: '0 1px 4px rgba(0,0,0,0.9)' }}
+              style={{ fontSize: 'clamp(14px, 1.05vw, 20px)', textShadow: '0 1px 4px rgba(0,0,0,0.9)' }}
             >
               {doneCount}/{order.length}
             </span>
@@ -118,7 +120,7 @@ export default function DiscussionQueueRail({ discussionState, players }: Props)
           <div
             className="mt-1 font-mono tracking-[0.34em] text-[#5d5a54]"
             dir="ltr"
-            style={{ fontSize: 'clamp(8px, 0.5vw, 10px)' }}
+            style={{ fontSize: 'clamp(9px, 0.6vw, 12px)' }}
           >
             SPEAKING ORDER
           </div>
@@ -154,7 +156,7 @@ export default function DiscussionQueueRail({ discussionState, players }: Props)
               <div
                 key={`${seat}-${i}`}
                 ref={isCurrent ? curRef : undefined}
-                className="flex items-center gap-2.5 mb-[6px] rounded-[8px] px-2.5 py-[8px]"
+                className="flex items-center gap-3 mb-[5px] rounded-[9px] px-3 py-[7px]"
                 style={{
                   background:
                     state === 'current'
@@ -178,8 +180,8 @@ export default function DiscussionQueueRail({ discussionState, players }: Props)
                 <span
                   className="flex-none text-center font-mono tabular-nums rounded-[5px] py-[2px]"
                   style={{
-                    minWidth: 'clamp(28px, 2.1vw, 40px)',
-                    fontSize: 'clamp(13px, 0.92vw, 18px)',
+                    minWidth: 'clamp(34px, 2.7vw, 52px)',
+                    fontSize: 'clamp(16px, 1.2vw, 24px)',
                     fontWeight: 700,
                     color: state === 'current' ? '#15100a' : state === 'done' ? '#6f6c65' : '#0d0d10',
                     background:
@@ -195,8 +197,8 @@ export default function DiscussionQueueRail({ discussionState, players }: Props)
                 <span
                   className="flex-1 min-w-0 truncate"
                   style={{
-                    fontSize: 'clamp(14.5px, 1.05vw, 20px)',
-                    lineHeight: 1.35,
+                    fontSize: 'clamp(17.5px, 1.4vw, 27px)',
+                    lineHeight: 1.3,
                     color: state === 'current' ? '#ffffff' : state === 'done' ? '#8b877f' : '#EFECE5',
                     fontWeight: state === 'current' ? 800 : state === 'done' ? 400 : 600,
                     textDecoration: state === 'done' ? 'line-through' : 'none',
@@ -210,7 +212,7 @@ export default function DiscussionQueueRail({ discussionState, players }: Props)
 
                 <span
                   className="flex-none text-center"
-                  style={{ width: 'clamp(13px, 0.9vw, 18px)', fontSize: 'clamp(11px, 0.75vw, 15px)' }}
+                  style={{ width: 'clamp(16px, 1.1vw, 24px)', fontSize: 'clamp(13px, 0.95vw, 20px)' }}
                 >
                   {state === 'current' ? (
                     <span
