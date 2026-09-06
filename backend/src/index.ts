@@ -15,6 +15,7 @@ import { connectRedis } from './config/redis.js';
 import { seedDatabase } from './utils/seed.js';
 import jwt from 'jsonwebtoken';
 import { verifyPlayerToken } from './middleware/player-auth.middleware.js';
+import { touchLastActive, platformFromHeaders } from './lib/last-active.js';
 
 // ── Routes (Club Admin) ─────────────────────────────
 import authRoutes from './routes/auth.routes.js';
@@ -543,6 +544,22 @@ io.on('connection', (socket) => {
   const authPlayerId = socket.data?.authPlayer?.playerId;
   if (authPlayerId) {
     socket.join(`player:${authPlayerId}`);
+
+    // ══════════════════════════════════════════════════════
+    // 📡 ختمُ الجلسة — طرفاها لا طرفُها الأوّل وحده
+    //
+    // 🔴 لاعبٌ في مباراةٍ يبقى ساعاتٍ على السوكِت بلا طلبٍ واحد. والختمُ عند
+    //    الاتّصال وحدَه يسجّل ٧:٠٠ لمن خرج ١١:٣٠ — خطأٌ أربعُ ساعاتٍ ونصف،
+    //    وقوعُه بالضبط في أنشط لحظاته.
+    //
+    // 🔴 ولذلك يُختم الفصلُ بلا خنق (force): هو اللحظةُ الوحيدة التي نعرف فيها
+    //    يقيناً أنّ الجلسة انتهت، فتُكتب نهايتُها بدقّةٍ تامّة.
+    // ══════════════════════════════════════════════════════
+    const sockPlatform = platformFromHeaders(socket.handshake?.headers);
+    void touchLastActive(authPlayerId, null, 'socket', sockPlatform, true);
+    socket.on('disconnect', () => {
+      void touchLastActive(authPlayerId, null, 'socket_end', sockPlatform, true);
+    });
   }
 
   // 🔒 حصر اللاعب-المُضيف بغرفته فقط: أي حدثٍ يحمل roomId مختلفاً عن غرفة استضافته يُرفض.

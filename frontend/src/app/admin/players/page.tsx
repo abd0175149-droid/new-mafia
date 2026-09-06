@@ -37,6 +37,51 @@ function fmtDateTime(d: any) {
   return `${fmtDate(d)} ${dt.toLocaleTimeString('en-US', timeOpts)}`;
 }
 
+// ══════════════════════════════════════════════════════
+// 📡 «آخر نشاط» — ثلاثُ حالاتٍ لا تاريخٌ واحد
+//
+// 🔴 كان العمودُ يعرض تاريخاً لكلّ لاعبٍ بلا استثناء، وهو ما صنع الوهم: ٣٤٧
+//    منها كانت لحظةَ إنشاء الحساب. والآن لا قيمةَ إلّا عن تفاعلٍ حقيقيّ،
+//    والفراغُ يُقال صراحةً بدل أن يُملأ بتاريخٍ يُتّخذ عليه قرار.
+//
+// 🔴 و«لعب ولم يفتح التطبيق» ليست نقصاً في البيانات بل معلومةُ عمل: هؤلاء
+//    زبائنُ حاضرون لا يصلهم إشعارٌ ولا رسالة — وهم أكبرُ فئةٍ في القاعدة.
+// ══════════════════════════════════════════════════════
+const PLATFORM_AR: Record<string, string> = {
+  web: 'ويب', android: 'أندرويد', ios: 'آيفون', app: 'تطبيق',
+};
+
+function relativeAr(d: any): string {
+  const t = new Date(d).getTime();
+  if (!Number.isFinite(t)) return '—';
+  const mins = Math.floor((Date.now() - t) / 60000);
+  if (mins < 2) return 'الآن';
+  if (mins < 60) return `قبل ${mins} د`;
+  const h = Math.floor(mins / 60);
+  if (h < 24) return `قبل ${h} س`;
+  const days = Math.floor(h / 24);
+  if (days < 30) return `قبل ${days} ي`;
+  const mo = Math.floor(days / 30);
+  return mo < 12 ? `قبل ${mo} شهر` : `قبل ${Math.floor(mo / 12)} سنة`;
+}
+
+function lastActiveCell(p: any) {
+  if (p.lastActiveAt) {
+    const days = (Date.now() - new Date(p.lastActiveAt).getTime()) / 86400000;
+    const color = days <= 7 ? '#34d399' : days <= 30 ? '#fbbf24' : '#6b7280';
+    const plat = PLATFORM_AR[p.lastActivePlatform] || '';
+    return { kind: 'known', color, main: relativeAr(p.lastActiveAt), sub: plat,
+             title: fmtDateTime(p.lastActiveAt) };
+  }
+  if ((p.totalMatches || 0) > 0) {
+    return { kind: 'played', color: '#c084fc',
+             main: 'لم يفتح التطبيق', sub: `${p.totalMatches} مباراة`,
+             title: 'لعب فعلاً ولا أثرَ رقميّ — لا يصله إشعار' };
+  }
+  return { kind: 'none', color: '#4b5563', main: '—', sub: 'حساب غير مستعمَل',
+           title: 'لا تفاعلَ ولا مباريات' };
+}
+
 // ── Role label helpers ──
 const RANK_MAP: Record<string, { label: string; icon: string; color: string }> = {
   INFORMANT:  { label: 'المُخبر',       icon: '⭐',  color: 'text-gray-400' },
@@ -332,6 +377,7 @@ export default function PlayersManagementPage() {
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
         {[
           { label: 'إجمالي اللاعبين', value: players.length, icon: '👥', color: 'from-blue-500 to-blue-600' },
+          // 🔴 لا يعدّ إلّا قيمةً لها مصدرٌ موثّق — الفراغُ لا يُحتسب نشاطاً ولا خمولاً
           { label: 'نشط (آخر 7 أيام)', value: players.filter(p => p.lastActiveAt && (Date.now() - new Date(p.lastActiveAt).getTime()) < 7 * 86400000).length, icon: '🟢', color: 'from-emerald-500 to-emerald-600' },
           { label: 'إجمالي المباريات', value: players.reduce((s, p) => s + (p.totalMatches || 0), 0), icon: '🎯', color: 'from-amber-500 to-amber-600' },
           { label: 'يحتاج تغيير كلمة مرور', value: players.filter(p => p.mustChangePassword).length, icon: '🔐', color: 'from-rose-500 to-rose-600' },
@@ -423,9 +469,17 @@ export default function PlayersManagementPage() {
                           );
                         })()}
                       </td>
-                      {/* Last Active */}
-                      <td className="px-4 py-3 text-center text-gray-500 text-xs font-mono" dir="ltr">
-                        {fmtDateTime(p.lastActiveAt)}
+                      {/* Last Active — ثلاثُ حالات */}
+                      <td className="px-4 py-3 text-center">
+                        {(() => {
+                          const c = lastActiveCell(p);
+                          return (
+                            <div title={c.title} className="flex flex-col items-center leading-tight">
+                              <span className="text-xs font-bold" style={{ color: c.color }}>{c.main}</span>
+                              {c.sub && <span className="text-[10px] text-gray-600 mt-0.5">{c.sub}</span>}
+                            </div>
+                          );
+                        })()}
                       </td>
                       {/* Status */}
                       <td className="px-4 py-3 text-center">

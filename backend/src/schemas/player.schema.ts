@@ -69,6 +69,12 @@ export const players = pgTable('players', {
   deletionDueAt: timestamp('deletion_due_at'),
   deletionReason: varchar('deletion_reason', { length: 30 }),
   anonymizedAt: timestamp('anonymized_at'),
+  // 📡 آخرُ تفاعلٍ حقيقيّ — يبقى NULL حتّى أوّلِه. لا يُكتب عند إنشاء الحساب.
+  //    والمصدرُ يرافقه دائماً: قيمةٌ بلا مصدرٍ تعني مساراً يكتب من وراء
+  //    touchLastActive، وهو ما نريد كشفَه لا اكتشافَه بعد شهر.
+  lastActiveSource: varchar('last_active_source', { length: 12 }),
+  lastActivePlatform: varchar('last_active_platform', { length: 10 }),
+
   // 🔒 قفلُ الحساب — قرارٌ إداريٌّ يمنع الدخول حتّى يُفكّ.
   //    منفصلٌ عن الحذف (deletedAt/anonymizedAt): القفلُ إجراءٌ مؤقّتٌ قابلٌ للرجوع
   //    والحسابُ كامل، والحذفُ نهايةٌ للحساب. خلطُهما يُفقد الفرق.

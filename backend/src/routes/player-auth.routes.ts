@@ -10,6 +10,7 @@ import { Router, type Request, type Response } from 'express';
 import { ageFromDob, ADULT_AGE } from '../services/consent.service.js';
 import { LOCKED_MESSAGE } from '../lib/account-lock.js';
 import { clientIp } from '../middleware/client-ip.js';
+import { touchLastActive, platformFromHeaders } from '../lib/last-active.js';
 import { eq, and, desc, gte } from 'drizzle-orm';
 import { getDB } from '../config/db.js';
 import { players, PLAYER_DEFAULT_PASSWORD, lockedLoginAttempts } from '../schemas/player.schema.js';
@@ -91,7 +92,9 @@ router.post('/register', async (req: Request, res: Response) => {
       dob: dob || null,
       xp: 200,
       welcomeBonusApplied: true,
-      lastActiveAt: new Date(),
+      // 🔴 لا يُكتب lastActiveAt هنا. إنشاءُ الحساب ليس تفاعلاً، والموظّفُ
+      //    يُنشئ معظمَ الحسابات في القاعة — فكان هذا السطرُ وحدَه مصدرَ ٣٤٧
+      //    قيمةً كاذبةً من ٧٥١. يبقى NULL حتّى أوّلِ تفاعلٍ حقيقيّ.
     } as any).returning();
 
     const player = result[0];
@@ -219,7 +222,8 @@ router.post('/login', rateLimit({ windowMs: 15 * 60 * 1000, max: 120, keyPrefix:
     }
 
     // تحديث آخر نشاط
-    await db.update(players).set({ lastActiveAt: new Date() } as any).where(eq(players.id, player.id));
+    // الدخولُ تفاعلٌ حقيقيّ — يُختم بلا خنق (يقع مرّةً كلّ ثلاثين يوماً)
+    await touchLastActive(player.id, null, 'request', platformFromHeaders(req.headers), true);
 
     // إصدار Token
     const token = generatePlayerToken({

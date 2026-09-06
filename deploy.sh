@@ -250,6 +250,44 @@ ALTER TABLE locked_login_attempts ADD COLUMN IF NOT EXISTS accuracy_m INTEGER;
 ALTER TABLE locked_login_attempts ADD COLUMN IF NOT EXISTS is_mocked BOOLEAN DEFAULT false;
 ALTER TABLE locked_login_attempts ADD COLUMN IF NOT EXISTS fix_source VARCHAR(10);
 ALTER TABLE locked_login_attempts ADD COLUMN IF NOT EXISTS captured_at TIMESTAMP;
+
+-- ══════════════════════════════════════════════════════
+-- 📡 آخرُ تفاعلٍ للاعب — عمودان ثمّ تنظيفٌ ثمّ تعبئةٌ حذرة
+-- ══════════════════════════════════════════════════════
+ALTER TABLE players ADD COLUMN IF NOT EXISTS last_active_source VARCHAR(12);
+ALTER TABLE players ADD COLUMN IF NOT EXISTS last_active_platform VARCHAR(10);
+
+-- ① تنظيف: قيمةٌ تساوي لحظةَ إنشاء الحساب ليست نشاطاً بل أثرَ التسجيل.
+--    قِيست ٣٤٧ قيمةً كذلك من ٧٥١ — ٤٦٪ من القاعدة تُقرأ نشاطاً وهي ليست كذلك.
+--    تُصفَّر مرّةً واحدة، ولا تعود لأنّ مسارَ التسجيل لم يعد يكتبها.
+UPDATE players SET last_active_at = NULL
+WHERE last_active_at IS NOT NULL
+  AND last_active_source IS NULL
+  AND abs(EXTRACT(EPOCH FROM (last_active_at - created_at))) < 300;
+
+-- ② تعبئةٌ رجعيّة من إشاراتٍ حقيقيّة — بشرط تجاوزِ اليوم الأوّل.
+--    توكنٌ سُجّل لحظةَ الإنشاء ليس تفاعلاً (١٦ حالة)، وما وقع في اليوم الأوّل
+--    يشوبه الشكّ (٨٧ حالة) — فيُستبعد كلُّه. والباقي يبقى NULL عمداً:
+--    الفراغُ الصادقُ أنفعُ من تاريخٍ يُتّخذ عليه قرار.
+UPDATE players p
+SET last_active_at = s.best,
+    last_active_source = 'backfill',
+    last_active_platform = COALESCE(s.plat, 'app')
+FROM (
+  SELECT pl.id,
+         GREATEST(
+           COALESCE((SELECT max(t.updated_at) FROM player_fcm_tokens t
+                     WHERE t.player_id = pl.id AND t.updated_at - pl.created_at > INTERVAL '1 day'), 'epoch'),
+           COALESCE((SELECT max(f.updated_at) FROM player_last_fix f
+                     WHERE f.player_id = pl.id AND f.updated_at - pl.created_at > INTERVAL '1 day'), 'epoch')
+         ) AS best,
+         (SELECT t2.platform FROM player_fcm_tokens t2
+          WHERE t2.player_id = pl.id ORDER BY t2.updated_at DESC LIMIT 1) AS plat
+  FROM players pl
+) s
+WHERE p.id = s.id
+  AND s.best > 'epoch'::timestamp
+  AND (p.last_active_at IS NULL OR s.best > p.last_active_at);
 ALTER TABLE wa_bot_settings ADD COLUMN IF NOT EXISTS admin_only_tools JSONB DEFAULT '[]';
 -- 📍 سياج الفعاليّة — النقطة على المكان، والقرار على الفعاليّة
 ALTER TABLE locations  ADD COLUMN IF NOT EXISTS latitude NUMERIC(9,6);

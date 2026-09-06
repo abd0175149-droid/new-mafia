@@ -1,3 +1,4 @@
+import 'dart:io' show Platform;
 import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart';
 
@@ -59,6 +60,11 @@ class ApiClient {
         if (t != null && t.isNotEmpty) {
           options.headers['Authorization'] = 'Bearer $t';
         }
+        // 📡 منصّةُ العميل صراحةً — يقرأها الخادمُ لعمود «آخر نشاط».
+        //    الاستنتاجُ من User-Agent يقول «تطبيقٌ أصليّ» ولا يميّز النظام
+        //    (دارت لا تذكره)، وهو مع ذلك يتغيّر بتحديث المكتبة. الترويسةُ
+        //    الصريحة وحدها لا يكسرها شيء.
+        options.headers['X-Client-Platform'] = Platform.isIOS ? 'ios' : 'android';
         return handler.next(options);
       },
     ));

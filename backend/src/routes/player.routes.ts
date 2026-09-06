@@ -46,6 +46,8 @@ router.get('/all', authenticate, authorize('admin', 'accountant'), async (_req: 
       rankTier: playersTable.rankTier,
       rankRR: playersTable.rankRR,
       lastActiveAt: playersTable.lastActiveAt,
+      lastActiveSource: playersTable.lastActiveSource,
+      lastActivePlatform: playersTable.lastActivePlatform,
       createdAt: playersTable.createdAt,
       mustChangePassword: playersTable.mustChangePassword,
       email: playersTable.email,

@@ -9,6 +9,7 @@ import bcrypt from 'bcryptjs';
 import { env } from '../config/env.js';
 import { PLAYER_TOKEN_EXPIRY } from '../schemas/player.schema.js';
 import { LOCKED_MESSAGE, LOCKED_CODE } from '../lib/account-lock.js';
+import { touchLastActive, platformFromHeaders } from '../lib/last-active.js';
 
 // ── أنواع البيانات ──────────────────────────────────
 
@@ -97,7 +98,7 @@ export async function authenticatePlayer(req: Request, res: Response, next: Next
     const [row] = await db.select({
       id: players.id, phone: players.phone, name: players.name,
       deletedAt: players.deletedAt, anonymizedAt: players.anonymizedAt,
-      isLocked: players.isLocked,
+      isLocked: players.isLocked, lastActiveAt: players.lastActiveAt,
     }).from(players).where(eq(players.id, decoded.playerId)).limit(1);
 
     if (!row || row.anonymizedAt) {
@@ -112,6 +113,19 @@ export async function authenticatePlayer(req: Request, res: Response, next: Next
       res.status(403).json({ success: false, code: LOCKED_CODE, error: LOCKED_MESSAGE });
       return;
     }
+
+    // ══════════════════════════════════════════════════════
+    // 📡 ختمُ آخرِ تفاعل — هنا لا في المسارات
+    //
+    // 🔴 هذه النقطةُ يمرّ بها **كلُّ طلبٍ مصادَق** من الويب المثبَّت ومن فلاتر
+    //    معاً (كلاهما يرسل نفسَ ترويسة Bearer، والاثنان ينادِيان /me عند كلّ
+    //    فتحة). فتغطيةُ نقطةٍ واحدةٍ كاملةٌ بلا سطرٍ في العميل — بخلاف توزيعِها
+    //    على عشرات المسارات حيث نسيانُ واحدٍ يترك ثقباً صامتاً.
+    //
+    // 🔴 والصفُّ مقروءٌ أصلاً أعلاه، فالمقارنةُ مجّانيّةٌ والكتابةُ وحدها جديدة.
+    //    ولا تُنتظر: ختمٌ إحصائيٌّ لا يجوز أن يضيف زمناً إلى كلّ طلب.
+    // ══════════════════════════════════════════════════════
+    void touchLastActive(row.id, row.lastActiveAt, 'request', platformFromHeaders(req.headers));
 
     req.playerAccount = { playerId: row.id, phone: row.phone, name: row.name };
     (req as any).playerDeletion = row.deletedAt
