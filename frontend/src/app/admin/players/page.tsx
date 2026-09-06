@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useRouter } from 'next/navigation';
 import Image from 'next/image';
@@ -65,21 +65,154 @@ function relativeAr(d: any): string {
   return mo < 12 ? `قبل ${mo} شهر` : `قبل ${Math.floor(mo / 12)} سنة`;
 }
 
-function lastActiveCell(p: any) {
+// ══════════════════════════════════════════════════════
+// 🔴 مصنِّفٌ واحدٌ يخدم العمودَ والمرشِّحَ معاً.
+//
+//    لو رشّح المرشِّحُ بحسابٍ خاصٍّ به لاختلف عن العمود عند أوّل حدّ: تُرشّح
+//    «نشط» فترى صفوفاً صفراء، أو يقول العدّادُ ١٢ ويظهر ١١. الفصلُ بينهما
+//    عطبٌ لا يُكتشف إلّا بعد أن يفقد أحدٌ ثقتَه بالشاشة كلِّها.
+// ══════════════════════════════════════════════════════
+const ACTIVITY_BUCKETS = [
+  { key: 'w1',     label: 'نشط — آخر ٧ أيّام',  color: '#34d399' },
+  { key: 'm1',     label: 'خلال ٣٠ يوماً',       color: '#fbbf24' },
+  { key: 'old',    label: 'أقدم من ٣٠ يوماً',    color: '#9ca3af' },
+  { key: 'played', label: 'لعب ولم يفتح التطبيق', color: '#c084fc' },
+  { key: 'none',   label: 'حساب غير مستعمَل',    color: '#6b7280' },
+] as const;
+
+type ActivityBucket = typeof ACTIVITY_BUCKETS[number]['key'];
+
+function activityBucket(p: any): ActivityBucket {
   if (p.lastActiveAt) {
     const days = (Date.now() - new Date(p.lastActiveAt).getTime()) / 86400000;
-    const color = days <= 7 ? '#34d399' : days <= 30 ? '#fbbf24' : '#6b7280';
-    const plat = PLATFORM_AR[p.lastActivePlatform] || '';
-    return { kind: 'known', color, main: relativeAr(p.lastActiveAt), sub: plat,
+    return days <= 7 ? 'w1' : days <= 30 ? 'm1' : 'old';
+  }
+  return (p.totalMatches || 0) > 0 ? 'played' : 'none';
+}
+
+function lastActiveCell(p: any) {
+  const b = activityBucket(p);
+  const color = ACTIVITY_BUCKETS.find(x => x.key === b)!.color;
+  if (b === 'w1' || b === 'm1' || b === 'old') {
+    return { kind: b, color, main: relativeAr(p.lastActiveAt),
+             sub: PLATFORM_AR[p.lastActivePlatform] || '',
              title: fmtDateTime(p.lastActiveAt) };
   }
-  if ((p.totalMatches || 0) > 0) {
-    return { kind: 'played', color: '#c084fc',
-             main: 'لم يفتح التطبيق', sub: `${p.totalMatches} مباراة`,
+  if (b === 'played') {
+    return { kind: b, color, main: 'لم يفتح التطبيق', sub: `${p.totalMatches} مباراة`,
              title: 'لعب فعلاً ولا أثرَ رقميّ — لا يصله إشعار' };
   }
-  return { kind: 'none', color: '#4b5563', main: '—', sub: 'حساب غير مستعمَل',
+  return { kind: b, color, main: '—', sub: 'حساب غير مستعمَل',
            title: 'لا تفاعلَ ولا مباريات' };
+}
+
+// ══════════════════════════════════════════════════════
+// 🎛️ أعمدةُ الإجراءات — كلٌّ منها علمٌ ثنائيّ
+//
+// 🔴 ثلاثيّةُ الحال لا ثنائيّة: «الكلّ · نعم · لا». وبلا «لا» لا يمكن سؤالُ
+//    «مَن ليس مجّانيّاً» إلّا بقلب الشاشة يدويّاً — وهو نصفُ الأسئلة عمليّاً.
+// ══════════════════════════════════════════════════════
+const ACTION_FLAGS = [
+  { key: 'isTestAccount',  icon: '🧪', label: 'حساب اختبار',      yes: 'اختبار',  no: 'غير اختبار' },
+  { key: 'isFreeAccount',  icon: '🏷️', label: 'حساب مجّاني',       yes: 'مجّاني',   no: 'غير مجّاني' },
+  { key: 'canHostRemote',  icon: '🌐', label: 'استضافة أونلاين',  yes: 'يستضيف',  no: 'لا يستضيف' },
+  { key: 'geofenceExempt', icon: '📍', label: 'إعفاء السياج',      yes: 'مُعفى',    no: 'غير مُعفى' },
+  { key: 'isLocked',       icon: '🔒', label: 'حالة الحساب',       yes: 'مقفول',   no: 'مفتوح' },
+] as const;
+
+type FlagState = 'yes' | 'no' | null;
+
+// ══════════════════════════════════════════════════════
+// 🔽 قائمةُ ترشيحٍ في رأس العمود
+//
+// 🔴 موضعُها `fixed` محسوبٌ من موضع الزرّ، لا `absolute` داخل الخليّة:
+//    حاويةُ الجدول `overflow-hidden` (لتستدير حوافّها)، فقائمةٌ داخلها تُقصّ
+//    عند أوّل صفٍّ — تظهر نصفَ قائمةٍ بلا سببٍ ظاهر.
+// ══════════════════════════════════════════════════════
+/** عرضُ القائمة — ثابتٌ هنا وفي CSS معاً كي لا يتفرّقا */
+const MENU_W = 224;
+
+function ColumnFilter({
+  id, label, open, onOpen, active, options, onPick, onClear,
+}: {
+  id: string;
+  label: string;
+  open: boolean;
+  onOpen: (id: string | null) => void;
+  active: boolean;
+  options: { key: string; label: string; count: number; color?: string; selected: boolean }[];
+  onPick: (key: string) => void;
+  onClear: () => void;
+}) {
+  const btnRef = useRef<HTMLButtonElement>(null);
+  const [pos, setPos] = useState<{ top: number; right: number } | null>(null);
+
+  // 🔴 الحصرُ على الحافّتين لا على واحدة: `right` مسافةٌ من اليمين، فحصرُها
+  //    بحدٍّ أدنى وحدَه يترك الحافّةَ اليسرى تخرج عن الشاشة — وقُصّ عمودُ
+  //    الأعداد فعلاً، وهو أهمُّ ما في القائمة. الحدُّ الأعلى يضمن بقاءَ يسارها.
+  useEffect(() => {
+    if (!open || !btnRef.current) { setPos(null); return; }
+    const r = btnRef.current.getBoundingClientRect();
+    const W = MENU_W, pad = 8, vw = window.innerWidth;
+    const right = Math.min(Math.max(pad, vw - r.right), Math.max(pad, vw - W - pad));
+    // ولو ضاقت الشاشةُ عن القائمة أسفلَ الزرّ، تُفتح فوقه بدل أن تُقصّ
+    const below = r.bottom + 6;
+    const top = below + 300 > window.innerHeight ? Math.max(8, r.top - 306) : below;
+    setPos({ top, right });
+  }, [open]);
+
+  return (
+    <span data-colfilter className="inline-flex items-center gap-1.5">
+      <span>{label}</span>
+      <button
+        ref={btnRef}
+        onClick={() => onOpen(open ? null : id)}
+        title={active ? 'مرشَّح — اضغط للتغيير' : 'ترشيح'}
+        aria-expanded={open}
+        className={`w-5 h-5 rounded flex items-center justify-center text-[10px] transition ${
+          active ? 'bg-amber-500/20 text-amber-400' : 'text-gray-600 hover:text-gray-300'
+        }`}
+      >
+        ▼
+      </button>
+
+      {open && pos && (
+        <div
+          data-colfilter
+          className="fixed z-[120] w-56 rounded-xl border border-gray-700 bg-[#14161b] shadow-2xl overflow-hidden"
+          style={{ top: pos.top, right: pos.right }}
+        >
+          <div className="max-h-72 overflow-y-auto py-1">
+            {options.map(o => (
+              <button
+                key={o.key}
+                onClick={() => { onPick(o.key); onOpen(null); }}
+                disabled={o.count === 0 && !o.selected}
+                className={`w-full flex items-center gap-2 px-3 py-2 text-right text-xs transition ${
+                  o.selected ? 'bg-amber-500/10' : 'hover:bg-gray-700/40'
+                } disabled:opacity-35 disabled:cursor-not-allowed`}
+              >
+                <span className="w-1.5 h-1.5 rounded-full shrink-0"
+                      style={{ background: o.color || '#6b7280' }} />
+                <span className={`flex-1 ${o.selected ? 'text-amber-400 font-bold' : 'text-gray-300'}`}>
+                  {o.label}
+                </span>
+                <span className="font-mono text-[10.5px] text-gray-500 tabular-nums">{o.count}</span>
+              </button>
+            ))}
+          </div>
+          {active && (
+            <button
+              onClick={() => { onClear(); onOpen(null); }}
+              className="w-full px-3 py-2 text-[11px] text-gray-400 hover:text-white border-t border-gray-700/70"
+            >
+              إلغاء ترشيح هذا العمود
+            </button>
+          )}
+        </div>
+      )}
+    </span>
+  );
 }
 
 // ── Role label helpers ──
@@ -109,6 +242,9 @@ export default function PlayersManagementPage() {
   const [toast, setToast] = useState<{ msg: string; type: 'success' | 'error' } | null>(null);
 
   // ── Pagination ──
+  const [fActivity, setFActivity] = useState<ActivityBucket | null>(null);
+  const [fFlags, setFFlags] = useState<Record<string, FlagState>>({});
+  const [openFilter, setOpenFilter] = useState<string | null>(null);
   const [currentPage, setCurrentPage] = useState(1);
   const itemsPerPage = 15;
 
@@ -326,19 +462,67 @@ export default function PlayersManagementPage() {
     }
   }
 
-  // ── Filtered Players ──
-  const filtered = players.filter(p => {
-    if (!search.trim()) return true;
-    const q = search.toLowerCase();
-    return p.name?.toLowerCase().includes(q) || p.phone?.includes(q);
-  });
+  // ══════════════════════════════════════════════════════
+  // 🔎 الترشيح
+  //
+  // 🔴 بين الأعمدة «و» لا «أو»: مرشِّحان معاً يضيّقان لا يوسّعان — وهو ما
+  //    يتوقّعه من يضيف شرطاً ثانياً.
+  //
+  // 🔴 و`skip` هو جوهرُ العدّادات: عدُّ خيارٍ يُحسب على المجموعة مرشَّحةً بكلّ
+  //    شيءٍ **إلّا عمودَه**. فالرقمُ يقول «ما ستراه لو ضغطتَ هنا» لا «ما تراه
+  //    الآن» — وبلا ذلك تظهر كلُّ الخيارات غيرِ المختارة أصفاراً، فتصير القائمةُ
+  //    عديمةَ الفائدة بالضبط حين يحتاجها المستعمل.
+  // ══════════════════════════════════════════════════════
+  const matchesFilters = (p: any, skip?: string) => {
+    if (skip !== 'search' && search.trim()) {
+      const q = search.toLowerCase();
+      if (!(p.name?.toLowerCase().includes(q) || p.phone?.includes(q))) return false;
+    }
+    if (skip !== 'activity' && fActivity && activityBucket(p) !== fActivity) return false;
+    for (const f of ACTION_FLAGS) {
+      if (skip === f.key) continue;
+      const want = fFlags[f.key];
+      if (!want) continue;
+      const has = !!p[f.key];
+      if ((want === 'yes') !== has) return false;
+    }
+    return true;
+  };
+
+  const filtered = players.filter(p => matchesFilters(p));
+
+  /** عددُ ما ستراه لو اخترتَ هذا الخيار — بكلّ المرشِّحات إلّا مرشِّحَ عموده. */
+  const facet = (col: string, pred: (p: any) => boolean) =>
+    players.filter(p => pred(p) && matchesFilters(p, col)).length;
+
+  const activeCount =
+    (fActivity ? 1 : 0) + ACTION_FLAGS.filter(f => fFlags[f.key]).length;
+
+  const clearFilters = () => { setFActivity(null); setFFlags({}); };
 
   // ── Pagination Logic ──
   const totalPages = Math.ceil(filtered.length / itemsPerPage);
   const paginatedPlayers = filtered.slice((currentPage - 1) * itemsPerPage, currentPage * itemsPerPage);
 
-  // إعادة الصفحة لـ 1 عند تغيير البحث
-  useEffect(() => { setCurrentPage(1); }, [search]);
+  // 🔴 العودةُ للصفحة الأولى عند أيّ تضييق: البقاءُ في الصفحة ٧ بعد ترشيحٍ
+  //    يترك ٤٠ نتيجةً يعني شاشةً فارغةً يظنّها المستعمل «لا نتائج».
+  useEffect(() => { setCurrentPage(1); }, [search, fActivity, fFlags]);
+
+  // إغلاقُ قائمة الترشيح بالنقر خارجها أو بمفتاح الهروب
+  useEffect(() => {
+    if (!openFilter) return;
+    const onDown = (e: MouseEvent) => {
+      const t = e.target as HTMLElement;
+      if (!t.closest('[data-colfilter]')) setOpenFilter(null);
+    };
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setOpenFilter(null); };
+    document.addEventListener('mousedown', onDown);
+    document.addEventListener('keydown', onKey);
+    return () => {
+      document.removeEventListener('mousedown', onDown);
+      document.removeEventListener('keydown', onKey);
+    };
+  }, [openFilter]);
 
   // ── Render ──
   if (loading) {
@@ -394,11 +578,48 @@ export default function PlayersManagementPage() {
         ))}
       </div>
 
+      {/* ═══ المرشِّحاتُ النشطة ═══
+          🔴 تُعرض خارج الجدول لا داخله: مَن يرشّح ثمّ يمرّر لأسفلَ ينسى ما رشّح،
+             فيقرأ ٣٠ صفّاً على أنّها القاعدةُ كلُّها. الشريطُ يبقى في الأعلى. */}
+      {activeCount > 0 && (
+        <div className="flex items-center gap-2 flex-wrap px-1">
+          <span className="text-[11px] text-gray-500">مرشَّح:</span>
+          {fActivity && (
+            <button
+              onClick={() => setFActivity(null)}
+              className="text-[11px] font-bold px-2.5 py-1 rounded-full border border-amber-500/40 bg-amber-500/10 text-amber-400 hover:bg-amber-500/20"
+            >
+              {ACTIVITY_BUCKETS.find(b => b.key === fActivity)?.label} ✕
+            </button>
+          )}
+          {ACTION_FLAGS.filter(f => fFlags[f.key]).map(f => (
+            <button
+              key={f.key}
+              onClick={() => setFFlags(prev => ({ ...prev, [f.key]: null }))}
+              className="text-[11px] font-bold px-2.5 py-1 rounded-full border border-amber-500/40 bg-amber-500/10 text-amber-400 hover:bg-amber-500/20"
+            >
+              {f.icon} {fFlags[f.key] === 'yes' ? f.yes : f.no} ✕
+            </button>
+          ))}
+          <span className="text-[11px] text-gray-500 font-mono">
+            {filtered.length} من {players.length}
+          </span>
+          <button onClick={clearFilters} className="text-[11px] text-gray-500 hover:text-white underline">
+            امسح الكلّ
+          </button>
+        </div>
+      )}
+
       {/* ═══ TABLE ═══ */}
       <div className="bg-gray-800/30 border border-gray-700/30 rounded-2xl overflow-hidden">
         {filtered.length === 0 ? (
           <div className="text-center py-16 text-gray-500 font-medium">
-            {search ? 'لا توجد نتائج مطابقة' : 'لا يوجد لاعبين مسجلين'}
+            {search || activeCount > 0 ? 'لا توجد نتائج مطابقة' : 'لا يوجد لاعبين مسجلين'}
+            {activeCount > 0 && (
+              <button onClick={clearFilters} className="block mx-auto mt-3 text-xs text-amber-400 hover:text-amber-300 underline">
+                امسح المرشِّحات
+              </button>
+            )}
           </div>
         ) : (
           <div className="overflow-x-auto">
@@ -411,9 +632,44 @@ export default function PlayersManagementPage() {
                   <th className="text-center px-4 py-3 font-medium">فوز</th>
                   <th className="text-center px-4 py-3 font-medium">نجا</th>
                   <th className="text-center px-4 py-3 font-medium">المستوى / الرانك</th>
-                  <th className="text-center px-4 py-3 font-medium">آخر نشاط</th>
+                  <th className="text-center px-4 py-3 font-medium">
+                    <ColumnFilter
+                      id="activity" label="آخر نشاط"
+                      open={openFilter === 'activity'} onOpen={setOpenFilter}
+                      active={!!fActivity}
+                      onClear={() => setFActivity(null)}
+                      onPick={k => setFActivity(prev => (prev === k ? null : k as ActivityBucket))}
+                      options={ACTIVITY_BUCKETS.map(b => ({
+                        key: b.key, label: b.label, color: b.color,
+                        selected: fActivity === b.key,
+                        count: facet('activity', p => activityBucket(p) === b.key),
+                      }))}
+                    />
+                  </th>
                   <th className="text-center px-4 py-3 font-medium">الحالة</th>
-                  <th className="text-center px-4 py-3 font-medium">الإجراءات</th>
+                  <th className="text-center px-4 py-3 font-medium">
+                    {/* 🔴 عمودٌ واحدٌ يحمل خمسةَ أعلام، فقائمتُه تجمعها كلَّها:
+                        قائمةٌ لكلّ علمٍ في رأسٍ واحدٍ تعني خمسةَ أزرارٍ متلاصقة
+                        لا يفرّقها أحد. */}
+                    <ColumnFilter
+                      id="flags" label="الإجراءات"
+                      open={openFilter === 'flags'} onOpen={setOpenFilter}
+                      active={ACTION_FLAGS.some(f => fFlags[f.key])}
+                      onClear={() => setFFlags({})}
+                      onPick={k => {
+                        const [key, val] = k.split('|') as [string, 'yes' | 'no'];
+                        setFFlags(prev => ({ ...prev, [key]: prev[key] === val ? null : val }));
+                      }}
+                      options={ACTION_FLAGS.flatMap(f => ([
+                        { key: `${f.key}|yes`, label: `${f.icon} ${f.yes}`, color: '#34d399',
+                          selected: fFlags[f.key] === 'yes',
+                          count: facet(f.key, p => !!p[f.key]) },
+                        { key: `${f.key}|no`, label: `${f.icon} ${f.no}`, color: '#4b5563',
+                          selected: fFlags[f.key] === 'no',
+                          count: facet(f.key, p => !p[f.key]) },
+                      ]))}
+                    />
+                  </th>
                 </tr>
               </thead>
               <tbody>

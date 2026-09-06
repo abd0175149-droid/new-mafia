@@ -41,6 +41,14 @@ export default function LocationGate() {
   //    النبضة التالية (أربع دقائق) أو أطول. الحسابُ الجديد يبدأ بخانقٍ نظيف.
   const lastToken = useRef<string | null>(null);
 
+  // 🔴 مراجعُ لا تبعيّات: `useGeolocation()` تُعيد **كائناً جديداً في كلّ رسم**،
+  //    فـ`pulse` المعتمدة عليه تتغيّر هويّتُها في كلّ رسم، فتُهدَم النبضةُ
+  //    (setInterval) وتُبنى من جديد في كلّ رسم — ومؤقّتُ الأربع دقائق لا يكتمل
+  //    أبداً على صفحةٍ تُعاد رسمُها كلّ ثانية (أحداث السوكِت، السياق، السحب
+  //    للتحديث). النبضةُ كانت مكتوبةً ولا تنبض قطّ.
+  const geoRef = useRef(geo);   geoRef.current = geo;
+  const tokRef = useRef<string | null>(null);   tokRef.current = player?.token || null;
+
   /** هل سبق أن قبِل اللاعب التمهيد على هذا الجهاز؟ */
   const introAccepted = () => {
     try { return localStorage.getItem(SEEN_KEY) === '1'; } catch { return false; }
@@ -48,11 +56,12 @@ export default function LocationGate() {
 
   // ── التبليغ: قراءةٌ ثمّ إرسال ──
   const pulse = useCallback(async () => {
-    const t = token();
+    const t = tokRef.current;
     if (!t) return;
     if (t !== lastToken.current) { lastToken.current = t; lastSent.current = 0; }
     if (Date.now() - lastSent.current < 30_000) return;   // لا إغراق
 
+    const geo = geoRef.current;
     let f = null;
     if (geo.permission === 'granted') {
       f = await geo.readIfGranted();          // صامتة تماماً
@@ -65,12 +74,17 @@ export default function LocationGate() {
       //    إن كان الإذن ممنوحاً فلا نافذة تظهر أصلاً، وإن لم يكن فقد قبِل السؤال.
       f = await geo.read();
     }
-    if (f) { lastSent.current = Date.now(); reportFix(f, API_URL, token()); }
-  }, [geo, token]);
+    if (f) { lastSent.current = Date.now(); reportFix(f, API_URL, tokRef.current); }
+  }, []);
 
   // ── عند فتح التطبيق ──
   useEffect(() => {
-    if (geo.permission === 'granted') { pulse(); return; }
+    // 🔴 تُنادى دائماً لا عند 'granted' وحدها: على iOS لا Permissions API،
+    //    فالحالةُ تبقى 'unknown' ما لم يُكتب أثرُنا المحلّيّ — وكان فتحُ التطبيق
+    //    حينها لا يُبلّغ شيئاً، وتبقى النبضةُ (المعطّلة أصلاً) أملَه الوحيد.
+    //    و`pulse` تحرس نفسها: بلا رمزٍ تخرج، وعند الرفض لا تقرأ.
+    pulse();
+    if (geo.permission === 'granted') return;
     if (geo.permission === 'prompt' || geo.permission === 'unknown') {
       let seen = false;
       try { seen = localStorage.getItem(SEEN_KEY) === '1'; } catch { /* تصفّح خاصّ */ }
