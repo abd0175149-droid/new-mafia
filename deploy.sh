@@ -38,7 +38,12 @@ rollback() {
     fi
   done
   if [ "$restored" = "1" ]; then
-    docker compose up -d --force-recreate backend frontend || true
+    # 🔴 نفسُ سبب الاستبدال أدناه: `--force-recreate` يمرّ باسمٍ وسيط فيصطدم.
+    #    وهذا أخطر: أفشلَ التراجعَ مرّةً فبقيت الخلفيّةُ خارج الخدمة لحظاتٍ
+    #    ولم يكن ما يُعيدها. طريقُ الخروج يجب أن يكون أمتنَ من طريق الدخول.
+    docker compose stop backend frontend || true
+    docker compose rm -f backend frontend || true
+    docker compose up -d backend frontend || true
     say "   ✅ عادت الحاويات إلى صور ما قبل النشر"
   else
     say "   ⚠️ لا صور سابقة محفوظة — التراجع يدوي"
@@ -213,7 +218,18 @@ for svc in backend frontend; do
   fi
 done
 
-docker compose up -d --force-recreate backend frontend
+# 🔴 لا `--force-recreate` هنا. آليّتُه أن يُعيد تسمية الحاوية الحاليّة إلى
+#    `<id>_<name>` كخطوةٍ وسيطة ثمّ يحذفها. والتراجعُ يُعيد الحاويةَ نفسها
+#    بمعرّفها نفسه — فيتولّد الاسمُ الوسيط نفسه في كلّ محاولة، ويصطدم ببقايا
+#    المحاولة السابقة: «Conflict. The container name is already in use».
+#    أفشل ثلاثَ نشرات، وأفشل التراجعَ مرّةً فكادت الخدمةُ تبقى ساقطة.
+#    وتنظيفُ اليتامى قبله لا يكفي: الاسمُ يُحجز أثناء الأمر لا قبله.
+#
+#    الحذفُ الصريح ثمّ الإنشاء لا يمرّ باسمٍ وسيط إطلاقاً — فلا شيء يصطدم.
+#    والتوقّفُ نفسُه: `--force-recreate` كان يوقف ويُنشئ أيضاً.
+docker compose stop backend frontend
+docker compose rm -f backend frontend
+docker compose up -d backend frontend
 docker compose up -d database redis
 
 # ── 5. الترحيل — الخطأ يُظهَر لا يُبتلع ──
