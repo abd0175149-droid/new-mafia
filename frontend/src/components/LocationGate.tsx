@@ -40,6 +40,7 @@ export default function LocationGate() {
   //    لأنّ الحساب السابق بلّغ قبل ثوانٍ. فيبقى الحسابُ الجديد بلا موقعٍ حتّى
   //    النبضة التالية (أربع دقائق) أو أطول. الحسابُ الجديد يبدأ بخانقٍ نظيف.
   const lastToken = useRef<string | null>(null);
+  const inFlight = useRef(false);
 
   // 🔴 مراجعُ لا تبعيّات: `useGeolocation()` تُعيد **كائناً جديداً في كلّ رسم**،
   //    فـ`pulse` المعتمدة عليه تتغيّر هويّتُها في كلّ رسم، فتُهدَم النبضةُ
@@ -59,7 +60,18 @@ export default function LocationGate() {
     const t = tokRef.current;
     if (!t) return;
     if (t !== lastToken.current) { lastToken.current = t; lastSent.current = 0; }
-    if (Date.now() - lastSent.current < 30_000) return;   // لا إغراق
+
+    // 🔴 الخانقُ كان يُختم **بعد** الانتظار لا قبله، وقراءةُ الموقع تستغرق
+    //    ثوانيَ. فنداءان متقاربان (عودةٌ من الخلفيّة تُطلق visibilitychange
+    //    و focus معاً) يمرّان كلاهما من الفحص قبل أن يختمه أحدهما — فيُرسَل
+    //    البلاغُ نفسُه مرّتين وثلاثاً. ظهر ذلك في سجلّ الخادم: ثلاثةُ أسطرٍ
+    //    بالإحداثيّات نفسها حرفاً بحرف.
+    //    نحجز الفتحة قبل الانتظار، ونُفرجُ عنها إن أخفقت القراءة.
+    if (inFlight.current) return;
+    if (Date.now() - lastSent.current < 30_000) return;
+    inFlight.current = true;
+    const stamp = lastSent.current;
+    lastSent.current = Date.now();
 
     const geo = geoRef.current;
     let f = null;
@@ -74,7 +86,9 @@ export default function LocationGate() {
       //    إن كان الإذن ممنوحاً فلا نافذة تظهر أصلاً، وإن لم يكن فقد قبِل السؤال.
       f = await geo.read();
     }
-    if (f) { lastSent.current = Date.now(); reportFix(f, API_URL, tokRef.current); }
+    inFlight.current = false;
+    if (f) reportFix(f, API_URL, tokRef.current);
+    else lastSent.current = stamp;   // لم يُرسل شيء ⇒ لا يُحجز الخانق
   }, []);
 
   // ── عند فتح التطبيق ──

@@ -30,6 +30,31 @@ const PREF_KEY = 'mafia_geo_asked';   // للتجربة فقط — ليس إثب
 let lastFix: GeoFix | null = null;
 export const getCachedFix = () => lastFix;
 
+// ══════════════════════════════════════════════════════
+// 🔴 حالةُ الإذن مشتركةٌ بين كلّ نسخ الخطّاف — كالقراءة تماماً.
+//
+//    الإذنُ صفةُ **الجهاز** لا صفةُ المكوّن، ومع ذلك كانت كلُّ نسخةٍ من
+//    `useGeolocation()` تحتفظ بحالتها وحدها. وفي الشجرة نسختان على الأقلّ:
+//    واحدةٌ في LocationGate تقرأ وتُبلّغ، وأخرى في LocationHelp تقرّر إظهار
+//    شريط «إذن الموقع مرفوض». فتختلفان.
+//
+//    والنتيجةُ ما رآه المالك: الموقعُ يصل الخادمَ بدقّة ستّة أمتار، والشريطُ
+//    يقول للاعب إنّ الإذن مرفوض. ثمّ يضغط «أعد المحاولة» فتُصحَّح نسخةُ
+//    اللوحة وحدها، فيختفي الشريط — لا لأنّ شيئاً أُصلح بل لأنّ النسختين
+//    تصادفتا على رأيٍ واحد.
+//
+//    مصدرٌ واحد، ومشتركون يُخطَرون. لا تُعاد هذه القسمة.
+// ══════════════════════════════════════════════════════
+let permShared: GeoPermission = 'unknown';
+const permSubs = new Set<(p: GeoPermission) => void>();
+function publishPermission(p: GeoPermission) {
+  if (permShared === p) return;
+  permShared = p;
+  permSubs.forEach(fn => { try { fn(p); } catch { /* نسخةٌ فُكّت */ } });
+}
+/** يُقرأ مرّةً لكلّ صفحة — لا مرّةً لكلّ نسخةٍ من الخطّاف. */
+let permProbed = false;
+
 function readOnce(timeoutMs = 12_000): Promise<GeoFix> {
   return new Promise((resolve, reject) => {
     if (typeof navigator === 'undefined' || !navigator.geolocation) {
@@ -55,7 +80,9 @@ function readOnce(timeoutMs = 12_000): Promise<GeoFix> {
 }
 
 export function useGeolocation() {
-  const [permission, setPermission] = useState<GeoPermission>('unknown');
+  const [permission, setPermissionLocal] = useState<GeoPermission>(permShared);
+  // كلُّ كتابةٍ تمرّ بالمصدر المشترك فتصل بقيّةَ النسخ
+  const setPermission = publishPermission;
   const [fix, setFix] = useState<GeoFix | null>(lastFix);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string>('');
@@ -63,10 +90,19 @@ export function useGeolocation() {
 
   useEffect(() => { mounted.current = true; return () => { mounted.current = false; }; }, []);
 
+  // اشتراكٌ في المصدر المشترك — أيّ نسخةٍ تُصحّح الحالة تُصحّحها للجميع
+  useEffect(() => {
+    permSubs.add(setPermissionLocal);
+    setPermissionLocal(permShared);
+    return () => { permSubs.delete(setPermissionLocal); };
+  }, []);
+
   // ── قراءة الحالة بلا إطلاق نافذة ──
   // Permissions API تخبرنا granted/prompt/denied بلا أن تسأل المستخدم شيئاً،
   // فنعرف هل نعرض التمهيد أم نقرأ صامتين.
   useEffect(() => {
+    if (permProbed) return;
+    permProbed = true;
     let cancelled = false;
     (async () => {
       if (typeof navigator === 'undefined' || !navigator.geolocation) {
