@@ -187,15 +187,10 @@ class GamesScreenState extends State<GamesScreen> {
         return;
       }
 
-      final code = r is Map ? r['code'] : null;
-      final err = (r is Map ? r['error'] as String? : null);
-      await _bookingError(code == 'PENDING_SURVEYS', err);
+      await _bookingError(r is Map ? r['error'] as String? : null);
     } on ApiException catch (e) {
-      // 🔴 الخادم يردّ 4xx مع `code`، وعميلنا يرميها استثناءً — فقراءة
-      //    الرمز من الاستثناء لا من الجسم. بدونها يُقرأ رفضُ الاستبيانات
-      //    خطأً عاماً ولا يُنقَل اللاعب إلى استبياناته.
       if (!mounted) return;
-      await _bookingError(e.code == 'PENDING_SURVEYS', e.message);
+      await _bookingError(e.message);
     } catch (_) {
       // الويب يبتلع فشل الشبكة صامتاً — انحراف مقصود: صمتٌ هنا يعني
       // لاعباً يضغط «تأكيد» ولا يحدث شيء ولا يعرف لماذا.
@@ -209,16 +204,14 @@ class GamesScreenState extends State<GamesScreen> {
     }
   }
 
-  Future<void> _bookingError(bool pendingSurveys, String? message) async {
+  // 🔴 أُلغي حجبُ الاستبيان، فسقط معه فرعُ PENDING_SURVEYS والتحويلُ القسريّ.
+  Future<void> _bookingError(String? message) async {
     await showDialog(
       context: context,
       builder: (ctx) => AlertDialog(
         backgroundColor: Tw.gray900,
         content: Text(
-          message ??
-              (pendingSurveys
-                  ? 'يجب إكمال استبيانات فعالياتك السابقة قبل الحجز'
-                  : 'خطأ في الحجز'),
+          message ?? 'خطأ في الحجز',
           style: ar(14, color: Tw.gray300),
         ),
         actions: [
@@ -229,9 +222,6 @@ class GamesScreenState extends State<GamesScreen> {
         ],
       ),
     );
-    // تحويل قسريّ: الحجز مقفول حتى تُكمَل الاستبيانات، فإبقاؤه هنا يعني
-    // ضغطاً متكرّراً على زرٍّ لن يعمل.
-    if (pendingSurveys && mounted) await navigateTo('/player/feedback');
   }
 
   // ══════════════════════════════════════════════════════

@@ -150,10 +150,6 @@ function GamesContent() {
         ));
         setConfirmBooking(null);
         setSelectedOffer(null);
-      } else if (data.code === 'PENDING_SURVEYS') {
-        // استبيانات إلزامية معلّقة → توجيه لإكمالها
-        alert(data.error || 'يجب إكمال استبيانات فعالياتك السابقة قبل الحجز');
-        window.location.href = '/player/feedback';
       } else {
         alert(data.error || 'خطأ في الحجز');
       }

@@ -11,7 +11,7 @@ import { matchPlayers, matches, sessions } from '../schemas/game.schema.js';
 import { bookings, activities, locations, reservations } from '../schemas/admin.schema.js';
 import { menuItems } from '../schemas/fnb.schema.js';
 import { buildPlayerMenu, effectiveMenuLocation } from './fnb.routes.js';
-import { authenticatePlayer, requireNoPendingFeedback } from '../middleware/player-auth.middleware.js';
+import { authenticatePlayer } from '../middleware/player-auth.middleware.js';
 import { buildDisplayBreakdown } from '../services/progression.service.js';
 import { getProgressionConfig } from './progression-settings.routes.js';
 import { buildActivityPulse, hasBooking } from '../services/activity-pulse.query.js';
@@ -176,8 +176,14 @@ router.delete('/book/:activityId', authenticatePlayer, async (req: Request, res:
 });
 
 
-// ── 🎟️ POST /book — حجز نشاط (لنفسه فقط) — يتطلب إكمال استبيانات الفعاليات السابقة ──
-router.post('/book', authenticatePlayer, requireNoPendingFeedback, async (req: Request, res: Response) => {
+// ── 🎟️ POST /book — حجز نشاط (لنفسه فقط) ──
+//
+// 🔴 أُلغي حجبُ الاستبيان (قرارُ المالك). كان المُسنَدُ الحاجب يقيس على
+//    الإنتاج ٢١٥ من ٢٤١ لاعباً نشطاً محجوبين في اللحظة نفسِها — تسعةً من كلّ
+//    عشرة — ولم يكن في النظام كلِّه مسارٌ يفكّ الحجب: مسارا الاستبيان
+//    الإداريّان كلاهما GET. أي حاجزٌ بلا مفتاح، تسعَ ليالٍ من كلّ عشر.
+//    الاستبيانُ يبقى تذكيراً بإشعار، ولا يمنع حجزاً ولا انضماماً.
+router.post('/book', authenticatePlayer, async (req: Request, res: Response) => {
   const db = getDB();
   if (!db) return res.status(503).json({ error: 'DB unavailable' });
 

@@ -200,14 +200,6 @@ extension JoinFlow on GameSessionController {
 
     final err = '${res?['error'] ?? ''}';
 
-    // 🔴 استبياناتٌ معلّقة: رسالة الخادم ثمّ تحويلٌ إلى التقييم
-    if (res?['code'] == 'PENDING_SURVEYS') {
-      setApiError(err.isEmpty
-          ? 'يجب إكمال استبيانات فعالياتك السابقة قبل الانضمام'
-          : err);
-      requestFeedbackRedirect();
-      return;
-    }
 
     final isTicketError = err.contains('التذكرة') || err.contains('ticket');
 

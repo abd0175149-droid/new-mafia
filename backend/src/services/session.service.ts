@@ -328,7 +328,7 @@ export async function endActivityRoom(
       const { sendPushToPlayers } = await import('./fcm.service.js');
       await sendPushToPlayers(
         newPlayerIds, '📋 رأيك يهمّنا',
-        'قيّم تجربتك في الفعالية (أقل من دقيقة) — مطلوب قبل حجزك القادم',
+        'قيّم تجربتك في الفعالية — أقلّ من دقيقة، ويصنع فعاليتك القادمة 🙏',
         'feedback_survey', { sessionId, url: `/player/feedback?sessionId=${sessionId}` },
       );
     }

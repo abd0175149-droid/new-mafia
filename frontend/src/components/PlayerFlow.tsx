@@ -2342,12 +2342,6 @@ export default function PlayerFlow({ initialRoomCode = '', inviteFlag = false, i
       setStep('done');
     } catch (err: any) {
       const errMsg = err.message || err.response?.error || '';
-      // استبيانات إلزامية معلّقة → توجيه لإكمالها قبل الانضمام
-      if (err.response?.code === 'PENDING_SURVEYS') {
-        setApiError(err.response.error || 'يجب إكمال استبيانات فعالياتك السابقة قبل الانضمام');
-        setTimeout(() => { window.location.href = '/player/feedback'; }, 1500);
-        return;
-      }
       // إذا الخطأ متعلق بالتذكرة → نعرض شاشة إدخال التذكرة مباشرة
       const isTicketError = errMsg.includes('التذكرة') || errMsg.includes('ticket');
       if (err.response?.requiresConfirmation) {

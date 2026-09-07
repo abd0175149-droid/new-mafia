@@ -13,7 +13,8 @@ import { sendPushToPlayers } from '../services/fcm.service.js';
 const SESSION_ID = Number(process.argv[2] || 219);
 
 const TITLE = '📋 تذكير — قيّم فعاليتك السابقة';
-const BODY = 'لن تتمكن من حجز أو دخول الفعاليات القادمة قبل تقييم فعاليتك السابقة. التقييم أقل من دقيقة 🙏';
+// 🔴 لم يعد الحجبُ قائماً — فلا يجوز أن يبقى النصُّ تهديداً بما لا يقع.
+const BODY = 'رأيك في فعاليتك السابقة يأخذ أقلّ من دقيقة — ويصنع فعاليتك القادمة 🙏';
 
 async function main() {
   if (!Number.isInteger(SESSION_ID) || SESSION_ID <= 0) {

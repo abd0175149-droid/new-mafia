@@ -1201,25 +1201,10 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
         }
       }
 
-      // ── بوّابة الفيدباك: منع الانضمام لغرفة جديدة عند وجود استبيانات إلزامية معلّقة (مرّت مهلتها) ──
-      // يُسمح للاعب العائد لنفس الغرفة بالدخول دون فحص.
-      if (data.playerId && !state.players.some((p: any) => p.playerId === data.playerId)) {
-        try {
-          const { countBlockingPending } = await import('../services/feedback.service.js');
-          const blocking = await countBlockingPending(data.playerId);
-          if (blocking > 0) {
-            return callback({
-              success: false,
-              error: 'يجب إكمال استبيانات فعالياتك السابقة قبل الانضمام',
-              code: 'PENDING_SURVEYS',
-              pendingCount: blocking,
-              redirect: '/player/feedback',
-            });
-          }
-        } catch (e: any) {
-          console.warn('⚠️ feedback gate (join) error:', e.message);
-        }
-      }
+      // 🔴 أُزيلت بوّابةُ الفيدباك (قرارُ المالك): كانت تمنع الانضمامَ لغرفةٍ
+      //    جديدةٍ عند وجود استبياناتٍ معلّقة، و٢١٥ من ٢٤١ لاعباً نشطاً كانوا
+      //    محجوبين بها في اللحظة نفسِها بلا مفتاحٍ يفكّها. الاستبيانُ تذكيرٌ
+      //    بإشعارٍ الآن، لا حاجزٌ عند الباب.
 
       // ── 📍 بوّابة سياج الفعاليّة ──
       // تُطبّق على **الوافد الجديد وحده**. من هو في state.players أصلاً يمرّ —

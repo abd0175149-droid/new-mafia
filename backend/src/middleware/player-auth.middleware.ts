@@ -156,33 +156,10 @@ export function blockIfDeleting(req: Request, res: Response, next: NextFunction)
   next();
 }
 
-// ── Middleware: حظر الحجز/الانضمام إن وُجدت استبيانات إلزامية معلّقة (مرّت مهلتها) ──
-export async function requireNoPendingFeedback(req: Request, res: Response, next: NextFunction): Promise<void> {
-  const playerId = req.playerAccount?.playerId;
-  if (!playerId) {
-    res.status(401).json({ error: 'غير مصادق' });
-    return;
-  }
-  try {
-    const { countBlockingPending } = await import('../services/feedback.service.js');
-    const blocking = await countBlockingPending(playerId);
-    if (blocking > 0) {
-      res.status(403).json({
-        success: false,
-        error: 'يجب إكمال استبيانات فعالياتك السابقة قبل المتابعة',
-        code: 'PENDING_SURVEYS',
-        pendingCount: blocking,
-        redirect: '/player/feedback',
-      });
-      return;
-    }
-    next();
-  } catch (err: any) {
-    // عند خطأ غير متوقّع لا نحجب اللاعب (سلوك آمن)
-    console.warn('⚠️ requireNoPendingFeedback error:', err.message);
-    next();
-  }
-}
+// 🔴 حُذف `requireNoPendingFeedback` (قرارُ المالك: أُلغي حجبُ الاستبيان).
+//    لم يُترك معطَّلاً بل حُذف: تنفيذٌ حاجبٌ غيرُ مركَّبٍ يبقى فخّاً — يُعاد
+//    تركيبُه سهواً بعد شهور، ويُقرأ من الشفرة كأنّ الحجبَ ما زال سياسة.
+//    الاستبيانُ يبقى تذكيراً بإشعار.
 
 // ── Middleware اختياري: يحاول فك التوكن بدون حظر ──
 
