@@ -78,6 +78,24 @@ console.log(NL + '🧪 لاعبٌ يقرأ لاعباً آخر: يضيق الر�
   }
 }
 
+console.log(NL + '🧪 الأبوابُ المجاورة');
+{
+  const r1 = await get('/api/analytics/players');
+  ok('تحليلاتُ اللاعبين ترفض المجهول', r1.status === 401, 'جاء ' + r1.status);
+  const r2 = await get('/api/anticheat/room/TEST/signals');
+  ok('إشاراتُ الغرفة ترفض المجهول', r2.status === 401, 'جاء ' + r2.status);
+
+  // 🔴 شريكُ المكان: القرارُ المقفل أنّه لا يصل صفحةَ اللاعب أصلاً.
+  const lo = process.env.LOCATION_OWNER_TOKEN;
+  if (!lo) {
+    console.log('  ⏭️  تُخطّى — لا LOCATION_OWNER_TOKEN');
+  } else {
+    ok('شريكُ المكان يُمنع من /profile', (await get(`/api/player/${ID}/profile`, lo)).status === 403);
+    ok('ويُمنع من التحليلات', (await get('/api/analytics/players', lo)).status === 403);
+    ok('ويُمنع من إشارات الغرفة', (await get('/api/anticheat/room/TEST/signals', lo)).status === 403);
+  }
+}
+
 console.log(NL + '🧪 لا عدَّ للمعرّفات');
 {
   // 🔴 الاختبارُ الحقيقيّ للثغرة: مسحُ مدىً من المعرّفات كما يفعل المهاجم.

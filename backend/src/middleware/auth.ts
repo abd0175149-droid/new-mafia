@@ -89,14 +89,24 @@ export function authorize(...roles: string[]) {
 // يحافظ على قدرة الموظف/الأدمن على التصرّف نيابةً عن أي لاعب (واجهة الداش بورد)،
 // ويسمح للّاعب بتعديل بياناته فقط، ويمنع المجهول والوصول العابر للاعبين.
 // يضبط req.user (موظف) أو req.playerAccount (لاعب) عند النجاح.
-export function staffOrSelf(paramName: string = 'id') {
+// 🔴 قائمةُ أدوارٍ صريحة: «أيُّ توكن موظّف» كانت تعني في الإنتاج عشرةَ حسابات
+//    location_owner (شركاءُ أماكن خارجيّون) ومحاسباً — يقرؤون ملفَّ أيّ لاعبٍ
+//    ويعدّلون اسمَه وهاتفَه، والهاتفُ هويّةُ الدخول الوحيدة. والقرارُ المقفل:
+//    شريكُ المكان لا يصل صفحةَ اللاعب أصلاً.
+export const PLAYER_DATA_ROLES = ['admin', 'manager', 'leader'] as const;
+
+export function staffOrSelf(paramName: string = 'id', staffRoles: readonly string[] = PLAYER_DATA_ROLES) {
   return (req: Request, res: Response, next: NextFunction): void => {
     const authHeader = req.headers.authorization;
     if (authHeader?.startsWith('Bearer ')) {
       const token = authHeader.slice(7);
-      // (1) توكن موظف صالح؟ → مسموح (يشمل تصرّف الأدمن نيابةً عن أي لاعب)
+      // (1) توكن موظف صالح بدورٍ مسموح؟ → مسموح (يشمل تصرّف الأدمن نيابةً عن أي لاعب)
       try {
         const decoded = jwt.verify(token, env.JWT_SECRET) as JwtPayload;
+        if (!staffRoles.includes(decoded.role)) {
+          res.status(403).json({ error: 'ليس لديك صلاحية لهذا الإجراء' });
+          return;
+        }
         req.user = decoded;
         return next();
       } catch { /* ليس توكن موظف — نجرّب توكن اللاعب */ }
@@ -130,7 +140,13 @@ export function authenticatePlayerOrStaff(req: Request, res: Response, next: Nex
   if (authHeader?.startsWith('Bearer ')) {
     const token = authHeader.slice(7);
     try {
-      req.user = jwt.verify(token, env.JWT_SECRET) as JwtPayload;
+      const decoded = jwt.verify(token, env.JWT_SECRET) as JwtPayload;
+      // نفسُ قائمة الأدوار: شريكُ المكان لا يقرأ ملفّاتِ اللاعبين من أيّ باب.
+      if (!PLAYER_DATA_ROLES.includes(decoded.role as any)) {
+        res.status(403).json({ error: 'ليس لديك صلاحية لهذا الإجراء' });
+        return;
+      }
+      req.user = decoded;
       return next();
     } catch { /* ليس توكن موظّف — نجرّب توكن اللاعب */ }
     const player = verifyPlayerToken(token);

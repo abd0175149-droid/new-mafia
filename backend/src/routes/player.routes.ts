@@ -14,6 +14,7 @@ import { haversineM } from '../services/geofence.service.js';
 import { authenticate, adminOnly, authorize, staffOrSelf, authenticatePlayerOrStaff } from '../middleware/auth.js';
 import { hashPlayerPassword } from '../middleware/player-auth.middleware.js';
 import { logStaffAction } from '../services/staff-action-log.service.js';
+import { rateLimit } from '../middleware/rate-limit.js';
 import {
   findPlayerByPhone,
   createPlayer,
@@ -453,7 +454,13 @@ router.delete('/:id', authenticate, adminOnly, async (req: Request, res: Respons
 });
 
 // ── POST /api/player/lookup — البحث عن لاعب برقم الهاتف ──
-router.post('/lookup', async (req: Request, res: Response) => {
+// 🔴 لا حارسَ مصادقةٍ هنا — هذه خطوةُ ما قبل الدخول، فالمجهولُ هو المستعمل.
+//    والحمايةُ الممكنة حدُّ معدّل: بدونه المسارُ عدّادُ أرقامٍ يكشف مَن في
+//    النادي ومَن ليس فيه، رقماً رقماً. القيمُ نسخةٌ عن `player-auth/login`.
+router.post('/lookup', rateLimit({
+  windowMs: 15 * 60 * 1000, max: 120, keyPrefix: 'player-lookup',
+  identity: (req) => req.body?.phone, identityMax: 10,
+}), async (req: Request, res: Response) => {
   try {
     const { phone } = req.body;
     if (!phone) {
@@ -485,7 +492,9 @@ router.post('/lookup', async (req: Request, res: Response) => {
     console.log(`[Lookup] 📦 Unified result:`, unified ? `Found: ${unified.name} (id=${unified.id})` : 'NOT FOUND');
 
     if (unified) {
-      await touchPlayerActivity(unified.id);
+      // 🔴 لا ختمَ نشاطٍ هنا: كان مجهولٌ يكتب في `players` بلا مصادقة، ومن
+      //    يطرق البابَ بلا دخولٍ يُحسب «نشطاً اليوم» — وlast_active_at مقامُ
+      //    شرائح لوحة التحليلات كلِّها. الختمُ مكانُه بعد نجاح كلمة السرّ.
       return res.json({
         found: true,
         player: {
@@ -512,16 +521,15 @@ router.post('/lookup', async (req: Request, res: Response) => {
     if (results.length > 0) {
       const p = results[0];
       // ترحيل تلقائي: إنشاء حساب في جدول players الموحد
-      let unifiedPlayerId = null;
-      try {
-        const migratedPlayer = await createPlayer({
-          phone: p.phone || phone,
-          name: p.playerName,
-          gender: p.gender || 'MALE',
-          dob: p.dateOfBirth || undefined,
-        });
-        if (migratedPlayer) unifiedPlayerId = migratedPlayer.id;
-      } catch { /* ignore migration errors */ }
+      // 🔴 لا إنشاءَ حسابٍ من مسارٍ مجهول. كان هذا يُنشئ حساباً كاملاً بكلمة
+      //    السرّ الافتراضيّة لأيّ رقمٍ له صفٌّ قديمٌ في session_players، بلا أن
+      //    يُثبت أحدٌ ملكيّةَ الرقم — فمن يعرف واحداً من الـ٤٥ رقماً القديمة
+      //    (مقيسةٌ على الإنتاج) يملك حساباً بكلمة سرٍّ يعرفها الجميع.
+      //
+      //    ومن بقي بلا حسابٍ موحَّدٍ يمرّ من `/register` كأيّ لاعبٍ جديد:
+      //    الردُّ أدناه يعيد `playerId: null` وهو ما كان يفعله أصلاً حين يفشل
+      //    الترحيل، فالعميلُ يعرف هذه الحالةَ ويتعامل معها.
+      const unifiedPlayerId: number | null = null;
 
       return res.json({
         found: true,
@@ -668,7 +676,11 @@ router.get('/:id/profile', authenticatePlayerOrStaff, async (req: Request, res: 
             roomCode: state.roomCode,
             gameName: state.config?.gameName,
             physicalId: p.physicalId,
-            role: p.role,
+            // 🔴 الدورُ يُحجب حتّى يثبّته الليدر — نسخةٌ عن player-auth.routes.ts:392.
+            //    كان هذا المنفذُ يُخرجه خاماً بينما `/me` يحجبه، فكان اللاعبُ
+            //    يقرأ دورَه من هنا **قبل أن يكشفه الليدر**: بابٌ خلفيٌّ حول
+            //    توقيتِ الكشف، لا خرقَ خصوصيّةٍ فحسب.
+            role: state.rolesConfirmed ? (p.role || null) : null,
             isAlive: p.isAlive,
             phase: state.phase,
           };

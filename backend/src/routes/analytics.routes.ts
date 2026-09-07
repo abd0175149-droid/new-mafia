@@ -15,7 +15,11 @@ import { loadOptions } from '../reports/options.js';
 const router = Router();
 
 // ── GET /players — المقاييس المُخزّنة (كاش) لكل اللاعبين ──
-router.get('/players', authenticate, async (_req: Request, res: Response) => {
+// 🔴 مديرٌ فأعلى: `authenticate` وحدَه كان يسلّم دفترَ هواتف النادي كلِّه لأيّ
+//    حسابِ موظّفٍ مهما دنا دورُه — بما فيه العشرةُ location_owner. ولا adminOnly:
+//    القائمةُ الجانبيّة تعرض البندَ للمدير (layout.tsx:52) فيقع على 403.
+//    وmanagerOrAbove هو حدُّ إخوته الخمسةِ في هذا الملفّ أصلاً.
+router.get('/players', authenticate, managerOrAbove, async (_req: Request, res: Response) => {
   try {
     const { payload, refreshedAt } = await getCache();
     res.json({ success: true, refreshedAt, generatedAt: payload.generatedAt, today: payload.today, players: payload.players || [] });
@@ -35,7 +39,8 @@ router.post('/refresh', authenticate, adminOnly, async (_req: Request, res: Resp
 });
 
 // ── GET /config — قواعد الشرائح + المقاييس المتاحة + الافتراضيّ ──
-router.get('/config', authenticate, async (_req: Request, res: Response) => {
+// يُنادى مع `/players` في الطلب نفسِه (page.tsx:130) — فحدُّه حدُّه.
+router.get('/config', authenticate, managerOrAbove, async (_req: Request, res: Response) => {
   try {
     const config = await getConfig();
     res.json({ success: true, config, defaults: DEFAULT_CONFIG, metrics: METRIC_DEFS });

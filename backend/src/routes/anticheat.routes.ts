@@ -4,7 +4,7 @@
 import { Router, type Request, type Response } from 'express';
 import { sql } from 'drizzle-orm';
 import { getDB } from '../config/db.js';
-import { authenticate, adminOnly } from '../middleware/auth.js';
+import { authenticate, adminOnly, leaderOrAbove } from '../middleware/auth.js';
 import { computeAnticheatOverview } from '../services/anticheat.service.js';
 
 const router = Router();
@@ -38,8 +38,15 @@ router.get('/overview', authenticate, adminOnly, async (req: Request, res: Respo
 // لوحة المراقبة تُبنى من بثّ السوكِت، فكان تحديث صفحة الليدر (أو فتحها من جهازٍ
 // ثانٍ) يمحو سجلّ المباراة كلّه. هنا تُعاد الإشارات المخزّنة بنفس شكل حمولة
 // `leader:cheat-signal` تماماً، فتمرّ في نفس مُخفِّض الواجهة بلا منطقٍ ثانٍ.
-// متاحةٌ لكلّ موظّف (ليدر/مدير/أدمن) — لا adminOnly: الليدر هو المستهلك الأصليّ.
-router.get('/room/:roomId/signals', authenticate, async (req: Request, res: Response) => {
+// ليدر فأعلى — لا adminOnly (يكسر المستهلكَ الأصليّ)، ولا `authenticate` وحدَه.
+//
+// 🔴 `authenticate` وحدَه يقبل **أيَّ** توكن موظّف، وفي الإنتاج عشرةُ حسابات
+//    location_owner ومحاسب. والردُّ يحمل دورَ كلّ لاعبٍ وفريقَه في غرفةٍ
+//    تُلعب الآن — فصاحبُ مقهًى كان يقرأ أدوارَ الليلة كلَّها.
+//
+// 🔴 والاختلالُ كان مقلوباً: مسارُ السوكِت يُصفّي بالدور **داخل الغرفة**،
+//    بينما منفذُ HTTP الذي يُرطّبه بلا حصرِ غرفةٍ ولا دور — أضعفُ من البثّ.
+router.get('/room/:roomId/signals', authenticate, leaderOrAbove, async (req: Request, res: Response) => {
   const db = getDB();
   if (!db) return res.status(503).json({ error: 'DB unavailable' });
   try {
