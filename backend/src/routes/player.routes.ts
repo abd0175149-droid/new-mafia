@@ -588,6 +588,35 @@ router.post('/register', async (req: Request, res: Response) => {
   }
 });
 
+// ── البطاقةُ العامّة — قائمةُ سماحٍ صريحة ──
+//
+// 🔴 قائمةُ سماحٍ لا قائمةَ حجب. سببُ الثغرة الأصليّ أنّ `getPlayerProfile`
+//    تُرجع الصفَّ كاملاً ناقصاً منه ما عُرف خطرُه (البصمة والتشبس)، فالهاتفُ
+//    وتاريخُ الميلاد خرجا لأنّ أحداً لم يفكّر فيهما. هنا يُضاف الحقلُ عمداً
+//    أو لا يخرج أصلاً — ويومَ يُضاف عمودٌ جديد إلى `players` لا يتسرّب صامتاً.
+//
+// 🔴 ولا `activeGame` بحال: دورُ اللاعب في مباراةٍ جاريةٍ سرُّ اللعبة نفسِها،
+//    وكشفُه للاعبٍ آخر يُفسدها لا يخرق الخصوصيّةَ فحسب.
+//
+// 🔴 ودالّةٌ واحدةٌ لمنفذين: لو نُسخ الجسمُ مرّتين لتباعدا عند أوّل تعديل،
+//    وتباعُدُهما يعني حقلاً يُضاف في مسارٍ ويُنسى في الآخر.
+function publicCard(profile: any) {
+  const p = profile?.player || {};
+  return {
+    success: true,
+    player: {
+      id: p.id,
+      name: p.name,
+      avatarUrl: p.avatarUrl ?? null,
+      gender: p.gender ?? null,
+      rankTier: p.rankTier ?? 'INFORMANT',
+    },
+    progression: profile?.progression ?? null,
+    stats: profile?.stats ?? null,
+    matchHistory: Array.isArray(profile?.matchHistory) ? profile.matchHistory.slice(0, 5) : [],
+  };
+}
+
 // ── GET /api/player/:id/profile — بروفايل اللاعب الكامل ──
 //
 // 🔴 كان هذا المسارُ مفتوحاً بلا أيّ وسيط بينما جيرانُه كلُّهم محروسون، فكان
@@ -595,19 +624,31 @@ router.post('/register', async (req: Request, res: Response) => {
 //    وتاريخَ الميلاد والبريد وسجلَّ المباريات. وأخطرُ منه في اللعب أنّ الردَّ
 //    يحمل `activeGame` — دورَ اللاعب السرّيَّ في مباراةٍ تُلعب الآن.
 //
-// 🔴 وstaffOrSelf لا authenticate: الحارسُ الصِّرف يكسر تطبيقَ اللاعبين، إذ
-//    تقرأ صفحاتُ اللاعب بروفايلَه من هنا. وهي تملك التوكنَ أصلاً وتستعمله في
-//    نداءاتٍ أخرى في الدفعة نفسِها — نُسي على هذا النداء وحدَه.
-router.get('/:id/profile', staffOrSelf('id'), async (req: Request, res: Response) => {
+// 🔴 وليس `staffOrSelf`: هي تردّ 403 على لاعبٍ يقرأ لاعباً آخر، وذلك يكسر
+//    بطاقةَ لوحة الصدارة في **النسخة المشحونة من التطبيق** — ونسخةُ الهاتف
+//    لا تُصلحها نشرةُ خادم. فالمصادقةُ إلزاميّةٌ للجميع، والتدرّجُ في المحتوى:
+//    الموظّفُ واللاعبُ عن نفسه يأخذان الملفَّ كاملاً، واللاعبُ عن غيره يأخذ
+//    البطاقةَ العامّة نفسَها التي يخدمها `/:id/public`.
+//
+//    أي أنّ الردَّ يضيق ولا ينكسر: صفرُ تسريبٍ وصفرُ عطل. والعملاءُ الجدد
+//    ينادون `/public` صراحةً؛ وهذا المسارُ يحمي القدماء.
+router.get('/:id/profile', authenticatePlayerOrStaff, async (req: Request, res: Response) => {
   try {
     const playerId = parseInt(req.params.id);
     if (!playerId || isNaN(playerId)) {
       return res.status(400).json({ success: false, error: 'معرّف اللاعب غير صالح' });
     }
 
-    const profile = await getPlayerProfile(playerId);
+    const profile: any = await getPlayerProfile(playerId);
     if (!profile) {
       return res.status(404).json({ success: false, error: 'اللاعب غير موجود' });
+    }
+
+    // 🔴 لاعبٌ يقرأ لاعباً آخر ⇒ البطاقةُ العامّة، لا 403 ولا الملفُّ الكامل.
+    //    يُقاس على `req.playerAccount` وحدَه: الموظّفُ يضبط `req.user` فلا يدخل هنا.
+    const asPlayer = (req as any).playerAccount;
+    if (asPlayer && asPlayer.playerId !== playerId) {
+      return res.json(publicCard(profile));
     }
 
     // التحقق من لعبة نشطة (real-time من Redis) — تجاهل المجمدين
@@ -665,22 +706,7 @@ router.get('/:id/public', authenticatePlayerOrStaff, async (req: Request, res: R
 
     const profile: any = await getPlayerProfile(playerId);
     if (!profile) return res.status(404).json({ success: false, error: 'اللاعب غير موجود' });
-
-    const p = profile.player || {};
-    return res.json({
-      success: true,
-      player: {
-        id: p.id,
-        name: p.name,
-        avatarUrl: p.avatarUrl ?? null,
-        gender: p.gender ?? null,
-        rankTier: p.rankTier ?? 'INFORMANT',
-      },
-      progression: profile.progression ?? null,
-      stats: profile.stats ?? null,
-      // آخرُ خمسٍ فقط — وهو كلُّ ما تعرضه البطاقة
-      matchHistory: Array.isArray(profile.matchHistory) ? profile.matchHistory.slice(0, 5) : [],
-    });
+    return res.json(publicCard(profile));
   } catch (err: any) {
     console.error('❌ Public profile error:', err.message);
     return res.status(500).json({ success: false, error: 'خطأ في جلب البطاقة' });

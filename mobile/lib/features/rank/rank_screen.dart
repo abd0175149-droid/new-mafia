@@ -316,7 +316,11 @@ class RankScreenState extends State<RankScreen>
   Future<void> _viewProfile(int id) async {
     if (id == _myId) return;
     try {
-      final r = await ApiClient.instance.get('/api/player/$id/profile');
+      // 🔴 المنفذُ العامُّ لا `/profile`: الشرطُ أعلاه يعني أنّ هذه الدالّة لا
+      //    تُنادى إلّا على **لاعبٍ آخر**، و`/profile` صار محروساً بـstaffOrSelf
+      //    فيردّ 403 لكلّ نداءٍ منها — وفشلُها صامتٌ فلا يُفتح المودالُ ولا
+      //    تظهر رسالة. والنظيرُ الويبيُّ رُحِّل ونُسي هذا.
+      final r = await ApiClient.instance.get('/api/player/$id/public');
       if (!mounted || r is! Map || r['success'] != true) return;
       final p = ProfileResponse.fromJson(Map<String, dynamic>.from(r));
       final co = _coPlayers.where((c) => c.id == id).firstOrNull;

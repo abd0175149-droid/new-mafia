@@ -59,6 +59,25 @@ console.log(NL + '🧪 البطاقةُ العامّة لا تحمل بيانا�
   }
 }
 
+console.log(NL + '🧪 لاعبٌ يقرأ لاعباً آخر: يضيق الردُّ ولا ينكسر');
+{
+  // 🔴 النسخةُ المشحونة من التطبيق تنادي /profile لبطاقة لاعبٍ آخر.
+  //    فـ403 كان يكسرها صامتاً — والصحيحُ أن يُرجَع لها ما يُرجَع من /public.
+  const tk = process.env.PLAYER_TOKEN;
+  const OTHER = Number(process.env.OTHER_ID || 50);
+  if (!tk) {
+    console.log('  ⏭️  تُخطّى — لا PLAYER_TOKEN');
+  } else {
+    const r = await get(`/api/player/${OTHER}/profile`, tk);
+    ok('يردّ ٢٠٠ لا ٤٠٣ — لا كسرَ للعملاء القدامى', r.status === 200, 'جاء ' + r.status);
+    const P = r.body?.player || {};
+    ok('ولا هاتفَ فيه', !('phone' in P));
+    ok('ولا تاريخَ ميلاد', !('dob' in P));
+    ok('ولا activeGame', !('activeGame' in (r.body || {})));
+    ok('وفيه ما تعرضه البطاقة', !!P.name && !!r.body?.progression);
+  }
+}
+
 console.log(NL + '🧪 لا عدَّ للمعرّفات');
 {
   // 🔴 الاختبارُ الحقيقيّ للثغرة: مسحُ مدىً من المعرّفات كما يفعل المهاجم.
