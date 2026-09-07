@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../../core/api/api_client.dart';
 import '../../core/storage/session_store.dart';
 import '../profile/profile_palette.dart';
+import '../../app/router.dart';
 
 // ══════════════════════════════════════════════════════
 // 🎂 BDAY-1 — بوّابة تاريخ الميلاد
@@ -51,8 +52,14 @@ class _BirthdayGateState extends State<BirthdayGate> {
 
   Future<void> _pick() async {
     final now = DateTime.now();
+    // 🔴 سياقُ الـNavigator لا سياقُ هذه الأداة: البوّابة تُركَّب في
+    //    `MaterialApp.builder` خارج شجرة الـNavigator، فـ`showDatePicker`
+    //    بسياقها لا تجد Navigator وتفشل — فتبدو الضغطةُ بلا أثر والتطبيقُ
+    //    متجمّداً عند إنشاء الحساب. (ظهر على أندرويد في الإنتاج.)
+    final navCtx = rootNavigatorKey.currentContext;
+    if (navCtx == null) { setState(() => _error = 'تعذّر فتح التقويم — أعد فتح التطبيق'); return; }
     final d = await showDatePicker(
-      context: context,
+      context: navCtx,
       // 🔴 يفتح على 1998 لا على اليوم: التمرير من اليوم إلى الثمانينات
       //    عشرات اللفّات، وأغلب اللاعبين مواليد التسعينات.
       initialDate: _picked ?? DateTime(1998, 1, 1),

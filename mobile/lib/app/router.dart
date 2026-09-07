@@ -47,7 +47,12 @@ abstract final class Routes {
   static const publicPaths = <String>[login, debugPush];
 }
 
-final _rootKey = GlobalKey<NavigatorState>();
+// 🔴 مُصدَّر: البوّابات تُركَّب في `MaterialApp.builder` أي **خارج** شجرة
+//    الـNavigator، فأيّ نداءٍ يحتاج Navigator منها (showDatePicker،
+//    showModalBottomSheet، أيّ حوار) يفشل صامتاً — تبدو الضغطةُ بلا أثر
+//    والشاشةُ متجمّدة. هذا المفتاحُ سياقُها الصحيح.
+final GlobalKey<NavigatorState> rootNavigatorKey = GlobalKey<NavigatorState>();
+final _rootKey = rootNavigatorKey;
 
 // 🔴 `goBranch` لا يعيد بناء الفرع — حالته محفوظة بالتصميم. فالعودة إلى
 //    «التصنيف» بعد مباراة كانت ستعرض RR القديم إلى الأبد. المفاتيح تتيح

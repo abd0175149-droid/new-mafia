@@ -247,17 +247,29 @@ export default function ConsentGate({ children }: { children: React.ReactNode })
       {status.isMinor && (
         <div className="rounded-2xl p-3.5" style={{ border: '1px solid rgba(197,160,89,.3)', background: 'rgba(197,160,89,.06)' }}>
           <p className="text-[13px] font-bold text-white mb-1">موافقة وليّ الأمر</p>
+          {/* 🔴 العمرُ المحسوب مذكورٌ صراحةً: «عمرُك دون الثامنة عشرة» بلا رقمٍ
+              ادّعاءٌ لا يستطيع اللاعب تكذيبه. وإن كان التاريخ خاطئاً — ملءٌ
+              تلقائيّ أو خطأُ إدخال — فالرقمُ يكشفه فوراً بدل أن يحتار. */}
           <p className="text-[12px] text-gray-400 leading-relaxed mb-2.5">
-            عمرُك دون الثامنة عشرة، ويلزم تأكيدُ وليّ أمرك. تُسجَّل الموافقةُ باسمه.
+            {typeof status.age === 'number'
+              ? <>تاريخُ ميلادك المسجَّل يجعل عمرَك <b className="text-white">{status.age}</b> سنة، ويلزم تأكيدُ وليّ أمرك. تُسجَّل الموافقةُ باسمه.</>
+              : <>عمرُك دون الثامنة عشرة، ويلزم تأكيدُ وليّ أمرك. تُسجَّل الموافقةُ باسمه.</>}
           </p>
+          {typeof status.age === 'number' && status.age < 8 && (
+            <p className="text-[11.5px] mb-2.5" style={{ color: '#fbbf24' }}>
+              ⚠️ هذا العمرُ غيرُ منطقيّ — تاريخُ ميلادك مسجَّلٌ خطأً. صحّحه من ملفّك الشخصيّ.
+            </p>
+          )}
           <input
             value={guardian.name} onChange={e => setGuardian(g => ({ ...g, name: e.target.value }))}
             placeholder="اسمُ وليّ الأمر" dir="rtl"
+            autoComplete="off" name="guardian-name-nofill" data-lpignore="true"
             className="w-full mb-2 px-3 py-2 rounded-xl text-[14px] text-white outline-none"
             style={{ background: 'rgba(255,255,255,.04)', border: '1px solid rgba(255,255,255,.1)' }} />
           <input
             value={guardian.phone} onChange={e => setGuardian(g => ({ ...g, phone: e.target.value }))}
             placeholder="07XXXXXXXX" inputMode="tel" dir="ltr"
+            autoComplete="off" name="guardian-phone-nofill" data-lpignore="true"
             className="w-full px-3 py-2 rounded-xl text-[14px] text-white outline-none"
             style={{ background: 'rgba(255,255,255,.04)', border: '1px solid rgba(255,255,255,.1)' }} />
         </div>

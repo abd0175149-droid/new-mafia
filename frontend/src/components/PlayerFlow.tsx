@@ -2876,11 +2876,16 @@ export default function PlayerFlow({ initialRoomCode = '', inviteFlag = false, i
                 </div>
 
                 <div>
+                  {/* 🔴 `autoComplete="off"` على الثلاثة: متصفّحُ أندرويد يملأ
+                      الحقولَ تلقائيّاً بسخاء، وتاريخُ ميلادٍ يُملأ بلا علم صاحبه
+                      يُنتج عمراً خاطئاً — وقد يجعل بالغاً «قاصراً» فتحجبه بوّابةُ
+                      الموافقة وتطلب وليَّ أمر. */}
                   <label className="block text-[10px] font-mono text-[#555] mb-2 tracking-[0.2em] uppercase">Date of Birth</label>
                   <div className="grid grid-cols-3 gap-2 font-mono">
                     <select
                       value={dobDay}
                       onChange={(e) => setDobDay(e.target.value)}
+                      autoComplete="off" name="bday-d-nofill"
                       className="p-3 bg-[#0c0c0c] border border-[#2a2a2a] rounded-lg text-white text-center focus:border-[#C5A059] focus:outline-none text-xs"
                     >
                       <option value="">DD</option>
@@ -2891,6 +2896,7 @@ export default function PlayerFlow({ initialRoomCode = '', inviteFlag = false, i
                     <select
                       value={dobMonth}
                       onChange={(e) => setDobMonth(e.target.value)}
+                      autoComplete="off" name="bday-m-nofill"
                       className="p-3 bg-[#0c0c0c] border border-[#2a2a2a] rounded-lg text-white text-center focus:border-[#C5A059] focus:outline-none text-xs"
                     >
                       <option value="">MM</option>
@@ -2901,6 +2907,7 @@ export default function PlayerFlow({ initialRoomCode = '', inviteFlag = false, i
                     <select
                       value={dobYear}
                       onChange={(e) => setDobYear(e.target.value)}
+                      autoComplete="off" name="bday-y-nofill"
                       className="p-3 bg-[#0c0c0c] border border-[#2a2a2a] rounded-lg text-white text-center focus:border-[#C5A059] focus:outline-none text-xs"
                     >
                       <option value="">YYYY</option>
