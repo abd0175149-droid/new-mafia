@@ -53,7 +53,7 @@ export default function RankPage() {
     Promise.all([
       fetch('/api/player-app/leaderboard').then(r => r.json()),
       fetch(`/api/player-app/${player.playerId}/co-players`, { headers: { Authorization: `Bearer ${player.token}` } }).then(r => r.json()),
-      fetch(`/api/player/${player.playerId}/profile`).then(r => r.json()),
+      fetch(`/api/player/${player.playerId}/profile`, { headers: { Authorization: `Bearer ${player.token}` } }).then(r => r.json()),
       fetch('/api/progression-settings/public').then(r => r.json()).catch(() => null),
       fetch('/api/seasons/public/active').then(r => r.json()).catch(() => null),
       fetch('/api/seasons/public/list').then(r => r.json()).catch(() => null),
@@ -135,7 +135,9 @@ export default function RankPage() {
   };
 
   const viewProfile = async (id: number) => {
-    const res = await fetch(`/api/player/${id}/profile`);
+    // 🔴 بطاقةُ لاعبٍ آخر تُقرأ من المنفذ العامّ لا من `/profile`: الأخيرُ يحمل
+    //    الهاتفَ وتاريخَ الميلاد ودورَ المباراة الجارية.
+    const res = await fetch(`/api/player/${id}/public`, { headers: { Authorization: `Bearer ${player?.token}` } });
     const data = await res.json();
     if (data.success) {
       setSelectedProfile(data);

@@ -599,7 +599,12 @@ export default function ChipsFramesPreviewPage() {
     if (!id || isNaN(id)) { setPidError('أدخل رقم لاعب صحيح'); return; }
     setPidBusy(true); setPidError('');
     try {
-      const res = await fetch(`${API_URL}/api/player/${id}/profile`);
+      // 🔴 المنفذُ العامُّ لا `/profile`: هذه صفحةُ عرضٍ بلا مصادقةٍ خاصّةٍ بها،
+      //    وكانت تسحب بروفايلاً كاملاً فيه الهاتفُ وتاريخُ الميلاد لأيّ رقمٍ يُكتب.
+      //    وتوكنُ الموظّف يُرسَل إن وُجد — فبلا حسابٍ لا تُفتح البطاقةُ أصلاً.
+      const tk = typeof window !== 'undefined' ? localStorage.getItem('token') : null;
+      const res = await fetch(`${API_URL}/api/player/${id}/public`,
+        tk ? { headers: { Authorization: `Bearer ${tk}` } } : undefined);
       const d = await res.json().catch(() => ({}));
       if (!res.ok || !d?.player) throw new Error(d?.error || 'لم يُعثر على اللاعب');
       const p = d.player;

@@ -88,7 +88,7 @@ function GamesContent() {
     Promise.all([
       fetch(`/api/player-app/activities/upcoming?playerId=${player.playerId}`).then(r => r.json()),
       fetch(`/api/player-app/${player.playerId}/bookings`, { headers: { Authorization: `Bearer ${player.token}` } }).then(r => r.json()),
-      fetch(`/api/player/${player.playerId}/profile`).then(r => r.json()),
+      fetch(`/api/player/${player.playerId}/profile`, { headers: { Authorization: `Bearer ${player.token}` } }).then(r => r.json()),
       fetch('/api/player-app/my-active-rooms', { headers: { Authorization: `Bearer ${player.token}` } }).then(r => r.json()),
     ]).then(([actData, bookData, profileData, roomsData]) => {
       if (actData.success) setActivities(actData.activities || []);

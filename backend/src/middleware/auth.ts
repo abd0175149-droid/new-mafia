@@ -116,6 +116,32 @@ export function staffOrSelf(paramName: string = 'id') {
   };
 }
 
+// ── Middleware: أيُّ توكنٍ صالح — موظّفٌ أو لاعب — بلا ربطٍ بمعرِّف المورد ──
+//
+// 🔴 لمواردَ يقرؤها لاعبٌ عن لاعبٍ آخر بمشروعيّة (بطاقةُ لوحة الصدارة): لا
+//    `staffOrSelf` لأنّها تحصر اللاعبَ في نفسه فتكسر الميزة، ولا فتحُ الباب
+//    لأنّ المجهولَ لا شأنَ له بها. والمنفذُ الذي يستعملها مسؤولٌ عن ألّا
+//    يُخرج إلّا ما يجوز لكلّ لاعبٍ رؤيتُه.
+//
+// 🔴 وترتيبُ المحاولتين كترتيب `staffOrSelf`: توكنُ الموظّف أوّلاً، فالمفتاحان
+//    مختلفان وتوكنُ اللاعب لا يجتاز تحقّقَ الموظّف ولا العكس.
+export function authenticatePlayerOrStaff(req: Request, res: Response, next: NextFunction): void {
+  const authHeader = req.headers.authorization;
+  if (authHeader?.startsWith('Bearer ')) {
+    const token = authHeader.slice(7);
+    try {
+      req.user = jwt.verify(token, env.JWT_SECRET) as JwtPayload;
+      return next();
+    } catch { /* ليس توكن موظّف — نجرّب توكن اللاعب */ }
+    const player = verifyPlayerToken(token);
+    if (player) {
+      req.playerAccount = player;
+      return next();
+    }
+  }
+  res.status(401).json({ error: 'غير مصادق — يرجى تسجيل الدخول' });
+}
+
 // ── Middleware: admin فقط ─────────────────────────────
 
 export const adminOnly = authorize('admin');

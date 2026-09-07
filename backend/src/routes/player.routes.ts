@@ -11,7 +11,7 @@ import { players as playersTable, PLAYER_DEFAULT_PASSWORD, lockedLoginAttempts }
 import { eq, desc, sql, isNull } from 'drizzle-orm';
 import { locations } from '../schemas/admin.schema.js';
 import { haversineM } from '../services/geofence.service.js';
-import { authenticate, adminOnly, authorize, staffOrSelf } from '../middleware/auth.js';
+import { authenticate, adminOnly, authorize, staffOrSelf, authenticatePlayerOrStaff } from '../middleware/auth.js';
 import { hashPlayerPassword } from '../middleware/player-auth.middleware.js';
 import { logStaffAction } from '../services/staff-action-log.service.js';
 import {
@@ -589,7 +589,16 @@ router.post('/register', async (req: Request, res: Response) => {
 });
 
 // ── GET /api/player/:id/profile — بروفايل اللاعب الكامل ──
-router.get('/:id/profile', async (req: Request, res: Response) => {
+//
+// 🔴 كان هذا المسارُ مفتوحاً بلا أيّ وسيط بينما جيرانُه كلُّهم محروسون، فكان
+//    عدُّ الأرقام من ١ إلى ٨١٤ يسحب دفترَ هويّة النادي: الاسمَ والهاتفَ
+//    وتاريخَ الميلاد والبريد وسجلَّ المباريات. وأخطرُ منه في اللعب أنّ الردَّ
+//    يحمل `activeGame` — دورَ اللاعب السرّيَّ في مباراةٍ تُلعب الآن.
+//
+// 🔴 وstaffOrSelf لا authenticate: الحارسُ الصِّرف يكسر تطبيقَ اللاعبين، إذ
+//    تقرأ صفحاتُ اللاعب بروفايلَه من هنا. وهي تملك التوكنَ أصلاً وتستعمله في
+//    نداءاتٍ أخرى في الدفعة نفسِها — نُسي على هذا النداء وحدَه.
+router.get('/:id/profile', staffOrSelf('id'), async (req: Request, res: Response) => {
   try {
     const playerId = parseInt(req.params.id);
     if (!playerId || isNaN(playerId)) {
@@ -635,6 +644,46 @@ router.get('/:id/profile', async (req: Request, res: Response) => {
   } catch (err: any) {
     console.error('❌ Profile error:', err.message);
     return res.status(500).json({ success: false, error: 'خطأ في جلب البروفايل' });
+  }
+});
+
+// ── GET /api/player/:id/public — البطاقةُ العامّة (لاعبٌ يرى لاعباً) ──
+//
+// 🔴 لوحةُ الصدارة تفتح بطاقةَ لاعبٍ آخر، وكانت تقرؤها من `/profile` المفتوح.
+//    فحراستُه كانت ستكسر الميزة، وتوسيعُ الحارس كان سيُبقي الهاتفَ وتاريخَ
+//    الميلاد مكشوفَين لكلّ لاعب. فالمخرجُ منفذٌ ثالث: قائمةُ سماحٍ صريحةٌ لا
+//    قائمةَ حجب — يُضاف الحقلُ هنا عمداً أو لا يخرج أصلاً.
+//
+// 🔴 ولا `activeGame` هنا بحالٍ: دورُ اللاعب في مباراةٍ جاريةٍ سرُّ اللعبة
+//    نفسِها، وعرضُه للاعبٍ آخر يُفسدها لا يخرق الخصوصيّةَ فحسب.
+router.get('/:id/public', authenticatePlayerOrStaff, async (req: Request, res: Response) => {
+  try {
+    const playerId = parseInt(req.params.id);
+    if (!playerId || isNaN(playerId)) {
+      return res.status(400).json({ success: false, error: 'معرّف اللاعب غير صالح' });
+    }
+
+    const profile: any = await getPlayerProfile(playerId);
+    if (!profile) return res.status(404).json({ success: false, error: 'اللاعب غير موجود' });
+
+    const p = profile.player || {};
+    return res.json({
+      success: true,
+      player: {
+        id: p.id,
+        name: p.name,
+        avatarUrl: p.avatarUrl ?? null,
+        gender: p.gender ?? null,
+        rankTier: p.rankTier ?? 'INFORMANT',
+      },
+      progression: profile.progression ?? null,
+      stats: profile.stats ?? null,
+      // آخرُ خمسٍ فقط — وهو كلُّ ما تعرضه البطاقة
+      matchHistory: Array.isArray(profile.matchHistory) ? profile.matchHistory.slice(0, 5) : [],
+    });
+  } catch (err: any) {
+    console.error('❌ Public profile error:', err.message);
+    return res.status(500).json({ success: false, error: 'خطأ في جلب البطاقة' });
   }
 });
 
