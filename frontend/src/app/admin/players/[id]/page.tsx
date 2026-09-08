@@ -70,6 +70,7 @@ export default function PlayerCardPage() {
   const [busy, setBusy] = useState('');
   const [toast, setToast] = useState<{ msg: string; ok: boolean } | null>(null);
   const [noteDraft, setNoteDraft] = useState('');
+  const [zoom, setZoom] = useState(false);
 
   const say = (msg: string, ok = true) => { setToast({ msg, ok }); setTimeout(() => setToast(null), 3000); };
 
@@ -83,6 +84,14 @@ export default function PlayerCardPage() {
   }, [playerId]);
 
   useEffect(() => { if (playerId) load(); }, [playerId, load]);
+
+  // 🔴 Escape يُغلق العارض: النقرُ وحدَه يترك من يتصفّح بلوحة المفاتيح محبوساً.
+  useEffect(() => {
+    if (!zoom) return;
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setZoom(false); };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [zoom]);
 
   // ── الأفعال: كلُّها أدمن (قرارُ المالك) ──
   const act = async (key: string, fn: () => Promise<any>, okMsg: string) => {
@@ -172,9 +181,17 @@ export default function PlayerCardPage() {
 
       {/* ═══ ② الهويّة ═══ */}
       <div className="bg-gray-800/50 border border-gray-700/40 rounded-2xl p-4 flex items-center gap-3.5">
-        <div className="w-14 h-14 rounded-full bg-amber-500/15 text-amber-400 flex items-center justify-center text-xl font-black overflow-hidden shrink-0">
+        {/* 🔴 الصورةُ تُفتح بالحجم الكامل: الموظّفُ يتحقّق من وجهِ من أمامه،
+            و٥٦ بكسلاً لا تكفي للتعرّف. تُفتح بالنقر وبلوحة المفاتيح معاً. */}
+        <button
+          type="button"
+          onClick={() => id.avatarUrl && setZoom(true)}
+          disabled={!id.avatarUrl}
+          aria-label={id.avatarUrl ? 'تكبيرُ صورة اللاعب' : 'لا صورة'}
+          className={`w-14 h-14 rounded-full bg-amber-500/15 text-amber-400 flex items-center justify-center text-xl font-black overflow-hidden shrink-0 ${id.avatarUrl ? 'cursor-zoom-in hover:ring-2 hover:ring-amber-500/50 transition' : ''}`}
+        >
           {id.avatarUrl ? <Image src={`${API_URL}${id.avatarUrl}`} alt="" width={56} height={56} className="w-full h-full object-cover" /> : (id.name?.[0] || '؟')}
-        </div>
+        </button>
         <div className="min-w-0 flex-1">
           {/* 🔴 الاسمُ لا يُعرض وحدَه أبداً: ٤٤ اسماً مكرَّرٌ بين حسابين فأكثر */}
           <h1 className="text-lg font-black text-white truncate">{id.name}</h1>
@@ -314,6 +331,31 @@ export default function PlayerCardPage() {
             </Btn>
           </div>
         </Section>
+      )}
+
+      {/* ═══ عارضُ الصورة ═══ */}
+      {zoom && id.avatarUrl && (
+        <div
+          className="fixed inset-0 z-[60] bg-black/85 backdrop-blur-sm flex items-center justify-center p-4"
+          onClick={() => setZoom(false)}
+          role="dialog" aria-modal="true" aria-label="صورةُ اللاعب"
+        >
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            src={`${API_URL}${id.avatarUrl}`}
+            alt={`صورةُ ${id.name}`}
+            onClick={e => e.stopPropagation()}
+            className="max-w-full max-h-[85vh] rounded-2xl object-contain shadow-2xl"
+          />
+          <button
+            onClick={() => setZoom(false)}
+            aria-label="إغلاق"
+            className="absolute top-4 left-4 w-10 h-10 rounded-full bg-white/15 text-white text-xl leading-none hover:bg-white/25 transition"
+          >
+            ×
+          </button>
+          <p className="absolute bottom-6 text-white/70 text-[12px]">اضغط في أيّ مكانٍ للإغلاق</p>
+        </div>
       )}
 
       {toast && (
