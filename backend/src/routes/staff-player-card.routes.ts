@@ -654,8 +654,40 @@ async function buildSection(db: any, key: string, id: number, p: Row, isAdmin: b
         FROM player_last_fix WHERE player_id = ${id}
       `));
       const trail = one(await db.execute(sql`
-        SELECT count(*)::int AS n FROM player_fixes WHERE player_id = ${id}
+        SELECT count(*)::int AS n, min(captured_at) AS first, max(captured_at) AS last
+        FROM player_fixes WHERE player_id = ${id}
       `));
+
+      // 🔴 سجلُّ المواقع للأدمن وحدَه: مسارُ إنسانٍ عبر الأيّام بيانٌ شخصيٌّ
+      //    من أثقل ما نملك — أثقلُ من الهاتف، لأنّه يقول أين كان لا كيف يُبلَّغ.
+      //
+      // 🔴 وسقفٌ ٢٠٠ نقطة كسقف الشاشة القائمة: المسارُ يُقرأ لا يُحلَّل، وألفُ
+      //    نقطةٍ تجعله خطّاً مصمتاً لا معلومة.
+      let fixes: Row[] = [];
+      let venues: Row[] = [];
+      if (isAdmin) {
+        fixes = rows(await db.execute(sql`
+          SELECT latitude, longitude, accuracy_m, is_mocked, source, captured_at
+          FROM player_fixes WHERE player_id = ${id}
+          ORDER BY captured_at DESC LIMIT 200
+        `)).map(r => ({
+          lat: Number(r.latitude), lng: Number(r.longitude),
+          accuracyM: r.accuracy_m == null ? null : Number(r.accuracy_m),
+          isMocked: r.is_mocked === true, source: r.source ?? null,
+          at: new Date(r.captured_at).getTime(),
+        })).filter(x => Number.isFinite(x.lat) && Number.isFinite(x.lng));
+
+        // الأماكنُ لقياس القرب — تُرسم دوائرُ سياجها كما في الشاشة القائمة
+        venues = rows(await db.execute(sql`
+          SELECT id, name, latitude, longitude, geofence_radius_m
+          FROM locations
+          WHERE deleted_at IS NULL AND latitude IS NOT NULL AND longitude IS NOT NULL
+        `)).map(v => ({
+          id: v.id, name: v.name,
+          lat: Number(v.latitude), lng: Number(v.longitude),
+          radiusM: v.geofence_radius_m == null ? null : Number(v.geofence_radius_m),
+        }));
+      }
       // 🔴 الحالةُ الرابعة تُعرض صراحةً (قرارُ المالك): ٨٩ فعاليّةً من ١٠١
       //    بسياجٍ مُطفأ — وطيُّ القسم عندها يترك الموظّفَ يظنّ العطبَ في اللاعب.
       const tonight = one(await db.execute(sql`
@@ -680,6 +712,9 @@ async function buildSection(db: any, key: string, id: number, p: Row, isAdmin: b
           lat: isAdmin ? fix.latitude : null, lng: isAdmin ? fix.longitude : null,
         } : null,
         trailPoints: trail?.n ?? 0,
+        trailFrom: trail?.first ?? null,
+        trailTo: trail?.last ?? null,
+        fixes, venues,
         tonight: tonight
           ? { id: tonight.id, name: tonight.name, geofenceEnabled: !!tonight.geofence_enabled }
           : null,

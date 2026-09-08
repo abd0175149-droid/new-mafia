@@ -20,7 +20,16 @@ import { useEffect, useState, useCallback } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { motion } from 'framer-motion';
 import Image from 'next/image';
+import dynamic from 'next/dynamic';
 import { swalConfirm } from '@/lib/swal';
+import { trailColor, trailSize, groupStays, ago, dist, dur, haversineM } from '@/lib/trail';
+
+// 🔴 الخريطةُ تُحمَّل عند الطلب لا مع الصفحة: مكتبتُها ثقيلة، وتبويبُ الموقع
+//    يُفتح أحياناً بينما البطاقةُ تُفتح كلَّ مرّة.
+const VenueMap = dynamic(() => import('@/components/VenueMap'), {
+  ssr: false,
+  loading: () => <div className="h-[320px] rounded-xl bg-gray-800/40 animate-pulse" />,
+});
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || '';
 
@@ -826,8 +835,8 @@ function SectionView({ data, isAdmin }: { data: any; isAdmin: boolean }) {
               )}
               {f.isMocked && <Row k="⚠️ تنبيه" v="الجهازُ يبلّغ موقعاً مُصطنعاً" tone="crit" />}
               {isAdmin && f.lat != null && (
-                <a href={`/admin/players/map`} className="block mt-2 text-[12px] text-blue-400 hover:underline">
-                  ↗ افتح مسارَه على الخريطة — {ar(data.trailPoints)} نقطة
+                <a href="/admin/players/map" className="block mt-2 text-[12px] text-blue-400 hover:underline">
+                  ↗ افتحه في خريطة اللاعبين
                 </a>
               )}
             </Section>
@@ -852,6 +861,12 @@ function SectionView({ data, isAdmin }: { data: any; isAdmin: boolean }) {
                   tone="warn" />
               )}
             </Section>
+          )}
+
+          {/* ═══ 🗺️ مسارُ مواقعه ═══ */}
+          {isAdmin && data.fixes && data.fixes.length > 0 && (
+            <GeoTrail fixes={data.fixes} venues={data.venues || []}
+              total={data.trailPoints} from={data.trailFrom} to={data.trailTo} />
           )}
 
           {data.exempt && (
@@ -911,3 +926,122 @@ const TabBtn = ({ on, icon, label, onClick }: any) => (
     <span className="text-[15px] leading-none">{icon}</span>{label}
   </button>
 );
+
+// ══════════════════════════════════════════════════════
+// 🗺️ مسارُ مواقع اللاعب — خريطةٌ وسجلُّ مكوث
+//
+// 🔴 نقاطٌ لا زياراتٌ في القاعدة: التطبيقُ يبلّغ كلَّ بضع دقائق، فلاعبٌ جلس
+//    ثلاثَ ساعاتٍ يُنتج أربعين نقطةً فوق بعضها — تُقرأ أربعين زيارةً وهي واحدة.
+//    فالنقاطُ تُرسم على الخريطة، والسجلُّ تحتَها يُقرأ **مكوثاً**.
+//
+// 🔴 والألوانُ والأقطارُ من `lib/trail` نفسِها التي تستعملها خريطةُ اللاعبين:
+//    نسختان تعنيان تدرّجاً يختلف بين شاشتين تعرضان الشيءَ نفسَه.
+// ══════════════════════════════════════════════════════
+// 🔴 «web» ليست معلومةً للموظّف: المصدرُ يُترجَم أو لا يُعرض.
+//    و٩٥٪ من القراءات مصدرُها المتصفّح — فالتمييزُ يهمّ حين يختلف.
+const SRC: Record<string, string> = { web: 'متصفّح', app: 'تطبيق', leader: 'شاشةُ القائد' };
+
+/** «٨ أيلول · ٨:٥٤ م» — المكوثُ داخلَ اليوم، فالساعةُ جزءٌ منه لا زينة */
+const fmtDT = (t: number) => new Date(t).toLocaleString('ar-JO',
+  { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
+
+function GeoTrail({ fixes, venues, total, from, to }: any) {
+  const [sel, setSel] = useState<number | null>(null);
+  const now = Date.now();
+
+  const dots = fixes.map((p: any, i: number) => {
+    const t = fixes.length === 1 ? 0 : i / (fixes.length - 1);
+    return {
+      id: `t${i}`, lat: p.lat, lng: p.lng,
+      color: trailColor(t), sizePx: trailSize(t),
+      haloColor: sel === i ? '#f59e0b' : 'rgba(255,255,255,.9)',
+      label: `${i === 0 ? '● الأحدث · ' : ''}${ago(p.at, now)}${p.isMocked ? ' · ⚠️ مُصطنع' : ''}`,
+      onClick: () => setSel(i === sel ? null : i),
+    };
+  });
+
+  // 🔴 الخطُّ بالترتيب الزمنيّ الصاعد: نقاطٌ بلا خطٍّ لا تُقرأ كتتابع.
+  const path = fixes.length > 1
+    ? [...fixes].reverse().map((p: any) => ({ lat: p.lat, lng: p.lng }))
+    : undefined;
+
+  const stays = groupStays(fixes, venues);
+  const s = sel != null ? fixes[sel] : null;
+  const nearV = s && venues.length
+    ? venues.map((v: any) => ({ v, d: haversineM(s.lat, s.lng, v.lat, v.lng) }))
+        .sort((a: any, b: any) => a.d - b.d)[0]
+    : null;
+
+  return (
+    <Section title={`مسارُ مواقعه — ${ar(fixes.length)} من ${ar(total)} نقطة`}>
+      <p className="text-[11.5px] text-gray-600 mb-2 leading-relaxed">
+        {from && to && <>من {fmtDate(from)} إلى {fmtDate(to)} · </>}
+        الأغمقُ والأكبرُ أحدث. اضغط نقطةً لتفصيلها.
+      </p>
+
+      <div className="rounded-xl overflow-hidden border border-gray-700/40">
+        <VenueMap
+          center={{ lat: fixes[0].lat, lng: fixes[0].lng }}
+          dots={dots} path={path} pathColor="#0d9488" height={320}
+        />
+      </div>
+
+      {/* تفصيلُ النقطة المختارة */}
+      {s && (
+        <div className="mt-2 bg-gray-900/60 border border-amber-500/30 rounded-xl px-4 py-3 text-[12.5px]">
+          <div className="flex items-baseline gap-2 flex-wrap">
+            <b className="text-amber-400">{ago(s.at, now)}</b>
+            <span className="text-gray-500">{new Date(s.at).toLocaleString('ar-JO')}</span>
+          </div>
+          <div className="text-gray-400 mt-1.5 leading-relaxed">
+            {nearV && <>أقربُ مكان: <b className="text-gray-200">{nearV.v.name}</b> — {dist(nearV.d)}<br /></>}
+            {/* 🔴 الدقّةُ داخل الجملة لا رقماً مستقلّاً: «٥ كم» ليست موقعاً بل مدينة */}
+            {s.accuracyM != null && (
+              <span className={s.accuracyM > 1000 ? 'text-rose-400' : ''}>
+                دقّةُ القراءة {ar(Math.round(s.accuracyM))} م
+                {s.accuracyM > 1000 && ' — هذه مدينةٌ لا موقع'}<br />
+              </span>
+            )}
+            {s.source && <>المصدر: {SRC[s.source] || s.source}<br /></>}
+            {s.isMocked && <span className="text-rose-400">⚠️ الجهازُ يبلّغ موقعاً مُصطنعاً</span>}
+          </div>
+        </div>
+      )}
+
+      {/* سجلُّ المكوث */}
+      {stays.length > 0 && (
+        <div className="mt-3">
+          <p className="text-[10.5px] tracking-wider text-amber-500/80 font-bold mb-1.5">
+            أينَ مكث — {ar(stays.length)} مكوثاً
+          </p>
+          {stays.slice(0, 8).map((st: any, i: number) => (
+            <div key={i} className="flex gap-3 py-2 text-[12.5px] border-b border-gray-700/25 last:border-0 items-start">
+              <span className="w-1.5 h-1.5 rounded-full shrink-0 mt-1.5"
+                style={{ background: trailColor(i / Math.max(1, stays.length - 1)) }} />
+              <span className="flex-1">
+                <b className="text-white">{st.venue || 'مكانٌ غيرُ معروف'}</b>
+                {st.distM != null && !st.venue && (
+                  <span className="text-gray-600"> · {dist(st.distM)} عن أقرب مكان</span>
+                )}
+                <span className="block text-[11px] text-gray-500 mt-0.5">
+                  {fmtDT(st.from)}
+                  {/* المكوثُ يُقاس بفارق أوّل نقطةٍ وآخرها — نقطةٌ واحدةٌ ليست مكوثاً */}
+                  {st.to > st.from && <> · مكث {dur(st.to - st.from)}</>}
+                  {' · '}{ar(st.n)} قراءة
+                  {st.mocked && <span className="text-rose-400"> · ⚠️ مُصطنع</span>}
+                  {st.worstAccuracy != null && st.worstAccuracy > 1000 &&
+                    <span className="text-amber-500"> · دقّةٌ ضعيفة</span>}
+                </span>
+              </span>
+            </div>
+          ))}
+          {stays.length > 8 && (
+            <p className="text-[11px] text-gray-600 pt-2">
+              و{ar(stays.length - 8)} مكوثاً أقدم — تظهر على الخريطة أعلاه.
+            </p>
+          )}
+        </div>
+      )}
+    </Section>
+  );
+}

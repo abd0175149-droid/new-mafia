@@ -13,6 +13,9 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import dynamic from 'next/dynamic';
+// 🔴 اللونُ والعمرُ من وحدةٍ واحدةٍ يشاركها تبويبُ الموقع في ملفّ اللاعب:
+//    نسختان تعنيان تدرّجاً يختلف بين شاشتين تعرضان الشيءَ نفسَه.
+import { trailColor, ago, dist, TRAIL_NEW, TRAIL_OLD } from '@/lib/trail';
 
 const VenueMap = dynamic(() => import('@/components/VenueMap'), {
   ssr: false,
@@ -33,30 +36,10 @@ interface Row {
 }
 interface Venue { id: number; name: string; latitude: number | null; longitude: number | null; geofenceRadiusM: number }
 
-const ago = (t: number, now: number) => {
-  const s = Math.max(0, Math.round((now - t) / 1000));
-  if (s < 60) return `قبل ${s} ث`;
-  if (s < 3600) return `قبل ${Math.round(s / 60)} د`;
-  if (s < 86400) return `قبل ${Math.round(s / 3600)} س`;
-  return `قبل ${Math.round(s / 86400)} يوم`;
-};
-const dist = (d: number | null) => d === null ? '—' : (d >= 1000 ? `${(d / 1000).toFixed(1)} كم` : `${d} م`);
-
 interface TrailPoint {
   lat: number; lng: number;
   accuracyM: number | null; isMocked: boolean;
   source: string | null; capturedAt: number; distanceM: number | null;
-}
-
-// 🎨 تدرّجٌ زمنيّ: الغامقُ للأحدث والفاتحُ للأقدم (قرار المالك).
-// 🔴 لكنّ بلاطاتِ OSM فاتحة، فتدرّجٌ ينتهي إلى الأبيض يُخفي القديمَ لا يُخفته.
-//    فالمدى يقف عند نعناعيٍّ شاحبٍ ما زال يُرى، ويُسنَد بقناةٍ ثانية: القطر
-//    يصغر مع القِدَم. لونان يقولان الشيء نفسه أوضحُ من لونٍ وحده.
-const TRAIL_NEW = [4, 47, 46];      // #042f2e — زمرّديٌّ عميق
-const TRAIL_OLD = [153, 246, 228];  // #99f6e4 — نعناعيٌّ شاحب
-function trailColor(t: number): string {
-  const c = TRAIL_NEW.map((n, i) => Math.round(n + (TRAIL_OLD[i] - n) * t));
-  return `rgb(${c[0]},${c[1]},${c[2]})`;
 }
 
 export default function PlayersMapPage() {
