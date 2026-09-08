@@ -147,3 +147,22 @@ export const lockedLoginAttempts = pgTable('locked_login_attempts', {
   fixSource: varchar('fix_source', { length: 10 }),
   capturedAt: timestamp('captured_at'),
 });
+
+// ══════════════════════════════════════════════════════
+// 📝 ملاحظاتُ الموظّفين عن اللاعب — نصٌّ حرّ (قرارُ المالك)
+//
+// 🔴 سجلٌّ لا حقل: الملاحظةُ تُضاف ولا تُستبدَل، فلا يمحو أحدٌ ما كتبه
+//    غيرُه، ويبقى مع كلِّ ملاحظةٍ كاتبُها وتاريخُها. والقراءةُ للأدمن
+//    وحدَه — نصٌّ حرٌّ عن شخصٍ بعينه لا يُفتح لكلّ من يفتح الصفحة.
+//
+// 🔴 ويُحذف مع تجهيل الحساب: ملاحظةٌ بخطّ إنسانٍ عن شخصٍ محذوفٍ تُبقي
+//    وصفَه بعد أن يُمحى اسمُه — وهو نقضُ التجهيل نفسِه.
+// ══════════════════════════════════════════════════════
+export const playerNotes = pgTable('player_notes', {
+  id: serial('id').primaryKey(),
+  playerId: integer('player_id').notNull(),
+  staffId: integer('staff_id'),
+  staffUsername: varchar('staff_username', { length: 60 }),
+  text: text('text').notNull(),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+});

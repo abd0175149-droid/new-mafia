@@ -69,6 +69,7 @@ export default function PlayerCardPage() {
   const [error, setError] = useState('');
   const [busy, setBusy] = useState('');
   const [toast, setToast] = useState<{ msg: string; ok: boolean } | null>(null);
+  const [noteDraft, setNoteDraft] = useState('');
 
   const say = (msg: string, ok = true) => { setToast({ msg, ok }); setTimeout(() => setToast(null), 3000); };
 
@@ -124,7 +125,7 @@ export default function PlayerCardPage() {
   );
   if (!card) return null;
 
-  const { identity: id, lock, geo, money, reach, seat, rhythm, lastMatches, verdict, viewerRole } = card;
+  const { identity: id, lock, geo, money, reach, seat, rhythm, lastMatches, verdict, viewerRole, notes = [] } = card;
   const isAdmin = viewerRole === 'admin';
 
   // ── شريطُ الحكم: ترتيبٌ ثابتٌ متنافٍ، ولكلِّ حالةٍ مفتاحُها ──
@@ -268,6 +269,30 @@ export default function PlayerCardPage() {
           <p className="text-[11px] text-gray-600 pt-2">
             {ar(id.lifetimeMatches)} منذ البداية · {ar(id.seasonMatches)} هذا الموسم
           </p>
+        </Section>
+      )}
+
+      {/* ═══ ملاحظاتُ الموظّفين — نصٌّ حرّ، أدمن ═══ */}
+      {isAdmin && (
+        <Section title="ملاحظات">
+          {notes.map((n: any) => (
+            <div key={n.id} className="py-2 text-[13px] border-b border-gray-700/25 last:border-0">
+              <p className="text-gray-200 leading-relaxed whitespace-pre-wrap">{n.text}</p>
+              <p className="text-[10.5px] text-gray-600 mt-1">{n.staffUsername || '—'} · {fmtDate(n.createdAt)}</p>
+            </div>
+          ))}
+          {notes.length === 0 && <p className="text-[12px] text-gray-600 pb-1">لا ملاحظاتٍ بعد.</p>}
+          <div className="flex gap-2 pt-2">
+            <input value={noteDraft} onChange={e => setNoteDraft(e.target.value)}
+              placeholder="اكتب ملاحظةً…" maxLength={2000}
+              className="flex-1 bg-gray-900/60 border border-gray-700/50 rounded-lg px-3 py-2 text-[13px] text-white outline-none focus:border-amber-500/50" />
+            {/* 🔴 تُضاف ولا تُستبدَل: سجلٌّ لا حقل، فلا يمحو أحدٌ ما كتبه غيرُه */}
+            <Btn onClick={() => noteDraft.trim() && act('note',
+              () => api(`/api/player/${playerId}/notes`, { method: 'POST', body: JSON.stringify({ text: noteDraft.trim() }) })
+                     .then(() => setNoteDraft('')), 'حُفظت الملاحظة')} busy={busy === 'note'}>
+              أضِف
+            </Btn>
+          </div>
         </Section>
       )}
 

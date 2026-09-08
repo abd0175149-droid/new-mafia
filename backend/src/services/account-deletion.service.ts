@@ -205,6 +205,10 @@ export async function anonymizePlayer(playerId: number): Promise<void> {
 
   // 8) الآراء الحرّة المنسوبة
   await db.execute(sql`UPDATE room_feedback SET notes = NULL WHERE player_id = ${id}`);
+  // 🔴 وملاحظاتُ الموظّفين: نصٌّ حرٌّ يصف شخصاً بعينه، وإبقاؤه بعد محو اسمِه
+  //    نقضُ التجهيل نفسِه — يبقى الوصفُ ويسقط الاسم. شرطُ قبولِ الجدول لا
+  //    تحسينٌ لاحق.
+  await db.execute(sql`DELETE FROM player_notes WHERE player_id = ${id}`).catch(() => {});
 
   // 9) سجلُّ الموظّفين — يبقى الحدثُ ويسقط الاسم
   await db.execute(sql`UPDATE staff_action_log SET target_name = ${TOMB} WHERE target_player_id = ${id}`)

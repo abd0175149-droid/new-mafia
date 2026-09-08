@@ -355,6 +355,50 @@ router.get('/:id/lock-attempts', authenticate, adminOnly, async (req: Request, r
   }
 });
 
+// ── 📝 ملاحظاتُ الموظّفين عن اللاعب — نصٌّ حرّ (قرارُ المالك) ──
+//
+// 🔴 أدمن فقط قراءةً وكتابة: نصٌّ حرٌّ عن شخصٍ بعينه، والحاجةُ التي يسدّها
+//    كانت تُقضى في حقلِ ملاحظةِ **الحجز** — ثلاثون ملاحظةً بخطّ إنسانٍ فيها
+//    أوصافٌ اجتماعيّةٌ وعمرُ قاصرة، يقرؤها كلُّ من يفتح الحجز.
+//
+// 🔴 وسجلٌّ لا حقل: تُضاف الملاحظةُ ولا تُستبدَل، فلا يمحو أحدٌ ما كتبه غيرُه.
+router.get('/:id/notes', authenticate, adminOnly, async (req: Request, res: Response) => {
+  try {
+    const playerId = parseInt(req.params.id);
+    if (!playerId || isNaN(playerId)) return res.status(400).json({ success: false, error: 'معرّف غير صالح' });
+    const db = getDB();
+    if (!db) return res.status(503).json({ success: false, error: 'DB unavailable' });
+    const r: any = await db.execute(sql`
+      SELECT id, staff_username AS "staffUsername", text, created_at AS "createdAt"
+      FROM player_notes WHERE player_id = ${playerId}
+      ORDER BY created_at DESC LIMIT 100
+    `);
+    return res.json({ success: true, notes: r?.rows ?? r ?? [] });
+  } catch (err: any) {
+    console.error('❌ notes read error:', err.message);
+    return res.status(500).json({ success: false, error: 'خطأ في جلب الملاحظات' });
+  }
+});
+
+router.post('/:id/notes', authenticate, adminOnly, async (req: Request, res: Response) => {
+  try {
+    const playerId = parseInt(req.params.id);
+    if (!playerId || isNaN(playerId)) return res.status(400).json({ success: false, error: 'معرّف غير صالح' });
+    const text = String(req.body?.text ?? '').trim().slice(0, 2000);
+    if (!text) return res.status(400).json({ success: false, error: 'الملاحظةُ فارغة' });
+    const db = getDB();
+    if (!db) return res.status(503).json({ success: false, error: 'DB unavailable' });
+    await db.execute(sql`
+      INSERT INTO player_notes (player_id, staff_id, staff_username, text)
+      VALUES (${playerId}, ${(req as any).user?.id ?? null}, ${(req as any).user?.username ?? null}, ${text})
+    `);
+    return res.json({ success: true });
+  } catch (err: any) {
+    console.error('❌ notes write error:', err.message);
+    return res.status(500).json({ success: false, error: 'خطأ في حفظ الملاحظة' });
+  }
+});
+
 // ── DELETE /api/player/:id — حذف لاعب نهائياً (Admin only) ──
 router.delete('/:id', authenticate, adminOnly, async (req: Request, res: Response) => {
   try {
@@ -422,7 +466,18 @@ router.delete('/:id', authenticate, adminOnly, async (req: Request, res: Respons
             COALESCE((SELECT SUM(amount) FROM chips_ledger WHERE player_id = ${transferTo}), 0)
           WHERE id = ${transferTo}
         `);
-        await tx.execute(sql`DELETE FROM players WHERE id = ${playerId}`);
+        // 🔴 حذفٌ ناعمٌ لا صلب (قرارُ المالك): `DELETE FROM players` هو مصدرُ
+        //    اليتامى الـ١٢٥ المرصودة — ٤١ حساباً حُذف فترك صفوفَ لعبٍ وحجزٍ
+        //    تشير إلى معرّفٍ لا وجودَ له، وكلُّ JOIN يفترض وجودَ الصفّ ينكسر
+        //    أو يُخفي صفوفاً بصمت. والمهلةُ ٣٠ يوماً كما يصفها المخطَّط،
+        //    وبعدها يُجهّل الصفُّ بـ`runDeletionSweep` القائمة.
+        await tx.execute(sql`
+          UPDATE players
+          SET deleted_at = NOW(),
+              deletion_due_at = NOW() + INTERVAL '30 days',
+              deletion_reason = 'admin'
+          WHERE id = ${playerId}
+        `);
       });
 
       logStaffAction({
@@ -437,11 +492,17 @@ router.delete('/:id', authenticate, adminOnly, async (req: Request, res: Respons
       });
 
       console.log(`🗑️ Admin deleted player #${playerId} — نُقل سجلّه المالي إلى #${transferTo}`);
-      return res.json({ success: true, message: `حُذف اللاعب ونُقل سجلّه المالي إلى «${target.name}»` });
+      return res.json({ success: true, message: `جُدول حذفُ اللاعب بعد ٣٠ يوماً، ونُقل سجلّه المالي إلى «${target.name}»` });
     }
 
-    // لا سجلّ مالي — حذف عادي
-    await db.delete(playersTable).where(eq(playersTable.id, playerId));
+    // 🔴 حذفٌ ناعمٌ لا صلب — انظر التعليقَ في فرع النقل أعلاه.
+    await db.execute(sql`
+      UPDATE players
+      SET deleted_at = NOW(),
+          deletion_due_at = NOW() + INTERVAL '30 days',
+          deletion_reason = 'admin'
+      WHERE id = ${playerId}
+    `);
 
     logStaffAction({
       staffId: (req as any).user?.id,
@@ -455,7 +516,7 @@ router.delete('/:id', authenticate, adminOnly, async (req: Request, res: Respons
     });
 
     console.log(`🗑️ Admin deleted player #${playerId} (${existing[0].name})`);
-    return res.json({ success: true, message: 'تم حذف اللاعب بنجاح' });
+    return res.json({ success: true, message: 'جُدول الحذف — يُجهّل الحسابُ بعد ٣٠ يوماً، ويمكن التراجعُ خلالها' });
   } catch (err: any) {
     console.error('❌ Delete player error:', err.message);
     return res.status(500).json({ success: false, error: 'خطأ في حذف اللاعب' });

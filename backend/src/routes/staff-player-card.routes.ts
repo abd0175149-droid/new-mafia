@@ -237,8 +237,19 @@ router.get(
         });
       }
 
+      // ── ملاحظاتُ الموظّفين — للأدمن وحدَه ──
+      let notes: Row[] = [];
+      if (isAdmin) {
+        notes = rows(await db.execute(sql`
+          SELECT id, staff_username AS "staffUsername", text, created_at AS "createdAt"
+          FROM player_notes WHERE player_id = ${playerId}
+          ORDER BY created_at DESC LIMIT 20
+        `));
+      }
+
       return res.json({
         success: true,
+        notes,
         verdict,
         identity,
         lock,

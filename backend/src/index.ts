@@ -717,6 +717,23 @@ async function main() {
       await db.execute(sql`ALTER TABLE sound_effects ADD COLUMN IF NOT EXISTS durations JSONB DEFAULT '{}'::jsonb`);
       await db.execute(sql`ALTER TABLE activities ADD COLUMN IF NOT EXISTS add_game_fee_to_bill BOOLEAN DEFAULT false`);
 
+      // ── 📝 ملاحظاتُ الموظّفين عن اللاعب ──
+      //
+      // 🔴 اثنان وثمانون جدولاً في القاعدة وليس فيها حقلُ ملاحظةٍ واحدٌ على
+      //    مستوى اللاعب — والحاجةُ مثبتةٌ بالالتفاف عليها: ثلاثون ملاحظةً
+      //    بخطّ إنسانٍ كُتبت في حقلِ ملاحظةِ **الحجز**، فيها أوصافٌ اجتماعيّةٌ
+      //    وعمرُ قاصرةٍ يقرؤها كلُّ من يفتح الحجز. الجدولُ يعطيها مكاناً
+      //    محروساً بدل أن تتسرّب إلى حيث لا تنتمي.
+      await db.execute(sql`CREATE TABLE IF NOT EXISTS player_notes (
+        id SERIAL PRIMARY KEY,
+        player_id INTEGER NOT NULL,
+        staff_id INTEGER,
+        staff_username VARCHAR(60),
+        text TEXT NOT NULL,
+        created_at TIMESTAMP DEFAULT NOW() NOT NULL
+      )`);
+      await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_player_notes_player ON player_notes (player_id, created_at DESC)`);
+
       // ── ⚧ تطبيعُ الجنس لمرّةٍ واحدة ──
       //
       // 🔴 العمودُ حمل أربعَ قيمٍ لمعنيَين (MALE/FEMALE/male/female)، والواجهاتُ
