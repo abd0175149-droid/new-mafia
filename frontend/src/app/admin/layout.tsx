@@ -95,6 +95,7 @@ const NAV_GROUPS: NavGroup[] = [
       { href: '/admin/staff-log', icon: '🕵️', label: 'سجل عمليات الموظفين', roles: ['admin'] },
       { href: '/admin/settings', icon: '⚙️', label: 'الإعدادات' },
       { href: '/admin/settings/app-release', icon: '🚦', label: 'إصدار التطبيق', roles: ['admin'] },
+      { href: '/admin/wa-groups', icon: '💬', label: 'مجموعات الواتساب', roles: ['admin'] },
     ],
   },
 ];

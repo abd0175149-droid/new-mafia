@@ -12,12 +12,14 @@ import '../core/push/push_service.dart';
 import '../core/ui/atmosphere.dart';
 import '../core/ui/in_app_banner.dart';
 import '../features/gates/birthday_gate.dart';
+import '../features/gates/location_required_gate.dart';
 import '../features/gates/consent_gate.dart';
 import '../features/gates/notification_gate.dart';
 import 'dart:async';
 
 import '../core/app/release_gate.dart';
 import '../features/gates/update_gate.dart';
+import '../core/location/location_service.dart';
 
 // ══════════════════════════════════════════════════════
 // 📱 جذر التطبيق
@@ -152,6 +154,14 @@ class _MafiaAppState extends State<MafiaApp> {
                 // 🎂 BDAY-1 — **بعد** بوّابة الإشعارات لا قبلها: بوّابتان
                 //    معاً تعنيان جداراً مضاعفاً على أوّل دخول. وهذه تُسأل
                 //    مرّةً واحدةً في العمر، تلك تتكرّر.
+                // 📍 الموقعُ شرطُ تشغيل — فوق بوّابتَي الميلاد والموافقة
+                if (_showLocationGate)
+                  Positioned.fill(
+                    child: LocationRequiredGate(
+                      status: LocationService.instance.status,
+                      onResolved: () => setState(() {}),
+                    ),
+                  ),
                 if (_showBirthday)
                   Positioned.fill(
                     child: BirthdayGate(
@@ -192,6 +202,23 @@ class _MafiaAppState extends State<MafiaApp> {
     );
   }
 
+  /// 📍 بوّابة الموقع الإلزاميّة — أعلى بوّابات البيانات وأدنى من الإصدار.
+  ///
+  /// 🔴 قرارُ المالك: التطبيقُ لا يعمل بلا موقع. تسبق الميلادَ والموافقة لأنّ
+  ///    كلتيهما تطلب من اللاعب فعلاً، وطلبُ ثلاثةِ أشياءَ معاً جدارٌ ثلاثيّ —
+  ///    والموقعُ أوّلُها لأنّه شرطُ التشغيل لا شرطُ سند.
+  ///
+  /// 🔴 وتُعرض للمسجَّل وحدَه وخارجَ المسارات العامّة: حجبُ شاشةِ الدخول يمنع
+  ///    من لا حسابَ له من إنشاء واحد، ولا موقعَ يُفيد قبل وجود حساب.
+  bool get _showLocationGate {
+    if (_app.session != SessionState.authenticated) return false;
+    final st = LocationService.instance.status;
+    if (st == LocationStatus.granted || st == LocationStatus.unknown) return false;
+    final loc = currentLocation ?? '';
+    final path = Uri.tryParse(loc)?.path ?? loc;
+    return !Routes.publicPaths.contains(path);
+  }
+
   /// 🎂 بوّابة الميلاد: للمسجّل الذي لا تاريخ له، وخارج مسار الانضمام.
   ///
   /// 🔴 تسبق الموافقة الآن ولا تتبعها: بلا تاريخِ ميلادٍ لا يُعرف أقاصرٌ هو
@@ -199,7 +226,7 @@ class _MafiaAppState extends State<MafiaApp> {
   ///    ميلادٌ ← وليٌّ ← موافقة، لا العكس.
   bool get _showBirthday {
     if (_app.session != SessionState.authenticated) return false;
-    if (_showGate) return false;
+    if (_showGate || _showLocationGate) return false;
     if (!_app.needsBirthday) return false;
     final loc = currentLocation ?? '';
     final path = Uri.tryParse(loc)?.path ?? loc;
@@ -211,8 +238,8 @@ class _MafiaAppState extends State<MafiaApp> {
   ///    وتُعرض حتّى في مسار الانضمام — الموافقة شرطُ معالجةٍ لا رفاهيّةَ توقيت.
   bool get _showConsent {
     if (_app.session != SessionState.authenticated) return false;
-    // 🔴 الميلادُ أوّلاً — انظر `_showBirthday`.
-    if (_app.needsBirthday) return false;
+    // 🔴 الموقعُ ثمّ الميلادُ ثمّ الموافقة — لا يُطلب ثلاثةُ أشياءَ معاً.
+    if (_showLocationGate || _app.needsBirthday) return false;
     final c = _consent;
     if (c == null) return false;
     if (!c.required_ && c.deletionDueAt == null) return false;

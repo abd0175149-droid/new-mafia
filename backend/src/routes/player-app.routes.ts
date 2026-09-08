@@ -65,6 +65,36 @@ router.get('/leaderboard', async (_req: Request, res: Response) => {
 // ── 🔎 GET /search?q= — بحث عن لاعب لإرسال دعوة (بالاسم جزئيّاً أو برقم الهاتف تامّاً) ──
 // الخصوصيّة: الاسم مطابقة جزئيّة، أمّا الهاتف فمطابقة تامّة حصريّاً (لا تخمين بجزءٍ من الرقم)،
 // ولا يُعاد الهاتف في النتائج إطلاقاً. يستبعد الباحث نفسه.
+// ── 💬 مجموعةُ الواتساب المناسبة — حسب المدينة والجنس ──
+//
+// 🔴 القرارُ في الخادم لا في العميلين: القاعدةُ ستتغيّر (مجموعةٌ ثالثة، مدينةٌ
+//    رابعة، رابطٌ ينتهي)، ونسختان في فلاتر والويب تعنيان لاعباً في الزرقاء
+//    يُوجَّه إلى مجموعتين مختلفتين حسب الجهاز الذي فتح منه.
+//
+// 🔴 والجنسُ من **الحساب** لا من الطلب: قيمةٌ يرسلها العميلُ تُزوَّر بنقرة،
+//    ومجموعةُ الإناث ليست تفصيلاً تجميليّاً.
+router.get('/whatsapp-group', authenticatePlayer, async (req: Request, res: Response) => {
+  try {
+    const acc = (req as any).playerAccount;
+    const db = getDB();
+    if (!db) throw new Error('DB unavailable');
+
+    const { resolveGroup } = await import('../lib/city-groups.js');
+    // 🔴 الجنسُ من **الحساب** لا من الطلب: قيمةٌ يرسلها العميلُ تُزوَّر بنقرة،
+    //    ومجموعةُ الإناث ليست تفصيلاً تجميليّاً.
+    const [p] = await db.select({ gender: players.gender })
+      .from(players).where(eq(players.id, acc.playerId)).limit(1);
+
+    const r = await resolveGroup(req.query.lat, req.query.lng, p?.gender);
+    return res.json({ success: true, ...r });
+  } catch (err: any) {
+    console.error('❌ whatsapp-group error:', err.message);
+    // 🔴 لا يفشل الزرُّ أبداً: زرٌّ لا يعمل أسوأُ من زرٍّ يفتح المجموعةَ الأعمّ.
+    const { GROUP_HARD_FALLBACK } = await import('../lib/city-groups.js');
+    return res.json({ success: true, url: GROUP_HARD_FALLBACK, groupName: '', matchedById: null });
+  }
+});
+
 router.get('/search', authenticatePlayer, async (req: Request, res: Response) => {
   const db = getDB();
   if (!db) return res.status(503).json({ error: 'DB unavailable' });

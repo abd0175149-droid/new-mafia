@@ -106,6 +106,7 @@ export const ACTION_CATALOG: Record<string, { category: string; labelAr: string 
   // 🔴 كان غائباً فيقع القفلُ على category='OTHER' بمفتاحه الخام — أقوى قرارٍ
   //    إداريٍّ على حسابٍ لا يظهر مصنَّفاً في سجلّ الموظّفين.
   'rest:player-lock': { category: 'PLAYER', labelAr: 'قفل حساب لاعب أو فكّه' },
+  'rest:wa-group-edit': { category: 'SETTINGS', labelAr: 'تعديل مجموعات الواتساب' },
   'rest:player-reset-password': { category: 'PLAYER', labelAr: 'إعادة تعيين كلمة سرّ لاعب' },
   'rest:activity-bonus-grant': { category: 'PROGRESSION_EDIT', labelAr: 'منح مكافأة حجز مبكر' },
   'rest:activity-bonus-revoke': { category: 'PROGRESSION_EDIT', labelAr: 'تراجع عن مكافأة حجز مبكر' },

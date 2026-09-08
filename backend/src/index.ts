@@ -26,6 +26,7 @@ import foundationalRoutes from './routes/foundational.routes.js';
 import expenseCategoriesRoutes from './routes/expense-categories.routes.js';
 import staffRoutes from './routes/staff.routes.js';
 import staffPlayerCardRoutes from './routes/staff-player-card.routes.js';
+import waGroupsRoutes from './routes/wa-groups.routes.js';
 import locationsRoutes from './routes/locations.routes.js';
 import notificationsRoutes from './routes/notifications.routes.js';
 import settingsRoutes from './routes/settings.routes.js';
@@ -172,6 +173,7 @@ app.use('/api/foundational', foundationalRoutes);
 app.use('/api/expense-categories', expenseCategoriesRoutes);
 app.use('/api/staff', staffRoutes);
 app.use('/api/staff', staffPlayerCardRoutes);   // 🪪 بطاقةُ اللاعب — راوترٌ مستقلٌّ لا يخلط الكيانين
+app.use('/api/wa-groups', waGroupsRoutes);      // 💬 مجموعاتُ الواتساب حسب المنطقة والجنس
 app.use('/api/locations', locationsRoutes);
 app.use('/api/notifications', notificationsRoutes);
 app.use('/api/settings', settingsRoutes);
@@ -716,6 +718,40 @@ async function main() {
       // ⏱ مدّةُ التشغيل لكلّ حدث — { eventKey: ms }
       await db.execute(sql`ALTER TABLE sound_effects ADD COLUMN IF NOT EXISTS durations JSONB DEFAULT '{}'::jsonb`);
       await db.execute(sql`ALTER TABLE activities ADD COLUMN IF NOT EXISTS add_game_fee_to_bill BOOLEAN DEFAULT false`);
+
+      // ── 💬 مجموعاتُ الواتساب حسب المنطقة والجنس ──
+      //
+      // 🔴 جدولٌ لا ثابتٌ في الشفرة: الروابطُ تنتهي صلاحيّتُها، والمجموعاتُ
+      //    تُنشأ وتُغلق، والمناطقُ تتوسّع — وكلُّ واحدةٍ من هذه كانت ستعني
+      //    نشرةً كاملة. المالكُ يديرها من اللوحة.
+      //
+      // 🔴 والمنطقةُ نقطةٌ ونصفُ قطر لا اسمُ مدينة: حدودُ المدن الإداريّة
+      //    متداخلةٌ ولا يعرفها الجهاز، والدائرةُ تُرسم على الخريطة وتُفهم.
+      await db.execute(sql`CREATE TABLE IF NOT EXISTS wa_groups (
+        id SERIAL PRIMARY KEY,
+        name VARCHAR(80) NOT NULL,
+        latitude DOUBLE PRECISION,
+        longitude DOUBLE PRECISION,
+        radius_km DOUBLE PRECISION DEFAULT 20,
+        gender VARCHAR(10) DEFAULT 'ANY' NOT NULL,
+        url TEXT NOT NULL,
+        is_default BOOLEAN DEFAULT false NOT NULL,
+        is_active BOOLEAN DEFAULT true NOT NULL,
+        created_at TIMESTAMP DEFAULT NOW() NOT NULL,
+        updated_at TIMESTAMP DEFAULT NOW() NOT NULL
+      )`);
+      await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_wa_groups_active ON wa_groups (is_active)`);
+
+      // بذرةٌ لمرّةٍ واحدة — القواعدُ الثلاث القائمة، ثمّ تُدار من اللوحة
+      await db.execute(sql`
+        INSERT INTO wa_groups (name, latitude, longitude, radius_km, gender, url, is_default)
+        SELECT * FROM (VALUES
+          ('المجموعة العامّة', NULL::double precision, NULL::double precision, NULL::double precision, 'ANY', 'https://chat.whatsapp.com/Bz1ipm8YxR31u5OEUOxeJZ', true),
+          ('الزرقاء — ذكور', 32.0728, 36.0880, 20, 'MALE', 'https://chat.whatsapp.com/I4WdkfLH16125VWkFa6AlZ?s=cl&p=i&mlu=4&ilr=4', false),
+          ('الزرقاء — إناث', 32.0728, 36.0880, 20, 'FEMALE', 'https://chat.whatsapp.com/JMTnVWMsPie3Bny0kits0C?s=cl&p=i&mlu=4&ilr=4', false)
+        ) AS v(name, latitude, longitude, radius_km, gender, url, is_default)
+        WHERE NOT EXISTS (SELECT 1 FROM wa_groups)
+      `);
 
       // ── 📝 ملاحظاتُ الموظّفين عن اللاعب ──
       //

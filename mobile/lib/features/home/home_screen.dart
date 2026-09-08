@@ -9,6 +9,7 @@ import '../../core/ui/glass.dart';
 import '../../app/router.dart';
 import '../../app/theme/theme.dart';
 import '../../core/api/api_client.dart';
+import '../../core/location/location_service.dart';
 import '../../core/notifications/inbox_service.dart';
 import '../../core/storage/session_store.dart';
 import '../staff/admin_webview_screen.dart';
@@ -856,10 +857,41 @@ class _StaffLink extends StatelessWidget {
 const _kInstagram = 'https://www.instagram.com/mafia_club_jo/';
 const _kInstagramDm = 'https://ig.me/m/mafia_club_jo';
 const _kSnapchat = 'https://www.snapchat.com/add/mafia_club26';
-const _kWhatsappGroup = 'https://chat.whatsapp.com/Bz1ipm8YxR31u5OEUOxeJZ';
+// 🔴 المجموعةُ العامّة احتياطاً فقط: الخادمُ يقرّر أيَّ مجموعةٍ حسب مدينة
+//    اللاعب وجنسه، وهذه قيمةُ ما قبل وصول الردّ أو عند تعذّره.
+const _kWhatsappGroupFallback = 'https://chat.whatsapp.com/Bz1ipm8YxR31u5OEUOxeJZ';
 
-class _SocialSection extends StatelessWidget {
+// 🔴 حالةٌ لا ثابت: الرابطُ يُسأل عنه الخادمُ مرّةً عند بناء القسم، ومعه
+//    موقعُ اللاعب الحاضر أصلاً (الموقعُ شرطُ تشغيل التطبيق). ولا يُحبس الزرُّ
+//    على وصول الردّ — يُفتح بالعامّة ويُستبدَل حين يصل.
+class _SocialSection extends StatefulWidget {
   const _SocialSection();
+
+  @override
+  State<_SocialSection> createState() => _SocialSectionState();
+}
+
+class _SocialSectionState extends State<_SocialSection> {
+  String _waGroup = _kWhatsappGroupFallback;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadGroup();
+  }
+
+  Future<void> _loadGroup() async {
+    try {
+      final fix = LocationService.instance.last;
+      final q = fix != null ? {'lat': '${fix.lat}', 'lng': '${fix.lng}'} : null;
+      final r = await ApiClient.instance.get('/api/player-app/whatsapp-group', query: q);
+      if (!mounted || r is! Map) return;
+      final url = r['url'];
+      if (url is String && url.isNotEmpty) setState(() => _waGroup = url);
+    } catch (_) {
+      // يبقى الاحتياطيّ — زرٌّ لا يعمل أسوأُ من زرٍّ يفتح الأعمّ
+    }
+  }
 
   @override
   Widget build(BuildContext context) => Column(
@@ -898,7 +930,7 @@ class _SocialSection extends StatelessWidget {
             title: 'مجموعة الواتساب',
             sub: 'مواعيد الجلسات وأخبار النادي أوّلاً بأوّل',
             tint: const Color(0xFF25D366),
-            url: _kWhatsappGroup,
+            url: _waGroup,
           ),
           const SizedBox(height: 8),
           _SocialWide(

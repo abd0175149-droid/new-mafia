@@ -13,7 +13,10 @@ import { useModalScrollLock } from '@/hooks/useModalScrollLock';
 import InstallGuide from '@/components/InstallGuide';
 
 // مجموعة الواتساب ليست حساب أعمال — رابط دعوة عاديّ لا يمسّه إجراء ميتا، فيبقى.
-const WHATSAPP_GROUP_URL = 'https://chat.whatsapp.com/Bz1ipm8YxR31u5OEUOxeJZ';
+// 🔴 المجموعةُ العامّة احتياطاً فقط: الخادمُ يقرّر أيَّ مجموعةٍ حسب مدينة
+//    اللاعب وجنسه (`/api/player-app/whatsapp-group`)، وهذه قيمةُ ما قبل
+//    وصول الردّ أو عند تعذّره — زرٌّ لا يعمل أسوأُ من زرٍّ يفتح الأعمّ.
+const WHATSAPP_GROUP_FALLBACK = 'https://chat.whatsapp.com/Bz1ipm8YxR31u5OEUOxeJZ';
 const INSTAGRAM_URL = 'https://www.instagram.com/mafia_club_jo/';
 const INSTAGRAM_DM_URL = 'https://ig.me/m/mafia_club_jo';   // محادثة مباشرة — قناة التواصل الحاليّة
 const SNAPCHAT_URL = 'https://www.snapchat.com/add/mafia_club26';
@@ -28,6 +31,7 @@ const DIFFICULTY_LABELS: Record<string, { label: string; color: string; icon: st
 export default function HomePage() {
   const { player, staffInfo } = usePlayer();
   const router = useRouter();
+  const [waGroup, setWaGroup] = useState(WHATSAPP_GROUP_FALLBACK);
   const [profile, setProfile] = useState<any>(null);
   const [feed, setFeed] = useState<any[]>([]);
   const [upcoming, setUpcoming] = useState<any[]>([]);
@@ -54,6 +58,28 @@ export default function HomePage() {
     isOpen: staffPanelOpen,
     onClose: () => setStaffPanelOpen(false),
   });
+
+  // 🔴 المجموعةُ تُسأل مرّةً عند الفتح: الموقعُ إن أذن به المتصفّح، وإلّا
+  //    فبلا إحداثيّاتٍ — والخادمُ يردّ العامّةَ حينئذٍ. لا يُحبس الزرُّ على
+  //    إذنِ موقعٍ قد لا يُمنح في المتصفّح.
+  useEffect(() => {
+    if (!player?.token) return;
+    let cancelled = false;
+    const ask = (q: string) => fetch(`/api/player-app/whatsapp-group${q}`, {
+      headers: { Authorization: `Bearer ${player.token}` },
+    }).then(r => r.json()).then(d => {
+      if (!cancelled && d?.success && d.url) setWaGroup(d.url);
+    }).catch(() => {});
+
+    if (typeof navigator !== 'undefined' && navigator.geolocation) {
+      navigator.geolocation.getCurrentPosition(
+        pos => ask(`?lat=${pos.coords.latitude}&lng=${pos.coords.longitude}`),
+        () => ask(''),
+        { timeout: 8000, maximumAge: 300000 },
+      );
+    } else ask('');
+    return () => { cancelled = true; };
+  }, [player?.token]);
 
   useEffect(() => {
     if (!player) return;
@@ -130,7 +156,7 @@ export default function HomePage() {
               <h3 className="text-white text-lg font-bold mb-2">انضم لمجموعة مافيا كلوب 💬</h3>
               <p className="text-gray-400 text-sm mb-5 leading-relaxed">تابع آخر الأخبار والفعاليات والعروض أولاً بأول عبر مجموعتنا على واتساب.</p>
               <a
-                href={WHATSAPP_GROUP_URL}
+                href={waGroup}
                 target="_blank"
                 rel="noopener noreferrer"
                 onClick={dismissWaGroupPrompt}
@@ -774,7 +800,7 @@ export default function HomePage() {
 
         {/* 💬 زر الانضمام لمجموعة الواتساب */}
         <motion.a
-          href={WHATSAPP_GROUP_URL}
+          href={waGroup}
           target="_blank"
           rel="noopener noreferrer"
           initial={{ opacity: 0 }}
