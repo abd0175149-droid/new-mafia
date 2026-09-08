@@ -18,13 +18,15 @@ const CARD = (over = {}) => ({
     id: 19, name: 'خالد المصري', avatarUrl: null, gender: 'MALE', age: 20,
     isMinor: false, createdAt: '2026-04-01', isTestAccount: false, isFreeAccount: true,
     mustChangePassword: true, linkedStaffId: null, phone: '0791234567',
-    lifetimeMatches: 87, seasonMatches: 4,
+    lifetimeMatches: 87, seasonMatches: 4, chipsBalance: 450,
   },
   lock: { isLocked: false, lockedAt: null },
   geo: { exempt: false, exemptReason: null, recentFailures: [], dominant: null },
   money: { since: '2026-09-01', amount: 3, bookings: 1 },
   reach: { hasPush: true, platform: 'web' },
   seat: { pinned: 20, blocked: [{ id: 207, name: 'سيف', reason: 'شكوى تشويش' }] },
+  booking: { activityId: 5, name: 'ليلة الخميس', date: '2026-09-11', isPaid: false, isFree: false, checkedIn: false, seats: 1 },
+  feedback: { overall: 4, notes: 'الليدر كان ممتازاً', at: '2026-09-06' },
   rhythm: { lastNight: '2026-09-06', daysSince: 2, rhythmDays: 3, totalNights: 12 },
   lastMatches: [
     { role: 'WITCH', team: 'MAFIA', won: true, survived: false, at: '2026-09-06' },
@@ -67,6 +69,27 @@ console.log(NL + '🧪 الحالةُ النظيفة: أخضرُ بلا زرّ')
   ok('الهويّةُ مع المعرّف', t.includes('#١٩'), 'الاسمُ وحدَه معرِّفٌ كاذب');
   ok('وشارةُ كلمة السرّ الافتراضيّة', t.includes('١٢٣٤'));
   ok('وبلاطةُ المال تعرض الدَّين', t.includes('٣٫٠٠ د.أ') || t.includes('د.أ'));
+}
+
+console.log(NL + '🧪 العناصرُ الجديدة');
+{
+  const t = await open();
+  ok('بلاطةُ الحجز تحلّ محلَّ المقعد', t.includes('محجوز'), 'السؤالُ الأوّل عند الباب');
+  ok('وتقول إنّه لم يدفع', t.includes('لم يدفع'));
+  ok('والمقعدُ نُقل إلى الإجلاس', t.includes('مقعد ٢٠') && t.indexOf('مقعد ٢٠') > t.indexOf('حدُّ الطيّة'));
+  ok('رصيدُ التشبس يُسمّى رقاقةً لا ديناراً', t.includes('٤٥٠') && t.includes('رقاقة'));
+  ok('ويُقال صراحةً إنّه ليس مالاً', t.includes('ليست ديناراً'));
+  ok('وآخرُ تقييمٍ كتبه يظهر', t.includes('٤') && t.includes('آخرُ تقييم'));
+  ok('بنصّه', t.includes('الليدر كان ممتازاً'));
+}
+
+console.log(NL + '🧪 من لا حجزَ له');
+{
+  payload = CARD({ booking: null, feedback: null });
+  const t = await open();
+  ok('يُقال «لا حجز»', t.includes('لا حجز') || t.includes('لا فعاليّة'));
+  ok('ولا قسمَ تقييمٍ فارغ', !t.includes('آخرُ تقييمٍ كتبه'));
+  payload = CARD();
 }
 
 console.log(NL + '🧪 القرارُ المقفل: لا رتبةَ ولا مستوىً ولا نسبةَ فوز');

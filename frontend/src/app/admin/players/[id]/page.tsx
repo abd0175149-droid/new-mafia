@@ -47,6 +47,7 @@ async function api(path: string, opts?: RequestInit) {
 }
 
 const ar = (n: number | string) => String(n).replace(/[0-9]/g, d => '٠١٢٣٤٥٦٧٨٩'[+d]);
+const fmtShort = (d: any) => d ? new Date(d).toLocaleDateString('ar-JO', { weekday: 'short', day: 'numeric', month: 'numeric' }) : '';
 const fmtDate = (d: any) => d ? new Date(d).toLocaleDateString('ar-JO', { year: 'numeric', month: 'short', day: 'numeric' }) : '—';
 
 /** نصُّ فشلِ الموقع بلغةٍ تقود إلى الفعل الصحيح */
@@ -134,7 +135,7 @@ export default function PlayerCardPage() {
   );
   if (!card) return null;
 
-  const { identity: id, lock, geo, money, reach, seat, rhythm, lastMatches, verdict, viewerRole, notes = [] } = card;
+  const { identity: id, lock, geo, money, reach, seat, rhythm, lastMatches, verdict, viewerRole, notes = [], booking = null, feedback = null } = card;
   const isAdmin = viewerRole === 'admin';
 
   // ── شريطُ الحكم: ترتيبٌ ثابتٌ متنافٍ، ولكلِّ حالةٍ مفتاحُها ──
@@ -230,11 +231,21 @@ export default function PlayerCardPage() {
           value={reach.hasPush ? 'يصله إشعار' : 'لا يصله'}
           label={reach.hasPush ? (reach.platform || '') : 'اتّصل به'}
           tone={reach.hasPush ? 'emerald' : 'amber'} />
-        <Tile icon="💺"
-          value={seat.pinned ? `مقعد ${ar(seat.pinned)}` : seat.blocked.length ? `يُمنع بجوار ${ar(seat.blocked.length)}` : '—'}
-          label={seat.pinned ? 'مثبَّت' : 'الإجلاس'}
-          tone={seat.blocked.length ? 'rose' : 'gray'} />
+        {/* 🔴 الحجزُ مكانَ المقعد فوق الطيّة: هذا هو السؤالُ الأوّل عند الباب —
+            أهو محجوزٌ أصلاً؟ — والمقعدُ يخصّ لحظةَ الإجلاس لا لحظةَ الدخول،
+            فنُقل إلى قسم الإجلاس تحت الطيّة. */}
+        <Tile icon="🎟️"
+          value={booking ? (booking.checkedIn ? 'حضر' : booking.isPaid || booking.isFree ? 'محجوز' : 'محجوز — لم يدفع') : 'لا حجز'}
+          label={booking ? `${booking.name || ''} · ${fmtShort(booking.date)}` : 'لا فعاليّةَ قادمة'}
+          tone={!booking ? 'gray' : booking.checkedIn ? 'emerald' : booking.isPaid || booking.isFree ? 'emerald' : 'amber'} />
       </div>
+
+      {/* رصيدُ التشبس — عملةٌ داخليّةٌ تُسمّى صراحةً كي لا تُخلط بالدينار */}
+      {id.chipsBalance > 0 && (
+        <p className="text-[12px] text-gray-500 px-1">
+          🪙 <b className="text-amber-400">{ar(id.chipsBalance)}</b> رقاقة <span className="text-gray-600">(عملةٌ داخليّة — ليست ديناراً)</span>
+        </p>
+      )}
 
       {/* ═══ ⑤ سطرُ النبض ═══ */}
       <p className="text-[12px] text-gray-500 px-1 leading-relaxed">
@@ -256,8 +267,15 @@ export default function PlayerCardPage() {
       <Fold />
 
       {/* ═══ الإجلاسُ والرفقة ═══ */}
-      {seat.blocked.length > 0 && (
-        <Section title="من يُمنع بجواره">
+      {(seat.blocked.length > 0 || seat.pinned) && (
+        <Section title="الإجلاس">
+          {seat.pinned && (
+            <div className="flex items-center gap-2 py-1.5 text-[13px] border-b border-gray-700/25">
+              <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 shrink-0" />
+              <span className="text-white">مقعد {ar(seat.pinned)}</span>
+              <span className="text-gray-500 text-[11.5px]">مثبَّتٌ له</span>
+            </div>
+          )}
           {seat.blocked.map((b: any) => (
             <div key={b.id} className="flex items-center gap-2 py-1.5 text-[13px] border-b border-gray-700/25 last:border-0">
               <span className="w-1.5 h-1.5 rounded-full bg-rose-500 shrink-0" />
@@ -266,6 +284,23 @@ export default function PlayerCardPage() {
               {b.reason && <span className="text-gray-500 text-[11.5px] mr-auto">{b.reason}</span>}
             </div>
           ))}
+        </Section>
+      )}
+
+      {/* ═══ آخرُ تقييمٍ كتبه ═══ */}
+      {/* 🔴 ٤٤٤ من ٧٧٣ كتبوا تقييماً وكان بلا قارئ. وبعد رفع الحجب صار
+          الاستبيانُ دعوةً — فقراءتُه ما يجعلها تستحقّ الإرسال. */}
+      {feedback && (
+        <Section title="آخرُ تقييمٍ كتبه">
+          <div className="flex items-center gap-2 text-[13px]">
+            {feedback.overall != null && (
+              <span className="text-amber-400 font-bold">{ar(feedback.overall)}<span className="text-gray-600">/٥</span></span>
+            )}
+            <span className="text-gray-600 text-[11.5px]">{fmtDate(feedback.at)}</span>
+          </div>
+          {feedback.notes && (
+            <p className="text-[12.5px] text-gray-300 mt-2 leading-relaxed whitespace-pre-wrap">«{feedback.notes}»</p>
+          )}
         </Section>
       )}
 

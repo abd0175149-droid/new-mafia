@@ -59,7 +59,7 @@ router.get(
                is_locked, locked_reason, locked_at, locked_by,
                is_test_account, is_free_account, must_change_password,
                linked_staff_id, geofence_exempt, geofence_exempt_reason,
-               lifetime_matches, total_matches
+               lifetime_matches, total_matches, chips_balance
         FROM players WHERE id = ${playerId} AND deleted_at IS NULL
       `));
       if (!p) return res.status(404).json({ success: false, error: 'اللاعب غير موجود' });
@@ -88,6 +88,9 @@ router.get(
         mustChangePassword: !!p.must_change_password,
         lifetimeMatches: p.lifetime_matches ?? 0,
         seasonMatches: p.total_matches ?? 0,
+        // 🔴 عملةٌ داخليّةٌ لا مال: أوسعُ تغطيةٍ في القاعدة (٦٩١ من ٧٧٣)،
+        //    وتُسمّى «رقاقة» صراحةً في الواجهة كي لا تُخلط بالدينار.
+        chipsBalance: p.chips_balance ?? 0,
       };
       // الهاتفُ والميلادُ والحسابُ الموظّفيُّ للأدمن وحدَه
       if (isAdmin) {
@@ -159,6 +162,29 @@ router.get(
         WHERE b.player_id = ${playerId}
           AND b.is_paid = false AND COALESCE(b.is_free, false) = false
           AND b.deleted_at IS NULL AND a.date >= ${DEBT_SINCE}::date
+      `));
+
+      // ── حجزُ الليلة أو القادم ──
+      // 🔴 هذا هو السؤالُ الأوّل الذي يُفتح لأجله الملفُّ عند الباب: أهو
+      //    محجوزٌ أصلاً؟ والصفحةُ القديمة لا تجيب عنه إطلاقاً.
+      const booking = one(await db.execute(sql`
+        SELECT a.id AS activity_id, a.name, a.date, b.is_paid, b.is_free,
+               b.checked_in, COALESCE(b.count, 1) AS seats
+        FROM bookings b JOIN activities a ON a.id = b.activity_id
+        WHERE b.player_id = ${playerId} AND b.deleted_at IS NULL
+          AND a.date >= CURRENT_DATE
+        ORDER BY a.date ASC LIMIT 1
+      `));
+
+      // ── آخرُ تقييمٍ كتبه ──
+      // 🔴 ٤٤٤ من ٧٧٣ كتبوا تقييماً — أوسعُ محتوىً بشريٍّ في القاعدة، وكان
+      //    بلا قارئ. وبعد رفع الحجب صار الاستبيانُ دعوةً، فقراءتُه ما يجعلها
+      //    تستحقّ الإرسال.
+      const fb = one(await db.execute(sql`
+        SELECT overall, notes, played_at, submitted_at
+        FROM room_feedback
+        WHERE player_id = ${playerId} AND submitted_at IS NOT NULL
+        ORDER BY submitted_at DESC LIMIT 1
       `));
 
       // ── الوصول: هل يصله إشعار ──
@@ -260,6 +286,16 @@ router.get(
           bookings: debt?.bookings ?? 0,
         },
         reach: { hasPush: (push?.n ?? 0) > 0, platform: push?.platform ?? null },
+        booking: booking ? {
+          activityId: booking.activity_id, name: booking.name, date: booking.date,
+          isPaid: !!booking.is_paid, isFree: !!booking.is_free,
+          checkedIn: !!booking.checked_in, seats: Number(booking.seats) || 1,
+        } : null,
+        feedback: fb ? {
+          overall: fb.overall ?? null,
+          notes: String(fb.notes ?? '').trim() || null,
+          at: fb.submitted_at ?? fb.played_at,
+        } : null,
         seat,
         rhythm: { lastNight, daysSince, rhythmDays, totalNights: nights.length },
         lastMatches,
