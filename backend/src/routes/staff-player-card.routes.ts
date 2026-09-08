@@ -559,17 +559,38 @@ async function buildSection(db: any, key: string, id: number, p: Row, isAdmin: b
                reason
         FROM blocked_pairs WHERE player1_id = ${id} OR player2_id = ${id} LIMIT 12
       `));
-      // 🔴 الرفقةُ بعددِ الليالي المشتركة وبشرط ٣ فأكثر — لا بالحصّة الخام:
-      //    الحصّةُ تجعل أكثرَ الناس حضوراً «الرفيقَ الأوّل» لكلّ لاعبٍ في النادي.
+      // 🔴 الرفقةُ **بالرفع** لا بعدد الليالي المشتركة. قِستُ الفخَّ على الإنتاج
+      //    قبل الإصلاح: خمسةُ لاعبين مختلفين، ورفيقُهم الأوّلُ من ثلاثةِ أسماءٍ
+      //    متكرّرة — لأنّ أكثرَ الناس حضوراً يشارك الجميعَ أكثرَ لياليهم بحكم
+      //    الحضور وحدَه. «يأتي دائماً مع فلان» كانت ستُقال عن أنشطِ لاعبٍ للكلّ.
+      //
+      //    الرفعُ = المشتركُ الفعليّ ÷ المشتركِ المتوقَّع بالصدفة
+      //           = shared ÷ (ليالي · ليالي الآخر ÷ ليالي النادي كلِّها)
+      //    وقيمةُ ١ تعني «كما تتوقّع الصدفةُ تماماً»، والعتبةُ ١٫٥ فأعلى.
       const comp = rows(await db.execute(sql`
         WITH mine AS (
-          SELECT DISTINCT a.id FROM bookings b JOIN activities a ON a.id = b.activity_id
-          WHERE b.player_id = ${id} AND b.deleted_at IS NULL)
-        SELECT b.player_id AS oid, p2.name AS oname, count(DISTINCT b.activity_id)::int AS shared
-        FROM bookings b JOIN players p2 ON p2.id = b.player_id
-        WHERE b.activity_id IN (SELECT id FROM mine) AND b.player_id <> ${id}
-          AND b.deleted_at IS NULL AND p2.deleted_at IS NULL
-        GROUP BY 1, 2 HAVING count(DISTINCT b.activity_id) >= 3 ORDER BY 3 DESC LIMIT 3
+          SELECT DISTINCT activity_id AS aid FROM bookings
+          WHERE player_id = ${id} AND deleted_at IS NULL),
+        allnights AS (SELECT count(DISTINCT activity_id)::numeric AS n FROM bookings WHERE deleted_at IS NULL),
+        myn AS (SELECT count(*)::numeric AS n FROM mine),
+        pairs AS (
+          SELECT b.player_id AS oid, count(DISTINCT b.activity_id)::numeric AS shared
+          FROM bookings b WHERE b.activity_id IN (SELECT aid FROM mine)
+            AND b.player_id <> ${id} AND b.player_id IS NOT NULL AND b.deleted_at IS NULL
+          GROUP BY 1),
+        theirs AS (
+          SELECT player_id AS oid, count(DISTINCT activity_id)::numeric AS n
+          FROM bookings WHERE deleted_at IS NULL AND player_id IS NOT NULL GROUP BY 1)
+        SELECT pr.oid, p2.name AS oname, pr.shared::int AS shared,
+               myn.n::int AS of_nights,
+               round(pr.shared / NULLIF(myn.n * t.n / an.n, 0), 2)::float AS lift
+        FROM pairs pr
+        JOIN theirs t ON t.oid = pr.oid
+        JOIN players p2 ON p2.id = pr.oid AND p2.deleted_at IS NULL
+        CROSS JOIN allnights an CROSS JOIN myn
+        WHERE pr.shared >= 3 AND myn.n >= 3
+          AND pr.shared / NULLIF(myn.n * t.n / an.n, 0) >= 1.5
+        ORDER BY lift DESC LIMIT 3
       `));
       const myNights = one(await db.execute(sql`
         SELECT count(DISTINCT a.id)::int AS n FROM bookings b JOIN activities a ON a.id = b.activity_id
@@ -591,7 +612,8 @@ async function buildSection(db: any, key: string, id: number, p: Row, isAdmin: b
       return {
         blocked: blocked.map(b => ({ id: b.oid, name: b.oname, reason: b.reason ?? null })),
         companions: comp.map(c => ({
-          id: c.oid, name: c.oname, shared: c.shared, of: myNights?.n ?? 0,
+          id: c.oid, name: c.oname, shared: c.shared,
+          of: c.of_nights ?? myNights?.n ?? 0, lift: c.lift,
         })),
         follows: { out: follows?.out_n ?? 0, in: follows?.in_n ?? 0 },
         feedback: fb.map(f => ({ overall: f.overall, notes: f.notes, at: f.submitted_at })),
