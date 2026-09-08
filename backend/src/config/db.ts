@@ -231,6 +231,25 @@ async function runAutoMigrations(pool: pg.Pool): Promise<void> {
     `);
     await client.query(`CREATE INDEX IF NOT EXISTS idx_pss_season ON player_season_stats(season_id)`);
 
+    // ── 🪪 فهارسُ بطاقة اللاعب ──
+    //
+    // 🔴 البطاقةُ تستعلم بـplayer_id على أربعة جداولَ لا يملك أيٌّ منها فهرساً
+    //    عليه: match_players (٦٦١٢ صفّاً) لا يملك إلّا مفتاحَه الأوّليّ، ويُمسَح
+    //    كاملاً في كلّ فتحةِ بطاقةٍ ومرّتين في كلّ getPlayerProfile؛ وbookings
+    //    كذلك، واستعلاما الدَّين والإيقاع يربطان بـ(player_id أو phone).
+    //
+    // 🔴 كلٌّ في try/catch مستقلّ: فشلُ فهرسٍ لا يوقف بقيّةَ الترحيل، والجداولُ
+    //    صغيرةٌ فلا حاجة إلى CONCURRENTLY ولا نافذةِ صيانة.
+    for (const ix of [
+      `CREATE INDEX IF NOT EXISTS idx_match_players_player ON match_players (player_id, id DESC)`,
+      `CREATE INDEX IF NOT EXISTS idx_presence_checks_player ON presence_checks (player_id, created_at DESC)`,
+      `CREATE INDEX IF NOT EXISTS idx_bookings_player ON bookings (player_id) WHERE deleted_at IS NULL`,
+      `CREATE INDEX IF NOT EXISTS idx_bookings_phone ON bookings (phone) WHERE deleted_at IS NULL`,
+      `CREATE INDEX IF NOT EXISTS idx_player_fcm_player ON player_fcm_tokens (player_id, is_active)`,
+    ]) {
+      try { await client.query(ix); } catch (e: any) { console.warn('⚠️ index:', e.message); }
+    }
+
     // أعمدة جديدة
     const checkSeasonIdCol = await client.query(`
       SELECT column_name FROM information_schema.columns

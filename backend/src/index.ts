@@ -25,6 +25,7 @@ import costsRoutes from './routes/costs.routes.js';
 import foundationalRoutes from './routes/foundational.routes.js';
 import expenseCategoriesRoutes from './routes/expense-categories.routes.js';
 import staffRoutes from './routes/staff.routes.js';
+import staffPlayerCardRoutes from './routes/staff-player-card.routes.js';
 import locationsRoutes from './routes/locations.routes.js';
 import notificationsRoutes from './routes/notifications.routes.js';
 import settingsRoutes from './routes/settings.routes.js';
@@ -170,6 +171,7 @@ app.use('/api/costs', costsRoutes);
 app.use('/api/foundational', foundationalRoutes);
 app.use('/api/expense-categories', expenseCategoriesRoutes);
 app.use('/api/staff', staffRoutes);
+app.use('/api/staff', staffPlayerCardRoutes);   // 🪪 بطاقةُ اللاعب — راوترٌ مستقلٌّ لا يخلط الكيانين
 app.use('/api/locations', locationsRoutes);
 app.use('/api/notifications', notificationsRoutes);
 app.use('/api/settings', settingsRoutes);
