@@ -107,7 +107,8 @@ const NAV_EXTERNAL: (NavLink & { external: true })[] = [
 const NAV_OPEN_KEY = 'admin_nav_open_groups';
 
 // أدقّ تطابق يفوز: /admin/reports/layout لا يُفعّل «التقارير»
-const ALL_HREFS = [...NAV_TOP, ...NAV_GROUPS.flatMap(g => g.items)].map(i => i.href);
+const ALL_NAV = [...NAV_TOP, ...NAV_GROUPS.flatMap(g => g.items)];
+const ALL_HREFS = ALL_NAV.map(i => i.href);
 function isLinkActive(href: string, pathname: string | null): boolean {
   if (!pathname) return false;
   if (pathname === href) return true;
@@ -163,10 +164,22 @@ export default function AdminLayout({ children }: { children: ReactNode }) {
       return;
     }
 
+    let parsed: User;
     try {
-      setUser(JSON.parse(savedUser));
+      parsed = JSON.parse(savedUser);
+      setUser(parsed);
     } catch {
       router.push('/admin/login');
+      return;
+    }
+
+    // 🔴 حارسٌ على مستوى الصفحة لا إخفاءُ روابطَ فقط: `roles` في NAV كانت
+    //    تُخفي البندَ من القائمة، ومن يكتب العنوانَ يدويّاً يفتح الصفحةَ
+    //    كاملةً. الخادمُ يمنع البياناتِ الآن، فالنتيجةُ شاشةٌ تفشل نداءاتُها
+    //    بلا تفسير — يُصرَف عنها بوضوحٍ بدل أن تُترك جداراً صامتاً.
+    const entry = ALL_NAV.find(n => pathname === n.href || pathname.startsWith(n.href + '/'));
+    if (entry?.roles && !entry.roles.includes(parsed.role)) {
+      router.replace('/admin');
       return;
     }
     setLoading(false);

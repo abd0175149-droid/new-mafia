@@ -26,7 +26,7 @@ import {
 const router = Router();
 
 // ── GET /api/player/all — جلب جميع اللاعبين (Admin only) ──
-router.get('/all', authenticate, authorize('admin', 'accountant'), async (_req: Request, res: Response) => {
+router.get('/all', authenticate, authorize('admin', 'accountant'), async (req: Request, res: Response) => {
   try {
     const db = getDB();
     if (!db) return res.status(503).json({ success: false, error: 'قاعدة البيانات غير متوفرة' });
@@ -85,8 +85,15 @@ router.get('/all', authenticate, authorize('admin', 'accountant'), async (_req: 
     }
 
     // دمج lastMatchAt مع بيانات اللاعبين
+    // 🔴 وتجريدُ الحقول الحسّاسة لغير الأدمن (قرارُ المالك: نصُّ سببِ القفل
+    //    للأدمن وحدَه). الحارسُ هنا `admin` أو `accountant`، وكان المحاسبُ
+    //    يقرأ سببَ كلّ قفلٍ في القائمة. و`isLocked` يبقى للجميع — يحتاج
+    //    المحاسبُ أن يعرف أنّ الحسابَ مقفولٌ لا **لماذا**.
+    const seeReasons = (req as any).user?.role === 'admin';
     const enrichedPlayers = rows.map(p => ({
       ...p,
+      lockedReason: seeReasons ? p.lockedReason : undefined,
+      geofenceExemptReason: seeReasons ? p.geofenceExemptReason : undefined,
       lastMatchAt: lastMatchMap.get(p.id) || null,
     }));
 
