@@ -300,12 +300,20 @@ router.post('/:id/toggle-lock', authenticate, adminOnly, async (req: Request, re
     const newValue = !player.locked;
     const reason = typeof req.body?.reason === 'string' ? req.body.reason.trim().slice(0, 200) : '';
 
-    await db.update(playersTable).set({
-      isLocked: newValue,
-      lockedReason: newValue ? reason : '',
-      lockedBy: newValue ? ((req as any).user?.id ?? null) : null,
-      lockedAt: newValue ? new Date() : null,
-    } as any).where(eq(playersTable.id, playerId));
+    // 🔴 السببُ إلزاميٌّ عند القفل: ١٣ قفلاً من ٢٢ على الإنتاج بلا سببٍ
+    //    مكتوب، والمكتوبُ في الباقي «11» و«12» و«حر» — نصٌّ لا يُقرأ بعد شهر.
+    if (newValue && !reason) {
+      return res.status(400).json({ success: false, error: 'سببُ القفل إلزاميّ' });
+    }
+
+    // 🔴 والفكُّ لا يمحو التاريخ: كان يصفّر السببَ والمُصدِرَ والتاريخ، فمن
+    //    قُفل وفُكّ قفلُه مرّتين يبدو نظيفاً تماماً ولا يعرف أحدٌ بعد شهرٍ
+    //    لماذا قُفل. الأعمدةُ تبقى؛ `is_locked` وحدَه يقول الحالةَ الراهنة.
+    // `as any` كنمط الملفّ: استنتاجُ drizzle لـ.set() مكسورٌ هنا أصلاً
+    const lockPatch: any = newValue
+      ? { isLocked: true, lockedReason: reason, lockedBy: (req as any).user?.id ?? null, lockedAt: new Date() }
+      : { isLocked: false };
+    await db.update(playersTable).set(lockPatch).where(eq(playersTable.id, playerId));
 
     console.log(`🔒 Player #${playerId} (${player.name}) isLocked → ${newValue}`);
 
