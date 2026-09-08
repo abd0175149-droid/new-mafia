@@ -58,21 +58,21 @@ export async function createPlayer(data: {
     name: data.name,
     gender: normGender(data.gender),
     dob: data.dob || null,
-    lastActiveAt: new Date(),
+    // 🔴 لا `lastActiveAt` عند الإنشاء: هذا بالضبط ما بُني العمودُ لإصلاحه —
+    //    كان الموظّفُ يُنشئ الحسابَ في القاعة فيُقرأ ذلك «نشاطاً على
+    //    التطبيق»، فصار ٣٤٧ من ٧٥١ قيمةً كاذبةً. يبقى NULL حتّى أوّلِ تفاعلٍ
+    //    حقيقيّ، و«لا نعرف» حالةٌ صريحةٌ أصدقُ من تاريخٍ مخترَع.
   } as any).returning();
 
   console.log(`👤 New player created → ID: ${result[0]?.id}`);
   return result[0] || null;
 }
 
-// ── تحديث آخر نشاط ─────────────────────────────────
-
-export async function touchPlayerActivity(playerId: number) {
-  const db = getDB();
-  if (!db) return;
-
-  await db.update(players).set({ lastActiveAt: new Date() } as any).where(eq(players.id, playerId));
-}
+// 🔴 حُذفت `touchPlayerActivity`: كانت تكتب `last_active_at` مباشرةً متجاوزةً
+//    `touchLastActive`، فتُقدّم الختمَ الزمنيَّ وتترك `last_active_source` على
+//    قيمته القديمة — فيصير المصدرُ كذبةً لا يكشفها شيء، والعمودُ بُني ليكون
+//    مراجَعاً بمصدره. ومستدعيها الوحيد كان مسارَ `/lookup` المجهول، وقد أُزيل.
+//    كلُّ كتابةٍ لآخر نشاطٍ تمرّ من `lib/last-active.ts` وحدَها.
 
 // ── تحديث إحصائيات بعد نهاية المباراة ──────────────
 
@@ -80,11 +80,17 @@ export async function updatePlayerStats(playerId: number, won: boolean, survived
   const db = getDB();
   if (!db) return;
 
+  // 🔴 لا `lastActiveAt` هنا: «آخر نشاط» يعني تفاعلاً مع **التطبيق**، ولعبُ
+  //    مباراةٍ على طاولةٍ في القاعة ليس تفاعلاً معه — الليدرُ يدير اللعبةَ
+  //    وهاتفُ اللاعب في جيبه. وأخطرُ من ذلك أنّ الكتابةَ هنا تتجاوز
+  //    `touchLastActive` فتُقدّم الختمَ الزمنيَّ **وتترك `last_active_source`
+  //    على قيمته القديمة** — فصفٌّ مصدرُه `legacy_login` يحصل على تاريخِ
+  //    اليوم، ويصير المصدرُ كذبةً لا يكشفها شيء. والعمودُ بُني ليكون
+  //    مراجَعاً بمصدره.
   await db.update(players).set({
     totalMatches: sql`COALESCE(${players.totalMatches}, 0) + 1`,
     totalWins: won ? sql`COALESCE(${players.totalWins}, 0) + 1` : players.totalWins,
     totalSurvived: survived ? sql`COALESCE(${players.totalSurvived}, 0) + 1` : players.totalSurvived,
-    lastActiveAt: new Date(),
   } as any).where(eq(players.id, playerId));
 }
 

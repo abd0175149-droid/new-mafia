@@ -19,7 +19,6 @@ import { rateLimit } from '../middleware/rate-limit.js';
 import {
   findPlayerByPhone,
   createPlayer,
-  touchPlayerActivity,
   getPlayerProfile,
 } from '../services/player.service.js';
 
