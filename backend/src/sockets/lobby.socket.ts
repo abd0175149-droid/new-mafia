@@ -1206,6 +1206,34 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
       //    محجوبين بها في اللحظة نفسِها بلا مفتاحٍ يفكّها. الاستبيانُ تذكيرٌ
       //    بإشعارٍ الآن، لا حاجزٌ عند الباب.
 
+      // ── بوّابةُ السند: ميلادٌ ← وليُّ أمرٍ ← موافقة ──
+      //
+      // 🔴 الهويّةُ من **التوكن** لا من جسم العميل: `data.playerId` يرسله
+      //    العميلُ فيمكن تزويرُه، و`socket.data.authPlayer` يضعه الخادمُ عند
+      //    المصادقة (index.ts:128). بوّابةٌ تثق بجسم العميل ليست بوّابة.
+      const joinerId = (socket.data as any)?.authPlayer?.playerId;
+      if (joinerId && !state.players.some((p: any) => p.playerId === joinerId)) {
+        try {
+          const { consentStatus } = await import('../services/consent.service.js');
+          const st = await consentStatus(joinerId);
+          if (st.required) {
+            return callback({
+              success: false,
+              code: 'CONSENT_REQUIRED',
+              error: st.needsDob
+                ? 'أكمِل تاريخَ ميلادك للمتابعة'
+                : st.needsGuardian
+                  ? 'يلزم تسجيلُ وليّ أمرٍ للمتابعة'
+                  : 'يلزم قبولُ الشروط وسياسة الخصوصيّة للمتابعة',
+              needsDob: st.needsDob, needsGuardian: st.needsGuardian,
+            });
+          }
+        } catch (e: any) {
+          // لا حجبَ عند عطلٍ تقنيّ — سندٌ قانونيٌّ لا قفلُ أمان.
+          console.warn('⚠️ consent gate (join) error:', e.message);
+        }
+      }
+
       // ── 📍 بوّابة سياج الفعاليّة ──
       // تُطبّق على **الوافد الجديد وحده**. من هو في state.players أصلاً يمرّ —
       // ومسار العودة (room:rejoin-player) غير محروسٍ أصلاً ويجب ألّا يُحرَس:

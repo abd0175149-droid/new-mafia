@@ -96,11 +96,18 @@ router.post('/consent', authenticatePlayer, async (req: Request, res: Response) 
   if (!acc?.playerId) return res.status(401).json({ error: 'غير مصادق' });
 
   const items = Array.isArray(req.body?.accept) ? req.body.accept : [];
-  if (!items.length) return res.status(400).json({ error: 'لا موافقات في الطلب' });
 
   try {
     const pubs = await publishedVersions();
     const st = await consentStatus(acc.playerId);
+
+    // 🔴 طلبٌ بلا `accept` مقبولٌ حين تكون الحاجةُ **وليَّ أمرٍ وحدَه**: القاصرُ
+    //    الذي وافق على النسخة المنشورة ثمّ بلغ الحاجةَ إلى وليّ (أو سُجّل
+    //    ميلادُه بعد موافقته) ليس عنده ما يقبله — ورفضُ طلبه بـ«لا موافقات»
+    //    كان يحبسه في بوّابةٍ لا مخرجَ منها.
+    if (!items.length && !(st.needsGuardian && !st.missing.length)) {
+      return res.status(400).json({ error: 'لا موافقات في الطلب' });
+    }
 
     // 👨‍👦 القاصرُ لا تصحّ موافقتُه وحدها — بيانات الوليّ شرطٌ لا خيار
     const g = req.body?.guardian ?? null;
@@ -133,6 +140,23 @@ router.post('/consent', authenticatePlayer, async (req: Request, res: Response) 
         guardianName: st.isMinor ? String(g?.name ?? '').trim() : null,
         guardianRelation: st.isMinor ? String(g?.relation ?? 'وليّ أمر').trim() : null,
       });
+    }
+
+    // 🔴 إرسالُ الوليّ وحدَه: الحلقةُ أعلاه لا تدور بلا `accept`، فبيانات
+    //    الوليّ كانت تصل ولا تُكتب. يُسجَّل صفُّ موافقةٍ جديدٌ على النسخة
+    //    المنشورة نفسِها يحمل الوليّ — والجدولُ سجلُّ أحداثٍ لا حالة، فآخرُ
+    //    صفٍّ هو المعتبَر ولا يُمحى ما قبله.
+    if (!items.length && st.needsGuardian) {
+      const privacyDoc: any = pubs.find((d: any) => d.kind === 'privacy');
+      if (privacyDoc) {
+        await recordConsent({
+          playerId: acc.playerId, kind: 'privacy', version: privacyDoc.version,
+          action: 'granted', platform: platformOf(req),
+          guardianPhone: String(g?.phone ?? '').trim(),
+          guardianName: String(g?.name ?? '').trim(),
+          guardianRelation: String(g?.relation ?? 'وليّ أمر').trim(),
+        });
+      }
     }
 
     res.json({ success: true, status: await consentStatus(acc.playerId) });

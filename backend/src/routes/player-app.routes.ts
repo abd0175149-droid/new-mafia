@@ -11,7 +11,7 @@ import { matchPlayers, matches, sessions } from '../schemas/game.schema.js';
 import { bookings, activities, locations, reservations } from '../schemas/admin.schema.js';
 import { menuItems } from '../schemas/fnb.schema.js';
 import { buildPlayerMenu, effectiveMenuLocation } from './fnb.routes.js';
-import { authenticatePlayer } from '../middleware/player-auth.middleware.js';
+import { authenticatePlayer, requireConsent } from '../middleware/player-auth.middleware.js';
 import { buildDisplayBreakdown } from '../services/progression.service.js';
 import { getProgressionConfig } from './progression-settings.routes.js';
 import { buildActivityPulse, hasBooking } from '../services/activity-pulse.query.js';
@@ -183,7 +183,7 @@ router.delete('/book/:activityId', authenticatePlayer, async (req: Request, res:
 //    عشرة — ولم يكن في النظام كلِّه مسارٌ يفكّ الحجب: مسارا الاستبيان
 //    الإداريّان كلاهما GET. أي حاجزٌ بلا مفتاح، تسعَ ليالٍ من كلّ عشر.
 //    الاستبيانُ يبقى تذكيراً بإشعار، ولا يمنع حجزاً ولا انضماماً.
-router.post('/book', authenticatePlayer, async (req: Request, res: Response) => {
+router.post('/book', authenticatePlayer, requireConsent, async (req: Request, res: Response) => {
   const db = getDB();
   if (!db) return res.status(503).json({ error: 'DB unavailable' });
 

@@ -29,6 +29,8 @@ const platform = () =>
 interface Missing { kind: 'privacy' | 'terms'; version: string; title: string; changeSummary: string; isUpdate: boolean }
 interface Status {
   required: boolean; isMinor: boolean; needsGuardian: boolean;
+  /** لا تاريخَ ميلادٍ مسجَّلاً — أوّلُ حلقةٍ في السلسلة */
+  needsDob?: boolean; dob?: string | null;
   missing: Missing[]; current: { kind: string; version: string }[]; age?: number | null;
 }
 
@@ -50,6 +52,7 @@ export default function ConsentGate({ children }: { children: React.ReactNode })
   const [err, setErr] = useState('');
   const [preview, setPreview] = useState<any>(null);
   const [ackBalance, setAckBalance] = useState(false);
+  const [dob, setDob] = useState('');
 
   const load = useCallback(async () => {
     if (!token) return;
@@ -70,13 +73,35 @@ export default function ConsentGate({ children }: { children: React.ReactNode })
       setOffline(true);
       let cached = false;
       try { cached = localStorage.getItem(CACHE_KEY) === '1'; } catch { /* لا شيء */ }
-      setStatus(cached ? { required: false, isMinor: false, needsGuardian: false, missing: [], current: [] } : null);
+      setStatus(cached ? { required: false, isMinor: false, needsGuardian: false, needsDob: false, missing: [], current: [] } : null);
     } finally {
       setLoading(false);
     }
   }, [token]);
 
   useEffect(() => { if (token) load(); else setLoading(false); }, [token, load]);
+
+  // 🔴 خطوةُ الميلاد قبل كلّ شيء: بلا تاريخٍ لا يُعرف أقاصرٌ هو أم بالغ،
+  //    فبوّابةُ وليّ الأمر لا تفتح أصلاً. ٣٨٠ لاعباً بلا تاريخٍ على الإنتاج،
+  //    ٣٣٧ منهم لعبوا — والبوّابةُ تعمل للجدد، فالنقصُ إرثٌ يُسأل عنه هنا.
+  //    وبعد الحفظ يُعاد جلبُ الحالة لا يُخمَّن: الخادمُ وحدَه يقرّر أقاصرٌ هو.
+  const saveDob = async () => {
+    if (!token || !player?.playerId) return;
+    const v = String(dob || '').trim();
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(v)) { setErr('اختر تاريخاً صحيحاً'); return; }
+    setBusy(true); setErr('');
+    try {
+      const r = await fetch(`/api/player/${player.playerId}/profile`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ dob: v }),
+      });
+      const d = await r.json().catch(() => ({}));
+      if (!r.ok || d?.success === false) { setErr(d?.error || 'تعذّر الحفظ'); return; }
+      await load();
+    } catch { setErr('تعذّر الاتّصال — أعد المحاولة'); }
+    finally { setBusy(false); }
+  };
 
   const accept = async () => {
     if (!status || !token) return;
@@ -86,6 +111,7 @@ export default function ConsentGate({ children }: { children: React.ReactNode })
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
         body: JSON.stringify({
+          // قد تكون فارغةً: قاصرٌ وافق ثمّ لزمه وليٌّ — والخادمُ يقبلها الآن
           accept: status.missing.map(m => ({ kind: m.kind, version: m.version })),
           platform: platform(),
           guardian: status.isMinor ? guardian : undefined,
@@ -229,9 +255,33 @@ export default function ConsentGate({ children }: { children: React.ReactNode })
     );
   }
 
+  // ── الحلقةُ الأولى: تاريخُ الميلاد ──
+  // 🔴 تُعرض وحدَها ولا شيءَ معها: طلبُ الموافقة ووليِّ الأمر في الشاشة نفسِها
+  //    يُربك، ولا يُعرف أصلاً أيُلزم وليٌّ قبل أن يُعرف العمر.
+  if (status.needsDob) {
+    return (
+      <Shell>
+        <H>تاريخُ ميلادك</H>
+        <P>نحتاجه مرّةً واحدة: يحدّد ما يلزم لحسابك قانوناً، وبه تصلك عيديّةُ النادي في يومك.</P>
+        <input
+          type="date" value={dob} onChange={e => setDob(e.target.value)}
+          max={new Date().toISOString().slice(0, 10)}
+          className="w-full rounded-2xl px-4 py-3 text-[15px] text-white outline-none"
+          style={{ border: '1px solid rgba(255,255,255,.1)', background: 'rgba(255,255,255,.04)', colorScheme: 'dark' }}
+        />
+        {err && <Err>{err}</Err>}
+        <Btn kind="ok" onClick={saveDob} busy={busy} disabled={!dob}>تابِع</Btn>
+      </Shell>
+    );
+  }
+
   // ── البوّابة ──
   const isUpdate = status.missing.some(m => m.isUpdate);
-  const allTicked = status.missing.every(m => ticks[m.kind]);
+  // 🔴 لا `every` على مصفوفةٍ فارغة: تُرجع true، فقاصرٌ لا تنقصه وثيقةٌ كان
+  //    يمرّ بلا شرطٍ حقيقيّ. حين لا وثائقَ فالشرطُ هو الوليُّ وحدَه.
+  const allTicked = status.missing.length > 0
+    ? status.missing.every(m => ticks[m.kind])
+    : status.needsGuardian;
   const guardianOk = !status.isMinor
     || (guardian.name.trim().length >= 3 && /^0?7[789]\d{7}$/.test(guardian.phone.replace(/\s|-/g, '')));
 

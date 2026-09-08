@@ -155,7 +155,13 @@ class _MafiaAppState extends State<MafiaApp> {
                 if (_showBirthday)
                   Positioned.fill(
                     child: BirthdayGate(
-                      onSaved: () => AppState.instance.markBirthdaySaved(),
+                      // 🔴 بعد حفظ الميلاد يُعاد جلبُ حالة الموافقة: القاصرُ لا
+                      //    يُعرف إلّا بعد التاريخ، فبوّابةُ وليّ الأمر تُحسب الآن
+                      //    لا في الجلسة القادمة.
+                      onSaved: () {
+                        AppState.instance.markBirthdaySaved();
+                        unawaited(_checkConsent());
+                      },
                     ),
                   ),
                 // ⬆️ التحديث المطلوب **أعلى المكدّس**: نسخةٌ قديمة قد تتحدّث مع خادمٍ
@@ -186,11 +192,14 @@ class _MafiaAppState extends State<MafiaApp> {
     );
   }
 
-  /// 🎂 بوّابة الميلاد: للمسجّل الذي لا تاريخ له، وبعد عبور بوّابة
-  /// الإشعارات، وخارج مسار الانضمام — من يمسح QR لغرفةٍ بدأت لا يُحجب.
+  /// 🎂 بوّابة الميلاد: للمسجّل الذي لا تاريخ له، وخارج مسار الانضمام.
+  ///
+  /// 🔴 تسبق الموافقة الآن ولا تتبعها: بلا تاريخِ ميلادٍ لا يُعرف أقاصرٌ هو
+  ///    أم بالغ، فبوّابةُ وليّ الأمر داخل الموافقة لا تفتح أصلاً. الترتيبُ
+  ///    ميلادٌ ← وليٌّ ← موافقة، لا العكس.
   bool get _showBirthday {
     if (_app.session != SessionState.authenticated) return false;
-    if (_showGate || _showConsent) return false;
+    if (_showGate) return false;
     if (!_app.needsBirthday) return false;
     final loc = currentLocation ?? '';
     final path = Uri.tryParse(loc)?.path ?? loc;
@@ -202,6 +211,8 @@ class _MafiaAppState extends State<MafiaApp> {
   ///    وتُعرض حتّى في مسار الانضمام — الموافقة شرطُ معالجةٍ لا رفاهيّةَ توقيت.
   bool get _showConsent {
     if (_app.session != SessionState.authenticated) return false;
+    // 🔴 الميلادُ أوّلاً — انظر `_showBirthday`.
+    if (_app.needsBirthday) return false;
     final c = _consent;
     if (c == null) return false;
     if (!c.required_ && c.deletionDueAt == null) return false;

@@ -156,6 +156,44 @@ export function blockIfDeleting(req: Request, res: Response, next: NextFunction)
   next();
 }
 
+// ── Middleware: البوّابةُ المتسلسلة — ميلادٌ ← وليُّ أمرٍ ← موافقة ──
+//
+// 🔴 `hasAllConsents` كانت معرَّفةً منذ إنشاء النظام و**لا يستدعيها أحد**:
+//    بحثٌ في الخادم والواجهة والتطبيق أعطى صفرَ مستدعين. فبوّابةُ الموافقة
+//    كانت تعيش في العميل وحدَه، ونتيجتُها مقيسةٌ على الإنتاج: ٥٣٩ لاعباً
+//    لعبوا بلا صفِّ موافقةٍ إطلاقاً، و٢٦ قاصراً بلا وليّ أمرٍ واحد.
+//
+// 🔴 وتُركَّب على مسارات **الفعل** وحدها (حجزٌ وانضمام) لا على القراءة:
+//    حجبُ التصفّح يترك اللاعبَ أمام شاشةٍ فارغةٍ لا يفهم سببَها، وحجبُ
+//    الفعل يقع في اللحظة التي يفهم فيها لماذا يُطلب منه شيء.
+export async function requireConsent(req: Request, res: Response, next: NextFunction): Promise<void> {
+  const playerId = req.playerAccount?.playerId;
+  if (!playerId) { res.status(401).json({ error: 'غير مصادق' }); return; }
+  try {
+    const { consentStatus } = await import('../services/consent.service.js');
+    const st = await consentStatus(playerId);
+    if (st.required) {
+      res.status(403).json({
+        success: false,
+        code: 'CONSENT_REQUIRED',
+        error: st.needsDob
+          ? 'أكمِل تاريخَ ميلادك للمتابعة'
+          : st.needsGuardian
+            ? 'يلزم تسجيلُ وليّ أمرٍ للمتابعة'
+            : 'يلزم قبولُ الشروط وسياسة الخصوصيّة للمتابعة',
+        needsDob: st.needsDob, needsGuardian: st.needsGuardian, isMinor: st.isMinor,
+      });
+      return;
+    }
+    next();
+  } catch (err: any) {
+    // 🔴 لا يُحجب عند عطلٍ تقنيّ: البوّابةُ سندٌ قانونيٌّ لا قفلُ أمان،
+    //    وإسقاطُ ليلةِ فعاليّةٍ بسبب تعثّرِ استعلامٍ ضررٌ أكبرُ من تأخّرِ سند.
+    console.warn('⚠️ requireConsent error:', err.message);
+    next();
+  }
+}
+
 // 🔴 حُذف `requireNoPendingFeedback` (قرارُ المالك: أُلغي حجبُ الاستبيان).
 //    لم يُترك معطَّلاً بل حُذف: تنفيذٌ حاجبٌ غيرُ مركَّبٍ يبقى فخّاً — يُعاد
 //    تركيبُه سهواً بعد شهور، ويُقرأ من الشفرة كأنّ الحجبَ ما زال سياسة.

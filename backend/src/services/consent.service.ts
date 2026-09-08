@@ -23,6 +23,10 @@ export interface ConsentStatus {
   required: boolean;
   isMinor: boolean;
   needsGuardian: boolean;
+  /** لا تاريخَ ميلادٍ مسجَّلاً — أوّلُ حلقةٍ في السلسلة، وبدونها لا يُعرف القاصر */
+  needsDob: boolean;
+  /** تاريخُ الميلاد كما هو مسجَّل (أو null) — يقرؤه العميلُ ليُعبّئ الحقل */
+  dob: string | null;
   /** الوثائقُ التي تنقص موافقةً على نسختها المنشورة */
   missing: { kind: ConsentKind; version: string; title: string; changeSummary: string; isUpdate: boolean }[];
   current: { kind: ConsentKind; version: string; grantedAt: string | null }[];
@@ -58,15 +62,23 @@ export async function publishedVersions() {
 /** ما الذي ينقص هذا اللاعب من موافقات */
 export async function consentStatus(playerId: number): Promise<ConsentStatus> {
   const db = getDB();
-  const empty: ConsentStatus = { required: false, isMinor: false, needsGuardian: false, missing: [], current: [] };
+  const empty: ConsentStatus = { required: false, isMinor: false, needsGuardian: false, needsDob: false, dob: null, missing: [], current: [] };
   if (!db) return empty;
 
   const [p] = await db.select({ dob: players.dob }).from(players).where(eq(players.id, playerId)).limit(1);
-  const age = ageFromDob(p?.dob);
+  const dob = String(p?.dob ?? '').trim() || null;
+  const age = ageFromDob(dob);
   const isMinor = age != null && age < ADULT_AGE;
 
+  // 🔴 أوّلُ حلقةٍ في السلسلة: بلا تاريخِ ميلادٍ لا يُعرف أقاصرٌ هو أم بالغ،
+  //    فبوّابةُ وليّ الأمر لا تفتح أصلاً. القياسُ على الإنتاج: ٣٨٠ لاعباً بلا
+  //    تاريخ، منهم ٣٣٧ لعبوا فعلاً — وتغطيةُ المسجَّلين حديثاً ١٠٠٪، أي أنّ
+  //    البوّابةَ تعمل للجدد والنقصُ إرثٌ قديمٌ صرف يُسأل عنه عند أوّل دخول.
+  const needsDob = !dob;
+
   const pubs = await publishedVersions();
-  if (!pubs.length) return { ...empty, isMinor };   // لا نصَّ منشورٌ ⇒ لا حجب
+  // لا نصَّ منشورٌ ⇒ لا حجبَ بالموافقة، لكنّ الميلادَ يبقى مطلوباً
+  if (!pubs.length) return { ...empty, isMinor, needsDob, dob, required: needsDob };
 
   const granted = await db.select()
     .from(playerConsents)
@@ -95,7 +107,10 @@ export async function consentStatus(playerId: number): Promise<ConsentStatus> {
     }
   }
 
-  return { required: missing.length > 0 || needsGuardian, isMinor, needsGuardian, missing, current };
+  return {
+    required: needsDob || missing.length > 0 || needsGuardian,
+    isMinor, needsGuardian, needsDob, dob, missing, current,
+  };
 }
 
 /** تسجيلُ موافقةٍ أو سحبها */
