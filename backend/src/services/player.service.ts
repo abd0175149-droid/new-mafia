@@ -89,6 +89,12 @@ export async function updatePlayerStats(playerId: number, won: boolean, survived
   //    مراجَعاً بمصدره.
   await db.update(players).set({
     totalMatches: sql`COALESCE(${players.totalMatches}, 0) + 1`,
+    // 🔴 و`lifetime_matches` معه: كان باك-فيلاً لمرّةٍ واحدةٍ عند الترحيل ولا
+    //    سطرَ زيادةٍ له في المستودع كلِّه، فتجمّد وتخلّف ٦٢ مباراةً عن الواقع.
+    //    وبدءُ الموسم يُصفّر `total_matches` ولا يلمسه — فبقي وحدَه بلا صائن.
+    //    وبوتُ الواتساب كان يلتفّ عليه بـMAX(العمود، الموسم، العدّ الحقيقيّ):
+    //    التفافٌ يصلح قارئاً واحداً ويترك البقيّةَ تقرأ رقماً متجمّداً.
+    lifetimeMatches: sql`COALESCE(${players.lifetimeMatches}, 0) + 1`,
     totalWins: won ? sql`COALESCE(${players.totalWins}, 0) + 1` : players.totalWins,
     totalSurvived: survived ? sql`COALESCE(${players.totalSurvived}, 0) + 1` : players.totalSurvived,
   } as any).where(eq(players.id, playerId));

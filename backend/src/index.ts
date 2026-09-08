@@ -734,6 +734,19 @@ async function main() {
       )`);
       await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_player_notes_player ON player_notes (player_id, created_at DESC)`);
 
+      // ── 🏆 لحاقُ lifetime_matches بالواقع ──
+      //
+      // 🔴 GREATEST لا إسناد: العمودُ قد يحمل مبارياتٍ من قبل جدول
+      //    match_players نفسِه (النظامُ أقدمُ من الجدول)، فالإسنادُ المباشر
+      //    كان سيُنقص تاريخَ القدامى. ولا يضرّ تكرارُه — لا-عمليٌّ بعد أوّل مرّة.
+      await db.execute(sql`
+        UPDATE players p
+        SET lifetime_matches = GREATEST(COALESCE(p.lifetime_matches, 0), r.n)
+        FROM (SELECT player_id, count(*)::int AS n FROM match_players
+              WHERE player_id IS NOT NULL GROUP BY player_id) r
+        WHERE r.player_id = p.id AND COALESCE(p.lifetime_matches, 0) < r.n
+      `);
+
       // ── ⚧ تطبيعُ الجنس لمرّةٍ واحدة ──
       //
       // 🔴 العمودُ حمل أربعَ قيمٍ لمعنيَين (MALE/FEMALE/male/female)، والواجهاتُ
