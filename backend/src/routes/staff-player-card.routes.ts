@@ -128,12 +128,19 @@ router.get(
         recentFailures: [],
       };
       if (role !== 'accountant') {
+        // 🔴 نافذةٌ زمنيّةٌ إلزاميّة: بدونها كان الاستعلامُ يجلب فشولَ **كلّ
+        //    التاريخ**، فمن تعذّرت قراءةُ موقعه مرّةً في ١٢ آب يبقى شريطُه
+        //    كهرمانيّاً إلى الأبد. القياسُ على الإنتاج: ٥٠ لاعباً يُشعلون
+        //    العنبرَ بالمُسنَد القديم، وآخرُ فحصٍ فاشلٍ فعلاً **لواحد**.
+        //    وشريطٌ يكذب على تسعةٍ وأربعين يُفقد الثقةَ في الشريط كلِّه.
         const fails = rows(await db.execute(sql`
           SELECT result, gate, distance_m, enforced, created_at
           FROM presence_checks
           WHERE player_id = ${playerId}
             AND result NOT IN ('OK','OK_STORED','EXEMPT','EXEMPT_PLAYER')
-            ${activityId ? sql`AND activity_id = ${activityId}` : sql``}
+            ${activityId
+              ? sql`AND activity_id = ${activityId}`
+              : sql`AND created_at > NOW() - INTERVAL '24 hours'`}
           ORDER BY created_at DESC LIMIT 5
         `));
         geo.recentFailures = fails.map(f => ({
@@ -307,5 +314,359 @@ router.get(
     }
   },
 );
+
+// ══════════════════════════════════════════════════════
+// 🗂️ الأقسامُ العميقة — تُطلب حين يُفتح لسانُها لا في كلّ فتحة
+//
+// 🔴 لماذا منفذٌ ثانٍ لا توسيعُ البطاقة: البطاقةُ تُفتح في كلّ مرّة، والأقسامُ
+//    تُفتح أحياناً. ضمُّها إليها يعيد عطبَ المنفذ القديم نفسَه — ٦٧٫٨ ك.ب
+//    في كلّ فتحةٍ، ٩٣٪ منها لا يُرى.
+//
+// 🔴 والحراسةُ على مستوى القسم في الخادم: ما لا يملكه الدورُ لا يُرسَل.
+//    قسمُ الموقع لا يصل المحاسبَ أصلاً، ولا يُخفى في الواجهة.
+// ══════════════════════════════════════════════════════
+
+/** أدنى دورٍ لكلّ قسم — قراراتُ المالك مطبَّقة */
+const SECTION_ROLES: Record<string, string[]> = {
+  money:   ['admin', 'manager'],
+  play:    ['admin', 'manager', 'accountant'],
+  account: ['admin', 'manager', 'accountant'],
+  seating: ['admin', 'manager'],
+  geo:     ['admin', 'manager'],   // لا محاسب — الموقعُ لا يصله
+};
+
+router.get(
+  '/player/:id/section/:key',
+  authenticate,
+  authorize('admin', 'manager', 'accountant'),
+  async (req: Request, res: Response) => {
+    const playerId = parseInt(req.params.id);
+    const key = String(req.params.key);
+    if (!playerId || isNaN(playerId)) {
+      return res.status(400).json({ success: false, error: 'معرّف اللاعب غير صالح' });
+    }
+    const allowed = SECTION_ROLES[key];
+    if (!allowed) return res.status(404).json({ success: false, error: 'قسمٌ غير معروف' });
+
+    const role = req.user?.role ?? '';
+    if (!allowed.includes(role)) {
+      return res.status(403).json({ success: false, error: 'ليس لديك صلاحية لهذا القسم' });
+    }
+    const isAdmin = role === 'admin';
+
+    const db = getDB();
+    if (!db) return res.status(503).json({ success: false, error: 'قاعدة البيانات غير متوفرة' });
+
+    try {
+      const p = one(await db.execute(sql`
+        SELECT id, name, phone, chips_balance, is_free_account
+        FROM players WHERE id = ${playerId} AND deleted_at IS NULL
+      `));
+      if (!p) return res.status(404).json({ success: false, error: 'اللاعب غير موجود' });
+
+      const out = await buildSection(db, key, playerId, p, isAdmin);
+      return res.json({ success: true, key, ...out });
+    } catch (err: any) {
+      console.error('❌ section error:', key, err.message);
+      return res.status(500).json({ success: false, error: 'خطأ في جلب القسم' });
+    }
+  },
+);
+
+async function buildSection(db: any, key: string, id: number, p: Row, isAdmin: boolean) {
+  switch (key) {
+
+    // ── 💵 المال ──
+    case 'money': {
+      // 🔴 الأرشيفُ يُعرض بوسمٍ وبلا زرِّ تحصيل (قرارُ المالك): ما قبل ١/٩ وقع
+      //    في نظامٍ لم يكن يُعلَّم فيه الدفعُ أصلاً، فالمطالبةُ به ظلم.
+      const debt = one(await db.execute(sql`
+        SELECT
+          COALESCE(SUM(a.base_price::numeric) FILTER (WHERE a.date >= ${DEBT_SINCE}::date), 0)::float AS live,
+          count(*) FILTER (WHERE a.date >= ${DEBT_SINCE}::date)::int AS live_n,
+          COALESCE(SUM(a.base_price::numeric) FILTER (WHERE a.date < ${DEBT_SINCE}::date), 0)::float AS arch,
+          count(*) FILTER (WHERE a.date < ${DEBT_SINCE}::date)::int AS arch_n
+        FROM bookings b JOIN activities a ON a.id = b.activity_id
+        WHERE b.player_id = ${id} AND b.is_paid = false
+          AND COALESCE(b.is_free, false) = false AND b.deleted_at IS NULL
+      `));
+      const paid = one(await db.execute(sql`
+        SELECT
+          COALESCE((SELECT SUM(paid_amount::numeric) FROM bookings
+                    WHERE player_id = ${id} AND is_paid AND deleted_at IS NULL), 0)::float AS gate,
+          COALESCE((SELECT SUM(total::numeric) FROM orders
+                    WHERE player_id = ${id} AND status <> 'cancelled'), 0)::float AS menu
+      `));
+      // 🔴 الماءُ خارجَ التفضيل: يُضاف تلقائيّاً في كثيرٍ من الطلبات، فعدُّه
+      //    تفضيلاً يجعله الصنفَ الأوّلَ لكلّ لاعبٍ في النادي.
+      const items = rows(await db.execute(sql`
+        SELECT oi.name_snapshot AS name, SUM(oi.quantity)::int AS n
+        FROM order_items oi JOIN orders o ON o.id = oi.order_id
+        WHERE o.player_id = ${id} AND o.status <> 'cancelled'
+          AND oi.name_snapshot NOT ILIKE '%مياه%' AND oi.name_snapshot NOT ILIKE '%ماء%'
+        GROUP BY 1 HAVING SUM(oi.quantity) >= 2 ORDER BY 2 DESC LIMIT 3
+      `));
+      const orders = one(await db.execute(sql`
+        SELECT count(*)::int AS n, COALESCE(SUM(total::numeric), 0)::float AS sum
+        FROM orders WHERE player_id = ${id} AND status <> 'cancelled'
+      `));
+      const freeNights = one(await db.execute(sql`
+        SELECT count(*)::int AS n FROM bookings
+        WHERE player_id = ${id} AND is_free AND deleted_at IS NULL
+      `));
+      return {
+        debt: {
+          live: Number(debt?.live ?? 0), liveN: debt?.live_n ?? 0,
+          archive: Number(debt?.arch ?? 0), archiveN: debt?.arch_n ?? 0, since: DEBT_SINCE,
+        },
+        paid: {
+          gate: Number(paid?.gate ?? 0), menu: Number(paid?.menu ?? 0),
+          total: Number(paid?.gate ?? 0) + Number(paid?.menu ?? 0),
+        },
+        orders: { n: orders?.n ?? 0, sum: Number(orders?.sum ?? 0), top: items },
+        free: { nights: freeNights?.n ?? 0, account: !!p.is_free_account },
+        chips: Number(p.chips_balance ?? 0),
+      };
+    }
+
+    // ── 🎭 اللعب ──
+    case 'play': {
+      const w = one(await db.execute(sql`
+        SELECT
+          (SELECT lifetime_matches FROM players WHERE id = ${id})::int AS lifetime,
+          (SELECT total_matches FROM players WHERE id = ${id})::int AS season,
+          (SELECT count(DISTINCT a.id) FROM bookings b JOIN activities a ON a.id = b.activity_id
+           WHERE b.player_id = ${id} AND b.deleted_at IS NULL)::int AS nights,
+          (SELECT min(a.date) FROM bookings b JOIN activities a ON a.id = b.activity_id
+           WHERE b.player_id = ${id} AND b.deleted_at IS NULL) AS first_night
+      `));
+      const hist = rows(await db.execute(sql`
+        SELECT m.created_at::date AS d, mp.role, m.winner, mp.survived_to_end,
+               COALESCE(mp.penalty_count, 0)::int AS pen
+        FROM match_players mp JOIN matches m ON m.id = mp.match_id
+        WHERE mp.player_id = ${id} AND m.winner IS NOT NULL
+        ORDER BY m.created_at DESC LIMIT 12
+      `));
+      const nights: Row[] = [];
+      for (const r of hist) {
+        const d = String(r.d);
+        let n = nights.find(x => x.date === d);
+        if (!n) { if (nights.length >= 3) continue; n = { date: d, matches: [] }; nights.push(n); }
+        const team = teamOfRole(r.role);
+        // الفوزُ رباعيٌّ — انظر عقودَ البيانات
+        const won = r.winner === 'MAFIA' ? team === 'MAFIA'
+          : r.winner === 'CITIZEN' ? team === 'CITIZEN'
+          : r.winner === 'JESTER' ? r.role === 'JESTER'
+          : r.winner === 'ASSASSIN' ? r.role === 'ASSASSIN' : false;
+        n.matches.push({
+          role: r.role, won, winner: r.winner,
+          survived: !!r.survived_to_end, penalty: r.pen > 0,
+        });
+      }
+      // 🔴 «ممنوعٌ من المافيا»: آخرُ ثلاثةِ أدوارٍ كلُّها مافيا ⇒ المحرّكُ
+      //    يستبعده من التوزيع القادم. يُعرض في البطاقة وهنا معاً (قرارُ المالك).
+      const last3 = hist.slice(0, 3).map(r => teamOfRole(r.role));
+      const mafiaBan = last3.length === 3 && last3.every(t => t === 'MAFIA');
+      // 🔴 العقوبةُ معدّلاً لا رقماً مطلقاً: «عقوبتان» تعني شيئاً لمن لعب ٥
+      //    وشيئاً آخرَ تماماً لمن لعب ٢٠٠.
+      const pen = one(await db.execute(sql`
+        SELECT COALESCE(SUM(penalty_count), 0)::int AS n
+        FROM match_players WHERE player_id = ${id} AND penalty_count > 0
+      `));
+      const lastPen = one(await db.execute(sql`
+        SELECT m.created_at::date AS d, mp.role
+        FROM match_players mp JOIN matches m ON m.id = mp.match_id
+        WHERE mp.player_id = ${id} AND mp.penalty_count > 0
+        ORDER BY m.created_at DESC LIMIT 1
+      `));
+      const deals = one(await db.execute(sql`
+        SELECT COALESCE(total_deals, 0)::int AS n, COALESCE(successful_deals, 0)::int AS ok
+        FROM players WHERE id = ${id}
+      `));
+      const life = Number(w?.lifetime ?? 0);
+      const pn = Number(pen?.n ?? 0);
+      return {
+        weight: {
+          lifetime: life, season: w?.season ?? 0,
+          nights: w?.nights ?? 0, firstNight: w?.first_night ?? null,
+        },
+        nights, mafiaBan,
+        penalties: {
+          n: pn,
+          perMatches: pn > 0 && life > 0 ? Math.round(life / pn) : null,
+          last: lastPen ? { date: lastPen.d, role: lastPen.role } : null,
+        },
+        deals: { n: deals?.n ?? 0, ok: deals?.ok ?? 0 },
+      };
+    }
+
+    // ── 🪪 الحساب ──
+    case 'account': {
+      const dev = one(await db.execute(sql`
+        SELECT count(*)::int AS n, max(platform) AS platform, max(updated_at) AS seen
+        FROM player_fcm_tokens WHERE player_id = ${id} AND is_active = true
+      `));
+      const acc = one(await db.execute(sql`
+        SELECT created_at, must_change_password, is_test_account, gender_constraint,
+               linked_staff_id, last_active_at, last_active_source, dob
+        FROM players WHERE id = ${id}
+      `));
+      const consent = one(await db.execute(sql`
+        SELECT kind, version, action, guardian_name, created_at
+        FROM player_consents WHERE player_id = ${id}
+        ORDER BY created_at DESC LIMIT 1
+      `));
+      const staff = acc?.linked_staff_id
+        ? one(await db.execute(sql`SELECT username, role FROM staff WHERE id = ${acc.linked_staff_id}`))
+        : null;
+      // 🔴 التوأمُ الهاتفيّ: آخرُ ٩ خاناتٍ بعد تحويل الأرقام العربيّة الهنديّة —
+      //    سبعُ مجموعاتٍ في الإنتاج، وواحدةٌ منها شخصان مختلفان يتشاركان هاتفاً.
+      const twin = one(await db.execute(sql`
+        SELECT p2.id, p2.name, COALESCE(p2.lifetime_matches, 0)::int AS m, p2.created_at
+        FROM players p2
+        WHERE p2.id <> ${id} AND p2.deleted_at IS NULL
+          AND length(regexp_replace(translate(p2.phone, '٠١٢٣٤٥٦٧٨٩', '0123456789'), '[^0-9]', '', 'g')) >= 9
+          AND right(regexp_replace(translate(p2.phone, '٠١٢٣٤٥٦٧٨٩', '0123456789'), '[^0-9]', '', 'g'), 9)
+            = right(regexp_replace(translate(${String(p.phone ?? '')}, '٠١٢٣٤٥٦٧٨٩', '0123456789'), '[^0-9]', '', 'g'), 9)
+        LIMIT 1
+      `));
+      return {
+        device: { n: dev?.n ?? 0, platform: dev?.platform ?? null, seen: dev?.seen ?? null },
+        account: {
+          joined: acc?.created_at ?? null,
+          mustChangePassword: !!acc?.must_change_password,
+          isTestAccount: !!acc?.is_test_account,
+          genderConstraint: acc?.gender_constraint ?? 'NONE',
+          lastActive: acc?.last_active_at ?? null,
+          lastActiveSource: acc?.last_active_source ?? null,
+          // الميلادُ للأدمن وحدَه (قرارُ المالك)
+          dob: isAdmin ? (acc?.dob ?? null) : null,
+        },
+        linkedStaff: staff && isAdmin ? { username: staff.username, role: staff.role } : null,
+        consent: consent ? {
+          kind: consent.kind, version: consent.version, action: consent.action,
+          hasGuardian: !!consent.guardian_name, at: consent.created_at,
+        } : null,
+        twin: twin ? { id: twin.id, name: twin.name, matches: twin.m, at: twin.created_at } : null,
+      };
+    }
+
+    // ── 💺 الإجلاس ──
+    case 'seating': {
+      const blocked = rows(await db.execute(sql`
+        SELECT CASE WHEN player1_id = ${id} THEN player2_id ELSE player1_id END AS oid,
+               CASE WHEN player1_id = ${id} THEN player2_name ELSE player1_name END AS oname,
+               reason
+        FROM blocked_pairs WHERE player1_id = ${id} OR player2_id = ${id} LIMIT 12
+      `));
+      // 🔴 الرفقةُ بعددِ الليالي المشتركة وبشرط ٣ فأكثر — لا بالحصّة الخام:
+      //    الحصّةُ تجعل أكثرَ الناس حضوراً «الرفيقَ الأوّل» لكلّ لاعبٍ في النادي.
+      const comp = rows(await db.execute(sql`
+        WITH mine AS (
+          SELECT DISTINCT a.id FROM bookings b JOIN activities a ON a.id = b.activity_id
+          WHERE b.player_id = ${id} AND b.deleted_at IS NULL)
+        SELECT b.player_id AS oid, p2.name AS oname, count(DISTINCT b.activity_id)::int AS shared
+        FROM bookings b JOIN players p2 ON p2.id = b.player_id
+        WHERE b.activity_id IN (SELECT id FROM mine) AND b.player_id <> ${id}
+          AND b.deleted_at IS NULL AND p2.deleted_at IS NULL
+        GROUP BY 1, 2 HAVING count(DISTINCT b.activity_id) >= 3 ORDER BY 3 DESC LIMIT 3
+      `));
+      const myNights = one(await db.execute(sql`
+        SELECT count(DISTINCT a.id)::int AS n FROM bookings b JOIN activities a ON a.id = b.activity_id
+        WHERE b.player_id = ${id} AND b.deleted_at IS NULL
+      `));
+      const follows = one(await db.execute(sql`
+        SELECT (SELECT count(*) FROM player_follows WHERE follower_id = ${id})::int AS out_n,
+               (SELECT count(*) FROM player_follows WHERE following_id = ${id})::int AS in_n
+      `));
+      const fb = rows(await db.execute(sql`
+        SELECT overall, notes, submitted_at FROM room_feedback
+        WHERE player_id = ${id} AND submitted_at IS NOT NULL
+          AND COALESCE(notes, '') <> '' ORDER BY submitted_at DESC LIMIT 2
+      `));
+      const notes = rows(await db.execute(sql`
+        SELECT id, staff_username AS "staffUsername", text, created_at AS "createdAt"
+        FROM player_notes WHERE player_id = ${id} ORDER BY created_at DESC LIMIT 10
+      `));
+      return {
+        blocked: blocked.map(b => ({ id: b.oid, name: b.oname, reason: b.reason ?? null })),
+        companions: comp.map(c => ({
+          id: c.oid, name: c.oname, shared: c.shared, of: myNights?.n ?? 0,
+        })),
+        follows: { out: follows?.out_n ?? 0, in: follows?.in_n ?? 0 },
+        feedback: fb.map(f => ({ overall: f.overall, notes: f.notes, at: f.submitted_at })),
+        notes,
+      };
+    }
+
+    // ── 📍 الموقع ──
+    case 'geo': {
+      // 🔴 الموثوقيّةُ بالليالي لا بالمحاولات: ليلةٌ فيها ٣٥ محاولةً ليلةٌ
+      //    واحدةٌ متعثّرة، وعدُّها ٣٥ فشلاً يجعل لاعباً واحداً يبدو كارثة.
+      const rel = one(await db.execute(sql`
+        SELECT count(DISTINCT activity_id)::int AS nights,
+               count(DISTINCT activity_id) FILTER (
+                 WHERE result NOT IN ('OK','OK_STORED','EXEMPT','EXEMPT_PLAYER'))::int AS bad,
+               count(*)::int AS checks
+        FROM presence_checks WHERE player_id = ${id}
+      `));
+      const worst = one(await db.execute(sql`
+        SELECT activity_id, count(*)::int AS n, max(created_at) AS at
+        FROM presence_checks WHERE player_id = ${id}
+        GROUP BY 1 ORDER BY 2 DESC LIMIT 1
+      `));
+      const lastFail = one(await db.execute(sql`
+        SELECT result, distance_m, created_at FROM presence_checks
+        WHERE player_id = ${id} AND result NOT IN ('OK','OK_STORED','EXEMPT','EXEMPT_PLAYER')
+        ORDER BY created_at DESC LIMIT 1
+      `));
+      const ex = one(await db.execute(sql`
+        SELECT geofence_exempt, geofence_exempt_reason, geofence_exempt_at, geofence_exempt_by
+        FROM players WHERE id = ${id}
+      `));
+      const exBy = ex?.geofence_exempt_by
+        ? one(await db.execute(sql`SELECT username FROM staff WHERE id = ${ex.geofence_exempt_by}`))
+        : null;
+      const fix = one(await db.execute(sql`
+        SELECT latitude, longitude, accuracy_m, is_mocked, source, captured_at
+        FROM player_last_fix WHERE player_id = ${id}
+      `));
+      const trail = one(await db.execute(sql`
+        SELECT count(*)::int AS n FROM player_fixes WHERE player_id = ${id}
+      `));
+      // 🔴 الحالةُ الرابعة تُعرض صراحةً (قرارُ المالك): ٨٩ فعاليّةً من ١٠١
+      //    بسياجٍ مُطفأ — وطيُّ القسم عندها يترك الموظّفَ يظنّ العطبَ في اللاعب.
+      const tonight = one(await db.execute(sql`
+        SELECT id, name, geofence_enabled FROM activities
+        WHERE date::date = CURRENT_DATE AND deleted_at IS NULL
+        ORDER BY id DESC LIMIT 1
+      `));
+      return {
+        reliability: { nights: rel?.nights ?? 0, badNights: rel?.bad ?? 0, checks: rel?.checks ?? 0 },
+        worstStorm: worst ? { checks: worst.n, at: worst.at } : null,
+        lastFail: lastFail
+          ? { result: lastFail.result, distanceM: lastFail.distance_m, at: lastFail.created_at }
+          : null,
+        exempt: ex?.geofence_exempt
+          ? { reason: ex.geofence_exempt_reason ?? null, at: ex.geofence_exempt_at ?? null, by: exBy?.username ?? null }
+          : null,
+        // 🔴 عمرُ القراءة أوّلاً: التطبيقُ لا يُبلّغ في الخلفيّة، فنقطةُ من أغلقه
+        //    تتجمّد حيث كان — وموقعٌ بلا عمرِه خريطةٌ كاذبةٌ بثقة.
+        lastFix: fix ? {
+          accuracyM: fix.accuracy_m, isMocked: !!fix.is_mocked,
+          source: fix.source, capturedAt: fix.captured_at,
+          lat: isAdmin ? fix.latitude : null, lng: isAdmin ? fix.longitude : null,
+        } : null,
+        trailPoints: trail?.n ?? 0,
+        tonight: tonight
+          ? { id: tonight.id, name: tonight.name, geofenceEnabled: !!tonight.geofence_enabled }
+          : null,
+      };
+    }
+
+    default:
+      return {};
+  }
+}
 
 export default router;
