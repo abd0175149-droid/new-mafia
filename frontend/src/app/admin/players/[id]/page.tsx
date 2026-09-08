@@ -947,6 +947,7 @@ const fmtDT = (t: number) => new Date(t).toLocaleString('ar-JO',
 
 function GeoTrail({ fixes, venues, total, from, to }: any) {
   const [sel, setSel] = useState<number | null>(null);
+  const [focus, setFocus] = useState<any>(null);
   const now = Date.now();
 
   const dots = fixes.map((p: any, i: number) => {
@@ -955,7 +956,7 @@ function GeoTrail({ fixes, venues, total, from, to }: any) {
       id: `t${i}`, lat: p.lat, lng: p.lng,
       color: trailColor(t), sizePx: trailSize(t),
       haloColor: sel === i ? '#f59e0b' : 'rgba(255,255,255,.9)',
-      label: `${i === 0 ? '● الأحدث · ' : ''}${ago(p.at, now)}${p.isMocked ? ' · ⚠️ مُصطنع' : ''}`,
+      label: `${i === 0 ? '● الأحدث · ' : ''}${ar(ago(p.at, now))}${p.isMocked ? ' · ⚠️ مُصطنع' : ''}`,
       onClick: () => setSel(i === sel ? null : i),
     };
   });
@@ -983,6 +984,7 @@ function GeoTrail({ fixes, venues, total, from, to }: any) {
         <VenueMap
           center={{ lat: fixes[0].lat, lng: fixes[0].lng }}
           dots={dots} path={path} pathColor="#0d9488" height={320}
+          fitTo={fixes.map((p: any) => ({ lat: p.lat, lng: p.lng }))} focus={focus}
         />
       </div>
 
@@ -990,11 +992,11 @@ function GeoTrail({ fixes, venues, total, from, to }: any) {
       {s && (
         <div className="mt-2 bg-gray-900/60 border border-amber-500/30 rounded-xl px-4 py-3 text-[12.5px]">
           <div className="flex items-baseline gap-2 flex-wrap">
-            <b className="text-amber-400">{ago(s.at, now)}</b>
+            <b className="text-amber-400">{ar(ago(s.at, now))}</b>
             <span className="text-gray-500">{new Date(s.at).toLocaleString('ar-JO')}</span>
           </div>
           <div className="text-gray-400 mt-1.5 leading-relaxed">
-            {nearV && <>أقربُ مكان: <b className="text-gray-200">{nearV.v.name}</b> — {dist(nearV.d)}<br /></>}
+            {nearV && <>أقربُ مكان: <b className="text-gray-200">{nearV.v.name}</b> — {ar(dist(nearV.d))}<br /></>}
             {/* 🔴 الدقّةُ داخل الجملة لا رقماً مستقلّاً: «٥ كم» ليست موقعاً بل مدينة */}
             {s.accuracyM != null && (
               <span className={s.accuracyM > 1000 ? 'text-rose-400' : ''}>
@@ -1015,25 +1017,27 @@ function GeoTrail({ fixes, venues, total, from, to }: any) {
             أينَ مكث — {ar(stays.length)} مكوثاً
           </p>
           {stays.slice(0, 8).map((st: any, i: number) => (
-            <div key={i} className="flex gap-3 py-2 text-[12.5px] border-b border-gray-700/25 last:border-0 items-start">
+            <button key={i} type="button"
+              onClick={() => setFocus({ lat: st.lat, lng: st.lng, zoom: 17, nonce: Date.now() })}
+              className="w-full text-right flex gap-3 py-2 text-[12.5px] border-b border-gray-700/25 last:border-0 items-start hover:bg-gray-800/40 rounded px-1 -mx-1 transition">
               <span className="w-1.5 h-1.5 rounded-full shrink-0 mt-1.5"
                 style={{ background: trailColor(i / Math.max(1, stays.length - 1)) }} />
               <span className="flex-1">
                 <b className="text-white">{st.venue || 'مكانٌ غيرُ معروف'}</b>
                 {st.distM != null && !st.venue && (
-                  <span className="text-gray-600"> · {dist(st.distM)} عن أقرب مكان</span>
+                  <span className="text-gray-600"> · {ar(dist(st.distM))} عن أقرب مكان</span>
                 )}
                 <span className="block text-[11px] text-gray-500 mt-0.5">
                   {fmtDT(st.from)}
                   {/* المكوثُ يُقاس بفارق أوّل نقطةٍ وآخرها — نقطةٌ واحدةٌ ليست مكوثاً */}
-                  {st.to > st.from && <> · مكث {dur(st.to - st.from)}</>}
+                  {st.to > st.from && <> · مكث {ar(dur(st.to - st.from))}</>}
                   {' · '}{ar(st.n)} قراءة
                   {st.mocked && <span className="text-rose-400"> · ⚠️ مُصطنع</span>}
                   {st.worstAccuracy != null && st.worstAccuracy > 1000 &&
                     <span className="text-amber-500"> · دقّةٌ ضعيفة</span>}
                 </span>
               </span>
-            </div>
+            </button>
           ))}
           {stays.length > 8 && (
             <p className="text-[11px] text-gray-600 pt-2">

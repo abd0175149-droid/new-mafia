@@ -44,6 +44,12 @@ interface Props {
    *  اختياريّ تماماً: من لا يمرّره لا يتغيّر عنده شيء. */
   path?: Array<{ lat: number; lng: number }>;
   pathColor?: string;
+  /** 🔴 يُطوّق كلَّ النقاط بدل التوسيط على واحدة: مسارٌ يمتدّ ١٨ كم يُعرض
+   *  مركَّزاً على أحدثِ نقطةٍ فيُخفي معظمَه خارجَ الإطار — والخريطةُ التي لا
+   *  تُظهر إلّا طرفاً واحداً تقول «كان هنا» عن مسارٍ يقول «كان هنا وهناك». */
+  fitTo?: Array<{ lat: number; lng: number }>;
+  /** يطير إلى نقطةٍ عند تغيّر nonce — لربط قائمةٍ جانبيّةٍ بالخريطة */
+  focus?: { lat: number; lng: number; zoom?: number; nonce: number } | null;
   height?: number;
   className?: string;
 }
@@ -76,7 +82,7 @@ function circleGeoJSON(lat: number, lng: number, radiusM: number, steps = 72) {
 
 export default function VenueMap({
   center, radiusM, draggablePin, onPinMove, onMapClick, dots = [],
-  path, pathColor = '#0f766e', height = 380, className = '',
+  path, pathColor = '#0f766e', fitTo, focus, height = 380, className = '',
 }: Props) {
   const boxRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<maplibregl.Map | null>(null);
@@ -215,8 +221,27 @@ export default function VenueMap({
     const map = mapRef.current;
     if (!map || !center || centered.current) return;
     centered.current = true;
+    // التطويقُ يسبق التوسيط: نقطتان متباعدتان لا يُغني عنهما مركزٌ واحد
+    if (fitTo && fitTo.length > 1) {
+      let w = fitTo[0].lng, e = w, s2 = fitTo[0].lat, n = s2;
+      for (const p of fitTo) {
+        if (p.lng < w) w = p.lng; if (p.lng > e) e = p.lng;
+        if (p.lat < s2) s2 = p.lat; if (p.lat > n) n = p.lat;
+      }
+      // 🔴 سقفُ التقريب ١٦: مسارٌ كلُّه في غرفةٍ واحدة يُطوَّق إلى تقريبٍ ٢٢
+      //    فتصير البلاطاتُ فارغةً — خريطةٌ بيضاءُ بلا معالم.
+      map.fitBounds([[w, s2], [e, n]], { padding: 46, maxZoom: 16, duration: 600 });
+      return;
+    }
     map.easeTo({ center: [center.lng, center.lat], zoom: 16, duration: 600 });
-  }, [center]);
+  }, [center, fitTo]);
+
+  // ── الطيرانُ إلى نقطةٍ يطلبها المستدعي (صفٌّ في قائمةٍ مثلاً) ──
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !focus) return;
+    map.easeTo({ center: [focus.lng, focus.lat], zoom: focus.zoom ?? 17, duration: 600 });
+  }, [focus?.nonce]);
 
   return <div ref={boxRef} className={className}
     style={{ height, width: '100%', borderRadius: 12, overflow: 'hidden', cursor: onMapClick ? 'crosshair' : undefined }} />;
