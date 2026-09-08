@@ -5,6 +5,7 @@
 // ══════════════════════════════════════════════════════
 
 import { Router, Request, Response } from 'express';
+import { normGender } from '../utils/gender.util.js';
 import { getDB } from '../config/db.js';
 import { sessionPlayers } from '../schemas/game.schema.js';
 import { players as playersTable, PLAYER_DEFAULT_PASSWORD, lockedLoginAttempts } from '../schemas/player.schema.js';
@@ -565,7 +566,7 @@ router.post('/register', async (req: Request, res: Response) => {
     const player = await createPlayer({
       phone,
       name: displayName,
-      gender: gender || 'MALE',
+      gender: normGender(gender),
       dob: dateOfBirth || undefined,
     });
 
@@ -757,7 +758,9 @@ router.put('/:id/profile', staffOrSelf('id'), async (req: Request, res: Response
       }
     }
     if (email !== undefined) updates.email = email?.trim() || null;
-    if (gender && ['MALE', 'FEMALE'].includes(gender)) updates.gender = gender;
+    // 🔴 يُطبَّع لا يُقارَن: الشرطُ القديم كان يقبل القياسيَّ ويُسقط `male`
+    //    صامتاً — فمن أرسل الحالةَ الصغيرة لم يُحفظ تعديلُه ولم يُخبَر.
+    if (gender) updates.gender = normGender(gender);
     if (phone && phone.trim()) updates.phone = phone.trim();
     if (genderConstraint !== undefined) {
       if (['NONE', 'FORBID_SAME', 'FORBID_OPPOSITE'].includes(genderConstraint)) {

@@ -5,6 +5,8 @@
 // ══════════════════════════════════════════════════════
 
 import { eq, sql, desc, and, isNull } from 'drizzle-orm';
+import { normGender } from '../utils/gender.util.js';
+import { teamOfRole } from '../game/roles.js';
 import { getDB } from '../config/db.js';
 import { players, bookingMembers, PLAYER_DEFAULT_PASSWORD } from '../schemas/player.schema.js';
 import { hashPlayerPassword } from '../middleware/player-auth.middleware.js';
@@ -54,7 +56,7 @@ export async function createPlayer(data: {
     passwordHash,
     mustChangePassword: !data.password,
     name: data.name,
-    gender: data.gender || 'MALE',
+    gender: normGender(data.gender),
     dob: data.dob || null,
     lastActiveAt: new Date(),
   } as any).returning();
@@ -259,15 +261,26 @@ export async function getPlayerProfile(playerId: number) {
       roleStats[m.role] = (roleStats[m.role] || 0) + 1;
     }
 
-    const isMafiaRole = ['GODFATHER', 'SILENCER', 'CHAMELEON', 'MAFIA_REGULAR'].includes(m.role || '');
+    // 🔴 المصدرُ الموحَّد لا قائمةٌ منسوخة: القائمةُ اليدويّة كانت رباعيّةً
+    //    فتُسقط WITCH و OLDER_BROTHER — وهما مافيا في MAFIA_ROLES. النتيجةُ
+    //    مقيسةٌ على الإنتاج: ٥٣ فوزَ مافيا حقيقيّاً يُقرأ خسارةً.
+    const team = teamOfRole(m.role);
+    const isMafia = team === 'MAFIA';
 
-    if (isMafiaRole) mafiaGames++;
+    if (isMafia) mafiaGames++;
     else citizenGames++;
 
-    const won = (isMafiaRole && m.matchWinner === 'MAFIA') || (!isMafiaRole && m.matchWinner === 'CITIZEN');
+    // 🔴 والفوزُ رباعيٌّ لا ثنائيّ: `matches.winner` في القاعدة له أربع قيم
+    //    (MAFIA · CITIZEN · JESTER · ASSASSIN). المقارنةُ الثنائيّة كانت تقرأ
+    //    كلَّ فائزٍ محايدٍ خاسراً — ٤٣ فوزاً محايداً لا يُحتسب أصلاً.
+    const won = m.matchWinner === 'MAFIA' ? isMafia
+      : m.matchWinner === 'CITIZEN' ? team === 'CITIZEN'
+      : m.matchWinner === 'JESTER' ? m.role === 'JESTER'
+      : m.matchWinner === 'ASSASSIN' ? m.role === 'ASSASSIN'
+      : false;
 
     if (won) {
-      if (isMafiaRole) mafiaWins++;
+      if (isMafia) mafiaWins++;
       else citizenWins++;
       currentStreak++;
       if (currentStreak > maxStreak) maxStreak = currentStreak;

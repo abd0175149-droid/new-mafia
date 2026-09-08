@@ -7,6 +7,7 @@
 // ══════════════════════════════════════════════════════
 
 import { Router, type Request, type Response } from 'express';
+import { normGender } from '../utils/gender.util.js';
 import { ageFromDob, ADULT_AGE } from '../services/consent.service.js';
 import { LOCKED_MESSAGE } from '../lib/account-lock.js';
 import { clientIp } from '../middleware/client-ip.js';
@@ -88,7 +89,7 @@ router.post('/register', async (req: Request, res: Response) => {
       passwordHash,
       mustChangePassword: false,
       name,
-      gender: gender || 'MALE',
+      gender: normGender(gender),
       dob: dob || null,
       xp: 200,
       welcomeBonusApplied: true,

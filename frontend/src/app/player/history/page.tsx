@@ -17,7 +17,8 @@ interface MatchDetails {
   matchId: number;
   gameName: string;
   matchDate: string;
-  matchWinner: 'MAFIA' | 'CITIZEN' | null;
+  // 🔴 أربعُ قيمٍ لا اثنتان — هذا نطاقُ enum winner_type في القاعدة.
+  matchWinner: 'MAFIA' | 'CITIZEN' | 'JESTER' | 'ASSASSIN' | null;
   durationSeconds: number;
   totalRounds: number;
   playerCount: number;
@@ -169,7 +170,14 @@ export default function MatchHistoryPage() {
         ) : (
           matches.map((m, i) => {
             const isMafia = MAFIA_ROLES.includes(m.role);
-            const won = (isMafia && m.matchWinner === 'MAFIA') || (!isMafia && m.matchWinner === 'CITIZEN');
+            // 🔴 المقارنةُ الثنائيّة كانت تعرض «خسارة» لكلّ مَن لعب مباراةً
+            //    فاز فيها المهرّجُ أو السفّاح — بمن فيهم الفائزُ نفسُه.
+            //    المقيسُ على الإنتاج: ١٠٠٨ صفوفٍ (١٥٫٢٪ من السجلّ).
+            const won = m.matchWinner === 'MAFIA' ? isMafia
+              : m.matchWinner === 'CITIZEN' ? (!isMafia && m.role !== 'JESTER' && m.role !== 'ASSASSIN')
+              : m.matchWinner === 'JESTER' ? m.role === 'JESTER'
+              : m.matchWinner === 'ASSASSIN' ? m.role === 'ASSASSIN'
+              : false;
             const dur = m.durationSeconds ? `${Math.floor(m.durationSeconds / 60)}:${String(m.durationSeconds % 60).padStart(2, '0')}` : '—';
             const dt = m.matchDate ? new Date(m.matchDate) : null;
             const dateStr = dt ? `${dt.getDate()}/${dt.getMonth() + 1}/${dt.getFullYear()}` : '—';

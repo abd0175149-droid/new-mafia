@@ -715,6 +715,17 @@ async function main() {
       await db.execute(sql`ALTER TABLE sound_effects ADD COLUMN IF NOT EXISTS durations JSONB DEFAULT '{}'::jsonb`);
       await db.execute(sql`ALTER TABLE activities ADD COLUMN IF NOT EXISTS add_game_fee_to_bill BOOLEAN DEFAULT false`);
 
+      // ── ⚧ تطبيعُ الجنس لمرّةٍ واحدة ──
+      //
+      // 🔴 العمودُ حمل أربعَ قيمٍ لمعنيَين (MALE/FEMALE/male/female)، والواجهاتُ
+      //    تقارن `=== 'FEMALE'` حرفيّاً — فسبعُ لاعباتٍ كنّ يظهرن «ذكر» في كلّ
+      //    شاشة، ويُبنى على ذلك قرارُ الإجلاس والأدوارُ المؤنّثة. الكتابةُ صارت
+      //    مطبَّعةً في المصدر (utils/gender.util)، وهذا يُصلح ما مضى.
+      //
+      // 🔴 لا يضرّ تكرارُه: يمسّ الصفوفَ المخالفةَ وحدَها، ويصير لا-عمليّاً
+      //    بعد أوّل تنفيذ.
+      await db.execute(sql`UPDATE players SET gender = upper(gender) WHERE gender <> upper(gender)`);
+
       // ── 🔐 الخصوصيّة والموافقة (قانون ٢٤/٢٠٢٣) ──
       await db.execute(sql`ALTER TABLE players ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMP`);
       await db.execute(sql`ALTER TABLE players ADD COLUMN IF NOT EXISTS deletion_due_at TIMESTAMP`);

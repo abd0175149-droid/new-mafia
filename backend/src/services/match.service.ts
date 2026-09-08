@@ -8,7 +8,7 @@ import { getDB } from '../config/db.js';
 import { matches, matchPlayers } from '../schemas/game.schema.js';
 import { players } from '../schemas/player.schema.js';
 import { activities, locations } from '../schemas/admin.schema.js';
-import { isMafiaRole } from '../game/roles.js';
+import { isMafiaRole, teamOfRole } from '../game/roles.js';
 import { updatePlayerStats } from './player.service.js';
 import { processMatchRewards, computeMatchReward, computeMatchBreakdown, applyProgressionConfig, buildDisplayBreakdown } from './progression.service.js';
 import { getProgressionConfig, DEFAULT_CONFIG } from '../routes/progression-settings.routes.js';
@@ -611,15 +611,13 @@ export async function getMatchDetails(matchId: number) {
       .from(matchPlayers)
       .where(eq(matchPlayers.matchId, matchId));
 
-    const mafiaRoles = ['GODFATHER', 'SILENCER', 'CHAMELEON', 'MAFIA_REGULAR'];
-    const neutralRoles = ['JESTER', 'ASSASSIN'];
+    // 🔴 نسخةٌ ثانيةٌ من القائمة اليدويّة الرباعيّة — تُسقط الساحرةَ والأخَ
+    //    الأكبر كنظيرتها في player.service. المصدرُ الموحَّد يمنع تباعُدَهما.
     const teamPlayers = players.map(p => ({
       physicalId: p.physicalId,
       playerName: p.playerName,
       role: p.role,
-      team: mafiaRoles.includes(p.role) ? 'MAFIA'
-        : neutralRoles.includes(p.role) ? 'NEUTRAL'
-        : 'CITIZEN',
+      team: teamOfRole(p.role),
       survivedToEnd: p.survivedToEnd,
     }));
 
