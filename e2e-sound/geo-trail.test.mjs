@@ -86,6 +86,8 @@ try {
 // افتح تبويبَ الموقع
 await p.click('text=الموقع');
 await p.waitForSelector('text=/مسارُ مواقعه/', { timeout: 20000 });
+await p.waitForSelector('canvas', { timeout: 25000 });
+await p.waitForTimeout(6000);
 const txt = () => p.evaluate(() => document.body.innerText);
 
 console.log(NL + '── الخريطةُ والمسار ──');
@@ -99,7 +101,7 @@ ok('للخريطة ارتفاعٌ حقيقيّ (لا صفر)', box && box.height
 console.log(NL + '── سجلُّ المكوث ──');
 ok('يظهر عنوانُ «أينَ مكث»', /أينَ مكث/.test(t));
 ok('اسمُ المكان يُقرأ لا الإحداثيّات', t.includes('مزاج افندينا'), 'لم يُطابَق أيُّ مكان');
-ok('يوجد مكوثٌ بمُدّة (ساعة/دقيقة)', /مكث \d+ (ساعة|س و\d+ د|دقيقة)/.test(t),
+ok('يوجد مكوثٌ بمُدّة (ساعة/دقيقة)', /مكث [٠-٩]+ (ساعة|س و[٠-٩]+ د|دقيقة)/.test(t),
    t.match(/مكث [^·]{0,20}/)?.[0]);
 ok('عددُ القراءات معروضٌ بالعربيّة', /[٠-٩]+ قراءة/.test(t));
 // 🔴 التجميعُ هو كلُّ الفكرة: ١٤٦ نقطةً يجب أن تنهارَ إلى مكوثٍ معدود.
@@ -111,8 +113,7 @@ ok('لا يُعرض إلّا ثمانيةٌ مع ذكرِ الباقي', /و[٠-
 console.log(NL + '── الأرقامُ عربيّةٌ في كلّ سطر ──');
 // 🔴 «مكث 4 س و37 د» بين «٦٠ قراءة»: الرقمُ اللاتينيُّ يقفز كأنّه شيءٌ آخر.
 const geoTxt = t.slice(t.indexOf('مسارُ مواقعه'));
-const latin = geoTxt.match(/(?:مكث|كم|قراءة|قبل)[^
-]{0,24}/g)?.filter(x => /[0-9]/.test(x)) || [];
+const latin = (geoTxt.split(NL).filter(l => /(?:مكث|كم|قراءة|قبل)/.test(l) && /[0-9]/.test(l)));
 ok('لا رقمَ لاتينيّاً في المسار والمكوث', latin.length === 0, latin.slice(0, 3).join(' | '));
 
 console.log(NL + '── تفصيلُ النقطة ──');
@@ -143,6 +144,16 @@ const markersIn = await p.evaluate(() => {
         && r.top >= box.top - 4 && r.bottom <= box.bottom + 4; }).length;
 });
 const markersAll = await p.locator('.maplibregl-marker').count();
+{ const cb = await p.locator('canvas').first().boundingBox();
+  await p.screenshot({ path: 'geo-map.png', clip: cb }); }
+const over = await p.evaluate(() => {
+  const box = document.querySelector('canvas').getBoundingClientRect();
+  return [...document.querySelectorAll('.maplibregl-marker')].map(m => {
+    const r = m.getBoundingClientRect();
+    return Math.max(box.left - r.left, r.right - box.right, box.top - r.top, r.bottom - box.bottom);
+  }).filter(d => d > 4).sort((a, b) => b - a).slice(0, 5).map(d => Math.round(d));
+});
+if (over.length) console.log('     تجاوزٌ بالبكسل:', over.join(', '));
 ok('كلُّ نقاط المسار داخلَ الإطار', markersIn === markersAll, markersIn + '/' + markersAll);
 
 console.log(NL + '── الضغطُ على مكوثٍ يطير إليه ──');
