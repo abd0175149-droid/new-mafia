@@ -46,7 +46,11 @@ async function api(path: string, opts?: RequestInit) {
   return body;
 }
 
-const ar = (n: number | string) => String(n).replace(/[0-9]/g, d => '٠١٢٣٤٥٦٧٨٩'[+d]);
+// 🔴 والفاصلةُ العربيّة ٫ مع الأرقام الهنديّة: «١٥.٠٠» بنقطةٍ لاتينيّةٍ بين
+//    رقمين هنديّين خليطٌ يقرؤه العينُ متعثّراً — والفاصلةُ العربيّة U+066B
+//    هي نظيرُ النقطة العشريّة في هذا النظام العدديّ.
+const ar = (n: number | string) =>
+  String(n).replace(/[0-9]/g, d => '٠١٢٣٤٥٦٧٨٩'[+d]).replace(/(?<=[٠-٩])\.(?=[٠-٩])/g, '٫');
 const fmtShort = (d: any) => d ? new Date(d).toLocaleDateString('ar-JO', { weekday: 'short', day: 'numeric', month: 'numeric' }) : '';
 const fmtDate = (d: any) => d ? new Date(d).toLocaleDateString('ar-JO', { year: 'numeric', month: 'short', day: 'numeric' }) : '—';
 
@@ -72,6 +76,11 @@ export default function PlayerCardPage() {
   const [toast, setToast] = useState<{ msg: string; ok: boolean } | null>(null);
   const [noteDraft, setNoteDraft] = useState('');
   const [zoom, setZoom] = useState(false);
+  // 🔴 القسمُ يُطلب حين يُفتح لسانُه ويُخزَّن: إعادةُ الطلب في كلّ تبديلٍ
+  //    تُبطئ التنقّلَ بلا فائدة، والبياناتُ لا تتغيّر في أثناء القراءة.
+  const [tab, setTab] = useState<string | null>(null);
+  const [sections, setSections] = useState<Record<string, any>>({});
+  const [tabBusy, setTabBusy] = useState(false);
 
   const say = (msg: string, ok = true) => { setToast({ msg, ok }); setTimeout(() => setToast(null), 3000); };
 
@@ -93,6 +102,19 @@ export default function PlayerCardPage() {
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, [zoom]);
+
+  const openTab = useCallback(async (key: string | null) => {
+    setTab(key);
+    if (!key || sections[key]) return;
+    setTabBusy(true);
+    try {
+      const data = await api(`/api/staff/player/${playerId}/section/${key}`);
+      setSections(prev => ({ ...prev, [key]: data }));
+    } catch (e: any) {
+      say(e.message, false);
+      setTab(null);
+    } finally { setTabBusy(false); }
+  }, [playerId, sections]);
 
   // ── الأفعال: كلُّها أدمن (قرارُ المالك) ──
   const act = async (key: string, fn: () => Promise<any>, okMsg: string) => {
@@ -151,9 +173,32 @@ export default function PlayerCardPage() {
 
   const tone = { rose: 'bg-rose-600', amber: 'bg-amber-600', emerald: 'bg-emerald-700' }[gate.tone]!;
 
+  // 🔴 الألسنةُ تُصفّى بالدور في الواجهة **وفي الخادم**: هذا لتجنّب لسانٍ
+  //    يفتح على ٤٠٣، والحمايةُ الحقيقيّةُ هناك.
+  const visibleTabs = SECTIONS.filter(s => s.roles.includes(viewerRole));
+
   return (
-    <div className="max-w-3xl mx-auto space-y-4 pb-16" dir="rtl">
-      <button onClick={() => router.back()} className="text-gray-500 hover:text-white text-sm transition">← رجوع للقائمة</button>
+    <div className="max-w-3xl mx-auto space-y-4 pb-28" dir="rtl">
+      <button onClick={() => tab ? openTab(null) : router.back()}
+        className="text-gray-500 hover:text-white text-sm transition">
+        {tab ? '← البطاقة' : '← رجوع للقائمة'}
+      </button>
+
+      {/* ═══ الأقسامُ العميقة ═══ */}
+      {tab && (
+        <div className="space-y-3">
+          <h2 className="text-lg font-black text-white">
+            {SECTIONS.find(s => s.key === tab)?.icon} {SECTIONS.find(s => s.key === tab)?.label}
+            <span className="text-gray-600 text-[13px] font-normal mr-2">{id.name}</span>
+          </h2>
+          {tabBusy && !sections[tab]
+            ? <div className="py-16 text-center text-gray-600 text-sm">جارٍ التحميل…</div>
+            : <SectionView data={sections[tab]} isAdmin={isAdmin} />}
+        </div>
+      )}
+
+      {/* ═══ البطاقة ═══ */}
+      {!tab && (<>
 
       {/* ═══ ① شريطُ الحكم — أيدخل أم لا ═══ */}
       <motion.div initial={{ opacity: 0, y: -8 }} animate={{ opacity: 1, y: 0 }}
@@ -368,6 +413,21 @@ export default function PlayerCardPage() {
         </Section>
       )}
 
+      </>)}
+
+      {/* ═══ شريطُ الأقسام — ثابتٌ أسفل الشاشة ═══ */}
+      {/* 🔴 ثابتٌ لا في أعلى الصفحة: الموظّفُ يقرأ بيدٍ واحدةٍ على هاتف،
+          وأعلى الشاشة أبعدُ ما يكون عن إبهامه. */}
+      <div className="fixed bottom-0 inset-x-0 z-40 bg-gray-950/95 backdrop-blur border-t border-gray-800">
+        <div className="max-w-3xl mx-auto grid" style={{ gridTemplateColumns: `repeat(${visibleTabs.length + 1}, 1fr)` }}>
+          <TabBtn on={!tab} icon="🪪" label="البطاقة" onClick={() => openTab(null)} />
+          {visibleTabs.map(sc => (
+            <TabBtn key={sc.key} on={tab === sc.key} icon={sc.icon} label={sc.label}
+              onClick={() => openTab(sc.key)} />
+          ))}
+        </div>
+      </div>
+
       {/* ═══ عارضُ الصورة ═══ */}
       {zoom && id.avatarUrl && (
         <div
@@ -448,3 +508,406 @@ const Btn = ({ onClick, busy, tone, children }: any) => {
     </button>
   );
 };
+
+// ══════════════════════════════════════════════════════
+// 🗂️ الأقسامُ العميقة
+//
+// 🔴 تُطلب حين يُفتح لسانُها لا مع البطاقة: البطاقةُ تُفتح كلَّ مرّة والأقسامُ
+//    أحياناً، وضمُّها إليها يعيد عطبَ المنفذ القديم — ٩٣٪ ممّا يُنقل لا يُرى.
+//
+// 🔴 والحراسةُ في الخادم: ما لا يملكه الدورُ لا يُرسَل ولا يظهر لسانُه.
+// ══════════════════════════════════════════════════════
+
+const SECTIONS: { key: string; label: string; icon: string; roles: string[] }[] = [
+  { key: 'money',   label: 'المال',    icon: '💵', roles: ['admin', 'manager'] },
+  { key: 'play',    label: 'اللعب',    icon: '🎭', roles: ['admin', 'manager', 'accountant'] },
+  { key: 'account', label: 'الحساب',   icon: '🪪', roles: ['admin', 'manager', 'accountant'] },
+  { key: 'seating', label: 'الإجلاس',  icon: '💺', roles: ['admin', 'manager'] },
+  { key: 'geo',     label: 'الموقع',   icon: '📍', roles: ['admin', 'manager'] },
+];
+
+const GEO_RESULT: Record<string, string> = {
+  LOCATION_REQUIRED: 'تعذّرت قراءةُ موقعه',
+  LOCATION_STALE: 'قراءةٌ قديمة',
+  LOCATION_INACCURATE: 'قراءةٌ غيرُ دقيقة',
+  LOCATION_MOCKED: 'موقعٌ مُصطنع',
+  TOO_FAR: 'كان بعيداً عن المكان',
+  NO_VENUE_POINT: 'المكانُ بلا إحداثيّات',
+};
+
+const ACTIVE_SRC: Record<string, string> = {
+  request: 'مقيس — فتحَ التطبيق',
+  socket: 'مقيس — دخلَ غرفة',
+  socket_end: 'مقيس — نهايةُ جلسة',
+  backfill: 'مستنتَج — لا يدلّ على فتحِ التطبيق',
+  legacy_login: 'مستنتَج — كتابةٌ قديمة',
+};
+
+/** يحوّل عمراً بالمللي إلى جملةٍ عربيّةٍ مفهومة */
+function since(d: any): string {
+  if (!d) return '—';
+  const ms = Date.now() - +new Date(d);
+  const m = Math.round(ms / 60000);
+  if (m < 60) return `قبل ${ar(m)} دقيقة`;
+  const h = Math.round(m / 60);
+  if (h < 24) return `قبل ${ar(h)} ساعة`;
+  return `قبل ${ar(Math.round(h / 24))} يوماً`;
+}
+
+function SectionView({ data, isAdmin }: { data: any; isAdmin: boolean }) {
+  if (!data) return <div className="py-16 text-center text-gray-600 text-sm">جارٍ التحميل…</div>;
+
+  switch (data.key) {
+
+    // ═══ 💵 المال ═══
+    case 'money': {
+      const d = data.debt, p = data.paid;
+      return (
+        <>
+          {d.live > 0 ? (
+            <Section title="معلَّقٌ منذ ١ أيلول">
+              <Big value={`${ar(d.live.toFixed(2))} د.أ`} label={`${ar(d.liveN)} حجزٍ غيرِ مدفوع`} tone="warn" />
+              {/* 🔴 لا زرَّ دفعٍ هنا (قرارُ المالك): التسجيلُ حيث يُقبض المال */}
+              <p className="text-[11.5px] text-gray-600 mt-2 leading-relaxed">
+                تسجيلُ الدفع في شاشة الفعاليّة حيث يُقبض المال — لا هنا.
+              </p>
+            </Section>
+          ) : (
+            <Section title="معلَّقٌ منذ ١ أيلول"><Empty>لا شيءَ عليه</Empty></Section>
+          )}
+
+          {/* 🔴 أرشيفٌ بوسمٍ بلا زرِّ تحصيل (قرارُ المالك): ما قبل ١/٩ وقع في
+              نظامٍ لم يكن يُعلَّم فيه الدفعُ أصلاً، فالمطالبةُ به ظلم. */}
+          {d.archive > 0 && (
+            <div className="bg-gray-900/40 border border-dashed border-gray-700/50 rounded-xl px-4 py-3 text-[12px] text-gray-500 leading-relaxed">
+              🗄️ أرشيف · <b className="text-gray-400">{ar(d.archive.toFixed(2))} د.أ</b> على {ar(d.archiveN)} حجزاً قبل ١ أيلول
+              <span className="block mt-1">نظامٌ لم يكن يُعلَّم فيه الدفع — لا تُطالَب.</span>
+            </div>
+          )}
+
+          <Section title="ما دفعه — بالدينار">
+            <Row k="على البوّابة" v={`${ar(p.gate.toFixed(2))} د.أ`} />
+            <Row k="على المنيو" v={`${ar(p.menu.toFixed(2))} د.أ`} />
+            <Row k="المجموع" v={`${ar(p.total.toFixed(2))} د.أ`} tone="brass" />
+          </Section>
+
+          {data.orders.n > 0 && (
+            <Section title="المنيو">
+              <Row k="الطلبات" v={`${ar(data.orders.n)} طلباً · ${ar(data.orders.sum.toFixed(2))} د.أ`} />
+              {data.orders.top.length > 0 && (
+                <Row k="الأكثرُ طلباً"
+                  v={data.orders.top.map((t: any) => `${t.name} ×${ar(t.n)}`).join(' · ')}
+                  sub="الماءُ تلقائيٌّ — لا يُحتسب تفضيلاً" />
+              )}
+            </Section>
+          )}
+
+          <Section title="التشبس — العملةُ الثانية">
+            {/* 🔴 يُسمّى صراحةً كي لا يُخلط بالدينار */}
+            <Row k="الرصيد" v={`${ar(data.chips)} رقاقة`} sub="عملةٌ داخليّة — ليست ديناراً" tone="brass" />
+            {(data.free.account || data.free.nights > 0) && (
+              <Row k="المجّانيّ"
+                v={data.free.account ? 'حسابٌ مجّانيّ' : `${ar(data.free.nights)} ليلةً مجّانيّة`}
+                sub="معفىً من رسم اللعبة لا من فاتورة الطعام" />
+            )}
+          </Section>
+        </>
+      );
+    }
+
+    // ═══ 🎭 اللعب ═══
+    case 'play': {
+      const w = data.weight;
+      return (
+        <>
+          {data.mafiaBan && (
+            <Alert tone="warn">⚑ آخرُ ثلاثةِ أدواره مافيا — المحرّكُ يستبعده من المافيا في التوزيع القادم</Alert>
+          )}
+          <div className="grid grid-cols-3 gap-2">
+            <Tile icon="🎲" value={ar(w.lifetime)} label="منذ البداية" tone="brass" />
+            <Tile icon="🌙" value={ar(w.nights)} label="ليلةً حضرها" tone="gray" />
+            <Tile icon="🏵️" value={ar(w.season)} label="هذا الموسم" tone="gray" />
+          </div>
+          {w.firstNight && (
+            <p className="text-[11.5px] text-gray-600 px-1">أوّلُ ليلةٍ له: {fmtDate(w.firstNight)}</p>
+          )}
+
+          {data.nights.length > 0 ? (
+            <Section title="آخرُ ثلاثِ ليالٍ">
+              {data.nights.map((n: any, i: number) => (
+                <div key={i} className="py-2.5 border-b border-gray-700/25 last:border-0">
+                  <p className="text-[12px] text-gray-500">{fmtDate(n.date)} · {ar(n.matches.length)} مباراة</p>
+                  {n.matches.map((m: any, j: number) => (
+                    <div key={j} className="flex items-center gap-2 mt-1.5 text-[13px]">
+                      <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${m.won ? 'bg-emerald-500' : 'bg-gray-600'}`} />
+                      <span className="text-white font-medium">{ROLE_LABELS[m.role] || m.role}</span>
+                      <span className={m.won ? 'text-emerald-400' : 'text-gray-500'}>{m.won ? 'فاز' : 'خسر'}</span>
+                      {/* الفوزُ رباعيّ — يُقال مَن فاز حين يخسر */}
+                      {!m.won && m.winner && (
+                        <span className="text-gray-600 text-[11px]">فاز {WINNER_AR[m.winner] || m.winner}</span>
+                      )}
+                      {m.survived && <span className="text-gray-600 text-[11px]">نجا</span>}
+                      {m.penalty && <span className="text-amber-400 text-[11px] mr-auto">⚑ عقوبة</span>}
+                    </div>
+                  ))}
+                </div>
+              ))}
+            </Section>
+          ) : <Section title="سجلُّ اللعب"><Empty>لم يلعب مباراةً محسومةً بعد</Empty></Section>}
+
+          {data.deals.n > 0 && (
+            <Section title="الصفقات">
+              <Row k="بدأ صفقة" v={`${ar(data.deals.n)} مباراة`} sub={`نجح في ${ar(data.deals.ok)}`} />
+            </Section>
+          )}
+
+          {/* 🔴 العقوبةُ معدّلاً لا رقماً: «عقوبتان» تعني شيئاً لمن لعب ٥
+              وشيئاً آخرَ تماماً لمن لعب ٢٠٠. */}
+          {data.penalties.n > 0 && (
+            <Section title="الانضباط">
+              <Row k="المعدّل"
+                v={data.penalties.perMatches
+                  ? `عقوبةٌ كلَّ ${ar(data.penalties.perMatches)} مباراة`
+                  : `${ar(data.penalties.n)} عقوبة`}
+                sub={`${ar(data.penalties.n)} عقوبةً في ${ar(w.lifetime)} مباراة`} tone="warn" />
+              {data.penalties.last && (
+                <Row k="آخرُ عقوبة" v={fmtDate(data.penalties.last.date)}
+                  sub={ROLE_LABELS[data.penalties.last.role] || data.penalties.last.role} />
+              )}
+            </Section>
+          )}
+        </>
+      );
+    }
+
+    // ═══ 🪪 الحساب ═══
+    case 'account': {
+      const a = data.account;
+      return (
+        <>
+          <Section title="الجهازُ والوصول">
+            {data.device.n > 0 ? (
+              <>
+                <Row k="الأجهزة" v={`${ar(data.device.n)} جهاز`} sub={data.device.platform || ''} tone="ok" />
+                <Row k="آخرُ إنعاشٍ للتوكن" v={since(data.device.seen)} sub="التطبيقُ ما زال مثبَّتاً" />
+              </>
+            ) : <Empty>لا يصله إشعار — الاتّصالُ قناتُه الوحيدة</Empty>}
+            {/* 🔴 آخرُ ظهورٍ **بوسمِ مصدره**: المستنتَجُ لا يدلّ على فتح التطبيق */}
+            {a.lastActive && (
+              <Row k="آخرُ ظهور" v={since(a.lastActive)}
+                sub={ACTIVE_SRC[a.lastActiveSource] || a.lastActiveSource || ''} />
+            )}
+          </Section>
+
+          <Section title="الحساب">
+            <Row k="انضمّ" v={fmtDate(a.joined)} sub={since(a.joined)} />
+            {a.mustChangePassword && (
+              <Row k="كلمةُ السرّ" v="١٢٣٤ — لم تُغيَّر" sub="مَن يعرف رقمَه يدخل باسمه" tone="warn" />
+            )}
+            {a.isTestAccount && <Row k="حسابُ اختبار" v="يرى الفعاليّاتِ الاختباريّة" />}
+            {a.genderConstraint && a.genderConstraint !== 'NONE' && (
+              <Row k="قيدُ جلوس" v="لا يُجلَس بجانب الجنسِ الآخر" />
+            )}
+            {isAdmin && a.dob && <Row k="تاريخُ الميلاد" v={a.dob} />}
+          </Section>
+
+          {data.linkedStaff && (
+            <Alert tone="crit">
+              هذا الحسابُ يفتح لوحةَ الإدارة — مرتبطٌ بالموظّف <b>{data.linkedStaff.username}</b> بدور {data.linkedStaff.role}.
+              دخولُه كلاعبٍ يُصدر توكنَ موظّفٍ كاملاً.
+            </Alert>
+          )}
+
+          <Section title="سندُ المعالجة">
+            {data.consent ? (
+              <>
+                <Row k="الحالة"
+                  v={data.consent.action === 'granted' ? 'مسجَّل' : 'سُحبت الموافقة'}
+                  sub={`${data.consent.kind} ${data.consent.version} · ${fmtDate(data.consent.at)}`}
+                  tone={data.consent.action === 'granted' ? 'ok' : 'warn'} />
+                {data.consent.hasGuardian && <Row k="وليُّ الأمر" v="مسجَّل" tone="ok" />}
+              </>
+            ) : (
+              // 🔴 «لم يُسأل» لا «رفض»: ٥٣٩ لاعباً لعبوا بلا صفِّ موافقةٍ لأنّ
+              //    البوّابةَ لم تكن مركَّبة — وعرضُهم رافضين افتراء.
+              <Empty>غيرُ مسجَّل — لم يُسأل بعد</Empty>
+            )}
+          </Section>
+
+          {/* 🔴 التوأمُ الهاتفيّ: سبعُ مجموعاتٍ في القاعدة، وواحدةٌ منها **شخصان
+              مختلفان** يتشاركان هاتفاً — فلا دمجَ تلقائيٌّ بحال. */}
+          {data.twin && (
+            <Section title="رقمٌ في حسابين">
+              <Row k="الحسابُ الآخر" v={`${data.twin.name} · ‏#${ar(data.twin.id)}`}
+                sub={`${ar(data.twin.matches)} مباراة · أُنشئ ${fmtDate(data.twin.at)}`} tone="warn" />
+              <p className="text-[11.5px] text-gray-600 mt-2 leading-relaxed">
+                رقمٌ واحدٌ لا يعني إنساناً واحداً — قد يكون أخوين يتشاركان هاتفاً. راجِعِ الاسمَ والمباريات قبل أيّ دمج.
+              </p>
+            </Section>
+          )}
+        </>
+      );
+    }
+
+    // ═══ 💺 الإجلاس ═══
+    case 'seating': {
+      return (
+        <>
+          {data.blocked.length > 0 && (
+            <Section title="🚫 لا يجلس بجانب">
+              {data.blocked.map((b: any) => (
+                <div key={b.id} className="flex items-center gap-2 py-1.5 text-[13px] border-b border-gray-700/25 last:border-0">
+                  <span className="w-1.5 h-1.5 rounded-full bg-rose-500 shrink-0" />
+                  <span className="text-white">{b.name}</span>
+                  <span className="text-gray-500 text-[11.5px]">#{ar(b.id)}</span>
+                  {b.reason && <span className="text-gray-500 text-[11.5px] mr-auto">{b.reason}</span>}
+                </div>
+              ))}
+            </Section>
+          )}
+
+          <Section title="يأتي مع">
+            {data.companions.length > 0 ? data.companions.map((c: any) => (
+              <Row key={c.id} k={c.name}
+                v={`${ar(c.shared)} ليلةً من ${ar(c.of)}`}
+                sub={`أكثرُ بـ${ar(c.lift)}× ممّا تتوقّعه الصدفة`} />
+            )) : (
+              // 🔴 صدقٌ لا فراغ: أكثرُ اللاعبين لا رفيقَ لهم يتجاوز الصدفة،
+              //    وقولُ ذلك أصدقُ من اسمٍ واثقٍ من عدم.
+              <Empty>لا رفيقَ يتجاوز الصدفة — يحضر مع من حضر</Empty>
+            )}
+            <Row k="المتابعات" v={`يتابع ${ar(data.follows.out)} · يتابعه ${ar(data.follows.in)}`}
+              sub="يقرؤها محرّكُ المقاعد" />
+          </Section>
+
+          {data.feedback.length > 0 && (
+            <Section title="بصوته هو">
+              {data.feedback.map((f: any, i: number) => (
+                <div key={i} className="py-2 border-b border-gray-700/25 last:border-0">
+                  <p className="text-[12.5px] text-gray-300 leading-relaxed">«{f.notes}»</p>
+                  <p className="text-[11px] text-gray-600 mt-1">
+                    {f.overall != null && <>{ar(f.overall)}/٥ · </>}{fmtDate(f.at)}
+                  </p>
+                </div>
+              ))}
+            </Section>
+          )}
+        </>
+      );
+    }
+
+    // ═══ 📍 الموقع ═══
+    case 'geo': {
+      const r = data.reliability, f = data.lastFix;
+      // 🔴 عمرُ القراءة يقرّر معناها: التطبيقُ لا يُبلّغ في الخلفيّة، فنقطةُ
+      //    من أغلقه تتجمّد حيث كان. أقلُّ من ١٠ دقائق «الآن»، وما فوق يومٍ تاريخ.
+      const fresh = f?.capturedAt ? (Date.now() - +new Date(f.capturedAt)) < 10 * 60000 : false;
+      return (
+        <>
+          {/* 🔴 الحالةُ الرابعة صريحةً (قرارُ المالك): ٨٩ فعاليّةً من ١٠١ بسياجٍ
+              مُطفأ — وطيُّ القسم يترك الموظّفَ يظنّ العطبَ في اللاعب. */}
+          {data.tonight && (
+            <Alert tone={data.tonight.geofenceEnabled ? 'ok' : 'dead'}>
+              {data.tonight.geofenceEnabled
+                ? `سياجُ الليلة مُشغَّل — ${data.tonight.name}`
+                : `سياجُ الليلة مُطفأ — لا يُفحص موقعُ أحد (${data.tonight.name})`}
+            </Alert>
+          )}
+
+          {f ? (
+            <Section title="آخرُ موقعٍ مسجَّل">
+              <Row k="متى قُرئ" v={since(f.capturedAt)}
+                sub={fresh ? 'حديثةٌ — تدلّ على مكانه الآن' : 'قديمة — لا تدلّ على مكانه الآن'}
+                tone={fresh ? 'ok' : 'warn'} />
+              {f.accuracyM != null && (
+                <Row k="دقّةُ القراءة" v={`${ar(Math.round(f.accuracyM))} م`}
+                  sub={f.accuracyM > 1000 ? 'هذه مدينةٌ لا موقع' : ''}
+                  tone={f.accuracyM > 1000 ? 'crit' : 'plain'} />
+              )}
+              {f.isMocked && <Row k="⚠️ تنبيه" v="الجهازُ يبلّغ موقعاً مُصطنعاً" tone="crit" />}
+              {isAdmin && f.lat != null && (
+                <a href={`/admin/players/map`} className="block mt-2 text-[12px] text-blue-400 hover:underline">
+                  ↗ افتح مسارَه على الخريطة — {ar(data.trailPoints)} نقطة
+                </a>
+              )}
+            </Section>
+          ) : <Section title="آخرُ موقعٍ مسجَّل"><Empty>لا موقعَ مسجَّلٌ لهذا اللاعب</Empty></Section>}
+
+          {/* 🔴 الموثوقيّةُ بالليالي لا بالمحاولات: ليلةٌ فيها ٣٥ محاولةً ليلةٌ
+              واحدةٌ متعثّرة، وعدُّها ٣٥ فشلاً يجعل لاعباً واحداً يبدو كارثة. */}
+          {r.nights > 0 && (
+            <Section title="موثوقيّةُ سياجه">
+              <Row k="الخلاصة"
+                v={r.badNights === 0 ? `مرّ في ${ar(r.nights)} ليالٍ بلا تعثّر`
+                  : `تعثّر في ${ar(r.badNights)} من ${ar(r.nights)} ليالٍ`}
+                tone={r.badNights === 0 ? 'ok' : 'warn'} />
+              {data.worstStorm && data.worstStorm.checks > 5 && (
+                <Row k="أسوأُ ليلة" v={`${ar(data.worstStorm.checks)} محاولةً قبل أن يدخل`}
+                  sub={fmtDate(data.worstStorm.at)} />
+              )}
+              {data.lastFail && (
+                <Row k="آخرُ تعثّر"
+                  v={GEO_RESULT[data.lastFail.result] || data.lastFail.result}
+                  sub={`${fmtDate(data.lastFail.at)}${data.lastFail.distanceM != null ? ` · ${ar(Math.round(data.lastFail.distanceM))} م` : ''}`}
+                  tone="warn" />
+              )}
+            </Section>
+          )}
+
+          {data.exempt && (
+            <Section title="إعفاءٌ من السياج">
+              <Row k="السبب" v={data.exempt.reason || 'بلا سببٍ مكتوب'} tone="brass" />
+              <Row k="مَن ومتى" v={`${data.exempt.by || '—'} · ${fmtDate(data.exempt.at)}`} />
+            </Section>
+          )}
+        </>
+      );
+    }
+
+    default: return null;
+  }
+}
+
+const WINNER_AR: Record<string, string> = {
+  MAFIA: 'المافيا', CITIZEN: 'المواطنون', JESTER: 'المهرّج', ASSASSIN: 'السفّاح',
+};
+
+const Row = ({ k, v, sub, tone }: any) => {
+  const c = { crit: 'text-rose-400', warn: 'text-amber-400', ok: 'text-emerald-400',
+    brass: 'text-amber-300', plain: 'text-white' }[tone as string] || 'text-white';
+  return (
+    <div className="flex gap-3 py-2 text-[13px] border-b border-gray-700/25 last:border-0 items-start">
+      <span className="text-gray-500 shrink-0 min-w-[84px]">{k}</span>
+      <span className="flex-1">
+        <span className={`font-bold ${c}`}>{v}</span>
+        {sub && <span className="block text-[11px] text-gray-600 mt-0.5 leading-relaxed">{sub}</span>}
+      </span>
+    </div>
+  );
+};
+const Big = ({ value, label, tone }: any) => {
+  const c = { warn: 'text-amber-400', ok: 'text-emerald-400', brass: 'text-amber-300' }[tone as string] || 'text-white';
+  return (
+    <div className="text-center py-2">
+      <div className={`text-3xl font-black ${c}`}>{value}</div>
+      <div className="text-[11.5px] text-gray-500 mt-1">{label}</div>
+    </div>
+  );
+};
+const Empty = ({ children }: any) => (
+  <p className="text-[12.5px] text-gray-600 py-1 leading-relaxed">{children}</p>
+);
+const Alert = ({ tone, children }: any) => {
+  const c = { crit: 'bg-rose-500/10 border-rose-500/25 text-rose-300',
+    warn: 'bg-amber-500/10 border-amber-500/25 text-amber-300',
+    ok: 'bg-emerald-500/10 border-emerald-500/25 text-emerald-300',
+    dead: 'bg-gray-700/20 border-gray-700/40 text-gray-400' }[tone as string];
+  return <div className={`border rounded-xl px-4 py-3 text-[12.5px] leading-relaxed ${c}`}>{children}</div>;
+};
+
+const TabBtn = ({ on, icon, label, onClick }: any) => (
+  <button onClick={onClick}
+    className={`py-2 pb-2.5 flex flex-col items-center gap-0.5 text-[10px] transition ${on ? 'text-amber-400' : 'text-gray-500 hover:text-gray-300'}`}>
+    <span className="text-[15px] leading-none">{icon}</span>{label}
+  </button>
+);

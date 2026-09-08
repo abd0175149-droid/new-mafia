@@ -46,7 +46,24 @@ let payload = CARD();
 await ctx.route('**/api/**', r => {
   const j = d => r.fulfill({ status: 200, contentType: 'application/json',
     headers: { 'access-control-allow-origin': '*' }, body: JSON.stringify(d) });
-  if (r.request().url().includes('/card')) return j(payload);
+  const u = r.request().url();
+  if (u.includes('/section/money')) return j({ success: true, key: 'money',
+    debt: { live: 15, liveN: 5, archive: 29, archiveN: 10, since: '2026-09-01' },
+    paid: { gate: 93, menu: 17, total: 110 },
+    orders: { n: 6, sum: 40.5, top: [{ name: 'ريد بول', n: 9 }] },
+    free: { nights: 2, account: false }, chips: 10 });
+  if (u.includes('/section/seating')) return j({ success: true, key: 'seating',
+    blocked: [{ id: 727, name: 'Mahmoud', reason: 'شكوى' }],
+    companions: [], follows: { out: 45, in: 9 },
+    feedback: [{ overall: 4, notes: 'ياريت توزيع الكروت', at: '2026-08-29' }], notes: [] });
+  if (u.includes('/section/geo')) return j({ success: true, key: 'geo',
+    reliability: { nights: 3, badNights: 2, checks: 40 },
+    worstStorm: { checks: 35, at: '2026-09-04' },
+    lastFail: { result: 'LOCATION_REQUIRED', distanceM: null, at: '2026-09-04' },
+    exempt: null, lastFix: { accuracyM: 5000, isMocked: false, capturedAt: '2026-09-07' },
+    trailPoints: 54, tonight: { id: 232, name: 'مزاج', geofenceEnabled: false } });
+  if (u.includes('/section/')) return j({ success: true, key: 'x' });
+  if (u.includes('/card')) return j(payload);
   return j({ success: true });
 });
 
@@ -141,6 +158,46 @@ console.log(NL + '🧪 من لم يلعب قطّ: تُقرأ البطاقةُ ب
   const t = await open();
   ok('يُقال «لم يحضر ليلةً بعدُ»', t.includes('لم يحضر ليلةً بعد'));
   ok('ولا بطاقاتِ أصفار', !t.includes('آخرُ ثلاث مباريات'));
+}
+
+console.log(NL + '🧪 الألسنةُ والتنقّل');
+{
+  payload = CARD();
+  await open();
+  const tabs = await p.evaluate(() => [...document.querySelectorAll('.fixed.bottom-0 button')].map(b => b.textContent));
+  ok('شريطُ الأقسام ظاهر', tabs.length >= 4, JSON.stringify(tabs));
+  ok('وفيه البطاقة', tabs.some(t => t.includes('البطاقة')));
+
+  // لسانُ المال
+  await p.evaluate(() => [...document.querySelectorAll('.fixed.bottom-0 button')]
+    .find(b => b.textContent.includes('المال')).click());
+  await p.waitForTimeout(700);
+  let t = await p.evaluate(() => document.body.innerText);
+  ok('الدَّينُ الحيُّ يُعرض', t.includes('١٥٫٠٠ د.أ'));
+  ok('والأرشيفُ موسومٌ بلا زرّ', t.includes('أرشيف') && t.includes('لا تُطالَب'));
+  ok('ولا زرَّ دفعٍ في الصفحة', !t.includes('سجّل الدفع') && !t.includes('وسمُه مدفوعاً'));
+  ok('والتشبس يُسمّى رقاقةً لا ديناراً', t.includes('رقاقة') && t.includes('ليست ديناراً'));
+
+  // لسانُ الإجلاس — الحالةُ الفارغةُ الصادقة
+  await p.evaluate(() => [...document.querySelectorAll('.fixed.bottom-0 button')]
+    .find(b => b.textContent.includes('الإجلاس')).click());
+  await p.waitForTimeout(700);
+  t = await p.evaluate(() => document.body.innerText);
+  ok('«لا رفيقَ يتجاوز الصدفة» بدل اسمٍ كاذب', t.includes('يتجاوز الصدفة'));
+  ok('وصوتُ اللاعب يُعرض', t.includes('ياريت توزيع الكروت'));
+
+  // لسانُ الموقع — الحالةُ الرابعة والدقّةُ الكاذبة
+  await p.evaluate(() => [...document.querySelectorAll('.fixed.bottom-0 button')]
+    .find(b => b.textContent.includes('الموقع')).click());
+  await p.waitForTimeout(700);
+  t = await p.evaluate(() => document.body.innerText);
+  ok('«سياجُ الليلة مُطفأ» يُعرض صراحةً', t.includes('مُطفأ'));
+  ok('والدقّةُ الكاذبةُ تُسمّى', t.includes('مدينةٌ لا موقع'));
+  ok('والموثوقيّةُ بالليالي لا بالمحاولات', t.includes('من ٣ ليالٍ') || t.includes('ليالٍ'));
+
+  await p.evaluate(() => [...document.querySelectorAll('.fixed.bottom-0 button')]
+    .find(b => b.textContent.includes('البطاقة')).click());
+  await p.waitForTimeout(400);
 }
 
 console.log(NL + '🧪 المدير: لا يرى الهاتفَ ولا سببَ القفل');
