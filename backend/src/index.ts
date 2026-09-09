@@ -1252,6 +1252,10 @@ async function main() {
         sort_order INTEGER NOT NULL DEFAULT 0,
         created_at TIMESTAMP NOT NULL DEFAULT NOW()
       )`);
+      // 🗺️ نطاقُ المدينة على الخريطة (نقطة + نصف قطر) — للاقتراح والقياس لا للقرار
+      await db.execute(sql`ALTER TABLE cities ADD COLUMN IF NOT EXISTS center_lat NUMERIC(9,6)`);
+      await db.execute(sql`ALTER TABLE cities ADD COLUMN IF NOT EXISTS center_lng NUMERIC(9,6)`);
+      await db.execute(sql`ALTER TABLE cities ADD COLUMN IF NOT EXISTS radius_km NUMERIC(6,2)`);
       const { ensureDefaultCities } = await import('./services/cities.service.js');
       await ensureDefaultCities();
 

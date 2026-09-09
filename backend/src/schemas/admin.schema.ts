@@ -32,6 +32,13 @@ export const cities = pgTable('cities', {
   slug: varchar('slug', { length: 40 }).unique().notNull(),
   isActive: boolean('is_active').default(true).notNull(),
   sortOrder: integer('sort_order').default(0).notNull(),
+  // 🗺️ نطاقُ المدينة على الخريطة: نقطةٌ ونصفُ قطر بالكيلومترات — لا اسمٌ ولا حدودٌ إداريّة.
+  //    حدودُ المدن متداخلةٌ ولا يعرفها الجهاز، والدائرةُ تُرسم وتُفهم (نفسُ نموذج wa_groups).
+  //    ⚠️ للاقتراح والقياس لا للقرار: الرتبةُ من مكان اللعب، والمدينةُ الأساسيّة اختيارُ اللاعب.
+  //    فارغةٌ = مدينةٌ بلا نطاقٍ على الخريطة (لا تُطابَق ولا تُحسب في التغطية).
+  centerLat: decimal('center_lat', { precision: 9, scale: 6 }),
+  centerLng: decimal('center_lng', { precision: 9, scale: 6 }),
+  radiusKm: decimal('radius_km', { precision: 6, scale: 2 }),
   createdAt: timestamp('created_at').defaultNow().notNull(),
 });
 

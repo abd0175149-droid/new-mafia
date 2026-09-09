@@ -25,6 +25,10 @@ export interface City {
   locationsCount?: number;
   seasonPlayers?: number;
   seasonMatches?: number;
+  /** 🗺️ نطاقُ الخريطة — نقطةٌ ونصفُ قطر بالكيلومترات؛ null = بلا نطاق */
+  centerLat?: number | null;
+  centerLng?: number | null;
+  radiusKm?: number | null;
 }
 
 export type CitiesScope = 'public' | 'all';
@@ -49,6 +53,9 @@ function normalize(rows: any): City[] {
       locationsCount: num(c.locationsCount),
       seasonPlayers: num(c.seasonPlayers),
       seasonMatches: num(c.seasonMatches),
+      centerLat: c.centerLat == null ? null : Number(c.centerLat),
+      centerLng: c.centerLng == null ? null : Number(c.centerLng),
+      radiusKm: c.radiusKm == null ? null : Number(c.radiusKm),
     }))
     .sort((a, b) => a.sortOrder - b.sortOrder || a.id - b.id);
 }

@@ -427,6 +427,11 @@ INSERT INTO cities (id, name, slug, is_active, sort_order) VALUES
 ON CONFLICT (id) DO NOTHING;
 SELECT setval('cities_id_seq', GREATEST((SELECT MAX(id) FROM cities), 1));
 
+-- 🗺️ نطاقُ المدينة على الخريطة: نقطةٌ ونصفُ قطر (نفسُ نموذج wa_groups) — للاقتراح والقياس لا للقرار
+ALTER TABLE cities ADD COLUMN IF NOT EXISTS center_lat NUMERIC(9,6);
+ALTER TABLE cities ADD COLUMN IF NOT EXISTS center_lng NUMERIC(9,6);
+ALTER TABLE cities ADD COLUMN IF NOT EXISTS radius_km NUMERIC(6,2);
+
 -- الأماكن: المدينة إلزاميّة بعد التعبئة
 ALTER TABLE locations ADD COLUMN IF NOT EXISTS city_id INTEGER REFERENCES cities(id);
 UPDATE locations SET city_id = 1 WHERE city_id IS NULL;

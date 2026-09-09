@@ -16,9 +16,13 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
+import dynamic from 'next/dynamic';
 import { swalConfirm } from '@/lib/swal';
 import { useCities, fetchCities, invalidateCities, type City } from '@/hooks/useCities';
-import CityBadge, { cityTone, CITY_TONE_CLASSES } from '@/components/admin/CityBadge';
+import CityBadge, { cityTone, CITY_TONE_CLASSES, CITY_TONE_HEX } from '@/components/admin/CityBadge';
+
+// MapLibre يلمس window عند التحميل — لا تُصيَّر على الخادم
+const VenueMap = dynamic(() => import('@/components/VenueMap'), { ssr: false });
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || '';
 
@@ -45,6 +49,14 @@ interface Loc {
   isActive?: boolean;
   isTestLocation?: boolean;
   activeSeasonMatches?: number;
+  latitude?: string | number | null;
+  longitude?: string | number | null;
+}
+
+interface CoverageCity { id: number; name: string; isActive: boolean; hasArea: boolean; playersInside: number }
+interface Coverage {
+  days: number; totalPlayers: number; withFix: number; noFix: number; outside: number;
+  cities: CoverageCity[];
 }
 
 export default function CitiesPage() {
@@ -58,6 +70,11 @@ export default function CitiesPage() {
   const [editName, setEditName] = useState('');
   const [expanded, setExpanded] = useState<number | null>(null);
   const [moving, setMoving] = useState<Loc | null>(null);
+  // 🗺️ نطاقُ المدينة على الخريطة + قياسُ التغطية
+  const [areaFor, setAreaFor] = useState<City | null>(null);
+  const [coverage, setCoverage] = useState<Coverage | null>(null);
+  const [covDays, setCovDays] = useState(30);
+  const [covLoading, setCovLoading] = useState(false);
 
   const loadLocations = async () => {
     setLocLoading(true);
@@ -71,7 +88,15 @@ export default function CitiesPage() {
     }
   };
 
+  const loadCoverage = async (days = covDays) => {
+    setCovLoading(true);
+    try { setCoverage(await apiFetch(`/api/cities/coverage?days=${days}`)); }
+    catch { setCoverage(null); }
+    finally { setCovLoading(false); }
+  };
+
   useEffect(() => { loadLocations(); }, []);
+  useEffect(() => { loadCoverage(covDays); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [covDays]);
 
   // أماكنُ كلّ مدينة (المحذوفة ناعماً لا تصل من الخادم أصلاً)
   const byCity = useMemo(() => {
@@ -94,7 +119,7 @@ export default function CitiesPage() {
     try {
       await fn();
       invalidateCities();
-      await Promise.all([reload(), fetchCities('public', true).catch(() => []), loadLocations()]);
+      await Promise.all([reload(), fetchCities('public', true).catch(() => []), loadLocations(), loadCoverage()]);
     } catch (e: any) {
       setError(e?.message || 'فشل الحفظ');
     } finally { setBusyId(null); }
@@ -198,6 +223,62 @@ export default function CitiesPage() {
         </div>
       )}
 
+      {/* ══ 🗺️ التغطية — أين يقع لاعبونا فعلاً ══ */}
+      <div className="bg-gray-800/50 border border-gray-700/40 rounded-2xl p-4">
+        <div className="flex items-center justify-between gap-3 flex-wrap mb-3">
+          <div>
+            <h2 className="text-sm font-bold text-white">🗺️ أين يقع لاعبونا</h2>
+            <p className="text-[11px] text-gray-500 mt-0.5">
+              آخرُ موقعٍ معروف لكلّ لاعب داخل النافذة، يُطابَق بدائرة المدينة. رقمٌ إداريّ يقرّر أين تُفتح المدينة القادمة — لا يُعرض للاعبين ولا يغيّر رتبةً ولا يُخفي فعاليّة.
+            </p>
+          </div>
+          <div className="flex items-center gap-1 bg-gray-900/60 border border-gray-700/50 rounded-xl p-0.5">
+            {[7, 30, 90].map(d => (
+              <button key={d} onClick={() => setCovDays(d)}
+                className={`px-2.5 py-1 text-[11px] font-bold rounded-lg transition ${covDays === d ? 'bg-gray-700 text-white' : 'text-gray-400 hover:text-white'}`}>
+                {d} يوم
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {covLoading && !coverage ? (
+          <p className="text-xs text-gray-500 text-center py-3">جارٍ الحساب…</p>
+        ) : !coverage ? (
+          <p className="text-xs text-gray-500 text-center py-3">تعذّر حساب التغطية</p>
+        ) : (
+          <>
+            <div className="flex flex-wrap gap-2 mb-3">
+              {coverage.cities.filter(c => c.hasArea).map(c => (
+                <div key={c.id} className="px-3 py-2 rounded-xl bg-gray-900/50 border border-gray-700/40 min-w-[110px]">
+                  <div className="flex items-center gap-1.5 mb-1">
+                    <span className="inline-block w-2 h-2 rounded-full" style={{ background: CITY_TONE_HEX[cityTone(c.id, c.name)] }} />
+                    <span className="text-[11px] text-gray-400">{c.name}</span>
+                  </div>
+                  <div className="text-lg font-bold text-white font-mono">{c.playersInside}</div>
+                  <div className="text-[10px] text-gray-500">لاعبًا داخل الدائرة</div>
+                </div>
+              ))}
+              <div className="px-3 py-2 rounded-xl bg-gray-900/50 border border-gray-700/40 min-w-[110px]">
+                <div className="text-[11px] text-gray-400 mb-1">خارج كلّ الدوائر</div>
+                <div className="text-lg font-bold text-gray-300 font-mono">{coverage.outside}</div>
+                <div className="text-[10px] text-gray-500">فرصةُ مدينةٍ قادمة</div>
+              </div>
+              <div className="px-3 py-2 rounded-xl bg-gray-900/50 border border-gray-700/40 min-w-[110px]">
+                <div className="text-[11px] text-gray-400 mb-1">بلا موقعٍ معروف</div>
+                <div className="text-lg font-bold text-gray-500 font-mono">{coverage.noFix}</div>
+                <div className="text-[10px] text-gray-500">من {coverage.totalPlayers} لاعبًا</div>
+              </div>
+            </div>
+            {coverage.cities.some(c => !c.hasArea) && (
+              <p className="text-[11px] text-amber-400/80">
+                ⚠️ بلا نطاقٍ على الخريطة: {coverage.cities.filter(c => !c.hasArea).map(c => c.name).join('، ')} — حدّد نطاقها لتدخل القياس.
+              </p>
+            )}
+          </>
+        )}
+      </div>
+
       {/* ══ إضافة مدينة ══ */}
       <div className="bg-gray-800/50 border border-gray-700/40 rounded-2xl p-4">
         <label className="block text-xs text-gray-400 mb-2">إضافة مدينة جديدة</label>
@@ -272,6 +353,12 @@ export default function CitiesPage() {
 
                   {/* الإجراءات */}
                   <div className="flex items-center gap-2">
+                    <button onClick={() => setAreaFor(c)}
+                      className={`text-xs px-3 py-1.5 rounded-lg border transition whitespace-nowrap ${
+                        c.centerLat != null ? 'border-gray-600/50 text-gray-300 hover:bg-gray-700/60' : 'border-amber-500/30 text-amber-400 bg-amber-500/[0.06] hover:bg-amber-500/15'}`}
+                      title="نقطةُ المدينة ونصفُ قطرها على الخريطة">
+                      🗺️ {c.centerLat != null ? `النطاق · ${c.radiusKm} كم` : 'حدّد النطاق'}
+                    </button>
                     <button onClick={() => setExpanded(open ? null : c.id)}
                       className="text-xs px-3 py-1.5 rounded-lg border border-gray-600/50 text-gray-300 hover:bg-gray-700/60 transition whitespace-nowrap">
                       {open ? 'إخفاء الأماكن' : `الأماكن (${venues.length})`}
@@ -333,6 +420,18 @@ export default function CitiesPage() {
         لا حذف للمدن — المفاتيح مُشارٌ إليها من الأماكن والمباريات وإحصاءات المواسم. التعطيلُ يُخفيها ويحفظ تاريخها.
       </p>
 
+      {/* ══ 🗺️ نافذة نطاق المدينة ══ */}
+      <AnimatePresence>
+        {areaFor && (
+          <CityAreaDialog
+            city={areaFor}
+            venues={(byCity.get(areaFor.id) || []).filter(v => v.latitude != null && v.longitude != null)}
+            onClose={() => setAreaFor(null)}
+            onSaved={async () => { setAreaFor(null); await mutate(areaFor.id, async () => {}); }}
+          />
+        )}
+      </AnimatePresence>
+
       {/* ══ نافذة نقل مكان ══ */}
       <AnimatePresence>
         {moving && (
@@ -371,5 +470,132 @@ export default function CitiesPage() {
         )}
       </AnimatePresence>
     </div>
+  );
+}
+
+// ══════════════════════════════════════════════════════
+// 🗺️ نطاقُ المدينة — نقطةٌ ونصفُ قطر على الخريطة
+// ══════════════════════════════════════════════════════
+// 🔴 دائرةٌ لا حدودٌ إداريّة: حدودُ المدن متداخلةٌ ولا يعرفها الجهاز، والدائرةُ
+//    تُرسم وتُفهم. نفسُ نموذج مجموعات الواتساب القائم منذ شهور.
+// 🔴 للاقتراح والقياس لا للقرار: لا تُغيّر رتبةً ولا تُخفي فعاليّة — الرتبةُ من
+//    مكان اللعب، والمدينةُ الأساسيّة اختيارُ اللاعب.
+// 🔴 المركزُ يُقترَح من أماكن المدينة إن وُجدت لها نقاط: من يضبط نطاق مدينةٍ من
+//    مكتبه لا يعرف إحداثيّاتها، وأماكنُه هي أدقُّ ما يملك.
+function CityAreaDialog({ city, venues, onClose, onSaved }: {
+  city: City;
+  venues: Loc[];
+  onClose: () => void;
+  onSaved: () => void | Promise<void>;
+}) {
+  const suggested = useMemo(() => {
+    if (venues.length === 0) return null;
+    const pts = venues.map(v => ({ lat: Number(v.latitude), lng: Number(v.longitude) })).filter(p => Number.isFinite(p.lat) && Number.isFinite(p.lng));
+    if (pts.length === 0) return null;
+    return {
+      lat: pts.reduce((s, p) => s + p.lat, 0) / pts.length,
+      lng: pts.reduce((s, p) => s + p.lng, 0) / pts.length,
+    };
+  }, [venues]);
+
+  const [lat, setLat] = useState<number | null>(city.centerLat ?? null);
+  const [lng, setLng] = useState<number | null>(city.centerLng ?? null);
+  const [radius, setRadius] = useState<number>(city.radiusKm ?? 15);
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState('');
+
+  const center = lat != null && lng != null ? { lat, lng } : null;
+
+  const save = async () => {
+    if (lat == null || lng == null) { setErr('حدّد نقطة المركز على الخريطة'); return; }
+    setBusy(true); setErr('');
+    try {
+      await apiFetch(`/api/cities/${city.id}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ centerLat: lat, centerLng: lng, radiusKm: radius }),
+      });
+      invalidateCities();
+      await fetchCities('public', true).catch(() => []);
+      await onSaved();
+    } catch (e: any) { setErr(e?.message || 'فشل الحفظ'); setBusy(false); }
+  };
+
+  const clear = async () => {
+    if (!(await swalConfirm(`مسح نطاق «${city.name}» من الخريطة؟ تخرج من قياس التغطية ولا يتغيّر شيءٌ آخر.`))) return;
+    setBusy(true); setErr('');
+    try {
+      await apiFetch(`/api/cities/${city.id}`, { method: 'PATCH', body: JSON.stringify({ centerLat: null, centerLng: null, radiusKm: null }) });
+      invalidateCities();
+      await fetchCities('public', true).catch(() => []);
+      await onSaved();
+    } catch (e: any) { setErr(e?.message || 'فشل الحفظ'); setBusy(false); }
+  };
+
+  return (
+    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4" onClick={onClose}>
+      <motion.div initial={{ scale: 0.95, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.95, opacity: 0 }}
+        onClick={e => e.stopPropagation()}
+        className="bg-gray-800 border border-gray-700/50 rounded-2xl p-5 w-full max-w-[720px] space-y-3 max-h-[92vh] overflow-y-auto" dir="rtl">
+        <div className="flex items-center justify-between">
+          <div>
+            <h3 className="text-lg font-bold text-white">🗺️ نطاق «{city.name}» على الخريطة</h3>
+            <p className="text-[11px] text-gray-500 mt-0.5">نقطةٌ ونصفُ قطر — للاقتراح وقياس التغطية. لا تُغيّر رتبةً ولا تُخفي فعاليّة.</p>
+          </div>
+          <button onClick={onClose} className="text-gray-500 hover:text-white transition">✕</button>
+        </div>
+
+        {err && <div className="bg-rose-500/10 border border-rose-500/30 rounded-xl px-3 py-2 text-xs text-rose-300">⚠️ {err}</div>}
+
+        <VenueMap
+          center={center}
+          radiusM={center ? radius * 1000 : null}
+          draggablePin
+          onPinMove={(a, b) => { setLat(a); setLng(b); }}
+          onMapClick={(a, b) => { setLat(a); setLng(b); }}
+          dots={venues.map(v => ({ id: v.id, lat: Number(v.latitude), lng: Number(v.longitude), color: '#F59E0B', label: v.name }))}
+          height={320}
+          className="rounded-xl overflow-hidden border border-gray-700/50"
+        />
+        <p className="text-[10px] text-gray-500">انقر على الخريطة لوضع المركز، أو اسحب الدبّوس. النقاط الكهرمانيّة أماكنُ المدينة.</p>
+
+        {!center && suggested && (
+          <button onClick={() => { setLat(suggested.lat); setLng(suggested.lng); }}
+            className="w-full py-2 rounded-xl bg-amber-500/10 border border-amber-500/30 text-amber-300 text-xs font-bold hover:bg-amber-500/20 transition">
+            📍 ابدأ من متوسّط أماكن المدينة ({venues.length} مكانًا)
+          </button>
+        )}
+
+        <div>
+          <label className="block text-xs text-gray-400 mb-1">نصف القطر: <span className="text-white font-mono">{radius} كم</span></label>
+          <input type="range" min={1} max={60} step={1} value={radius} onChange={e => setRadius(Number(e.target.value))}
+            className="w-full accent-amber-500" />
+          <div className="flex justify-between text-[10px] text-gray-600"><span>١ كم</span><span>٦٠ كم</span></div>
+        </div>
+
+        <div className="grid grid-cols-2 gap-2 text-xs">
+          <div><label className="block text-[10px] text-gray-500 mb-1">خطّ العرض</label>
+            <input value={lat ?? ''} onChange={e => setLat(e.target.value === '' ? null : Number(e.target.value))}
+              className="w-full px-3 py-2 bg-gray-900/60 border border-gray-600/50 rounded-lg text-white font-mono text-xs" dir="ltr" /></div>
+          <div><label className="block text-[10px] text-gray-500 mb-1">خطّ الطول</label>
+            <input value={lng ?? ''} onChange={e => setLng(e.target.value === '' ? null : Number(e.target.value))}
+              className="w-full px-3 py-2 bg-gray-900/60 border border-gray-600/50 rounded-lg text-white font-mono text-xs" dir="ltr" /></div>
+        </div>
+
+        <div className="flex gap-2 pt-1">
+          <button onClick={save} disabled={busy || lat == null || lng == null}
+            className="flex-1 py-2.5 rounded-xl bg-gray-900 text-white font-bold text-sm hover:bg-gray-700 transition disabled:opacity-50">
+            {busy ? 'جارٍ الحفظ…' : 'حفظ النطاق'}
+          </button>
+          {city.centerLat != null && (
+            <button onClick={clear} disabled={busy}
+              className="px-4 py-2.5 rounded-xl border border-rose-500/30 text-rose-300 text-sm hover:bg-rose-500/10 transition disabled:opacity-50">
+              مسح النطاق
+            </button>
+          )}
+          <button onClick={onClose} className="px-4 py-2.5 rounded-xl bg-gray-700/50 text-gray-300 text-sm hover:bg-gray-700/70 transition">إلغاء</button>
+        </div>
+      </motion.div>
+    </motion.div>
   );
 }
