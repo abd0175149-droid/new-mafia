@@ -403,6 +403,15 @@ export default function OrderPanel({
   const mainRef = useRef<HTMLDivElement>(null);
   const rootRef = useRef<HTMLDivElement>(null);
 
+  // 🚫 ما دامت اللوحة مركّبةً — على أيّ سطحٍ من الثلاثة — لا إعادةَ تحميلٍ بالسحب:
+  //    `usePullToRefresh` في تخطيط اللاعب يقرأ هذا الصنف ويكفّ (كانت السحبة
+  //    تعيد تحميل الصفحة وتمسح السلّة). يُضبط على الجسد لا على الجذر لأنّ
+  //    حالة التحميل ترسم بلا الجذر.
+  useEffect(() => {
+    document.body.classList.add('fnb-open');
+    return () => { document.body.classList.remove('fnb-open'); };
+  }, []);
+
   // 🚫 السحب لأسفل لا أثر له داخل اللوحة (قرار المالك 2026-09-09): لا سحبٌ
   //    للتحديث ولا ارتدادٌ مطّاطيّ يُزيح الطبقة الثابتة. مستمعٌ غير سلبيّ
   //    (passive:false) لأنّ React لا يستطيع منع الافتراضيّ في touchmove.

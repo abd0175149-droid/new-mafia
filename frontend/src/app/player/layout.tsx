@@ -25,7 +25,10 @@ const PUBLIC_PATHS = ['/player/login', '/player/debug-push'];
  */
 function pullBlockedCheap(): boolean {
   const b = document.body;
-  return b.classList.contains('modal-open') || b.classList.contains('in-game');
+  // 🍽️ fnb-open: لوحة المنيو مفتوحة (صفحة الطلب، ورقة اللعبة، استعراض الحجز) —
+  //    إعادة التحميل بالسحب كانت تمسح السلّة وسط الطلب (قرار المالك 2026-09-09).
+  return b.classList.contains('modal-open') || b.classList.contains('in-game')
+    || b.classList.contains('fnb-open');
 }
 
 function pullBlocked(): boolean {
