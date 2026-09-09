@@ -24,6 +24,7 @@ import MafiaTeamGallery from './MafiaTeamGallery';
 import SecretWatermark from './SecretWatermark';
 import PlayerNotepad from './PlayerNotepad';
 import OrderPanel from './OrderPanel';
+import { IcoPlate } from './fnb/icons';
 import TeamBar from './TeamBar';
 type Step = 'code' | 'phone' | 'login' | 'register' | 'change_password' | 'ticket' | 'auto_joining' | 'done' | 'rejoined' | 'spectating';
 
@@ -225,9 +226,26 @@ export default function PlayerFlow({ initialRoomCode = '', inviteFlag = false, i
   const [password, setPassword] = useState('');
   const [newPassword, setNewPassword] = useState('');
   const [playerToken, setPlayerToken] = useState<string | null>(null);
-  // 🍽️ هل للاعب سياق طلبٍ الآن؟ (حجز + نافذة الفعاليّة) — يحكم ظهور زرّ المنيو العائم
+  // 🍽️ هل للاعب سياق طلبٍ الآن؟ (حجز + نافذة الفعاليّة) — يحكم ظهور زرّ المنيو العائم.
+  //    مع حجزٍ قادم لم تُفتح نافذته (next) يظهر الزرّ أيضاً ليتصفّح للقراءة.
   const [fnbReady, setFnbReady] = useState(false);
+  const [fnbActivityId, setFnbActivityId] = useState<number | null>(null);
+  // شارة الزرّ العائم: عدد الطلبات المفتوحة ولونها بالحالة (أزرق بانتظار المكان، ذهبيّ قيد التحضير)
+  const [fnbOpen, setFnbOpen] = useState<{ count: number; preparing: boolean }>({ count: 0, preparing: false });
   const [isOrderOpen, setIsOrderOpen] = useState(false);
+  const refreshFnbOrders = useCallback((activityId: number | null) => {
+    if (!activityId) return;
+    const t = localStorage.getItem('mafia_player_token');
+    if (!t) return;
+    fetch(`/api/fnb/my-orders?activityId=${activityId}`, { headers: { Authorization: `Bearer ${t}` } })
+      .then(r => r.json())
+      .then(d => {
+        if (!d?.success) return;
+        const open = (d.orders || []).filter((o: any) => o.status === 'new' || o.status === 'preparing');
+        setFnbOpen({ count: open.length, preparing: open.some((o: any) => o.status === 'preparing') });
+      })
+      .catch(() => {});
+  }, []);
   // 🔴 قفل تمرير الخلفيّة — قفلُ الجسد وحده، لا useModalScrollLock:
   //    الهوك يمنع كلّ لمسٍ خارج عنصرٍ مرجعيٍّ واحد، ولوحة الطلب فيها عدّة
   //    حاوياتِ تمريرٍ داخليّة (الجسم، الأوراق، السلّة) — فكان يمنعها جميعاً
@@ -602,10 +620,22 @@ export default function PlayerFlow({ initialRoomCode = '', inviteFlag = false, i
     let alive = true;
     fetch('/api/fnb/context', { headers: { Authorization: `Bearer ${t}` } })
       .then(r => r.json())
-      .then(d => { if (alive && d?.success && d.context) setFnbReady(true); })
+      .then(d => {
+        if (!alive || !d?.success) return;
+        if (d.context) { setFnbReady(true); setFnbActivityId(d.context.activityId); refreshFnbOrders(d.context.activityId); }
+        else if (d.next?.locationId) setFnbReady(true);
+      })
       .catch(() => {});
     return () => { alive = false; };
-  }, [step, playerToken]);
+  }, [step, playerToken, refreshFnbOrders]);
+
+  // شارة الطلبات تتجدّد عند إغلاق الورقة وكلّ دقيقة — الحالة تتغيّر من المكان لا من اللاعب
+  useEffect(() => {
+    if (!fnbActivityId || (step !== 'done' && step !== 'rejoined')) return;
+    if (!isOrderOpen) refreshFnbOrders(fnbActivityId);
+    const iv = setInterval(() => { if (!isOrderOpen && document.visibilityState === 'visible') refreshFnbOrders(fnbActivityId); }, 60000);
+    return () => clearInterval(iv);
+  }, [fnbActivityId, isOrderOpen, step, refreshFnbOrders]);
 
   // ── البحث التلقائي عن الغرفة عند وجود كود مسبق ──
   // ⚠️ ينتظر tokenChecked لأن handleFindRoom يتحقق من playerToken/playerId
@@ -4340,11 +4370,16 @@ export default function PlayerFlow({ initialRoomCode = '', inviteFlag = false, i
       {(step === 'done' || step === 'rejoined') && fnbReady && (
         <button
           onClick={() => setIsOrderOpen(true)}
-          style={{ bottom: 'calc(var(--nav-h) + 88px)' }}
-          className="fixed right-4 w-12 h-12 bg-[#0d1f18] border-2 border-emerald-500/70 text-xl flex items-center justify-center rounded-full shadow-[0_0_20px_rgba(16,185,129,0.35)] z-[90] hover:scale-105 transition-transform"
+          style={{ bottom: 'calc(var(--nav-h) + 88px)', background: '#151006', border: '2px solid rgba(197,160,89,0.8)', boxShadow: '0 0 20px rgba(197,160,89,0.35)', color: '#e7cf8d' }}
+          className="fixed right-4 w-12 h-12 flex items-center justify-center rounded-full z-[90] hover:scale-105 transition-transform"
           title="اطلب من المكان"
+          aria-label={fnbOpen.count > 0 ? `المنيو — ${fnbOpen.count} طلب قيد المتابعة` : 'اطلب من المكان'}
         >
-          🍽️
+          <IcoPlate size={22} />
+          {fnbOpen.count > 0 && (
+            <span className="absolute -top-1.5 -left-1.5 min-w-[18px] h-[18px] px-1 rounded-full text-[10px] font-black flex items-center justify-center text-black"
+              style={{ background: fnbOpen.preparing ? '#fcd34d' : '#8CC1F2' }}>{fnbOpen.count}</span>
+          )}
         </button>
       )}
 
@@ -4358,11 +4393,11 @@ export default function PlayerFlow({ initialRoomCode = '', inviteFlag = false, i
           {/* 🔴 ارتفاعٌ ثابتٌ بلا تمريرٍ هنا: اللوحة تدير تمريرها الداخليّ بين
               ترويسةٍ وشريطٍ ثابتَين. تمريرٌ خارجيٌّ هنا كان يُخفي شريط السلّة. */}
           <div
-            className="w-full max-w-lg h-[88dvh] overflow-hidden rounded-t-3xl sm:rounded-2xl border-t sm:border border-emerald-500/25"
-            style={{ background: '#050505' }}
+            className="w-full max-w-lg fnb-sheet-h overflow-hidden rounded-t-3xl sm:rounded-2xl border-t sm:border"
+            style={{ background: '#050505', borderColor: 'rgba(197,160,89,0.35)' }}
             onClick={e => e.stopPropagation()}
           >
-            <OrderPanel embedded onClose={() => setIsOrderOpen(false)} onEmptyContext={() => setFnbReady(false)} />
+            <OrderPanel embedded onClose={() => { setIsOrderOpen(false); refreshFnbOrders(fnbActivityId); }} onEmptyContext={() => setFnbReady(false)} />
           </div>
         </div>
       )}

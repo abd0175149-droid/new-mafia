@@ -11,6 +11,7 @@ import { ChipsBalancePill } from '@/components/ChipsBalancePill';
 import { usePushNotifications } from '@/hooks/usePushNotifications';
 import { useModalScrollLock } from '@/hooks/useModalScrollLock';
 import InstallGuide from '@/components/InstallGuide';
+import { IcoPlate } from '@/components/fnb/icons';
 
 // مجموعة الواتساب ليست حساب أعمال — رابط دعوة عاديّ لا يمسّه إجراء ميتا، فيبقى.
 // 🔴 المجموعةُ العامّة احتياطاً فقط: الخادمُ يقرّر أيَّ مجموعةٍ حسب مدينة
@@ -47,8 +48,11 @@ export default function HomePage() {
   const [staffPanelOpen, setStaffPanelOpen] = useState(false);
   // 💬 تنبيه الانضمام لمجموعة الواتساب — يظهر مرة واحدة لكل مستخدم (مفتاح جديد ⇒ يظهر للجميع بعد النشر)
   const [waGroupPrompt, setWaGroupPrompt] = useState(false);
-  // 🍽️ سياق طلب المنيو — يظهر البطاقة فقط عندما يكون للاعب حجزٌ ضمن نافذة فعاليّة مفعَّلة المنيو
-  const [fnbCtx, setFnbCtx] = useState<any>(null);
+  // 🍽️ منيو المكان («الرفّ»): سياقٌ مفتوح (طلبٌ الآن) أو حجزٌ قادم (يفتح الساعة …) —
+  //    البطاقة تظهر في الحالتين؛ كانت تختفي كلّياً قبل فتح النافذة فلا يعرف اللاعب بالمنيو.
+  const [fnb, setFnb] = useState<{ context: any | null; next: any | null } | null>(null);
+  const [fnbShelf, setFnbShelf] = useState<{ items: any[]; total: number; bundles: number }>({ items: [], total: 0, bundles: 0 });
+  const [fnbOpen, setFnbOpen] = useState(0);
 
   // ── منع السكرول + swipe-to-close ──
   const activityModal = useModalScrollLock({
@@ -107,7 +111,34 @@ export default function HomePage() {
     if (token) {
       fetch('/api/fnb/context', { headers: { Authorization: `Bearer ${token}` } })
         .then(r => r.json())
-        .then(d => { if (d.success && d.context) setFnbCtx(d.context); })
+        .then(d => {
+          if (!d.success) return;
+          const context = d.context || null, next = d.next || null;
+          setFnb({ context, next });
+          // رفٌّ مصغّر: أوّل صنفٍ من ثلاثة أقسامٍ مختلفة — من النقطة العامّة بلا حصص النادي
+          const locId = context?.locationId ?? next?.locationId;
+          if (locId) {
+            fetch(`/api/player-app/locations/${locId}/menu`).then(r => r.json()).then(m => {
+              if (!m.success) return;
+              const all: any[] = m.items || [];
+              const seen = new Set<string>(); const quick: any[] = [];
+              for (const it of all) {
+                if (it.isBundle) continue;
+                const k = `${it.category || ''}|${it.subcategory || ''}`;
+                if (seen.has(k)) continue;
+                seen.add(k); quick.push(it);
+                if (quick.length === 3) break;
+              }
+              setFnbShelf({ items: quick, total: all.filter(i => !i.isBundle).length, bundles: all.filter(i => i.isBundle).length });
+            }).catch(() => {});
+          }
+          if (context) {
+            fetch(`/api/fnb/my-orders?activityId=${context.activityId}`, { headers: { Authorization: `Bearer ${token}` } })
+              .then(r => r.json())
+              .then(o => { if (o.success) setFnbOpen((o.orders || []).filter((x: any) => x.status === 'new' || x.status === 'preparing').length); })
+              .catch(() => {});
+          }
+        })
         .catch(() => {});
     }
   }, [player]);
@@ -593,25 +624,45 @@ export default function HomePage() {
         </div>
       </button>
 
-      {/* 🍽️ اطلب من المكان — تظهر فقط عندما يكون للاعب سياق طلب فعّال */}
-      {fnbCtx && (
-        <button
-          onClick={() => router.push('/player/order')}
-          className="w-full rounded-2xl p-4 text-right transition-all"
-          style={{
-            background: 'linear-gradient(135deg, rgba(16,185,129,0.14), rgba(5,5,5,0.9))',
-            border: '1px solid rgba(16,185,129,0.3)',
-          }}
-        >
-          <div className="flex items-center justify-between gap-3">
-            <div>
-              <span className="text-emerald-400 text-xs font-medium">🍽️ اطلب من {fnbCtx.locationName}</span>
-              <p className="text-white text-sm mt-1">منيو المكان متاح لحجزك — {fnbCtx.activityName}</p>
+      {/* 🍽️ منيو المكان — «الرفّ»: مع سياقٍ مفتوح أو حجزٍ قادم. لا تختفي حتى تفتح النافذة. */}
+      {fnb && (fnb.context || fnb.next) && (() => {
+        const open = !!fnb.context;
+        const name = fnb.context?.locationName || fnb.next?.locationName;
+        const act = fnb.context?.activityName || fnb.next?.activityName;
+        const ar = (v: number) => String(v).replace(/[0-9]/g, c => '٠١٢٣٤٥٦٧٨٩'[+c]);
+        return (
+          <button
+            onClick={() => router.push('/player/order')}
+            className="w-full rounded-2xl p-4 text-right transition-all"
+            style={{ background: 'linear-gradient(135deg, rgba(197,160,89,0.14), rgba(5,5,5,0.9))', border: '1px solid rgba(197,160,89,0.35)' }}
+          >
+            <div className="flex items-center gap-2">
+              <span style={{ color: '#e7cf8d' }}><IcoPlate size={18} /></span>
+              <b className="flex-1 min-w-0 truncate text-white text-sm">منيو {name}</b>
+              <span className="text-[10px] px-2 py-0.5 rounded-full shrink-0"
+                style={open ? { background: 'rgba(74,222,128,0.15)', color: '#9be0b6' } : { background: 'rgba(197,160,89,0.15)', color: '#f3dea3' }}>
+                {open ? 'الطلب مفتوح الآن' : `يفتح الطلب الساعة ${fnb.next.opensAt}`}
+              </span>
             </div>
-            <span className="px-4 py-2 rounded-xl text-sm font-bold whitespace-nowrap" style={{ background: 'linear-gradient(135deg, #10b981, #0d9488)', color: '#fff' }}>اطلب →</span>
-          </div>
-        </button>
-      )}
+            <p className="text-[11px] text-gray-400 mt-1 truncate">
+              {act}
+              {fnbShelf.total ? ` · ${ar(fnbShelf.total)} صنفاً${fnbShelf.bundles ? ` و${ar(fnbShelf.bundles)} عروض` : ''}` : ''}
+              {fnbOpen > 0 && <span style={{ color: '#fcd34d' }}> · {ar(fnbOpen)} طلبٌ قيد المتابعة</span>}
+            </p>
+            <div className="flex gap-1.5 mt-2.5">
+              {fnbShelf.items.map((it: any) => (
+                <div key={it.id} className="flex-1 min-w-0 rounded-xl p-2 flex flex-col gap-0.5" style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.08)' }}>
+                  <b className="text-[11.5px] text-white truncate">{it.name}</b>
+                  <span className="text-[12px] font-black tabular-nums" style={{ color: '#fcd34d' }}>{parseFloat(it.price).toFixed(2)}</span>
+                </div>
+              ))}
+              <span className="shrink-0 px-4 py-2 rounded-xl text-[12.5px] font-extrabold flex items-center" style={{ background: 'linear-gradient(135deg, #d9b563, #a7833a)', color: '#150f04' }}>
+                {open ? 'اطلب' : 'تصفّح'}
+              </span>
+            </div>
+          </button>
+        );
+      })()}
 
       {/* 🌐 استضافة لعبة عن بُعد — تظهر فقط للحسابات المصرّح لها (can_host_remote) */}
       {p?.canHostRemote && (

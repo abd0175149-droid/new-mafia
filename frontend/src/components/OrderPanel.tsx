@@ -1,43 +1,51 @@
 'use client';
 
 // ══════════════════════════════════════════════════════
-// 🍽️ لوحة طلب اللاعب — المنيو والعروض والسلّة
-// بنيةٌ ثلاثيّة: **ثابتٌ · متمرّرٌ · ثابت** — الإغلاق والتنقّل والسلّة لا تغيب.
+// 🍽️ لوحة المنيو — تصميم «الرفّ» (قرار 2026-09-09)
 //
-// 🧭 التنقّل (قرار 2026-08-09 بعد موازنة ثلاثة سيناريوهات):
-//   كان تبويباتٍ + تبويبَي جذرٍ + شرائحَ تصفية — ثلاث طبقاتٍ قبل أوّل صنف،
-//   والتصفية تُخفي بقيّة المنيو. صار **قائمةً واحدةً متّصلة** بكلّ الأقسام
-//   وشريطَ شرائحَ لاصقاً يعمل قفزاً لا تصفية: يضيء على القسم الظاهر أثناء
-//   التمرير (scroll-spy) وينقل إليه بنقرة. النمط الذي اعتاده الجميع من
-//   تطبيقات التوصيل: تصفّحٌ بصفر نقرات، وقفزٌ لأيّ قسمٍ بنقرة.
-//   والعروض صارت أوّل قسمٍ في القائمة نفسها — فالتبويبات اثنان لا ثلاثة.
+// 🧭 البنية: رفٌّ عموديٌّ ثابت على اليمين يحمل الأقسام كلّها (العروض أوّلاً)،
+//    وبلاطاتٌ بعمودين على اليسار للقسم المختار. أوّل صنفٍ على بعد ترويسةٍ
+//    واحدة (~٥٦ بكسل) — لا تبويبات ولا شرائح لاصقة ولا بحثٍ دائم.
+// ⚙️ الصنف ذو الخيارات يتّسع في مكانه (يمتدّ على العمودين) ويُظهر نكهاته
+//    أزراراً بارتفاعٍ ≥ ٤٠ بكسل، ثمّ يُضاف بنقرة. لا ورقة فوق القائمة للأرجيلة.
+// 🎁 العرض يُركَّب بمُركِّبٍ متدرّج: خطوةٌ لكلّ قرار (نكهة ← مشروب ← نكهة
+//    المشروب ← مراجعة) بدل ورقةٍ واحدةٍ طويلةٍ تحوي ٢٥ مرشّحاً وثماني نكهات.
+// 🧾 «طلباتي» ورقةٌ من أيقونة الترويسة (بشارة العدد)، وفيها خدمة الأرجيلة.
+// 📖 وضعان: mode='order' (الرئيسيّة/اللعبة — يحتاج سياقاً من الخادم) و
+//    mode='browse' (استعراضٌ للقراءة قبل الحجز — النقطة العامّة بلا مصادقة).
+//    العارض واحدٌ للسطوح الثلاثة؛ لا يتفرّع عارضٌ ثانٍ في صفحة الألعاب.
+// 🕒 بلا سياقٍ لكن بحجزٍ قادم: الخادم يعيد next (المكان وموعد الفتح) فتُعرض
+//    الرسالة الصحيحة ويُتاح تصفّح المنيو للقراءة — لا شاشة فارغة.
 //
-// 🎁 الباقة خانات: ثابتة · ثابتة بخيارٍ مقفل · اختيارٌ من مجموعة. السعر ثابتٌ
-//    إلّا فرقاً معلَناً على خيارٍ اختاره اللاعب (تفاحتين نخلة +١) — يمرّ ويُعرض.
-// 📖 الوصف الطويل (مكوّنات البرغر) لم يعد يُبتر: صنفٌ بلا خياراتٍ ووصفُه طويل
-//    يفتح ورقة تفصيلٍ كاملة، وذو الخيارات يعرض وصفه كاملاً داخل ورقته.
-// 💨 خدمة الأرجيلة تسكن «طلباتي» لأنّها متعلّقةٌ بطلبٍ وصل لا صنفٌ يُشترى.
+// 🔴 دروسٌ محفوظة من النسخة السابقة (لا تُكسر):
+//    - حقول الإدخال بحجم ١٦ بكسل: أصغر من ذلك يُقرّب سفاري الشاشة عند
+//      التركيز فينزاح التخطيط الثابت وتختفي الأزرار السفليّة.
+//    - ارتفاع الصفحة الكاملة من صنف CSS (fnb-page-h) يحمل سطر 100vh
+//      احتياطيّاً قبل 100dvh — المتصفّحات القديمة كانت تُسقط الشريط تحت التنقّل.
+//    - الأوراق `fixed` لا `absolute`، وتنسيق الذيل يرتفع مع لوحة المفاتيح
+//      (visualViewport) كي لا يختفي زرّ الإرسال خلفها.
+//    - مفتاح السلّة = صنف + توليفة الخيارات؛ توليفتان = سطران.
+//    - مفتاح تكرار الإرسال يثبت عبر إعادة المحاولة ويتجدّد مع تغيّر السلّة.
 // ══════════════════════════════════════════════════════
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
 import { usePlayer } from '@/context/PlayerContext';
 import { freshFixForGate } from './LocationGate';
+import { IcoFire, IcoPlate, IcoReceipt, IcoSearch, IcoTool, IcoX, sectionIcon } from './fnb/icons';
 
+// ── الأنواع (كما يبنيها الخادم) ─────────────────────────
 interface OptionValue { key: string; name: string; priceDelta: number }
 interface OptionGroup {
   key: string; name: string; selectionType: 'single' | 'multi';
   isRequired: boolean; maxSelect: number; values: OptionValue[];
 }
 interface Chosen { group: string; value: string }
-
-/** خانة باقة كما يبنيها الخادم */
 type Slot =
   | { i: number; kind: 'fixed'; menuItemId: number; name: string; qty: number;
       lockedOptions: Record<string, string>; optionGroups: OptionGroup[] }
   | { i: number; kind: 'choice'; label: string; note: string; qty: number;
       from: { menuItemId: number; name: string; optionGroups: OptionGroup[] }[] };
-
 interface Item {
   id: number; category: string; subcategory?: string; name: string; description: string;
   price: string; imageUrl: string | null;
@@ -49,13 +57,11 @@ interface MyOrder {
            components?: { name: string; qty: number; options?: Chosen[] }[]; options?: Chosen[] }[];
 }
 interface Ctx {
-  activityId: number; activityName: string; locationName: string; source: 'live' | 'booking';
+  activityId: number; activityName: string; locationId: number; locationName: string; source: 'live' | 'booking';
 }
-
-/** اختيار خانةٍ واحدة كما يُرسَل للخادم */
+/** حجزٌ قادم لم تُفتح نافذته بعد — يعيده الخادم مع reason */
+interface NextCtx { activityId: number; activityName: string; locationId: number; locationName: string; opensAt: string }
 interface SlotPick { i: number; menuItemId?: number; options: { groupKey: string; valueKey: string }[] }
-
-/** سطر سلّة = صنف + توليفة. توليفتان مختلفتان = سطران. */
 interface CartLine {
   key: string; itemId: number; name: string; quantity: number;
   options: { groupKey: string; valueKey: string }[];
@@ -64,368 +70,70 @@ interface CartLine {
   label: string;
   isBundle: boolean;
 }
+interface Section { key: string; short: string; title: string; isPkg: boolean; items: Item[] }
 
-const STATUS_META: Record<string, { label: string; color: string; icon: string }> = {
-  new: { label: 'جديد — بانتظار المكان', color: '#3b82f6', icon: '🕐' },
-  preparing: { label: 'قيد التحضير', color: '#f59e0b', icon: '👨‍🍳' },
-  delivered: { label: 'تمّ التسليم', color: '#22c55e', icon: '✅' },
-  cancelled: { label: 'ملغى', color: '#6b7280', icon: '✖️' },
+const STATUS_META: Record<string, { label: string; color: string }> = {
+  new: { label: 'بانتظار المكان', color: '#8CC1F2' },
+  preparing: { label: 'قيد التحضير', color: '#fbbf24' },
+  delivered: { label: 'تمّ التسليم', color: '#4ade80' },
+  cancelled: { label: 'ملغى', color: '#6b7280' },
 };
-
 const money = (n: number) => n.toFixed(2);
-/** وصفٌ أطول من هذا لا يُقرأ في سطر البطاقة المبتور — يستحقّ ورقة تفصيل */
 const LONG_DESC = 40;
+const AR_DIGITS = (s: string | number) => String(s).replace(/\d/g, d => '٠١٢٣٤٥٦٧٨٩'[+d]);
+
+// ألوان اللوحة — كهرمانيّ التطبيق للفعل، ذهبيّه للعروض، ودلاليّ للحالات
+const AMBER = { bg: 'rgba(251,191,36,0.14)', bd: 'rgba(251,191,36,0.45)', fg: '#fcd34d' };
+const GOLD = { bg: 'rgba(197,160,89,0.12)', bd: 'rgba(197,160,89,0.45)', fg: '#e7cf8d' };
+const goldBtn = { background: 'linear-gradient(135deg, #d9b563, #a7833a)', color: '#150f04' };
 
 // ══════════════════════════════════════════════════════
-// ⚙️ ورقة خيارات صنفٍ مفرد
+// أدوات صغيرة
 // ══════════════════════════════════════════════════════
-function OptionSheet({ item, onCancel, onConfirm }: {
-  item: Item; onCancel: () => void; onConfirm: (line: CartLine) => void;
-}) {
-  // الإلزاميّ أوّلاً: «وزن القطعة» قبل ترقية الوجبة — ما يمنع الإرسال يتصدّر
-  const groups = useMemo(() => [...(item.optionGroups ?? [])]
-    .sort((a, b) => Number(b.isRequired) - Number(a.isRequired)), [item]);
-  // ✅ «عادي» يُحدَّد مبدئيّاً: مجموعةٌ إلزاميّةٌ قيمتها الغالبة صفريّة الفرق
-  //    (الدرجة على الساندويشات) كانت نقرةً مفروضةً على كلّ طلب. من يريد الحارّ
-  //    يبدّل بنقرة، ومن لا يريد شيئاً يمرّ بلا توقّف. النكهات لا تُمسّ —
-  //    القاعدة تلتقط القيمة المسمّاة «عادي» حصراً فلا تُرسَل نكهةٌ لم تُقصَد.
-  const [sel, setSel] = useState<Record<string, string[]>>(() => {
-    const init: Record<string, string[]> = {};
-    for (const g of item.optionGroups ?? []) {
-      if (g.isRequired && g.selectionType === 'single') {
-        const normal = g.values.find(v => v.name === 'عادي' && v.priceDelta === 0);
-        if (normal) init[g.key] = [normal.key];
-      }
-    }
-    return init;
-  });
-
-  const pick = (g: OptionGroup, vk: string) => setSel(prev => {
-    const cur = prev[g.key] ?? [];
-    let next: string[];
-    if (g.selectionType === 'single') next = cur[0] === vk && !g.isRequired ? [] : [vk];
-    else if (cur.includes(vk)) next = cur.filter(v => v !== vk);
-    else next = cur.length >= g.maxSelect ? cur : [...cur, vk];
-    return { ...prev, [g.key]: next };
-  });
-
-  const missing = groups.filter(g => g.isRequired && (sel[g.key]?.length ?? 0) === 0).map(g => g.name);
-  let delta = 0;
-  const labels: string[] = [];
-  const options: { groupKey: string; valueKey: string }[] = [];
-  for (const g of groups) {
-    for (const vk of (sel[g.key] ?? [])) {
-      const v = g.values.find(x => x.key === vk);
-      if (!v) continue;
-      delta += v.priceDelta;
-      labels.push(`${g.name}: ${v.name}`);
-      options.push({ groupKey: g.key, valueKey: vk });
-    }
+const hasOpts = (it: Item) => (it.optionGroups?.length ?? 0) > 0;
+/** «٨ نكهات» أنفع من «نكهة الأرجيلة» عندما تكون المجموعة واحدة */
+function optionHint(it: Item) {
+  const gs = it.optionGroups ?? [];
+  if (gs.length === 0) return '';
+  if (gs.length === 1) {
+    const n = gs[0].name.replace(/^نوع\s+/, '').replace(/^نكهة\s+/, 'نكهات ');
+    return `${AR_DIGITS(gs[0].values.length)} ${n}`;
   }
-  const unitPrice = parseFloat(item.price) + delta;
+  return gs.map(g => g.name).join(' · ');
+}
+const shortOf = (cat: string, sub: string) => (sub || cat || 'المنيو');
 
-  return (
-    <Sheet
-      title={item.name}
-      subtitle={groups.length > 1 ? `${groups.length} اختيارات مطلوبة` : 'اختر ثمّ أضف للسلّة'}
-      onClose={onCancel}
-      footer={
-        <>
-          <button
-            disabled={missing.length > 0}
-            onClick={() => onConfirm({
-              key: `${item.id}#${JSON.stringify(options.map(o => `${o.groupKey}|${o.valueKey}`).sort())}`,
-              itemId: item.id, name: item.name, quantity: 1, options, slots: [],
-              unitPrice, label: labels.join(' · '), isBundle: false,
-            })}
-            className="flex-1 py-3 rounded-xl text-sm font-bold text-white disabled:opacity-40"
-            style={{ background: 'linear-gradient(135deg, #10b981, #0d9488)' }}
-          >
-            {missing.length > 0 ? `اختر: ${missing.join(' · ')}` : `أضف للسلّة • ${money(unitPrice)} د.أ`}
-          </button>
-          <button onClick={onCancel} className="px-4 py-3 rounded-xl text-sm bg-white/5 border border-white/10 text-gray-400">إلغاء</button>
-        </>
-      }
-    >
-      {/* 📖 الوصف كاملاً — البطاقة تبتره والقرار يحتاجه (مكوّنات البرغر) */}
-      {item.description && (
-        <p className="text-[11.5px] text-gray-400 leading-relaxed mb-3 pb-3 border-b border-dashed border-white/10">
-          {item.description}
-        </p>
-      )}
-      {groups.map((g, gi) => {
-        const cur = sel[g.key] ?? [];
-        const done = cur.length > 0;
-        return (
-          <div key={g.key} className="rounded-2xl p-3 mb-2.5" style={{
-            background: done ? 'rgba(16,185,129,0.05)' : 'rgba(255,255,255,0.025)',
-            border: `1px solid ${done ? 'rgba(16,185,129,0.3)' : 'rgba(245,158,11,0.28)'}`,
-          }}>
-            <div className="flex items-center gap-2 mb-2">
-              <span className="w-5 h-5 rounded-full text-[10px] font-black flex items-center justify-center shrink-0"
-                style={done ? { background: '#34d399', color: '#000' } : { background: 'rgba(255,255,255,0.08)', color: '#9ca3af' }}>
-                {done ? '✓' : gi + 1}
-              </span>
-              <b className="text-xs flex-1 text-white">{g.name}</b>
-              {g.isRequired
-                ? <span className="text-[9.5px] text-rose-400">إلزاميّ</span>
-                : <span className="text-[9.5px] text-gray-600">اختياريّ</span>}
-              {g.selectionType === 'multi' && <span className="text-[9px] text-gray-600">حتى {g.maxSelect}</span>}
-            </div>
-            <Chips values={g.values} selected={cur} onPick={vk => pick(g, vk)} />
-          </div>
-        );
-      })}
-    </Sheet>
-  );
+/** ذيلٌ يرتفع مع لوحة المفاتيح — iOS لا يُصغّر dvh عند فتحها، فنقيس visualViewport */
+function useKeyboardInset() {
+  const [kb, setKb] = useState(0);
+  useEffect(() => {
+    const vv = typeof window !== 'undefined' ? window.visualViewport : null;
+    if (!vv) return;
+    const f = () => setKb(Math.max(0, window.innerHeight - vv.height - vv.offsetTop));
+    f();
+    vv.addEventListener('resize', f); vv.addEventListener('scroll', f);
+    return () => { vv.removeEventListener('resize', f); vv.removeEventListener('scroll', f); };
+  }, []);
+  return kb;
 }
 
 // ══════════════════════════════════════════════════════
-// 🎁 مُهيّئ الباقة — خانةٌ خانة
+// ورقةٌ سفليّة: ترويسةٌ وذيلٌ ثابتان وجسمٌ متمرّر
 // ══════════════════════════════════════════════════════
-function PackageSheet({ item, onCancel, onConfirm }: {
-  item: Item; onCancel: () => void; onConfirm: (line: CartLine) => void;
-}) {
-  const slots = item.slots ?? [];
-  const [chosen, setChosen] = useState<Record<number, number | undefined>>(() => {
-    const init: Record<number, number | undefined> = {};
-    slots.forEach(s => { if (s.kind === 'fixed') init[s.i] = s.menuItemId; });
-    return init;
-  });
-  const [opts, setOpts] = useState<Record<number, Record<string, string>>>({});
-
-  const groupsOf = (s: Slot): OptionGroup[] => {
-    if (s.kind === 'fixed') return s.optionGroups;
-    const id = chosen[s.i];
-    return s.from.find(f => f.menuItemId === id)?.optionGroups ?? [];
-  };
-  const nameOf = (s: Slot): string => {
-    if (s.kind === 'fixed') return s.name;
-    const id = chosen[s.i];
-    return s.from.find(f => f.menuItemId === id)?.name ?? '';
-  };
-  const slotDone = (s: Slot) => {
-    if (chosen[s.i] === undefined) return false;
-    return groupsOf(s).filter(g => g.isRequired).every(g => opts[s.i]?.[g.key]);
-  };
-
-  const doneCount = slots.filter(slotDone).length;
-  const ready = doneCount === slots.length;
-
-  // 💰 فرقٌ يمرّ عبر الباقة — يُعرض قبل الإضافة لا يُبتلع صامتاً (قرار المالك:
-  //    الحجم والنكهة الفاخرة زيادةٌ معلَنة فوق سعر العرض)
-  let extra = 0;
-  for (const s of slots) {
-    for (const g of groupsOf(s)) {
-      const vk = opts[s.i]?.[g.key];
-      const v = g.values.find(x => x.key === vk);
-      // 💰 × كمّية الخانة — يطابق حساب الخادم (خانة «أرجيلتان» تدفع الفرق مرّتين)
-      if (v) extra += v.priceDelta * s.qty;
-    }
-  }
-  const unitPrice = parseFloat(item.price) + extra;
-
-  const build = (): CartLine => {
-    const picks: SlotPick[] = slots.map(s => ({
-      i: s.i,
-      ...(s.kind === 'choice' ? { menuItemId: chosen[s.i] } : {}),
-      options: Object.entries(opts[s.i] ?? {}).map(([groupKey, valueKey]) => ({ groupKey, valueKey })),
-    }));
-    const label = slots.map(s => {
-      const picked = Object.entries(opts[s.i] ?? {})
-        .map(([gk, vk]) => groupsOf(s).find(g => g.key === gk)?.values.find(v => v.key === vk)?.name)
-        .filter(Boolean);
-      const locked = s.kind === 'fixed' ? Object.values(s.lockedOptions) : [];
-      const all = [...locked, ...picked];
-      return `${nameOf(s)}${all.length ? ` (${all.join(' · ')})` : ''}`;
-    }).join(' + ');
-    return {
-      key: `${item.id}#${JSON.stringify(picks)}`,
-      itemId: item.id, name: item.name, quantity: 1,
-      options: [], slots: picks, unitPrice, label, isBundle: true,
-    };
-  };
-
-  return (
-    <Sheet
-      title={`🎁 ${item.name}`}
-      subtitle={extra > 0
-        ? `${money(parseFloat(item.price))} + ${money(extra)} زيادة اختيارك = ${money(unitPrice)} د.أ • اكتمل ${doneCount} من ${slots.length}`
-        : `سعرٌ ثابت ${money(parseFloat(item.price))} د.أ • اكتمل ${doneCount} من ${slots.length}`}
-      subtitleWarn={extra > 0}
-      onClose={onCancel}
-      footer={
-        <>
-          <button
-            disabled={!ready}
-            onClick={() => onConfirm(build())}
-            className="flex-1 py-3 rounded-xl text-sm font-bold text-white disabled:opacity-40"
-            style={{ background: 'linear-gradient(135deg, #10b981, #0d9488)' }}
-          >
-            {ready ? `أضف الباقة • ${money(unitPrice)} د.أ` : `أكمل ${slots.length - doneCount} خانة`}
-          </button>
-          <button onClick={onCancel} className="px-4 py-3 rounded-xl text-sm bg-white/5 border border-white/10 text-gray-400">إلغاء</button>
-        </>
-      }
-    >
-      {item.description && (
-        <p className="text-[11.5px] text-gray-400 leading-relaxed mb-3">{item.description}</p>
-      )}
-      {slots.map((s, si) => {
-        const ok = slotDone(s);
-        const groups = groupsOf(s);
-        return (
-          <div key={s.i} className="rounded-2xl p-3 mb-2.5" style={{
-            background: ok ? 'rgba(16,185,129,0.05)' : 'rgba(255,255,255,0.025)',
-            border: `1px solid ${ok ? 'rgba(16,185,129,0.3)' : 'rgba(245,158,11,0.3)'}`,
-          }}>
-            <div className="flex items-center gap-2 mb-2">
-              <span className="w-5 h-5 rounded-full text-[10px] font-black flex items-center justify-center shrink-0"
-                style={ok ? { background: '#34d399', color: '#000' } : { background: 'rgba(255,255,255,0.08)', color: '#9ca3af' }}>
-                {ok ? '✓' : si + 1}
-              </span>
-              <b className="text-xs flex-1 text-white truncate">
-                {s.kind === 'choice' ? s.label : `${s.name}${s.qty > 1 ? ` ×${s.qty}` : ''}`}
-              </b>
-              <span className="text-[9.5px] px-1.5 py-0.5 rounded-md shrink-0"
-                style={s.kind === 'choice'
-                  ? { background: 'rgba(16,185,129,0.14)', color: '#6ee7b7', border: '1px solid rgba(16,185,129,0.3)' }
-                  : { background: 'rgba(255,255,255,0.06)', color: '#9ca3af' }}>
-                {s.kind === 'choice' ? 'اختيارك' : 'ثابت'}
-              </span>
-            </div>
-
-            {s.kind === 'choice' && (
-              <>
-                {s.note && <p className="text-[10px] text-gray-500 mb-1.5">{s.note}</p>}
-                <div className="flex flex-wrap gap-1.5">
-                  {s.from.map(f => {
-                    const on = chosen[s.i] === f.menuItemId;
-                    return (
-                      <button key={f.menuItemId}
-                        onClick={() => {
-                          // 🔴 مفاتيح خيارات المرشّح السابق (c0:1…) كانت تبقى فتُفسَّر
-                          //    على مجموعات المرشّح الجديد — اختيارٌ لم يُقصَد أو رفضٌ غامض
-                          setOpts(p => ({ ...p, [s.i]: {} }));
-                          setChosen(p => ({ ...p, [s.i]: on ? undefined : f.menuItemId }));
-                        }}
-                        className="px-3 py-1.5 rounded-lg text-[11.5px] font-medium"
-                        style={on
-                          ? { background: 'rgba(16,185,129,0.18)', border: '1px solid rgba(16,185,129,0.45)', color: '#6ee7b7' }
-                          : { background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)', color: '#d1d5db' }}>
-                        {f.name}
-                      </button>
-                    );
-                  })}
-                </div>
-              </>
-            )}
-
-            {/* الخيار المقفل يُعرض للعلم ولا يُسأل — العرض حدّده وسعره محسوبٌ فيه */}
-            {s.kind === 'fixed' && Object.entries(s.lockedOptions).map(([g, v]) => (
-              <div key={g} className="mt-2 pt-2 border-t border-dashed border-white/10">
-                <p className="text-[10px] font-bold text-amber-300 mb-1">{g}</p>
-                <p className="text-[10px] text-gray-400 rounded-lg px-2.5 py-1.5"
-                  style={{ background: 'rgba(255,255,255,0.04)', border: '1px dashed rgba(255,255,255,0.12)' }}>
-                  🔒 {v} — محدَّدٌ في العرض
-                </p>
-              </div>
-            ))}
-
-            {groups.map(g => (
-              <div key={g.key} className="mt-2 pt-2 border-t border-dashed border-white/10">
-                <p className="text-[10px] font-bold text-amber-300 mb-1.5">{g.name}</p>
-                <Chips
-                  values={g.values}
-                  selected={opts[s.i]?.[g.key] ? [opts[s.i][g.key]] : []}
-                  onPick={vk => setOpts(p => {
-                    const cur = { ...(p[s.i] ?? {}) };
-                    if (cur[g.key] === vk) delete cur[g.key]; else cur[g.key] = vk;
-                    return { ...p, [s.i]: cur };
-                  })}
-                />
-              </div>
-            ))}
-          </div>
-        );
-      })}
-      <p className="text-[10px] text-gray-600 text-center mt-2">
-        اختياراتك لا تغيّر السعر — إلّا ما عليه زيادةٌ معلَنة
-      </p>
-    </Sheet>
-  );
-}
-
-// ══════════════════════════════════════════════════════
-// 📖 ورقة تفصيل صنفٍ بلا خيارات — الوصف الطويل يُقرأ هنا كاملاً
-// ══════════════════════════════════════════════════════
-function DetailSheet({ item, onCancel, onAdd }: {
-  item: Item; onCancel: () => void; onAdd: () => void;
-}) {
-  return (
-    <Sheet
-      title={item.name}
-      subtitle={`${money(parseFloat(item.price))} د.أ`}
-      onClose={onCancel}
-      footer={
-        <>
-          <button onClick={onAdd}
-            className="flex-1 py-3 rounded-xl text-sm font-bold text-white"
-            style={{ background: 'linear-gradient(135deg, #10b981, #0d9488)' }}>
-            أضف للسلّة • {money(parseFloat(item.price))} د.أ
-          </button>
-          <button onClick={onCancel} className="px-4 py-3 rounded-xl text-sm bg-white/5 border border-white/10 text-gray-400">إغلاق</button>
-        </>
-      }
-    >
-      {item.imageUrl && (
-        <img src={item.imageUrl} alt="" className="w-full h-40 object-cover rounded-2xl mb-3" />
-      )}
-      <p className="text-[13px] text-gray-300 leading-relaxed">{item.description}</p>
-    </Sheet>
-  );
-}
-
-// ── لبنات مشتركة ───────────────────────────────────────
-function Chips({ values, selected, onPick }: {
-  values: OptionValue[]; selected: string[]; onPick: (key: string) => void;
-}) {
-  return (
-    <div className="flex flex-wrap gap-1.5">
-      {values.map(v => {
-        const on = selected.includes(v.key);
-        return (
-          <button key={v.key} onClick={() => onPick(v.key)}
-            className="px-3 py-1.5 rounded-lg text-[11.5px] font-medium"
-            style={on
-              ? { background: 'rgba(245,158,11,0.2)', border: '1px solid rgba(245,158,11,0.5)', color: '#fcd34d' }
-              : { background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)', color: '#d1d5db' }}>
-            {v.name}
-            {v.priceDelta > 0 && <span className="text-[9px] opacity-80"> +{money(v.priceDelta)}</span>}
-          </button>
-        );
-      })}
-    </div>
-  );
-}
-
-/** ورقةٌ سفليّة بترويسةٍ وذيلٍ ثابتَين وجسمٍ متمرّر — لا يغيب الإغلاق ولا الزرّ */
-function Sheet({ title, subtitle, subtitleWarn, onClose, children, footer }: {
+function Sheet({ title, subtitle, subtitleWarn, onClose, children, footer, progress }: {
   title: string; subtitle?: string; subtitleWarn?: boolean; onClose: () => void;
-  children: React.ReactNode; footer: React.ReactNode;
+  children: React.ReactNode; footer?: React.ReactNode; progress?: { at: number; of: number };
 }) {
+  const kb = useKeyboardInset();
   return (
-    // 🔴 `fixed` لا `absolute`: الورقة تُستعمل في صفحةٍ كاملة (/player/order) لا داخل
-    //    حاويةٍ موضَّعة فقط. مع `absolute` تتموضع نسبةً لكتلة الاحتواء الأولى — أي من
-    //    **أعلى المستند** — فمع أيّ تمرير ينزل ذيلها (وفيه زرّ الإرسال) خارج الشاشة أو
-    //    تحت شريط التنقّل السفليّ الثابت (z-50)، فيراه اللاعب ولا يستطيع ضغطه.
-    <div className="fixed inset-0 z-[60] flex items-end justify-center" style={{ background: 'rgba(0,0,0,0.78)' }}
+    // 🔴 `fixed` لا `absolute` — انظر ترويسة الملفّ
+    <div className="fixed inset-0 z-[60] flex items-end justify-center" style={{ background: 'rgba(0,0,0,0.78)', paddingBottom: kb }}
       onClick={onClose} dir="rtl">
       <motion.div
         initial={{ y: 60, opacity: 0.6 }} animate={{ y: 0, opacity: 1 }}
         transition={{ type: 'spring', damping: 26, stiffness: 320 }}
-        className="w-full max-h-[92%] flex flex-col rounded-t-3xl border-t border-white/12"
-        style={{ background: '#0b0e0d' }}
+        className="w-full max-w-lg max-h-[92%] flex flex-col rounded-t-3xl border-t border-white/12"
+        style={{ background: '#0b0b0b' }}
         onClick={e => e.stopPropagation()}
       >
         <div className="shrink-0 px-4 pt-3 pb-2.5 border-b border-white/7">
@@ -434,90 +142,306 @@ function Sheet({ title, subtitle, subtitleWarn, onClose, children, footer }: {
             <div className="flex-1 min-w-0">
               <h3 className="text-white text-[15px] font-bold truncate">{title}</h3>
               {subtitle && (
-                <p className="text-[10.5px] mt-0.5" style={{ color: subtitleWarn ? '#fcd34d' : '#6b7280' }}>{subtitle}</p>
+                <p className="text-[10.5px] mt-0.5" style={{ color: subtitleWarn ? '#fcd34d' : '#8d8d8d' }}>{subtitle}</p>
               )}
             </div>
             <button onClick={onClose} aria-label="إغلاق"
-              className="shrink-0 w-8 h-8 rounded-full text-gray-400 text-xs"
-              style={{ background: 'rgba(255,255,255,0.07)', border: '1px solid rgba(255,255,255,0.12)' }}>✕</button>
+              className="shrink-0 w-8 h-8 rounded-full text-gray-400 flex items-center justify-center"
+              style={{ background: 'rgba(255,255,255,0.07)', border: '1px solid rgba(255,255,255,0.12)' }}><IcoX size={13} /></button>
           </div>
+          {progress && (
+            <div className="flex gap-1 mt-2.5">
+              {Array.from({ length: progress.of }).map((_, k) => (
+                <i key={k} className="flex-1 h-[3px] rounded-full"
+                  style={{ background: k < progress.at ? '#d9b563' : k === progress.at ? '#f3dea3' : 'rgba(255,255,255,0.12)' }} />
+              ))}
+            </div>
+          )}
         </div>
-        <div className="flex-1 overflow-y-auto px-4 py-3.5">{children}</div>
-        {/* حافّة الأمان (شريط الإيماءات في آيفون) — وإلّا لامس الزرّ الحافّة فيصعب ضغطه */}
-        <div className="shrink-0 flex gap-2 px-4 py-3 border-t border-white/7"
-          style={{ background: '#080b0a', paddingBottom: 'calc(0.75rem + env(safe-area-inset-bottom, 0px))' }}>{footer}</div>
+        <div className="flex-1 overflow-y-auto overscroll-contain px-4 py-3.5">{children}</div>
+        {footer && (
+          <div className="shrink-0 flex gap-2 px-4 py-3 border-t border-white/7"
+            style={{ background: '#080808', paddingBottom: 'calc(0.75rem + env(safe-area-inset-bottom, 0px))' }}>{footer}</div>
+        )}
       </motion.div>
     </div>
   );
 }
 
-/** قسمٌ في القائمة المتّصلة — العروض أوّلاً ثمّ الأقسام بترتيب الخادم */
-interface Section { key: string; chip: string; title: string; isPkg: boolean; items: Item[] }
+/** بلاطات اختيارٍ كبيرة — هدف لمسٍ ≥ ٤٤ بكسل */
+function Tiles({ values, selected, onPick, cols = 2 }: {
+  values: { key: string; name: string; sub?: string; priceDelta?: number }[]; selected: string[]; onPick: (k: string) => void; cols?: number;
+}) {
+  return (
+    <div className="grid gap-2" style={{ gridTemplateColumns: `repeat(${cols}, minmax(0, 1fr))` }}>
+      {values.map(v => {
+        const on = selected.includes(v.key);
+        return (
+          <button key={v.key} onClick={() => onPick(v.key)}
+            className="rounded-xl px-2.5 py-3 min-h-[50px] text-[13.5px] font-bold text-center leading-tight"
+            style={on
+              ? { background: GOLD.bg, border: `1px solid ${GOLD.bd}`, color: GOLD.fg }
+              : { background: 'rgba(255,255,255,0.045)', border: '1px solid rgba(255,255,255,0.09)', color: '#e5e5e5' }}>
+            {v.name}
+            {(v.sub || (v.priceDelta ?? 0) > 0) && (
+              <span className="block text-[10px] font-medium mt-0.5" style={{ color: on ? '#d7bf86' : '#9a9a9a' }}>
+                {v.sub}{v.sub && (v.priceDelta ?? 0) > 0 ? ' · ' : ''}{(v.priceDelta ?? 0) > 0 ? `+${money(v.priceDelta!)}` : ''}
+              </span>
+            )}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
 
 // ══════════════════════════════════════════════════════
-export default function OrderPanel({ embedded = false, onClose, onEmptyContext }: {
+// 🎁 مُركِّب العرض — خطوةٌ لكلّ قرار
+// ══════════════════════════════════════════════════════
+type Picks = Record<number, { menuItemId?: number; options: Record<string, string> }>;
+type Step = { t: 'choice'; s: Extract<Slot, { kind: 'choice' }> } | { t: 'opt'; s: Slot; g: OptionGroup } | { t: 'done' };
+
+function groupsOf(s: Slot, picks: Picks): OptionGroup[] {
+  if (s.kind === 'fixed') return s.optionGroups;
+  const id = picks[s.i]?.menuItemId;
+  return s.from.find(f => f.menuItemId === id)?.optionGroups ?? [];
+}
+function nameOf(s: Slot, picks: Picks): string {
+  if (s.kind === 'fixed') return s.name;
+  return s.from.find(f => f.menuItemId === picks[s.i]?.menuItemId)?.name ?? '';
+}
+function stepsOf(item: Item, picks: Picks): Step[] {
+  const out: Step[] = [];
+  for (const s of item.slots ?? []) {
+    if (s.kind === 'choice') out.push({ t: 'choice', s });
+    for (const g of groupsOf(s, picks)) out.push({ t: 'opt', s, g });
+  }
+  out.push({ t: 'done' });
+  return out;
+}
+const stepDone = (st: Step, picks: Picks) =>
+  st.t === 'choice' ? !!picks[st.s.i]?.menuItemId
+  : st.t === 'opt' ? !!picks[st.s.i]?.options?.[st.g.key]
+  : true;
+
+function BundleWizard({ item, onCancel, onConfirm }: { item: Item; onCancel: () => void; onConfirm: (line: CartLine) => void }) {
+  const slots = item.slots ?? [];
+  const [picks, setPicks] = useState<Picks>(() => {
+    const init: Picks = {};
+    slots.forEach(s => { if (s.kind === 'fixed') init[s.i] = { menuItemId: s.menuItemId, options: {} }; });
+    return init;
+  });
+  const [step, setStep] = useState(0);
+  const steps = stepsOf(item, picks);
+  const i = Math.min(step, steps.length - 1);
+  const st = steps[i];
+
+  // 💰 فرقٌ معلَنٌ يمرّ عبر الباقة × كمّية الخانة — يطابق حساب الخادم
+  let extra = 0;
+  for (const s of slots) for (const g of groupsOf(s, picks)) {
+    const v = g.values.find(x => x.key === picks[s.i]?.options?.[g.key]);
+    if (v) extra += v.priceDelta * s.qty;
+  }
+  const unitPrice = parseFloat(item.price) + extra;
+
+  const setChoice = (s: Slot, id: number) => {
+    // 🔴 خيارات المرشّح السابق تُمحى — وإلّا فُسِّرت على مجموعات المرشّح الجديد
+    setPicks(p => ({ ...p, [s.i]: { menuItemId: id, options: {} } }));
+    setStep(k => k + 1);
+  };
+  const setOpt = (s: Slot, g: OptionGroup, vk: string) => {
+    setPicks(p => ({ ...p, [s.i]: { ...(p[s.i] ?? { options: {} }), options: { ...(p[s.i]?.options ?? {}), [g.key]: vk } } }));
+    setStep(k => k + 1);
+  };
+
+  const build = (): CartLine => {
+    const sp: SlotPick[] = slots.map(s => ({
+      i: s.i,
+      ...(s.kind === 'choice' ? { menuItemId: picks[s.i]?.menuItemId } : {}),
+      options: Object.entries(picks[s.i]?.options ?? {}).map(([groupKey, valueKey]) => ({ groupKey, valueKey })),
+    }));
+    const label = slots.map(s => {
+      const picked = groupsOf(s, picks)
+        .map(g => g.values.find(v => v.key === picks[s.i]?.options?.[g.key])?.name).filter(Boolean) as string[];
+      const locked = s.kind === 'fixed' ? Object.values(s.lockedOptions) : [];
+      const all = [...locked, ...picked];
+      return `${nameOf(s, picks)}${all.length ? ` (${all.join(' · ')})` : ''}`;
+    }).join(' + ');
+    return { key: `${item.id}#${JSON.stringify(sp)}`, itemId: item.id, name: item.name, quantity: 1,
+      options: [], slots: sp, unitPrice, label, isBundle: true };
+  };
+
+  let body: React.ReactNode;
+  let stepTitle = '';
+  if (st.t === 'choice') {
+    stepTitle = st.s.label;
+    const cur = picks[st.s.i]?.menuItemId;
+    body = (
+      <>
+        {st.s.note && <p className="text-[11px] text-gray-500 mb-2">{st.s.note}</p>}
+        <Tiles values={st.s.from.map(f => ({ key: String(f.menuItemId), name: f.name, sub: f.optionGroups.length ? optionHint({ optionGroups: f.optionGroups } as Item) : undefined }))}
+          selected={cur ? [String(cur)] : []} onPick={k => setChoice(st.s, Number(k))} />
+      </>
+    );
+  } else if (st.t === 'opt') {
+    stepTitle = `${st.g.name} · ${nameOf(st.s, picks)}`;
+    const cur = picks[st.s.i]?.options?.[st.g.key];
+    body = <Tiles values={st.g.values} selected={cur ? [cur] : []} onPick={vk => setOpt(st.s, st.g, vk)} />;
+  } else {
+    stepTitle = 'راجع العرض';
+    body = (
+      <div className="rounded-2xl p-3" style={{ background: GOLD.bg, border: `1px solid ${GOLD.bd}` }}>
+        {slots.map(s => {
+          const vals = groupsOf(s, picks).map(g => g.values.find(v => v.key === picks[s.i]?.options?.[g.key])?.name).filter(Boolean);
+          const locked = s.kind === 'fixed' ? Object.values(s.lockedOptions) : [];
+          return (
+            <div key={s.i} className="flex items-center gap-2 py-2 border-b border-dashed border-white/10 last:border-0">
+              <span style={{ color: '#d9b563' }}>✓</span>
+              <b className="flex-1 text-[13px] text-white">{nameOf(s, picks)}{s.qty > 1 ? ` ×${s.qty}` : ''}</b>
+              <small className="text-[11px]" style={{ color: '#d7bf86' }}>{[...locked, ...vals].join(' · ')}</small>
+            </div>
+          );
+        })}
+        {item.description && <p className="text-[11px] text-gray-400 mt-2 leading-relaxed">{item.description}</p>}
+        {extra > 0 && <p className="text-[11px] mt-2" style={{ color: '#fcd34d' }}>زيادة اختيارك المعلَنة: +{money(extra)} د.أ</p>}
+      </div>
+    );
+  }
+
+  return (
+    <Sheet
+      title={item.name}
+      subtitle={`الخطوة ${AR_DIGITS(i + 1)} من ${AR_DIGITS(steps.length)} — ${stepTitle} · ${money(unitPrice)} د.أ`}
+      progress={{ at: i, of: steps.length }}
+      onClose={onCancel}
+      footer={
+        <>
+          {st.t === 'done' ? (
+            <button onClick={() => onConfirm(build())} className="flex-1 py-3 rounded-xl text-sm font-bold" style={goldBtn}>
+              أضف العرض · {money(unitPrice)} د.أ
+            </button>
+          ) : (
+            <button disabled={!stepDone(st, picks)} onClick={() => setStep(k => k + 1)}
+              className="flex-1 py-3 rounded-xl text-sm font-bold disabled:opacity-40" style={goldBtn}>
+              {stepDone(st, picks) ? 'التالي' : 'اختر أوّلاً'}
+            </button>
+          )}
+          {i > 0 && (
+            <button onClick={() => setStep(k => Math.max(0, k - 1))}
+              className="px-4 py-3 rounded-xl text-sm bg-white/5 border border-white/10 text-gray-400">رجوع</button>
+          )}
+        </>
+      }
+    >
+      {body}
+    </Sheet>
+  );
+}
+
+// ══════════════════════════════════════════════════════
+// 📖 ورقة تفصيل صنفٍ بلا خيارات — الوصف الطويل يُقرأ كاملاً
+// ══════════════════════════════════════════════════════
+function DetailSheet({ item, onCancel, onAdd }: { item: Item; onCancel: () => void; onAdd: () => void }) {
+  return (
+    <Sheet title={item.name} subtitle={`${money(parseFloat(item.price))} د.أ`} onClose={onCancel}
+      footer={
+        <>
+          <button onClick={onAdd} className="flex-1 py-3 rounded-xl text-sm font-bold" style={goldBtn}>
+            أضف للسلّة · {money(parseFloat(item.price))} د.أ
+          </button>
+          <button onClick={onCancel} className="px-4 py-3 rounded-xl text-sm bg-white/5 border border-white/10 text-gray-400">إغلاق</button>
+        </>
+      }>
+      {item.imageUrl && <img src={item.imageUrl} alt="" className="w-full h-40 object-cover rounded-2xl mb-3" />}
+      <p className="text-[13px] text-gray-300 leading-relaxed">{item.description}</p>
+    </Sheet>
+  );
+}
+
+// ══════════════════════════════════════════════════════
+export default function OrderPanel({
+  embedded = false, onClose, onEmptyContext, mode = 'order', locationId, locationName,
+}: {
   embedded?: boolean;
   onClose?: () => void;
-  /** يُستدعى إن تبيّن أن لا سياق طلبٍ للاعب — ليُخفي المستضيفُ الزرّ. */
+  /** يُستدعى إن تبيّن أن لا سياق طلبٍ ولا حجزَ قادماً — ليُخفي المستضيفُ الزرّ. */
   onEmptyContext?: () => void;
+  /** 'browse' = استعراضٌ للقراءة بلا مصادقة (صفحة الألعاب) */
+  mode?: 'order' | 'browse';
+  locationId?: number;
+  locationName?: string;
 }) {
   const { player } = usePlayer();
+  const browse = mode === 'browse';
   const [ctx, setCtx] = useState<Ctx | null>(null);
   const [reason, setReason] = useState('');
+  const [next, setNext] = useState<NextCtx | null>(null);
+  const [readOnly, setReadOnly] = useState(browse);
+  const [venue, setVenue] = useState(locationName || '');
   const [items, setItems] = useState<Item[]>([]);
   const [myOrders, setMyOrders] = useState<MyOrder[]>([]);
   const [loading, setLoading] = useState(true);
   const [cart, setCart] = useState<CartLine[]>([]);
-  const [picking, setPicking] = useState<Item | null>(null);
+  const [cat, setCat] = useState<string>('');
+  const [expanded, setExpanded] = useState<number | null>(null);
+  const [sel, setSel] = useState<Record<string, string[]>>({});
+  const [wizard, setWizard] = useState<Item | null>(null);
   const [viewing, setViewing] = useState<Item | null>(null);
-  const [tab, setTab] = useState<'menu' | 'ord'>('menu');
-  const [cartOpen, setCartOpen] = useState(false);
+  const [sheet, setSheet] = useState<'cart' | 'orders' | null>(null);
+  const [searchOn, setSearchOn] = useState(false);
   const [search, setSearch] = useState('');
-  const [activeSec, setActiveSec] = useState('');
   const [note, setNote] = useState('');
   const [sending, setSending] = useState(false);
   const [err, setErr] = useState('');
-  const [sent, setSent] = useState(false);
-  // 💨 خدمة الأرجيلة
+  const [toast, setToast] = useState<{ txt: string; err?: boolean } | null>(null);
   const [svc, setSvc] = useState<{ available: boolean; pending: { id: number; kind: string } | null }>({ available: false, pending: null });
   const [svcBusy, setSvcBusy] = useState(false);
 
-  // 🔁 مفتاح تكرار الإرسال: يثبت عبر إعادة المحاولة (ردٌّ ضائع ⇒ الخادم يعيد
-  //    الطلب الأوّل لا ينشئ ثانياً) ويتجدّد مع أيّ تغييرٍ في السلّة
   const submitKeyRef = useRef<string | null>(null);
-  // 🧭 مراجع القفز والرصد — القائمة المتّصلة
-  const scrollRef = useRef<HTMLDivElement>(null);
-  const stickyRef = useRef<HTMLDivElement>(null);
-  const secRefs = useRef<Record<string, HTMLDivElement | null>>({});
-  const chipRefs = useRef<Record<string, HTMLButtonElement | null>>({});
-  const tickRef = useRef(false);
-  // 🔴 أثناء القفز البرمجيّ يُكتم الرصدُ وملاحقةُ الشريحة معاً: scrollIntoView
-  //    على الشريحة — ولو بلا حركةٍ فعليّة — **يُلغي** التمرير الناعم الجاري في
-  //    الحاوية نفسها، فكانت نقرة القسم تتحرّك مليمتراتٍ ثمّ تتجمّد.
-  const jumpingRef = useRef(false);
-  const jumpTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const searchRef = useRef<HTMLInputElement>(null);
+  const mainRef = useRef<HTMLDivElement>(null);
 
   const headers = useMemo(() => ({ Authorization: `Bearer ${player?.token || ''}` }), [player?.token]);
+  const flash = (txt: string, isErr = false) => {
+    setToast({ txt, err: isErr });
+    if (toastTimer.current) clearTimeout(toastTimer.current);
+    toastTimer.current = setTimeout(() => setToast(null), 2200);
+  };
+  useEffect(() => () => { if (toastTimer.current) clearTimeout(toastTimer.current); }, []);
 
   const loadOrders = useCallback((activityId: number) => {
     fetch(`/api/fnb/my-orders?activityId=${activityId}`, { headers })
       .then(r => r.json()).then(d => { if (d.success) setMyOrders(d.orders); }).catch(() => {});
   }, [headers]);
-
   const loadSvc = useCallback(() => {
     fetch('/api/fnb/service/state', { headers })
       .then(r => r.json())
       .then(d => { if (d.success) setSvc({ available: d.available, pending: d.pending }); })
       .catch(() => {});
   }, [headers]);
+  const loadPublicMenu = useCallback((locId: number) => fetch(`/api/player-app/locations/${locId}/menu`)
+    .then(r => r.json())
+    .then(d => { if (d.success) { setItems(d.items || []); if (d.locationName) setVenue(d.locationName); } })
+    .catch(() => {}), []);
 
+  // ── التحميل ──
   useEffect(() => {
+    if (browse) {
+      if (!locationId) { setLoading(false); return; }
+      loadPublicMenu(locationId).finally(() => setLoading(false));
+      return;
+    }
     if (!player) return;
     fetch('/api/fnb/context', { headers })
       .then(r => r.json())
       .then(async (d) => {
-        if (!d.success || !d.context) { setReason(d.reason || ''); onEmptyContext?.(); return; }
-        setCtx(d.context);
+        if (!d.success || !d.context) {
+          setReason(d.reason || '');
+          if (d.next?.locationId) setNext(d.next); else onEmptyContext?.();
+          return;
+        }
+        setCtx(d.context); setVenue(d.context.locationName);
         const menuRes = await fetch(`/api/fnb/menu?activityId=${d.context.activityId}`, { headers }).then(r => r.json());
         if (menuRes.success) setItems(menuRes.items);
         loadOrders(d.context.activityId);
@@ -526,151 +450,113 @@ export default function OrderPanel({ embedded = false, onClose, onEmptyContext }
       .catch(() => {})
       .finally(() => setLoading(false));
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [player]);
+  }, [player, browse, locationId]);
 
-  // 💨 فور إغلاق الموظّف طلبَ الفحم يعود الزرّ قابلاً للضغط — الخادم يبثّ
-  //    fnb:service-done لغرفة player:{id} وكنّا نتركه يضيع وننتظر دورة
-  //    الاستطلاع (حتى ٣٠ ثانية) قبل السماح بإعادة الطلب
+  // 💨 فور إغلاق الموظّف طلبَ الفحم يعود الزرّ قابلاً للضغط
   useEffect(() => {
-    if (!player) return;
+    if (!player || browse) return;
     let sock: any = null;
     const onDone = () => { setSvc(v => ({ ...v, pending: null })); loadSvc(); };
-    import('@/lib/socket')
-      .then(m => { sock = m.getSocket(); sock.on('fnb:service-done', onDone); })
-      .catch(() => {});
+    import('@/lib/socket').then(m => { sock = m.getSocket(); sock.on('fnb:service-done', onDone); }).catch(() => {});
     return () => { try { sock?.off('fnb:service-done', onDone); } catch { /* لا شيء */ } };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [player]);
+  }, [player, browse]);
 
   useEffect(() => {
     if (!ctx) return;
-    const refresh = () => {
-      if (document.visibilityState !== 'visible') return;
-      loadOrders(ctx.activityId); loadSvc();
-    };
+    const refresh = () => { if (document.visibilityState !== 'visible') return; loadOrders(ctx.activityId); loadSvc(); };
     const iv = setInterval(refresh, 30000);
     document.addEventListener('visibilitychange', refresh);
     return () => { clearInterval(iv); document.removeEventListener('visibilitychange', refresh); };
   }, [ctx, loadOrders, loadSvc]);
 
-  // ── الأقسام: العروض أوّلاً (أعلى قيمة وأسهل قرار) ثمّ ترتيب الخادم ──
+  // ── الأقسام: العروض أوّلاً ثمّ ترتيب الخادم ──
   const sections = useMemo<Section[]>(() => {
     const out: Section[] = [];
     const packages = items.filter(i => i.isBundle);
-    if (packages.length) out.push({ key: '_pkg', chip: '🎁 العروض', title: '🎁 العروض', isPkg: true, items: packages });
+    if (packages.length) out.push({ key: '_pkg', short: 'العروض', title: 'العروض', isPkg: true, items: packages });
     const idx = new Map<string, Section>();
     for (const it of items) {
       if (it.isBundle) continue;
-      const cat = it.category || '', sub = it.subcategory || '';
-      const key = `${cat}|${sub}`;
-      let s = idx.get(key);
-      if (!s) {
-        s = { key, chip: sub || cat || 'المنيو', title: sub ? `${cat} ← ${sub}` : (cat || 'المنيو'), isPkg: false, items: [] };
-        idx.set(key, s); out.push(s);
+      const c = it.category || '', s = it.subcategory || '';
+      const key = `${c}|${s}`;
+      let sec = idx.get(key);
+      if (!sec) {
+        sec = { key, short: shortOf(c, s), title: s ? `${c} ← ${s}` : (c || 'المنيو'), isPkg: false, items: [] };
+        idx.set(key, sec); out.push(sec);
       }
-      s.items.push(it);
+      sec.items.push(it);
     }
     return out;
   }, [items]);
+  const activeKey = sections.some(s => s.key === cat) ? cat : (sections[0]?.key ?? '');
+  const active = sections.find(s => s.key === activeKey);
 
-  // 🎁 الأصناف التي تحويها باقة — لشارة «ضمن عرض»: من يتصفّح البرغر يعرف أنّ
-  //    عرضاً يضمّه بسعرٍ أفضل بدل أن يكتشفه بالصدفة
   const inPackageIds = useMemo(() => {
     const ids = new Set<number>();
-    for (const p of items) {
-      if (!p.isBundle) continue;
-      for (const s of p.slots ?? []) {
-        if (s.kind === 'fixed') ids.add(s.menuItemId);
-        else s.from.forEach(f => ids.add(f.menuItemId));
-      }
+    for (const p of items) if (p.isBundle) for (const s of p.slots ?? []) {
+      if (s.kind === 'fixed') ids.add(s.menuItemId); else s.from.forEach(f => ids.add(f.menuItemId));
     }
     return ids;
   }, [items]);
 
   const query = search.trim();
-  // البحث يمسح المنيو كلّه — الاسم والوصف والقسم وقيم الخيارات (نكهة «نخلة» تُرجع الأرجيلة)
   const results = useMemo(() => !query ? [] : items.filter(i =>
-    i.name.includes(query)
-    || (i.description || '').includes(query)
-    || (i.subcategory || '').includes(query)
-    || (i.category || '').includes(query)
+    i.name.includes(query) || (i.description || '').includes(query)
+    || (i.subcategory || '').includes(query) || (i.category || '').includes(query)
     || (i.optionGroups ?? []).some(g => g.values.some(v => v.name.includes(query)))
   ), [items, query]);
-
-  // ── 🧭 الرصد: أيّ قسمٍ تحت العين الآن؟ (rAF — لا حسابَ في كلّ حدث تمرير) ──
-  const onBodyScroll = () => {
-    if (tickRef.current || jumpingRef.current || query || tab !== 'menu') return;
-    tickRef.current = true;
-    requestAnimationFrame(() => {
-      tickRef.current = false;
-      const c = scrollRef.current;
-      if (!c) return;
-      const top = c.scrollTop + (stickyRef.current?.offsetHeight ?? 90) + 24;
-      let cur = sections[0]?.key ?? '';
-      for (const s of sections) {
-        const el = secRefs.current[s.key];
-        if (el && el.offsetTop <= top) cur = s.key;
-      }
-      setActiveSec(p => (p === cur ? p : cur));
-    });
-  };
-  const jump = (key: string) => {
-    const c = scrollRef.current, el = secRefs.current[key];
-    if (!c || !el) return;
-    jumpingRef.current = true;
-    if (jumpTimer.current) clearTimeout(jumpTimer.current);
-    // الشريحة المنقورة أمام العين أصلاً — لا حاجة لملاحقتها، والكتم يحمي التمرير
-    jumpTimer.current = setTimeout(() => { jumpingRef.current = false; }, 800);
-    setActiveSec(key);
-    c.scrollTo({ top: el.offsetTop - (stickyRef.current?.offsetHeight ?? 90) - 4, behavior: 'smooth' });
-  };
-  // الشريحة المضيئة تلاحق التمرير **اليدويّ** وحده — تبقى مرئيّةً في شريطها الأفقيّ
-  useEffect(() => {
-    if (jumpingRef.current) return;
-    chipRefs.current[activeSec]?.scrollIntoView({ behavior: 'smooth', inline: 'center', block: 'nearest' });
-  }, [activeSec]);
-  useEffect(() => () => { if (jumpTimer.current) clearTimeout(jumpTimer.current); }, []);
 
   // ── السلّة ──
   const bumpLine = (line: CartLine) => { submitKeyRef.current = null; setCart(prev => {
     const i = prev.findIndex(l => l.key === line.key);
     if (i === -1) return [...prev, line];
-    const next = [...prev];
-    next[i] = { ...next[i], quantity: Math.min(next[i].quantity + 1, 20) };
-    return next;
+    const nx = [...prev]; nx[i] = { ...nx[i], quantity: Math.min(nx[i].quantity + 1, 20) }; return nx;
   }); };
   const changeQty = (key: string, delta: number) => { submitKeyRef.current = null; setCart(prev => prev.flatMap(l => {
     if (l.key !== key) return [l];
     const q = l.quantity + delta;
     return q <= 0 ? [] : [{ ...l, quantity: Math.min(q, 20) }];
   })); };
-  const removeLine = (key: string) => { submitKeyRef.current = null; setCart(prev => prev.filter(l => l.key !== key)); };
-
   const cartCount = cart.reduce((s, l) => s + l.quantity, 0);
   const cartTotal = cart.reduce((s, l) => s + l.unitPrice * l.quantity, 0);
   const qtyOfItem = (id: number) => cart.filter(l => l.itemId === id).reduce((s, l) => s + l.quantity, 0);
 
-  const needsPicking = (it: Item) =>
-    it.isBundle === true || (it.optionGroups?.length ?? 0) > 0;
-
-  const optionHint = (it: Item) => {
-    const gs = it.optionGroups ?? [];
-    if (gs.length === 0) return 'خيارات';
-    // مجموعةٌ واحدة ⇒ العدد أنفع من الاسم: «٧ نكهات» تُخبر أكثر من «النكهة»
-    if (gs.length === 1) return `${gs[0].values.length} ${gs[0].name}`;
-    if (gs.length === 2) return gs.map(g => g.name).join(' · ');
-    return `${gs[0].name} +${gs.length - 1}`;
+  const addSimple = (it: Item) => {
+    bumpLine({ key: `${it.id}#`, itemId: it.id, name: it.name, quantity: 1, options: [], slots: [], unitPrice: parseFloat(it.price), label: '', isBundle: false });
+    flash(`أُضيف ${it.name} · ${money(parseFloat(it.price))} د.أ`);
   };
-
-  const addItem = (it: Item) => {
-    if (needsPicking(it)) { setPicking(it); return; }
-    // 📖 وصفٌ طويل بلا خيارات (كرسبي · وجبات الأطفال): يُقرأ قبل أن يُشترى
-    if ((it.description || '').length > LONG_DESC) { setViewing(it); return; }
-    addSimple(it);
+  const addWithOptions = (it: Item) => {
+    const groups = it.optionGroups ?? [];
+    const labels: string[] = []; const options: { groupKey: string; valueKey: string }[] = []; let delta = 0;
+    for (const g of groups) for (const vk of (sel[g.key] ?? [])) {
+      const v = g.values.find(x => x.key === vk); if (!v) continue;
+      delta += v.priceDelta; labels.push(v.name); options.push({ groupKey: g.key, valueKey: vk });
+    }
+    const unitPrice = parseFloat(it.price) + delta;
+    bumpLine({ key: `${it.id}#${JSON.stringify(options.map(o => `${o.groupKey}|${o.valueKey}`).sort())}`,
+      itemId: it.id, name: it.name, quantity: 1, options, slots: [], unitPrice, label: labels.join(' · '), isBundle: false });
+    setExpanded(null); setSel({});
+    flash(`أُضيف ${it.name} ${labels.join(' · ')} · ${money(unitPrice)} د.أ`);
   };
-  const addSimple = (it: Item) => bumpLine({
-    key: `${it.id}#`, itemId: it.id, name: it.name, quantity: 1,
-    options: [], slots: [], unitPrice: parseFloat(it.price), label: '', isBundle: false,
+  const expand = (it: Item) => {
+    // ✅ «عادي» يُحدَّد مبدئيّاً في المجموعة الإلزاميّة الأحاديّة — النكهات لا تُمسّ
+    const init: Record<string, string[]> = {};
+    for (const g of it.optionGroups ?? []) {
+      if (g.isRequired && g.selectionType === 'single') {
+        const normal = g.values.find(v => v.name === 'عادي' && v.priceDelta === 0);
+        if (normal) init[g.key] = [normal.key];
+      }
+    }
+    setSel(init); setExpanded(it.id);
+  };
+  const pick = (g: OptionGroup, vk: string) => setSel(prev => {
+    const cur = prev[g.key] ?? [];
+    let nx: string[];
+    if (g.selectionType === 'single') nx = cur[0] === vk && !g.isRequired ? [] : [vk];
+    else if (cur.includes(vk)) nx = cur.filter(v => v !== vk);
+    else nx = cur.length >= g.maxSelect ? cur : [...cur, vk];
+    return { ...prev, [g.key]: nx };
   });
 
   const submit = async () => {
@@ -680,461 +566,429 @@ export default function OrderPanel({ embedded = false, onClose, onEmptyContext }
       submitKeyRef.current = (globalThis.crypto?.randomUUID?.() ?? `k${Date.now()}${Math.random().toString(36).slice(2, 10)}`);
     }
     try {
-      // 📍 قراءةٌ طازجة للبوّابة — لا يُعتمد على المخزّن في اللحظة الحاسمة.
-      //    الخادم يتجاهلها تماماً إن كان السياج مُطفأً على الفعاليّة.
       const fix = await freshFixForGate();
       const r = await fetch('/api/fnb/orders', {
-        method: 'POST',
-        headers: { ...headers, 'Content-Type': 'application/json' },
+        method: 'POST', headers: { ...headers, 'Content-Type': 'application/json' },
         body: JSON.stringify({
           fix,
           items: cart.map(l => ({
-            menuItemId: l.itemId,
-            quantity: l.quantity,
+            menuItemId: l.itemId, quantity: l.quantity,
             options: l.options.map(o => ({ group: o.groupKey, value: o.valueKey })),
-            slots: l.slots.map(s => ({
-              i: s.i,
-              ...(s.menuItemId ? { menuItemId: s.menuItemId } : {}),
-              options: s.options.map(o => ({ group: o.groupKey, value: o.valueKey })),
-            })),
+            slots: l.slots.map(s => ({ i: s.i, ...(s.menuItemId ? { menuItemId: s.menuItemId } : {}),
+              options: s.options.map(o => ({ group: o.groupKey, value: o.valueKey })) })),
           })),
-          note: note.trim(),
-          clientKey: submitKeyRef.current,
+          note: note.trim(), clientKey: submitKeyRef.current,
         }),
       });
       const d = await r.json();
       if (d.success) {
         submitKeyRef.current = null;
-        setCart([]); setNote(''); setSent(true); setCartOpen(false);
+        setCart([]); setNote(''); setSheet('orders');
         loadOrders(ctx.activityId);
-        setTab('ord');
-        setTimeout(() => setSent(false), 2500);
+        flash('وصل طلبك للمكان');
       } else setErr(d.error || 'فشل إرسال الطلب');
-    } catch { setErr('خطأ في الاتصال'); }
+    } catch { setErr('خطأ في الاتصال — لم يُرسَل الطلب، أعد المحاولة'); }
     setSending(false);
   };
-
   const cancelOrder = async (id: number) => {
     if (!ctx) return;
     const r = await fetch(`/api/fnb/orders/${id}/cancel`, { method: 'POST', headers }).then(x => x.json()).catch(() => ({ success: false }));
-    if (r.success) loadOrders(ctx.activityId); else setErr(r.error || 'تعذّر الإلغاء');
+    if (r.success) loadOrders(ctx.activityId); else flash(r.error || 'تعذّر الإلغاء', true);
   };
-
   const askService = async (kind: 'coal' | 'fix') => {
     if (svcBusy || svc.pending) return;
     setSvcBusy(true);
     try {
-      const d = await fetch('/api/fnb/service', {
-        method: 'POST', headers: { ...headers, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ kind }),
-      }).then(r => r.json());
-      if (d.success) setSvc(s => ({ ...s, pending: d.request }));
-      else setErr(d.error || 'تعذّر إرسال الطلب');
-    } catch { setErr('خطأ في الاتصال'); }
+      const d = await fetch('/api/fnb/service', { method: 'POST', headers: { ...headers, 'Content-Type': 'application/json' }, body: JSON.stringify({ kind }) }).then(r => r.json());
+      if (d.success) setSvc(s => ({ ...s, pending: d.request })); else flash(d.error || 'تعذّر إرسال الطلب', true);
+    } catch { flash('خطأ في الاتصال', true); }
     setSvcBusy(false);
   };
 
-  // ── حالاتٌ غير جاهزة ──
+  // بلا سياق: التصفّح للقراءة من منيو الحجز القادم
+  const browseNext = () => { if (!next) return; setReadOnly(true); setLoading(true); loadPublicMenu(next.locationId).finally(() => setLoading(false)); };
+
+  const openBadge = myOrders.filter(o => o.status === 'new' || o.status === 'preparing').length;
+  const ro = readOnly || browse;
+
+  // ── حالات التحميل ──
   if (loading) {
     return (
-      <div className="flex items-center justify-center py-20">
-        <div className="w-8 h-8 border-2 border-emerald-500/30 border-t-emerald-500 rounded-full animate-spin" />
-      </div>
-    );
-  }
-  if (!ctx) {
-    return (
-      <div className="text-center py-16 px-6" dir="rtl">
-        <div className="text-4xl mb-3 opacity-40">🍽️</div>
-        <p className="text-gray-400 text-sm">{reason || 'لا يوجد نشاط متاح للطلب الآن'}</p>
-        {embedded && <button onClick={onClose} className="mt-4 text-emerald-400 text-xs underline">إغلاق</button>}
+      <div className={`${embedded ? 'h-full' : 'fnb-page-h'} flex items-center justify-center`} style={{ background: '#050505' }}>
+        <div className="w-8 h-8 border-2 rounded-full animate-spin" style={{ borderColor: 'rgba(197,160,89,0.3)', borderTopColor: '#C5A059' }} />
       </div>
     );
   }
 
-  // ── بطاقتا الصنف والعرض — تُستعملان في الأقسام وفي نتائج البحث ──
-  const ItemCard = (it: Item) => {
-    const qty = qtyOfItem(it.id);
-    const hasOpts = (it.optionGroups?.length ?? 0) > 0;
-    const longDesc = !hasOpts && (it.description || '').length > LONG_DESC;
+  // ── لبنات ──
+  const Header = (
+    <div className="shrink-0 px-3.5 py-2.5 flex items-center gap-2.5 border-b border-white/7" style={{ background: '#0b0b0b' }}>
+      <span className="w-9 h-9 rounded-xl flex items-center justify-center shrink-0" style={{ background: GOLD.bg, border: `1px solid ${GOLD.bd}`, color: GOLD.fg }}>
+        <IcoPlate size={20} />
+      </span>
+      <div className="flex-1 min-w-0">
+        <h1 className="text-white text-[14.5px] font-bold truncate">{venue || 'المنيو'}</h1>
+        <p className="text-[10.5px] truncate" style={{ color: '#8d8d8d' }}>
+          {browse ? 'للاطّلاع — يفتح الطلب قبل الموعد بساعة ويحتاج حجزاً'
+            : ro && next ? `للقراءة — يفتح الطلب الساعة ${next.opensAt}`
+            : ctx?.source === 'live' ? 'أنت داخل اللعبة — الطلب يصل طاولتك' : 'حجزك مؤكّد — الطلب متاح'}
+        </p>
+      </div>
+      {items.length > 0 && (
+        <button onClick={() => { setSearchOn(v => !v); setSearch(''); setTimeout(() => searchRef.current?.focus(), 50); }} aria-label="بحث"
+          className="shrink-0 w-8 h-8 rounded-full flex items-center justify-center"
+          style={searchOn ? { background: AMBER.bg, border: `1px solid ${AMBER.bd}`, color: AMBER.fg } : { background: 'rgba(255,255,255,0.07)', border: '1px solid rgba(255,255,255,0.12)', color: '#ccc' }}>
+          <IcoSearch size={15} />
+        </button>
+      )}
+      {!ro && ctx && (
+        <button onClick={() => setSheet('orders')} aria-label="طلباتي"
+          className="shrink-0 w-8 h-8 rounded-full flex items-center justify-center relative"
+          style={{ background: 'rgba(255,255,255,0.07)', border: '1px solid rgba(255,255,255,0.12)', color: '#ccc' }}>
+          <IcoReceipt size={15} />
+          {openBadge > 0 && (
+            <span className="absolute -top-1 -left-1 min-w-[16px] h-4 px-1 rounded-full text-[9.5px] font-black flex items-center justify-center text-black" style={{ background: '#fbbf24' }}>{openBadge}</span>
+          )}
+        </button>
+      )}
+      {embedded && (
+        <button onClick={onClose} aria-label="إغلاق"
+          className="shrink-0 w-8 h-8 rounded-full flex items-center justify-center text-gray-400"
+          style={{ background: 'rgba(255,255,255,0.07)', border: '1px solid rgba(255,255,255,0.12)' }}><IcoX size={13} /></button>
+      )}
+    </div>
+  );
+
+  const Tile = (it: Item) => {
+    const n = qtyOfItem(it.id);
+    const open = expanded === it.id;
+    const groups = it.optionGroups ?? [];
+    const missing = groups.filter(g => g.isRequired && (sel[g.key]?.length ?? 0) === 0);
+    const longDesc = !hasOpts(it) && (it.description || '').length > LONG_DESC;
+    const sub = it.description || (hasOpts(it) ? optionHint(it) : '') || (inPackageIds.has(it.id) ? 'ضمن عرض' : '');
     return (
-      <button key={it.id} onClick={() => addItem(it)}
-        className="w-full text-right rounded-2xl p-2.5 flex items-center gap-2.5 active:scale-[0.99] transition-transform"
-        style={{
-          background: qty > 0 ? 'rgba(16,185,129,0.07)' : 'rgba(255,255,255,0.03)',
-          border: qty > 0 ? '1px solid rgba(16,185,129,0.35)' : '1px solid rgba(255,255,255,0.06)',
-        }}>
-        {/* القصّ على غلاف الصورة الداخليّ وحده — كان على الإطار الحامل للشارة
-            فيقتصّ ركن رقم الكمّيّة المعلّق خارج حدوده (-top-1 -right-1) */}
-        <div className="w-12 h-12 shrink-0 relative">
-          <div className="w-full h-full rounded-xl overflow-hidden bg-gray-800/75 flex items-center justify-center">
-            {it.imageUrl
-              ? <img src={it.imageUrl} alt="" className="w-full h-full object-cover" />
-              : <span className="text-lg opacity-70">🍴</span>}
-          </div>
-          {qty > 0 && (
-            <span className="absolute -top-1 -right-1 min-w-[18px] h-[18px] px-1 rounded-full text-[9.5px] font-black flex items-center justify-center text-black"
-              style={{ background: '#34d399' }}>{qty}</span>
+      <div key={it.id} className={`rounded-2xl p-2.5 flex flex-col gap-1.5 relative ${open ? 'col-span-2' : ''}`}
+        style={{ minHeight: 96, background: n > 0 ? 'rgba(251,191,36,0.06)' : 'rgba(255,255,255,0.035)', border: `1px solid ${n > 0 ? AMBER.bd : 'rgba(255,255,255,0.07)'}` }}>
+        {it.imageUrl && <img src={it.imageUrl} alt="" className="w-full h-20 object-cover rounded-xl" />}
+        <p className="text-white text-[13px] font-bold leading-snug">{it.name}</p>
+        {sub && <p className="text-[10px] leading-snug truncate" style={{ color: inPackageIds.has(it.id) && !it.description && !hasOpts(it) ? '#d7bf86' : '#8a8a8a' }}>{sub}</p>}
+        {open && groups.map(g => {
+          const cur = sel[g.key] ?? [];
+          return (
+            <div key={g.key} className="mt-1">
+              <p className="text-[10.5px] font-bold mb-1.5 flex items-center gap-1.5" style={{ color: '#d7bf86' }}>
+                {g.name}
+                {!g.isRequired && <span className="text-gray-600 font-normal">اختياريّ</span>}
+                {g.selectionType === 'multi' && <span className="text-gray-600 font-normal">حتى {AR_DIGITS(g.maxSelect)}</span>}
+              </p>
+              <div className="flex flex-wrap gap-1.5">
+                {g.values.map(v => {
+                  const on = cur.includes(v.key);
+                  return (
+                    <button key={v.key} onClick={() => pick(g, v.key)}
+                      className="px-3 rounded-xl text-[12.5px] font-bold min-h-[40px] flex items-center"
+                      style={on ? { background: AMBER.bg, border: `1px solid ${AMBER.bd}`, color: AMBER.fg }
+                        : { background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)', color: '#ddd' }}>
+                      {v.name}{v.priceDelta > 0 && <span className="text-[9.5px] opacity-80 mr-1">+{money(v.priceDelta)}</span>}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          );
+        })}
+        <div className="mt-auto flex items-center justify-between pt-1">
+          <span className="text-[14px] font-black tabular-nums" style={{ color: '#fcd34d' }}>
+            {money(parseFloat(it.price))}<span className="text-[8.5px] font-bold opacity-65"> د.أ</span>
+          </span>
+          {ro ? null : hasOpts(it) ? (
+            open ? (
+              <div className="flex items-center gap-1.5">
+                <button onClick={() => { setExpanded(null); setSel({}); }} className="h-[34px] px-2.5 rounded-xl text-[12px] text-gray-400 bg-white/5 border border-white/10">إلغاء</button>
+                <button disabled={missing.length > 0} onClick={() => addWithOptions(it)}
+                  className="h-[34px] px-3 rounded-xl text-[12px] font-bold disabled:opacity-45"
+                  style={{ background: AMBER.bg, border: `1px solid ${AMBER.bd}`, color: AMBER.fg }}>
+                  {missing.length > 0 ? `اختر ${missing[0].name}` : 'أضف'}
+                </button>
+              </div>
+            ) : (
+              <button onClick={() => expand(it)} className="h-[34px] px-3 rounded-xl text-[12px] font-bold"
+                style={{ background: AMBER.bg, border: `1px solid ${AMBER.bd}`, color: AMBER.fg }}>
+                {n > 0 ? `×${n} +` : 'اختر'}
+              </button>
+            )
+          ) : longDesc ? (
+            <button onClick={() => setViewing(it)} className="h-[34px] px-3 rounded-xl text-[12px] font-bold"
+              style={{ background: AMBER.bg, border: `1px solid ${AMBER.bd}`, color: AMBER.fg }}>{n > 0 ? `×${n} +` : 'التفاصيل'}</button>
+          ) : n > 0 ? (
+            <div className="flex items-center gap-1.5">
+              <button onClick={() => changeQty(`${it.id}#`, -1)} aria-label="أقلّ" className="w-[30px] h-[30px] rounded-lg bg-white/6 border border-white/10 text-white text-base font-bold">−</button>
+              <b className="min-w-[16px] text-center text-white text-sm tabular-nums">{n}</b>
+              <button onClick={() => changeQty(`${it.id}#`, 1)} aria-label="أكثر" className="w-[30px] h-[30px] rounded-lg text-base font-bold"
+                style={{ background: AMBER.bg, border: `1px solid ${AMBER.bd}`, color: AMBER.fg }}>+</button>
+            </div>
+          ) : (
+            <button onClick={() => addSimple(it)} aria-label={`أضف ${it.name}`} className="w-[34px] h-[34px] rounded-xl text-lg font-black flex items-center justify-center"
+              style={{ background: AMBER.bg, border: `1px solid ${AMBER.bd}`, color: AMBER.fg }}>+</button>
           )}
         </div>
-        <div className="flex-1 min-w-0">
-          <p className="text-white text-[13px] font-semibold truncate leading-snug">{it.name}</p>
-          {it.description && <p className="text-gray-500 text-[10px] truncate mt-0.5">{it.description}</p>}
-          <span className="flex items-center gap-1 mt-1">
-            {hasOpts && (
-              <span className="inline-block text-[9px] px-1.5 py-0.5 rounded-md"
-                style={{ background: 'rgba(245,158,11,0.12)', border: '1px solid rgba(245,158,11,0.25)', color: '#fcd34d' }}>
-                ⚙️ {optionHint(it)}
-              </span>
-            )}
-            {inPackageIds.has(it.id) && (
-              <span className="inline-block text-[9px] px-1.5 py-0.5 rounded-md"
-                style={{ background: 'rgba(139,92,246,0.12)', border: '1px solid rgba(139,92,246,0.28)', color: '#c4b5fd' }}>
-                🎁 ضمن عرض
-              </span>
-            )}
-          </span>
-        </div>
-        <div className="shrink-0 flex flex-col items-end gap-1">
-          <p className="text-emerald-400 text-[14px] font-black leading-none tabular-nums">
-            {money(parseFloat(it.price))}<span className="text-[8.5px] font-bold opacity-60"> د.أ</span>
-          </p>
-          <span className="px-2.5 py-1 rounded-lg text-[10px] font-bold"
-            style={{ background: 'rgba(16,185,129,0.15)', border: '1px solid rgba(16,185,129,0.35)', color: '#34d399' }}>
-            {hasOpts ? 'اختر' : longDesc ? 'التفاصيل' : '+ أضف'}
-          </span>
-        </div>
-      </button>
+      </div>
     );
   };
 
   const PkgCard = (p: Item) => {
     const n = qtyOfItem(p.id);
     return (
-      <button key={p.id} onClick={() => setPicking(p)}
-        className="w-full text-right rounded-2xl p-3.5 active:scale-[0.99] transition-transform"
-        style={{ background: 'linear-gradient(135deg, rgba(139,92,246,0.13), rgba(255,255,255,0.02))', border: '1px solid rgba(139,92,246,0.3)' }}>
-        <div className="flex items-center gap-2 mb-2">
-          <span className="text-[9px] px-1.5 py-0.5 rounded-md font-bold shrink-0"
-            style={{ background: 'rgba(139,92,246,0.2)', border: '1px solid rgba(139,92,246,0.35)', color: '#c4b5fd' }}>🎁 عرض</span>
-          <h3 className="text-white text-[13.5px] font-bold flex-1 min-w-0 truncate">{p.name}</h3>
-          <span className="text-[16px] font-black tabular-nums shrink-0" style={{ color: '#c4b5fd' }}>
-            {money(parseFloat(p.price))}<span className="text-[9px] opacity-65"> د.أ</span>
-          </span>
+      <div key={p.id} className="rounded-2xl p-3 mb-2" style={{ background: 'linear-gradient(135deg, rgba(197,160,89,0.13), rgba(255,255,255,0.02))', border: `1px solid ${GOLD.bd}` }}>
+        <div className="flex items-center gap-2">
+          <h3 className="text-white text-[13.5px] font-bold flex-1 min-w-0">{p.name}</h3>
+          <span className="text-[15px] font-black tabular-nums shrink-0" style={{ color: GOLD.fg }}>{money(parseFloat(p.price))}<span className="text-[9px] opacity-65"> د.أ</span></span>
         </div>
-        <div className="flex flex-wrap gap-1.5">
+        {p.description && <p className="text-[10.5px] text-gray-400 mt-1 leading-relaxed">{p.description}</p>}
+        <div className="flex flex-wrap gap-1.5 mt-2">
           {(p.slots ?? []).map(s => (
-            <span key={s.i} className="text-[10px] px-2 py-0.5 rounded-lg"
+            <span key={s.i} className="text-[10.5px] px-2 py-0.5 rounded-lg"
               style={s.kind === 'choice'
-                ? { background: 'rgba(16,185,129,0.08)', border: '1px solid rgba(52,211,153,0.35)', color: '#6ee7b7' }
-                : { background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.08)', color: '#d1d5db' }}>
-              {s.kind === 'choice'
-                ? `◇ ${s.from.map(f => f.name).slice(0, 3).join(' / ')}${s.from.length > 3 ? ' …' : ''}`
-                : `${s.name}${Object.values(s.lockedOptions)[0] ? ` ${Object.values(s.lockedOptions)[0]}` : ''}`}
+                ? { background: 'transparent', border: `1px dashed ${GOLD.bd}`, color: GOLD.fg }
+                : { background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.08)', color: '#ccc' }}>
+              {s.kind === 'choice' ? `${s.label}: ${AR_DIGITS(s.from.length)} خيارات`
+                : `${s.name}${s.qty > 1 ? ` ×${s.qty}` : ''}${Object.values(s.lockedOptions)[0] ? ` ${Object.values(s.lockedOptions)[0]}` : s.optionGroups.length ? ' · بنكهتك' : ''}`}
             </span>
           ))}
         </div>
-        <p className="text-[10px] mt-2" style={{ color: n > 0 ? '#6ee7b7' : '#6b7280' }}>
-          {n > 0 ? `✓ في السلّة ×${n} — اضغط لإضافة توليفةٍ أخرى` : 'اضغط لاختيار مكوّناتك'}
-        </p>
-      </button>
+        {!ro && (
+          <button onClick={() => setWizard(p)} className="w-full mt-2.5 py-2.5 rounded-xl text-[12.5px] font-bold" style={goldBtn}>
+            {n > 0 ? `في السلّة ×${n} — ركّب توليفةً أخرى` : 'ركّب العرض'}
+          </button>
+        )}
+      </div>
     );
   };
 
-  const ordersBadge = myOrders.filter(o => o.status === 'new' || o.status === 'preparing').length;
+  const NoCtx = (
+    <div className="flex-1 flex flex-col items-center justify-center text-center px-6 py-10" dir="rtl">
+      <span className="w-14 h-14 rounded-full flex items-center justify-center mb-3" style={{ background: GOLD.bg, border: `1px solid ${GOLD.bd}`, color: GOLD.fg }}><IcoPlate size={24} /></span>
+      <b className="text-white text-[14px]">{next ? `يفتح الطلب الساعة ${next.opensAt}` : 'لا يوجد نشاط متاح للطلب الآن'}</b>
+      <p className="text-gray-400 text-[12px] mt-2 leading-relaxed">{reason || 'الطلب متاح للحاجزين داخل نافذة الفعاليّة'}</p>
+      {next && (
+        <button onClick={browseNext} className="mt-4 px-4 py-2.5 rounded-xl text-[12.5px] font-bold" style={{ background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.12)', color: '#ddd' }}>
+          تصفّح منيو {next.locationName} للقراءة
+        </button>
+      )}
+      {embedded && <button onClick={onClose} className="mt-3 text-[12px] underline" style={{ color: GOLD.fg }}>إغلاق</button>}
+    </div>
+  );
+
+  const noCtx = !browse && !ctx && !readOnly;
 
   return (
-    // 🔴 في الصفحة الكاملة الارتفاع = الشاشة **ناقص شريط التنقّل السفليّ**، لا `100dvh`:
-    //    الشريط `fixed bottom-0` بارتفاع 64px + المنطقة الآمنة و`z-50`، فعمودٌ بطول
-    //    الشاشة كاملةً يضع آخر أبنائه — شريط «راجع وأرسل» — تحته تماماً. اللاعب يضيف
-    //    الصنف فيرى العدّاد على البطاقة ولا يرى زرّ الإرسال أبداً، لأنّ القائمة تُمرَّر
-    //    داخلياً (`flex-1 overflow-y-auto`) فلا يصل تمريره إلى المستند ليرفع الشريط.
-    <div className={embedded ? 'flex flex-col h-full' : 'flex flex-col max-w-lg mx-auto'} dir="rtl"
-      style={{
-        background: '#050505',
-        ...(embedded ? {} : { height: 'calc(100dvh - 64px - env(safe-area-inset-bottom, 0px))' }),
-      }}>
+    <div className={`${embedded ? 'h-full' : 'fnb-page-h max-w-lg mx-auto'} flex flex-col relative`} dir="rtl" style={{ background: '#050505' }}>
+      {Header}
 
-      {/* ══ ترويسة ثابتة ══ */}
-      <div className="shrink-0 px-4 py-3 flex items-center gap-3 border-b border-white/7" style={{ background: '#0a0f0d' }}>
-        <span className="w-9 h-9 rounded-xl flex items-center justify-center text-base shrink-0"
-          style={{ background: 'linear-gradient(135deg, rgba(16,185,129,0.25), rgba(16,185,129,0.06))', border: '1px solid rgba(16,185,129,0.3)' }}>🍽️</span>
-        <div className="flex-1 min-w-0">
-          <h1 className="text-white text-sm font-bold truncate">{ctx.locationName}</h1>
-          <p className="text-gray-500 text-[10px] truncate">
-            {ctx.source === 'live' ? '🎮 أنت داخل اللعبة' : '🎟️ حجزك مؤكّد للطلب'}
-          </p>
-        </div>
-        {embedded && (
-          <button onClick={onClose} aria-label="إغلاق"
-            className="shrink-0 w-8 h-8 rounded-full text-gray-400 text-xs"
-            style={{ background: 'rgba(255,255,255,0.07)', border: '1px solid rgba(255,255,255,0.12)' }}>✕</button>
-        )}
-      </div>
+      {noCtx ? NoCtx : items.length === 0 ? (
+        <div className="flex-1 flex items-center justify-center"><p className="text-gray-500 text-sm">المكان لم يضف أصنافاً بعد</p></div>
+      ) : (
+        <div className="flex-1 min-h-0 flex">
+          {/* ══ الرفّ ══ */}
+          {!searchOn && (
+            <div className="w-[78px] shrink-0 overflow-y-auto overscroll-contain border-l border-white/7 px-1.5 py-2 flex flex-col gap-1" style={{ background: '#080808', scrollbarWidth: 'none' }}>
+              {sections.map(s => {
+                const on = s.key === activeKey;
+                const Ico = sectionIcon(s.title, s.isPkg);
+                return (
+                  <button key={s.key} onClick={() => { setCat(s.key); setExpanded(null); mainRef.current?.scrollTo({ top: 0 }); }}
+                    className="rounded-xl px-1 pt-2 pb-1.5 flex flex-col items-center gap-1 text-[10.5px] font-bold leading-tight text-center"
+                    style={on
+                      ? { background: s.isPkg ? GOLD.bg : AMBER.bg, border: `1px solid ${s.isPkg ? GOLD.bd : AMBER.bd}`, color: s.isPkg ? GOLD.fg : AMBER.fg }
+                      : { border: '1px solid transparent', color: '#9a9a9a' }}>
+                    <Ico size={18} />
+                    <span>{s.short}</span>
+                    <span className="text-[9px] font-medium opacity-70 tabular-nums">{AR_DIGITS(s.items.length)}</span>
+                  </button>
+                );
+              })}
+            </div>
+          )}
 
-      {/* ══ تبويبان — المهمّتان الحقيقيّتان: أطلبُ · أتابعُ ══ */}
-      <div className="shrink-0 flex border-b border-white/7" style={{ background: '#0a0f0d' }}>
-        {([['menu', '🍽️ المنيو والعروض'], ['ord', '🧾 طلباتي']] as const).map(([k, label]) => {
-          const on = tab === k;
-          const badge = k === 'ord' ? ordersBadge : 0;
-          return (
-            <button key={k} onClick={() => setTab(k)}
-              className="flex-1 py-2.5 text-[11.5px] font-bold transition-colors"
-              style={{ color: on ? '#34d399' : '#6b7280', borderBottom: `2px solid ${on ? '#34d399' : 'transparent'}` }}>
-              {label}
-              {badge > 0 && (
-                <span className="inline-flex items-center justify-center min-w-[16px] h-4 px-1 mr-1 rounded-full text-[9px] font-black"
-                  style={{ background: '#34d399', color: '#000' }}>{badge}</span>
-              )}
-            </button>
-          );
-        })}
-      </div>
-
-      {/* ══ جسمٌ واحدٌ يتمرّر ══ */}
-      {/* overscroll-contain: التمرير لا يتسرّب لصفحة اللعبة خلف الورقة */}
-      <div ref={scrollRef} onScroll={onBodyScroll} className="flex-1 overflow-y-auto overscroll-contain px-4 pb-4 relative">
-        {tab === 'menu' && (
-          <>
-            {/* 🧭 الشريط اللاصق: بحث + شرائح قفزٍ تضيء مع التمرير */}
-            <div ref={stickyRef} className="sticky top-0 z-30 -mx-4 px-4 pt-3 pb-2"
-              style={{ background: 'linear-gradient(to bottom, #050505 84%, rgba(5,5,5,0))' }}>
-              <div className="relative">
-                <input value={search} onChange={e => setSearch(e.target.value)} placeholder="ابحث في المنيو…"
-                  className="w-full rounded-xl py-2.5 pr-9 pl-8 text-sm text-white placeholder:text-gray-600 focus:outline-none"
-                  style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.09)' }} />
-                <span className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-600 text-sm">🔎</span>
+          {/* ══ البلاطات ══ */}
+          <div ref={mainRef} className="flex-1 min-w-0 overflow-y-auto overscroll-contain px-2.5 py-2.5 pb-6">
+            {searchOn && (
+              <div className="relative mb-2.5">
+                {/* 🔴 ١٦ بكسل — أصغر منها يُقرّب سفاري الشاشة عند التركيز */}
+                <input ref={searchRef} value={search} onChange={e => setSearch(e.target.value)} placeholder="ابحث: نكهة، صنف، قسم…"
+                  enterKeyHint="search" autoComplete="off"
+                  className="w-full rounded-xl py-2.5 pr-3 pl-9 text-white placeholder:text-gray-600 focus:outline-none"
+                  style={{ fontSize: 16, background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)' }} />
                 {query && (
                   <button onClick={() => setSearch('')} aria-label="مسح"
-                    className="absolute left-2.5 top-1/2 -translate-y-1/2 w-5 h-5 rounded-full bg-white/10 text-gray-400 text-[11px] leading-none">✕</button>
+                    className="absolute left-2.5 top-1/2 -translate-y-1/2 w-6 h-6 rounded-full bg-white/10 text-gray-400 flex items-center justify-center"><IcoX size={11} /></button>
                 )}
               </div>
-              {!query && sections.length > 1 && (
-                <div className="flex gap-1.5 overflow-x-auto pt-2 pb-0.5" style={{ scrollbarWidth: 'none' }}>
-                  {sections.map(s => {
-                    const on = (activeSec || sections[0]?.key) === s.key;
-                    return (
-                      <button key={s.key} ref={el => { chipRefs.current[s.key] = el; }}
-                        onClick={() => jump(s.key)}
-                        className="px-3 py-1.5 rounded-lg text-[11px] font-bold whitespace-nowrap shrink-0 transition-colors"
-                        style={on
-                          ? { background: 'rgba(16,185,129,0.15)', color: '#34d399', border: '1px solid rgba(16,185,129,0.3)' }
-                          : { background: 'rgba(255,255,255,0.04)', color: '#9ca3af', border: '1px solid transparent' }}>
-                        {s.chip} <span className="opacity-55">{s.items.length}</span>
-                      </button>
-                    );
-                  })}
-                </div>
-              )}
-            </div>
+            )}
+            {err && sheet !== 'cart' && <p className="text-rose-300 text-xs bg-rose-500/10 border border-rose-500/25 rounded-lg px-3 py-2 mb-2">{err}</p>}
 
-            {err && <p className="text-rose-300 text-xs bg-rose-500/10 border border-rose-500/25 rounded-lg px-3 py-2 mb-3">{err}</p>}
-
-            {items.length === 0 ? (
-              <div className="text-center py-12 rounded-2xl border border-dashed border-gray-800">
-                <p className="text-gray-500 text-sm">المكان لم يضف أصنافاً بعد</p>
-              </div>
-            ) : query ? (
-              results.length === 0 ? (
-                <div className="text-center py-12 rounded-2xl border border-dashed border-gray-800">
+            {searchOn ? (
+              !query ? (
+                <p className="text-center text-gray-500 text-[12px] py-10">جرّب اسم نكهةٍ: «نخلة» يعيد الأرجيلة الفاخرة وعروضها</p>
+              ) : results.length === 0 ? (
+                <div className="text-center py-10">
                   <p className="text-gray-500 text-sm">لا صنف يطابق «{query}»</p>
-                  <button onClick={() => setSearch('')} className="text-emerald-400 text-xs underline mt-2">امسح البحث</button>
+                  <button onClick={() => setSearch('')} className="text-xs underline mt-2" style={{ color: GOLD.fg }}>امسح البحث</button>
                 </div>
               ) : (
-                <div className="space-y-2">
-                  {results.map(it => it.isBundle ? PkgCard(it) : ItemCard(it))}
-                </div>
+                <>
+                  {results.filter(i => i.isBundle).map(PkgCard)}
+                  <div className="grid grid-cols-2 gap-2">{results.filter(i => !i.isBundle).map(Tile)}</div>
+                </>
               )
-            ) : (
-              // القائمة المتّصلة: كلّ الأقسام تحت بعضها — التصفّح تمريرٌ والقفز نقرة
-              sections.map(sec => (
-                <div key={sec.key} ref={el => { secRefs.current[sec.key] = el; }} className="mb-4">
-                  <h3 className="text-[11px] font-bold text-emerald-400/75 mb-2 flex items-center gap-2">
-                    <span>{sec.title}</span>
-                    <span className="flex-1 h-px bg-emerald-500/12" />
-                    <span className="text-gray-600 tabular-nums">{sec.items.length}</span>
-                  </h3>
-                  <div className="space-y-2">
-                    {sec.items.map(it => sec.isPkg ? PkgCard(it) : ItemCard(it))}
-                  </div>
-                </div>
-              ))
-            )}
-          </>
-        )}
-
-        {/* ── 🧾 طلباتي + 💨 خدمة الأرجيلة ── */}
-        {tab === 'ord' && (
-          <div className="pt-3.5">
-            {err && <p className="text-rose-300 text-xs bg-rose-500/10 border border-rose-500/25 rounded-lg px-3 py-2 mb-3">{err}</p>}
-            {sent && <p className="text-emerald-300 text-xs bg-emerald-500/10 border border-emerald-500/25 rounded-lg px-3 py-2 mb-3">✅ وصل طلبك للمكان</p>}
-
-            {svc.available && (
-              <div className="rounded-2xl p-3.5 mb-3"
-                style={{ background: 'linear-gradient(135deg, rgba(224,73,43,0.14), rgba(255,255,255,0.02))', border: '1px solid rgba(224,73,43,0.32)' }}>
-                <div className="flex items-center gap-2.5 mb-2">
-                  <span className="text-xl">💨</span>
-                  <b className="text-white text-[13px] flex-1">أرجيلتك وصلت — تحتاج شيئاً؟</b>
-                </div>
-                <p className="text-gray-400 text-[10.5px] mb-2.5">طلبٌ بلا سعر، يصل مسؤول الأراجيل مباشرةً ولا يدخل فاتورتك.</p>
-                {svc.pending ? (
-                  <p className="text-[11px] text-center rounded-xl px-3 py-2.5"
-                    style={{ background: 'rgba(16,185,129,0.1)', border: '1px solid rgba(16,185,129,0.28)', color: '#6ee7b7' }}>
-                    ✅ وصل طلبك — الموظّف في الطريق
+            ) : active ? (
+              active.isPkg ? (
+                <>
+                  {active.items.map(PkgCard)}
+                  <p className="text-[10px] text-gray-600 text-center mt-1">اختياراتك لا تغيّر السعر — إلّا ما عليه زيادةٌ معلَنة</p>
+                </>
+              ) : (
+                <>
+                  <p className="text-[10.5px] font-bold mb-2 flex items-center gap-2" style={{ color: 'rgba(197,160,89,0.8)' }}>
+                    <span>{active.title}</span><span className="flex-1 h-px" style={{ background: 'rgba(197,160,89,0.18)' }} /><span className="text-gray-600 tabular-nums">{AR_DIGITS(active.items.length)}</span>
                   </p>
-                ) : (
-                  <div className="flex gap-2">
-                    {([['coal', '🔥 أحتاج فحماً'], ['fix', '🔧 تزبيط الأرجيلة']] as const).map(([k, label]) => (
-                      <button key={k} onClick={() => askService(k)} disabled={svcBusy}
-                        className="flex-1 py-2.5 rounded-xl text-[12px] font-bold disabled:opacity-45"
-                        style={{ background: 'rgba(224,73,43,0.16)', border: '1px solid rgba(224,73,43,0.4)', color: '#f8a08c' }}>
-                        {label}
-                      </button>
-                    ))}
-                  </div>
-                )}
-              </div>
-            )}
-
-            {myOrders.length === 0 ? (
-              <p className="text-center text-gray-500 text-sm py-12">لا طلبات بعد</p>
-            ) : myOrders.map(o => {
-              const meta = STATUS_META[o.status] || STATUS_META.new;
-              return (
-                <div key={o.id} className="rounded-2xl p-3 mb-2" style={{ background: 'rgba(255,255,255,0.03)', border: `1px solid ${meta.color}25` }}>
-                  <div className="flex items-center justify-between mb-1.5">
-                    <span className="text-[11px] font-medium" style={{ color: meta.color }}>{meta.icon} {meta.label}</span>
-                    <span className="text-white text-xs font-bold tabular-nums">{money(parseFloat(o.total))} د.أ</span>
-                  </div>
-                  <p className="text-gray-400 text-[11px] leading-relaxed">
-                    {o.items.map(i => `${i.name} ×${i.quantity}`).join(' • ')}
-                  </p>
-                  {o.items.filter(i => i.options?.length).map((i, ix) => (
-                    <p key={`o${ix}`} className="text-[10px] leading-relaxed text-amber-300/80">
-                      ⚙️ {i.name}: {i.options!.map(x => `${x.group}: ${x.value}`).join(' · ')}
-                    </p>
-                  ))}
-                  {o.items.filter(i => i.components?.length).map((i, ix) => (
-                    <p key={`c${ix}`} className="text-[10px] leading-relaxed" style={{ color: 'rgba(196,181,253,0.72)' }}>
-                      🎁 {i.name}: {i.components!.map(c => `${c.name}${c.options?.length ? ` (${c.options.map(x => x.value).join(' · ')})` : ''}`).join(' + ')}
-                    </p>
-                  ))}
-                  {o.note && <p className="text-gray-600 text-[10px] mt-1">📝 {o.note}</p>}
-                  <div className="flex items-center justify-between mt-1.5">
-                    <span className="text-gray-600 text-[9px]">
-                      {new Date(o.createdAt).toLocaleTimeString('ar-JO', { hour: '2-digit', minute: '2-digit' })}
-                    </span>
-                    {o.status === 'new' && (
-                      <button onClick={() => cancelOrder(o.id)} className="text-[10px] text-rose-400/80 underline">إلغاء الطلب</button>
-                    )}
-                  </div>
-                </div>
-              );
-            })}
+                  <div className="grid grid-cols-2 gap-2">{active.items.map(Tile)}</div>
+                </>
+              )
+            ) : null}
           </div>
-        )}
-      </div>
+        </div>
+      )}
 
-      {/* ══ شريط السلّة الثابت — يفتح الدرج من أيّ موضع ══
-          🔴 كهرمانيٌّ نابضٌ لا أخضر هادئ: الأخضر يقول «تمّ» والسلّة لم تُرسَل —
-          لاعبٌ أضاف وانشغل باللعبة يظنّ طلبه وصل الكافيه وهو لم يغادر جيبه. */}
+      {/* ══ شريط السلّة — كهرمانيٌّ يقول «لم يُرسَل بعد» ══ */}
       <AnimatePresence>
-        {cartCount > 0 && (
+        {!ro && cartCount > 0 && (
           <motion.button
-            initial={{ y: 70 }}
-            animate={{
-              y: 0,
-              boxShadow: [
-                '0 -2px 14px rgba(245,158,11,0.10)',
-                '0 -6px 26px rgba(245,158,11,0.32)',
-                '0 -2px 14px rgba(245,158,11,0.10)',
-              ],
-            }}
-            exit={{ y: 70 }}
-            transition={{
-              y: { type: 'spring', damping: 26, stiffness: 320 },
-              boxShadow: { duration: 1.6, repeat: Infinity, ease: 'easeInOut' },
-            }}
-            onClick={() => setCartOpen(true)}
+            initial={{ y: 70 }} exit={{ y: 70 }}
+            animate={{ y: 0, boxShadow: ['0 -2px 14px rgba(245,158,11,0.10)', '0 -6px 26px rgba(245,158,11,0.32)', '0 -2px 14px rgba(245,158,11,0.10)'] }}
+            transition={{ y: { type: 'spring', damping: 26, stiffness: 320 }, boxShadow: { duration: 1.6, repeat: Infinity, ease: 'easeInOut' } }}
+            onClick={() => { setErr(''); setSheet('cart'); }}
             className="shrink-0 w-full px-3 py-2.5 flex items-center gap-2.5 border-t"
             style={{ background: 'rgba(28,19,5,0.97)', borderColor: 'rgba(245,158,11,0.5)' }}
           >
-            <span className="w-9 h-9 rounded-xl flex items-center justify-center text-sm font-black shrink-0"
-              style={{ background: 'rgba(245,158,11,0.18)', border: '1px solid rgba(245,158,11,0.45)', color: '#fcd34d' }}>
-              {cartCount}
-            </span>
+            <span className="w-9 h-9 rounded-xl flex items-center justify-center text-sm font-black shrink-0 tabular-nums" style={{ background: AMBER.bg, border: `1px solid ${AMBER.bd}`, color: AMBER.fg }}>{cartCount}</span>
             <div className="flex-1 min-w-0 text-right">
-              <b className="flex items-center gap-1.5 text-[12.5px] font-black" style={{ color: '#fcd34d' }}>
-                <motion.span
-                  animate={{ opacity: [1, 0.25, 1] }}
-                  transition={{ duration: 1.6, repeat: Infinity, ease: 'easeInOut' }}
-                  className="w-2 h-2 rounded-full shrink-0" style={{ background: '#f59e0b' }} />
-                لم يُرسَل بعد — <span className="tabular-nums">{money(cartTotal)} د.أ</span>
-              </b>
-              <span className="text-[10px]" style={{ color: 'rgba(252,211,77,0.55)' }}>
-                طلبك لم يصل الكافيه · اضغط للمراجعة والإرسال
-              </span>
+              <b className="block text-[12.5px] font-black" style={{ color: '#fcd34d' }}>لم يُرسَل بعد — <span className="tabular-nums">{money(cartTotal)} د.أ</span></b>
+              <span className="block text-[10px]" style={{ color: 'rgba(252,211,77,0.55)' }}>طلبك لم يصل الكافيه · اضغط للمراجعة والإرسال</span>
             </div>
-            <span className="px-4 py-2.5 rounded-xl text-[12.5px] font-bold text-white shrink-0"
-              style={{ background: 'linear-gradient(135deg, #f59e0b, #d97706)' }}>راجع وأرسل ←</span>
+            <span className="px-4 py-2.5 rounded-xl text-[12.5px] font-bold text-white shrink-0" style={{ background: 'linear-gradient(135deg, #f59e0b, #d97706)' }}>راجع وأرسل</span>
           </motion.button>
         )}
       </AnimatePresence>
 
+      {/* ══ إشعارٌ عابر ══ */}
+      <AnimatePresence>
+        {toast && (
+          <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }}
+            className="absolute left-4 right-4 z-[70] rounded-xl px-3.5 py-2.5 text-[12.5px]"
+            style={{ bottom: cartCount > 0 ? 80 : 20, background: toast.err ? '#1c1210' : '#151006', border: `1px solid ${toast.err ? 'rgba(224,106,94,0.5)' : GOLD.bd}`, color: toast.err ? '#f7c9c4' : '#f3dea3', boxShadow: '0 10px 30px rgba(0,0,0,0.5)' }}>
+            {toast.txt}
+          </motion.div>
+        )}
+      </AnimatePresence>
+
       {/* ══ درج السلّة ══ */}
-      {cartOpen && cart.length > 0 && (
-        <Sheet
-          title="🛒 سلّتك"
-          subtitle="لم تُرسَل بعد — راجعها ثمّ اضغط زرّ الإرسال بالأسفل"
-          subtitleWarn
-          onClose={() => setCartOpen(false)}
+      {sheet === 'cart' && cart.length > 0 && (
+        <Sheet title="سلّتك" subtitle={`لم تُرسَل بعد — ${AR_DIGITS(cartCount)} أصناف · ${money(cartTotal)} د.أ`} subtitleWarn
+          onClose={() => setSheet(null)}
           footer={
             <>
-              <button onClick={submit} disabled={sending}
-                className="flex-1 py-3 rounded-xl text-sm font-bold text-white disabled:opacity-50"
-                style={{ background: 'linear-gradient(135deg, #10b981, #0d9488)' }}>
-                {sending ? 'جارٍ الإرسال…' : `إرسال الطلب • ${money(cartTotal)} د.أ`}
+              <button onClick={submit} disabled={sending} className="flex-1 py-3 rounded-xl text-sm font-bold text-white disabled:opacity-50"
+                style={{ background: 'linear-gradient(135deg, #f59e0b, #d97706)' }}>
+                {sending ? 'جارٍ الإرسال…' : `إرسال الطلب · ${money(cartTotal)} د.أ`}
               </button>
-              <button onClick={() => setCartOpen(false)} className="px-4 py-3 rounded-xl text-sm bg-white/5 border border-white/10 text-gray-400">متابعة</button>
+              <button onClick={() => setSheet(null)} className="px-4 py-3 rounded-xl text-sm bg-white/5 border border-white/10 text-gray-400">متابعة</button>
             </>
-          }
-        >
+          }>
+          {err && <p className="text-rose-300 text-xs bg-rose-500/10 border border-rose-500/25 rounded-lg px-3 py-2 mb-3">{err}</p>}
           {cart.map(l => (
-            <div key={l.key} className="rounded-2xl p-2.5 mb-2 flex items-center gap-2.5"
-              style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.07)' }}>
+            <div key={l.key} className="rounded-2xl p-2.5 mb-2 flex items-center gap-2.5" style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.07)' }}>
               <div className="flex-1 min-w-0">
-                <p className="text-white text-[12.5px] font-semibold truncate">{l.isBundle && '🎁 '}{l.name}</p>
-                {l.label && <p className="text-[10px] leading-relaxed" style={{ color: 'rgba(252,211,77,0.85)' }}>{l.label}</p>}
-                <p className="text-emerald-400 text-[11px] font-bold tabular-nums mt-0.5">{money(l.unitPrice * l.quantity)} د.أ</p>
+                <p className="text-white text-[12.5px] font-semibold truncate">{l.isBundle ? 'عرض · ' : ''}{l.name}</p>
+                {l.label && <p className="text-[10px] leading-relaxed" style={{ color: '#d7bf86' }}>{l.label}</p>}
+                <p className="text-[11px] font-bold tabular-nums mt-0.5" style={{ color: '#fcd34d' }}>{money(l.unitPrice * l.quantity)} د.أ</p>
               </div>
               <div className="flex items-center gap-1.5 shrink-0">
-                <button onClick={() => removeLine(l.key)} aria-label="حذف"
-                  className="w-7 h-7 rounded-lg text-[11px]"
-                  style={{ background: 'rgba(244,63,94,0.12)', border: '1px solid rgba(244,63,94,0.3)', color: '#fb7185' }}>🗑️</button>
+                <button onClick={() => changeQty(l.key, -99)} aria-label="حذف" className="w-7 h-7 rounded-lg flex items-center justify-center"
+                  style={{ background: 'rgba(244,63,94,0.12)', border: '1px solid rgba(244,63,94,0.3)', color: '#fb7185' }}><IcoX size={11} /></button>
                 <button onClick={() => changeQty(l.key, -1)} className="w-7 h-7 rounded-lg bg-white/5 border border-white/10 text-white text-sm">−</button>
                 <span className="text-white text-sm font-bold w-4 text-center tabular-nums">{l.quantity}</span>
-                <button onClick={() => changeQty(l.key, 1)} className="w-7 h-7 rounded-lg text-sm font-bold"
-                  style={{ background: 'rgba(16,185,129,0.2)', border: '1px solid rgba(16,185,129,0.4)', color: '#34d399' }}>+</button>
+                <button onClick={() => changeQty(l.key, 1)} className="w-7 h-7 rounded-lg text-sm font-bold" style={{ background: AMBER.bg, border: `1px solid ${AMBER.bd}`, color: AMBER.fg }}>+</button>
               </div>
             </div>
           ))}
-          <input value={note} onChange={e => setNote(e.target.value)} maxLength={300}
+          <input value={note} onChange={e => setNote(e.target.value)} maxLength={300} enterKeyHint="done"
             placeholder="ملاحظة للمكان (اختياريّ)"
-            className="w-full mt-1 rounded-xl px-3 py-2.5 text-[13px] text-white placeholder:text-gray-600 focus:outline-none"
-            style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.09)' }} />
+            className="w-full mt-1 rounded-xl px-3 py-2.5 text-white placeholder:text-gray-600 focus:outline-none"
+            style={{ fontSize: 16, background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)' }} />
         </Sheet>
       )}
 
-      {/* ══ الأوراق: خيارات / باقة / تفصيل ══ */}
-      {picking && (picking.isBundle
-        ? <PackageSheet item={picking} onCancel={() => setPicking(null)}
-            onConfirm={line => { bumpLine(line); setPicking(null); }} />
-        : <OptionSheet item={picking} onCancel={() => setPicking(null)}
-            onConfirm={line => { bumpLine(line); setPicking(null); }} />
+      {/* ══ طلباتي + خدمة الأرجيلة ══ */}
+      {sheet === 'orders' && (
+        <Sheet title="طلباتي" subtitle={openBadge ? `${AR_DIGITS(openBadge)} قيد المتابعة` : 'كلّ ما طلبته في هذه الفعاليّة'} onClose={() => setSheet(null)}>
+          {svc.available && (
+            <div className="rounded-2xl p-3 mb-3" style={{ background: GOLD.bg, border: `1px solid ${GOLD.bd}` }}>
+              <b className="block text-white text-[13px]">أرجيلتك وصلت — تحتاج شيئاً؟</b>
+              <p className="text-gray-400 text-[10.5px] mt-0.5 mb-2.5">طلبٌ بلا سعر يصل مسؤول الأراجيل مباشرةً ولا يدخل فاتورتك.</p>
+              {svc.pending ? (
+                <p className="text-[11.5px] text-center rounded-xl px-3 py-2.5" style={{ background: 'rgba(74,222,128,0.1)', border: '1px solid rgba(74,222,128,0.3)', color: '#bfe9cf' }}>وصل طلبك — الموظّف في الطريق</p>
+              ) : (
+                <div className="flex gap-2">
+                  {([['coal', 'أحتاج فحماً', IcoFire], ['fix', 'تزبيط الأرجيلة', IcoTool]] as const).map(([k, label, Ico]) => (
+                    <button key={k} onClick={() => askService(k)} disabled={svcBusy}
+                      className="flex-1 min-h-[44px] rounded-xl text-[12.5px] font-bold disabled:opacity-45 flex items-center justify-center gap-1.5"
+                      style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.12)', color: '#eee' }}>
+                      <Ico size={15} />{label}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+          {myOrders.length === 0 ? (
+            <p className="text-center text-gray-500 text-sm py-12">لا طلبات بعد</p>
+          ) : myOrders.map(o => {
+            const meta = STATUS_META[o.status] || STATUS_META.new;
+            return (
+              <div key={o.id} className="rounded-2xl p-3 mb-2" style={{ background: 'rgba(255,255,255,0.03)', border: `1px solid ${meta.color}33` }}>
+                <div className="flex items-center gap-2 mb-1.5">
+                  <span className="w-2 h-2 rounded-full" style={{ background: meta.color, boxShadow: `0 0 8px ${meta.color}` }} />
+                  <span className="flex-1 text-[12px] font-bold" style={{ color: meta.color }}>{meta.label}</span>
+                  <span className="text-white text-xs font-bold tabular-nums">{money(parseFloat(o.total))} د.أ</span>
+                </div>
+                <p className="text-gray-300 text-[11.5px] leading-relaxed">{o.items.map(i => `${i.name} ×${i.quantity}`).join(' • ')}</p>
+                {o.items.filter(i => i.options?.length).map((i, ix) => (
+                  <p key={`o${ix}`} className="text-[10.5px] leading-relaxed" style={{ color: '#d7bf86' }}>{i.name}: {i.options!.map(x => x.value).join(' · ')}</p>
+                ))}
+                {o.items.filter(i => i.components?.length).map((i, ix) => (
+                  <p key={`c${ix}`} className="text-[10.5px] leading-relaxed" style={{ color: '#d7bf86' }}>
+                    {i.name}: {i.components!.map(c => `${c.name}${c.options?.length ? ` (${c.options.map(x => x.value).join(' · ')})` : ''}`).join(' + ')}
+                  </p>
+                ))}
+                {o.note && <p className="text-gray-500 text-[10px] mt-1">ملاحظة: {o.note}</p>}
+                <div className="flex items-center justify-between mt-1.5">
+                  <span className="text-gray-600 text-[9.5px]">#{o.id} · {new Date(o.createdAt).toLocaleTimeString('ar-JO', { hour: '2-digit', minute: '2-digit' })}</span>
+                  {o.status === 'new' && <button onClick={() => cancelOrder(o.id)} className="text-[10.5px] text-rose-400/80 underline">إلغاء الطلب</button>}
+                </div>
+              </div>
+            );
+          })}
+        </Sheet>
+      )}
+
+      {/* ══ المُركِّب وورقة التفصيل ══ */}
+      {wizard && (
+        <BundleWizard item={wizard} onCancel={() => setWizard(null)}
+          onConfirm={line => { bumpLine(line); setWizard(null); flash(`أُضيف العرض · ${line.label}`); }} />
       )}
       {viewing && (
-        <DetailSheet item={viewing} onCancel={() => setViewing(null)}
-          onAdd={() => { addSimple(viewing); setViewing(null); }} />
+        <DetailSheet item={viewing} onCancel={() => setViewing(null)} onAdd={() => { addSimple(viewing); setViewing(null); }} />
       )}
     </div>
   );

@@ -1425,7 +1425,13 @@ interface FnbContext {
 
 // يحلّ «أين اللاعب الآن؟» — القرار المقفل ٥: داخل غرفة حيّة، أو حاجزٌ ضمن نافذة الفعاليّة.
 // الحجز شرطٌ في الحالتين (القرار ٣): بلا حجزٍ لا طلب حتى داخل الغرفة.
-async function resolveFnbContext(db: NonNullable<ReturnType<typeof getDB>>, playerId: number): Promise<FnbContext | { error: string } | null> {
+/** حجزٌ قادم لم تُفتح نافذته — يرافق رسالة «يفتح الطلب الساعة …» */
+interface FnbNext {
+  activityId: number; activityName: string; locationId: number; locationName: string;
+  opensAt: string; opensAtIso: string;
+}
+
+async function resolveFnbContext(db: NonNullable<ReturnType<typeof getDB>>, playerId: number): Promise<FnbContext | { error: string; next?: FnbNext } | null> {
   const now = Date.now();
 
   // ── (أ) غرفةٌ حيّة أوّلاً — **بلا شرطٍ زمنيّ** ──────────────────
@@ -1526,12 +1532,23 @@ async function resolveFnbContext(db: NonNullable<ReturnType<typeof getDB>>, play
       )).limit(1);
     if (liveNoBooking.length > 0) return { error: 'الطلب متاح للحاجزين فقط — لا يوجد حجز باسمك لهذه الفعاليّة' };
 
-    // حجزٌ قائم لكنّ النافذة لم تُفتح بعد → أعطِ الموعد بدل رسالةٍ عامّة
+    // حجزٌ قائم لكنّ النافذة لم تُفتح بعد → أعطِ الموعد بدل رسالةٍ عامّة،
+    // ومعه «next»: المكان وموعد الفتح، فتعرض الواجهة البطاقة بحالتها الصحيحة
+    // وتتيح تصفّح المنيو للقراءة بدل إخفائه كلّياً حتى تفتح النافذة.
     const soonest = usable[0];
     if (soonest) {
       const opensAt = new Date(soonest.activityDate.getTime() - ORDER_WINDOW_BEFORE_MS);
-      const t = opensAt.toLocaleTimeString('ar-JO', { hour: '2-digit', minute: '2-digit' });
-      return { error: `يفتح الطلب من «${soonest.activityName}» الساعة ${t} (قبل الموعد بساعة) — أو فور بدء الغرفة` };
+      const t = opensAt.toLocaleTimeString('ar-JO', { hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Amman' });
+      const [nextLoc] = await db.select({ id: locations.id, name: locations.name })
+        .from(locations).where(and(eq(locations.id, soonest.locationId!), isNull(locations.deletedAt))).limit(1);
+      return {
+        error: `يفتح الطلب من «${soonest.activityName}» الساعة ${t} (قبل الموعد بساعة) — أو فور بدء الغرفة`,
+        next: nextLoc ? {
+          activityId: soonest.activityId, activityName: soonest.activityName,
+          locationId: nextLoc.id, locationName: nextLoc.name,
+          opensAt: t, opensAtIso: opensAt.toISOString(),
+        } : undefined,
+      };
     }
     return null;
   }
@@ -1560,7 +1577,7 @@ playerFnbRouter.get('/context', authenticatePlayer, async (req: Request, res: Re
   try {
     const ctx = await resolveFnbContext(db, req.playerAccount!.playerId);
     if (!ctx) return res.json({ success: true, context: null });
-    if ('error' in ctx) return res.json({ success: true, context: null, reason: ctx.error });
+    if ('error' in ctx) return res.json({ success: true, context: null, reason: ctx.error, next: ctx.next ?? null });
     res.json({ success: true, context: ctx });
   } catch (err: any) { res.status(500).json({ error: err.message }); }
 });

@@ -9,6 +9,7 @@ import { useModalScrollLock } from '@/hooks/useModalScrollLock';
 import { getCachedFix } from '@/hooks/useGeolocation';
 import { useActivityPulse } from '@/hooks/useActivityPulse';
 import NightPulse from '@/components/NightPulse';
+import OrderPanel from '@/components/OrderPanel';
 
 type Tab = 'upcoming' | 'pulse' | 'history';
 
@@ -50,11 +51,10 @@ function GamesContent() {
   const [cancelLoading, setCancelLoading] = useState(false);
   const [selectedOffer, setSelectedOffer] = useState<number | null>(null);
   const [offerError, setOfferError] = useState(false);
-  // 🍽️ استعراض منيو المكان وقت الحجز (عرضٌ فقط — الطلب يبقى داخل نافذته)
+  // 🍽️ استعراض منيو المكان وقت الحجز (عرضٌ فقط — الطلب يبقى داخل نافذته).
+  //    العارض هو OrderPanel نفسه بوضع browse — لا عارض ثانٍ يتخلّف عن الأوّل
+  //    (كان يقرأ components والخادم يعيد slots، فظهرت العروض بلا مكوّنات).
   const [menuFor, setMenuFor] = useState<any>(null);
-  const [menuItems, setMenuItems] = useState<any[]>([]);
-  const [menuLoading, setMenuLoading] = useState(false);
-  const [browseQ, setBrowseQ] = useState('');
   // 🏙️ المدن: الفعاليّات تُجلب كلّها مرّةً وتُرشَّح محليًّا؛ الافتراضيّ مدينةُ اللاعب
   const [cities, setCities] = useState<{ id: number; name: string }[]>([]);
   const [homeCityId, setHomeCityId] = useState<number | null>(null);
@@ -65,8 +65,6 @@ function GamesContent() {
   const [selectedCityId, setSelectedCityId] = useState<number | 'all'>('all');
   const [homeCityPrompt, setHomeCityPrompt] = useState(false);
   const [homeCitySaving, setHomeCitySaving] = useState<number | null>(null);
-  // بحثٌ عالق من فتحةٍ سابقة يجعل المنيو يبدو ناقصاً عند الفتح التالي
-  useEffect(() => { if (!menuFor) setBrowseQ(''); }, [menuFor]);
   const searchParams = useSearchParams();
   const highlightActivityId = searchParams.get('activityId');
 
@@ -86,21 +84,22 @@ function GamesContent() {
     isOpen: !!confirmBooking,
     onClose: () => { setConfirmBooking(null); setSelectedOffer(null); },
   });
-  const menuModal = useModalScrollLock({
-    isOpen: !!menuFor,
-    onClose: () => setMenuFor(null),
-  });
+  // 🔴 قفل الجسد وحده لورقة المنيو — لا useModalScrollLock: الهوك يمنع اللمس خارج
+  //    عنصرٍ مرجعيٍّ واحد، واللوحة فيها عدّة حاوياتِ تمريرٍ (الرفّ، البلاطات، الأوراق).
+  useEffect(() => {
+    if (!menuFor) return;
+    const y = window.scrollY;
+    document.body.classList.add('modal-open');
+    document.body.style.top = `-${y}px`;
+    return () => {
+      document.body.classList.remove('modal-open');
+      document.body.style.top = '';
+      window.scrollTo(0, y);
+    };
+  }, [menuFor]);
 
-  // فتح منيو مكان الفعاليّة — نقطة عامّة بلا مصادقة، وبلا حصص النادي
-  const openMenu = (act: any) => {
-    if (!act?.locationId) return;
-    setMenuFor(act); setMenuItems([]); setMenuLoading(true);
-    fetch(`/api/player-app/locations/${act.locationId}/menu`)
-      .then(r => r.json())
-      .then(d => { if (d.success) setMenuItems(d.items || []); })
-      .catch(() => {})
-      .finally(() => setMenuLoading(false));
-  };
+  // فتح منيو مكان الفعاليّة — OrderPanel يجلبه من النقطة العامّة بلا مصادقة
+  const openMenu = (act: any) => { if (act?.locationId) setMenuFor(act); };
 
   useEffect(() => {
     if (!player) return;
@@ -522,9 +521,10 @@ function GamesContent() {
                           {act.hasMenu && (
                             <button
                               onClick={(e) => { e.stopPropagation(); openMenu(act); }}
-                              className="text-[9px] text-gray-500 hover:text-amber-400 transition-colors"
+                              className="text-[10px] px-2 py-0.5 rounded-md font-bold"
+                              style={{ color: '#e7cf8d', border: '1px solid rgba(197,160,89,0.45)', background: 'rgba(197,160,89,0.08)' }}
                             >
-                              🍽️ المنيو
+                              المنيو
                             </button>
                           )}
                         </div>
@@ -1086,119 +1086,23 @@ function GamesContent() {
         )}
       </AnimatePresence>
 
-      {/* ══ 🍽️ منيو المكان — استعراضٌ فقط قبل الحجز ══ */}
+      {/* ══ 🍽️ منيو المكان — استعراضٌ فقط قبل الحجز: OrderPanel بوضع browse ══ */}
       <AnimatePresence>
         {menuFor && (
           <motion.div
             initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
             className="fixed inset-0 z-50 flex items-end sm:items-center justify-center"
-            {...menuModal.backdropProps}
-            style={{ background: 'rgba(0,0,0,0.75)', backdropFilter: 'blur(4px)', ...menuModal.backdropProps.style }}
+            style={{ background: 'rgba(0,0,0,0.75)', backdropFilter: 'blur(4px)' }}
+            onClick={() => setMenuFor(null)}
           >
             <motion.div
               initial={{ y: '100%' }} animate={{ y: 0 }} exit={{ y: '100%' }}
               transition={{ type: 'spring', damping: 25, stiffness: 200 }}
-              // 🔴 الشريط السفليّ للتطبيق ثابتٌ فوق كلّ شيء، فزرّ الإغلاق في ذيل
-              //    المحتوى كان يقف تحته ولا يُضغَط — ومنيو ٦٢ صنفاً يجعل الوصول
-              //    إليه رحلة تمريرٍ كاملة. الإغلاق صار لاصقاً في الترويسة،
-              //    والحشوة السفليّة تُخلّص آخر صنفٍ من تحت الشريط.
-              className="w-full max-w-lg rounded-t-3xl sm:rounded-2xl px-5 pt-4 pb-24 sm:pb-6 max-h-[85vh] overflow-y-auto"
-              style={{ background: 'linear-gradient(to bottom, #111827, #000)', borderTop: '1px solid rgba(255,255,255,0.1)', ...menuModal.modalProps.style }}
+              className="w-full max-w-lg fnb-sheet-h overflow-hidden rounded-t-3xl sm:rounded-2xl border-t sm:border"
+              style={{ background: '#050505', borderColor: 'rgba(197,160,89,0.35)' }}
               onClick={e => e.stopPropagation()}
-              ref={menuModal.modalContentRef}
-              onTouchStart={menuModal.handleTouchStart}
-              onTouchEnd={menuModal.handleTouchEnd}
             >
-              <div className="sticky -top-4 z-20 -mx-5 px-5 pt-4 pb-3"
-                style={{ background: 'linear-gradient(to bottom, #111827 80%, rgba(17,24,39,0))' }}>
-                <div className="w-12 h-1.5 rounded-full bg-white/20 mx-auto mb-3" />
-                <div className="flex items-start gap-3">
-                  <div className="flex-1 min-w-0">
-                    <h3 className="text-white text-lg font-bold truncate">🍽️ منيو {menuFor.locationName || 'المكان'}</h3>
-                    <p className="text-gray-500 text-[11px] mt-1">
-                      للاطّلاع فقط — يفتح الطلب قبل موعد الفعاليّة بساعة ويحتاج حجزاً باسمك.
-                    </p>
-                  </div>
-                  <button onClick={() => setMenuFor(null)} aria-label="إغلاق"
-                    className="shrink-0 w-9 h-9 rounded-full text-gray-300 text-sm flex items-center justify-center"
-                    style={{ background: 'rgba(255,255,255,0.07)', border: '1px solid rgba(255,255,255,0.12)' }}>
-                    ✕
-                  </button>
-                </div>
-                {menuItems.length > 8 && (
-                  <div className="relative mt-3">
-                    <input
-                      value={browseQ} onChange={e => setBrowseQ(e.target.value)}
-                      placeholder="ابحث في المنيو…"
-                      className="w-full rounded-xl py-2 pr-9 pl-3 text-sm text-white placeholder:text-gray-600 focus:outline-none"
-                      style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.09)' }}
-                    />
-                    <span className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-600 text-sm">🔎</span>
-                  </div>
-                )}
-              </div>
-
-              {menuLoading ? (
-                <div className="flex justify-center py-12">
-                  <div className="w-8 h-8 border-2 border-emerald-500/30 border-t-emerald-500 rounded-full animate-spin" />
-                </div>
-              ) : menuItems.length === 0 ? (
-                <p className="text-center text-gray-500 text-sm py-12">المكان لم يضف أصنافاً بعد</p>
-              ) : (
-                (() => {
-                  const q = browseQ.trim();
-                  const list = q
-                    ? menuItems.filter((i: any) => i.name.includes(q) || (i.description || '').includes(q))
-                    : menuItems;
-                  if (list.length === 0) {
-                    return <p className="text-center text-gray-500 text-sm py-12">لا صنف يطابق «{q}»</p>;
-                  }
-                  return Array.from(new Set(list.map((i: any) => i.category || ''))).map((cat: any) => (
-                  <div key={cat || '_none'} className="mb-4">
-                    <h4 className="text-xs font-bold text-emerald-400/80 mb-2 flex items-center gap-2">
-                      <span>{cat || 'المنيو'}</span>
-                      <span className="flex-1 h-px bg-emerald-500/10" />
-                    </h4>
-                    {/* القسم الفرعيّ عنوانٌ داخل القسم — بدونه صار الأربعون مشروباً كتلةً واحدة */}
-                    {Array.from(new Set(list.filter((i: any) => (i.category || '') === cat).map((i: any) => i.subcategory || ''))).map((sub: any) => (
-                    <div key={sub || '_direct'} className="mb-3">
-                      {sub && <p className="text-[10px] font-bold text-gray-500 mb-1.5 pr-1">↳ {sub}</p>}
-                    <div className="space-y-2">
-                      {list.filter((i: any) => (i.category || '') === cat && (i.subcategory || '') === sub).map((it: any) => (
-                        <div key={it.id} className="rounded-xl p-3 flex items-center gap-3"
-                          style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.06)' }}>
-                          <div className="w-11 h-11 rounded-lg overflow-hidden bg-gray-800 flex items-center justify-center shrink-0">
-                            {it.imageUrl ? <img src={it.imageUrl} alt="" className="w-full h-full object-cover" /> : <span>{it.isBundle ? '🎁' : '🍴'}</span>}
-                          </div>
-                          <div className="flex-1 min-w-0">
-                            <p className="text-white text-sm truncate">
-                              {it.isBundle && <span className="text-[9px] px-1.5 py-0.5 rounded-md ml-1.5" style={{ background: 'rgba(139,92,246,0.15)', border: '1px solid rgba(139,92,246,0.3)', color: '#c4b5fd' }}>عرض</span>}
-                              {it.name}
-                            </p>
-                            {it.isBundle && it.components?.length > 0 ? (
-                              <p className="text-[10px]" style={{ color: 'rgba(196,181,253,0.75)' }}>
-                                {it.components.map((c: any) => `${c.name}${c.qty > 1 ? ` ×${c.qty}` : ''}`).join(' + ')}
-                              </p>
-                            ) : it.description ? (
-                              <p className="text-gray-600 text-[10px] truncate">{it.description}</p>
-                            ) : null}
-                          </div>
-                          <span className="text-emerald-400 text-sm font-bold shrink-0 tabular-nums">{parseFloat(it.price).toFixed(2)} د.أ</span>
-                        </div>
-                      ))}
-                    </div>
-                    </div>
-                    ))}
-                  </div>
-                  ));
-                })()
-              )}
-
-              <button onClick={() => setMenuFor(null)}
-                className="w-full mt-2 py-3 rounded-xl text-sm text-gray-400"
-                style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.08)' }}>
-                إغلاق
-              </button>
+              <OrderPanel mode="browse" embedded locationId={menuFor.locationId} locationName={menuFor.locationName} onClose={() => setMenuFor(null)} />
             </motion.div>
           </motion.div>
         )}

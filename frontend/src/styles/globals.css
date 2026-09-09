@@ -50,6 +50,13 @@
     overscroll-behavior-y: contain;
   }
 
+  /* ══ 🍽️ ارتفاعات لوحة المنيو ══
+     🔴 سطر 100vh احتياطيّ قبل 100dvh: متصفّحات أندرويد القديمة وiOS < 15.4 لا
+        تعرف dvh فتُسقط السطر كلّه، ويصير الارتفاع تلقائيّاً وينزل شريط
+        «راجع وأرسل» تحت شريط التنقّل (الشكوى: «زرّ الإرسال لا يظهر»). */
+  .fnb-page-h { height: calc(100vh - var(--nav-h)); height: calc(100dvh - var(--nav-h)); }
+  .fnb-sheet-h { height: 88vh; height: 88dvh; }
+
   /* منع السكرول عند فتح موديل */
   body.modal-open {
     position: fixed;
