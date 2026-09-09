@@ -524,6 +524,44 @@ export async function startOnlineSeason(name: string, createdBy?: number): Promi
   return row as any;
 }
 
+// ══════════════════════════════════════════════════════
+// 🎁 مكافأة الترحيب — في الدفتر لا على العمود وحدَه
+// ══════════════════════════════════════════════════════
+// 🔴 كانت تُكتب على `players.xp = 200` عند التسجيل فقط. والمصالحة تُعيد اشتقاق
+//    التقدّم من match_players + rank_bonuses وتُصفّر ما عداهما — فأوّلُ مصالحةٍ
+//    بعد أوّل مباراةٍ للاعب الجديد تمحو مكافأتَه. قِيس على الإنتاج (2026-09-09):
+//    لاعبان جديدان فقدا ٢٠٠ نقطةٍ لكلٍّ منهما لحظةَ أوّل إعادة احتساب.
+//    الدفترُ هو الناجي الوحيد، فتُسجَّل فيه — والعمودُ يبقى مرآةً كبقيّة الأرقام.
+//
+// ⚠️ تحتاج مدينةً: مكافأةُ موسمٍ عاديّ بلا مدينةٍ تتخطّاها المصالحة. فمن سجّل بلا
+//    مدينةٍ تُسجَّل له لحظةَ تحديد مدينته الأساسيّة (PUT /me/home-city).
+export const WELCOME_BONUS_REASON = 'welcome-bonus';
+export const WELCOME_BONUS_XP = 200;
+
+/** يسجّل مكافأة الترحيب في الدفتر إن لم تكن مسجّلةً. آمنٌ للتكرار (المفتاح: لاعب + سبب). */
+export async function ensureWelcomeBonusLedger(playerId: number, cityId: number | null): Promise<boolean> {
+  const db = getDB();
+  if (!db || !playerId || !cityId) return false;
+  try {
+    const seasonId = await getActiveRegularSeasonId();
+    if (!seasonId) return false;
+    const [p] = await db.select({ applied: players.welcomeBonusApplied }).from(players).where(eq(players.id, playerId)).limit(1);
+    if (!p?.applied) return false; // لم يُمنح أصلاً (حسابٌ مهاجَر) — لا نخترع مكافأة
+    const res: any = await db.execute(sql`
+      INSERT INTO rank_bonuses (player_id, rr, xp, reason, season_id, city_id, meta)
+      SELECT ${playerId}, 0, ${WELCOME_BONUS_XP}, ${WELCOME_BONUS_REASON}, ${seasonId}, ${cityId},
+             ${JSON.stringify({ kind: 'welcome-bonus' })}::jsonb
+      WHERE NOT EXISTS (SELECT 1 FROM rank_bonuses WHERE player_id = ${playerId} AND reason = ${WELCOME_BONUS_REASON})
+      RETURNING id`);
+    const inserted = ((res?.rows ?? res ?? []) as any[]).length > 0;
+    if (inserted) console.log(`🎁 [welcome] ledgered ${WELCOME_BONUS_XP} XP for player #${playerId} (city ${cityId}, season ${seasonId})`);
+    return inserted;
+  } catch (e: any) {
+    console.warn(`⚠️ [welcome] ledger failed for player #${playerId}:`, e?.message || e);
+    return false;
+  }
+}
+
 /** كسرُ التعادل في العرض: هل يملك اللاعب أيَّ صفٍّ بمباريات في المدينة؟ */
 export async function hasStandingIn(playerIds: number[], seasonId: number, cityId: number): Promise<Set<number>> {
   const db = getDB();

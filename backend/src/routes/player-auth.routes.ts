@@ -116,6 +116,15 @@ router.post('/register', async (req: Request, res: Response) => {
       return res.status(500).json({ success: false, error: 'فشل في إنشاء الحساب' });
     }
 
+    // 🎁 مكافأة الترحيب في الدفتر لا على العمود وحدَه — وإلّا محتها أوّلُ مصالحةٍ بعد أوّل مباراة.
+    //    بلا مدينةٍ لا تُسجَّل الآن: تُسجَّل لحظةَ اختيار المدينة الأساسيّة (PUT /me/home-city).
+    if (homeCityId) {
+      try {
+        const { ensureWelcomeBonusLedger } = await import('../services/season.service.js');
+        await ensureWelcomeBonusLedger(player.id, homeCityId);
+      } catch { /* المكافأة على العمود قائمة؛ الدفتر يُستدرَك عند ضبط المدينة */ }
+    }
+
     // إصدار Token
     const token = generatePlayerToken({
       playerId: player.id,

@@ -78,7 +78,9 @@ router.put('/me/home-city', authenticatePlayer, async (req: Request, res: Respon
     await db.update(players).set({ homeCityId: city.id, homeCitySource: 'chosen' } as any).where(eq(players.id, playerId));
     // المرآة تتبع المدينة الأساسيّة الجديدة فوراً
     try {
-      const { syncPlayerMirror } = await import('../services/season.service.js');
+      const { syncPlayerMirror, ensureWelcomeBonusLedger } = await import('../services/season.service.js');
+      // 🎁 مَن سجّل بلا مدينة: تُسجَّل مكافأة ترحيبه في الدفتر الآن — قبل أوّل مصالحةٍ تمحوها
+      await ensureWelcomeBonusLedger(playerId, city.id);
       await syncPlayerMirror(playerId);
     } catch { /* المرآة توافقٌ خلفيّ — تصحّحها المصالحة التالية */ }
     res.json({ success: true, homeCityId: city.id, homeCityName: city.name });
