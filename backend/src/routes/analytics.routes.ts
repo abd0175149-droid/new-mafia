@@ -111,11 +111,12 @@ router.get('/explore/options', authenticate, managerOrAbove, async (_req: Reques
   const db = getDB();
   if (!db) return res.status(503).json({ error: 'قاعدة البيانات غير متوفرة' });
   try {
-    const [locations, seasons] = await Promise.all([
+    const [locations, seasons, cities] = await Promise.all([
       loadOptions(db, 'locations'),
       loadOptions(db, 'seasons'),
+      loadOptions(db, 'cities'),
     ]);
-    res.json({ success: true, locations, seasons });
+    res.json({ success: true, locations, seasons, cities });
   } catch (err: any) {
     console.error('❌ analytics/explore/options:', err.message);
     res.status(500).json({ error: err.message });

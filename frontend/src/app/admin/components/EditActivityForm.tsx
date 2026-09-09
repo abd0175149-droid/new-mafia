@@ -2,6 +2,8 @@
 
 import { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
+import CityBadge, { LocationOptgroups } from '@/components/admin/CityBadge';
+import { useActiveSeason } from '@/hooks/useActiveSeason';
 
 interface EditActivityFormProps {
   activity: any;
@@ -125,6 +127,8 @@ export default function EditActivityForm({ activity, locations, onSubmit, onCanc
   const venueHasPoint = !!(selectedLocation && selectedLocation.latitude !== null && selectedLocation.latitude !== undefined);
   const venueRadius = selectedLocation?.geofenceRadiusM ?? 200;
   useEffect(() => { if (!venueHasPoint && geofenceEnabled) setGeofenceEnabled(false); }, [venueHasPoint, geofenceEnabled]);
+  // 🏙️ المكانُ لا يُفرَّغ — الخادم يرفض locationId=null (LOCATION_REQUIRED)؛ فعاليّةٌ قديمةٌ بلا مكانٍ تُلزَم باختياره
+  const { season } = useActiveSeason();
   const locationOffers: any[] = selectedLocation?.offers || [];
   const hasOffers = enabledOfferIds.length > 0;
   const selectedTemplate = templates.find(t => t.id === Number(seatTemplateId));
@@ -152,12 +156,13 @@ export default function EditActivityForm({ activity, locations, onSubmit, onCanc
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
+    if (!locationId) { setActiveSection('pricing'); return; }
     setSubmitting(true);
     try {
       await onSubmit(activity.id, {
         name, date: date || undefined, description, status,
         basePrice: hasOffers ? 0 : Number(basePrice) || 0,
-        locationId: locationId ? Number(locationId) : null,
+        locationId: Number(locationId),
         enabledOfferIds: hasOffers ? enabledOfferIds : [],
         maxCapacity: Number(maxCapacity) || 20,
         difficulty, driveLink, requireTicket,
@@ -269,12 +274,36 @@ export default function EditActivityForm({ activity, locations, onSubmit, onCanc
         {/* القسم 3: المكان والأسعار */}
         <Section id="pricing" title="المكان والأسعار" icon="💰" activeSection={activeSection} setActiveSection={setActiveSection}>
           <div>
-            <label className="block text-xs text-gray-400 mb-1.5">موقع الفعالية</label>
+            <label className="block text-xs text-gray-400 mb-1.5">موقع الفعالية <span className="text-rose-400">*</span></label>
             <select value={locationId} onChange={e => handleLocationChange(e.target.value)}
-              className="w-full px-4 py-3 bg-gray-900/60 border border-gray-600/50 rounded-xl text-white focus:outline-none focus:ring-2 focus:ring-amber-500/50 text-sm">
-              <option value="">غير محدد</option>
-              {locations.map(loc => (<option key={loc.id} value={loc.id}>{loc.name}</option>))}
+              className={`w-full px-4 py-3 bg-gray-900/60 border rounded-xl text-white focus:outline-none focus:ring-2 focus:ring-amber-500/50 text-sm ${locationId ? 'border-gray-600/50' : 'border-rose-500/50'}`}>
+              <option value="" disabled>— اختر المكان —</option>
+              <LocationOptgroups locations={locations} />
             </select>
+            {!locationId && <p className="text-[11px] text-rose-400 mt-1">المكان مطلوب — لا تُحفظ فعاليّةٌ بلا مكان</p>}
+            {/* 🏙️ سطرٌ مشتقّ: الاسمُ والمدينةُ والتصنيفُ الذي تُحتسب له المباريات */}
+            {selectedLocation && (
+              <div className="flex items-center gap-2 flex-wrap text-xs text-gray-500 mt-2">
+                <span>اسم النشاط: <span className="text-amber-400 font-bold">{name || activity.name || '—'}</span></span>
+                <span className="text-gray-700">|</span>
+                <span className="inline-flex items-center gap-1">
+                  المدينة:
+                  {selectedLocation.cityName
+                    ? <CityBadge cityId={selectedLocation.cityId} cityName={selectedLocation.cityName} />
+                    : <span className="text-rose-400">بلا مدينة — عدّل المكان أوّلاً</span>}
+                </span>
+                {selectedLocation.cityName && (
+                  <>
+                    <span className="text-gray-700">|</span>
+                    <span>
+                      {selectedLocation.isTestLocation
+                        ? '🧪 مكانُ اختبار — مبارياته لا تُحتسب للرانك'
+                        : `🏆 مبارياتها تُحتسب لتصنيف ${selectedLocation.cityName}${season?.name ? ` — ${season.name}` : ''}`}
+                    </span>
+                  </>
+                )}
+              </div>
+            )}
           </div>
           {/* 🗄️ فعاليّة قديمة قائمة على عروض الحجز: تُعرض للقراءة وتُكمل دورتها (توحيد 2026-08-06) */}
           {hasOffers && (
@@ -418,14 +447,15 @@ export default function EditActivityForm({ activity, locations, onSubmit, onCanc
 
         {/* أزرار الحفظ والإلغاء */}
         <div className="flex items-center gap-3 pt-3 border-t border-gray-700/20">
-          <button type="submit" disabled={submitting || !hasChanges}
-            className={`flex-1 py-3 font-bold rounded-xl transition text-sm ${hasChanges ? 'bg-gradient-to-r from-amber-500 to-rose-600 text-white hover:opacity-90' : 'bg-gray-700/50 text-gray-500 cursor-not-allowed'}`}>
+          <button type="submit" disabled={submitting || !hasChanges || !locationId}
+            title={!locationId ? 'المكان مطلوب' : undefined}
+            className={`flex-1 py-3 font-bold rounded-xl transition text-sm ${hasChanges && locationId ? 'bg-gradient-to-r from-amber-500 to-rose-600 text-white hover:opacity-90' : 'bg-gray-700/50 text-gray-500 cursor-not-allowed'}`}>
             {submitting ? (
               <span className="flex items-center justify-center gap-2">
                 <span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
                 جاري الحفظ...
               </span>
-            ) : hasChanges ? '💾 حفظ التعديلات' : 'لا توجد تعديلات'}
+            ) : !locationId ? 'المكان مطلوب' : hasChanges ? '💾 حفظ التعديلات' : 'لا توجد تعديلات'}
           </button>
           <button type="button" onClick={onCancel} className="px-6 py-3 bg-gray-700/50 text-gray-300 rounded-xl hover:bg-gray-700/70 transition text-sm">
             إلغاء

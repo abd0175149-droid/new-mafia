@@ -17,6 +17,7 @@
 
 import { useEffect, useState, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
+import { LocationOptgroups } from '@/components/admin/CityBadge';
 
 interface DayPlan {
   dow: number;
@@ -48,6 +49,9 @@ interface Preview {
   weekStartAmman: string;
   locationId: number | null;
   locationName: string;
+  /** 🏙️ مدينةُ مكان القالب — تُعرض في الرأس */
+  cityId?: number | null;
+  cityName?: string | null;
   seatTemplateId: number | null;
   schedule: { kind: string; label: string; start: string; end: string }[];
   seatConstraints: any;
@@ -94,6 +98,21 @@ export default function WeekGamesModal({
   const [showSchedule, setShowSchedule] = useState(false);
   const [addOpen, setAddOpen] = useState(false);
   const [nd, setNd] = useState({ day: '', time: '19:00', name: '', cap: 30 });
+  // 🏙️ المكانُ قابلٌ للتبديل قبل الإنشاء — القالبُ يقترح مكانَه، والمدينةُ تتبع المكان
+  const [locations, setLocations] = useState<any[]>([]);
+  const [locId, setLocId] = useState<string>('');
+  const selLoc = locations.find(l => String(l.id) === locId);
+  const locName: string = selLoc?.name || pv?.locationName || '';
+  const cityName: string | null = selLoc ? (selLoc.cityName ?? null) : (pv?.cityName ?? null);
+
+  const changeLocation = (id: string) => {
+    const from = locName;
+    const to = locations.find(l => String(l.id) === id)?.name || '';
+    setLocId(id);
+    // الأسماءُ المولَّدة تبدأ باسم المكان — تُستبدل للصفوف التي ستُنشأ فقط
+    if (!from || !to || from === to) return;
+    setRows(prev => prev.map(r => (!r.exists && r.name.startsWith(from) ? { ...r, name: to + r.name.slice(from.length) } : r)));
+  };
 
   const load = useCallback(async () => {
     setLoading(true); setErr('');
@@ -101,6 +120,8 @@ export default function WeekGamesModal({
       const d: Preview = await apiFetch('/api/activities/week/preview');
       setPv(d);
       setRows(d.days || []);
+      setLocId(d.locationId ? String(d.locationId) : '');
+      apiFetch('/api/locations').then(l => setLocations(Array.isArray(l) ? l : [])).catch(() => setLocations([]));
       // الاثنينُ افتراضاً: أوّلُ يومٍ في الأسبوع لا يشغله القالب
       const start = d.weekStartAmman;
       const taken = new Set((d.days || []).map(x => x.dow));
@@ -122,6 +143,8 @@ export default function WeekGamesModal({
 
   const create = async () => {
     if (!pv || pending.length === 0) return;
+    const locationId = locId ? Number(locId) : pv.locationId;
+    if (!locationId) { setErr('اختر المكان أوّلاً — لا تُنشأ فعاليّةٌ بلا مكان'); return; }
     setBusy(true); setErr('');
     try {
       const res = await apiFetch('/api/activities/week', {
@@ -131,7 +154,7 @@ export default function WeekGamesModal({
             dateUtc: r.dateUtc, name: r.name, maxCapacity: r.maxCapacity,
             allowSameDay: !!r.extra,
           })),
-          locationId: pv.locationId,
+          locationId,
           seatTemplateId: pv.seatTemplateId,
           schedule: pv.schedule,
           seatConstraints: pv.seatConstraints,
@@ -159,7 +182,7 @@ export default function WeekGamesModal({
     const dateUtc = ammanToUtcIso(nd.day, nd.time);
     if (rows.some(r => r.dateUtc === dateUtc)) { setErr('هذه الليلةُ مضافةٌ سلفاً'); return; }
     const dow = dowOf(nd.day);
-    const name = nd.name.trim() || `${pv?.locationName || 'فعاليّة'} ${Number(nd.day.slice(8, 10))}`;
+    const name = nd.name.trim() || `${locName || 'فعاليّة'} ${Number(nd.day.slice(8, 10))}`;
     setErr('');
     setRows(prev => [...prev, {
       dow, labelAr: DOW_AR[dow], dateUtc,
@@ -191,7 +214,7 @@ export default function WeekGamesModal({
               <div className="flex-1 min-w-0">
                 <b className="block text-[15px] text-white">ألعاب الأسبوع</b>
                 <span className="block text-[11.5px] text-gray-500 truncate">
-                  {pv ? `من الأحد ${prettyAmman(pv.weekStartAmman + ' 00:00').split(' · ')[0]} · ${pv.locationName || 'بلا مكان'}` : 'يُحمّل…'}
+                  {pv ? `من الأحد ${prettyAmman(pv.weekStartAmman + ' 00:00').split(' · ')[0]} · ${locName || 'بلا مكان'}${cityName ? ` · 🏙️ ${cityName}` : ''}` : 'يُحمّل…'}
                 </span>
               </div>
               <button onClick={onClose} className="w-9 h-9 rounded-lg text-gray-500 hover:text-white">✕</button>
@@ -205,6 +228,20 @@ export default function WeekGamesModal({
                 <p className="text-center text-rose-400 text-sm py-12">{err}</p>
               ) : (
                 <>
+                  {/* 🏙️ المكان — يُبدَّل قبل الإنشاء؛ الأماكنُ مجمّعةٌ بالمدينة */}
+                  <div className="rounded-xl px-3.5 py-2.5 flex items-center gap-2"
+                    style={{ background: 'rgba(255,255,255,.025)', border: '1px solid rgba(255,255,255,.06)' }}>
+                    <span className="text-[12px] text-gray-500 shrink-0">📍 المكان</span>
+                    <select value={locId} onChange={e => changeLocation(e.target.value)} disabled={busy}
+                      className="flex-1 min-w-0 h-9 px-2 rounded-lg text-[13px] font-bold text-white outline-none disabled:opacity-50"
+                      style={{ background: 'rgba(255,255,255,.045)', border: '1px solid rgba(255,255,255,.09)' }}>
+                      {!locId && <option value="">— اختر المكان —</option>}
+                      {locations.length === 0 && locId && <option value={locId}>{locName || `#${locId}`}</option>}
+                      <LocationOptgroups locations={locations} />
+                    </select>
+                    {cityName && <span className="text-[11px] text-gray-500 shrink-0 whitespace-nowrap">🏙️ {cityName}</span>}
+                  </div>
+
                   {rows.map((r, i) => (
                     <div
                       key={r.extra ? `x-${r.dateUtc}` : `t-${r.dow}`}
@@ -310,7 +347,7 @@ export default function WeekGamesModal({
                         <input
                           value={nd.name}
                           onChange={e => setNd(v => ({ ...v, name: e.target.value }))}
-                          placeholder={`${pv?.locationName || 'فعاليّة'} …  (يُولَّد تلقائيّاً إن تُرك فارغاً)`}
+                          placeholder={`${locName || 'فعاليّة'} …  (يُولَّد تلقائيّاً إن تُرك فارغاً)`}
                           className="flex-1 min-w-0 h-10 px-3 rounded-lg bg-gray-900/60 border border-gray-700 text-white text-[13px] outline-none placeholder-gray-600"
                         />
                         <div className="flex items-center gap-1.5 shrink-0">

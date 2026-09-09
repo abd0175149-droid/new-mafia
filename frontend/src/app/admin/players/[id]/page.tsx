@@ -23,6 +23,8 @@ import Image from 'next/image';
 import dynamic from 'next/dynamic';
 import { swalConfirm } from '@/lib/swal';
 import { trailColor, trailSize, groupStays, ago, dist, dur, haversineM } from '@/lib/trail';
+import CityBadge from '@/components/admin/CityBadge';
+import { rankName, rankBadge, rankColor } from '@/lib/ranks';
 
 // 🔴 الخريطةُ تُحمَّل عند الطلب لا مع الصفحة: مكتبتُها ثقيلة، وتبويبُ الموقع
 //    يُفتح أحياناً بينما البطاقةُ تُفتح كلَّ مرّة.
@@ -202,7 +204,7 @@ export default function PlayerCardPage() {
           </h2>
           {tabBusy && !sections[tab]
             ? <div className="py-16 text-center text-gray-600 text-sm">جارٍ التحميل…</div>
-            : <SectionView data={sections[tab]} isAdmin={isAdmin} />}
+            : <SectionView data={sections[tab]} isAdmin={isAdmin} playerId={playerId} />}
         </div>
       )}
 
@@ -563,7 +565,48 @@ function since(d: any): string {
   return `قبل ${ar(Math.round(h / 24))} يوماً`;
 }
 
-function SectionView({ data, isAdmin }: { data: any; isAdmin: boolean }) {
+// ══ 🏙️ رتبُ اللاعب بمدنه — من ملفّه (`standings[]`)؛ يُخفى بصمتٍ حين لا يتوفّر ══
+function CityStandings({ playerId, initial }: { playerId?: string | number; initial?: any[] }) {
+  const [rows, setRows] = useState<any[] | null>(Array.isArray(initial) ? initial : null);
+  useEffect(() => {
+    if (Array.isArray(initial) || !playerId) return;
+    let alive = true;
+    api(`/api/player/${playerId}/profile`)
+      .then(d => { if (alive) setRows(Array.isArray(d?.standings) ? d.standings : []); })
+      .catch(() => { if (alive) setRows([]); });
+    return () => { alive = false; };
+  }, [playerId, initial]);
+  if (!rows || rows.length === 0) return null;
+  return (
+    <Section title="رتبتُه بمدنه — لكلّ مدينةٍ ترتيبُها">
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+        {rows.map((s: any) => {
+          const req = Number(s.rrRequired) || 0;
+          const rr = Number(s.rankRR) || 0;
+          const pct = req > 0 ? Math.min(100, Math.round((rr / req) * 100)) : 100;
+          const color = rankColor(s.rankTier);
+          return (
+            <div key={s.cityId} className="rounded-xl bg-gray-900/50 border border-gray-700/40 p-3 space-y-1.5">
+              <div className="flex items-center justify-between gap-2">
+                <CityBadge cityId={s.cityId} cityName={s.cityName} size="sm" />
+                <span className="text-[12px] font-bold" style={{ color }}>{rankBadge(s.rankTier)} {rankName(s.rankTier)}</span>
+              </div>
+              <div className="h-1.5 rounded-full bg-gray-800 overflow-hidden" title={req > 0 ? `${rr} / ${req} RR` : `${rr} RR`}>
+                <div className="h-full rounded-full transition-all" style={{ width: `${pct}%`, background: color }} />
+              </div>
+              <div className="flex items-center justify-between text-[11px] text-gray-500 tabular-nums">
+                <span>{ar(rr)}{req > 0 ? ` / ${ar(req)}` : ''} RR</span>
+                <span>Lv.{ar(s.level || 1)} · {ar(s.totalMatches || 0)} مباراة</span>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </Section>
+  );
+}
+
+function SectionView({ data, isAdmin, playerId }: { data: any; isAdmin: boolean; playerId?: string | number }) {
   if (!data) return <div className="py-16 text-center text-gray-600 text-sm">جارٍ التحميل…</div>;
 
   switch (data.key) {
@@ -640,6 +683,9 @@ function SectionView({ data, isAdmin }: { data: any; isAdmin: boolean }) {
           {w.firstNight && (
             <p className="text-[11.5px] text-gray-600 px-1">أوّلُ ليلةٍ له: {fmtDate(w.firstNight)}</p>
           )}
+
+          {/* 🏙️ بطاقةٌ لكلّ مدينةٍ لعب فيها */}
+          <CityStandings playerId={playerId} initial={data.standings} />
 
           {data.nights.length > 0 ? (
             <Section title="آخرُ ثلاثِ ليالٍ">

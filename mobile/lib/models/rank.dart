@@ -1,6 +1,9 @@
 import 'package:flutter/material.dart';
 
+import 'city.dart';
 import 'home.dart' show RankInfo;
+
+export 'city.dart' show City;
 
 // ══════════════════════════════════════════════════════
 // 🏆 نماذج شاشة الرتب — §8 في الملفّ 15
@@ -131,17 +134,64 @@ class CoPlayer {
 }
 
 class Season {
-  const Season({required this.id, required this.name});
+  const Season({required this.id, required this.name, this.cities = const []});
   final int id;
   final String name;
 
-  factory Season.fromJson(Map<String, dynamic> j) =>
-      Season(id: _i(j['id']), name: (j['name'] ?? '').toString());
+  /// 🏙️ مدن الموسم العاديّ (`/api/seasons/public/active`) — فارغة لموسمٍ
+  /// أونلاين ولخادمٍ قديم؛ حينها يسقط العميل على `/api/cities/public`.
+  final List<City> cities;
+
+  factory Season.fromJson(Map<String, dynamic> j) => Season(
+        id: _i(j['id']),
+        name: (j['name'] ?? '').toString(),
+        cities: City.listFrom(j['cities']),
+      );
 
   static List<Season> listFrom(dynamic v) => (v as List? ?? const [])
       .whereType<Map>()
       .map((e) => Season.fromJson(Map<String, dynamic>.from(e)))
       .toList();
+}
+
+/// استجابة `/api/player-app/leaderboard?cityId=` — اللوحة **ومدينتها**.
+///
+/// 🔴 المدينة تُقرأ من الاستجابة لا من الطلب: حين يُحذف `cityId` يختار
+///    الخادم مدينة اللاعب الأساسيّة (أو الأولى)، ولا يعرفها العميل إلا هنا.
+class LeaderboardResponse {
+  const LeaderboardResponse({
+    this.leaderboard = const [],
+    this.cityId,
+    this.cityName,
+    this.seasonId,
+    this.seasonName,
+    this.cities = const [],
+  });
+
+  final List<LeaderboardRow> leaderboard;
+  final int? cityId;
+  final String? cityName;
+  final int? seasonId;
+  final String? seasonName;
+  final List<City> cities;
+
+  static List<LeaderboardRow> rowsFrom(dynamic v) => (v as List? ?? const [])
+      .whereType<Map>()
+      .map((e) => LeaderboardRow.fromJson(Map<String, dynamic>.from(e)))
+      .toList();
+
+  factory LeaderboardResponse.fromJson(Map<String, dynamic> j) => LeaderboardResponse(
+        leaderboard: rowsFrom(j['leaderboard']),
+        cityId: j['cityId'] == null ? null : _i(j['cityId']),
+        cityName: (j['cityName'] is String && (j['cityName'] as String).trim().isNotEmpty)
+            ? (j['cityName'] as String).trim()
+            : null,
+        seasonId: j['seasonId'] == null ? null : _i(j['seasonId']),
+        seasonName: (j['seasonName'] is String && (j['seasonName'] as String).trim().isNotEmpty)
+            ? (j['seasonName'] as String).trim()
+            : null,
+        cities: City.listFrom(j['cities']),
+      );
 }
 
 /// قيم قدرة دورٍ واحد من `roleAbilities` — تجاوزٌ دقيق للقيم العامة

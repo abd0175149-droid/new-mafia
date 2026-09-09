@@ -1,6 +1,7 @@
 'use client';
 
 import { motion } from 'framer-motion';
+import CityBadge from '@/components/admin/CityBadge';
 
 // ── أنواع ──
 interface ActivityStats {
@@ -21,6 +22,8 @@ interface ActivityCardProps {
   onSelect?: () => void;
   onEdit?: () => void;
   userRole?: string;
+  /** 🏙️ صفُّ المكان من قائمة الأماكن — احتياطٌ حين لا يحمل صفُّ الفعاليّة locationName/cityName */
+  location?: any;
 }
 
 // ── ثوابت ──
@@ -51,12 +54,17 @@ function formatActivityDate(dateStr: any): { date: string; time: string } {
   };
 }
 
-export default function ActivityCard({ activity, stats, onDelete, onStatusChange, onSelect, onEdit, userRole }: ActivityCardProps) {
+export default function ActivityCard({ activity, stats, onDelete, onStatusChange, onSelect, onEdit, userRole, location }: ActivityCardProps) {
   const status = STATUS_MAP[activity.status] || STATUS_MAP.planned;
   const isLocked = activity.isLocked;
   const isLocationOwner = userRole === 'location_owner';
   const isAccountant = userRole === 'accountant';
   const actDate = formatActivityDate(activity.date);
+  // 🏙️ الصفُّ يحمل المكانَ والمدينةَ من الخادم؛ وإلّا من قائمة الأماكن
+  const cityId = activity.cityId ?? location?.cityId ?? null;
+  const cityName = activity.cityName ?? location?.cityName ?? null;
+  const locationName = activity.locationName ?? location?.name ?? null;
+  const region = activity.locationRegion ?? location?.region ?? null;
 
   return (
     <motion.div
@@ -72,6 +80,8 @@ export default function ActivityCard({ activity, stats, onDelete, onStatusChange
             <span className={`text-[11px] px-2.5 py-1 rounded-full border ${status.bg} ${status.text} ${status.border} font-medium`}>
               {status.label}
             </span>
+            {/* 🏙️ شارة المدينة */}
+            <CityBadge cityId={cityId} cityName={cityName} />
             {/* Badge مقفول */}
             {isLocked && (
               <span className="text-[11px] px-2 py-1 rounded-full bg-rose-500/15 text-rose-400 border border-rose-500/20 flex items-center gap-1">
@@ -88,6 +98,10 @@ export default function ActivityCard({ activity, stats, onDelete, onStatusChange
 
         {/* الاسم */}
         <h3 className="text-sm font-bold text-white mb-1 line-clamp-1">{activity.name || 'بدون اسم'}</h3>
+        {/* 📍 المكان والحيّ */}
+        {locationName && (
+          <p className="text-[11px] text-gray-500 line-clamp-1 mb-0.5">📍 {locationName}{region ? ` · ${region}` : ''}</p>
+        )}
         {/* الوصف */}
         {activity.description && (
           <p className="text-xs text-gray-500 line-clamp-1">{activity.description}</p>

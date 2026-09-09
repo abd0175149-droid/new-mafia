@@ -23,6 +23,21 @@ import SoundMixer from './SoundMixer';
 import OneNightReview from './OneNightReview';
 import FixedLayer from '@/components/FixedLayer';
 
+// 🏙️ تصنيفٌ لكلّ مدينة — أختامٌ ومساعدات محليّة لهذه الصفحة (أسماء المدن من الخادم وحده)
+const CITY_STAMP = 'inline-flex items-center gap-1.5 border border-[#C5A059]/35 bg-[#C5A059]/10 text-[#C5A059] text-[11px] px-2.5 py-1';
+const CITY_STAMP_RED = 'inline-flex items-center gap-1.5 border border-[#8A0303]/50 bg-[#8A0303]/15 text-[#ff5555] text-[11px] px-2.5 py-1';
+const joinPlace = (...parts: (string | null | undefined)[]) => parts.filter(Boolean).join(' · ');
+function groupByCity<T extends { cityId?: number | null; cityName?: string | null }>(rows: T[]) {
+  const groups: { key: string; label: string; rows: T[] }[] = [];
+  for (const r of rows) {
+    const key = r.cityId != null ? String(r.cityId) : (r.cityName || '');
+    let g = groups.find(x => x.key === key);
+    if (!g) { g = { key, label: r.cityName || '', rows: [] }; groups.push(g); }
+    g.rows.push(r);
+  }
+  return groups;
+}
+
 interface ActiveGame {
   roomId: string;
   roomCode: string;
@@ -30,6 +45,12 @@ interface ActiveGame {
   playerCount: number;
   maxPlayers: number;
   displayPin: string;
+  // 🏙️ من /api/game/leader-rooms — الفعاليّة والمكان والمدينة وهل تُحتسب
+  activityName?: string | null;
+  locationName?: string | null;
+  cityId?: number | null;
+  cityName?: string | null;
+  counted?: boolean;
 }
 
 interface VotingState {
@@ -71,6 +92,13 @@ interface GameState {
   // Session
   sessionId?: number;
   activityId?: number;
+  // 🏙️ المكان والمدينة والموسم — counted=false ⇒ غرفةٌ غير محتسبة (بلا مكان)
+  locationId?: number | null;
+  locationName?: string | null;
+  cityId?: number | null;
+  cityName?: string | null;
+  seasonName?: string | null;
+  counted?: boolean;
   // 🔪 Assassin
   assassinState?: any;
   // 💣 Bomb
@@ -128,6 +156,10 @@ export default function LeaderPage() {
   const [displayPin, setDisplayPin] = useState('');
   const [selectedActivityId, setSelectedActivityId] = useState<number | null>(null);
   const [availableActivities, setAvailableActivities] = useState<any[]>([]);
+  // 🏙️ غرفةٌ بلا نشاط: المكان وحده يحدّد المدينة التي تُحتسب لها
+  const [availableLocations, setAvailableLocations] = useState<any[]>([]);
+  const [selectedLocationId, setSelectedLocationId] = useState<number | null>(null);
+  const [activeSeasonName, setActiveSeasonName] = useState<string>('');
   const [nightMode, setNightMode] = useState<'manual' | 'auto'>('manual'); // نمط الليل
   // تتبع Auto Night Progress
   const [autoNightProgress, setAutoNightProgress] = useState<{ total: number; submitted: number; missingPlayers?: {physicalId: number, name: string}[]; choices?: any[] } | null>(null);
@@ -620,10 +652,27 @@ export default function LeaderPage() {
     if (isAuthenticated) {
       fetchActiveGames();
       fetchHistory();
-      // جلب الأنشطة المتاحة للربط
-      fetch('/api/activities/available')
+      // جلب الأنشطة المتاحة للربط — تحتاج مصادقة ليدر، وتقبل الشكل القديم (مصفوفة) والجديد
+      const leaderAuth = { Authorization: `Bearer ${localStorage.getItem('leader_token') || ''}` };
+      fetch('/api/activities/available', { headers: leaderAuth })
         .then(res => res.json())
-        .then(data => { if (Array.isArray(data)) setAvailableActivities(data); })
+        .then(data => {
+          const rows = Array.isArray(data) ? data : (Array.isArray(data?.activities) ? data.activities : []);
+          setAvailableActivities(rows);
+        })
+        .catch(() => {});
+      // 🏙️ الأماكن — لغرفةٍ بلا نشاط يختار الليدر المكان فتُحتسب لمدينته
+      fetch('/api/locations', { headers: leaderAuth })
+        .then(res => res.json())
+        .then(raw => {
+          const rows = Array.isArray(raw) ? raw : (Array.isArray(raw?.locations) ? raw.locations : []);
+          setAvailableLocations(rows.filter((l: any) => l && l.isActive !== false));
+        })
+        .catch(() => {});
+      // 🗓️ الموسم النشط — لختم «ستُحتسب لتصنيف {المدينة} — {الموسم}»
+      fetch('/api/seasons/public/active')
+        .then(res => res.json())
+        .then(d => { if (d?.success && d.season?.name) setActiveSeasonName(d.season.name); })
         .catch(() => {});
 
       // ── دخول تلقائي من واجهة الإدارة ──
@@ -676,6 +725,13 @@ export default function LeaderPage() {
                     winner: st.winner,
                     sessionId: st.sessionId,
                     activityId: st.activityId || roomData.activityId || undefined,
+                    // 🏙️ المكان والمدينة والموسم من حالة الخادم
+                    locationId: st.locationId ?? undefined,
+                    locationName: st.locationName ?? undefined,
+                    cityId: st.cityId ?? undefined,
+                    cityName: st.cityName ?? undefined,
+                    seasonName: st.seasonName ?? undefined,
+                    counted: typeof st.counted === 'boolean' ? st.counted : undefined,
                     // استعادة خطوة الليل المحفوظة
                     nightStep: st.currentNightStep || null,
                     nightComplete: st.nightComplete || false,
@@ -1748,6 +1804,8 @@ export default function LeaderPage() {
         penaltyScope,
         displayPin: displayPin || undefined,
         activityId: selectedActivityId || undefined,
+        // 🏙️ بلا نشاط: المكان وحده يحدّد المدينة التي تُحتسب لها الغرفة
+        locationId: !selectedActivityId && selectedLocationId ? selectedLocationId : undefined,
         nightMode,
       });
 
@@ -1763,6 +1821,13 @@ export default function LeaderPage() {
         players: [],
         rolesPool: [],
         sessionId: response.sessionId,
+        // 🏙️ من ردّ الإنشاء: المكان والمدينة والموسم وهل تُحتسب
+        locationId: response.locationId ?? undefined,
+        locationName: response.locationName ?? undefined,
+        cityId: response.cityId ?? undefined,
+        cityName: response.cityName ?? undefined,
+        seasonName: response.seasonName ?? undefined,
+        counted: typeof response.counted === 'boolean' ? response.counted : undefined,
       });
       setInSession(true); // الانتقال لصفحة الغرفة
 
@@ -1809,6 +1874,13 @@ export default function LeaderPage() {
           morningEvents: data.state.morningEvents || [],
           pendingWinner: data.state.pendingWinner || null,
           luckyDrawHistory: data.state.luckyDrawHistory || [], // 🎁 رابحو الغرفة (لواجهة الاستبعاد)
+          // 🏙️ المكان والمدينة والموسم — من حالة الخادم، وصفّ الغرفة احتياطاً
+          locationId: data.state.locationId ?? undefined,
+          locationName: data.state.locationName ?? game.locationName ?? undefined,
+          cityId: data.state.cityId ?? game.cityId ?? undefined,
+          cityName: data.state.cityName ?? game.cityName ?? undefined,
+          seasonName: data.state.seasonName ?? undefined,
+          counted: typeof data.state.counted === 'boolean' ? data.state.counted : game.counted,
         });
 
         // تحديد الوضع: LOBBY → Session View | GAME_OVER → Game View (لعرض شاشة النهاية)
@@ -2388,6 +2460,10 @@ export default function LeaderPage() {
               <span className="text-[9px] font-mono uppercase tracking-widest text-[#555]">
                 <span className="text-[#C5A059] font-bold">SESSION</span>
               </span>
+              {/* 🏙️ شريحة المدينة — بلا backdrop-blur (قيد الرأس الموثّق أعلاه) */}
+              {gameState.cityName && (
+                <span className={`${CITY_STAMP} font-mono tracking-widest`}>🏙️ {gameState.cityName}</span>
+              )}
             </div>
             <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
               {/* 🎁 زر اختيار رابح — مشترك (كلّ المراحل) */}
@@ -2447,6 +2523,19 @@ export default function LeaderPage() {
                     {' | '}PIN: <span className="text-[#8A0303]">{gameState.config.displayPin}</span>
                     {' | '}AGENTS: <span className="text-white">{gameState.players.filter((p: any) => !p.seatHeld).length}</span>/{gameState.config.maxPlayers}
                   </p>
+                  {/* 🏙️ أختام المكان والتصنيف — جواب «هذي اللعبة بتنحسب وين؟» */}
+                  {(gameState.locationName || gameState.cityName || gameState.counted === false) && (
+                    <div className="flex flex-wrap items-center gap-2 mt-2">
+                      {(gameState.locationName || gameState.cityName) && (
+                        <span className={CITY_STAMP}>📍 {joinPlace(gameState.locationName, gameState.cityName)}</span>
+                      )}
+                      {gameState.counted === false ? (
+                        <span className={CITY_STAMP_RED}>⚠️ غير محتسبة — بلا مكان</span>
+                      ) : gameState.cityName ? (
+                        <span className={CITY_STAMP}>🏆 تصنيف {gameState.cityName}{gameState.seasonName ? ` — ${gameState.seasonName}` : ''}</span>
+                      ) : null}
+                    </div>
+                  )}
                   {knockOpen && (
                     <div className="mt-1 flex items-center gap-1" style={{ touchAction: 'manipulation' }}>
                       <input
@@ -4835,7 +4924,13 @@ export default function LeaderPage() {
             <div className="fixed inset-0 z-[200] bg-black/80 backdrop-blur-sm flex items-center justify-center p-4" onClick={() => setPointsModal(null)}>
               <div className="bg-[#0d0d0d] border border-[#C5A059]/40 rounded-2xl w-full max-w-2xl max-h-[85vh] overflow-y-auto shadow-[0_0_40px_rgba(197,160,89,0.15)]" onClick={(e) => e.stopPropagation()} dir="rtl">
                 <div className="sticky top-0 bg-[#0d0d0d] border-b border-[#2a2a2a] p-4 flex items-center justify-between z-10">
-                  <h3 className="text-[#C5A059] font-black text-lg" style={{ fontFamily: 'Amiri, serif' }}>📊 ملخص نقاط الرانك لهذه اللعبة</h3>
+                  <div>
+                    <h3 className="text-[#C5A059] font-black text-lg" style={{ fontFamily: 'Amiri, serif' }}>📊 ملخص نقاط الرانك لهذه اللعبة</h3>
+                    {/* 🏙️ إلى أيّ تصنيفٍ تُضاف هذه النقاط */}
+                    {gameState?.cityName && (
+                      <p className="text-[10px] font-mono tracking-widest text-[#C5A059]/80 mt-1">🏆 تُضاف إلى تصنيف {gameState.cityName}{gameState.seasonName ? ` — ${gameState.seasonName}` : ''}</p>
+                    )}
+                  </div>
                   <button onClick={() => setPointsModal(null)} className="text-[#888] hover:text-white text-xl leading-none">✕</button>
                 </div>
                 <div className="p-4">
@@ -4932,6 +5027,15 @@ export default function LeaderPage() {
   // ══════════════════════════════════════════════════
   // شاشة إنشاء لعبة + الألعاب النشطة
   // ══════════════════════════════════════════════════
+  // 🏙️ اشتقاقات بطاقة الإنشاء: المكان والمدينة اللذان ستُحتسب لهما الغرفة
+  const activityCityGroups = groupByCity(availableActivities);
+  const locationCityGroups = groupByCity(availableLocations);
+  const createActivity = availableActivities.find((a: any) => a.id === selectedActivityId);
+  const createLocation = !selectedActivityId ? availableLocations.find((l: any) => l.id === selectedLocationId) : undefined;
+  const createPlaceName: string | undefined = createActivity?.locationName || createLocation?.name || undefined;
+  const createCityName: string | undefined = createActivity?.cityName || createLocation?.cityName || undefined;
+  const createUnranked = !selectedActivityId && !selectedLocationId;
+
   // 🕵️ لا لوحة مراقبة هنا: الخادم لا يبثّ إشارةً إلا في مباراةٍ جارية، وهذه
   //     الشاشة تعني أنه لا لعبة أصلاً — فالمزوّد يُركَّب مع gameState وحده.
   return (
@@ -5018,6 +5122,15 @@ export default function LeaderPage() {
                       {' | '}PIN: <span className="text-[#8A0303]">{game.displayPin}</span>
                       {' | '}AGENTS: <span className="text-white">{game.playerCount}</span>/{game.maxPlayers}
                     </p>
+                    {/* 🏙️ الفعاليّة والمدينة — والغرفة غير المحتسبة تُعلَّم بالأحمر */}
+                    {(game.activityName || game.locationName || game.cityName || game.counted === false) && (
+                      <span className="flex flex-wrap gap-2 mt-2">
+                        {(game.activityName || game.locationName || game.cityName) && (
+                          <span className={CITY_STAMP}>📍 {joinPlace(game.activityName || game.locationName, game.cityName)}</span>
+                        )}
+                        {game.counted === false && <span className={CITY_STAMP_RED}>⚠️ بلا مكان · غير محتسبة</span>}
+                      </span>
+                    )}
                   </button>
                 </motion.div>
               ))}
@@ -5132,6 +5245,7 @@ export default function LeaderPage() {
           {/* ربط بنشاط (اختياري) */}
           <div className="mb-10">
             <label className="block text-xs font-mono text-[#808080] mb-2 tracking-widest uppercase text-center">Link to Activity (اختياري)</label>
+            {/* 🏙️ الخيارات مجمّعة بالمدينة ويُذكر المكان في كلّ خيار — الشكل القديم (بلا مكان) يُعرض كما كان */}
             <select
               value={selectedActivityId || ''}
               onChange={(e) => setSelectedActivityId(e.target.value ? Number(e.target.value) : null)}
@@ -5139,17 +5253,50 @@ export default function LeaderPage() {
               dir="rtl"
             >
               <option value="">— بدون نشاط —</option>
-              {availableActivities.map((a: any) => (
-                <option key={a.id} value={a.id}>
-                  {a.name} — {new Date(a.date).toLocaleDateString('ar-SA', { month: 'short', day: 'numeric' })}
-                </option>
-              ))}
+              {activityCityGroups.map((g) => {
+                const opts = g.rows.map((a: any) => (
+                  <option key={a.id} value={a.id}>
+                    {a.name}{a.locationName ? ` — ${joinPlace(a.locationName, a.cityName)}` : ''} — {new Date(a.date).toLocaleDateString('ar-SA', { month: 'short', day: 'numeric' })}
+                  </option>
+                ));
+                return g.label ? <optgroup key={g.key} label={`🏙️ ${g.label}`}>{opts}</optgroup> : opts;
+              })}
             </select>
-            {selectedActivityId && (
-              <p className="text-[#C5A059] text-[10px] font-mono text-center mt-2 tracking-widest">
-                🔗 سيتم ربط الغرفة بالنشاط المختار
-              </p>
+            {/* 📍 منتقي المكان — يظهر فقط عند «بدون نشاط» لتُحتسب الغرفة لمدينةٍ ما */}
+            {!selectedActivityId && availableLocations.length > 0 && (
+              <div className="mt-3">
+                <label className="block text-xs font-mono text-[#808080] mb-2 tracking-widest uppercase text-center">Venue · اختر المكان ليُحتسب</label>
+                <select
+                  value={selectedLocationId || ''}
+                  onChange={(e) => setSelectedLocationId(e.target.value ? Number(e.target.value) : null)}
+                  className="w-full p-4 bg-[#050505] border border-[#2a2a2a] text-white text-center font-mono focus:border-[#C5A059] focus:outline-none appearance-none cursor-pointer"
+                  dir="rtl"
+                >
+                  <option value="">— بلا مكان —</option>
+                  {locationCityGroups.map((g) => {
+                    const opts = g.rows.map((l: any) => (
+                      <option key={l.id} value={l.id}>{l.name}{!g.label && l.cityName ? ` · ${l.cityName}` : ''}</option>
+                    ));
+                    return g.label ? <optgroup key={g.key} label={`🏙️ ${g.label}`}>{opts}</optgroup> : opts;
+                  })}
+                </select>
+              </div>
             )}
+            {/* أختام ما قبل الإنشاء: المكان والمدينة، والتصنيف والموسم — لا تخمين في الواجهة */}
+            <div className="flex flex-wrap items-center justify-center gap-2 mt-3">
+              {createPlaceName || createCityName ? (
+                <>
+                  <span className={CITY_STAMP}>📍 {joinPlace(createPlaceName, createCityName)}</span>
+                  {createCityName && (
+                    <span className={CITY_STAMP}>🏆 ستُحتسب لتصنيف {createCityName}{activeSeasonName ? ` — ${activeSeasonName}` : ''}</span>
+                  )}
+                </>
+              ) : createUnranked ? (
+                <span className={CITY_STAMP_RED}>⚠️ بلا مكانٍ لا تُحتسب نقاط هذه الغرفة في أيّ مدينة</span>
+              ) : (
+                <span className="text-[#C5A059] text-[10px] font-mono tracking-widest">🔗 سيتم ربط الغرفة بالنشاط المختار</span>
+              )}
+            </div>
           </div>
 
           {/* 🌙 Night Mode Toggle */}
@@ -5198,7 +5345,7 @@ export default function LeaderPage() {
             disabled={!isConnected || creating || !gameName.trim()}
             className="btn-premium w-full text-base disabled:opacity-50 disabled:cursor-not-allowed"
           >
-            <span>{creating ? 'INITIALIZING...' : 'CREATE ROOM'}</span>
+            <span>{creating ? 'INITIALIZING...' : createUnranked ? 'CREATE ROOM (UNRANKED)' : 'CREATE ROOM'}</span>
           </button>
 
 
@@ -5253,6 +5400,10 @@ export default function LeaderPage() {
                           {' | '}MATCHES: <span className="text-white">{s.matchCount}</span>
                           {' | '}⏱ <span className="text-white">{totalMins > 0 ? `${totalMins}m` : '—'}</span>
                         </p>
+                        {/* 🏙️ الفعاليّة ومدينتها — من join الغرف المنتهية */}
+                        {(s.activityName || s.cityName) && (
+                          <p className="text-[#C5A059]/80 text-[10px] mt-1 font-mono tracking-widest">📍 {joinPlace(s.activityName, s.cityName)}</p>
+                        )}
                       </div>
                       <div className="flex items-center gap-3">
                         {s.lastWinner && (

@@ -11,6 +11,8 @@ import { useEffect, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { swalConfirm } from '@/lib/swal';
 import dynamic from 'next/dynamic';
+import { useCities, fetchCities, invalidateCities, type City } from '@/hooks/useCities';
+import CityBadge, { CitySegment } from '@/components/admin/CityBadge';
 
 // MapLibre يلمس window عند التحميل — لا تُصيَّر على الخادم
 const VenueMap = dynamic(() => import('@/components/VenueMap'), { ssr: false });
@@ -57,6 +59,12 @@ export default function LocationsPage() {
   // ── Dialog ──
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [editingLoc, setEditingLoc] = useState<any | null>(null);
+
+  // ── 🏙️ المدينة — إلزاميّةٌ للمكان؛ القائمةُ تشمل المعطّلة (تُعلَّم) كي يُصلَح مكانٌ قديمٌ مدينتُه معطّلة ──
+  const { cities } = useCities('all');
+  const [cityId, setCityId] = useState<string>('');
+  const [cityFilter, setCityFilter] = useState<number | null>(null);
+  const [citiesOpen, setCitiesOpen] = useState(false);
 
   // ── Form fields ──
   const [name, setName] = useState('');
@@ -143,13 +151,20 @@ export default function LocationsPage() {
   }
   useEffect(() => { fetchLocations(); }, []);
 
-  // ══ Pagination ══
-  const totalPages = Math.ceil(locations.length / PAGE_SIZE) || 1;
-  const paginatedData = locations.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE);
+  // ══ Pagination (بعد فلتر المدينة) ══
+  const visibleLocations = cityFilter == null ? locations : locations.filter((l: any) => Number(l.cityId) === cityFilter);
+  const totalPages = Math.ceil(visibleLocations.length / PAGE_SIZE) || 1;
+  const paginatedData = visibleLocations.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE);
+  useEffect(() => { setCurrentPage(1); }, [cityFilter]);
+
+  // شرائحُ الفلتر: المعطّلةُ تُعلَّم — قد تبقى لها أماكن
+  const filterCities = cities.map(c => (c.isActive ? c : { ...c, name: `${c.name} (معطّلة)` }));
 
   // ══ Open New ══
   function handleOpenNew() {
     setEditingLoc(null);
+    // المدينةُ المفلترةُ تُقترَح للمكان الجديد — وبلا فلتر يختارها المستعمل صراحةً
+    setCityId(cityFilter ? String(cityFilter) : '');
     setName(''); setRegion(''); setMapUrl(''); setOffers([]); setOwnerUsername('');
     setIsActive(true); setIsTestLocation(false); setMenuSource('');
     setMinChargeEnabled(false); setMinimumCharge('2.00'); setAutoWater(false);
@@ -162,6 +177,7 @@ export default function LocationsPage() {
   function handleOpenEdit(loc: any) {
     setEditingLoc(loc);
     setName(loc.name || '');
+    setCityId(loc.cityId ? String(loc.cityId) : '');
     setRegion(loc.region || '');
     setIsActive(loc.isActive !== false);
     setIsTestLocation(loc.isTestLocation === true);
@@ -180,13 +196,16 @@ export default function LocationsPage() {
 
   // ══ Save ══
   async function handleSave() {
-    if (!name.trim()) return;
+    // 🔴 المدينةُ إلزاميّة — الخادم يردّ 400 CITY_REQUIRED بدونها، والزرُّ معطَّلٌ أصلاً
+    if (!name.trim() || !cityId) return;
     setSaving(true);
     // 🔴 `offers` لا يُرسَل إطلاقاً: normalizeOffer عرضٌ فقط وهو **فاقد** — يُسقط
     // اسم العرض ويُصفّر سعر العروض النصّيّة القديمة. إعادة إرساله كانت تجعل
     // تغيير اسم المكان يُتلف الأرشيف ويُعطّل بوّابة سعر التذكرة في اللوبي.
     const payload = {
       name: name.trim(), region: region.trim(), mapUrl, isActive, isTestLocation,
+      // 🏙️ تُفلتر الفعاليّات وتُختم بها المباريات لتصنيف مدينتها
+      cityId: Number(cityId),
       // 📍 null يمسح النقطة فيُعطّل السياج تلقائيّاً على فعاليّاته
       latitude: geoLat, longitude: geoLng, geofenceRadiusM: geoRadius,
       // الاستعارة تُرسَل null عند الفكّ أو حين لا يكون الموقع اختباريّاً
@@ -237,16 +256,29 @@ export default function LocationsPage() {
           <h1 className="text-2xl font-bold text-white">📍 أماكن الفعاليات</h1>
           <p className="text-gray-400 text-sm mt-1">أضف القهاوي والكافيهات التي تقام بها الفعاليات وحساباتها — الأسعار والباقات تُدار من منيو كلّ مكان</p>
         </div>
-        <button onClick={handleOpenNew} className="px-4 py-2.5 bg-gray-900 text-white rounded-xl text-sm font-bold hover:bg-gray-800 transition">
-          + إضافة مكان جديد
-        </button>
+        <div className="flex items-center gap-2">
+          <button onClick={() => setCitiesOpen(true)} className="px-4 py-2.5 border border-gray-600/50 text-gray-300 rounded-xl text-sm hover:bg-gray-800 transition" title="إضافة مدينةٍ وتسميتها وتفعيلها">
+            🏙️ إدارة المدن
+          </button>
+          <button onClick={handleOpenNew} className="px-4 py-2.5 bg-gray-900 text-white rounded-xl text-sm font-bold hover:bg-gray-800 transition">
+            + إضافة مكان جديد
+          </button>
+        </div>
       </div>
+
+      {/* ══ 🏙️ فلتر المدينة ══ */}
+      {locations.length > 0 && (
+        <div className="flex items-center gap-3 flex-wrap">
+          <CitySegment cities={filterCities} value={cityFilter} onChange={setCityFilter} ariaLabel="فلتر المدينة" />
+          <span className="text-xs text-gray-500">{visibleLocations.length} من {locations.length} مكان</span>
+        </div>
+      )}
 
       {/* ══ CARDS GRID ══ */}
       {paginatedData.length === 0 ? (
         <div className="text-center py-16 border-2 border-dashed border-gray-700/30 rounded-2xl">
           <span className="text-4xl block mb-3 opacity-30">📍</span>
-          <p className="text-gray-500 font-medium">لا توجد أماكن مضافة بعد</p>
+          <p className="text-gray-500 font-medium">{cityFilter != null && locations.length > 0 ? 'لا أماكن في هذه المدينة بعد' : 'لا توجد أماكن مضافة بعد'}</p>
           <p className="text-gray-600 text-sm mt-1">أضف مكاناً ليُنشأ له حساب ومنيو خاصّ به</p>
         </div>
       ) : (
@@ -265,7 +297,12 @@ export default function LocationsPage() {
                 <div className="p-4 pb-2 flex items-center justify-between">
                   <div className="min-w-0">
                     <h3 className="text-base font-bold text-white truncate">{loc.name}</h3>
-                    {loc.region && <p className="text-[11px] text-gray-500">📍 {loc.region}</p>}
+                    <div className="flex items-center gap-1.5 flex-wrap mt-0.5">
+                      {loc.cityName
+                        ? <CityBadge cityId={loc.cityId} cityName={loc.cityName} />
+                        : <span className="text-[10px] px-2 py-0.5 rounded-full border bg-rose-500/10 text-rose-400 border-rose-500/30 font-bold" title="المكان بلا مدينة — عدّله واختر مدينته">بلا مدينة</span>}
+                      {loc.region && <p className="text-[11px] text-gray-500">📍 {loc.region}</p>}
+                    </div>
                   </div>
                   <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
                     <button onClick={() => openAccounts(loc)} className="p-1.5 rounded-lg text-gray-500 hover:text-sky-400 hover:bg-sky-500/10 transition" title="الحسابات المرتبطة">👥</button>
@@ -327,7 +364,7 @@ export default function LocationsPage() {
       )}
 
       {/* ══ PAGINATION ══ */}
-      {locations.length > PAGE_SIZE && (
+      {visibleLocations.length > PAGE_SIZE && (
         <div className="flex items-center justify-center gap-3">
           <button onClick={() => setCurrentPage(p => Math.max(1, p - 1))} disabled={currentPage <= 1} className="px-3 py-1.5 bg-gray-700/50 text-gray-300 rounded-lg text-sm disabled:opacity-30">◄</button>
           <span className="text-sm text-gray-400">صفحة {currentPage} من {totalPages}</span>
@@ -359,7 +396,26 @@ export default function LocationsPage() {
                 </div>
               )}
 
-              {/* رابط الخريطة */}
+              {/* 🏙️ المدينة — فوق المنطقة: الحيُّ تفصيلٌ داخل المدينة */}
+              <div>
+                <label className="block text-xs text-gray-400 mb-1">المدينة <span className="text-rose-400">*</span></label>
+                <select value={cityId} onChange={e => setCityId(e.target.value)}
+                  className={`w-full px-4 py-2.5 bg-gray-900/60 border rounded-xl text-white text-sm focus:outline-none focus:ring-1 focus:ring-amber-500/30 ${cityId ? 'border-gray-600/50' : 'border-rose-500/40'}`}>
+                  <option value="">— اختر المدينة —</option>
+                  {cities.map(c => (
+                    <option key={c.id} value={c.id}>🏙️ {c.name}{c.isActive ? '' : ' (معطّلة)'}</option>
+                  ))}
+                </select>
+                <p className="text-[10px] text-gray-500 mt-1">تُستخدم في فلترة الفعاليّات واحتساب نقاط الرانك — لا يُحفظ المكان بدونها.</p>
+                {/* تحذيرُ النقل: مكانٌ له مبارياتٌ في الموسم النشط — التاريخُ مختومٌ بمدينته */}
+                {editingLoc && Number(editingLoc.activeSeasonMatches) > 0 && (
+                  <div className="mt-2 bg-amber-500/10 border border-amber-500/30 rounded-xl p-3 text-[11px] text-amber-300 leading-relaxed">
+                    ⚠️ لهذا المكان {Number(editingLoc.activeSeasonMatches)} مباراة في الموسم الحاليّ محسوبةً لتصنيف {editingLoc.cityName || 'مدينته'}. تغييرُ المدينة يسري على المباريات القادمة فقط؛ التاريخ يبقى مختومًا بمدينته.
+                  </div>
+                )}
+              </div>
+
+              {/* المنطقة (الحيّ) */}
               <div>
                 <label className="block text-xs text-gray-400 mb-1">المنطقة (الشميساني، عبدون، …)</label>
                 <input type="text" value={region} onChange={e => setRegion(e.target.value)} placeholder="مثال: الشميساني" className="w-full px-4 py-2.5 bg-gray-900/60 border border-gray-600/50 rounded-xl text-white text-sm focus:outline-none focus:ring-1 focus:ring-amber-500/30 placeholder-gray-600" />
@@ -541,14 +597,19 @@ export default function LocationsPage() {
 
               {/* زر الحفظ */}
               <div className="flex gap-3 pt-2">
-                <button onClick={handleSave} disabled={saving || !name.trim()} className="flex-1 py-3 bg-gray-900 text-white font-bold rounded-xl hover:bg-gray-800 transition disabled:opacity-50 text-sm">
-                  {saving ? 'جاري الحفظ...' : 'حفظ البيانات'}
+                <button onClick={handleSave} disabled={saving || !name.trim() || !cityId} title={!cityId ? 'اختر المدينة أوّلاً' : undefined} className="flex-1 py-3 bg-gray-900 text-white font-bold rounded-xl hover:bg-gray-800 transition disabled:opacity-50 text-sm">
+                  {saving ? 'جاري الحفظ...' : !cityId ? 'اختر المدينة أوّلاً' : 'حفظ البيانات'}
                 </button>
                 <button onClick={() => setIsDialogOpen(false)} className="px-5 py-3 bg-gray-700/50 text-gray-300 rounded-xl hover:bg-gray-700/70 transition text-sm">إلغاء</button>
               </div>
             </motion.div>
           </motion.div>
         )}
+      </AnimatePresence>
+
+      {/* ══ 🏙️ CITIES MANAGER ══ */}
+      <AnimatePresence>
+        {citiesOpen && <CitiesManagerModal onClose={() => setCitiesOpen(false)} onChanged={fetchLocations} />}
       </AnimatePresence>
 
       {/* ══ OWNER ACCOUNT DIALOG ══ */}
@@ -665,5 +726,146 @@ export default function LocationsPage() {
         )}
       </AnimatePresence>
     </div>
+  );
+}
+
+// ══════════════════════════════════════════════════════
+// 🏙️ إدارة المدن — إضافةٌ وتسميةٌ وتفعيل/تعطيل، بلا حذف
+// 🔴 المدنُ مُشارٌ إليها من الأماكن والمباريات فلا تُحذف؛ التعطيلُ يُخفيها من
+//    فلاتر التطبيق ويُبقي تاريخها. بعد كلّ تغييرٍ تُسقط الذاكرةُ المشتركة ويُعاد
+//    جلبُ النطاقَين كي يرى الشريطُ الجانبيُّ ونموذجُ المكان القائمةَ الجديدة فوراً.
+// ══════════════════════════════════════════════════════
+function CitiesManagerModal({ onClose, onChanged }: { onClose: () => void; onChanged?: () => void | Promise<void> }) {
+  const { cities, loading, reload } = useCities('all');
+  const [newName, setNewName] = useState('');
+  const [editId, setEditId] = useState<number | null>(null);
+  const [editName, setEditName] = useState('');
+  const [busyId, setBusyId] = useState<number | 'new' | null>(null);
+  const [error, setError] = useState('');
+
+  async function mutate(id: number | 'new', fn: () => Promise<void>) {
+    setBusyId(id); setError('');
+    try {
+      await fn();
+      invalidateCities();
+      await Promise.all([reload(), fetchCities('public', true).catch(() => [])]);
+      await onChanged?.();
+    } catch (e: any) {
+      setError(e?.message || 'فشل الحفظ');
+    } finally { setBusyId(null); }
+  }
+
+  const addCity = () => {
+    const name = newName.trim();
+    if (!name) return;
+    mutate('new', async () => {
+      await apiFetch('/api/cities', { method: 'POST', body: JSON.stringify({ name }) });
+      setNewName('');
+    });
+  };
+
+  const rename = (c: City) => {
+    const name = editName.trim();
+    if (!name || name === c.name) { setEditId(null); return; }
+    mutate(c.id, async () => {
+      await apiFetch(`/api/cities/${c.id}`, { method: 'PATCH', body: JSON.stringify({ name }) });
+      setEditId(null);
+    });
+  };
+
+  const toggle = async (c: City) => {
+    if (c.isActive && !(await swalConfirm(`تعطيل «${c.name}»؟ تختفي من فلاتر التطبيق ومنتقي المدينة، وتبقى أماكنها ومبارياتها كما هي.`))) return;
+    mutate(c.id, async () => {
+      await apiFetch(`/api/cities/${c.id}`, { method: 'PATCH', body: JSON.stringify({ isActive: !c.isActive }) });
+    });
+  };
+
+  return (
+    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4" onClick={onClose}>
+      <motion.div initial={{ scale: 0.95, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.95, opacity: 0 }} onClick={e => e.stopPropagation()} className="bg-gray-800 border border-gray-700/50 rounded-2xl p-6 w-full max-w-[640px] space-y-4 max-h-[90vh] overflow-y-auto" dir="rtl">
+        <div className="flex items-center justify-between">
+          <div>
+            <h3 className="text-lg font-bold text-white">🏙️ إدارة المدن</h3>
+            <p className="text-[11px] text-gray-500 mt-0.5">لكلّ مدينةٍ ترتيبُها المستقلّ في الموسم — المكانُ يتبع مدينةً واحدة</p>
+          </div>
+          <button onClick={onClose} className="text-gray-500 hover:text-white transition">✕</button>
+        </div>
+
+        {error && <div className="bg-rose-500/10 border border-rose-500/30 rounded-xl px-3 py-2 text-xs text-rose-300">⚠️ {error}</div>}
+
+        <div className="overflow-x-auto rounded-xl border border-gray-700/40">
+          <table className="w-full text-sm">
+            <thead className="bg-gray-900/60 text-[11px] text-gray-500">
+              <tr>
+                <th className="text-right px-3 py-2 font-medium">المدينة</th>
+                <th className="text-center px-3 py-2 font-medium">الأماكن</th>
+                <th className="text-center px-3 py-2 font-medium">لاعبو الموسم</th>
+                <th className="text-center px-3 py-2 font-medium">الحالة</th>
+                <th className="px-3 py-2" />
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-gray-700/30">
+              {loading && cities.length === 0 && (
+                <tr><td colSpan={5} className="px-3 py-6 text-center text-gray-500 text-xs">جارٍ التحميل…</td></tr>
+              )}
+              {!loading && cities.length === 0 && (
+                <tr><td colSpan={5} className="px-3 py-6 text-center text-gray-500 text-xs">لا مدن بعد — أضف الأولى من الصفّ أدناه</td></tr>
+              )}
+              {cities.map(c => {
+                const busy = busyId === c.id;
+                return (
+                  <tr key={c.id} className={c.isActive ? '' : 'opacity-70'}>
+                    <td className="px-3 py-2">
+                      {editId === c.id ? (
+                        <div className="flex items-center gap-1.5">
+                          <input autoFocus value={editName} onChange={e => setEditName(e.target.value)}
+                            onKeyDown={e => { if (e.key === 'Enter') rename(c); if (e.key === 'Escape') setEditId(null); }}
+                            className="w-40 px-2 py-1 bg-gray-900/60 border border-amber-500/40 rounded-lg text-white text-sm focus:outline-none" />
+                          <button onClick={() => rename(c)} disabled={busy} className="text-xs px-2 py-1 rounded-lg bg-amber-500/15 text-amber-400 border border-amber-500/30 hover:bg-amber-500/25 disabled:opacity-50">حفظ</button>
+                          <button onClick={() => setEditId(null)} className="text-xs text-gray-500 hover:text-white">إلغاء</button>
+                        </div>
+                      ) : (
+                        <div className="flex items-center gap-2">
+                          <CityBadge cityId={c.id} cityName={c.name} slug={c.slug} size="sm" />
+                          <button onClick={() => { setEditId(c.id); setEditName(c.name); }} className="text-gray-500 hover:text-amber-400 text-xs transition" title="تعديل الاسم">✏️</button>
+                        </div>
+                      )}
+                    </td>
+                    <td className="px-3 py-2 text-center text-gray-300 font-mono">{c.locationsCount ?? '—'}</td>
+                    <td className="px-3 py-2 text-center text-gray-300 font-mono">{c.seasonPlayers ?? '—'}</td>
+                    <td className="px-3 py-2 text-center">
+                      {c.isActive
+                        ? <span className="text-[10px] px-2 py-0.5 rounded-full border bg-emerald-500/10 text-emerald-400 border-emerald-500/30 font-bold">فعّالة</span>
+                        : <span className="text-[10px] px-2 py-0.5 rounded-full border bg-gray-700/40 text-gray-400 border-gray-600/40 font-bold">معطّلة</span>}
+                    </td>
+                    <td className="px-3 py-2 text-left">
+                      <button onClick={() => toggle(c)} disabled={busy}
+                        className={`text-xs px-2.5 py-1 rounded-lg border transition disabled:opacity-50 ${c.isActive ? 'border-gray-600/50 text-gray-300 hover:bg-gray-700/60' : 'border-emerald-500/30 text-emerald-400 bg-emerald-500/10 hover:bg-emerald-500/20'}`}>
+                        {busy ? '…' : c.isActive ? 'تعطيل' : 'تفعيل'}
+                      </button>
+                    </td>
+                  </tr>
+                );
+              })}
+              {/* صفُّ الإضافة */}
+              <tr className="bg-gray-900/30">
+                <td className="px-3 py-2" colSpan={4}>
+                  <input value={newName} onChange={e => setNewName(e.target.value)} placeholder="اسم مدينةٍ جديدة — مثال: إربد"
+                    onKeyDown={e => { if (e.key === 'Enter') addCity(); }}
+                    className="w-full px-3 py-2 bg-gray-900/60 border border-gray-600/50 rounded-lg text-white text-sm focus:outline-none focus:ring-1 focus:ring-amber-500/30 placeholder-gray-600" />
+                </td>
+                <td className="px-3 py-2 text-left">
+                  <button onClick={addCity} disabled={busyId === 'new' || !newName.trim()} className="text-xs px-3 py-2 rounded-lg bg-gray-900 text-white font-bold hover:bg-gray-700 transition disabled:opacity-50 whitespace-nowrap">
+                    {busyId === 'new' ? '…' : '+ إضافة'}
+                  </button>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        <p className="text-[10px] text-gray-500">🔒 لا حذف — المدن مُشارٌ إليها من الأماكن والمباريات. المدينةُ الجديدة تُنشأ فعّالةً وتظهر في التطبيق فوراً؛ عطّلها إن أردت تجهيزَ أماكنها أوّلاً.</p>
+      </motion.div>
+    </motion.div>
   );
 }

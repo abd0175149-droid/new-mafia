@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:ui' as ui;
 
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
@@ -9,6 +10,8 @@ import '../../core/ui/glass.dart';
 import '../../app/router.dart';
 import '../../app/theme/theme.dart';
 import '../../core/api/api_client.dart';
+import '../../core/cities/city_service.dart';
+import '../../core/cities/city_widgets.dart';
 import '../../core/location/location_service.dart';
 import '../../core/notifications/inbox_service.dart';
 import '../../core/storage/session_store.dart';
@@ -16,6 +19,8 @@ import '../staff/admin_webview_screen.dart';
 import '../../models/fnb.dart';
 import '../../models/home.dart';
 import '../../models/player.dart';
+import '../../models/profile.dart' show Standing;
+import '../gates/home_city_sheet.dart';
 import '../notifications/inbox_sheet.dart';
 import '../shell/chips_balance_pill.dart';
 
@@ -103,6 +108,22 @@ class _HomeScreenState extends State<HomeScreen> {
       _loading = false;
       _failed = p == null;
     });
+
+    // 🏙️ «أين تلعب عادةً؟» — مرّةً لمن لا مدينةَ له. الدالّة تقرّر بنفسها
+    //    (علامة «سُئل»، عدد المدن، خلوّ الجذر من أوراقٍ أخرى) ولا تحجب شيئاً.
+    if (p != null) unawaited(_maybeAskHomeCity(p));
+  }
+
+  Future<void> _maybeAskHomeCity(HomeProfile p) async {
+    if (p.homeCityId != null) return;
+    await maybeShowHomeCitySheet(
+      context,
+      homeCityId: p.homeCityId,
+      onSaved: (_, __) {
+        // الحبّة والافتراضيّات تقرأ المدينة من البروفايل — نعيد جلبه
+        if (mounted) _load();
+      },
+    );
   }
 
   @override
@@ -299,7 +320,12 @@ class _ProfileCard extends StatelessWidget {
                       color: const Color(0x26FBBF24),
                       borderRadius: BorderRadius.circular(999),
                     ),
-                    child: Text('${r.badge} ${r.nameAr} • Lv.${pr.level}',
+                    // 🏙️ الحبّة تذكر المدينة الأساسيّة حين تُعرف: «كابو • Lv.7 • عمّان»
+                    child: Text(
+                        '${r.badge} ${r.nameAr} • Lv.${pr.level}'
+                        '${profile.homeCityName != null ? ' • ${profile.homeCityName}' : ''}',
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
                         style: const TextStyle(
                             fontFamily: 'Tajawal', fontSize: 12,
                             color: Color(0xFFFBBF24), letterSpacing: 0)),
@@ -339,6 +365,12 @@ class _ProfileCard extends StatelessWidget {
               ]),
             ),
           ),
+          // 🏙️ «رتبتي في المدن» — لمن له صفٌّ في أكثر من مدينة فقط؛ لاعب
+          //    المدينة الواحدة يرى البطاقة كما هي اليوم تماماً.
+          if (profile.standings.length > 1) ...[
+            const SizedBox(height: 14),
+            _StandingsRow(standings: profile.standings, homeCityId: profile.homeCityId),
+          ],
         ],
       ),
     );
@@ -346,6 +378,86 @@ class _ProfileCard extends StatelessWidget {
 
   static const _xpLabel = TextStyle(
       fontFamily: 'Tajawal', fontSize: 10, color: Color(0xFF6B7280), letterSpacing: 0);
+}
+
+/// صفّ بطاقاتٍ مصغّرة: مدينة، شارة الرتبة واسمها، وRR بلون المدينة.
+/// الأساسيّة أوّلاً (القائمة تصل مرتّبةً هكذا من النموذج).
+class _StandingsRow extends StatelessWidget {
+  const _StandingsRow({required this.standings, required this.homeCityId});
+
+  final List<Standing> standings;
+  final int? homeCityId;
+
+  @override
+  Widget build(BuildContext context) {
+    final svc = CityService.instance;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        const Text('🏙️ رتبتي في المدن',
+            style: TextStyle(
+                fontFamily: 'Tajawal', fontSize: 11,
+                color: Color(0xFF9CA3AF), letterSpacing: 0)),
+        const SizedBox(height: 6),
+        Row(children: [
+          for (var i = 0; i < standings.length; i++) ...[
+            if (i > 0) const SizedBox(width: 8),
+            Expanded(child: _tile(standings[i], svc)),
+          ],
+        ]),
+      ],
+    );
+  }
+
+  Widget _tile(Standing s, CityService svc) {
+    final r = RankInfo.of(s.rankTier);
+    final accent = svc.accentFor(s.cityId);
+    final text = svc.textFor(s.cityId);
+    final home = s.cityId == homeCityId;
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(12),
+        color: accent.withValues(alpha: 0.08),
+        border: Border.all(color: accent.withValues(alpha: 0.25)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text('${home ? '🏠 ' : ''}${s.cityName}',
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(
+                  fontFamily: 'Tajawal', fontSize: 10,
+                  color: text, letterSpacing: 0, fontWeight: FontWeight.w700)),
+          const SizedBox(height: 4),
+          Row(children: [
+            Text(r.badge, style: const TextStyle(fontSize: 14)),
+            const SizedBox(width: 4),
+            Flexible(
+              child: Text(r.nameAr,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                      fontFamily: 'Tajawal', fontSize: 11,
+                      color: Colors.white, letterSpacing: 0)),
+            ),
+          ]),
+          const SizedBox(height: 2),
+          // الرقم واللاحقة مقطعٌ واحد بالاتجاه اللاتينيّ — وإلا انقلبت القراءة
+          Directionality(
+            textDirection: ui.TextDirection.ltr,
+            child: Text('${s.rankRR} RR',
+                style: TextStyle(
+                    fontFamily: 'Tajawal', fontSize: 12, fontWeight: FontWeight.w900,
+                    color: text, letterSpacing: 0,
+                    fontFeatures: const [FontFeature.tabularFigures()])),
+          ),
+        ],
+      ),
+    );
+  }
 }
 
 class _Avatar extends StatelessWidget {
@@ -510,6 +622,11 @@ class _UpcomingSection extends StatelessWidget {
                       ),
                       const SizedBox(width: 8),
                       _difficultyPill(a.difficulty),
+                      // 🏙️ وسم المدينة — يفسّر أيَّ رتبةٍ تتحرّك بهذه الليلة
+                      if (a.cityName != null) ...[
+                        const SizedBox(width: 6),
+                        CityTag(cityId: a.cityId, name: a.cityName!, size: 8, icon: false),
+                      ],
                     ]),
                     const SizedBox(height: 2),
                     Text(

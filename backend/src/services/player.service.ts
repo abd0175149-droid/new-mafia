@@ -74,31 +74,6 @@ export async function createPlayer(data: {
 //    مراجَعاً بمصدره. ومستدعيها الوحيد كان مسارَ `/lookup` المجهول، وقد أُزيل.
 //    كلُّ كتابةٍ لآخر نشاطٍ تمرّ من `lib/last-active.ts` وحدَها.
 
-// ── تحديث إحصائيات بعد نهاية المباراة ──────────────
-
-export async function updatePlayerStats(playerId: number, won: boolean, survived: boolean) {
-  const db = getDB();
-  if (!db) return;
-
-  // 🔴 لا `lastActiveAt` هنا: «آخر نشاط» يعني تفاعلاً مع **التطبيق**، ولعبُ
-  //    مباراةٍ على طاولةٍ في القاعة ليس تفاعلاً معه — الليدرُ يدير اللعبةَ
-  //    وهاتفُ اللاعب في جيبه. وأخطرُ من ذلك أنّ الكتابةَ هنا تتجاوز
-  //    `touchLastActive` فتُقدّم الختمَ الزمنيَّ **وتترك `last_active_source`
-  //    على قيمته القديمة** — فصفٌّ مصدرُه `legacy_login` يحصل على تاريخِ
-  //    اليوم، ويصير المصدرُ كذبةً لا يكشفها شيء. والعمودُ بُني ليكون
-  //    مراجَعاً بمصدره.
-  await db.update(players).set({
-    totalMatches: sql`COALESCE(${players.totalMatches}, 0) + 1`,
-    // 🔴 و`lifetime_matches` معه: كان باك-فيلاً لمرّةٍ واحدةٍ عند الترحيل ولا
-    //    سطرَ زيادةٍ له في المستودع كلِّه، فتجمّد وتخلّف ٦٢ مباراةً عن الواقع.
-    //    وبدءُ الموسم يُصفّر `total_matches` ولا يلمسه — فبقي وحدَه بلا صائن.
-    //    وبوتُ الواتساب كان يلتفّ عليه بـMAX(العمود، الموسم، العدّ الحقيقيّ):
-    //    التفافٌ يصلح قارئاً واحداً ويترك البقيّةَ تقرأ رقماً متجمّداً.
-    lifetimeMatches: sql`COALESCE(${players.lifetimeMatches}, 0) + 1`,
-    totalWins: won ? sql`COALESCE(${players.totalWins}, 0) + 1` : players.totalWins,
-    totalSurvived: survived ? sql`COALESCE(${players.totalSurvived}, 0) + 1` : players.totalSurvived,
-  } as any).where(eq(players.id, playerId));
-}
 
 // ── إنشاء حجز تلقائي للاعب بدون حجز ────────────────
 
@@ -181,6 +156,7 @@ export async function getPlayerProfile(playerId: number) {
         survivedToEnd: matchPlayers.survivedToEnd,
         matchWinner: matches.winner,
         seasonId: matches.seasonId,
+        cityId: matches.cityId,
         matchDate: matches.createdAt,
         matchDuration: matches.durationSeconds,
         matchPlayerCount: matches.playerCount,
@@ -215,6 +191,8 @@ export async function getPlayerProfile(playerId: number) {
           survived: matchPlayers.survivedToEnd,
           survivedToEnd: matchPlayers.survivedToEnd,
           matchWinner: matches.winner,
+          seasonId: matches.seasonId,
+          cityId: matches.cityId,
           matchDate: matches.createdAt,
           matchDuration: matches.durationSeconds,
           matchPlayerCount: matches.playerCount,
@@ -251,6 +229,13 @@ export async function getPlayerProfile(playerId: number) {
   } catch (e: any) {
     console.warn('⚠️ Failed to attach breakdown to profile matches:', e.message);
   }
+
+  // 🏙️ اسم مدينة كلّ مباراة (من الختم المجمَّد matches.city_id)
+  try {
+    const { cityMap } = await import('./cities.service.js');
+    const cm = await cityMap();
+    matchHistory = matchHistory.map((m: any) => ({ ...m, cityName: m.cityId != null ? (cm.get(Number(m.cityId))?.name ?? null) : null }));
+  } catch { /* الاسم للعرض فقط */ }
 
   // 3. حساب الإحصائيات التفصيلية — **للموسم النشط وحده**
   // سجلّ المباريات المعروض يبقى عابراً للمواسم (تاريخ اللاعب الكامل)، أمّا الإحصاءات
@@ -311,13 +296,38 @@ export async function getPlayerProfile(playerId: number) {
   const mafiaWinRate = mafiaGames > 0 ? Math.round((mafiaWins / mafiaGames) * 100) : 0;
   const citizenWinRate = citizenGames > 0 ? Math.round((citizenWins / citizenGames) * 100) : 0;
 
-  // ── بيانات التقدم ──
+  // ── بيانات التقدم — من صفّ (الموسم النشط، المدينة الأساسيّة) في player_season_stats ──
+  // 🏙️ المصدرُ الحقيقيّ صفوف المدن؛ مرآةُ players.* تُستعمل احتياطاً فقط (لاعبٌ بلا موسمٍ نشط).
   const { xpForNextLevel, rrRequiredForTier } = await import('./progression.service.js');
-  const currentXP = (playerData as any).xp || 0;
-  const currentLevel = (playerData as any).level || 1;
+  let homeCityId: number | null = null;
+  let homeCityName: string | null = null;
+  let standings: any[] = [];
+  let homeStanding: any = null;
+  try {
+    const { getOrInferHomeCity, getStandings, getStanding } = await import('./season.service.js');
+    const { cityNameOf } = await import('./cities.service.js');
+    if (activeSeasonId != null) {
+      homeCityId = await getOrInferHomeCity(playerId, activeSeasonId);
+      standings = await getStandings(playerId, activeSeasonId, homeCityId);
+      if (homeCityId != null) {
+        homeStanding = standings.find((s: any) => s.cityId === homeCityId) ?? await getStanding(playerId, activeSeasonId, homeCityId);
+      }
+    } else {
+      const [p] = await db.select({ home: players.homeCityId }).from(players).where(eq(players.id, playerId)).limit(1);
+      homeCityId = p?.home ?? null;
+    }
+    homeCityName = await cityNameOf(homeCityId);
+  } catch (e: any) {
+    console.warn('⚠️ standings lookup failed:', e?.message || e);
+  }
+  const src: any = homeStanding ?? playerData;
+  const currentXP = src.xp || 0;
+  const currentLevel = src.level || 1;
   const nextLevelXP = xpForNextLevel(currentLevel);
   // clamp 0..100 — بعد تعديل يدوي قد يتجاوز xp متطلب المستوى مؤقتاً؛ لا نعرض شريطاً >100%
   const xpProgress = nextLevelXP > 0 ? Math.min(100, Math.max(0, Math.round((currentXP / nextLevelXP) * 100))) : 0;
+  const homeMatches = homeStanding ? homeStanding.totalMatches : (playerData.totalMatches ?? seasonMatches.length);
+  const homeWins = homeStanding ? homeStanding.totalWins : (playerData.totalWins ?? (mafiaWins + citizenWins));
 
   // 🔒 تعقيم مخرجات البروفايل — هذا المصدر يخدم مساراً عاماً غير مصادق
   //    (GET /api/player/:id/profile) فيجب ألا يحمل أسراراً ولا بيانات مالية:
@@ -334,11 +344,15 @@ export async function getPlayerProfile(playerId: number) {
 
   return {
     player: safePlayer,
+    // 🏙️ المدينة الأساسيّة + رتبةٌ لكلّ مدينةٍ لعب فيها هذا الموسم
+    homeCityId,
+    homeCityName,
+    standings,
     stats: {
       // ?? لا || — الصفر قيمة صادقة بعد تصفير الموسم؛ السقوط على تاريخ المباريات
       // كان يُظهر عدّادات الموسم القديم بعد بدء موسم جديد.
-      totalMatches: playerData.totalMatches ?? seasonMatches.length,
-      totalWins: playerData.totalWins ?? (mafiaWins + citizenWins),
+      totalMatches: homeMatches,
+      totalWins: homeWins,
       winRate,
       survivalRate: avgSurvival,
       favoriteRole,
@@ -356,14 +370,16 @@ export async function getPlayerProfile(playerId: number) {
       level: currentLevel,
       nextLevelXP,
       xpProgress,
-      rankTier: (playerData as any).rankTier || 'INFORMANT',
-      rankRR: (playerData as any).rankRR || 0,
-      rrRequired: rrRequiredForTier((playerData as any).rankTier || 'INFORMANT'),
-      totalDeals: (playerData as any).totalDeals || 0,
-      successfulDeals: (playerData as any).successfulDeals || 0,
-      dealSuccessRate: (playerData as any).totalDeals > 0
-        ? Math.round(((playerData as any).successfulDeals / (playerData as any).totalDeals) * 100)
+      rankTier: src.rankTier || 'INFORMANT',
+      rankRR: src.rankRR || 0,
+      rrRequired: rrRequiredForTier(src.rankTier || 'INFORMANT'),
+      totalDeals: src.totalDeals || 0,
+      successfulDeals: src.successfulDeals || 0,
+      dealSuccessRate: (src.totalDeals || 0) > 0
+        ? Math.round(((src.successfulDeals || 0) / src.totalDeals) * 100)
         : 0,
+      cityId: homeCityId,
+      cityName: homeCityName,
     },
     matchHistory,
   };

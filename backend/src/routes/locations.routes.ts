@@ -3,14 +3,25 @@
 // ══════════════════════════════════════════════════════
 
 import { Router, type Request, type Response } from 'express';
-import { eq, desc, and, isNull } from 'drizzle-orm';
+import { eq, desc, and, isNull, sql } from 'drizzle-orm';
 import bcrypt from 'bcryptjs';
 import crypto from 'crypto';
 import { getDB } from '../config/db.js';
-import { locations, staff, notifications, userSettings } from '../schemas/admin.schema.js';
+import { locations, staff, notifications, userSettings, cities } from '../schemas/admin.schema.js';
 import { authenticate, managerOrAbove, adminOnly } from '../middleware/auth.js';
+import { getCity } from '../services/cities.service.js';
+import { getActiveRegularSeasonId } from '../services/season.service.js';
 
 const router = Router();
+
+// 🏙️ المدينة إلزاميّة: تُستخدم في فلترة الفعاليّات واحتساب نقاط الرانك — لا يُحفظ المكان بدونها
+async function parseCityId(raw: unknown): Promise<{ cityId: number } | { error: string; code: string }> {
+  const id = parseInt(String(raw));
+  if (!Number.isFinite(id) || id <= 0) return { error: 'المدينة مطلوبة', code: 'CITY_REQUIRED' };
+  const city = await getCity(id);
+  if (!city) return { error: 'المدينة غير موجودة', code: 'CITY_NOT_FOUND' };
+  return { cityId: id };
+}
 
 // Helper: generate username from location name
 function generateUsername(name: string): string {
@@ -32,10 +43,22 @@ router.get('/', authenticate, async (_req: Request, res: Response) => {
   if (!db) return res.status(503).json({ error: 'قاعدة البيانات غير متوفرة' });
 
   // المحذوف ناعماً لا يُعرض — العمود كان موجوداً وغير مستعمل، فكان الحذف صلباً
-  const rows = await db.select().from(locations)
+  // 🏙️ + اسم المدينة + عدد مباريات المكان في الموسم النشط (لتحذير نقل المدينة في النموذج)
+  const seasonId = await getActiveRegularSeasonId();
+  const rows = await db.select({
+    loc: locations,
+    cityName: cities.name,
+    activeSeasonMatches: sql<number>`(
+      SELECT COUNT(*)::int FROM matches m
+      JOIN sessions s ON s.id = m.session_id
+      LEFT JOIN activities a ON a.id = s.activity_id
+      WHERE COALESCE(s.location_id, a.location_id) = ${locations.id}
+        AND m.season_id = ${seasonId ?? -1} AND m.deleted_at IS NULL)`,
+  }).from(locations)
+    .leftJoin(cities, eq(locations.cityId, cities.id))
     .where(isNull(locations.deletedAt))
     .orderBy(desc(locations.id));
-  res.json(rows);
+  res.json(rows.map(r => ({ ...r.loc, cityName: r.cityName ?? null, activeSeasonMatches: Number(r.activeSeasonMatches || 0) })));
 });
 
 // POST /api/locations — إنشاء موقع (+ حساب مالك) — مدير فأعلى فقط (يمنع تصعيد الصلاحية)
@@ -45,9 +68,13 @@ router.post('/', authenticate, managerOrAbove, async (req: Request, res: Respons
 
   const { name, region, mapUrl, offers, ownerUsername, isActive, isTestLocation } = req.body;
   if (!name) return res.status(400).json({ error: 'الاسم مطلوب' });
+  const cityRes = await parseCityId(req.body.cityId);
+  if ('error' in cityRes) return res.status(400).json(cityRes);
 
   const result = await db.insert(locations).values({
     name,
+    // 🏙️ المدينة — إلزاميّة (مواقع الاختبار أيضاً؛ استثناؤها من الرانك بعلم isTestLocation كما هو)
+    cityId: cityRes.cityId,
     region: String(region || '').trim().slice(0, 80),
     mapUrl: mapUrl || '',
     offers: Array.isArray(offers) ? offers : [],
@@ -124,6 +151,13 @@ router.put('/:id', authenticate, managerOrAbove, async (req: Request, res: Respo
     region: String(region || '').trim().slice(0, 80),
     mapUrl: mapUrl || '',
   };
+  // 🏙️ نقلُ مكانٍ إلى مدينةٍ أخرى مسموحٌ (بتحذيرٍ في الواجهة): يسري على المباريات القادمة فقط —
+  //    التاريخُ مختومٌ بمدينته على matches.city_id فلا يُعاد كتابته.
+  if (req.body.cityId !== undefined) {
+    const cityRes = await parseCityId(req.body.cityId);
+    if ('error' in cityRes) return res.status(400).json(cityRes);
+    patch.cityId = cityRes.cityId;
+  }
   if (isActive !== undefined) patch.isActive = isActive !== false;
   if (isTestLocation !== undefined) patch.isTestLocation = isTestLocation === true;
 

@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../../core/cities/city_widgets.dart';
 import '../../core/routing/destination.dart';
 import '../../models/activity.dart';
 import '../order/order_widgets.dart' show kEmeraldText;
@@ -54,6 +55,8 @@ Future<bool?> showActivityDetails(
   BuildContext context, {
   required Activity activity,
   required bool booked,
+  int? homeCityId,
+  String? homeCityName,
 }) {
   return showModalBottomSheet<bool>(
     context: context,
@@ -65,20 +68,33 @@ Future<bool?> showActivityDetails(
       maxWidth: 512,
       maxHeight: MediaQuery.sizeOf(context).height * 0.80,
     ),
-    builder: (ctx) => _DetailsSheet(activity: activity, booked: booked),
+    builder: (ctx) => _DetailsSheet(
+      activity: activity,
+      booked: booked,
+      homeCityId: homeCityId,
+      homeCityName: homeCityName,
+    ),
   );
 }
 
 class _DetailsSheet extends StatelessWidget {
-  const _DetailsSheet({required this.activity, required this.booked});
+  const _DetailsSheet({
+    required this.activity,
+    required this.booked,
+    this.homeCityId,
+    this.homeCityName,
+  });
 
   final Activity activity;
   final bool booked;
+  final int? homeCityId;
+  final String? homeCityName;
 
   @override
   Widget build(BuildContext context) {
     final a = activity;
     final d = Difficulty.of(a.difficulty);
+    final away = isAwayCity(a.cityId, homeCityId) && a.cityName != null;
 
     return DecoratedBox(
       decoration: _sheetSkin(),
@@ -100,10 +116,16 @@ class _DetailsSheet extends StatelessWidget {
             ],
             const SizedBox(height: 12),
             _row('📅', _longDate(a.date)),
-            if (a.locationName != null) _row('📍', a.locationName!),
+            if (a.locationLine != null) _row('📍', a.locationLine!),
+            if (a.cityName != null) _row('🏙️', a.cityName!),
             _row('👥', '${a.bookedCount}/${a.maxPlayers} لاعب'),
             _row(d.icon, 'مستوى ${d.label}', color: d.color),
             if (!a.isFree) _row('💰', '${a.basePrice} د.أ'),
+            if (away) ...[
+              const SizedBox(height: 4),
+              AwayCityNote(cityName: a.cityName!, homeCityName: homeCityName, size: 11),
+              const SizedBox(height: 8),
+            ],
             // 🍽️ منيو المكان — الكتالوج الموحّد، استعراضٌ قبل الحجز
             if (a.hasMenu && a.locationId != null) _menuButton(context, a),
             if (a.offers.isNotEmpty) _offers(a),
@@ -284,7 +306,12 @@ class _DetailsSheet extends StatelessWidget {
 // (ب) ورقة تأكيد الحجز
 // ══════════════════════════════════════════════════════
 /// تعيد فهرس العرض المختار، أو `-1` إن لم تكن هناك عروض، أو `null` إلغاءً.
-Future<int?> showBookingConfirm(BuildContext context, {required Activity activity}) {
+Future<int?> showBookingConfirm(
+  BuildContext context, {
+  required Activity activity,
+  int? homeCityId,
+  String? homeCityName,
+}) {
   return showModalBottomSheet<int>(
     context: context,
     useRootNavigator: true,
@@ -295,13 +322,19 @@ Future<int?> showBookingConfirm(BuildContext context, {required Activity activit
       maxWidth: 384,
       maxHeight: MediaQuery.sizeOf(context).height * 0.80,
     ),
-    builder: (_) => _ConfirmSheet(activity: activity),
+    builder: (_) => _ConfirmSheet(
+      activity: activity,
+      homeCityId: homeCityId,
+      homeCityName: homeCityName,
+    ),
   );
 }
 
 class _ConfirmSheet extends StatefulWidget {
-  const _ConfirmSheet({required this.activity});
+  const _ConfirmSheet({required this.activity, this.homeCityId, this.homeCityName});
   final Activity activity;
+  final int? homeCityId;
+  final String? homeCityName;
 
   @override
   State<_ConfirmSheet> createState() => _ConfirmSheetState();
@@ -345,9 +378,17 @@ class _ConfirmSheetState extends State<_ConfirmSheet> {
             ),
             const SizedBox(height: 16),
             _line('📅 ${_ConfirmSheetState._date(a.date)}'),
-            if (a.locationName != null) _line('📍 ${a.locationName}'),
+            if (a.locationLine != null) _line('📍 ${a.locationLine}'),
+            if (a.cityName != null) _line('🏙️ ${a.cityName}'),
             _line('👥 ${a.bookedCount}/${a.maxPlayers} لاعب'),
             if (!a.isFree) _line('💰 ${a.basePrice} د.أ'),
+            // 🏆 تأكيد حجزٍ في مدينةٍ أخرى: يوضّح أين تُحتسب النقاط
+            if (isAwayCity(a.cityId, widget.homeCityId) && a.cityName != null) ...[
+              const SizedBox(height: 4),
+              AwayCityNote(
+                  cityName: a.cityName!, homeCityName: widget.homeCityName, size: 11),
+              const SizedBox(height: 6),
+            ],
             if (a.offers.isNotEmpty) _offerPicker(a),
             if (_error) ...[
               const SizedBox(height: 12),

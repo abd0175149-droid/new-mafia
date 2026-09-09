@@ -44,7 +44,11 @@ export interface Reservation {
   deletedAt: string | null;
 }
 
-export interface Activity { id: number; name: string; date: string; status: string; locationId: number | null; gameSchedule?: any[] }
+export interface Activity {
+  id: number; name: string; date: string; status: string; locationId: number | null; gameSchedule?: any[];
+  /** 🏙️ من `/api/activities` — تُلحق باسم الفعاليّة في القوائم حين تتوفّر */
+  cityId?: number | null; cityName?: string | null; locationName?: string | null;
+}
 export interface Loc { id: number; name: string; region?: string; mapUrl?: string }
 
 export const getToken = () =>

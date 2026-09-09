@@ -152,12 +152,20 @@ export interface TopPlayerRow {
  * الإضافة الوحيدة: كاسر تعادل نهائي بالأقدم تسجيلاً — لا يغيّر الترتيب المعروض،
  * لكنه يجعل نتيجة «المركز الثالث» ثابتة بدل أن تتبدّل بين نداء وآخر عند التساوي.
  */
-export async function getSeasonTopPlayers(seasonId: number, limit = 3): Promise<TopPlayerRow[]> {
+/**
+ * 🏙️ نطاقُ المدينة داخل الموسم: للموسم العادي المدينة إلزاميّة (منصّةٌ لكلّ مدينة — قرار ٧)؛
+ * للبطولة/الأونلاين cityId = null (نطاقُه الموسم وحده).
+ */
+export async function getSeasonTopPlayers(seasonId: number, limit = 3, cityId: number | null = null): Promise<TopPlayerRow[]> {
   const db = getDB();
   if (!db) return [];
   const cfg = await getRewardsConfig();
 
-  const conds: any[] = [eq(playerSeasonStats.seasonId, seasonId)];
+  const conds: any[] = [
+    eq(playerSeasonStats.seasonId, seasonId),
+    cityId == null ? sql`${playerSeasonStats.cityId} IS NULL` : eq(playerSeasonStats.cityId, cityId),
+    sql`COALESCE(${playerSeasonStats.totalMatches}, 0) > 0`,
+  ];
   if (cfg.top3.excludeTestAccounts) conds.push(sql`COALESCE(${players.isTestAccount}, false) = false`);
   if (cfg.top3.minMatches > 0) conds.push(sql`COALESCE(${playerSeasonStats.totalMatches}, 0) >= ${cfg.top3.minMatches}`);
 
@@ -220,7 +228,13 @@ export async function listSeasonsForRewards() {
  *    مرة ثانية — لأن المفتاح الجديد لا يتعارض مع القديم.
  *    (منح متعمّد ثانٍ يحمل لاحقة `:regrant:` ولا يُحسب هنا.)
  */
-async function top3GrantedPlayerIds(seasonId: number, playerIds: number[]): Promise<Set<number> | null> {
+// 🔑 مفتاح المنح: بمدينةٍ `top3:{موسم}:c{مدينة}:{لاعب}`؛ بلا مدينة (بطولة/أونلاين) `top3:{موسم}:{لاعب}`.
+//    المواسمُ العاديّة قبل المدن دُفعت بالصيغة بلا مدينة — وكلُّ تاريخها عمّان (1)، فتُحسب «مدفوعةً» للمدينة 1 فقط.
+function top3Key(seasonId: number, cityId: number | null, playerId: number): string {
+  return cityId == null ? `top3:${seasonId}:${playerId}` : `top3:${seasonId}:c${cityId}:${playerId}`;
+}
+
+async function top3GrantedPlayerIds(seasonId: number, playerIds: number[], cityId: number | null = null): Promise<Set<number> | null> {
   const db = getDB();
   const out = new Set<number>();
   const ids = playerIds.map(n => Number(n)).filter(n => Number.isInteger(n) && n > 0);
@@ -231,14 +245,17 @@ async function top3GrantedPlayerIds(seasonId: number, playerIds: number[]): Prom
   //    للمنصّة كلها. نُعيد null = «تعذّر التحقّق» ويتوقّف المنح.
   if (!db) return null;
   const sid = Number(seasonId);
+  // الصيغُ القديمة (بلا مدينة) تُعدّ دفعاً للمدينة 1 أو لنطاقٍ بلا مدينة؛ الصيغةُ الجديدة بمدينتها
+  const legacyOk = cityId == null || cityId === 1;
   try {
     const res: any = await db.execute(sql.raw(`
       SELECT DISTINCT player_id FROM chips_ledger
        WHERE player_id IN (${ids.join(',')})
          AND (
-              idempotency_key = 'top3:${sid}:' || player_id
-           OR (idempotency_key LIKE 'top3:${sid}:' || player_id || ':%'
-               AND idempotency_key NOT LIKE '%:regrant:%')
+              ${cityId == null ? 'FALSE' : `idempotency_key = 'top3:${sid}:c${Number(cityId)}:' || player_id`}
+           OR (${legacyOk ? 'TRUE' : 'FALSE'} AND idempotency_key = 'top3:${sid}:' || player_id)
+           OR (${legacyOk ? 'TRUE' : 'FALSE'} AND idempotency_key LIKE 'top3:${sid}:' || player_id || ':%'
+               AND idempotency_key NOT LIKE '%:regrant:%' AND idempotency_key NOT LIKE 'top3:${sid}:c%')
          )
     `));
     for (const r of rowsOf(res)) out.add(Number(r.player_id));
@@ -254,10 +271,10 @@ async function top3GrantedPlayerIds(seasonId: number, playerIds: number[]): Prom
  * المالك يختار الموسم — عادي أو أونلاين — قبل الضغط على زر المنح.
  * كل صفّ يحمل `alreadyGranted` كي لا يُدفع الموسم مرتين بلا قصد.
  */
-export async function previewTop3(seasonId?: number | null) {
+export async function previewTop3(seasonId?: number | null, cityIdArg?: number | null) {
   const db = getDB();
   const config = await getRewardsConfig();
-  if (!db) return { season: null, top: [] as TopPlayerRow[], config, seasons: [] as any[], alreadyGrantedCount: 0 };
+  if (!db) return { season: null, top: [] as TopPlayerRow[], config, seasons: [] as any[], alreadyGrantedCount: 0, cityId: null, cities: [] as any[] };
 
   const allSeasons = await listSeasonsForRewards();
 
@@ -269,9 +286,17 @@ export async function previewTop3(seasonId?: number | null) {
       || allSeasons.find((s: any) => s.status === 'ACTIVE') || null;
   }
 
-  if (!season) return { season: null, top: [], config, seasons: allSeasons, alreadyGrantedCount: 0 };
-  const rows = await getSeasonTopPlayers(season.id, 3);
-  const grantedIds = await top3GrantedPlayerIds(season.id, rows.map(r => r.playerId));
+  if (!season) return { season: null, top: [], config, seasons: allSeasons, alreadyGrantedCount: 0, cityId: null, cities: [] as any[] };
+
+  // 🏙️ الموسم العادي: منصّةٌ لكلّ مدينة — المدينةُ المطلوبة أو الأولى الفعّالة؛ غيرُه بلا مدينة
+  const { listCities } = await import('./cities.service.js');
+  const cities = season.type === 'REGULAR' ? (await listCities({ activeOnly: true })).map(c => ({ id: c.id, name: c.name })) : [];
+  const cityId: number | null = season.type === 'REGULAR'
+    ? (cityIdArg && cities.some(c => c.id === Number(cityIdArg)) ? Number(cityIdArg) : (cities[0]?.id ?? null))
+    : null;
+
+  const rows = await getSeasonTopPlayers(season.id, 3, cityId);
+  const grantedIds = await top3GrantedPlayerIds(season.id, rows.map(r => r.playerId), cityId);
   // null = تعذّر التحقّق. نُعلنها للواجهة كي تمتنع عن عرض زرّ المنح بدل أن
   // تعرض «لم يُمنح لأحد» وهي لا تعرف.
   const guardUnavailable = grantedIds === null;
@@ -280,6 +305,7 @@ export async function previewTop3(seasonId?: number | null) {
     season, top, config, seasons: allSeasons,
     alreadyGrantedCount: guardUnavailable ? null : grantedIds!.size,
     guardUnavailable,
+    cityId, cities,
   };
 }
 
@@ -297,16 +323,19 @@ export async function previewTop3(seasonId?: number | null) {
  *    `:regrant:` كي يبقى مميَّزاً في الدفتر وفي فحص «مُنح سابقاً».
  */
 export async function grantTop3(opts: {
-  seasonId?: number | null; amounts?: number[]; staffId?: number | null; requestId?: string | null; note?: string | null;
+  seasonId?: number | null; cityId?: number | null; amounts?: number[]; staffId?: number | null; requestId?: string | null; note?: string | null;
   /** منح متعمّد ثانٍ — لا يُمرَّر إلا بعد تأكيد مكتوب في الواجهة */
   allowRepeat?: boolean;
 }) {
   const db = getDB();
   if (!db) return { ok: false, error: 'قاعدة البيانات غير متاحة' };
 
-  const { season, top, config } = await previewTop3(opts.seasonId);
+  const { season, top, config, cityId } = await previewTop3(opts.seasonId, opts.cityId ?? null);
   if (!season) return { ok: false, error: 'اختر موسماً أولاً' };
   if (top.length === 0) return { ok: false, error: 'لا يوجد لاعبون مؤهّلون في هذا الموسم' };
+  const { cityNameOf } = await import('./cities.service.js');
+  const cityName = cityId != null ? await cityNameOf(cityId) : null;
+  const seasonLabel = cityName ? `${season.name} — ${cityName}` : season.name;
 
   const amounts = (opts.amounts && opts.amounts.length ? opts.amounts : config.top3.amounts)
     .map(n => Math.max(0, Math.min(100000, Math.trunc(Number(n) || 0))));
@@ -323,7 +352,7 @@ export async function grantTop3(opts: {
   // ⚠️ يُشترط وجود مستحقّ واحد على الأقل قبل الحكم: لو كانت كل المبالغ صفراً
   //    لصار «لا أحد مستحقّ» مساوياً لـ«الكل استلم»، فيُرفض موسم جديد برسالة
   //    مضلّلة تماماً.
-  const alreadyIds = await top3GrantedPlayerIds(season.id, top.map(p => p.playerId));
+  const alreadyIds = await top3GrantedPlayerIds(season.id, top.map(p => p.playerId), cityId);
   if (alreadyIds === null) {
     // «لا أعرف» لا يجوز أن تتحوّل إلى «ادفع». نتوقّف ونطلب إعادة المحاولة.
     return {
@@ -338,8 +367,8 @@ export async function grantTop3(opts: {
     return {
       ok: false,
       code: 'ALREADY_GRANTED',
-      error: `مكافأة «${season.name}» مُنحت سابقاً لكل الفائزين — للمنح مرة أخرى فعّل التأكيد المتعمّد`,
-      season,
+      error: `مكافأة «${seasonLabel}» مُنحت سابقاً لكل الفائزين — للمنح مرة أخرى فعّل التأكيد المتعمّد`,
+      season, cityId,
     };
   }
 
@@ -361,14 +390,14 @@ export async function grantTop3(opts: {
       amount,
       reason: 'reward_top3',
       idempotencyKey: opts.allowRepeat
-        ? `top3:${season.id}:${p.playerId}:regrant:${rid}`
-        : `top3:${season.id}:${p.playerId}`,
+        ? `${top3Key(season.id, cityId, p.playerId)}:regrant:${rid}`
+        : top3Key(season.id, cityId, p.playerId),
       refType: 'manual',
-      refId: `season:${season.id}:rank:${p.rank}`,
+      refId: `season:${season.id}${cityId != null ? `:city:${cityId}` : ''}:rank:${p.rank}`,
       staffId: opts.staffId ?? null,
-      note: opts.note || `مكافأة المركز ${p.rank} — ${season.name}`,
+      note: opts.note || `مكافأة المركز ${p.rank} — ${seasonLabel}`,
       notify: {
-        title: `${medal} مكافأة المركز ${p.rank} في ${season.name}`,
+        title: `${medal} مكافأة المركز ${p.rank} في ${seasonLabel}`,
         body: `+${amount} 🪙 من النادي — استحققتها`,
       },
     });
@@ -385,7 +414,7 @@ export async function grantTop3(opts: {
     await syncChampionFrame(season?.id ?? null);
   } catch { /* الإطار زينة — فشله لا يمنع منح التشبس */ }
 
-  return { ok: true, season, results, totalGranted };
+  return { ok: true, season, cityId, cityName, results, totalGranted };
 }
 
 // ══════════════════════════════════════════════════════

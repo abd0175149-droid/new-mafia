@@ -2,6 +2,10 @@
 
 import { useEffect, useState } from 'react';
 import { motion } from 'framer-motion';
+import { useAdminScope } from './scope-context';
+import CityBadge, { CityDot, CitySegment } from '@/components/admin/CityBadge';
+import { withCity } from '@/hooks/useCities';
+import { rankName, rankBadge } from '@/lib/ranks';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || '';
 const CURRENCY = 'د.أ';
@@ -19,12 +23,32 @@ async function apiFetch(path: string) {
   return res.json();
 }
 
-const RANK_ICONS: Record<string, string> = {
-  INFORMANT: '🕵️', SOLDIER: '⚔️', CAPO: '🎖️', UNDERBOSS: '💎', GODFATHER: '👑',
-};
-const RANK_LABELS: Record<string, string> = {
-  INFORMANT: 'مُخبر', SOLDIER: 'جندي', CAPO: 'كابو', UNDERBOSS: 'أندربوس', GODFATHER: 'الأب الروحي',
-};
+// أيقوناتُ الرتب وأسماؤها من `@/lib/ranks` (rankBadge / rankName)
+
+type CityRef = { id: number; name: string };
+
+/** 🏙️ سطرُ التقسيم تحت رقمٍ إجماليّ: نقطةٌ بلون كلّ مدينة وقيمتُها — و«بلا مدينة» للباقي إن وُجد */
+function CitySplit({ cities, byCity, field, total, format }: {
+  cities: CityRef[]; byCity: Record<string, any>; field: string; total?: number; format?: (v: number) => string;
+}) {
+  const parts = cities.map(c => ({ c, v: Number(byCity?.[String(c.id)]?.[field] ?? 0) }));
+  const rest = total != null ? total - parts.reduce((s, p) => s + p.v, 0) : 0;
+  const fmt = format || ((v: number) => v.toLocaleString());
+  return (
+    <div className="flex items-center gap-x-2 gap-y-0.5 flex-wrap mt-1.5 text-[10px] text-gray-500">
+      {parts.map(({ c, v }) => (
+        <span key={c.id} className="inline-flex items-center gap-1 whitespace-nowrap">
+          <CityDot cityId={c.id} cityName={c.name} />{c.name} <span className="text-gray-300 font-bold tabular-nums">{fmt(v)}</span>
+        </span>
+      ))}
+      {rest > 0 && (
+        <span className="inline-flex items-center gap-1 whitespace-nowrap">
+          <CityDot />بلا مدينة <span className="text-gray-300 font-bold tabular-nums">{fmt(rest)}</span>
+        </span>
+      )}
+    </div>
+  );
+}
 
 const STATUS_MAP: Record<string, { label: string; dot: string }> = {
   planned:   { label: 'مخطط',   dot: 'bg-blue-400' },
@@ -36,13 +60,19 @@ const STATUS_MAP: Record<string, { label: string; dot: string }> = {
 export default function AdminDashboard() {
   const [data, setData] = useState<any>(null);
   const [loading, setLoading] = useState(true);
+  // 🏙️ النطاق من الشريط الجانبيّ: «الكلّ» = الأرقامُ الإجماليّة مع تقسيمها؛ مدينةٌ = أرقامُها وحدها
+  const scope = useAdminScope();
+  const [topCity, setTopCity] = useState<number | null>(null);
 
   useEffect(() => {
-    apiFetch('/api/dashboard/stats')
-      .then(d => { if (d.success) setData(d); })
+    if (!scope.ready) return;
+    let alive = true;
+    apiFetch(withCity('/api/dashboard/stats', scope.cityId))
+      .then(d => { if (alive && d.success) setData(d); })
       .catch(err => console.error('Dashboard:', err))
-      .finally(() => setLoading(false));
-  }, []);
+      .finally(() => { if (alive) setLoading(false); });
+    return () => { alive = false; };
+  }, [scope.ready, scope.cityId]);
 
   if (loading) {
     return (
@@ -63,8 +93,19 @@ export default function AdminDashboard() {
 
   const { finance, bookings: bk, activities: act, players: pl, matches: mt, staff: st } = data;
 
+  // 🏙️ المدنُ من الردّ وإلّا من النطاق؛ التقسيمُ لا يُعرض إلّا في «الكلّ» وحين يرسله الخادم
+  const cities: CityRef[] = Array.isArray(data.cities) && data.cities.length ? data.cities : scope.cities;
+  const byCity: Record<string, any> | null = data.byCity && typeof data.byCity === 'object' ? data.byCity : null;
+  const showSplit = scope.cityId == null && !!byCity && cities.length > 0;
+  const topByCity: Record<string, any[]> | null = data.topPlayersByCity && typeof data.topPlayersByCity === 'object' ? data.topPlayersByCity : null;
+  const effectiveTopCity: number | null = topCity ?? scope.cityId ?? cities[0]?.id ?? null;
+  const topList: any[] = topByCity && effectiveTopCity != null && Array.isArray(topByCity[String(effectiveTopCity)])
+    ? topByCity[String(effectiveTopCity)]
+    : (data.topPlayers || []);
+  const money = (v: number) => `${v.toLocaleString()} ${CURRENCY}`;
+
   // بطاقات KPI الرئيسية
-  const mainCards = [
+  const mainCards: { title: string; value: any; icon: string; color: string; border: string; textColor: string; sub?: string; split?: { field: string; total?: number; format?: (v: number) => string } }[] = [
     {
       title: 'إجمالي الإيرادات',
       value: `${Number(finance.totalRevenue).toLocaleString()} ${CURRENCY}`,
@@ -73,6 +114,7 @@ export default function AdminDashboard() {
       border: 'border-emerald-500/20',
       textColor: 'text-emerald-400',
       sub: `${bk.paid} حجز مدفوع`,
+      split: { field: 'revenue', format: money },
     },
     {
       title: 'تكاليف الأنشطة',
@@ -100,6 +142,8 @@ export default function AdminDashboard() {
       border: 'border-blue-500/20',
       textColor: 'text-blue-400',
       sub: `${pl.active} لاعب نشط`,
+      // «بلا مدينة» = الإجماليّ ناقصَ مجموعِ المدن — لاعبون لم يختاروا مدينةً أساسيّة بعد
+      split: { field: 'players', total: Number(pl.total) || 0 },
     },
     {
       title: 'المباريات الملعوبة',
@@ -109,6 +153,7 @@ export default function AdminDashboard() {
       border: 'border-purple-500/20',
       textColor: 'text-purple-400',
       sub: mt.today > 0 ? `${mt.today} مباراة اليوم` : 'لا مباريات اليوم',
+      split: { field: 'matches' },
     },
   ];
 
@@ -151,7 +196,10 @@ export default function AdminDashboard() {
       <div className="flex items-center justify-between flex-wrap gap-3">
         <div>
           <h1 className="text-2xl font-bold text-white">📊 لوحة التحكم</h1>
-          <p className="text-gray-500 text-sm mt-0.5">نادي المافيا — إحصاءات شاملة</p>
+          <p className="text-gray-500 text-sm mt-0.5">
+            نادي المافيا — إحصاءات شاملة · النطاق: <span className="text-gray-300 font-bold">{scope.label}</span>
+            {scope.cityId == null && showSplit && <span className="text-gray-600"> — الأرقام الإجماليّة مع تقسيمها</span>}
+          </p>
         </div>
         <div className="flex items-center gap-2">
           <a href="/admin/activities" className="px-3.5 py-2 border border-gray-700/50 text-gray-400 rounded-xl text-xs hover:bg-gray-800 hover:text-white transition">🎯 الأنشطة</a>
@@ -198,6 +246,10 @@ export default function AdminDashboard() {
             <p className={`text-xl font-black ${card.textColor}`}>{card.value}</p>
             <p className="text-[11px] text-gray-400 mt-1">{card.title}</p>
             {card.sub && <p className="text-[10px] text-gray-600 mt-0.5">{card.sub}</p>}
+            {/* 🏙️ التقسيمُ بالمدينة — في نطاق «الكلّ» فقط */}
+            {showSplit && card.split && byCity && (
+              <CitySplit cities={cities} byCity={byCity} field={card.split.field} total={card.split.total} format={card.split.format} />
+            )}
           </motion.div>
         ))}
       </div>
@@ -224,6 +276,10 @@ export default function AdminDashboard() {
                 </div>
               ))}
             </div>
+            {/* 🏙️ الحجوزاتُ مقسّمةً بالمدينة */}
+            {showSplit && card.title === 'الحجوزات' && byCity && (
+              <CitySplit cities={cities} byCity={byCity} field="bookings" />
+            )}
           </motion.div>
         ))}
       </div>
@@ -251,6 +307,8 @@ export default function AdminDashboard() {
                         {new Date(a.date).toLocaleDateString('ar-JO', { weekday: 'short', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
                       </p>
                     </div>
+                    {/* 🏙️ شارة المدينة */}
+                    <CityBadge cityId={a.cityId} cityName={a.cityName} />
                     <span className="text-[10px] text-gray-600">{st.label}</span>
                   </a>
                 );
@@ -262,12 +320,18 @@ export default function AdminDashboard() {
         {/* أفضل اللاعبين */}
         <motion.div initial={{ opacity: 0, y: 15 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.55 }}
           className="bg-gray-800/50 border border-gray-700/40 rounded-2xl p-5">
-          <h3 className="text-sm font-bold text-white mb-3 flex items-center gap-2">🏆 أفضل اللاعبين</h3>
-          {data.topPlayers.length === 0 ? (
+          <div className="flex items-center justify-between gap-2 flex-wrap mb-3">
+            <h3 className="text-sm font-bold text-white flex items-center gap-2">🏆 أفضل اللاعبين</h3>
+            {/* 🏙️ لكلّ مدينةٍ لوحتُها — لا لوحةَ مجمّعة */}
+            {topByCity && cities.length > 0 && (
+              <CitySegment cities={cities} value={effectiveTopCity} onChange={setTopCity} showAll={false} size="xs" ariaLabel="مدينة أفضل اللاعبين" />
+            )}
+          </div>
+          {topList.length === 0 ? (
             <p className="text-gray-600 text-sm text-center py-6">لا يوجد لاعبون بعد</p>
           ) : (
             <div className="space-y-2">
-              {data.topPlayers.map((p: any, i: number) => (
+              {topList.map((p: any, i: number) => (
                 <div key={p.id} className="flex items-center gap-3 p-3 bg-gray-900/40 rounded-xl">
                   <span className="text-lg w-7 text-center shrink-0">
                     {i === 0 ? '🥇' : i === 1 ? '🥈' : i === 2 ? '🥉' : `#${i + 1}`}
@@ -280,7 +344,7 @@ export default function AdminDashboard() {
                     <p className="text-[10px] text-gray-500">Lv.{p.level} • {p.totalMatches || 0} مباراة • {p.totalWins || 0} فوز</p>
                   </div>
                   <div className="text-left shrink-0">
-                    <p className="text-xs">{RANK_ICONS[p.rankTier] || '🕵️'} <span className="text-gray-400">{RANK_LABELS[p.rankTier] || 'مُخبر'}</span></p>
+                    <p className="text-xs">{rankBadge(p.rankTier)} <span className="text-gray-400">{rankName(p.rankTier)}</span></p>
                     <p className="text-[10px] text-gray-600">{p.rankRR || 0} RR</p>
                   </div>
                 </div>

@@ -2,6 +2,8 @@
 
 import { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
+import CityBadge, { LocationOptgroups } from '@/components/admin/CityBadge';
+import { useActiveSeason } from '@/hooks/useActiveSeason';
 
 interface ActivityFormProps {
   locations: any[];
@@ -26,6 +28,11 @@ export default function ActivityForm({ locations, onSubmit, onCancel }: Activity
   const [difficulty, setDifficulty] = useState('medium');
   const [submitting, setSubmitting] = useState(false);
   const [sendNotification, setSendNotification] = useState(true);
+  // 🏙️ هدفُ الإشعار: لاعبو مدينة المكان افتراضاً، و«الكلّ» استثناءً لهذه المرّة (مدينةٌ بلا لاعبين بعد)
+  const [notifyScope, setNotifyScope] = useState<'city' | 'all'>('city');
+  // المكانُ إلزاميّ (الخادم يرفض بـ LOCATION_REQUIRED) — الخطأُ يظهر بعد اللمس أو محاولة الإرسال
+  const [locTouched, setLocTouched] = useState(false);
+  const { season } = useActiveSeason();
   const [requireTicket, setRequireTicket] = useState(false);
   const [seatTemplateId, setSeatTemplateId] = useState<string>('');
   const [seatTemplates, setSeatTemplates] = useState<any[]>([]);
@@ -87,6 +94,7 @@ export default function ActivityForm({ locations, onSubmit, onCancel }: Activity
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     if (!date) return;
+    if (!locationId) { setLocTouched(true); return; }
     setSubmitting(true);
     try {
       const d = new Date(date);
@@ -108,11 +116,12 @@ export default function ActivityForm({ locations, onSubmit, onCancel }: Activity
         date, description,
         // 🎯 توحيد 2026-08-06: سعر التذكرة هو السعر الوحيد — أُلغيت عروض الحجز
         basePrice: Number(basePrice) || 0,
-        locationId: locationId ? Number(locationId) : null,
+        // 🏙️ إلزاميّ — المدينةُ والتصنيفُ يُشتقّان منه في الخادم
+        locationId: Number(locationId),
         enabledOfferIds: [],
         status: 'planned',
         maxCapacity: Number(maxCapacity) || 20,
-        difficulty, driveLink, sendNotification, requireTicket,
+        difficulty, driveLink, sendNotification, notifyScope, requireTicket,
         seatTemplateId: seatTemplateId ? Number(seatTemplateId) : null,
         menuOrderingEnabled,
         addGameFeeToBill: menuOrderingEnabled && addGameFeeToBill,
@@ -136,17 +145,38 @@ export default function ActivityForm({ locations, onSubmit, onCancel }: Activity
               className="w-full px-4 py-2.5 bg-gray-900/60 border border-gray-600/50 rounded-xl text-white focus:outline-none focus:ring-2 focus:ring-amber-500/30 text-sm" />
           </div>
           <div>
-            <label className="block text-xs text-gray-400 mb-1.5">موقع الفعالية</label>
-            <select value={locationId} onChange={e => setLocationId(e.target.value)}
-              className="w-full px-4 py-2.5 bg-gray-900/60 border border-gray-600/50 rounded-xl text-white focus:outline-none focus:ring-2 focus:ring-amber-500/30 text-sm">
-              <option value="">غير محدد</option>
-              {locations.map(l => <option key={l.id} value={l.id}>{l.name}</option>)}
+            <label className="block text-xs text-gray-400 mb-1.5">موقع الفعالية <span className="text-rose-400">*</span></label>
+            <select value={locationId} onChange={e => { setLocationId(e.target.value); setLocTouched(true); }} onBlur={() => setLocTouched(true)}
+              className={`w-full px-4 py-2.5 bg-gray-900/60 border rounded-xl text-white focus:outline-none focus:ring-2 focus:ring-amber-500/30 text-sm ${locTouched && !locationId ? 'border-rose-500/50' : 'border-gray-600/50'}`}>
+              <option value="" disabled>— اختر المكان —</option>
+              <LocationOptgroups locations={locations} />
             </select>
+            {locTouched && !locationId && <p className="text-[11px] text-rose-400 mt-1">المكان مطلوب</p>}
           </div>
         </div>
 
-        {date && selectedLocation && (
-          <div className="text-xs text-gray-500">اسم النشاط: <span className="text-amber-400 font-bold">{generateName()}</span></div>
+        {/* 🏙️ سطرٌ مشتقّ: الاسمُ التلقائيّ والمدينةُ والتصنيفُ الذي ستُحتسب له المباريات — قبل الحفظ فلا مفاجأة */}
+        {selectedLocation && (
+          <div className="flex items-center gap-2 flex-wrap text-xs text-gray-500">
+            {date && <span>اسم النشاط: <span className="text-amber-400 font-bold">{generateName()}</span></span>}
+            {date && <span className="text-gray-700">|</span>}
+            <span className="inline-flex items-center gap-1">
+              المدينة:
+              {selectedLocation.cityName
+                ? <CityBadge cityId={selectedLocation.cityId} cityName={selectedLocation.cityName} />
+                : <span className="text-rose-400">بلا مدينة — عدّل المكان أوّلاً</span>}
+            </span>
+            {selectedLocation.cityName && (
+              <>
+                <span className="text-gray-700">|</span>
+                <span>
+                  {selectedLocation.isTestLocation
+                    ? '🧪 مكانُ اختبار — مبارياته لا تُحتسب للرانك'
+                    : `🏆 مبارياتها تُحتسب لتصنيف ${selectedLocation.cityName}${season?.name ? ` — ${season.name}` : ''}`}
+                </span>
+              </>
+            )}
+          </div>
         )}
 
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -220,7 +250,32 @@ export default function ActivityForm({ locations, onSubmit, onCancel }: Activity
             <span className="text-2xl">🔔</span>
             <div>
               <p className="text-sm font-medium text-white">إرسال إشعار للاعبين</p>
-              <p className="text-xs text-gray-500 mt-0.5">{sendNotification ? 'سيتلقى جميع اللاعبين إشعار Push بهذا النشاط الجديد' : 'لن يتم إرسال إشعارات'}</p>
+              <p className="text-xs text-gray-500 mt-0.5">
+                {!sendNotification
+                  ? 'لن يتم إرسال إشعارات'
+                  : notifyScope === 'all'
+                    ? 'سيتلقى جميع اللاعبين إشعار Push بهذا النشاط الجديد'
+                    : selectedLocation?.cityName
+                      ? `سيتلقى لاعبو ${selectedLocation.cityName} إشعار Push بهذا النشاط الجديد`
+                      : 'اختر المكان لتحديد المستهدفين — يُرسَل للاعبي مدينته'}
+              </p>
+              {/* 🏙️ الهدف — لمدينةٍ بلا لاعبين بعد يُرسَل للكلّ هذه المرّة فقط */}
+              {sendNotification && (
+                <div className="flex items-center gap-2 flex-wrap mt-1.5" onClick={e => e.stopPropagation()}>
+                  <span className="text-[11px] text-gray-400 inline-flex items-center gap-1">
+                    إلى:
+                    {notifyScope === 'all'
+                      ? <span className="text-white font-bold">كلّ اللاعبين</span>
+                      : selectedLocation?.cityName
+                        ? <CityBadge cityId={selectedLocation.cityId} cityName={selectedLocation.cityName}>لاعبي {selectedLocation.cityName}</CityBadge>
+                        : <span className="text-gray-500">لاعبي مدينة المكان</span>}
+                  </span>
+                  <button type="button" onClick={() => setNotifyScope(s => (s === 'all' ? 'city' : 'all'))}
+                    className={`text-[11px] px-2 py-0.5 rounded-lg border transition ${notifyScope === 'all' ? 'bg-amber-500/15 border-amber-500/40 text-amber-300' : 'border-gray-600/50 text-gray-400 hover:text-white'}`}>
+                    {notifyScope === 'all' ? '✓ أرسل للكلّ هذه المرّة' : 'أرسل للكلّ هذه المرّة'}
+                  </button>
+                </div>
+              )}
             </div>
           </div>
           <div className={`relative w-11 h-6 rounded-full transition-colors shrink-0 ${sendNotification ? 'bg-amber-500' : 'bg-gray-600'}`}>
@@ -321,7 +376,8 @@ export default function ActivityForm({ locations, onSubmit, onCancel }: Activity
 
         {/* Buttons */}
         <div className="flex items-center gap-3 pt-2">
-          <button type="submit" disabled={submitting || !date}
+          <button type="submit" disabled={submitting || !date || !locationId}
+            title={!locationId ? 'المكان مطلوب' : undefined}
             className="flex-1 py-3 bg-gradient-to-r from-emerald-500 to-teal-600 text-white font-bold rounded-xl hover:opacity-90 transition disabled:opacity-50">
             {submitting ? 'جاري الإضافة...' : 'إضافة النشاط'}
           </button>

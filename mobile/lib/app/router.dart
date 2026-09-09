@@ -193,7 +193,13 @@ GoRouter buildRouter(AppConfig config) {
                     invite: s.uri.queryParameters['invite'] == '1',
                     inviterName: s.uri.queryParameters['by'],
                   )),
-          _branch(Routes.rank, (_, __) => RankScreen(key: rankTabKey)),
+          // `?city=` يصل من إشعار ترقيةٍ بمدينتها — يفتح اللوحة عليها
+          _branch(
+              Routes.rank,
+              (_, s) => RankScreen(
+                    key: rankTabKey,
+                    initialCityId: int.tryParse(s.uri.queryParameters['city'] ?? ''),
+                  )),
           _branch(Routes.profile, (_, __) => ProfileScreen(key: profileTabKey, config: config)),
         ],
       ),

@@ -406,6 +406,77 @@ ALTER TABLE role_definitions ADD COLUMN IF NOT EXISTS extra_limits JSONB;
 ALTER TABLE role_definitions ADD COLUMN IF NOT EXISTS interacts_with JSONB;
 ALTER TABLE role_definitions ADD COLUMN IF NOT EXISTS phase_notes JSONB;
 ALTER TABLE role_definitions ADD COLUMN IF NOT EXISTS acts_in_phases JSONB;
+
+-- ══════════════════════════════════════════════════════
+-- 🏙️ المدن — ترتيبٌ لكلّ مدينة داخل الموسم الواحد (2026-09)
+-- المدينةُ صفةٌ للمكان؛ تُختَم على المباراة وتُجمَّد؛ وتُقسِّم إحصاءات الموسم
+-- إلى صفٍّ لكلّ (لاعب، موسم، مدينة). كلُّ التاريخ الحاليّ عمّان (1).
+-- بعد النشر: مصالحةٌ كاملة للموسم النشط ثمّ مقارنةُ بصمة صفوف عمّان باللقطة المرجعيّة.
+-- ══════════════════════════════════════════════════════
+CREATE TABLE IF NOT EXISTS cities (
+  id SERIAL PRIMARY KEY,
+  name VARCHAR(60) NOT NULL,
+  slug VARCHAR(40) UNIQUE NOT NULL,
+  is_active BOOLEAN NOT NULL DEFAULT true,
+  sort_order INTEGER NOT NULL DEFAULT 0,
+  created_at TIMESTAMP NOT NULL DEFAULT NOW()
+);
+INSERT INTO cities (id, name, slug, is_active, sort_order) VALUES
+  (1, 'عمّان',   'amman', true,  1),
+  (2, 'الزرقاء', 'zarqa', false, 2)
+ON CONFLICT (id) DO NOTHING;
+SELECT setval('cities_id_seq', GREATEST((SELECT MAX(id) FROM cities), 1));
+
+-- الأماكن: المدينة إلزاميّة بعد التعبئة
+ALTER TABLE locations ADD COLUMN IF NOT EXISTS city_id INTEGER REFERENCES cities(id);
+UPDATE locations SET city_id = 1 WHERE city_id IS NULL;
+ALTER TABLE locations ALTER COLUMN city_id SET NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_locations_city ON locations (city_id);
+
+-- الغرف: مكانٌ مجمَّد (من الفعاليّة)
+ALTER TABLE sessions ADD COLUMN IF NOT EXISTS location_id INTEGER;
+UPDATE sessions s SET location_id = a.location_id
+  FROM activities a WHERE a.id = s.activity_id AND s.location_id IS NULL AND COALESCE(s.is_remote, false) = false;
+
+-- المباريات: ختمُ المدينة — من مكان الفعاليّة، وإلا (تاريخ الموسم العادي بلا نشاط) عمّان
+ALTER TABLE matches ADD COLUMN IF NOT EXISTS city_id INTEGER;
+UPDATE matches m SET city_id = l.city_id
+  FROM sessions s JOIN activities a ON a.id = s.activity_id JOIN locations l ON l.id = a.location_id
+  WHERE s.id = m.session_id AND m.city_id IS NULL AND COALESCE(s.is_remote, false) = false;
+UPDATE matches m SET city_id = 1
+  FROM seasons se WHERE se.id = m.season_id AND se.type = 'REGULAR' AND m.city_id IS NULL
+    AND NOT EXISTS (SELECT 1 FROM sessions s WHERE s.id = m.session_id AND COALESCE(s.is_remote, false) = true);
+CREATE INDEX IF NOT EXISTS idx_matches_season_city ON matches (season_id, city_id);
+
+-- إحصاءات الموسم: بُعدُ المدينة + قيدُ الوحدانيّة الجديد
+ALTER TABLE player_season_stats ADD COLUMN IF NOT EXISTS city_id INTEGER;
+UPDATE player_season_stats pss SET city_id = 1
+  FROM seasons se WHERE se.id = pss.season_id AND se.type = 'REGULAR' AND pss.city_id IS NULL;
+ALTER TABLE player_season_stats DROP CONSTRAINT IF EXISTS player_season_stats_player_id_season_id_key;
+CREATE UNIQUE INDEX IF NOT EXISTS uq_pss_player_season_city
+  ON player_season_stats (player_id, season_id, COALESCE(city_id, 0));
+CREATE INDEX IF NOT EXISTS idx_pss_season_city_rank
+  ON player_season_stats (season_id, city_id, rank_tier, rank_rr DESC);
+
+-- دفترُ المكافآت: المدينة من الفعاليّة، وإلا عمّان للمواسم العاديّة
+ALTER TABLE rank_bonuses ADD COLUMN IF NOT EXISTS city_id INTEGER;
+UPDATE rank_bonuses rb SET city_id = l.city_id
+  FROM activities a JOIN locations l ON l.id = a.location_id
+  WHERE a.id = rb.activity_id AND rb.city_id IS NULL;
+UPDATE rank_bonuses rb SET city_id = 1
+  FROM seasons se WHERE se.id = rb.season_id AND se.type = 'REGULAR' AND rb.city_id IS NULL;
+
+-- اللاعب: مدينةٌ أساسيّة (تفضيلُ عرض) — تُستنتج لمن له مباراة
+ALTER TABLE players ADD COLUMN IF NOT EXISTS home_city_id INTEGER;
+ALTER TABLE players ADD COLUMN IF NOT EXISTS home_city_source VARCHAR(10);
+UPDATE players p SET home_city_id = 1, home_city_source = 'inferred'
+  WHERE p.home_city_id IS NULL AND COALESCE(p.lifetime_matches, 0) > 0;
+
+-- رسائل الترقية: القيد يحمل المدينة
+ALTER TABLE whatsapp_rank_notifications ADD COLUMN IF NOT EXISTS city_id INTEGER NOT NULL DEFAULT 1;
+ALTER TABLE whatsapp_rank_notifications DROP CONSTRAINT IF EXISTS whatsapp_rank_notifications_player_id_rank_tier_key;
+CREATE UNIQUE INDEX IF NOT EXISTS uq_wa_rank_player_city_tier
+  ON whatsapp_rank_notifications (player_id, city_id, rank_tier);
 SQL
 then
   say "   ✅ الترحيل تمّ"

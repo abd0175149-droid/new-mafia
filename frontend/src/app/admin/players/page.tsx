@@ -6,6 +6,10 @@ import { useRouter } from 'next/navigation';
 import Image from 'next/image';
 import WhatsAppButton from '@/components/WhatsAppButton';
 import { swalConfirm } from '@/lib/swal';
+import { useAdminScope } from '../scope-context';
+import CityBadge, { CitySegment } from '@/components/admin/CityBadge';
+import { withCity } from '@/hooks/useCities';
+import { RANK_ORDER, rankName, rankBadge, rankColor } from '@/lib/ranks';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || '';
 
@@ -143,9 +147,7 @@ type FlagState = 'yes' | 'no' | null;
 // 🔴 والمعرّفُ فاصلٌ أخير دائماً: بلاه تتبادل الصفوفُ المتساوية مواضعَها بين
 //    عرضٍ وآخر — كلَّما بُدّل علمٌ أو وصل استطلاعٌ جديد.
 // ══════════════════════════════════════════════════════
-const RANK_ORDER: Record<string, number> = {
-  INFORMANT: 1, ASSOCIATE: 2, SOLDIER: 3, CAPO: 4, UNDERBOSS: 5, GODFATHER: 6,
-};
+// 🔴 ترتيبُ الرتب من `@/lib/ranks` — النسخةُ المحلّيّة كانت تحمل رتبةً سادسةً لا وجودَ لها
 
 type SortDir = 'asc' | 'desc';
 interface SortDef {
@@ -329,20 +331,20 @@ function ColumnFilter({
   );
 }
 
-// ── Role label helpers ──
-const RANK_MAP: Record<string, { label: string; icon: string; color: string }> = {
-  INFORMANT:  { label: 'المُخبر',       icon: '⭐',  color: 'text-gray-400' },
-  ASSOCIATE:  { label: 'المُشارك',      icon: '⭐⭐', color: 'text-blue-400' },
-  SOLDIER:    { label: 'الجندي',        icon: '⭐⭐⭐', color: 'text-emerald-400' },
-  CAPO:       { label: 'الكابو',        icon: '🌟',  color: 'text-amber-400' },
-  UNDERBOSS:  { label: 'نائب الزعيم',   icon: '🌟🌟', color: 'text-orange-400' },
-  GODFATHER:  { label: 'الأب الروحي',   icon: '👑',  color: 'text-rose-400' },
-};
+// ── أسماءُ الرتب وشاراتُها وألوانُها من `@/lib/ranks` (rankName / rankBadge / rankColor) ──
 
 export default function PlayersManagementPage() {
   const router = useRouter();
   const [players, setPlayers] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+
+  // 🏙️ الرتبةُ المعروضةُ بمدينتها: الافتراضيّ من مبدّل النطاق، ويتجاوزه المستعمل هنا.
+  //    «الكلّ» يعرض المدينةَ الأساسيّة لكلّ لاعب (سلوك الخادم بلا cityId).
+  const scope = useAdminScope();
+  const [cityOverride, setCityOverride] = useState<number | null | undefined>(undefined);
+  const cityFilter: number | null = cityOverride === undefined ? scope.cityId : cityOverride;
+  useEffect(() => { setCityOverride(undefined); }, [scope.cityId]);
+  const cityFilterName = cityFilter == null ? null : (scope.cities.find(c => c.id === cityFilter)?.name || null);
   const [search, setSearch] = useState('');
   const [resettingId, setResettingId] = useState<number | null>(null);
   const [togglingTestId, setTogglingTestId] = useState<number | null>(null);
@@ -367,7 +369,7 @@ export default function PlayersManagementPage() {
   async function loadPlayers(background = false) {
     if (!background) setLoading(true);
     try {
-      const data = await apiFetch('/api/player/all');
+      const data = await apiFetch(withCity('/api/player/all', cityFilter));
       setPlayers(data.players || []);
     } catch (err: any) {
       showToast(err.message || 'خطأ في جلب اللاعبين', 'error');
@@ -375,7 +377,9 @@ export default function PlayersManagementPage() {
       if (!background) setLoading(false);
     }
   }
-  useEffect(() => { loadPlayers(); }, []);
+  // 🔴 يُنتظر `ready` كي لا يُجلب مرّتين؛ ويُعاد الجلبُ حين تتبدّل المدينة
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => { if (scope.ready) loadPlayers(); }, [scope.ready, cityFilter]);
 
   // ── Toast ──
   function showToast(msg: string, type: 'success' | 'error') {
@@ -671,18 +675,22 @@ export default function PlayersManagementPage() {
             <span>🎮</span> إدارة اللاعبين
           </h1>
           <p className="text-gray-400 text-sm mt-1">
-            عرض وإدارة حسابات اللاعبين المسجلين ({players.length} لاعب)
+            عرض وإدارة حسابات اللاعبين المسجلين ({players.length} لاعب) · الرتبةُ المعروضة حسب المدينة المختارة
           </p>
         </div>
-        {/* Search */}
-        <div className="relative">
-          <input
-            type="text"
-            value={search}
-            onChange={e => { setSearch(e.target.value); setCurrentPage(1); }}
-            placeholder="🔍 بحث بالاسم أو الهاتف..."
-            className="px-4 py-2.5 bg-gray-900/60 border border-gray-600/50 rounded-xl text-white text-sm focus:outline-none focus:ring-1 focus:ring-amber-500/30 w-64 placeholder-gray-500"
-          />
+        <div className="flex items-center gap-3 flex-wrap">
+          {/* 🏙️ مفتاح المدينة — يحدّد أيّ رتبةٍ تُعرض في العمود الرئيس */}
+          <CitySegment cities={scope.cities} value={cityFilter} onChange={id => { setCityOverride(id); setCurrentPage(1); }} ariaLabel="مدينة الرتبة" />
+          {/* Search */}
+          <div className="relative">
+            <input
+              type="text"
+              value={search}
+              onChange={e => { setSearch(e.target.value); setCurrentPage(1); }}
+              placeholder="🔍 بحث بالاسم أو الهاتف..."
+              className="px-4 py-2.5 bg-gray-900/60 border border-gray-600/50 rounded-xl text-white text-sm focus:outline-none focus:ring-1 focus:ring-amber-500/30 w-64 placeholder-gray-500"
+            />
+          </div>
         </div>
       </div>
 
@@ -763,6 +771,8 @@ export default function PlayersManagementPage() {
                   <th className="text-center px-4 py-3 font-medium"><SortHead id="survived" label="نجا" sort={sort} onSort={cycleSort} /></th>
                   <th className="text-center px-4 py-3 font-medium">
                     <SortHead id="rank" label="المستوى / الرانك" sort={sort} onSort={cycleSort} /></th>
+                  {/* 🏙️ رتبُ اللاعب في المدن غير المعروضة — فلا تختفي رتبةٌ ولا تُجمَع رتبتان */}
+                  <th className="text-center px-4 py-3 font-medium whitespace-nowrap">المدن الأخرى</th>
                   <th className="text-center px-4 py-3 font-medium">
                     <SortHead id="activity" label="آخر نشاط" sort={sort} onSort={cycleSort}>
                     <ColumnFilter
@@ -848,18 +858,46 @@ export default function PlayersManagementPage() {
                       </td>
                       {/* Survived */}
                       <td className="px-4 py-3 text-center text-blue-400 font-bold">{p.totalSurvived || 0}</td>
-                      {/* Level + Rank */}
-                      <td className="px-4 py-3 text-center">
-                        {(() => {
-                          const rank = RANK_MAP[p.rankTier] || RANK_MAP.INFORMANT;
-                          return (
-                            <div className="flex flex-col items-center gap-0.5">
-                              <span className={`text-xs font-bold ${rank.color}`}>{rank.icon} {rank.label}</span>
-                              <span className="text-[10px] text-gray-600">Lv.{p.level || 1}</span>
-                            </div>
-                          );
-                        })()}
-                      </td>
+                      {/* Level + Rank — بمدينتها */}
+                      {(() => {
+                        // 🏙️ المدينةُ المعروضة: المختارةُ من المفتاح، وإلّا الأساسيّةُ للاعب
+                        const standings: any[] = Array.isArray(p.standings) ? p.standings : [];
+                        const shownCityId: number | null = cityFilter ?? (p.homeCityId == null ? null : Number(p.homeCityId));
+                        const shownCityName: string | null = cityFilter != null ? cityFilterName : (p.homeCityName || null);
+                        const shownStanding = shownCityId == null ? null : standings.find(s => Number(s.cityId) === shownCityId) || null;
+                        // «لم يلعب في X» لا تُقال إلّا حين يرسل الخادم standings ولا صفَّ فيها للمدينة المختارة
+                        const notPlayedHere = cityFilter != null && Array.isArray(p.standings) && !shownStanding;
+                        const others = standings.filter(s => Number(s.cityId) !== shownCityId);
+                        return (
+                          <>
+                            <td className="px-4 py-3 text-center">
+                              {notPlayedHere ? (
+                                <span className="text-[11px] text-gray-500">لم يلعب في {cityFilterName || 'هذه المدينة'}</span>
+                              ) : (
+                                <div className="flex flex-col items-center gap-0.5">
+                                  <span className="text-xs font-bold" style={{ color: rankColor(p.rankTier) }}>{rankBadge(p.rankTier)} {rankName(p.rankTier)}</span>
+                                  <span className="text-[10px] text-gray-600">Lv.{p.level || 1} · {p.rankRR || 0} RR</span>
+                                  {shownCityName && <CityBadge cityId={shownCityId} cityName={shownCityName} />}
+                                </div>
+                              )}
+                            </td>
+                            {/* المدن الأخرى */}
+                            <td className="px-4 py-3 text-center">
+                              {others.length === 0 ? (
+                                <span className="text-gray-600">—</span>
+                              ) : (
+                                <div className="flex flex-col items-center gap-1">
+                                  {others.map(s => (
+                                    <CityBadge key={s.cityId} cityId={s.cityId} cityName={s.cityName} icon={false} title={`Lv.${s.level || 1} · ${s.totalMatches || 0} مباراة`}>
+                                      {s.cityName} · {rankBadge(s.rankTier)} {rankName(s.rankTier)} {s.rankRR || 0}
+                                    </CityBadge>
+                                  ))}
+                                </div>
+                              )}
+                            </td>
+                          </>
+                        );
+                      })()}
                       {/* Last Active — ثلاثُ حالات */}
                       <td className="px-4 py-3 text-center">
                         {(() => {

@@ -1022,6 +1022,8 @@ export interface ChampionSyncResult {
   ok: boolean;
   seasonId?: number | null;
   championId?: number | null;
+  /** 🏙️ بطلٌ لكلّ مدينة في الموسم العادي */
+  championIds?: number[];
   granted?: boolean;
   revoked?: number;
   reason?: string;
@@ -1054,80 +1056,94 @@ export async function syncChampionFrame(seasonId?: number | null): Promise<Champ
          || seasons.find((s: any) => s.status === 'ACTIVE'));
     if (!season) return { ok: false, reason: 'NO_ACTIVE_SEASON' };
 
-    const top = await getSeasonTopPlayers(Number(season.id), 1);
-    const champion = top[0]?.playerId ? Number(top[0].playerId) : null;
+    // 🏙️ بطلٌ لكلّ مدينة في الموسم العادي (قرار ٧)؛ بطلٌ واحد لنطاق البطولة/الأونلاين
+    const { listCities } = await import('./cities.service.js');
+    const scopes: Array<{ cityId: number | null; cityName: string | null }> = season.type === 'REGULAR'
+      ? (await listCities({ activeOnly: true })).map(c => ({ cityId: c.id, cityName: c.name }))
+      : [{ cityId: null, cityName: null }];
+    const champions: Array<{ playerId: number; cityName: string | null }> = [];
+    for (const s of scopes) {
+      const top = await getSeasonTopPlayers(Number(season.id), 1, s.cityId);
+      if (top[0]?.playerId) champions.push({ playerId: Number(top[0].playerId), cityName: s.cityName });
+    }
 
     // ⚠️ لا متصدّر ⇒ **لا نسحب من أحد**. جدول فارغ لحظةَ إعادة حساب أو
     //    بداية موسم لا يعني أن البطل لم يعد بطلاً؛ السحب هنا يخلع الإكليل
     //    عن مستحقّه بسبب استعلامٍ عابر.
-    if (!champion) return { ok: true, seasonId: Number(season.id), championId: null, reason: 'NO_LEADER' };
+    if (champions.length === 0) return { ok: true, seasonId: Number(season.id), championId: null, reason: 'NO_LEADER' };
+    const championIds = champions.map(c => c.playerId);
 
     const out = await db.transaction(async (tx: any) => {
       await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${`champion:${itemId}`}))`);
 
-      // يُخلع عن كل من ليس البطل الحالي
+      // يُخلع عن كل من ليس بطلَ مدينته الآن
       const revoked: any = await tx.execute(sql`
         UPDATE chips_rentals
            SET expires_at = NOW()
          WHERE item_id = ${itemId}
-           AND player_id <> ${champion}
+           AND player_id <> ALL(${sql.raw(`ARRAY[${championIds.join(',')}]::int[]`)})
            AND expires_at > NOW()
       `);
 
-      // ويُلبَس للبطل — صفّ واحد لكل (لاعب، عنصر) فالتحديث يسبق الإدراج
-      const [existing] = rowsOf(await tx.execute(sql`
-        SELECT id, (expires_at > NOW()) AS is_active FROM chips_rentals
-         WHERE player_id = ${champion} AND item_id = ${itemId}
-         ORDER BY expires_at DESC LIMIT 1 FOR UPDATE
-      `));
+      const newlyCrowned: number[] = [];
+      for (const champion of championIds) {
+        // ويُلبَس للبطل — صفّ واحد لكل (لاعب، عنصر) فالتحديث يسبق الإدراج
+        const [existing] = rowsOf(await tx.execute(sql`
+          SELECT id, (expires_at > NOW()) AS is_active FROM chips_rentals
+           WHERE player_id = ${champion} AND item_id = ${itemId}
+           ORDER BY expires_at DESC LIMIT 1 FOR UPDATE
+        `));
 
-      const alreadyHeld = !!existing?.is_active;
-      // 📅 سنة كاملة: «حتى تتويج التالي» تُنفَّذ بالمزامنة لا بانتهاء المدّة،
-      //    والمدّة الطويلة تمنع سقوطه لو تعطّلت المزامنة يوماً.
-      if (existing) {
+        const alreadyHeld = !!existing?.is_active;
+        // 📅 سنة كاملة: «حتى تتويج التالي» تُنفَّذ بالمزامنة لا بانتهاء المدّة،
+        //    والمدّة الطويلة تمنع سقوطه لو تعطّلت المزامنة يوماً.
+        if (existing) {
+          await tx.execute(sql`
+            UPDATE chips_rentals
+               SET expires_at = NOW() + interval '365 days',
+                   starts_at = CASE WHEN ${alreadyHeld} THEN starts_at ELSE NOW() END,
+                   source = 'achievement', price_paid_chips = 0, duration_days_snapshot = 365,
+                   warned_at = NULL
+             WHERE id = ${existing.id}
+          `);
+        } else {
+          await tx.execute(sql`
+            INSERT INTO chips_rentals (player_id, item_id, starts_at, expires_at, source,
+                                       price_paid_chips, duration_days_snapshot)
+            VALUES (${champion}, ${itemId}, NOW(), NOW() + interval '365 days', 'achievement', 0, 365)
+          `);
+        }
+
+        // تجهيز تلقائي للخانة الفارغة — إكليل لا يُرى ليس تتويجاً
         await tx.execute(sql`
-          UPDATE chips_rentals
-             SET expires_at = NOW() + interval '365 days',
-                 starts_at = CASE WHEN ${alreadyHeld} THEN starts_at ELSE NOW() END,
-                 source = 'achievement', price_paid_chips = 0, duration_days_snapshot = 365,
-                 warned_at = NULL
-           WHERE id = ${existing.id}
+          UPDATE players SET chips_frame_item_id = ${itemId}
+           WHERE id = ${champion} AND chips_frame_item_id IS NULL
         `);
-      } else {
-        await tx.execute(sql`
-          INSERT INTO chips_rentals (player_id, item_id, starts_at, expires_at, source,
-                                     price_paid_chips, duration_days_snapshot)
-          VALUES (${champion}, ${itemId}, NOW(), NOW() + interval '365 days', 'achievement', 0, 365)
-        `);
+        if (!alreadyHeld) newlyCrowned.push(champion);
       }
 
-      // تجهيز تلقائي للخانة الفارغة — إكليل لا يُرى ليس تتويجاً
-      await tx.execute(sql`
-        UPDATE players SET chips_frame_item_id = ${itemId}
-         WHERE id = ${champion} AND chips_frame_item_id IS NULL
-      `);
-
-      return { revoked: Number(revoked?.rowCount ?? 0), alreadyHeld };
+      return { revoked: Number(revoked?.rowCount ?? 0), newlyCrowned };
     });
 
-    // البثّ للبطل ولمن خُلع عنه — الشاشة والتطبيق يتحدّثان بلا انتظار
-    broadcastCosmetics(champion);
+    // البثّ للأبطال ولمن خُلع عنهم — الشاشة والتطبيق يتحدّثان بلا انتظار
+    for (const c of championIds) broadcastCosmetics(c);
 
-    if (!out.alreadyHeld) {
+    for (const champion of out.newlyCrowned) {
+      const cityName = champions.find(c => c.playerId === champion)?.cityName ?? null;
       try {
         const { sendPushToPlayers } = await import('./fcm.service.js');
         await sendPushToPlayers(
           [champion], '👑 إكليل البطل لك',
-          'تصدّرت الموسم — الإطار الذي لا يُشترى بأي ثمن صار على بطاقتك',
+          `تصدّرت الموسم${cityName ? ` في ${cityName}` : ''} — الإطار الذي لا يُشترى بأي ثمن صار على بطاقتك`,
           'chips', { tag: 'chips-champion', url: '/player/store' },
         );
       } catch { /* الإشعار ليس شرطاً للتتويج */ }
-      console.log(`👑 إكليل البطل → لاعب ${champion} (موسم ${season.id}) · خُلع عن ${out.revoked}`);
+      console.log(`👑 إكليل البطل → لاعب ${champion} (موسم ${season.id}${cityName ? ` · ${cityName}` : ''}) · خُلع عن ${out.revoked}`);
     }
 
     return {
-      ok: true, seasonId: Number(season.id), championId: champion,
-      granted: !out.alreadyHeld, revoked: out.revoked,
+      ok: true, seasonId: Number(season.id), championId: championIds[0] ?? null, championIds,
+      granted: out.newlyCrowned.length > 0, revoked: out.revoked,
     };
   } catch (e: any) {
     console.error('❌ syncChampionFrame:', e?.message);

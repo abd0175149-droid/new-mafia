@@ -7,19 +7,34 @@
 import { Router, type Request, type Response } from 'express';
 import { eq, sql, desc, gte, and, lte, isNull } from 'drizzle-orm';
 import { getDB } from '../config/db.js';
-import { activities, bookings, costs, foundationalCosts, staff } from '../schemas/admin.schema.js';
+import { activities, bookings, costs, foundationalCosts, staff, locations, cities } from '../schemas/admin.schema.js';
 import { players } from '../schemas/player.schema.js';
 import { matches } from '../schemas/game.schema.js';
+import { playerSeasonStats } from '../schemas/season.schema.js';
 import { authenticate } from '../middleware/auth.js';
 
 const router = Router();
 
-// GET /api/dashboard/stats
-router.get('/stats', authenticate, async (_req: Request, res: Response) => {
+const TIER_ORDER = (col: any) => sql`CASE ${col}
+  WHEN 'GODFATHER' THEN 5
+  WHEN 'UNDERBOSS' THEN 4
+  WHEN 'CAPO' THEN 3
+  WHEN 'SOLDIER' THEN 2
+  WHEN 'INFORMANT' THEN 1
+  ELSE 0 END DESC`;
+
+// GET /api/dashboard/stats?cityId= — 🏙️ بلا مدينة: الإجماليّ + تقسيمٌ لكلّ مدينة؛ بمدينة: الأرقامُ لها وحدها
+router.get('/stats', authenticate, async (req: Request, res: Response) => {
   const db = getDB();
   if (!db) return res.status(503).json({ error: 'قاعدة البيانات غير متوفرة' });
 
   try {
+    const cityFilter = Number.isFinite(parseInt(String(req.query.cityId))) ? parseInt(String(req.query.cityId)) : null;
+    // مجموعة الفعاليّات داخل النطاق (لتقييد الحجوزات والمباريات بالمدينة)
+    const scopedActs = cityFilter
+      ? sql`(SELECT a.id FROM activities a JOIN locations l ON l.id = a.location_id WHERE l.city_id = ${cityFilter})`
+      : null;
+
     // ── 1. إحصاءات مالية (الحجوزات) ──
     const [financeRow] = await db.select({
       totalRevenue: sql<number>`COALESCE(SUM(CASE WHEN ${bookings.isPaid} = true AND ${bookings.isFree} = false THEN ${bookings.paidAmount}::numeric ELSE 0 END), 0)`,
@@ -29,7 +44,7 @@ router.get('/stats', authenticate, async (_req: Request, res: Response) => {
       unpaidBookings: sql<number>`COALESCE(SUM(CASE WHEN ${bookings.isPaid} = false AND ${bookings.isFree} = false THEN 1 ELSE 0 END), 0)::int`,
       totalAttendees: sql<number>`COALESCE(SUM(${bookings.count}), 0)::int`,
       unpaidAmount: sql<number>`COALESCE(SUM(CASE WHEN ${bookings.isPaid} = false AND ${bookings.isFree} = false THEN ${bookings.paidAmount}::numeric ELSE 0 END), 0)`,
-    }).from(bookings).where(isNull(bookings.deletedAt));
+    }).from(bookings).where(scopedActs ? and(isNull(bookings.deletedAt), sql`${bookings.activityId} IN ${scopedActs}`) : isNull(bookings.deletedAt));
 
     // ── 2. تكاليف الأنشطة ──
     const [costRow] = await db.select({
@@ -71,7 +86,7 @@ router.get('/stats', authenticate, async (_req: Request, res: Response) => {
     const [matchRow] = await db.select({
       totalMatches: sql<number>`COUNT(*)::int`,
       todayMatches: sql<number>`COALESCE(SUM(CASE WHEN ${matches.createdAt} >= ${today} AND ${matches.createdAt} < ${tomorrow} THEN 1 ELSE 0 END), 0)::int`,
-    }).from(matches).where(isNull(matches.deletedAt));
+    }).from(matches).where(cityFilter ? and(isNull(matches.deletedAt), eq(matches.cityId, cityFilter)) : isNull(matches.deletedAt));
 
     // ── 7. الموظفون ──
     const [staffRow] = await db.select({
@@ -89,38 +104,52 @@ router.get('/stats', authenticate, async (_req: Request, res: Response) => {
       date: activities.date,
       status: activities.status,
       basePrice: activities.basePrice,
+      cityId: locations.cityId,
+      cityName: cities.name,
+      locationName: locations.name,
     }).from(activities)
+      .leftJoin(locations, eq(activities.locationId, locations.id))
+      .leftJoin(cities, eq(locations.cityId, cities.id))
       .where(and(
         gte(activities.date, new Date()),
         lte(activities.date, weekEnd),
-        isNull(activities.deletedAt)
+        isNull(activities.deletedAt),
+        ...(cityFilter ? [eq(locations.cityId, cityFilter)] : []),
       ))
       .orderBy(activities.date)
       .limit(5);
 
-    // ── 9. أفضل 5 لاعبين ──
-    const topPlayers = await db.select({
-      id: players.id,
-      name: players.name,
-      level: players.level,
-      rankTier: players.rankTier,
-      rankRR: players.rankRR,
-      totalMatches: players.totalMatches,
-      totalWins: players.totalWins,
-      avatarUrl: players.avatarUrl,
-    }).from(players)
-      .orderBy(
-        sql`CASE ${players.rankTier}
-          WHEN 'GODFATHER' THEN 5
-          WHEN 'UNDERBOSS' THEN 4
-          WHEN 'CAPO' THEN 3
-          WHEN 'SOLDIER' THEN 2
-          WHEN 'INFORMANT' THEN 1
-          ELSE 0 END DESC`,
-        desc(players.rankRR),
-        desc(players.level),
-      )
-      .limit(5);
+    // ── 9. أفضل 5 لاعبين — 🏙️ لكلّ مدينة (لا لوحة مجمّعة — قرار ١) ──
+    const { getActiveRegularSeasonId } = await import('../services/season.service.js');
+    const { listCities } = await import('../services/cities.service.js');
+    const seasonId = await getActiveRegularSeasonId();
+    const cityList = await listCities({ activeOnly: true });
+    const topFor = async (cityId: number) => seasonId ? db.select({
+      id: players.id, name: players.name, avatarUrl: players.avatarUrl,
+      level: playerSeasonStats.level, rankTier: playerSeasonStats.rankTier, rankRR: playerSeasonStats.rankRR,
+      totalMatches: playerSeasonStats.totalMatches, totalWins: playerSeasonStats.totalWins,
+    }).from(playerSeasonStats)
+      .innerJoin(players, eq(playerSeasonStats.playerId, players.id))
+      .where(and(eq(playerSeasonStats.seasonId, seasonId), eq(playerSeasonStats.cityId, cityId), sql`COALESCE(${playerSeasonStats.totalMatches},0) > 0`))
+      .orderBy(TIER_ORDER(playerSeasonStats.rankTier), desc(playerSeasonStats.rankRR), desc(playerSeasonStats.level))
+      .limit(5) : [];
+    const topPlayersByCity: Record<string, any[]> = {};
+    for (const c of cityList) topPlayersByCity[String(c.id)] = await topFor(c.id);
+    const primaryCity = cityFilter ?? cityList[0]?.id ?? null;
+    const topPlayers = primaryCity ? (topPlayersByCity[String(primaryCity)] ?? []) : [];
+
+    // ── 9.ب تقسيمٌ لكلّ مدينة (يُعرض تحت الأرقام حين يكون النطاق «الكلّ») ──
+    const byCity: Record<string, { revenue: number; matches: number; players: number; bookings: number }> = {};
+    for (const c of cityList) {
+      const [rev] = await db.select({
+        revenue: sql<number>`COALESCE(SUM(CASE WHEN ${bookings.isPaid} = true AND ${bookings.isFree} = false THEN ${bookings.paidAmount}::numeric ELSE 0 END), 0)`,
+        n: sql<number>`COUNT(*)::int`,
+      }).from(bookings).where(and(isNull(bookings.deletedAt),
+        sql`${bookings.activityId} IN (SELECT a.id FROM activities a JOIN locations l ON l.id = a.location_id WHERE l.city_id = ${c.id})`));
+      const [m] = await db.select({ n: sql<number>`COUNT(*)::int` }).from(matches).where(and(isNull(matches.deletedAt), eq(matches.cityId, c.id)));
+      const [p] = await db.select({ n: sql<number>`COUNT(*)::int` }).from(players).where(and(isNull(players.deletedAt), eq(players.homeCityId, c.id)));
+      byCity[String(c.id)] = { revenue: Number(rev?.revenue || 0), matches: Number(m?.n || 0), players: Number(p?.n || 0), bookings: Number(rev?.n || 0) };
+    }
 
     // ── 10. آخر 5 أنشطة ──
     const recentActivities = await db.select({
@@ -204,6 +233,11 @@ router.get('/stats', authenticate, async (_req: Request, res: Response) => {
       topPlayers,
       recentActivities,
       recentBookings,
+      // 🏙️ المدن: القائمة + تقسيمٌ لكلّ مدينة + أفضل اللاعبين لكلّ مدينة
+      cityId: cityFilter,
+      cities: cityList.map(c => ({ id: c.id, name: c.name })),
+      byCity,
+      topPlayersByCity,
     });
   } catch (err: any) {
     console.error('❌ Dashboard stats error:', err.message);

@@ -104,6 +104,7 @@ class LeaderboardRowTile extends StatelessWidget {
     required this.glow,
     required this.onTap,
     this.follow,
+    this.accent = Tw.amber400,
   });
 
   final LeaderboardRow row;
@@ -115,15 +116,19 @@ class LeaderboardRowTile extends StatelessWidget {
   final VoidCallback onTap;
   final Widget? follow;
 
+  /// 🏙️ لون المدينة المعروضة: صفّي المتوهّج وأرقام RR تأخذه، فيعرف
+  /// اللاعب من نظرةٍ أيَّ ترتيبٍ يقرأ. الافتراضيّ عنبريّ (عمّان/القديم).
+  final Color accent;
+
   @override
   Widget build(BuildContext context) {
     final content = Container(
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
         borderRadius: BorderRadius.circular(12),
-        color: isMe ? const Color(0x14FBBF24) : const Color(0x08FFFFFF),
+        color: isMe ? accent.withValues(alpha: 0.08) : const Color(0x08FFFFFF),
         border: Border.all(
-          color: isMe ? const Color(0x4DFBBF24) : const Color(0x0FFFFFFF),
+          color: isMe ? accent.withValues(alpha: 0.30) : const Color(0x0FFFFFFF),
           width: isMe ? 2 : 1,
         ),
       ),
@@ -133,7 +138,7 @@ class LeaderboardRowTile extends StatelessWidget {
           child: Text('$rank',
               textAlign: TextAlign.center,
               style: ar(14,
-                  color: isMe ? Tw.amber400 : Tw.gray600, weight: FontWeight.w700)),
+                  color: isMe ? accent : Tw.gray600, weight: FontWeight.w700)),
         ),
         const SizedBox(width: 12),
         RankAvatar(url: row.avatarUrl, size: 32),
@@ -148,7 +153,7 @@ class LeaderboardRowTile extends StatelessWidget {
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
                 style: ar(12,
-                    color: isMe ? Tw.amber400 : Colors.white, weight: FontWeight.w500),
+                    color: isMe ? accent : Colors.white, weight: FontWeight.w500),
               ),
               // المستوى ظاهر لأنّه مفتاح الترتيب الثالث في الخادم
               // (الرتبة ← RR ← المستوى) — بدونه يبدو تعادل RR اعتباطاً.
@@ -172,7 +177,7 @@ class LeaderboardRowTile extends StatelessWidget {
         SizedBox(
           width: 40,
           child: ltrText('${row.rankRR}',
-              num_(12, color: Tw.amber400, weight: FontWeight.w700),
+              num_(12, color: accent, weight: FontWeight.w700),
               align: TextAlign.center),
         ),
         if (follow != null) ...[const SizedBox(width: 8), follow!],
@@ -194,13 +199,13 @@ class LeaderboardRowTile extends StatelessWidget {
             borderRadius: BorderRadius.circular(12),
             boxShadow: [
               BoxShadow(
-                  color: Tw.amber400.withValues(alpha: 0.4 + 0.2 * t),
+                  color: accent.withValues(alpha: 0.4 + 0.2 * t),
                   blurRadius: 15 + 10 * t),
               BoxShadow(
-                  color: Tw.amber400.withValues(alpha: 0.2 + 0.1 * t),
+                  color: accent.withValues(alpha: 0.2 + 0.1 * t),
                   blurRadius: 30 + 20 * t),
               BoxShadow(
-                  color: Tw.amber400.withValues(alpha: 0.1 * t), blurRadius: 70 * t),
+                  color: accent.withValues(alpha: 0.1 * t), blurRadius: 70 * t),
             ],
           ),
           child: child,

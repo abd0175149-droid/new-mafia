@@ -222,6 +222,92 @@ class PlayerProgression {
       );
 }
 
+// ══════════════════════════════════════════════════════
+// 🏙️ صفّ الرتبة في مدينةٍ واحدة
+// ══════════════════════════════════════════════════════
+// التصنيف بحسب (الموسم، المدينة): لكلّ مدينةٍ لعب فيها اللاعب سلّمٌ مستقلّ
+// وRR مستقلّ. `progression`/`stats` في البروفايل يبقيان صفَّ **المدينة
+// الأساسيّة** — وهذا الصفّ يحمل الباقي.
+
+class Standing {
+  const Standing({
+    required this.cityId,
+    required this.cityName,
+    this.rankTier = 'INFORMANT',
+    this.rankRR = 0,
+    this.rrRequired = 100,
+    this.level = 1,
+    this.xp = 0,
+    this.nextLevelXP = 500,
+    this.xpProgress = 0,
+    this.totalMatches = 0,
+    this.totalWins = 0,
+    this.totalSurvived = 0,
+    this.totalDeals = 0,
+    this.successfulDeals = 0,
+    this.dealSuccessRate = 0,
+  });
+
+  final int cityId;
+  final String cityName;
+  final String rankTier;
+  final int rankRR, rrRequired;
+  final int level, xp, nextLevelXP;
+  final double xpProgress;
+  final int totalMatches, totalWins, totalSurvived;
+  final int totalDeals, successfulDeals, dealSuccessRate;
+
+  int get winRate => totalMatches == 0 ? 0 : (totalWins * 100 / totalMatches).round();
+  int get survivalRate =>
+      totalMatches == 0 ? 0 : (totalSurvived * 100 / totalMatches).round();
+
+  /// الشكل الذي تقرؤه بطاقاتُ الرتبة القائمة — سلّمٌ واحد لكلّ مدينة.
+  PlayerProgression toProgression() => PlayerProgression(
+        rankTier: rankTier,
+        level: level,
+        xp: xp,
+        nextLevelXP: nextLevelXP,
+        xpProgress: xpProgress,
+        rankRR: rankRR,
+        rrRequired: rrRequired,
+        successfulDeals: successfulDeals,
+        totalDeals: totalDeals,
+        dealSuccessRate: dealSuccessRate,
+      );
+
+  factory Standing.fromJson(Map<String, dynamic> j) => Standing(
+        cityId: _i(j['cityId']),
+        cityName: (j['cityName'] ?? '').toString(),
+        rankTier: (j['rankTier'] ?? 'INFORMANT').toString(),
+        rankRR: _i(j['rankRR']),
+        rrRequired: _i(j['rrRequired'], 100) == 0 ? 100 : _i(j['rrRequired'], 100),
+        level: _i(j['level'], 1),
+        xp: _i(j['xp']),
+        nextLevelXP: _i(j['nextLevelXP'], 500),
+        xpProgress: _d(j['xpProgress']).clamp(0, 100),
+        totalMatches: _i(j['totalMatches']),
+        totalWins: _i(j['totalWins']),
+        totalSurvived: _i(j['totalSurvived']),
+        totalDeals: _i(j['totalDeals']),
+        successfulDeals: _i(j['successfulDeals']),
+        dealSuccessRate: _i(j['dealSuccessRate']),
+      );
+
+  /// القائمة من الاستجابة، **الأساسيّة أوّلاً** مهما كان ترتيب الخادم.
+  static List<Standing> listFrom(dynamic v, {int? homeCityId}) {
+    final out = (v as List? ?? const [])
+        .whereType<Map>()
+        .map((e) => Standing.fromJson(Map<String, dynamic>.from(e)))
+        .where((s) => s.cityId > 0)
+        .toList();
+    if (homeCityId != null) {
+      final i = out.indexWhere((s) => s.cityId == homeCityId);
+      if (i > 0) out.insert(0, out.removeAt(i));
+    }
+    return out;
+  }
+}
+
 class PointLine {
   const PointLine({this.icon = '', this.label = '', this.value = 0});
 
@@ -300,6 +386,8 @@ class MatchHistoryEntry {
     this.dealInitiated = false,
     this.dealSuccess = false,
     this.breakdown,
+    this.cityId,
+    this.cityName,
   });
 
   final String? role, matchWinner;
@@ -310,6 +398,11 @@ class MatchHistoryEntry {
   final DateTime? matchDate;
   final bool dealInitiated, dealSuccess;
   final MatchBreakdown? breakdown;
+
+  /// 🏙️ مدينة المباراة (`matches.city_id`) — تفسّر لماذا لم تتحرّك رتبةُ
+  /// مدينةٍ بعد مباراةٍ في أخرى. غائبة من خادمٍ قديم.
+  final int? cityId;
+  final String? cityName;
 
   bool get isNeutral => MatchOutcome.isNeutral(breakdown);
   bool get isMafia => MatchOutcome.isMafia(breakdown, role);
@@ -330,6 +423,10 @@ class MatchHistoryEntry {
         breakdown: j['breakdown'] is Map
             ? MatchBreakdown.fromJson(Map<String, dynamic>.from(j['breakdown'] as Map))
             : null,
+        cityId: _iOrNull(j['cityId']),
+        cityName: (j['cityName'] as String?)?.trim().isEmpty ?? true
+            ? null
+            : (j['cityName'] as String).trim(),
       );
 }
 
@@ -362,32 +459,82 @@ class ProfileResponse {
     this.stats = const ProfileStats(),
     this.progression = const PlayerProgression(),
     this.matchHistory = const [],
+    this.homeCityId,
+    this.homeCityName,
+    this.standings = const [],
   });
 
   final PlayerInfo player;
+
+  /// `stats` و`progression` = صفّ **المدينة الأساسيّة** — شكل اليوم.
   final ProfileStats stats;
   final PlayerProgression progression;
   final List<MatchHistoryEntry> matchHistory;
 
-  ProfileResponse copyWith({PlayerInfo? player}) => ProfileResponse(
+  /// 🏙️ المدينة الأساسيّة — `null` لمن لم يخترها (أو خادمٌ قديم).
+  final int? homeCityId;
+  final String? homeCityName;
+
+  /// صفّ الرتبة في كلّ مدينة — الأساسيّة أوّلاً.
+  final List<Standing> standings;
+
+  /// صفّ مدينةٍ بعينها، أو `null` إن لم يلعب فيها.
+  Standing? standingFor(int? cityId) {
+    if (cityId == null) return null;
+    for (final s in standings) {
+      if (s.cityId == cityId) return s;
+    }
+    return null;
+  }
+
+  ProfileResponse copyWith({
+    PlayerInfo? player,
+    int? homeCityId,
+    String? homeCityName,
+  }) =>
+      ProfileResponse(
         player: player ?? this.player,
         stats: stats,
         progression: progression,
         matchHistory: matchHistory,
+        homeCityId: homeCityId ?? this.homeCityId,
+        homeCityName: homeCityName ?? this.homeCityName,
+        // تغيّر الأساسيّة يعيد ترتيب الصفوف: الأساسيّة أوّلاً دائماً
+        standings: Standing.listFrom(
+          [for (final s in standings) _standingJson(s)],
+          homeCityId: homeCityId ?? this.homeCityId,
+        ),
       );
 
-  factory ProfileResponse.fromJson(Map<String, dynamic> j) => ProfileResponse(
-        player: PlayerInfo.fromJson(
-            Map<String, dynamic>.from((j['player'] ?? const {}) as Map)),
-        stats: ProfileStats.fromJson(
-            Map<String, dynamic>.from((j['stats'] ?? const {}) as Map)),
-        progression: PlayerProgression.fromJson(
-            Map<String, dynamic>.from((j['progression'] ?? const {}) as Map)),
-        matchHistory: (j['matchHistory'] as List? ?? const [])
-            .whereType<Map>()
-            .map((e) => MatchHistoryEntry.fromJson(Map<String, dynamic>.from(e)))
-            .toList(),
-      );
+  static Map<String, dynamic> _standingJson(Standing s) => {
+        'cityId': s.cityId, 'cityName': s.cityName, 'rankTier': s.rankTier,
+        'rankRR': s.rankRR, 'rrRequired': s.rrRequired, 'level': s.level,
+        'xp': s.xp, 'nextLevelXP': s.nextLevelXP, 'xpProgress': s.xpProgress,
+        'totalMatches': s.totalMatches, 'totalWins': s.totalWins,
+        'totalSurvived': s.totalSurvived, 'totalDeals': s.totalDeals,
+        'successfulDeals': s.successfulDeals, 'dealSuccessRate': s.dealSuccessRate,
+      };
+
+  factory ProfileResponse.fromJson(Map<String, dynamic> j) {
+    final homeId = _iOrNull(j['homeCityId']);
+    return ProfileResponse(
+      player: PlayerInfo.fromJson(
+          Map<String, dynamic>.from((j['player'] ?? const {}) as Map)),
+      stats: ProfileStats.fromJson(
+          Map<String, dynamic>.from((j['stats'] ?? const {}) as Map)),
+      progression: PlayerProgression.fromJson(
+          Map<String, dynamic>.from((j['progression'] ?? const {}) as Map)),
+      matchHistory: (j['matchHistory'] as List? ?? const [])
+          .whereType<Map>()
+          .map((e) => MatchHistoryEntry.fromJson(Map<String, dynamic>.from(e)))
+          .toList(),
+      homeCityId: homeId,
+      homeCityName: (j['homeCityName'] as String?)?.trim().isEmpty ?? true
+          ? null
+          : (j['homeCityName'] as String).trim(),
+      standings: Standing.listFrom(j['standings'], homeCityId: homeId),
+    );
+  }
 }
 
 // ══════════════════════════════════════════════════════

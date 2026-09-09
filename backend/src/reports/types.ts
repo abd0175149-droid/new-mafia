@@ -19,7 +19,7 @@ export type ReportParamType =
   | 'toggle';           // → boolean
 
 export type OptionSource =
-  | 'activities' | 'players' | 'locations' | 'seasons' | 'expenseCategories' | 'staff';
+  | 'activities' | 'players' | 'locations' | 'seasons' | 'cities' | 'expenseCategories' | 'staff';
 
 export interface ReportParam {
   key: string;

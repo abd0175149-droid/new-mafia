@@ -146,6 +146,16 @@ router.post('/reshuffle', authenticate, leaderOrAbove, async (req: Request, res:
               playerData.genderConstraint = dbPlayer.genderConstraint || 'NONE';
               // تقدير activityCount ≈ totalMatches / 3 (متوسط 3 ألعاب لكل فعالية)
               playerData.activityCount = Math.floor((dbPlayer.totalMatches || 0) / 3);
+              // 🏙️ قرار ٩: الجلوس يقيس المهارة لا التنافس — أعلى رتبةٍ للاعب عبر مدنه
+              //    (خبيرُ عمّان يبقى «قويّاً» أمام محرّك المقاعد في أوّل ليلةٍ له في الزرقاء)
+              if (p.playerId) {
+                try {
+                  const { getActiveRegularSeasonId, getBestStanding } = await import('../services/season.service.js');
+                  const sid = await getActiveRegularSeasonId();
+                  const best = sid ? await getBestStanding(p.playerId, sid) : null;
+                  if (best) { playerData.rankRR = best.rankRR; playerData.rankTier = best.rankTier; }
+                } catch { /* السقوط على المرآة */ }
+              }
             }
           }
         } catch {}

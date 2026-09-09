@@ -21,6 +21,11 @@ const INSTAGRAM_URL = 'https://www.instagram.com/mafia_club_jo/';
 const INSTAGRAM_DM_URL = 'https://ig.me/m/mafia_club_jo';   // محادثة مباشرة — قناة التواصل الحاليّة
 const SNAPCHAT_URL = 'https://www.snapchat.com/add/mafia_club26';
 
+// 🏙️ ألوان المدن: المدينة ١ عنبريّة (الوجاهيّ الحاليّ)، وسائر المدن زرقاء — الأسماء من الخادم وحده
+const cityTone = (cityId?: number | null) => cityId === 1
+  ? { bg: 'rgba(251,191,36,0.12)', border: 'rgba(251,191,36,0.35)', text: '#FBBF24' }
+  : { bg: 'rgba(79,157,222,0.12)', border: 'rgba(79,157,222,0.35)', text: '#8CC1F2' };
+
 const DIFFICULTY_LABELS: Record<string, { label: string; color: string; icon: string }> = {
   easy: { label: 'سهل', color: '#22c55e', icon: '🟢' },
   medium: { label: 'متوسط', color: '#f59e0b', icon: '🟡' },
@@ -375,7 +380,7 @@ export default function HomePage() {
                 background: 'rgba(251,191,36,0.15)',
                 color: '#fbbf24',
               }}>
-                {RANK_BADGES[prog?.rankTier] || '🕵️'} {RANK_NAMES_AR[prog?.rankTier] || 'مُخبر'} • Lv.{prog?.level || 1}
+                {RANK_BADGES[prog?.rankTier] || '🕵️'} {RANK_NAMES_AR[prog?.rankTier] || 'مُخبر'} • Lv.{prog?.level || 1}{profile?.homeCityName ? ` • ${profile.homeCityName}` : ''}
               </span>
             </div>
           </div>
@@ -397,6 +402,34 @@ export default function HomePage() {
           </div>
         </div>
       </motion.div>
+
+      {/* ── 🏙️ رتبتي في المدن — فقط لمن له صفٌّ في أكثر من مدينة؛ لاعب المدينة الواحدة يرى الصفحة كما هي ── */}
+      {Array.isArray(profile?.standings) && profile.standings.length > 1 && (
+        <div>
+          <h2 className="text-white text-sm font-semibold mb-2">🏙️ رتبتي في المدن</h2>
+          <div className="grid grid-cols-2 gap-2">
+            {profile.standings.map((s: any) => {
+              const tone = cityTone(s.cityId);
+              const isHome = s.cityId === profile?.homeCityId;
+              return (
+                <Link
+                  key={s.cityId}
+                  href={`/player/rank?city=${s.cityId}`}
+                  className="rounded-xl p-3 block active:scale-[0.98] transition-transform"
+                  style={{ background: tone.bg, border: `1px solid ${tone.border}` }}
+                >
+                  <div className="flex items-center justify-between">
+                    <span className="text-[11px] font-bold" style={{ color: tone.text }}>{s.cityName}</span>
+                    {isHome && <span className="text-[9px] text-gray-500">الأساسيّة</span>}
+                  </div>
+                  <p className="text-white text-sm font-bold mt-1">{RANK_BADGES[s.rankTier] || '🕵️'} {RANK_NAMES_AR[s.rankTier] || 'مُخبر'}</p>
+                  <p className="text-[10px] mt-0.5" style={{ color: tone.text }}>{s.rankRR ?? 0} RR • Lv.{s.level || 1}</p>
+                </Link>
+              );
+            })}
+          </div>
+        </div>
+      )}
 
       {/* ── Quick Stats ── */}
       <div className="grid grid-cols-4 gap-2">
@@ -705,6 +738,9 @@ export default function HomePage() {
                     <p className="text-gray-500 text-[10px] mt-0.5">
                       {new Date(act.date).toLocaleDateString('ar-JO', { weekday: 'short', month: 'short', day: 'numeric' })}
                       {act.locationName && ` • 📍 ${act.locationName}`}
+                      {act.cityName && (
+                        <span className="mr-1.5 text-[9px] px-1.5 py-0.5 rounded-full" style={{ background: cityTone(act.cityId).bg, color: cityTone(act.cityId).text }}>{act.cityName}</span>
+                      )}
                     </p>
                     <p className="text-gray-600 text-[10px] mt-0.5">
                       👥 {act.bookedCount}/{act.maxPlayers || 20} لاعب

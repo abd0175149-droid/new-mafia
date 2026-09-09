@@ -199,21 +199,34 @@ async function geofenceGuard(db: any, locationId: any, enabled: boolean): Promis
   return null;
 }
 
-router.get('/available', async (req: Request, res: Response) => {
+// GET /api/activities/available — قائمة الليدر عند إنشاء غرفة
+// 🔒 كان بلا مصادقة ويُعيد كلّ الأعمدة؛ الآن مصادقةُ موظّف + نافذة تاريخ (يومان مضيا ← ١٤ يوماً)
+// 🏙️ + المكان والمدينة لكلّ فعاليّة (الليدر يرى أين تُحتسب النقاط قبل إنشاء الغرفة)
+router.get('/available', authenticate, async (req: Request, res: Response) => {
   const db = getDB();
   if (!db) return res.status(503).json({ error: 'قاعدة البيانات غير متوفرة' });
 
   try {
-    // عرض كل الأنشطة المخططة أو النشطة (بغض النظر عن وجود غرفة مربوطة)
-    const rows = await db.select()
+    const { cities } = await import('../schemas/admin.schema.js');
+    const from = new Date(Date.now() - 2 * 86400000);
+    const to = new Date(Date.now() + 14 * 86400000);
+    const rows = await db.select({
+      id: activities.id, name: activities.name, date: activities.date, status: activities.status,
+      locationId: activities.locationId, locationName: locations.name,
+      cityId: locations.cityId, cityName: cities.name, isTestLocation: locations.isTestLocation,
+    })
       .from(activities)
+      .leftJoin(locations, eq(activities.locationId, locations.id))
+      .leftJoin(cities, eq(locations.cityId, cities.id))
       .where(
         and(
           or(eq(activities.status, 'planned'), eq(activities.status, 'active')),
-          isNull(activities.deletedAt)
+          isNull(activities.deletedAt),
+          sql`${activities.date} >= ${from.toISOString()}`,
+          sql`${activities.date} <= ${to.toISOString()}`,
         )
       )
-      .orderBy(desc(activities.date));
+      .orderBy(activities.date);
     res.json(rows);
   } catch (err: any) {
     res.status(500).json({ error: err.message });
@@ -872,24 +885,35 @@ router.get('/', authenticate, async (req: Request, res: Response) => {
 
   // location_owner: يرى أنشطة مكانه فقط — الربط يُقرأ من قاعدة البيانات
   // (كان الكود يقرأ locationId من التوكن والتوكن لا يحمله إطلاقاً — فلتر ميّت أصلحناه)
+  // 🏙️ الفعاليّات تخرج مع اسم مكانها ومدينتها، وتقبل فلتر ?cityId=
+  const { cities } = await import('../schemas/admin.schema.js');
+  const cityFilter = Number.isFinite(parseInt(String(req.query.cityId))) ? parseInt(String(req.query.cityId)) : null;
+  const withPlace = (conds: any[]) => db.select({
+    act: activities, locationName: locations.name, locationRegion: locations.region,
+    cityId: locations.cityId, cityName: cities.name, isTestLocation: locations.isTestLocation,
+  }).from(activities)
+    .leftJoin(locations, eq(activities.locationId, locations.id))
+    .leftJoin(cities, eq(locations.cityId, cities.id))
+    .where(and(...conds))
+    .orderBy(desc(activities.date));
+  const flatten = (rows: any[]) => rows.map(r => ({
+    ...r.act, locationName: r.locationName ?? null, locationRegion: r.locationRegion ?? '',
+    cityId: r.cityId ?? null, cityName: r.cityName ?? null, isTestLocation: !!r.isTestLocation,
+  }));
+
   if (req.user?.role === 'location_owner') {
     const { staff } = await import('../schemas/admin.schema.js');
     const [me] = await db.select({ locationId: staff.locationId }).from(staff)
       .where(eq(staff.id, req.user.id)).limit(1);
     if (!me?.locationId) return res.json([]); // حساب مكان غير مربوط → لا يرى شيئاً
-    const rows = await db.select().from(activities)
-      .where(and(
-        eq(activities.locationId, me.locationId),
-        isNull(activities.deletedAt)
-      ))
-      .orderBy(desc(activities.date));
-    return res.json(rows);
+    const rows = await withPlace([eq(activities.locationId, me.locationId), isNull(activities.deletedAt)]);
+    return res.json(flatten(rows));
   }
 
-  const rows = await db.select().from(activities)
-    .where(isNull(activities.deletedAt))
-    .orderBy(desc(activities.date));
-  res.json(rows);
+  const conds: any[] = [isNull(activities.deletedAt)];
+  if (cityFilter) conds.push(eq(locations.cityId, cityFilter));
+  const rows = await withPlace(conds);
+  res.json(flatten(rows));
 });
 
 // POST /api/activities
@@ -898,10 +922,16 @@ router.post('/', authenticate, async (req: Request, res: Response) => {
   const db = getDB();
   if (!db) return res.status(503).json({ error: 'قاعدة البيانات غير متوفرة' });
 
-  const { name, date, description, basePrice, status, locationId, driveLink, enabledOfferIds, isLocked, sendNotification, maxCapacity, requireTicket, seatConstraints, seatTemplateId, menuOrderingEnabled, addGameFeeToBill, geofenceEnabled, geofenceRadiusM } = req.body;
+  const { name, date, description, basePrice, status, locationId, driveLink, enabledOfferIds, isLocked, sendNotification, maxCapacity, requireTicket, seatConstraints, seatTemplateId, menuOrderingEnabled, addGameFeeToBill, geofenceEnabled, geofenceRadiusM, notifyScope } = req.body;
   if (!name || !date) return res.status(400).json({ error: 'الاسم والتاريخ مطلوبان' });
+  // 🏙️ المكان إلزاميّ: فعاليّةٌ بلا مكان = مباراةٌ بلا مدينة = بلا رتبة
+  const locIdNum = parseInt(String(locationId));
+  if (!Number.isFinite(locIdNum) || locIdNum <= 0) return res.status(400).json({ error: 'المكان مطلوب', code: 'LOCATION_REQUIRED' });
+  const [locRow] = await db.select({ id: locations.id, cityId: locations.cityId, isTestLocation: locations.isTestLocation })
+    .from(locations).where(and(eq(locations.id, locIdNum), isNull(locations.deletedAt))).limit(1);
+  if (!locRow) return res.status(400).json({ error: 'المكان غير موجود', code: 'LOCATION_NOT_FOUND' });
 
-  const geoErr = await geofenceGuard(db, locationId, geofenceEnabled === true);
+  const geoErr = await geofenceGuard(db, locIdNum, geofenceEnabled === true);
   if (geoErr) return res.status(400).json({ error: geoErr, code: 'NO_VENUE_POINT' });
 
   const result = await db.insert(activities).values({
@@ -910,7 +940,7 @@ router.post('/', authenticate, async (req: Request, res: Response) => {
     description: description || '',
     basePrice: String(basePrice || 0),
     status: status || 'planned',
-    locationId: locationId || null,
+    locationId: locIdNum,
     driveLink: driveLink || '',
     enabledOfferIds: Array.isArray(enabledOfferIds) ? enabledOfferIds : [],
     isLocked: isLocked || false,
@@ -957,26 +987,18 @@ router.post('/', authenticate, async (req: Request, res: Response) => {
     }
   }
 
-  res.status(201).json(activity);
+  res.status(201).json({ ...activity, cityId: locRow.cityId ?? null });
 
   // 🔔 Push للاعبين (نشاط جديد) + الموظفين
-  import('../services/fcm.service.js').then(async ({ sendPushToAllPlayers, sendPushToPlayers, sendPushToStaffByPermission }) => {
+  import('../services/fcm.service.js').then(async ({ sendPushToAllPlayers, sendPushToPlayers, sendPushToCityPlayers, sendPushToStaffByPermission }) => {
     // هل طلب المشرف إرسال إشعار؟ (القيمة الافتراضية true)
     if (sendNotification === false) {
       console.log(`🔕 Activity #${activity.id}: player push SKIPPED (admin disabled notification)`);
       return;
     }
 
-    // فحص إذا النشاط مرتبط بموقع اختباري
-    let isTestActivity = false;
-    if (locationId) {
-      try {
-        const { locations } = await import('../schemas/admin.schema.js');
-        const [loc] = await db.select({ isTestLocation: locations.isTestLocation })
-          .from(locations).where(eq(locations.id, locationId)).limit(1);
-        isTestActivity = loc?.isTestLocation || false;
-      } catch {}
-    }
+    const isTestActivity = !!locRow.isTestLocation;
+    const pushData = { activityId: activity.id, cityId: locRow.cityId ?? null, url: `/player/games?activityId=${activity.id}` };
 
     if (isTestActivity) {
       const { players } = await import('../schemas/player.schema.js');
@@ -984,17 +1006,17 @@ router.post('/', authenticate, async (req: Request, res: Response) => {
         .where(eq(players.isTestAccount, true));
       const testIds = testPlayers.map(p => p.id);
       if (testIds.length > 0) {
-        sendPushToPlayers(testIds, '📅 نشاط جديد (اختباري)', `تم إضافة نشاط: ${name}`, 'new_activity', {
-          activityId: activity.id,
-          url: `/player/games?activityId=${activity.id}`,
-        });
+        sendPushToPlayers(testIds, '📅 نشاط جديد (اختباري)', `تم إضافة نشاط: ${name}`, 'new_activity', pushData);
       }
       console.log(`🧪 Test activity push sent to ${testIds.length} test accounts only`);
+    } else if (notifyScope === 'all' || !locRow.cityId) {
+      // 🏙️ «أرسل للكلّ هذه المرّة» — لإطلاق مدينةٍ جديدة بلا لاعبين بعد (قرار ٤)
+      sendPushToAllPlayers('📅 نشاط جديد', `تم إضافة نشاط: ${name}`, 'new_activity', pushData);
     } else {
-      sendPushToAllPlayers('📅 نشاط جديد', `تم إضافة نشاط: ${name}`, 'new_activity', {
-        activityId: activity.id,
-        url: `/player/games?activityId=${activity.id}`,
-      });
+      // 🏙️ الافتراضيّ: لاعبو مدينة الفعاليّة (مدينتُهم الأساسيّة أو لعبوا/حجزوا فيها)
+      const { cityNameOf } = await import('../services/cities.service.js');
+      const cityName = await cityNameOf(locRow.cityId);
+      sendPushToCityPlayers(locRow.cityId, `📅 فعاليّة جديدة${cityName ? ` في ${cityName}` : ''}`, `تم إضافة نشاط: ${name}`, 'new_activity', pushData);
     }
 
     sendPushToStaffByPermission('activities', '📅 نشاط جديد', `تم جدولة نشاط: ${name}`, 'new_activity', {
@@ -1052,12 +1074,20 @@ router.get('/week/preview', authenticate, leaderOrAbove, async (req: Request, re
       .where(and(isNull(activities.deletedAt), isNotNull(activities.locationId)))
       .orderBy(desc(activities.date)).limit(1);
 
-    const locationId = lastAct?.locationId ?? null;
+    // 🏙️ يقبل ?locationId= صريحاً (مكانٌ لكلّ مدينة) — وإلا آخر مكانٍ استُعمل
+    const reqLoc = parseInt(String(req.query.locationId));
+    const locationId = (Number.isFinite(reqLoc) && reqLoc > 0) ? reqLoc : (lastAct?.locationId ?? null);
     let locationName = '';
+    let cityId: number | null = null;
+    let cityName: string | null = null;
     if (locationId) {
-      const [loc] = await db.select({ name: locations.name }).from(locations)
+      const { cities } = await import('../schemas/admin.schema.js');
+      const [loc] = await db.select({ name: locations.name, cityId: locations.cityId, cityName: cities.name }).from(locations)
+        .leftJoin(cities, eq(locations.cityId, cities.id))
         .where(eq(locations.id, locationId)).limit(1);
       locationName = loc?.name || '';
+      cityId = loc?.cityId ?? null;
+      cityName = loc?.cityName ?? null;
     }
 
     // نطاقُ الأسبوع بـUTC: الأحد ٠٠:٠٠ عمّان ← بعد ستّة أيّام
@@ -1093,6 +1123,8 @@ router.get('/week/preview', authenticate, leaderOrAbove, async (req: Request, re
       weekStartAmman: ammanCivil(from).day,
       locationId,
       locationName,
+      cityId,
+      cityName,
       seatTemplateId: lastAct?.seatTemplateId ?? null,
       defaults: WEEKLY_DEFAULTS,
       schedule: WEEKLY_SCHEDULE,
@@ -1153,6 +1185,11 @@ router.post('/week', authenticate, leaderOrAbove, async (req: Request, res: Resp
       }
 
       const cap = Number(d.maxCapacity);
+      // 🏙️ المكان إلزاميّ لكلّ يوم — بلا مكانٍ لا مدينة فلا رتبة
+      if (!(d.locationId ?? locationId)) {
+        skipped.push({ name: d?.name, why: 'بلا مكان — اختر مكاناً للأسبوع' });
+        continue;
+      }
       const [act] = await db.insert(activities).values({
         name: String(d.name || '').slice(0, 200),
         date: when,
@@ -1218,10 +1255,18 @@ router.post('/week', authenticate, leaderOrAbove, async (req: Request, res: Resp
         const title = created.length === 1
           ? '📅 نشاط جديد'
           : '📅 جدول الأسبوع — ' + created.length + ' ليالٍ';
-        fcm.sendPushToAllPlayers(title, list, 'new_activity', {
-          url: '/player/games',
-          activityId: created[0].id,
-        });
+        // 🏙️ لاعبو مدينة مكان الأسبوع (قرار ٤) — وإلا الكلّ إن غاب المكان
+        let weekCityId: number | null = null;
+        try {
+          const locId = created[0]?.locationId;
+          if (locId) {
+            const [loc] = await db.select({ cityId: locations.cityId }).from(locations).where(eq(locations.id, locId)).limit(1);
+            weekCityId = loc?.cityId ?? null;
+          }
+        } catch { /* الكلّ */ }
+        const weekData = { url: '/player/games', activityId: created[0].id, cityId: weekCityId };
+        if (weekCityId && req.body?.notifyScope !== 'all') fcm.sendPushToCityPlayers(weekCityId, title, list, 'new_activity', weekData);
+        else fcm.sendPushToAllPlayers(title, list, 'new_activity', weekData);
         fcm.sendPushToStaffByPermission('activities', title,
           'أُنشئت ' + created.length + ' فعاليّة: ' + list,
           'new_activity', { url: '/admin/activities' }, req.user!.id);
@@ -1302,7 +1347,14 @@ router.put('/:id', authenticate, async (req: Request, res: Response) => {
   if (description !== undefined) updates.description = description;
   if (basePrice !== undefined) updates.basePrice = String(basePrice);
   if (status !== undefined) updates.status = status;
-  if (locationId !== undefined) updates.locationId = locationId;
+  if (locationId !== undefined) {
+    // 🏙️ لا تُفرَّغ: فعاليّةٌ بلا مكان لا تُحتسب مبارياتها في أيّ مدينة
+    const locIdNum = parseInt(String(locationId));
+    if (!Number.isFinite(locIdNum) || locIdNum <= 0) return res.status(400).json({ error: 'المكان مطلوب', code: 'LOCATION_REQUIRED' });
+    const [locRow] = await db.select({ id: locations.id }).from(locations).where(and(eq(locations.id, locIdNum), isNull(locations.deletedAt))).limit(1);
+    if (!locRow) return res.status(400).json({ error: 'المكان غير موجود', code: 'LOCATION_NOT_FOUND' });
+    updates.locationId = locIdNum;
+  }
   if (driveLink !== undefined) updates.driveLink = driveLink;
   if (enabledOfferIds !== undefined) updates.enabledOfferIds = enabledOfferIds;
   if (isLocked !== undefined) updates.isLocked = isLocked;

@@ -22,11 +22,27 @@ export const notificationTypeEnum = pgEnum('notification_type', [
   'new_order', // 🍽️ طلب منيو جديد (تُضاف على قاعدة البيانات بـ ALTER TYPE في إقلاع index.ts)
 ]);
 
+// ── Cities (المدن) ───────────────────────────────────
+// 🏙️ المدينةُ صفةٌ للمكان لا للاعب: تُختَم على المباراة لحظة احتسابها من مكان
+// فعاليّتها، وتُقسِّم إحصاءات الموسم إلى صفٍّ لكلّ (لاعب، موسم، مدينة).
+// لا حذف — المفاتيح مُشارٌ إليها من الأماكن والمباريات والإحصاءات؛ التعطيل بدلاً منه.
+export const cities = pgTable('cities', {
+  id: serial('id').primaryKey(),
+  name: varchar('name', { length: 60 }).notNull(),
+  slug: varchar('slug', { length: 40 }).unique().notNull(),
+  isActive: boolean('is_active').default(true).notNull(),
+  sortOrder: integer('sort_order').default(0).notNull(),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+});
+
 // ── Locations (أماكن الاستضافة) ─────────────────────
 
 export const locations = pgTable('locations', {
   id: serial('id').primaryKey(),
   name: varchar('name', { length: 100 }).notNull(),
+  // 🏙️ المدينة — إلزاميّة: المصدرُ الوحيد لمدينة الفعاليّة والمباراة والتصنيف.
+  //    تُعبَّأ للأماكن القديمة كلّها بعمّان (1) في الترحيل ثمّ تُفرَض NOT NULL.
+  cityId: integer('city_id').notNull(),
   // 📍 المنطقة (الشميساني · عبدون · …) — تُذكر في رسالة تأكيد الحجز وتُعرض للاعب،
   // فاسم الكافيه وحده لا يكفي من لا يعرف موقعه.
   region: varchar('region', { length: 80 }).default(''),
@@ -358,11 +374,13 @@ export const whatsappTemplates = pgTable('whatsapp_templates', {
 export const whatsappRankNotifications = pgTable('whatsapp_rank_notifications', {
   id: serial('id').primaryKey(),
   playerId: integer('player_id').references(() => players.id, { onDelete: 'cascade' }).notNull(),
+  // 🏙️ ترقيةٌ في الزرقاء غير ترقيةٍ في عمّان — القيدُ يحمل المدينة (الصفوف القديمة → 1)
+  cityId: integer('city_id').default(1).notNull(),
   rankTier: varchar('rank_tier', { length: 20 }).notNull(),
   notificationType: varchar('notification_type', { length: 20 }).default('promotion'),
   sentAt: timestamp('sent_at').defaultNow().notNull(),
 }, (table) => ({
-  uniquePlayerRank: unique().on(table.playerId, table.rankTier),
+  uniquePlayerCityRank: unique('uq_wa_rank_player_city_tier').on(table.playerId, table.cityId, table.rankTier),
 }));
 
 // ══════════════════════════════════════════════════════

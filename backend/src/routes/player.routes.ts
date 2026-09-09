@@ -62,6 +62,7 @@ router.get('/all', authenticate, authorize('admin', 'accountant'), async (req: R
       geofenceExemptReason: playersTable.geofenceExemptReason,
       geofenceExemptAt: playersTable.geofenceExemptAt,
       genderConstraint: playersTable.genderConstraint,
+      homeCityId: playersTable.homeCityId,
     }).from(playersTable).orderBy(desc(playersTable.createdAt));
 
     // ── حساب lastMatchAt لكل اللاعبين (batch واحد بدل N+1) ──
@@ -89,14 +90,57 @@ router.get('/all', authenticate, authorize('admin', 'accountant'), async (req: R
     //    يقرأ سببَ كلّ قفلٍ في القائمة. و`isLocked` يبقى للجميع — يحتاج
     //    المحاسبُ أن يعرف أنّ الحسابَ مقفولٌ لا **لماذا**.
     const seeReasons = (req as any).user?.role === 'admin';
-    const enrichedPlayers = rows.map(p => ({
-      ...p,
-      lockedReason: seeReasons ? p.lockedReason : undefined,
-      geofenceExemptReason: seeReasons ? p.geofenceExemptReason : undefined,
-      lastMatchAt: lastMatchMap.get(p.id) || null,
-    }));
 
-    return res.json({ success: true, players: enrichedPlayers });
+    // 🏙️ رتبةٌ لكلّ مدينة (الموسم العادي النشط): ?cityId= يعرض رتبة تلك المدينة في الأعمدة الرئيسة؛
+    //    بدونه تبقى الأعمدة = المدينة الأساسيّة (مرآة players.*). وstandings[] لكلّ المدن دائماً.
+    const cityFilter = Number.isFinite(parseInt(String(req.query.cityId))) ? parseInt(String(req.query.cityId)) : null;
+    const standingsMap = new Map<number, any[]>();
+    const homeNames = new Map<number, string>();
+    try {
+      const { getActiveRegularSeasonId } = await import('../services/season.service.js');
+      const { cityMap } = await import('../services/cities.service.js');
+      const seasonId = await getActiveRegularSeasonId();
+      const cm = await cityMap();
+      if (seasonId) {
+        const stRes: any = await db.execute(sql`
+          SELECT player_id, city_id, rank_tier, rank_rr, level, xp, total_matches, total_wins, total_survived
+          FROM player_season_stats WHERE season_id = ${seasonId} AND city_id IS NOT NULL AND COALESCE(total_matches,0) > 0`);
+        for (const s of (stRes?.rows ?? stRes ?? [])) {
+          const pid = Number(s.player_id);
+          const list = standingsMap.get(pid) || [];
+          list.push({
+            cityId: Number(s.city_id), cityName: cm.get(Number(s.city_id))?.name ?? null,
+            rankTier: s.rank_tier || 'INFORMANT', rankRR: Number(s.rank_rr || 0), level: Number(s.level || 1), xp: Number(s.xp || 0),
+            totalMatches: Number(s.total_matches || 0), totalWins: Number(s.total_wins || 0), totalSurvived: Number(s.total_survived || 0),
+          });
+          standingsMap.set(pid, list);
+        }
+      }
+      for (const [id, c] of cm) homeNames.set(id, c.name);
+    } catch (e: any) { console.warn('⚠️ standings for /player/all failed:', e?.message || e); }
+
+    const enrichedPlayers = rows.map(p => {
+      const standings = (standingsMap.get(p.id) || []).sort((a, b) => (a.cityId === (p as any).homeCityId ? -1 : b.cityId === (p as any).homeCityId ? 1 : a.cityId - b.cityId));
+      const scoped = cityFilter ? standings.find(s => s.cityId === cityFilter) : null;
+      const rankFields = cityFilter
+        ? (scoped
+          ? { rankTier: scoped.rankTier, rankRR: scoped.rankRR, level: scoped.level, xp: scoped.xp, totalMatches: scoped.totalMatches, totalWins: scoped.totalWins, totalSurvived: scoped.totalSurvived }
+          : { rankTier: 'INFORMANT', rankRR: 0, level: 1, xp: 0, totalMatches: 0, totalWins: 0, totalSurvived: 0 })
+        : {};
+      return {
+        ...p,
+        ...rankFields,
+        homeCityId: (p as any).homeCityId ?? null,
+        homeCityName: (p as any).homeCityId ? (homeNames.get((p as any).homeCityId) ?? null) : null,
+        standings,
+        displayedCityId: cityFilter ?? (p as any).homeCityId ?? null,
+        lockedReason: seeReasons ? p.lockedReason : undefined,
+        geofenceExemptReason: seeReasons ? p.geofenceExemptReason : undefined,
+        lastMatchAt: lastMatchMap.get(p.id) || null,
+      };
+    });
+
+    return res.json({ success: true, players: enrichedPlayers, cityId: cityFilter });
   } catch (err: any) {
     console.error('❌ Fetch all players error:', err.message);
     return res.status(500).json({ success: false, error: 'خطأ في جلب اللاعبين' });

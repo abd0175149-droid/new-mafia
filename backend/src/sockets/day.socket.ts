@@ -1124,7 +1124,7 @@ export function registerDayEvents(io: Server, socket: Socket) {
           }
 
           const { resolveSeasonForGame } = await import('../services/season.service.js');
-          const { seasonId, isRegular } = await resolveSeasonForGame(state.activityId, (state.config as any)?.isRemote);
+          const { seasonId, isRegular, cityId } = await resolveSeasonForGame(state.activityId, (state.config as any)?.isRemote, state.locationId ?? null);
 
           if (!isTestBomb && seasonId != null) {
             if (!state.performanceTracking) state.performanceTracking = { dealOutcomes: [], abilityResults: [], eliminationLog: [] };
@@ -1136,13 +1136,9 @@ export function registerDayEvents(io: Server, socket: Socket) {
               round: state.round || 1,
             });
 
-            // الأثر الحيّ الفوري على players.* للموسم العادي فقط —
-            // البطولات/الأونلاين تصلها القيمة عبر إحصاءات الموسم عند الاحتساب (row.rrChange)
-            if (isRegular) {
-              const { applyRR } = await import('../services/progression.service.js');
-              await applyRR(bomb.godfatherPlayerId, totalBombRR);
-            }
-            console.log(`💣 Bomb RR (${totalBombRR}) buffered for Godfather player ${bomb.godfatherPlayerId} (season ${seasonId}, regular: ${isRegular})`);
+            // 🏙️ لا أثر حيّ على players.* بعد الآن: الأثر يصل عبر صفّ الدفتر عند الاحتساب (rr_change + bomb_rr_change)
+            //    ثمّ المصالحة المستهدفة تكتب صفّ (الموسم، المدينة) وتزامن المرآة — مصدرٌ واحد بلا تضاعف.
+            console.log(`💣 Bomb RR (${totalBombRR}) buffered for Godfather player ${bomb.godfatherPlayerId} (season ${seasonId}, regular: ${isRegular}, city: ${cityId ?? '-'}) — folded into ledger at finalize`);
           } else {
             console.log(`💣 Bomb RR skipped (test location or no active season) — no rank effect`);
           }

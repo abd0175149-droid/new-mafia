@@ -3,6 +3,8 @@
 // ══════════════════════════════════════════════════════
 // مكتوبة يدوياً كنموذج اللاعب، ولنفس السبب (انظر models/player.dart).
 
+import 'profile.dart' show Standing;
+
 int _i(dynamic v, [int f = 0]) =>
     v is int ? v : (v is num ? v.toInt() : int.tryParse('$v') ?? f);
 
@@ -63,16 +65,29 @@ class HomeProfile {
     this.canHostRemote = false,
     this.stats = const PlayerStats(),
     this.progression = const Progression(),
+    this.homeCityId,
+    this.homeCityName,
+    this.standings = const [],
   });
 
   final String name;
   final String? avatarUrl;
   final bool canHostRemote;
+
+  /// `stats` و`progression` = صفّ **المدينة الأساسيّة** (شكل اليوم).
   final PlayerStats stats;
   final Progression progression;
 
+  /// 🏙️ المدينة الأساسيّة — `null` لمن لم يخترها بعد (وخادمٌ قديم).
+  final int? homeCityId;
+  final String? homeCityName;
+
+  /// صفّ الرتبة في كلّ مدينةٍ لعب فيها — الأساسيّة أوّلاً.
+  final List<Standing> standings;
+
   factory HomeProfile.fromJson(Map<String, dynamic> j) {
     final p = (j['player'] ?? const {}) as Map? ;
+    final homeId = j['homeCityId'] == null ? null : _i(j['homeCityId']);
     return HomeProfile(
       name: ((p?['name'] ?? '').toString().trim().isEmpty)
           ? 'لاعب'                       // الاحتياطيّ المذكور في المواصفة
@@ -81,6 +96,11 @@ class HomeProfile {
       canHostRemote: p?['canHostRemote'] == true,
       stats: PlayerStats.fromJson(Map<String, dynamic>.from((j['stats'] ?? const {}) as Map)),
       progression: Progression.fromJson(Map<String, dynamic>.from((j['progression'] ?? const {}) as Map)),
+      homeCityId: homeId,
+      homeCityName: (j['homeCityName'] is String && (j['homeCityName'] as String).trim().isNotEmpty)
+          ? (j['homeCityName'] as String).trim()
+          : null,
+      standings: Standing.listFrom(j['standings'], homeCityId: homeId),
     );
   }
 }
@@ -95,6 +115,8 @@ class UpcomingActivity {
     this.locationName,
     this.bookedCount = 0,
     this.maxPlayers = 20,          // احتياطيّ مذكور صراحةً
+    this.cityId,
+    this.cityName,
   });
 
   final int id;
@@ -104,6 +126,10 @@ class UpcomingActivity {
   final String? locationName;
   final int bookedCount;
   final int maxPlayers;
+
+  /// 🏙️ مدينة الفعاليّة — اختياريّة لخادمٍ قديم.
+  final int? cityId;
+  final String? cityName;
 
   factory UpcomingActivity.fromJson(Map<String, dynamic> j) => UpcomingActivity(
         id: _i(j['id']),
@@ -116,6 +142,10 @@ class UpcomingActivity {
         locationName: j['locationName'] as String?,
         bookedCount: _i(j['bookedCount']),
         maxPlayers: _i(j['maxPlayers'], 20),
+        cityId: j['cityId'] == null ? null : _i(j['cityId']),
+        cityName: (j['cityName'] is String && (j['cityName'] as String).trim().isNotEmpty)
+            ? (j['cityName'] as String).trim()
+            : null,
       );
 }
 

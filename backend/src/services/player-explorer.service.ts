@@ -24,6 +24,8 @@ export interface ExplorerLens {
   windowFrom?: string | null;
   windowTo?: string | null;
   locationIds?: number[];
+  /** 🏙️ مدنٌ — تُفكّ إلى أماكنها وتُضمّ إلى locationIds قبل الاستعلام */
+  cityIds?: number[];
   seasonIds?: number[];
   gender?: 'MALE' | 'FEMALE' | null;
   minActivities?: number | null;
@@ -109,6 +111,7 @@ export function normalizeLens(raw: any): ExplorerResult['lens'] {
     windowFrom: asDate(raw?.windowFrom),
     windowTo: asDate(raw?.windowTo),
     locationIds: asIdList(raw?.locationIds),
+    cityIds: asIdList(raw?.cityIds),
     seasonIds: asIdList(raw?.seasonIds),
     gender,
     minActivities: asCount(raw?.minActivities),
@@ -128,6 +131,7 @@ export function lensSummaryAr(l: ExplorerResult['lens'], locNames?: Map<number, 
     ? `القياس ${l.windowFrom ? `من ${l.windowFrom}` : ''}${l.windowTo ? ` إلى ${l.windowTo}` : ''}`.trim()
     : 'القياس منذ تسجيل كلّ لاعب');
   if (l.locationIds.length) out.push(`المواقع: ${l.locationIds.map((i) => locNames?.get(i) || i).join('، ')}`);
+  if (l.cityIds.length) out.push(`المدن: ${l.cityIds.join('، ')}`);
   if (l.seasonIds.length) out.push(`المواسم: ${l.seasonIds.join('، ')}`);
   if (l.gender) out.push(`الجنس: ${l.gender === 'FEMALE' ? 'أنثى' : 'ذكر'}`);
   if (l.minActivities != null || l.maxActivities != null) {
@@ -143,8 +147,16 @@ export async function explore(db: Database, rawLens: any): Promise<ExplorerResul
   const t0 = Date.now();
   const l = normalizeLens(rawLens);
 
+  // 🏙️ المدن → أماكنها (اتّحادٌ مع المواقع المختارة صراحةً)؛ مدينةٌ بلا أماكن تعطي عدسةً فارغة لا «الكلّ»
+  let effectiveLocs = [...l.locationIds];
+  if (l.cityIds.length) {
+    const cr: any = await db.execute(sql`SELECT id FROM locations WHERE city_id = ANY(string_to_array(${l.cityIds.join(',')}::text, ',')::int[]) AND deleted_at IS NULL`);
+    const ids = (cr?.rows ?? cr ?? []).map((r: any) => Number(r.id));
+    effectiveLocs = [...new Set([...effectiveLocs, ...(ids.length ? ids : [-1])])];
+  }
+
   // قوائم المعرّفات تُمرَّر نصّاً ثمّ تُفكَّك في SQL — أمتنُ من تمرير المصفوفات عبر السائق
-  const locCsv = l.locationIds.length ? l.locationIds.join(',') : null;
+  const locCsv = effectiveLocs.length ? effectiveLocs.join(',') : null;
   const seaCsv = l.seasonIds.length ? l.seasonIds.join(',') : null;
 
   const res: any = await db.execute(sql`

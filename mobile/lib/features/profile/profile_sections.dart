@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../../core/cities/city_service.dart';
 import '../../models/profile.dart';
 import 'profile_palette.dart';
 
@@ -10,15 +11,46 @@ import 'profile_palette.dart';
 // ══════════════════════════════════════════════════════
 // §4.3.2 بطاقة تقدّم الرتبة
 // ══════════════════════════════════════════════════════
-class RankProgressCard extends StatelessWidget {
-  const RankProgressCard({super.key, required this.progression});
+// 🏙️ رتبةٌ لكلّ مدينة: حين يملك اللاعب صفوفاً في أكثر من مدينة يظهر شريطُ
+//    تبويباتٍ فوق السلّم (الأساسيّة أوّلاً)، وكلُّ تبويبٍ سلّمٌ وRR مستقلّان.
+//    لاعبُ المدينة الواحدة يرى البطاقة كما هي — بلا شريط.
+class RankProgressCard extends StatefulWidget {
+  const RankProgressCard({
+    super.key,
+    required this.progression,
+    this.standings = const [],
+    this.homeCityId,
+  });
+
+  /// رتبة المدينة الأساسيّة (توافق — تُستعمل حين لا صفوف).
   final PlayerProgression progression;
+  final List<Standing> standings;
+  final int? homeCityId;
+
+  @override
+  State<RankProgressCard> createState() => _RankProgressCardState();
+}
+
+class _RankProgressCardState extends State<RankProgressCard> {
+  int _tab = 0;
+
+  @override
+  void didUpdateWidget(RankProgressCard oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (_tab >= widget.standings.length) _tab = 0;
+  }
 
   @override
   Widget build(BuildContext context) {
+    final multi = widget.standings.length > 1;
+    final Standing? current = widget.standings.isEmpty
+        ? null
+        : widget.standings[_tab.clamp(0, widget.standings.length - 1)];
+    final progression = current?.toProgression() ?? widget.progression;
     final rank = RankConfig.of(progression.rankTier);
     final currentIdx = RankConfig.indexOf(progression.rankTier);
     final remaining = progression.rrRequired - progression.rankRR;
+    final svc = CityService.instance;
 
     return Container(
       padding: const EdgeInsets.all(16),
@@ -26,6 +58,24 @@ class RankProgressCard extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
+          if (multi) ...[
+            SingleChildScrollView(
+              scrollDirection: Axis.horizontal,
+              child: Row(children: [
+                for (var i = 0; i < widget.standings.length; i++) ...[
+                  if (i > 0) const SizedBox(width: 6),
+                  _cityTab(widget.standings[i], i == _tab, svc),
+                ],
+              ]),
+            ),
+            const SizedBox(height: 12),
+          ] else if (current != null) ...[
+            Align(
+              alignment: AlignmentDirectional.centerStart,
+              child: _cityPill(current, svc),
+            ),
+            const SizedBox(height: 10),
+          ],
           Row(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
@@ -79,7 +129,7 @@ class RankProgressCard extends StatelessWidget {
           Center(
             child: Text(
               remaining > 0
-                  ? 'تحتاج ${ltrRun('$remaining RR')} للترقية'
+                  ? 'تحتاج ${ltrRun('$remaining RR')} للترقية${current != null && multi ? ' · في ${current.cityName}' : ''}'
                   : 'اكتمل RR الترقية',
               style: ar(10, color: Tw.gray600),
             ),
@@ -88,6 +138,36 @@ class RankProgressCard extends StatelessWidget {
       ),
     );
   }
+
+  // ── تبويبُ مدينة — بلون المدينة (١ عنبريّ، غيرها أزرق) ──
+  Widget _cityTab(Standing s, bool on, CityService svc) {
+    final isHome = s.cityId == widget.homeCityId;
+    return InkWell(
+      onTap: () => setState(() => _tab = widget.standings.indexOf(s)),
+      borderRadius: BorderRadius.circular(999),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+        decoration: BoxDecoration(
+          color: on ? svc.chipBgFor(s.cityId) : const Color(0x08FFFFFF),
+          borderRadius: BorderRadius.circular(999),
+          border: Border.all(color: on ? svc.chipBorderFor(s.cityId) : const Color(0x0FFFFFFF)),
+        ),
+        child: Text('🏙️ ${s.cityName}${isHome ? ' · مدينتي' : ''}',
+            style: ar(10,
+                color: on ? svc.textFor(s.cityId) : Tw.gray500,
+                weight: on ? FontWeight.w700 : FontWeight.w500)),
+      ),
+    );
+  }
+
+  Widget _cityPill(Standing s, CityService svc) => Container(
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+        decoration: BoxDecoration(
+          color: svc.chipBgFor(s.cityId),
+          borderRadius: BorderRadius.circular(999),
+        ),
+        child: Text('🏙️ ${s.cityName}', style: ar(9, color: svc.textFor(s.cityId))),
+      );
 
   Widget _tierPip(RankConfig r, int i, int current) {
     final active = i == current;
@@ -556,6 +636,12 @@ class _MatchRow extends StatelessWidget {
               ),
               const SizedBox(width: 6),
               _teamChip(),
+              // 🏙️ وسمُ المدينة (من الختم المجمَّد على المباراة) — يفسّر لماذا لم تتحرّك رتبةُ
+              //    المدينة الأخرى بعد هذه المباراة. غيابه (خادمٌ قديم/بلا مكان) يُخفيه.
+              if ((m.cityName ?? '').isNotEmpty) ...[
+                const SizedBox(width: 4),
+                _cityTag(),
+              ],
               const Spacer(),
               ..._rightSide(),
               const SizedBox(width: 6),
@@ -576,6 +662,19 @@ class _MatchRow extends StatelessWidget {
           ],
         ),
       ),
+    );
+  }
+
+  Widget _cityTag() {
+    final svc = CityService.instance;
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 2),
+      decoration: BoxDecoration(
+        color: svc.chipBgFor(m.cityId),
+        borderRadius: BorderRadius.circular(4),
+        border: Border.all(color: svc.chipBorderFor(m.cityId)),
+      ),
+      child: Text(m.cityName!, style: ar(8, color: svc.textFor(m.cityId))),
     );
   }
 

@@ -5,6 +5,8 @@ import { useRouter, usePathname } from 'next/navigation';
 import Link from 'next/link';
 import { motion, AnimatePresence } from 'framer-motion';
 import { getSocket } from '@/lib/socket';
+import { AdminScopeProvider, useAdminScope } from './scope-context';
+import { CitySegment, CITY_TONE_HEX, cityTone } from '@/components/admin/CityBadge';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || '';
 
@@ -64,6 +66,7 @@ const NAV_GROUPS: NavGroup[] = [
       { href: '/admin/anticheat', icon: '🕵️', label: 'مكافحة الغش', roles: ['admin'] },
       { href: '/admin/game-config', icon: '🧩', label: 'الأدوار والشخصيات', roles: ['admin'] },
       { href: '/admin/progression', icon: '🏆', label: 'نظام التقدم', roles: ['admin'] },
+      { href: '/admin/seasons', icon: '🗓️', label: 'المواسم', roles: ['admin'] },
       { href: '/admin/sounds', icon: '🔊', label: 'المؤثرات الصوتية', roles: ['admin', 'manager'] },
       { href: '/admin/seat-templates', icon: '📐', label: 'قوالب المقاعد', roles: ['admin', 'manager'] },
     ],
@@ -117,6 +120,35 @@ function isLinkActive(href: string, pathname: string | null): boolean {
   if (!pathname.startsWith(href + '/') && !pathname.startsWith(href + '?')) return false;
   // يوجد رابط آخر أطول يطابق؟ إذن هو الأولى
   return !ALL_HREFS.some(h => h !== href && h.startsWith(href) && (pathname === h || pathname.startsWith(h + '/')));
+}
+
+// ── 🏙️ نطاق العرض تحت الشعار: مدينةٌ أو «الكلّ» لكلّ اللوحة ──
+//    مطويّاً: زرٌّ صغيرٌ بنقطةٍ بلون المدينة يفتح الشريط ليُبدَّل النطاق.
+function SidebarScope({ expanded, onExpand }: { expanded: boolean; onExpand: () => void }) {
+  const scope = useAdminScope();
+  if (!scope.cities.length) return null;
+  if (!expanded) {
+    const tone = cityTone(scope.city?.id, scope.city?.name, scope.city?.slug);
+    return (
+      <div className="px-2 pt-2 shrink-0">
+        <button
+          type="button" onClick={onExpand} title={`نطاق العرض: ${scope.label}`}
+          className="relative w-full h-9 flex items-center justify-center rounded-xl text-base text-gray-400 hover:text-white hover:bg-gray-800/60 transition"
+        >
+          🏙️
+          {scope.cityId != null && (
+            <i aria-hidden className="absolute top-1.5 left-2 w-2 h-2 rounded-full ring-2 ring-gray-900" style={{ background: CITY_TONE_HEX[tone] }} />
+          )}
+        </button>
+      </div>
+    );
+  }
+  return (
+    <div className="px-3 pt-3 shrink-0">
+      <p className="text-[10px] text-gray-500 mb-1.5 px-1">🏙️ نطاق العرض <span className="text-gray-600">— {scope.label}</span></p>
+      <CitySegment cities={scope.cities} value={scope.cityId} onChange={scope.setCityId} size="xs" className="w-full" ariaLabel="نطاق العرض" />
+    </div>
+  );
 }
 
 export default function AdminLayout({ children }: { children: ReactNode }) {
@@ -249,6 +281,7 @@ export default function AdminLayout({ children }: { children: ReactNode }) {
   }
 
   return (
+    <AdminScopeProvider>
     <div className="min-h-screen bg-gray-950 flex" dir="rtl">
       {/* Mobile: Overlay backdrop */}
       {isMobile && sidebarOpen && (
@@ -318,6 +351,9 @@ export default function AdminLayout({ children }: { children: ReactNode }) {
             )}
           </AnimatePresence>
         </div>
+
+        {/* 🏙️ نطاق العرض */}
+        <SidebarScope expanded={sidebarOpen || isMobile} onExpand={() => setSidebarOpen(true)} />
 
         {/* Nav Items — عناصر مفردة ثم مجموعات قابلة للطيّ */}
         <nav className="flex-1 min-h-0 p-2 space-y-1 overflow-y-auto overflow-x-hidden" style={{ scrollbarWidth: 'thin', scrollbarColor: 'rgba(255,255,255,0.1) transparent' }}>
@@ -506,6 +542,7 @@ export default function AdminLayout({ children }: { children: ReactNode }) {
         </div>
       </main>
     </div>
+    </AdminScopeProvider>
   );
 }
 

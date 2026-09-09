@@ -271,31 +271,42 @@ router.post('/player/:playerId/adjust', authenticate, adminOnly, async (req: Req
       }
     }
 
-    // تحديث رصيد اللاعب الفعلي
-    const playerUpdates: any = {};
-    if (xpDelta !== undefined && xpDelta !== 0) {
-      playerUpdates.xp = sql`GREATEST(0, COALESCE(${players.xp}, 0) + ${xpDelta})`;
-    }
-    if (rrDelta !== undefined && rrDelta !== 0) {
-      playerUpdates.rankRR = sql`GREATEST(0, COALESCE(${players.rankRR}, 0) + ${rrDelta})`;
-    }
-
-    if (Object.keys(playerUpdates).length > 0) {
-      await db.update(players).set(playerUpdates).where(eq(players.id, playerId));
-
-      // 🧮 تطبيع بعد الدلتا: تشغيل حلقتي المستوى والترقية بنفس منطق الاحتساب الحي —
-      // بدونها يبقى xp أعلى من متطلب المستوى (شريط >100%) وRR فوق عتبة الرتبة بلا ترقية.
-      try {
-        const { applyXPAndLevel, applyRR, applyProgressionConfig } = await import('../services/progression.service.js');
-        applyProgressionConfig(await getConfig()); // عتبات محدّثة قبل التطبيع
-        if (xpDelta !== undefined && xpDelta !== 0) await applyXPAndLevel(playerId, 0);
-        if (rrDelta !== undefined && rrDelta !== 0) await applyRR(playerId, 0);
-      } catch (normErr: any) {
-        console.warn(`⚠️ Post-adjust normalization failed for player ${playerId}:`, normErr.message);
+    // ── 🏙️ التطبيق عبر مصدر الحقيقة لا عبر players.* مباشرةً ──
+    // • مع matchPlayerId: صفّ الدفتر عُدِّل أعلاه → مصالحةٌ مستهدفة في موسم المباراة (ومدينتها المختومة).
+    // • بلا matchPlayerId: سطرُ دفترٍ في rank_bonuses بموسمه **ومدينته** (إلزاميّة) ثمّ مصالحة —
+    //   الكتابةُ المباشرة على players.* كانت تُمحى في أوّل مصالحةٍ تالية.
+    const xpD = Number(xpDelta || 0);
+    const rrD = Number(rrDelta || 0);
+    if (xpD !== 0 || rrD !== 0) {
+      const { reconcileSeasonProgression } = await import('../services/reconcile.service.js');
+      let targetSeason: number | null = null;
+      if (matchPlayerId) {
+        const [m] = await db.select({ seasonId: matches.seasonId }).from(matchPlayers)
+          .innerJoin(matches, eq(matchPlayers.matchId, matches.id))
+          .where(eq(matchPlayers.id, matchPlayerId)).limit(1);
+        targetSeason = m?.seasonId ?? null;
+      } else {
+        const cityId = Number(req.body?.cityId);
+        if (!Number.isFinite(cityId) || cityId <= 0) {
+          return res.status(400).json({ error: 'المدينة مطلوبة لتسجيل التعديل في دفتر المكافآت', code: 'CITY_REQUIRED' });
+        }
+        const { getActiveRegularSeasonId } = await import('../services/season.service.js');
+        targetSeason = await getActiveRegularSeasonId();
+        if (!targetSeason) return res.status(409).json({ error: 'لا يوجد موسمٌ عاديّ نشط', code: 'NO_ACTIVE_SEASON' });
+        const label = `تعديل إداريّ — ${String(reason || '').slice(0, 120) || 'بلا سبب'} — ${Date.now().toString(36)}`;
+        await db.execute(sql`
+          INSERT INTO rank_bonuses (player_id, rr, xp, reason, season_id, city_id, granted_by, meta)
+          VALUES (${playerId}, ${rrD}, ${xpD}, ${label}, ${targetSeason}, ${cityId}, ${(req as any).user?.id ?? null},
+                  ${JSON.stringify({ kind: 'manual-adjust', xpDelta: xpD, rrDelta: rrD })}::jsonb)`);
+      }
+      if (targetSeason) {
+        await reconcileSeasonProgression(targetSeason, true, () => {}, { onlyPlayerIds: [playerId] });
+      } else {
+        console.warn(`⚠️ [adjust] no season for player ${playerId} — ledger updated, standings not reconciled`);
       }
     }
 
-    // جلب البيانات المحدثة (بعد التطبيع)
+    // جلب البيانات المحدثة (مرآة المدينة الأساسيّة)
     const updated = await db.select({ xp: players.xp, level: players.level, rankTier: players.rankTier, rankRR: players.rankRR })
       .from(players).where(eq(players.id, playerId)).limit(1);
 

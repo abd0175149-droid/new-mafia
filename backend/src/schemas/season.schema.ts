@@ -32,6 +32,10 @@ export const playerSeasonStats = pgTable('player_season_stats', {
   id: serial('id').primaryKey(),
   playerId: integer('player_id').notNull(),  // FK → players.id
   seasonId: integer('season_id').notNull(),  // FK → seasons.id
+  // 🏙️ بُعدُ المدينة داخل الموسم الواحد: صفٌّ لكلّ (لاعب، موسم، مدينة) للمواسم العاديّة.
+  //    NULL = موسمٌ نطاقُه ليس مدينةً (بطولة مكان، أونلاين).
+  //    قيد الوحدانيّة في القاعدة: (player_id, season_id, COALESCE(city_id, 0)).
+  cityId: integer('city_id'),
   xp: integer('xp').default(0),
   level: integer('level').default(1),
   rankTier: varchar('rank_tier', { length: 20 }).default('INFORMANT'),

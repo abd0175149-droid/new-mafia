@@ -2,6 +2,9 @@
 import { useEffect, useState, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { swalConfirm } from '@/lib/swal';
+import CityBadge, { CitySegment } from '@/components/admin/CityBadge';
+import { useCities } from '@/hooks/useCities';
+import { rankName, rankBadge } from '@/lib/ranks';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || '';
 function getToken() { return typeof window !== 'undefined' ? localStorage.getItem('token') : null; }
@@ -13,13 +16,19 @@ async function apiFetch(path: string, opts?: RequestInit) {
   return data;
 }
 
-const TIER_AR: Record<string, string> = { INFORMANT: 'مُخبر', SOLDIER: 'جندي', CAPO: 'كابو', UNDERBOSS: 'أندربوس', GODFATHER: 'الأب الروحي' };
+// أسماءُ الرتب من `@/lib/ranks` (rankName / rankBadge)
+
+/** 🏙️ ختمُ مدينةٍ على الموسم العاديّ: لاعبوها ومبارياتها — لكلّ مدينةٍ ترتيبُها المستقلّ */
+interface SeasonCity { id: number; name: string; players: number; matches: number }
 
 interface Season {
   id: number; name: string; seasonNumber: number;
   type: 'REGULAR' | 'TOURNAMENT' | 'ONLINE'; locationId: number | null; status: 'ACTIVE' | 'ENDED';
   startedAt: string; endedAt: string | null; matchCount: number;
+  cities?: SeasonCity[];
 }
+
+interface Board { season: Season; rows: any[]; cityId: number | null }
 
 export default function SeasonsPage() {
   const [seasons, setSeasons] = useState<Season[]>([]);
@@ -38,8 +47,10 @@ export default function SeasonsPage() {
   const [showOnline, setShowOnline] = useState(false);
   const [onlineName, setOnlineName] = useState('');
 
-  // لوحة ترتيب موسم
-  const [board, setBoard] = useState<{ season: Season; rows: any[] } | null>(null);
+  // لوحة ترتيب موسم — داخل الصفحة؛ للموسم العاديّ مدينةٌ إلزاميّة
+  const [board, setBoard] = useState<Board | null>(null);
+  const [boardLoading, setBoardLoading] = useState(false);
+  const { cities: publicCities, loading: citiesLoading } = useCities('public');
 
   const load = useCallback(async () => {
     try {
@@ -100,11 +111,28 @@ export default function SeasonsPage() {
     catch (e: any) { setError(e.message); } finally { setBusy(false); }
   }
 
-  async function openBoard(s: Season) {
-    setBusy(true);
-    try { const r = await apiFetch(`/api/seasons/${s.id}/leaderboard?limit=50`); setBoard({ season: s, rows: r.leaderboard || [] }); }
-    catch (e: any) { setError(e.message); } finally { setBusy(false); }
+  /** مدنُ ترتيب موسمٍ عاديّ: من صفّ الموسم، وإلّا المدنُ الفعّالة */
+  const boardCitiesOf = (s: Season) => (s.type === 'REGULAR' ? (s.cities?.length ? s.cities : publicCities) : []);
+
+  // 🏙️ الموسمُ العاديُّ ترتيبُه لكلّ مدينة (الخادم يردّ 400 CITY_REQUIRED بدونها)؛ البطولةُ والأونلاين بلا مدينة
+  async function openBoard(s: Season, cityId?: number | null) {
+    const bc = boardCitiesOf(s);
+    const city = s.type === 'REGULAR' ? (cityId ?? board?.cityId ?? bc[0]?.id ?? null) : null;
+    setBoardLoading(true); setError('');
+    try {
+      const r = await apiFetch(`/api/seasons/${s.id}/leaderboard?limit=50${city != null ? `&cityId=${city}` : ''}`);
+      setBoard({ season: s, rows: r.leaderboard || [], cityId: city });
+    } catch (e: any) { setError(e.message); } finally { setBoardLoading(false); }
   }
+
+  // الترتيبُ الافتراضيّ: الموسمُ العاديُّ النشط — بعد معرفة المدن كي لا يُطلب بلا مدينة
+  useEffect(() => {
+    if (loading || citiesLoading || board || boardLoading || !activeRegular) return;
+    openBoard(activeRegular);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [loading, citiesLoading, activeRegular?.id]);
+
+  const boardCities = board ? boardCitiesOf(board.season) : [];
 
   return (
     <div dir="rtl" className="min-h-screen bg-[#0a0a0a] text-white p-4 md:p-8">
@@ -124,6 +152,17 @@ export default function SeasonsPage() {
               <>
                 <p className="text-xl font-black text-[#C5A059]">{activeRegular.name}</p>
                 <p className="text-xs text-[#888] mt-1">موسم #{activeRegular.seasonNumber} · {activeRegular.matchCount} مباراة · منذ {new Date(activeRegular.startedAt).toLocaleDateString('ar')}</p>
+                {/* 🏙️ أختامُ المدن: تجيب فوراً «هل بدأت المدينةُ الجديدة تتراكم؟» */}
+                {!!activeRegular.cities?.length && (
+                  <div className="flex flex-wrap gap-1.5 mt-2">
+                    {activeRegular.cities.map(c => (
+                      <CityBadge key={c.id} cityId={c.id} cityName={c.name} size="sm">
+                        {c.name} · {c.players} لاعبًا · {c.matches} مباراة
+                      </CityBadge>
+                    ))}
+                  </div>
+                )}
+                <p className="text-[10px] text-[#666] mt-2 leading-relaxed">موسمٌ واحدٌ برقمٍ واسمٍ واحد؛ لكلّ مدينةٍ ترتيبُها المستقلّ.</p>
               </>
             ) : <p className="text-[#888] text-sm">لا يوجد موسم عادي نشط</p>}
             <button onClick={() => { setShowRegular(true); setActiveGames(null); setError(''); }} disabled={busy}
@@ -158,6 +197,46 @@ export default function SeasonsPage() {
           </div>
         </div>
 
+        {/* 🏆 الترتيب — داخل الصفحة لا في نافذةٍ منبثقة؛ للموسم العاديّ مفتاحُ مدينة */}
+        {(board || boardLoading) && (
+          <div className="rounded-2xl border border-[#2a2a2a] overflow-hidden mb-6">
+            <div className="px-4 py-3 bg-[#111] flex items-center gap-3 flex-wrap">
+              <span className="text-[11px] font-mono tracking-widest text-[#808080] uppercase">الترتيب</span>
+              {board && <span className="font-black text-[#C5A059]">{board.season.name}</span>}
+              {board?.season.type === 'REGULAR' && boardCities.length > 0 && (
+                <CitySegment cities={boardCities} value={board.cityId} onChange={id => openBoard(board.season, id)} showAll={false} size="xs" disabled={boardLoading} ariaLabel="مدينة الترتيب" />
+              )}
+              {board?.season.type === 'TOURNAMENT' && <span className="text-[11px] text-[#888]">📍 {locName(board.season.locationId)}</span>}
+              {board?.season.type === 'ONLINE' && <span className="text-[11px] text-sky-300">🌐 أونلاين — بلا مدينة</span>}
+              <span className="flex-1" />
+              {board && <button onClick={() => setBoard(null)} className="text-[11px] text-[#888] hover:text-white">✕ إغلاق</button>}
+            </div>
+            {boardLoading && !board ? <div className="p-8 text-center text-[#555]">جارٍ التحميل…</div> : board && (
+              <div className={`max-h-[60vh] overflow-y-auto ${boardLoading ? 'opacity-50' : ''}`}>
+                <table className="w-full text-sm">
+                  <thead><tr className="text-[#666] text-[11px] border-b border-[#2a2a2a]">
+                    <th className="text-right p-2">#</th><th className="text-right p-2">اللاعب</th><th className="text-right p-2">الرتبة</th><th className="text-right p-2">RR</th><th className="text-right p-2">المستوى</th><th className="text-right p-2">مباريات</th><th className="text-right p-2">فوز</th>
+                  </tr></thead>
+                  <tbody>
+                    {board.rows.map((r, i) => (
+                      <tr key={r.playerId ?? r.id ?? i} className="border-b border-[#1a1a1a]">
+                        <td className="p-2 text-[#888]">{i + 1}</td>
+                        <td className="p-2 font-bold">{r.name}</td>
+                        <td className="p-2 text-[#C5A059]">{rankBadge(r.rankTier)} {rankName(r.rankTier)}</td>
+                        <td className="p-2">{r.rankRR}</td>
+                        <td className="p-2 text-[#888]">{r.level}</td>
+                        <td className="p-2 text-[#888]">{r.totalMatches}</td>
+                        <td className="p-2 text-[#888]">{r.totalWins ?? '—'}</td>
+                      </tr>
+                    ))}
+                    {!board.rows.length && <tr><td colSpan={7} className="p-6 text-center text-[#555]">لا لاعبين بعد{board.season.type === 'REGULAR' && board.cityId != null ? ' في هذه المدينة' : ''}</td></tr>}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        )}
+
         {/* جدول كل المواسم */}
         <div className="rounded-2xl border border-[#2a2a2a] overflow-hidden">
           <div className="px-4 py-3 bg-[#111] text-[11px] font-mono tracking-widest text-[#808080] uppercase">كل المواسم</div>
@@ -165,19 +244,21 @@ export default function SeasonsPage() {
             <table className="w-full text-sm">
               <thead><tr className="text-[#666] text-[11px] border-b border-[#2a2a2a]">
                 <th className="text-right p-3">#</th><th className="text-right p-3">الاسم</th><th className="text-right p-3">النوع</th>
-                <th className="text-right p-3">الموقع</th><th className="text-right p-3">الحالة</th><th className="text-right p-3">مباريات</th><th className="text-right p-3"></th>
+                <th className="text-right p-3">النطاق</th><th className="text-right p-3">الحالة</th><th className="text-right p-3">مباريات</th><th className="text-right p-3"></th>
               </tr></thead>
               <tbody>
                 {seasons.map(s => (
                   <tr key={s.id} className="border-b border-[#1a1a1a] hover:bg-[#111]">
                     <td className="p-3 text-[#888]">{s.seasonNumber}</td>
                     <td className="p-3 font-bold">{s.name}</td>
-                    <td className="p-3">{s.type === 'REGULAR' ? '🔵 عادي' : '🏆 بطولة'}</td>
-                    <td className="p-3 text-[#888]">{s.type === 'TOURNAMENT' ? locName(s.locationId) : '—'}</td>
+                    {/* 🌐 الأونلاين كان يُعرض بطولةً */}
+                    <td className="p-3">{s.type === 'REGULAR' ? '🔵 عادي' : s.type === 'ONLINE' ? '🌐 أونلاين' : '🏆 بطولة'}</td>
+                    {/* النطاق: بطولة = مكان، عادي = كلّ المدن، أونلاين = — */}
+                    <td className="p-3 text-[#888]">{s.type === 'TOURNAMENT' ? locName(s.locationId) : s.type === 'REGULAR' ? 'كلّ المدن (ترتيبٌ لكلّ مدينة)' : '—'}</td>
                     <td className="p-3">{s.status === 'ACTIVE' ? <span className="text-green-400">● نشط</span> : <span className="text-[#666]">منتهٍ</span>}</td>
                     <td className="p-3 text-[#888]">{s.matchCount}</td>
                     <td className="p-3 flex gap-2 justify-end">
-                      <button onClick={() => openBoard(s)} className="text-[11px] text-[#C5A059] border border-[#C5A059]/30 rounded px-2 py-1 hover:bg-[#C5A059]/10">الترتيب</button>
+                      <button onClick={() => { openBoard(s); window.scrollTo({ top: 0, behavior: 'smooth' }); }} className="text-[11px] text-[#C5A059] border border-[#C5A059]/30 rounded px-2 py-1 hover:bg-[#C5A059]/10">الترتيب</button>
                       <button onClick={() => rename(s.id, s.name)} className="text-[11px] text-[#888] border border-[#333] rounded px-2 py-1 hover:bg-white/5">✏️ تسمية</button>
                       {/* 🛑 الموسم العادي النشط لا يُنهى مباشرةً (الخادم يرفض بـ 409) — يُنهى تلقائياً عند بدء موسم عادي جديد */}
                       {s.status === 'ACTIVE' && (s.type === 'REGULAR'
@@ -235,31 +316,6 @@ export default function SeasonsPage() {
               className="w-full p-3 rounded-xl bg-[#0a0a0a] border border-[#2a2a2a] text-sm mb-3 focus:border-sky-500 outline-none" />
             <button onClick={startOnline} disabled={busy || !onlineName.trim()}
               className="w-full py-2.5 rounded-xl border border-sky-500/60 text-sky-300 font-bold text-sm disabled:opacity-50">{busy ? '…' : 'بدء موسم الأونلاين'}</button>
-          </Modal>
-        )}
-        {board && (
-          <Modal onClose={() => setBoard(null)} wide>
-            <h2 className="text-lg font-black mb-3 text-[#C5A059]">ترتيب: {board.season.name}</h2>
-            <div className="max-h-[60vh] overflow-y-auto">
-              <table className="w-full text-sm">
-                <thead><tr className="text-[#666] text-[11px] border-b border-[#2a2a2a]">
-                  <th className="text-right p-2">#</th><th className="text-right p-2">اللاعب</th><th className="text-right p-2">الرتبة</th><th className="text-right p-2">RR</th><th className="text-right p-2">المستوى</th><th className="text-right p-2">مباريات</th>
-                </tr></thead>
-                <tbody>
-                  {board.rows.map((r, i) => (
-                    <tr key={r.playerId} className="border-b border-[#1a1a1a]">
-                      <td className="p-2 text-[#888]">{i + 1}</td>
-                      <td className="p-2 font-bold">{r.name}</td>
-                      <td className="p-2 text-[#C5A059]">{TIER_AR[r.rankTier] || r.rankTier}</td>
-                      <td className="p-2">{r.rankRR}</td>
-                      <td className="p-2 text-[#888]">{r.level}</td>
-                      <td className="p-2 text-[#888]">{r.totalMatches}</td>
-                    </tr>
-                  ))}
-                  {!board.rows.length && <tr><td colSpan={6} className="p-6 text-center text-[#555]">لا لاعبين بعد</td></tr>}
-                </tbody>
-              </table>
-            </div>
           </Modal>
         )}
       </AnimatePresence>

@@ -30,7 +30,6 @@ import { initTwinState, getSiblingInfoFor } from '../game/twin-engine.js';
 import { initMayorState } from '../game/mayor-engine.js';
 import { initPhoenixState } from '../game/phoenix-engine.js';
 import { oneNightResumeFor } from './night-one.socket.js';
-import { applyRR } from '../services/progression.service.js';
 import { getProgressionConfig } from '../routes/progression-settings.routes.js';
 import { sendPushToPlayer } from '../services/fcm.service.js';
 import { getDB } from '../config/db.js';
@@ -40,7 +39,13 @@ import { emitStateSanitized, emitPhaseChangedSanitized, emitTrustedOnly, spectat
 import { buildAffinityPairs, loadPairRules, mergeRulesIntoAffinity, mergeGlobalBlockedPairs, upsertPairRule } from '../services/seat-affinity.service.js';
 import { personKey, pairKey } from '../game/seating/types.js';
 
-export const activeRooms: Map<string, { roomId: string; roomCode: string; gameName: string; playerCount: number; maxPlayers: number; displayPin: string; activityId?: number; activityName?: string }> = new Map();
+export const activeRooms: Map<string, {
+  roomId: string; roomCode: string; gameName: string; playerCount: number; maxPlayers: number; displayPin: string;
+  activityId?: number; activityName?: string;
+  // 🏙️ نطاق الاحتساب (للعرض في قوائم الليدر وشاشة العرض)
+  locationId?: number | null; locationName?: string | null; cityId?: number | null; cityName?: string | null;
+  seasonName?: string | null; counted?: boolean;
+}> = new Map();
 
 /**
  * ✅ حقيقة حضورٍ واحدة: دخول الغرفة يعلّم الحجز حاضراً فوراً.
@@ -827,9 +832,29 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
     nightMode?: 'manual' | 'auto'; // جديد: نمط الليل — افتراضي: manual
     maxPenalties?: number; // نظام عقوبات اللاعبين
     penaltyScope?: 'game' | 'room'; // مستوى العقوبات (يطابق GameConfig.penaltyScope)
+    locationId?: number; // 📍 مكانٌ صريح لغرفةٍ «بدون نشاط» — بدونه (وبلا نشاط) لا تُحتسب النقاط
   }, callback) => {
     try {
       const gameName = data.gameName || 'لعبة مافيا';
+      // 🏙️ نطاق الاحتساب — يُجمَّد على الحالة عند الإنشاء ليعرضه الليدر ويستعمله الاحتساب
+      const explicitLocationId = Number.isFinite(Number(data.locationId)) && Number(data.locationId) > 0 ? Number(data.locationId) : null;
+      const roomScope = await (async () => {
+        try {
+          const { resolveSeasonForGame, describeScope } = await import('../services/season.service.js');
+          const s = await resolveSeasonForGame(data.activityId, false, explicitLocationId);
+          return await describeScope(s);
+        } catch {
+          return { seasonId: null, isRegular: false, cityId: null, locationId: explicitLocationId, counted: false, kind: 'NONE' as const, locationName: null, cityName: null, seasonName: null };
+        }
+      })();
+      const stampScope = (st: any) => {
+        st.locationId = roomScope.locationId ?? null;
+        st.locationName = roomScope.locationName ?? null;
+        st.cityId = roomScope.cityId ?? null;
+        st.cityName = roomScope.cityName ?? null;
+        st.seasonName = roomScope.seasonName ?? null;
+        st.counted = !!roomScope.counted;
+      };
       // 🪑 مصدر السعة الموحّد: إدخال الليدر الصريح ← قالب المقاعد ← سعة الفعالية ← 27
       // (نفس منطق REST add-room — services/capacity.service.ts). مفصول كلياً عن عدد الحجوزات.
       const resolvedCapacity = data.maxPlayers || await resolveRoomCapacity(data.activityId);
@@ -856,6 +881,11 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
           if (existingState.activityId && (existingState as any).pinnedSeats === undefined) {
             if (await loadSeatTemplateIntoState(existingState)) await setGameState(existingState.roomId, existingState);
           }
+          // 🏙️ غرفةٌ أُنشئت قبل ختم النطاق → نختمه الآن مرّةً واحدة
+          if ((existingState as any).counted === undefined) {
+            stampScope(existingState);
+            await setGameState(existingState.roomId, existingState);
+          }
 
           return callback({
             success: true,
@@ -866,6 +896,12 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
             sessionId: existingState.sessionId || data.existingSessionId,
             activityId: existingState.activityId || data.activityId,
             maxPlayers: existingState.config.maxPlayers,
+            locationId: (existingState as any).locationId ?? null,
+            locationName: (existingState as any).locationName ?? null,
+            cityId: (existingState as any).cityId ?? null,
+            cityName: (existingState as any).cityName ?? null,
+            seasonName: (existingState as any).seasonName ?? null,
+            counted: (existingState as any).counted !== false,
           });
         } else if (existingState && existingState.sessionId !== data.existingSessionId) {
           console.log(`⚠️ Room Code Collision: Code ${overrideCode} was used by Session ${existingState.sessionId}, but requested for Session ${data.existingSessionId}. Creating new room.`);
@@ -897,6 +933,14 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
         if (data.activityId) {
           state.activityId = data.activityId;
         }
+        stampScope(state);
+        // 📍 غرفةٌ أُنشئت من الإدارة قبل عمود المكان → نجمّد مكانها الآن إن كان فارغاً
+        if (roomScope.locationId) {
+          try {
+            const db0 = getDB();
+            if (db0) await db0.execute(sql`UPDATE sessions SET location_id = COALESCE(location_id, ${roomScope.locationId}) WHERE id = ${sessionId}`);
+          } catch { /* غير حاجب */ }
+        }
         // تطبيق نمط الليل لو حدده الليدر
         if (data.nightMode && (data.nightMode === 'manual' || data.nightMode === 'auto')) {
           state.config.nightMode = data.nightMode;
@@ -905,13 +949,14 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
         console.log(`🔗 Room created using existing Session #${sessionId}`);
       } else {
         // ── إنشاء Session جديد في PostgreSQL ──
-        sessionId = await createSession(gameName, state.roomCode, state.config.displayPin, maxPlayers, data.activityId || undefined, creatorStaffId);
+        sessionId = await createSession(gameName, state.roomCode, state.config.displayPin, maxPlayers, data.activityId || undefined, creatorStaffId, false, null, roomScope.locationId ?? null);
         if (sessionId) {
           state.sessionId = sessionId;
           state.sessionCode = state.roomCode;
           if (data.activityId) {
             state.activityId = data.activityId;
           }
+          stampScope(state);
           // تطبيق نمط الليل
           if (data.nightMode && (data.nightMode === 'manual' || data.nightMode === 'auto')) {
             state.config.nightMode = data.nightMode;
@@ -946,6 +991,12 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
         maxPlayers,
         displayPin: state.config.displayPin,
         activityId: data.activityId || undefined,
+        locationId: roomScope.locationId ?? null,
+        locationName: roomScope.locationName ?? null,
+        cityId: roomScope.cityId ?? null,
+        cityName: roomScope.cityName ?? null,
+        seasonName: roomScope.seasonName ?? null,
+        counted: !!roomScope.counted,
       });
 
       // 📐 تحميل مقاعد القالب فوراً عند إنشاء الغرفة — تظهر «المقاعد المحجوزة» في الغرفة الفارغة مباشرةً
@@ -978,8 +1029,14 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
         sessionId: sessionId || undefined,
         activityId: data.activityId || undefined,
         maxPlayers: state.config.maxPlayers,
+        locationId: roomScope.locationId ?? null,
+        locationName: roomScope.locationName ?? null,
+        cityId: roomScope.cityId ?? null,
+        cityName: roomScope.cityName ?? null,
+        seasonName: roomScope.seasonName ?? null,
+        counted: !!roomScope.counted,
       });
-      console.log(`🏠 Room created: ${state.roomId} (code: ${state.roomCode}, session: #${sessionId}, activity: ${data.activityId || 'none'}) — empty, max ${state.config.maxPlayers}`);
+      console.log(`🏠 Room created: ${state.roomId} (code: ${state.roomCode}, session: #${sessionId}, activity: ${data.activityId || 'none'}, venue: ${roomScope.locationName || '-'}, city: ${roomScope.cityName || '-'}, ${roomScope.counted ? 'RANKED' : 'UNRANKED'}) — empty, max ${state.config.maxPlayers}`);
 
       // ── إشعار اللاعبين الحاجزين عند وقت النشاط ──
       if (data.activityId) {
@@ -4045,22 +4102,12 @@ async function readSeatLayoutOnly(activityId: any): Promise<any> {
         try {
           // 🛡️ عزل: لا أثر رانك لمواقع الاختبار، ولا مساس بالرانك العادي في البطولات/الأونلاين
           let isTestPenalty = false;
-          if (state.activityId) {
-            try {
-              const db0 = getDB();
-              if (db0) {
-                const { activities, locations } = await import('../schemas/admin.schema.js');
-                const [info] = await db0.select({ isTest: locations.isTestLocation })
-                  .from(activities)
-                  .leftJoin(locations, eq(activities.locationId, locations.id))
-                  .where(eq(activities.id, state.activityId))
-                  .limit(1);
-                isTestPenalty = !!info?.isTest;
-              }
-            } catch { /* عند الشك نعاملها كغير اختبارية */ }
-          }
+          try {
+            const { isTestScope } = await import('../services/match.service.js');
+            isTestPenalty = await isTestScope(state);
+          } catch { /* عند الشك نعاملها كغير اختبارية */ }
           const { resolveSeasonForGame } = await import('../services/season.service.js');
-          const { seasonId, isRegular } = await resolveSeasonForGame(state.activityId, (state.config as any)?.isRemote);
+          const { seasonId, isRegular, cityId } = await resolveSeasonForGame(state.activityId, (state.config as any)?.isRemote, state.locationId ?? null);
 
           if (!isTestPenalty && seasonId != null) {
             // ── الدفتر أولاً (match_players = مصدر الحقيقة) ──
@@ -4118,10 +4165,8 @@ async function readSeatLayoutOnly(activityId: any): Promise<any> {
                 round: state.round || 1,
                 kicked: isKicked,
               });
-              if (isRegular) {
-                await applyRR(player.playerId, totalDeduction);
-              }
-              console.log(`📝 Penalty (${totalDeduction} RR) buffered for player ${player.playerId} (season ${seasonId}, regular: ${isRegular}) — folded into ledger at finalize`);
+              // 🏙️ لا أثر حيّ على players.*: الخصم يصل عبر صفّ الدفتر عند الاحتساب ثمّ المصالحة بالمدينة (مصدرٌ واحد)
+              console.log(`📝 Penalty (${totalDeduction} RR) buffered for player ${player.playerId} (season ${seasonId}, regular: ${isRegular}, city: ${cityId ?? '-'}) — folded into ledger at finalize`);
             } else {
               // لوبي بلا مباراة (أو صف غير موجود لمباراة منتهية) → سجل دائم في rank_bonuses
               // يدخل في كل إعادة احتساب فلا يُمحى، ثم مصالحة مستهدفة لتحديث التجميعة فوراً
@@ -4130,8 +4175,8 @@ async function readSeatLayoutOnly(activityId: any): Promise<any> {
                 const db2 = getDB();
                 if (db2) {
                   await db2.execute(sql`
-                    INSERT INTO rank_bonuses (player_id, rr, reason, season_id)
-                    VALUES (${player.playerId}, ${totalDeduction}, ${'عقوبة ليدر (خارج مباراة) — غرفة ' + data.roomId}, ${seasonId})
+                    INSERT INTO rank_bonuses (player_id, rr, reason, season_id, city_id)
+                    VALUES (${player.playerId}, ${totalDeduction}, ${'عقوبة ليدر (خارج مباراة) — غرفة ' + data.roomId}, ${seasonId}, ${cityId ?? null})
                   `);
                   bonusSaved = true;
                   const { reconcileSeasonProgression } = await import('../services/reconcile.service.js');

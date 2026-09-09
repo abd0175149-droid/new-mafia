@@ -61,6 +61,9 @@ export interface PreviewResult {
   isRepeat: boolean;
   seasonId: number | null;
   seasonName: string | null;
+  // 🏙️ مدينةُ مكان الفعاليّة — نطاقُ المكافأة في الموسم العادي (null للبطولة)
+  cityId: number | null;
+  cityName: string | null;
   activity: {
     id: number; name: string; date: string | null;
     locationName: string | null; isTestLocation: boolean;
@@ -145,13 +148,20 @@ export async function previewBookingBonus(opts: {
   const act = rowsOf(actRes)[0];
   if (!act) return { ok: false, error: 'الفعاليّة غير موجودة' };
 
-  // ── الموسم الذي ستُسجَّل فيه المكافأة ──
+  // ── الموسم **والمدينة** اللذان ستُسجَّل فيهما المكافأة (مدينةُ مكان الفعاليّة — قرار ٨) ──
   const { resolveSeasonForActivity } = await import('./season.service.js');
-  const { seasonId } = await resolveSeasonForActivity(activityId);
+  const scope = await resolveSeasonForActivity(activityId);
+  const seasonId = scope.seasonId;
+  const cityId = scope.isRegular ? scope.cityId : null;
   let seasonName: string | null = null;
+  let cityName: string | null = null;
   if (seasonId) {
     const sres = await db.execute(sql`SELECT name FROM seasons WHERE id = ${seasonId}`);
     seasonName = rowsOf(sres)[0]?.name ?? null;
+  }
+  if (cityId) {
+    const { cityNameOf } = await import('./cities.service.js');
+    cityName = await cityNameOf(cityId);
   }
 
   const { reason, isRepeat } = await resolveBatchReason(activityId, !!opts.allowRepeat);
@@ -211,16 +221,26 @@ export async function previewBookingBonus(opts: {
   const cur = new Map<number, PreviewRow['current']>();
   const granted = new Map<number, { rr: number; xp: number; at: string }>();
   if (playerIds.length) {
-    const cres = await db.execute(sql`
-      SELECT id, COALESCE(rank_tier,'INFORMANT') AS rank_tier, COALESCE(rank_rr,0) AS rank_rr,
-             COALESCE(level,1) AS level, COALESCE(xp,0) AS xp
-      FROM players WHERE id IN ${playerIds}`);
+    // 🏙️ الرصيد الحاليّ من صفّ (الموسم، مدينة الفعاليّة) — لا من مرآة players.* (قد تعكس مدينةً أخرى)
+    const cres = seasonId
+      ? await db.execute(sql`
+          SELECT player_id AS id, COALESCE(rank_tier,'INFORMANT') AS rank_tier, COALESCE(rank_rr,0) AS rank_rr,
+                 COALESCE(level,1) AS level, COALESCE(xp,0) AS xp
+          FROM player_season_stats
+          WHERE season_id = ${seasonId} AND player_id IN ${playerIds}
+            AND ${cityId == null ? sql`city_id IS NULL` : sql`city_id = ${cityId}`}`)
+      : await db.execute(sql`
+          SELECT id, COALESCE(rank_tier,'INFORMANT') AS rank_tier, COALESCE(rank_rr,0) AS rank_rr,
+                 COALESCE(level,1) AS level, COALESCE(xp,0) AS xp
+          FROM players WHERE id IN ${playerIds}`);
     for (const p of rowsOf(cres)) {
       cur.set(Number(p.id), {
         rankTier: p.rank_tier, rankRR: Number(p.rank_rr),
         level: Number(p.level), xp: Number(p.xp),
       });
     }
+    // من لا صفَّ له في هذه المدينة بعد يبدأ مُخبراً من الصفر
+    for (const pid of playerIds) if (!cur.has(pid)) cur.set(pid, { rankTier: 'INFORMANT', rankRR: 0, level: 1, xp: 0 });
     const gres = await db.execute(sql`
       SELECT player_id, rr, COALESCE(xp,0) AS xp, created_at FROM rank_bonuses
       WHERE reason = ${reason} AND player_id IN ${playerIds}`);
@@ -290,7 +310,9 @@ export async function previewBookingBonus(opts: {
   // ── (٦) التحذيرات — ما يجب أن يراه المالك قبل الضغط ──
   const warnings: string[] = [];
   if (!seasonId) {
-    warnings.push('⛔ لا يوجد موسمٌ نشط — المنح متوقّف. مكافأةٌ بلا موسمٍ تختفي عند أوّل إعادة احتساب.');
+    warnings.push('⛔ لا يوجد موسمٌ نشط (أو الفعاليّة بلا مكان) — المنح متوقّف. مكافأةٌ بلا موسمٍ تختفي عند أوّل إعادة احتساب.');
+  } else if (scope.isRegular && !cityId) {
+    warnings.push('⛔ مكانُ الفعاليّة بلا مدينة — المنح متوقّف حتى تُحدَّد مدينةُ المكان.');
   }
   if (act.is_test) {
     warnings.push('🧪 هذه الفعاليّة في موقعٍ اختباريّ — مبارياته لا تُحتسب في الرانك، لكنّ هذه المكافأة ستُحتسب.');
@@ -310,7 +332,7 @@ export async function previewBookingBonus(opts: {
   }
 
   return {
-    ok: true, reason, isRepeat, seasonId, seasonName,
+    ok: true, reason, isRepeat, seasonId, seasonName, cityId, cityName,
     activity: {
       id: Number(act.id), name: act.name,
       date: act.date ? new Date(act.date).toISOString() : null,
@@ -346,6 +368,12 @@ export async function grantBookingBonus(opts: GrantOptions): Promise<any> {
   if (!pv.seasonId) {
     return { ok: false, code: 'NO_ACTIVE_SEASON', error: 'لا يوجد موسمٌ نشط — ابدأ موسماً قبل منح النقاط' };
   }
+  // 🏙️ مكافأةُ موسمٍ عاديّ بلا مدينة لا تُنسب لترتيبٍ عشوائيّ — تتخطّاها المصالحة فتختفي
+  const pvCity: number | null = (pv as any).cityId ?? null;
+  const pvCityName: string | null = (pv as any).cityName ?? null;
+  if (pv.warnings.some(w => w.startsWith('⛔ مكانُ الفعاليّة بلا مدينة'))) {
+    return { ok: false, code: 'NO_CITY', error: 'مكانُ الفعاليّة بلا مدينة — حدّد مدينة المكان أوّلاً' };
+  }
 
   const eligible = pv.rows.filter(r => r.eligible && r.playerId);
   if (eligible.length === 0) {
@@ -371,13 +399,20 @@ export async function grantBookingBonus(opts: GrantOptions): Promise<any> {
     note: opts.note ?? null,
   };
 
-  // ── لقطة «قبل» — بها وحدها نعرف من تُرقّي ومن رفع مستواه ──
-  const beforeRes = await db.execute(sql`
-    SELECT id, COALESCE(rank_tier,'INFORMANT') AS rank_tier, COALESCE(rank_rr,0) AS rank_rr,
-           COALESCE(level,1) AS level, COALESCE(xp,0) AS xp
-    FROM players WHERE id IN ${playerIds}`);
-  const before = new Map<number, any>();
-  for (const p of rowsOf(beforeRes)) before.set(Number(p.id), p);
+  // ── لقطة «قبل» — من صفّ (الموسم، المدينة) — بها وحدها نعرف من تُرقّي ومن رفع مستواه ──
+  const snapshot = async () => {
+    const r = await db.execute(sql`
+      SELECT player_id AS id, COALESCE(rank_tier,'INFORMANT') AS rank_tier, COALESCE(rank_rr,0) AS rank_rr,
+             COALESCE(level,1) AS level, COALESCE(xp,0) AS xp
+      FROM player_season_stats
+      WHERE season_id = ${pv.seasonId} AND player_id IN ${playerIds}
+        AND ${pvCity == null ? sql`city_id IS NULL` : sql`city_id = ${pvCity}`}`);
+    const m = new Map<number, any>();
+    for (const p of rowsOf(r)) m.set(Number(p.id), p);
+    for (const pid of playerIds) if (!m.has(pid)) m.set(pid, { id: pid, rank_tier: 'INFORMANT', rank_rr: 0, level: 1, xp: 0 });
+    return m;
+  };
+  const before = await snapshot();
 
   // ── (١) الدفتر — حارسا ازدواجٍ متعاضدان في عبارةٍ واحدة ──
   // `WHERE NOT EXISTS` يعمل دائماً حتى لو تعذّر إنشاء الفهرس الفريد عند الإقلاع
@@ -388,10 +423,10 @@ export async function grantBookingBonus(opts: GrantOptions): Promise<any> {
   let inserted = 0;
   for (const r of eligible) {
     const ins = await db.execute(sql`
-      INSERT INTO rank_bonuses (player_id, rr, xp, reason, season_id, activity_id, granted_by, meta)
+      INSERT INTO rank_bonuses (player_id, rr, xp, reason, season_id, activity_id, granted_by, meta, city_id)
       SELECT ${r.playerId}::int, ${rr}::int, ${xp}::int, ${pv.reason}::varchar,
              ${pv.seasonId}::int, ${opts.activityId}::int,
-             ${opts.staffId ?? null}::int, ${JSON.stringify(meta)}::jsonb
+             ${opts.staffId ?? null}::int, ${JSON.stringify(meta)}::jsonb, ${pvCity}::int
       WHERE NOT EXISTS (
         SELECT 1 FROM rank_bonuses WHERE player_id = ${r.playerId} AND reason = ${pv.reason}
       )
@@ -412,12 +447,7 @@ export async function grantBookingBonus(opts: GrantOptions): Promise<any> {
   const rec = await reconcileSeasonProgression(pv.seasonId, true, () => {}, { onlyPlayerIds: playerIds });
 
   // ── لقطة «بعد» ──
-  const afterRes = await db.execute(sql`
-    SELECT id, COALESCE(rank_tier,'INFORMANT') AS rank_tier, COALESCE(rank_rr,0) AS rank_rr,
-           COALESCE(level,1) AS level, COALESCE(xp,0) AS xp
-    FROM players WHERE id IN ${playerIds}`);
-  const after = new Map<number, any>();
-  for (const p of rowsOf(afterRes)) after.set(Number(p.id), p);
+  const after = await snapshot();
 
   // ── (٣) الإشعارات — مكافأةٌ لا يعلم بها صاحبها نصفُ مكافأة ──
   const { sendPushToPlayer } = await import('./fcm.service.js');
@@ -431,16 +461,18 @@ export async function grantBookingBonus(opts: GrantOptions): Promise<any> {
       && (RANK_ORDER[a.rank_tier as RankTier] ?? 0) > (RANK_ORDER[b.rank_tier as RankTier] ?? 0);
     const leveledUp = !!(b && a) && Number(a.level) > Number(b.level);
 
+    const cityTail = pvCityName ? ` في ${pvCityName}` : '';
     let body = opts.kind === 'RR'
-      ? `+${amount} نقطة رانك لحجزك المبكّر في «${pv.activity.name}» — شكراً لالتزامك! 🎉`
-      : `+${amount} نقطة خبرة لحجزك المبكّر في «${pv.activity.name}» — شكراً لالتزامك! 🎉`;
-    if (promoted) body += `\n🏆 وترقّيت إلى ${RANK_NAMES_AR[a.rank_tier as RankTier] || a.rank_tier}!`;
+      ? `+${amount} نقطة رانك${cityTail} لحجزك المبكّر في «${pv.activity.name}» — شكراً لالتزامك! 🎉`
+      : `+${amount} نقطة خبرة${cityTail} لحجزك المبكّر في «${pv.activity.name}» — شكراً لالتزامك! 🎉`;
+    if (promoted) body += `\n🏆 وترقّيت إلى ${RANK_NAMES_AR[a.rank_tier as RankTier] || a.rank_tier}${cityTail}!`;
     if (leveledUp) body += `\n⬆️ ووصلت المستوى ${a.level}!`;
 
     try {
       await sendPushToPlayer(pid, '🎁 مكافأة الحجز المبكّر', body, 'rank_bonus', {
         activityId: String(opts.activityId), kind: opts.kind,
         amount: String(amount), grantReason: pv.reason,
+        cityId: pvCity != null ? String(pvCity) : '', cityName: pvCityName || '',
       });
       notified++;
     } catch (e: any) {
@@ -461,7 +493,7 @@ export async function grantBookingBonus(opts: GrantOptions): Promise<any> {
 
   return {
     ok: true, reason: pv.reason, isRepeat: pv.isRepeat, kind: opts.kind, amount,
-    granted: inserted, notified, seasonId: pv.seasonId, seasonName: pv.seasonName,
+    granted: inserted, notified, seasonId: pv.seasonId, seasonName: pv.seasonName, cityId: pvCity, cityName: pvCityName,
     reconcile: { applied: rec.applied, reason: rec.reason, players: rec.players },
     results, warnings: pv.warnings,
   };

@@ -5,18 +5,35 @@
 import { Router, type Request, type Response } from 'express';
 import { authenticate, managerOrAbove } from '../middleware/auth.js';
 import {
-  listSeasons, getSeasonLeaderboard, getActiveRegularSeasonId, getActiveRegularSeason,
+  listSeasons, getSeasonLeaderboard, getActiveRegularSeasonId, getActiveRegularSeason, getSeasonCityStats,
   startRegularSeason, startTournamentSeason, startOnlineSeason, getActiveOnlineSeasonId, endSeason, renameSeason,
 } from '../services/season.service.js';
 import { getActiveRooms } from '../sockets/lobby.socket.js';
+import { getDB } from '../config/db.js';
+import { sql } from 'drizzle-orm';
 
 const router = Router();
 
-// ── الموسم العادي النشط (عام — لواجهة اللاعب، بلا مصادقة) ──
+// 🏙️ نطاق لوحة الترتيب: الموسم العادي يشترط مدينةً (400 بدونها)؛ البطولة/الأونلاين بلا مدينة
+async function leaderboardScope(seasonId: number, rawCity: unknown): Promise<{ cityId: number | null } | { error: string; code: string }> {
+  const db = getDB();
+  if (!db) return { error: 'قاعدة البيانات غير متوفرة', code: 'DB' };
+  const r: any = await db.execute(sql`SELECT type FROM seasons WHERE id = ${seasonId} LIMIT 1`);
+  const type = (r?.rows ?? r ?? [])[0]?.type;
+  if (!type) return { error: 'الموسم غير موجود', code: 'NOT_FOUND' };
+  if (type !== 'REGULAR') return { cityId: null };
+  const cityId = parseInt(String(rawCity));
+  if (!Number.isFinite(cityId) || cityId <= 0) return { error: 'المدينة مطلوبة لترتيب الموسم العادي', code: 'CITY_REQUIRED' };
+  return { cityId };
+}
+
+// ── الموسم العادي النشط (عام — لواجهة اللاعب، بلا مصادقة) + مدنه بأعدادها ──
 router.get('/public/active', async (_req: Request, res: Response) => {
   try {
     const season = await getActiveRegularSeason();
-    res.json({ success: true, season });
+    if (!season) return res.json({ success: true, season: null });
+    const cities = await getSeasonCityStats(season.id);
+    res.json({ success: true, season: { ...season, cities } });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }
@@ -54,10 +71,12 @@ router.get('/public/:id/leaderboard', async (req: Request, res: Response) => {
   try {
     const id = parseInt(req.params.id);
     if (isNaN(id)) return res.status(400).json({ error: 'معرّف غير صالح' });
-    const rows = await getSeasonLeaderboard(id, Math.min(parseInt(req.query.limit as string) || 100, 200));
+    const scope = await leaderboardScope(id, req.query.cityId);
+    if ('error' in scope) return res.status(scope.code === 'NOT_FOUND' ? 404 : 400).json(scope);
+    const rows = await getSeasonLeaderboard(id, scope.cityId, Math.min(parseInt(req.query.limit as string) || 100, 200));
     // توحيد الشكل مع /leaderboard (playerId → id)
     const leaderboard = rows.map((r: any) => ({ id: r.playerId, ...r }));
-    res.json({ success: true, leaderboard });
+    res.json({ success: true, leaderboard, cityId: scope.cityId });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }
@@ -88,7 +107,9 @@ router.get('/:id/leaderboard', authenticate, async (req: Request, res: Response)
     const id = parseInt(req.params.id);
     if (isNaN(id)) return res.status(400).json({ error: 'معرّف غير صالح' });
     const limit = Math.min(parseInt(req.query.limit as string) || 50, 200);
-    res.json({ success: true, leaderboard: await getSeasonLeaderboard(id, limit) });
+    const scope = await leaderboardScope(id, req.query.cityId);
+    if ('error' in scope) return res.status(scope.code === 'NOT_FOUND' ? 404 : 400).json(scope);
+    res.json({ success: true, leaderboard: await getSeasonLeaderboard(id, scope.cityId, limit), cityId: scope.cityId });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }

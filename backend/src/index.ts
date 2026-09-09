@@ -61,6 +61,7 @@ import { venueRouter, playerFnbRouter } from './routes/fnb.routes.js';
 import chipsRoutes from './routes/chips.routes.js';
 import chipsStoreRoutes from './routes/chips-store.routes.js';
 import appReleaseRoutes from './routes/app-release.routes.js';
+import citiesRoutes from './routes/cities.routes.js';
 import { registerVenueEvents } from './sockets/venue.socket.js';
 import { registerGeofenceEvents } from './sockets/geofence.socket.js';
 
@@ -209,6 +210,7 @@ app.use('/api/fnb', playerFnbRouter);    // 🍽️ طلبات المنيو — 
 app.use('/api/chips', chipsRoutes);      // 🪙 اقتصاد التشبس (محفظة + دفتر + شحن إداري)
 app.use('/api/chips', chipsStoreRoutes); // 🏦 خزنة الدون (كتالوج + إيجار + تجهيز)
 app.use('/api/app', appReleaseRoutes);   // 📱 بوابة إصدار التطبيق + ملفّا روابط المنصّتين
+app.use('/api/cities', citiesRoutes);    // 🏙️ المدن (عامّ: الفعّالة · إداريّ: إضافة/تسمية/تفعيل)
 
 // ── VAPID Public Key لـ Web Push (iOS Safari) ──
 // مصدر واحد ثابت (config/vapid.ts) — نفس المفتاح الذي يوقّع به السيرفر الإرسال
@@ -321,7 +323,16 @@ import { activeRooms } from './sockets/lobby.socket.js';
 import { getRoom } from './game/state.js';
 
 app.get('/api/game/leader-rooms', (_req, res) => {
-  const rooms = Array.from(activeRooms.values());
+  // 🏙️ + الفعاليّة والمكان والمدينة وحالة الاحتساب لكلّ غرفة (تُعرض في قائمة الليدر)
+  const rooms = Array.from(activeRooms.values()).map(r => ({
+    ...r,
+    activityName: r.activityName || null,
+    locationName: r.locationName ?? null,
+    cityId: r.cityId ?? null,
+    cityName: r.cityName ?? null,
+    seasonName: r.seasonName ?? null,
+    counted: r.counted !== false,
+  }));
   res.json({ success: true, rooms });
 });
 
@@ -335,6 +346,7 @@ app.get('/api/game/active', (_req, res) => {
     maxPlayers: r.maxPlayers,
     activityId: r.activityId || null,
     activityName: r.activityName || null,
+    cityName: r.cityName ?? null,
   }));
   res.json({ success: true, rooms });
 });
@@ -344,8 +356,8 @@ app.get('/api/game/activities-with-rooms', async (_req, res) => {
   try {
     const rooms = Array.from(activeRooms.values());
 
-    // تجميع الغرف حسب النشاط
-    const activitiesMap = new Map<string, { activityId: number | null; activityName: string; rooms: any[] }>();
+    // تجميع الغرف حسب النشاط (🏙️ + اسم المدينة لكلّ مجموعة)
+    const activitiesMap = new Map<string, { activityId: number | null; activityName: string; cityName: string | null; rooms: any[] }>();
 
     for (const r of rooms) {
       const key = r.activityId ? String(r.activityId) : 'unlinked';
@@ -353,6 +365,7 @@ app.get('/api/game/activities-with-rooms', async (_req, res) => {
         activitiesMap.set(key, {
           activityId: r.activityId || null,
           activityName: r.activityName || (r.activityId ? 'نشاط #' + r.activityId : 'بدون نشاط'),
+          cityName: r.cityName ?? null,
           rooms: [],
         });
       }
@@ -1218,6 +1231,85 @@ async function main() {
     }
   } catch (err: any) {
     console.warn('⚠️ WhatsApp rank notifications migration:', err.message);
+  }
+
+  // ══════════════════════════════════════════════════════
+  // 🏙️ المدن — ترتيبٌ لكلّ مدينة داخل الموسم الواحد (2026-09)
+  // المدينةُ صفةٌ للمكان؛ تُختَم على المباراة وتُجمَّد؛ وتُقسِّم إحصاءات الموسم إلى صفٍّ لكلّ (لاعب، موسم، مدينة).
+  // كلُّ خطوةٍ idempotent؛ التعبئةُ الأوّليّة كلُّها عمّان (1) لأنّ كلَّ تاريخ اللعب فيها.
+  // نفسُ الكتلة موجودةٌ في deploy.sh (تُنفَّذ قبل إقلاع الصورة الجديدة) — هذه شبكةُ أمانٍ لبيئات أخرى.
+  // ══════════════════════════════════════════════════════
+  try {
+    const { getDB } = await import('./config/db.js');
+    const { sql } = await import('drizzle-orm');
+    const db = getDB();
+    if (db) {
+      await db.execute(sql`CREATE TABLE IF NOT EXISTS cities (
+        id SERIAL PRIMARY KEY,
+        name VARCHAR(60) NOT NULL,
+        slug VARCHAR(40) UNIQUE NOT NULL,
+        is_active BOOLEAN NOT NULL DEFAULT true,
+        sort_order INTEGER NOT NULL DEFAULT 0,
+        created_at TIMESTAMP NOT NULL DEFAULT NOW()
+      )`);
+      const { ensureDefaultCities } = await import('./services/cities.service.js');
+      await ensureDefaultCities();
+
+      // الأماكن: المدينة إلزاميّة بعد التعبئة
+      await db.execute(sql`ALTER TABLE locations ADD COLUMN IF NOT EXISTS city_id INTEGER REFERENCES cities(id)`);
+      await db.execute(sql`UPDATE locations SET city_id = 1 WHERE city_id IS NULL`);
+      await db.execute(sql`ALTER TABLE locations ALTER COLUMN city_id SET NOT NULL`);
+      await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_locations_city ON locations (city_id)`);
+
+      // الغرف: مكانٌ مجمَّد (من الفعاليّة)
+      await db.execute(sql`ALTER TABLE sessions ADD COLUMN IF NOT EXISTS location_id INTEGER`);
+      await db.execute(sql`UPDATE sessions s SET location_id = a.location_id
+        FROM activities a WHERE a.id = s.activity_id AND s.location_id IS NULL AND COALESCE(s.is_remote, false) = false`);
+
+      // المباريات: ختمُ المدينة — من مكان الفعاليّة، وإلا (مباريات الموسم العادي التاريخيّة بلا نشاط) عمّان
+      await db.execute(sql`ALTER TABLE matches ADD COLUMN IF NOT EXISTS city_id INTEGER`);
+      await db.execute(sql`UPDATE matches m SET city_id = l.city_id
+        FROM sessions s JOIN activities a ON a.id = s.activity_id JOIN locations l ON l.id = a.location_id
+        WHERE s.id = m.session_id AND m.city_id IS NULL AND COALESCE(s.is_remote, false) = false`);
+      await db.execute(sql`UPDATE matches m SET city_id = 1
+        FROM seasons se WHERE se.id = m.season_id AND se.type = 'REGULAR' AND m.city_id IS NULL
+          AND NOT EXISTS (SELECT 1 FROM sessions s WHERE s.id = m.session_id AND COALESCE(s.is_remote, false) = true)`);
+      await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_matches_season_city ON matches (season_id, city_id)`);
+
+      // إحصاءات الموسم: بُعدُ المدينة + قيدُ الوحدانيّة الجديد (player, season, COALESCE(city,0))
+      await db.execute(sql`ALTER TABLE player_season_stats ADD COLUMN IF NOT EXISTS city_id INTEGER`);
+      await db.execute(sql`UPDATE player_season_stats pss SET city_id = 1
+        FROM seasons se WHERE se.id = pss.season_id AND se.type = 'REGULAR' AND pss.city_id IS NULL`);
+      await db.execute(sql`ALTER TABLE player_season_stats DROP CONSTRAINT IF EXISTS player_season_stats_player_id_season_id_key`);
+      await db.execute(sql`CREATE UNIQUE INDEX IF NOT EXISTS uq_pss_player_season_city
+        ON player_season_stats (player_id, season_id, COALESCE(city_id, 0))`);
+      await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_pss_season_city_rank
+        ON player_season_stats (season_id, city_id, rank_tier, rank_rr DESC)`);
+
+      // دفترُ المكافآت: المدينة من الفعاليّة، وإلا عمّان للمواسم العاديّة
+      await db.execute(sql`ALTER TABLE rank_bonuses ADD COLUMN IF NOT EXISTS city_id INTEGER`);
+      await db.execute(sql`UPDATE rank_bonuses rb SET city_id = l.city_id
+        FROM activities a JOIN locations l ON l.id = a.location_id
+        WHERE a.id = rb.activity_id AND rb.city_id IS NULL`);
+      await db.execute(sql`UPDATE rank_bonuses rb SET city_id = 1
+        FROM seasons se WHERE se.id = rb.season_id AND se.type = 'REGULAR' AND rb.city_id IS NULL`);
+
+      // اللاعب: مدينةٌ أساسيّة (تفضيلُ عرض) — تُستنتج لمن له مباراة
+      await db.execute(sql`ALTER TABLE players ADD COLUMN IF NOT EXISTS home_city_id INTEGER`);
+      await db.execute(sql`ALTER TABLE players ADD COLUMN IF NOT EXISTS home_city_source VARCHAR(10)`);
+      await db.execute(sql`UPDATE players p SET home_city_id = 1, home_city_source = 'inferred'
+        WHERE p.home_city_id IS NULL AND COALESCE(p.lifetime_matches, 0) > 0`);
+
+      // رسائل الترقية: القيد يحمل المدينة
+      await db.execute(sql`ALTER TABLE whatsapp_rank_notifications ADD COLUMN IF NOT EXISTS city_id INTEGER NOT NULL DEFAULT 1`);
+      await db.execute(sql`ALTER TABLE whatsapp_rank_notifications DROP CONSTRAINT IF EXISTS whatsapp_rank_notifications_player_id_rank_tier_key`);
+      await db.execute(sql`CREATE UNIQUE INDEX IF NOT EXISTS uq_wa_rank_player_city_tier
+        ON whatsapp_rank_notifications (player_id, city_id, rank_tier)`);
+
+      console.log('✅ 🏙️ city-scoped standings schema ensured');
+    }
+  } catch (err: any) {
+    console.warn('⚠️ cities migration:', err.message);
   }
 
   // ── 💬 جداول مركز محادثات واتساب (وارد + صادر + بوت) ──

@@ -30,6 +30,16 @@ const router = Router();
 router.post('/register', async (req: Request, res: Response) => {
   try {
     const { phone, password, name, gender, dob } = req.body;
+    // 🏙️ مدينةٌ أساسيّة اختياريّة عند التسجيل (تفضيلُ عرض) — غير الصالحة تُهمَل ويُسأل اللاعب لاحقاً في التطبيق
+    let homeCityId: number | null = null;
+    try {
+      const raw = parseInt(String(req.body?.homeCityId));
+      if (Number.isFinite(raw) && raw > 0) {
+        const { getCity } = await import('../services/cities.service.js');
+        const c = await getCity(raw);
+        if (c?.isActive) homeCityId = c.id;
+      }
+    } catch { /* اختياريّ */ }
 
     if (!phone || !password || !name) {
       return res.status(400).json({
@@ -93,6 +103,9 @@ router.post('/register', async (req: Request, res: Response) => {
       dob: dob || null,
       xp: 200,
       welcomeBonusApplied: true,
+      // 🏙️ المدينة الأساسيّة (اختياريّة) — يُسأل عنها في التطبيق إن غابت
+      homeCityId,
+      homeCitySource: homeCityId ? 'chosen' : null,
       // 🔴 لا يُكتب lastActiveAt هنا. إنشاءُ الحساب ليس تفاعلاً، والموظّفُ
       //    يُنشئ معظمَ الحسابات في القاعة — فكان هذا السطرُ وحدَه مصدرَ ٣٤٧
       //    قيمةً كاذبةً من ٧٥١. يبقى NULL حتّى أوّلِ تفاعلٍ حقيقيّ.

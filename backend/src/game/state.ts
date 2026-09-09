@@ -305,6 +305,13 @@ export interface GameState {
   sessionId?: number; // ID الغرفة في PostgreSQL
   sessionCode?: string; // كود الغرفة الثابت
   activityId?: number; // ID النشاط المرتبط
+  // 🏙️ نطاقُ الاحتساب — مجمَّدٌ عند إنشاء الغرفة (من مكان الفعاليّة أو مكانٍ صريح). للعرض في واجهة الليدر أيضاً.
+  locationId?: number | null;    // مكان الغرفة (locations.id) — null للبعيدة/بلا مكان
+  locationName?: string | null;
+  cityId?: number | null;        // مدينة التصنيف (للموسم العادي فقط)
+  cityName?: string | null;
+  seasonName?: string | null;
+  counted?: boolean;             // false ⇒ غرفةٌ غير محتسبة (بلا مكان ولا موسم)
   // ── تتبع الأداء للتقدم ──
   performanceTracking: {
     dealOutcomes: Array<{ initiatorPhysicalId: number; targetPhysicalId: number; targetRole: string; success: boolean }>;

@@ -262,6 +262,12 @@ export default function LeaderLobbyView({ gameState, emit, setError, hideOffline
                 PIN: <span className="font-bold text-xs ml-1">{gameState.config.displayPin}</span>
               </span>
             )}
+            {/* 🏙️ حبّة المكان والمدينة — بنفس نمط الحبّات المجاورة (من حالة الغرفة) */}
+            {(gameState.locationName || gameState.cityName) && (
+              <span className="bg-[#C5A059]/10 border border-[#C5A059]/35 px-3 py-1.5 rounded text-[#C5A059] normal-case tracking-normal">
+                📍 {[gameState.locationName, gameState.cityName].filter(Boolean).join(' · ')}
+              </span>
+            )}
           </div>
         </div>
 

@@ -22,42 +22,67 @@ const router = Router();
 // 🔒 STATIC ROUTES FIRST (قبل /:id)
 // ════════════════════════════════════════════
 
-// ── 🏆 GET /leaderboard (ترتيب الموسم العادي النشط — من players.*) ──
-// ⚠️ لاعبو الموسم فقط (total_matches > 0): بعد بدء موسم جديد يتساوى الجميع على صفر/مُخبر،
+// ── 🏙️ المدينة المطلوبة/الافتراضيّة لطلبٍ من التطبيق ──
+// ?cityId= صريحاً، وإلا مدينةُ اللاعب الأساسيّة (?playerId=)، وإلا أوّلُ مدينةٍ فعّالة.
+async function pickCity(req: Request): Promise<number | null> {
+  const { getCity, defaultCityId } = await import('../services/cities.service.js');
+  const raw = parseInt(String(req.query.cityId));
+  if (Number.isFinite(raw) && raw > 0 && await getCity(raw)) return raw;
+  const pid = parseInt(String(req.query.playerId));
+  if (Number.isFinite(pid) && pid > 0) {
+    const { getOrInferHomeCity } = await import('../services/season.service.js');
+    const home = await getOrInferHomeCity(pid).catch(() => null);
+    if (home) return home;
+  }
+  return defaultCityId();
+}
+
+// ── 🏆 GET /leaderboard?cityId=&playerId= (ترتيب الموسم العادي النشط **في مدينة** — من player_season_stats) ──
+// ⚠️ لاعبو المدينة فقط (total_matches > 0): بعد بدء موسم جديد يتساوى الجميع على صفر/مُخبر،
 // فبلا هذا الشرط تعرض اللوحة خمسين اسماً بترتيبٍ اعتباطي وكأنهم متصدّرون بلا لعب.
-router.get('/leaderboard', async (_req: Request, res: Response) => {
+router.get('/leaderboard', async (req: Request, res: Response) => {
   const db = getDB();
   if (!db) return res.status(503).json({ error: 'DB unavailable' });
 
   try {
-    const rows = await db.select({
-      id: players.id,
-      name: players.name,
-      avatarUrl: players.avatarUrl,
-      level: players.level,
-      xp: players.xp,
-      rankTier: players.rankTier,
-      rankRR: players.rankRR,
-      totalMatches: players.totalMatches,
-      totalWins: players.totalWins,
-    })
-      .from(players)
-      .where(sql`COALESCE(${players.totalMatches}, 0) > 0`)
-      .orderBy(
-        sql`CASE ${players.rankTier}
-          WHEN 'GODFATHER' THEN 5
-          WHEN 'UNDERBOSS' THEN 4
-          WHEN 'CAPO' THEN 3
-          WHEN 'SOLDIER' THEN 2
-          ELSE 1 END DESC`,
-        desc(players.rankRR),
-        desc(players.level)
-      )
-      .limit(50);
-
-    res.json({ success: true, leaderboard: rows });
+    const { getActiveRegularSeason, getSeasonLeaderboard } = await import('../services/season.service.js');
+    const { listCities, cityNameOf } = await import('../services/cities.service.js');
+    const season = await getActiveRegularSeason();
+    const cityId = await pickCity(req);
+    const cities = (await listCities({ activeOnly: true })).map(c => ({ id: c.id, name: c.name }));
+    if (!season || !cityId) {
+      return res.json({ success: true, leaderboard: [], cityId, cityName: await cityNameOf(cityId), seasonId: season?.id ?? null, seasonName: season?.name ?? null, cities });
+    }
+    const rows = await getSeasonLeaderboard(season.id, cityId, 50);
+    const leaderboard = rows.map((r: any) => ({
+      id: r.playerId, name: r.name, avatarUrl: r.avatarUrl, level: r.level, xp: r.xp,
+      rankTier: r.rankTier, rankRR: r.rankRR, totalMatches: r.totalMatches, totalWins: r.totalWins,
+    }));
+    res.json({ success: true, leaderboard, cityId, cityName: await cityNameOf(cityId), seasonId: season.id, seasonName: season.name, cities });
   } catch (err: any) {
     console.error('❌ leaderboard error:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ── 🏙️ PUT /me/home-city — اختيارُ المدينة الأساسيّة (تفضيلُ عرضٍ فقط، لا يمسّ أيّ احتساب) ──
+router.put('/me/home-city', authenticatePlayer, async (req: Request, res: Response) => {
+  const db = getDB();
+  if (!db) return res.status(503).json({ error: 'DB unavailable' });
+  try {
+    const playerId = (req as any).player?.playerId ?? (req as any).player?.id;
+    const cityId = parseInt(String(req.body?.cityId));
+    const { getCity } = await import('../services/cities.service.js');
+    const city = Number.isFinite(cityId) && cityId > 0 ? await getCity(cityId) : null;
+    if (!city || !city.isActive) return res.status(400).json({ error: 'المدينة غير موجودة أو معطّلة', code: 'CITY_NOT_FOUND' });
+    await db.update(players).set({ homeCityId: city.id, homeCitySource: 'chosen' } as any).where(eq(players.id, playerId));
+    // المرآة تتبع المدينة الأساسيّة الجديدة فوراً
+    try {
+      const { syncPlayerMirror } = await import('../services/season.service.js');
+      await syncPlayerMirror(playerId);
+    } catch { /* المرآة توافقٌ خلفيّ — تصحّحها المصالحة التالية */ }
+    res.json({ success: true, homeCityId: city.id, homeCityName: city.name });
+  } catch (err: any) {
     res.status(500).json({ error: err.message });
   }
 });
@@ -375,6 +400,7 @@ router.get('/activities/upcoming', async (req: Request, res: Response) => {
       locationMapUrl: locations.mapUrl,
       locationOffers: locations.offers,
       isTestLocation: locations.isTestLocation,
+      cityId: locations.cityId,
     })
       .from(activities)
       .leftJoin(locations, eq(activities.locationId, locations.id))
@@ -388,15 +414,36 @@ router.get('/activities/upcoming', async (req: Request, res: Response) => {
 
     // فلترة أنشطة الاختبار: لا تظهر إلا لحسابات الاختبار
     let isTestUser = false;
+    let homeCityId: number | null = null;
     if (playerIdParam) {
-      const [playerRow] = await db.select({ isTestAccount: players.isTestAccount })
+      const [playerRow] = await db.select({ isTestAccount: players.isTestAccount, homeCityId: players.homeCityId })
         .from(players).where(eq(players.id, playerIdParam)).limit(1);
       isTestUser = playerRow?.isTestAccount || false;
+      homeCityId = playerRow?.homeCityId ?? null;
+      if (homeCityId == null) {
+        // تُستنتج من تاريخ اللعب (وتُخزَّن) — لاعبٌ بلا تاريخ يبقى بلا مدينة فيرى الكلّ ويُسأل في التطبيق
+        try { const { getOrInferHomeCity } = await import('../services/season.service.js'); homeCityId = await getOrInferHomeCity(playerIdParam); } catch { /* الكلّ */ }
+      }
     }
 
-    const filtered = isTestUser
+    // 🏙️ فلتر المدينة: ?cityId=<id> | all؛ الافتراضيّ مدينةُ اللاعب الأساسيّة إن وُجدت، وإلا الكلّ (قرار ٥ — افتراضٌ لا قيد)
+    const { listCities, cityMap } = await import('../services/cities.service.js');
+    const cm = await cityMap();
+    const cityParam = String(req.query.cityId ?? '').trim();
+    let appliedCityId: number | null = null;
+    if (cityParam && cityParam !== 'all') {
+      const n = parseInt(cityParam);
+      appliedCityId = Number.isFinite(n) && cm.has(n) ? n : null;
+    } else if (!cityParam) {
+      appliedCityId = homeCityId;
+    }
+    const cities = (await listCities({ activeOnly: true })).map(c => ({ id: c.id, name: c.name }));
+
+    const filtered = (isTestUser
       ? rows  // حساب اختبار → يرى كل شيء
-      : rows.filter(r => !r.isTestLocation);  // حساب عادي → يخفي أنشطة الاختبار
+      : rows.filter(r => !r.isTestLocation))  // حساب عادي → يخفي أنشطة الاختبار
+      .filter(r => appliedCityId == null || r.cityId === appliedCityId)
+      .map(r => ({ ...r, cityName: r.cityId != null ? (cm.get(r.cityId)?.name ?? null) : null }));
 
     // 🍽️ أيّ الأماكن لديها منيو متاح؟ (استعلامٌ واحد — لتمييز الفعاليّات التي يُعرض فيها زرّ المنيو)
     const menuLocRows = await db.selectDistinct({ locationId: menuItems.locationId })
@@ -445,7 +492,7 @@ router.get('/activities/upcoming', async (req: Request, res: Response) => {
       };
     }));
 
-    res.json({ success: true, activities: enriched });
+    res.json({ success: true, activities: enriched, cityId: appliedCityId, homeCityId, cities });
   } catch (err: any) {
     console.error('❌ activities/upcoming error:', err.message);
     res.status(500).json({ error: err.message });
@@ -945,6 +992,8 @@ router.get('/:id/matches', authenticatePlayer, async (req: Request, res: Respons
       durationSeconds: matches.durationSeconds,
       totalRounds: matches.totalRounds,
       playerCount: matches.playerCount,
+      seasonId: matches.seasonId,
+      cityId: matches.cityId,
       role: matchPlayers.role,
       survivedToEnd: matchPlayers.survivedToEnd,
       eliminatedDuring: matchPlayers.eliminatedDuring,
@@ -968,7 +1017,12 @@ router.get('/:id/matches', authenticatePlayer, async (req: Request, res: Respons
 
     // 🧮 تفصيل دقيق موحّد: من المخزّن إن وُجد وإلا إعادة بناء + بند تسوية يضمن مطابقة المجموع
     let cfg: any; try { cfg = await getProgressionConfig(); } catch { cfg = undefined; }
-    const enriched = playerMatches.map(m => ({ ...m, breakdown: buildDisplayBreakdown(m, cfg) }));
+    const { cityMap } = await import('../services/cities.service.js');
+    const cm = await cityMap();
+    const enriched = playerMatches.map(m => ({
+      ...m, breakdown: buildDisplayBreakdown(m, cfg),
+      cityName: m.cityId != null ? (cm.get(Number(m.cityId))?.name ?? null) : null,
+    }));
 
     res.json({ success: true, matches: enriched });
   } catch (err: any) {

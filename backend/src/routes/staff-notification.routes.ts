@@ -91,6 +91,17 @@ router.post('/send-custom', authenticate, adminOnly, async (req: Request, res: R
       } else if (target === 'specific' && Array.isArray(targetIds) && targetIds.length > 0) {
         await sendPushToPlayers(targetIds, title, body, 'custom', data || {});
         sentCount += targetIds.length;
+      } else if (target === 'city') {
+        // 🏙️ لاعبو مدينة (مدينتُهم الأساسيّة أو لعبوا/حجزوا فيها)
+        const cityId = parseInt(String(req.body.cityId));
+        if (!Number.isFinite(cityId) || cityId <= 0) return res.status(400).json({ error: 'المدينة مطلوبة', code: 'CITY_REQUIRED' });
+        const { sendPushToCityPlayers } = await import('../services/fcm.service.js');
+        await sendPushToCityPlayers(cityId, title, body, 'custom', data || {});
+        const cnt: any = await db.execute(sql`
+          SELECT COUNT(DISTINCT p.id)::int AS n FROM players p
+          WHERE p.deleted_at IS NULL AND (p.home_city_id = ${cityId}
+            OR EXISTS (SELECT 1 FROM player_season_stats pss WHERE pss.player_id = p.id AND pss.city_id = ${cityId} AND COALESCE(pss.total_matches,0) > 0))`);
+        sentCount += Number((cnt?.rows ?? cnt ?? [])[0]?.n || 0);
       }
     }
 

@@ -17,6 +17,10 @@ const ROLE_NAMES_AR: Record<string,string> = {
 const MAFIA_ROLES = ['GODFATHER','SILENCER','CHAMELEON','WITCH','OLDER_BROTHER','MAFIA_REGULAR'];
 
 const RANK_TIERS_ORDER = ['INFORMANT','SOLDIER','CAPO','UNDERBOSS','GODFATHER'];
+// 🏙️ ألوان المدن: المدينة ١ عنبريّة، وسائر المدن زرقاء — الأسماء من الخادم وحده
+const cityTone = (cityId?: number | null) => cityId === 1
+  ? { bg: 'rgba(251,191,36,0.12)', border: 'rgba(251,191,36,0.35)', text: '#FBBF24' }
+  : { bg: 'rgba(79,157,222,0.12)', border: 'rgba(79,157,222,0.35)', text: '#8CC1F2' };
 
 const RANK_CONFIG: Record<string,{name:string;icon:string;color:string;bg:string;glow?:string}> = {
   INFORMANT:{name:'مُخبر',icon:'🕵️',color:'#CD7F32',bg:'from-amber-900/30 to-amber-800/10',},
@@ -118,6 +122,8 @@ function MatchHistorySection({ matchHistory }: { matchHistory: any[] }) {
                   <span className={`text-[9px] px-1.5 py-0.5 rounded ${isNeutral?'bg-purple-500/10 text-purple-400':isMafia?'bg-red-500/10 text-red-400':'bg-cyan-500/10 text-cyan-400'}`}>
                     {isNeutral?'محايد':isMafia?'مافيا':'مواطن'}
                   </span>
+                  {/* 🏙️ وسم المدينة — يفسّر لماذا لم تتحرّك رتبة مدينةٍ بعد مباراةٍ في أخرى */}
+                  {m.cityName&&<span className="text-[9px] px-1.5 py-0.5 rounded" style={{background:cityTone(m.cityId).bg,color:cityTone(m.cityId).text}}>🏙️ {m.cityName}</span>}
                 </div>
                 <div className="flex items-center gap-3 text-[10px] text-gray-500">
                   <span>{m.survived?'🛡️ نجا':'💀'}</span>
@@ -217,6 +223,11 @@ export default function PlayerProfilePage(){
   const [currentPw, setCurrentPw] = useState('');
   const [newPw, setNewPw] = useState('');
   const [pwMsg, setPwMsg] = useState('');
+  // 🏙️ المدن (لإعداد «مدينتي الأساسيّة») والمدينة المعروضة في بطاقة تقدّم الرتبة
+  const [cities,setCities]=useState<{id:number;name:string}[]>([]);
+  const [rankCityId,setRankCityId]=useState<number|null>(null);
+  const [homeCitySaving,setHomeCitySaving]=useState(false);
+  const [homeCityMsg,setHomeCityMsg]=useState('');
 
   // ── منع سكرول الخلفية عند فتح الموديل ──
   useEffect(() => {
@@ -258,6 +269,8 @@ export default function PlayerProfilePage(){
       .finally(()=>setLoading(false));
     fetch('/api/player-app/leaderboard',{headers:getAuthHeaders()}).then(r=>r.json()).then(d=>{if(Array.isArray(d))setLeaderboard(d.slice(0,5));}).catch(()=>{});
     fetch('/api/progression-settings/public').then(r=>r.json()).then(d=>{if(d?.success)setProgCfg(d.config);}).catch(()=>{});
+    // 🏙️ المدن النشطة — لإعداد «مدينتي الأساسيّة»
+    fetch('/api/cities/public').then(r=>r.json()).then(d=>{if(d?.success&&Array.isArray(d.cities))setCities(d.cities.map((c:any)=>({id:c.id,name:c.name})));}).catch(()=>{});
   },[getAuthHeaders]);
 
   const showToast=(msg:string)=>{setSaveMsg(msg);setTimeout(()=>setSaveMsg(''),3000);};
@@ -341,6 +354,14 @@ export default function PlayerProfilePage(){
   const{player,stats,progression,matchHistory}=profile;
   const avatarSrc=player.avatarUrl?`${SOCKET_URL}${player.avatarUrl}`:null;
   const rank=RANK_CONFIG[progression?.rankTier||'INFORMANT']||RANK_CONFIG.INFORMANT;
+  // 🏙️ سلّم الرتب لكلّ مدينة: المدينة الأساسيّة أوّلًا؛ بلا standings (خادمٌ قديم) تبقى البطاقة كما هي
+  const standings:any[]=Array.isArray(profile.standings)
+    ?[...profile.standings].sort((a:any,b:any)=>(a.cityId===profile.homeCityId?-1:0)-(b.cityId===profile.homeCityId?-1:0))
+    :[];
+  const shownStanding=standings.length?(standings.find((s:any)=>s.cityId===rankCityId)||standings[0]):null;
+  const cardProg=shownStanding||progression;
+  const cardRank=RANK_CONFIG[cardProg?.rankTier||'INFORMANT']||RANK_CONFIG.INFORMANT;
+  const cardTone=shownStanding?cityTone(shownStanding.cityId):null;
   const joinYear=new Date(player.createdAt).getFullYear();
   // ⚙️ أرقام دليل التقدم من إعدادات الخادم — القيم بعد ?? احتياط فقط ريثما يصل الكونفج
   const cfgXp=progCfg?.xp||{};
@@ -459,25 +480,36 @@ export default function PlayerProfilePage(){
         </div>
       </div>
 
-      {/* ═══ RANK PROGRESSION ═══ */}
+      {/* ═══ RANK PROGRESSION — سلّمٌ مستقلّ وRR مستقلّ لكلّ مدينة ═══ */}
       <div className="max-w-lg mx-auto px-4 -mt-1 mb-2">
         <motion.div initial={{opacity:0,y:10}} animate={{opacity:1,y:0}} transition={{delay:0.3}}
-          className="rounded-2xl p-4" style={{background:'linear-gradient(180deg,#111111,#0a0a0a)',border:`1px solid ${rank.color}20`}}>
+          className="rounded-2xl p-4" style={{background:'linear-gradient(180deg,#111111,#0a0a0a)',border:`1px solid ${cardTone?cardTone.border:cardRank.color+'20'}`}}>
+          {/* 🏙️ تبويب المدينة فوق السلّم — المدينة الأساسيّة أوّلًا */}
+          {standings.length>0&&(
+            <div className="flex gap-1.5 mb-3 overflow-x-auto scrollbar-hide">
+              {standings.map((s:any)=>{const on=s.cityId===shownStanding?.cityId;const t=cityTone(s.cityId);
+                return <button key={s.cityId} onClick={()=>setRankCityId(s.cityId)}
+                  className="shrink-0 text-[11px] font-bold px-3 py-1 rounded-full transition-colors whitespace-nowrap"
+                  style={on?{background:t.bg,border:`1px solid ${t.border}`,color:t.text}:{background:'rgba(255,255,255,0.03)',border:'1px solid rgba(255,255,255,0.06)',color:'#9ca3af'}}>
+                  🏙️ {s.cityName}{s.cityId===profile.homeCityId?' •':''}
+                </button>;})}
+            </div>
+          )}
           <div className="flex justify-between items-start mb-3">
             <div>
-              <h3 className="text-sm font-bold text-gray-300">الرتبة الحالية</h3>
+              <h3 className="text-sm font-bold text-gray-300">الرتبة الحالية{shownStanding?` في ${shownStanding.cityName}`:''}</h3>
               <div className="flex items-center gap-2 mt-1">
-                <span className="text-2xl">{rank.icon}</span>
+                <span className="text-2xl">{cardRank.icon}</span>
                 <div>
-                  <p className="font-bold text-sm" style={{color:rank.color}}>{rank.name}</p>
-                  <p className="text-[10px] text-gray-500">تقدم الرتبة</p>
+                  <p className="font-bold text-sm" style={{color:cardRank.color}}>{cardRank.name}</p>
+                  <p className="text-[10px] text-gray-500">تقدم الرتبة{shownStanding?` • ${shownStanding.totalMatches||0} مباراة`:''}</p>
                 </div>
               </div>
             </div>
             <div className="text-left">
               <h3 className="text-sm font-bold text-gray-300">عن الرتب</h3>
               <div className="flex gap-2 mt-1.5">
-                {RANK_TIERS_ORDER.map((t,i)=>{const rc=RANK_CONFIG[t];const isActive=t===(progression?.rankTier||'INFORMANT');const idx=RANK_TIERS_ORDER.indexOf(progression?.rankTier||'INFORMANT');const isPast=i<idx;
+                {RANK_TIERS_ORDER.map((t,i)=>{const rc=RANK_CONFIG[t];const isActive=t===(cardProg?.rankTier||'INFORMANT');const idx=RANK_TIERS_ORDER.indexOf(cardProg?.rankTier||'INFORMANT');const isPast=i<idx;
                   return <div key={t} className="flex flex-col items-center gap-0.5">
                     <span className={`text-2xl ${isActive?'':'opacity-25'} ${isPast?'opacity-50':''}`} style={isActive?{filter:`drop-shadow(0 0 6px ${rc.color})`}:{}}>{rc.icon}</span>
                     <span className={`text-[7px] ${isActive?'font-bold':'text-gray-600'}`} style={isActive?{color:rc.color}:{}}>{rc.name}</span>
@@ -487,10 +519,19 @@ export default function PlayerProfilePage(){
             </div>
           </div>
           {/* RR Progress */}
-          <div className="mb-1.5"><div className="flex justify-between text-[10px] text-gray-500 mb-1"><span>{progression?.rankRR||0} / {progression?.rrRequired || 100} RR</span></div>
-            <div className="h-2.5 bg-gray-800 rounded-full overflow-hidden"><motion.div initial={{width:0}} animate={{width:`${((progression?.rankRR||0) / (progression?.rrRequired||100)) * 100}%`}} transition={{duration:1}} className="h-full rounded-full" style={{background:`linear-gradient(90deg,${rank.color},${rank.color}88)`}}/></div>
+          <div className="mb-1.5"><div className="flex justify-between text-[10px] text-gray-500 mb-1"><span>{cardProg?.rankRR||0} / {cardProg?.rrRequired || 100} RR</span></div>
+            <div className="h-2.5 bg-gray-800 rounded-full overflow-hidden"><motion.div key={`rr-${shownStanding?.cityId??'home'}`} initial={{width:0}} animate={{width:`${((cardProg?.rankRR||0) / (cardProg?.rrRequired||100)) * 100}%`}} transition={{duration:1}} className="h-full rounded-full" style={{background:`linear-gradient(90deg,${cardRank.color},${cardRank.color}88)`}}/></div>
           </div>
-          <p className="text-[10px] text-gray-600 text-center">تحتاج {(progression?.rrRequired||100)-(progression?.rankRR||0)} RR للترقية</p>
+          <p className="text-[10px] text-gray-600 text-center">تحتاج {(cardProg?.rrRequired||100)-(cardProg?.rankRR||0)} RR للترقية</p>
+          {/* بطاقةٌ مصغّرة للمدن الأخرى تحت السلّم */}
+          {standings.length>1&&(
+            <div className="mt-3 pt-2 border-t border-white/[0.06] flex flex-wrap gap-1.5">
+              {standings.filter((s:any)=>s.cityId!==shownStanding?.cityId).map((s:any)=>{const rc=RANK_CONFIG[s.rankTier||'INFORMANT']||RANK_CONFIG.INFORMANT;const t=cityTone(s.cityId);
+                return <button key={s.cityId} onClick={()=>setRankCityId(s.cityId)} className="text-[10px] px-2 py-1 rounded-lg" style={{background:t.bg,border:`1px solid ${t.border}`,color:t.text}}>
+                  {s.cityName}: {rc.icon} {rc.name} • {s.rankRR||0} RR
+                </button>;})}
+            </div>
+          )}
         </motion.div>
       </div>
 
@@ -726,6 +767,40 @@ export default function PlayerProfilePage(){
                     </div>
                   )}
                 </div>
+
+                <div className="border-t border-white/5"/>
+
+                {/* ── 🏙️ مدينتي الأساسيّة — تغيّر افتراضيّات الفعاليّات والترتيب والبطاقة فقط ── */}
+                {cities.length>0&&(
+                  <div>
+                    <p className="text-[10px] text-gray-600 mb-2 font-bold uppercase tracking-wider">🏙️ مدينتي الأساسيّة</p>
+                    <div className="flex items-center justify-between gap-3">
+                      <span className="text-xs text-gray-500">المدينة التي تلعب فيها عادةً</span>
+                      <select
+                        value={profile.homeCityId??''}
+                        disabled={homeCitySaving}
+                        onChange={async(e)=>{
+                          const cityId=Number(e.target.value); if(!cityId)return;
+                          setHomeCitySaving(true);setHomeCityMsg('');
+                          try{
+                            const res=await fetch('/api/player-app/me/home-city',{method:'PUT',headers:{'Content-Type':'application/json',...getAuthHeaders()},body:JSON.stringify({cityId})});
+                            const d=await res.json();
+                            if(d.success){
+                              setProfile((p:any)=>({...p,homeCityId:d.homeCityId??cityId,homeCityName:d.homeCityName??cities.find(c=>c.id===cityId)?.name}));
+                              setHomeCityMsg('✓ حُفظت');setTimeout(()=>setHomeCityMsg(''),2000);
+                            } else setHomeCityMsg(d.error||'خطأ');
+                          }catch{setHomeCityMsg('خطأ في الاتصال');}
+                          finally{setHomeCitySaving(false);}
+                        }}
+                        className="text-xs bg-white/[0.04] border border-white/10 rounded-lg px-2 py-1.5 text-white outline-none disabled:opacity-60">
+                        <option value="" className="bg-gray-900">— اختر —</option>
+                        {cities.map(c=><option key={c.id} value={c.id} className="bg-gray-900">{c.name}</option>)}
+                      </select>
+                    </div>
+                    {homeCityMsg&&<p className={`text-[10px] mt-1 ${homeCityMsg.includes('✓')?'text-green-400':'text-red-400'}`}>{homeCityMsg}</p>}
+                    <p className="text-[9px] text-gray-600 mt-1.5 px-1">تضبط ما تراه أوّلًا في الفعاليّات والترتيب والبطاقة — ولا تمسّ رتبتك في أيّ مدينة.</p>
+                  </div>
+                )}
 
                 <div className="border-t border-white/5"/>
 

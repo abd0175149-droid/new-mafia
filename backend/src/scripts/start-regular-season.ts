@@ -66,6 +66,16 @@ async function main() {
     console.log('✅ لا مباريات معلّقة تحتاج تسوية');
   }
 
+  // ── 🏙️ ما سيُجمَّد: صفوفُ كلّ مدينةٍ في الموسم الحاليّ ──
+  if (currentId) {
+    try {
+      const { getSeasonCityStats } = await import('../services/season.service.js');
+      const stats = await getSeasonCityStats(currentId);
+      console.log(`🏙️ أرشيف الموسم #${currentId} حسب المدينة:`);
+      for (const c of stats) console.log(`   • ${c.name}: ${c.players} لاعب · ${c.matches} مباراة`);
+    } catch (e: any) { console.warn('⚠️ تعذّر عدّ المدن:', e?.message || e); }
+  }
+
   if (DRY_RUN) {
     console.log('🔍 فحص الجاهزية اكتمل — كل الحُرّاس تسمح بالتبديل. أعد التشغيل بلا --dry-run للتنفيذ.');
     process.exit(0);

@@ -5,7 +5,7 @@
 
 import { and, eq, isNull, gte, lte, sql } from 'drizzle-orm';
 import type { ReportDefinition, ReportDocument } from '../types.js';
-import { locations, activities, bookings } from '../../schemas/admin.schema.js';
+import { locations, activities, bookings, cities } from '../../schemas/admin.schema.js';
 import { paidRevenue, num, pct, rangeDates, rangeLabel } from '../helpers.js';
 
 export const locationPerformanceReport: ReportDefinition = {
@@ -26,13 +26,15 @@ export const locationPerformanceReport: ReportDefinition = {
     // عدد الأنشطة والسعة (بلا ربط الحجوزات لتفادي التضخيم)
     const actRows = await db.select({
       locId: locations.id, name: locations.name, isTest: locations.isTestLocation,
+      cityName: cities.name,
       activities: sql<number>`COUNT(${activities.id})::int`,
       completed: sql<number>`COALESCE(SUM(CASE WHEN ${activities.status} = 'completed' THEN 1 ELSE 0 END), 0)::int`,
       capacity: sql<number>`COALESCE(SUM(${activities.maxCapacity}), 0)::int`,
     }).from(locations)
+      .leftJoin(cities, eq(locations.cityId, cities.id))
       .leftJoin(activities, and(eq(activities.locationId, locations.id), actDateCond))
       .where(and(isNull(locations.deletedAt), sql`${locations.isTestLocation} IS NOT TRUE`))
-      .groupBy(locations.id, locations.name, locations.isTestLocation);
+      .groupBy(locations.id, locations.name, locations.isTestLocation, cities.name);
 
     // الدخل والحضور (عبر ربط الحجوزات)
     const revRows = await db.select({
@@ -49,7 +51,7 @@ export const locationPerformanceReport: ReportDefinition = {
     const enriched = actRows.map((r) => {
       const rev = revMap.get(r.locId) ?? { revenue: 0, attendees: 0 };
       return {
-        name: r.name, isTestAr: r.isTest ? 'تجريبي' : '—',
+        name: r.name, cityName: r.cityName ?? '—', isTestAr: r.isTest ? 'تجريبي' : '—',
         activities: r.activities, completed: r.completed,
         revenue: rev.revenue, attendees: rev.attendees,
         occupancy: pct(rev.attendees, num(r.capacity)),
@@ -75,6 +77,7 @@ export const locationPerformanceReport: ReportDefinition = {
           type: 'table', titleAr: 'المواقع',
           columns: [
             { key: 'name', labelAr: 'الموقع' },
+            { key: 'cityName', labelAr: 'المدينة', format: 'badge' },
             { key: 'activities', labelAr: 'أنشطة', format: 'number', align: 'center' },
             { key: 'completed', labelAr: 'مكتملة', format: 'number', align: 'center' },
             { key: 'revenue', labelAr: 'الدخل', format: 'currency' },

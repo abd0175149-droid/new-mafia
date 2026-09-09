@@ -8,6 +8,7 @@ import { useMemo, useState } from 'react';
 import type { Player } from './lib';
 import { fillTemplate, fmtMoney, fmtNum, normalizePhone, pushNotify } from './lib';
 import { openWhatsApp } from '@/lib/whatsapp';
+import { rankName } from '@/lib/ranks';
 
 // ── الأعمدة ──────────────────────────────────────────
 export type ColKey =
@@ -37,7 +38,7 @@ export const COLUMNS: ColDef[] = [
   { key: 'createdAt', label: 'التسجيل', group: 'id',
     value: (p) => p.createdAt, cell: (p) => <span className="tabular-nums text-gray-400" dir="ltr">{p.createdAt.slice(0, 10)}</span> },
   { key: 'rank', label: 'الرتبة', group: 'id',
-    value: (p) => p.level, cell: (p) => <span className="text-[11px] text-gray-400">{p.rankTier || '—'} <span className="tabular-nums text-gray-600">ل{p.level}</span></span> },
+    value: (p) => p.level, cell: (p) => <span className="text-[11px] text-gray-400">{p.rankTier ? rankName(p.rankTier) : '—'} <span className="tabular-nums text-gray-600">ل{p.level}</span></span> },
 
   { key: 'activities', label: 'فعاليّات', group: 'attend', align: 'center',
     value: (p) => p.activities, cell: (p) => (
@@ -263,7 +264,7 @@ function Detail({ p }: { p: Player }) {
     ['تاريخ الميلاد', <span className="tabular-nums" dir="ltr">{p.dob || '—'}</span>],
     ['البريد', p.email || '—'],
     ['آخر ظهور', <span className="tabular-nums" dir="ltr">{p.lastActiveAt?.replace('T', ' ') || '—'}</span>],
-    ['الرتبة', `${p.rankTier || '—'} · مستوى ${p.level}`],
+    ['الرتبة', `${p.rankTier ? rankName(p.rankTier) : '—'} · مستوى ${p.level}`],
     ['نجا حتّى النهاية', <span className="tabular-nums">{p.survived} من {p.matches}</span>],
     ['أطول انقطاع', <span className="tabular-nums">{p.longestGapDays} يوم</span>],
     ['فعاليّات فاتته منذ آخر حضور', <span className="tabular-nums">{p.activitiesMissedSince}</span>],

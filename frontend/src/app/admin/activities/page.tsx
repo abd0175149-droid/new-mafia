@@ -8,6 +8,9 @@ import ActivityForm from '../components/ActivityForm';
 import BookingForm from '../components/BookingForm';
 import EditActivityForm from '../components/EditActivityForm';
 import WeekGamesModal from '../components/WeekGamesModal';
+import { useAdminScope } from '../scope-context';
+import { CitySegment } from '@/components/admin/CityBadge';
+import { withCity } from '@/hooks/useCities';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || '';
 
@@ -83,11 +86,17 @@ export default function ActivitiesPage() {
 
   const user = useMemo(() => getUser(), []);
 
+  // 🏙️ نطاق المدينة: يتبع مبدّلَ الشريط الجانبيّ افتراضاً (undefined)، ويتجاوزه المستعمل من الشريحة هنا
+  const scope = useAdminScope();
+  const [cityOverride, setCityOverride] = useState<number | null | undefined>(undefined);
+  const cityFilter: number | null = cityOverride === undefined ? scope.cityId : cityOverride;
+  useEffect(() => { setCityOverride(undefined); }, [scope.cityId]);
+
   // ── Data Fetch ──
   const fetchAll = useCallback(async () => {
     try {
       const [acts, bks, csts, locs] = await Promise.all([
-        apiFetch('/api/activities'),
+        apiFetch(withCity('/api/activities', cityFilter)),
         apiFetch('/api/bookings'),
         apiFetch('/api/costs'),
         apiFetch('/api/locations'),
@@ -120,13 +129,15 @@ export default function ActivitiesPage() {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [cityFilter]);
 
+  // 🔴 يُنتظر `ready` كي لا يُجلب مرّتين (بلا نطاقٍ ثمّ بالنطاق المحفوظ)
   useEffect(() => {
+    if (!scope.ready) return;
     fetchAll();
     const interval = setInterval(fetchAll, 30000);
     return () => clearInterval(interval);
-  }, [fetchAll]);
+  }, [fetchAll, scope.ready]);
 
   // ── Computed Stats ──
   const getActivityStats = useCallback((activity: any) => {
@@ -148,15 +159,12 @@ export default function ActivitiesPage() {
     };
   }, [bookings, costs]);
 
-  // معرّفات مواقع الاختبار (تُطابَق بالاسم) — لإخفاء فعالياتها افتراضياً
+  // معرّفات مواقع الاختبار — بعلم isTestLocation لا بمطابقة الاسم
   const testLocationIds = useMemo(
-    () => new Set(
-      locations
-        .filter((l: any) => String(l.name || '').trim().toLowerCase().includes('test location'))
-        .map((l: any) => l.id)
-    ),
+    () => new Set(locations.filter((l: any) => l.isTestLocation === true).map((l: any) => l.id)),
     [locations]
   );
+  const locationById = useMemo(() => new Map<number, any>(locations.map((l: any) => [l.id, l])), [locations]);
 
   // ── Filtered + Sorted ──
   const filteredActivities = useMemo(() => {
@@ -165,6 +173,11 @@ export default function ActivitiesPage() {
     // فلتر الحالة
     if (filterStatus !== 'all') {
       result = result.filter(a => a.status === filterStatus);
+    }
+
+    // 🏙️ فلتر المدينة محلّيّاً أيضاً — احتياطٌ حين يتجاهل الخادم ?cityId= (صفٌّ بلا cityId يُقرأ من مكانه)
+    if (cityFilter != null) {
+      result = result.filter(a => Number(a.cityId ?? locationById.get(a.locationId)?.cityId) === cityFilter);
     }
 
     // إخفاء فعاليات Test Location ما لم يُفعّل الخيار
@@ -183,13 +196,13 @@ export default function ActivitiesPage() {
     }
 
     return result;
-  }, [activities, filterStatus, filterDateFrom, filterDateTo, showTestLocation, testLocationIds]);
+  }, [activities, filterStatus, filterDateFrom, filterDateTo, showTestLocation, testLocationIds, cityFilter, locationById]);
 
   // ── Pagination ──
   const totalPages = Math.ceil(filteredActivities.length / pageSize) || 1;
   const paginatedData = filteredActivities.slice((currentPage - 1) * pageSize, currentPage * pageSize);
 
-  useEffect(() => { setCurrentPage(1); }, [filterStatus, filterDateFrom, filterDateTo, pageSize, showTestLocation]);
+  useEffect(() => { setCurrentPage(1); }, [filterStatus, filterDateFrom, filterDateTo, pageSize, showTestLocation, cityFilter]);
 
   // ── Handlers ──
   async function handleCreateActivity(data: any) {
@@ -227,13 +240,15 @@ export default function ActivitiesPage() {
     }
   }
 
-  const hasActiveFilters = filterStatus !== 'all' || filterDateFrom || filterDateTo || showTestLocation;
+  const cityOverridden = cityOverride !== undefined && cityOverride !== scope.cityId;
+  const hasActiveFilters = filterStatus !== 'all' || filterDateFrom || filterDateTo || showTestLocation || cityOverridden;
 
   function clearFilters() {
     setFilterStatus('all');
     setFilterDateFrom('');
     setFilterDateTo('');
     setShowTestLocation(false);
+    setCityOverride(undefined);
   }
 
   // ── Loading ──
@@ -362,7 +377,10 @@ export default function ActivitiesPage() {
           className="px-3 py-2 bg-gray-900/60 border border-gray-600/50 rounded-lg text-white text-sm focus:outline-none focus:ring-1 focus:ring-amber-500/30"
         />
 
-        {/* إظهار فعاليات Test Location (مخفية افتراضياً) */}
+        {/* 🏙️ المدينة — الافتراضيّ من مبدّل النطاق في الشريط الجانبيّ */}
+        <CitySegment cities={scope.cities} value={cityFilter} onChange={id => setCityOverride(id)} ariaLabel="فلتر المدينة" />
+
+        {/* إظهار فعاليات مواقع الاختبار (مخفية افتراضياً) */}
         <label className="flex items-center gap-2 text-sm text-gray-300 cursor-pointer select-none whitespace-nowrap">
           <input
             type="checkbox"
@@ -370,7 +388,7 @@ export default function ActivitiesPage() {
             onChange={e => setShowTestLocation(e.target.checked)}
             className="w-4 h-4 rounded border-gray-600 bg-gray-900 accent-amber-500 cursor-pointer"
           />
-          إظهار فعاليات Test Location
+          إظهار فعاليّات مواقع الاختبار
         </label>
 
         {/* عداد */}
@@ -401,6 +419,7 @@ export default function ActivitiesPage() {
               activity={activity}
               stats={getActivityStats(activity)}
               userRole={user.role}
+              location={locationById.get(activity.locationId)}
               onStatusChange={(newStatus) => handleStatusChange(activity.id, newStatus)}
               onSelect={() => {
                 router.push(`/admin/activities/${activity.id}`);

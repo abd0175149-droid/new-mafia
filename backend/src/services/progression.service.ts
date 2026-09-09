@@ -3,13 +3,8 @@
 // حساب XP + Level + RR + Rank Tier بعد كل مباراة
 // ══════════════════════════════════════════════════════
 
-import { eq, sql, desc } from 'drizzle-orm';
-import { getDB } from '../config/db.js';
-import { players } from '../schemas/player.schema.js';
-import { activities, locations } from '../schemas/admin.schema.js';
 import { isMafiaRole } from '../game/roles.js';
-import type { GameState } from '../game/state.js';
-import { getProgressionConfig, DEFAULT_CONFIG } from '../routes/progression-settings.routes.js';
+import { DEFAULT_CONFIG } from '../routes/progression-settings.routes.js';
 
 // ── أسماء الرتب (مستوحاة من عالم المافيا) ──────────
 export const RANK_TIERS = ['INFORMANT', 'SOLDIER', 'CAPO', 'UNDERBOSS', 'GODFATHER'] as const;
@@ -351,320 +346,66 @@ export function buildDisplayBreakdown(row: any, cfg?: any): {
   return { team: (comp.team || 'CITIZEN') as any, won: !!comp.won, xp: xpLines, rr: rrLines, xpTotal, rrTotal };
 }
 
-// ── تطبيق XP مع فحص Level Up ────────────────────────
-export async function applyXPAndLevel(playerId: number, xpEarned: number): Promise<{ newXP: number; newLevel: number; leveledUp: boolean }> {
-  const db = getDB();
-  if (!db) return { newXP: 0, newLevel: 1, leveledUp: false };
 
-  const [player] = await db.select({ xp: players.xp, level: players.level })
-    .from(players).where(eq(players.id, playerId)).limit(1);
+// ══════════════════════════════════════════════════════
+// 🧮 حلقتا المستوى والرتبة — دوالّ نقيّة (المصدر الواحد)
+//
+// 🏙️ 2026-09: لم تبقَ في هذه الخدمة أيُّ كتابةٍ على قاعدة البيانات.
+//    كانت هنا applyXPAndLevel / applyRR / processMatchRewards تكتب على players.*
+//    مباشرةً؛ صارت players.* مرآةً لصفّ (الموسم النشط، المدينة الأساسيّة) في
+//    player_season_stats، ومصدرُ الحقيقة match_players + rank_bonuses. كلُّ تطبيقٍ
+//    يمرّ الآن من season.service.applySeasonStats (بمدينته) ومن reconcile.service.
+//    الحلقتان هنا هي التي يستعملها الاثنان كي لا تتباعد النسخ.
+// ══════════════════════════════════════════════════════
 
-  if (!player) return { newXP: 0, newLevel: 1, leveledUp: false };
-
-  let currentXP = (player.xp || 0) + xpEarned;
-  let currentLevel = player.level || 1;
+/** يضيف خبرةً ويصعد المستويات المتتالية (نفس منطق الاحتساب الحيّ التاريخيّ). */
+export function advanceXP(xp: number, level: number, earned: number): { xp: number; level: number; leveledUp: boolean } {
+  let curXp = (xp || 0) + (earned || 0);
+  let curLevel = level || 1;
   let leveledUp = false;
-
-  // فحص Level Up (متكرر في حال فوز ضخم)
-  while (currentXP >= xpForNextLevel(currentLevel)) {
-    currentXP -= xpForNextLevel(currentLevel);
-    currentLevel++;
+  while (curXp >= xpForNextLevel(curLevel)) {
+    curXp -= xpForNextLevel(curLevel);
+    curLevel++;
     leveledUp = true;
   }
-
-  await db.update(players)
-    .set({ xp: currentXP, level: currentLevel } as any)
-    .where(eq(players.id, playerId));
-
-  return { newXP: currentXP, newLevel: currentLevel, leveledUp };
+  return { xp: curXp, level: curLevel, leveledUp };
 }
 
-// ── تطبيق RR مع Promotion/Demotion (عتبات متصاعدة) ──
-export async function applyRR(playerId: number, rrChange: number): Promise<{ newRR: number; newTier: RankTier; promoted: boolean; demoted: boolean }> {
-  const db = getDB();
-  if (!db) return { newRR: 0, newTier: 'INFORMANT', promoted: false, demoted: false };
-
-  const [player] = await db.select({ rankRR: players.rankRR, rankTier: players.rankTier })
-    .from(players).where(eq(players.id, playerId)).limit(1);
-
-  if (!player) return { newRR: 0, newTier: 'INFORMANT', promoted: false, demoted: false };
-
-  let rr = (player.rankRR || 0) + rrChange;
-  let tier = (player.rankTier || 'INFORMANT') as RankTier;
-  let tierIdx = RANK_ORDER[tier] ?? 0;
+/** يضيف RR مع الترقية/التنزيل المتصاعد؛ tierIdx فهرسٌ في RANK_TIERS. */
+export function advanceRR(rr: number, tierIdx: number, change: number): { rr: number; tierIdx: number; promoted: boolean; demoted: boolean } {
+  let cur = (rr || 0) + (change || 0);
+  let idx = Math.max(0, Math.min(RANK_TIERS.length - 1, tierIdx || 0));
   let promoted = false;
   let demoted = false;
 
   // ── ترقية (عتبات متصاعدة) ──
-  while (tierIdx < RANK_TIERS.length - 1) {
-    const required = RANK_RR_REQUIRED[RANK_TIERS[tierIdx]];
-    if (rr < required) break;
-    rr -= required;
-    tierIdx++;
+  while (idx < RANK_TIERS.length - 1) {
+    const required = RANK_RR_REQUIRED[RANK_TIERS[idx]];
+    if (cur < required) break;
+    cur -= required;
+    idx++;
     promoted = true;
   }
 
   // ── تنزيل ──
-  while (rr < 0 && tierIdx > 0) {
-    tierIdx--;
+  while (cur < 0 && idx > 0) {
+    idx--;
     // يرجع بنسبة DEMOTION_RETURN_PERCENT من RR الرتبة الأدنى (قابلة للضبط من الإعدادات)
-    rr += Math.floor(RANK_RR_REQUIRED[RANK_TIERS[tierIdx]] * (DEMOTION_RETURN_PERCENT / 100));
+    cur += Math.floor(RANK_RR_REQUIRED[RANK_TIERS[idx]] * (DEMOTION_RETURN_PERCENT / 100));
     demoted = true;
   }
 
   // لا تنزيل تحت INFORMANT
-  if (rr < 0) rr = 0;
+  if (cur < 0) cur = 0;
 
   // لا تجاوز سقف الرتبة الحالية
-  const maxRR = RANK_RR_REQUIRED[RANK_TIERS[tierIdx]];
-  if (rr > maxRR) rr = maxRR;
+  const maxRR = RANK_RR_REQUIRED[RANK_TIERS[idx]];
+  if (cur > maxRR) cur = maxRR;
 
-  tier = RANK_TIERS[tierIdx];
-
-  await db.update(players)
-    .set({ rankRR: rr, rankTier: tier } as any)
-    .where(eq(players.id, playerId));
-
-  return { newRR: rr, newTier: tier, promoted, demoted };
+  return { rr: cur, tierIdx: idx, promoted, demoted };
 }
 
-// ── معالجة مكافآت المباراة الكاملة ───────────────────
-export async function processMatchRewards(state: GameState): Promise<void> {
-  const db = getDB();
-  if (!db) return;
-
-  // ── 0. تحميل الإعدادات الديناميكية ──
-  let cfg: any;
-  try { cfg = await getProgressionConfig(); } catch { cfg = DEFAULT_CONFIG; }
-
-  // تحديث العتبات + معاملات المستوى/التنزيل من الإعدادات
-  applyProgressionConfig(cfg);
-
-  // ── 1. فحص هل النشاط في Test Location؟ ──
-  if (state.activityId) {
-    const activityInfo = await db.select({ isTest: locations.isTestLocation })
-      .from(activities)
-      .leftJoin(locations, eq(activities.locationId, locations.id))
-      .where(eq(activities.id, state.activityId))
-      .limit(1);
-
-    if (activityInfo[0]?.isTest) {
-      console.log(`[Progression] Skipping match rewards (XP/RR) because activity #${state.activityId} is at a Test Location.`);
-      return;
-    }
-  }
-
-  const tracking = state.performanceTracking || { dealOutcomes: [], abilityResults: [], eliminationLog: [] };
-  const totalRounds = state.round || 1;
-  const elimBonus = cfg?.xp?.teamEliminationBonus || 15;
-
-  // ⚡ معزّزات الخبرة المشتراة (تشبس) — الخبرة فقط، لا RR ولا رتبة ولا نتيجة.
-  // تُقرأ مرة واحدة هنا لتطابق ما يُخزَّن في match_players بنفس اللحظة.
-  let xpBoost: Record<number, number> = {};
-  try {
-    const { getXpMultipliers } = await import('./chips-store.service.js');
-    xpBoost = await getXpMultipliers(state.players.map(p => p.playerId).filter(Boolean) as number[]);
-  } catch { /* المعزّز ميزة — لا يعطّل التقدّم */ }
-  const boosted = (playerId: number, xp: number) => Math.round(xp * (xpBoost[playerId] || 1));
-
-  // ── حساب مكافأة إقصاء الخصم لكل لاعب ──
-  const teamElimBonusMap: Record<number, number> = {};
-  for (const p of state.players) {
-    teamElimBonusMap[p.physicalId] = 0;
-  }
-
-  for (const elim of tracking.eliminationLog) {
-    for (const p of state.players) {
-      if (p.physicalId === elim.physicalId) continue;
-      const pIsMafia = isMafiaRole(p.role as any);
-      const pIsNeutral = p.role === 'JESTER' || p.role === 'ASSASSIN';
-      if (pIsNeutral) continue; // المحايدون لا يحصلون مكافأة إقصاء فريق
-
-      if (elim.team === 'MAFIA' && !pIsMafia) {
-        teamElimBonusMap[p.physicalId] = (teamElimBonusMap[p.physicalId] || 0) + elimBonus;
-      }
-      if (elim.team === 'CITIZEN' && pIsMafia) {
-        teamElimBonusMap[p.physicalId] = (teamElimBonusMap[p.physicalId] || 0) + elimBonus;
-      }
-    }
-  }
-
-  // ── معالجة كل لاعب ──
-  for (const p of state.players) {
-    if (!p.playerId) continue;
-
-    const playerIsMafia = isMafiaRole(p.role as any);
-    const isJester = p.role === 'JESTER';
-
-    // 🤡 المهرج: منطق مختلف تماماً عن الفريقين
-    if (isJester) {
-      const jesterWon = state.winner === 'JESTER';
-      const { xpEarned: jesterXP, rrChange: jesterRR } = computeMatchReward(
-        { role: 'JESTER', winner: state.winner ?? null, survivedToEnd: !!p.isAlive, roundsSurvived: 0, successfulDealsCount: 0, failedDealsCount: 0, mafiaDealOnMafiaCount: 0, abilityCorrectCount: 0, abilityIncorrectCount: 0, teamEliminationBonus: 0, assassinContractsCompleted: 0 },
-        cfg,
-      );
-
-      try {
-        const xpResult = await applyXPAndLevel(p.playerId, boosted(p.playerId, Math.max(0, jesterXP)));
-        const rrResult = await applyRR(p.playerId, jesterRR);
-
-        console.log(`🤡 Jester #${p.physicalId} (${p.name}): ${jesterWon ? 'WON' : 'LOST'} → +${jesterXP} XP, ${jesterRR >= 0 ? '+' : ''}${jesterRR} RR`);
-
-        // تنبيهات
-        try {
-          const { sendPushToPlayer } = await import('./fcm.service.js');
-          if (xpResult.leveledUp) {
-            sendPushToPlayer(p.playerId, '🎉 ارتفع مستواك!', `أصبحت الآن Level ${xpResult.newLevel}`, 'level_up', { level: String(xpResult.newLevel) });
-          }
-          if (rrResult.promoted) {
-            sendPushToPlayer(p.playerId, '🏆 ترقية!', `مبروك! أصبحت "${RANK_NAMES_AR[rrResult.newTier]}"`, 'rank_up', { rankTier: rrResult.newTier });
-          }
-          if (rrResult.demoted) {
-            sendPushToPlayer(p.playerId, '⬇️ انخفضت رتبتك', `رجعت لرتبة "${RANK_NAMES_AR[rrResult.newTier]}"`, 'rank_down', { rankTier: rrResult.newTier });
-          }
-        } catch (pushErr: any) {
-          console.warn(`⚠️ Push notification failed for jester ${p.playerId}:`, pushErr.message);
-        }
-      } catch (err: any) {
-        console.error(`⚠️ Failed to apply jester progression for player ${p.playerId}:`, err.message);
-      }
-      continue; // تخطي المنطق العادي
-    }
-
-    // 🔪 السفّاح: منطق مستقل تماماً
-    const isAssassin = p.role === 'ASSASSIN';
-    if (isAssassin) {
-      const assassinWon = state.winner === 'ASSASSIN';
-      const contractsCompleted = state.assassinState?.completedCount || 0;
-
-      const { xpEarned: totalXP, rrChange: totalRR } = computeMatchReward(
-        { role: 'ASSASSIN', winner: state.winner ?? null, survivedToEnd: !!p.isAlive, roundsSurvived: 0, successfulDealsCount: 0, failedDealsCount: 0, mafiaDealOnMafiaCount: 0, abilityCorrectCount: 0, abilityIncorrectCount: 0, teamEliminationBonus: 0, assassinContractsCompleted: contractsCompleted },
-        cfg,
-      );
-
-      try {
-        const xpResult = await applyXPAndLevel(p.playerId, boosted(p.playerId, totalXP));
-        const rrResult = await applyRR(p.playerId, totalRR);
-
-        console.log(`🔪 Assassin #${p.physicalId} (${p.name}): ${assassinWon ? 'WON' : 'LOST'} — contracts: ${contractsCompleted}/${state.assassinState?.totalRequired || 4} → +${totalXP} XP, ${totalRR >= 0 ? '+' : ''}${totalRR} RR`);
-
-        // تنبيهات
-        try {
-          const { sendPushToPlayer } = await import('./fcm.service.js');
-          if (xpResult.leveledUp) {
-            sendPushToPlayer(p.playerId, '🎉 ارتفع مستواك!', `أصبحت الآن Level ${xpResult.newLevel}`, 'level_up', { level: String(xpResult.newLevel) });
-          }
-          if (rrResult.promoted) {
-            sendPushToPlayer(p.playerId, '🏆 ترقية!', `مبروك! أصبحت "${RANK_NAMES_AR[rrResult.newTier]}"`, 'rank_up', { rankTier: rrResult.newTier });
-          }
-          if (rrResult.demoted) {
-            sendPushToPlayer(p.playerId, '⬇️ انخفضت رتبتك', `رجعت لرتبة "${RANK_NAMES_AR[rrResult.newTier]}"`, 'rank_down', { rankTier: rrResult.newTier });
-          }
-        } catch (pushErr: any) {
-          console.warn(`⚠️ Push notification failed for assassin ${p.playerId}:`, pushErr.message);
-        }
-      } catch (err: any) {
-        console.error(`⚠️ Failed to apply assassin progression for player ${p.playerId}:`, err.message);
-      }
-      continue; // تخطي المنطق العادي
-    }
-
-    // عند فوز المهرج أو السفّاح — كل الفريقين يخسرون
-    const teamWon = (state.winner === 'JESTER' || state.winner === 'ASSASSIN') ? false
-      : (state.winner === 'MAFIA' && playerIsMafia) || (state.winner === 'CITIZEN' && !playerIsMafia);
-
-    const elimEntry = tracking.eliminationLog.find(e => e.physicalId === p.physicalId);
-    const roundsSurvived = elimEntry ? Math.max(0, elimEntry.round - 1) : totalRounds;
-
-    // تصنيف الديلات: ديل مواطن ناجح / ديل فاشل / ديل مافيا على مافيا
-    const playerDeals = tracking.dealOutcomes.filter(d => d.initiatorPhysicalId === p.physicalId);
-    const successfulDealsCount = playerDeals.filter(d => d.success).length;
-    // ديل فاشل (مواطن أخرج مواطن)
-    const regularFailedDeals = playerDeals.filter(d => !d.success && !playerIsMafia).length;
-    // ديل مافيا على مافيا (أضر بفريقه)
-    const mafiaDealOnMafiaCount = playerDeals.filter(d => !d.success && playerIsMafia).length;
-    const failedDealsCount = regularFailedDeals;
-
-    const abilityResults = tracking.abilityResults.filter(a => a.physicalId === p.physicalId);
-    const abilityCorrectCount = abilityResults.filter(a => a.correct).length;
-    const abilityIncorrectCount = abilityResults.filter(a => !a.correct).length;
-
-    const { xpEarned, rrChange } = computeMatchReward({
-      role: p.role || 'CITIZEN',
-      winner: state.winner ?? null,
-      survivedToEnd: !!p.isAlive,
-      roundsSurvived,
-      successfulDealsCount,
-      failedDealsCount,
-      mafiaDealOnMafiaCount,
-      abilityCorrectCount,
-      abilityIncorrectCount,
-      teamEliminationBonus: teamElimBonusMap[p.physicalId] || 0,
-      assassinContractsCompleted: 0,
-    }, cfg);
-
-    // تطبيق التقدم
-    try {
-      const xpResult = await applyXPAndLevel(p.playerId, boosted(p.playerId, xpEarned));
-      const rrResult = await applyRR(p.playerId, rrChange);
-
-      // تحديث إحصائيات الاتفاقيات
-      if (playerDeals.length > 0) {
-        const dealUpdates: any = { 
-          totalDeals: sql`${players.totalDeals} + ${playerDeals.length}` 
-        };
-        if (successfulDealsCount > 0) {
-          dealUpdates.successfulDeals = sql`${players.successfulDeals} + ${successfulDealsCount}`;
-        }
-        await db.update(players).set(dealUpdates).where(eq(players.id, p.playerId));
-      }
-
-      console.log(`🏆 Player #${p.physicalId} (${p.name}): +${xpEarned} XP, ${rrChange >= 0 ? '+' : ''}${rrChange} RR`);
-
-      // ── إرسال تنبيهات التقدم ──
-      try {
-        const { sendPushToPlayer } = await import('./fcm.service.js');
-
-        if (xpResult.leveledUp) {
-          sendPushToPlayer(
-            p.playerId,
-            '🎉 ارتفع مستواك!',
-            `أصبحت الآن Level ${xpResult.newLevel} — استمر!`,
-            'level_up',
-            { level: String(xpResult.newLevel) }
-          );
-          console.log(`🎉 Player ${p.name} leveled up → Level ${xpResult.newLevel}`);
-        }
-
-        if (rrResult.promoted) {
-          const tierName = RANK_NAMES_AR[rrResult.newTier];
-          sendPushToPlayer(
-            p.playerId,
-            '🏆 ترقية! رتبة جديدة!',
-            `مبروك! أصبحت "${tierName}" — تستحقها!`,
-            'rank_up',
-            { rankTier: rrResult.newTier }
-          );
-          console.log(`🏆 Player ${p.name} promoted → ${rrResult.newTier}`);
-        }
-
-        if (rrResult.demoted) {
-          const tierName = RANK_NAMES_AR[rrResult.newTier];
-          sendPushToPlayer(
-            p.playerId,
-            '⬇️ انخفضت رتبتك',
-            `رجعت لرتبة "${tierName}" — حان وقت الانتقام!`,
-            'rank_down',
-            { rankTier: rrResult.newTier }
-          );
-          console.log(`⬇️ Player ${p.name} demoted → ${rrResult.newTier}`);
-        }
-      } catch (pushErr: any) {
-        // لا نوقف العملية إذا فشل الـ push
-        console.warn(`⚠️ Push notification failed for player ${p.playerId}:`, pushErr.message);
-      }
-    } catch (err: any) {
-      console.error(`⚠️ Failed to apply progression for player ${p.playerId}:`, err.message);
-    }
-  }
+export function tierIndexOf(tier: string | null | undefined): number {
+  const idx = RANK_TIERS.indexOf((tier || 'INFORMANT') as RankTier);
+  return idx < 0 ? 0 : idx;
 }

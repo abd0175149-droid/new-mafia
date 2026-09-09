@@ -18,6 +18,7 @@ export async function createSession(
   createdBy?: number | null,
   isRemote: boolean = false,        // 🌐 غرفة عن بُعد
   hostPlayerId?: number | null,     // 🔗 مُضيف الغرفة البعيدة (players.id)
+  locationId?: number | null,       // 📍 مكان الغرفة — من الفعاليّة إن لم يُمرَّر (مجمَّد)
 ): Promise<number | null> {
   const db = getDB();
   if (!db) {
@@ -26,6 +27,12 @@ export async function createSession(
   }
 
   try {
+    // 📍 المكان: الصريح، وإلا مكانُ الفعاليّة — يُجمَّد على الغرفة كي تعرف المباراة مدينتها ولو تغيّر المكان لاحقاً
+    let locId: number | null = locationId ?? null;
+    if (!locId && activityId) {
+      const [act] = await db.select({ locationId: activities.locationId }).from(activities).where(eq(activities.id, activityId)).limit(1);
+      locId = act?.locationId ?? null;
+    }
     const result = await db.insert(sessions).values({
       sessionCode,
       displayPin,
@@ -33,6 +40,7 @@ export async function createSession(
       maxPlayers,
       isActive: true,
       activityId: activityId || null,
+      locationId: isRemote ? null : locId,
       createdBy: createdBy ?? null, // 👤 مُنشئ الغرفة (staff)
       isRemote,                     // 🌐 غرفة عن بُعد (الافتراضي false)
       hostPlayerId: hostPlayerId ?? null, // 🔗 مُضيف الغرفة البعيدة
@@ -397,20 +405,26 @@ export async function getClosedSessions() {
 
   try {
     const rows = await db.execute(sql`
-      SELECT 
+      SELECT
         s.id,
         s.session_code,
         s.session_name,
         s.max_players,
         s.created_at,
+        a.name AS activity_name,
+        l.name AS location_name,
+        c.name AS city_name,
         COUNT(m.id)::int AS match_count,
         MAX(m.ended_at) AS last_match_at,
         (SELECT m2.winner FROM matches m2 WHERE m2.session_id = s.id ORDER BY m2.ended_at DESC LIMIT 1) AS last_winner,
         (SELECT SUM(m3.duration_seconds) FROM matches m3 WHERE m3.session_id = s.id AND m3.is_active = false)::int AS total_duration
       FROM sessions s
       LEFT JOIN matches m ON m.session_id = s.id AND m.is_active = false
+      LEFT JOIN activities a ON a.id = s.activity_id
+      LEFT JOIN locations l ON l.id = COALESCE(s.location_id, a.location_id)
+      LEFT JOIN cities c ON c.id = l.city_id
       WHERE s.is_active = false AND s.deleted_at IS NULL
-      GROUP BY s.id
+      GROUP BY s.id, a.name, l.name, c.name
       ORDER BY MAX(m.ended_at) DESC NULLS LAST, s.created_at DESC
     `);
 
@@ -420,6 +434,9 @@ export async function getClosedSessions() {
       sessionName: r.session_name,
       maxPlayers: r.max_players,
       createdAt: r.created_at,
+      activityName: r.activity_name || null,
+      locationName: r.location_name || null,
+      cityName: r.city_name || null,
       matchCount: r.match_count || 0,
       lastMatchAt: r.last_match_at,
       lastWinner: r.last_winner,

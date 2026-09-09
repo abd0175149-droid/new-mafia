@@ -2,6 +2,9 @@
 import { useEffect, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { ROLE_NAMES } from '@/lib/constants';
+import { RANK_TIERS as RANK_KEYS, RANK_NAMES_AR, RANK_BADGES } from '@/lib/ranks';
+import { useCities } from '@/hooks/useCities';
+import { useAdminScope } from '../scope-context';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || '';
 function getToken() { return typeof window !== 'undefined' ? localStorage.getItem('token') : null; }
@@ -68,13 +71,18 @@ const ACTION_CATEGORIES = [
   }
 ];
 
-const RANK_TIERS = [
-  { key: 'INFORMANT', label: 'المُخبر', icon: '⭐', color: 'text-gray-400', border: 'border-gray-500/30' },
-  { key: 'SOLDIER', label: 'الجندي', icon: '⭐⭐', color: 'text-emerald-400', border: 'border-emerald-500/30' },
-  { key: 'CAPO', label: 'الكابو', icon: '🌟', color: 'text-blue-400', border: 'border-blue-500/30' },
-  { key: 'UNDERBOSS', label: 'الأندربوس', icon: '🌟🌟', color: 'text-purple-400', border: 'border-purple-500/30' },
-  { key: 'GODFATHER', label: 'الأب الروحي', icon: '👑', color: 'text-amber-400', border: 'border-amber-500/30' },
-];
+// 🔴 الأسماءُ والشاراتُ من `@/lib/ranks`؛ هنا أصنافُ التلوين فقط
+const TIER_STYLE: Record<string, { color: string; border: string }> = {
+  INFORMANT: { color: 'text-gray-400', border: 'border-gray-500/30' },
+  SOLDIER: { color: 'text-emerald-400', border: 'border-emerald-500/30' },
+  CAPO: { color: 'text-blue-400', border: 'border-blue-500/30' },
+  UNDERBOSS: { color: 'text-purple-400', border: 'border-purple-500/30' },
+  GODFATHER: { color: 'text-amber-400', border: 'border-amber-500/30' },
+};
+const RANK_TIERS = RANK_KEYS.map(key => ({
+  key, label: RANK_NAMES_AR[key], icon: RANK_BADGES[key],
+  color: TIER_STYLE[key]?.color || 'text-gray-400', border: TIER_STYLE[key]?.border || 'border-gray-500/30',
+}));
 
 type Tab = 'xp' | 'rr' | 'roleAbilities' | 'ranks' | 'adjust';
 
@@ -108,6 +116,11 @@ export default function ProgressionPage() {
   const [rrDelta, setRrDelta] = useState<number | ''>('');
   const [adjustReason, setAdjustReason] = useState('');
   const [adjusting, setAdjusting] = useState(false);
+  // 🏙️ مدينةُ التعديل — إلزاميّة (الخادم يردّ 400 CITY_REQUIRED): يُسجَّل في دفتر المكافآت بمدينته.
+  //    الافتراضيّ: مدينةُ المباراة إن عُرفت، وإلّا نطاقُ الشريط الجانبيّ.
+  const { cities: adjustCities } = useCities('public');
+  const scope = useAdminScope();
+  const [adjustCityId, setAdjustCityId] = useState('');
   const [searchQ, setSearchQ] = useState('');
   // قيم البنود الفعلية القابلة للتعديل — مفتاح `xp:key` أو `rr:key`
   const [editedBd, setEditedBd] = useState<Record<string, number>>({});
@@ -169,6 +182,7 @@ export default function ProgressionPage() {
     const appliedXpDelta = finalXp - (bd.xpTotal || 0);
     const appliedRrDelta = finalRr - (bd.rrTotal || 0);
     if (appliedXpDelta === 0 && appliedRrDelta === 0) return;
+    if (!adjustCityId) { showToast('اختر مدينة التعديل أوّلاً — يُسجَّل في دفتر المكافآت بمدينته', 'error'); return; }
     // خريطة البنود المُعدّلة (باستثناء بند التسوية — يُحسب تلقائياً على الخادم)
     const xpMap: Record<string, number> = {}; const rrMap: Record<string, number> = {};
     (bd.xp || []).forEach((l: any) => { if (l.key === 'reconcile') return; const v = lineVal('xp', l.key, l.value); if (v !== 0) xpMap[l.key] = v; });
@@ -178,7 +192,7 @@ export default function ProgressionPage() {
     try {
       const resp = await apiFetch(`/api/progression-settings/player/${selPlayer.id}/adjust`, {
         method: 'POST',
-        body: JSON.stringify({ matchPlayerId: selMatch.mpId, xpDelta: appliedXpDelta, rrDelta: appliedRrDelta, reason: adjustReason || 'تعديل إداري', breakdown, penaltyRRDeduction: 0, bombRRChange: 0 }),
+        body: JSON.stringify({ matchPlayerId: selMatch.mpId, xpDelta: appliedXpDelta, rrDelta: appliedRrDelta, reason: adjustReason || 'تعديل إداري', breakdown, penaltyRRDeduction: 0, bombRRChange: 0, cityId: Number(adjustCityId) }),
       });
       showToast(`تم تعديل نقاط ${selPlayer.name} بنجاح`, 'success');
       // الخادم يُطبّع المستوى/الرتبة بعد التعديل — نعرض قيمه المعتمدة فوراً بدل الافتراض
@@ -193,6 +207,11 @@ export default function ProgressionPage() {
   }
 
   useEffect(() => { if (tab === 'adjust' && players.length === 0) loadPlayers(); }, [tab]);
+  // مدينةُ المباراة المختارة أوّلاً (إن أرسلها الخادم)، وإلّا نطاقُ العرض
+  useEffect(() => {
+    const fromMatch = selMatch?.cityId ? String(selMatch.cityId) : '';
+    setAdjustCityId(fromMatch || (scope.cityId ? String(scope.cityId) : ''));
+  }, [selMatch?.cityId, selMatch?.mpId, scope.cityId]);
 
   // تهيئة قيم البنود القابلة للتعديل من البنود الفعلية المخزّنة عند اختيار مباراة
   useEffect(() => {
@@ -557,6 +576,17 @@ export default function ProgressionPage() {
                         </div>
                       </div>
 
+                      {/* 🏙️ مدينةُ التعديل — إلزاميّة */}
+                      <div className="mb-3">
+                        <label className="text-[11px] text-gray-400 block mb-1">🏙️ المدينة <span className="text-rose-400">*</span></label>
+                        <select value={adjustCityId} onChange={e => setAdjustCityId(e.target.value)}
+                          className={`w-full md:w-64 px-3 py-2.5 rounded-xl bg-gray-950 border text-white text-sm focus:outline-none focus:border-indigo-500 ${adjustCityId ? 'border-gray-700' : 'border-rose-500/50'}`}>
+                          <option value="">— اختر المدينة —</option>
+                          {adjustCities.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+                        </select>
+                        <p className="text-[10px] text-gray-500 mt-1">يُسجَّل في دفتر المكافآت بمدينته.</p>
+                      </div>
+
                       <div className="grid grid-cols-1 md:grid-cols-12 gap-3 items-end">
                         <div className="md:col-span-3">
                           <label className="text-[11px] text-gray-400 block mb-1">XP إضافي (اختياري)</label>
@@ -574,7 +604,7 @@ export default function ProgressionPage() {
                             className="w-full px-3 py-2.5 rounded-xl bg-gray-950 border border-gray-700 text-white text-sm focus:outline-none focus:border-indigo-500" />
                         </div>
                         <div className="md:col-span-2">
-                          <button onClick={submitAdjust} disabled={adjusting}
+                          <button onClick={submitAdjust} disabled={adjusting || !adjustCityId} title={!adjustCityId ? 'اختر المدينة أوّلاً' : undefined}
                             className="w-full h-[42px] bg-indigo-600 text-white font-bold rounded-xl hover:bg-indigo-500 transition-colors disabled:opacity-50 text-sm">
                             {adjusting ? '...' : 'تطبيق'}
                           </button>

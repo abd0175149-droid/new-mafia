@@ -374,7 +374,11 @@ class ProfileScreenState extends State<ProfileScreen> {
         MyCosmeticCard(player: p.player),
         Padding(
           padding: const EdgeInsets.symmetric(horizontal: 16),
-          child: RankProgressCard(progression: p.progression),
+          child: RankProgressCard(
+            progression: p.progression,
+            standings: p.standings,
+            homeCityId: p.homeCityId,
+          ),
         ),
         const SizedBox(height: 20),
         Padding(
@@ -421,6 +425,11 @@ class ProfileScreenState extends State<ProfileScreen> {
             onToggle: () => setState(() => _settingsOpen = !_settingsOpen),
             onEmailSaved: _saveEmail,
             onDiagnostics: _openDiagnostics,
+            // 🏙️ «مدينتي الأساسيّة» — تفضيلُ عرضٍ يغيّر الافتراضيّات (الفعاليّات، الترتيب، البطاقة)
+            homeCityId: p.homeCityId,
+            homeCityName: p.homeCityName,
+            onHomeCityChanged: (id, name) => setState(
+                () => _profile = p.copyWith(homeCityId: id, homeCityName: name)),
           ),
         ),
         const SizedBox(height: 20),

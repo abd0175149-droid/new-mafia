@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
+import { useCities } from '@/hooks/useCities';
 
 // ── أنواع الإشعارات وأيقوناتها ──
 const TYPE_CONFIG: Record<string, { icon: string; color: string; label: string }> = {
@@ -40,9 +41,12 @@ export default function AdminNotificationsPage() {
   const [videoUrl, setVideoUrl] = useState('');
   const [linkUrl, setLinkUrl] = useState('');
   const [uploadingMedia, setUploadingMedia] = useState(false);
-  const [target, setTarget] = useState<'all' | 'booked' | 'specific'>('all');
+  const [target, setTarget] = useState<'all' | 'booked' | 'specific' | 'city'>('all');
   const [targetAudience, setTargetAudience] = useState<'players' | 'staff' | 'both'>('players');
   const [activityId, setActivityId] = useState('');
+  // 🏙️ هدف «مدينة»: لاعبو مدينةٍ واحدة → { target:'city', cityId }
+  const [cityId, setCityId] = useState('');
+  const { cities } = useCities('public');
   const [activities, setActivities] = useState<any[]>([]);
   const [staffList, setStaffList] = useState<any[]>([]);
   const [selectedStaffIds, setSelectedStaffIds] = useState<number[]>([]);
@@ -168,6 +172,7 @@ export default function AdminNotificationsPage() {
   // ── إرسال مخصص ──
   const handleSend = async () => {
     if (!title.trim() || !body.trim()) return;
+    if (target === 'city' && !cityId) return;
     setSending(true);
     setResult(null);
     try {
@@ -188,6 +193,7 @@ export default function AdminNotificationsPage() {
         body: JSON.stringify({
           title: title.trim(), body: body.trim(), target, targetAudience,
           activityId: target === 'booked' ? parseInt(activityId) : null,
+          cityId: target === 'city' ? Number(cityId) : null,
           targetIds: target === 'specific' ? ids : [],
           data: {
             url: linkUrl.trim() || '/player/home',
@@ -524,6 +530,7 @@ export default function AdminNotificationsPage() {
                 <div style={{ display: 'flex', gap: 8 }}>
                   {[
                     { val: 'all' as const, label: 'الكل' },
+                    { val: 'city' as const, label: '🏙️ مدينة' },
                     { val: 'booked' as const, label: 'حاجزو نشاط' },
                     { val: 'specific' as const, label: '🎯 محدد' },
                   ].map(opt => (
@@ -554,6 +561,24 @@ export default function AdminNotificationsPage() {
                     <option value="" style={{ background: '#1a1a1a', color: '#999' }}>اختر النشاط</option>
                     {activities.map(a => <option key={a.id} value={a.id} style={{ background: '#1a1a1a', color: '#fff' }}>{a.name}</option>)}
                   </select>
+                </div>
+              )}
+
+              {/* 🏙️ اختيار مدينة */}
+              {target === 'city' && (
+                <div>
+                  <label style={{ color: 'rgba(255,255,255,0.6)', fontSize: 13, display: 'block', marginBottom: 6 }}>المدينة</label>
+                  <select value={cityId} onChange={e => setCityId(e.target.value)}
+                    style={{
+                      width: '100%', padding: '10px 14px',
+                      background: '#1a1a1a', border: `1px solid ${cityId ? 'rgba(255,255,255,0.12)' : 'rgba(244,63,94,0.5)'}`,
+                      borderRadius: 10, color: '#fff', fontSize: 14, outline: 'none',
+                    }}
+                  >
+                    <option value="" style={{ background: '#1a1a1a', color: '#999' }}>اختر المدينة</option>
+                    {cities.map(c => <option key={c.id} value={c.id} style={{ background: '#1a1a1a', color: '#fff' }}>🏙️ {c.name}</option>)}
+                  </select>
+                  <p style={{ color: 'rgba(255,255,255,0.35)', fontSize: 11, marginTop: 6 }}>يصل الإشعار إلى لاعبي هذه المدينة (مدينتُهم الأساسيّة) فقط.</p>
                 </div>
               )}
 
@@ -766,7 +791,7 @@ export default function AdminNotificationsPage() {
               )}
 
               {/* زر الإرسال */}
-              <button onClick={handleSend} disabled={sending || !title.trim() || !body.trim()}
+              <button onClick={handleSend} disabled={sending || !title.trim() || !body.trim() || (target === 'city' && !cityId)}
                 style={{
                   padding: '14px 0', borderRadius: 12, border: 'none',
                   background: sending ? 'rgba(245,158,11,0.3)' : 'linear-gradient(135deg, #f59e0b, #d97706)',

@@ -18,6 +18,13 @@ const RANK_RR_FALLBACK: Record<string, number> = {
   GODFATHER: 9999,
 };
 
+// 🏙️ ألوان الترتيب: المدينة ١ عنبريّة (الوجاهيّ الحاليّ)، سائر المدن زرقاء، والأونلاين سماويّ — الأسماء من الخادم
+type BoardTone = { text: string; solid: string; bg: string; border: string; glow: string; chipOn: string };
+const TONE_AMBER: BoardTone = { text: 'text-amber-400', solid: '#FBBF24', bg: 'rgba(251,191,36,0.08)', border: 'rgba(251,191,36,0.3)', glow: '251,191,36', chipOn: 'bg-amber-500/25 text-amber-200' };
+const TONE_BLUE: BoardTone = { text: 'text-[#8CC1F2]', solid: '#4F9DDE', bg: 'rgba(79,157,222,0.10)', border: 'rgba(79,157,222,0.35)', glow: '79,157,222', chipOn: 'bg-[#4F9DDE]/25 text-[#8CC1F2]' };
+const TONE_SKY: BoardTone = { text: 'text-sky-300', solid: '#38BDF8', bg: 'rgba(56,189,248,0.08)', border: 'rgba(56,189,248,0.3)', glow: '56,189,248', chipOn: 'bg-sky-500/25 text-sky-200' };
+const cityTone = (cityId?: number | null): BoardTone => (cityId === 1 ? TONE_AMBER : TONE_BLUE);
+
 export default function RankPage() {
   const { player } = usePlayer();
   const [tab, setTab] = useState<Tab>('leaderboard');
@@ -40,6 +47,13 @@ export default function RankPage() {
   const [glowing, setGlowing] = useState(true);
   const [progressionConfig, setProgressionConfig] = useState<any>(null);
   const [season, setSeason] = useState<any>(null);
+  // 🏙️ المدن (من الموسم النشط، أو /api/cities/public احتياطًا) والمدينة المعروضة — الافتراضيّ مدينةُ اللاعب
+  const [cities, setCities] = useState<{ id: number; name: string }[]>([]);
+  const [selectedCityId, setSelectedCityId] = useState<number | null>(null);
+  const [liveCityId, setLiveCityId] = useState<number | null>(null); // مدينة اللوحة الحيّة المحمّلة فعلًا
+  const selectedCityRef = useRef<number | null>(null); // مرآةٌ للاختيار كي لا يعيده جلبُ التركيز
+  const urlCityRef = useRef<number | null | undefined>(undefined); // ?city= (من إشعار الترقية) يُقرأ مرّةً واحدة
+  useEffect(() => { selectedCityRef.current = selectedCityId; }, [selectedCityId]);
   const myCardRef = useRef<HTMLDivElement>(null);
 
   // ── منع السكرول + swipe-to-close ──
@@ -50,8 +64,15 @@ export default function RankPage() {
 
   const loadData = useCallback(() => {
     if (!player) return;
+    if (urlCityRef.current === undefined) {
+      const q = typeof window !== 'undefined' ? new URLSearchParams(window.location.search).get('city') : null;
+      urlCityRef.current = q && /^\d+$/.test(q) ? Number(q) : null;
+      if (urlCityRef.current != null) setSelectedCityId(urlCityRef.current);
+    }
+    const wantCity = selectedCityRef.current ?? urlCityRef.current ?? null;
+    const lbQuery = `?playerId=${player.playerId}${wantCity != null ? `&cityId=${wantCity}` : ''}`;
     Promise.all([
-      fetch('/api/player-app/leaderboard').then(r => r.json()),
+      fetch(`/api/player-app/leaderboard${lbQuery}`).then(r => r.json()),
       fetch(`/api/player-app/${player.playerId}/co-players`, { headers: { Authorization: `Bearer ${player.token}` } }).then(r => r.json()),
       fetch(`/api/player/${player.playerId}/profile`, { headers: { Authorization: `Bearer ${player.token}` } }).then(r => r.json()),
       fetch('/api/progression-settings/public').then(r => r.json()).catch(() => null),
@@ -59,12 +80,23 @@ export default function RankPage() {
       fetch('/api/seasons/public/list').then(r => r.json()).catch(() => null),
       fetch('/api/seasons/public/online-list').then(r => r.json()).catch(() => null),
     ]).then(([lbData, cpData, profData, progCfg, seasonData, seasonsData, onlineData]) => {
-      if (lbData.success) setLiveLeaderboard(lbData.leaderboard || []);
+      if (lbData.success) {
+        setLiveLeaderboard(lbData.leaderboard || []);
+        // 🏙️ الخادم يردّ بالمدينة المطبَّقة (مدينة اللاعب افتراضًا) وقائمة المدن
+        const applied: number | null = lbData.cityId ?? null;
+        setLiveCityId(applied);
+        setSelectedCityId(prev => prev ?? applied);
+        if (Array.isArray(lbData.cities) && lbData.cities.length) setCities(prev => prev.length ? prev : lbData.cities.map((c: any) => ({ id: c.id, name: c.name })));
+      }
       if (cpData.success) setCoPlayers(cpData.coPlayers || []);
       if (profData.success) setMyProfile(profData);
       if (progCfg?.success) setProgressionConfig(progCfg.config);
       if (seasonData?.success) {
         setSeason(seasonData.season);
+        // 🏙️ مدن الموسم النشط هي المصدر الأوّل لشرائح المدن
+        if (Array.isArray(seasonData.season?.cities) && seasonData.season.cities.length) {
+          setCities(seasonData.season.cities.map((c: any) => ({ id: c.id, name: c.name })));
+        }
         const activeId = seasonData.season?.id ?? null;
         setActiveSeasonId(activeId);
         setSelectedSeasonId(prev => prev ?? activeId);
@@ -88,6 +120,40 @@ export default function RankPage() {
     };
   }, [player, loadData]);
 
+  // 🏙️ احتياط: لا مدن في الموسم ولا في اللوحة → /api/cities/public (وإن غاب فالسلوك القديم بلا مفتاح مدن)
+  useEffect(() => {
+    if (loading || cities.length > 0) return;
+    let cancelled = false;
+    fetch('/api/cities/public').then(r => r.json())
+      .then(d => { if (!cancelled && d?.success && Array.isArray(d.cities) && d.cities.length) setCities(d.cities.map((c: any) => ({ id: c.id, name: c.name }))); })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, [loading, cities.length]);
+
+  // الافتراضيّ: مدينة اللاعب، وإلا الأولى
+  useEffect(() => {
+    if (selectedCityId != null || cities.length === 0) return;
+    const home = myProfile?.homeCityId;
+    setSelectedCityId(cities.some(c => c.id === home) ? home : cities[0].id);
+  }, [cities, selectedCityId, myProfile]);
+
+  // 🏙️ تبديل المدينة يعيد جلب اللوحة الحيّة لتلك المدينة وحدها
+  useEffect(() => {
+    if (!player || mode !== 'inperson' || selectedCityId == null || selectedCityId === liveCityId) return;
+    let cancelled = false;
+    setSeasonLoading(true);
+    fetch(`/api/player-app/leaderboard?playerId=${player.playerId}&cityId=${selectedCityId}`)
+      .then(r => r.json())
+      .then(d => {
+        if (cancelled || !d?.success) return;
+        setLiveLeaderboard(d.leaderboard || []);
+        setLiveCityId(d.cityId ?? selectedCityId);
+      })
+      .catch(() => {})
+      .finally(() => { if (!cancelled) setSeasonLoading(false); });
+    return () => { cancelled = true; };
+  }, [player, mode, selectedCityId, liveCityId]);
+
   // ── Auto-scroll to my card + glowing timer ──
   useEffect(() => {
     if (loading || !myCardRef.current) return;
@@ -103,13 +169,15 @@ export default function RankPage() {
     if (!selectedSeasonId || selectedSeasonId === activeSeasonId) { setSeasonBoard(null); return; }
     let cancelled = false;
     setSeasonLoading(true);
-    fetch(`/api/seasons/public/${selectedSeasonId}/leaderboard`)
+    // 🏙️ المواسم العاديّة تُطلب بالمدينة (CITY_REQUIRED)؛ الأونلاين بلا مدينة
+    const cityQ = mode === 'inperson' && selectedCityId != null ? `?cityId=${selectedCityId}` : '';
+    fetch(`/api/seasons/public/${selectedSeasonId}/leaderboard${cityQ}`)
       .then(r => r.json())
       .then(d => { if (!cancelled && d.success) setSeasonBoard(d.leaderboard || []); })
       .catch(() => { if (!cancelled) setSeasonBoard([]); })
       .finally(() => { if (!cancelled) setSeasonLoading(false); });
     return () => { cancelled = true; };
-  }, [selectedSeasonId, activeSeasonId]);
+  }, [selectedSeasonId, activeSeasonId, mode, selectedCityId]);
 
   const handleFollow = async (targetId: number) => {
     if (!player) return;
@@ -155,6 +223,11 @@ export default function RankPage() {
   const currentSeasonList = mode === 'online' ? onlineSeasons : seasons;
   const selectedSeasonName = currentSeasonList.find(s => s.id === selectedSeasonId)?.name || season?.name || '';
   const switchMode = (m: 'inperson' | 'online') => { setMode(m); setSelectedSeasonId(m === 'online' ? activeOnlineSeasonId : activeSeasonId); };
+  // 🏙️ مفتاح «{المدينة…} | 🌐 أونلاين»: اختيار مدينةٍ يعيد الوضع الوجاهيّ ويضبط موسمه
+  const switchCity = (cityId: number) => { setSelectedCityId(cityId); if (mode !== 'inperson') switchMode('inperson'); };
+  const selectedCity = cities.find(c => c.id === selectedCityId) || null;
+  const tone: BoardTone = mode === 'online' ? TONE_SKY : cityTone(selectedCityId);
+  const showCitySwitch = cities.length > 1 || (cities.length === 1 && onlineSeasons.length > 0);
 
   // ── حساب الترتيب الخاص بي ──
   const myRank = leaderboard.findIndex(p => p.id === player?.playerId) + 1;
@@ -171,13 +244,22 @@ export default function RankPage() {
     );
   }
 
-  const prog = myProfile?.progression;
-  const myStats = myProfile?.stats;
+  // 🏙️ رتبتي في المدينة المعروضة: من standings؛ وإن غابت (خادمٌ قديم) فالتقدّم الحاليّ = المدينة الأساسيّة
+  const standings: any[] = Array.isArray(myProfile?.standings) ? myProfile.standings : [];
+  const homeCityId: number | null = myProfile?.homeCityId ?? null;
+  const cityStanding = selectedCityId != null ? standings.find((s: any) => s.cityId === selectedCityId) : undefined;
+  const prog = cityStanding
+    ? cityStanding
+    : (standings.length === 0 || selectedCityId == null || selectedCityId === homeCityId) ? myProfile?.progression : null;
+  const myStats = cityStanding
+    ? { totalMatches: cityStanding.totalMatches || 0, totalWins: cityStanding.totalWins || 0, winRate: cityStanding.totalMatches ? Math.round(((cityStanding.totalWins || 0) / cityStanding.totalMatches) * 100) : 0 }
+    : (prog ? myProfile?.stats : null);
+  const otherStandings = standings.filter((s: any) => s.cityId !== (selectedCityId ?? homeCityId));
   const isMe = (id: number) => id === player?.playerId;
 
-  // ── Glow style ──
+  // ── Glow style — بلون المدينة المعروضة ──
   const glowStyle = glowing ? {
-    boxShadow: '0 0 15px rgba(251,191,36,0.4), 0 0 30px rgba(251,191,36,0.2), 0 0 45px rgba(251,191,36,0.1)',
+    boxShadow: `0 0 15px rgba(${tone.glow},0.4), 0 0 30px rgba(${tone.glow},0.2), 0 0 45px rgba(${tone.glow},0.1)`,
     animation: 'pulse-glow 1.5s ease-in-out infinite',
   } : {};
 
@@ -190,17 +272,17 @@ export default function RankPage() {
         onClick={() => !me && viewProfile(p.id)}
         className={`rounded-xl p-3 flex items-center gap-3 transition-all ${!me ? 'cursor-pointer hover:bg-white/5' : ''}`}
         style={{
-          background: me ? 'rgba(251,191,36,0.08)' : 'rgba(255,255,255,0.03)',
-          border: me ? '2px solid rgba(251,191,36,0.3)' : '1px solid rgba(255,255,255,0.06)',
+          background: me ? tone.bg : 'rgba(255,255,255,0.03)',
+          border: me ? `2px solid ${tone.border}` : '1px solid rgba(255,255,255,0.06)',
           ...(me ? glowStyle : {}),
         }}
       >
-        <span className={`text-sm font-bold w-6 text-center ${me ? 'text-amber-400' : 'text-gray-600'}`}>{rank}</span>
+        <span className={`text-sm font-bold w-6 text-center ${me ? tone.text : 'text-gray-600'}`}>{rank}</span>
         <div className="w-8 h-8 rounded-full bg-white/5 flex items-center justify-center overflow-hidden">
           {p.avatarUrl ? <img src={p.avatarUrl} className="w-full h-full object-cover" alt="" /> : '🎭'}
         </div>
         <div className="flex-1 min-w-0">
-          <p className={`text-xs font-medium ${me ? 'text-amber-400' : 'text-white'}`} style={{ overflow: 'hidden', whiteSpace: 'nowrap' }}>
+          <p className={`text-xs font-medium ${me ? tone.text : 'text-white'}`} style={{ overflow: 'hidden', whiteSpace: 'nowrap' }}>
             {(p.name || '').length > 16 ? p.name.slice(0, 16) + '…' : p.name} {me && '(أنت)'}
           </p>
           <p className="text-gray-500 text-[10px]">
@@ -209,7 +291,7 @@ export default function RankPage() {
         </div>
         <span className="text-gray-300 text-[10px] w-16 text-center truncate">{RANK_BADGES[p.rankTier]} {RANK_NAMES_AR[p.rankTier]}</span>
         <span className="text-blue-300 text-[10px] font-bold w-8 text-center tabular-nums">{p.level || 1}</span>
-        <span className="text-amber-400 text-xs font-bold w-10 text-center tabular-nums">{p.rankRR}</span>
+        <span className={`${tone.text} text-xs font-bold w-10 text-center tabular-nums`}>{p.rankRR}</span>
         {!me && isCoPlayer(p.id) && (
           <button
             onClick={(e) => { e.stopPropagation(); isFollowing(p.id) ? handleUnfollow(p.id) : handleFollow(p.id); }}
@@ -228,15 +310,28 @@ export default function RankPage() {
       {/* ── CSS للـ Glow Animation ── */}
       <style jsx global>{`
         @keyframes pulse-glow {
-          0%, 100% { box-shadow: 0 0 15px rgba(251,191,36,0.4), 0 0 30px rgba(251,191,36,0.2); }
-          50% { box-shadow: 0 0 25px rgba(251,191,36,0.6), 0 0 50px rgba(251,191,36,0.3), 0 0 70px rgba(251,191,36,0.1); }
+          0%, 100% { box-shadow: 0 0 15px rgba(${tone.glow},0.4), 0 0 30px rgba(${tone.glow},0.2); }
+          50% { box-shadow: 0 0 25px rgba(${tone.glow},0.6), 0 0 50px rgba(${tone.glow},0.3), 0 0 70px rgba(${tone.glow},0.1); }
         }
       `}</style>
 
       <div className="flex items-center justify-between gap-2 mb-4 flex-wrap">
         <h1 className="text-white text-lg font-bold">🏆 التصنيف والرتب</h1>
         <div className="flex items-center gap-1.5">
-          {onlineSeasons.length > 0 && (
+          {/* 🏙️ مفتاح «{المدينة…} | 🌐 أونلاين» — يوسّع مفتاح «وجاهيّ | أونلاين» بنفس السلوك */}
+          {showCitySwitch ? (
+            <div className="flex rounded-full bg-black/40 border border-[#2a2a2a] p-0.5 overflow-x-auto scrollbar-hide max-w-[70vw]">
+              {cities.map(c => {
+                const on = mode === 'inperson' && selectedCityId === c.id;
+                return (
+                  <button key={c.id} onClick={() => switchCity(c.id)} className={`text-[11px] font-bold px-2.5 py-1 rounded-full transition-colors whitespace-nowrap ${on ? cityTone(c.id).chipOn : 'text-[#888]'}`}>{c.name}</button>
+                );
+              })}
+              {onlineSeasons.length > 0 && (
+                <button onClick={() => switchMode('online')} className={`text-[11px] font-bold px-2.5 py-1 rounded-full transition-colors whitespace-nowrap ${mode === 'online' ? TONE_SKY.chipOn : 'text-[#888]'}`}>🌐 أونلاين</button>
+              )}
+            </div>
+          ) : onlineSeasons.length > 0 && (
             <div className="flex rounded-full bg-black/40 border border-[#2a2a2a] p-0.5">
               <button onClick={() => switchMode('inperson')} className={`text-[11px] font-bold px-2.5 py-1 rounded-full transition-colors ${mode === 'inperson' ? 'bg-amber-500/25 text-amber-200' : 'text-[#888]'}`}>وجاهيّ</button>
               <button onClick={() => switchMode('online')} className={`text-[11px] font-bold px-2.5 py-1 rounded-full transition-colors ${mode === 'online' ? 'bg-sky-500/25 text-sky-200' : 'text-[#888]'}`}>🌐 أونلاين</button>
@@ -246,7 +341,8 @@ export default function RankPage() {
             <select
               value={selectedSeasonId ?? ''}
               onChange={(e) => setSelectedSeasonId(Number(e.target.value))}
-              className={`text-[12px] font-bold px-3 py-1.5 rounded-full outline-none cursor-pointer max-w-[52vw] border ${mode === 'online' ? 'bg-sky-500/15 text-sky-300 border-sky-500/25' : 'bg-amber-500/15 text-amber-300 border-amber-500/25'}`}
+              className="text-[12px] font-bold px-3 py-1.5 rounded-full outline-none cursor-pointer max-w-[52vw] border"
+              style={{ background: tone.bg, color: tone.solid, borderColor: tone.border }}
             >
               {currentSeasonList.map((s) => (
                 <option key={s.id} value={s.id} className="bg-gray-900 text-white">
@@ -295,17 +391,21 @@ export default function RankPage() {
         </motion.div>
       )}
 
-      {/* ── رتبتي (الموسم الحالي) ── */}
+      {/* ── رتبتي (الموسم الحالي) — في المدينة المعروضة، بلونها ── */}
       {viewingActive && prog && (
         <motion.div
+          key={`me-${selectedCityId ?? 'home'}`}
           initial={{ opacity: 0, y: 10 }}
           animate={{ opacity: 1, y: 0 }}
           className="rounded-2xl p-4 mb-4"
           style={{
-            background: `linear-gradient(135deg, ${RANK_COLORS[prog.rankTier]}15, rgba(5,5,5,0.9))`,
-            border: `1px solid ${RANK_COLORS[prog.rankTier]}30`,
+            background: `linear-gradient(135deg, ${tone.bg}, rgba(5,5,5,0.9))`,
+            border: `1px solid ${tone.border}`,
           }}
         >
+          {selectedCity && (
+            <p className="text-[10px] mb-1" style={{ color: tone.solid }}>🏙️ رتبتي في {selectedCity.name}{season?.name ? ` — ${season.name}` : ''}</p>
+          )}
           <div className="flex items-center justify-between">
             <div>
               <span className="text-2xl">{RANK_BADGES[prog.rankTier]}</span>
@@ -314,7 +414,7 @@ export default function RankPage() {
             </div>
             <div className="text-left">
               <span className="text-xs text-gray-400">RR</span>
-              <span className="text-lg font-bold mr-1" style={{ color: RANK_COLORS[prog.rankTier] }}>
+              <span className="text-lg font-bold mr-1" style={{ color: tone.solid }}>
                 {prog.rankRR}
               </span>
               <span className="text-gray-600 text-[10px]">/{rrRequiredFor(prog.rankTier)}</span>
@@ -332,7 +432,7 @@ export default function RankPage() {
                 <div className="text-gray-500 text-[9px]">فوز</div>
               </div>
               <div className="flex-1 bg-white/5 rounded-lg py-1.5">
-                <div className="text-amber-400 text-sm font-bold">{myStats.winRate}%</div>
+                <div className={`${tone.text} text-sm font-bold`}>{myStats.winRate}%</div>
                 <div className="text-gray-500 text-[9px]">نسبة فوز</div>
               </div>
               <div className="flex-1 bg-white/5 rounded-lg py-1.5">
@@ -346,9 +446,37 @@ export default function RankPage() {
               initial={{ width: 0 }}
               animate={{ width: `${Math.min((prog.rankRR / rrRequiredFor(prog.rankTier)) * 100, 100)}%` }}
               className="h-full rounded-full"
-              style={{ background: RANK_COLORS[prog.rankTier] }}
+              style={{ background: tone.solid }}
             />
           </div>
+          {/* 🏙️ رتبتي في المدن الأخرى — سلّمٌ مستقلّ وRR مستقلّ لكلّ مدينة */}
+          {otherStandings.length > 0 && (
+            <div className="mt-3 pt-2 border-t border-white/[0.06] space-y-1">
+              {otherStandings.map((s: any) => (
+                <button key={s.cityId} onClick={() => switchCity(s.cityId)} className="w-full flex items-center justify-between text-[11px]">
+                  <span className="text-gray-400">رتبتك في {s.cityName}:</span>
+                  <span className="font-bold" style={{ color: cityTone(s.cityId).solid }}>{RANK_BADGES[s.rankTier]} {RANK_NAMES_AR[s.rankTier]} {s.rankRR ?? 0} RR ←</span>
+                </button>
+              ))}
+            </div>
+          )}
+        </motion.div>
+      )}
+
+      {/* 🏙️ لا صفَّ لي في هذه المدينة بعد — حالة فراغٍ خاصّة قبل أوّل مباراة */}
+      {viewingActive && !prog && selectedCity && (
+        <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}
+          className="rounded-2xl p-4 mb-4 text-center"
+          style={{ background: tone.bg, border: `1px dashed ${tone.border}` }}>
+          <p className="text-sm font-bold" style={{ color: tone.solid }}>لا مباريات في {selectedCity.name} بعد</p>
+          <p className="text-[11px] text-gray-500 mt-1">رتبتك هنا تبدأ من أوّل مباراة — ورتبتك في مدينتك الأساسيّة لا تتأثّر.</p>
+          {otherStandings.length > 0 && (
+            <div className="mt-2 space-y-1">
+              {otherStandings.map((s: any) => (
+                <p key={s.cityId} className="text-[11px] text-gray-400">رتبتك في {s.cityName}: <span className="font-bold" style={{ color: cityTone(s.cityId).solid }}>{RANK_BADGES[s.rankTier]} {RANK_NAMES_AR[s.rankTier]} {s.rankRR ?? 0} RR</span></p>
+              ))}
+            </div>
+          )}
         </motion.div>
       )}
 
@@ -425,7 +553,9 @@ export default function RankPage() {
             {/* 🆕 موسم بدأ للتوّ: لا لاعب سجّل مباراة بعد (اللوحة تعرض لاعبي الموسم فقط) */}
             {!seasonLoading && leaderboard.length === 0 && (
               <p className="text-gray-600 text-sm text-center py-8">
-                {viewingActive ? 'الموسم بدأ للتوّ — لا نتائج بعد. العب أول مباراة وكن المتصدّر!' : 'لا نتائج في هذا الموسم'}
+                {viewingActive
+                  ? (selectedCity ? `لا مباريات في ${selectedCity.name} بعد — العب أوّل مباراة وكن المتصدّر!` : 'الموسم بدأ للتوّ — لا نتائج بعد. العب أول مباراة وكن المتصدّر!')
+                  : 'لا نتائج في هذا الموسم'}
               </p>
             )}
           </motion.div>

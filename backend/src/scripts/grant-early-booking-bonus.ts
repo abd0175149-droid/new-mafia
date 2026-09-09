@@ -1,17 +1,17 @@
 // ══════════════════════════════════════════════════════
 // 🎁 منح مكافأة RR للحاجزين المرتبطين بحسابات في فعاليّة (حجز مبكر)
 // التشغيل: ACTIVITY_ID=164 RR=20 npx tsx src/scripts/grant-early-booking-bonus.ts
-// - يسجّل المكافأة في rank_bonuses (تدخل في إعادة الاحتساب فلا تُمحى)
-// - يطبّقها حيّاً عبر applyRR (يتولّى الترقيات)
+// - يسجّل المكافأة في rank_bonuses بموسم الفعاليّة **ومدينة مكانها** (تدخل في إعادة الاحتساب فلا تُمحى)
+// - يطبّقها عبر المصالحة المستهدفة (صفّ الموسم/المدينة + مرآة players.*) — لا كتابةَ مباشرة
 // - يرسل إشعاراً دفعياً لكل لاعب
 // - آمن لإعادة التشغيل: يتخطّى من نال نفس المكافأة (نفس reason)
 // ══════════════════════════════════════════════════════
 
 import { sql } from 'drizzle-orm';
 import { getDB, connectDB } from '../config/db.js';
-import { applyRR } from '../services/progression.service.js';
 import { sendPushToPlayer } from '../services/fcm.service.js';
-import { getActiveRegularSeasonId } from '../services/season.service.js';
+import { resolveSeasonForActivity, describeScope, getStanding } from '../services/season.service.js';
+import { reconcileSeasonProgression } from '../services/reconcile.service.js';
 
 const ACTIVITY_ID = parseInt(process.env.ACTIVITY_ID || '0');
 const RR = parseInt(process.env.RR || '20');
@@ -27,12 +27,12 @@ async function main() {
   const act = (actRes?.rows ?? actRes)?.[0];
   if (!act) { console.error('❌ الفعاليّة غير موجودة'); process.exit(1); }
   const reason = `early-booking:activity-${ACTIVITY_ID}`;
-  console.log(`🎯 ${act.name} — مكافأة ${RR} RR — سبب: ${reason}`);
 
-  // الجدول (احتياط إن سبق تشغيل السكربت قبل نشر ميغريشن الإقلاع)
-  await db.execute(sql`CREATE TABLE IF NOT EXISTS rank_bonuses (
-    id SERIAL PRIMARY KEY, player_id INTEGER NOT NULL, rr INTEGER NOT NULL,
-    reason VARCHAR(200) DEFAULT '', season_id INTEGER, created_at TIMESTAMP DEFAULT NOW() NOT NULL)`);
+  // 🏙️ النطاق: موسم الفعاليّة ومدينة مكانها — بلا موسمٍ أو مدينةٍ لا منح (مكافأةٌ بلا نطاق تُمحى في أوّل مصالحة)
+  const scope = await describeScope(await resolveSeasonForActivity(ACTIVITY_ID));
+  if (!scope.seasonId) { console.error('❌ لا موسمَ نشطاً لهذه الفعاليّة (أو بلا مكان) — لا منح'); process.exit(1); }
+  if (scope.isRegular && scope.cityId == null) { console.error('❌ مكان الفعاليّة بلا مدينة — لا منح'); process.exit(1); }
+  console.log(`🎯 ${act.name} — مكافأة ${RR} RR — سبب: ${reason} — الموسم #${scope.seasonId} (${scope.seasonName || ''})${scope.cityName ? ` — المدينة: ${scope.cityName}` : ''}`);
 
   // الحاجزون المرتبطون (غير الملغيّين) — لاعب واحد مرة واحدة
   const rRes: any = await db.execute(sql`
@@ -44,25 +44,36 @@ async function main() {
   const rows: any[] = rRes?.rows ?? rRes ?? [];
   console.log(`👥 حاجزون مرتبطون: ${rows.length}`);
 
-  const seasonId = await getActiveRegularSeasonId();
   let granted = 0, skipped = 0, pushed = 0;
+  const grantedIds: number[] = [];
   for (const r of rows) {
     const pid = Number(r.player_id);
     // منع الازدواج
     const dupRes: any = await db.execute(sql`SELECT id FROM rank_bonuses WHERE player_id = ${pid} AND reason = ${reason} LIMIT 1`);
     if (((dupRes?.rows ?? dupRes) || []).length) { console.log(`⏭️ ${r.name} (#${pid}) — ناله سابقاً`); skipped++; continue; }
 
-    await db.execute(sql`INSERT INTO rank_bonuses (player_id, rr, reason, season_id) VALUES (${pid}, ${RR}, ${reason}, ${seasonId ?? null})`);
-    const res = await applyRR(pid, RR);
+    await db.execute(sql`INSERT INTO rank_bonuses (player_id, rr, xp, reason, season_id, activity_id, city_id)
+      VALUES (${pid}, ${RR}, 0, ${reason}, ${scope.seasonId}, ${ACTIVITY_ID}, ${scope.cityId ?? null})`);
     granted++;
-    console.log(`✅ ${r.name} (#${pid}) +${RR} RR → ${res.newTier} ${res.newRR}RR${res.promoted ? ' 🎉 ترقية!' : ''}`);
+    grantedIds.push(pid);
+  }
 
-    try {
-      await sendPushToPlayer(pid, '🎁 مكافأة الحجز المبكر',
-        `حصلت على ${RR} نقطة رانك لحجزك المبكر في ${act.name} — شكراً لالتزامك! 🎉`,
-        'rank_bonus', { activityId: String(ACTIVITY_ID) });
-      pushed++;
-    } catch (e: any) { console.log(`  ⚠️ إشعار ${r.name}: ${e.message}`); }
+  // المصالحة المستهدفة — تكتب صفّ (الموسم، المدينة) وتزامن المرآة
+  if (grantedIds.length) {
+    const rec = await reconcileSeasonProgression(scope.seasonId, true, () => {}, { onlyPlayerIds: grantedIds });
+    console.log(`🔄 مصالحة: applied=${rec.applied} rows=${rec.rows}`);
+    for (const r of rows) {
+      const pid = Number(r.player_id);
+      if (!grantedIds.includes(pid)) continue;
+      const st = await getStanding(pid, scope.seasonId, scope.cityId ?? null);
+      console.log(`✅ ${r.name} (#${pid}) +${RR} RR → ${st.rankTier} ${st.rankRR}RR${st.cityName ? ` (${st.cityName})` : ''}`);
+      try {
+        await sendPushToPlayer(pid, '🎁 مكافأة الحجز المبكر',
+          `حصلت على ${RR} نقطة رانك${scope.cityName ? ` في ${scope.cityName}` : ''} لحجزك المبكر في ${act.name} — شكراً لالتزامك! 🎉`,
+          'rank_bonus', { activityId: String(ACTIVITY_ID), cityId: scope.cityId != null ? String(scope.cityId) : '', cityName: scope.cityName || '' });
+        pushed++;
+      } catch (e: any) { console.log(`  ⚠️ إشعار ${r.name}: ${e.message}`); }
+    }
   }
   console.log(`\n🏁 مُنح: ${granted} | مُتخطّى: ${skipped} | إشعارات: ${pushed}/${granted}`);
 }

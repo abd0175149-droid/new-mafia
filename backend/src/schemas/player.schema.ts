@@ -30,7 +30,13 @@ export const players = pgTable('players', {
   // 🏆 عدّاد مباريات مدى الحياة — لا يُصفَّر عند بدء موسم جديد
   // (يُستخدم لكشف "اللاعب الجديد" في محرك المقاعد ومؤشّرات النشاط)
   lifetimeMatches: integer('lifetime_matches').default(0),
-  // ── نظام التقدم (Progression) — هذه تمثّل الموسم العادي النشط ──
+  // 🏙️ المدينةُ الأساسيّة — تفضيلُ عرضٍ فقط (الفعاليّات الافتراضيّة، تبويب الترتيب، بطاقة الرتبة،
+  //    استهداف إشعارات الفعاليّات). ⛔ لا تدخل في أيّ احتساب: مدينةُ المباراة من مكانها لا من اللاعب.
+  //    source: 'chosen' (اختارها اللاعب) | 'inferred' (استُنتجت من تاريخ لعبه)
+  homeCityId: integer('home_city_id'),
+  homeCitySource: varchar('home_city_source', { length: 10 }),
+  // ── نظام التقدم (Progression) — مرآةُ صفّ (الموسم العادي النشط، المدينة الأساسيّة) في player_season_stats ──
+  //    تبقى للتوافق الخلفيّ (~٦٠ موقع قراءة + نسخ التطبيق القديمة)؛ مصدرُ الحقيقة هو player_season_stats.
   xp: integer('xp').default(0),
   level: integer('level').default(1),
   rankTier: varchar('rank_tier', { length: 20 }).default('INFORMANT'), // INFORMANT→SOLDIER→CAPO→UNDERBOSS→GODFATHER

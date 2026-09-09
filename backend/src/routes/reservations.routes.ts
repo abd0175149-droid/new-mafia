@@ -308,7 +308,7 @@ router.get('/attendance/:activityId', authenticate, async (req: Request, res: Re
   try {
     const [act] = await db.select({
       id: activities.id, name: activities.name, date: activities.date,
-      maxCapacity: activities.maxCapacity, locationName: locations.name,
+      maxCapacity: activities.maxCapacity, locationName: locations.name, cityId: locations.cityId,
       // 🗓️ برنامج الليلة — يُطبع قبل بطاقات الحاجزين
       gameSchedule: activities.gameSchedule,
     }).from(activities).leftJoin(locations, eq(activities.locationId, locations.id))
@@ -323,14 +323,33 @@ router.get('/attendance/:activityId', authenticate, async (req: Request, res: Re
     }).from(reservations).leftJoin(players, eq(reservations.playerId, players.id))
       .where(and(eq(reservations.activityId, actId), isNull(reservations.deletedAt)));
 
+    // 🏙️ الرتبة المعروضة = رتبةُ اللاعب في **مدينة الفعاليّة** (لا مرآة players.*): كشفُ الزرقاء يُرتَّب بترتيب الزرقاء
+    const cityStanding = new Map<number, { rankTier: string; level: number; rankRR: number }>();
+    try {
+      const { getActiveRegularSeasonId } = await import('../services/season.service.js');
+      const { playerSeasonStats } = await import('../schemas/season.schema.js');
+      const seasonId = await getActiveRegularSeasonId();
+      const ids = rows.map(r => r.playerId).filter((x): x is number => !!x);
+      if (seasonId && act.cityId && ids.length) {
+        const { inArray } = await import('drizzle-orm');
+        const st = await db.select({ pid: playerSeasonStats.playerId, rankTier: playerSeasonStats.rankTier, level: playerSeasonStats.level, rankRR: playerSeasonStats.rankRR })
+          .from(playerSeasonStats)
+          .where(and(inArray(playerSeasonStats.playerId, ids), eq(playerSeasonStats.seasonId, seasonId), eq(playerSeasonStats.cityId, act.cityId)));
+        for (const s of st) cityStanding.set(s.pid, { rankTier: s.rankTier || 'INFORMANT', level: s.level || 1, rankRR: s.rankRR || 0 });
+      }
+    } catch { /* السقوط على المرآة */ }
+
     // الترتيب مطابقةٌ حرفيّة لصفحة ترتيب اللاعبين (/api/player-app/leaderboard):
-    // الرتبة ← نقاط RR ← المستوى. أعمدة players.* هي أرقام الموسم الحاليّ
-    // (تُصفَّر عند فتح موسمٍ جديد — season.service)، فالكشف يتبع الموسم تلقائيّاً.
-    const members = rows.filter(r => r.playerId).map(r => ({
-      name: r.pName || r.contactName, avatarUrl: r.avatarUrl || null,
-      rankTier: r.rankTier || 'INFORMANT', level: r.level || 1, rankRR: r.rankRR || 0,
-      peopleCount: r.peopleCount || 1, attended: r.attended === true,
-    })).sort((a, b) => (RANK_ORDER[b.rankTier] || 1) - (RANK_ORDER[a.rankTier] || 1) || (b.rankRR - a.rankRR) || (b.level - a.level) || a.name.localeCompare(b.name, 'ar'));
+    // الرتبة ← نقاط RR ← المستوى، برتبة مدينة الفعاليّة (ومن لا صفَّ له فيها يبدأ مُخبراً).
+    const members = rows.filter(r => r.playerId).map(r => {
+      const cs = act.cityId ? (cityStanding.get(r.playerId!) ?? { rankTier: 'INFORMANT', level: 1, rankRR: 0 })
+        : { rankTier: r.rankTier || 'INFORMANT', level: r.level || 1, rankRR: r.rankRR || 0 };
+      return {
+        name: r.pName || r.contactName, avatarUrl: r.avatarUrl || null,
+        rankTier: cs.rankTier, level: cs.level, rankRR: cs.rankRR,
+        peopleCount: r.peopleCount || 1, attended: r.attended === true,
+      };
+    }).sort((a, b) => (RANK_ORDER[b.rankTier] || 1) - (RANK_ORDER[a.rankTier] || 1) || (b.rankRR - a.rankRR) || (b.level - a.level) || a.name.localeCompare(b.name, 'ar'));
 
     const guests = rows.filter(r => !r.playerId).map(r => ({
       name: r.contactName, peopleCount: r.peopleCount || 1, attended: r.attended === true,

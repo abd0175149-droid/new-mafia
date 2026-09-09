@@ -356,7 +356,9 @@ router.put('/admin/rewards/config', async (req: Request, res: Response) => {
 router.get('/admin/rewards/top3', async (req: Request, res: Response) => {
   try {
     const seasonId = req.query.seasonId ? parseInt(req.query.seasonId as string) : null;
-    const data = await previewTop3(seasonId);
+    // 🏙️ منصّةٌ لكلّ مدينة في الموسم العادي — ?cityId= (الافتراضيّ أوّل مدينةٍ فعّالة)
+    const cityId = req.query.cityId ? parseInt(req.query.cityId as string) : null;
+    const data = await previewTop3(seasonId, Number.isFinite(cityId as number) ? cityId : null);
     res.json({ success: true, ...data });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
@@ -374,6 +376,7 @@ router.post('/admin/rewards/top3',
       const allowRepeat = req.body.allowRepeat === true;
       const result = await grantTop3({
         seasonId: req.body.seasonId ? parseInt(req.body.seasonId) : null,
+        cityId: req.body.cityId ? parseInt(req.body.cityId) : null,
         amounts,
         note: req.body.note ? String(req.body.note).slice(0, 300) : null,
         requestId: req.body.requestId ? String(req.body.requestId) : null,
@@ -392,7 +395,7 @@ router.post('/admin/rewards/top3',
         source: 'http',
         action: 'chips:grant-top3',
         outcome: 'success',
-        details: { season: result.season?.name, results: result.results, totalGranted: result.totalGranted, allowRepeat },
+        details: { season: result.season?.name, cityId: (result as any).cityId ?? null, cityName: (result as any).cityName ?? null, results: result.results, totalGranted: result.totalGranted, allowRepeat },
       });
 
       res.json({ success: true, ...result });

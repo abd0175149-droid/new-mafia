@@ -6,10 +6,12 @@ import 'package:intl/intl.dart' show DateFormat;
 
 import '../../core/api/api_client.dart';
 import '../../core/api/auth_repository.dart';
+import '../../core/cities/city_service.dart';
 import '../../core/ui/glass_tier.dart';
 import '../../models/profile.dart';
 import 'profile_palette.dart';
 import '../game/roles_deck_sheet.dart';
+import '../gates/home_city_sheet.dart';
 
 // ══════════════════════════════════════════════════════
 // ⚙️ accordion الإعدادات — §4.3.9 في الملفّ 13
@@ -23,11 +25,21 @@ class SettingsAccordion extends StatefulWidget {
     required this.onToggle,
     required this.onEmailSaved,
     required this.onDiagnostics,
+    this.homeCityId,
+    this.homeCityName,
+    this.onHomeCityChanged,
   });
 
   final PlayerInfo player;
   final bool open;
   final VoidCallback onToggle;
+
+  /// 🏙️ المدينة الأساسيّة الحاليّة — `null` = لم تُحدَّد بعد.
+  final int? homeCityId;
+  final String? homeCityName;
+
+  /// يصل بالمعرّف والاسم كما أكّدهما الخادم بعد حفظٍ ناجح.
+  final void Function(int cityId, String cityName)? onHomeCityChanged;
 
   /// `null` يعني مسح الإيميل — لا «لم يتغيّر».
   /// يعيد `false` عند الفشل فيُسترجع الحقل. الـtoast مسؤولية المُستدعي:
@@ -165,6 +177,15 @@ class _SettingsAccordionState extends State<SettingsAccordion> {
             _infoRow('👤 الجنس', widget.player.isFemale ? 'أنثى' : 'ذكر'),
             _infoRow('📅 تاريخ الانضمام', _joinDate()),
             _divider(),
+            _sectionTitle('🏙️ المدينة'),
+            const SizedBox(height: 8),
+            _linkRow(
+                '🏙️ مدينتي الأساسيّة: ${widget.homeCityName ?? 'لم تُحدَّد'}',
+                Tw.amber500, _pickHomeCity),
+            const SizedBox(height: 6),
+            Text('تحدّد فعاليّاتك الافتراضيّة وتبويب الترتيب وبطاقة الرتبة — رتبتك في كلّ مدينةٍ تُحسب من مبارياتك فيها وحدها.',
+                style: ar(9, color: Tw.gray600)),
+            _divider(),
             _sectionTitle('🔒 الأمان'),
             const SizedBox(height: 8),
             if (!_changingPassword)
@@ -205,6 +226,20 @@ class _SettingsAccordionState extends State<SettingsAccordion> {
 
   Widget _sectionTitle(String t) =>
       Text(t, style: ar(10, color: Tw.gray600, weight: FontWeight.w700));
+
+  // 🏙️ تغيير المدينة الأساسيّة — نفس ورقة أوّل تشغيلٍ لكن بلا «لاحقًا»
+  Future<void> _pickHomeCity() async {
+    final cities = await CityService.instance.cities();
+    if (!mounted) return;
+    if (cities.isEmpty) {
+      ScaffoldMessenger.maybeOf(context)?.showSnackBar(
+          SnackBar(content: Text('تعذّر جلب المدن', style: ar(12))));
+      return;
+    }
+    final res = await showHomeCityPicker(context,
+        cities: cities, currentId: widget.homeCityId);
+    if (res != null) widget.onHomeCityChanged?.call(res.$1, res.$2);
+  }
 
   /// «جودة الواجهة» — تجاوز سلّم المادّة الزجاجيّة يدوياً (95 §3.1):
   /// تلقائي (كشف الجهاز) / فاخرة (شيدر الانكسار) / خفيفة (بلا blur).

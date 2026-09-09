@@ -32,6 +32,7 @@ type DisplayStep = 'select-activity' | 'select-room' | 'pin' | 'lobby';
 interface ActivityGroup {
   activityId: number | null;
   activityName: string;
+  cityName?: string | null; // 🏙️ مدينة الفعاليّة (من activities-with-rooms)
   rooms: ActiveGame[];
 }
 
@@ -1200,7 +1201,7 @@ function DisplayPageContent() {
                       className="noir-card p-5 w-full flex items-center justify-between hover:border-[#C5A059]/40 transition-all text-right"
                     >
                       <div>
-                        <h3 className="text-xl font-bold text-[#C5A059]" style={{ fontFamily: 'Amiri, serif' }}>{group.activityName}</h3>
+                        <h3 className="text-xl font-bold text-[#C5A059]" style={{ fontFamily: 'Amiri, serif' }}>{group.activityName}{group.cityName ? ` · ${group.cityName}` : ''}</h3>
                         <p className="text-[#808080] text-sm mt-1 font-mono">{group.rooms.length} {group.rooms.length === 1 ? 'ROOM' : 'ROOMS'}</p>
                       </div>
                       <span className="text-[#555] text-2xl">◀</span>

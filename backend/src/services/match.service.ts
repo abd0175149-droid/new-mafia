@@ -9,10 +9,29 @@ import { matches, matchPlayers } from '../schemas/game.schema.js';
 import { players } from '../schemas/player.schema.js';
 import { activities, locations } from '../schemas/admin.schema.js';
 import { isMafiaRole, teamOfRole } from '../game/roles.js';
-import { updatePlayerStats } from './player.service.js';
-import { processMatchRewards, computeMatchReward, computeMatchBreakdown, applyProgressionConfig, buildDisplayBreakdown } from './progression.service.js';
+import { computeMatchReward, computeMatchBreakdown, applyProgressionConfig, buildDisplayBreakdown, RANK_NAMES_AR } from './progression.service.js';
 import { getProgressionConfig, DEFAULT_CONFIG } from '../routes/progression-settings.routes.js';
 import type { GameState } from '../game/state.js';
+
+// 🧪 هل الغرفة في موقع اختبار؟ — من مكان فعاليّتها، أو من مكانها الصريح (غرفة «بدون نشاط» بمكان)
+export async function isTestScope(state: GameState): Promise<boolean> {
+  const db = getDB();
+  if (!db) return false;
+  try {
+    if (state.activityId) {
+      const [info] = await db.select({ isTest: locations.isTestLocation })
+        .from(activities).leftJoin(locations, eq(activities.locationId, locations.id))
+        .where(eq(activities.id, state.activityId)).limit(1);
+      return !!info?.isTest;
+    }
+    if (state.locationId) {
+      const [loc] = await db.select({ isTest: locations.isTestLocation }).from(locations)
+        .where(eq(locations.id, state.locationId)).limit(1);
+      return !!loc?.isTest;
+    }
+  } catch { /* عند الشك نعاملها كغير اختبارية */ }
+  return false;
+}
 
 // ── إنشاء سجل مباراة عند بداية اللعبة ──────────────
 export async function createMatch(state: GameState): Promise<number | null> {
@@ -23,6 +42,15 @@ export async function createMatch(state: GameState): Promise<number | null> {
   }
 
   try {
+    // 🏙️ ختمٌ مبدئيّ للموسم والمدينة عند الإنشاء (يُثبَّت عند الاحتساب — الموسمُ يُحسم لحظةَ الاحتساب)
+    let seasonId: number | null = null;
+    let cityId: number | null = null;
+    try {
+      const { resolveSeasonForGame } = await import('./season.service.js');
+      const scope = await resolveSeasonForGame(state.activityId, (state.config as any)?.isRemote, state.locationId ?? null);
+      seasonId = scope.seasonId; cityId = scope.cityId;
+    } catch { /* الختم المبدئيّ زينة — الاحتساب يُعيد الحلّ */ }
+
     const result = await db.insert(matches).values({
       sessionId: state.sessionId || null,
       roomId: state.roomId,
@@ -33,13 +61,15 @@ export async function createMatch(state: GameState): Promise<number | null> {
       maxPlayers: state.config.maxPlayers,
       isActive: true,
       totalRounds: state.round || 1,
+      seasonId,
+      cityId,
       // 👤 مُنشئ الغرفة (staff) — يُنقل من حالة الغرفة
       createdBy: (state as any).createdByStaffId || null,
       leaderStaffId: (state as any).createdByStaffId || null,
     } as any).returning({ id: matches.id });
 
     const matchId = result[0]?.id;
-    console.log(`📦 Match #${matchId} created for room ${state.roomId}`);
+    console.log(`📦 Match #${matchId} created for room ${state.roomId} (season ${seasonId ?? '-'}, city ${cityId ?? '-'})`);
     return matchId;
   } catch (err: any) {
     console.error('❌ Failed to create match:', err.message);
@@ -68,20 +98,8 @@ export async function finalizeMatch(state: GameState): Promise<void> {
       return;
     }
 
-    let isTestGame = false;
-    if (state.activityId) {
-      const activityInfo = await db.select({ isTest: locations.isTestLocation })
-        .from(activities)
-        .leftJoin(locations, eq(activities.locationId, locations.id))
-        .where(eq(activities.id, state.activityId))
-        .limit(1);
-      if (activityInfo[0]?.isTest) {
-        isTestGame = true;
-      }
-      console.log(`📊 [finalizeMatch] activityId: ${state.activityId}, isTestLocation: ${activityInfo[0]?.isTest}, isTestGame: ${isTestGame}`);
-    } else {
-      console.log(`📊 [finalizeMatch] No activityId — isTestGame defaults to false`);
-    }
+    const isTestGame = await isTestScope(state);
+    console.log(`📊 [finalizeMatch] activityId: ${state.activityId ?? '-'}, locationId: ${state.locationId ?? '-'}, isTestGame: ${isTestGame}`);
     const startTime = state.startedAt ? new Date(state.startedAt).getTime() : 0;
     const endTime = Date.now();
     const durationSeconds = startTime > 0 ? Math.floor((endTime - startTime) / 1000) : null;
@@ -208,12 +226,16 @@ export async function finalizeMatch(state: GameState): Promise<void> {
       await db.insert(matchPlayers).values(playerRows);
     }
 
-    // ── 🏆 إسناد الموسم: أونلاين إن كانت اللعبة عن بُعد، وإلا بطولة الموقع أو الموسم العادي ──
-    // الفصل: مباريات الأونلاين تُحسَم لموسم أونلاين (isRegular=false) فلا تمسّ رانك الوجاهيّ (players.*) إطلاقاً.
-    const { resolveSeasonForGame, applySeasonStats, mirrorPlayerToRegularSeason } = await import('./season.service.js');
-    const { seasonId, isRegular } = await resolveSeasonForGame(state.activityId, (state.config as any)?.isRemote);
-    if (seasonId) {
-      await db.update(matches).set({ seasonId } as any).where(eq(matches.id, state.matchId));
+    // ── 🏆 إسناد النطاق: أونلاين إن كانت اللعبة عن بُعد، وإلا بطولة المكان أو الموسم العادي **بمدينة المكان** ──
+    // الفصل: الأونلاين والبطولة نطاقُهما الموسم وحده (city_id NULL)؛ العادي يُكتب على صفّ (الموسم، المدينة).
+    // بلا مكانٍ (غرفة «بدون نشاط» بلا مكانٍ صريح) ⇒ seasonId=null ⇒ لا رتبة لأحد (fail-safe، لا تسريب).
+    const { resolveSeasonForGame, applySeasonStats, syncPlayerMirror } = await import('./season.service.js');
+    const scope = await resolveSeasonForGame(state.activityId, (state.config as any)?.isRemote, state.locationId ?? null);
+    const { seasonId, isRegular, cityId } = scope;
+    // 🔒 ختمٌ مجمَّد: الموسم والمدينة كما كانا لحظة الاحتساب — نقلُ المكان لاحقاً لا يُعيد كتابة التاريخ
+    await db.update(matches).set({ seasonId: seasonId ?? null, cityId: cityId ?? null } as any).where(eq(matches.id, state.matchId));
+    if (!seasonId && !isTestGame) {
+      console.warn(`⚠️ [finalizeMatch] Match #${state.matchId} has NO rank scope (no venue/season) — recorded but UNRANKED`);
     }
     // 🪙 لقطة عدّاد المباريات **قبل** زيادته — هي معيار «أول مباراة» لقطرة الترحيب.
     // تُقرأ هنا حصراً لأن السطور التالية تزيد العدّاد فيضيع المعيار.
@@ -239,67 +261,53 @@ export async function finalizeMatch(state: GameState): Promise<void> {
       }
     }
 
-    // ── تحديث إحصائيات اللاعبين (القديمة) + نظام التقدم الجديد ──
-    console.log(`📊 [finalizeMatch] isTestGame: ${isTestGame} — ${isTestGame ? 'SKIPPING' : 'UPDATING'} stats for ${state.players.length} players`);
-    if (!isTestGame && isRegular) {
-      for (const p of state.players) {
-        if (p.playerId) {
-          try {
-            const playerIsMafia = isMafiaRole(p.role as any);
-            const isJester = p.role === 'JESTER';
-            // المهرج يفوز فقط إذا هو الفائز، باقي اللاعبين يخسرون عند فوز المهرج
-            const isAssassinP = p.role === 'ASSASSIN';
-            const won = isAssassinP ? (state.winner === 'ASSASSIN')
-              : isJester ? (state.winner === 'JESTER')
-              : (state.winner === 'ASSASSIN' || state.winner === 'JESTER') ? false
-              : (state.winner === 'MAFIA' && playerIsMafia) || (state.winner === 'CITIZEN' && !playerIsMafia);
-            const survived = !!p.isAlive; // استخراج boolean بسيط — يمنع circular JSON
-            await updatePlayerStats(p.playerId, won, survived);
-            console.log(`📊 [finalizeMatch] ✅ Stats updated for playerId=${p.playerId} (${p.name}) — won: ${won}, alive: ${survived}`);
-          } catch (statsErr: any) {
-            console.error(`⚠️ Failed to update stats for player ${p.playerId} (${p.name}):`, statsErr.message);
-          }
-        } else {
-          console.warn(`📊 [finalizeMatch] ⚠️ Player #${p.physicalId} (${p.name}) has NO playerId — stats SKIPPED`);
-        }
+    // ── تطبيق نظام التقدم (XP + Level + RR + Rank + العدّادات) — مسارٌ واحد لكلّ النطاقات ──
+    // يُكتب على صفّ (الموسم، المدينة|NULL) في player_season_stats بالقيم المخزّنة في match_players
+    // (المجموع النهائيّ لكلّ الأدوار، متطابقٌ مع ما تُعيد المصالحةُ اشتقاقه)، ثمّ تُزامَن مرآةُ
+    // players.* للموسم العادي، ثمّ تُرسَل إشعارات الترقية/المستوى بمدينتها.
+    console.log(`📊 [finalizeMatch] isTestGame: ${isTestGame} — ${isTestGame ? 'SKIPPING' : (seasonId ? 'APPLYING' : 'UNRANKED')} progression for ${state.players.length} players`);
+    if (!isTestGame && seasonId) {
+      let cityName: string | null = null;
+      if (cityId) {
+        try { const { cityNameOf } = await import('./cities.service.js'); cityName = await cityNameOf(cityId); } catch { /* الاسم للعرض فقط */ }
       }
-    } else {
-      console.log(`📊 [finalizeMatch] ⛔ isTestGame=true — ALL stats skipped for match #${state.matchId}`);
-    }
+      const cityTail = cityName ? ` في ${cityName}` : '';
+      let fcm: any = null;
+      try { fcm = await import('./fcm.service.js'); } catch { /* الإشعار ليس شرطاً للاحتساب */ }
 
-    // ── تطبيق نظام التقدم (XP + Level + RR + Rank) ──
-    if (isTestGame) {
-      console.log(`[Match] Skipping stats and progression for match #${state.matchId} (Test Location).`);
-    } else if (isRegular) {
-      // 🔵 الموسم العادي: نطبّق على players.* (كما كان) ثم نزامن صف الموسم
-      try {
-        await processMatchRewards(state);
-        if (seasonId) {
-          for (const p of state.players) {
-            if (p.playerId) await mirrorPlayerToRegularSeason(p.playerId, seasonId).catch(() => {});
-          }
-        }
-      } catch (progressionErr: any) {
-        console.error('⚠️ Failed to process progression rewards:', progressionErr.message);
-      }
-    } else if (seasonId) {
-      // 🏆 بطولة: نطبّق على إحصاءات الموسم فقط (لا تُلمس players.* / الرانك العادي)
-      try {
-        for (const row of playerRows) {
-          if (!row.playerId) continue;
+      for (const row of playerRows) {
+        if (!row.playerId) { console.warn(`📊 [finalizeMatch] ⚠️ Player #${row.physicalId} (${row.playerName}) has NO playerId — progression SKIPPED`); continue; }
+        try {
           const pIsMafia = isMafiaRole(row.role as any);
           const won = row.role === 'ASSASSIN' ? state.winner === 'ASSASSIN'
             : row.role === 'JESTER' ? state.winner === 'JESTER'
             : (state.winner === 'ASSASSIN' || state.winner === 'JESTER') ? false
             : (state.winner === 'MAFIA' && pIsMafia) || (state.winner === 'CITIZEN' && !pIsMafia);
-          await applySeasonStats(row.playerId, seasonId, row.xpEarned || 0, row.rrChange || 0, {
+          const res = await applySeasonStats(row.playerId, seasonId, cityId, row.xpEarned || 0, row.rrChange || 0, {
             won, survived: !!row.survivedToEnd, dealInitiated: !!row.dealInitiated, dealSuccess: !!row.dealSuccess,
           });
+          if (isRegular) await syncPlayerMirror(row.playerId, seasonId).catch(() => {});
+          console.log(`🏆 Player #${row.physicalId} (${row.playerName}) [season ${seasonId}${cityId ? `, city ${cityId}` : ''}]: +${row.xpEarned || 0} XP, ${(row.rrChange || 0) >= 0 ? '+' : ''}${row.rrChange || 0} RR${res?.promoted ? ' ⬆️' : res?.demoted ? ' ⬇️' : ''}`);
+
+          // ── إشعارات التقدّم (تذكر المدينة للموسم العادي) ──
+          if (fcm && res) {
+            const data = { cityId: cityId != null ? String(cityId) : '', cityName: cityName || '', url: cityId ? `/player/rank?city=${cityId}` : '/player/rank' };
+            if (res.leveledUp) {
+              fcm.sendPushToPlayer(row.playerId, '🎉 ارتفع مستواك!', `أصبحت الآن Level ${res.newLevel}${cityTail} — استمر!`, 'level_up', { ...data, level: String(res.newLevel) });
+            }
+            if (res.promoted) {
+              fcm.sendPushToPlayer(row.playerId, '🏆 ترقية! رتبة جديدة!', `مبروك! أصبحت "${RANK_NAMES_AR[res.newTier]}"${cityTail} — تستحقها!`, 'rank_up', { ...data, rankTier: res.newTier });
+            }
+            if (res.demoted) {
+              fcm.sendPushToPlayer(row.playerId, '⬇️ انخفضت رتبتك', `رجعت لرتبة "${RANK_NAMES_AR[res.newTier]}"${cityTail} — حان وقت الانتقام!`, 'rank_down', { ...data, rankTier: res.newTier });
+            }
+          }
+        } catch (progErr: any) {
+          console.error(`⚠️ Failed to apply progression for player ${row.playerId} (${row.playerName}):`, progErr.message);
         }
-        console.log(`🏆 [finalizeMatch] Tournament season #${seasonId} stats applied for match #${state.matchId}`);
-      } catch (tErr: any) {
-        console.error('⚠️ Failed to apply tournament season stats:', tErr.message);
       }
+    } else if (isTestGame) {
+      console.log(`[Match] Skipping stats and progression for match #${state.matchId} (Test Location).`);
     }
 
     // ── 💧 قطرات التشبس (فوز +2 · توب-3 +3 · أول مباراة +10) ──
@@ -457,15 +465,10 @@ export async function flushDisciplineToBonuses(state: GameState): Promise<void> 
   ].filter((e: any) => e?.playerId && e.rr);
   if (events.length === 0) return;
 
-  // 🛡️ نفس بوّابات العزل: لا أثر لمواقع الاختبار، ولا كتابة بلا موسم نشط
-  if (state.activityId) {
-    const [info] = await db.select({ isTest: locations.isTestLocation })
-      .from(activities).leftJoin(locations, eq(activities.locationId, locations.id))
-      .where(eq(activities.id, state.activityId)).limit(1);
-    if (info?.isTest) return;
-  }
+  // 🛡️ نفس بوّابات العزل: لا أثر لمواقع الاختبار، ولا كتابة بلا موسم نشط (أو بلا مكان/مدينة)
+  if (await isTestScope(state)) return;
   const { resolveSeasonForGame } = await import('./season.service.js');
-  const { seasonId } = await resolveSeasonForGame(state.activityId, (state.config as any)?.isRemote);
+  const { seasonId, cityId } = await resolveSeasonForGame(state.activityId, (state.config as any)?.isRemote, state.locationId ?? null);
   if (!seasonId) return;
 
   // تجميع لكل لاعب (عقوبتان في نفس المباراة = صفّ واحد بالمجموع)
@@ -486,8 +489,8 @@ export async function flushDisciplineToBonuses(state: GameState): Promise<void> 
         sql`SELECT id FROM rank_bonuses WHERE player_id = ${playerId} AND reason = ${reason} LIMIT 1`);
       const rows: any[] = dup?.rows ?? (Array.isArray(dup) ? dup : []);
       if (rows.length > 0) continue;   // آمن للتكرار
-      await db.execute(sql`INSERT INTO rank_bonuses (player_id, rr, reason, season_id)
-        VALUES (${playerId}, ${agg.rr}, ${reason}, ${seasonId})`);
+      await db.execute(sql`INSERT INTO rank_bonuses (player_id, rr, reason, season_id, city_id)
+        VALUES (${playerId}, ${agg.rr}, ${reason}, ${seasonId}, ${cityId ?? null})`);
       saved++;
     } catch (e: any) {
       console.warn(`⚠️ [flushDiscipline] Failed to persist for player ${playerId}:`, e?.message || e);
@@ -514,17 +517,12 @@ export async function reconcileMatchPlayersRank(state: GameState): Promise<void>
     if (playerIds.length === 0) return;
 
     // تخطّي مواقع الاختبار — لا رانك لها
-    if (state.activityId) {
-      const [info] = await db.select({ isTest: locations.isTestLocation })
-        .from(activities).leftJoin(locations, eq(activities.locationId, locations.id))
-        .where(eq(activities.id, state.activityId)).limit(1);
-      if (info?.isTest) return;
-    }
+    if (await isTestScope(state)) return;
 
     // resolveSeasonForGame (لا ForActivity) — كي تشمل شبكةُ أمان ما بعد المباراة موسمَ الأونلاين أيضاً
     const { resolveSeasonForGame } = await import('./season.service.js');
     const { reconcileSeasonProgression } = await import('./reconcile.service.js');
-    const { seasonId } = await resolveSeasonForGame(state.activityId, (state.config as any)?.isRemote);
+    const { seasonId } = await resolveSeasonForGame(state.activityId, (state.config as any)?.isRemote, state.locationId ?? null);
     if (!seasonId) return;
 
     const res = await reconcileSeasonProgression(seasonId, true, () => {}, { onlyPlayerIds: playerIds });
@@ -713,7 +711,7 @@ export async function adjustMatchPlayerPoints(
 ): Promise<{ player: any; matchPlayerId: number } | null> {
   const db = getDB();
   if (!db) return null;
-  const [mp] = await db.select({ id: matchPlayers.id, playerId: matchPlayers.playerId, xpEarned: matchPlayers.xpEarned, rrChange: matchPlayers.rrChange, playerName: matchPlayers.playerName })
+  const [mp] = await db.select({ id: matchPlayers.id, matchId: matchPlayers.matchId, playerId: matchPlayers.playerId, xpEarned: matchPlayers.xpEarned, rrChange: matchPlayers.rrChange, playerName: matchPlayers.playerName })
     .from(matchPlayers).where(eq(matchPlayers.id, matchPlayerId)).limit(1);
   if (!mp) return null;
 
@@ -726,25 +724,22 @@ export async function adjustMatchPlayerPoints(
   if (rrDelta) mpUpdates.rrChange = (mp.rrChange || 0) + rrDelta;
   if (Object.keys(mpUpdates).length) await db.update(matchPlayers).set(mpUpdates).where(eq(matchPlayers.id, matchPlayerId));
 
-  // 2) players.* (دلتا، بحد أدنى 0) — للاعبين المسجّلين فقط
+  // 2) التجميعة — مصالحةٌ مستهدفة من مصدر الحقيقة (صفّ match_players المعدَّل) في موسم المباراة ومدينتها.
+  //    🏙️ لا دلتا على players.* بعد الآن: الصفُّ الصحيح هو (الموسم، المدينة) في player_season_stats،
+  //    والمصالحة تكتبه وتزامن المرآة معاً. للاعبين المسجّلين فقط.
   let player: any = null;
   if (mp.playerId) {
-    const pUpdates: any = {};
-    if (xpDelta) pUpdates.xp = sql`GREATEST(0, COALESCE(${players.xp}, 0) + ${xpDelta})`;
-    if (rrDelta) pUpdates.rankRR = sql`GREATEST(0, COALESCE(${players.rankRR}, 0) + ${rrDelta})`;
-    if (Object.keys(pUpdates).length) {
-      await db.update(players).set(pUpdates).where(eq(players.id, mp.playerId));
-
-      // 🧮 تطبيع بعد الدلتا: حلقتا المستوى والترقية بنفس منطق الاحتساب الحي —
-      // بدونها يبقى xp أعلى من متطلب المستوى وRR فوق عتبة الرتبة بلا ترقية حتى أول مصالحة.
+    if (xpDelta || rrDelta) {
       try {
-        const { applyXPAndLevel, applyRR } = await import('./progression.service.js');
-        let cfgN: any; try { cfgN = await getProgressionConfig(); } catch { cfgN = undefined; }
-        applyProgressionConfig(cfgN);
-        if (xpDelta) await applyXPAndLevel(mp.playerId, 0);
-        if (rrDelta) await applyRR(mp.playerId, 0);
-      } catch (normErr: any) {
-        console.warn(`⚠️ Post-adjust normalization failed for player ${mp.playerId}:`, normErr.message);
+        const [m] = await db.select({ seasonId: matches.seasonId }).from(matches).where(eq(matches.id, mp.matchId)).limit(1);
+        if (m?.seasonId) {
+          const { reconcileSeasonProgression } = await import('./reconcile.service.js');
+          await reconcileSeasonProgression(m.seasonId, true, () => {}, { onlyPlayerIds: [mp.playerId] });
+        } else {
+          console.warn(`⚠️ [adjust] match #${mp.matchId} has no season — ledger updated, no standings to reconcile`);
+        }
+      } catch (recErr: any) {
+        console.warn(`⚠️ Post-adjust reconcile failed for player ${mp.playerId}:`, recErr.message);
       }
     }
     [player] = await db.select({ xp: players.xp, level: players.level, rankTier: players.rankTier, rankRR: players.rankRR })

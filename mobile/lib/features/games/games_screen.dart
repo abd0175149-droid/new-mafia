@@ -6,8 +6,10 @@ import 'package:flutter/material.dart';
 import '../../app/router.dart';
 import '../../app/theme/theme.dart';
 import '../../core/api/api_client.dart';
+import '../../core/cities/city_service.dart';
 import '../../core/storage/session_store.dart';
 import '../../models/activity.dart';
+import '../../models/city.dart';
 import '../../models/profile.dart';
 import '../profile/profile_palette.dart';
 import 'activity_sheets.dart';
@@ -45,6 +47,18 @@ class GamesScreenState extends State<GamesScreen> {
   int? _expandedBookers;
   int? _booking;
 
+  // ── 🏙️ المدينة ──
+  // 🔴 نجلب `cityId=all` ونرشّح محلياً لا على الخادم: شرائح المدن تعرض
+  //    **عدد** فعاليّات كلّ مدينة، والعدّ يحتاج القائمة كلّها. والتبديل
+  //    بين المدن فوريّ بلا نداء.
+  List<City> _cities = const [];
+  int? _homeCityId;
+  String? _homeCityName;
+
+  /// `null` = الكلّ. الافتراضيّ مدينة اللاعب حين تُعرف.
+  int? _cityFilter;
+  bool _cityChosen = false;
+
   int? get _myId => SessionStore.instance.player?.id;
 
   @override
@@ -69,8 +83,8 @@ class GamesScreenState extends State<GamesScreen> {
     // كل نداء يتدهور وحده: غياب الحجوزات لا يُخفي الأنشطة، وغياب الغرف
     // لا يمنع الحجز. تجميعها في نداءٍ واحد يجعل أضعفها يُسقط أقواها.
     final r = await Future.wait([
-      api.get('/api/player-app/activities/upcoming', query: {'playerId': id})
-          .catchError((_) => null),
+      api.get('/api/player-app/activities/upcoming',
+          query: {'playerId': id, 'cityId': 'all'}).catchError((_) => null),
       api.get('/api/player-app/$id/bookings').catchError((_) => null),
       api.get('/api/player/$id/profile').catchError((_) => null),
       api.get('/api/player-app/my-active-rooms').catchError((_) => null),
@@ -83,6 +97,32 @@ class GamesScreenState extends State<GamesScreen> {
             .map((e) => Activity.fromJson(Map<String, dynamic>.from(e)))
             .toList())
         : <Activity>[];
+
+    // 🏙️ المدن والمدينة الأساسيّة — من استجابة الفعاليّات، والبروفايل
+    //    يكمل الاسم. خادمٌ قديم لا يرسلها فتسقط الشرائح بصمت.
+    var cities = r[0] is Map ? City.listFrom(r[0]['cities']) : <City>[];
+    if (cities.isEmpty) {
+      // احتياط: نستنتجها من الفعاليّات نفسها
+      final seen = <int, City>{};
+      for (final a in acts) {
+        if (a.cityId != null && a.cityName != null) {
+          seen[a.cityId!] = City(id: a.cityId!, name: a.cityName!);
+        }
+      }
+      cities = seen.values.toList();
+    }
+    CityService.instance.prime(cities);
+
+    int? homeId = (r[0] is Map && r[0]['homeCityId'] is num)
+        ? (r[0]['homeCityId'] as num).toInt()
+        : null;
+    String? homeName;
+    if (r[2] is Map && r[2]['success'] == true) {
+      final p = ProfileResponse.fromJson(Map<String, dynamic>.from(r[2] as Map));
+      homeId ??= p.homeCityId;
+      homeName = p.homeCityName;
+    }
+    homeName ??= CityService.instance.nameOf(homeId);
 
     final booked = <int>{};
     if (r[1] is Map && r[1]['success'] == true) {
@@ -116,11 +156,31 @@ class GamesScreenState extends State<GamesScreen> {
       _bookedIds = booked;
       _matches = matches;
       _rooms = rooms;
+      _cities = cities;
+      _homeCityId = homeId;
+      _homeCityName = homeName;
+      // الافتراضيّ مدينة اللاعب — مرّةً واحدة، ولا يدوس اختياره بعدها
+      if (!_cityChosen) {
+        _cityFilter = cities.any((c) => c.id == homeId) ? homeId : null;
+        _cityChosen = true;
+      } else if (_cityFilter != null && !cities.any((c) => c.id == _cityFilter)) {
+        _cityFilter = null;
+      }
       _loading = false;
     });
 
     unawaited(_loadBookers(acts, id));
   }
+
+  /// فعاليّات المدينة المختارة (أو الكلّ) قبل ترشيح اليوم.
+  List<Activity> get _cityActivities => _cityFilter == null
+      ? _activities
+      : _activities.where((a) => a.cityId == _cityFilter).toList();
+
+  int _countIn(int cityId) => _activities.where((a) => a.cityId == cityId).length;
+
+  String? get _cityFilterName =>
+      _cityFilter == null ? null : CityService.instance.nameOf(_cityFilter);
 
   /// نداءٌ لكل نشاط — يصل متأخّراً ويظهر شارته حين يصل.
   Future<void> _loadBookers(List<Activity> acts, int myId) async {
@@ -162,12 +222,19 @@ class GamesScreenState extends State<GamesScreen> {
       context,
       activity: a,
       booked: _bookedIds.contains(a.id),
+      homeCityId: _homeCityId,
+      homeCityName: _homeCityName,
     );
     if (wantsBooking == true && mounted) _openBooking(a);
   }
 
   Future<void> _openBooking(Activity a) async {
-    final offerIndex = await showBookingConfirm(context, activity: a);
+    final offerIndex = await showBookingConfirm(
+      context,
+      activity: a,
+      homeCityId: _homeCityId,
+      homeCityName: _homeCityName,
+    );
     if (offerIndex == null || !mounted) return;
     await _book(a, offerIndex < 0 ? null : offerIndex);
   }
@@ -229,12 +296,20 @@ class GamesScreenState extends State<GamesScreen> {
   // ══════════════════════════════════════════════════════
   List<Activity> get _visible {
     final d = _selectedDay;
-    if (d == null) return _activities;
-    return _activities.where((a) => DateUtils.isSameDay(a.date, d)).toList();
+    final list = _cityActivities;
+    if (d == null) return list;
+    return list.where((a) => DateUtils.isSameDay(a.date, d)).toList();
   }
 
   bool _hasActivitiesOn(DateTime d) =>
-      _activities.any((a) => DateUtils.isSameDay(a.date, d));
+      _cityActivities.any((a) => DateUtils.isSameDay(a.date, d));
+
+  void _selectCity(int? id) => setState(() {
+        _cityFilter = id;
+        _cityChosen = true;
+        // يومٌ مختار قد لا يوجد في المدينة الجديدة — نعيده إلى الكلّ
+        if (_selectedDay != null && !_hasActivitiesOn(_selectedDay!)) _selectedDay = null;
+      });
 
   @override
   Widget build(BuildContext context) {
@@ -269,6 +344,17 @@ class GamesScreenState extends State<GamesScreen> {
                   children: [
                     _header(now),
                     const SizedBox(height: 12),
+                    // 🏙️ شرائح المدينة — فوق شريط الأيّام، وبمدينتين فأكثر فقط
+                    if (_cities.length > 1) ...[
+                      CityChipRow(
+                        cities: _cities,
+                        homeCityId: _homeCityId,
+                        selected: _cityFilter,
+                        countOf: _countIn,
+                        onSelect: _selectCity,
+                      ),
+                      const SizedBox(height: 10),
+                    ],
                     CalendarStrip(
                       today: now,
                       selected: _selectedDay,
@@ -365,7 +451,10 @@ class GamesScreenState extends State<GamesScreen> {
           child: Text(
             _selectedDay != null
                 ? 'لا توجد أنشطة في هذا اليوم'
-                : 'لا توجد أنشطة قادمة حالياً',
+                : _cityFilterName != null
+                    ? 'لا توجد أنشطة قادمة في $_cityFilterName حالياً'
+                    : 'لا توجد أنشطة قادمة حالياً',
+            textAlign: TextAlign.center,
             style: ar(14, color: Tw.gray600),
           ),
         ),
@@ -389,6 +478,8 @@ class GamesScreenState extends State<GamesScreen> {
                   () => _expandedBookers = _expandedBookers == a.id ? null : a.id),
               onOpen: () => _openDetails(a),
               onBook: () => _openBooking(a),
+              homeCityId: _homeCityId,
+              homeCityName: _homeCityName,
               // `pushTo` لا `navigateTo`: الغرفة تُفتح من داخل التطبيق فيبقى
               // الغلاف تحتها ويعود إليه زرّ الرجوع
               onEnterRoom: (code) => pushTo('/join/$code'),

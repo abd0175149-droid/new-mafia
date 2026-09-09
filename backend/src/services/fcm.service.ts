@@ -420,15 +420,39 @@ export async function sendPushToPlayers(
 }
 
 // ── إرسال Push لكل اللاعبين ──────────────────────────
+// 🔴 كان يشمل المحذوفين والمجهَّلين — حسابٌ معطَّل لا يُرسَل إليه خبرُ فعاليّة.
 export async function sendPushToAllPlayers(title: string, body: string, type: string, data: Record<string, any> = {}) {
   const db = getDB();
   if (!db) return;
 
-  const allPlayers = await db.select({ id: players.id }).from(players);
+  const allPlayers = await db.select({ id: players.id }).from(players)
+    .where(and(isNull(players.deletedAt), isNull(players.anonymizedAt)));
   const ids = allPlayers.map(p => p.id);
   if (ids.length === 0) return;
 
   await sendPushToPlayers(ids, title, body, type, data);
+}
+
+// ── 🏙️ إرسال Push للاعبي مدينة ──────────────────────
+// المستهدفون = مدينتُهم الأساسيّة هي هذه المدينة ∪ لهم صفُّ إحصاءاتٍ فيها هذا الموسم ∪ حجزوا فعاليّةً في أماكنها.
+// (قرار ٤ — فعاليّةٌ جديدة تصل من يعنيه أمرُها؛ إطلاقُ مدينةٍ جديدة يستعمل «الكلّ» صراحةً.)
+export async function sendPushToCityPlayers(cityId: number, title: string, body: string, type: string, data: Record<string, any> = {}) {
+  const db = getDB();
+  if (!db || !cityId) return;
+  const res: any = await db.execute(sql`
+    SELECT DISTINCT p.id FROM players p
+    WHERE p.deleted_at IS NULL AND p.anonymized_at IS NULL AND (
+      p.home_city_id = ${cityId}
+      OR EXISTS (SELECT 1 FROM player_season_stats pss WHERE pss.player_id = p.id AND pss.city_id = ${cityId} AND COALESCE(pss.total_matches,0) > 0)
+      OR EXISTS (SELECT 1 FROM bookings b JOIN activities a ON a.id = b.activity_id JOIN locations l ON l.id = a.location_id
+                 WHERE b.player_id = p.id AND b.deleted_at IS NULL AND l.city_id = ${cityId})
+      OR EXISTS (SELECT 1 FROM reservations r JOIN activities a ON a.id = r.activity_id JOIN locations l ON l.id = a.location_id
+                 WHERE r.player_id = p.id AND r.deleted_at IS NULL AND l.city_id = ${cityId})
+    )`);
+  const ids = (res?.rows ?? res ?? []).map((r: any) => Number(r.id)).filter((n: number) => n > 0);
+  console.log(`🏙️ City push → city #${cityId}: ${ids.length} recipients`);
+  if (ids.length === 0) return;
+  await sendPushToPlayers(ids, title, body, type, { ...data, cityId: String(cityId) });
 }
 
 // ══════════════════════════════════════════════════════

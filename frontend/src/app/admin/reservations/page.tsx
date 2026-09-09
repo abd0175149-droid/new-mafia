@@ -408,7 +408,7 @@ export default function ReservationsPage() {
             <option value="">— اختر الفعاليّة —</option>
             <option value="all">كلّ الفعاليّات</option>
             {R.activityOptions.map(a => (
-              <option key={a.id} value={a.id}>{a.name}{a.status === 'completed' ? ' (منتهي)' : ''}</option>
+              <option key={a.id} value={a.id}>{a.name}{a.cityName ? ` · ${a.cityName}` : ''}{a.status === 'completed' ? ' (منتهي)' : ''}</option>
             ))}
           </select>
           {single && (

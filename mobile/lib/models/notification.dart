@@ -70,6 +70,8 @@ const _typeIcons = <String, String>{
   'feedback_survey': '📋',
   'order_status': '🍽️',
   'rank_bonus': '🎁',
+  'rank_up': '🏆',
+  'rank_down': '📉',
 };
 
 const _typeColors = <String, Color>{
@@ -84,6 +86,8 @@ const _typeColors = <String, Color>{
   'feedback_survey': Color(0xFF8B5CF6),
   'order_status': Color(0xFF10B981),
   'rank_bonus': Color(0xFFF59E0B),
+  'rank_up': Color(0xFFF59E0B),
+  'rank_down': Color(0xFFEF4444),
 };
 
 String notificationIcon(String type) => _typeIcons[type] ?? '🔔';
@@ -129,8 +133,16 @@ String? resolveNotificationUrl(String type, Map<String, dynamic> data) {
     case 'order_status':
       return '/player/order';
 
+    // 🏙️ إشعارات الرتبة تفتح التصنيف **على مدينتها**: الرتبة بحسب
+    //    (الموسم، المدينة)، فترقيةٌ في الزرقاء تُفتح على لوحة الزرقاء لا
+    //    على الافتراضيّ. بلا `cityId` (خادمٌ قديم) تُفتح اللوحة كما هي.
     case 'rank_bonus':
-      return '/player/rank';
+    case 'rank_up':
+    case 'rank_down':
+    case 'level_up':
+      final city = data['cityId'];
+      final cityId = city is num ? city.toInt() : int.tryParse('${city ?? ''}');
+      return cityId == null ? '/player/rank' : '/player/rank?city=$cityId';
 
     case 'booking_confirmed':
     case 'game_ended':

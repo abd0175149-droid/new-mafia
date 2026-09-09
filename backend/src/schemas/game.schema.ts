@@ -28,6 +28,9 @@ export const sessions = pgTable('sessions', {
   createdBy: integer('created_by'),
   // 🔗 ربط بالنشاط (activities.id) — يُملأ لاحقاً من admin.schema
   activityId: integer('activity_id'),
+  // 📍 مكانُ الغرفة (locations.id) — من الفعاليّة، أو مكانٌ صريحٌ يختاره الليدر لغرفةٍ «بدون نشاط».
+  //    مجمَّدٌ عند الإنشاء؛ null للغرف البعيدة. بلا مكانٍ لا مدينةَ فلا رتبة (fail-safe).
+  locationId: integer('location_id'),
   // 🌐 غرفة لعبٍ عن بُعد (كل اللاعبين على أجهزتهم من أماكن مختلفة). الافتراضي false = غرفة قاعة عادية
   isRemote: boolean('is_remote').default(false),
   // 🔗 مُضيف الغرفة البعيدة (players.id) — اللاعب الذي أنشأها ويُديرها كليدر (null لغرف الموظّفين)
@@ -69,8 +72,11 @@ export const matches = pgTable('matches', {
   winner: winnerEnum('winner'),
   totalRounds: integer('total_rounds').default(0),
   durationSeconds: integer('duration_seconds'),
-  // 🏆 الموسم الذي تُحتسب له المباراة (عادي أو بطولة حسب الموقع) — يُختم عند الإنشاء
+  // 🏆 الموسم الذي تُحتسب له المباراة (عادي أو بطولة حسب الموقع) — يُختم عند الإنشاء ويُثبَّت عند الاحتساب
   seasonId: integer('season_id'),
+  // 🏙️ مدينةُ المباراة (cities.id) — من مكان الغرفة وقت اللعب، **مجمَّدة**: نقلُ مكانٍ إلى
+  //    مدينةٍ أخرى لاحقاً لا يُعيد كتابة التاريخ. null = بلا نطاق مدينة (بعيدة/بطولة/بلا مكان).
+  cityId: integer('city_id'),
   // 👤 مُنشئ الغرفة/المباراة (staff.id) — للتمييز عن بقية الأدمن لاحقاً
   createdBy: integer('created_by'),
   createdAt: timestamp('created_at').defaultNow().notNull(),

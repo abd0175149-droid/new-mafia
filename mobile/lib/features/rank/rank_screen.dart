@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 import '../../app/theme/theme.dart';
 import '../../core/api/api_client.dart';
 import '../../core/api/game_config_service.dart';
+import '../../core/cities/city_service.dart';
 import '../../core/storage/session_store.dart';
 import '../../models/profile.dart';
 import '../../models/rank.dart';
@@ -20,15 +21,47 @@ import 'rank_widgets.dart';
 // للتبويب أو استئناف التطبيق — وهي حيويّة: اللاعب يخرج من مباراة
 // ويريد أن يرى RR الجديد فوراً.
 //
+// 🏙️ التصنيف بحسب (الموسم، المدينة): مفتاح «وجاهيّ | أونلاين» القديم
+//    صار «عمّان | الزرقاء | أونلاين» — نفس المكوّن ونفس السلوك (تبديل
+//    الوضع يعيد ضبط الموسم المختار). الافتراضيّ مدينةُ اللاعب الأساسيّة،
+//    ولون المدينة يسري على الشريحة وبطاقة «رتبتي» والصفّ المتوهّج وأرقام RR.
+//
 // 📌 خارج هذه الشاشة عمداً: إطارات الرتب وتأثيراتها البصرية (§4.10+)
 //    تُركَّب على **كرت اللعب** لا هنا، ومكانها طبقة اللعب في M4/M5.
 
-enum RankMode { inperson, online }
+/// وضع العرض — مدينةٌ واحدة (وجاهيّ) أو الأونلاين.
+///
+/// `cityId == null` مع `online == false` = خادمٌ قديم بلا مدن: وضعٌ وجاهيّ
+/// واحد يسلك سلوك اليوم تماماً.
+class RankMode {
+  const RankMode.city(this.cityId, this.cityName) : online = false;
+  const RankMode.online()
+      : cityId = null,
+        cityName = 'أونلاين',
+        online = true;
+
+  final int? cityId;
+  final String cityName;
+  final bool online;
+
+  bool get isCity => !online;
+
+  String get _key => online ? 'online' : 'city:$cityId';
+
+  @override
+  bool operator ==(Object other) => other is RankMode && other._key == _key;
+
+  @override
+  int get hashCode => _key.hashCode;
+}
 
 enum RankTab { leaderboard, coplayers, howto }
 
 class RankScreen extends StatefulWidget {
-  const RankScreen({super.key});
+  const RankScreen({super.key, this.initialCityId});
+
+  /// من `?city=` — إشعار ترقيةٍ بمدينتها يفتح اللوحة عليها.
+  final int? initialCityId;
 
   @override
   State<RankScreen> createState() => RankScreenState();
@@ -37,18 +70,29 @@ class RankScreen extends StatefulWidget {
 class RankScreenState extends State<RankScreen>
     with SingleTickerProviderStateMixin, WidgetsBindingObserver {
   RankTab _tab = RankTab.leaderboard;
-  RankMode _mode = RankMode.inperson;
+
+  /// قبل أوّل جلبٍ: وضعٌ مؤقّت بالمدينة المطلوبة (إن وُجدت) بلا اسم.
+  late RankMode _mode = RankMode.city(widget.initialCityId, '');
+  List<RankMode> _modes = const [];
+  bool _modeResolved = false;
+
+  /// مدينةٌ طُلبت (رابط/إشعار) ولم تُطبَّق بعد.
+  late int? _pendingCityId = widget.initialCityId;
 
   bool _loading = true;
   bool _seasonLoading = false;
+  bool _liveLoading = false;
 
-  List<LeaderboardRow> _live = const [];
+  /// اللوحة الحيّة **لكلّ مدينة** — التبديل بين المدن لا يعيد الجلب.
+  final Map<int?, List<LeaderboardRow>> _liveByCity = {};
   List<LeaderboardRow>? _seasonBoard;
   List<CoPlayer> _coPlayers = const [];
   ProgressionConfig? _config;
+  ProfileResponse? _profile;
   PlayerProgression? _prog;
   ProfileStats? _myStats;
 
+  List<City> _cities = const [];
   List<Season> _seasons = const [];
   List<Season> _onlineSeasons = const [];
   int? _activeSeasonId;
@@ -60,6 +104,7 @@ class RankScreenState extends State<RankScreen>
 
   /// رمز الطلب الجاري للوحة موسم — استجابة طلبٍ قديم تُهمَل.
   int _seasonRequest = 0;
+  int _liveRequest = 0;
 
   late final AnimationController _glow = AnimationController(
     vsync: this,
@@ -77,6 +122,14 @@ class RankScreenState extends State<RankScreen>
     super.initState();
     WidgetsBinding.instance.addObserver(this);
     _load();
+  }
+
+  @override
+  void didUpdateWidget(RankScreen oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    // الفرع محفوظ الحالة: `?city=` جديدة تصل هنا لا في initState
+    final c = widget.initialCityId;
+    if (c != null && c != oldWidget.initialCityId) selectCity(c);
   }
 
   @override
@@ -99,6 +152,22 @@ class RankScreenState extends State<RankScreen>
     if (!_loading) _load();
   }
 
+  /// يفتح اللوحة على مدينةٍ بعينها — من رابطٍ أو إشعار. مدينةٌ مجهولة
+  /// تُحفَظ حتى يصل الجلب التالي بقائمة المدن.
+  void selectCity(int cityId) {
+    if (_loading) {
+      _pendingCityId = cityId;
+      return;
+    }
+    final m = _modes.where((m) => m.isCity && m.cityId == cityId).firstOrNull;
+    if (m == null) {
+      _pendingCityId = cityId;
+      return;
+    }
+    _pendingCityId = null;
+    if (m != _mode) _switchMode(m);
+  }
+
   // ══════════════════════════════════════════════════════
   // الجلب
   // ══════════════════════════════════════════════════════
@@ -112,11 +181,18 @@ class RankScreenState extends State<RankScreen>
 
     final api = ApiClient.instance;
 
-    // 🔴 الأربعة الاختيارية تتدهور بصمت: غياب إعدادات التقدّم يُفرغ تبويب
+    // 🔴 المدينة المطلوبة صراحةً (رابط) أو المعروضة حالياً؛ وبلا أيّهما
+    //    يختار الخادم مدينة اللاعب الأساسيّة ويخبرنا بها في الاستجابة.
+    final wantCity = _pendingCityId ?? (_mode.isCity ? _mode.cityId : null);
+
+    // 🔴 الاختياريّة تتدهور بصمت: غياب إعدادات التقدّم يُفرغ تبويب
     //    «النقاط» وحده، ولا يُسقط اللوحة. تجميعها في نداءٍ واحد يجعل
     //    أضعفها يُسقط أقواها — نفس قاعدة الرئيسية.
     final results = await Future.wait([
-      api.get('/api/player-app/leaderboard').catchError((_) => null),
+      api.get('/api/player-app/leaderboard', query: {
+        'playerId': id,
+        if (wantCity != null) 'cityId': wantCity,
+      }).catchError((_) => null),
       api.get('/api/player-app/$id/co-players').catchError((_) => null),
       api.get('/api/player/$id/profile').catchError((_) => null),
       api.get('/api/progression-settings/public').catchError((_) => null),
@@ -127,14 +203,9 @@ class RankScreenState extends State<RankScreen>
 
     if (!mounted) return;
 
-    List<LeaderboardRow> board(dynamic r) => (r is Map && r['success'] == true)
-        ? ((r['leaderboard'] as List? ?? const [])
-            .whereType<Map>()
-            .map((e) => LeaderboardRow.fromJson(Map<String, dynamic>.from(e)))
-            .toList())
-        : const [];
-
-    final lb = board(results[0]);
+    final lb = (results[0] is Map && results[0]['success'] == true)
+        ? LeaderboardResponse.fromJson(Map<String, dynamic>.from(results[0] as Map))
+        : const LeaderboardResponse();
 
     final co = (results[1] is Map && results[1]['success'] == true)
         ? ((results[1]['coPlayers'] as List? ?? const [])
@@ -143,12 +214,9 @@ class RankScreenState extends State<RankScreen>
             .toList())
         : <CoPlayer>[];
 
-    PlayerProgression? prog;
-    ProfileStats? stats;
+    ProfileResponse? profile;
     if (results[2] is Map && results[2]['success'] == true) {
-      final p = ProfileResponse.fromJson(Map<String, dynamic>.from(results[2] as Map));
-      prog = p.progression;
-      stats = p.stats;
+      profile = ProfileResponse.fromJson(Map<String, dynamic>.from(results[2] as Map));
     }
 
     final cfg = (results[3] is Map && results[3]['config'] is Map)
@@ -157,11 +225,18 @@ class RankScreenState extends State<RankScreen>
 
     int? activeId;
     String activeName = '';
+    var cities = <City>[];
     if (results[4] is Map && results[4]['season'] is Map) {
       final s = Season.fromJson(Map<String, dynamic>.from(results[4]['season'] as Map));
       activeId = s.id;
       activeName = s.name;
+      cities = s.cities;
     }
+    // 🏙️ المدن: من الموسم النشط، وإلا من استجابة اللوحة، وإلا القائمة العامّة
+    if (cities.isEmpty) cities = lb.cities;
+    if (cities.isEmpty) cities = await CityService.instance.cities();
+    if (!mounted) return;
+    CityService.instance.prime(cities);
 
     final seasons =
         results[5] is Map ? Season.listFrom(results[5]['seasons']) : <Season>[];
@@ -171,42 +246,129 @@ class RankScreenState extends State<RankScreen>
         ? (results[6]['activeOnlineSeasonId'] as num).toInt()
         : null;
 
+    // الأوضاع: مدينةٌ لكلّ مدينة (أو وضعٌ وجاهيّ واحد بلا مدن) + أونلاين
+    final modes = <RankMode>[
+      if (cities.isEmpty)
+        const RankMode.city(null, '')
+      else
+        for (final c in cities) RankMode.city(c.id, c.name),
+      if (onlineSeasons.isNotEmpty) const RankMode.online(),
+    ];
+
     setState(() {
-      _live = lb;
+      _liveByCity[lb.cityId] = lb.leaderboard;
       _coPlayers = co;
-      _prog = prog;
-      _myStats = stats;
+      _profile = profile;
+      _prog = profile?.progression;
+      _myStats = profile?.stats;
       _config = cfg;
+      _cities = cities;
       _activeSeasonId = activeId;
       _activeSeasonName = activeName;
       _seasons = seasons;
       _onlineSeasons = onlineSeasons;
       _activeOnlineSeasonId = activeOnline;
+      _modes = modes;
+      _resolveMode(modes, lb, profile);
       // لا يدوس اختيار المستخدم
-      _selectedSeasonId ??= activeId;
+      _selectedSeasonId ??= _mode.online ? _activeOnlineSeasonId : activeId;
       _loading = false;
     });
 
+    // مدينةٌ مطلوبة لم تصل لوحتها بعد (الجلب الأوّل كان لغيرها)
+    if (_viewingActive && !_liveByCity.containsKey(_mode.cityId)) {
+      unawaited(_loadLiveBoard(_mode.cityId));
+    } else {
+      _restartGlow();
+    }
+  }
+
+  /// يحسم الوضع المعروض بعد الجلب. داخل `setState`.
+  void _resolveMode(List<RankMode> modes, LeaderboardResponse lb, ProfileResponse? p) {
+    RankMode? cityMode(int? id) =>
+        modes.where((m) => m.isCity && m.cityId == id).firstOrNull;
+
+    // ١) مدينةٌ مطلوبة صراحةً (رابط/إشعار)
+    final pending = _pendingCityId;
+    if (pending != null) {
+      final m = cityMode(pending);
+      if (m != null) {
+        _pendingCityId = null;
+        if (m != _mode) {
+          _mode = m;
+          _selectedSeasonId = _activeSeasonId;
+        }
+        _modeResolved = true;
+        return;
+      }
+    }
+
+    // ٢) أوّل جلب: الأساسيّة، وإلا ما اختاره الخادم، وإلا الأولى
+    if (!_modeResolved) {
+      _mode = cityMode(p?.homeCityId) ??
+          cityMode(lb.cityId) ??
+          modes.where((m) => m.isCity).firstOrNull ??
+          modes.first;
+      _modeResolved = true;
+      return;
+    }
+
+    // ٣) جلبٌ لاحق: نبقي الوضع الحاليّ إن بقي موجوداً (وننعش اسمه)
+    final same = modes.where((m) => m == _mode).firstOrNull;
+    if (same != null) {
+      _mode = same;
+    } else {
+      _mode = cityMode(p?.homeCityId) ?? modes.first;
+      _selectedSeasonId = _mode.online ? _activeOnlineSeasonId : _activeSeasonId;
+    }
+  }
+
+  /// اللوحة الحيّة لمدينةٍ بعينها — تُجلَب عند أوّل تبديلٍ إليها.
+  Future<void> _loadLiveBoard(int? cityId) async {
+    final token = ++_liveRequest;
+    setState(() => _liveLoading = true);
+    try {
+      final r = await ApiClient.instance.get('/api/player-app/leaderboard', query: {
+        'playerId': _myId,
+        if (cityId != null) 'cityId': cityId,
+      });
+      if (!mounted || token != _liveRequest) return;
+      final lb = (r is Map && r['success'] == true)
+          ? LeaderboardResponse.fromJson(Map<String, dynamic>.from(r))
+          : const LeaderboardResponse();
+      setState(() {
+        _liveByCity[cityId] = lb.leaderboard;
+        _liveLoading = false;
+      });
+    } catch (_) {
+      if (!mounted || token != _liveRequest) return;
+      setState(() {
+        _liveByCity[cityId] = const [];
+        _liveLoading = false;
+      });
+    }
     _restartGlow();
   }
 
   Future<void> _loadSeasonBoard() async {
     final sel = _selectedSeasonId;
-    if (sel == null || sel == _activeSeasonId) {
+    if (sel == null || (_mode.isCity && sel == _activeSeasonId)) {
       setState(() => _seasonBoard = null);
       return;
     }
     final token = ++_seasonRequest;
     setState(() => _seasonLoading = true);
     try {
-      final r = await ApiClient.instance.get('/api/seasons/public/$sel/leaderboard');
+      // 🏙️ الموسم العاديّ السابق يتطلّب المدينة؛ الأونلاين بلا مدينة
+      final cityId = _mode.isCity ? _mode.cityId : null;
+      final r = await ApiClient.instance.get(
+        '/api/seasons/public/$sel/leaderboard',
+        query: cityId == null ? null : {'cityId': cityId},
+      );
       if (!mounted || token != _seasonRequest) return;
       setState(() {
         _seasonBoard = (r is Map && r['success'] == true)
-            ? ((r['leaderboard'] as List? ?? const [])
-                .whereType<Map>()
-                .map((e) => LeaderboardRow.fromJson(Map<String, dynamic>.from(e)))
-                .toList())
+            ? LeaderboardResponse.rowsFrom(r['leaderboard'])
             : <LeaderboardRow>[];
         _seasonLoading = false;
       });
@@ -220,13 +382,14 @@ class RankScreenState extends State<RankScreen>
   // المشتقّات
   // ══════════════════════════════════════════════════════
   bool get _viewingActive =>
-      _mode == RankMode.inperson &&
+      _mode.isCity &&
       (_selectedSeasonId == null || _selectedSeasonId == _activeSeasonId);
 
-  List<LeaderboardRow> get _board => _viewingActive ? _live : (_seasonBoard ?? const []);
+  List<LeaderboardRow> get _board => _viewingActive
+      ? (_liveByCity[_mode.cityId] ?? const [])
+      : (_seasonBoard ?? const []);
 
-  List<Season> get _currentSeasons =>
-      _mode == RankMode.online ? _onlineSeasons : _seasons;
+  List<Season> get _currentSeasons => _mode.online ? _onlineSeasons : _seasons;
 
   String get _selectedSeasonName {
     for (final s in _currentSeasons) {
@@ -247,15 +410,48 @@ class RankScreenState extends State<RankScreen>
     return null;
   }
 
+  // ── 🎨 لون الوضع المعروض ──
+  Color get _accent => _mode.online
+      ? CityService.onlineAccent
+      : CityService.instance.accentFor(_mode.cityId);
+
+  Color get _accentText => _mode.online
+      ? CityService.onlineText
+      : CityService.instance.textFor(_mode.cityId);
+
+  Color get _chipBg => _mode.online
+      ? CityService.onlineChipBg
+      : CityService.instance.chipBgFor(_mode.cityId);
+
+  Color get _chipBorder => _mode.online
+      ? CityService.onlineChipBorder
+      : CityService.instance.chipBorderFor(_mode.cityId);
+
+  int? get _homeCityId => _profile?.homeCityId;
+
+  /// صفّي في المدينة المعروضة — `null` إن لم ألعب فيها (أو خادمٌ قديم).
+  Standing? get _standing => _mode.isCity ? _profile?.standingFor(_mode.cityId) : null;
+
+  /// هل نسقط على `progression`/`stats` القديمين (= المدينة الأساسيّة)؟
+  bool get _useLegacyProgression =>
+      _mode.isCity &&
+      (_mode.cityId == null ||
+          (_profile?.standings.isEmpty ?? true) ||
+          _mode.cityId == _homeCityId);
+
   // ══════════════════════════════════════════════════════
   // الأفعال
   // ══════════════════════════════════════════════════════
   void _switchMode(RankMode m) {
     setState(() {
       _mode = m;
-      _selectedSeasonId =
-          m == RankMode.online ? _activeOnlineSeasonId : _activeSeasonId;
+      _selectedSeasonId = m.online ? _activeOnlineSeasonId : _activeSeasonId;
     });
+    if (m.isCity && !_liveByCity.containsKey(m.cityId)) {
+      unawaited(_loadLiveBoard(m.cityId));
+    } else {
+      _restartGlow();
+    }
     _loadSeasonBoard();
   }
 
@@ -371,14 +567,14 @@ class RankScreenState extends State<RankScreen>
                 children: [
                   _header(),
                   const SizedBox(height: 16),
-                  if (!_viewingActive) _pastSeasonCard()
-                  else if (_prog != null) _currentSeasonCard(),
+                  if (!_viewingActive) _pastSeasonCard() else _currentSeasonCard(),
                   const SizedBox(height: 16),
                   _tabBar(),
                   const SizedBox(height: 16),
                   AnimatedSwitcher(
                     duration: const Duration(milliseconds: 200),
-                    child: KeyedSubtree(key: ValueKey(_tab), child: _tabBody()),
+                    child: KeyedSubtree(
+                        key: ValueKey('${_tab.name}|${_mode._key}'), child: _tabBody()),
                   ),
                 ],
               ),
@@ -390,17 +586,34 @@ class RankScreenState extends State<RankScreen>
   }
 
   // ── §4.2 الرأس ──
-  Widget _header() => Wrap(
-        alignment: WrapAlignment.spaceBetween,
-        crossAxisAlignment: WrapCrossAlignment.center,
-        runSpacing: 8,
+  // العنوان ومنتقي الموسم في سطر، ومفتاح الوضع في سطرٍ يمرَّر أفقياً:
+  // ثلاث شرائح فأكثر مع منتقي الموسم لا تتّسع لسطرٍ واحد على الهواتف.
+  Widget _header() => Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          Text('🏆 التصنيف والرتب', style: ar(18, weight: FontWeight.w700)),
-          Row(mainAxisSize: MainAxisSize.min, children: [
-            if (_onlineSeasons.isNotEmpty) _modeSwitch(),
-            const SizedBox(width: 6),
-            _seasonPicker(),
-          ]),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Flexible(
+                child: Text('🏆 التصنيف والرتب',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: ar(18, weight: FontWeight.w700)),
+              ),
+              const SizedBox(width: 6),
+              _seasonPicker(),
+            ],
+          ),
+          if (_modes.length > 1) ...[
+            const SizedBox(height: 10),
+            Align(
+              alignment: AlignmentDirectional.centerStart,
+              child: SingleChildScrollView(
+                scrollDirection: Axis.horizontal,
+                child: _modeSwitch(),
+              ),
+            ),
+          ],
         ],
       );
 
@@ -412,14 +625,25 @@ class RankScreenState extends State<RankScreen>
           border: Border.all(color: const Color(0xFF2A2A2A)),
         ),
         child: Row(mainAxisSize: MainAxisSize.min, children: [
-          _modeChip('وجاهيّ', RankMode.inperson, const Color(0x40F59E0B), Tw.amber200),
-          _modeChip('🌐 أونلاين', RankMode.online, const Color(0x400EA5E9),
-              const Color(0xFFBAE6FD)),
+          for (final m in _modes) _modeChip(m),
         ]),
       );
 
-  Widget _modeChip(String label, RankMode m, Color bg, Color fg) {
+  Widget _modeChip(RankMode m) {
     final on = _mode == m;
+    final svc = CityService.instance;
+    final label = m.online
+        ? '🌐 أونلاين'
+        : m.cityName.isEmpty
+            ? 'وجاهيّ'
+            : (m.cityId == _homeCityId ? '🏙️ ${m.cityName}' : m.cityName);
+    // 🎨 لون الوضع: عنبريّ لعمّان، أزرق لغيرها، سماويّ للأونلاين
+    final bg = m.online ? const Color(0x400EA5E9) : svc.chipBorderFor(m.cityId);
+    final fg = m.online
+        ? const Color(0xFFBAE6FD)
+        : (m.cityId == null || m.cityId == CityService.amberCityId
+            ? Tw.amber200
+            : CityService.blueText);
     return InkWell(
       onTap: () => _switchMode(m),
       borderRadius: BorderRadius.circular(999),
@@ -441,7 +665,7 @@ class RankScreenState extends State<RankScreen>
   }
 
   Widget _seasonPicker() {
-    final online = _mode == RankMode.online;
+    final online = _mode.online;
     final list = _currentSeasons;
 
     if (list.isEmpty) {
@@ -450,14 +674,13 @@ class RankScreenState extends State<RankScreen>
             const Color(0xB37DD3FC), const Color(0x330EA5E9));
       }
       if (_activeSeasonName.isEmpty) return const SizedBox.shrink();
-      return _staticPill('🗓️ موسم: $_activeSeasonName', const Color(0x26F59E0B),
-          const Color(0xFFFCD34D), const Color(0x40F59E0B));
+      return _staticPill('🗓️ موسم: $_activeSeasonName', _chipBg, _accentText, _chipBorder);
     }
 
     final activeForMode = online ? _activeOnlineSeasonId : _activeSeasonId;
-    final bg = online ? const Color(0x260EA5E9) : const Color(0x26F59E0B);
-    final fg = online ? const Color(0xFF7DD3FC) : const Color(0xFFFCD34D);
-    final border = online ? const Color(0x400EA5E9) : const Color(0x40F59E0B);
+    final bg = _chipBg;
+    final fg = _accentText;
+    final border = _chipBorder;
 
     return ConstrainedBox(
       // سقف ٥٢٪ من عرض الشاشة يمنع اسم موسمٍ طويل من كسر الصفّ
@@ -507,12 +730,12 @@ class RankScreenState extends State<RankScreen>
   // ── §4.3 بطاقة موسم سابق / أونلاين ──
   Widget _pastSeasonCard() {
     final row = _myRow;
-    final color = RankScale.color(row?.rankTier);
+    final cityTail = _mode.isCity && _mode.cityName.isNotEmpty ? ' • ${_mode.cityName}' : '';
 
     return _rankCardShell(
-      color,
+      _accent,
       Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-        Text('🗓️ موسم: $_selectedSeasonName', style: ar(10, color: Tw.gray500)),
+        Text('🗓️ موسم: $_selectedSeasonName$cityTail', style: ar(10, color: Tw.gray500)),
         const SizedBox(height: 4),
         if (_seasonLoading)
           Padding(
@@ -526,12 +749,12 @@ class RankScreenState extends State<RankScreen>
                 child: Text('لم تلعب في هذا الموسم', style: ar(12, color: Tw.gray500))),
           )
         else ...[
-          _rankHeadline(row.rankTier, row.rankRR, null, color),
+          _rankHeadline(row.rankTier, row.rankRR, null, _accentText),
           const SizedBox(height: 12),
           _statBoxes([
             ('مباراة', '${row.totalMatches}', Colors.white),
             ('فوز', '${row.totalWins}', Tw.green400),
-            ('المستوى', '${row.level}', Tw.amber400),
+            ('المستوى', '${row.level}', _accentText),
           ]),
         ],
       ]),
@@ -539,37 +762,133 @@ class RankScreenState extends State<RankScreen>
   }
 
   // ── §4.4 بطاقة الموسم الحاليّ ──
+  // 🏙️ صفّ **المدينة المعروضة**: من `standings` حين تصل، وإلا
+  //    `progression`/`stats` القديمان (= الأساسيّة). مدينةٌ لم ألعب فيها
+  //    بعد تعرض حالة فراغٍ خاصّة لا أصفاراً موهمة.
   Widget _currentSeasonCard() {
-    final prog = _prog!;
-    final color = RankScale.color(prog.rankTier);
+    final s = _standing;
+    PlayerProgression? prog;
+    int? matches, wins, winRate;
+    if (s != null) {
+      prog = s.toProgression();
+      matches = s.totalMatches;
+      wins = s.totalWins;
+      winRate = s.winRate;
+    } else if (_useLegacyProgression && _prog != null) {
+      prog = _prog;
+      matches = _myStats?.totalMatches;
+      wins = _myStats?.totalWins;
+      winRate = _myStats?.winRate;
+    }
+
+    if (prog == null || (s == null && !_useLegacyProgression)) {
+      return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+        _emptyCityCard(),
+        ..._otherStandings(),
+      ]);
+    }
+
+    final color = _accentText;
     // العتبة من الإعدادات أوّلاً، ثم rrRequired من البروفايل، ثم الثابت
     final required = RankScale.rrRequiredFrom(prog.rankTier,
         config: _config, profile: prog.rrRequired);
-    final s = _myStats;
 
-    return _rankCardShell(
-      color,
-      Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-        _rankHeadline(prog.rankTier, prog.rankRR, required, color),
-        if (s != null) ...[
+    return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+      _rankCardShell(
+        _accent,
+        Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+          if (_mode.cityName.isNotEmpty) ...[
+            Text('🏙️ ${_mode.cityName}', style: ar(10, color: Tw.gray500)),
+            const SizedBox(height: 4),
+          ],
+          _rankHeadline(prog.rankTier, prog.rankRR, required, color),
+          if (matches != null) ...[
+            const SizedBox(height: 12),
+            _statBoxes([
+              ('مباراة', '$matches', Colors.white),
+              ('فوز', '${wins ?? 0}', Tw.green400),
+              ('نسبة فوز', '${winRate ?? 0}%', color),
+              // الـenum الخام مقصود — يطابق الويب ويكشف المفتاح للدعم
+              ('الرانك', prog.rankTier, const Color(0xFF60A5FA)),
+            ]),
+          ],
           const SizedBox(height: 12),
-          _statBoxes([
-            ('مباراة', '${s.totalMatches}', Colors.white),
-            ('فوز', '${s.totalWins}', Tw.green400),
-            ('نسبة فوز', '${s.winRate}%', Tw.amber400),
-            // الـenum الخام مقصود — يطابق الويب ويكشف المفتاح للدعم
-            ('الرانك', prog.rankTier, const Color(0xFF60A5FA)),
-          ]),
-        ],
-        const SizedBox(height: 12),
-        ProgressBar(
-          value: required == 0 ? 0 : prog.rankRR / required,
-          color: color,
-          height: 6,
-          track: const Color(0x0DFFFFFF),
+          ProgressBar(
+            value: required == 0 ? 0 : prog.rankRR / required,
+            color: _accent,
+            height: 6,
+            track: const Color(0x0DFFFFFF),
+          ),
+        ]),
+      ),
+      ..._otherStandings(),
+    ]);
+  }
+
+  /// مدينةٌ بلا مبارياتٍ بعد — تطمينٌ لا أصفار.
+  Widget _emptyCityCard() => _rankCardShell(
+        _accent,
+        Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+          if (_mode.cityName.isNotEmpty)
+            Text('🏙️ ${_mode.cityName}', style: ar(10, color: Tw.gray500)),
+          Padding(
+            padding: const EdgeInsets.symmetric(vertical: 12),
+            child: Center(
+              child: Text(
+                _mode.cityName.isEmpty
+                    ? 'لا مباريات بعد — أوّل ليلة قريبًا'
+                    : 'لا مباريات في ${_mode.cityName} بعد — أوّل ليلة قريبًا',
+                textAlign: TextAlign.center,
+                style: ar(12, color: Tw.gray400),
+              ),
+            ),
+          ),
+          if (_homeCityId != null && _mode.cityId != _homeCityId)
+            Center(
+              child: Text('🏆 مبارياتك هنا تُحتسب لرتبتك في ${_mode.cityName} وحدها',
+                  textAlign: TextAlign.center, style: ar(10, color: _accentText)),
+            ),
+        ]),
+      );
+
+  /// «رتبتك في {مدينة أخرى}: {الرتبة} {RR} RR» — تحت بطاقة الموسم الحاليّ.
+  List<Widget> _otherStandings() {
+    final all = _profile?.standings ?? const <Standing>[];
+    final others = all.where((s) => s.cityId != _mode.cityId).toList();
+    if (others.isEmpty) return const [];
+    final svc = CityService.instance;
+    return [
+      const SizedBox(height: 8),
+      for (final s in others)
+        Padding(
+          padding: const EdgeInsets.only(top: 4),
+          child: InkWell(
+            onTap: () => selectCity(s.cityId),
+            borderRadius: BorderRadius.circular(10),
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(10),
+                color: svc.accentFor(s.cityId).withValues(alpha: 0.06),
+                border: Border.all(color: svc.accentFor(s.cityId).withValues(alpha: 0.2)),
+              ),
+              child: Row(children: [
+                Expanded(
+                  child: Text('رتبتك في ${s.cityName}:',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: ar(11, color: Tw.gray400)),
+                ),
+                Text('${RankScale.badge(s.rankTier)} ${RankScale.nameAr(s.rankTier)}',
+                    style: ar(11, color: Tw.gray300, weight: FontWeight.w700)),
+                const SizedBox(width: 8),
+                ltrText('${s.rankRR} RR',
+                    num_(11, color: svc.textFor(s.cityId), weight: FontWeight.w700)),
+              ]),
+            ),
+          ),
         ),
-      ]),
-    );
+    ];
   }
 
   Widget _rankCardShell(Color color, Widget child) => Container(
@@ -700,6 +1019,7 @@ class RankScreenState extends State<RankScreen>
     //    وحدها**. أقلّ من ثلاثة ⇒ قائمة عادية بلا منصّة، والترقيم من ١.
     final hasPodium = board.length >= 3;
     final rest = hasPodium ? board.sublist(3) : board;
+    final accent = _accentText;
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -738,6 +1058,7 @@ class RankScreenState extends State<RankScreen>
                 rank: i + (hasPodium ? 4 : 1),
                 isMe: me,
                 glow: me ? _glow : null,
+                accent: accent,
                 onTap: () => _viewProfile(r.id),
                 follow: (!me && co != null)
                     ? FollowButton(
@@ -749,15 +1070,19 @@ class RankScreenState extends State<RankScreen>
               );
             }),
           ),
-        // 🆕 موسم بدأ للتوّ: لا لاعب سجّل مباراة بعد (اللوحة تعرض لاعبي الموسم فقط)
+        // 🆕 موسم بدأ للتوّ / مدينةٌ بلا مبارياتٍ بعد — لا لاعب سجّل مباراة
         if (board.isEmpty)
           Padding(
             padding: const EdgeInsets.symmetric(vertical: 32),
             child: Center(
               child: Text(
-                _viewingActive
-                    ? 'الموسم بدأ للتوّ — لا نتائج بعد. العب أول مباراة وكن المتصدّر!'
-                    : 'لا نتائج في هذا الموسم',
+                _viewingActive && _liveLoading
+                    ? 'جارٍ التحميل…'
+                    : _viewingActive
+                        ? (_mode.cityName.isNotEmpty
+                            ? 'لا مباريات في ${_mode.cityName} بعد — أوّل ليلة قريبًا'
+                            : 'الموسم بدأ للتوّ — لا نتائج بعد. العب أول مباراة وكن المتصدّر!')
+                        : 'لا نتائج في هذا الموسم',
                 textAlign: TextAlign.center,
                 style: ar(13, color: Tw.gray600),
               ),
@@ -859,6 +1184,11 @@ class RankScreenState extends State<RankScreen>
             _bullet('نقاط الرانك (RR):', const Color(0xFF60A5FA),
                 ' تحدد رتبتك التنافسية، يمكن أن تكون بالسالب في حال الخسارة أو العقوبات'
                 ' (مثل ديل مافيا على مافيا).'),
+            if (_cities.length > 1) ...[
+              const SizedBox(height: 6),
+              _bullet('المدن:', CityService.blueText,
+                  ' لكلّ مدينةٍ رتبةٌ وترتيبٌ مستقلّان — مباراتك تُحتسب في مدينة مكانها.'),
+            ],
           ]),
         ),
         const SizedBox(height: 16),

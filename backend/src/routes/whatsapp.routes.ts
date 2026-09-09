@@ -345,46 +345,56 @@ router.get('/promoted-players', authenticate, async (_req: Request, res: Respons
       UNDERBOSS: 'أندربوس', GODFATHER: 'الأب الروحي',
     };
 
-    // 1. جلب كل اللاعبين مع آخر رتبة تم إرسالها
-    //    نستخدم subquery لجلب آخر سجل لكل لاعب
+    // 1. 🏙️ صفٌّ لكلّ (لاعب، مدينة) في الموسم العادي النشط مع آخر رتبةٍ أُرسلت **في تلك المدينة**
+    //    (ترقيةٌ في الزرقاء غير ترقيةٍ في عمّان — القيدُ يحمل المدينة)
+    const { getActiveRegularSeasonId } = await import('../services/season.service.js');
+    const seasonId = await getActiveRegularSeasonId();
+    if (!seasonId) return res.json({ success: true, players: [], summary: { total: 0, promoted: 0, demoted: 0, new: 0 } });
     const result = await db.execute(sql`
       SELECT
         p.id,
         p.name,
         p.phone,
-        p.rank_tier AS "rankTier",
-        p.rank_rr AS "rankRR",
-        p.level,
-        p.xp,
-        p.total_matches AS "totalMatches",
-        p.total_wins AS "totalWins",
-        p.total_survived AS "totalSurvived",
+        pss.city_id AS "cityId",
+        c.name AS "cityName",
+        pss.rank_tier AS "rankTier",
+        pss.rank_rr AS "rankRR",
+        pss.level,
+        pss.xp,
+        pss.total_matches AS "totalMatches",
+        pss.total_wins AS "totalWins",
+        pss.total_survived AS "totalSurvived",
         p.last_active_at AS "lastActiveAt",
         latest_notif.rank_tier AS "lastNotifiedRank",
         latest_notif.sent_at AS "lastNotifiedAt"
-      FROM players p
+      FROM player_season_stats pss
+      JOIN players p ON p.id = pss.player_id
+      LEFT JOIN cities c ON c.id = pss.city_id
       LEFT JOIN LATERAL (
         SELECT rank_tier, sent_at
         FROM whatsapp_rank_notifications wrn
-        WHERE wrn.player_id = p.id
+        WHERE wrn.player_id = p.id AND wrn.city_id = pss.city_id
         ORDER BY wrn.sent_at DESC
         LIMIT 1
       ) latest_notif ON true
-      WHERE
-        -- لم يُرسل له أبداً ورتبته ليست INFORMANT (المبتدئ)
-        (latest_notif.rank_tier IS NULL AND p.rank_tier != 'INFORMANT')
-        OR
-        -- أو رتبته الحالية مختلفة عن آخر رتبة أُرسلت
-        (p.rank_tier IS DISTINCT FROM latest_notif.rank_tier)
+      WHERE pss.season_id = ${seasonId} AND pss.city_id IS NOT NULL AND COALESCE(pss.total_matches, 0) > 0
+        AND p.deleted_at IS NULL
+        AND (
+          -- لم يُرسل له أبداً في هذه المدينة ورتبته ليست INFORMANT (المبتدئ)
+          (latest_notif.rank_tier IS NULL AND pss.rank_tier != 'INFORMANT')
+          OR
+          -- أو رتبته الحالية مختلفة عن آخر رتبة أُرسلت
+          (pss.rank_tier IS DISTINCT FROM latest_notif.rank_tier)
+        )
       ORDER BY
-        CASE p.rank_tier
+        CASE pss.rank_tier
           WHEN 'GODFATHER' THEN 1 WHEN 'UNDERBOSS' THEN 2
           WHEN 'CAPO' THEN 3 WHEN 'SOLDIER' THEN 4
           ELSE 5
-        END
+        END, pss.city_id
     `);
 
-    // 2. تحديد نوع التغيير لكل لاعب
+    // 2. تحديد نوع التغيير لكل (لاعب، مدينة)
     const rows = (result as any).rows || result;
     const promotedPlayers = rows.map((p: any) => {
       const currentOrder = RANK_ORDER[p.rankTier || 'INFORMANT'] || 0;
@@ -396,6 +406,8 @@ router.get('/promoted-players', authenticate, async (_req: Request, res: Respons
         id: p.id,
         name: p.name,
         phone: p.phone || '',
+        cityId: p.cityId != null ? Number(p.cityId) : null,
+        cityName: p.cityName || null,
         rankTier: p.rankTier || 'INFORMANT',
         rankAr: RANK_NAMES_AR[p.rankTier || 'INFORMANT'],
         rankRR: p.rankRR || 0,
@@ -444,22 +456,25 @@ router.post('/mark-rank-notified', authenticate, async (req: Request, res: Respo
     const db = getDB();
     if (!db) return res.status(503).json({ error: 'DB unavailable' });
 
-    const { playerIds } = req.body; // [{ playerId: 5, rankTier: 'CAPO', changeType: 'promoted' }, ...]
+    const { playerIds } = req.body; // [{ playerId: 5, cityId: 1, rankTier: 'CAPO', changeType: 'promoted' }, ...]
 
     if (!Array.isArray(playerIds) || playerIds.length === 0) {
       return res.status(400).json({ error: 'playerIds مطلوب' });
     }
 
     for (const entry of playerIds) {
+      // 🏙️ بلا مدينةٍ في الطلب (واجهةٌ قديمة) → المدينة الافتراضيّة 1
+      const cityId = Number.isFinite(Number(entry.cityId)) && Number(entry.cityId) > 0 ? Number(entry.cityId) : 1;
       await db
         .insert(whatsappRankNotifications)
         .values({
           playerId: entry.playerId,
+          cityId,
           rankTier: entry.rankTier,
           notificationType: entry.changeType || 'promotion',
         } as any)
         .onConflictDoUpdate({
-          target: [whatsappRankNotifications.playerId, whatsappRankNotifications.rankTier],
+          target: [whatsappRankNotifications.playerId, whatsappRankNotifications.cityId, whatsappRankNotifications.rankTier],
           set: {
             sentAt: new Date(),
             notificationType: entry.changeType || 'promotion',

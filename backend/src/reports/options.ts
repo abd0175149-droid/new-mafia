@@ -52,8 +52,15 @@ export async function loadOptions(db: Database, source: OptionSource, q?: string
         .from(seasons).orderBy(desc(seasons.startedAt));
       return rows.map((r) => ({
         value: String(r.id),
-        labelAr: `${r.name} (${r.type === 'TOURNAMENT' ? 'بطولة' : 'عادي'}${r.status === 'ACTIVE' ? ' — نشط' : ''})`,
+        labelAr: `${r.name} (${r.type === 'TOURNAMENT' ? 'بطولة' : r.type === 'ONLINE' ? 'أونلاين' : 'عادي'}${r.status === 'ACTIVE' ? ' — نشط' : ''})`,
       }));
+    }
+
+    // 🏙️ المدن — لتقارير الترتيب والأداء (الفعّالة والمعطّلة معاً: الأرشيف قد يخصّ مدينةً عُطّلت)
+    case 'cities': {
+      const { listCities } = await import('../services/cities.service.js');
+      const rows = await listCities();
+      return rows.map((c) => ({ value: String(c.id), labelAr: `${c.name}${c.isActive ? '' : ' (معطّلة)'}` }));
     }
 
     case 'expenseCategories': {

@@ -14,6 +14,14 @@ type Tab = 'upcoming' | 'pulse' | 'history';
 const AR_D = ['٠', '١', '٢', '٣', '٤', '٥', '٦', '٧', '٨', '٩'];
 const toArNum = (v: string | number) => String(v).replace(/[0-9]/g, c => AR_D[+c]);
 
+// 🏙️ ألوان المدن: المدينة ١ عنبريّة (الوجاهيّ الحاليّ)، وسائر المدن زرقاء — الأسماء من الخادم وحده
+const CITY_TONES = {
+  amber: { bg: 'rgba(251,191,36,0.15)', border: 'rgba(251,191,36,0.35)', text: '#FBBF24' },
+  blue: { bg: 'rgba(79,157,222,0.15)', border: 'rgba(79,157,222,0.35)', text: '#8CC1F2' },
+  all: { bg: 'rgba(255,255,255,0.10)', border: 'rgba(255,255,255,0.25)', text: '#e5e7eb' },
+};
+const cityTone = (cityId?: number | null) => (cityId === 1 ? CITY_TONES.amber : CITY_TONES.blue);
+
 const DIFFICULTY_LABELS: Record<string, { label: string; color: string; icon: string }> = {
   easy: { label: 'سهل', color: '#22c55e', icon: '🟢' },
   medium: { label: 'متوسط', color: '#f59e0b', icon: '🟡' },
@@ -46,6 +54,12 @@ function GamesContent() {
   const [menuItems, setMenuItems] = useState<any[]>([]);
   const [menuLoading, setMenuLoading] = useState(false);
   const [browseQ, setBrowseQ] = useState('');
+  // 🏙️ المدن: الفعاليّات تُجلب كلّها مرّةً وتُرشَّح محليًّا؛ الافتراضيّ مدينةُ اللاعب
+  const [cities, setCities] = useState<{ id: number; name: string }[]>([]);
+  const [homeCityId, setHomeCityId] = useState<number | null>(null);
+  const [selectedCityId, setSelectedCityId] = useState<number | 'all'>('all');
+  const [homeCityPrompt, setHomeCityPrompt] = useState(false);
+  const [homeCitySaving, setHomeCitySaving] = useState<number | null>(null);
   // بحثٌ عالق من فتحةٍ سابقة يجعل المنيو يبدو ناقصاً عند الفتح التالي
   useEffect(() => { if (!menuFor) setBrowseQ(''); }, [menuFor]);
   const searchParams = useSearchParams();
@@ -86,12 +100,24 @@ function GamesContent() {
   useEffect(() => {
     if (!player) return;
     Promise.all([
-      fetch(`/api/player-app/activities/upcoming?playerId=${player.playerId}`).then(r => r.json()),
+      // 🏙️ cityId=all: كلّ المدن مرّةً واحدة — الترشيح محليّ، وعدّاد شرائح المدن يحتاج الكلّ
+      fetch(`/api/player-app/activities/upcoming?playerId=${player.playerId}&cityId=all`).then(r => r.json()),
       fetch(`/api/player-app/${player.playerId}/bookings`, { headers: { Authorization: `Bearer ${player.token}` } }).then(r => r.json()),
       fetch(`/api/player/${player.playerId}/profile`, { headers: { Authorization: `Bearer ${player.token}` } }).then(r => r.json()),
       fetch('/api/player-app/my-active-rooms', { headers: { Authorization: `Bearer ${player.token}` } }).then(r => r.json()),
     ]).then(([actData, bookData, profileData, roomsData]) => {
-      if (actData.success) setActivities(actData.activities || []);
+      if (actData.success) {
+        setActivities(actData.activities || []);
+        const cityList: { id: number; name: string }[] = Array.isArray(actData.cities) ? actData.cities : [];
+        const home: number | null = actData.homeCityId ?? profileData?.homeCityId ?? null;
+        setCities(cityList);
+        setHomeCityId(home);
+        setSelectedCityId(home != null && cityList.some(c => c.id === home) ? home : 'all');
+        // ورقة «أين تلعب عادةً؟» مرّةً واحدة لمن لا مدينةَ له وهناك أكثر من مدينة
+        let shown = false;
+        try { shown = !!localStorage.getItem('home_city_prompt_shown'); } catch {}
+        if (home == null && cityList.length > 1 && !shown) setHomeCityPrompt(true);
+      }
       if (bookData.success) setMyBookings(bookData.bookings || []);
       if (profileData.success) setMatchHistory(profileData.matchHistory || []);
       
@@ -122,11 +148,39 @@ function GamesContent() {
   useEffect(() => {
     if (highlightActivityId && activities.length > 0 && !selectedActivity) {
       const act = activities.find(a => String(a.id) === highlightActivityId);
-      if (act) setSelectedActivity(act);
+      if (act) {
+        setSelectedActivity(act);
+        // 🏙️ إشعارُ فعاليّةٍ في مدينةٍ أخرى: نُظهر شريحتها كي لا تختفي البطاقة خلف الترشيح
+        if (act.cityId != null && cities.some(c => c.id === act.cityId)) setSelectedCityId(act.cityId);
+      }
     }
   }, [highlightActivityId, activities]);
 
   const isBooked = (activityId: number) => myBookings.some(b => b.activityId === activityId);
+
+  // 🏙️ حفظ المدينة الأساسيّة (يغيّر الافتراضيّات فقط: الفعاليّات والترتيب والبطاقة)
+  const markHomeCityPromptShown = () => { try { localStorage.setItem('home_city_prompt_shown', '1'); } catch {} };
+  const saveHomeCity = async (cityId: number) => {
+    if (!player) return;
+    setHomeCitySaving(cityId);
+    try {
+      const res = await fetch('/api/player-app/me/home-city', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${player.token}` },
+        body: JSON.stringify({ cityId }),
+      });
+      const d = await res.json();
+      if (d.success) {
+        setHomeCityId(d.homeCityId ?? cityId);
+        setSelectedCityId(d.homeCityId ?? cityId);
+      }
+    } catch {}
+    finally {
+      setHomeCitySaving(null);
+      markHomeCityPromptShown();
+      setHomeCityPrompt(false);
+    }
+  };
 
   const handleBook = async (activityId: number, offerId?: number) => {
     if (!player) return;
@@ -193,15 +247,29 @@ function GamesContent() {
   const dayNames = ['أحد', 'اثنين', 'ثلاثاء', 'أربعاء', 'خميس', 'جمعة', 'سبت'];
   const monthNames = ['يناير','فبراير','مارس','أبريل','مايو','يونيو','يوليو','أغسطس','سبتمبر','أكتوبر','نوفمبر','ديسمبر'];
 
+  // 🏙️ ترشيح المدينة أوّلًا — «الكلّ» أو فعاليّاتٌ بلا مدينة (شكلٌ قديم) تمرّ كما هي
+  const cityActivities = selectedCityId === 'all' || cities.length === 0
+    ? activities
+    : activities.filter(a => a.cityId == null || a.cityId === selectedCityId);
+  const homeCityName = cities.find(c => c.id === homeCityId)?.name || '';
+  const cityCount = (id: number) => activities.filter(a => a.cityId === id).length;
+  const isOtherCity = (a: any) => homeCityId != null && a?.cityId != null && a.cityId !== homeCityId && !!a.cityName && !!homeCityName;
+  // شرائح المدن: مدينتك أوّلًا، ثمّ الأخرى بعددها، ثمّ «الكلّ»
+  const cityChips: { key: number | 'all'; label: string; count?: number }[] = [
+    ...cities.filter(c => c.id === homeCityId).map(c => ({ key: c.id as number | 'all', label: `🏙️ ${c.name}` })),
+    ...cities.filter(c => c.id !== homeCityId).map(c => ({ key: c.id as number | 'all', label: c.name, count: cityCount(c.id) })),
+    { key: 'all' as const, label: 'الكلّ' },
+  ];
+
   // أي يوم فيه أنشطة
   const daysWithActivities = new Set(
-    activities.map(a => new Date(a.date).toDateString())
+    cityActivities.map(a => new Date(a.date).toDateString())
   );
 
   // الأنشطة المفلترة
   const filteredActivities = selectedDate
-    ? activities.filter(a => new Date(a.date).toDateString() === selectedDate)
-    : activities;
+    ? cityActivities.filter(a => new Date(a.date).toDateString() === selectedDate)
+    : cityActivities;
 
   if (loading) {
     return (
@@ -217,6 +285,31 @@ function GamesContent() {
         <h1 className="text-white text-lg font-bold">🎮 الألعاب والحجوزات</h1>
         <span className="text-xs text-gray-500">{monthNames[today.getMonth()]} {today.getFullYear()}</span>
       </div>
+
+      {/* ── 🏙️ شرائح المدن — مدينتك أوّلًا، ثمّ الأخرى بعدد فعاليّاتها، ثمّ «الكلّ» ── */}
+      {cities.length > 0 && tab !== 'pulse' && (
+        <div className="flex gap-1.5 overflow-x-auto pb-2 mb-1 scrollbar-hide">
+          {cityChips.map(chip => {
+            const active = selectedCityId === chip.key;
+            const tone = chip.key === 'all' ? CITY_TONES.all : cityTone(chip.key);
+            return (
+              <button
+                key={String(chip.key)}
+                onClick={() => setSelectedCityId(chip.key)}
+                className="shrink-0 px-3 py-1.5 rounded-full text-[11px] font-bold transition-all whitespace-nowrap"
+                style={active
+                  ? { background: tone.bg, border: `1px solid ${tone.border}`, color: tone.text }
+                  : { background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.06)', color: '#9ca3af' }}
+              >
+                {chip.label}
+                {chip.count !== undefined && chip.count > 0 && (
+                  <span className="mr-1 text-[9px] px-1.5 py-0.5 rounded-full" style={{ background: 'rgba(255,255,255,0.08)', color: active ? tone.text : '#9ca3af' }}>{toArNum(chip.count)}</span>
+                )}
+              </button>
+            );
+          })}
+        </div>
+      )}
 
       {/* ── شريط التقويم — لا معنى له داخل نبض الليلة ── */}
       <div className={`flex gap-1.5 overflow-x-auto pb-3 mb-1 scrollbar-hide ${tab === 'pulse' ? 'hidden' : ''}`}>
@@ -359,6 +452,20 @@ function GamesContent() {
                           {act.locationName || act.name}
                         </p>
                         <p className="text-gray-300 text-[13px] font-bold mt-1">{weekdayAr}</p>
+                        {/* 🏙️ «📍 المكان · الحيّ» مع وسم المدينة */}
+                        {(act.locationName || act.cityName) && (
+                          <p className="text-gray-500 text-[11px] mt-1 flex items-center gap-1.5 flex-wrap">
+                            {act.locationName && <span>📍 {act.locationName}{act.locationRegion ? ` · ${act.locationRegion}` : ''}</span>}
+                            {act.cityName && (
+                              <span className="text-[9px] px-1.5 py-0.5 rounded-full" style={{ background: cityTone(act.cityId).bg, color: cityTone(act.cityId).text }}>{act.cityName}</span>
+                            )}
+                          </p>
+                        )}
+                        {isOtherCity(act) && (
+                          <p className="text-[10px] mt-1 leading-snug" style={{ color: cityTone(act.cityId).text }}>
+                            🏆 مبارياتها تُحتسب لرتبتك في {act.cityName} — رتبتك في {homeCityName} لا تتأثّر
+                          </p>
+                        )}
                         <div className="flex items-center gap-1.5 mt-1.5 flex-wrap">
                           <span
                             className="text-[8px] px-1.5 py-0.5 rounded-full shrink-0"
@@ -648,10 +755,18 @@ function GamesContent() {
                   <span>{new Date(selectedActivity.date).toLocaleDateString('ar-JO', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric', hour: '2-digit', minute: '2-digit' })}</span>
                 </div>
                 {selectedActivity.locationName && (
-                  <div className="flex items-center gap-2 text-sm text-gray-300">
+                  <div className="flex items-center gap-2 text-sm text-gray-300 flex-wrap">
                     <span>📍</span>
-                    <span>{selectedActivity.locationName}</span>
+                    <span>{selectedActivity.locationName}{selectedActivity.locationRegion ? ` · ${selectedActivity.locationRegion}` : ''}</span>
+                    {selectedActivity.cityName && (
+                      <span className="text-[10px] px-1.5 py-0.5 rounded-full" style={{ background: cityTone(selectedActivity.cityId).bg, color: cityTone(selectedActivity.cityId).text }}>{selectedActivity.cityName}</span>
+                    )}
                   </div>
+                )}
+                {isOtherCity(selectedActivity) && (
+                  <p className="text-[11px] leading-snug" style={{ color: cityTone(selectedActivity.cityId).text }}>
+                    🏆 مبارياتها تُحتسب لرتبتك في {selectedActivity.cityName} — رتبتك في {homeCityName} لا تتأثّر
+                  </p>
                 )}
                 <div className="flex items-center gap-2 text-sm text-gray-300">
                   <span>👥</span>
@@ -826,7 +941,14 @@ function GamesContent() {
 
               <div className="space-y-1.5 mb-4 text-sm text-gray-300">
                 <p>📅 {new Date(confirmBooking.date).toLocaleDateString('ar-JO', { weekday: 'long', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}</p>
-                {confirmBooking.locationName && <p>📍 {confirmBooking.locationName}</p>}
+                {confirmBooking.locationName && (
+                  <p>📍 {confirmBooking.locationName}{confirmBooking.locationRegion ? ` · ${confirmBooking.locationRegion}` : ''}{confirmBooking.cityName ? ` · 🏙️ ${confirmBooking.cityName}` : ''}</p>
+                )}
+                {isOtherCity(confirmBooking) && (
+                  <p className="text-[11px] leading-snug" style={{ color: cityTone(confirmBooking.cityId).text }}>
+                    🏆 مبارياتها تُحتسب لرتبتك في {confirmBooking.cityName} — رتبتك في {homeCityName} لا تتأثّر
+                  </p>
+                )}
                 <p>👥 {confirmBooking.bookedCount}/{confirmBooking.maxPlayers || 20} لاعب</p>
                 {confirmBooking.basePrice && confirmBooking.basePrice !== '0' && (
                   <p>💰 {confirmBooking.basePrice} د.أ</p>
@@ -1033,6 +1155,58 @@ function GamesContent() {
                 className="w-full mt-2 py-3 rounded-xl text-sm text-gray-400"
                 style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.08)' }}>
                 إغلاق
+              </button>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+      {/* ── 🏙️ ورقة «أين تلعب عادةً؟» — مرّةً واحدة لمن لا مدينةَ له ── */}
+      <AnimatePresence>
+        {homeCityPrompt && cities.length > 1 && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed top-0 left-0 right-0 bottom-20 z-50 bg-black/90 backdrop-blur-md flex items-end sm:items-center justify-center sm:p-4"
+            onClick={() => { markHomeCityPromptShown(); setHomeCityPrompt(false); }}
+          >
+            <motion.div
+              initial={{ y: '100%' }}
+              animate={{ y: 0 }}
+              exit={{ y: '100%' }}
+              transition={{ type: 'spring', damping: 25, stiffness: 200 }}
+              className="w-full max-w-sm rounded-t-3xl sm:rounded-2xl p-6"
+              style={{ background: 'linear-gradient(to bottom, #111827, #000)', borderTop: '1px solid rgba(255,255,255,0.1)' }}
+              onClick={e => e.stopPropagation()}
+            >
+              <div className="w-12 h-1.5 rounded-full bg-white/20 mx-auto mb-4" />
+              <h3 className="text-white text-lg font-bold mb-1 text-center">🏙️ أين تلعب عادةً؟</h3>
+              <p className="text-gray-400 text-xs text-center mb-4 leading-relaxed">لكلّ مدينةٍ تصنيفها ورتبتها. مدينتك الأساسيّة تضبط ما تراه أوّلًا — وتقدر تغيّرها من حسابك متى شئت.</p>
+              <div className="grid grid-cols-2 gap-2 mb-3">
+                {cities.map(c => {
+                  const tone = cityTone(c.id);
+                  const busy = homeCitySaving === c.id;
+                  return (
+                    <button
+                      key={c.id}
+                      disabled={homeCitySaving !== null}
+                      onClick={() => saveHomeCity(c.id)}
+                      className="rounded-2xl p-4 text-center transition-all active:scale-[0.98] disabled:opacity-60"
+                      style={{ background: tone.bg, border: `1px solid ${tone.border}` }}
+                    >
+                      <p className="text-2xl mb-1">🏙️</p>
+                      <p className="text-sm font-bold" style={{ color: tone.text }}>{busy ? '⏳' : c.name}</p>
+                      <p className="text-[10px] text-gray-500 mt-1">{toArNum(cityCount(c.id))} فعاليّة قادمة</p>
+                    </button>
+                  );
+                })}
+              </div>
+              <button
+                onClick={() => { markHomeCityPromptShown(); setHomeCityPrompt(false); }}
+                className="w-full py-3 rounded-xl text-sm text-gray-400"
+                style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.08)' }}
+              >
+                لاحقًا
               </button>
             </motion.div>
           </motion.div>

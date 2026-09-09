@@ -77,6 +77,9 @@ class Activity {
     this.offers = const [],
     this.locationId,
     this.hasMenu = false,
+    this.cityId,
+    this.cityName,
+    this.locationRegion,
   });
 
   final int id;
@@ -87,6 +90,21 @@ class Activity {
   /// 🍽️ للاستعراض قبل الحجز: مكان الفعاليّة ولديه منيو متاح (توحيد 2026-08-06).
   final int? locationId;
   final bool hasMenu;
+
+  /// 🏙️ مدينة المكان — الرتبة تُحتسب فيها. اختياريّة: خادمٌ قديم لا يرسلها.
+  final int? cityId;
+  final String? cityName;
+
+  /// الحيّ/المنطقة — تصل من الخادم اليوم ولم تكن تُقرأ.
+  final String? locationRegion;
+
+  /// «المكان · الحيّ» — الحيّ يُلحق فقط حين يوجد.
+  String? get locationLine {
+    final n = locationName;
+    if (n == null) return null;
+    final r = locationRegion;
+    return r == null ? n : '$n · $r';
+  }
   final String difficulty;
   final int bookedCount, maxPlayers;
 
@@ -118,6 +136,9 @@ class Activity {
             .toList(),
         locationId: j['locationId'] == null ? null : _i(j['locationId']),
         hasMenu: j['hasMenu'] == true,
+        cityId: j['cityId'] == null ? null : _i(j['cityId']),
+        cityName: LocationOffer._s(j['cityName']),
+        locationRegion: LocationOffer._s(j['locationRegion']),
       );
 }
 

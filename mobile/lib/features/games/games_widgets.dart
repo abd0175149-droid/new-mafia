@@ -2,13 +2,103 @@ import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 
 import '../../core/api/api_client.dart';
+import '../../core/cities/city_service.dart';
+import '../../core/cities/city_widgets.dart';
 import '../../models/activity.dart';
+import '../../models/city.dart';
 import '../../models/profile.dart';
 import '../profile/profile_palette.dart';
 
 // ══════════════════════════════════════════════════════
 // 🎮 قطع شاشة الألعاب — §4.1 في الملفّ 14
 // ══════════════════════════════════════════════════════
+
+/// 🏙️ شرائح المدينة فوق شريط الأيّام: مدينتك أوّلاً («🏙️ {الأساسيّة}»)،
+/// ثمّ الأخرى بعدد فعاليّاتها، ثمّ «الكلّ». `selected == null` = الكلّ.
+class CityChipRow extends StatelessWidget {
+  const CityChipRow({
+    super.key,
+    required this.cities,
+    required this.homeCityId,
+    required this.selected,
+    required this.countOf,
+    required this.onSelect,
+  });
+
+  final List<City> cities;
+  final int? homeCityId;
+  final int? selected;
+  final int Function(int cityId) countOf;
+  final void Function(int? cityId) onSelect;
+
+  @override
+  Widget build(BuildContext context) {
+    // الأساسيّة أوّلاً مهما كان ترتيب الخادم
+    final ordered = [
+      for (final c in cities) if (c.id == homeCityId) c,
+      for (final c in cities) if (c.id != homeCityId) c,
+    ];
+    return SizedBox(
+      height: 34,
+      child: ListView(
+        scrollDirection: Axis.horizontal,
+        children: [
+          for (final c in ordered) ...[
+            _chip(
+              label: c.id == homeCityId
+                  ? '🏙️ ${c.name}'
+                  : '${c.name} · ${countOf(c.id)}',
+              on: selected == c.id,
+              cityId: c.id,
+              onTap: () => onSelect(c.id),
+            ),
+            const SizedBox(width: 6),
+          ],
+          _chip(label: 'الكلّ', on: selected == null, cityId: null, onTap: () => onSelect(null)),
+        ],
+      ),
+    );
+  }
+
+  Widget _chip({
+    required String label,
+    required bool on,
+    required int? cityId,
+    required VoidCallback onTap,
+  }) {
+    final svc = CityService.instance;
+    // «الكلّ» بلا لون مدينة: أبيض خافت
+    final bg = !on
+        ? const Color(0x0DFFFFFF)
+        : cityId == null
+            ? const Color(0x1AFFFFFF)
+            : svc.chipBgFor(cityId);
+    final border = !on
+        ? const Color(0x0DFFFFFF)
+        : cityId == null
+            ? const Color(0x33FFFFFF)
+            : svc.chipBorderFor(cityId);
+    final fg = !on
+        ? Tw.gray500
+        : cityId == null
+            ? Colors.white
+            : svc.textFor(cityId);
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(999),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(999),
+          color: bg,
+          border: Border.all(color: border),
+        ),
+        child: Text(label,
+            style: ar(11, color: fg, weight: on ? FontWeight.w700 : FontWeight.w500)),
+      ),
+    );
+  }
+}
 
 /// شريط أربعة عشر يوماً + رقاقة «الكل».
 class CalendarStrip extends StatelessWidget {
@@ -176,6 +266,8 @@ class ActivityCard extends StatelessWidget {
     required this.onToggleBookers,
     this.bookers,
     this.rooms,
+    this.homeCityId,
+    this.homeCityName,
   });
 
   final Activity activity;
@@ -185,9 +277,14 @@ class ActivityCard extends StatelessWidget {
   final List<FollowingBooker>? bookers;
   final List<ActiveRoom>? rooms;
 
+  /// 🏙️ مدينة اللاعب الأساسيّة — لتنبيه «مدينةٍ أخرى». غيابها يُخفيه.
+  final int? homeCityId;
+  final String? homeCityName;
+
   @override
   Widget build(BuildContext context) {
     final a = activity;
+    final away = isAwayCity(a.cityId, homeCityId) && a.cityName != null;
 
     return Container(
       padding: const EdgeInsets.all(16),
@@ -220,9 +317,27 @@ class ActivityCard extends StatelessWidget {
                     ]),
                     const SizedBox(height: 4),
                     Text(_dateLine(a.date), style: ar(10, color: Tw.gray500)),
-                    if (a.locationName != null) ...[
+                    if (a.locationLine != null) ...[
                       const SizedBox(height: 2),
-                      Text('📍 ${a.locationName}', style: ar(10, color: Tw.gray600)),
+                      // «📍 المكان · الحيّ» + وسم المدينة
+                      Row(children: [
+                        Flexible(
+                          child: Text('📍 ${a.locationLine}',
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: ar(10, color: Tw.gray600)),
+                        ),
+                        if (a.cityName != null) ...[
+                          const SizedBox(width: 6),
+                          CityTag(cityId: a.cityId, name: a.cityName!, size: 8, icon: false),
+                        ],
+                      ]),
+                    ] else if (a.cityName != null) ...[
+                      const SizedBox(height: 2),
+                      Align(
+                        alignment: AlignmentDirectional.centerStart,
+                        child: CityTag(cityId: a.cityId, name: a.cityName!, size: 8),
+                      ),
                     ],
                     const SizedBox(height: 2),
                     Text(
@@ -239,6 +354,11 @@ class ActivityCard extends StatelessWidget {
             const SizedBox(width: 8),
             _action(),
           ]),
+          // 🏆 مدينةٌ أخرى: أين تُحتسب النقاط — وأنّ رتبة الأساسيّة لا تتأثّر
+          if (away) ...[
+            const SizedBox(height: 10),
+            AwayCityNote(cityName: a.cityName!, homeCityName: homeCityName),
+          ],
           if (bookers != null && bookers!.isNotEmpty) _bookersBadge(),
           if (rooms != null && rooms!.isNotEmpty) _activeRooms(),
         ],
@@ -481,7 +601,12 @@ class MatchRow extends StatelessWidget {
     final d = match.matchDate;
     final date = d == null ? '' : '${d.day} ${monthNameOf(d)}';
     final count = match.matchPlayerCount;
-    if (count == null) return date;
-    return date.isEmpty ? '$count لاعب' : '$date • $count لاعب';
+    final parts = <String>[
+      if (date.isNotEmpty) date,
+      if (count != null) '$count لاعب',
+      // 🏙️ مدينة المباراة — تفسّر أيَّ رتبةٍ تحرّكت
+      if (match.cityName != null) '🏙️ ${match.cityName}',
+    ];
+    return parts.join(' • ');
   }
 }
