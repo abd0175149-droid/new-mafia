@@ -266,11 +266,17 @@ class _BundleWizardState extends State<_BundleWizard> {
     return out;
   }
 
+  /// 🔴 المجموعة الاختياريّة (بابلز +١ · نكهة اللاتيه…) لا تحجز الخطوة: كانت
+  ///    تُعامَل إلزاميّةً فيُجبَر اللاعب على «بابلز سموك +١» ليكمل العرض.
+  ///    القيمة '' = «بدون» اختياراً صريحاً؛ الغياب = لم يمرّ بعد.
   bool _done(_Step st) => switch (st) {
         _ChoiceStep(:final slot) => _picks[slot.i]?.menuItemId != null,
-        _OptStep(:final slot, :final group) => _picks[slot.i]?.options[group.key] != null,
+        _OptStep(:final slot, :final group) =>
+          !group.isRequired || _picks[slot.i]?.options[group.key] != null,
         _DoneStep() => true,
       };
+
+  static const _none = '__none';
 
   double get _extra {
     var x = 0.0;
@@ -298,7 +304,7 @@ class _BundleWizardState extends State<_BundleWizard> {
           menuItemId: s.isChoice ? _picks[s.i]?.menuItemId : null,
           options: [
             for (final e in (_picks[s.i]?.options ?? const <String, String>{}).entries)
-              FnbSelection(groupKey: e.key, valueKey: e.value),
+              if (e.value.isNotEmpty) FnbSelection(groupKey: e.key, valueKey: e.value),
           ],
         ),
     ];
@@ -356,16 +362,17 @@ class _BundleWizardState extends State<_BundleWizard> {
           ),
         ]);
       case _OptStep(:final slot, :final group):
-        stepTitle = '${group.name} · ${_nameOf(slot)}';
+        stepTitle = '${group.name} · ${_nameOf(slot)}${group.isRequired ? '' : ' · اختياريّ'}';
         final cur = _picks[slot.i]?.options[group.key];
         body = OptionTiles(
           values: [
+            if (!group.isRequired) (key: _none, name: 'بدون', sub: 'بلا إضافة'),
             for (final v in group.values)
               (key: v.key, name: v.name, sub: v.priceDelta > 0 ? '+${jod(v.priceDelta)}' : null),
           ],
-          selected: {if (cur != null) cur},
+          selected: {if (cur != null) (cur.isEmpty ? _none : cur)},
           onPick: (k) => setState(() {
-            (_picks[slot.i] ??= _Pick()).options[group.key] = k;
+            (_picks[slot.i] ??= _Pick()).options[group.key] = k == _none ? '' : k;
             _step = i + 1;
           }),
         );

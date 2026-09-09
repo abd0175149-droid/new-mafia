@@ -219,10 +219,14 @@ function stepsOf(item: Item, picks: Picks): Step[] {
   out.push({ t: 'done' });
   return out;
 }
+// 🔴 المجموعة الاختياريّة (بابلز +١ · نكهة اللاتيه…) لا تحجز الخطوة: كانت
+//    تُعامَل إلزاميّةً فيُجبَر اللاعب على «بابلز سموك +١» ليكمل العرض.
+//    القيمة '' = «بدون» اختياراً صريحاً؛ undefined = لم يمرّ بعد.
 const stepDone = (st: Step, picks: Picks) =>
   st.t === 'choice' ? !!picks[st.s.i]?.menuItemId
-  : st.t === 'opt' ? !!picks[st.s.i]?.options?.[st.g.key]
+  : st.t === 'opt' ? (!st.g.isRequired || !!picks[st.s.i]?.options?.[st.g.key])
   : true;
+const NONE = '__none';
 
 function BundleWizard({ item, onCancel, onConfirm }: { item: Item; onCancel: () => void; onConfirm: (line: CartLine) => void }) {
   const slots = item.slots ?? [];
@@ -258,7 +262,7 @@ function BundleWizard({ item, onCancel, onConfirm }: { item: Item; onCancel: () 
     const sp: SlotPick[] = slots.map(s => ({
       i: s.i,
       ...(s.kind === 'choice' ? { menuItemId: picks[s.i]?.menuItemId } : {}),
-      options: Object.entries(picks[s.i]?.options ?? {}).map(([groupKey, valueKey]) => ({ groupKey, valueKey })),
+      options: Object.entries(picks[s.i]?.options ?? {}).filter(([, v]) => !!v).map(([groupKey, valueKey]) => ({ groupKey, valueKey })),
     }));
     const label = slots.map(s => {
       const picked = groupsOf(s, picks)
@@ -284,9 +288,11 @@ function BundleWizard({ item, onCancel, onConfirm }: { item: Item; onCancel: () 
       </>
     );
   } else if (st.t === 'opt') {
-    stepTitle = `${st.g.name} · ${nameOf(st.s, picks)}`;
+    stepTitle = `${st.g.name} · ${nameOf(st.s, picks)}${st.g.isRequired ? '' : ' · اختياريّ'}`;
     const cur = picks[st.s.i]?.options?.[st.g.key];
-    body = <Tiles values={st.g.values} selected={cur ? [cur] : []} onPick={vk => setOpt(st.s, st.g, vk)} />;
+    const vals = st.g.isRequired ? st.g.values : [{ key: NONE, name: 'بدون', priceDelta: 0, sub: 'بلا إضافة' }, ...st.g.values];
+    body = <Tiles values={vals} selected={cur === undefined ? [] : [cur === '' ? NONE : cur]}
+      onPick={vk => setOpt(st.s, st.g, vk === NONE ? '' : vk)} />;
   } else {
     stepTitle = 'راجع العرض';
     body = (
