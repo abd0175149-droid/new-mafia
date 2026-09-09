@@ -229,13 +229,18 @@ export async function applySeasonStats(
   const dealsInc = flags.dealsCount ?? (flags.dealInitiated ? 1 : 0);
   const okDealsInc = flags.successfulDealsCount ?? (flags.dealSuccess ? 1 : 0);
 
+  // 🔴 قيَمٌ محسوبةٌ لا أعمدةُ Drizzle: تمريرُ عمودٍ كقيمةٍ في `.set()` (النمط القديم
+  //    `flags.won ? sql\`…+1\` : playerSeasonStats.totalWins`) يُمرَّر إلى السائق كائناً
+  //    دائريّاً فيرمي "Converting circular structure to JSON" ويُجهض الاحتساب كلَّه.
+  //    لم يظهر قبلُ لأنّ هذه الدالّة كانت تخدم البطولات وحدَها (ولا بطولة نشطة)؛ وقد
+  //    صارت المسار الرئيس لكلّ مباراة. والصفُّ مقروءٌ أعلاه، فالزيادةُ تُحسب في الذاكرة.
   await db.update(playerSeasonStats).set({
     xp: x.xp, level: x.level, rankRR: r.rr, rankTier: RANK_TIERS[r.tierIdx],
-    totalMatches: sql`COALESCE(${playerSeasonStats.totalMatches},0) + 1`,
-    totalWins: flags.won ? sql`COALESCE(${playerSeasonStats.totalWins},0) + 1` : playerSeasonStats.totalWins,
-    totalSurvived: flags.survived ? sql`COALESCE(${playerSeasonStats.totalSurvived},0) + 1` : playerSeasonStats.totalSurvived,
-    totalDeals: dealsInc > 0 ? sql`COALESCE(${playerSeasonStats.totalDeals},0) + ${dealsInc}` : playerSeasonStats.totalDeals,
-    successfulDeals: okDealsInc > 0 ? sql`COALESCE(${playerSeasonStats.successfulDeals},0) + ${okDealsInc}` : playerSeasonStats.successfulDeals,
+    totalMatches: (row.totalMatches || 0) + 1,
+    totalWins: (row.totalWins || 0) + (flags.won ? 1 : 0),
+    totalSurvived: (row.totalSurvived || 0) + (flags.survived ? 1 : 0),
+    totalDeals: (row.totalDeals || 0) + dealsInc,
+    successfulDeals: (row.successfulDeals || 0) + okDealsInc,
     updatedAt: new Date(),
   } as any).where(pssWhere(playerId, seasonId, cityId));
 
