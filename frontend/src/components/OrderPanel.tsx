@@ -158,7 +158,7 @@ function Sheet({ title, subtitle, subtitleWarn, onClose, children, footer, progr
             </div>
           )}
         </div>
-        <div className="flex-1 overflow-y-auto overscroll-contain px-4 py-3.5">{children}</div>
+        <div className="flex-1 overflow-y-auto overscroll-none px-4 py-3.5">{children}</div>
         {footer && (
           <div className="shrink-0 flex gap-2 px-4 py-3 border-t border-white/7"
             style={{ background: '#080808', paddingBottom: 'calc(0.75rem + env(safe-area-inset-bottom, 0px))' }}>{footer}</div>
@@ -401,6 +401,38 @@ export default function OrderPanel({
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const searchRef = useRef<HTMLInputElement>(null);
   const mainRef = useRef<HTMLDivElement>(null);
+  const rootRef = useRef<HTMLDivElement>(null);
+
+  // 🚫 السحب لأسفل لا أثر له داخل اللوحة (قرار المالك 2026-09-09): لا سحبٌ
+  //    للتحديث ولا ارتدادٌ مطّاطيّ يُزيح الطبقة الثابتة. مستمعٌ غير سلبيّ
+  //    (passive:false) لأنّ React لا يستطيع منع الافتراضيّ في touchmove.
+  //    يُمنع فقط حين لا حاويةَ تمريرٍ تستقبل الحركة، أو حين بلغت طرفها.
+  useEffect(() => {
+    const root = rootRef.current;
+    if (!root) return;
+    let startY = 0;
+    const onStart = (e: TouchEvent) => { startY = e.touches[0]?.clientY ?? 0; };
+    const onMove = (e: TouchEvent) => {
+      const y = e.touches[0]?.clientY ?? 0;
+      const dy = y - startY;
+      let el = e.target as HTMLElement | null;
+      while (el && el !== root) {
+        const st = getComputedStyle(el);
+        const scrollable = /(auto|scroll)/.test(st.overflowY) && el.scrollHeight > el.clientHeight;
+        if (scrollable) {
+          const atTop = el.scrollTop <= 0;
+          const atBottom = el.scrollTop + el.clientHeight >= el.scrollHeight - 1;
+          if ((dy > 0 && atTop) || (dy < 0 && atBottom)) { if (e.cancelable) e.preventDefault(); }
+          return;
+        }
+        el = el.parentElement;
+      }
+      if (e.cancelable) e.preventDefault();
+    };
+    root.addEventListener('touchstart', onStart, { passive: true });
+    root.addEventListener('touchmove', onMove, { passive: false });
+    return () => { root.removeEventListener('touchstart', onStart); root.removeEventListener('touchmove', onMove); };
+  }, [loading]);
 
   const headers = useMemo(() => ({ Authorization: `Bearer ${player?.token || ''}` }), [player?.token]);
   const flash = (txt: string, isErr = false) => {
@@ -782,7 +814,7 @@ export default function OrderPanel({
   const noCtx = !browse && !ctx && !readOnly;
 
   return (
-    <div className={`${embedded ? 'h-full' : 'fnb-page-h max-w-lg mx-auto'} flex flex-col relative`} dir="rtl" style={{ background: '#050505' }}>
+    <div ref={rootRef} className={`${embedded ? 'h-full' : 'fnb-page-h max-w-lg mx-auto'} flex flex-col relative overscroll-none`} dir="rtl" style={{ background: '#050505', overscrollBehavior: 'none' }}>
       {Header}
 
       {noCtx ? NoCtx : items.length === 0 ? (
@@ -791,7 +823,7 @@ export default function OrderPanel({
         <div className="flex-1 min-h-0 flex">
           {/* ══ الرفّ ══ */}
           {!searchOn && (
-            <div className="w-[78px] shrink-0 overflow-y-auto overscroll-contain border-l border-white/7 px-1.5 py-2 flex flex-col gap-1" style={{ background: '#080808', scrollbarWidth: 'none' }}>
+            <div className="w-[78px] shrink-0 overflow-y-auto overscroll-none border-l border-white/7 px-1.5 py-2 flex flex-col gap-1" style={{ background: '#080808', scrollbarWidth: 'none' }}>
               {sections.map(s => {
                 const on = s.key === activeKey;
                 const Ico = sectionIcon(s.title, s.isPkg);
@@ -811,7 +843,7 @@ export default function OrderPanel({
           )}
 
           {/* ══ البلاطات ══ */}
-          <div ref={mainRef} className="flex-1 min-w-0 overflow-y-auto overscroll-contain px-2.5 py-2.5 pb-6">
+          <div ref={mainRef} className="flex-1 min-w-0 overflow-y-auto overscroll-none px-2.5 py-2.5 pb-6">
             {searchOn && (
               <div className="relative mb-2.5">
                 {/* 🔴 ١٦ بكسل — أصغر منها يُقرّب سفاري الشاشة عند التركيز */}

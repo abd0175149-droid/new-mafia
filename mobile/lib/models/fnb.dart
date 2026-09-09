@@ -66,11 +66,43 @@ class FnbContext {
       );
 }
 
-/// غلاف استجابة `/context`: السياق قد يكون فارغاً ومعه سببٌ نصّيّ.
+/// 🕒 حجزٌ قادم لم تُفتح نافذته بعد — يرافق رسالة «يفتح الطلب الساعة …»
+/// (الخادم 2026-09-09). يتيح عرض البطاقة بحالتها وتصفّح المنيو للقراءة.
+class FnbNext {
+  const FnbNext({
+    required this.activityId,
+    required this.activityName,
+    required this.locationId,
+    required this.locationName,
+    required this.opensAt,
+  });
+  final int activityId, locationId;
+  final String activityName, locationName, opensAt;
+
+  factory FnbNext.fromJson(Map<String, dynamic> j) => FnbNext(
+        activityId: _i(j['activityId']),
+        activityName: _s(j['activityName']),
+        locationId: _i(j['locationId']),
+        locationName: _s(j['locationName']),
+        opensAt: _s(j['opensAt']),
+      );
+}
+
+/// غلاف استجابة `/context`: السياق قد يكون فارغاً ومعه سببٌ نصّيّ،
+/// ومعه `next` إن كان للاعب حجزٌ قادم.
 class FnbContextResult {
-  const FnbContextResult({this.context, this.reason});
+  const FnbContextResult({this.context, this.reason, this.next});
   final FnbContext? context;
   final String? reason;
+  final FnbNext? next;
+
+  /// اسم المكان للبطاقة: من السياق المفتوح أو من الحجز القادم.
+  String? get locationName => context?.locationName ?? next?.locationName;
+  int? get locationId => context?.locationId ?? next?.locationId;
+  String? get activityName => context?.activityName ?? next?.activityName;
+
+  /// هل تُعرض بطاقة المنيو أصلاً؟ (سياقٌ مفتوح أو حجزٌ قادم)
+  bool get hasAny => context != null || next != null;
 
   static const noContextDefault =
       'الطلب من المكان يفتح للحاجزين قبل ساعةٍ من موعد الفعاليّة وأثناءها.';
@@ -83,14 +115,20 @@ class FnbContextResult {
 
   factory FnbContextResult.fromJson(Map<String, dynamic> j) {
     final c = j['context'];
+    final n = j['next'];
     return FnbContextResult(
       context: c is Map
           ? FnbContext.fromJson(Map<String, dynamic>.from(c))
           : null,
       reason: j['reason'] as String?,
+      next: n is Map ? FnbNext.fromJson(Map<String, dynamic>.from(n)) : null,
     );
   }
 }
+
+/// أرقامٌ عربيّة (٠١٢…) لما يُقرأ في الجملة: «٨ نكهات»، «٦١ صنفاً».
+String arDigits(Object v) => '$v'.replaceAllMapped(
+    RegExp('[0-9]'), (m) => '٠١٢٣٤٥٦٧٨٩'[int.parse(m[0]!)]);
 
 // ══════════════════════════════════════════════════════
 // المنيو
@@ -318,12 +356,15 @@ class FnbMenuItem {
   bool get hasLongDescription =>
       !isBundle && optionGroups.isEmpty && description.length > 40;
 
-  /// ملخّص ما سيُسأل عنه: مجموعةٌ واحدة ⇒ «7 النكهة» (العدد أنفع من الاسم).
+  /// ملخّص ما سيُسأل عنه: مجموعةٌ واحدة ⇒ «٨ نكهات» (العدد أنفع من الاسم).
   String get optionHint {
     if (optionGroups.isEmpty) return 'خيارات';
     if (optionGroups.length == 1) {
       final g = optionGroups.first;
-      return '${g.values.length} ${g.name}';
+      final n = g.name
+          .replaceFirst(RegExp(r'^نوع\s+'), '')
+          .replaceFirst(RegExp(r'^نكهة\s+'), 'نكهات ');
+      return '${arDigits(g.values.length)} $n';
     }
     if (optionGroups.length == 2) {
       return optionGroups.map((g) => g.name).join(' · ');

@@ -62,6 +62,12 @@ class _GameScreenState extends State<GameScreen> {
   /// 🍽️ هل للاعب سياق طلبٍ الآن؟ الخادم وحده يقرّر (حجزٌ + نافذة الفعاليّة).
   bool _fnbReady = false;
   bool _fnbAsked = false;
+  // شارة الزرّ العائم: عدد الطلبات المفتوحة ولونها بالحالة (أزرق بانتظار
+  // المكان، ذهبيّ قيد التحضير) — تتجدّد عند إغلاق الورقة وكلّ دقيقة.
+  int? _fnbActivityId;
+  int _fnbOpen = 0;
+  bool _fnbPreparing = false;
+  Timer? _fnbTimer;
 
   /// رمزُ دعوةٍ ينتظر تأكيد اللاعب (INV-1).
   String? _pendingInvite;
@@ -75,6 +81,7 @@ class _GameScreenState extends State<GameScreen> {
 
   @override
   void dispose() {
+    _fnbTimer?.cancel();
     _c.removeListener(_onChange);
     unawaited(VoiceService.instance.disconnect());
     _code.dispose();
@@ -114,10 +121,39 @@ class _GameScreenState extends State<GameScreen> {
     _fnbAsked = true;
     try {
       final d = await ApiClient.instance.get('/api/fnb/context');
-      if (mounted && d is Map && d['context'] != null) {
+      if (!mounted || d is! Map) return;
+      final ctx = d['context'];
+      if (ctx is Map) {
+        final id = ctx['activityId'];
+        setState(() {
+          _fnbReady = true;
+          _fnbActivityId = id is num ? id.toInt() : null;
+        });
+        unawaited(_refreshFnbOrders());
+        _fnbTimer?.cancel();
+        _fnbTimer = Timer.periodic(const Duration(seconds: 60), (_) => _refreshFnbOrders());
+      } else if (d['next'] is Map) {
+        // حجزٌ قادم لم تُفتح نافذته — الزرّ يظهر ليتصفّح للقراءة
         setState(() => _fnbReady = true);
       }
     } catch (_) { /* بلا زرّ — لا إزعاج */ }
+  }
+
+  Future<void> _refreshFnbOrders() async {
+    final id = _fnbActivityId;
+    if (id == null) return;
+    try {
+      final r = await ApiClient.instance.get('/api/fnb/my-orders', query: {'activityId': id});
+      if (!mounted || r is! Map || r['success'] != true) return;
+      final open = (r['orders'] as List? ?? const [])
+          .whereType<Map>()
+          .where((o) => o['status'] == 'new' || o['status'] == 'preparing')
+          .toList();
+      setState(() {
+        _fnbOpen = open.length;
+        _fnbPreparing = open.any((o) => o['status'] == 'preparing');
+      });
+    } catch (_) {}
   }
 
   void _onChange() {
@@ -423,26 +459,54 @@ class _GameScreenState extends State<GameScreen> {
         right: 16,
         child: SafeArea(
           child: Material(
-            color: const Color(0xFF0D1F18),
+            color: const Color(0xFF151006),
             shape: const CircleBorder(
-                side: BorderSide(color: Color(0xB310B981), width: 2)),
+                side: BorderSide(color: Color(0xCCC5A059), width: 2)),
             elevation: 6,
-            shadowColor: const Color(0x5910B981),
+            shadowColor: const Color(0x59C5A059),
             child: InkWell(
               customBorder: const CircleBorder(),
               // 🔴 ORDER-2: السياق يُسأل مرّةً عند دخول اللعبة، فمن انتهت
               //    نافذته يبقى الزرّ ظاهراً ويفتح ورقةً فارغة. الورقة تبلّغ
-              //    فيختفي الزرّ — كما يفعل الويب.
+              //    فيختفي الزرّ — كما يفعل الويب. وعند الإغلاق تتجدّد الشارة.
               onTap: () => unawaited(showOrderSheet(
                 context,
                 onEmptyContext: () {
                   if (mounted) setState(() => _fnbReady = false);
                 },
-              )),
-              child: const SizedBox(
+              ).then((_) => _refreshFnbOrders())),
+              child: SizedBox(
                 width: 48,
                 height: 48,
-                child: Center(child: Text('🍽️', style: TextStyle(fontSize: 20))),
+                child: Stack(clipBehavior: Clip.none, children: [
+                  const Center(
+                    child: Icon(Icons.restaurant_outlined,
+                        size: 22, color: Color(0xFFE7CF8D)),
+                  ),
+                  if (_fnbOpen > 0)
+                    Positioned(
+                      top: -4,
+                      left: -4,
+                      child: Container(
+                        constraints: const BoxConstraints(minWidth: 18),
+                        height: 18,
+                        padding: const EdgeInsets.symmetric(horizontal: 4),
+                        decoration: BoxDecoration(
+                          borderRadius: BorderRadius.circular(9),
+                          color: _fnbPreparing
+                              ? const Color(0xFFFCD34D)
+                              : const Color(0xFF8CC1F2),
+                        ),
+                        child: Center(
+                          child: Text('$_fnbOpen',
+                              style: const TextStyle(
+                                  fontSize: 10,
+                                  fontWeight: FontWeight.w900,
+                                  color: Colors.black)),
+                        ),
+                      ),
+                    ),
+                ]),
               ),
             ),
           ),

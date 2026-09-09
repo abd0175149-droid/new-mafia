@@ -4,52 +4,64 @@ import 'dart:math' show Random;
 import 'package:flutter/material.dart';
 
 import '../../app/router.dart';
-import '../../app/theme/dimens.dart';
 import '../../core/api/api_client.dart';
+import '../../core/location/location_service.dart';
 import '../../core/socket/socket_service.dart';
 import '../../models/fnb.dart';
 import '../profile/profile_palette.dart';
 import 'option_picker.dart';
 import 'order_widgets.dart';
-import '../../core/location/location_service.dart';
 
 // ══════════════════════════════════════════════════════
-// 🍽️ اطلب من المكان — نقل بنية الويب كاملةً (2026-08-10)
+// 🍽️ لوحة المنيو — تصميم «الرفّ» (2026-09-09، مرآة OrderPanel.tsx)
 // ══════════════════════════════════════════════════════
-// البنية ثلاثيّة: **ثابتٌ · متمرّرٌ · ثابت** — مطابقة OrderPanel.tsx:
-//   • تبويبان: «المنيو والعروض» و«طلباتي» — المهمّتان الحقيقيّتان.
-//   • قائمةٌ واحدة متّصلة بكلّ الأقسام (العروض أوّلاً) وشريطُ شرائحَ يعمل
-//     قفزاً لا تصفية: يضيء على القسم الظاهر أثناء التمرير وينقل إليه بنقرة.
-//   • شريط سلّةٍ **كهرمانيّ نابض** يقول «لم يُرسَل بعد» — الأخضر لون «تمّ»
-//     والسلّة لم تصل الكافيه. يفتح درجاً فيه التعديل والحذف والإرسال.
-//   • 💨 خدمة الأرجيلة (فحم/تزبيط) في «طلباتي» — متعلّقةٌ بطلبٍ وصل.
-//   • 🔁 مفتاح تكرار (clientKey): الردّ الضائع لا يصير طلباً ثانياً يُفوتَر.
-// 📌 لا سوكِت: استطلاع كل ٣٠ ثانية في المقدّمة + إشعار FCM — قرارٌ قائم.
+// 🧭 رفٌّ عموديٌّ ثابت يميناً يحمل الأقسام كلّها (العروض أوّلاً)، وبلاطاتٌ
+//    بعمودين للقسم المختار. أوّل صنفٍ على بعد ترويسةٍ واحدة — لا تبويبات
+//    ولا شرائح لاصقة ولا بحثٍ دائم (البحث من أيقونة الترويسة).
+// ⚙️ الصنف ذو الخيارات يتّسع في مكانه (يمتدّ على العمودين) بأزرار ≥ ٤٠ بكسل.
+// 🎁 العرض يُركَّب بمُركِّبٍ متدرّج (option_picker.dart).
+// 🧾 «طلباتي» + خدمة الأرجيلة ورقةٌ من أيقونة الترويسة بشارة العدد.
+// 📖 وضعان: `order` (يحتاج سياقاً من الخادم) و`browse` (استعراضٌ للقراءة قبل
+//    الحجز من النقطة العامّة) — عارضٌ واحد للسطوح الثلاثة.
+// 🕒 بلا سياقٍ لكن بحجزٍ قادم (next): الرسالة الصحيحة + تصفّحٌ للقراءة.
+// 🚫 لا سحبَ لإغلاق الأوراق (enableDrag=false): سحبةٌ عفويّة كانت تُغلق
+//    اللوحة وتُضيّع السلّة — قرار المالك 2026-09-09.
+// 📌 لا سوكِت للطلبات: استطلاع كل ٣٠ ثانية في المقدّمة + إشعار FCM.
+// ══════════════════════════════════════════════════════
 
 class OrderScreen extends StatefulWidget {
-  const OrderScreen({super.key, this.embedded = false, this.onEmptyContext});
+  const OrderScreen({
+    super.key,
+    this.embedded = false,
+    this.onEmptyContext,
+    this.mode = 'order',
+    this.locationId,
+    this.locationName,
+  });
 
-  /// ورقةً داخل شاشة اللعبة بدل صفحةٍ مستقلّة — الطلب لا يغادر الجولة.
+  /// ورقةً داخل شاشةٍ أخرى بدل صفحةٍ مستقلّة.
   final bool embedded;
 
-  /// يُبلّغ المستدعي أن لا سياق طلبٍ بعد الآن — ORDER-2.
+  /// يُبلّغ المستدعي أن لا سياق طلبٍ **ولا حجزَ قادماً** — ليُخفي الزرّ.
   final VoidCallback? onEmptyContext;
+
+  /// `order` | `browse`
+  final String mode;
+  final int? locationId;
+  final String? locationName;
 
   @override
   State<OrderScreen> createState() => _OrderScreenState();
 }
 
 /// يعرض لوحة الطلب ورقةً منسدلة فوق شاشة اللعبة.
-/// 🔴 ORDER-2: `onEmptyContext` يُستدعى إن تبيّن عند الفتح أن لا سياق طلبٍ
-///    بعد الآن (انتهت نافذة الفعاليّة). السياق يُسأل مرّةً واحدة عند دخول
-///    اللعبة، فمن انتهت نافذته يبقى الزرّ العائم ظاهراً ويفتح ورقةً فارغة
-///    بدل أن يختفي — والويب يخفيه.
 Future<void> showOrderSheet(BuildContext context, {VoidCallback? onEmptyContext}) =>
     showModalBottomSheet<void>(
       context: context,
       // 🔴 الجذر لا الفرع: من داخل تبويبٍ في الغلاف كانت الورقة تعيش تحت
       //    شريط التنقّل فيحجب أسفلها (زرّ الإرسال وشريط السلّة)
       useRootNavigator: true,
+      enableDrag: false,
       backgroundColor: Colors.transparent,
       barrierColor: const Color(0xCC000000),
       isScrollControlled: true,
@@ -69,11 +81,9 @@ class _OrderSheetShell extends StatelessWidget {
         borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
         child: DecoratedBox(
           decoration: const BoxDecoration(
-            color: Color(0xFF050505),
-            border: Border(top: BorderSide(color: Color(0x4010B981))),
+            color: kPanelBg,
+            border: Border(top: BorderSide(color: kGoldBorder)),
           ),
-          // الورقة بارتفاعٍ ثابت واللوحة تدير تمريرها الداخليّ — تمريرٌ خارجيّ
-          // هنا كان سيُخفي شريط السلّة (نفس درس الويب)
           child: SizedBox(
             height: MediaQuery.sizeOf(context).height * 0.88,
             child: OrderScreen(embedded: true, onEmptyContext: onEmptyContext),
@@ -82,35 +92,28 @@ class _OrderSheetShell extends StatelessWidget {
       );
 }
 
-/// قسمٌ في القائمة المتّصلة.
-class _Section {
-  const _Section({
-    required this.key,
-    required this.chip,
-    required this.title,
-    required this.isPkg,
-    required this.items,
-  });
-  final String key, chip, title;
-  final bool isPkg;
-  final List<FnbMenuItem> items;
-}
-
 class _OrderScreenState extends State<OrderScreen>
     with WidgetsBindingObserver, SingleTickerProviderStateMixin {
   bool _loading = true;
   FnbContextResult _ctxResult = const FnbContextResult();
+  bool _readOnly = false;
+  String _venue = '';
   List<FnbMenuItem> _menu = const [];
   List<FnbMyOrder> _orders = const [];
 
   FnbCart _cart = const FnbCart();
   final _noteCtrl = TextEditingController();
   final _searchCtrl = TextEditingController();
+  final _searchFocus = FocusNode();
+  bool _searchOn = false;
 
-  int _tab = 0; // 0 = المنيو والعروض · 1 = طلباتي
+  String _cat = '';
+  int? _expanded;
+  Map<String, List<String>> _sel = {};
+
   bool _sending = false;
-  bool _sent = false;
   String _err = '';
+  ({String text, bool error})? _toast;
 
   // 💨 خدمة الأرجيلة
   bool _svcAvailable = false;
@@ -120,17 +123,6 @@ class _OrderScreenState extends State<OrderScreen>
   // 🔁 مفتاح التكرار — يتجدّد مع أيّ تغييرٍ في السلّة ويثبت عبر إعادة المحاولة
   String? _clientKey;
 
-  // 🧭 القفز والرصد
-  final _scroll = ScrollController();
-  final _scrollAreaKey = GlobalKey();
-  final _secKeys = <String, GlobalKey>{};
-  final _chipKeys = <String, GlobalKey>{};
-  String _activeSec = '';
-  bool _jumping = false;
-  Timer? _jumpTimer;
-  bool _spyTick = false;
-
-  // نبض شريط السلّة الكهرمانيّ
   late final AnimationController _pulse = AnimationController(
     vsync: this,
     duration: const Duration(milliseconds: 1600),
@@ -138,17 +130,18 @@ class _OrderScreenState extends State<OrderScreen>
 
   Timer? _poll;
   Timer? _toastTimer;
+  final _mainScroll = ScrollController();
 
+  bool get _browse => widget.mode == 'browse';
+  bool get _ro => _browse || _readOnly;
   FnbContext? get _ctx => _ctxResult.context;
+  FnbNext? get _next => _ctxResult.next;
 
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
-    _scroll.addListener(_onScrollSpy);
-    // 💨 فور إغلاق الموظّف طلبَ الفحم يعود الزرّ فوراً — الخادم يبثّ
-    //    fnb:service-done لغرفة player:{id}، وكنّا ننتظر دورة الاستطلاع (٣٠ ث)
-    SocketService.instance.on('fnb:service-done', _onSvcDone);
+    if (!_browse) SocketService.instance.on('fnb:service-done', _onSvcDone);
     _boot();
   }
 
@@ -161,14 +154,14 @@ class _OrderScreenState extends State<OrderScreen>
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
-    SocketService.instance.off('fnb:service-done', _onSvcDone);
+    if (!_browse) SocketService.instance.off('fnb:service-done', _onSvcDone);
     _poll?.cancel();
     _toastTimer?.cancel();
-    _jumpTimer?.cancel();
     _pulse.dispose();
     _noteCtrl.dispose();
     _searchCtrl.dispose();
-    _scroll.dispose();
+    _searchFocus.dispose();
+    _mainScroll.dispose();
     super.dispose();
   }
 
@@ -187,6 +180,12 @@ class _OrderScreenState extends State<OrderScreen>
   // الإقلاع والتحميل
   // ══════════════════════════════════════════════════════
   Future<void> _boot() async {
+    if (_browse) {
+      _venue = widget.locationName ?? '';
+      if (widget.locationId != null) await _loadPublicMenu(widget.locationId!);
+      if (mounted) setState(() => _loading = false);
+      return;
+    }
     try {
       final r = await ApiClient.instance.get('/api/fnb/context');
       if (!mounted) return;
@@ -200,7 +199,7 @@ class _OrderScreenState extends State<OrderScreen>
       if (mounted) setState(() => _loading = false);
       return;
     }
-
+    _venue = c.locationName;
     await Future.wait([_loadMenu(c.activityId), _loadOrders(), _loadService()]);
     if (!mounted) return;
     setState(() => _loading = false);
@@ -216,16 +215,28 @@ class _OrderScreenState extends State<OrderScreen>
     });
   }
 
+  List<FnbMenuItem> _parseItems(dynamic r) => (r['items'] as List? ?? const [])
+      .whereType<Map>()
+      .map((e) => FnbMenuItem.fromJson(Map<String, dynamic>.from(e)))
+      .toList();
+
   Future<void> _loadMenu(int activityId) async {
     try {
-      final r = await ApiClient.instance
-          .get('/api/fnb/menu', query: {'activityId': activityId});
+      final r = await ApiClient.instance.get('/api/fnb/menu', query: {'activityId': activityId});
+      if (!mounted || r is! Map || r['success'] != true) return;
+      setState(() => _menu = _parseItems(r));
+    } catch (_) {}
+  }
+
+  /// النقطة العامّة بلا مصادقة — للاستعراض قبل الحجز وللقراءة قبل فتح النافذة.
+  Future<void> _loadPublicMenu(int locationId) async {
+    try {
+      final r = await ApiClient.instance.get('/api/player-app/locations/$locationId/menu');
       if (!mounted || r is! Map || r['success'] != true) return;
       setState(() {
-        _menu = (r['items'] as List? ?? const [])
-            .whereType<Map>()
-            .map((e) => FnbMenuItem.fromJson(Map<String, dynamic>.from(e)))
-            .toList();
+        _menu = _parseItems(r);
+        final n = r['locationName'];
+        if (n is String && n.isNotEmpty) _venue = n;
       });
     } catch (_) {}
   }
@@ -234,8 +245,7 @@ class _OrderScreenState extends State<OrderScreen>
     final c = _ctx;
     if (c == null) return;
     try {
-      final r = await ApiClient.instance
-          .get('/api/fnb/my-orders', query: {'activityId': c.activityId});
+      final r = await ApiClient.instance.get('/api/fnb/my-orders', query: {'activityId': c.activityId});
       if (!mounted || r is! Map || r['success'] != true) return;
       setState(() {
         _orders = (r['orders'] as List? ?? const [])
@@ -246,7 +256,6 @@ class _OrderScreenState extends State<OrderScreen>
     } catch (_) {}
   }
 
-  /// 💨 هل تُعرض بطاقة الخدمة، وهل ثمّة طلبٌ معلَّق؟
   Future<void> _loadService() async {
     if (_ctx == null) return;
     try {
@@ -254,49 +263,29 @@ class _OrderScreenState extends State<OrderScreen>
       if (!mounted || r is! Map || r['success'] != true) return;
       setState(() {
         _svcAvailable = r['available'] == true;
-        _svcPending =
-            r['pending'] is Map ? Map<String, dynamic>.from(r['pending']) : null;
+        _svcPending = r['pending'] is Map ? Map<String, dynamic>.from(r['pending']) : null;
       });
     } catch (_) {}
+  }
+
+  /// بلا سياق لكن بحجزٍ قادم: تصفّح منيو المكان للقراءة.
+  Future<void> _browseNext() async {
+    final n = _next;
+    if (n == null) return;
+    setState(() {
+      _readOnly = true;
+      _loading = true;
+      _venue = n.locationName;
+    });
+    await _loadPublicMenu(n.locationId);
+    if (mounted) setState(() => _loading = false);
   }
 
   // ══════════════════════════════════════════════════════
   // الأقسام والبحث
   // ══════════════════════════════════════════════════════
-  List<_Section> get _sections {
-    final out = <_Section>[];
-    final packages = _menu.where((m) => m.isBundle).toList();
-    if (packages.isNotEmpty) {
-      out.add(_Section(
-          key: '_pkg', chip: '🎁 العروض', title: '🎁 العروض',
-          isPkg: true, items: packages));
-    }
-    final idx = <String, List<FnbMenuItem>>{};
-    final order = <String>[];
-    for (final m in _menu) {
-      if (m.isBundle) continue;
-      final k = '${m.category}|${m.subcategory}';
-      if (!idx.containsKey(k)) {
-        idx[k] = [];
-        order.add(k);
-      }
-      idx[k]!.add(m);
-    }
-    for (final k in order) {
-      final parts = k.split('|');
-      final cat = parts[0], sub = parts.length > 1 ? parts[1] : '';
-      out.add(_Section(
-        key: k,
-        chip: sub.isNotEmpty ? sub : (cat.isNotEmpty ? cat : kUncategorized),
-        title: sub.isNotEmpty ? '$cat ← $sub' : (cat.isNotEmpty ? cat : kUncategorized),
-        isPkg: false,
-        items: idx[k]!,
-      ));
-    }
-    return out;
-  }
+  List<ShelfSection> get _sections => buildShelfSections(_menu);
 
-  /// 🎁 الأصناف التي تحويها باقة — لشارة «ضمن عرض».
   Set<int> get _inPackageIds {
     final ids = <int>{};
     for (final p in _menu.where((m) => m.isBundle)) {
@@ -311,8 +300,6 @@ class _OrderScreenState extends State<OrderScreen>
     return ids;
   }
 
-  /// البحث يمسح المنيو كلّه — الاسم والوصف والقسم وقيم الخيارات
-  /// (من يكتب «نخلة» يقصد صنفاً يحملها خياراً).
   List<FnbMenuItem> get _searchResults {
     final q = _searchCtrl.text.trim();
     if (q.isEmpty) return const [];
@@ -327,81 +314,22 @@ class _OrderScreenState extends State<OrderScreen>
   }
 
   // ══════════════════════════════════════════════════════
-  // 🧭 الرصد والقفز — مطابقة scroll-spy الويب
+  // السلّة والأفعال
   // ══════════════════════════════════════════════════════
-  void _onScrollSpy() {
-    if (_spyTick || _jumping || _searchCtrl.text.trim().isNotEmpty || _tab != 0) {
-      return;
-    }
-    _spyTick = true;
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      _spyTick = false;
-      if (!mounted) return;
-      final areaBox =
-          _scrollAreaKey.currentContext?.findRenderObject() as RenderBox?;
-      if (areaBox == null) return;
-      final areaTop = areaBox.localToGlobal(Offset.zero).dy;
-      String? cur;
-      for (final sec in _sections) {
-        final ctx = _secKeys[sec.key]?.currentContext;
-        final box = ctx?.findRenderObject() as RenderBox?;
-        if (box == null) continue;
-        final dy = box.localToGlobal(Offset.zero).dy - areaTop;
-        if (dy <= 28) cur = sec.key;
-      }
-      cur ??= _sections.isEmpty ? '' : _sections.first.key;
-      if (cur != _activeSec) {
-        setState(() => _activeSec = cur!);
-        // الشريحة المضيئة تلاحق التمرير اليدويّ — تبقى مرئيّةً في شريطها
-        final chipCtx = _chipKeys[cur]?.currentContext;
-        if (chipCtx != null) {
-          Scrollable.ensureVisible(chipCtx,
-              duration: const Duration(milliseconds: 250),
-              alignment: 0.5,
-              curve: Curves.easeOut);
-        }
-      }
+  void _flash(String text, {bool error = false}) {
+    _toastTimer?.cancel();
+    setState(() => _toast = (text: text, error: error));
+    _toastTimer = Timer(const Duration(milliseconds: 2200), () {
+      if (mounted) setState(() => _toast = null);
     });
   }
 
-  void _jump(String key) {
-    final ctx = _secKeys[key]?.currentContext;
-    if (ctx == null) return;
-    // 🔴 أثناء القفز يُكتم الرصد: تحديث الشريحة في منتصفه كان يقطع الانزلاق
-    _jumping = true;
-    _jumpTimer?.cancel();
-    _jumpTimer = Timer(const Duration(milliseconds: 800), () => _jumping = false);
-    setState(() => _activeSec = key);
-    Scrollable.ensureVisible(ctx,
-        duration: const Duration(milliseconds: 400),
-        alignment: 0,
-        curve: Curves.easeOutCubic);
-  }
-
-  // ══════════════════════════════════════════════════════
-  // السلّة والأفعال
-  // ══════════════════════════════════════════════════════
   void _mutateCart(FnbCart next) {
-    _clientKey = null; // سلّةٌ تغيّرت = محاولةُ إرسالٍ جديدة
+    _clientKey = null;
     setState(() => _cart = next);
   }
 
-  Future<void> _addItem(FnbMenuItem it) async {
-    if (it.isBundle) {
-      final line = await showPackageSheet(context, it);
-      if (line != null && mounted) _mutateCart(_cart.add(line));
-      return;
-    }
-    if (it.optionGroups.isNotEmpty) {
-      final line = await showOptionPicker(context, it);
-      if (line != null && mounted) _mutateCart(_cart.add(line));
-      return;
-    }
-    // 📖 وصفٌ طويل بلا خيارات: يُقرأ قبل أن يُشترى
-    if (it.hasLongDescription) {
-      final add = await showDetailSheet(context, it);
-      if (add != true || !mounted) return;
-    }
+  void _addSimple(FnbMenuItem it) {
     _mutateCart(_cart.add(FnbCartLine(
       key: FnbCartLine.makeKey(it.id, const [], const []),
       itemId: it.id,
@@ -409,6 +337,87 @@ class _OrderScreenState extends State<OrderScreen>
       quantity: 1,
       unitPrice: it.priceValue,
     )));
+    _flash('أُضيف ${it.name} · ${it.priceText}');
+  }
+
+  Future<void> _addItem(FnbMenuItem it) async {
+    if (it.isBundle) {
+      final line = await showBundleWizard(context, it);
+      if (line != null && mounted) {
+        _mutateCart(_cart.add(line));
+        _flash('أُضيف العرض · ${line.label}');
+      }
+      return;
+    }
+    if (it.optionGroups.isNotEmpty) {
+      _expand(it);
+      return;
+    }
+    if (it.hasLongDescription) {
+      final add = await showDetailSheet(context, it);
+      if (add != true || !mounted) return;
+    }
+    _addSimple(it);
+  }
+
+  /// ✅ «عادي» يُحدَّد مبدئيّاً في المجموعة الإلزاميّة الأحاديّة — النكهات لا تُمسّ.
+  void _expand(FnbMenuItem it) {
+    final init = <String, List<String>>{};
+    for (final g in it.optionGroups) {
+      if (g.isRequired && !g.isMulti) {
+        final normal = g.values.where((v) => v.name == 'عادي' && v.priceDelta == 0);
+        if (normal.isNotEmpty) init[g.key] = [normal.first.key];
+      }
+    }
+    setState(() {
+      _sel = init;
+      _expanded = it.id;
+    });
+  }
+
+  void _pick(FnbOptionGroup g, String vk) {
+    setState(() {
+      final cur = _sel[g.key] ?? const <String>[];
+      List<String> next;
+      if (!g.isMulti) {
+        next = (cur.isNotEmpty && cur.first == vk && !g.isRequired) ? const [] : [vk];
+      } else if (cur.contains(vk)) {
+        next = cur.where((v) => v != vk).toList();
+      } else {
+        next = cur.length >= g.maxSelect ? cur : [...cur, vk];
+      }
+      _sel = {..._sel, g.key: next};
+    });
+  }
+
+  void _confirmExpanded(FnbMenuItem it) {
+    var delta = 0.0;
+    final labels = <String>[];
+    final options = <FnbSelection>[];
+    for (final g in it.optionGroups) {
+      for (final vk in (_sel[g.key] ?? const <String>[])) {
+        final v = g.values.where((x) => x.key == vk);
+        if (v.isEmpty) continue;
+        delta += v.first.priceDelta;
+        labels.add(v.first.name);
+        options.add(FnbSelection(groupKey: g.key, valueKey: vk));
+      }
+    }
+    final unit = it.priceValue + delta;
+    _mutateCart(_cart.add(FnbCartLine(
+      key: FnbCartLine.makeKey(it.id, options, const []),
+      itemId: it.id,
+      name: it.name,
+      quantity: 1,
+      unitPrice: unit,
+      label: labels.join(' · '),
+      options: options,
+    )));
+    setState(() {
+      _expanded = null;
+      _sel = {};
+    });
+    _flash('أُضيف ${it.name} ${labels.join(' · ')} · ${jod(unit)}');
   }
 
   Future<void> _send() async {
@@ -417,11 +426,8 @@ class _OrderScreenState extends State<OrderScreen>
       _sending = true;
       _err = '';
     });
-    // 🔁 يثبت عبر إعادة المحاولة: الردّ الضائع ⇒ الخادم يعيد الطلب الأوّل
-    _clientKey ??=
-        'm${DateTime.now().millisecondsSinceEpoch}-${Random().nextInt(0x7FFFFFFF)}';
+    _clientKey ??= 'm${DateTime.now().millisecondsSinceEpoch}-${Random().nextInt(0x7FFFFFFF)}';
     try {
-      // 📍 قراءةٌ طازجة للبوّابة — الخادم يتجاهلها إن كان السياج مُطفأً على الفعاليّة
       final fix = await LocationService.instance.fixForGate();
       final r = await ApiClient.instance.post('/api/fnb/orders', body: {
         if (fix != null) 'fix': fix,
@@ -435,21 +441,18 @@ class _OrderScreenState extends State<OrderScreen>
         setState(() {
           _cart = const FnbCart();
           _noteCtrl.clear();
-          _sent = true;
-          _tab = 1; // كما في الويب: بعد الإرسال يرى حالة طلبه
         });
-        _toastTimer?.cancel();
-        _toastTimer = Timer(const Duration(milliseconds: 2500),
-            () => mounted ? setState(() => _sent = false) : null);
         await _loadOrders();
+        if (!mounted) return;
+        _flash('وصل طلبك للمكان');
+        unawaited(_openOrders());
         return;
       }
-      setState(() => _err =
-          (r is Map ? r['error'] as String? : null) ?? 'فشل إرسال الطلب');
+      setState(() => _err = (r is Map ? r['error'] as String? : null) ?? 'فشل إرسال الطلب');
     } on ApiException catch (e) {
       if (mounted) setState(() => _err = e.message);
     } catch (_) {
-      if (mounted) setState(() => _err = 'خطأ في الاتصال');
+      if (mounted) setState(() => _err = 'خطأ في الاتصال — لم يُرسَل الطلب، أعد المحاولة');
     } finally {
       if (mounted) setState(() => _sending = false);
     }
@@ -463,491 +466,411 @@ class _OrderScreenState extends State<OrderScreen>
         await _loadOrders();
         return;
       }
-      setState(() =>
-          _err = (r is Map ? r['error'] as String? : null) ?? 'تعذّر الإلغاء');
+      _flash((r is Map ? r['error'] as String? : null) ?? 'تعذّر الإلغاء', error: true);
     } on ApiException catch (e) {
-      if (mounted) setState(() => _err = e.message);
+      if (mounted) _flash(e.message, error: true);
     } catch (_) {
-      if (mounted) setState(() => _err = 'تعذّر الإلغاء');
+      if (mounted) _flash('تعذّر الإلغاء', error: true);
     }
   }
 
-  /// 💨 طلب فحمٍ أو تزبيط — طلبٌ معلَّقٌ واحد، والخادم يفرضه أيضاً.
   Future<void> _askService(String kind) async {
     if (_svcBusy || _svcPending != null) return;
     setState(() => _svcBusy = true);
     try {
       final fix = await LocationService.instance.fixForGate();
-      final r = await ApiClient.instance.post('/api/fnb/service',
-          body: {'kind': kind, if (fix != null) 'fix': fix});
+      final r = await ApiClient.instance.post('/api/fnb/service', body: {'kind': kind, if (fix != null) 'fix': fix});
       if (!mounted) return;
       if (r is Map && r['success'] == true) {
-        setState(() => _svcPending = r['request'] is Map
-            ? Map<String, dynamic>.from(r['request'])
-            : {'kind': kind});
+        setState(() => _svcPending = r['request'] is Map ? Map<String, dynamic>.from(r['request']) : {'kind': kind});
       } else {
-        setState(() => _err =
-            (r is Map ? r['error'] as String? : null) ?? 'تعذّر إرسال الطلب');
+        _flash((r is Map ? r['error'] as String? : null) ?? 'تعذّر إرسال الطلب', error: true);
       }
     } on ApiException catch (e) {
-      if (mounted) setState(() => _err = e.message);
+      if (mounted) _flash(e.message, error: true);
     } catch (_) {
-      if (mounted) setState(() => _err = 'خطأ في الاتصال');
+      if (mounted) _flash('خطأ في الاتصال', error: true);
     } finally {
       if (mounted) setState(() => _svcBusy = false);
     }
   }
+
+  int get _openBadge => _orders.where((o) => o.status == 'new' || o.status == 'preparing').length;
 
   // ══════════════════════════════════════════════════════
   // البناء
   // ══════════════════════════════════════════════════════
   @override
   Widget build(BuildContext context) {
-    // 🔴 يُبلَّغ **بعد** انتهاء الإطار: نداءٌ يغيّر حالة الأب أثناء بنائه
-    //    يرمي «setState during build».
-    if (!_loading && _ctx == null && widget.onEmptyContext != null) {
+    // 🔴 يُبلَّغ **بعد** انتهاء الإطار: نداءٌ يغيّر حالة الأب أثناء بنائه يرمي
+    //    «setState during build». يُبلَّغ فقط حين لا سياق ولا حجزَ قادماً.
+    if (!_loading && !_browse && _ctx == null && _next == null && widget.onEmptyContext != null) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (mounted) widget.onEmptyContext!();
       });
     }
 
-    final body = _loading
-        ? _loadingState(context)
-        : _ctx == null
-            ? _noContext()
-            : _ready();
-
+    final body = _loading ? _loadingState() : _panel();
     if (widget.embedded) return body;
 
     return PopsToHome(
       child: Scaffold(
-        backgroundColor: const Color(0xFF050505),
+        backgroundColor: kPanelBg,
         resizeToAvoidBottomInset: true,
         body: SafeArea(bottom: false, child: body),
       ),
     );
   }
 
-  Widget _loadingState(BuildContext context) => SizedBox(
-        height: MediaQuery.sizeOf(context).height * 0.6,
-        child: const Center(
-          child: SizedBox(
-            width: 40,
-            height: 40,
-            child: CircularProgressIndicator(strokeWidth: 2, color: kEmerald),
-          ),
+  Widget _loadingState() => const Center(
+        child: SizedBox(
+          width: 36,
+          height: 36,
+          child: CircularProgressIndicator(strokeWidth: 2, color: kGoldSolid),
         ),
       );
 
-  Widget _noContext() => Center(
-        child: SingleChildScrollView(
-          padding: const EdgeInsets.fromLTRB(20, 64, 20, 40),
-          child: ContentConstraint(
-            maxWidth: 512,
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                const Text('🍽️', style: TextStyle(fontSize: 48)),
-                const SizedBox(height: 16),
-                Text('لا يوجد نشاط متاح للطلب الآن',
-                    textAlign: TextAlign.center,
-                    style: ar(18, weight: FontWeight.bold)),
-                const SizedBox(height: 8),
-                Text(_ctxResult.reasonText,
-                    textAlign: TextAlign.center,
-                    style: ar(14, color: Tw.gray500, height: 1.6)),
-                const SizedBox(height: 24),
-                InkWell(
-                  onTap: () => widget.embedded
-                      ? Navigator.of(context).maybePop()
-                      : popOrHome(context),
-                  child: Padding(
-                    padding: const EdgeInsets.all(4),
-                    child: Text(widget.embedded ? 'إغلاق' : '← الرئيسيّة',
-                        style: ar(14, color: kEmeraldText).copyWith(
-                          decoration: TextDecoration.underline,
-                          decorationColor: kEmeraldText,
-                        )),
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ),
-      );
-
-  /// ثابتٌ (ترويسة + تبويبات + بحث/شرائح) · متمرّرٌ (الجسم) · ثابت (شريط السلّة)
-  Widget _ready() {
-    final searching = _searchCtrl.text.trim().isNotEmpty;
+  Widget _panel() {
+    final noCtx = !_browse && _ctx == null && !_readOnly;
     return Stack(children: [
       Column(children: [
         _header(),
-        _tabs(),
-        if (_tab == 0) _searchAndChips(searching),
         Expanded(
-          child: KeyedSubtree(
-            key: _scrollAreaKey,
-            child: _tab == 0 ? _menuBody(searching) : _ordersBody(),
-          ),
+          child: noCtx
+              ? _noContext()
+              : _menu.isEmpty
+                  ? const Padding(padding: EdgeInsets.all(16), child: EmptyMenuCard())
+                  : _shelf(),
         ),
-        _cartBar(),
+        if (!_ro) _cartBar(),
       ]),
-      if (_sent)
-        const Positioned.fill(child: _ToastFade(child: OrderSentToast())),
+      if (_toast != null)
+        Positioned(
+          left: 16,
+          right: 16,
+          bottom: _cart.isEmpty ? 20 : 84,
+          child: _ToastFade(child: OrderToast(text: _toast!.text, error: _toast!.error)),
+        ),
     ]);
   }
 
-  Widget _header() {
-    final c = _ctx!;
-    return Container(
-      padding: const EdgeInsets.fromLTRB(16, 10, 16, 10),
-      decoration: const BoxDecoration(
-        color: Color(0xFF0A0F0D),
-        border: Border(bottom: BorderSide(color: Color(0x12FFFFFF))),
-      ),
-      child: Row(children: [
-        Container(
-          width: 36,
-          height: 36,
-          decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(12),
-            gradient: const LinearGradient(
-              colors: [Color(0x4010B981), Color(0x0F10B981)],
-            ),
-            border: Border.all(color: const Color(0x4D10B981)),
-          ),
-          child: const Center(child: Text('🍽️', style: TextStyle(fontSize: 16))),
-        ),
-        const SizedBox(width: 10),
-        Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Text(c.locationName,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: ar(14, weight: FontWeight.bold)),
-              Text(c.isLive ? '🎮 أنت داخل اللعبة' : '🎟️ حجزك مؤكّد للطلب',
-                  style: ar(10, color: Tw.gray500)),
-            ],
-          ),
-        ),
-        if (widget.embedded)
-          InkWell(
-            onTap: () => Navigator.of(context).maybePop(),
-            borderRadius: BorderRadius.circular(999),
-            child: Container(
-              width: 32,
-              height: 32,
-              decoration: BoxDecoration(
-                shape: BoxShape.circle,
-                color: const Color(0x12FFFFFF),
-                border: Border.all(color: const Color(0x1FFFFFFF)),
-              ),
-              child: Center(child: Text('✕', style: ar(12, color: Tw.gray400))),
-            ),
-          ),
-      ]),
-    );
+  String get _subline {
+    if (_browse) return 'للاطّلاع — يفتح الطلب قبل الموعد بساعة ويحتاج حجزاً';
+    if (_readOnly && _next != null) return 'للقراءة — يفتح الطلب الساعة ${_next!.opensAt}';
+    final c = _ctx;
+    if (c == null) return 'الطلب من المكان';
+    return c.isLive ? 'أنت داخل اللعبة — الطلب يصل طاولتك' : 'حجزك مؤكّد — الطلب متاح';
   }
 
-  Widget _tabs() {
-    final badge = _orders.where((o) => o.status == 'new' || o.status == 'preparing').length;
-    Widget tab(int i, String label, {int count = 0}) {
-      final on = _tab == i;
-      return Expanded(
-        child: InkWell(
-          onTap: () => setState(() => _tab = i),
-          child: Container(
-            padding: const EdgeInsets.symmetric(vertical: 10),
+  Widget _header() => Container(
+        padding: const EdgeInsets.fromLTRB(14, 10, 14, 10),
+        decoration: const BoxDecoration(
+          color: kHeaderBg,
+          border: Border(bottom: BorderSide(color: Color(0x12FFFFFF))),
+        ),
+        child: Row(children: [
+          Container(
+            width: 36,
+            height: 36,
             decoration: BoxDecoration(
-              border: Border(
-                bottom: BorderSide(
-                    width: 2,
-                    color: on ? const Color(0xFF34D399) : Colors.transparent),
-              ),
+              borderRadius: BorderRadius.circular(12),
+              color: kGoldBg,
+              border: Border.all(color: kGoldBorder),
             ),
-            child: Row(mainAxisAlignment: MainAxisAlignment.center, children: [
-              Text(label,
-                  style: ar(11.5,
-                      color: on ? const Color(0xFF34D399) : Tw.gray500,
-                      weight: FontWeight.bold)),
-              if (count > 0) ...[
-                const SizedBox(width: 4),
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
-                  decoration: BoxDecoration(
-                    borderRadius: BorderRadius.circular(999),
-                    color: const Color(0xFF34D399),
-                  ),
-                  child: Text('$count',
-                      style: const TextStyle(
-                          fontSize: 9,
-                          fontWeight: FontWeight.w900,
-                          color: Colors.black)),
-                ),
+            child: const Icon(Icons.restaurant_outlined, size: 19, color: kGoldFg),
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(_venue.isEmpty ? 'المنيو' : _venue,
+                    maxLines: 1, overflow: TextOverflow.ellipsis, style: ar(14.5, weight: FontWeight.bold)),
+                Text(_subline, maxLines: 1, overflow: TextOverflow.ellipsis, style: ar(10.5, color: Tw.gray500)),
               ],
-            ]),
+            ),
           ),
-        ),
+          if (_menu.isNotEmpty) ...[
+            const SizedBox(width: 6),
+            HeaderIconButton(
+              icon: Icons.search,
+              active: _searchOn,
+              tooltip: 'بحث',
+              onTap: () {
+                setState(() {
+                  _searchOn = !_searchOn;
+                  _searchCtrl.clear();
+                });
+                if (_searchOn) {
+                  Future.delayed(const Duration(milliseconds: 60), () {
+                    if (mounted) _searchFocus.requestFocus();
+                  });
+                }
+              },
+            ),
+          ],
+          if (!_ro && _ctx != null) ...[
+            const SizedBox(width: 6),
+            HeaderIconButton(
+              icon: Icons.receipt_long_outlined,
+              badge: _openBadge,
+              tooltip: 'طلباتي',
+              onTap: () => unawaited(_openOrders()),
+            ),
+          ],
+          if (widget.embedded) ...[
+            const SizedBox(width: 6),
+            HeaderIconButton(
+              icon: Icons.close,
+              tooltip: 'إغلاق',
+              onTap: () => Navigator.of(context).maybePop(),
+            ),
+          ],
+        ]),
       );
-    }
 
-    return Container(
-      decoration: const BoxDecoration(
-        color: Color(0xFF0A0F0D),
-        border: Border(bottom: BorderSide(color: Color(0x12FFFFFF))),
-      ),
-      child: Row(children: [
-        tab(0, '🍽️ المنيو والعروض'),
-        tab(1, '🧾 طلباتي', count: badge),
-      ]),
-    );
-  }
-
-  Widget _searchAndChips(bool searching) {
-    final secs = _sections;
-    return Container(
-      padding: const EdgeInsets.fromLTRB(16, 10, 16, 8),
-      color: const Color(0xFF050505),
-      child: Column(children: [
-        SizedBox(
-          height: 40,
-          child: TextField(
-            controller: _searchCtrl,
-            onChanged: (_) => setState(() {}),
-            style: ar(13),
-            cursorColor: kEmeraldText,
-            decoration: InputDecoration(
-              isDense: true,
-              hintText: 'ابحث في المنيو…',
-              hintStyle: ar(13, color: Tw.gray600),
-              prefixIcon: const Padding(
-                padding: EdgeInsets.only(top: 2),
-                child: Text('🔎', textAlign: TextAlign.center,
-                    style: TextStyle(fontSize: 13)),
-              ),
-              prefixIconConstraints:
-                  const BoxConstraints(minWidth: 36, minHeight: 0),
-              suffixIcon: searching
-                  ? IconButton(
-                      icon: const Icon(Icons.close, size: 16, color: Colors.grey),
-                      onPressed: () {
-                        _searchCtrl.clear();
-                        setState(() {});
-                      },
-                    )
-                  : null,
-              filled: true,
-              fillColor: const Color(0x0DFFFFFF),
-              contentPadding:
-                  const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-              enabledBorder: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(12),
-                borderSide: const BorderSide(color: Color(0x17FFFFFF)),
-              ),
-              focusedBorder: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(12),
-                borderSide: const BorderSide(color: Color(0x6610B981)),
-              ),
-            ),
+  Widget _noContext() {
+    final n = _next;
+    return Center(
+      child: SingleChildScrollView(
+        padding: const EdgeInsets.fromLTRB(24, 32, 24, 32),
+        child: Column(mainAxisSize: MainAxisSize.min, children: [
+          Container(
+            width: 56,
+            height: 56,
+            decoration: BoxDecoration(shape: BoxShape.circle, color: kGoldBg, border: Border.all(color: kGoldBorder)),
+            child: const Icon(Icons.restaurant_outlined, color: kGoldFg, size: 24),
           ),
-        ),
-        if (!searching && secs.length > 1) ...[
+          const SizedBox(height: 12),
+          Text(n != null ? 'يفتح الطلب الساعة ${n.opensAt}' : 'لا يوجد نشاط متاح للطلب الآن',
+              textAlign: TextAlign.center, style: ar(15, weight: FontWeight.bold)),
           const SizedBox(height: 8),
-          // Row داخل تمريرٍ أفقيّ لا ListView كسول: الشريحة خارج نافذة العرض
-          // كانت بلا عنصرٍ مبنيّ فلا يجد ensureVisible سياقها ولا يلاحقها
-          SizedBox(
-            height: 32,
-            child: SingleChildScrollView(
-              scrollDirection: Axis.horizontal,
-              child: Row(children: [
-                for (final s in secs)
-                  Padding(
-                    key: _chipKeys[s.key] ??= GlobalKey(),
-                    padding: const EdgeInsets.only(left: 6),
-                    child: _chip(s),
-                  ),
-              ]),
+          Text(_ctxResult.reasonText, textAlign: TextAlign.center, style: ar(12.5, color: Tw.gray400, height: 1.6)),
+          if (n != null) ...[
+            const SizedBox(height: 16),
+            InkWell(
+              onTap: () => unawaited(_browseNext()),
+              borderRadius: BorderRadius.circular(12),
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(12),
+                  color: const Color(0x0FFFFFFF),
+                  border: Border.all(color: const Color(0x1FFFFFFF)),
+                ),
+                child: Text('تصفّح منيو ${n.locationName} للقراءة', style: ar(12.5, weight: FontWeight.bold)),
+              ),
+            ),
+          ],
+          const SizedBox(height: 12),
+          InkWell(
+            onTap: () => widget.embedded ? Navigator.of(context).maybePop() : popOrHome(context),
+            child: Padding(
+              padding: const EdgeInsets.all(4),
+              child: Text(widget.embedded ? 'إغلاق' : '← الرئيسيّة',
+                  style: ar(12.5, color: kGoldFg).copyWith(
+                    decoration: TextDecoration.underline,
+                    decorationColor: kGoldFg,
+                  )),
             ),
           ),
-        ],
-      ]),
-    );
-  }
-
-  Widget _chip(_Section s) {
-    final on = (_activeSec.isEmpty ? _sections.first.key : _activeSec) == s.key;
-    return InkWell(
-      onTap: () => _jump(s.key),
-      borderRadius: BorderRadius.circular(9),
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 6),
-        decoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(9),
-          color: on ? const Color(0x2610B981) : const Color(0x0AFFFFFF),
-          border: Border.all(
-              color: on ? const Color(0x4D10B981) : Colors.transparent),
-        ),
-        child: Row(mainAxisSize: MainAxisSize.min, children: [
-          Text(s.chip,
-              style: ar(11,
-                  color: on ? const Color(0xFF34D399) : Tw.gray400,
-                  weight: FontWeight.bold)),
-          const SizedBox(width: 4),
-          Text('${s.items.length}',
-              style: TextStyle(
-                  fontSize: 9,
-                  color: (on ? const Color(0xFF34D399) : Tw.gray400)
-                      .withValues(alpha: 0.6))),
         ]),
       ),
     );
   }
 
-  // ── جسم المنيو: قائمةٌ متّصلة أو نتائج البحث ──
-  Widget _menuBody(bool searching) {
-    if (_menu.isEmpty) {
-      return ListView(
-        padding: const EdgeInsets.all(16),
-        children: const [EmptyMenuCard()],
-      );
-    }
-    if (searching) {
-      final results = _searchResults;
-      return ListView(
-        padding: const EdgeInsets.fromLTRB(16, 4, 16, 24),
-        children: [
-          if (_err.isNotEmpty) ...[
-            OrderErrorBanner(message: _err),
-            const SizedBox(height: 10),
-          ],
-          if (results.isEmpty)
-            Padding(
-              padding: const EdgeInsets.symmetric(vertical: 48),
-              child: Center(
-                child: Column(children: [
-                  Text('لا صنف يطابق «${_searchCtrl.text.trim()}»',
-                      style: ar(13, color: Tw.gray500)),
-                  const SizedBox(height: 12),
-                  // 🔴 ORDER-1: زرُّ مسحٍ صريح — من لا يجد نتيجةً يريد
-                  //    العودة للقائمة كاملةً لا أن يمسح الحقل حرفاً حرفاً.
-                  GestureDetector(
-                    // النصّ يُقرأ من المتحكّم مباشرةً — فالمسح وحده يكفي.
-                    onTap: () => setState(_searchCtrl.clear),
-                    behavior: HitTestBehavior.opaque,
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(
-                          horizontal: 18, vertical: 9),
-                      decoration: BoxDecoration(
-                        borderRadius: BorderRadius.circular(10),
-                        border: Border.all(color: const Color(0x3310B981)),
-                      ),
-                      child: Text('امسح البحث',
-                          style: ar(12.5,
-                              color: kEmeraldText, weight: FontWeight.w700)),
-                    ),
-                  ),
-                ]),
-              ),
-            )
-          else
-            for (final m in results) ...[
-              _itemOrPkgRow(m),
-              const SizedBox(height: 8),
-            ],
-        ],
-      );
-    }
-
+  /// الرفّ يميناً + بلاطات القسم المختار (أو نتائج البحث بلا رفّ).
+  Widget _shelf() {
     final secs = _sections;
-    return SingleChildScrollView(
-      controller: _scroll,
-      padding: const EdgeInsets.fromLTRB(16, 4, 16, 24),
-      child: ContentConstraint(
-        maxWidth: 640,
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
+    final activeKey = secs.any((s) => s.key == _cat) ? _cat : (secs.isEmpty ? '' : secs.first.key);
+    final active = secs.where((s) => s.key == activeKey).firstOrNull;
+
+    return Row(children: [
+      if (!_searchOn)
+        ShelfRail(
+          sections: secs,
+          activeKey: activeKey,
+          onSelect: (k) {
+            setState(() {
+              _cat = k;
+              _expanded = null;
+            });
+            if (_mainScroll.hasClients) _mainScroll.jumpTo(0);
+          },
+        ),
+      Expanded(
+        child: ListView(
+          controller: _mainScroll,
+          // 🚫 لا ارتداد ولا سحبٌ للتحديث: السحب لأسفل لا أثر له
+          physics: const ClampingScrollPhysics(),
+          padding: const EdgeInsets.fromLTRB(10, 10, 10, 24),
           children: [
+            if (_searchOn) _searchField(),
             if (_err.isNotEmpty) ...[
               OrderErrorBanner(message: _err),
-              const SizedBox(height: 10),
+              const SizedBox(height: 8),
             ],
-            for (final sec in secs) ...[
-              KeyedSubtree(
-                key: _secKeys[sec.key] ??= GlobalKey(),
-                child: Padding(
-                  padding: const EdgeInsets.only(top: 8, bottom: 8),
-                  child: Row(children: [
-                    Text(sec.title,
-                        style: ar(11,
-                            color: const Color(0xBF34D399),
-                            weight: FontWeight.bold)),
-                    const SizedBox(width: 8),
-                    const Expanded(
-                      child: SizedBox(
-                          height: 1,
-                          child: ColoredBox(color: Color(0x1F10B981))),
-                    ),
-                    const SizedBox(width: 8),
-                    Text('${sec.items.length}',
-                        style: ar(10, color: Tw.gray600)),
-                  ]),
-                ),
-              ),
-              for (final m in sec.items) ...[
-                _itemOrPkgRow(m),
-                const SizedBox(height: 8),
-              ],
-            ],
+            if (_searchOn)
+              ..._searchBody()
+            else if (active != null)
+              ...(active.isPkg ? _pkgBody(active) : _tilesBody(active)),
           ],
         ),
       ),
-    );
+    ]);
   }
 
-  Widget _itemOrPkgRow(FnbMenuItem m) => m.isBundle
-      ? PackageCard(
-          item: m,
-          qty: _cart.qtyOf(m.id),
-          onTap: () => unawaited(_addItem(m)),
-        )
-      : MenuItemRow(
-          item: m,
-          qty: _cart.qtyOf(m.id),
-          inPackage: _inPackageIds.contains(m.id),
-          onAdd: () => unawaited(_addItem(m)),
-        );
-
-  // ── طلباتي + 💨 خدمة الأرجيلة ──
-  Widget _ordersBody() => ListView(
-        padding: const EdgeInsets.fromLTRB(16, 14, 16, 24),
-        children: [
-          if (_err.isNotEmpty) ...[
-            OrderErrorBanner(message: _err),
-            const SizedBox(height: 10),
-          ],
-          if (_svcAvailable) ...[
-            ShishaServiceCard(
-              pending: _svcPending != null,
-              busy: _svcBusy,
-              onAsk: (kind) => unawaited(_askService(kind)),
+  Widget _searchField() => Padding(
+        padding: const EdgeInsets.only(bottom: 10),
+        child: TextField(
+          controller: _searchCtrl,
+          focusNode: _searchFocus,
+          onChanged: (_) => setState(() {}),
+          style: ar(14),
+          cursorColor: kAmberFg,
+          textInputAction: TextInputAction.search,
+          decoration: InputDecoration(
+            isDense: true,
+            hintText: 'ابحث: نكهة، صنف، قسم…',
+            hintStyle: ar(13, color: Tw.gray600),
+            suffixIcon: _searchCtrl.text.isNotEmpty
+                ? IconButton(
+                    icon: const Icon(Icons.close, size: 16, color: Colors.grey),
+                    onPressed: () => setState(_searchCtrl.clear),
+                  )
+                : null,
+            filled: true,
+            fillColor: const Color(0x0DFFFFFF),
+            contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+            enabledBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(12),
+              borderSide: const BorderSide(color: Color(0x1AFFFFFF)),
             ),
-            const SizedBox(height: 12),
-          ],
-          if (_orders.isEmpty)
-            Padding(
-              padding: const EdgeInsets.symmetric(vertical: 48),
-              child: Center(
-                  child: Text('لا طلبات بعد', style: ar(13, color: Tw.gray500))),
-            )
-          else
-            for (final o in _orders) ...[
-              MyOrderCard(order: o, onCancel: () => _cancel(o)),
+            focusedBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(12),
+              borderSide: const BorderSide(color: kAmberBorder),
+            ),
+          ),
+        ),
+      );
+
+  List<Widget> _searchBody() {
+    final q = _searchCtrl.text.trim();
+    if (q.isEmpty) {
+      return [
+        Padding(
+          padding: const EdgeInsets.symmetric(vertical: 40),
+          child: Center(
+            child: Text('جرّب اسم نكهةٍ: «نخلة» يعيد الأرجيلة الفاخرة وعروضها',
+                textAlign: TextAlign.center, style: ar(12, color: Tw.gray500)),
+          ),
+        ),
+      ];
+    }
+    final res = _searchResults;
+    if (res.isEmpty) {
+      return [
+        Padding(
+          padding: const EdgeInsets.symmetric(vertical: 40),
+          child: Center(
+            child: Column(children: [
+              Text('لا صنف يطابق «$q»', style: ar(13, color: Tw.gray500)),
               const SizedBox(height: 8),
-            ],
+              InkWell(
+                onTap: () => setState(_searchCtrl.clear),
+                child: Text('امسح البحث', style: ar(12, color: kGoldFg).copyWith(decoration: TextDecoration.underline, decorationColor: kGoldFg)),
+              ),
+            ]),
+          ),
+        ),
+      ];
+    }
+    return [
+      for (final p in res.where((m) => m.isBundle)) ...[
+        PackageCard(item: p, qty: _cart.qtyOf(p.id), readOnly: _ro, onTap: () => unawaited(_addItem(p))),
+        const SizedBox(height: 8),
+      ],
+      _grid(res.where((m) => !m.isBundle).toList()),
+    ];
+  }
+
+  List<Widget> _pkgBody(ShelfSection sec) => [
+        for (final p in sec.items) ...[
+          PackageCard(item: p, qty: _cart.qtyOf(p.id), readOnly: _ro, onTap: () => unawaited(_addItem(p))),
+          const SizedBox(height: 8),
         ],
+        Center(
+          child: Text('اختياراتك لا تغيّر السعر — إلّا ما عليه زيادةٌ معلَنة',
+              style: ar(10, color: Tw.gray600)),
+        ),
+      ];
+
+  List<Widget> _tilesBody(ShelfSection sec) => [
+        Padding(
+          padding: const EdgeInsets.only(bottom: 8),
+          child: Row(children: [
+            Text(sec.title, style: ar(10.5, color: const Color(0xCCC5A059), weight: FontWeight.bold)),
+            const SizedBox(width: 8),
+            const Expanded(child: SizedBox(height: 1, child: ColoredBox(color: Color(0x2EC5A059)))),
+            const SizedBox(width: 8),
+            Text(arDigits(sec.items.length), style: ar(10, color: Tw.gray600)),
+          ]),
+        ),
+        _grid(sec.items),
+      ];
+
+  /// شبكةٌ بعمودين؛ البلاطة المفتوحة تمتدّ على العمودين.
+  Widget _grid(List<FnbMenuItem> items) {
+    final inPkg = _inPackageIds;
+    final rows = <Widget>[];
+    var i = 0;
+    while (i < items.length) {
+      final a = items[i];
+      if (_expanded == a.id) {
+        rows.add(_tile(a, inPkg));
+        i += 1;
+        continue;
+      }
+      final b = i + 1 < items.length ? items[i + 1] : null;
+      if (b != null && _expanded == b.id) {
+        rows.add(Row(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+          Expanded(child: _tile(a, inPkg)),
+          const SizedBox(width: 8),
+          const Expanded(child: SizedBox.shrink()),
+        ]));
+        i += 1;
+        continue;
+      }
+      rows.add(IntrinsicHeight(
+        child: Row(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+          Expanded(child: _tile(a, inPkg)),
+          const SizedBox(width: 8),
+          Expanded(child: b == null ? const SizedBox.shrink() : _tile(b, inPkg)),
+        ]),
+      ));
+      i += 2;
+    }
+    return Column(children: [
+      for (final r in rows) ...[r, const SizedBox(height: 8)],
+    ]);
+  }
+
+  Widget _tile(FnbMenuItem it, Set<int> inPkg) => MenuItemRow(
+        item: it,
+        qty: _cart.qtyOf(it.id),
+        inPackage: inPkg.contains(it.id),
+        readOnly: _ro,
+        expanded: _expanded == it.id,
+        selection: _sel,
+        onAdd: () => unawaited(_addItem(it)),
+        onPick: _pick,
+        onConfirm: () => _confirmExpanded(it),
+        onCollapse: () => setState(() {
+          _expanded = null;
+          _sel = {};
+        }),
+        onQty: (d) => _mutateCart(_cart.changeQty(FnbCartLine.makeKey(it.id, const [], const []), d)),
       );
 
   // ══════════════════════════════════════════════════════
@@ -971,10 +894,10 @@ class _OrderScreenState extends State<OrderScreen>
             height: 36,
             decoration: BoxDecoration(
               borderRadius: BorderRadius.circular(12),
-              color: const Color(0x2EF59E0B),
-              border: Border.all(color: const Color(0x73F59E0B)),
+              color: kAmberBg,
+              border: Border.all(color: kAmberBorder),
             ),
-            child: Center(child: ltrText('${_cart.count}', num_(14, color: const Color(0xFFFCD34D), weight: FontWeight.w900))),
+            child: Center(child: ltrText('${_cart.count}', num_(14, color: kAmberFg))),
           ),
           const SizedBox(width: 10),
           Expanded(
@@ -984,15 +907,11 @@ class _OrderScreenState extends State<OrderScreen>
               children: [
                 Row(children: [
                   FadeTransition(
-                    opacity: Tween(begin: 1.0, end: 0.25).animate(
-                        CurvedAnimation(parent: _pulse, curve: Curves.easeInOut)),
+                    opacity: Tween(begin: 1.0, end: 0.25).animate(CurvedAnimation(parent: _pulse, curve: Curves.easeInOut)),
                     child: Container(
                       width: 8,
                       height: 8,
-                      decoration: const BoxDecoration(
-                        shape: BoxShape.circle,
-                        color: Color(0xFFF59E0B),
-                      ),
+                      decoration: const BoxDecoration(shape: BoxShape.circle, color: Color(0xFFF59E0B)),
                     ),
                   ),
                   const SizedBox(width: 6),
@@ -1004,104 +923,201 @@ class _OrderScreenState extends State<OrderScreen>
                       ]),
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
-                      style: ar(12.5,
-                          color: const Color(0xFFFCD34D),
-                          weight: FontWeight.w900),
+                      style: ar(12.5, color: kAmberFg, weight: FontWeight.w900),
                     ),
                   ),
                 ]),
-                Text('طلبك لم يصل الكافيه · اضغط للمراجعة والإرسال',
-                    style: ar(9.5, color: const Color(0x8CFCD34D))),
+                Text('طلبك لم يصل الكافيه · اضغط للمراجعة والإرسال', style: ar(9.5, color: const Color(0x8CFCD34D))),
               ],
             ),
           ),
           const SizedBox(width: 8),
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-            decoration: BoxDecoration(
-              borderRadius: BorderRadius.circular(12),
-              gradient: const LinearGradient(
-                colors: [Color(0xFFF59E0B), Color(0xFFD97706)],
-              ),
-            ),
-            child: Text('راجع وأرسل ←',
-                style: ar(12, weight: FontWeight.bold)),
+            decoration: BoxDecoration(borderRadius: BorderRadius.circular(12), gradient: kAmberGradient),
+            child: Text('راجع وأرسل', style: ar(12, weight: FontWeight.bold)),
           ),
         ]),
       ),
     );
   }
 
-  /// 🛒 درج السلّة: التعديل والحذف والملاحظة والإرسال — من أيّ موضعٍ بلا تمرير.
-  Future<void> _openCartDrawer() => showModalBottomSheet<void>(
+  Future<T?> _modal<T>(Widget Function(BuildContext) builder) => showModalBottomSheet<T>(
         context: context,
-        useRootNavigator: true,   // فوق شريط تنقّل الغلاف — لا تحته
+        useRootNavigator: true,
+        enableDrag: false,
         backgroundColor: Colors.transparent,
         barrierColor: const Color(0xCC000000),
         isScrollControlled: true,
-        constraints: BoxConstraints(
-          maxWidth: 512,
-          maxHeight: MediaQuery.sizeOf(context).height * 0.88,
-        ),
-        builder: (sheetCtx) {
-          // 🔴 حارس الإغلاق الأحاديّ: إعادة بناء الدرج أثناء حركة خروجه (~200م‌ث)
-          //    كانت تعيد جدولة pop فتُغلق **ورقة الطلب كلّها** خلف الدرج —
-          //    اللاعب يُقذف خارج الشاشة فور إرساله ولا يرى التوست ولا طلباته
-          var popped = false;
-          void popDrawerOnce(BuildContext ctx) {
-            if (popped) return;
-            popped = true;
-            WidgetsBinding.instance.addPostFrameCallback((_) {
-              if (ctx.mounted && (ModalRoute.of(ctx)?.isCurrent ?? false)) {
-                Navigator.of(ctx).pop();
-              }
-            });
-          }
-
-          return StatefulBuilder(
-            builder: (ctx, setSheet) {
-              void both(VoidCallback fn) {
-                setState(fn);
-                setSheet(() {});
-              }
-
-              // آخر سطرٍ حُذف — الدرج بلا موضوع (مرّةً واحدة، والحارس يتحقّق
-              // أنّ الدرج ما يزال المسار الأعلى قبل الإغلاق)
-              if (_cart.isEmpty) popDrawerOnce(ctx);
-
-              return CartDrawer(
-                cart: _cart,
-                noteCtrl: _noteCtrl,
-                sending: _sending,
-                error: _err,
-                onQty: (key, d) => both(() {
-                  _clientKey = null;
-                  _cart = _cart.changeQty(key, d);
-                }),
-                onRemove: (key) => both(() {
-                  _clientKey = null;
-                  _cart = FnbCart(
-                      lines: _cart.lines.where((l) => l.key != key).toList());
-                }),
-                onSend: () async {
-                  await _send();
-                  if (!ctx.mounted) return;
-                  if (_sent) {
-                    // نجاح: إغلاقٌ واحدٌ محروس — ولا setSheet بعده
-                    popDrawerOnce(ctx);
-                    return;
-                  }
-                  // فشل: يبقى الدرج مفتوحاً ويُعاد بناؤه ليعرض لافتة الخطأ
-                  setSheet(() {});
-                },
-              );
-            },
-          );
-        },
+        constraints: BoxConstraints(maxWidth: 512, maxHeight: MediaQuery.sizeOf(context).height * 0.88),
+        builder: builder,
       );
+
+  /// 🧾 طلباتي + خدمة الأرجيلة — ورقةٌ من أيقونة الترويسة.
+  Future<void> _openOrders() => _modal<void>((sheetCtx) => StatefulBuilder(
+        builder: (ctx, setSheet) => OrderSheetShell(
+          title: 'طلباتي',
+          subtitle: _openBadge > 0 ? '${arDigits(_openBadge)} قيد المتابعة' : 'كلّ ما طلبته في هذه الفعاليّة',
+          body: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+            if (_svcAvailable) ...[
+              ShishaServiceCard(
+                pending: _svcPending != null,
+                busy: _svcBusy,
+                onAsk: (kind) async {
+                  await _askService(kind);
+                  if (ctx.mounted) setSheet(() {});
+                },
+              ),
+              const SizedBox(height: 12),
+            ],
+            if (_orders.isEmpty)
+              Padding(
+                padding: const EdgeInsets.symmetric(vertical: 40),
+                child: Center(child: Text('لا طلبات بعد', style: ar(13, color: Tw.gray500))),
+              )
+            else
+              for (final o in _orders) ...[
+                MyOrderCard(
+                  order: o,
+                  onCancel: () async {
+                    await _cancel(o);
+                    if (ctx.mounted) setSheet(() {});
+                  },
+                ),
+                const SizedBox(height: 8),
+              ],
+          ]),
+        ),
+      ));
+
+  /// 🛒 درج السلّة: التعديل والحذف والملاحظة والإرسال — من أيّ موضعٍ بلا تمرير.
+  Future<void> _openCartDrawer() => _modal<void>((sheetCtx) {
+        // 🔴 حارس الإغلاق الأحاديّ: إعادة بناء الدرج أثناء حركة خروجه كانت
+        //    تعيد جدولة pop فتُغلق **ورقة الطلب كلّها** خلف الدرج
+        var popped = false;
+        void popDrawerOnce(BuildContext ctx) {
+          if (popped) return;
+          popped = true;
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            if (ctx.mounted && (ModalRoute.of(ctx)?.isCurrent ?? false)) Navigator.of(ctx).pop();
+          });
+        }
+
+        return StatefulBuilder(
+          builder: (ctx, setSheet) {
+            void both(VoidCallback fn) {
+              setState(fn);
+              setSheet(() {});
+            }
+
+            if (_cart.isEmpty) popDrawerOnce(ctx);
+
+            return OrderSheetShell(
+              title: 'سلّتك',
+              subtitle: 'لم تُرسَل بعد — ${arDigits(_cart.count)} أصناف · ${jod(_cart.total)}',
+              subtitleWarn: true,
+              body: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+                if (_err.isNotEmpty) ...[
+                  OrderErrorBanner(message: _err),
+                  const SizedBox(height: 10),
+                ],
+                for (final l in _cart.lines) ...[
+                  CartLineRow(
+                    line: l,
+                    onQty: (d) => both(() {
+                      _clientKey = null;
+                      _cart = _cart.changeQty(l.key, d);
+                    }),
+                    onRemove: () => both(() {
+                      _clientKey = null;
+                      _cart = FnbCart(lines: _cart.lines.where((x) => x.key != l.key).toList());
+                    }),
+                  ),
+                  const SizedBox(height: 8),
+                ],
+                const SizedBox(height: 4),
+                TextField(
+                  controller: _noteCtrl,
+                  maxLength: kMaxNoteLength,
+                  style: ar(14),
+                  cursorColor: kAmberFg,
+                  textInputAction: TextInputAction.done,
+                  decoration: InputDecoration(
+                    counterText: '',
+                    isDense: true,
+                    hintText: 'ملاحظة للمكان (اختياريّ)',
+                    hintStyle: ar(13, color: Tw.gray600),
+                    filled: true,
+                    fillColor: const Color(0x0DFFFFFF),
+                    contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                    enabledBorder: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(12),
+                      borderSide: const BorderSide(color: Color(0x1AFFFFFF)),
+                    ),
+                    focusedBorder: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(12),
+                      borderSide: const BorderSide(color: kAmberBorder),
+                    ),
+                  ),
+                ),
+              ]),
+              footer: Row(children: [
+                Expanded(
+                  child: Opacity(
+                    opacity: _sending ? 0.5 : 1,
+                    child: InkWell(
+                      onTap: _sending
+                          ? null
+                          : () async {
+                              await _send();
+                              if (!ctx.mounted) return;
+                              if (_cart.isEmpty) {
+                                popDrawerOnce(ctx);
+                                return;
+                              }
+                              setSheet(() {});
+                            },
+                      borderRadius: BorderRadius.circular(12),
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(vertical: 12),
+                        decoration: BoxDecoration(borderRadius: BorderRadius.circular(12), gradient: kAmberGradient),
+                        child: Center(
+                          child: _sending
+                              ? Text('جارٍ الإرسال…', style: ar(13.5, weight: FontWeight.bold))
+                              : Text.rich(
+                                  TextSpan(children: [
+                                    const TextSpan(text: 'إرسال الطلب · '),
+                                    TextSpan(text: ltrRun(jod(_cart.total))),
+                                  ]),
+                                  style: ar(13.5, weight: FontWeight.bold),
+                                ),
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                InkWell(
+                  onTap: () => Navigator.of(ctx).pop(),
+                  borderRadius: BorderRadius.circular(12),
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                    decoration: BoxDecoration(
+                      borderRadius: BorderRadius.circular(12),
+                      color: const Color(0x0DFFFFFF),
+                      border: Border.all(color: const Color(0x1AFFFFFF)),
+                    ),
+                    child: Text('متابعة', style: ar(13.5, color: Tw.gray400)),
+                  ),
+                ),
+              ]),
+            );
+          },
+        );
+      });
 }
 
-/// ظهورٌ بتلاشٍ وتكبير — 250ms دخولاً و200ms خروجاً.
+/// ظهورٌ بتلاشٍ وتكبير — 250ms دخولاً.
 class _ToastFade extends StatefulWidget {
   const _ToastFade({required this.child});
   final Widget child;
@@ -1110,12 +1126,10 @@ class _ToastFade extends StatefulWidget {
   State<_ToastFade> createState() => _ToastFadeState();
 }
 
-class _ToastFadeState extends State<_ToastFade>
-    with SingleTickerProviderStateMixin {
+class _ToastFadeState extends State<_ToastFade> with SingleTickerProviderStateMixin {
   late final AnimationController _c = AnimationController(
     vsync: this,
     duration: const Duration(milliseconds: 250),
-    reverseDuration: const Duration(milliseconds: 200),
   )..forward();
 
   @override
@@ -1129,10 +1143,14 @@ class _ToastFadeState extends State<_ToastFade>
     final curve = CurvedAnimation(parent: _c, curve: Curves.easeOut);
     return FadeTransition(
       opacity: curve,
-      child: ScaleTransition(
-        scale: Tween(begin: 0.9, end: 1.0).animate(curve),
+      child: SlideTransition(
+        position: Tween(begin: const Offset(0, 0.15), end: Offset.zero).animate(curve),
         child: widget.child,
       ),
     );
   }
+}
+
+extension _FirstOrNull<T> on Iterable<T> {
+  T? get firstOrNull => isEmpty ? null : first;
 }

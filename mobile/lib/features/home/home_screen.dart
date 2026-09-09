@@ -23,6 +23,7 @@ import '../../models/profile.dart' show Standing;
 import '../gates/home_city_sheet.dart';
 import '../notifications/inbox_sheet.dart';
 import '../shell/chips_balance_pill.dart';
+import '../profile/profile_palette.dart';
 
 // ══════════════════════════════════════════════════════
 // 🏠 الرئيسية — الملفّ 12
@@ -46,7 +47,10 @@ class _HomeScreenState extends State<HomeScreen> {
   HomeProfile? _profile;
   List<UpcomingActivity> _upcoming = const [];
   List<FriendSession> _feed = const [];
-  FnbContext? _fnbCtx;
+  // 🍽️ منيو المكان («الرفّ»): سياقٌ مفتوح أو حجزٌ قادم — البطاقة في الحالتين
+  FnbContextResult? _fnb;
+  List<FnbMenuItem> _fnbQuick = const [];   // رفٌّ مصغّر: ٣ أصنافٍ من أقسامٍ مختلفة
+  int _fnbTotal = 0, _fnbBundles = 0, _fnbOpen = 0;
   bool _loading = true;
   bool _failed = false;
 
@@ -90,8 +94,8 @@ class _HomeScreenState extends State<HomeScreen> {
     // لا سقوط الصفحة.
     final fnb = ApiClient.instance
         .get('/api/fnb/context')
-        .then((r) => r is Map && r['context'] is Map
-            ? FnbContext.fromJson(Map<String, dynamic>.from(r['context'] as Map))
+        .then((r) => r is Map && r['success'] == true
+            ? FnbContextResult.fromJson(Map<String, dynamic>.from(r))
             : null)
         .catchError((_) => null);
 
@@ -103,11 +107,12 @@ class _HomeScreenState extends State<HomeScreen> {
     setState(() {
       _profile = p;
       _upcoming = a;
-      _fnbCtx = f;
+      _fnb = f;
       _feed = fd;
       _loading = false;
       _failed = p == null;
     });
+    if (f != null && f.hasAny) unawaited(_loadFnbShelf(f));
 
     // 🏙️ «أين تلعب عادةً؟» — مرّةً لمن لا مدينةَ له. الدالّة تقرّر بنفسها
     //    (علامة «سُئل»، عدد المدن، خلوّ الجذر من أوراقٍ أخرى) ولا تحجب شيئاً.
@@ -124,6 +129,49 @@ class _HomeScreenState extends State<HomeScreen> {
         if (mounted) _load();
       },
     );
+  }
+
+  /// 🍽️ الرفّ المصغّر: أوّل صنفٍ من ثلاثة أقسامٍ مختلفة (النقطة العامّة بلا
+  /// حصص النادي) + عدد الطلبات المفتوحة. فشله يعني بطاقةً بلا رفٍّ لا سقوطها.
+  Future<void> _loadFnbShelf(FnbContextResult f) async {
+    final locId = f.locationId;
+    if (locId != null) {
+      try {
+        final r = await ApiClient.instance.get('/api/player-app/locations/$locId/menu');
+        if (mounted && r is Map && r['success'] == true) {
+          final all = (r['items'] as List? ?? const [])
+              .whereType<Map>()
+              .map((e) => FnbMenuItem.fromJson(Map<String, dynamic>.from(e)))
+              .toList();
+          final seen = <String>{};
+          final quick = <FnbMenuItem>[];
+          for (final it in all) {
+            if (it.isBundle) continue;
+            if (!seen.add('${it.category}|${it.subcategory}')) continue;
+            quick.add(it);
+            if (quick.length == 3) break;
+          }
+          setState(() {
+            _fnbQuick = quick;
+            _fnbTotal = all.where((i) => !i.isBundle).length;
+            _fnbBundles = all.where((i) => i.isBundle).length;
+          });
+        }
+      } catch (_) {}
+    }
+    final c = f.context;
+    if (c != null) {
+      try {
+        final r = await ApiClient.instance
+            .get('/api/fnb/my-orders', query: {'activityId': c.activityId});
+        if (mounted && r is Map && r['success'] == true) {
+          setState(() => _fnbOpen = (r['orders'] as List? ?? const [])
+              .whereType<Map>()
+              .where((o) => o['status'] == 'new' || o['status'] == 'preparing')
+              .length);
+        }
+      } catch (_) {}
+    }
   }
 
   @override
@@ -157,9 +205,15 @@ class _HomeScreenState extends State<HomeScreen> {
                 const SizedBox(height: 20),
                 _UpcomingSection(items: _upcoming),
               ],
-              if (_fnbCtx != null) ...[
+              if (_fnb?.hasAny == true) ...[
                 const SizedBox(height: 20),
-                _FnbCard(ctx: _fnbCtx!),
+                _FnbCard(
+                  fnb: _fnb!,
+                  quick: _fnbQuick,
+                  total: _fnbTotal,
+                  bundles: _fnbBundles,
+                  open: _fnbOpen,
+                ),
               ],
               // 👥 FEED-1: يُعرض حين توجد أخبارٌ فقط — قسمٌ فارغٌ يدعو
               //    للمتابعة على كلّ زيارة إزعاجٌ لا تشجيع.
@@ -1207,70 +1261,121 @@ class _StoreBanner extends StatelessWidget {
 // §4.11 بطاقة طلب F&B — مشروطة بوجود سياق طلبٍ فعّال
 // ══════════════════════════════════════════════════════
 class _FnbCard extends StatelessWidget {
-  const _FnbCard({required this.ctx});
-  final FnbContext ctx;
+  const _FnbCard({
+    required this.fnb,
+    required this.quick,
+    required this.total,
+    required this.bundles,
+    required this.open,
+  });
+  final FnbContextResult fnb;
+  final List<FnbMenuItem> quick;
+  final int total, bundles, open;
 
   @override
-  Widget build(BuildContext context) => InkWell(
-        onTap: () => pushTo(Routes.order),
-        borderRadius: BorderRadius.circular(16),
-        child: Container(
-          padding: const EdgeInsets.all(16),
-          decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(16),
-            gradient: const LinearGradient(
-              begin: Alignment.topRight,
-              end: Alignment.bottomLeft,
-              colors: [Color(0x2410B981), Color(0xE6050505)],
-            ),
-            border: Border.all(color: const Color(0x4D10B981)),
+  Widget build(BuildContext context) {
+    final isOpen = fnb.context != null;
+    final name = fnb.locationName ?? 'المكان';
+    final act = fnb.activityName ?? '';
+    final opensAt = fnb.next?.opensAt ?? '';
+    return InkWell(
+      onTap: () => pushTo(Routes.order),
+      borderRadius: BorderRadius.circular(16),
+      child: Container(
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(16),
+          gradient: const LinearGradient(
+            begin: Alignment.topRight,
+            end: Alignment.bottomLeft,
+            colors: [Color(0x24C5A059), Color(0xE6050505)],
           ),
-          child: Row(children: [
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Text('🍽️ اطلب من ${ctx.locationName}',
-                      style: const TextStyle(
-                          fontFamily: 'Tajawal',
-                          fontSize: 12,
-                          fontWeight: FontWeight.w500,
-                          color: Color(0xFF34D399),
-                          letterSpacing: 0)),
-                  const SizedBox(height: 4),
-                  Text('منيو المكان متاح لحجزك — ${ctx.activityName}',
-                      style: const TextStyle(
-                          fontFamily: 'Tajawal',
-                          fontSize: 14,
-                          color: Colors.white,
-                          letterSpacing: 0)),
-                ],
-              ),
-            ),
-            const SizedBox(width: 12),
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-              decoration: BoxDecoration(
-                borderRadius: BorderRadius.circular(12),
-                gradient: const LinearGradient(
-                  begin: Alignment.topRight,
-                  end: Alignment.bottomLeft,
-                  colors: [Color(0xFF10B981), Color(0xFF0D9488)],
-                ),
-              ),
-              child: const Text('اطلب →',
-                  maxLines: 1,
-                  style: TextStyle(
-                      fontFamily: 'Tajawal',
-                      fontSize: 14,
-                      fontWeight: FontWeight.bold,
-                      color: Colors.white,
-                      letterSpacing: 0)),
-            ),
-          ]),
+          border: Border.all(color: const Color(0x59C5A059)),
         ),
-      );
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Row(children: [
+              const Icon(Icons.restaurant_outlined, size: 18, color: Color(0xFFE7CF8D)),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text('منيو $name',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: ar(14, weight: FontWeight.bold)),
+              ),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(999),
+                  color: isOpen ? const Color(0x264ADE80) : const Color(0x26C5A059),
+                ),
+                child: Text(isOpen ? 'الطلب مفتوح الآن' : 'يفتح الطلب الساعة $opensAt',
+                    style: ar(10,
+                        color: isOpen ? const Color(0xFF9BE0B6) : const Color(0xFFF3DEA3))),
+              ),
+            ]),
+            const SizedBox(height: 4),
+            Text.rich(
+              TextSpan(children: [
+                TextSpan(text: act),
+                if (total > 0)
+                  TextSpan(
+                      text: ' · ${arDigits(total)} صنفاً${bundles > 0 ? ' و${arDigits(bundles)} عروض' : ''}'),
+                if (open > 0)
+                  TextSpan(
+                      text: ' · ${arDigits(open)} طلبٌ قيد المتابعة',
+                      style: const TextStyle(color: Color(0xFFFCD34D))),
+              ]),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: ar(11, color: Tw.gray400),
+            ),
+            const SizedBox(height: 10),
+            Row(children: [
+              for (final it in quick) ...[
+                Expanded(
+                  child: Container(
+                    padding: const EdgeInsets.all(8),
+                    decoration: BoxDecoration(
+                      borderRadius: BorderRadius.circular(12),
+                      color: const Color(0x0DFFFFFF),
+                      border: Border.all(color: const Color(0x14FFFFFF)),
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Text(it.name,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: ar(11.5, weight: FontWeight.bold)),
+                        ltrText(it.priceValue.toStringAsFixed(2),
+                            num_(12, color: const Color(0xFFFCD34D))),
+                      ],
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 6),
+              ],
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(12),
+                  gradient: const LinearGradient(
+                    colors: [Color(0xFFD9B563), Color(0xFFA7833A)],
+                  ),
+                ),
+                child: Text(isOpen ? 'اطلب' : 'تصفّح',
+                    style: ar(12.5, color: const Color(0xFF150F04), weight: FontWeight.w800)),
+              ),
+            ]),
+          ],
+        ),
+      ),
+    );
+  }
 }
 
 /// زرّ إنشاء غرفة عن بُعد — للحسابات المصرّح لها (الملفّ 30 §4.1).
