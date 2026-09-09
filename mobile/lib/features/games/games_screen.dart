@@ -59,6 +59,13 @@ class GamesScreenState extends State<GamesScreen> {
   int? _cityFilter;
   bool _cityChosen = false;
 
+  // ── 🗺️ «أنت في مدينةٍ أخرى» ──
+  // 🔴 عرضٌ لا تبديل: اللاعبُ في الزرقاء ومدينتُه عمّان يرى دعوةً لفعاليّات
+  //    الزرقاء ويضغطها إن شاء. التبديلُ الصامت يسرق منه سياقَه بلا سبب.
+  // 🔴 ولا يُلحّ: يُخفى بضغطة «لاحقًا» فلا يعود في هذه الجلسة.
+  CitySuggestion? _awaySuggestion;
+  bool _awayDismissed = false;
+
   int? get _myId => SessionStore.instance.player?.id;
 
   @override
@@ -170,6 +177,18 @@ class GamesScreenState extends State<GamesScreen> {
     });
 
     unawaited(_loadBookers(acts, id));
+    unawaited(_checkAway());
+  }
+
+  /// 🗺️ هل اللاعبُ داخل مدينةٍ غير مدينته، ولها فعاليّاتٌ قادمة؟
+  /// لا يطلب إذنَ موقعٍ ولا يُخزّن شيئاً — يقرأ ما هو محفوظٌ من بوّابةٍ سابقة.
+  Future<void> _checkAway() async {
+    if (_awayDismissed || _cities.length < 2) return;
+    final s = await CityService.instance.suggestFromLocation();
+    if (!mounted) return;
+    // شرطُ العرض: داخل مدينةٍ غير مدينته، وليست هي المعروضةَ أصلاً، ولها فعاليّات
+    final worth = s != null && s.awayFromHome && s.cityId != _cityFilter && _countIn(s.cityId) > 0;
+    setState(() => _awaySuggestion = worth ? s : null);
   }
 
   /// فعاليّات المدينة المختارة (أو الكلّ) قبل ترشيح اليوم.
@@ -355,6 +374,11 @@ class GamesScreenState extends State<GamesScreen> {
                       ),
                       const SizedBox(height: 10),
                     ],
+                    // 🗺️ «أنت في مدينةٍ أخرى» — دعوةٌ تُضغط، لا تبديلٌ صامت
+                    if (_awaySuggestion != null) ...[
+                      _awayBanner(_awaySuggestion!),
+                      const SizedBox(height: 10),
+                    ],
                     CalendarStrip(
                       today: now,
                       selected: _selectedDay,
@@ -389,6 +413,59 @@ class GamesScreenState extends State<GamesScreen> {
           Text('${monthNameOf(now)} ${now.year}', style: ar(12, color: Tw.gray500)),
         ],
       );
+
+  /// 🗺️ شريطُ «أنت في مدينةٍ أخرى» — زرُّ عرضٍ وزرُّ إخفاء، بلا تبديلٍ صامت.
+  Widget _awayBanner(CitySuggestion s) {
+    final svc = CityService.instance;
+    final n = _countIn(s.cityId);
+    return Container(
+      padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
+      decoration: BoxDecoration(
+        color: svc.chipBgFor(s.cityId),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: svc.chipBorderFor(s.cityId)),
+      ),
+      child: Row(children: [
+        Text('📍', style: ar(16)),
+        const SizedBox(width: 8),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text('يبدو أنّك في ${s.cityName}',
+                  style: ar(12, color: svc.textFor(s.cityId), weight: FontWeight.w700)),
+              const SizedBox(height: 2),
+              Text('عندنا $n ${n == 1 ? 'ليلة' : 'ليالٍ'} هنا — رتبتك في مدينتك لا تتأثّر',
+                  style: ar(10, color: Tw.gray400)),
+            ],
+          ),
+        ),
+        const SizedBox(width: 8),
+        InkWell(
+          onTap: () { _selectCity(s.cityId); setState(() => _awaySuggestion = null); },
+          borderRadius: BorderRadius.circular(8),
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+            decoration: BoxDecoration(
+              color: svc.accentFor(s.cityId).withValues(alpha: 0.22),
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: Text('اعرضها', style: ar(11, color: svc.textFor(s.cityId), weight: FontWeight.w700)),
+          ),
+        ),
+        const SizedBox(width: 4),
+        InkWell(
+          onTap: () => setState(() { _awayDismissed = true; _awaySuggestion = null; }),
+          borderRadius: BorderRadius.circular(8),
+          child: Padding(
+            padding: const EdgeInsets.all(6),
+            child: Text('✕', style: ar(12, color: Tw.gray500)),
+          ),
+        ),
+      ]),
+    );
+  }
 
   Widget _filterLine() {
     final d = _selectedDay!;

@@ -50,7 +50,17 @@ Future<void> maybeShowHomeCitySheet(
   if (nav == null || nav.canPop()) return;
 
   _askedThisSession = true;
-  final picked = await showHomeCityPicker(context, cities: list, firstRun: true);
+  // 🗺️ اقتراحٌ من الموقع المحفوظ (بلا طلب إذنٍ جديد) — يختار المدينةَ مسبقاً
+  //    بدل تركِ الاختيار فارغاً. اقتراحٌ يُعدَّل بضغطةٍ لا قرارٌ يُفرَض.
+  final hint = await CityService.instance.suggestFromLocation();
+  if (!context.mounted) return;
+  final picked = await showHomeCityPicker(
+    context,
+    cities: list,
+    firstRun: true,
+    suggestedId: hint != null && list.any((c) => c.id == hint.cityId) ? hint.cityId : null,
+    suggestedName: hint?.cityName,
+  );
   if (picked != null) onSaved?.call(picked.$1, picked.$2);
 }
 
@@ -62,6 +72,8 @@ Future<(int, String)?> showHomeCityPicker(
   required List<City> cities,
   int? currentId,
   bool firstRun = false,
+  int? suggestedId,
+  String? suggestedName,
 }) {
   return showModalBottomSheet<(int, String)>(
     context: context,
@@ -74,6 +86,8 @@ Future<(int, String)?> showHomeCityPicker(
       cities: cities,
       currentId: currentId,
       firstRun: firstRun,
+      suggestedId: suggestedId,
+      suggestedName: suggestedName,
     ),
   );
 }
@@ -83,18 +97,24 @@ class _HomeCitySheet extends StatefulWidget {
     required this.cities,
     required this.currentId,
     required this.firstRun,
+    this.suggestedId,
+    this.suggestedName,
   });
 
   final List<City> cities;
   final int? currentId;
   final bool firstRun;
 
+  /// 🗺️ مدينةٌ مقترحةٌ من الموقع — تُختار مسبقاً ويُشرَح سببُ الاختيار.
+  final int? suggestedId;
+  final String? suggestedName;
+
   @override
   State<_HomeCitySheet> createState() => _HomeCitySheetState();
 }
 
 class _HomeCitySheetState extends State<_HomeCitySheet> {
-  late int? _picked = widget.currentId;
+  late int? _picked = widget.currentId ?? widget.suggestedId;
   bool _busy = false;
   String? _error;
 
@@ -157,6 +177,21 @@ class _HomeCitySheetState extends State<_HomeCitySheet> {
               textAlign: TextAlign.center,
               style: ar(12, color: Tw.gray400, height: 1.6),
             ),
+            // 🗺️ سببُ الاختيار المسبق — اقتراحٌ يُقرأ لا اختيارٌ يُفاجئ
+            if (widget.suggestedId != null && (widget.suggestedName ?? '').isNotEmpty) ...[
+              const SizedBox(height: 12),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                decoration: BoxDecoration(
+                  color: svc.chipBgFor(widget.suggestedId),
+                  borderRadius: BorderRadius.circular(10),
+                  border: Border.all(color: svc.chipBorderFor(widget.suggestedId)),
+                ),
+                child: Text('📍 يبدو أنّك في ${widget.suggestedName} — اخترناها لك، غيّرها إن أحببت',
+                    textAlign: TextAlign.center,
+                    style: ar(11, color: svc.textFor(widget.suggestedId))),
+              ),
+            ],
             const SizedBox(height: 18),
             for (final c in widget.cities) ...[
               _cityCard(c, svc),

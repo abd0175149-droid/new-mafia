@@ -3,6 +3,26 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../models/city.dart';
 import '../api/api_client.dart';
+import '../location/location_service.dart';
+
+/// 🗺️ اقتراحُ مدينةٍ من موقع الجهاز — للعرض والاقتراح فقط.
+class CitySuggestion {
+  const CitySuggestion({
+    required this.cityId,
+    required this.cityName,
+    this.distanceKm,
+    this.homeCityId,
+    this.awayFromHome = false,
+  });
+
+  final int cityId;
+  final String cityName;
+  final double? distanceKm;
+  final int? homeCityId;
+
+  /// اللاعبُ داخل مدينةٍ غير مدينته الأساسيّة — يبني عليه الشريطُ السياقيّ.
+  final bool awayFromHome;
+}
 
 // ══════════════════════════════════════════════════════
 // 🏙️ خدمة المدن — القائمة، الألوان، وعلامة «سُئل عن مدينته»
@@ -102,6 +122,38 @@ class CityService {
     }
     throw ApiException(
         (r is Map ? r['error'] as String? : null) ?? 'تعذّر حفظ المدينة');
+  }
+
+  // ══════════════════════════════════════════════════════
+  // 🗺️ اقتراحُ المدينة من الموقع — اقتراحٌ لا قرار
+  // ══════════════════════════════════════════════════════
+  // 🔴 لا يطلب إذن موقعٍ أبداً: يقرأ ما هو محفوظٌ في LocationService من بوّابةٍ
+  //    سابقة. من لا موقعَ له يمضي بلا اقتراح — وحالةُ iOS الموثّقة (إذنٌ ممنوحٌ
+  //    بلا إحداثيّاتٍ أبداً) تكفي وحدَها لمنع أيّ اعتمادٍ على الموقع.
+  // 🔴 والفشلُ صامت: الاقتراحُ زينةٌ في شاشةٍ تعمل بدونه.
+  CitySuggestion? _lastSuggestion;
+  CitySuggestion? get lastSuggestion => _lastSuggestion;
+
+  Future<CitySuggestion?> suggestFromLocation({GeoFix? fix}) async {
+    final f = fix ?? LocationService.instance.last;
+    if (f == null) return null;
+    try {
+      final r = await ApiClient.instance
+          .get('/api/player-app/city-suggestion', query: {'lat': f.lat, 'lng': f.lng});
+      if (r is Map && r['success'] == true && r['cityId'] is num) {
+        _lastSuggestion = CitySuggestion(
+          cityId: (r['cityId'] as num).toInt(),
+          cityName: (r['cityName'] ?? '').toString(),
+          distanceKm: r['distanceKm'] is num ? (r['distanceKm'] as num).toDouble() : null,
+          homeCityId: r['homeCityId'] is num ? (r['homeCityId'] as num).toInt() : null,
+          awayFromHome: r['awayFromHome'] == true,
+        );
+        return _lastSuggestion;
+      }
+    } catch (_) {
+      // لا شبكة أو لا نطاقَ يطابق — لا اقتراح، ولا شيءَ يتعطّل
+    }
+    return null;
   }
 
   // ── علامة «سُئل مرّة» — بديل «لاحقًا» ──

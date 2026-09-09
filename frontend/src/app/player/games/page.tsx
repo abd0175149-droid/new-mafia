@@ -6,6 +6,7 @@ import { ROLE_NAMES } from '@/lib/constants';
 import { usePlayer } from '@/context/PlayerContext';
 import { useSearchParams } from 'next/navigation';
 import { useModalScrollLock } from '@/hooks/useModalScrollLock';
+import { getCachedFix } from '@/hooks/useGeolocation';
 import { useActivityPulse } from '@/hooks/useActivityPulse';
 import NightPulse from '@/components/NightPulse';
 
@@ -57,6 +58,10 @@ function GamesContent() {
   // 🏙️ المدن: الفعاليّات تُجلب كلّها مرّةً وتُرشَّح محليًّا؛ الافتراضيّ مدينةُ اللاعب
   const [cities, setCities] = useState<{ id: number; name: string }[]>([]);
   const [homeCityId, setHomeCityId] = useState<number | null>(null);
+  // 🗺️ اقتراحُ المدينة من الموقع المحفوظ — للورقة الأولى وللشريط السياقيّ.
+  //    لا يطلب إذناً جديداً ولا يُخزّن شيئاً؛ من لا موقعَ له لا يرى شيئاً.
+  const [geoCity, setGeoCity] = useState<{ cityId: number; cityName: string; awayFromHome: boolean } | null>(null);
+  const [awayDismissed, setAwayDismissed] = useState(false);
   const [selectedCityId, setSelectedCityId] = useState<number | 'all'>('all');
   const [homeCityPrompt, setHomeCityPrompt] = useState(false);
   const [homeCitySaving, setHomeCitySaving] = useState<number | null>(null);
@@ -157,6 +162,25 @@ function GamesContent() {
   }, [highlightActivityId, activities]);
 
   const isBooked = (activityId: number) => myBookings.some(b => b.activityId === activityId);
+
+  // 🗺️ أيُّ مدينةٍ يقف فيها اللاعب الآن؟ — من القراءة المحفوظة في هذه الجلسة
+  //    (بوّابةُ الموقع تقرأ عند الدخول). بلا قراءةٍ لا نداءَ ولا اقتراح.
+  useEffect(() => {
+    if (!player || cities.length < 2) return;
+    const fix = getCachedFix();
+    if (!fix) return;
+    let cancelled = false;
+    fetch(`/api/player-app/city-suggestion?lat=${fix.lat}&lng=${fix.lng}`, {
+      headers: { Authorization: `Bearer ${player.token}` },
+    })
+      .then(r => r.json())
+      .then(d => {
+        if (cancelled || !d?.success || d.cityId == null) return;
+        setGeoCity({ cityId: d.cityId, cityName: d.cityName || '', awayFromHome: !!d.awayFromHome });
+      })
+      .catch(() => { /* اقتراحٌ فاشلٌ ليس عطلاً */ });
+    return () => { cancelled = true; };
+  }, [player, cities.length]);
 
   // 🏙️ حفظ المدينة الأساسيّة (يغيّر الافتراضيّات فقط: الفعاليّات والترتيب والبطاقة)
   const markHomeCityPromptShown = () => { try { localStorage.setItem('home_city_prompt_shown', '1'); } catch {} };
@@ -285,6 +309,25 @@ function GamesContent() {
         <h1 className="text-white text-lg font-bold">🎮 الألعاب والحجوزات</h1>
         <span className="text-xs text-gray-500">{monthNames[today.getMonth()]} {today.getFullYear()}</span>
       </div>
+
+      {/* ── 🗺️ «أنت في مدينةٍ أخرى» — دعوةٌ تُضغط لا تبديلٌ صامت ── */}
+      {geoCity?.awayFromHome && !awayDismissed && tab !== 'pulse'
+        && geoCity.cityId !== selectedCityId && cityCount(geoCity.cityId) > 0 && (
+        <div className="flex items-center gap-2 rounded-2xl px-3 py-2.5 mb-2"
+          style={{ background: cityTone(geoCity.cityId).bg, border: `1px solid ${cityTone(geoCity.cityId).border}` }}>
+          <span className="text-base">📍</span>
+          <div className="flex-1 min-w-0">
+            <p className="text-[12px] font-bold" style={{ color: cityTone(geoCity.cityId).text }}>يبدو أنّك في {geoCity.cityName}</p>
+            <p className="text-[10px] text-gray-400">عندنا {toArNum(cityCount(geoCity.cityId))} فعاليّة هنا — رتبتك في مدينتك لا تتأثّر</p>
+          </div>
+          <button onClick={() => { setSelectedCityId(geoCity.cityId); setAwayDismissed(true); }}
+            className="shrink-0 px-3 py-1.5 rounded-lg text-[11px] font-bold"
+            style={{ background: cityTone(geoCity.cityId).border, color: cityTone(geoCity.cityId).text }}>
+            اعرضها
+          </button>
+          <button onClick={() => setAwayDismissed(true)} className="shrink-0 text-gray-500 hover:text-gray-300 px-1 text-xs">✕</button>
+        </div>
+      )}
 
       {/* ── 🏙️ شرائح المدن — مدينتك أوّلًا، ثمّ الأخرى بعدد فعاليّاتها، ثمّ «الكلّ» ── */}
       {cities.length > 0 && tab !== 'pulse' && (
@@ -1182,6 +1225,13 @@ function GamesContent() {
               <div className="w-12 h-1.5 rounded-full bg-white/20 mx-auto mb-4" />
               <h3 className="text-white text-lg font-bold mb-1 text-center">🏙️ أين تلعب عادةً؟</h3>
               <p className="text-gray-400 text-xs text-center mb-4 leading-relaxed">لكلّ مدينةٍ تصنيفها ورتبتها. مدينتك الأساسيّة تضبط ما تراه أوّلًا — وتقدر تغيّرها من حسابك متى شئت.</p>
+              {/* 🗺️ اقتراحٌ من الموقع — يُبرز البطاقةَ المرجّحة ولا يختار عن اللاعب */}
+              {geoCity && cities.some(c => c.id === geoCity.cityId) && (
+                <p className="text-[11px] text-center mb-3 rounded-lg py-1.5 px-2"
+                  style={{ background: cityTone(geoCity.cityId).bg, color: cityTone(geoCity.cityId).text, border: `1px solid ${cityTone(geoCity.cityId).border}` }}>
+                  📍 يبدو أنّك في {geoCity.cityName}
+                </p>
+              )}
               <div className="grid grid-cols-2 gap-2 mb-3">
                 {cities.map(c => {
                   const tone = cityTone(c.id);

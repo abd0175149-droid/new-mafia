@@ -65,6 +65,45 @@ router.get('/leaderboard', async (req: Request, res: Response) => {
   }
 });
 
+// ══════════════════════════════════════════════════════
+// 🗺️ GET /city-suggestion?lat=&lng= — أيُّ مدينةٍ يقف فيها اللاعب الآن؟
+// ══════════════════════════════════════════════════════
+// 🔴 اقتراحٌ لا قرار: يُستعمل لاختيار المدينة مسبقاً في ورقة أوّل تشغيل، ولعرض
+//    شريطٍ سياقيّ لمن هو في مدينةٍ غير مدينته. لا يُغيّر مدينةً أساسيّة ولا رتبةً
+//    ولا يُخفي فعاليّة — الرتبةُ من مكان اللعب، والمدينةُ اختيارُ اللاعب وحدَه.
+// 🔴 ولا يُخزَّن شيء: الإحداثيّاتُ تُقرأ في الذاكرة وتُطابَق بدائرةٍ ثمّ تُنسى.
+//    (تخزينُ الموقع له مساره الخاصّ بموافقته — /api/fnb/fix.)
+// 🔴 وبلا إحداثيّاتٍ صالحة يردّ null بهدوء: حالةُ iOS الموثّقة (إذنٌ ممنوحٌ بلا
+//    إحداثيّاتٍ أبداً) يجب أن تُنتج «لا اقتراح» لا خطأً يُعطّل شاشة.
+router.get('/city-suggestion', authenticatePlayer, async (req: Request, res: Response) => {
+  try {
+    const playerId = (req as any).player?.playerId ?? (req as any).player?.id;
+    const { resolveCityByCoords } = await import('../services/cities.service.js');
+    const hit = await resolveCityByCoords(req.query.lat, req.query.lng);
+
+    let homeCityId: number | null = null;
+    const db = getDB();
+    if (db && playerId) {
+      const [p] = await db.select({ home: players.homeCityId }).from(players).where(eq(players.id, playerId)).limit(1);
+      homeCityId = p?.home ?? null;
+    }
+
+    res.json({
+      success: true,
+      cityId: hit?.city.id ?? null,
+      cityName: hit?.city.name ?? null,
+      distanceKm: hit ? Math.round(hit.distanceKm * 10) / 10 : null,
+      homeCityId,
+      // 🎯 المفتاحُ الذي تبني عليه الواجهةُ الشريطَ السياقيّ — محسوبٌ في الخادم كي لا تتباعد النسختان
+      awayFromHome: !!(hit && homeCityId != null && hit.city.id !== homeCityId),
+    });
+  } catch (err: any) {
+    // اقتراحٌ فاشلٌ ليس عطلاً — الشاشةُ تعمل بلا اقتراح
+    console.warn('⚠️ city-suggestion:', err?.message || err);
+    res.json({ success: true, cityId: null, cityName: null, distanceKm: null, homeCityId: null, awayFromHome: false });
+  }
+});
+
 // ── 🏙️ PUT /me/home-city — اختيارُ المدينة الأساسيّة (تفضيلُ عرضٍ فقط، لا يمسّ أيّ احتساب) ──
 router.put('/me/home-city', authenticatePlayer, async (req: Request, res: Response) => {
   const db = getDB();
