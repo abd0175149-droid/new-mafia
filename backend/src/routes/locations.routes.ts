@@ -216,6 +216,44 @@ router.put('/:id', authenticate, managerOrAbove, async (req: Request, res: Respo
   res.json({ success: true });
 });
 
+// ══════════════════════════════════════════════════════
+// 🏙️ PATCH /api/locations/:id/city — نقلُ مكانٍ إلى مدينةٍ أخرى
+// ══════════════════════════════════════════════════════
+// 🔴 مسارٌ مستقلٌّ عن PUT عمداً: الأخيرُ يكتب name/region/mapUrl من الجسم دائماً،
+//    فطلبٌ يحمل المدينةَ وحدَها يمسح المنطقةَ ورابطَ الخريطة. هذا يلمس عموداً واحداً.
+//
+// 🔒 التاريخُ مجمَّد: matches.city_id مختومٌ لحظةَ اللعب، فالنقلُ يسري على المباريات
+//    القادمة وحدَها. نُعيد عددَ مبارياته في الموسم النشط كي تعرضه الواجهةُ قبل التأكيد.
+router.patch('/:id/city', authenticate, managerOrAbove, async (req: Request, res: Response) => {
+  const db = getDB();
+  if (!db) return res.status(503).json({ error: 'قاعدة البيانات غير متوفرة' });
+
+  const id = parseInt(req.params.id);
+  if (!Number.isFinite(id)) return res.status(400).json({ error: 'معرّف غير صالح' });
+
+  const [loc] = await db.select({ id: locations.id, name: locations.name, cityId: locations.cityId })
+    .from(locations).where(and(eq(locations.id, id), isNull(locations.deletedAt))).limit(1);
+  if (!loc) return res.status(404).json({ error: 'المكان غير موجود' });
+
+  const cityRes = await parseCityId(req.body?.cityId);
+  if ('error' in cityRes) return res.status(400).json(cityRes);
+  if (cityRes.cityId === loc.cityId) return res.json({ success: true, unchanged: true, cityId: loc.cityId });
+
+  await db.update(locations).set({ cityId: cityRes.cityId } as any).where(eq(locations.id, id));
+
+  const seasonId = await getActiveRegularSeasonId();
+  const frozen: any = await db.execute(sql`
+    SELECT COUNT(*)::int AS n FROM matches m
+    JOIN sessions s ON s.id = m.session_id
+    LEFT JOIN activities a ON a.id = s.activity_id
+    WHERE COALESCE(s.location_id, a.location_id) = ${id}
+      AND m.season_id = ${seasonId ?? -1} AND m.deleted_at IS NULL`);
+  const frozenMatches = Number((frozen?.rows ?? frozen ?? [])[0]?.n || 0);
+
+  console.log(`🏙️ Location #${id} (${loc.name}) moved city ${loc.cityId} → ${cityRes.cityId} — ${frozenMatches} past match(es) keep their stamped city`);
+  res.json({ success: true, cityId: cityRes.cityId, previousCityId: loc.cityId, frozenMatches });
+});
+
 // DELETE /api/locations/:id
 router.delete('/:id', authenticate, managerOrAbove, async (req: Request, res: Response) => {
   const db = getDB();

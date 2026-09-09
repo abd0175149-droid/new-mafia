@@ -76,6 +76,8 @@ const NAV_GROUPS: NavGroup[] = [
     key: 'venues', icon: '🏪', label: 'الأماكن والمنيو',
     items: [
       { href: '/admin/locations', icon: '📍', label: 'الأماكن والحسابات' },
+      // 🏙️ المدن — كلُّ مكانٍ يتبع مدينةً، ولكلّ مدينةٍ ترتيبُها المستقلّ في الموسم
+      { href: '/admin/cities', icon: '🏙️', label: 'المدن', roles: ['admin', 'manager'] },
       { href: '/admin/venues/menu', icon: '🍽️', label: 'المنيو والباقات', roles: ['admin', 'manager'] },
       { href: '/admin/venues/orders', icon: '📥', label: 'طلبات الأماكن', roles: ['admin', 'manager'] },
       { href: '/admin/venues/invoices', icon: '🧾', label: 'فواتير وتحصيل', roles: ['admin', 'manager'] },
