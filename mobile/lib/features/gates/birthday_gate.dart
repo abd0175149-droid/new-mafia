@@ -1,9 +1,9 @@
+import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 
 import '../../core/api/api_client.dart';
 import '../../core/storage/session_store.dart';
 import '../profile/profile_palette.dart';
-import '../../app/router.dart';
 
 // ══════════════════════════════════════════════════════
 // 🎂 BDAY-1 — بوّابة تاريخ الميلاد
@@ -15,6 +15,12 @@ import '../../app/router.dart';
 //
 // 🔴 تُسأل مرّةً واحدة: الحقل يُقرأ من `/me` وتُغلق البوّابة بمجرّد حفظه.
 //    ولا تُعرض للضيف ولا قبل حسم الجلسة.
+//
+// 🔴 التقويم **داخل البوّابة** لا في نافذة Navigator (2026-09-11): البوّابة
+//    مركّبة في `MaterialApp.builder` فوق شجرة الـNavigator، فأيّ نافذةٍ
+//    يفتحها showDatePicker تُرسم **تحت** البوّابة — تظهر خلف الطبقة الشفّافة
+//    وتذهب الضغطات إلى البوّابة لا إليها. عجلة CupertinoDatePicker مضمَّنة في
+//    البطاقة نفسها تستقبل السحب مباشرةً ولا تحتاج Navigator أصلاً.
 
 const _gold = Color(0xFFC5A059);
 
@@ -34,7 +40,9 @@ class BirthdayGate extends StatefulWidget {
 }
 
 class _BirthdayGateState extends State<BirthdayGate> {
-  DateTime? _picked;
+  // يفتح على 1998 لا على اليوم: أغلب اللاعبين مواليد التسعينات، والتمرير من
+  // اليوم إلى هناك عشرات اللفّات. القيمة الابتدائيّة معروضةٌ فيُحفظ بلا سحبٍ إن ناسبت.
+  DateTime? _picked = DateTime(1998, 1, 1);
   bool _busy = false;
   String? _error;
 
@@ -48,28 +56,6 @@ class _BirthdayGateState extends State<BirthdayGate> {
     if (now.month < d.month || (now.month == d.month && now.day < d.day)) age--;
     if (age < _minAge) return 'التاريخ المُدخَل يبدو غير صحيح';
     return null;
-  }
-
-  Future<void> _pick() async {
-    final now = DateTime.now();
-    // 🔴 سياقُ الـNavigator لا سياقُ هذه الأداة: البوّابة تُركَّب في
-    //    `MaterialApp.builder` خارج شجرة الـNavigator، فـ`showDatePicker`
-    //    بسياقها لا تجد Navigator وتفشل — فتبدو الضغطةُ بلا أثر والتطبيقُ
-    //    متجمّداً عند إنشاء الحساب. (ظهر على أندرويد في الإنتاج.)
-    final navCtx = rootNavigatorKey.currentContext;
-    if (navCtx == null) { setState(() => _error = 'تعذّر فتح التقويم — أعد فتح التطبيق'); return; }
-    final d = await showDatePicker(
-      context: navCtx,
-      // 🔴 يفتح على 1998 لا على اليوم: التمرير من اليوم إلى الثمانينات
-      //    عشرات اللفّات، وأغلب اللاعبين مواليد التسعينات.
-      initialDate: _picked ?? DateTime(1998, 1, 1),
-      firstDate: DateTime(_minYear),
-      lastDate: DateTime(now.year - _minAge, now.month, now.day),
-      helpText: 'تاريخ ميلادك',
-      cancelText: 'إلغاء',
-      confirmText: 'تأكيد',
-    );
-    if (d != null && mounted) setState(() { _picked = d; _error = null; });
   }
 
   Future<void> _save() async {
@@ -125,35 +111,44 @@ class _BirthdayGateState extends State<BirthdayGate> {
                 ),
                 const SizedBox(height: 20),
 
-                GestureDetector(
-                  onTap: _busy ? null : _pick,
-                  behavior: HitTestBehavior.opaque,
-                  child: Container(
-                    width: double.infinity,
-                    padding: const EdgeInsets.symmetric(
-                        horizontal: 16, vertical: 14),
-                    decoration: BoxDecoration(
-                      borderRadius: BorderRadius.circular(12),
-                      color: const Color(0x66000000),
-                      border: Border.all(
-                          color: _picked == null
-                              ? const Color(0xFF2A2A2A)
-                              : _gold),
+                // التاريخ المختار — يُقرأ فوق العجلة بخطٍّ واضح
+                Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                  decoration: BoxDecoration(
+                    borderRadius: BorderRadius.circular(12),
+                    color: const Color(0x66000000),
+                    border: Border.all(color: _gold),
+                  ),
+                  child: Row(children: [
+                    const Icon(Icons.calendar_today_outlined, size: 17, color: _gold),
+                    const SizedBox(width: 10),
+                    Text(
+                      '${_picked!.day}/${_picked!.month}/${_picked!.year}',
+                      style: mono(16, color: Colors.white, weight: FontWeight.w700),
                     ),
-                    child: Row(children: [
-                      const Icon(Icons.calendar_today_outlined,
-                          size: 17, color: _gold),
-                      const SizedBox(width: 10),
-                      Text(
-                        _picked == null
-                            ? 'اختر التاريخ'
-                            : '${_picked!.day}/${_picked!.month}/${_picked!.year}',
-                        style: _picked == null
-                            ? ar(13.5, color: const Color(0xFF777777))
-                            : mono(15, color: Colors.white,
-                                weight: FontWeight.w700),
+                  ]),
+                ),
+                const SizedBox(height: 8),
+                SizedBox(
+                  height: 170,
+                  child: CupertinoTheme(
+                    data: const CupertinoThemeData(
+                      brightness: Brightness.dark,
+                      textTheme: CupertinoTextThemeData(
+                        dateTimePickerTextStyle: TextStyle(
+                            fontFamily: 'Tajawal', fontSize: 19, color: Colors.white),
                       ),
-                    ]),
+                    ),
+                    child: CupertinoDatePicker(
+                      mode: CupertinoDatePickerMode.date,
+                      dateOrder: DatePickerDateOrder.dmy,
+                      initialDateTime: _picked,
+                      minimumYear: _minYear,
+                      maximumDate: DateTime(
+                          DateTime.now().year - _minAge, DateTime.now().month, DateTime.now().day),
+                      onDateTimeChanged: (d) => setState(() { _picked = d; _error = null; }),
+                    ),
                   ),
                 ),
 

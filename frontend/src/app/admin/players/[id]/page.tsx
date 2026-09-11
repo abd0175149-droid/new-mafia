@@ -763,7 +763,7 @@ function SectionView({ data, isAdmin, playerId }: { data: any; isAdmin: boolean;
             {a.genderConstraint && a.genderConstraint !== 'NONE' && (
               <Row k="قيدُ جلوس" v="لا يُجلَس بجانب الجنسِ الآخر" />
             )}
-            {isAdmin && a.dob && <Row k="تاريخُ الميلاد" v={a.dob} />}
+            {isAdmin && <DobEditor playerId={playerId} initial={a.dob || ''} />}
           </Section>
 
           {data.linkedStaff && (
@@ -932,6 +932,53 @@ function SectionView({ data, isAdmin, playerId }: { data: any; isAdmin: boolean;
 const WINNER_AR: Record<string, string> = {
   MAFIA: 'المافيا', CITIZEN: 'المواطنون', JESTER: 'المهرّج', ASSASSIN: 'السفّاح',
 };
+
+// 🎂 تاريخُ الميلاد قابلٌ للتعديل من هنا (2026-09-11): لاعبٌ أدخله خطأً في
+//    بوّابة التطبيق (أو ثبّتته البوّابة على تاريخ اليوم) كان يحتاج تدخّلاً في
+//    القاعدة. الحفظ عبر PUT /profile نفسه الذي يقبله الموظّف، بصيغة YYYY-MM-DD.
+function DobEditor({ playerId, initial }: { playerId?: string | number; initial: string }) {
+  const [val, setVal] = useState(initial);
+  const [saved, setSaved] = useState(initial);
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState<{ t: string; ok: boolean } | null>(null);
+  useEffect(() => { setVal(initial); setSaved(initial); }, [initial]);
+  const dirty = val !== saved;
+  const save = async () => {
+    if (!playerId || !dirty) return;
+    setBusy(true); setMsg(null);
+    try {
+      await api(`/api/player/${playerId}/profile`, { method: 'PUT', body: JSON.stringify({ dob: val }) });
+      setSaved(val); setMsg({ t: val ? 'حُفظ تاريخُ الميلاد' : 'مُسح تاريخُ الميلاد', ok: true });
+    } catch (e: any) { setMsg({ t: e.message || 'تعذّر الحفظ', ok: false }); }
+    finally { setBusy(false); setTimeout(() => setMsg(null), 3000); }
+  };
+  return (
+    <div className="flex gap-3 py-2 text-[13px] border-b border-gray-700/25 last:border-0 items-start">
+      <span className="text-gray-500 shrink-0 min-w-[84px]">تاريخُ الميلاد</span>
+      <span className="flex-1">
+        <span className="flex items-center gap-2 flex-wrap">
+          <input type="date" value={val} onChange={e => setVal(e.target.value)} min="1940-01-01"
+            max={new Date().toISOString().slice(0, 10)} dir="ltr"
+            className="bg-gray-900/60 border border-gray-600/50 rounded-lg px-2.5 py-1.5 text-white text-[13px] focus:outline-none focus:ring-1 focus:ring-amber-500/30" />
+          {dirty && (
+            <button onClick={save} disabled={busy}
+              className="px-3 py-1.5 rounded-lg text-[12px] font-bold text-black disabled:opacity-50"
+              style={{ background: 'linear-gradient(135deg, #fbbf24, #d97706)' }}>
+              {busy ? '…' : 'حفظ'}
+            </button>
+          )}
+          {dirty && !busy && (
+            <button onClick={() => setVal(saved)} className="text-[12px] text-gray-500 hover:text-gray-300">تراجع</button>
+          )}
+        </span>
+        <span className="block text-[11px] text-gray-600 mt-0.5 leading-relaxed">
+          {msg ? <span className={msg.ok ? 'text-emerald-400' : 'text-rose-400'}>{msg.t}</span>
+            : saved ? 'يغيّر عمرَه في بوّابة الموافقة وموعدَ عيديّته' : 'لم يُسجَّل بعد — يُسأل عنه عند أوّل فتحٍ للتطبيق'}
+        </span>
+      </span>
+    </div>
+  );
+}
 
 const Row = ({ k, v, sub, tone }: any) => {
   const c = { crit: 'text-rose-400', warn: 'text-amber-400', ok: 'text-emerald-400',
