@@ -9,6 +9,7 @@ import Image from 'next/image';
 import { playEliminationSound, playCeremonySound } from '@/lib/soundManager';
 import EliminationFx from '@/components/EliminationFx';
 import DiscussionQueueRail from './DiscussionQueueRail';
+import DisplayConfrontation from './DisplayConfrontation';
 
 // 🔊 لا نداءَ صوتٍ محلّيٍّ في هذه الشاشة — الموجّه هو المصدر (setLocalPlayback(false)).
 //    المؤقّتُ والتصويتُ وكشفُ المُسكَت واكتمالُ التصويت تُعزف عنده وتصل مرآةً.
@@ -472,6 +473,8 @@ export default function DisplayDayView({ roomId, players, initialDiscussionState
 
   return (
     <div className="w-full mx-auto flex flex-col items-center justify-center px-4 py-2">
+      {/* ⚔️ مواجهة النهار — شريط الطلبات، إعلان الرفض، وطبقة التنفيذ (على مستوى الصفحة) */}
+      <DisplayConfrontation roomId={roomId} players={players as any} />
       {/* 🎩 مشهد كشف العمدة — يعلو كلّ شيء لثوانٍ */}
       <AnimatePresence>
         {mayorScene && (

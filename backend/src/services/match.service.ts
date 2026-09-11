@@ -162,6 +162,13 @@ export async function finalizeMatch(state: GameState): Promise<void> {
       const successfulDealsCount = playerDeals.filter(d => d.success).length;
       const failedDealsCount = playerDeals.filter(d => !d.success && !playerIsMafia).length;
       const mafiaDealOnMafiaCount = playerDeals.filter(d => !d.success && playerIsMafia).length;
+      // ⚔️ مواجهات النهار التي نفّذها كطالب — أثرها مختومٌ من تصويت الجولة نفسها فقط
+      const myConfrontations = (tracking.confrontations || []).filter(c => c.requesterPhysicalId === p.physicalId);
+      const successfulConfrontationsCount = myConfrontations.filter(c => c.outcome === 'MAFIA_EXPOSED').length;
+      const failedConfrontationsCount = myConfrontations.filter(c => c.outcome === 'CITIZEN_HIT').length;
+      const mafiaConfrontationOnMafiaCount = myConfrontations.filter(c => c.outcome === 'MAFIA_BETRAYAL').length;
+      const confrontationOutcome: string | null = myConfrontations.length
+        ? (myConfrontations.find(c => c.outcome && c.outcome !== 'NONE')?.outcome || 'NONE') : null;
 
       // 🎯 المصدر الموحّد لحساب النقاط (كل الأدوار بما فيها المحايدون) — نفس قيمة الإجمالي المطبَّق
       const rewardOpts = {
@@ -172,6 +179,9 @@ export async function finalizeMatch(state: GameState): Promise<void> {
         successfulDealsCount,
         failedDealsCount,
         mafiaDealOnMafiaCount,
+        successfulConfrontationsCount,
+        failedConfrontationsCount,
+        mafiaConfrontationOnMafiaCount,
         abilityCorrectCount,
         abilityIncorrectCount,
         teamEliminationBonus: teamElimBonus,
@@ -210,6 +220,8 @@ export async function finalizeMatch(state: GameState): Promise<void> {
         roundsSurvived,
         dealInitiated: p.role === 'ASSASSIN' ? false : !!dealOutcome,
         dealSuccess: dealOutcome ? dealOutcome.success : null,
+        confrontationInitiated: myConfrontations.length > 0,
+        confrontationOutcome,
         abilityUsed: p.role === 'ASSASSIN' ? true : abilityResults.length > 0,
         abilityCorrect: abilityResults.length > 0 ? abilityResults.some(a => a.correct) : null,
         // 💾 تُحفظ القيم لكل الأدوار (حتى المحايدين) — لا أصفار بعد الآن. تُتخطّى المباريات التجريبية فقط.

@@ -1716,6 +1716,7 @@ export default function PlayerFlow({ initialRoomCode = '', inviteFlag = false, i
             allPlayers: res.allPlayers || null,
             pendingResolution: res.pendingResolution || null,
             round: res.round || 1,
+            confrontationState: res.confrontationState || null,   // ⚔️ استعادة طلب/ردّ المواجهة
           });
 
           // تحديث أسماء اللاعبين (مهم لعرض أسماء المتهمين والاتفاقيات)

@@ -23,6 +23,23 @@ export default function LeaderRoleConfigurator({ gameState, emit, setError, hide
   // 🗣️ غرفة تشاور المافيا السرّية — خيار الليدر عند بداية كل جولة (يتذكّر آخر اختيار من config)
   const [mafiaChatOn, setMafiaChatOn] = useState<boolean>(gameState?.config?.mafiaChatEnabled === true);
   const [chatToggleBusy, setChatToggleBusy] = useState(false);
+  // ⚔️ مواجهة النهار الوجاهيّة — تفعيل + حدّ الطلبات لكلّ لاعب في اللعبة (يُصفَّر مع كلّ لعبة)
+  const [confOn, setConfOn] = useState<boolean>(gameState?.config?.confrontationEnabled === true);
+  const [confPerPlayer, setConfPerPlayer] = useState<number>(gameState?.config?.confrontationsPerPlayer ?? 1);
+  const [confBusy, setConfBusy] = useState(false);
+  const setConfSettings = async (patch: { enabled?: boolean; perPlayer?: number }) => {
+    if (confBusy) return;
+    setConfBusy(true);
+    try {
+      const r: any = await emit('leader:confrontation-settings', { roomId: gameState.roomId, ...patch });
+      if (r?.success) { setConfOn(r.enabled === true); setConfPerPlayer(r.perPlayer ?? 1); }
+      else setError(r?.error || 'تعذّر تغيير إعداد المواجهة');
+    } catch (err: any) {
+      setError(err.message || 'تعذّر تغيير إعداد المواجهة');
+    } finally {
+      setConfBusy(false);
+    }
+  };
   const toggleMafiaChat = async () => {
     if (chatToggleBusy) return;
     setChatToggleBusy(true);
@@ -302,6 +319,40 @@ export default function LeaderRoleConfigurator({ gameState, emit, setError, hide
             >
               {mafiaChatOn ? '✓ مفعّلة' : 'معطّلة'}
             </button>
+          </div>
+          )}
+
+          {/* ⚔️ مواجهة النهار الوجاهيّة — للغرف الحضوريّة (البعيدة لها مواجهتها الصوتيّة) */}
+          {!hideMafiaChat && (
+          <div className="mt-3 p-4 bg-[#C5A059]/5 border border-[#C5A059]/15 rounded-lg flex items-center justify-between gap-3 flex-wrap" dir="rtl">
+            <div className="min-w-0">
+              <p className="text-[#C5A059]/90 text-xs font-mono font-bold">⚔️ مواجهة النهار</p>
+              <p className="text-[#C5A059]/50 text-[10px] font-mono mt-1 leading-relaxed">
+                يطلبها اللاعب من هاتفه أثناء النقاش (من الجولة الثانية) وتُنفَّذ بعد آخر متحدّث: كلمته 30ث ثمّ ردّ المستهدَف 30ث. الرصيد يُصفَّر مع كلّ لعبة.
+              </p>
+            </div>
+            <div className="flex items-center gap-2 shrink-0">
+              <select
+                value={confPerPlayer}
+                disabled={confBusy || !confOn}
+                onChange={(e) => setConfSettings({ perPlayer: Number(e.target.value) })}
+                className="bg-[#050505] border border-[#2a2a2a] text-white text-[11px] px-2 py-2 rounded-lg disabled:opacity-40"
+                title="حدّ طلبات المواجهة لكلّ لاعب في اللعبة الواحدة"
+              >
+                {[1, 2, 3, 4, 5].map(n => <option key={n} value={n}>{n} لكلّ لاعب</option>)}
+              </select>
+              <button
+                onClick={() => setConfSettings({ enabled: !confOn })}
+                disabled={confBusy}
+                className={`px-4 py-2 rounded-lg text-xs font-bold border transition-colors disabled:opacity-50 ${
+                  confOn
+                    ? 'bg-emerald-500/15 border-emerald-500/50 text-emerald-300'
+                    : 'bg-[#1a1a1a] border-[#333] text-gray-500 hover:border-[#555]'
+                }`}
+              >
+                {confOn ? '✓ مفعّلة' : 'معطّلة'}
+              </button>
+            </div>
           </div>
           )}
         </div>

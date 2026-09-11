@@ -8,6 +8,7 @@ import { ROLE_NAMES, ROLE_ICONS, MAFIA_ROLES, type Role } from '@/lib/constants'
 import { getSocket } from '@/lib/socket';
 import { swalConfirm } from '@/lib/swal';
 import { useSeatMove } from './SeatMove';
+import LeaderConfrontationPanel from './LeaderConfrontationPanel';
 
 // تسمية دور اللاعب بالعربية + لون الفريق (للعرض في لوحة العقوبات)
 function roleLabel(role: string | null | undefined): { text: string; icon: string; mafia: boolean } | null {
@@ -1718,6 +1719,8 @@ export default function LeaderDayView({ gameState, emit, setError }: LeaderDayVi
       return renderContent(
         <div className="flex flex-col items-center justify-center p-8">
           <h2 className="text-3xl font-black text-white mb-6" style={{ fontFamily: 'Amiri, serif' }}>بدء جولة النقاش</h2>
+          {/* ⚔️ طلبات المواجهة قد تصل قبل بدء الدوران (المرحلة نقاشٌ بالفعل) */}
+          <div className="w-full max-w-md"><LeaderConfrontationPanel gameState={gameState} emit={emit} setError={setError} mode="compact" /></div>
           
           <div className="w-full max-w-md space-y-6 noir-card p-6 border-[#2a2a2a]">
             <div>
@@ -1790,6 +1793,8 @@ export default function LeaderDayView({ gameState, emit, setError }: LeaderDayVi
           </div>
           
           <div className="flex-1 flex flex-col items-center justify-center max-w-lg mx-auto w-full px-4">
+            {/* ⚔️ طلبات المواجهة الواردة أثناء النقاش — تُعتمد هنا وتُنفَّذ بعد آخر متحدّث */}
+            <LeaderConfrontationPanel gameState={gameState} emit={emit} setError={setError} mode="compact" />
             {/* Current Player Status */}
             <div className={`w-full noir-card p-8 flex flex-col items-center gap-4 transition-all duration-300 relative group ${isCurrentSilenced ? 'border-[#8A0303] bg-[#8A0303]/10' : ds.status === 'SPEAKING' ? 'border-[#C5A059] bg-[#C5A059]/5' : ds.status === 'PAUSED' ? 'border-[#8A0303] bg-[#8A0303]/5' : 'border-[#2a2a2a]'}`}>
               <div className="relative">
@@ -1960,11 +1965,13 @@ export default function LeaderDayView({ gameState, emit, setError }: LeaderDayVi
 
     if (!showDealsUI) {
       return renderContent(
-        <div className="flex flex-col items-center justify-center p-12 text-center h-[50vh]">
+        <div className="flex flex-col items-center justify-center p-12 text-center min-h-[50vh]">
           <h2 className="text-3xl font-black text-white mb-6" style={{ fontFamily: 'Amiri, serif' }}>انتهت جولة النقاش</h2>
-          <p className="text-[#808080] font-mono uppercase tracking-widest text-sm mb-12">
+          <p className="text-[#808080] font-mono uppercase tracking-widest text-sm mb-8">
             ALL ROTATIONS COMPLETE. ANY DEALS ESTABLISHED?
           </p>
+          {/* ⚔️ المواجهات المقبولة تُنفَّذ هنا — قبل التصويت (الخادم يرفض بدء التصويت ومواجهةٌ لم تُحسم) */}
+          <div className="w-full max-w-2xl"><LeaderConfrontationPanel gameState={gameState} emit={emit} setError={setError} mode="full" /></div>
           <div className="flex flex-col items-center gap-6">
             <div className="flex gap-2 mb-2">
               <p className="text-sm text-[#808080] font-mono mb-1 self-center mr-2">VOTING TIME:</p>

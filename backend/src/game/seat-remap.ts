@@ -38,6 +38,8 @@ const ID_KEYED_RECORDS = new Set([
   'playerVotes', 'leaderProxyVotes', 'submitted',
   // 🤝 قفل تسجيل الديل: physicalId → آخر جولة سجّل فيها
   'dealRegisteredRound',
+  // ⚔️ عدّاد مواجهات النهار: physicalId → عدد المقبولة في اللعبة
+  'confrontationsUsed',
 ]);
 
 // قواميس **قيمها** physicalIds ومفاتيحها شيء آخر (مثل معرّف القدرة)

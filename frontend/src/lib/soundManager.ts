@@ -1334,6 +1334,36 @@ function playDefaultSound(eventKey: string, vol: number = 1): void {
         break;
       }
 
+      // ── ⚔️ بدء المواجهة: ضربتان متصاعدتان (سيفان يتقاطعان) ──
+      case 'confrontation_start': {
+        [0, 0.18].forEach((t, i) => {
+          const osc = ctx.createOscillator();
+          const gain = ctx.createGain();
+          osc.connect(gain); gain.connect(dest(ctx));
+          osc.type = 'triangle';
+          osc.frequency.setValueAtTime(i === 0 ? 220 : 330, ctx.currentTime + t);
+          osc.frequency.exponentialRampToValueAtTime(i === 0 ? 440 : 660, ctx.currentTime + t + 0.22);
+          gain.gain.setValueAtTime(0.16, ctx.currentTime + t);
+          gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + t + 0.45);
+          osc.start(ctx.currentTime + t); osc.stop(ctx.currentTime + t + 0.45);
+        });
+        break;
+      }
+
+      // ── 🔁 انتقال الكلمة إلى المستهدَف: نغمة قصيرة هابطة ──
+      case 'confrontation_switch': {
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        osc.connect(gain); gain.connect(dest(ctx));
+        osc.type = 'sine';
+        osc.frequency.setValueAtTime(660, ctx.currentTime);
+        osc.frequency.exponentialRampToValueAtTime(330, ctx.currentTime + 0.3);
+        gain.gain.setValueAtTime(0.14, ctx.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.35);
+        osc.start(ctx.currentTime); osc.stop(ctx.currentTime + 0.35);
+        break;
+      }
+
       // ── ✅ انتهاء التصويت ──
       case 'voting_complete': {
         const osc = ctx.createOscillator();

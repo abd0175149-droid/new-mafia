@@ -24,6 +24,7 @@ import { remapPhysicalIds, validateRenumberChanges } from '../game/seat-remap.js
 import { samePhone } from '../utils/phone.util.js';
 import { mergeActivityPins } from '../game/seat-merge.js';
 import { dealLockedList } from '../game/deal-engine.js';
+import { publicConfrontations } from '../game/confrontation-engine.js';
 import { resolveRoomCapacity, clampCapacity } from '../services/capacity.service.js';
 import { startGameTimer, clearGameTimer, getRemainingSeconds, restoreGameTimer } from '../game/game-timer.js';
 import { initTwinState, getSiblingInfoFor } from '../game/twin-engine.js';
@@ -2596,6 +2597,8 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
         votingState: votingData,
         maxPenalties: state.config?.maxPenalties || 3,
         mafiaChatEnabled: state.config?.mafiaChatEnabled === true,   // 🗣️ علم إعداد عام — لا يكشف هوية
+        confrontationEnabled: state.config?.confrontationEnabled === true,   // ⚔️ علم إعداد عام
+        confrontationsPerPlayer: state.config?.confrontationsPerPlayer ?? 1,
       });
 
       console.log(`♻️  Player rejoin: #${player.physicalId} - ${player.name} (alive: ${player.isAlive})`);
@@ -4541,6 +4544,8 @@ async function readSeatLayoutOnly(activityId: any): Promise<any> {
     maxJustifications?: number;
     mafiaChatEnabled?: boolean;
     allowPlayerInvites?: boolean;
+    confrontationEnabled?: boolean;
+    confrontationsPerPlayer?: number;
   }, callback) => {
     const done = (r: any) => { if (typeof callback === 'function') callback(r); };
     try {
@@ -4566,6 +4571,9 @@ async function readSeatLayoutOnly(activityId: any): Promise<any> {
       if (typeof data.maxJustifications === 'number') c.maxJustifications = Math.min(Math.max(Math.floor(data.maxJustifications), 1), 5);
       if (typeof data.mafiaChatEnabled === 'boolean') c.mafiaChatEnabled = data.mafiaChatEnabled;
       if (typeof data.allowPlayerInvites === 'boolean') c.allowPlayerInvites = data.allowPlayerInvites;
+      // ⚔️ مواجهة النهار الوجاهيّة: تفعيل + حدّ الطلبات لكلّ لاعب في اللعبة (1-5)
+      if (typeof data.confrontationEnabled === 'boolean') c.confrontationEnabled = data.confrontationEnabled;
+      if (typeof data.confrontationsPerPlayer === 'number') c.confrontationsPerPlayer = Math.min(Math.max(Math.floor(data.confrontationsPerPlayer), 1), 5);
 
       await updateRoom(data.roomId, { config: c });
       // بثّ الحالة الكاملة المُعقّمة → واجهة المضيف تحدّث فوراً عبر مستمع game:state-updated
@@ -5121,6 +5129,10 @@ async function readSeatLayoutOnly(activityId: any): Promise<any> {
         // سعة الغرفة — بدونها يعرض العميل الافتراضي (١٠) لغرفةٍ تتسع ٣٢
         maxPlayers: state.config?.maxPlayers || 10,
         mafiaChatEnabled: state.config?.mafiaChatEnabled === true,   // 🗣️ علم إعداد عام — لا يكشف هوية
+        // ⚔️ مواجهة النهار: الإعداد + مواجهات الجولة الحاليّة (لاستعادة الطلب/الردّ بعد إعادة الاتصال)
+        confrontationEnabled: state.config?.confrontationEnabled === true,
+        confrontationsPerPlayer: state.config?.confrontationsPerPlayer ?? 1,
+        confrontationState: state.phase === 'DAY_DISCUSSION' ? publicConfrontations(state as any) : null,
         // بيانات التبرير (لاستعادة الـ UI عند reconnect)
         justificationData: state.phase === 'DAY_JUSTIFICATION' ? state.justificationData || null : null,
         // حالة سحب الأصوات
@@ -6041,6 +6053,8 @@ async function readSeatLayoutOnly(activityId: any): Promise<any> {
     state.twinState = null;
     state.luckyDraw = null;   // 🎁 تصفير سحب الهدايا عند لعبة جديدة
     state.dealRegisteredRound = {};  // 🤝 تصفير قفل الاتفاقيات عند لعبة جديدة
+    state.confrontations = [];       // ⚔️ مواجهات النهار — تُصفَّر مع رصيد كلّ لاعب (قرار المالك: الحدّ لكلّ لعبة)
+    state.confrontationsUsed = {};
 
     // ── تصفير مؤقت اللعبة ──
     clearGameTimer(state.roomId);

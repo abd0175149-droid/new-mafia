@@ -88,6 +88,9 @@ export function calculateMatchXP(params: {
   failedDealsCount: number;
   mafiaDealOnMafiaCount: number;
   teamEliminationBonus: number;
+  successfulConfrontationsCount?: number;   // ⚔️ مواجهة كشفت مافيا
+  failedConfrontationsCount?: number;       // ⚔️ مواجهة مواطن على مواطن
+  mafiaConfrontationOnMafiaCount?: number;  // ⚔️ مافيا واجه مافيا
 }, cfg?: any, abilityRates?: { correctXp?: number; wrongXp?: number }): number {
   const c = cfg?.xp || DEFAULT_CONFIG.xp;
   let xp = 0;
@@ -104,6 +107,9 @@ export function calculateMatchXP(params: {
   xp += params.successfulDealsCount * c.citizenDealOnMafia;
   xp += params.failedDealsCount * c.failedDeal;
   xp += params.mafiaDealOnMafiaCount * (c.mafiaDealOnMafia || c.failedDeal);
+  xp += (params.successfulConfrontationsCount || 0) * (c.confrontationOnMafia ?? 25);
+  xp += (params.failedConfrontationsCount || 0) * (c.failedConfrontation ?? -5);
+  xp += (params.mafiaConfrontationOnMafiaCount || 0) * (c.mafiaConfrontationOnMafia ?? 0);
   xp += params.teamEliminationBonus;
 
   return Math.max(0, xp);
@@ -115,6 +121,9 @@ export function calculateMatchRR(params: {
   successfulDealsCount: number;
   failedDealsCount: number;
   mafiaDealOnMafiaCount: number;
+  successfulConfrontationsCount?: number;
+  failedConfrontationsCount?: number;
+  mafiaConfrontationOnMafiaCount?: number;
   survivedToEnd: boolean;
   abilityCorrectCount: number;
   abilityIncorrectCount: number;
@@ -129,6 +138,9 @@ export function calculateMatchRR(params: {
   rr += params.successfulDealsCount * c.citizenDealOnMafia;
   rr += params.failedDealsCount * c.failedDeal;
   rr += params.mafiaDealOnMafiaCount * (c.mafiaDealOnMafia || c.failedDeal);
+  rr += (params.successfulConfrontationsCount || 0) * (c.confrontationOnMafia ?? 10);
+  rr += (params.failedConfrontationsCount || 0) * (c.failedConfrontation ?? -15);
+  rr += (params.mafiaConfrontationOnMafiaCount || 0) * (c.mafiaConfrontationOnMafia ?? -15);
   if (params.survivedToEnd) rr += c.survivedToEnd;
   rr += params.abilityCorrectCount * abCorrect;
   rr += params.abilityIncorrectCount * abWrong;
@@ -149,6 +161,9 @@ export function computeMatchReward(opts: {
   successfulDealsCount: number;
   failedDealsCount: number;        // ديل مواطن فاشل
   mafiaDealOnMafiaCount: number;   // ديل مافيا أضرّ بفريقه
+  successfulConfrontationsCount?: number;   // ⚔️ مواجهة كشفت مافيا (اختياريّة — المستدعون القدامى)
+  failedConfrontationsCount?: number;       // ⚔️ مواجهة مواطن على مواطن
+  mafiaConfrontationOnMafiaCount?: number;  // ⚔️ مافيا واجه مافيا
   abilityCorrectCount: number;
   abilityIncorrectCount: number;
   teamEliminationBonus: number;
@@ -193,6 +208,9 @@ export function computeMatchReward(opts: {
     successfulDealsCount: opts.successfulDealsCount,
     failedDealsCount: opts.failedDealsCount,
     mafiaDealOnMafiaCount: opts.mafiaDealOnMafiaCount,
+    successfulConfrontationsCount: opts.successfulConfrontationsCount || 0,
+    failedConfrontationsCount: opts.failedConfrontationsCount || 0,
+    mafiaConfrontationOnMafiaCount: opts.mafiaConfrontationOnMafiaCount || 0,
     teamEliminationBonus: opts.teamEliminationBonus,
   }, c, roleAb ? { correctXp: roleAb.correctXp, wrongXp: roleAb.wrongXp } : undefined);
 
@@ -201,6 +219,9 @@ export function computeMatchReward(opts: {
     successfulDealsCount: opts.successfulDealsCount,
     failedDealsCount: opts.failedDealsCount,
     mafiaDealOnMafiaCount: opts.mafiaDealOnMafiaCount,
+    successfulConfrontationsCount: opts.successfulConfrontationsCount || 0,
+    failedConfrontationsCount: opts.failedConfrontationsCount || 0,
+    mafiaConfrontationOnMafiaCount: opts.mafiaConfrontationOnMafiaCount || 0,
     survivedToEnd: opts.survivedToEnd,
     abilityCorrectCount: opts.abilityCorrectCount,
     abilityIncorrectCount: opts.abilityIncorrectCount,
@@ -216,6 +237,7 @@ export function computeMatchReward(opts: {
 export function computeMatchBreakdown(opts: {
   role: string; winner: string | null; survivedToEnd: boolean; roundsSurvived: number;
   successfulDealsCount: number; failedDealsCount: number; mafiaDealOnMafiaCount: number;
+  successfulConfrontationsCount?: number; failedConfrontationsCount?: number; mafiaConfrontationOnMafiaCount?: number;
   abilityCorrectCount: number; abilityIncorrectCount: number; teamEliminationBonus: number;
   assassinContractsCompleted: number;
 }, cfg?: any): { won: boolean; team: 'MAFIA' | 'CITIZEN' | 'NEUTRAL'; xp: Record<string, number>; rr: Record<string, number> } {
@@ -256,6 +278,9 @@ export function computeMatchBreakdown(opts: {
       dealSuccess: opts.successfulDealsCount * cx.citizenDealOnMafia,
       dealFailed: opts.failedDealsCount * cx.failedDeal,
       mafiaDealOnMafia: opts.mafiaDealOnMafiaCount * (cx.mafiaDealOnMafia ?? cx.failedDeal),
+      confrontationSuccess: (opts.successfulConfrontationsCount || 0) * (cx.confrontationOnMafia ?? 25),
+      confrontationFailed: (opts.failedConfrontationsCount || 0) * (cx.failedConfrontation ?? -5),
+      mafiaConfrontationOnMafia: (opts.mafiaConfrontationOnMafiaCount || 0) * (cx.mafiaConfrontationOnMafia ?? 0),
       teamElimBonus: opts.teamEliminationBonus,
     },
     rr: {
@@ -263,6 +288,9 @@ export function computeMatchBreakdown(opts: {
       dealSuccess: opts.successfulDealsCount * cr.citizenDealOnMafia,
       dealFailed: opts.failedDealsCount * cr.failedDeal,
       mafiaDealOnMafia: opts.mafiaDealOnMafiaCount * (cr.mafiaDealOnMafia ?? cr.failedDeal),
+      confrontationSuccess: (opts.successfulConfrontationsCount || 0) * (cr.confrontationOnMafia ?? 10),
+      confrontationFailed: (opts.failedConfrontationsCount || 0) * (cr.failedConfrontation ?? -15),
+      mafiaConfrontationOnMafia: (opts.mafiaConfrontationOnMafiaCount || 0) * (cr.mafiaConfrontationOnMafia ?? -15),
       survivedToEnd: opts.survivedToEnd ? cr.survivedToEnd : 0,
       abilityCorrect: opts.abilityCorrectCount * abCorrRr,
       abilityIncorrect: opts.abilityIncorrectCount * abWrongRr,
@@ -282,6 +310,9 @@ const BREAKDOWN_META: Record<string, { label: string; icon: string }> = {
   dealSuccess: { label: 'اتفاقية ناجحة', icon: '🤝' },
   dealFailed: { label: 'اتفاقية فاشلة', icon: '💔' },
   mafiaDealOnMafia: { label: 'غدر بالفريق (ديل مافيا)', icon: '🔴' },
+  confrontationSuccess: { label: 'مواجهة كشفت مافيا', icon: '⚔️' },
+  confrontationFailed: { label: 'مواجهة على مواطن', icon: '🩹' },
+  mafiaConfrontationOnMafia: { label: 'غدر بالفريق (مواجهة مافيا)', icon: '🔴' },
   teamElimBonus: { label: 'مكافأة إقصاء خصم', icon: '⚔️' },
   neutralResult: { label: 'نتيجة الدور المحايد', icon: '🎭' },
   contracts: { label: 'عقود منجزة', icon: '🎯' },
@@ -316,6 +347,10 @@ export function buildDisplayBreakdown(row: any, cfg?: any): {
       successfulDealsCount: row.dealInitiated && row.dealSuccess === true ? 1 : 0,
       failedDealsCount: dealFailedCitizen,
       mafiaDealOnMafiaCount: mafiaDealOnMafia,
+      // ⚔️ من عمود confrontation_outcome (صفوفٌ بلا تفصيلٍ مخزَّن)
+      successfulConfrontationsCount: row.confrontationOutcome === 'MAFIA_EXPOSED' ? 1 : 0,
+      failedConfrontationsCount: row.confrontationOutcome === 'CITIZEN_HIT' ? 1 : 0,
+      mafiaConfrontationOnMafiaCount: row.confrontationOutcome === 'MAFIA_BETRAYAL' ? 1 : 0,
       abilityCorrectCount: row.abilityUsed && row.abilityCorrect === true ? 1 : 0,
       abilityIncorrectCount: row.abilityUsed && row.abilityCorrect === false ? 1 : 0,
       teamEliminationBonus: 0, // غير معروف من الحقول → يلتقطه بند التسوية

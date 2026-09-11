@@ -101,6 +101,9 @@ export const matchPlayers = pgTable('match_players', {
   roundsSurvived: integer('rounds_survived').default(0),
   dealInitiated: boolean('deal_initiated').default(false),
   dealSuccess: boolean('deal_success'),
+  // ⚔️ مواجهة النهار الوجاهيّة (كطالب): MAFIA_EXPOSED | CITIZEN_HIT | MAFIA_BETRAYAL | NONE
+  confrontationInitiated: boolean('confrontation_initiated').default(false),
+  confrontationOutcome: varchar('confrontation_outcome', { length: 20 }),
   abilityUsed: boolean('ability_used').default(false),
   abilityCorrect: boolean('ability_correct'),
   xpEarned: integer('xp_earned').default(0),

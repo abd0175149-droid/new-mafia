@@ -201,6 +201,9 @@ export const SOUND_GROUPS: SoundGroupDef[] = [
       { key: 'impact_boom',         label: '💥 ضربة الختام',   desc: 'بعد كشف كرت المُقصى',      cat: 'events', synth: true },
       { key: 'bomb_explosion',      label: '💣 انفجار القنبلة', desc: 'عند تفعيل قنبلة الشيخ',    cat: 'events', synth: true },
       { key: 'day_show_silenced',   label: '🤐 كشف المُسكَت',  desc: 'عند كشف المُسكَت نهاراً',   cat: 'events', synth: true },
+      // ⚔️ مواجهة النهار الوجاهيّة: بدء كلمة الطالب، ثمّ الانتقال إلى ردّ المستهدَف
+      { key: 'confrontation_start',  label: '⚔️ بدء المواجهة',   desc: 'عند بدء مواجهة النهار (كلمة الطالب)', cat: 'events', synth: true },
+      { key: 'confrontation_switch', label: '🔁 ردّ المستهدَف',  desc: 'عند انتقال الكلمة إلى المستهدَف',     cat: 'events', synth: true },
     ],
   },
   {

@@ -294,6 +294,11 @@ const scoringCategories = <(String, List<ScoringAction>)>[
     ScoringAction('failedDeal', 'ديل فاشل (غلط)', '💔', 'مواطن أخرج مواطناً (عقوبة)'),
     ScoringAction('mafiaDealOnMafia', 'ديل مافيا على مافيا', '🔴', 'غدر بالزميل (عقوبة مغلظة)'),
   ]),
+  ('⚔️ مواجهات النهار', [
+    ScoringAction('confrontationOnMafia', 'مواجهة كشفت مافيا', '⚔️', 'واجهت لاعباً فأقصته القاعة بتصويت الجولة نفسها وكان مافيا'),
+    ScoringAction('failedConfrontation', 'مواجهة على مواطن', '🩹', 'واجهت لاعباً فأقصته القاعة وكان مواطناً (عقوبة)'),
+    ScoringAction('mafiaConfrontationOnMafia', 'مواجهة مافيا على مافيا', '🔴', 'غدر بالزميل (عقوبة)'),
+  ]),
   ('🎯 قدرات الأدوار', [
     ScoringAction('abilityCorrect', 'استخدام قدرة صحيحة', '✅', 'القيمة العامة — دورٌ له تجاوز يُعرض تفصيله أدناه'),
     ScoringAction('abilityIncorrect', 'استخدام قدرة خاطئة', '❌', 'إصابة خاطئة (عقوبة) — القيمة العامة'),

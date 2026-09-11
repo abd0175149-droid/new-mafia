@@ -13,6 +13,7 @@ import '../cosmetics/mafia_card_view.dart';
 import '../profile/profile_palette.dart';
 import 'game_session_controller.dart';
 import 'invite_sheet.dart';
+import 'confrontation_view.dart';
 import 'deals_sheet.dart';
 import 'discussion_view.dart';
 import 'justification_view.dart';
@@ -278,6 +279,8 @@ class LobbyView extends StatelessWidget {
             // 🤝 الاتفاقيات للأحياء في النقاش وحده
             if (!c.isPlayerDead) ...[
               const SizedBox(height: 20),
+              // ⚔️ المواجهة فوق الاتفاقيات — تختفي كلّها إن كانت الميزة مطفأة
+              ConfrontationPanel(controller: c),
               DealsButton(controller: c),
             ],
           ]),

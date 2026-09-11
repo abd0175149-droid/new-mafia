@@ -1623,6 +1623,12 @@ export default function LeaderPage() {
       localSound(() => playGameSound('day_show_silenced'));
     });
 
+    // ⚔️ مواجهة النهار: صوت البدء وصوت انتقال الكلمة (الليدر مصدر الصوت؛ الشاشة تتبعه)
+    const offConfrontationSound = on('day:confrontation-updated', (d: any) => {
+      if (d?.event === 'started') localSound(() => playGameSound('confrontation_start'));
+      else if (d?.event === 'switched') localSound(() => playGameSound('confrontation_switch'));
+    });
+
     // ── 🗣️ رسائل غرفة تشاور المافيا (الليدر يستقبل كل رسالة حيّاً) ──
     const offMafiaChatMsg = on('mafia:chat-message', (m: any) => {
       if (!m?.text) return;
@@ -1752,6 +1758,7 @@ export default function LeaderPage() {
       offDisplayJoined();
       offMorningEventSound();
       offShowSilencedSound();
+      offConfrontationSound();
       offPinnedConflict();
       offMafiaChatMsg();
       offStateUpdated();

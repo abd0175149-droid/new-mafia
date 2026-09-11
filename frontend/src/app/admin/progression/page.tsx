@@ -37,6 +37,14 @@ const ACTION_CATEGORIES = [
     ]
   },
   {
+    id: 'confrontations', label: '⚔️ مواجهات النهار',
+    actions: [
+      { key: 'confrontationOnMafia', label: 'مواجهة كشفت مافيا', icon: '⚔️', type: 'BOTH', desc: 'طالب المواجهة مواطن، وأُقصي المستهدَف بتصويت الجولة نفسها وكان مافيا' },
+      { key: 'failedConfrontation', label: 'مواجهة على مواطن', icon: '🩹', type: 'BOTH', desc: 'طالب المواجهة مواطن، وأُقصي المستهدَف بتصويت الجولة نفسها وكان مواطناً' },
+      { key: 'mafiaConfrontationOnMafia', label: 'مواجهة مافيا على مافيا', icon: '🔴', type: 'BOTH', desc: 'مافيا واجه زميله فأُقصي بتصويت الجولة نفسها (غدر)' },
+    ]
+  },
+  {
     id: 'roles', label: '🎯 قدرات الأدوار',
     actions: [
       { key: 'abilityCorrect', label: 'قدرة صحيحة', icon: '✅', type: 'BOTH', desc: 'إصابة صحيحة لشريف/قناص/طبيب' },

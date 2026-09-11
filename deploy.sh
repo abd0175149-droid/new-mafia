@@ -482,6 +482,9 @@ ALTER TABLE whatsapp_rank_notifications ADD COLUMN IF NOT EXISTS city_id INTEGER
 ALTER TABLE whatsapp_rank_notifications DROP CONSTRAINT IF EXISTS whatsapp_rank_notifications_player_id_rank_tier_key;
 CREATE UNIQUE INDEX IF NOT EXISTS uq_wa_rank_player_city_tier
   ON whatsapp_rank_notifications (player_id, city_id, rank_tier);
+-- ⚔️ مواجهة النهار الوجاهيّة — أثرها في دفتر المباراة (2026-09-11)
+ALTER TABLE match_players ADD COLUMN IF NOT EXISTS confrontation_initiated BOOLEAN DEFAULT false;
+ALTER TABLE match_players ADD COLUMN IF NOT EXISTS confrontation_outcome VARCHAR(20);
 SQL
 then
   say "   ✅ الترحيل تمّ"

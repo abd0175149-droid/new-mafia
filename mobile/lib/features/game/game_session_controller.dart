@@ -198,6 +198,112 @@ class GameSessionController extends ChangeNotifier with WidgetsBindingObserver {
   List<int> _dealLocked = const [];
   List<int> get dealLockedPlayers => _dealLocked;
 
+  // ── ⚔️ مواجهة النهار الوجاهيّة ──
+  // الحالة من `day:confrontation-updated` وتُستعاد من `room:get-my-state`
+  // (`confrontationState`) — فمن فاته البثّ (طلبٌ وُجّه إليه وهو بلا شبكة)
+  // يجدها في الاستطلاع كالليل والنقاش.
+  ConfrontationState? _confrontation;
+  ConfrontationState? get confrontation => _confrontation;
+  bool get confrontationEnabled => _confrontation?.enabled == true;
+  bool _confBusy = false;
+  bool get confrontationBusy => _confBusy;
+  String? _confError;
+  String? get confrontationError => _confError;
+
+  /// الطلب الموجَّه إليّ وينتظر ردّي.
+  Confrontation? get incomingConfrontation => _confrontation?.confrontations
+      .where((c) => c.isPending && c.targetPhysicalId == _physicalId)
+      .firstOrNull;
+
+  /// مواجهتي الحيّة (طلبي المعلّق/المقبولة/الجارية) بأيّ طرف.
+  Confrontation? get myLiveConfrontation => _confrontation?.confrontations
+      .where((c) => c.isLive && c.involves(_physicalId))
+      .firstOrNull;
+
+  /// آخر طلبٍ لي رُفض (يُعرض حتى يحلّ محلّه شيء).
+  Confrontation? get myDeclinedConfrontation => _confrontation?.confrontations
+      .where((c) => c.status == 'DECLINED' && c.requesterPhysicalId == _physicalId)
+      .lastOrNull;
+
+  /// أوّل مانعٍ للطلب كما يفحصه المحرّك — أو null إن جاز.
+  String? get confrontationBlockReason {
+    final s = _confrontation;
+    if (s == null || !s.enabled) return 'ميزة المواجهة معطّلة في هذه الغرفة';
+    if (_isPlayerDead) return 'المُقصى لا يطلب مواجهة';
+    if (_round <= 1) return 'المواجهة متاحة من الجولة الثانية';
+    if (s.budgetOf(_physicalId) <= 0) return 'استنفدت رصيد المواجهات لهذه اللعبة';
+    if (myLiveConfrontation != null) return 'لديك مواجهةٌ قائمة في هذه الجولة';
+    if (s.active != null) return 'مواجهة جارية الآن';
+    if (s.countedThisRound >= s.maxPerRound) return 'اكتمل حدّ المواجهات لهذه الجولة';
+    return null;
+  }
+
+  Future<void> _refreshConfrontations() async {
+    if (_roomId.isEmpty) return;
+    try {
+      final res = await SocketService.instance.ask('day:get-confrontations', {'roomId': _roomId});
+      if (res == null || res['success'] != true) return;
+      if (res['phase'] != GamePhase.dayDiscussion) return;
+      _confrontation = ConfrontationState.fromJson(res);
+      notifyListeners();
+    } catch (_) {/* البثّ يُصحّح */}
+  }
+
+  /// طلب مواجهة. رسالة المنع من الخادم تُعرض كما هي (نصوصها عربيّةٌ دقيقة).
+  Future<bool> requestConfrontation(int targetPhysicalId) async {
+    if (_confBusy) return false;
+    _confBusy = true;
+    _confError = null;
+    notifyListeners();
+    try {
+      final res = await SocketService.instance.ask('day:request-confrontation', {
+        'roomId': _roomId,
+        'targetPhysicalId': targetPhysicalId,
+      });
+      if (res == null) {
+        _confError = 'لا اتصال بالخادم';
+        return false;
+      }
+      if (res['success'] != true) {
+        _confError = '${res['error'] ?? 'تعذّر إرسال الطلب'}';
+        return false;
+      }
+      _confrontation = ConfrontationState.fromJson(res) ?? _confrontation;
+      return true;
+    } finally {
+      _confBusy = false;
+      notifyListeners();
+    }
+  }
+
+  /// ردّ المستهدَف — الرفض يُعلَن على الشاشة ولا يستهلك رصيد الطالب.
+  Future<bool> respondConfrontation(String id, {required bool accept}) async {
+    if (_confBusy) return false;
+    _confBusy = true;
+    _confError = null;
+    notifyListeners();
+    try {
+      final res = await SocketService.instance.ask('day:respond-confrontation', {
+        'roomId': _roomId,
+        'id': id,
+        'accept': accept,
+      });
+      if (res == null) {
+        _confError = 'لا اتصال بالخادم';
+        return false;
+      }
+      if (res['success'] != true) {
+        _confError = '${res['error'] ?? 'تعذّر إرسال الردّ'}';
+        return false;
+      }
+      _confrontation = ConfrontationState.fromJson(res) ?? _confrontation;
+      return true;
+    } finally {
+      _confBusy = false;
+      notifyListeners();
+    }
+  }
+
   int _round = 1;
   int get round => _round;
 
@@ -1355,6 +1461,11 @@ class GameSessionController extends ChangeNotifier with WidgetsBindingObserver {
     final rd = (res['round'] as num?)?.toInt();
     if (rd != null && rd > 0) _round = rd;
 
+    // ⚔️ مواجهات الجولة (null خارج النقاش) — تُستعاد كالنقاش لمن فاته البثّ
+    if (res.containsKey('confrontationState')) {
+      _confrontation = ConfrontationState.fromJson(res['confrontationState']);
+    }
+
     // التبرير والانسحاب — نفس علّة الليل: أحداثهما تُبثّ مرّةً واحدة
     if (res['justificationData'] != null) {
       final j = JustificationData.fromJson(res['justificationData']);
@@ -1691,6 +1802,11 @@ class GameSessionController extends ChangeNotifier with WidgetsBindingObserver {
     _mayorBannerTimer?.cancel();
     _mayorBanner = null;
     _seatsRemapTicket++;
+    // ⚔️ أرقام الطالب/المستهدَف صارت تشير لأشخاصٍ آخرين — نمحوها ونعيد الجلب
+    if (_confrontation != null) {
+      _confrontation = null;
+      _refreshConfrontations();
+    }
 
     // ── ② الترحيل ──
     // 🔴 فريق المافيا والتوأم **يُرحَّلان لا يُمحيان**: الخادم يُعيد إرسالهما
@@ -1923,9 +2039,17 @@ class GameSessionController extends ChangeNotifier with WidgetsBindingObserver {
     });
 
     _on('room:config-updated', (d) {
-      if (d is! Map || d['mafiaChatEnabled'] is! bool) return;
-      _mafiaChatEnabled = d['mafiaChatEnabled'] as bool;
-      notifyListeners();
+      if (d is! Map) return;
+      var changed = false;
+      if (d['mafiaChatEnabled'] is bool) {
+        _mafiaChatEnabled = d['mafiaChatEnabled'] as bool;
+        changed = true;
+      }
+      // ⚔️ تبديل الميزة أثناء النقاش: نعيد جلب الحالة كاملةً (الحمولة الكاملة تأتي ببثٍّ منفصل)
+      if (d['confrontationEnabled'] is bool && _gamePhase == GamePhase.dayDiscussion) {
+        _refreshConfrontations();
+      }
+      if (changed) notifyListeners();
     });
 
     // ── المراحل ──
@@ -1940,6 +2064,13 @@ class GameSessionController extends ChangeNotifier with WidgetsBindingObserver {
       }
       _readTeamCounts(d['teamCounts']);
       _setPhase(GamePhase.map(d['phase']), fromSocket: true);
+      // ⚔️ المواجهات تعيش في النقاش وحده — تُمحى خارجه وتُجلب عند دخوله
+      if (_gamePhase == GamePhase.dayDiscussion) {
+        _refreshConfrontations();
+      } else if (_confrontation != null) {
+        _confrontation = null;
+        notifyListeners();
+      }
     });
 
     // ── §6.2 وصول الخطوة: يصل لكلّ حيٍّ — صاحب الدور والمموِّه معاً ──
@@ -2001,6 +2132,15 @@ class GameSessionController extends ChangeNotifier with WidgetsBindingObserver {
     _on('day:discussion-updated', (d) {
       if (d is! Map) return;
       _applyDiscussion(DiscussionState.fromJson(d['discussionState']));
+      notifyListeners();
+    });
+
+    // ⚔️ كلّ تغيّرٍ في مواجهات الجولة (طلب/ردّ/بدء/انتقال/انتهاء/إعدادات)
+    _on('day:confrontation-updated', (d) {
+      final s = ConfrontationState.fromJson(d);
+      if (s == null) return;
+      _confrontation = s;
+      _confError = null;
       notifyListeners();
     });
 

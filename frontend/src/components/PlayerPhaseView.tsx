@@ -3,6 +3,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { ROLE_NAMES, MAFIA_ROLES } from '@/lib/constants';
+import PlayerConfrontation from './PlayerConfrontation';
 
 interface PlayerPhaseViewProps {
   gamePhase: string | null;
@@ -23,6 +24,7 @@ interface PlayerPhaseViewProps {
     pendingResolution?: any;
     deals?: any[];
     round?: number;
+    confrontationState?: any;   // ⚔️ مواجهات الجولة (من room:get-my-state)
   } | null;
   roomId?: string;
   isRemote?: boolean; // 🌐 عن بُعد: نُخفي عناصر النقاش المكرّرة (الحلقة تعرضها)
@@ -770,6 +772,20 @@ export default function PlayerPhaseView({
         ) : (
           <div className="text-center text-[#666] text-sm py-4 font-mono">بانتظار بدء النقاش...</div>
         ))}
+
+        {/* ── ⚔️ مواجهة النهار الوجاهيّة (تُخفى إن كانت الميزة مطفأة؛ البعيدة لها مواجهتها) ── */}
+        {!isRemote && (
+          <PlayerConfrontation
+            roomId={roomId}
+            emit={emit}
+            on={on}
+            myId={myId}
+            players={votingPlayersInfo}
+            round={pollData?.round}
+            isDead={isPlayerDead}
+            initial={pollData?.confrontationState || null}
+          />
+        )}
 
         {/* ── قسم الاتفاقيات التلقائية (Deals Section) ── */}
         {!isPlayerDead && (

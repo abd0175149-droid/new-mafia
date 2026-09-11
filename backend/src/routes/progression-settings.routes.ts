@@ -24,6 +24,9 @@ const DEFAULT_CONFIG = {
     citizenDealOnMafia: 50,
     failedDeal: -10,
     mafiaDealOnMafia: -10,
+    confrontationOnMafia: 25,         // ⚔️ مواجهة كشفت مافيا (نصف الديل)
+    failedConfrontation: -5,          // ⚔️ مواجهة قادت القاعة إلى مواطن
+    mafiaConfrontationOnMafia: 0,     // ⚔️ مافيا واجه زميله (XP صفر؛ العقوبة في RR)
     teamEliminationBonus: 15,
     jesterWin: 50,
     jesterLoss: 0,
@@ -37,6 +40,9 @@ const DEFAULT_CONFIG = {
     citizenDealOnMafia: 20,
     failedDeal: -30,
     mafiaDealOnMafia: -30,
+    confrontationOnMafia: 10,         // ⚔️ نصف الديل
+    failedConfrontation: -15,         // ⚔️ نصف الديل
+    mafiaConfrontationOnMafia: -15,   // ⚔️ غدر بالفريق (مواجهة مافيا على مافيا)
     survivedToEnd: 5,
     abilityCorrect: 5,
     abilityIncorrect: -5,

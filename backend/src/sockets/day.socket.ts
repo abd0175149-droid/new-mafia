@@ -7,6 +7,7 @@ import { Server, Socket } from 'socket.io';
 import { notifyPulseForRoom } from './activity-pulse.socket.js';
 import { getRoom, setPhase, Phase, SpeakerStatus } from '../game/state.js';
 import { createDeal, removeDeal, dealLockedList } from '../game/deal-engine.js';
+import { blockingConfrontation } from '../game/confrontation-engine.js';
 import {
   initVoting,
   castVote,
@@ -46,6 +47,15 @@ export function registerDayEvents(io: Server, socket: Socket) {
     try {
       if (socket.data.role !== 'leader') {
         return callback({ success: false, error: 'Only leader' });
+      }
+
+      // ⚔️ لا تصويت ومواجهةٌ لم تُحسم (طلبٌ معلّق/مقبولةٌ لم تُنفَّذ/جارية) — اعتمدها أو ألغِها أوّلاً
+      const pre = await getGameState(data.roomId);
+      const blocking = pre ? blockingConfrontation(pre) : null;
+      if (blocking) {
+        const what = blocking.status === 'PENDING' ? 'طلب مواجهة بانتظار القرار'
+          : blocking.status === 'ACCEPTED' ? 'مواجهة مقبولة لم تُنفَّذ بعد' : 'مواجهة جارية';
+        return callback({ success: false, error: `لا يمكن بدء التصويت: ${what} (#${blocking.requesterPhysicalId} ← #${blocking.targetPhysicalId})` });
       }
 
       const state = await initVoting(data.roomId);

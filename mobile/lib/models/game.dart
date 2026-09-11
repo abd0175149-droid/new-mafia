@@ -642,6 +642,143 @@ class Deal {
 }
 
 // ══════════════════════════════════════════════════════
+// ⚔️ مواجهة النهار الوجاهيّة
+// ══════════════════════════════════════════════════════
+// تُطلب من الهاتف أثناء النقاش (من الجولة الثانية) وتُنفَّذ بعد آخر متحدّث
+// وقبل التصويت: كلمة الطالب ٣٠ث ← ردّ المستهدَف ٣٠ث. القواعد كلّها من
+// `confrontation-engine.ts` ويفرضها الخادم؛ الواجهة تعرض حالتها فقط.
+
+class Confrontation {
+  const Confrontation({
+    required this.id,
+    required this.round,
+    required this.requesterPhysicalId,
+    required this.targetPhysicalId,
+    required this.status,
+    this.respondByMs,
+    this.timedOut = false,
+    this.acceptedBy,
+    this.declinedBy,
+    this.stageSeconds = 30,
+    this.stageStartedAtMs,
+  });
+
+  final String id;
+  final int round, requesterPhysicalId, targetPhysicalId;
+
+  /// `PENDING` · `ACCEPTED` · `OPENING` · `RESPONSE` · `DONE` · `DECLINED` · `CANCELLED`
+  final String status;
+  final int? respondByMs;
+  final bool timedOut;
+  final String? acceptedBy, declinedBy;
+  final int stageSeconds;
+  final int? stageStartedAtMs;
+
+  bool get isPending => status == 'PENDING';
+  bool get isAccepted => status == 'ACCEPTED';
+  bool get isActive => status == 'OPENING' || status == 'RESPONSE';
+  bool get isLive => isPending || isAccepted || isActive;
+  bool get isCounted => isAccepted || isActive || status == 'DONE';
+  bool involves(int pid) => requesterPhysicalId == pid || targetPhysicalId == pid;
+
+  /// المتبقّي من مهلة الردّ (ثوانٍ) — من ساعة الجهاز مقارنةً بـ`respondBy`.
+  int respondLeft({DateTime? now}) {
+    final by = respondByMs;
+    if (by == null) return 0;
+    final left = (by - (now ?? DateTime.now()).millisecondsSinceEpoch) ~/ 1000;
+    return left < 0 ? 0 : left;
+  }
+
+  /// المتبقّي من المرحلة الجارية (ثوانٍ).
+  int stageLeft({DateTime? now}) {
+    final st = stageStartedAtMs;
+    if (!isActive || st == null) return stageSeconds;
+    final left = stageSeconds -
+        ((now ?? DateTime.now()).millisecondsSinceEpoch - st) ~/ 1000;
+    return left < 0 ? 0 : left;
+  }
+
+  static Confrontation? fromJson(Object? v) {
+    if (v is! Map) return null;
+    final id = v['id'];
+    if (id == null) return null;
+    return Confrontation(
+      id: '$id',
+      round: _i(v['round'], 1),
+      requesterPhysicalId: _i(v['requesterPhysicalId']),
+      targetPhysicalId: _i(v['targetPhysicalId']),
+      status: '${v['status'] ?? 'PENDING'}',
+      respondByMs: (v['respondBy'] as num?)?.toInt(),
+      timedOut: v['timedOut'] == true,
+      acceptedBy: v['acceptedBy'] as String?,
+      declinedBy: v['declinedBy'] as String?,
+      stageSeconds: _i(v['stageSeconds'], 30),
+      stageStartedAtMs: (v['stageStartedAt'] as num?)?.toInt(),
+    );
+  }
+
+  static List<Confrontation> listOf(Object? v) => v is! List
+      ? const []
+      : v.map(Confrontation.fromJson).whereType<Confrontation>().toList(growable: false);
+}
+
+/// حمولة `day:confrontation-updated` / `day:get-confrontations`.
+class ConfrontationState {
+  const ConfrontationState({
+    this.enabled = false,
+    this.perPlayer = 1,
+    this.maxPerRound = 2,
+    this.round = 1,
+    this.used = const {},
+    this.confrontations = const [],
+    this.event,
+    this.eventId,
+  });
+
+  final bool enabled;
+  final int perPlayer, maxPerRound, round;
+
+  /// physicalId → عدد المواجهات المقبولة له في هذه اللعبة
+  final Map<int, int> used;
+  final List<Confrontation> confrontations;
+  final String? event, eventId;
+
+  int usedBy(int pid) => used[pid] ?? 0;
+  int budgetOf(int pid) {
+    final b = perPlayer - usedBy(pid);
+    return b < 0 ? 0 : b;
+  }
+
+  Confrontation? get active =>
+      confrontations.where((c) => c.isActive).firstOrNull;
+  int get countedThisRound => confrontations.where((c) => c.isCounted).length;
+  bool isTargeted(int pid) => confrontations
+      .any((c) => c.status != 'DECLINED' && c.status != 'CANCELLED' && c.targetPhysicalId == pid);
+
+  static ConfrontationState? fromJson(Object? v) {
+    if (v is! Map) return null;
+    final used = <int, int>{};
+    final u = v['used'];
+    if (u is Map) {
+      u.forEach((k, val) {
+        final pid = int.tryParse('$k');
+        if (pid != null) used[pid] = _i(val);
+      });
+    }
+    return ConfrontationState(
+      enabled: v['enabled'] == true,
+      perPlayer: _i(v['perPlayer'], 1),
+      maxPerRound: _i(v['maxPerRound'], 2),
+      round: _i(v['round'], 1),
+      used: used,
+      confrontations: Confrontation.listOf(v['confrontations']),
+      event: v['event'] as String?,
+      eventId: v['id'] as String?,
+    );
+  }
+}
+
+// ══════════════════════════════════════════════════════
 // ⚖️ التبرير والانسحاب — §4.3 في الملفّ ٢٥
 // ══════════════════════════════════════════════════════
 

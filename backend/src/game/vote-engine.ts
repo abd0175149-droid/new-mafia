@@ -7,6 +7,7 @@ import { type GameState, type Candidate, CandidateType, getAlivePlayers, type Pl
 import { getGameState, setGameState } from '../config/redis.js';
 import { checkWinCondition, WinResult } from './win-checker.js';
 import { isMafiaRole, teamOfRole } from './roles.js';
+import { stampConfrontationOutcome } from './confrontation-engine.js';
 import { checkPolicewomanTrigger } from './night-resolver.js';
 import { armAshCurse } from './phoenix-engine.js';
 import { checkNeutralVoteWin, type NeutralResult } from './dynamic-win-checker.js';
@@ -270,6 +271,8 @@ export async function resolveVoting(roomId: string): Promise<VoteResolution> {
         round: state.round || 1,
         team: teamOfRole(player.role), // المحايد NEUTRAL — لا مكافأة إقصاء لأحد
       });
+      // ⚔️ مواجهةُ الجولة نفسها على هذا المقعد تُختم نتيجتها (أثرها للطالب عند finalizeMatch)
+      stampConfrontationOutcome(state, player.physicalId);
 
       // 🜂 لعنةُ الرماد — إن أعدمت المدينةُ العنقاء أخذ معه واحداً ممّن رفعوا أيديهم
       // 🔴 على الإعدام المباشر وحده لا على الصفقة: العنقاءُ مواطنٌ صالحٌ في الصفقة،

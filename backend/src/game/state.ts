@@ -97,6 +97,33 @@ export interface Deal {
   targetPhysicalId: number;
 }
 
+// ⚔️ مواجهة النهار الوجاهيّة — تُطلب أثناء النقاش وتُنفَّذ بعد آخر متحدّث وقبل التصويت.
+//    الحقول *PhysicalId يعيد `remapPhysicalIds` ترقيمها تلقائيّاً عند نقل المقاعد.
+export type ConfrontationStatus =
+  | 'PENDING'    // بانتظار ردّ المستهدَف (٢٠ث) أو قرار الليدر
+  | 'ACCEPTED'   // قُبلت — تنتظر «ابدأ المواجهة» من الليدر
+  | 'OPENING'    // كلمة الطالب (٣٠ث)
+  | 'RESPONSE'   // ردّ المستهدَف (٣٠ث)
+  | 'DONE'       // نُفِّذت — الأثر يُحسم من تصويت الجولة نفسها
+  | 'DECLINED'   // رفضها المستهدَف أو الليدر (تُعلَن على الشاشة؛ لا تُستهلك)
+  | 'CANCELLED'; // ألغاها الليدر بعد القبول (يُردّ الرصيد)
+
+export interface Confrontation {
+  id: string;
+  round: number;
+  requesterPhysicalId: number;
+  targetPhysicalId: number;
+  status: ConfrontationStatus;
+  createdAt: number;
+  respondBy: number;                 // مهلة ردّ المستهدَف (ms)
+  timedOut?: boolean;                // انقضت المهلة بلا ردّ — القرار لليدر
+  acceptedBy?: 'TARGET' | 'LEADER';
+  declinedBy?: 'TARGET' | 'LEADER';
+  stageSeconds: number;              // مدّة كلّ كلمة (٣٠ث)
+  stageStartedAt?: number | null;    // بداية المرحلة الحاليّة (OPENING/RESPONSE)
+  finishedAt?: number;
+}
+
 export interface DealCandidate {
   type: CandidateType.DEAL;
   id: string;
@@ -254,6 +281,8 @@ export interface GameConfig {
   mayorVoteWeight?: number;        // 🎩 وزن صوت العمدة بعد كشفه — يحدّده الليدر (الافتراضي 2، المدى 1-4)
   autoNightTime?: number;          // ⏱️ مهلة إجراء اللاعب في الليل الأوتوماتيكي بالثواني (الافتراضي 15)
   mafiaChatEnabled?: boolean;      // 🗣️ غرفة تشاور المافيا السرّية (يحددها الليدر كل جولة؛ الافتراضي false)
+  confrontationEnabled?: boolean;  // ⚔️ مواجهة النهار الوجاهيّة (الافتراضي false) — تُضبط كغرفة التشاور
+  confrontationsPerPlayer?: number; // ⚔️ حدّ طلبات المواجهة لكلّ لاعب في اللعبة الواحدة (الافتراضي 1، المدى 1-5)
   isRemote?: boolean;              // 🌐 غرفة لعبٍ عن بُعد (اللاعبون في أماكن مختلفة) — الافتراضي false
   hostPlayerId?: number | null;    // 🔗 مُضيف الغرفة البعيدة (players.id) — اللاعب-الليدر (null لغرف الموظّفين)
   allowPlayerInvites?: boolean;    // 📨 السماح للاعبين (لا المضيف فقط) بدعوة أصدقائهم لغرفة بعيدة — الافتراضي false
@@ -322,6 +351,12 @@ export interface GameState {
     penaltyEvents?: Array<{ physicalId: number; playerId: number | null; rr: number; round: number; kicked: boolean }>;
     // 💣 نتيجة قنبلة شيخ المافيا — تُدمج في صفّه عند finalizeMatch لنفس السبب
     bombEvents?: Array<{ physicalId: number; playerId: number | null; rr: number; round: number }>;
+    // ⚔️ المواجهات المنفَّذة — outcome يُختم في resolveVoting إن أُقصي المستهدَف بتصويت الجولة نفسها
+    confrontations?: Array<{
+      id: string; round: number; requesterPhysicalId: number; targetPhysicalId: number;
+      requesterTeam: 'MAFIA' | 'CITIZEN' | 'NEUTRAL'; targetTeam: 'MAFIA' | 'CITIZEN' | 'NEUTRAL';
+      outcome: 'MAFIA_EXPOSED' | 'CITIZEN_HIT' | 'MAFIA_BETRAYAL' | 'NONE' | null;
+    }>;
   };
   // ── حالة الشرطية ──
   policewomanState?: {
@@ -409,6 +444,10 @@ export interface GameState {
   // عند الحذف — يمنع تسجيل ديل في جولتين متتاليتين، ويقفل إعادة التسجيل بعد الحذف (نفس الجولة
   // والتي تليها). يُصفَّر عند اللعبة الجديدة/العودة للوبي.
   dealRegisteredRound?: Record<number, number>;
+  // ⚔️ مواجهات النهار الوجاهيّة (كلّ الجولات؛ تُرشَّح بالجولة) + عدّاد الاستهلاك لكلّ لاعب في اللعبة
+  //    (physicalId → عدد المواجهات المقبولة). يُصفَّران عند اللعبة الجديدة/العودة للوبي.
+  confrontations?: Confrontation[];
+  confrontationsUsed?: Record<number, number>;
   // ── حالة خطوة الليل الحالية ──
   currentNightStep?: any;
   nightComplete?: boolean;

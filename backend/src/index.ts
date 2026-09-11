@@ -76,6 +76,7 @@ import { registerMafiaChatEvents } from './sockets/mafia-chat.socket.js';
 import { registerGameEvents } from './sockets/game.socket.js';
 import { registerVoiceEvents } from './sockets/voice.socket.js';
 import { registerConfrontationEvents } from './sockets/confrontation.socket.js';
+import { registerDayConfrontationEvents } from './sockets/day-confrontation.socket.js';
 import { isMafiaRole } from './game/roles.js';
 
 // ── Game API Routes ─────────────────────────────────
@@ -606,6 +607,7 @@ io.on('connection', (socket) => {
   registerMafiaChatEvents(io, socket);
   registerVoiceEvents(io, socket);
   registerConfrontationEvents(io, socket);
+  registerDayConfrontationEvents(io, socket);  // ⚔️ مواجهة النهار الوجاهيّة
   registerVenueEvents(io, socket);  // 🏪 انضمام حسابات الأماكن لغرف location:{id}
   registerGeofenceEvents(io, socket);  // 🗺️ خريطة الحضور — لليدر وحده
   registerActivityPulseEvents(io, socket);  // 🌙 نبض الليلة — الحاجزون خارج غرف اللعب

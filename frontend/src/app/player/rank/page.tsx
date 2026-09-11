@@ -637,6 +637,14 @@ export default function RankPage() {
                     ]
                   },
                   {
+                    id: 'confrontations', label: '⚔️ مواجهات النهار',
+                    actions: [
+                      { key: 'confrontationOnMafia', label: 'مواجهة كشفت مافيا', icon: '⚔️', desc: 'واجهت لاعباً فأقصته القاعة بتصويت الجولة نفسها وكان مافيا' },
+                      { key: 'failedConfrontation', label: 'مواجهة على مواطن', icon: '🩹', desc: 'واجهت لاعباً فأقصته القاعة وكان مواطناً (عقوبة)' },
+                      { key: 'mafiaConfrontationOnMafia', label: 'مواجهة مافيا على مافيا', icon: '🔴', desc: 'غدر بالزميل (عقوبة)' },
+                    ]
+                  },
+                  {
                     id: 'roles', label: '🎯 قدرات الأدوار',
                     actions: [
                       { key: 'abilityCorrect', label: 'استخدام قدرة صحيحة', icon: '✅', desc: 'إصابة صحيحة لشريف/قناص/طبيب' },
