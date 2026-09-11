@@ -6,7 +6,7 @@
 //   - جارية: طبقةٌ كاملة ببطاقتين ومؤقّتٍ كبير، الجانب المتحدّث مضاء
 // تُركَّب على مستوى الصفحة (لا داخل فرع مرحلة) كي لا تُقطع بالانتقالات.
 // ══════════════════════════════════════════════════════
-import { useEffect, useRef, useState } from 'react';
+import { memo, useEffect, useRef, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { getSocket } from '@/lib/socket';
 import MafiaCard from '@/components/MafiaCard';
@@ -17,69 +17,16 @@ interface Props {
   players: any[];   // الروستر العامّ (اسم/جنس/صورة/رتبة/تجميل) — الوجه العلنيّ للكرت
 }
 
-export default function DisplayConfrontation({ roomId, players }: Props) {
-  const [conf, setConf] = useState<ConfPayload | null>(null);
-  const [notice, setNotice] = useState<{ text: string; kind: 'declined' | 'cancelled' | 'done' } | null>(null);
-  const [now, setNow] = useState(Date.now());
-  const noticeTimer = useRef<any>(null);
-
-  useEffect(() => {
-    const s = getSocket();
-    if (!s || !roomId) return;
-    const nameOf = (pid: number, list: any[]) => list.find(p => p.physicalId === pid)?.name || `#${pid}`;
-    const onUpd = (p: ConfPayload) => {
-      setConf(p);
-      const c = p.id ? p.confrontations.find(x => x.id === p.id) : null;
-      if (!c) return;
-      let n: typeof notice = null;
-      if (p.event === 'declined') n = { kind: 'declined', text: `${nameOf(c.targetPhysicalId, players)} رفض مواجهة ${nameOf(c.requesterPhysicalId, players)}` };
-      else if (p.event === 'cancelled') n = { kind: 'cancelled', text: `أُلغيت مواجهة ${nameOf(c.requesterPhysicalId, players)} و${nameOf(c.targetPhysicalId, players)}` };
-      else if (p.event === 'ended') n = { kind: 'done', text: `انتهت المواجهة — القرار للتصويت` };
-      if (n) {
-        setNotice(n);
-        if (noticeTimer.current) clearTimeout(noticeTimer.current);
-        noticeTimer.current = setTimeout(() => setNotice(null), 6000);
-      }
-    };
-    const onPhase = (d: any) => {
-      if (d?.phase !== 'DAY_DISCUSSION') { setConf(null); setNotice(null); }
-      else s.emit('day:get-confrontations', { roomId }, (r: any) => { if (r?.success) setConf(r); });
-    };
-    s.emit('day:get-confrontations', { roomId }, (r: any) => { if (r?.success && r.phase === 'DAY_DISCUSSION') setConf(r); });
-    s.on('day:confrontation-updated', onUpd);
-    s.on('game:phase-changed', onPhase);
-    return () => {
-      s.off('day:confrontation-updated', onUpd);
-      s.off('game:phase-changed', onPhase);
-      if (noticeTimer.current) clearTimeout(noticeTimer.current);
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [roomId, players.length]);
-
-  const list = conf?.confrontations || [];
-  const active = list.find(c => c.status === 'OPENING' || c.status === 'RESPONSE') || null;
-  const pending = list.filter(c => c.status === 'PENDING');
-  const accepted = list.filter(c => c.status === 'ACCEPTED');
-  useEffect(() => {
-    if (!active && pending.length === 0) return;
-    const t = setInterval(() => setNow(Date.now()), 250);
-    return () => clearInterval(t);
-  }, [active, pending.length]);
-
-  const P = (pid: number) => players.find(p => p.physicalId === pid);
-  const secsLeft = (dl: number) => Math.max(0, Math.ceil((dl - now) / 1000));
-
   // 🎴 الوجه العلنيّ لكرت اللاعب (كما على طاولة النقاش):
   //   المتحدّث يتقدّم ويكبر بنبضة توهّجٍ ذهبيّة وموجاتٍ صوتيّة مرئيّة؛ المستمع يتراجع ويبهت ويميل قليلاً.
   //   تبدُّل الدور يُعلَن بشريطٍ ينزلق من الأعلى ونبضة ضوءٍ تعبر الشاشة.
-  const Card = ({ c, side }: { c: ConfItem; side: 'req' | 'tgt' }) => {
-    const pid = side === 'req' ? c.requesterPhysicalId : c.targetPhysicalId;
-    const on = side === 'req' ? c.status === 'OPENING' : c.status === 'RESPONSE';
-    const p = P(pid);
+// 🔴 مُعرَّفة خارج المكوّن ومُحفَّظة (memo): تعريفها داخله كان يعيد تركيبها مع كلّ نبضة مؤقّت (٤ مرّات في الثانية)
+//    فتُعاد حركة الدخول والتوهّج من الصفر — وهذا «الرمش» الذي رآه المالك. الآن لا تُعاد إلّا عند تبدّل الدور.
+const Card = memo(function Card({ pid, p, on, side }: { pid: number; p: any; on: boolean; side: 'req' | 'tgt' }) {
     const dir = side === 'req' ? 1 : -1;   // الطالب يمين الشاشة (RTL) والمستهدَف يسارها
     return (
       <motion.div
-        initial={{ opacity: 0, x: dir * 160, rotateY: dir * -35 }}
+        initial={false}
         animate={{
           opacity: on ? 1 : 0.42,
           x: on ? 0 : dir * 36,
@@ -138,13 +85,13 @@ export default function DisplayConfrontation({ roomId, players }: Props) {
         </div>
       </motion.div>
     );
-  };
+});
 
-  const waveCss = `
+const waveCss = `
     @keyframes confWave { 0%,100% { height: 6px; opacity: .55 } 50% { height: 52px; opacity: 1 } }
     .conf-wave-bar { height: 6px; animation-name: confWave; animation-timing-function: ease-in-out; animation-iteration-count: infinite; box-shadow: 0 0 10px rgba(197,160,89,.6); }
     @keyframes confGlow { 0%,100% { box-shadow: 0 0 40px rgba(197,160,89,.35), 0 0 0 0 rgba(197,160,89,.35) } 50% { box-shadow: 0 0 110px rgba(197,160,89,.65), 0 0 0 18px rgba(197,160,89,0) } }
-    .conf-glow { animation: confGlow 1.8s ease-in-out infinite; }
+    .conf-glow { box-shadow: 0 0 70px rgba(197,160,89,.5); }
     @keyframes confOrbit { to { transform: rotate(360deg) } }
     .conf-orbit { position: absolute; inset: -14px; border-radius: 22px; pointer-events: none;
       background: conic-gradient(from 0deg, transparent 0 70%, rgba(197,160,89,.9) 85%, transparent 100%);
@@ -156,12 +103,12 @@ export default function DisplayConfrontation({ roomId, players }: Props) {
     @media (prefers-reduced-motion: reduce) { .conf-wave-bar, .conf-glow, .conf-orbit, .conf-sweep::after { animation: none !important; } .conf-wave-bar { height: 24px } }
   `;
 
-  // ⏱️ حلقة تقدّم حول المؤقّت (تحمرّ وتنبض تحت ١٠ث)
-  const Ring = ({ left, total }: { left: number; total: number }) => {
+// ⏱️ حلقة تقدّم حول المؤقّت (تحمرّ تحت ١٠ث)
+function Ring({ left, total }: { left: number; total: number }) {
     const r = 118, C = 2 * Math.PI * r, frac = total > 0 ? Math.max(0, Math.min(1, left / total)) : 0;
     const danger = left <= 10;
     return (
-      <div className={`relative w-[300px] h-[300px] flex items-center justify-center ${danger ? 'animate-pulse' : ''}`}>
+      <div className={`relative w-[300px] h-[300px] flex items-center justify-center `}>
         <svg viewBox="0 0 300 300" className="absolute inset-0 -rotate-90">
           <circle cx="150" cy="150" r={r} fill="none" stroke="#1f1a12" strokeWidth="10" />
           <circle cx="150" cy="150" r={r} fill="none" stroke={danger ? '#8A0303' : '#C5A059'} strokeWidth="10" strokeLinecap="round"
@@ -173,7 +120,59 @@ export default function DisplayConfrontation({ roomId, players }: Props) {
         </div>
       </div>
     );
-  };
+  }
+
+export default function DisplayConfrontation({ roomId, players }: Props) {
+  const [conf, setConf] = useState<ConfPayload | null>(null);
+  const [notice, setNotice] = useState<{ text: string; kind: 'declined' | 'cancelled' | 'done' } | null>(null);
+  const [now, setNow] = useState(Date.now());
+  const noticeTimer = useRef<any>(null);
+
+  useEffect(() => {
+    const s = getSocket();
+    if (!s || !roomId) return;
+    const nameOf = (pid: number, list: any[]) => list.find(p => p.physicalId === pid)?.name || `#${pid}`;
+    const onUpd = (p: ConfPayload) => {
+      setConf(p);
+      const c = p.id ? p.confrontations.find(x => x.id === p.id) : null;
+      if (!c) return;
+      let n: typeof notice = null;
+      if (p.event === 'declined') n = { kind: 'declined', text: `${nameOf(c.targetPhysicalId, players)} رفض مواجهة ${nameOf(c.requesterPhysicalId, players)}` };
+      else if (p.event === 'cancelled') n = { kind: 'cancelled', text: `أُلغيت مواجهة ${nameOf(c.requesterPhysicalId, players)} و${nameOf(c.targetPhysicalId, players)}` };
+      else if (p.event === 'ended') n = { kind: 'done', text: `انتهت المواجهة — القرار للتصويت` };
+      if (n) {
+        setNotice(n);
+        if (noticeTimer.current) clearTimeout(noticeTimer.current);
+        noticeTimer.current = setTimeout(() => setNotice(null), 6000);
+      }
+    };
+    const onPhase = (d: any) => {
+      if (d?.phase !== 'DAY_DISCUSSION') { setConf(null); setNotice(null); }
+      else s.emit('day:get-confrontations', { roomId }, (r: any) => { if (r?.success) setConf(r); });
+    };
+    s.emit('day:get-confrontations', { roomId }, (r: any) => { if (r?.success && r.phase === 'DAY_DISCUSSION') setConf(r); });
+    s.on('day:confrontation-updated', onUpd);
+    s.on('game:phase-changed', onPhase);
+    return () => {
+      s.off('day:confrontation-updated', onUpd);
+      s.off('game:phase-changed', onPhase);
+      if (noticeTimer.current) clearTimeout(noticeTimer.current);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [roomId, players.length]);
+
+  const list = conf?.confrontations || [];
+  const active = list.find(c => c.status === 'OPENING' || c.status === 'RESPONSE') || null;
+  const pending = list.filter(c => c.status === 'PENDING');
+  const accepted = list.filter(c => c.status === 'ACCEPTED');
+  useEffect(() => {
+    if (!active && pending.length === 0) return;
+    const t = setInterval(() => setNow(Date.now()), 250);
+    return () => clearInterval(t);
+  }, [active, pending.length]);
+
+  const P = (pid: number) => players.find(p => p.physicalId === pid);
+  const secsLeft = (dl: number) => Math.max(0, Math.ceil((dl - now) / 1000));
 
   return (
     <>
@@ -251,12 +250,12 @@ export default function DisplayConfrontation({ roomId, players }: Props) {
               </AnimatePresence>
             </div>
             <div className="flex items-center gap-10 relative z-10" style={{ perspective: 1400 }}>
-              <Card c={active} side="req" />
+              <Card pid={active.requesterPhysicalId} p={P(active.requesterPhysicalId)} on={active.status === 'OPENING'} side="req" />
               <Ring
                 left={active.stageStartedAt ? secsLeft(active.stageStartedAt + active.stageSeconds * 1000) : active.stageSeconds}
                 total={active.stageSeconds}
               />
-              <Card c={active} side="tgt" />
+              <Card pid={active.targetPhysicalId} p={P(active.targetPhysicalId)} on={active.status === 'RESPONSE'} side="tgt" />
             </div>
           </motion.div>
         )}
