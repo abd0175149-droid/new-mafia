@@ -125,14 +125,14 @@ export default function GameSettingsModal({ gameState, emit, onConfig, onClose, 
             </Row>
             {!isRemote && (
               <>
-                <Row label="مواجهة النهار" k="confrontationEnabled" hint="يطلبها اللاعب من هاتفه أثناء النقاش وتُنفَّذ بعد آخر متحدّث (30ث + 30ث)">
+                <Row label="مواجهة النهار" k="confrontationEnabled" hint="يطلبها اللاعب من هاتفه أثناء النقاش وتُنفَّذ بعد آخر متحدّث — الطرفان يتحدّثان معاً">
                   <Toggle k="confrontationEnabled" value={c.confrontationEnabled === true} />
                 </Row>
                 <Row label="حدّ المواجهات لكلّ لاعب" k="confrontationsPerPlayer" hint="في اللعبة الواحدة — يُصفَّر مع كلّ لعبة">
                   <Num k="confrontationsPerPlayer" value={c.confrontationsPerPlayer ?? 1} min={1} max={5} disabled={c.confrontationEnabled !== true} />
                 </Row>
-                <Row label="مدّة كلمة المواجهة" k="confrontationStageSeconds" hint="لكلّ طرف؛ يمكن تمديدها أو تقصيرها حيّاً من لوحة المواجهة">
-                  <Num k="confrontationStageSeconds" value={c.confrontationStageSeconds ?? 30} min={10} max={180} step={5} unit="ث" disabled={c.confrontationEnabled !== true} />
+                <Row label="مدّة المواجهة" k="confrontationStageSeconds" hint="للطرفين معاً؛ يمكن تمديدها أو تقصيرها حيّاً من لوحة المواجهة">
+                  <Num k="confrontationStageSeconds" value={c.confrontationStageSeconds ?? 60} min={20} max={300} step={10} unit="ث" disabled={c.confrontationEnabled !== true} />
                 </Row>
               </>
             )}

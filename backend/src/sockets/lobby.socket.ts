@@ -4591,7 +4591,7 @@ async function readSeatLayoutOnly(activityId: any): Promise<any> {
       // ⚔️ مواجهة النهار الوجاهيّة: تفعيل + حدّ الطلبات لكلّ لاعب في اللعبة (1-5)
       if (typeof data.confrontationEnabled === 'boolean') c.confrontationEnabled = data.confrontationEnabled;
       if (typeof data.confrontationsPerPlayer === 'number') c.confrontationsPerPlayer = Math.min(Math.max(Math.floor(data.confrontationsPerPlayer), 1), 5);
-      if (typeof data.confrontationStageSeconds === 'number') c.confrontationStageSeconds = Math.min(180, Math.max(10, Math.floor(data.confrontationStageSeconds)));
+      if (typeof data.confrontationStageSeconds === 'number') c.confrontationStageSeconds = Math.min(300, Math.max(20, Math.floor(data.confrontationStageSeconds)));
       // 🌙 نمط الليل — يسري على الليلة التالية (الغرف البعيدة تفرض auto)
       if (data.nightMode === 'manual' || data.nightMode === 'auto') c.nightMode = c.isRemote ? 'auto' : data.nightMode;
       // 🎩🧙🤡 معاملات الأدوار — تُقرأ لحظة الاستعمال فتسري على ما بعد التغيير

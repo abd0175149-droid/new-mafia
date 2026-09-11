@@ -9,7 +9,7 @@ import { resolveVoting } from '../game/vote-engine.js';
 import { Role } from '../game/roles.js';
 import {
   requestConfrontation, requestBlockReason, acceptConfrontation, declineConfrontation, cancelConfrontation,
-  startConfrontation, advanceConfrontation, endConfrontation, markTimedOut, blockingConfrontation,
+  startConfrontation, endConfrontation, markTimedOut, blockingConfrontation,
   stampConfrontationOutcome, publicConfrontations, usedBy, stageDeadline, adjustConfrontationStage, stageSecondsFor,
 } from '../game/confrontation-engine.js';
 import { computeMatchReward, computeMatchBreakdown, buildDisplayBreakdown } from '../services/progression.service.js';
@@ -58,7 +58,7 @@ async function main() {
     check('صحيح ⇒ مسموح', requestBlockReason(s, 2, 1) === null);
   }
 
-  section('2) الدورة: طلب → قبول → بدء → التالي → إنهاء، والرصيد يُستهلك عند القبول فقط');
+  section('2) الدورة: طلب → قبول → بدء (الطرفان معاً) → إنهاء، والرصيد يُستهلك عند القبول فقط');
   {
     const s = fresh([P(1, Role.GODFATHER), P(2, Role.CITIZEN), P(3, Role.CITIZEN)]);
     const c = requestConfrontation(s, 2, 1, 1000);
@@ -75,10 +75,8 @@ async function main() {
     check('لا يبدأ ومتحدّثٌ على الميكروفون', !!err(() => startConfrontation(s, c.id)));
     s.discussionState = { status: 'WAITING', isFinished: true, currentSpeakerId: null };
     startConfrontation(s, c.id, 5000);
-    check('OPENING بمهلة ٣٠ث', c.status === 'OPENING' && stageDeadline(c) === 35000);
+    check('LIVE بمهلة ٦٠ث للطرفين معاً', c.status === 'LIVE' && stageDeadline(c) === 65000);
     check('لا طلبات أثناء الجارية (الطالب مشغول)', !!requestBlockReason(s, 2, 3));
-    advanceConfrontation(s, c.id, 9000);
-    check('RESPONSE', c.status === 'RESPONSE' && stageDeadline(c) === 39000);
     endConfrontation(s, c.id, 12000);
     check('DONE وسُجّلت في تتبّع الأداء بلا نتيجة', c.status === 'DONE' && s.performanceTracking.confrontations?.length === 1 && s.performanceTracking.confrontations[0].outcome === null);
     check('لا يمنع التصويت بعد الانتهاء', blockingConfrontation(s) === null);
@@ -209,22 +207,20 @@ async function main() {
     check('NONE ⇒ لا سطر', !dispNone.rr.some(l => l.key.startsWith('confrontation')));
   }
 
-  section('6ب) مدّة الكلمة: إعداد الغرفة، قيمةٌ صريحة عند البدء، وتعديلٌ حيّ');
+  section('6ب) مدّة المواجهة: إعداد الغرفة، قيمةٌ صريحة عند البدء، وتعديلٌ حيّ');
   {
     const s = fresh([P(1, Role.GODFATHER), P(2, Role.CITIZEN), P(3, Role.CITIZEN)]);
-    check('الافتراضي ٣٠ث', stageSecondsFor(s) === 30);
+    check('الافتراضي ٦٠ث', stageSecondsFor(s) === 60);
     s.config.confrontationStageSeconds = 45;
-    check('إعداد الغرفة ٤٥ث', stageSecondsFor(s) === 45 && stageSecondsFor(s, 500) === 180 && stageSecondsFor(s, 2) === 10);
+    check('إعداد الغرفة ٤٥ث + التقييد 20-300', stageSecondsFor(s) === 45 && stageSecondsFor(s, 500) === 300 && stageSecondsFor(s, 2) === 20);
     const c = requestConfrontation(s, 2, 1); acceptConfrontation(s, c.id, 'TARGET');
     s.discussionState = { status: 'WAITING', isFinished: true };
     startConfrontation(s, c.id, 1000, 60);
-    check('بدءٌ بـ٦٠ث صريحة', c.stageSeconds === 60 && stageDeadline(c) === 61000);
+    check('بدءٌ بـ٦٠ث صريحة', c.stageSeconds === 60 && stageDeadline(c) === 61000 && c.status === 'LIVE');
     adjustConfrontationStage(s, c.id, 30, 11000);
     check('+٣٠ث ⇒ ٩٠ث', c.stageSeconds === 90 && stageDeadline(c) === 91000);
     adjustConfrontationStage(s, c.id, -200, 11000);
     check('تقصيرٌ لا ينزل تحت المنقضي+٣ث', c.stageSeconds === 13);
-    advanceConfrontation(s, c.id, 20000);
-    check('الردّ يرث مدّة الكلمة إن لم تُمرَّر', c.stageSeconds === 13);
     check('لا تعديل بعد الانتهاء', !!err(() => { endConfrontation(s, c.id); adjustConfrontationStage(s, c.id, 10); }));
   }
 

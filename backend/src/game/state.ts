@@ -102,8 +102,7 @@ export interface Deal {
 export type ConfrontationStatus =
   | 'PENDING'    // بانتظار ردّ المستهدَف (٢٠ث) أو قرار الليدر
   | 'ACCEPTED'   // قُبلت — تنتظر «ابدأ المواجهة» من الليدر
-  | 'OPENING'    // كلمة الطالب (٣٠ث)
-  | 'RESPONSE'   // ردّ المستهدَف (٣٠ث)
+  | 'LIVE'       // جارية: الطرفان يتحدّثان معاً بمؤقّتٍ واحد (قرار المالك 2026-09-12؛ كانت كلمةً ثمّ ردّاً)
   | 'DONE'       // نُفِّذت — الأثر يُحسم من تصويت الجولة نفسها
   | 'DECLINED'   // رفضها المستهدَف أو الليدر (تُعلَن على الشاشة؛ لا تُستهلك)
   | 'CANCELLED'; // ألغاها الليدر بعد القبول (يُردّ الرصيد)
@@ -119,8 +118,8 @@ export interface Confrontation {
   timedOut?: boolean;                // انقضت المهلة بلا ردّ — القرار لليدر
   acceptedBy?: 'TARGET' | 'LEADER';
   declinedBy?: 'TARGET' | 'LEADER';
-  stageSeconds: number;              // مدّة كلّ كلمة (٣٠ث)
-  stageStartedAt?: number | null;    // بداية المرحلة الحاليّة (OPENING/RESPONSE)
+  stageSeconds: number;              // مدّة المواجهة كلّها للطرفين معاً (الافتراضي ٦٠ث)
+  stageStartedAt?: number | null;    // بداية التنفيذ (LIVE)
   finishedAt?: number;
 }
 
@@ -283,7 +282,7 @@ export interface GameConfig {
   mafiaChatEnabled?: boolean;      // 🗣️ غرفة تشاور المافيا السرّية (يحددها الليدر كل جولة؛ الافتراضي false)
   confrontationEnabled?: boolean;  // ⚔️ مواجهة النهار الوجاهيّة (الافتراضي false) — تُضبط كغرفة التشاور
   confrontationsPerPlayer?: number; // ⚔️ حدّ طلبات المواجهة لكلّ لاعب في اللعبة الواحدة (الافتراضي 1، المدى 1-5)
-  confrontationStageSeconds?: number; // ⚔️ مدّة كلمة كلّ طرف بالثواني (الافتراضي 30، المدى 10-180) — يعدّلها الليدر حيّاً أيضاً
+  confrontationStageSeconds?: number; // ⚔️ مدّة المواجهة للطرفين معاً بالثواني (الافتراضي 60، المدى 20-300) — يعدّلها الليدر حيّاً أيضاً
   isRemote?: boolean;              // 🌐 غرفة لعبٍ عن بُعد (اللاعبون في أماكن مختلفة) — الافتراضي false
   hostPlayerId?: number | null;    // 🔗 مُضيف الغرفة البعيدة (players.id) — اللاعب-الليدر (null لغرف الموظّفين)
   allowPlayerInvites?: boolean;    // 📨 السماح للاعبين (لا المضيف فقط) بدعوة أصدقائهم لغرفة بعيدة — الافتراضي false

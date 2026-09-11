@@ -2,7 +2,7 @@
 // ══════════════════════════════════════════════════════
 // ⚔️ لوحة مواجهات النهار الوجاهيّة — لليدر
 //   compact: أثناء النقاش الجاري (الطلبات المعلّقة + المقبولة بانتظار نهاية النقاش)
-//   full:    بعد آخر متحدّث (ابدأ المواجهة / التالي / إنهاء / إلغاء) + طلبٌ نيابةً عن لاعب
+//   full:    بعد آخر متحدّث (ابدأ المواجهة / ± المدّة / إنهاء / إلغاء) + طلبٌ نيابةً عن لاعب
 // المصدر الوحيد للحالة: day:get-confrontations عند التركيب ثم بثّ day:confrontation-updated.
 // ══════════════════════════════════════════════════════
 import { useEffect, useRef, useState } from 'react';
@@ -10,7 +10,7 @@ import { getSocket } from '@/lib/socket';
 
 export interface ConfItem {
   id: string; round: number; requesterPhysicalId: number; targetPhysicalId: number;
-  status: 'PENDING' | 'ACCEPTED' | 'OPENING' | 'RESPONSE' | 'DONE' | 'DECLINED' | 'CANCELLED';
+  status: 'PENDING' | 'ACCEPTED' | 'LIVE' | 'DONE' | 'DECLINED' | 'CANCELLED';
   createdAt: number; respondBy: number; timedOut?: boolean;
   acceptedBy?: 'TARGET' | 'LEADER'; declinedBy?: 'TARGET' | 'LEADER';
   stageSeconds: number; stageStartedAt?: number | null; finishedAt?: number;
@@ -29,8 +29,8 @@ interface Props {
 }
 
 export const STATUS_AR: Record<ConfItem['status'], string> = {
-  PENDING: 'بانتظار الردّ', ACCEPTED: 'مقبولة — بانتظار البدء', OPENING: 'كلمة الطالب',
-  RESPONSE: 'ردّ المستهدَف', DONE: 'نُفِّذت', DECLINED: 'مرفوضة', CANCELLED: 'أُلغيت',
+  PENDING: 'بانتظار الردّ', ACCEPTED: 'مقبولة — بانتظار البدء', LIVE: 'جارية — الطرفان يتحدّثان',
+  DONE: 'نُفِّذت', DECLINED: 'مرفوضة', CANCELLED: 'أُلغيت',
 };
 
 export default function LeaderConfrontationPanel({ gameState, emit, setError, mode }: Props) {
@@ -69,7 +69,7 @@ export default function LeaderConfrontationPanel({ gameState, emit, setError, mo
   }, [roomId]);
 
   const list = conf?.confrontations || [];
-  const live = list.some(c => c.status === 'PENDING' || c.status === 'OPENING' || c.status === 'RESPONSE');
+  const live = list.some(c => c.status === 'PENDING' || c.status === 'LIVE');
   useEffect(() => {
     if (!live) return;
     const t = setInterval(() => setNow(Date.now()), 500);
@@ -107,9 +107,9 @@ export default function LeaderConfrontationPanel({ gameState, emit, setError, mo
   const perPlayer = conf?.perPlayer ?? gameState?.config?.confrontationsPerPlayer ?? 1;
   const pending = list.filter(c => c.status === 'PENDING');
   const accepted = list.filter(c => c.status === 'ACCEPTED');
-  const active = list.find(c => c.status === 'OPENING' || c.status === 'RESPONSE') || null;
+  const active = list.find(c => c.status === 'LIVE') || null;
   const finished = list.filter(c => c.status === 'DONE' || c.status === 'DECLINED' || c.status === 'CANCELLED');
-  const counted = list.filter(c => ['ACCEPTED', 'OPENING', 'RESPONSE', 'DONE'].includes(c.status)).length;
+  const counted = list.filter(c => ['ACCEPTED', 'LIVE', 'DONE'].includes(c.status)).length;
 
   // في الوضع المضغوط لا نشغل الشاشة إن كانت الميزة مطفأة ولا شيء قائم
   if (mode === 'compact' && !enabled && list.length === 0) return null;
@@ -128,12 +128,12 @@ export default function LeaderConfrontationPanel({ gameState, emit, setError, mo
         <div className="flex items-center gap-2">
           {mode === 'full' && (
             <select
-              value={stageSecs ?? (conf?.stageSeconds ?? 30)}
+              value={stageSecs ?? (conf?.stageSeconds ?? 60)}
               onChange={(e) => setStageSecs(Number(e.target.value))}
               className="bg-[#050505] border border-[#2a2a2a] text-white text-[11px] px-2 py-1 rounded"
-              title="مدّة كلمة كلّ طرف في المواجهة التالية"
+              title="مدّة المواجهة التالية للطرفين معاً"
             >
-              {[15, 20, 30, 45, 60, 90, 120].map(n => <option key={n} value={n}>⏱️ {n}ث لكلّ كلمة</option>)}
+              {[30, 45, 60, 90, 120, 180].map(n => <option key={n} value={n}>⏱️ {n}ث للمواجهة</option>)}
             </select>
           )}
           {mode === 'full' && (
@@ -159,13 +159,12 @@ export default function LeaderConfrontationPanel({ gameState, emit, setError, mo
       {active && (
         <div className="mt-3 p-4 rounded-xl border border-[#C5A059] bg-[#C5A059]/5">
           <div className="grid grid-cols-2 gap-3">
-            {[{ pid: active.requesterPhysicalId, label: 'الطالب', on: active.status === 'OPENING' },
-              { pid: active.targetPhysicalId, label: 'المستهدَف', on: active.status === 'RESPONSE' }].map(side => (
-              <div key={side.pid} className={`p-3 rounded-lg border text-center ${side.on ? 'border-[#C5A059] bg-[#C5A059]/10' : 'border-[#2a2a2a] opacity-60'}`}>
+            {[{ pid: active.requesterPhysicalId, label: 'الطالب' }, { pid: active.targetPhysicalId, label: 'المستهدَف' }].map(side => (
+              <div key={side.pid} className="p-3 rounded-lg border text-center border-[#C5A059] bg-[#C5A059]/10">
                 <p className="text-[10px] font-mono text-[#808080]">{side.label}</p>
                 <p className="text-2xl font-mono text-white">#{side.pid}</p>
                 <p className="text-sm text-white truncate">{nameOf(side.pid)}</p>
-                {side.on && <p className="text-[10px] text-[#C5A059] mt-1 animate-pulse">🎙️ يتحدّث الآن</p>}
+                <p className="text-[10px] text-[#C5A059] mt-1">🎙️ يتحدّثان معاً</p>
               </div>
             ))}
           </div>
@@ -175,17 +174,14 @@ export default function LeaderConfrontationPanel({ gameState, emit, setError, mo
             </span>
             <span className="text-xs text-[#808080] font-mono mr-2">ث — {STATUS_AR[active.status]} (من {active.stageSeconds}ث)</span>
           </div>
-          {/* ⏱️ تعديلٌ حيّ لمدّة الكلمة الجارية — يمتدّ أو يقصر دون إعادة العدّ */}
+          {/* ⏱️ تعديلٌ حيّ لمدّة المواجهة الجارية — تمتدّ أو تقصر دون إعادة العدّ */}
           <div className="grid grid-cols-4 gap-2 mt-2">
             <button disabled={!!busy} onClick={() => act(active.id, 'adjust', { delta: 30 })} className="bg-[#C5A059]/10 border border-[#C5A059]/40 text-[#C5A059] py-2 font-mono text-xs font-bold hover:bg-[#C5A059]/20">+30s</button>
             <button disabled={!!busy} onClick={() => act(active.id, 'adjust', { delta: 10 })} className="bg-[#C5A059]/10 border border-[#C5A059]/40 text-[#C5A059] py-2 font-mono text-xs font-bold hover:bg-[#C5A059]/20">+10s</button>
             <button disabled={!!busy} onClick={() => act(active.id, 'adjust', { delta: -10 })} className="bg-[#8A0303]/10 border border-[#8A0303]/40 text-[#ffccd5] py-2 font-mono text-xs font-bold hover:bg-[#8A0303]/20">-10s</button>
             <button disabled={!!busy} onClick={() => act(active.id, 'adjust', { delta: -30 })} className="bg-[#8A0303]/10 border border-[#8A0303]/40 text-[#ffccd5] py-2 font-mono text-xs font-bold hover:bg-[#8A0303]/20">-30s</button>
           </div>
-          <div className="grid grid-cols-3 gap-2 mt-3">
-            {active.status === 'OPENING' ? (
-              <button disabled={!!busy} onClick={() => act(active.id, 'next', stageSecs ? { seconds: stageSecs } : {})} className="bg-green-900 border border-green-500 text-white py-3 font-bold text-sm">⏭ ردّ المستهدَف</button>
-            ) : <div />}
+          <div className="grid grid-cols-2 gap-2 mt-3">
             <button disabled={!!busy} onClick={() => act(active.id, 'end')} className="bg-[#111] border border-[#555] text-white py-3 font-bold text-sm hover:border-[#C5A059]">✅ إنهاء المواجهة</button>
             <button disabled={!!busy} onClick={() => act(active.id, 'cancel')} className="bg-[#8A0303]/10 border border-[#8A0303]/50 text-[#ffccd5] py-3 font-bold text-sm">✕ إلغاء</button>
           </div>

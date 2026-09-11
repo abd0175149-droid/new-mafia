@@ -2,7 +2,7 @@
 // ⚔️ محرّك مواجهة النهار الوجاهيّة (Day Confrontation)
 //
 // تُطلب من هاتف اللاعب في أيّ لحظة من مرحلة النقاش (من الجولة الثانية كالاتفاقيّات)،
-// وتُنفَّذ بعد آخر متحدّث وقبل التصويت: كلمة الطالب ٣٠ث ← ردّ المستهدَف ٣٠ث ← DONE.
+// وتُنفَّذ بعد آخر متحدّث وقبل التصويت: الطرفان يتحدّثان معاً بمؤقّتٍ واحد (٦٠ث افتراضاً) ← DONE.
 // لا نبض قاعة. أثرها على الرانك يُحسم من تصويت الجولة نفسها وحده (انظر stampConfrontationOutcome).
 //
 // دوالٌ نقيّة على كائن الحالة — لا تلمس Redis ولا المؤقّتات؛ الحفظ والبثّ والمؤقّتات
@@ -12,22 +12,22 @@ import { GameState, Phase, Confrontation, ConfrontationStatus } from './state.js
 import { teamOfRole } from './roles.js';
 
 export const CONFRONTATION_RESPOND_SECONDS = 20;   // مهلة ردّ المستهدَف
-export const CONFRONTATION_STAGE_SECONDS = 30;     // كلمة كلّ طرف
+export const CONFRONTATION_STAGE_SECONDS = 60;     // مدّة المواجهة للطرفين معاً (كانت ٣٠ث لكلّ طرف)
 export const CONFRONTATION_MAX_PER_ROUND = 2;      // مواجهتان مقبولتان في الجولة كحدّ
 export const CONFRONTATION_MIN_ROUND = 1;          // قرار المالك 2026-09-11: من الجولة الأولى (الاتفاقيّات وحدها من الثانية)
 export const CONFRONTATION_DEFAULT_PER_PLAYER = 1;
-export const CONFRONTATION_STAGE_MIN = 10;
-export const CONFRONTATION_STAGE_MAX = 180;
+export const CONFRONTATION_STAGE_MIN = 20;
+export const CONFRONTATION_STAGE_MAX = 300;
 
-/** مدّة الكلمة: قيمةٌ صريحة من الليدر، وإلّا إعداد الغرفة، وإلّا ٣٠ث — مقيّدة 10-180. */
+/** مدّة المواجهة: قيمةٌ صريحة من الليدر، وإلّا إعداد الغرفة، وإلّا ٦٠ث — مقيّدة 20-300. */
 export function stageSecondsFor(state: GameState, explicit?: number): number {
   const n = Number(explicit ?? state.config?.confrontationStageSeconds ?? CONFRONTATION_STAGE_SECONDS);
   const v = Number.isFinite(n) && n > 0 ? Math.floor(n) : CONFRONTATION_STAGE_SECONDS;
   return Math.min(CONFRONTATION_STAGE_MAX, Math.max(CONFRONTATION_STAGE_MIN, v));
 }
 
-const LIVE: ConfrontationStatus[] = ['PENDING', 'ACCEPTED', 'OPENING', 'RESPONSE'];
-const COUNTED: ConfrontationStatus[] = ['ACCEPTED', 'OPENING', 'RESPONSE', 'DONE'];
+const LIVE: ConfrontationStatus[] = ['PENDING', 'ACCEPTED', 'LIVE'];
+const COUNTED: ConfrontationStatus[] = ['ACCEPTED', 'LIVE', 'DONE'];
 
 export function perPlayerCap(state: GameState): number {
   const n = Number(state.config?.confrontationsPerPlayer);
@@ -39,9 +39,9 @@ export function roundConfrontations(state: GameState): Confrontation[] {
   return (state.confrontations || []).filter(c => c.round === (state.round || 1));
 }
 
-/** المواجهة الجارية (كلمة الطالب أو ردّ المستهدَف) — لا يُسمح بأكثر من واحدة. */
+/** المواجهة الجارية (الطرفان معاً) — لا يُسمح بأكثر من واحدة. */
 export function activeConfrontation(state: GameState): Confrontation | null {
-  return roundConfrontations(state).find(c => c.status === 'OPENING' || c.status === 'RESPONSE') || null;
+  return roundConfrontations(state).find(c => c.status === 'LIVE') || null;
 }
 
 /** ما يمنع بدء التصويت: طلبٌ لم يُحسم، أو مقبولةٌ لم تُنفَّذ، أو جارية. */
@@ -158,7 +158,7 @@ export function cancelConfrontation(state: GameState, id: string): Confrontation
   const c = findConfrontation(state, id);
   if (!c) throw new Error('المواجهة غير موجودة');
   if (c.status === 'PENDING') return declineConfrontation(state, id, 'LEADER');
-  if (!['ACCEPTED', 'OPENING', 'RESPONSE'].includes(c.status)) throw new Error('لا يمكن إلغاء مواجهةٍ منتهية');
+  if (!['ACCEPTED', 'LIVE'].includes(c.status)) throw new Error('لا يمكن إلغاء مواجهةٍ منتهية');
   c.status = 'CANCELLED';
   c.stageStartedAt = null;
   c.finishedAt = Date.now();
@@ -166,7 +166,7 @@ export function cancelConfrontation(state: GameState, id: string): Confrontation
   return c;
 }
 
-/** «ابدأ المواجهة»: ACCEPTED → OPENING. لا تبدأ ومتحدّثٌ على الميكروفون ولا مع مواجهةٍ جارية. */
+/** «ابدأ المواجهة»: ACCEPTED → LIVE (الطرفان معاً). لا تبدأ ومتحدّثٌ على الميكروفون ولا مع مواجهةٍ جارية. */
 export function startConfrontation(state: GameState, id: string, now = Date.now(), seconds?: number): Confrontation {
   const c = findConfrontation(state, id);
   if (!c) throw new Error('المواجهة غير موجودة');
@@ -178,19 +178,8 @@ export function startConfrontation(state: GameState, id: string, now = Date.now(
   const req = state.players.find(p => p.physicalId === c.requesterPhysicalId);
   const tgt = state.players.find(p => p.physicalId === c.targetPhysicalId);
   if (!req?.isAlive || !tgt?.isAlive) throw new Error('أحد الطرفين لم يعد حيّاً');
-  c.status = 'OPENING';
+  c.status = 'LIVE';
   c.stageSeconds = stageSecondsFor(state, seconds ?? c.stageSeconds);
-  c.stageStartedAt = now;
-  return c;
-}
-
-/** «التالي»: OPENING → RESPONSE. */
-export function advanceConfrontation(state: GameState, id: string, now = Date.now(), seconds?: number): Confrontation {
-  const c = findConfrontation(state, id);
-  if (!c) throw new Error('المواجهة غير موجودة');
-  if (c.status !== 'OPENING') throw new Error('المواجهة ليست في كلمة الطالب');
-  c.status = 'RESPONSE';
-  if (seconds != null) c.stageSeconds = stageSecondsFor(state, seconds);
   c.stageStartedAt = now;
   return c;
 }
@@ -199,7 +188,7 @@ export function advanceConfrontation(state: GameState, id: string, now = Date.no
 export function adjustConfrontationStage(state: GameState, id: string, deltaSeconds: number, now = Date.now()): Confrontation {
   const c = findConfrontation(state, id);
   if (!c) throw new Error('المواجهة غير موجودة');
-  if ((c.status !== 'OPENING' && c.status !== 'RESPONSE') || !c.stageStartedAt) throw new Error('المواجهة ليست جارية');
+  if (c.status !== 'LIVE' || !c.stageStartedAt) throw new Error('المواجهة ليست جارية');
   const d = Math.floor(Number(deltaSeconds) || 0);
   if (!d) return c;
   const elapsed = Math.max(0, Math.floor((now - c.stageStartedAt) / 1000));
@@ -208,11 +197,11 @@ export function adjustConfrontationStage(state: GameState, id: string, deltaSeco
   return c;
 }
 
-/** «إنهاء»: من OPENING أو RESPONSE → DONE، وتُسجَّل في تتبّع الأداء بلا نتيجةٍ بعد. */
+/** «إنهاء»: LIVE → DONE، وتُسجَّل في تتبّع الأداء بلا نتيجةٍ بعد. */
 export function endConfrontation(state: GameState, id: string, now = Date.now()): Confrontation {
   const c = findConfrontation(state, id);
   if (!c) throw new Error('المواجهة غير موجودة');
-  if (c.status !== 'OPENING' && c.status !== 'RESPONSE') throw new Error('المواجهة ليست جارية');
+  if (c.status !== 'LIVE') throw new Error('المواجهة ليست جارية');
   c.status = 'DONE';
   c.stageStartedAt = null;
   c.finishedAt = now;
@@ -234,7 +223,7 @@ export function endConfrontation(state: GameState, id: string, now = Date.now())
 
 /** موعد انقضاء المرحلة الجارية (ms) — لمؤقّت الخادم. */
 export function stageDeadline(c: Confrontation | null | undefined): number | null {
-  if (!c || (c.status !== 'OPENING' && c.status !== 'RESPONSE') || !c.stageStartedAt) return null;
+  if (!c || c.status !== 'LIVE' || !c.stageStartedAt) return null;
   return c.stageStartedAt + c.stageSeconds * 1000;
 }
 

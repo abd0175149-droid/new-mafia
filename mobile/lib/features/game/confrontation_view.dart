@@ -10,7 +10,7 @@ import 'game_session_controller.dart';
 // ⚔️ مواجهة النهار الوجاهيّة — جانب اللاعب
 // ══════════════════════════════════════════════════════
 // زرّ «اطلب مواجهة» فوق الاتفاقيات (يختفي إن كانت الميزة مطفأة)، ورقةُ اختيار
-// المستهدَف، بطاقةُ الردّ للمستهدَف (٢٠ث)، وبطاقة «كلمتك الآن» أثناء التنفيذ.
+// المستهدَف، بطاقةُ الردّ للمستهدَف (٢٠ث)، وبطاقة «كلمتك الآن» للطرفين معاً أثناء التنفيذ.
 // القواعد من `confrontation-engine.ts` ويفرضها الخادم؛ الواجهة تعرضها مسبقاً.
 
 const _gold = Color(0xFFC5A059);
@@ -220,7 +220,7 @@ class _IncomingCard extends StatelessWidget {
             textAlign: TextAlign.center,
             style: ar(15, color: const Color(0xFFFCD34D), weight: FontWeight.w900)),
         const SizedBox(height: 4),
-        Text('تُنفَّذ بعد آخر متحدّث: كلمته 30ث ثمّ ردّك 30ث — هل تقبل؟',
+        Text('تُنفَّذ بعد آخر متحدّث: تتحدّثان معاً بمؤقّتٍ واحد — هل تقبل؟',
             textAlign: TextAlign.center,
             style: ar(11, color: const Color(0xFFBBBBBB), height: 1.5)),
         const SizedBox(height: 8),
@@ -298,7 +298,6 @@ class _ActiveCard extends StatelessWidget {
     final me = c.physicalId;
     final meReq = conf.requesterPhysicalId == me;
     final meTgt = conf.targetPhysicalId == me;
-    final opening = conf.status == 'OPENING';
     final left = conf.stageLeft();
 
     if (!meReq && !meTgt) {
@@ -316,7 +315,7 @@ class _ActiveCard extends StatelessWidget {
             TextSpan(text: _name(c, conf.requesterPhysicalId), style: ar(12, weight: FontWeight.bold)),
             const TextSpan(text: ' ضدّ '),
             TextSpan(text: _name(c, conf.targetPhysicalId), style: ar(12, weight: FontWeight.bold)),
-            TextSpan(text: ' — ${opening ? 'كلمة الطالب' : 'الردّ'} ($leftث)'),
+            TextSpan(text: ' ($leftث)'),
           ]),
           textAlign: TextAlign.center,
           style: ar(12, color: const Color(0xFF999999)),
@@ -324,26 +323,26 @@ class _ActiveCard extends StatelessWidget {
       );
     }
 
-    final myTurn = (meReq && opening) || (meTgt && !opening);
+    // الطرفان يتحدّثان معاً — لا دور ولا انتظار
     final other = _name(c, meReq ? conf.targetPhysicalId : conf.requesterPhysicalId);
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
         borderRadius: BorderRadius.circular(14),
-        color: myTurn ? _gold.withValues(alpha: 0.15) : const Color(0x0DFFFFFF),
-        border: Border.all(color: myTurn ? _gold : const Color(0xFF2A2A2A), width: 2),
-        boxShadow: myTurn ? [BoxShadow(color: _gold.withValues(alpha: 0.3), blurRadius: 24)] : null,
+        color: _gold.withValues(alpha: 0.15),
+        border: Border.all(color: _gold, width: 2),
+        boxShadow: [BoxShadow(color: _gold.withValues(alpha: 0.3), blurRadius: 24)],
       ),
       child: Column(children: [
-        Text(myTurn ? '🎙️ كلمتك الآن' : '🎧 ${opening ? 'كلمة' : 'ردّ'} $other',
-            style: ar(15, color: myTurn ? _gold : const Color(0xFF999999), weight: FontWeight.w900)),
+        Text('🎙️ كلمتك الآن — مواجهةٌ مع $other',
+            style: ar(15, color: _gold, weight: FontWeight.w900)),
         const SizedBox(height: 4),
         Text('$left',
             style: mono(36,
-                color: (left <= 10 && myTurn) ? const Color(0xFFF87171) : Colors.white,
+                color: left <= 10 ? const Color(0xFFF87171) : Colors.white,
                 weight: FontWeight.w900)),
-        Text('${opening ? 'كلمة الطالب' : 'ردّ المستهدَف'} — ${conf.stageSeconds} ثانية',
+        Text('الطرفان يتحدّثان معاً — ${conf.stageSeconds} ثانية',
             style: ar(10, color: const Color(0xFF888888))),
       ]),
     );
@@ -439,7 +438,7 @@ class _ConfrontationSheetState extends State<_ConfrontationSheet> {
             ]),
             const SizedBox(height: 8),
             Text(
-              'تُنفَّذ بعد آخر متحدّث وقبل التصويت: كلمتك 30ث ثمّ ردّه 30ث. '
+              'تُنفَّذ بعد آخر متحدّث وقبل التصويت: تتحدّثان معاً بمؤقّتٍ واحد. '
               'إن أُقصي هدفك بتصويت هذه الجولة وكان مافيا كُوفئت، وإن كان مواطناً خُصم منك. '
               'رفضه يُعلَن على الشاشة ولا يُستهلك رصيدك.',
               style: ar(11, color: const Color(0xFF9A9A9A), height: 1.6),

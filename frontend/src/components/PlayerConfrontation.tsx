@@ -47,7 +47,7 @@ export default function PlayerConfrontation({ roomId, emit, on, myId, players, r
 
   const list = conf?.confrontations || [];
   const mine = list.filter(c => c.requesterPhysicalId === myId || c.targetPhysicalId === myId);
-  const live = mine.some(c => c.status === 'PENDING' || c.status === 'OPENING' || c.status === 'RESPONSE');
+  const live = mine.some(c => c.status === 'PENDING' || c.status === 'LIVE');
   useEffect(() => {
     if (!live) return;
     const t = setInterval(() => setNow(Date.now()), 500);
@@ -60,13 +60,13 @@ export default function PlayerConfrontation({ roomId, emit, on, myId, players, r
   const secsLeft = (dl: number) => Math.max(0, Math.ceil((dl - now) / 1000));
   const used = conf.used?.[myId] || 0;
   const budget = Math.max(0, (conf.perPlayer || 1) - used);
-  const counted = list.filter(c => ['ACCEPTED', 'OPENING', 'RESPONSE', 'DONE'].includes(c.status)).length;
+  const counted = list.filter(c => ['ACCEPTED', 'LIVE', 'DONE'].includes(c.status)).length;
   const roundOk = true; // قرار المالك: المواجهة من الجولة الأولى
 
   const incoming = list.find(c => c.status === 'PENDING' && c.targetPhysicalId === myId) || null;
   const outgoing = list.find(c => c.status === 'PENDING' && c.requesterPhysicalId === myId) || null;
   const acceptedMine = list.find(c => c.status === 'ACCEPTED' && (c.requesterPhysicalId === myId || c.targetPhysicalId === myId)) || null;
-  const active = list.find(c => c.status === 'OPENING' || c.status === 'RESPONSE') || null;
+  const active = list.find(c => c.status === 'LIVE') || null;
   const declinedMine = list.find(c => c.status === 'DECLINED' && c.requesterPhysicalId === myId) || null;
   const hasLiveMine = !!(incoming || outgoing || acceptedMine || (active && (active.requesterPhysicalId === myId || active.targetPhysicalId === myId)));
 
@@ -99,7 +99,7 @@ export default function PlayerConfrontation({ roomId, emit, on, myId, players, r
       {incoming && (
         <div className="p-4 rounded-xl border-2 border-amber-500/60 bg-amber-500/10 text-center animate-[pulse_2s_ease-in-out_infinite]">
           <p className="text-amber-300 text-sm font-black">⚔️ {nameOf(incoming.requesterPhysicalId)} يطلب مواجهتك</p>
-          <p className="text-[#bbb] text-[11px] mt-1">تُنفَّذ بعد آخر متحدّث: كلمته 30ث ثمّ ردّك 30ث — هل تقبل؟</p>
+          <p className="text-[#bbb] text-[11px] mt-1">تُنفَّذ بعد آخر متحدّث: تتحدّثان معاً بمؤقّتٍ واحد — هل تقبل؟</p>
           <p className="text-2xl font-mono text-white mt-2">{incoming.timedOut ? 'بانتظار الليدر' : `${secsLeft(incoming.respondBy)}ث`}</p>
           <div className="grid grid-cols-2 gap-2 mt-3">
             <button disabled={busy} onClick={() => respond(incoming, true)} className="py-3 rounded-xl bg-emerald-500/20 border border-emerald-500/60 text-emerald-300 font-bold text-sm">✓ أقبل</button>
@@ -127,21 +127,21 @@ export default function PlayerConfrontation({ roomId, emit, on, myId, players, r
         </div>
       )}
 
-      {/* ── جارية ── */}
+      {/* ── جارية: الطرفان يتحدّثان معاً بمؤقّتٍ واحد ── */}
       {active && (() => {
         const meReq = active.requesterPhysicalId === myId, meTgt = active.targetPhysicalId === myId;
-        const myTurn = (meReq && active.status === 'OPENING') || (meTgt && active.status === 'RESPONSE');
         const left = active.stageStartedAt ? secsLeft(active.stageStartedAt + active.stageSeconds * 1000) : active.stageSeconds;
         if (!meReq && !meTgt) return (
           <div className="p-3 rounded-xl border border-[#2a2a2a] bg-white/5 text-center text-[11px] text-[#999]">
-            ⚔️ مواجهة جارية: <b className="text-white">{nameOf(active.requesterPhysicalId)}</b> ضدّ <b className="text-white">{nameOf(active.targetPhysicalId)}</b> — {active.status === 'OPENING' ? 'كلمة الطالب' : 'الردّ'} ({left}ث)
+            ⚔️ مواجهة جارية: <b className="text-white">{nameOf(active.requesterPhysicalId)}</b> ضدّ <b className="text-white">{nameOf(active.targetPhysicalId)}</b> ({left}ث)
           </div>
         );
+        const other = nameOf(meReq ? active.targetPhysicalId : active.requesterPhysicalId);
         return (
-          <div className={`p-4 rounded-xl border-2 text-center ${myTurn ? 'border-[#C5A059] bg-[#C5A059]/15 shadow-[0_0_24px_rgba(197,160,89,0.3)]' : 'border-[#2a2a2a] bg-white/5'}`}>
-            <p className={`text-sm font-black ${myTurn ? 'text-[#C5A059]' : 'text-[#999]'}`}>{myTurn ? '🎙️ كلمتك الآن' : `🎧 ${active.status === 'OPENING' ? 'كلمة' : 'ردّ'} ${nameOf(meReq ? active.targetPhysicalId : active.requesterPhysicalId)}`}</p>
-            <p className={`text-4xl font-mono font-black mt-1 ${left <= 10 && myTurn ? 'text-red-400 animate-pulse' : 'text-white'}`}>{left}</p>
-            <p className="text-[10px] text-[#888]">{active.status === 'OPENING' ? 'كلمة الطالب' : 'ردّ المستهدَف'} — 30 ثانية</p>
+          <div className="p-4 rounded-xl border-2 text-center border-[#C5A059] bg-[#C5A059]/15 shadow-[0_0_24px_rgba(197,160,89,0.3)]">
+            <p className="text-sm font-black text-[#C5A059]">🎙️ كلمتك الآن — مواجهةٌ مع {other}</p>
+            <p className={`text-4xl font-mono font-black mt-1 ${left <= 10 ? 'text-red-400 animate-pulse' : 'text-white'}`}>{left}</p>
+            <p className="text-[10px] text-[#888]">الطرفان يتحدّثان معاً — {active.stageSeconds} ثانية</p>
           </div>
         );
       })()}
@@ -179,7 +179,7 @@ export default function PlayerConfrontation({ roomId, emit, on, myId, players, r
               <button onClick={() => setSheet(false)} className="text-[#808080] text-lg leading-none">✕</button>
             </div>
             <p className="text-[11px] text-[#9a9a9a] leading-relaxed mb-3">
-              تُنفَّذ بعد آخر متحدّث وقبل التصويت: كلمتك 30ث ثمّ ردّه 30ث. إن أُقصي هدفك بتصويت هذه الجولة وكان مافيا كُوفئت، وإن كان مواطناً خُصم منك. رفضه يُعلَن على الشاشة ولا يُستهلك رصيدك.
+              تُنفَّذ بعد آخر متحدّث وقبل التصويت: تتحدّثان معاً بمؤقّتٍ واحد. إن أُقصي هدفك بتصويت هذه الجولة وكان مافيا كُوفئت، وإن كان مواطناً خُصم منك. رفضه يُعلَن على الشاشة ولا يُستهلك رصيدك.
             </p>
             <select
               value={target}

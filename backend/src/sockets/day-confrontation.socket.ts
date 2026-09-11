@@ -3,7 +3,7 @@
 //
 //   day:request-confrontation   {roomId, targetPhysicalId}   ← اللاعب (الطالب) — أو الليدر مع requesterPhysicalId
 //   day:respond-confrontation   {roomId, id, accept}         ← المستهدَف
-//   day:confrontation           {roomId, id, action}         ← الليدر: approve|decline|cancel|start|next|end
+//   day:confrontation           {roomId, id, action}         ← الليدر: approve|decline|cancel|start|adjust|end
 //   day:get-confrontations      {roomId}                     ← الجميع (استعادة الحالة)
 //   leader:confrontation-settings {roomId, enabled?, perPlayer?} ← الليدر في أيّ مرحلة (كمفتاح غرفة التشاور)
 //   بثّ: day:confrontation-updated {event, id, ...publicConfrontations}
@@ -16,7 +16,7 @@ import { getGameState, setGameState } from '../config/redis.js';
 import { Phase } from '../game/state.js';
 import {
   requestConfrontation, acceptConfrontation, declineConfrontation, cancelConfrontation,
-  startConfrontation, advanceConfrontation, endConfrontation, markTimedOut, adjustConfrontationStage, stageSecondsFor,
+  startConfrontation, endConfrontation, markTimedOut, adjustConfrontationStage, stageSecondsFor,
   findConfrontation, publicConfrontations, stageDeadline, CONFRONTATION_RESPOND_SECONDS,
 } from '../game/confrontation-engine.js';
 
@@ -48,7 +48,7 @@ function armRespondTimer(io: Server, roomId: string, id: string, ms: number) {
   }, Math.max(0, ms)));
 }
 
-/** مؤقّت المرحلة: OPENING → RESPONSE → DONE تلقائيّاً بعد ٣٠ث (والليدر يسبقه بأزراره). */
+/** مؤقّت المواجهة: LIVE → DONE تلقائيّاً عند انقضاء المدّة (والليدر يسبقه بزرّ الإنهاء أو يمدّدها). */
 function armStageTimer(io: Server, roomId: string, id: string, deadline: number) {
   const key = `${roomId}:${id}:stage`;
   clearTimer(key);
@@ -61,12 +61,7 @@ function armStageTimer(io: Server, roomId: string, id: string, deadline: number)
       const dl = stageDeadline(c);
       if (!c || dl == null) return;
       if (dl !== deadline) return;                       // بدأت مرحلةٌ أحدث — لها مؤقّتها
-      if (c.status === 'OPENING') {
-        advanceConfrontation(state, id);
-        await setGameState(roomId, state);
-        broadcast(io, roomId, state, 'switched', id);
-        armStageTimer(io, roomId, id, stageDeadline(c)!);
-      } else if (c.status === 'RESPONSE') {
+      if (c.status === 'LIVE') {
         endConfrontation(state, id);
         await setGameState(roomId, state);
         broadcast(io, roomId, state, 'ended', id);
@@ -119,8 +114,8 @@ export function registerDayConfrontationEvents(io: Server, socket: Socket) {
     } catch (err: any) { reply(callback, { success: false, error: err.message }); }
   });
 
-  // ── الليدر: اعتماد/رفض/إلغاء/بدء/التالي/إنهاء ──
-  socket.on('day:confrontation', async (data: { roomId: string; id: string; action: 'approve' | 'decline' | 'cancel' | 'start' | 'next' | 'end' | 'adjust'; seconds?: number; delta?: number }, callback) => {
+  // ── الليدر: اعتماد/رفض/إلغاء/بدء/تعديل المدّة/إنهاء ──
+  socket.on('day:confrontation', async (data: { roomId: string; id: string; action: 'approve' | 'decline' | 'cancel' | 'start' | 'end' | 'adjust'; seconds?: number; delta?: number }, callback) => {
     try {
       if (socket.data.role !== 'leader') return reply(callback, { success: false, error: 'Only leader' });
       const state = await getGameState(data.roomId);
@@ -137,7 +132,6 @@ export function registerDayConfrontationEvents(io: Server, socket: Socket) {
           break;
         }
         case 'start': deadline = stageDeadline(startConfrontation(state, data.id, Date.now(), data.seconds)); event = 'started'; break;
-        case 'next': deadline = stageDeadline(advanceConfrontation(state, data.id, Date.now(), data.seconds)); event = 'switched'; break;
         // ⏱️ تمديد/تقصير المرحلة الجارية — يُعاد تسليح مؤقّت الخادم على الموعد الجديد
         case 'adjust': deadline = stageDeadline(adjustConfrontationStage(state, data.id, Number(data.delta) || 0)); event = 'adjusted'; break;
         case 'end': endConfrontation(state, data.id); event = 'ended'; clearTimer(`${data.roomId}:${data.id}:stage`); break;

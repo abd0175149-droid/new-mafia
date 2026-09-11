@@ -645,7 +645,7 @@ class Deal {
 // ⚔️ مواجهة النهار الوجاهيّة
 // ══════════════════════════════════════════════════════
 // تُطلب من الهاتف أثناء النقاش (من الجولة الثانية) وتُنفَّذ بعد آخر متحدّث
-// وقبل التصويت: كلمة الطالب ٣٠ث ← ردّ المستهدَف ٣٠ث. القواعد كلّها من
+// وقبل التصويت: الطرفان يتحدّثان معاً بمؤقّتٍ واحد (٦٠ث افتراضاً). القواعد كلّها من
 // `confrontation-engine.ts` ويفرضها الخادم؛ الواجهة تعرض حالتها فقط.
 
 class Confrontation {
@@ -659,14 +659,14 @@ class Confrontation {
     this.timedOut = false,
     this.acceptedBy,
     this.declinedBy,
-    this.stageSeconds = 30,
+    this.stageSeconds = 60,
     this.stageStartedAtMs,
   });
 
   final String id;
   final int round, requesterPhysicalId, targetPhysicalId;
 
-  /// `PENDING` · `ACCEPTED` · `OPENING` · `RESPONSE` · `DONE` · `DECLINED` · `CANCELLED`
+  /// `PENDING` · `ACCEPTED` · `LIVE` · `DONE` · `DECLINED` · `CANCELLED`
   final String status;
   final int? respondByMs;
   final bool timedOut;
@@ -676,7 +676,7 @@ class Confrontation {
 
   bool get isPending => status == 'PENDING';
   bool get isAccepted => status == 'ACCEPTED';
-  bool get isActive => status == 'OPENING' || status == 'RESPONSE';
+  bool get isActive => status == 'LIVE';
   bool get isLive => isPending || isAccepted || isActive;
   bool get isCounted => isAccepted || isActive || status == 'DONE';
   bool involves(int pid) => requesterPhysicalId == pid || targetPhysicalId == pid;
@@ -712,7 +712,7 @@ class Confrontation {
       timedOut: v['timedOut'] == true,
       acceptedBy: v['acceptedBy'] as String?,
       declinedBy: v['declinedBy'] as String?,
-      stageSeconds: _i(v['stageSeconds'], 30),
+      stageSeconds: _i(v['stageSeconds'], 60),
       stageStartedAtMs: (v['stageStartedAt'] as num?)?.toInt(),
     );
   }

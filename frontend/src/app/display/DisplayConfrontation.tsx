@@ -3,7 +3,7 @@
 // ⚔️ مواجهة النهار على شاشة العرض
 //   - طلبٌ معلّق/مقبول: شريطٌ أعلى الشاشة
 //   - رفض: إعلانٌ لثوانٍ («رفض فلان مواجهة فلان») — قرار المالك: الرفض علنيّ
-//   - جارية: طبقةٌ كاملة ببطاقتين ومؤقّتٍ كبير، الجانب المتحدّث مضاء
+//   - جارية: طبقةٌ كاملة ببطاقتين مضاءتين معاً (الطرفان يتحدّثان) ومؤقّتٍ واحد في المنتصف
 // تُركَّب على مستوى الصفحة (لا داخل فرع مرحلة) كي لا تُقطع بالانتقالات.
 // ══════════════════════════════════════════════════════
 import { memo, useEffect, useRef, useState } from 'react';
@@ -22,31 +22,19 @@ interface Props {
   //   تبدُّل الدور يُعلَن بشريطٍ ينزلق من الأعلى ونبضة ضوءٍ تعبر الشاشة.
 // 🔴 مُعرَّفة خارج المكوّن ومُحفَّظة (memo): تعريفها داخله كان يعيد تركيبها مع كلّ نبضة مؤقّت (٤ مرّات في الثانية)
 //    فتُعاد حركة الدخول والتوهّج من الصفر — وهذا «الرمش» الذي رآه المالك. الآن لا تُعاد إلّا عند تبدّل الدور.
-const Card = memo(function Card({ pid, p, on, side }: { pid: number; p: any; on: boolean; side: 'req' | 'tgt' }) {
-    const dir = side === 'req' ? 1 : -1;   // الطالب يمين الشاشة (RTL) والمستهدَف يسارها
+const Card = memo(function Card({ pid, p, side }: { pid: number; p: any; side: 'req' | 'tgt' }) {
     return (
       <motion.div
-        initial={false}
-        animate={{
-          opacity: on ? 1 : 0.42,
-          x: on ? 0 : dir * 36,
-          y: on ? -18 : 26,
-          scale: on ? 1.22 : 0.8,
-          rotateY: on ? 0 : dir * 14,
-          filter: on ? 'grayscale(0) blur(0px)' : 'grayscale(.8) blur(0.6px)',
-        }}
-        transition={{ type: 'spring', damping: 16, stiffness: 120, mass: 0.9 }}
-        style={{ transformStyle: 'preserve-3d', perspective: 1200 }}
+        initial={{ opacity: 0, y: 30, scale: .9 }}
+        animate={{ opacity: 1, y: 0, scale: 1.12 }}
+        transition={{ type: 'spring', damping: 18, stiffness: 120 }}
         className="flex flex-col items-center gap-4 will-change-transform"
       >
-        <motion.p
-          animate={{ opacity: on ? 1 : 0.5, letterSpacing: on ? '0.42em' : '0.25em' }}
-          className={`text-xs font-mono uppercase ${on ? 'text-[#C5A059]' : 'text-[#666]'}`}
-        >
+        <p className="text-xs font-mono uppercase tracking-[0.42em] text-[#C5A059]">
           {side === 'req' ? 'الطالب · CHALLENGER' : 'المستهدَف · ACCUSED'}
-        </motion.p>
-        <div className={`relative rounded-2xl ${on ? 'conf-glow ring-2 ring-[#C5A059]' : ''}`}>
-          {on && <span className="conf-orbit" aria-hidden />}
+        </p>
+        <div className="relative rounded-2xl conf-glow ring-2 ring-[#C5A059]">
+          <span className="conf-orbit" aria-hidden />
           <MafiaCard
             playerNumber={pid}
             playerName={p?.name || `لاعب #${pid}`}
@@ -60,28 +48,17 @@ const Card = memo(function Card({ pid, p, on, side }: { pid: number; p: any; on:
             rankTier={p?.rankTier}
             cosmetics={p?.cosmetics}
           />
-          <AnimatePresence>
-            {on && (
-              <motion.span
-                key="mic"
-                initial={{ scale: 0, rotate: -40 }} animate={{ scale: 1, rotate: 0 }} exit={{ scale: 0, rotate: 40 }}
-                transition={{ type: 'spring', damping: 12, stiffness: 220 }}
-                className="absolute -top-5 -left-5 w-14 h-14 rounded-full bg-[#C5A059] text-black text-2xl flex items-center justify-center shadow-[0_0_30px_rgba(197,160,89,.8)]"
-              >🎙️</motion.span>
-            )}
-          </AnimatePresence>
+          <span className="absolute -top-5 -left-5 w-14 h-14 rounded-full bg-[#C5A059] text-black text-2xl flex items-center justify-center shadow-[0_0_30px_rgba(197,160,89,.8)]">🎙️</span>
         </div>
-        {/* 🎙️ موجات صوتيّة — أعمدة تتنفّس عشوائيّاً ما دام دورُه في الكلام (مرئيّة فقط) */}
+        {/* 🎙️ موجات صوتيّة — تحت كلا الطرفين لأنّهما يتحدّثان معاً (مرئيّة فقط) */}
         <div className="h-14 flex items-end justify-center gap-[5px]" aria-hidden>
-          {on ? Array.from({ length: 17 }).map((_, i) => (
+          {Array.from({ length: 17 }).map((_, i) => (
             <span
               key={i}
               className="conf-wave-bar block w-[6px] rounded-full bg-[#C5A059]"
-              style={{ animationDelay: `${(i * 97) % 700}ms`, animationDuration: `${600 + ((i * 131) % 500)}ms` }}
+              style={{ animationDelay: `${((i * 97) + (side === 'tgt' ? 350 : 0)) % 700}ms`, animationDuration: `${600 + ((i * 131) % 500)}ms` }}
             />
-          )) : (
-            <motion.span initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="text-[#555] font-mono text-xs tracking-widest">يستمع</motion.span>
-          )}
+          ))}
         </div>
       </motion.div>
     );
@@ -164,7 +141,7 @@ export default function DisplayConfrontation({ roomId, players }: Props) {
   }, [roomId, players.length]);
 
   const list = conf?.confrontations || [];
-  const active = list.find(c => c.status === 'OPENING' || c.status === 'RESPONSE') || null;
+  const active = list.find(c => c.status === 'LIVE') || null;
   const pending = list.filter(c => c.status === 'PENDING');
   const accepted = list.filter(c => c.status === 'ACCEPTED');
   useEffect(() => {
@@ -235,29 +212,26 @@ export default function DisplayConfrontation({ roomId, players }: Props) {
             dir="rtl"
           >
             <style>{waveCss}</style>
-            {/* نبضة ضوءٍ تعبر الشاشة عند كلّ تبدُّل دور */}
-            <div key={`sweep-${active.status}`} className="conf-sweep" aria-hidden />
+            {/* نبضة ضوءٍ تعبر الشاشة عند البدء */}
+            <div className="conf-sweep" aria-hidden />
             <div className="text-center relative z-10">
               <p className="text-[#8A0303] font-mono tracking-[0.5em] text-sm uppercase">Confrontation</p>
               <h2 className="text-5xl font-black text-white mt-1" style={{ fontFamily: 'Amiri, serif', textShadow: '0 0 30px rgba(138,3,3,0.5)' }}>⚔️ مواجهة</h2>
-              <AnimatePresence mode="wait">
-                <motion.p
-                  key={active.status}
-                  initial={{ y: -24, opacity: 0, scale: .9 }} animate={{ y: 0, opacity: 1, scale: 1 }} exit={{ y: 24, opacity: 0 }}
-                  transition={{ type: 'spring', damping: 14, stiffness: 160 }}
-                  className="inline-block mt-3 px-6 py-1.5 rounded-full border border-[#C5A059]/60 bg-[#C5A059]/10 text-[#C5A059] text-xl"
-                >
-                  {active.status === 'OPENING' ? '🎙️ كلمة الطالب' : '🎙️ ردّ المستهدَف'}
-                </motion.p>
-              </AnimatePresence>
+              <motion.p
+                initial={{ y: -24, opacity: 0, scale: .9 }} animate={{ y: 0, opacity: 1, scale: 1 }}
+                transition={{ type: 'spring', damping: 14, stiffness: 160 }}
+                className="inline-block mt-3 px-6 py-1.5 rounded-full border border-[#C5A059]/60 bg-[#C5A059]/10 text-[#C5A059] text-xl"
+              >
+                🎙️ الطرفان يتحدّثان معاً
+              </motion.p>
             </div>
             <div className="flex items-center gap-10 relative z-10" style={{ perspective: 1400 }}>
-              <Card pid={active.requesterPhysicalId} p={P(active.requesterPhysicalId)} on={active.status === 'OPENING'} side="req" />
+              <Card pid={active.requesterPhysicalId} p={P(active.requesterPhysicalId)} side="req" />
               <Ring
                 left={active.stageStartedAt ? secsLeft(active.stageStartedAt + active.stageSeconds * 1000) : active.stageSeconds}
                 total={active.stageSeconds}
               />
-              <Card pid={active.targetPhysicalId} p={P(active.targetPhysicalId)} on={active.status === 'RESPONSE'} side="tgt" />
+              <Card pid={active.targetPhysicalId} p={P(active.targetPhysicalId)} side="tgt" />
             </div>
           </motion.div>
         )}
