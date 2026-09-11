@@ -22,6 +22,7 @@ import { swalConfirm, swalHtmlConfirm, swalToast, swalAlert, swalPick } from '@/
 import SoundMixer from './SoundMixer';
 import OneNightReview from './OneNightReview';
 import FixedLayer from '@/components/FixedLayer';
+import GameSettingsModal from './GameSettingsModal';
 
 // 🏙️ تصنيفٌ لكلّ مدينة — أختامٌ ومساعدات محليّة لهذه الصفحة (أسماء المدن من الخادم وحده)
 const CITY_STAMP = 'inline-flex items-center gap-1.5 border border-[#C5A059]/35 bg-[#C5A059]/10 text-[#C5A059] text-[11px] px-2.5 py-1';
@@ -216,6 +217,7 @@ export default function LeaderPage() {
   const [mafiaChatMessages, setMafiaChatMessages] = useState<Array<{ physicalId: number; name: string; text: string; at: number }>>([]);
   const [mafiaChatUnread, setMafiaChatUnread] = useState(0);
   const [showMafiaChatModal, setShowMafiaChatModal] = useState(false);
+  const [showSettingsModal, setShowSettingsModal] = useState(false);   // ⚙️ إعدادات اللعبة (كلّ المراحل)
   const showMafiaChatModalRef = useRef(false);
   useEffect(() => {
     showMafiaChatModalRef.current = showMafiaChatModal;
@@ -1997,6 +1999,30 @@ export default function LeaderPage() {
     </button>
   ) : null;
 
+  // ── ⚙️ إعدادات اللعبة (عائم — كلّ المراحل): مكانٌ واحد يغيّر نمط الليل/التشاور/المواجهة… أثناء اللعب ──
+  const settingsBtn = gameState ? (
+    <button
+      onClick={() => setShowSettingsModal(true)}
+      title="إعدادات اللعبة"
+      className="fixed bottom-4 left-28 z-[60] w-11 h-11 rounded-full flex items-center justify-center text-lg border backdrop-blur-sm shadow-lg transition-colors bg-[#141006]/80 border-[#C5A059]/40 text-[#C5A059] hover:bg-[#1f1808]"
+    >
+      ⚙️
+    </button>
+  ) : null;
+  const settingsModal = (
+    <AnimatePresence>
+      {showSettingsModal && gameState && (
+        <GameSettingsModal
+          gameState={gameState}
+          emit={emit}
+          onClose={() => setShowSettingsModal(false)}
+          onConfig={(config: any) => setGameState((prev: any) => prev ? { ...prev, config: { ...prev.config, ...config } } : prev)}
+          onError={(m: string) => swalAlert(m, 'warning')}
+        />
+      )}
+    </AnimatePresence>
+  );
+
   // ── 🔊 زرّ كتم/تشغيل أصوات الليدر (عائم، صمّام أمان لتجنّب صدى سمّاعات القاعة) ──
   const soundToggleBtn = (
     <button
@@ -2448,6 +2474,7 @@ export default function LeaderPage() {
             {stingNoticeBadge}
             {soundMixerPanel}
             {mafiaChatBtn}
+            {settingsBtn}
           </FixedLayer>
           {/* Header */}
           {/* 🔴 ممنوعٌ `backdrop-blur` على هذا الرأس مهما أغرى المظهر:
@@ -3083,6 +3110,7 @@ export default function LeaderPage() {
             </div>
 
             {mafiaChatModal}
+            {settingsModal}
 
             {/* ══════ مودال تعديل الأرقام ══════ */}
             <AnimatePresence>
@@ -3753,8 +3781,10 @@ export default function LeaderPage() {
             {stingNoticeBadge}
             {soundMixerPanel}
             {mafiaChatBtn}
+            {settingsBtn}
           </FixedLayer>
           {mafiaChatModal}
+          {settingsModal}
           {/* 🎁 مودال اختيار رابح — مشترك (كلّ المراحل) */}
           {luckyDrawModal}
           {birthdayModal}

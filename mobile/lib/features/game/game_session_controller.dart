@@ -230,7 +230,7 @@ class GameSessionController extends ChangeNotifier with WidgetsBindingObserver {
     final s = _confrontation;
     if (s == null || !s.enabled) return 'ميزة المواجهة معطّلة في هذه الغرفة';
     if (_isPlayerDead) return 'المُقصى لا يطلب مواجهة';
-    if (_round <= 1) return 'المواجهة متاحة من الجولة الثانية';
+    // قرار المالك 2026-09-11: المواجهة متاحة من الجولة الأولى (بخلاف الاتفاقيّات)
     if (s.budgetOf(_physicalId) <= 0) return 'استنفدت رصيد المواجهات لهذه اللعبة';
     if (myLiveConfrontation != null) return 'لديك مواجهةٌ قائمة في هذه الجولة';
     if (s.active != null) return 'مواجهة جارية الآن';

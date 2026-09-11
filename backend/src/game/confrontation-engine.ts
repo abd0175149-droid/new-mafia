@@ -14,7 +14,7 @@ import { teamOfRole } from './roles.js';
 export const CONFRONTATION_RESPOND_SECONDS = 20;   // مهلة ردّ المستهدَف
 export const CONFRONTATION_STAGE_SECONDS = 30;     // كلمة كلّ طرف
 export const CONFRONTATION_MAX_PER_ROUND = 2;      // مواجهتان مقبولتان في الجولة كحدّ
-export const CONFRONTATION_MIN_ROUND = 2;          // من الجولة الثانية كالاتفاقيّات
+export const CONFRONTATION_MIN_ROUND = 1;          // قرار المالك 2026-09-11: من الجولة الأولى (الاتفاقيّات وحدها من الثانية)
 export const CONFRONTATION_DEFAULT_PER_PLAYER = 1;
 
 const LIVE: ConfrontationStatus[] = ['PENDING', 'ACCEPTED', 'OPENING', 'RESPONSE'];

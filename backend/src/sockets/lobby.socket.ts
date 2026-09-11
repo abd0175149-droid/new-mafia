@@ -4532,7 +4532,13 @@ async function readSeatLayoutOnly(activityId: any): Promise<any> {
     }
   });
 
-  // ── ⚙️ تحديث موحّد لكل إعدادات اللعبة من لوبي المضيف (يقبل الحقول المُرسَلة فقط) ──
+  // ── ⚙️ تحديث موحّد لإعدادات اللعبة (يقبل الحقول المُرسَلة فقط) ──
+  // يعمل في **كلّ المراحل** — قرار المالك 2026-09-11: مكانٌ واحد في واجهة الليدر يغيّر
+  // الإعدادات أثناء اللعب (نمط الليل، غرفة التشاور، المواجهة…) بدل إغلاق اللعبة وفتح أخرى.
+  // ما لا يجوز تغييره أثناء اللعب يُرفض بسببٍ صريح:
+  //   - gameTimerMinutes: المؤقّت يعمل بمحرّكه (game:adjust-game-timer للتعديل الحيّ)
+  //   - allowMafiaReveal: يُطبَّق عند ربط الأدوار فقط
+  //   - nightMode: لا يتبدّل والليلُ جارٍ (تدفّق الليل يقرأه عند كلّ خطوة)
   socket.on('room:update-settings', async (data: {
     roomId: string;
     gameName?: string;
@@ -4546,6 +4552,11 @@ async function readSeatLayoutOnly(activityId: any): Promise<any> {
     allowPlayerInvites?: boolean;
     confrontationEnabled?: boolean;
     confrontationsPerPlayer?: number;
+    nightMode?: 'manual' | 'auto';
+    mayorVoteWeight?: number;
+    witchDisableRounds?: number;
+    jesterSurviveRounds?: number;
+    allowMafiaReveal?: boolean;
   }, callback) => {
     const done = (r: any) => { if (typeof callback === 'function') callback(r); };
     try {
@@ -4553,9 +4564,14 @@ async function readSeatLayoutOnly(activityId: any): Promise<any> {
 
       const state = await getRoom(data.roomId);
       if (!state) return done({ success: false, error: 'Room not found' });
-      if (state.phase !== Phase.LOBBY && state.phase !== Phase.GAME_OVER) {
-        return done({ success: false, error: 'يمكن التعديل في اللوبي فقط' });
-      }
+      const betweenGames = state.phase === Phase.LOBBY || state.phase === Phase.GAME_OVER;
+
+      if (!betweenGames && typeof data.gameTimerMinutes === 'number')
+        return done({ success: false, error: 'مؤقّت اللعبة يُضبط بين الألعاب — أثناء اللعب عدّله من شريط المؤقّت (±)' });
+      if (!betweenGames && typeof data.allowMafiaReveal === 'boolean')
+        return done({ success: false, error: 'تعارف المافيا يُطبَّق عند ربط الأدوار — يُضبط بين الألعاب' });
+      if (state.phase === Phase.NIGHT && data.nightMode)
+        return done({ success: false, error: 'لا يتبدّل نمط الليل والليلُ جارٍ — غيّره في النهار ليسري على الليلة التالية' });
 
       const c = state.config;
       if (typeof data.gameName === 'string' && data.gameName.trim()) c.gameName = data.gameName.trim().slice(0, 60);
@@ -4574,13 +4590,31 @@ async function readSeatLayoutOnly(activityId: any): Promise<any> {
       // ⚔️ مواجهة النهار الوجاهيّة: تفعيل + حدّ الطلبات لكلّ لاعب في اللعبة (1-5)
       if (typeof data.confrontationEnabled === 'boolean') c.confrontationEnabled = data.confrontationEnabled;
       if (typeof data.confrontationsPerPlayer === 'number') c.confrontationsPerPlayer = Math.min(Math.max(Math.floor(data.confrontationsPerPlayer), 1), 5);
+      // 🌙 نمط الليل — يسري على الليلة التالية (الغرف البعيدة تفرض auto)
+      if (data.nightMode === 'manual' || data.nightMode === 'auto') c.nightMode = c.isRemote ? 'auto' : data.nightMode;
+      // 🎩🧙🤡 معاملات الأدوار — تُقرأ لحظة الاستعمال فتسري على ما بعد التغيير
+      if (typeof data.mayorVoteWeight === 'number') c.mayorVoteWeight = Math.min(4, Math.max(1, Math.floor(data.mayorVoteWeight)));
+      if (typeof data.witchDisableRounds === 'number') c.witchDisableRounds = Math.min(6, Math.max(1, Math.floor(data.witchDisableRounds)));
+      if (typeof data.jesterSurviveRounds === 'number') c.jesterSurviveRounds = Math.min(5, Math.max(1, Math.floor(data.jesterSurviveRounds)));
+      if (typeof data.allowMafiaReveal === 'boolean') c.allowMafiaReveal = data.allowMafiaReveal;
 
       await updateRoom(data.roomId, { config: c });
       // بثّ الحالة الكاملة المُعقّمة → واجهة المضيف تحدّث فوراً عبر مستمع game:state-updated
       await emitStateSanitized(io, data.roomId, 'game:state-updated', state);
-      io.to(data.roomId).emit('room:config-updated', { updated: true });
+      // الأعلام العامّة (لا تكشف هويّة) — تطبيق اللاعب يقرأ mafiaChatEnabled/confrontationEnabled منها
+      io.to(data.roomId).emit('room:config-updated', {
+        updated: true,
+        mafiaChatEnabled: c.mafiaChatEnabled === true,
+        confrontationEnabled: c.confrontationEnabled === true,
+        confrontationsPerPlayer: c.confrontationsPerPlayer ?? 1,
+        nightMode: c.nightMode,
+      });
+      // ⚔️ أثناء النقاش: لوحة الليدر وهواتف اللاعبين تحمل الحمولة الكاملة
+      if (state.phase === Phase.DAY_DISCUSSION && (typeof data.confrontationEnabled === 'boolean' || typeof data.confrontationsPerPlayer === 'number')) {
+        io.to(data.roomId).emit('day:confrontation-updated', { event: 'settings', id: null, ...publicConfrontations(state as any) });
+      }
 
-      console.log(`⚙️ Leader updated room settings for ${data.roomId}`);
+      console.log(`⚙️ Leader updated room settings for ${data.roomId} (${state.phase}): ${Object.keys(data).filter(k => k !== 'roomId').join(', ')}`);
       done({ success: true, config: c });
     } catch (err: any) {
       done({ success: false, error: err.message });

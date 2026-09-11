@@ -236,7 +236,6 @@ export default function LeaderDayView({ gameState, emit, setError }: LeaderDayVi
   const [startSpeakerId, setStartSpeakerId] = useState<number | ''>('');
   const [discussionTimeLimit, setDiscussionTimeLimit] = useState<number>(30);
   const [localTimeRemaining, setLocalTimeRemaining] = useState<number>(0);
-  const [showDealsUI, setShowDealsUI] = useState(false);
   const [showNursePrompt, setShowNursePrompt] = useState(false);
 
   const localVoteTotalRef = useRef(0);
@@ -794,7 +793,6 @@ export default function LeaderDayView({ gameState, emit, setError }: LeaderDayVi
     setSelectedVoter(null);
     setDealInitiator('');
     setDealTarget('');
-    setShowDealsUI(false);
     setStartSpeakerId('');
     setShowNursePrompt(false);
     setMayorWindowLocal(null);   // نافذة الخادم (mayorState) هي البديل المحدَّث
@@ -1963,171 +1961,73 @@ export default function LeaderDayView({ gameState, emit, setError }: LeaderDayVi
       );
     }
 
-    if (!showDealsUI) {
-      return renderContent(
-        <div className="flex flex-col items-center justify-center p-12 text-center min-h-[50vh]">
-          <h2 className="text-3xl font-black text-white mb-6" style={{ fontFamily: 'Amiri, serif' }}>انتهت جولة النقاش</h2>
-          <p className="text-[#808080] font-mono uppercase tracking-widest text-sm mb-8">
-            ALL ROTATIONS COMPLETE. ANY DEALS ESTABLISHED?
-          </p>
-          {/* ⚔️ المواجهات المقبولة تُنفَّذ هنا — قبل التصويت (الخادم يرفض بدء التصويت ومواجهةٌ لم تُحسم) */}
-          <div className="w-full max-w-2xl"><LeaderConfrontationPanel gameState={gameState} emit={emit} setError={setError} mode="full" /></div>
-          <div className="flex flex-col items-center gap-6">
-            <div className="flex gap-2 mb-2">
-              <p className="text-sm text-[#808080] font-mono mb-1 self-center mr-2">VOTING TIME:</p>
-              <button
-                onClick={() => setVotingDuration(null)}
-                className={`px-4 py-2 rounded-sm text-sm font-bold font-mono transition-colors ${
-                  votingDuration === null
-                    ? 'bg-[#C5A059] text-black'
-                    : 'bg-[#111] border border-[#2a2a2a] text-[#808080] hover:border-[#C5A059]'
-                }`}
-              >
-                بدون
-              </button>
-              {[10, 20, 30].map(d => (
-                <button
-                  key={d}
-                  onClick={() => setVotingDuration(d)}
-                  className={`px-4 py-2 rounded-sm text-sm font-bold font-mono transition-colors ${
-                    votingDuration === d
-                      ? 'bg-[#C5A059] text-black'
-                      : 'bg-[#111] border border-[#2a2a2a] text-[#808080] hover:border-[#C5A059]'
-                  }`}
-                >
-                  {d}s
-                </button>
-              ))}
-            </div>
-            <div className="flex gap-6">
-              <button
-                onClick={() => setShowDealsUI(true)}
-                className="btn-premium px-12 py-4"
-              >
-                <span className="text-white">YES - REGISTER DEALS</span>
-              </button>
-              <button
-                onClick={async () => {
-                  try {
-                    await emit('day:start-voting', { roomId: gameState.roomId, durationSeconds: votingDuration || undefined });
-                  } catch (err: any) {
-                    setError(err.message);
-                  }
-                }}
-                className="px-12 py-4 border border-[#8A0303] text-[#8A0303] hover:bg-[#8A0303]/10 font-mono tracking-widest uppercase transition-colors"
-              >
-                NO - SKIP TO VOTING
-              </button>
-            </div>
-          </div>
-        </div>
-      );
-    }
-
+    // ── بعد آخر متحدّث: المواجهات + الاتفاقيّات + التصويت في شاشةٍ واحدة (قرار المالك: لا شاشة ثانية للديلات) ──
+    const dealsFull = deals.length >= 3;
     return renderContent(
-      <div>
-        <div className="flex justify-between items-center mb-6">
-          <h2 className="text-lg font-mono text-[#555] uppercase tracking-widest">DEAL REGISTRATION</h2>
-          <button onClick={() => setShowDealsUI(false)} className="text-[#808080] text-xs font-mono uppercase hover:text-white pb-1 border-b border-[#2a2a2a]">&lt; CANCEL</button>
-        </div>
-        <div className="grid md:grid-cols-2 gap-8 mb-8">
-          
-          {/* Create Deal Panel */}
-          <div className="noir-card p-6 border-[#2a2a2a]">
-            <h3 className="text-lg font-mono text-[#555] uppercase tracking-widest mb-4 border-b border-[#2a2a2a] pb-2">Establish Deal</h3>
-            <div className="space-y-4">
-              <div>
-                <label className="block text-xs font-mono text-[#808080] mb-2 uppercase">Initiator (المُبادر)</label>
-                <select
-                  value={dealInitiator}
-                  onChange={(e) => setDealInitiator(e.target.value ? Number(e.target.value) : '')}
-                  className="w-full p-3 bg-[#050505] border border-[#2a2a2a] text-white focus:border-[#C5A059] outline-none"
-                >
-                  <option value="">-- اختر اللاعب --</option>
-                  {alivePlayers.map((p: any) => (
-                    <option key={p.physicalId} value={p.physicalId}>#{p.physicalId} {p.name}</option>
-                  ))}
-                </select>
-              </div>
-              <div>
-                <label className="block text-xs font-mono text-[#808080] mb-2 uppercase">Target (المُستهدف)</label>
-                <select
-                  value={dealTarget}
-                  onChange={(e) => setDealTarget(e.target.value ? Number(e.target.value) : '')}
-                  className="w-full p-3 bg-[#050505] border border-[#2a2a2a] text-white focus:border-[#C5A059] outline-none"
-                >
-                  <option value="">-- اختر المستهدف --</option>
-                  {alivePlayers.filter((p: any) => p.physicalId !== Number(dealInitiator)).map((p: any) => (
-                    <option key={p.physicalId} value={p.physicalId}>#{p.physicalId} {p.name}</option>
-                  ))}
-                </select>
-              </div>
-              <button
-                onClick={handleAddDeal}
-                disabled={loading || !dealInitiator || !dealTarget}
-                className="w-full bg-[#111] border border-[#C5A059]/50 text-[#C5A059] py-3 mt-2 hover:bg-[#C5A059]/10 disabled:opacity-50 transition-colors font-mono tracking-widest uppercase text-sm"
-              >
-                + Register Deal
-              </button>
+      <div className="flex flex-col items-center p-6 md:p-10 text-center min-h-[50vh]" dir="rtl">
+        <h2 className="text-3xl font-black text-white mb-2" style={{ fontFamily: 'Amiri, serif' }}>انتهت جولة النقاش</h2>
+        <p className="text-[#808080] font-mono uppercase tracking-widest text-xs mb-6">ALL ROTATIONS COMPLETE</p>
+
+        {/* ⚔️ المواجهات المقبولة تُنفَّذ هنا — قبل التصويت (الخادم يرفض بدء التصويت ومواجهةٌ لم تُحسم) */}
+        <div className="w-full max-w-2xl"><LeaderConfrontationPanel gameState={gameState} emit={emit} setError={setError} mode="full" /></div>
+
+        {/* 🤝 الاتفاقيّات — بنفس منطق لوحة المواجهات: تسجيلٌ وقائمةٌ في المكان نفسه */}
+        <div className="w-full max-w-2xl noir-card border-[#2a2a2a] p-5 mb-6 text-right">
+          <div className="flex items-center justify-between gap-3 flex-wrap mb-3">
+            <div className="flex items-center gap-2">
+              <span className="text-[#C5A059] font-black" style={{ fontFamily: 'Amiri, serif' }}>🤝 الاتفاقيّات</span>
+              <span className="text-[10px] font-mono text-[#666]">{deals.length}/3 هذه الجولة</span>
             </div>
+            {gameState.round <= 1 && <span className="text-[10px] font-mono text-[#666]">🔒 من الجولة الثانية</span>}
           </div>
 
-          {/* Active Deals List */}
-          <div className="noir-card p-6 border-[#2a2a2a]">
-            <h3 className="text-lg font-mono text-[#555] uppercase tracking-widest mb-4 border-b border-[#2a2a2a] pb-2">Active Deals</h3>
-            {deals.length === 0 ? (
-              <p className="text-[#555] text-sm font-mono p-4 text-center">NO DEALS REGISTERED.</p>
-            ) : (
-              <div className="space-y-3">
-                {deals.map((deal: any) => {
-                  const initiator = alivePlayers.find((p: any) => p.physicalId === deal.initiatorPhysicalId);
-                  const target = alivePlayers.find((p: any) => p.physicalId === deal.targetPhysicalId);
-                  return (
-                    <div key={deal.id} className="bg-[#050505] border border-[#2a2a2a] p-3 flex justify-between items-center group hover:border-[#8A0303]/40 transition-colors">
-                      <div className="font-mono text-sm">
-                        <span className="text-white">#{deal.initiatorPhysicalId} {initiator?.name}</span>
-                        <span className="text-[#555] mx-2">TIES TO</span>
-                        <span className="text-[#8A0303]">#{deal.targetPhysicalId} {target?.name}</span>
-                      </div>
-                      <button onClick={() => handleRemoveDeal(deal.id)} className="text-[#555] hover:text-[#8A0303] text-lg leading-none">&times;</button>
-                    </div>
-                  );
-                })}
+          {deals.map((deal: any) => {
+            const initiator = alivePlayers.find((p: any) => p.physicalId === deal.initiatorPhysicalId);
+            const target = alivePlayers.find((p: any) => p.physicalId === deal.targetPhysicalId);
+            return (
+              <div key={deal.id} className="mb-2 p-3 rounded-xl border border-[#C5A059]/30 bg-[#C5A059]/5 flex items-center justify-between gap-3">
+                <div className="text-sm text-white">
+                  <span className="font-bold">#{deal.initiatorPhysicalId} {initiator?.name}</span>
+                  <span className="text-[#808080] mx-2">🤝</span>
+                  <span className="font-bold text-[#ffccd5]">#{deal.targetPhysicalId} {target?.name}</span>
+                </div>
+                <button onClick={() => handleRemoveDeal(deal.id)} className="px-3 py-1.5 rounded-lg bg-[#8A0303]/10 border border-[#8A0303]/50 text-[#ffccd5] text-xs font-bold">✕ حذف</button>
               </div>
-            )}
-          </div>
+            );
+          })}
+
+          {!dealsFull && gameState.round > 1 && (
+            <div className="mt-3 pt-3 border-t border-[#2a2a2a]">
+              <p className="text-[10px] font-mono text-[#808080] mb-2">تسجيل اتفاقيّة نيابةً عن لاعب</p>
+              <div className="grid grid-cols-[1fr_1fr_auto] gap-2">
+                <select value={dealInitiator} onChange={(e) => setDealInitiator(e.target.value ? Number(e.target.value) : '')} className="bg-[#050505] border border-[#2a2a2a] text-white text-xs p-2">
+                  <option value="">المُبادر</option>
+                  {alivePlayers.map((p: any) => <option key={p.physicalId} value={p.physicalId}>#{p.physicalId} {p.name}</option>)}
+                </select>
+                <select value={dealTarget} onChange={(e) => setDealTarget(e.target.value ? Number(e.target.value) : '')} className="bg-[#050505] border border-[#2a2a2a] text-white text-xs p-2">
+                  <option value="">المُستهدَف</option>
+                  {alivePlayers.filter((p: any) => p.physicalId !== Number(dealInitiator)).map((p: any) => (
+                    <option key={p.physicalId} value={p.physicalId} disabled={deals.some((d: any) => d.targetPhysicalId === p.physicalId)}>#{p.physicalId} {p.name}{deals.some((d: any) => d.targetPhysicalId === p.physicalId) ? ' (مستهدَف 🔒)' : ''}</option>
+                  ))}
+                </select>
+                <button onClick={handleAddDeal} disabled={loading || !dealInitiator || !dealTarget} className="px-4 bg-[#111] border border-[#C5A059]/50 text-[#C5A059] text-xs font-bold hover:bg-[#C5A059]/10 disabled:opacity-40">+ تسجيل</button>
+              </div>
+            </div>
+          )}
+          {deals.length === 0 && (gameState.round > 1) && <p className="text-[11px] text-[#666] mt-3 text-center">لا اتفاقيّات في هذه الجولة</p>}
         </div>
 
-        <div className="text-center mt-12 flex flex-col items-center gap-6">
-          {/* اختيار مدة التصويت */}
-          <div className="flex gap-2 items-center">
-            <p className="text-sm text-[#808080] font-mono mr-2">VOTING TIME:</p>
-            <button
-              onClick={() => setVotingDuration(null)}
-              className={`px-4 py-2 rounded-sm text-sm font-bold font-mono transition-colors ${
-                votingDuration === null
-                  ? 'bg-[#C5A059] text-black'
-                  : 'bg-[#111] border border-[#2a2a2a] text-[#808080] hover:border-[#C5A059]'
-              }`}
-            >
-              بدون
-            </button>
+        {/* 🗳️ مدّة التصويت + البدء */}
+        <div className="flex flex-col items-center gap-4 w-full max-w-md">
+          <div className="flex gap-2 items-center flex-wrap justify-center">
+            <p className="text-sm text-[#808080] font-mono">مدّة التصويت:</p>
+            <button onClick={() => setVotingDuration(null)} className={`px-4 py-2 rounded-sm text-sm font-bold font-mono transition-colors ${votingDuration === null ? 'bg-[#C5A059] text-black' : 'bg-[#111] border border-[#2a2a2a] text-[#808080] hover:border-[#C5A059]'}`}>بدون</button>
             {[10, 20, 30].map(d => (
-              <button
-                key={d}
-                onClick={() => setVotingDuration(d)}
-                className={`px-4 py-2 rounded-sm text-sm font-bold font-mono transition-colors ${
-                  votingDuration === d
-                    ? 'bg-[#C5A059] text-black'
-                    : 'bg-[#111] border border-[#2a2a2a] text-[#808080] hover:border-[#C5A059]'
-                }`}
-              >
-                {d}s
-              </button>
+              <button key={d} onClick={() => setVotingDuration(d)} className={`px-4 py-2 rounded-sm text-sm font-bold font-mono transition-colors ${votingDuration === d ? 'bg-[#C5A059] text-black' : 'bg-[#111] border border-[#2a2a2a] text-[#808080] hover:border-[#C5A059]'}`}>{d}s</button>
             ))}
           </div>
-          <button onClick={handleStartVoting} className="btn-premium px-12 py-4 w-full max-w-md">
-            <span className="text-white">LOCK DEALS & COMMENCE VOTING</span>
+          <button onClick={handleStartVoting} className="btn-premium px-12 py-4 w-full">
+            <span className="text-white">🗳️ ابدأ التصويت</span>
           </button>
         </div>
       </div>

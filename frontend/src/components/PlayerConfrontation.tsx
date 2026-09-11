@@ -61,7 +61,7 @@ export default function PlayerConfrontation({ roomId, emit, on, myId, players, r
   const used = conf.used?.[myId] || 0;
   const budget = Math.max(0, (conf.perPlayer || 1) - used);
   const counted = list.filter(c => ['ACCEPTED', 'OPENING', 'RESPONSE', 'DONE'].includes(c.status)).length;
-  const roundOk = (round ?? conf.round ?? 1) >= 2;
+  const roundOk = true; // قرار المالك: المواجهة من الجولة الأولى
 
   const incoming = list.find(c => c.status === 'PENDING' && c.targetPhysicalId === myId) || null;
   const outgoing = list.find(c => c.status === 'PENDING' && c.requesterPhysicalId === myId) || null;
@@ -166,7 +166,7 @@ export default function PlayerConfrontation({ roomId, emit, on, myId, players, r
       )}
       {!hasLiveMine && !canRequest && (
         <p className="text-[10px] text-[#666] text-center -mt-1">
-          {!roundOk ? '🔒 المواجهة متاحة من الجولة الثانية' : budget <= 0 ? '🔒 استنفدت رصيد المواجهات لهذه اللعبة' : active ? 'مواجهة جارية الآن' : '🔒 اكتمل حدّ المواجهات لهذه الجولة'}
+          {!roundOk ? '' : budget <= 0 ? '🔒 استنفدت رصيد المواجهات لهذه اللعبة' : active ? 'مواجهة جارية الآن' : '🔒 اكتمل حدّ المواجهات لهذه الجولة'}
         </p>
       )}
 

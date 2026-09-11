@@ -50,7 +50,7 @@ async function main() {
     check('مطفأة ⇒ ممنوع', !!requestBlockReason({ ...s, config: { ...s.config, confrontationEnabled: false } }, 2, 1));
     check('بعيدة ⇒ ممنوع', !!requestBlockReason({ ...s, config: { ...s.config, isRemote: true } }, 2, 1));
     check('خارج النقاش ⇒ ممنوع', !!requestBlockReason({ ...s, phase: 'DAY_VOTING' }, 2, 1));
-    check('الجولة الأولى ⇒ ممنوع', !!requestBlockReason({ ...s, round: 1 }, 2, 1));
+    check('الجولة الأولى ⇒ مسموح (قرار المالك)', requestBlockReason({ ...s, round: 1 }, 2, 1) === null);
     check('نفسه ⇒ ممنوع', !!requestBlockReason(s, 2, 2));
     check('مُسكَت طالباً ⇒ ممنوع', !!requestBlockReason(s, 4, 1));
     check('مُسكَت مستهدَفاً ⇒ ممنوع', !!requestBlockReason(s, 2, 4));
