@@ -10,7 +10,7 @@ import { Role } from '../game/roles.js';
 import {
   requestConfrontation, requestBlockReason, acceptConfrontation, declineConfrontation, cancelConfrontation,
   startConfrontation, advanceConfrontation, endConfrontation, markTimedOut, blockingConfrontation,
-  stampConfrontationOutcome, publicConfrontations, usedBy, stageDeadline,
+  stampConfrontationOutcome, publicConfrontations, usedBy, stageDeadline, adjustConfrontationStage, stageSecondsFor,
 } from '../game/confrontation-engine.js';
 import { computeMatchReward, computeMatchBreakdown, buildDisplayBreakdown } from '../services/progression.service.js';
 import { remapPhysicalIds } from '../game/seat-remap.js';
@@ -207,6 +207,25 @@ async function main() {
     check('إعادة البناء من العمود تُظهر سطر المواجهة', disp.rr.some(l => l.key === 'confrontationSuccess' && l.value === 10));
     const dispNone = buildDisplayBreakdown({ role: 'CITIZEN', matchWinner: 'CITIZEN', survivedToEnd: true, roundsSurvived: 3, confrontationOutcome: 'NONE', xpEarned: r0.xpEarned, rrChange: r0.rrChange, rewardBreakdown: null }, undefined);
     check('NONE ⇒ لا سطر', !dispNone.rr.some(l => l.key.startsWith('confrontation')));
+  }
+
+  section('6ب) مدّة الكلمة: إعداد الغرفة، قيمةٌ صريحة عند البدء، وتعديلٌ حيّ');
+  {
+    const s = fresh([P(1, Role.GODFATHER), P(2, Role.CITIZEN), P(3, Role.CITIZEN)]);
+    check('الافتراضي ٣٠ث', stageSecondsFor(s) === 30);
+    s.config.confrontationStageSeconds = 45;
+    check('إعداد الغرفة ٤٥ث', stageSecondsFor(s) === 45 && stageSecondsFor(s, 500) === 180 && stageSecondsFor(s, 2) === 10);
+    const c = requestConfrontation(s, 2, 1); acceptConfrontation(s, c.id, 'TARGET');
+    s.discussionState = { status: 'WAITING', isFinished: true };
+    startConfrontation(s, c.id, 1000, 60);
+    check('بدءٌ بـ٦٠ث صريحة', c.stageSeconds === 60 && stageDeadline(c) === 61000);
+    adjustConfrontationStage(s, c.id, 30, 11000);
+    check('+٣٠ث ⇒ ٩٠ث', c.stageSeconds === 90 && stageDeadline(c) === 91000);
+    adjustConfrontationStage(s, c.id, -200, 11000);
+    check('تقصيرٌ لا ينزل تحت المنقضي+٣ث', c.stageSeconds === 13);
+    advanceConfrontation(s, c.id, 20000);
+    check('الردّ يرث مدّة الكلمة إن لم تُمرَّر', c.stageSeconds === 13);
+    check('لا تعديل بعد الانتهاء', !!err(() => { endConfrontation(s, c.id); adjustConfrontationStage(s, c.id, 10); }));
   }
 
   section('7) نقل المقاعد يعيد ترقيم الطالب/المستهدَف والعدّاد');

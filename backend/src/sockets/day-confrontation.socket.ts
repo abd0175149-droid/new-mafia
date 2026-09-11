@@ -16,7 +16,7 @@ import { getGameState, setGameState } from '../config/redis.js';
 import { Phase } from '../game/state.js';
 import {
   requestConfrontation, acceptConfrontation, declineConfrontation, cancelConfrontation,
-  startConfrontation, advanceConfrontation, endConfrontation, markTimedOut,
+  startConfrontation, advanceConfrontation, endConfrontation, markTimedOut, adjustConfrontationStage, stageSecondsFor,
   findConfrontation, publicConfrontations, stageDeadline, CONFRONTATION_RESPOND_SECONDS,
 } from '../game/confrontation-engine.js';
 
@@ -120,7 +120,7 @@ export function registerDayConfrontationEvents(io: Server, socket: Socket) {
   });
 
   // ── الليدر: اعتماد/رفض/إلغاء/بدء/التالي/إنهاء ──
-  socket.on('day:confrontation', async (data: { roomId: string; id: string; action: 'approve' | 'decline' | 'cancel' | 'start' | 'next' | 'end' }, callback) => {
+  socket.on('day:confrontation', async (data: { roomId: string; id: string; action: 'approve' | 'decline' | 'cancel' | 'start' | 'next' | 'end' | 'adjust'; seconds?: number; delta?: number }, callback) => {
     try {
       if (socket.data.role !== 'leader') return reply(callback, { success: false, error: 'Only leader' });
       const state = await getGameState(data.roomId);
@@ -136,8 +136,10 @@ export function registerDayConfrontationEvents(io: Server, socket: Socket) {
           clearTimer(`${data.roomId}:${data.id}:respond`); clearTimer(`${data.roomId}:${data.id}:stage`);
           break;
         }
-        case 'start': deadline = stageDeadline(startConfrontation(state, data.id)); event = 'started'; break;
-        case 'next': deadline = stageDeadline(advanceConfrontation(state, data.id)); event = 'switched'; break;
+        case 'start': deadline = stageDeadline(startConfrontation(state, data.id, Date.now(), data.seconds)); event = 'started'; break;
+        case 'next': deadline = stageDeadline(advanceConfrontation(state, data.id, Date.now(), data.seconds)); event = 'switched'; break;
+        // ⏱️ تمديد/تقصير المرحلة الجارية — يُعاد تسليح مؤقّت الخادم على الموعد الجديد
+        case 'adjust': deadline = stageDeadline(adjustConfrontationStage(state, data.id, Number(data.delta) || 0)); event = 'adjusted'; break;
         case 'end': endConfrontation(state, data.id); event = 'ended'; clearTimer(`${data.roomId}:${data.id}:stage`); break;
         default: return reply(callback, { success: false, error: 'إجراءٌ غير معروف' });
       }
@@ -159,7 +161,7 @@ export function registerDayConfrontationEvents(io: Server, socket: Socket) {
   });
 
   // ── الليدر: إعدادات الميزة في أيّ مرحلة (كمفتاح غرفة التشاور) ──
-  socket.on('leader:confrontation-settings', async (data: { roomId: string; enabled?: boolean; perPlayer?: number }, callback) => {
+  socket.on('leader:confrontation-settings', async (data: { roomId: string; enabled?: boolean; perPlayer?: number; stageSeconds?: number }, callback) => {
     try {
       if (socket.data.role !== 'leader') return reply(callback, { success: false, error: 'Only leader' });
       const state = await getGameState(data.roomId);
@@ -167,6 +169,8 @@ export function registerDayConfrontationEvents(io: Server, socket: Socket) {
       if (typeof data.enabled === 'boolean') state.config.confrontationEnabled = data.enabled;
       if (typeof data.perPlayer === 'number' && Number.isFinite(data.perPlayer))
         state.config.confrontationsPerPlayer = Math.min(Math.max(Math.floor(data.perPlayer), 1), 5);
+      if (typeof data.stageSeconds === 'number' && Number.isFinite(data.stageSeconds))
+        state.config.confrontationStageSeconds = stageSecondsFor(state, data.stageSeconds);
       await setGameState(data.roomId, state);
       io.to(data.roomId).emit('room:config-updated', {
         confrontationEnabled: state.config.confrontationEnabled === true,

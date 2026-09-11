@@ -16,6 +16,15 @@ export const CONFRONTATION_STAGE_SECONDS = 30;     // كلمة كلّ طرف
 export const CONFRONTATION_MAX_PER_ROUND = 2;      // مواجهتان مقبولتان في الجولة كحدّ
 export const CONFRONTATION_MIN_ROUND = 1;          // قرار المالك 2026-09-11: من الجولة الأولى (الاتفاقيّات وحدها من الثانية)
 export const CONFRONTATION_DEFAULT_PER_PLAYER = 1;
+export const CONFRONTATION_STAGE_MIN = 10;
+export const CONFRONTATION_STAGE_MAX = 180;
+
+/** مدّة الكلمة: قيمةٌ صريحة من الليدر، وإلّا إعداد الغرفة، وإلّا ٣٠ث — مقيّدة 10-180. */
+export function stageSecondsFor(state: GameState, explicit?: number): number {
+  const n = Number(explicit ?? state.config?.confrontationStageSeconds ?? CONFRONTATION_STAGE_SECONDS);
+  const v = Number.isFinite(n) && n > 0 ? Math.floor(n) : CONFRONTATION_STAGE_SECONDS;
+  return Math.min(CONFRONTATION_STAGE_MAX, Math.max(CONFRONTATION_STAGE_MIN, v));
+}
 
 const LIVE: ConfrontationStatus[] = ['PENDING', 'ACCEPTED', 'OPENING', 'RESPONSE'];
 const COUNTED: ConfrontationStatus[] = ['ACCEPTED', 'OPENING', 'RESPONSE', 'DONE'];
@@ -82,7 +91,7 @@ export function requestConfrontation(state: GameState, requesterId: number, targ
     status: 'PENDING',
     createdAt: now,
     respondBy: now + CONFRONTATION_RESPOND_SECONDS * 1000,
-    stageSeconds: CONFRONTATION_STAGE_SECONDS,
+    stageSeconds: stageSecondsFor(state),
     stageStartedAt: null,
   };
   // نحتفظ بالجولة الحاليّة والسابقة فقط كي لا تتضخّم الحالة
@@ -158,7 +167,7 @@ export function cancelConfrontation(state: GameState, id: string): Confrontation
 }
 
 /** «ابدأ المواجهة»: ACCEPTED → OPENING. لا تبدأ ومتحدّثٌ على الميكروفون ولا مع مواجهةٍ جارية. */
-export function startConfrontation(state: GameState, id: string, now = Date.now()): Confrontation {
+export function startConfrontation(state: GameState, id: string, now = Date.now(), seconds?: number): Confrontation {
   const c = findConfrontation(state, id);
   if (!c) throw new Error('المواجهة غير موجودة');
   if (c.status !== 'ACCEPTED') throw new Error('المواجهة ليست بانتظار البدء');
@@ -170,17 +179,32 @@ export function startConfrontation(state: GameState, id: string, now = Date.now(
   const tgt = state.players.find(p => p.physicalId === c.targetPhysicalId);
   if (!req?.isAlive || !tgt?.isAlive) throw new Error('أحد الطرفين لم يعد حيّاً');
   c.status = 'OPENING';
+  c.stageSeconds = stageSecondsFor(state, seconds ?? c.stageSeconds);
   c.stageStartedAt = now;
   return c;
 }
 
 /** «التالي»: OPENING → RESPONSE. */
-export function advanceConfrontation(state: GameState, id: string, now = Date.now()): Confrontation {
+export function advanceConfrontation(state: GameState, id: string, now = Date.now(), seconds?: number): Confrontation {
   const c = findConfrontation(state, id);
   if (!c) throw new Error('المواجهة غير موجودة');
   if (c.status !== 'OPENING') throw new Error('المواجهة ليست في كلمة الطالب');
   c.status = 'RESPONSE';
+  if (seconds != null) c.stageSeconds = stageSecondsFor(state, seconds);
   c.stageStartedAt = now;
+  return c;
+}
+
+/** تعديلٌ حيّ لمدّة المرحلة الجارية (±ثوانٍ): يمدّد أو يقصّر الموعد دون إعادة العدّ. */
+export function adjustConfrontationStage(state: GameState, id: string, deltaSeconds: number, now = Date.now()): Confrontation {
+  const c = findConfrontation(state, id);
+  if (!c) throw new Error('المواجهة غير موجودة');
+  if ((c.status !== 'OPENING' && c.status !== 'RESPONSE') || !c.stageStartedAt) throw new Error('المواجهة ليست جارية');
+  const d = Math.floor(Number(deltaSeconds) || 0);
+  if (!d) return c;
+  const elapsed = Math.max(0, Math.floor((now - c.stageStartedAt) / 1000));
+  // لا تقلّ المدّة الجديدة عمّا مضى + ٣ث كي لا ينتهي الدور في اللحظة نفسها بلا إنذار
+  c.stageSeconds = Math.min(CONFRONTATION_STAGE_MAX, Math.max(elapsed + 3, c.stageSeconds + d));
   return c;
 }
 
@@ -244,7 +268,7 @@ export function publicConfrontations(state: GameState) {
     perPlayer: perPlayerCap(state),
     maxPerRound: CONFRONTATION_MAX_PER_ROUND,
     respondSeconds: CONFRONTATION_RESPOND_SECONDS,
-    stageSeconds: CONFRONTATION_STAGE_SECONDS,
+    stageSeconds: stageSecondsFor(state),
     used: state.confrontationsUsed || {},
     confrontations: roundConfrontations(state),
     serverTime: Date.now(),

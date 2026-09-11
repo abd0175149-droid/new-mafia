@@ -69,21 +69,37 @@ export default function DisplayConfrontation({ roomId, players }: Props) {
   const P = (pid: number) => players.find(p => p.physicalId === pid);
   const secsLeft = (dl: number) => Math.max(0, Math.ceil((dl - now) / 1000));
 
-  // 🎴 الوجه العلنيّ لكرت اللاعب (كما على طاولة النقاش) — المتحدّث أكبر ومضاء وتحته موجاتٌ صوتيّة (مرئيّة فقط، بلا صوت)
+  // 🎴 الوجه العلنيّ لكرت اللاعب (كما على طاولة النقاش):
+  //   المتحدّث يتقدّم ويكبر بنبضة توهّجٍ ذهبيّة وموجاتٍ صوتيّة مرئيّة؛ المستمع يتراجع ويبهت ويميل قليلاً.
+  //   تبدُّل الدور يُعلَن بشريطٍ ينزلق من الأعلى ونبضة ضوءٍ تعبر الشاشة.
   const Card = ({ c, side }: { c: ConfItem; side: 'req' | 'tgt' }) => {
     const pid = side === 'req' ? c.requesterPhysicalId : c.targetPhysicalId;
     const on = side === 'req' ? c.status === 'OPENING' : c.status === 'RESPONSE';
     const p = P(pid);
+    const dir = side === 'req' ? 1 : -1;   // الطالب يمين الشاشة (RTL) والمستهدَف يسارها
     return (
       <motion.div
-        animate={{ scale: on ? 1.18 : 0.82, opacity: on ? 1 : 0.4, y: on ? -10 : 10 }}
-        transition={{ type: 'spring', damping: 18, stiffness: 110 }}
-        className="flex flex-col items-center gap-4"
+        initial={{ opacity: 0, x: dir * 160, rotateY: dir * -35 }}
+        animate={{
+          opacity: on ? 1 : 0.42,
+          x: on ? 0 : dir * 36,
+          y: on ? -18 : 26,
+          scale: on ? 1.22 : 0.8,
+          rotateY: on ? 0 : dir * 14,
+          filter: on ? 'grayscale(0) blur(0px)' : 'grayscale(.8) blur(0.6px)',
+        }}
+        transition={{ type: 'spring', damping: 16, stiffness: 120, mass: 0.9 }}
+        style={{ transformStyle: 'preserve-3d', perspective: 1200 }}
+        className="flex flex-col items-center gap-4 will-change-transform"
       >
-        <p className={`text-xs font-mono tracking-[0.3em] uppercase ${on ? 'text-[#C5A059]' : 'text-[#666]'}`}>
+        <motion.p
+          animate={{ opacity: on ? 1 : 0.5, letterSpacing: on ? '0.42em' : '0.25em' }}
+          className={`text-xs font-mono uppercase ${on ? 'text-[#C5A059]' : 'text-[#666]'}`}
+        >
           {side === 'req' ? 'الطالب · CHALLENGER' : 'المستهدَف · ACCUSED'}
-        </p>
-        <div className={on ? 'rounded-2xl shadow-[0_0_80px_rgba(197,160,89,0.45)] ring-2 ring-[#C5A059]' : 'rounded-2xl'}>
+        </motion.p>
+        <div className={`relative rounded-2xl ${on ? 'conf-glow ring-2 ring-[#C5A059]' : ''}`}>
+          {on && <span className="conf-orbit" aria-hidden />}
           <MafiaCard
             playerNumber={pid}
             playerName={p?.name || `لاعب #${pid}`}
@@ -97,17 +113,27 @@ export default function DisplayConfrontation({ roomId, players }: Props) {
             rankTier={p?.rankTier}
             cosmetics={p?.cosmetics}
           />
+          <AnimatePresence>
+            {on && (
+              <motion.span
+                key="mic"
+                initial={{ scale: 0, rotate: -40 }} animate={{ scale: 1, rotate: 0 }} exit={{ scale: 0, rotate: 40 }}
+                transition={{ type: 'spring', damping: 12, stiffness: 220 }}
+                className="absolute -top-5 -left-5 w-14 h-14 rounded-full bg-[#C5A059] text-black text-2xl flex items-center justify-center shadow-[0_0_30px_rgba(197,160,89,.8)]"
+              >🎙️</motion.span>
+            )}
+          </AnimatePresence>
         </div>
-        {/* 🎙️ موجات صوتيّة — أعمدة تتنفّس عشوائيّاً ما دام دورُه في الكلام */}
-        <div className="h-12 flex items-end justify-center gap-[5px]" aria-hidden>
-          {on ? Array.from({ length: 13 }).map((_, i) => (
+        {/* 🎙️ موجات صوتيّة — أعمدة تتنفّس عشوائيّاً ما دام دورُه في الكلام (مرئيّة فقط) */}
+        <div className="h-14 flex items-end justify-center gap-[5px]" aria-hidden>
+          {on ? Array.from({ length: 17 }).map((_, i) => (
             <span
               key={i}
               className="conf-wave-bar block w-[6px] rounded-full bg-[#C5A059]"
-              style={{ animationDelay: `${(i * 97) % 700}ms`, animationDuration: `${650 + ((i * 131) % 450)}ms` }}
+              style={{ animationDelay: `${(i * 97) % 700}ms`, animationDuration: `${600 + ((i * 131) % 500)}ms` }}
             />
           )) : (
-            <span className="text-[#555] font-mono text-xs tracking-widest">يستمع</span>
+            <motion.span initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="text-[#555] font-mono text-xs tracking-widest">يستمع</motion.span>
           )}
         </div>
       </motion.div>
@@ -115,10 +141,39 @@ export default function DisplayConfrontation({ roomId, players }: Props) {
   };
 
   const waveCss = `
-    @keyframes confWave { 0%,100% { height: 6px; opacity: .55 } 50% { height: 44px; opacity: 1 } }
+    @keyframes confWave { 0%,100% { height: 6px; opacity: .55 } 50% { height: 52px; opacity: 1 } }
     .conf-wave-bar { height: 6px; animation-name: confWave; animation-timing-function: ease-in-out; animation-iteration-count: infinite; box-shadow: 0 0 10px rgba(197,160,89,.6); }
-    @media (prefers-reduced-motion: reduce) { .conf-wave-bar { animation: none; height: 24px } }
+    @keyframes confGlow { 0%,100% { box-shadow: 0 0 40px rgba(197,160,89,.35), 0 0 0 0 rgba(197,160,89,.35) } 50% { box-shadow: 0 0 110px rgba(197,160,89,.65), 0 0 0 18px rgba(197,160,89,0) } }
+    .conf-glow { animation: confGlow 1.8s ease-in-out infinite; }
+    @keyframes confOrbit { to { transform: rotate(360deg) } }
+    .conf-orbit { position: absolute; inset: -14px; border-radius: 22px; pointer-events: none;
+      background: conic-gradient(from 0deg, transparent 0 70%, rgba(197,160,89,.9) 85%, transparent 100%);
+      -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0); -webkit-mask-composite: xor; mask-composite: exclude; padding: 3px;
+      animation: confOrbit 2.6s linear infinite; }
+    @keyframes confSweep { from { transform: translateX(-120%) } to { transform: translateX(120%) } }
+    .conf-sweep { position: absolute; inset: 0; pointer-events: none; overflow: hidden; }
+    .conf-sweep::after { content: ''; position: absolute; top: 0; bottom: 0; width: 40%; background: linear-gradient(90deg, transparent, rgba(197,160,89,.18), transparent); animation: confSweep 1.1s ease-out 1; }
+    @media (prefers-reduced-motion: reduce) { .conf-wave-bar, .conf-glow, .conf-orbit, .conf-sweep::after { animation: none !important; } .conf-wave-bar { height: 24px } }
   `;
+
+  // ⏱️ حلقة تقدّم حول المؤقّت (تحمرّ وتنبض تحت ١٠ث)
+  const Ring = ({ left, total }: { left: number; total: number }) => {
+    const r = 118, C = 2 * Math.PI * r, frac = total > 0 ? Math.max(0, Math.min(1, left / total)) : 0;
+    const danger = left <= 10;
+    return (
+      <div className={`relative w-[300px] h-[300px] flex items-center justify-center ${danger ? 'animate-pulse' : ''}`}>
+        <svg viewBox="0 0 300 300" className="absolute inset-0 -rotate-90">
+          <circle cx="150" cy="150" r={r} fill="none" stroke="#1f1a12" strokeWidth="10" />
+          <circle cx="150" cy="150" r={r} fill="none" stroke={danger ? '#8A0303' : '#C5A059'} strokeWidth="10" strokeLinecap="round"
+            strokeDasharray={C} strokeDashoffset={C * (1 - frac)} style={{ transition: 'stroke-dashoffset .25s linear, stroke .3s' }} />
+        </svg>
+        <div className="text-center">
+          <span className={`block text-[8.5rem] leading-none font-black font-mono ${danger ? 'text-[#ff4d4d]' : 'text-white'}`}>{left}</span>
+          <span className="text-[#808080] font-mono tracking-[0.4em] text-sm">SEC · من {total}</span>
+        </div>
+      </div>
+    );
+  };
 
   return (
     <>
@@ -174,24 +229,33 @@ export default function DisplayConfrontation({ roomId, players }: Props) {
         {active && (
           <motion.div
             key="conf-active"
-            initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
-            className="fixed inset-0 z-[65] bg-black/92 backdrop-blur-md flex flex-col items-center justify-center gap-8"
+            initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0, scale: 1.04 }}
+            className="fixed inset-0 z-[65] bg-black/92 backdrop-blur-md flex flex-col items-center justify-center gap-6 overflow-hidden"
             dir="rtl"
           >
-            <div className="text-center">
+            <style>{waveCss}</style>
+            {/* نبضة ضوءٍ تعبر الشاشة عند كلّ تبدُّل دور */}
+            <div key={`sweep-${active.status}`} className="conf-sweep" aria-hidden />
+            <div className="text-center relative z-10">
               <p className="text-[#8A0303] font-mono tracking-[0.5em] text-sm uppercase">Confrontation</p>
               <h2 className="text-5xl font-black text-white mt-1" style={{ fontFamily: 'Amiri, serif', textShadow: '0 0 30px rgba(138,3,3,0.5)' }}>⚔️ مواجهة</h2>
-              <p className="text-[#C5A059] text-xl mt-2">{active.status === 'OPENING' ? 'كلمة الطالب' : 'ردّ المستهدَف'}</p>
+              <AnimatePresence mode="wait">
+                <motion.p
+                  key={active.status}
+                  initial={{ y: -24, opacity: 0, scale: .9 }} animate={{ y: 0, opacity: 1, scale: 1 }} exit={{ y: 24, opacity: 0 }}
+                  transition={{ type: 'spring', damping: 14, stiffness: 160 }}
+                  className="inline-block mt-3 px-6 py-1.5 rounded-full border border-[#C5A059]/60 bg-[#C5A059]/10 text-[#C5A059] text-xl"
+                >
+                  {active.status === 'OPENING' ? '🎙️ كلمة الطالب' : '🎙️ ردّ المستهدَف'}
+                </motion.p>
+              </AnimatePresence>
             </div>
-            <style>{waveCss}</style>
-            <div className="flex items-center gap-16">
+            <div className="flex items-center gap-10 relative z-10" style={{ perspective: 1400 }}>
               <Card c={active} side="req" />
-              <div className="text-center px-4">
-                <span className={`block text-[10rem] leading-none font-black font-mono ${active.stageStartedAt && secsLeft(active.stageStartedAt + active.stageSeconds * 1000) <= 10 ? 'text-[#8A0303] animate-pulse' : 'text-white'}`}>
-                  {active.stageStartedAt ? secsLeft(active.stageStartedAt + active.stageSeconds * 1000) : active.stageSeconds}
-                </span>
-                <span className="text-[#808080] font-mono tracking-widest">SEC</span>
-              </div>
+              <Ring
+                left={active.stageStartedAt ? secsLeft(active.stageStartedAt + active.stageSeconds * 1000) : active.stageSeconds}
+                total={active.stageSeconds}
+              />
               <Card c={active} side="tgt" />
             </div>
           </motion.div>

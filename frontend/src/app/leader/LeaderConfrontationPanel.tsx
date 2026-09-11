@@ -39,6 +39,7 @@ export default function LeaderConfrontationPanel({ gameState, emit, setError, mo
   const [now, setNow] = useState(Date.now());
   const [proxyReq, setProxyReq] = useState<number | ''>('');
   const [proxyTgt, setProxyTgt] = useState<number | ''>('');
+  const [stageSecs, setStageSecs] = useState<number | null>(null);   // ⏱️ مدّة الكلمة المختارة (null = إعداد الغرفة)
   const roomId = gameState?.roomId;
   const roomRef = useRef(roomId);
   roomRef.current = roomId;
@@ -76,10 +77,10 @@ export default function LeaderConfrontationPanel({ gameState, emit, setError, mo
   }, [live]);
 
   const nameOf = (pid: number) => gameState?.players?.find((p: any) => p.physicalId === pid)?.name || `#${pid}`;
-  const act = async (id: string, action: string) => {
+  const act = async (id: string, action: string, extra: Record<string, any> = {}) => {
     setBusy(id + action);
     try {
-      const r = await emit('day:confrontation', { roomId, id, action });
+      const r = await emit('day:confrontation', { roomId, id, action, ...extra });
       if (!r?.success) setError(r?.error || 'تعذّر تنفيذ الإجراء');
     } catch (e: any) { setError(e?.message || 'تعذّر تنفيذ الإجراء'); }
     finally { setBusy(null); }
@@ -127,6 +128,16 @@ export default function LeaderConfrontationPanel({ gameState, emit, setError, mo
         <div className="flex items-center gap-2">
           {mode === 'full' && (
             <select
+              value={stageSecs ?? (conf?.stageSeconds ?? 30)}
+              onChange={(e) => setStageSecs(Number(e.target.value))}
+              className="bg-[#050505] border border-[#2a2a2a] text-white text-[11px] px-2 py-1 rounded"
+              title="مدّة كلمة كلّ طرف في المواجهة التالية"
+            >
+              {[15, 20, 30, 45, 60, 90, 120].map(n => <option key={n} value={n}>⏱️ {n}ث لكلّ كلمة</option>)}
+            </select>
+          )}
+          {mode === 'full' && (
+            <select
               value={perPlayer}
               onChange={(e) => setSettings({ perPlayer: Number(e.target.value) })}
               className="bg-[#050505] border border-[#2a2a2a] text-white text-[11px] px-2 py-1 rounded"
@@ -162,11 +173,18 @@ export default function LeaderConfrontationPanel({ gameState, emit, setError, mo
             <span className="text-5xl font-black font-mono text-white">
               {active.stageStartedAt ? secsLeft(active.stageStartedAt + active.stageSeconds * 1000) : active.stageSeconds}
             </span>
-            <span className="text-xs text-[#808080] font-mono mr-2">ث — {STATUS_AR[active.status]}</span>
+            <span className="text-xs text-[#808080] font-mono mr-2">ث — {STATUS_AR[active.status]} (من {active.stageSeconds}ث)</span>
+          </div>
+          {/* ⏱️ تعديلٌ حيّ لمدّة الكلمة الجارية — يمتدّ أو يقصر دون إعادة العدّ */}
+          <div className="grid grid-cols-4 gap-2 mt-2">
+            <button disabled={!!busy} onClick={() => act(active.id, 'adjust', { delta: 30 })} className="bg-[#C5A059]/10 border border-[#C5A059]/40 text-[#C5A059] py-2 font-mono text-xs font-bold hover:bg-[#C5A059]/20">+30s</button>
+            <button disabled={!!busy} onClick={() => act(active.id, 'adjust', { delta: 10 })} className="bg-[#C5A059]/10 border border-[#C5A059]/40 text-[#C5A059] py-2 font-mono text-xs font-bold hover:bg-[#C5A059]/20">+10s</button>
+            <button disabled={!!busy} onClick={() => act(active.id, 'adjust', { delta: -10 })} className="bg-[#8A0303]/10 border border-[#8A0303]/40 text-[#ffccd5] py-2 font-mono text-xs font-bold hover:bg-[#8A0303]/20">-10s</button>
+            <button disabled={!!busy} onClick={() => act(active.id, 'adjust', { delta: -30 })} className="bg-[#8A0303]/10 border border-[#8A0303]/40 text-[#ffccd5] py-2 font-mono text-xs font-bold hover:bg-[#8A0303]/20">-30s</button>
           </div>
           <div className="grid grid-cols-3 gap-2 mt-3">
             {active.status === 'OPENING' ? (
-              <button disabled={!!busy} onClick={() => act(active.id, 'next')} className="bg-green-900 border border-green-500 text-white py-3 font-bold text-sm">⏭ ردّ المستهدَف</button>
+              <button disabled={!!busy} onClick={() => act(active.id, 'next', stageSecs ? { seconds: stageSecs } : {})} className="bg-green-900 border border-green-500 text-white py-3 font-bold text-sm">⏭ ردّ المستهدَف</button>
             ) : <div />}
             <button disabled={!!busy} onClick={() => act(active.id, 'end')} className="bg-[#111] border border-[#555] text-white py-3 font-bold text-sm hover:border-[#C5A059]">✅ إنهاء المواجهة</button>
             <button disabled={!!busy} onClick={() => act(active.id, 'cancel')} className="bg-[#8A0303]/10 border border-[#8A0303]/50 text-[#ffccd5] py-3 font-bold text-sm">✕ إلغاء</button>
@@ -205,7 +223,7 @@ export default function LeaderConfrontationPanel({ gameState, emit, setError, mo
           </div>
           <div className="flex gap-2">
             {mode === 'full' && !active && (
-              <button disabled={!!busy} onClick={() => act(c.id, 'start')} className="btn-premium px-5 py-2"><span className="text-white text-xs font-bold">⚔️ ابدأ المواجهة</span></button>
+              <button disabled={!!busy} onClick={() => act(c.id, 'start', stageSecs ? { seconds: stageSecs } : {})} className="btn-premium px-5 py-2"><span className="text-white text-xs font-bold">⚔️ ابدأ المواجهة</span></button>
             )}
             <button disabled={!!busy} onClick={() => act(c.id, 'cancel')} className="px-3 py-2 rounded-lg bg-[#8A0303]/10 border border-[#8A0303]/50 text-[#ffccd5] text-xs font-bold">✕ إلغاء</button>
           </div>

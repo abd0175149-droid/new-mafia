@@ -283,6 +283,7 @@ export interface GameConfig {
   mafiaChatEnabled?: boolean;      // 🗣️ غرفة تشاور المافيا السرّية (يحددها الليدر كل جولة؛ الافتراضي false)
   confrontationEnabled?: boolean;  // ⚔️ مواجهة النهار الوجاهيّة (الافتراضي false) — تُضبط كغرفة التشاور
   confrontationsPerPlayer?: number; // ⚔️ حدّ طلبات المواجهة لكلّ لاعب في اللعبة الواحدة (الافتراضي 1، المدى 1-5)
+  confrontationStageSeconds?: number; // ⚔️ مدّة كلمة كلّ طرف بالثواني (الافتراضي 30، المدى 10-180) — يعدّلها الليدر حيّاً أيضاً
   isRemote?: boolean;              // 🌐 غرفة لعبٍ عن بُعد (اللاعبون في أماكن مختلفة) — الافتراضي false
   hostPlayerId?: number | null;    // 🔗 مُضيف الغرفة البعيدة (players.id) — اللاعب-الليدر (null لغرف الموظّفين)
   allowPlayerInvites?: boolean;    // 📨 السماح للاعبين (لا المضيف فقط) بدعوة أصدقائهم لغرفة بعيدة — الافتراضي false

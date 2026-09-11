@@ -4552,6 +4552,7 @@ async function readSeatLayoutOnly(activityId: any): Promise<any> {
     allowPlayerInvites?: boolean;
     confrontationEnabled?: boolean;
     confrontationsPerPlayer?: number;
+    confrontationStageSeconds?: number;
     nightMode?: 'manual' | 'auto';
     mayorVoteWeight?: number;
     witchDisableRounds?: number;
@@ -4590,6 +4591,7 @@ async function readSeatLayoutOnly(activityId: any): Promise<any> {
       // ⚔️ مواجهة النهار الوجاهيّة: تفعيل + حدّ الطلبات لكلّ لاعب في اللعبة (1-5)
       if (typeof data.confrontationEnabled === 'boolean') c.confrontationEnabled = data.confrontationEnabled;
       if (typeof data.confrontationsPerPlayer === 'number') c.confrontationsPerPlayer = Math.min(Math.max(Math.floor(data.confrontationsPerPlayer), 1), 5);
+      if (typeof data.confrontationStageSeconds === 'number') c.confrontationStageSeconds = Math.min(180, Math.max(10, Math.floor(data.confrontationStageSeconds)));
       // 🌙 نمط الليل — يسري على الليلة التالية (الغرف البعيدة تفرض auto)
       if (data.nightMode === 'manual' || data.nightMode === 'auto') c.nightMode = c.isRemote ? 'auto' : data.nightMode;
       // 🎩🧙🤡 معاملات الأدوار — تُقرأ لحظة الاستعمال فتسري على ما بعد التغيير
@@ -4610,7 +4612,7 @@ async function readSeatLayoutOnly(activityId: any): Promise<any> {
         nightMode: c.nightMode,
       });
       // ⚔️ أثناء النقاش: لوحة الليدر وهواتف اللاعبين تحمل الحمولة الكاملة
-      if (state.phase === Phase.DAY_DISCUSSION && (typeof data.confrontationEnabled === 'boolean' || typeof data.confrontationsPerPlayer === 'number')) {
+      if (state.phase === Phase.DAY_DISCUSSION && (typeof data.confrontationEnabled === 'boolean' || typeof data.confrontationsPerPlayer === 'number' || typeof data.confrontationStageSeconds === 'number')) {
         io.to(data.roomId).emit('day:confrontation-updated', { event: 'settings', id: null, ...publicConfrontations(state as any) });
       }
 
