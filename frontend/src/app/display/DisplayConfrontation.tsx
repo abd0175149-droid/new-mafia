@@ -88,6 +88,8 @@ const Card = memo(function Card({ pid, p, on, side }: { pid: number; p: any; on:
 });
 
 const waveCss = `
+    /* ⚔️ أثناء المواجهة يُخفى شريط ترتيب النقاش الجانبيّ (قرار المالك) — هذا الـstyle لا يُركَّب إلّا مع الطبقة */
+    .discussion-queue-rail { display: none !important; }
     @keyframes confWave { 0%,100% { height: 6px; opacity: .55 } 50% { height: 52px; opacity: 1 } }
     .conf-wave-bar { height: 6px; animation-name: confWave; animation-timing-function: ease-in-out; animation-iteration-count: infinite; box-shadow: 0 0 10px rgba(197,160,89,.6); }
     @keyframes confGlow { 0%,100% { box-shadow: 0 0 40px rgba(197,160,89,.35), 0 0 0 0 rgba(197,160,89,.35) } 50% { box-shadow: 0 0 110px rgba(197,160,89,.65), 0 0 0 18px rgba(197,160,89,0) } }

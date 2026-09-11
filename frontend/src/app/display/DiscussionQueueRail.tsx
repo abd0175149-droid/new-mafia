@@ -80,7 +80,7 @@ export default function DiscussionQueueRail({ discussionState, players }: Props)
       <aside
         dir="rtl"
         aria-label="ترتيب النقاش"
-        className="fixed top-0 bottom-0 right-0 z-[45] flex flex-col pointer-events-none select-none"
+        className="discussion-queue-rail fixed top-0 bottom-0 right-0 z-[45] flex flex-col pointer-events-none select-none"
         style={{
           // 🔴 العرضُ يكبر مع الخطّ لا بعده: خطٌّ أكبر في شريطٍ بالعرض نفسه
           //    يقصّ الأسماءَ بالنقاط الثلاث — وهو أسوأ من خطٍّ أصغر يُقرأ كاملاً.
