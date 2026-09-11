@@ -9,11 +9,12 @@
 import { useEffect, useRef, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { getSocket } from '@/lib/socket';
+import MafiaCard from '@/components/MafiaCard';
 import type { ConfPayload, ConfItem } from '@/app/leader/LeaderConfrontationPanel';
 
 interface Props {
   roomId: string;
-  players: Array<{ physicalId: number; name: string; avatarUrl?: string | null; isAlive?: boolean }>;
+  players: any[];   // الروستر العامّ (اسم/جنس/صورة/رتبة/تجميل) — الوجه العلنيّ للكرت
 }
 
 export default function DisplayConfrontation({ roomId, players }: Props) {
@@ -68,26 +69,56 @@ export default function DisplayConfrontation({ roomId, players }: Props) {
   const P = (pid: number) => players.find(p => p.physicalId === pid);
   const secsLeft = (dl: number) => Math.max(0, Math.ceil((dl - now) / 1000));
 
+  // 🎴 الوجه العلنيّ لكرت اللاعب (كما على طاولة النقاش) — المتحدّث أكبر ومضاء وتحته موجاتٌ صوتيّة (مرئيّة فقط، بلا صوت)
   const Card = ({ c, side }: { c: ConfItem; side: 'req' | 'tgt' }) => {
     const pid = side === 'req' ? c.requesterPhysicalId : c.targetPhysicalId;
     const on = side === 'req' ? c.status === 'OPENING' : c.status === 'RESPONSE';
     const p = P(pid);
     return (
       <motion.div
-        animate={{ scale: on ? 1.06 : 0.94, opacity: on ? 1 : 0.45 }}
-        transition={{ type: 'spring', damping: 20, stiffness: 120 }}
-        className={`w-[340px] rounded-3xl border-2 p-8 text-center bg-[#0a0a0a] ${on ? 'border-[#C5A059] shadow-[0_0_60px_rgba(197,160,89,0.35)]' : 'border-[#2a2a2a]'}`}
+        animate={{ scale: on ? 1.18 : 0.82, opacity: on ? 1 : 0.4, y: on ? -10 : 10 }}
+        transition={{ type: 'spring', damping: 18, stiffness: 110 }}
+        className="flex flex-col items-center gap-4"
       >
-        <p className="text-xs font-mono tracking-[0.3em] text-[#808080] uppercase">{side === 'req' ? 'THE CHALLENGER · الطالب' : 'THE ACCUSED · المستهدَف'}</p>
-        <div className="mx-auto my-5 w-28 h-28 rounded-full overflow-hidden border-2 border-[#C5A059]/60 bg-[#111] flex items-center justify-center">
-          {p?.avatarUrl ? <img src={p.avatarUrl} alt="" className="w-full h-full object-cover" /> : <span className="text-5xl font-mono text-white">{pid}</span>}
+        <p className={`text-xs font-mono tracking-[0.3em] uppercase ${on ? 'text-[#C5A059]' : 'text-[#666]'}`}>
+          {side === 'req' ? 'الطالب · CHALLENGER' : 'المستهدَف · ACCUSED'}
+        </p>
+        <div className={on ? 'rounded-2xl shadow-[0_0_80px_rgba(197,160,89,0.45)] ring-2 ring-[#C5A059]' : 'rounded-2xl'}>
+          <MafiaCard
+            playerNumber={pid}
+            playerName={p?.name || `لاعب #${pid}`}
+            role={null}
+            gender={p?.gender === 'FEMALE' ? 'FEMALE' : 'MALE'}
+            isFlipped={false}
+            flippable={false}
+            size="lg"
+            isAlive={true}
+            avatarUrl={p?.avatarUrl}
+            rankTier={p?.rankTier}
+            cosmetics={p?.cosmetics}
+          />
         </div>
-        <p className="text-3xl font-black text-white" style={{ fontFamily: 'Amiri, serif' }}>{p?.name || `لاعب #${pid}`}</p>
-        <p className="text-sm font-mono text-[#C5A059] mt-1">#{pid}</p>
-        {on && <p className="mt-4 text-[#C5A059] font-bold animate-pulse">🎙️ يتحدّث الآن</p>}
+        {/* 🎙️ موجات صوتيّة — أعمدة تتنفّس عشوائيّاً ما دام دورُه في الكلام */}
+        <div className="h-12 flex items-end justify-center gap-[5px]" aria-hidden>
+          {on ? Array.from({ length: 13 }).map((_, i) => (
+            <span
+              key={i}
+              className="conf-wave-bar block w-[6px] rounded-full bg-[#C5A059]"
+              style={{ animationDelay: `${(i * 97) % 700}ms`, animationDuration: `${650 + ((i * 131) % 450)}ms` }}
+            />
+          )) : (
+            <span className="text-[#555] font-mono text-xs tracking-widest">يستمع</span>
+          )}
+        </div>
       </motion.div>
     );
   };
+
+  const waveCss = `
+    @keyframes confWave { 0%,100% { height: 6px; opacity: .55 } 50% { height: 44px; opacity: 1 } }
+    .conf-wave-bar { height: 6px; animation-name: confWave; animation-timing-function: ease-in-out; animation-iteration-count: infinite; box-shadow: 0 0 10px rgba(197,160,89,.6); }
+    @media (prefers-reduced-motion: reduce) { .conf-wave-bar { animation: none; height: 24px } }
+  `;
 
   return (
     <>
@@ -152,10 +183,11 @@ export default function DisplayConfrontation({ roomId, players }: Props) {
               <h2 className="text-5xl font-black text-white mt-1" style={{ fontFamily: 'Amiri, serif', textShadow: '0 0 30px rgba(138,3,3,0.5)' }}>⚔️ مواجهة</h2>
               <p className="text-[#C5A059] text-xl mt-2">{active.status === 'OPENING' ? 'كلمة الطالب' : 'ردّ المستهدَف'}</p>
             </div>
-            <div className="flex items-center gap-12">
+            <style>{waveCss}</style>
+            <div className="flex items-center gap-16">
               <Card c={active} side="req" />
-              <div className="text-center">
-                <span className={`block text-[9rem] leading-none font-black font-mono ${active.stageStartedAt && secsLeft(active.stageStartedAt + active.stageSeconds * 1000) <= 10 ? 'text-[#8A0303] animate-pulse' : 'text-white'}`}>
+              <div className="text-center px-4">
+                <span className={`block text-[10rem] leading-none font-black font-mono ${active.stageStartedAt && secsLeft(active.stageStartedAt + active.stageSeconds * 1000) <= 10 ? 'text-[#8A0303] animate-pulse' : 'text-white'}`}>
                   {active.stageStartedAt ? secsLeft(active.stageStartedAt + active.stageSeconds * 1000) : active.stageSeconds}
                 </span>
                 <span className="text-[#808080] font-mono tracking-widest">SEC</span>
