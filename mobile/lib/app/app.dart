@@ -20,6 +20,7 @@ import 'dart:async';
 import '../core/app/release_gate.dart';
 import '../features/gates/update_gate.dart';
 import '../core/location/location_service.dart';
+import 'welcome_scene.dart';
 
 // ══════════════════════════════════════════════════════
 // 📱 جذر التطبيق
@@ -39,6 +40,7 @@ class MafiaApp extends StatefulWidget {
 }
 
 class _MafiaAppState extends State<MafiaApp> {
+  bool _showWelcome = true;
   late final GoRouter _router = buildRouter(widget.config);
   final _app = AppState.instance;
 
@@ -150,6 +152,8 @@ class _MafiaAppState extends State<MafiaApp> {
               fit: StackFit.expand,
               children: [
                 child ?? const SizedBox.shrink(),
+                // 🚶 شاشة الترحيب فوق كلّ شيء عند كلّ فتحٍ للتطبيق (مسجَّلاً أم لا) — قرار المالك 2026-09-12
+                if (_showWelcome) Positioned.fill(child: WelcomeScene(onDone: () => setState(() => _showWelcome = false))),
                 if (_showGate) const Positioned.fill(child: _Gate()),
                 // 🎂 BDAY-1 — **بعد** بوّابة الإشعارات لا قبلها: بوّابتان
                 //    معاً تعنيان جداراً مضاعفاً على أوّل دخول. وهذه تُسأل

@@ -39,7 +39,7 @@ export default function StreetStage({ mode, event, eventKey, docked, ambient, de
   const [quality, setQuality] = useState('high');
   useEffect(() => {
     const el = ref.current; const eng = getStreetEngine(); if (!el || !eng) { setOk(false); return; }
-    eng.mount(el); setQuality(eng.quality); eng.onQuality = (q) => setQuality(q); return () => { eng.onQuality = null; eng.unmount(); };
+    eng.mount(el); setQuality(eng.quality); eng.onQuality = (q) => setQuality(q); (window as any).__street = eng; return () => { eng.onQuality = null; eng.unmount(); };
   }, []);
 
   useEffect(() => {

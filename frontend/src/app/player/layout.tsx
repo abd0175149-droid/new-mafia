@@ -8,6 +8,7 @@ import BirthdayGate from '@/components/BirthdayGate';
 import LocationGate from '@/components/LocationGate';
 import { usePushNotifications } from '@/hooks/usePushNotifications';
 import ConsentGate from '@/components/ConsentGate';
+import WelcomeScene from '@/components/WelcomeScene';
 
 // ── الصفحات التي لا تحتاج تسجيل دخول ──
 const PUBLIC_PATHS = ['/player/login', '/player/debug-push'];
@@ -467,8 +468,12 @@ function PlayerLayoutInner({ children }: { children: React.ReactNode }) {
 }
 
 export default function PlayerLayout({ children }: { children: React.ReactNode }) {
+  // 🚶 شاشة الترحيب عند كلّ فتحٍ للتطبيق (مسجَّلاً أم لا) — قرار المالك 2026-09-12؛ لا تُعرض في روابط الانضمام المضمّنة
+  const pathname = usePathname();
+  const welcome = !pathname.startsWith('/player/join') && !pathname.startsWith('/join');
   return (
     <PlayerProvider>
+      {welcome && <WelcomeScene />}
       <PlayerLayoutInner>{children}</PlayerLayoutInner>
     </PlayerProvider>
   );
