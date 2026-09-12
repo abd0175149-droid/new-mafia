@@ -10,6 +10,7 @@ import { playEliminationSound, playCeremonySound } from '@/lib/soundManager';
 import EliminationFx from '@/components/EliminationFx';
 import DiscussionQueueRail from './DiscussionQueueRail';
 import DisplayConfrontation from './DisplayConfrontation';
+import { useDisplayViewport, computeCardGrid, CardZoom, GridRows, totalZoomOf } from '@/components/display/viewport';
 
 // 🔊 لا نداءَ صوتٍ محلّيٍّ في هذه الشاشة — الموجّه هو المصدر (setLocalPlayback(false)).
 //    المؤقّتُ والتصويتُ وكشفُ المُسكَت واكتمالُ التصويت تُعزف عنده وتصل مرآةً.
@@ -95,6 +96,8 @@ export default function DisplayDayView({ roomId, players, initialDiscussionState
 
   // Store parent's natural screen center (captured when scale=1, no speaker)
   const naturalParentPos = useRef<{ cx: number; cy: number } | null>(null);
+  // 📐 آخر منطقةٍ صالحة — للكاميرا (المؤثّر يُغلق على قيمٍ قديمة وإلّا)
+  const vpRef = useRef({ w: 1920, h: 1080, top: 0, right: 0 });
 
   // Capture the grid container's natural screen position while at rest
   useEffect(() => {
@@ -102,7 +105,7 @@ export default function DisplayDayView({ roomId, players, initialDiscussionState
       const timer = setTimeout(() => {
         if (containerRef.current) {
           // 📐 FitToScreen قد يصغّر اللوح بـzoom: نقيس بالبكسل الحقيقيّ ثمّ نحوّل إلى بكسل التخطيط
-          const fz = Number((containerRef.current.closest('[data-fit-zoom]') as HTMLElement | null)?.dataset.fitZoom || 1) || 1;
+          const fz = totalZoomOf(containerRef.current);
           const rect = containerRef.current.getBoundingClientRect();
           naturalParentPos.current = {
             cx: (rect.left + rect.width / 2) / fz,
@@ -121,12 +124,15 @@ export default function DisplayDayView({ roomId, players, initialDiscussionState
         const el = document.getElementById(`speaker-card-${discussionState.currentSpeakerId}`);
         const parent = containerRef.current;
         if (el && parent) {
-          // 📐 كلّ أبعاد الشاشة الحقيقيّة تُقسم على zoom الحاوية كي تطابق بكسل التخطيط
-          const fz = Number((parent.closest('[data-fit-zoom]') as HTMLElement | null)?.dataset.fitZoom || 1) || 1;
-          const vw = window.innerWidth / fz, vh = window.innerHeight / fz;
+          // 📐 المنطقة الصالحة (تحت الناف بار، يسار شريط الترتيب) بالبكسل الحقيقيّ ثمّ بوحدات التخطيط
+          const fz = totalZoomOf(parent);
+          const areaLeft = 0, areaRight = vpRef.current.w - vpRef.current.right;
+          const areaTop = vpRef.current.top + 20, areaBottom = vpRef.current.h - 20;
+          const vw = (areaRight - areaLeft) / fz, vh = (areaBottom - areaTop) / fz;
+          const ox = areaLeft / fz, oy = areaTop / fz;
           // ── Dynamic Scale Factor ──
-          // Card always fills 75% of viewport height after zoom
-          const targetHeight = vh * 0.75;
+          // الكرت يملأ 72% من ارتفاع المنطقة الصالحة — فلا يدخل رأسه تحت الناف بار
+          const targetHeight = vh * 0.72;
           let S = targetHeight / el.offsetHeight;
           // Protect width: card must not exceed 42% of viewport width (space for timer)
           S = Math.min(S, (vw * 0.42) / el.offsetWidth);
@@ -145,14 +151,14 @@ export default function DisplayDayView({ roomId, players, initialDiscussionState
 
           // ── Fixed Target Screen Positions ──
           // These are ABSOLUTE screen coordinates where the card center will ALWAYS land
-          const targetScreenX = isNativeLeft
-            ? vw * 0.38   // Card left-third, timer on right
-            : vw * 0.62;  // Card right-third, timer on left
-          const targetScreenY = vh * 0.50; // Always vertically centered
+          const targetScreenX = ox + (isNativeLeft
+            ? vw * 0.40   // Card left-third, timer on right
+            : vw * 0.60); // Card right-third, timer on left
+          const targetScreenY = oy + vh * 0.50; // وسط المنطقة الصالحة
 
           // ── Parent's Natural Screen Center (captured at rest) ──
-          const pScreenCx = naturalParentPos.current?.cx ?? vw / 2;
-          const pScreenCy = naturalParentPos.current?.cy ?? vh / 2;
+          const pScreenCx = naturalParentPos.current?.cx ?? ox + vw / 2;
+          const pScreenCy = naturalParentPos.current?.cy ?? oy + vh / 2;
 
           // ── Framer Motion Translation Math ──
           // After scale S around parent center with transformOrigin:center:
@@ -461,6 +467,12 @@ export default function DisplayDayView({ roomId, players, initialDiscussionState
   };
   const discussionCardSize = getCardSize(aliveCount);
   const votingCardSize = getCardSize(candidates.length);
+  // 📐 الشبكات المحسوبة على المنطقة الصالحة (الناف بار وشريط الترتيب محجوزان تلقائيّاً)
+  const vp = useDisplayViewport();
+  vpRef.current = { w: vp.w, h: vp.h, top: vp.top, right: vp.right };
+  const alivePlayersList = players.filter(p => p.isAlive);
+  const boardGrid = computeCardGrid(alivePlayersList.length, vp.availW - 16, vp.availH - 56, { gap: 22, maxK: 1.2 });
+  const votingGrid = computeCardGrid(candidates.length, vp.availW - 16, vp.availH - 120, { gap: 18, extraH: 64, maxK: 1.3 });
 
   const prevVotesRef = useRef(totalVotesCast);
   const sortedCandidates = [...candidates].sort((a,b) => b.votes - a.votes);
@@ -643,11 +655,9 @@ export default function DisplayDayView({ roomId, players, initialDiscussionState
                     }}
                     transition={{ duration: 1.2, type: 'spring', damping: 25, stiffness: 100 }}
                     style={{ transformOrigin: 'center center' }}
-                    className="flex flex-wrap justify-center items-center gap-6 md:gap-8 w-full max-w-[2000px] mx-auto px-4 pt-2 relative"
+                    className="flex flex-col justify-center items-center w-full mx-auto px-2 pt-2 relative"
                   >
-                    {players.map((p) => {
-                      if (!p.isAlive) return null;
-                      
+                    <GridRows items={alivePlayersList} grid={boardGrid} rowClass="items-center" render={(p) => {
                       const isSpeaker = p.physicalId === discussionState?.currentSpeakerId;
                       const isSomeoneSpeaking = !!discussionState?.currentSpeakerId;
                       
@@ -671,6 +681,7 @@ export default function DisplayDayView({ roomId, players, initialDiscussionState
                             />
                           )}
 
+                          <CardZoom k={boardGrid.k}>
                           <MafiaCard
                             playerNumber={p.physicalId}
                             playerName={p.name}
@@ -678,13 +689,14 @@ export default function DisplayDayView({ roomId, players, initialDiscussionState
                             gender={p.gender === 'FEMALE' ? 'FEMALE' : 'MALE'}
                             isFlipped={false}
                             flippable={false}
-                            size={discussionCardSize}
+                            size="lg"
                             isAlive={p.isAlive}
                             avatarUrl={p.avatarUrl}
                           rankTier={p.rankTier}
                           cosmetics={(p as any).cosmetics}
                             className={isSpeaker ? 'shadow-[0_0_50px_rgba(197,160,89,0.4)] border-2 border-[#C5A059]' : ''}
                           />
+                          </CardZoom>
                           {/* نقاط العقوبات */}
                           {(p.penalties || 0) > 0 && (
                             <div className="absolute bottom-1 left-1/2 -translate-x-1/2 flex gap-1 bg-black/70 px-2 py-1 rounded-full border border-red-500/30 backdrop-blur-sm z-20">
@@ -705,7 +717,7 @@ export default function DisplayDayView({ roomId, players, initialDiscussionState
                                 initial={{ opacity: 0, x: timerPos === 'right' ? -40 : 40 }}
                                 animate={{ opacity: 1, x: 0 }}
                                 transition={{ delay: 0.5, duration: 0.5 }}
-                                className={`absolute top-1/2 -translate-y-1/2 flex flex-col items-center justify-center ${timerPos === 'right' ? 'left-[130%]' : 'right-[130%]'}`}
+                                className={`absolute top-1/2 -translate-y-1/2 flex flex-col items-center justify-center ${timerPos === 'right' ? 'left-[112%]' : 'right-[112%]'}`}
                               >
                                 <CircularTimer
                                   timeRemaining={localTimeRemaining}
@@ -723,7 +735,7 @@ export default function DisplayDayView({ roomId, players, initialDiscussionState
                           )}
                         </motion.div>
                       );
-                    })}
+                    }} />
                   </motion.div>
                 </div>
 
@@ -797,8 +809,8 @@ export default function DisplayDayView({ roomId, players, initialDiscussionState
               </div>
             </div>
 
-            <div className="flex flex-wrap justify-center gap-4 w-full">
-              {sortedCandidates.map((candidate, idx) => {
+            <div className="w-full flex justify-center">
+              <GridRows items={sortedCandidates} grid={votingGrid} render={(candidate, idx) => {
                 const isDeal = candidate.type === 'DEAL';
                 const targetPlayer = players.find(p => p.physicalId === candidate.targetPhysicalId);
                 const targetName = targetPlayer?.name || 'Unknown';
@@ -831,10 +843,11 @@ export default function DisplayDayView({ roomId, players, initialDiscussionState
                       )}
                       {/* 🗳️ شارة نبض المواجهة (المستوى ٢) */}
                       {pulseBadges[candidate.targetPhysicalId] && (
-                        <div className={`absolute -bottom-3 left-1/2 -translate-x-1/2 whitespace-nowrap text-[11px] px-3 py-1 rounded-full z-30 border font-bold ${pulseBadges[candidate.targetPhysicalId].won ? 'bg-[#0f2a1a] border-emerald-500/60 text-emerald-300' : 'bg-[#2a0f0f] border-[#8A0303] text-[#ffccd5]'}`} dir="rtl">
+                        <div className={`absolute -bottom-4 left-1/2 -translate-x-1/2 whitespace-nowrap text-[11px] px-3 py-1 rounded-full z-30 border font-bold ${pulseBadges[candidate.targetPhysicalId].won ? 'bg-[#0f2a1a] border-emerald-500/60 text-emerald-300' : 'bg-[#2a0f0f] border-[#8A0303] text-[#ffccd5]'}`} dir="rtl">
                           ⚔️ {pulseBadges[candidate.targetPhysicalId].won ? `القاعة اقتنعت به ${pulseBadges[candidate.targetPhysicalId].pct}٪` : `لم تقتنع به القاعة ${pulseBadges[candidate.targetPhysicalId].pct}٪`}
                         </div>
                       )}
+                      <CardZoom k={votingGrid.k}>
                       <MafiaCard
                         playerNumber={candidate.targetPhysicalId}
                         playerName={targetName}
@@ -844,12 +857,13 @@ export default function DisplayDayView({ roomId, players, initialDiscussionState
                         showVoting={true}
                         votes={candidate.votes}
                         gender={targetGender === 'FEMALE' ? 'FEMALE' : 'MALE'}
-                        size={votingCardSize}
+                        size="lg"
                         isAlive={true}
                         avatarUrl={targetPlayer?.avatarUrl}
                         rankTier={targetPlayer?.rankTier}
                         cosmetics={(targetPlayer as any)?.cosmetics}
                       />
+                      </CardZoom>
                     </div>
 
                     {/* شريط تقدم بارز تحت الكارد */}
@@ -866,7 +880,7 @@ export default function DisplayDayView({ roomId, players, initialDiscussionState
                     </div>
                   </motion.div>
                 );
-              })}
+              }} />
             </div>
           </motion.div>
         )}
@@ -1311,6 +1325,10 @@ function RevealCeremony({ players, revealedRoles, revealType, notes }: {
 }) {
   const MAFIA_ROLES = ['GODFATHER', 'SILENCER', 'CHAMELEON', 'WITCH', 'OLDER_BROTHER', 'MAFIA_REGULAR'];
   const CARD_DELAY = 5; // ثوانٍ بين كل لاعب
+  // 📐 الكرت يملأ 68% من ارتفاع المنطقة الصالحة (وأقلّ إن تعدّد المُقصَون وضاق العرض)
+  const vpr = useDisplayViewport();
+  const revealCount = Math.max(1, revealedRoles.length);
+  const revealK = Math.max(0.5, Math.min((vpr.availH * 0.68 - 120) / 352, (vpr.availW * 0.6 - 48 * (revealCount - 1)) / (revealCount * 256), 1.6));
 
   // مراحل الأنيميشن لكل لاعب
   const [revealStages, setRevealStages] = useState<Record<number, 'hidden' | 'face-down' | 'flipping' | 'revealed' | 'grayed'>>({});
@@ -1368,7 +1386,8 @@ function RevealCeremony({ players, revealedRoles, revealType, notes }: {
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
       exit={{ opacity: 0 }}
-      className="w-full min-h-[60vh] flex flex-col items-center justify-center relative overflow-hidden"
+      className="w-full min-h-[60vh] flex flex-row-reverse items-center justify-center gap-16 relative overflow-visible"
+      dir="rtl"
     >
       {/* خلفية سينمائية */}
       <motion.div
@@ -1383,18 +1402,32 @@ function RevealCeremony({ players, revealedRoles, revealType, notes }: {
         initial={{ opacity: 0, y: -30 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ delay: 0.2 }}
-        className="text-center mb-12 z-10"
+        className="text-right z-10 shrink-0 max-w-[34vw]"
       >
-        <h1 className="text-5xl font-black text-white uppercase tracking-widest mb-2" style={{ fontFamily: 'Amiri, serif', textShadow: '0 0 40px rgba(138,3,3,0.5)' }}>
-          تم الإقصاء
+        <h1 className="text-7xl font-black text-white tracking-wide mb-3" style={{ fontFamily: 'Amiri, serif', textShadow: '0 0 40px rgba(138,3,3,0.5)' }}>
+          تمّ الإقصاء
         </h1>
-        <p className="text-[#808080] font-mono text-sm tracking-[0.5em] uppercase">
+        <p className="text-[#808080] font-mono text-sm tracking-[0.5em] uppercase" dir="ltr">
           {revealType === 'DEAL_ELIMINATION' ? 'DEAL EXECUTION — IDENTITY REVEAL' : 'IDENTITY DECLASSIFIED'}
         </p>
+        {/* 🗳️ سطور المواجهة/النبض لكلّ مُقصى — بجانب الكرت لا فوقه */}
+        <div className="mt-6 flex flex-col gap-2">
+          {revealedRoles.map((r: any) => {
+            const st = revealStages[r.physicalId] || 'hidden';
+            const pl = players.find((x: any) => x.physicalId === r.physicalId);
+            if (st === 'hidden') return null;
+            return (
+              <motion.div key={r.physicalId} initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} className="text-[#C5A059] text-2xl" style={{ fontFamily: 'Amiri, serif' }}>
+                <span className="text-white">#{r.physicalId} {pl?.name || ''}</span>
+                {st === 'grayed' && notes?.[r.physicalId] ? <span className="block text-xl text-[#C5A059]/90">{notes[r.physicalId]}</span> : null}
+              </motion.div>
+            );
+          })}
+        </div>
       </motion.div>
 
-      {/* الكروت */}
-      <div className="flex items-center justify-center gap-16 z-10" style={{ transform: 'scale(1.3)', transformOrigin: 'center center' }}>
+      {/* الكروت — بحجمٍ محسوب من المنطقة الصالحة */}
+      <CardZoom k={revealK} className="flex items-center justify-center gap-12 z-10">
         {revealedRoles.map((roleInfo: any, i: number) => {
           const p = players.find((pl: any) => pl.physicalId === roleInfo.physicalId);
           const stage = revealStages[roleInfo.physicalId] || 'hidden';
@@ -1412,12 +1445,6 @@ function RevealCeremony({ players, revealedRoles, revealType, notes }: {
               transition={{ type: 'spring', damping: 15, delay: i * 0.3 }}
               className="flex flex-col items-center relative"
             >
-              {/* 🗳️ سطر المواجهة: «وُوجه وخسر النبض ٦٤٪» */}
-              {isGrayed && notes?.[roleInfo.physicalId] && (
-                <motion.p initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: .4 }} className="absolute -top-8 text-[#C5A059] text-lg whitespace-nowrap" style={{ fontFamily: 'Amiri, serif' }} dir="rtl">
-                  {notes[roleInfo.physicalId]}
-                </motion.p>
-              )}
               {/* أيقونة الفريق — تظهر فوق الكارد بعد التحول للرمادي */}
               <AnimatePresence>
                 {isGrayed && (
@@ -1505,8 +1532,7 @@ function RevealCeremony({ players, revealedRoles, revealType, notes }: {
                     flippable={false}
                     isAlive={!isGrayed}
                     gender={p?.gender === 'FEMALE' ? 'FEMALE' : 'MALE'}
-                    size="fluid"
-                    className="w-56 h-[19rem] md:w-64 md:h-[22rem]"
+                    size="lg"
                     avatarUrl={p?.avatarUrl}
                     rankTier={p?.rankTier}
                     cosmetics={(p as any)?.cosmetics}
@@ -1535,7 +1561,7 @@ function RevealCeremony({ players, revealedRoles, revealType, notes }: {
             </motion.div>
           );
         })}
-      </div>
+      </CardZoom>
 
       {/* هيدر سفلي */}
       {/* (حُذف الشريط السفليّ «ELIMINATION PROTOCOL» — كان يغطّي أسفل الكرت؛ قرار المالك 2026-09-12) */}

@@ -27,6 +27,7 @@
 
 import { useEffect, useMemo, useRef } from 'react';
 import FixedLayer from '@/components/FixedLayer';
+import { useDisplayViewport, useReserve } from '@/components/display/viewport';
 
 interface Props {
   /** الحالة كما تصل من الخادم — لا يُشتقّ منها شيءٌ هنا */
@@ -60,6 +61,10 @@ export default function DiscussionQueueRail({ discussionState, players }: Props)
 
   const speaking = !!discussionState?.currentSpeakerId;
   const doneCount = (discussionState?.hasSpoken || []).length;
+  // 📐 يحجز الشريط عرضه من المنطقة الصالحة ما دام مرئيّاً — نفس صيغة clamp أدناه
+  const vp = useDisplayViewport();
+  const visible = !!discussionState && order.length > 0;
+  useReserve('discussion-rail', 'right', visible ? Math.min(380, Math.max(248, vp.w * 0.185)) + 12 : null);
 
   // القائمةُ أطولُ من الشاشة في الجلسات الكبيرة (٢٧ مقعداً)، فيُبقى الدورُ
   // الحاليّ في المنتصف تلقائيّاً بدل أن يختفي أسفلها.

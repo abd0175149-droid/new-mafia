@@ -11,6 +11,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { getSocket } from '@/lib/socket';
 import MafiaCard from '@/components/MafiaCard';
 import FitToScreen from '@/components/FitToScreen';
+import { useDisplayViewport, CardZoom } from '@/components/display/viewport';
 import type { ConfPayload, ConfItem } from '@/app/leader/LeaderConfrontationPanel';
 
 interface Props {
@@ -23,7 +24,7 @@ interface Props {
   //   تبدُّل الدور يُعلَن بشريطٍ ينزلق من الأعلى ونبضة ضوءٍ تعبر الشاشة.
 // 🔴 مُعرَّفة خارج المكوّن ومُحفَّظة (memo): تعريفها داخله كان يعيد تركيبها مع كلّ نبضة مؤقّت (٤ مرّات في الثانية)
 //    فتُعاد حركة الدخول والتوهّج من الصفر — وهذا «الرمش» الذي رآه المالك. الآن لا تُعاد إلّا عند تبدّل الدور.
-const Card = memo(function Card({ pid, p, side }: { pid: number; p: any; side: 'req' | 'tgt' }) {
+const Card = memo(function Card({ pid, p, side, k }: { pid: number; p: any; side: 'req' | 'tgt'; k: number }) {
     return (
       <motion.div
         initial={{ opacity: 0, y: 30, scale: .9 }}
@@ -34,7 +35,7 @@ const Card = memo(function Card({ pid, p, side }: { pid: number; p: any; side: '
         <p className="text-xs font-mono uppercase tracking-[0.42em] text-[#C5A059]">
           {side === 'req' ? 'الطالب · CHALLENGER' : 'المستهدَف · ACCUSED'}
         </p>
-        <div className="relative rounded-2xl conf-glow ring-2 ring-[#C5A059]">
+        <CardZoom k={k} className="relative rounded-2xl conf-glow ring-2 ring-[#C5A059]">
           <span className="conf-orbit" aria-hidden />
           <MafiaCard
             playerNumber={pid}
@@ -50,10 +51,10 @@ const Card = memo(function Card({ pid, p, side }: { pid: number; p: any; side: '
             cosmetics={p?.cosmetics}
           />
           <span className="absolute -top-5 -left-5 w-14 h-14 rounded-full bg-[#C5A059] text-black text-2xl flex items-center justify-center shadow-[0_0_30px_rgba(197,160,89,.8)]">🎙️</span>
-        </div>
+        </CardZoom>
         {/* 🎙️ موجات صوتيّة — تحت كلا الطرفين لأنّهما يتحدّثان معاً (مرئيّة فقط) */}
-        <div className="h-14 flex items-end justify-center gap-[5px]" aria-hidden>
-          {Array.from({ length: 17 }).map((_, i) => (
+        <div className="h-14 flex items-end justify-center gap-[5px]" style={{ width: 256 * k }} aria-hidden>
+          {Array.from({ length: Math.max(13, Math.round(17 * k)) }).map((_, i) => (
             <span
               key={i}
               className="conf-wave-bar block w-[6px] rounded-full bg-[#C5A059]"
@@ -84,11 +85,11 @@ const waveCss = `
   `;
 
 // ⏱️ حلقة تقدّم حول المؤقّت (تحمرّ تحت ١٠ث)
-function Ring({ left, total, timeUp }: { left: number; total: number; timeUp?: boolean }) {
+function Ring({ left, total, timeUp, k = 1 }: { left: number; total: number; timeUp?: boolean; k?: number }) {
     const r = 118, C = 2 * Math.PI * r, frac = total > 0 ? Math.max(0, Math.min(1, left / total)) : 0;
     const danger = left <= 10 && !timeUp;
     if (timeUp) return (
-      <div className="relative w-[300px] h-[300px] flex items-center justify-center">
+      <div className="relative w-[300px] h-[300px] flex items-center justify-center" style={{ zoom: k } as any}>
         <svg viewBox="0 0 300 300" className="absolute inset-0"><circle cx="150" cy="150" r={r} fill="none" stroke="#3a1a10" strokeWidth="10" /></svg>
         <div className="text-center px-6">
           <span className="block text-4xl font-black text-[#ffccd5]" style={{ fontFamily: 'Amiri, serif' }}>انتهى الوقت</span>
@@ -97,7 +98,7 @@ function Ring({ left, total, timeUp }: { left: number; total: number; timeUp?: b
       </div>
     );
     return (
-      <div className={`relative w-[300px] h-[300px] flex items-center justify-center `}>
+      <div className={`relative w-[300px] h-[300px] flex items-center justify-center `} style={{ zoom: k } as any}>
         <svg viewBox="0 0 300 300" className="absolute inset-0 -rotate-90">
           <circle cx="150" cy="150" r={r} fill="none" stroke="#1f1a12" strokeWidth="10" />
           <circle cx="150" cy="150" r={r} fill="none" stroke={danger ? '#8A0303' : '#C5A059'} strokeWidth="10" strokeLinecap="round"
@@ -166,6 +167,11 @@ export default function DisplayConfrontation({ roomId, players }: Props) {
 
   const P = (pid: number) => players.find(p => p.physicalId === pid);
   const secsLeft = (dl: number) => Math.max(0, Math.ceil((dl - now) / 1000));
+  // 📐 الكرتان يملآن 58% من ارتفاع المنطقة الصالحة (بين الناف بار وشريط النبض)، والحلقة تكبر معهما
+  const vp = useDisplayViewport();
+  const areaH = vp.h - vp.top - 64 - 170 - 120;              // ناف بار · هوامش · شريط النبض · رأس الطبقة
+  const cardK = Math.max(0.6, Math.min((areaH * 0.92) / (352 + 70), (vp.w * 0.28) / 256, 1.9));
+  const ringK = Math.max(0.8, Math.min(cardK * 1.05, 1.6));
 
   return (
     <>
@@ -241,13 +247,14 @@ export default function DisplayConfrontation({ roomId, players }: Props) {
               </motion.p>
             </div>
             <div className="flex items-center gap-10 relative z-10 mt-2" style={{ perspective: 1400 }}>
-              <Card pid={active.requesterPhysicalId} p={P(active.requesterPhysicalId)} side="req" />
+              <Card pid={active.requesterPhysicalId} p={P(active.requesterPhysicalId)} side="req" k={cardK} />
               <Ring
                 left={active.stageStartedAt ? secsLeft(active.stageStartedAt + active.stageSeconds * 1000) : active.stageSeconds}
                 total={active.stageSeconds}
                 timeUp={active.timeUp}
+                k={ringK}
               />
-              <Card pid={active.targetPhysicalId} p={P(active.targetPhysicalId)} side="tgt" />
+              <Card pid={active.targetPhysicalId} p={P(active.targetPhysicalId)} side="tgt" k={cardK} />
             </div>
             </FitToScreen>
             {/* 🗳️ نبض الإقناع — شريط شدّ الحبل: يمينه الطالب ويساره المستهدَف، والمؤشّر ينزلق نحو صاحب الأصوات الأكثر */}
@@ -256,15 +263,15 @@ export default function DisplayConfrontation({ roomId, players }: Props) {
               return (
                 <div className="absolute bottom-6 inset-x-0 mx-auto z-20 w-[min(1200px,94vw)] px-6 py-4 rounded-2xl bg-black/70 border border-[#C5A059]/25 backdrop-blur">
                   <div className="flex items-end justify-between mb-2">
-                    <div className="text-right"><p className="text-[#C5A059] text-xl" style={{ fontFamily: 'Amiri, serif' }}>{P(active.requesterPhysicalId)?.name || `#${active.requesterPhysicalId}`}</p><p className="text-4xl font-black font-mono text-white leading-none">{ps.req}</p></div>
-                    <p className="text-[#808080] font-mono text-sm tracking-widest">🗳️ من أقنعك؟ · صوّت {tot} من {ps.eligible}{ps.quorum ? '' : ' · دون النصاب'}</p>
-                    <div className="text-left"><p className="text-[#ffccd5] text-xl" style={{ fontFamily: 'Amiri, serif' }}>{P(active.targetPhysicalId)?.name || `#${active.targetPhysicalId}`}</p><p className="text-4xl font-black font-mono text-white leading-none">{ps.tgt}</p></div>
+                    <div className="text-right"><p className="text-[#C5A059] text-3xl" style={{ fontFamily: 'Amiri, serif' }}>{P(active.requesterPhysicalId)?.name || `#${active.requesterPhysicalId}`}</p><p className="text-6xl font-black font-mono text-white leading-none">{ps.req}</p></div>
+                    <p className="text-[#bbb] font-mono text-lg tracking-widest">🗳️ من أقنعك؟ · صوّت {tot} من {ps.eligible}{ps.quorum ? '' : ' · دون النصاب'}</p>
+                    <div className="text-left"><p className="text-[#ffccd5] text-3xl" style={{ fontFamily: 'Amiri, serif' }}>{P(active.targetPhysicalId)?.name || `#${active.targetPhysicalId}`}</p><p className="text-6xl font-black font-mono text-white leading-none">{ps.tgt}</p></div>
                   </div>
-                  <div className="relative h-7 rounded-full border border-white/10" style={{ background: 'linear-gradient(90deg,#8A0303 0%,#3a1a10 50%,#7a5f2a 50%,#C5A059 100%)' }}>
+                  <div className="relative h-9 rounded-full border border-white/10" style={{ background: 'linear-gradient(90deg,#8A0303 0%,#3a1a10 50%,#7a5f2a 50%,#C5A059 100%)' }}>
                     <motion.div
-                      animate={{ left: `calc(${(share * 100).toFixed(1)}% - 22px)` }}
+                      animate={{ left: `calc(${(share * 100).toFixed(1)}% - 28px)` }}
                       transition={{ type: 'spring', damping: 18, stiffness: 120 }}
-                      className="absolute -top-2 w-11 h-11 rounded-full bg-white shadow-[0_0_28px_rgba(255,255,255,.75)] flex items-center justify-center text-lg"
+                      className="absolute -top-2.5 w-14 h-14 rounded-full bg-white shadow-[0_0_28px_rgba(255,255,255,.75)] flex items-center justify-center text-2xl"
                     >⚖️</motion.div>
                   </div>
                 </div>

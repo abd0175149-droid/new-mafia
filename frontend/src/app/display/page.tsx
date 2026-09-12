@@ -9,8 +9,11 @@ import { getSocket } from '@/lib/socket';
 import type { Socket } from 'socket.io-client';
 import DisplayDayView from './DisplayDayView';
 import FitToScreen from '@/components/FitToScreen';
+import { DisplayViewportProvider, useDisplayViewport, computeCardGrid, CardZoom, GridRows } from '@/components/display/viewport';
 import MafiaCard from '@/components/MafiaCard';
 import NightAnimCinematic from '@/components/NightAnimCinematic';
+import NightScene from '@/components/display/NightScene';
+import MorningReport from '@/components/display/MorningReport';
 import EliminationFx from '@/components/EliminationFx';
 import { EntranceOverlay, ENTRANCE_FULL_MS, ENTRANCE_COMPACT_MS, type EntrancePayload } from '@/components/EntranceOverlay';
 import { BirthdayCelebration, type Celebrant } from '@/components/BirthdayCelebration';
@@ -102,6 +105,9 @@ function DisplayPageContent() {
   const [revealWinner, setRevealWinner] = useState(false);
   const winnerRevealTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [animation, setAnimation] = useState<any>(null);
+  // 🌙 الدور الجاري في الليل اليدويّ (night:step-info) · ☀️ أحداث الصباح المجمَّعة (تقرير الفجر)
+  const [nightStepType, setNightStepType] = useState<string | null>(null);
+  const [morningEvents, setMorningEvents] = useState<any[]>([]);
   const animTimerRef = useRef<NodeJS.Timeout | null>(null);
   // 🚪 تشريفة الدخول (طبقة بمستوى الصفحة) + مرجع الطور الحيّ لمعالجات السوكيت
   // (المعالجات تُسجَّل مرة واحدة فتلتقط قيمة phase القديمة — المرجع يحلّ ذلك)
@@ -448,6 +454,8 @@ function DisplayPageContent() {
       // تنظيف animations
       if (animTimerRef.current) { clearTimeout(animTimerRef.current); animTimerRef.current = null; }
       setAnimation(null);
+      if (data.phase === Phase.NIGHT) { setMorningEvents([]); setNightStepType(null); }
+      if (data.phase !== Phase.NIGHT) setNightStepType(null);
       if (data.phase === Phase.LOBBY) {
         setWinner(null);
         setTeamCounts({ citizenAlive: 0, mafiaAlive: 0, neutralAlive: 0 });
@@ -483,8 +491,7 @@ function DisplayPageContent() {
 
     // ── صوت خلفي مميز لكل خطوة ليلية ──
     const onNightStepInfo = (data: any) => {
-      if (data.stepType) {
-      }
+      setNightStepType(data?.stepType || null);
     };
 
     const onGameOver = (data: any) => {
@@ -540,11 +547,14 @@ function DisplayPageContent() {
     const onMorningEvent = (data: any) => {
       if (animTimerRef.current) { clearTimeout(animTimerRef.current); animTimerRef.current = null; }
       setAnimation(data);
+      setMorningEvents(prev => [...prev, data]);   // ☀️ تقرير الفجر يجمع الأحداث كلّها
       animTimerRef.current = setTimeout(() => setAnimation(null), 10000);
     };
 
     const onNightStarted = () => {
       setAnimation(null);
+      setMorningEvents([]);
+      setNightStepType(null);
     };
 
     const onConfigUpdated = (data: any) => {
@@ -1043,8 +1053,14 @@ function DisplayPageContent() {
   // ══════════════════════════════════════════════════
   // 🖥️ واجهة العرض
   // ══════════════════════════════════════════════════
+  const lobbyH = 'calc(100dvh - 48px)';   // ارتفاع شاشتي اللوبي والتوزيع = المنطقة الصالحة (بلا ناف بار)
+
+  // 📊 الناف بار يظهر أثناء اللعب فقط — المنطقة الصالحة تحجز ارتفاعه (DisplayViewportProvider)
+  const navVisible = step === 'lobby' && phase !== Phase.LOBBY && phase !== Phase.ROLE_GENERATION && phase !== Phase.ROLE_BINDING && (teamCounts.mafiaAlive > 0 || teamCounts.citizenAlive > 0 || (teamCounts.neutralAlive ?? 0) > 0);
+
   return (
     // 📐 الجذر مقفولٌ على ارتفاع الشاشة: لا تمرير أبداً؛ FitToScreen يصغّر ما يفيض (قرار المالك 2026-09-12)
+    <DisplayViewportProvider navVisible={navVisible}>
     <div className="display-bg h-[100dvh] relative overflow-hidden flex flex-col items-center justify-center px-8 py-6 font-sans blood-vignette selection:bg-[#8A0303] selection:text-white w-full">
 
       <div className="relative z-10 w-full h-full min-h-0 flex flex-col items-center justify-center">
@@ -1052,7 +1068,7 @@ function DisplayPageContent() {
         {/* ══════════════════════════════════════════════════ */}
         {/* 📊 ناف بار ثابت — أعداد الفرق (يظهر بعد بدء اللعبة) */}
         {/* ══════════════════════════════════════════════════ */}
-        {step === 'lobby' && phase !== Phase.LOBBY && phase !== Phase.ROLE_GENERATION && phase !== Phase.ROLE_BINDING && (teamCounts.mafiaAlive > 0 || teamCounts.citizenAlive > 0 || (teamCounts.neutralAlive ?? 0) > 0) && (
+        {navVisible && (
           <motion.div
             initial={{ y: -60, opacity: 0 }}
             animate={{ y: 0, opacity: 1 }}
@@ -1148,7 +1164,7 @@ function DisplayPageContent() {
         )}
 
         {/* Spacer — يدفع المحتوى تحت الناف بار الثابت */}
-        {step === 'lobby' && phase !== Phase.LOBBY && phase !== Phase.ROLE_GENERATION && phase !== Phase.ROLE_BINDING && (teamCounts.mafiaAlive > 0 || teamCounts.citizenAlive > 0 || (teamCounts.neutralAlive ?? 0) > 0) && (
+        {navVisible && (
           <div className="w-full h-14 shrink-0" />
         )}
 
@@ -1433,87 +1449,43 @@ function DisplayPageContent() {
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0 }}
             transition={{ duration: 0.8, ease: 'easeOut' }}
-            className="w-full max-w-[1600px] relative z-10 flex flex-col items-center"
+            className="w-full relative z-10 flex flex-col items-center"
+            style={{ height: lobbyH }}
           >
-            {/* القسم الأيمن (Top-Right): QR Code والإحصائيات */}
-            <div className="flex flex-col flex-auto lg:flex-row w-full gap-8 items-start justify-between">
-              <div className="flex flex-col items-center w-full lg:w-[350px] shrink-0">
-                {/* اللوجو + MAFIA CLUB فوق كود اللعبة */}
-                <div className="flex items-center gap-4 mb-8 w-full justify-center" style={{ transform: 'scale(1.5)', transformOrigin: 'center center' }}>
-                  <motion.div initial={{ opacity: 0, x: -20 }} animate={{ opacity: 1, x: 0 }} transition={{ duration: 1 }}>
-                    <Image src="/mafia_logo.png" alt="Mafia Club Logo" width={60} height={60} className="select-none w-[55px] h-[55px] drop-shadow-[0_0_20px_rgba(138,3,3,0.3)]" priority />
-                  </motion.div>
-                  <h1 className="flex flex-col items-start leading-none">
-                    <span className="block text-3xl font-black tracking-tight text-[#C5A059]" style={{ fontFamily: 'Amiri, serif', textShadow: '0 0 20px rgba(138,3,3,0.4)' }}>MAFIA</span>
-                    <span className="flex justify-between w-full text-sm font-light text-[#8A0303]" dir="ltr" style={{ fontFamily: 'Amiri, serif' }}>{'CLUB'.split('').map((l, i) => <span key={i}>{l}</span>)}</span>
-                  </h1>
-                </div>
+            {/* 📐 الشبكة المحسوبة تملأ العرض كاملاً؛ الـQR والعدّاد شريطٌ سفليّ (قرار المالك 2026-09-12) */}
+            <div className="w-full flex items-center justify-between border-b border-[#2a2a2a] pb-2 mb-4 shrink-0">
+              <p className="text-[#555] text-sm tracking-[0.3em] uppercase">ACTIVE ROSTER</p>
+              <p className="text-[#808080] text-xs font-mono tracking-widest uppercase">{gameName}</p>
+            </div>
 
-                <div className="noir-card p-6 mb-8 border-[#8A0303]/30 relative w-full flex flex-col items-center justify-center">
-                  <div className="absolute top-0 left-0 w-4 h-4 border-t-2 border-l-2 border-[#8A0303] animate-pulse" />
-                  <div className="absolute top-0 right-0 w-4 h-4 border-t-2 border-r-2 border-[#8A0303] animate-pulse" />
-                  <div className="absolute bottom-0 left-0 w-4 h-4 border-b-2 border-l-2 border-[#8A0303] animate-pulse" />
-                  <div className="absolute bottom-0 right-0 w-4 h-4 border-b-2 border-r-2 border-[#8A0303] animate-pulse" />
-                  
-                  <div className="bg-white p-3 grayscale contrast-125 mb-4 inline-block">
-                    <QRDisplay url={joinUrl} />
-                  </div>
-                  <p className="text-[#808080] text-xs font-mono text-center tracking-widest uppercase">
-                    SCAN TO ENTER
-                  </p>
-                  {roomCode && roomCode !== '------' && (
-                    <p className="text-[#C5A059] text-lg font-black mt-2 tracking-[0.3em]" style={{ fontFamily: 'monospace' }}>{roomCode}</p>
-                  )}
-                </div>
-
-                {/* 🔴 لا خريطةَ مقاعد على شاشة القاعة — قرارُ المالك.
-                    كانت حلقةً تعرض الأسماءَ ومَن ينتظر ومَن مُثبَّت؛ وموضعُها
-                    الصحيح كونسولُ الليدر لا الشاشةُ التي يراها الجميع.
-                    وحُذف معها ما كان يغذّيها وحدها (`ringSeats` و`seatMeta`):
-                    كانت تُكتَب في كلّ مزامنةِ حالة فتُعيد رسمَ الشاشة بلا قارئ. */}
-
-                <div className="w-full text-center font-mono noir-card p-4 border-[#2a2a2a]">
-                  <p className="text-[#555] text-xs mb-2 tracking-[0.3em] uppercase">AGENTS REGISTERED</p>
-                  <div className="flex items-baseline justify-center gap-2">
-                    <span className="text-5xl font-black text-[#C5A059]">{playerCount}</span>
-                    <span className="text-2xl text-[#333]">/</span>
-                    <span className="text-2xl text-[#555]">{maxPlayers}</span>
-                  </div>
-                </div>
-              </div>
-
-              {/* القسم الأيسر: شبكة اللاعبين المرنة باستخدام MafiaCard */}
-              <div className="w-full flex-1">
-                <div className="flex items-center justify-between border-b border-[#2a2a2a] pb-2 mb-6">
-                  <p className="text-[#555] text-sm tracking-[0.3em] uppercase">ACTIVE ROSTER</p>
-                  <p className="text-[#808080] text-xs font-mono tracking-widest uppercase">{gameName}</p>
-                </div>
-
-                {players.length > 0 ? (
-                  <div className="flex flex-wrap justify-center gap-6 w-full pb-12 overflow-visible">
-                    <AnimatePresence mode="popLayout">
-                      {players.filter((p: any) => p.isAlive !== false).slice().reverse().map((p: any, i: number) => {
-                        // 🎁 تأثير سحب «اختيار رابح» أثناء الدوران: وهج على الكارد النشط، تعتيم الباقي
-                        const luckySpin = lucky?.phase === 'spinning';
-                        const luckyActive = luckySpin && lucky?.activeId === p.physicalId;
-                        return (
-                        <motion.div
-                          key={p.physicalId}
-                          layout
-                          initial={{ opacity: 0, scale: 0.9, y: 10 }}
-                          animate={luckySpin ? {
-                            opacity: luckyActive ? 1 : 0.25,
-                            scale: luckyActive ? 1.15 : 0.9,
-                            filter: luckyActive ? 'none' : 'blur(3px) grayscale(70%)',
-                            y: 0,
-                          } : { opacity: 1, scale: 1, y: 0, filter: 'none' }}
-                          transition={luckySpin ? { duration: 0.12, ease: 'easeOut' } : { delay: i * 0.05 }}
-                          style={{ zIndex: luckyActive ? 50 : 1 }}
-                          className="relative"
-                        >
-                          {luckyActive && (
-                            <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[250px] h-[350px] bg-[#C5A059]/40 blur-[50px] rounded-full pointer-events-none -z-10" />
-                          )}
+            <div className="flex-1 min-h-0 w-full flex items-center justify-center">
+              {players.length > 0 ? (
+                <RosterGrid
+                  players={players.filter((p: any) => p.isAlive !== false).slice().reverse()}
+                  reservedH={40 + 16 + 150 + 16}
+                  render={(p: any, i: number, k: number) => {
+                    // 🎁 تأثير سحب «اختيار رابح» أثناء الدوران: وهج على الكارد النشط، تعتيم الباقي
+                    const luckySpin = lucky?.phase === 'spinning';
+                    const luckyActive = luckySpin && lucky?.activeId === p.physicalId;
+                    return (
+                      <motion.div
+                        key={p.physicalId}
+                        layout
+                        initial={{ opacity: 0, scale: 0.9, y: 10 }}
+                        animate={luckySpin ? {
+                          opacity: luckyActive ? 1 : 0.25,
+                          scale: luckyActive ? 1.15 : 0.9,
+                          filter: luckyActive ? 'none' : 'blur(3px) grayscale(70%)',
+                          y: 0,
+                        } : { opacity: 1, scale: 1, y: 0, filter: 'none' }}
+                        transition={luckySpin ? { duration: 0.12, ease: 'easeOut' } : { delay: i * 0.04 }}
+                        style={{ zIndex: luckyActive ? 50 : 1 }}
+                        className="relative"
+                      >
+                        {luckyActive && (
+                          <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[250px] h-[350px] bg-[#C5A059]/40 blur-[50px] rounded-full pointer-events-none -z-10" />
+                        )}
+                        <CardZoom k={k}>
                           <MafiaCard
                             playerNumber={p.physicalId}
                             playerName={p.name}
@@ -1523,7 +1495,7 @@ function DisplayPageContent() {
                             flippable={false}
                             showVoting={false}
                             isAlive={p.isAlive !== false}
-                            size={players.length <= 8 ? 'lg' : players.length <= 14 ? 'md' : 'sm'}
+                            size="lg"
                             avatarUrl={p.avatarUrl}
                             rankTier={p.rankTier}
                             cosmetics={(p as any).cosmetics}
@@ -1533,25 +1505,51 @@ function DisplayPageContent() {
                           {(p.penalties || 0) > 0 && (
                             <div className="absolute bottom-1 left-1/2 -translate-x-1/2 flex gap-1 bg-black/70 px-2 py-1 rounded-full border border-red-500/30 backdrop-blur-sm">
                               {Array.from({ length: displayMaxPenalties }).map((_, idx) => (
-                                <span
-                                  key={idx}
-                                  className={`w-2 h-2 rounded-full ${
-                                    idx < (p.penalties || 0) ? 'bg-red-500 shadow-[0_0_6px_#ef4444] animate-pulse' : 'bg-zinc-700'
-                                  }`}
-                                />
+                                <span key={idx} className={`w-2 h-2 rounded-full ${idx < (p.penalties || 0) ? 'bg-red-500 shadow-[0_0_6px_#ef4444] animate-pulse' : 'bg-zinc-700'}`} />
                               ))}
                             </div>
                           )}
-                        </motion.div>
-                        );
-                      })}
-                    </AnimatePresence>
-                  </div>
-                ) : (
-                  <div className="flex flex-col items-center justify-center p-16 noir-card border-dashed">
-                    <p className="text-[#333] font-mono italic tracking-[0.2em] uppercase">AWAITING AGENT CONNECTIONS...</p>
-                  </div>
-                )}
+                        </CardZoom>
+                      </motion.div>
+                    );
+                  }}
+                />
+              ) : (
+                <div className="flex flex-col items-center justify-center p-16 noir-card border-dashed">
+                  <p className="text-[#333] font-mono italic tracking-[0.2em] uppercase">AWAITING AGENT CONNECTIONS...</p>
+                </div>
+              )}
+            </div>
+
+            {/* ── الشريط السفليّ: الشعار · QR + الكود · العدّاد ── */}
+            <div className="w-full h-[150px] shrink-0 mt-4 flex items-center justify-between gap-6 noir-card px-8 border-[#8A0303]/25 relative">
+              <div className="absolute top-0 left-0 w-4 h-4 border-t-2 border-l-2 border-[#8A0303] animate-pulse" />
+              <div className="absolute top-0 right-0 w-4 h-4 border-t-2 border-r-2 border-[#8A0303] animate-pulse" />
+              <div className="absolute bottom-0 left-0 w-4 h-4 border-b-2 border-l-2 border-[#8A0303] animate-pulse" />
+              <div className="absolute bottom-0 right-0 w-4 h-4 border-b-2 border-r-2 border-[#8A0303] animate-pulse" />
+              <div className="flex items-center gap-4">
+                <Image src="/mafia_logo.png" alt="Mafia Club Logo" width={72} height={72} className="select-none w-[72px] h-[72px] drop-shadow-[0_0_20px_rgba(138,3,3,0.3)]" priority />
+                <h1 className="flex flex-col items-start leading-none">
+                  <span className="block text-4xl font-black tracking-tight text-[#C5A059]" style={{ fontFamily: 'Amiri, serif', textShadow: '0 0 20px rgba(138,3,3,0.4)' }}>MAFIA</span>
+                  <span className="flex justify-between w-full text-base font-light text-[#8A0303]" dir="ltr" style={{ fontFamily: 'Amiri, serif' }}>{'CLUB'.split('').map((l, i) => <span key={i}>{l}</span>)}</span>
+                </h1>
+              </div>
+              <div className="flex items-center gap-6">
+                <div className="bg-white p-1.5 grayscale contrast-125"><div style={{ zoom: 0.48 } as any}><QRDisplay url={joinUrl} /></div></div>
+                <div className="flex flex-col items-start">
+                  <p className="text-[#808080] text-xs font-mono tracking-widest uppercase">SCAN TO ENTER</p>
+                  {roomCode && roomCode !== '------' && (
+                    <p className="text-[#C5A059] text-5xl font-black mt-1 tracking-[0.25em]" style={{ fontFamily: 'monospace' }}>{roomCode}</p>
+                  )}
+                </div>
+              </div>
+              <div className="text-center font-mono">
+                <p className="text-[#555] text-xs mb-1 tracking-[0.3em] uppercase">AGENTS REGISTERED</p>
+                <div className="flex items-baseline justify-center gap-2">
+                  <span className="text-5xl font-black text-[#C5A059]">{playerCount}</span>
+                  <span className="text-2xl text-[#333]">/</span>
+                  <span className="text-2xl text-[#555]">{maxPlayers}</span>
+                </div>
               </div>
             </div>
           </motion.div>
@@ -1566,7 +1564,8 @@ function DisplayPageContent() {
             initial={{ opacity: 0, scale: 0.95 }}
             animate={{ opacity: 1, scale: 1 }}
             exit={{ opacity: 0 }}
-            className="w-full max-w-[1600px] relative z-10 flex flex-col items-center justify-center p-8"
+            className="w-full relative z-10 flex flex-col items-center"
+            style={{ height: lobbyH }}
           >
 
 
@@ -1575,56 +1574,52 @@ function DisplayPageContent() {
             <motion.div
               animate={{ opacity: [0.5, 1, 0.5] }}
               transition={{ duration: 2, repeat: Infinity }}
-              className="text-center border-b border-[#2a2a2a]/40 pb-4 mb-4 w-full max-w-3xl"
+              className="text-center border-b border-[#2a2a2a]/40 pb-3 mb-4 w-full max-w-3xl shrink-0"
             >
-              <h2 className="text-3xl font-black text-[#C5A059] tracking-widest uppercase mb-2" style={{ fontFamily: 'Amiri, serif', textShadow: '0 0 15px rgba(197,160,89,0.3)' }}>في انتظار بدء اللعبة</h2>
+              <h2 className="text-4xl font-black text-[#C5A059] tracking-widest uppercase mb-1" style={{ fontFamily: 'Amiri, serif', textShadow: '0 0 15px rgba(197,160,89,0.3)' }}>في انتظار بدء اللعبة</h2>
               <p className="text-[#808080] font-mono tracking-[0.4em] text-sm uppercase">AWAITING OPERATION COMMENCEMENT...</p>
             </motion.div>
 
-            {/* شبكة الكروت (لاعبين) - زيادة الحجم وعدم التمرير */}
-            <div className="w-full pt-2">
-               <div className="flex flex-wrap justify-center gap-8 w-full max-w-[1700px] mx-auto px-4 overflow-visible">
-                 <AnimatePresence mode="popLayout">
-                   {players.filter((p: any) => p.isAlive !== false).slice().reverse().map((p: any, i: number) => (
-                      <motion.div
-                        key={p.physicalId}
-                        layout
-                        initial={{ opacity: 0, scale: 0.9, y: 10 }}
-                        animate={{ opacity: 1, scale: 1, y: 0 }}
-                        transition={{ delay: i * 0.05 }}
-                        className="relative"
-                      >
-                        <MafiaCard
-                          playerNumber={p.physicalId}
-                          playerName={p.name}
-                          role={null}
-                          gender={p.gender === 'FEMALE' ? 'FEMALE' : 'MALE'}
-                          isFlipped={false}
-                          flippable={false}
-                          showVoting={false}
-                          isAlive={p.isAlive !== false}
-                          size={players.length <= 8 ? 'lg' : players.length <= 14 ? 'md' : 'sm'}
-                          avatarUrl={p.avatarUrl}
-                          rankTier={p.rankTier}
-                          cosmetics={(p as any).cosmetics}
-                        />
-                        {/* نقاط العقوبات */}
-                        {(p.penalties || 0) > 0 && (
-                          <div className="absolute bottom-1 left-1/2 -translate-x-1/2 flex gap-1 bg-black/70 px-2 py-1 rounded-full border border-red-500/30 backdrop-blur-sm">
-                            {Array.from({ length: displayMaxPenalties }).map((_, idx) => (
-                              <span
-                                key={idx}
-                                className={`w-2 h-2 rounded-full ${
-                                  idx < (p.penalties || 0) ? 'bg-red-500 shadow-[0_0_6px_#ef4444] animate-pulse' : 'bg-zinc-700'
-                                }`}
-                              />
-                            ))}
-                          </div>
-                        )}
-                      </motion.div>
-                   ))}
-                 </AnimatePresence>
-               </div>
+            {/* 📐 شبكة محسوبة تملأ الشاشة بلا كرتٍ وحيدٍ في صفّ (قرار المالك 2026-09-12) */}
+            <div className="flex-1 min-h-0 w-full flex items-center justify-center">
+              <RosterGrid
+                players={players.filter((p: any) => p.isAlive !== false).slice().reverse()}
+                reservedH={110 + 16}
+                render={(p: any, i: number, k: number) => (
+                  <motion.div
+                    key={p.physicalId}
+                    layout
+                    initial={{ opacity: 0, scale: 0.9, y: 10 }}
+                    animate={{ opacity: 1, scale: 1, y: 0 }}
+                    transition={{ delay: i * 0.04 }}
+                    className="relative"
+                  >
+                    <CardZoom k={k}>
+                      <MafiaCard
+                        playerNumber={p.physicalId}
+                        playerName={p.name}
+                        role={null}
+                        gender={p.gender === 'FEMALE' ? 'FEMALE' : 'MALE'}
+                        isFlipped={false}
+                        flippable={false}
+                        showVoting={false}
+                        isAlive={p.isAlive !== false}
+                        size="lg"
+                        avatarUrl={p.avatarUrl}
+                        rankTier={p.rankTier}
+                        cosmetics={(p as any).cosmetics}
+                      />
+                      {(p.penalties || 0) > 0 && (
+                        <div className="absolute bottom-1 left-1/2 -translate-x-1/2 flex gap-1 bg-black/70 px-2 py-1 rounded-full border border-red-500/30 backdrop-blur-sm">
+                          {Array.from({ length: displayMaxPenalties }).map((_, idx) => (
+                            <span key={idx} className={`w-2 h-2 rounded-full ${idx < (p.penalties || 0) ? 'bg-red-500 shadow-[0_0_6px_#ef4444] animate-pulse' : 'bg-zinc-700'}`} />
+                          ))}
+                        </div>
+                      )}
+                    </CardZoom>
+                  </motion.div>
+                )}
+              />
             </div>
           </motion.div>
         )}
@@ -1634,47 +1629,17 @@ function DisplayPageContent() {
           <DisplayDayView key="day-view" roomId={currentRoomId} players={players} initialDiscussionState={discussionState} teamCounts={teamCounts} />
         )}
 
-        {/* ═══ الليل ═══ */}
+        {/* ═══ الليل — «المدينة تنام» ═══ */}
         {step === 'lobby' && phase === Phase.NIGHT && (
-          <motion.div key="night" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="text-center relative z-10 w-full">
-            <motion.div className="text-9xl mb-8 grayscale opacity-50" animate={{ opacity: [0.3, 0.6, 0.3] }} transition={{ duration: 4, repeat: Infinity }}>🌑</motion.div>
-            <h2 className="text-6xl font-black text-white mb-4 tracking-widest uppercase" style={{ fontFamily: 'Amiri, serif' }}>الظلام دامس</h2>
-            <p className="text-[#808080] text-xl font-mono tracking-[0.3em]">OPERATION NIGHTFALL</p>
-            <AnimatePresence>
-              {animation && (
-                <motion.div initial={{ opacity: 0, scale: 0.9 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.9 }} className="noir-card p-10 mt-12 max-w-lg mx-auto border-[#8A0303]/40">
-                  <NightAnimCinematic data={animation} players={players} />
-                </motion.div>
-              )}
-            </AnimatePresence>
+          <motion.div key="night" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="relative z-10 w-full" style={{ height: 'calc(100dvh - 48px - 56px)' }}>
+            <NightScene animation={animation} stepType={nightStepType} players={players} />
           </motion.div>
         )}
 
-        {/* ═══ ملخص الصباح ═══ */}
+        {/* ═══ الصباح — «تقرير الفجر» ═══ */}
         {step === 'lobby' && phase === Phase.MORNING_RECAP && (
-          <motion.div key="morning" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="text-center relative z-10 w-full">
-            <motion.div 
-              className="text-9xl mb-8 opacity-60" 
-              animate={{ opacity: [0.4, 0.8, 0.4], rotate: [0, 5, -5, 0] }} 
-              transition={{ duration: 5, repeat: Infinity }}
-            >
-              ☀️
-            </motion.div>
-            <h2 className="text-5xl font-black text-white mb-4 tracking-widest uppercase" style={{ fontFamily: 'Amiri, serif' }}>صباح جديد</h2>
-            <p className="text-[#808080] text-lg font-mono tracking-[0.3em]">MORNING INTELLIGENCE REPORT</p>
-            <AnimatePresence>
-              {animation && (
-                <motion.div 
-                  initial={{ opacity: 0, scale: 0.8, y: 30 }} 
-                  animate={{ opacity: 1, scale: 1, y: 0 }} 
-                  exit={{ opacity: 0, scale: 0.8, y: -30 }} 
-                  transition={{ duration: 0.6 }}
-                  className="noir-card p-10 mt-12 max-w-xl mx-auto border-[#C5A059]/30"
-                >
-                  <NightAnimCinematic data={animation} players={players} />
-                </motion.div>
-              )}
-            </AnimatePresence>
+          <motion.div key="morning" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="relative z-10 w-full" style={{ height: 'calc(100dvh - 48px - 56px)' }}>
+            <MorningReport events={morningEvents} current={animation} players={players} teamCounts={teamCounts} />
           </motion.div>
         )}
 
@@ -2092,6 +2057,7 @@ function DisplayPageContent() {
 
       </div>
     </div>
+    </DisplayViewportProvider>
   );
 }
 
@@ -2135,6 +2101,17 @@ function GameOverCard({ player, role, isMafia, flipDelay, isAlive }: {
         rankTier={player.rankTier}
       />
     </motion.div>
+  );
+}
+
+// ══════════════════════════════════════════════════════
+// 📐 شبكة الكروت المحسوبة — اللوبي والتوزيع (وتُعاد في النهار بالمنطق نفسه)
+// ══════════════════════════════════════════════════════
+function RosterGrid({ players, reservedH, render }: { players: any[]; reservedH: number; render: (p: any, i: number, k: number) => React.ReactNode }) {
+  const vp = useDisplayViewport();
+  const grid = computeCardGrid(players.length, vp.availW, Math.max(200, vp.availH - reservedH), { gap: 18, maxK: 1.25 });
+  return (
+    <GridRows items={players} grid={grid} render={(p, i) => render(p, i, grid.k)} />
   );
 }
 
