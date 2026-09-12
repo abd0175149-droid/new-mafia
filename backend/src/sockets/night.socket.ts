@@ -1394,6 +1394,8 @@ export function registerNightEvents(io: Server, socket: Socket) {
         targetPhysicalId: event.targetPhysicalId,
         targetName: event.targetName,
         extra: event.extra,
+        // 🔑 مفتاح الحدث: إعادةُ العرض من الموجّه تُعيد تشغيل المشهد على الشاشة ولا تُضيف سطراً جديداً (قرار المالك 2026-09-12)
+        eventKey: `${state.round}:${data.eventIndex}:${event.type}:${event.targetPhysicalId ?? ''}`,
       });
 
       callback({ success: true });

@@ -14,6 +14,8 @@ import MafiaCard from '@/components/MafiaCard';
 import NightAnimCinematic from '@/components/NightAnimCinematic';
 import NightScene from '@/components/display/NightScene';
 import MorningReport from '@/components/display/MorningReport';
+import StreetStage, { type StageMode } from '@/components/display/StreetStage';
+import type { NightBeat } from '@/components/display/NightScene';
 import EliminationFx from '@/components/EliminationFx';
 import { EntranceOverlay, ENTRANCE_FULL_MS, ENTRANCE_COMPACT_MS, type EntrancePayload } from '@/components/EntranceOverlay';
 import { BirthdayCelebration, type Celebrant } from '@/components/BirthdayCelebration';
@@ -108,6 +110,13 @@ function DisplayPageContent() {
   // 🌙 الدور الجاري في الليل اليدويّ (night:step-info) · ☀️ أحداث الصباح المجمَّعة (تقرير الفجر)
   const [nightStepType, setNightStepType] = useState<string | null>(null);
   const [morningEvents, setMorningEvents] = useState<any[]>([]);
+  // 🌙 الليل بنمطيه على الشاشة (خطّة الإصلاح 2026-09-12): ليلة واحدة (كلّ الأدوار + طابور ضربات) أو دورٌ فدور
+  const [oneNight, setOneNight] = useState(false);
+  const [nightAbilities, setNightAbilities] = useState<string[]>([]);
+  const [nightBeats, setNightBeats] = useState<NightBeat[]>([]);
+  const beatIdRef = useRef(0); const prevStepRef = useRef<string | null>(null);
+  const pushBeats = (abilities: string[]) => { if (!abilities?.length) return; setNightBeats(prev => [...prev, ...abilities.map(a => ({ id: ++beatIdRef.current, ability: a }))]); };
+  const resetNightUi = () => { setOneNight(false); setNightAbilities([]); setNightBeats([]); prevStepRef.current = null; };
   const animTimerRef = useRef<NodeJS.Timeout | null>(null);
   // 🚪 تشريفة الدخول (طبقة بمستوى الصفحة) + مرجع الطور الحيّ لمعالجات السوكيت
   // (المعالجات تُسجَّل مرة واحدة فتلتقط قيمة phase القديمة — المرجع يحلّ ذلك)
@@ -454,7 +463,7 @@ function DisplayPageContent() {
       // تنظيف animations
       if (animTimerRef.current) { clearTimeout(animTimerRef.current); animTimerRef.current = null; }
       setAnimation(null);
-      if (data.phase === Phase.NIGHT) { setMorningEvents([]); setNightStepType(null); }
+      if (data.phase === Phase.NIGHT) { setMorningEvents([]); setNightStepType(null); resetNightUi(); }
       if (data.phase !== Phase.NIGHT) setNightStepType(null);
       if (data.phase === Phase.LOBBY) {
         setWinner(null);
@@ -491,8 +500,13 @@ function DisplayPageContent() {
 
     // ── صوت خلفي مميز لكل خطوة ليلية ──
     const onNightStepInfo = (data: any) => {
-      setNightStepType(data?.stepType || null);
+      const next = data?.stepType || null;
+      // دورٌ فدور: وصولُ الخطوة التالية يعني أنّ السابقة نُفِّذت → ضربةٌ على الشاشة (بلا هدف)
+      if (prevStepRef.current && prevStepRef.current !== next) pushBeats([prevStepRef.current]);
+      prevStepRef.current = next; setNightStepType(next);
     };
+    const onOneStarted = (data: any) => { setOneNight(true); setNightAbilities(Array.isArray(data?.abilities) ? data.abilities : []); setNightBeats([]); };
+    const onOneProgress = (data: any) => { if (Array.isArray(data?.acted)) pushBeats(data.acted.filter(Boolean)); };
 
     const onGameOver = (data: any) => {
       setGameTimerData(null);
@@ -547,7 +561,9 @@ function DisplayPageContent() {
     const onMorningEvent = (data: any) => {
       if (animTimerRef.current) { clearTimeout(animTimerRef.current); animTimerRef.current = null; }
       setAnimation(data);
-      setMorningEvents(prev => [...prev, data]);   // ☀️ تقرير الفجر يجمع الأحداث كلّها
+      // ☀️ تقرير الفجر يجمع الأحداث — وإعادةُ العرض من الموجّه تُحدّث السطر نفسه ولا تكرّره (مفتاح الحدث من الخادم)
+      const key = data?.eventKey ?? `${data?.type}:${data?.targetPhysicalId ?? ''}`;
+      setMorningEvents(prev => { const i = prev.findIndex(e => (e?.eventKey ?? `${e?.type}:${e?.targetPhysicalId ?? ''}`) === key); if (i < 0) return [...prev, data]; const next = prev.slice(); next[i] = data; return next; });
       animTimerRef.current = setTimeout(() => setAnimation(null), 10000);
     };
 
@@ -555,6 +571,7 @@ function DisplayPageContent() {
       setAnimation(null);
       setMorningEvents([]);
       setNightStepType(null);
+      resetNightUi();
     };
 
     const onConfigUpdated = (data: any) => {
@@ -590,6 +607,8 @@ function DisplayPageContent() {
     socket.on('game:phase-changed', onPhaseChanged);
     socket.on('night:animation', onNightAnimation);
     socket.on('night:step-info', onNightStepInfo);
+    socket.on('night:one-started', onOneStarted);
+    socket.on('night:one-progress', onOneProgress);
     socket.on('display:morning-event', onMorningEvent);
     socket.on('display:night-started', onNightStarted);
     socket.on('game:over', onGameOver);
@@ -836,6 +855,8 @@ function DisplayPageContent() {
       socket.off('game:phase-changed', onPhaseChanged);
       socket.off('night:animation', onNightAnimation);
       socket.off('night:step-info', onNightStepInfo);
+      socket.off('night:one-started', onOneStarted);
+      socket.off('night:one-progress', onOneProgress);
       socket.off('display:morning-event', onMorningEvent);
       socket.off('display:night-started', onNightStarted);
       socket.off('game:over', onGameOver);
@@ -1062,12 +1083,16 @@ function DisplayPageContent() {
     const t = setTimeout(() => { import('@/components/display/street/engine').then(m => m.preloadStreetAssets()).catch(() => {}); }, 2000);
     return () => clearTimeout(t);
   }, [step, phase]);
+  // 🏙️ المضيف الدائم للمدينة: الطور → وضع (الليل/الفجر/النهار خلف الكروت)، 'off' في اللوبي والنهاية
+  const stageMode: StageMode = step !== 'lobby' ? 'off' : phase === Phase.NIGHT ? 'night' : phase === Phase.MORNING_RECAP ? 'dawn' : phase.startsWith('DAY_') ? 'day' : 'off';
   const navVisible = step === 'lobby' && phase !== Phase.LOBBY && phase !== Phase.ROLE_GENERATION && phase !== Phase.ROLE_BINDING && (teamCounts.mafiaAlive > 0 || teamCounts.citizenAlive > 0 || (teamCounts.neutralAlive ?? 0) > 0);
 
   return (
     // 📐 الجذر مقفولٌ على ارتفاع الشاشة: لا تمرير أبداً؛ FitToScreen يصغّر ما يفيض (قرار المالك 2026-09-12)
     <DisplayViewportProvider navVisible={navVisible}>
     <div className="display-bg h-[100dvh] relative overflow-hidden flex flex-col items-center justify-center px-8 py-6 font-sans noir-vignette selection:bg-[#8A0303] selection:text-white w-full">
+      {/* 🏙️ مشهد المدينة الدائم خلف كلّ الطبقات */}
+      <StreetStage mode={stageMode} event={phase === Phase.MORNING_RECAP ? (animation?.type ?? null) : null} eventKey={animation?.eventKey ?? morningEvents.length} docked={phase === Phase.MORNING_RECAP} ambient={stageMode === 'day'} />
 
       <div className="relative z-10 w-full h-full min-h-0 flex flex-col items-center justify-center">
 
@@ -1636,7 +1661,7 @@ function DisplayPageContent() {
         {/* ═══ الليل — «المدينة تنام» ═══ */}
         {step === 'lobby' && phase === Phase.NIGHT && (
           <motion.div key="night" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="relative z-10 w-full" style={{ height: 'calc(100dvh - 48px - 56px)' }}>
-            <NightScene animation={animation} stepType={nightStepType} players={players} />
+            <NightScene stepType={nightStepType} oneNight={oneNight} abilities={nightAbilities} beats={nightBeats} />
           </motion.div>
         )}
 

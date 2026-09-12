@@ -1,80 +1,100 @@
 'use client';
 // ══════════════════════════════════════════════════════
-// 🌙 الليل — «المدينة تنام» (شاشة القاعة)
+// 🌙 الليل — طبقة الواجهة فوق مشهد المدينة (المشهد نفسه يعيش في StreetStage على مستوى الصفحة)
 // ══════════════════════════════════════════════════════
-// قرار المالك 2026-09-12: الليل كان رمزاً وعنواناً وصندوقاً صغيراً — صار مشهداً كامل الشاشة:
-// زقاقٌ ثلاثيّ الأبعاد بروح المافيا الإيطاليّة (StreetScene: واجهات حجريّة، أسفلت مبلّل، مصابيح،
-// حبال مصابيح، سيّارة كلاسيكيّة، مطر وضباب)، شريط «من يتحرّك الليلة» بأيقونات الأدوار يُضاء فيه الدورُ الحاليّ في النمط
-// اليدويّ (night:step-info) وتنبض كلّها معاً في «الليلة الواحدة» — بلا كشف أهدافٍ أو أسماء.
-// مشهد كلّ خطوة (NightAnimCinematic) يكبر إلى وسط الشاشة بدل الصندوق.
-// لا تصويرَ للأدوار الفعليّة في الغرفة (أدوار الأحياء سرّ): الشريط أيقوناتُ الليل المعتادة.
+// خطّة الإصلاح المعتمدة 2026-09-12:
+// • «ليلة واحدة»: كلّ الأدوار مضاءة، وكلّ إرسالٍ يدخل «طابور الضربات» بترتيب التنفيذ الرسميّ
+//   ويُعرض 4 ثوانٍ بلا تراكب: أداةٌ ثلاثيّة الأبعاد للدور + جملة — بلا هدفٍ ولا اسم.
+// • «دورٌ فدور»: الدور الجاري يُضاء في الشريط، وتُضاف ضربةٌ عند إتمام كلّ خطوة.
+// • قبل اختيار النمط: شارة «بانتظار الموجّه».
+// 🔒 لا أسماءَ ولا أهدافَ هنا أبداً.
 // ══════════════════════════════════════════════════════
-import dynamic from 'next/dynamic';
-import { motion } from 'framer-motion';
+import { useEffect, useRef, useState } from 'react';
+import { motion, AnimatePresence } from 'framer-motion';
+import PropStage from './PropStage';
 
-// 🏙️ المشهد الثلاثيّ الأبعاد (three) — عميلٌ فقط
-const StreetScene = dynamic(() => import('./StreetScene'), { ssr: false, loading: () => <div className="absolute inset-0" style={{ background: '#05060c' }} /> });
+export type NightBeat = { id: number; ability: string };
+interface Props { stepType: string | null; oneNight?: boolean; abilities?: string[]; beats?: NightBeat[]; }
 
-interface Props {
-  animation: any | null;          // مشهد الخطوة الحاليّة (night:animation)
-  stepType: string | null;        // معرّف القدرة الجارية في النمط اليدويّ (night:step-info)
-  players: any[];
-  oneNight?: boolean;             // الليلة الواحدة: الجميع يختار معاً
-}
-
-// أيقونات الليل (معرّفات القدرات كما يبثّها الخادم في stepType) — بلا أسماءٍ ولا أهداف
-const NIGHT_ROLES: Array<{ keys: string[]; icon: string; label: string; en: string }> = [
-  { keys: ['MAFIA_KILL', 'GODFATHER', 'MAFIA', 'ASSASSINATION', 'MAFIA_REGULAR'], icon: '🔪', label: 'المافيا', en: 'MAFIA' },
-  { keys: ['SILENCER', 'SILENCE'], icon: '🤐', label: 'المُسكِت', en: 'SILENCER' },
-  { keys: ['WITCH', 'WITCH_DISABLE', 'DISABLE_ABILITY'], icon: '🔮', label: 'الساحرة', en: 'WITCH' },
-  { keys: ['SHERIFF', 'SHERIFF_INVESTIGATE', 'INVESTIGATION'], icon: '🔍', label: 'الشريف', en: 'SHERIFF' },
-  { keys: ['DOCTOR', 'DOCTOR_PROTECT', 'PROTECTION', 'NURSE'], icon: '💉', label: 'الطبيب', en: 'DOCTOR' },
-  { keys: ['SNIPER', 'SNIPER_SHOOT', 'SNIPE'], icon: '🎯', label: 'القنّاص', en: 'SNIPER' },
-  { keys: ['ASSASSIN', 'ASSASSIN_KILL'], icon: '🗡️', label: 'السفّاح', en: 'ASSASSIN' },
+// ترتيب التنفيذ الرسميّ للّيل (يطابق NIGHT_QUEUE_ORDER في الخادم)
+const ORDER = ['KILL', 'SILENCE', 'DISABLE_ABILITY', 'INVESTIGATE', 'PROTECT', 'SNIPE', 'ASSASSINATE'];
+const rank = (a: string) => { const i = ORDER.findIndex(k => a.toUpperCase().includes(k)); return i < 0 ? 99 : i; };
+const NIGHT_ROLES: Array<{ keys: string[]; icon: string; label: string; en: string; beat: string }> = [
+  { keys: ['KILL', 'GODFATHER', 'MAFIA', 'ASSASSINATION', 'MAFIA_REGULAR'], icon: '🔪', label: 'المافيا', en: 'MAFIA', beat: 'المافيا اختارت هدفها' },
+  { keys: ['SILENCER', 'SILENCE'], icon: '🤐', label: 'المُسكِت', en: 'SILENCER', beat: 'المُسكِت أخرس صوتاً' },
+  { keys: ['WITCH', 'DISABLE'], icon: '🔮', label: 'الساحرة', en: 'WITCH', beat: 'الساحرة عطّلت قدرةً' },
+  { keys: ['SHERIFF', 'INVESTIGAT'], icon: '🔍', label: 'الشريف', en: 'SHERIFF', beat: 'الشريف حقّق في هويّة' },
+  { keys: ['DOCTOR', 'PROTECT', 'NURSE'], icon: '💉', label: 'الطبيب', en: 'DOCTOR', beat: 'الطبيب حمى أحدهم' },
+  { keys: ['SNIPER', 'SNIPE'], icon: '🎯', label: 'القنّاص', en: 'SNIPER', beat: 'القنّاص صوّب' },
+  { keys: ['ASSASSIN', 'ASSASSINATE'], icon: '🗡️', label: 'السفّاح', en: 'ASSASSIN', beat: 'السفّاح نفّذ عقداً' },
 ];
+const roleOf = (a: string | null | undefined) => { const u = (a || '').toUpperCase(); return NIGHT_ROLES.find(r => r.keys.some(k => u.includes(k))) || null; };
+const GOLD = { fontFamily: 'Amiri, serif', background: 'linear-gradient(180deg, #f6e7bd 0%, #C5A059 52%, #7d5f2a 100%)', WebkitBackgroundClip: 'text', backgroundClip: 'text', color: 'transparent', filter: 'drop-shadow(0 2px 0 rgba(0,0,0,.85)) drop-shadow(0 0 22px rgba(197,160,89,.35))' } as const;
 
-export default function NightScene({ stepType, oneNight }: Props) {
-  const activeIdx = stepType ? NIGHT_ROLES.findIndex(r => r.keys.some(k => stepType.toUpperCase().includes(k))) : -1;
+export default function NightScene({ stepType, oneNight, abilities, beats }: Props) {
+  const [showing, setShowing] = useState<NightBeat | null>(null);
+  const queue = useRef<NightBeat[]>([]); const seen = useRef(0); const busy = useRef(false);
+  useEffect(() => {
+    const list = beats || []; if (!list.length) { queue.current = []; seen.current = 0; return; }
+    const fresh = list.slice(seen.current); seen.current = list.length; if (!fresh.length) return;
+    queue.current.push(...fresh); queue.current.sort((a, b) => rank(a.ability) - rank(b.ability) || a.id - b.id);
+    const pump = () => { if (busy.current || !queue.current.length) return; const b = queue.current.shift()!; busy.current = true; setShowing(b); setTimeout(() => { setShowing(null); busy.current = false; setTimeout(pump, 500); }, 3800); };
+    pump();
+  }, [beats]);
+
+  const activeKeys = new Set<string>();
+  if (oneNight) (abilities?.length ? abilities : ORDER).forEach(a => { const r = roleOf(a); if (r) activeKeys.add(r.en); });
+  else if (stepType) { const r = roleOf(stepType); if (r) activeKeys.add(r.en); }
+  const showingRole = showing ? roleOf(showing.ability) : null;
+  const waiting = !oneNight && !stepType && !showing;
 
   return (
-    <div className="relative w-full h-full min-h-[70vh] overflow-hidden rounded-2xl" dir="rtl">
+    <div className="relative w-full h-full min-h-[70vh] overflow-hidden" dir="rtl">
       <style>{`
         @keyframes nsPulse { 0%,100% { transform: scale(1); opacity: .55 } 50% { transform: scale(1.08); opacity: 1 } }
         .ns-role-on { animation: nsPulse 1.6s ease-in-out infinite }
         @media (prefers-reduced-motion: reduce) { .ns-role-on { animation: none !important } }
       `}</style>
 
-      {/* 🏙️ زقاق المافيا ليلاً — three.js */}
-      <StreetScene mode="night" />
-      {/* تعتيمٌ خفيف أسفل الشاشة كي تُقرأ الطبقات فوقه */}
-      <div className="absolute inset-x-0 bottom-0 h-[35%] pointer-events-none" style={{ background: 'linear-gradient(180deg, transparent, rgba(0,0,0,.55))' }} />
-
-      {/* العنوان — ذهبيّ بطابع النادي، في الزاوية كي لا يحجب المدينة (قرار المالك 2026-09-12) */}
+      {/* العنوان الذهبيّ في الزاوية */}
       <motion.div initial={{ opacity: 0, y: 18 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 1.2, delay: .4 }} className="absolute left-8 bottom-7 pointer-events-none text-left" dir="ltr">
         <div className="flex items-center gap-3 mb-1"><span className="h-px w-12 bg-[#C5A059]/70" /><span className="text-[10px] font-mono tracking-[0.5em] text-[#C5A059]/90">OPERATION NIGHTFALL</span></div>
-        <h2 className="text-6xl font-black leading-none" dir="rtl" style={{ fontFamily: 'Amiri, serif', background: 'linear-gradient(180deg, #f6e7bd 0%, #C5A059 52%, #7d5f2a 100%)', WebkitBackgroundClip: 'text', backgroundClip: 'text', color: 'transparent', filter: 'drop-shadow(0 2px 0 rgba(0,0,0,.85)) drop-shadow(0 0 22px rgba(197,160,89,.35))' }}>الظلام دامس</h2>
+        <h2 className="text-6xl font-black leading-none" dir="rtl" style={GOLD}>الظلام دامس</h2>
         <p className="text-[11px] font-mono tracking-[0.35em] text-[#9a8f7d] mt-2">THE CITY SLEEPS · NOBODY TALKS</p>
       </motion.div>
 
       {/* شريط «من يتحرّك الليلة» */}
       <div className="absolute right-6 top-6 bottom-6 w-[150px] flex flex-col items-center justify-center gap-3">
         <p className="text-[10px] font-mono tracking-[0.3em] text-[#8a8a8a] mb-1">TONIGHT</p>
-        {NIGHT_ROLES.map((r, i) => {
-          const on = oneNight ? true : i === activeIdx;
-          return (
-            <div key={r.en} className={`w-[130px] rounded-xl border px-3 py-2 flex items-center gap-3 backdrop-blur-sm ${on ? 'ns-role-on border-[#C5A059] bg-[#C5A059]/15' : 'border-white/10 bg-black/40 opacity-45'}`}>
-              <span className="text-2xl">{r.icon}</span>
-              <div className="leading-tight">
-                <p className={`text-sm font-bold ${on ? 'text-[#C5A059]' : 'text-[#bbb]'}`}>{r.label}</p>
-                <p className="text-[9px] font-mono tracking-widest text-[#777]">{r.en}</p>
-              </div>
-            </div>
-          );
-        })}
+        {NIGHT_ROLES.map(r => { const on = activeKeys.has(r.en); const now = showingRole?.en === r.en; return (
+          <div key={r.en} className={`w-[130px] rounded-xl border px-3 py-2 flex items-center gap-3 backdrop-blur-sm transition-all duration-500 ${now ? 'border-[#f6e7bd] bg-[#C5A059]/30 scale-105' : on ? 'ns-role-on border-[#C5A059] bg-[#C5A059]/15' : 'border-white/10 bg-black/40 opacity-45'}`}>
+            <span className="text-2xl">{r.icon}</span>
+            <div className="leading-tight"><p className={`text-sm font-bold ${on || now ? 'text-[#C5A059]' : 'text-[#bbb]'}`}>{r.label}</p><p className="text-[9px] font-mono tracking-widest text-[#777]">{r.en}</p></div>
+          </div>); })}
         {oneNight && <p className="text-[10px] text-[#C5A059] mt-1 text-center">الجميع يختار الآن</p>}
       </div>
 
-      {/* لا صندوقَ للخطوة فوق المدينة: الدور الجاري يُضاء في الشريط، والمشهد ثلاثيّ الأبعاد يبقى نظيفاً (قرار المالك 2026-09-12) */}
+      {/* شارة انتظار النمط */}
+      {waiting && (
+        <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 rounded-2xl border border-[#C5A059]/40 bg-black/60 backdrop-blur-md px-7 py-4 text-center">
+          <p className="text-[10px] font-mono tracking-[0.35em] text-[#C5A059] mb-1">NIGHT MODE · بانتظار الموجّه</p>
+          <p className="text-sm text-[#cfc6b8]">ليلة واحدة أم دورٌ فدور؟</p>
+        </motion.div>
+      )}
+
+      {/* ضربة الليل: أداةٌ ثلاثيّة الأبعاد + جملة الدور — بلا هدف */}
+      <AnimatePresence>
+        {showing && showingRole && (
+          <motion.div key={showing.id} initial={{ opacity: 0, x: -24 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -24 }} transition={{ duration: .45 }}
+            className="absolute left-[3%] top-[9%] flex items-center gap-4 rounded-2xl border border-[#C5A059]/40 bg-black/65 backdrop-blur-md px-4 py-3" dir="rtl">
+            <PropStage type={showing.ability} size={112} />
+            <div className="text-right">
+              <h4 className="text-3xl font-black text-[#e2c07a] leading-tight" style={{ fontFamily: 'Amiri, serif' }}>{showingRole.beat}</h4>
+              <p className="text-xs text-[#a9a293] mt-1">{showingRole.label} · بلا كشف هدفٍ أو اسم</p>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }

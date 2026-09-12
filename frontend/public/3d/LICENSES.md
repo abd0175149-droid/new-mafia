@@ -9,12 +9,20 @@
 ## Poly Haven (CC0)
 - hdri/klippad_sunrise_2_1k.hdr — "klippad_sunrise_2" — Poly Haven — CC0 — https://polyhaven.com/a/klippad_sunrise_2
 - hdri/moonless_golf_1k.hdr — "moonless_golf" — Poly Haven — CC0 — https://polyhaven.com/a/moonless_golf
+- models/bolt_action_rifle_7_62 — "bolt_action_rifle_7_62" — Poly Haven — CC0 — https://polyhaven.com/a/bolt_action_rifle_7_62
 - models/cardboard_box_01 — "cardboard_box_01" — Poly Haven — CC0 — https://polyhaven.com/a/cardboard_box_01
+- models/chemistry_set — "chemistry_set" — Poly Haven — CC0 — https://polyhaven.com/a/chemistry_set
 - models/covered_car — "covered_car" — Poly Haven — CC0 — https://polyhaven.com/a/covered_car
 - models/fire_hydrant — "fire_hydrant" — Poly Haven — CC0 — https://polyhaven.com/a/fire_hydrant
+- models/magnifying_glass_01 — "magnifying_glass_01" — Poly Haven — CC0 — https://polyhaven.com/a/magnifying_glass_01
+- models/medical_box — "medical_box" — Poly Haven — CC0 — https://polyhaven.com/a/medical_box
+- models/medical_tape — "medical_tape" — Poly Haven — CC0 — https://polyhaven.com/a/medical_tape
 - models/metal_trash_can — "metal_trash_can" — Poly Haven — CC0 — https://polyhaven.com/a/metal_trash_can
+- models/modular_electricity_poles — "modular_electricity_poles" — Poly Haven — CC0 — https://polyhaven.com/a/modular_electricity_poles
 - models/modular_fire_escape — "modular_fire_escape" — Poly Haven — CC0 — https://polyhaven.com/a/modular_fire_escape
 - models/modular_metal_gutter — "modular_metal_gutter" — Poly Haven — CC0 — https://polyhaven.com/a/modular_metal_gutter
+- models/ornate_medieval_dagger — "ornate_medieval_dagger" — Poly Haven — CC0 — https://polyhaven.com/a/ornate_medieval_dagger
+- models/ornate_mirror_01 — "ornate_mirror_01" — Poly Haven — CC0 — https://polyhaven.com/a/ornate_mirror_01
 - models/outdoor_table_chair_set_01 — "outdoor_table_chair_set_01" — Poly Haven — CC0 — https://polyhaven.com/a/outdoor_table_chair_set_01
 - models/painted_wooden_bench — "painted_wooden_bench" — Poly Haven — CC0 — https://polyhaven.com/a/painted_wooden_bench
 - models/planter_box_01 — "planter_box_01" — Poly Haven — CC0 — https://polyhaven.com/a/planter_box_01

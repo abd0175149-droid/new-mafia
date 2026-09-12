@@ -225,6 +225,8 @@ export function registerOneNightEvents(io: Server, socket: Socket) {
       await emitTrustedOnly(io, data.roomId, 'night:one-started', {
         deadline, total: state.players.filter(x => x.isAlive).length, acting: plan.length,
         roster: rosterOf(state),
+        // 🏙️ للشاشة: القدرات التي تتحرّك الليلة (بلا مقاعد ولا أسماء) — تُضيء في شريط الليل
+        abilities: Array.from(new Set(plan.map(s => s.abilityId))),
       });
 
       clearOneNightTimer(data.roomId);
@@ -287,6 +289,8 @@ export function registerOneNightEvents(io: Server, socket: Socket) {
       const done = aliveSeats.filter(s => on.submitted[String(s)]).length;
       await emitTrustedOnly(io, roomId, 'night:one-progress', {
         done, total: aliveSeats.length, roster: rosterOf(state),
+        // 🏙️ للشاشة: القدرات التي نُفِّذت بهذا الإرسال (بلا مقعدٍ ولا هدف) — تدخل طابور «ضربات الليل» بترتيب التنفيذ
+        acted: mine.map(s => s.abilityId),
       });
 
       if (done >= aliveSeats.length) {

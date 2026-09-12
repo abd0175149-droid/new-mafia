@@ -1,0 +1,11 @@
+Model Information:
+* title:	CC0 - Awning
+* source:	https://sketchfab.com/3d-models/cc0-awning-47e5fd8a6b194b48aad20425869d15ba
+* author:	plaggy (https://sketchfab.com/plaggy)
+
+Model License:
+* license type:	CC-BY-4.0 (http://creativecommons.org/licenses/by/4.0/)
+* requirements:	Author must be credited. Commercial use is allowed.
+
+If you use this 3D model in your project be sure to copy paste this credit wherever you share it:
+This work is based on "CC0 - Awning" (https://sketchfab.com/3d-models/cc0-awning-47e5fd8a6b194b48aad20425869d15ba) by plaggy (https://sketchfab.com/plaggy) licensed under CC-BY-4.0 (http://creativecommons.org/licenses/by/4.0/)
