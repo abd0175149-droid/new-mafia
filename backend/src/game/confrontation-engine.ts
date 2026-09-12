@@ -8,7 +8,7 @@
 // دوالٌ نقيّة على كائن الحالة — لا تلمس Redis ولا المؤقّتات؛ الحفظ والبثّ والمؤقّتات
 // في sockets/day-confrontation.socket.ts.
 // ══════════════════════════════════════════════════════
-import { GameState, Phase, Confrontation, ConfrontationStatus } from './state.js';
+import { GameState, Phase, Confrontation, ConfrontationStatus, PulseSummary } from './state.js';
 import { teamOfRole } from './roles.js';
 
 export const CONFRONTATION_RESPOND_SECONDS = 20;   // مهلة ردّ المستهدَف
@@ -172,7 +172,9 @@ export function startConfrontation(state: GameState, id: string, now = Date.now(
   if (!c) throw new Error('المواجهة غير موجودة');
   if (c.status !== 'ACCEPTED') throw new Error('المواجهة ليست بانتظار البدء');
   if (state.phase !== Phase.DAY_DISCUSSION) throw new Error('تُنفَّذ المواجهة في مرحلة النقاش فقط');
-  if (activeConfrontation(state)) throw new Error('هناك مواجهةٌ جارية الآن');
+  // مواجهةٌ جارية (ولو انقضى وقتها)؟ بدءُ التالية يغلقها ويختم نبضها — قرار المالك 2026-09-12
+  const live = activeConfrontation(state);
+  if (live) endConfrontation(state, live.id, now);
   if (state.discussionState && state.discussionState.status === 'SPEAKING' && !state.discussionState.isFinished)
     throw new Error('أوقف المتحدّث الحاليّ أولاً');
   const req = state.players.find(p => p.physicalId === c.requesterPhysicalId);
@@ -194,6 +196,7 @@ export function adjustConfrontationStage(state: GameState, id: string, deltaSeco
   const elapsed = Math.max(0, Math.floor((now - c.stageStartedAt) / 1000));
   // لا تقلّ المدّة الجديدة عمّا مضى + ٣ث كي لا ينتهي الدور في اللحظة نفسها بلا إنذار
   c.stageSeconds = Math.min(CONFRONTATION_STAGE_MAX, Math.max(elapsed + 3, c.stageSeconds + d));
+  if (c.timeUp && c.stageStartedAt + c.stageSeconds * 1000 > now) c.timeUp = false;   // تمديدٌ بعد انقضاء الوقت يعيد العدّ
   return c;
 }
 
@@ -204,7 +207,9 @@ export function endConfrontation(state: GameState, id: string, now = Date.now())
   if (c.status !== 'LIVE') throw new Error('المواجهة ليست جارية');
   c.status = 'DONE';
   c.stageStartedAt = null;
+  c.timeUp = false;
   c.finishedAt = now;
+  c.pulse = pulseSummary(state, c);   // 🗳️ يُختم النبض لحظة الإغلاق
   const req = state.players.find(p => p.physicalId === c.requesterPhysicalId);
   const tgt = state.players.find(p => p.physicalId === c.targetPhysicalId);
   if (!state.performanceTracking) state.performanceTracking = { dealOutcomes: [], abilityResults: [], eliminationLog: [] };
@@ -217,8 +222,97 @@ export function endConfrontation(state: GameState, id: string, now = Date.now())
     requesterTeam: teamOfRole(req?.role),
     targetTeam: teamOfRole(tgt?.role),
     outcome: null,
+    pulse: c.pulse,
+    pulseVotes: { ...(c.pulseVotes || {}) },
   });
   return c;
+}
+
+// ══════════════════════════════════════════════════════
+// 🗳️ نبض الإقناع — تصويت القاعة أثناء المواجهة (قرار المالك 2026-09-12)
+//   المستوى ١: يُعرض ويُختم ويُسجَّل. المستوى ٢: شارةٌ في التصويت وسطرٌ في الكشف.
+//   المستوى ٣ (بمفتاح pulseBreaksTies): خاسر النبض يُقصى عند تعادل الإقصاء.
+// ══════════════════════════════════════════════════════
+export function pulseEnabled(state: GameState): boolean {
+  return state.config?.pulseEnabled !== false;
+}
+
+/** صوتٌ من حيٍّ غير طرف — يُستبدل ما دامت المواجهة LIVE (ولو انقضى الوقت). */
+export function castPulse(state: GameState, id: string, voterPhysicalId: number, side: 'REQ' | 'TGT'): Confrontation {
+  const c = findConfrontation(state, id);
+  if (!c) throw new Error('المواجهة غير موجودة');
+  if (!pulseEnabled(state)) throw new Error('نبض الإقناع معطّل في هذه الغرفة');
+  if (c.status !== 'LIVE') throw new Error('التصويت متاح أثناء المواجهة فقط');
+  if (side !== 'REQ' && side !== 'TGT') throw new Error('اختيارٌ غير صالح');
+  const voter = state.players.find(p => p.physicalId === voterPhysicalId);
+  if (!voter?.isAlive) throw new Error('المُقصى لا يصوّت');
+  if (voterPhysicalId === c.requesterPhysicalId || voterPhysicalId === c.targetPhysicalId) throw new Error('طرفا المواجهة لا يصوّتان');
+  if (!c.pulseVotes) c.pulseVotes = {};
+  c.pulseVotes[voterPhysicalId] = side;
+  return c;
+}
+
+/** انقضاء الوقت: تبقى LIVE على الشاشة (النبض مفتوح) حتى يغلق الليدر. */
+export function markTimeUp(state: GameState, id: string): Confrontation | null {
+  const c = findConfrontation(state, id);
+  if (!c || c.status !== 'LIVE' || c.timeUp) return null;
+  c.timeUp = true;
+  return c;
+}
+
+export function pulseSummary(state: GameState, c: Confrontation): PulseSummary {
+  const eligible = state.players.filter(p => p.isAlive && p.physicalId !== c.requesterPhysicalId && p.physicalId !== c.targetPhysicalId).length;
+  const votes = Object.values(c.pulseVotes || {});
+  const req = votes.filter(v => v === 'REQ').length;
+  const tgt = votes.filter(v => v === 'TGT').length;
+  const total = req + tgt;
+  const quorum = total > 0 && total >= Math.ceil(eligible / 2);
+  const winner: PulseSummary['winner'] = !quorum ? null : req === tgt ? 'TIE' : req > tgt ? 'REQ' : 'TGT';
+  const winnerPhysicalId = winner === 'REQ' ? c.requesterPhysicalId : winner === 'TGT' ? c.targetPhysicalId : null;
+  const loserPhysicalId = winner === 'REQ' ? c.targetPhysicalId : winner === 'TGT' ? c.requesterPhysicalId : null;
+  const pct = total ? Math.round(100 * Math.max(req, tgt) / total) : 0;
+  return { req, tgt, eligible, quorum, winner, winnerPhysicalId, loserPhysicalId, pct };
+}
+
+/** المستوى ٣: مرشّحٌ متعادل هو خاسر نبض مواجهةٍ مختومة في هذه الجولة — واحدٌ بالضبط وإلّا لا اقتراح. */
+export function pulseTieSuggestion(state: GameState, tiedCandidates: Array<{ targetPhysicalId?: number }>): { physicalId: number; pct: number; confrontationId: string; winnerPhysicalId: number } | null {
+  if (!state.config?.pulseBreaksTies || !pulseEnabled(state)) return null;
+  const losers = roundConfrontations(state).filter(c => c.status === 'DONE' && c.pulse?.loserPhysicalId != null);
+  const hits: Array<{ physicalId: number; pct: number; confrontationId: string; winnerPhysicalId: number }> = [];
+  for (const cand of tiedCandidates || []) {
+    const pid = Number(cand?.targetPhysicalId);
+    const c = losers.find(x => x.pulse!.loserPhysicalId === pid);
+    if (c) hits.push({ physicalId: pid, pct: c.pulse!.pct, confrontationId: c.id, winnerPhysicalId: c.pulse!.winnerPhysicalId! });
+  }
+  return hits.length === 1 ? hits[0] : null;
+}
+
+/** المستوى ٢: شارات التصويت — لكلّ طرفٍ في مواجهةٍ مختومة بنصاب هذه الجولة. */
+export function pulseBadges(state: GameState): Record<number, { won: boolean; pct: number; vsPhysicalId: number }> {
+  const out: Record<number, { won: boolean; pct: number; vsPhysicalId: number }> = {};
+  for (const c of roundConfrontations(state)) {
+    const ps = c.status === 'DONE' ? c.pulse : null;
+    if (!ps?.quorum || ps.winner === 'TIE' || !ps.winner) continue;
+    out[ps.winnerPhysicalId!] = { won: true, pct: ps.pct, vsPhysicalId: ps.loserPhysicalId! };
+    out[ps.loserPhysicalId!] = { won: false, pct: 100 - ps.pct, vsPhysicalId: ps.winnerPhysicalId! };
+  }
+  return out;
+}
+
+/** سطرٌ لكشف الإقصاء: «وُوجه وخسر النبض ٦٤٪» / «واجهه فلان وربح النبض» */
+export function confrontationNotes(state: GameState, eliminatedIds: number[]): Record<number, string> {
+  const out: Record<number, string> = {};
+  const nameOf = (pid: number) => state.players.find(p => p.physicalId === pid)?.name || `#${pid}`;
+  for (const pid of eliminatedIds) {
+    const c = roundConfrontations(state).find(x => x.status === 'DONE' && (x.requesterPhysicalId === pid || x.targetPhysicalId === pid));
+    if (!c) continue;
+    const other = c.requesterPhysicalId === pid ? c.targetPhysicalId : c.requesterPhysicalId;
+    const role = c.requesterPhysicalId === pid ? `واجه ${nameOf(other)}` : `واجهه ${nameOf(other)}`;
+    const ps = c.pulse;
+    if (!ps?.quorum || !ps.winner || ps.winner === 'TIE') { out[pid] = `⚔️ ${role}`; continue; }
+    out[pid] = ps.loserPhysicalId === pid ? `⚔️ ${role} وخسر النبض (${100 - ps.pct}٪)` : `⚔️ ${role} وربح النبض (${ps.pct}٪)`;
+  }
+  return out;
 }
 
 /** موعد انقضاء المرحلة الجارية (ms) — لمؤقّت الخادم. */
@@ -240,7 +334,19 @@ export function stampConfrontationOutcome(state: GameState, eliminatedPhysicalId
   const round = state.round || 1;
   let n = 0;
   for (const e of list) {
-    if (e.round !== round || e.targetPhysicalId !== eliminatedPhysicalId || e.outcome) continue;
+    if (e.round !== round) continue;
+    // 🗳️ النبض مع الحقيقة: أُقصي أحد الطرفين بالتصويت وكُشف مافيا، والطرف الآخر مواطنٌ ربح النبض
+    const isReq = e.requesterPhysicalId === eliminatedPhysicalId, isTgt = e.targetPhysicalId === eliminatedPhysicalId;
+    if ((isReq || isTgt) && e.pulse?.winner && e.pulse.winner !== 'TIE' && e.pulseVindicated == null) {
+      const elimTeam = isReq ? e.requesterTeam : e.targetTeam;
+      const otherTeam = isReq ? e.targetTeam : e.requesterTeam;
+      const otherSide: 'REQ' | 'TGT' = isReq ? 'TGT' : 'REQ';
+      if (elimTeam === 'MAFIA' && otherTeam === 'CITIZEN' && e.pulse.winner === otherSide) {
+        e.pulseVindicated = true;
+        e.correctVoters = Object.entries(e.pulseVotes || {}).filter(([, v]) => v === otherSide).map(([k]) => Number(k));
+      } else e.pulseVindicated = false;
+    }
+    if (!isTgt || e.outcome) continue;
     if (e.requesterTeam === 'CITIZEN') e.outcome = e.targetTeam === 'MAFIA' ? 'MAFIA_EXPOSED' : e.targetTeam === 'CITIZEN' ? 'CITIZEN_HIT' : 'NONE';
     else if (e.requesterTeam === 'MAFIA') e.outcome = e.targetTeam === 'MAFIA' ? 'MAFIA_BETRAYAL' : 'NONE';
     else e.outcome = 'NONE';
@@ -259,7 +365,20 @@ export function publicConfrontations(state: GameState) {
     respondSeconds: CONFRONTATION_RESPOND_SECONDS,
     stageSeconds: stageSecondsFor(state),
     used: state.confrontationsUsed || {},
-    confrontations: roundConfrontations(state),
+    pulseEnabled: pulseEnabled(state),
+    pulseBreaksTies: state.config?.pulseBreaksTies === true,
+    // 🔴 الأصوات الفرديّة سرّ — تُقصّ؛ ويُرفق الملخّص الحيّ لكلّ مواجهةٍ جارية
+    confrontations: roundConfrontations(state).map(c => {
+      const { pulseVotes, ...pub } = c;
+      return { ...pub, pulse: c.status === 'LIVE' ? pulseSummary(state, c) : c.pulse ?? null };
+    }),
     serverTime: Date.now(),
   };
+}
+
+/** صوت هذا اللاعب في كلّ مواجهات الجولة (لردّ get-confrontations على الهاتف) */
+export function myPulseVotes(state: GameState, physicalId: number): Record<string, 'REQ' | 'TGT'> {
+  const out: Record<string, 'REQ' | 'TGT'> = {};
+  for (const c of roundConfrontations(state)) { const v = c.pulseVotes?.[physicalId]; if (v) out[c.id] = v; }
+  return out;
 }

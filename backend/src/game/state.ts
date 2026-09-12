@@ -107,6 +107,18 @@ export type ConfrontationStatus =
   | 'DECLINED'   // رفضها المستهدَف أو الليدر (تُعلَن على الشاشة؛ لا تُستهلك)
   | 'CANCELLED'; // ألغاها الليدر بعد القبول (يُردّ الرصيد)
 
+/** 🗳️ نبض الإقناع — ملخّصٌ علنيّ (لا يحمل أصواتاً فرديّة) */
+export interface PulseSummary {
+  req: number;                    // أصواتٌ للطالب
+  tgt: number;                    // أصواتٌ للمستهدَف
+  eligible: number;               // الأحياء غير الطرفين
+  quorum: boolean;                // بلغ النصاب (نصف المؤهّلين)
+  winner: 'REQ' | 'TGT' | 'TIE' | null;   // null ⇒ بلا نصاب
+  winnerPhysicalId: number | null;
+  loserPhysicalId: number | null;
+  pct: number;                    // نسبة الفائز من الأصوات (0-100)
+}
+
 export interface Confrontation {
   id: string;
   round: number;
@@ -120,6 +132,9 @@ export interface Confrontation {
   declinedBy?: 'TARGET' | 'LEADER';
   stageSeconds: number;              // مدّة المواجهة كلّها للطرفين معاً (الافتراضي ٦٠ث)
   stageStartedAt?: number | null;    // بداية التنفيذ (LIVE)
+  timeUp?: boolean;                  // انقضى الوقت والمواجهة باقية على الشاشة حتى يغلقها الليدر
+  pulseVotes?: Record<number, 'REQ' | 'TGT'>;   // 🗳️ أصوات القاعة (physicalId → الجانب) — سرّيّة، تُقصّ من البثّ
+  pulse?: PulseSummary;              // يُختم عند الإغلاق
   finishedAt?: number;
 }
 
@@ -283,6 +298,8 @@ export interface GameConfig {
   confrontationEnabled?: boolean;  // ⚔️ مواجهة النهار الوجاهيّة (الافتراضي false) — تُضبط كغرفة التشاور
   confrontationsPerPlayer?: number; // ⚔️ حدّ طلبات المواجهة لكلّ لاعب في اللعبة الواحدة (الافتراضي 1، المدى 1-5)
   confrontationStageSeconds?: number; // ⚔️ مدّة المواجهة للطرفين معاً بالثواني (الافتراضي 60، المدى 20-300) — يعدّلها الليدر حيّاً أيضاً
+  pulseEnabled?: boolean;           // 🗳️ نبض الإقناع أثناء المواجهة (الافتراضي true)
+  pulseBreaksTies?: boolean;        // 🗳️ فضّ تعادل الإقصاء بخاسر النبض (الافتراضي false)
   isRemote?: boolean;              // 🌐 غرفة لعبٍ عن بُعد (اللاعبون في أماكن مختلفة) — الافتراضي false
   hostPlayerId?: number | null;    // 🔗 مُضيف الغرفة البعيدة (players.id) — اللاعب-الليدر (null لغرف الموظّفين)
   allowPlayerInvites?: boolean;    // 📨 السماح للاعبين (لا المضيف فقط) بدعوة أصدقائهم لغرفة بعيدة — الافتراضي false
@@ -356,6 +373,11 @@ export interface GameState {
       id: string; round: number; requesterPhysicalId: number; targetPhysicalId: number;
       requesterTeam: 'MAFIA' | 'CITIZEN' | 'NEUTRAL'; targetTeam: 'MAFIA' | 'CITIZEN' | 'NEUTRAL';
       outcome: 'MAFIA_EXPOSED' | 'CITIZEN_HIT' | 'MAFIA_BETRAYAL' | 'NONE' | null;
+      // 🗳️ نبض الإقناع عند الإغلاق + ما يُختم من تصويت الجولة نفسها
+      pulse?: PulseSummary | null;
+      pulseVotes?: Record<number, 'REQ' | 'TGT'>;
+      pulseVindicated?: boolean;      // فائز النبض مواطنٌ والطرف الآخر أُقصي بالتصويت وكان مافيا
+      correctVoters?: number[];       // من صوّتوا للجانب الذي ثبتت صحّته
     }>;
   };
   // ── حالة الشرطية ──

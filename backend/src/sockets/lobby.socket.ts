@@ -4553,6 +4553,8 @@ async function readSeatLayoutOnly(activityId: any): Promise<any> {
     confrontationEnabled?: boolean;
     confrontationsPerPlayer?: number;
     confrontationStageSeconds?: number;
+    pulseEnabled?: boolean;
+    pulseBreaksTies?: boolean;
     nightMode?: 'manual' | 'auto';
     mayorVoteWeight?: number;
     witchDisableRounds?: number;
@@ -4592,6 +4594,8 @@ async function readSeatLayoutOnly(activityId: any): Promise<any> {
       if (typeof data.confrontationEnabled === 'boolean') c.confrontationEnabled = data.confrontationEnabled;
       if (typeof data.confrontationsPerPlayer === 'number') c.confrontationsPerPlayer = Math.min(Math.max(Math.floor(data.confrontationsPerPlayer), 1), 5);
       if (typeof data.confrontationStageSeconds === 'number') c.confrontationStageSeconds = Math.min(300, Math.max(20, Math.floor(data.confrontationStageSeconds)));
+      if (typeof data.pulseEnabled === 'boolean') c.pulseEnabled = data.pulseEnabled;
+      if (typeof data.pulseBreaksTies === 'boolean') c.pulseBreaksTies = data.pulseBreaksTies;
       // 🌙 نمط الليل — يسري على الليلة التالية (الغرف البعيدة تفرض auto)
       if (data.nightMode === 'manual' || data.nightMode === 'auto') c.nightMode = c.isRemote ? 'auto' : data.nightMode;
       // 🎩🧙🤡 معاملات الأدوار — تُقرأ لحظة الاستعمال فتسري على ما بعد التغيير
@@ -4612,7 +4616,7 @@ async function readSeatLayoutOnly(activityId: any): Promise<any> {
         nightMode: c.nightMode,
       });
       // ⚔️ أثناء النقاش: لوحة الليدر وهواتف اللاعبين تحمل الحمولة الكاملة
-      if (state.phase === Phase.DAY_DISCUSSION && (typeof data.confrontationEnabled === 'boolean' || typeof data.confrontationsPerPlayer === 'number' || typeof data.confrontationStageSeconds === 'number')) {
+      if (state.phase === Phase.DAY_DISCUSSION && (typeof data.confrontationEnabled === 'boolean' || typeof data.confrontationsPerPlayer === 'number' || typeof data.confrontationStageSeconds === 'number' || typeof data.pulseEnabled === 'boolean' || typeof data.pulseBreaksTies === 'boolean')) {
         io.to(data.roomId).emit('day:confrontation-updated', { event: 'settings', id: null, ...publicConfrontations(state as any) });
       }
 

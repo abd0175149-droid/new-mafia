@@ -7,7 +7,7 @@ import { Server, Socket } from 'socket.io';
 import { notifyPulseForRoom } from './activity-pulse.socket.js';
 import { getRoom, setPhase, Phase, SpeakerStatus } from '../game/state.js';
 import { createDeal, removeDeal, dealLockedList } from '../game/deal-engine.js';
-import { blockingConfrontation } from '../game/confrontation-engine.js';
+import { blockingConfrontation, activeConfrontation, endConfrontation, pulseBadges, pulseTieSuggestion, confrontationNotes, stampConfrontationOutcome, publicConfrontations } from '../game/confrontation-engine.js';
 import {
   initVoting,
   castVote,
@@ -51,6 +51,13 @@ export function registerDayEvents(io: Server, socket: Socket) {
 
       // ⚔️ لا تصويت ومواجهةٌ لم تُحسم (طلبٌ معلّق/مقبولةٌ لم تُنفَّذ/جارية) — اعتمدها أو ألغِها أوّلاً
       const pre = await getGameState(data.roomId);
+      // 🗳️ مواجهةٌ جارية (انقضى وقتها أو لا): «ابدأ التصويت» يغلقها ويختم نبضها — قرار المالك 2026-09-12
+      const liveConf = pre ? activeConfrontation(pre) : null;
+      if (pre && liveConf) {
+        endConfrontation(pre, liveConf.id);
+        await setGameState(data.roomId, pre);
+        io.to(data.roomId).emit('day:confrontation-updated', { event: 'ended', id: liveConf.id, ...publicConfrontations(pre) });
+      }
       const blocking = pre ? blockingConfrontation(pre) : null;
       if (blocking) {
         const what = blocking.status === 'PENDING' ? 'طلب مواجهة بانتظار القرار'
@@ -86,6 +93,7 @@ export function registerDayEvents(io: Server, socket: Socket) {
         playersInfo,
         playerVotes: state.votingState.playerVotes,
         durationSeconds: state.votingState.durationSeconds || null,
+        pulseBadges: pulseBadges(state),   // 🗳️ المستوى ٢: «القاعة اقتنعت به ٦٤٪» على بطاقة الطرف
       });
 
       callback({ success: true });
@@ -1032,6 +1040,7 @@ export function registerDayEvents(io: Server, socket: Socket) {
         type: result.type,
         pendingWinner,
         teamCounts: currentState ? getTeamCounts(currentState.players) : undefined,
+        confrontationNotes: currentState ? confrontationNotes(currentState, result.eliminated || []) : {},   // 🗳️ «وُوجه وخسر النبض»
       });
 
       // 🜂 لعنةُ الرماد **بعد** الكشف (قرارُ المالك 2026-08-29).
@@ -1336,7 +1345,26 @@ export function registerDayEvents(io: Server, socket: Socket) {
         return callback({ success: false, error: 'Only leader' });
       }
 
+      // 🗳️ PULSE: خاسر النبض وحده يُقصى — يُحوَّل إلى ELIMINATE_ALL بمرشّحٍ واحد فيمرّ بكلّ مسار الإقصاء (ديل/قنبلة/توأم)
+      let pulseEliminated: number | null = null;
+      if ((data.action as string) === 'PULSE') {
+        const st0 = await getGameState(data.roomId);
+        const sug = st0 ? pulseTieSuggestion(st0, data.tiedCandidates || []) : null;
+        if (!sug) return callback({ success: false, error: 'لا خاسر نبضٍ واحد بين المتعادلين' });
+        data.tiedCandidates = (data.tiedCandidates || []).filter((c: any) => Number(c.targetPhysicalId) === sug.physicalId);
+        data.action = TieBreakerAction.ELIMINATE_ALL;
+        pulseEliminated = sug.physicalId;
+      }
+
       const state = await handleTieBreaker(data.roomId, data.action, data.tiedCandidates);
+      if (pulseEliminated != null) {
+        // إقصاءٌ بتصويت النهار (فُضّ تعادله بالنبض) — يُسجَّل ويُختم كأيّ إقصاءٍ بالتصويت
+        const pl = state.players.find((p: any) => p.physicalId === pulseEliminated);
+        if (!state.performanceTracking) state.performanceTracking = { dealOutcomes: [], abilityResults: [], eliminationLog: [] };
+        state.performanceTracking.eliminationLog.push({ physicalId: pulseEliminated, eliminatedBy: 'DAY_VOTE', round: state.round || 1, team: teamOfRole(pl?.role) });
+        stampConfrontationOutcome(state, pulseEliminated);
+        await setGameState(data.roomId, state);
+      }
 
       if (data.action === TieBreakerAction.CANCEL) {
         // إلغاء التصويت → العودة لمرحلة النقاش
@@ -2009,7 +2037,12 @@ async function performElimination(io: Server, roomId: string) {
   if (result.type === 'TIE') {
     await setPhase(roomId, Phase.DAY_TIEBREAKER);
     io.to(roomId).emit('game:phase-changed', { phase: Phase.DAY_TIEBREAKER });
-    io.to(roomId).emit('day:tie', { tiedCandidates: result.tiedCandidates });
+    const tieState = await getGameState(roomId);
+    io.to(roomId).emit('day:tie', {
+      tiedCandidates: result.tiedCandidates,
+      // 🗳️ المستوى ٣ (بمفتاح): اقتراح إقصاء خاسر النبض — الليدر يقرّر
+      pulseSuggestion: tieState ? pulseTieSuggestion(tieState, result.tiedCandidates || []) : null,
+    });
   } else {
     // حفظ نتيجة الإقصاء + تغيير المرحلة
     const stateAfter = await getGameState(roomId);

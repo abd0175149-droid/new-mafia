@@ -104,6 +104,10 @@ export const matchPlayers = pgTable('match_players', {
   // ⚔️ مواجهة النهار الوجاهيّة (كطالب): MAFIA_EXPOSED | CITIZEN_HIT | MAFIA_BETRAYAL | NONE
   confrontationInitiated: boolean('confrontation_initiated').default(false),
   confrontationOutcome: varchar('confrontation_outcome', { length: 20 }),
+  // 🗳️ نبض الإقناع: فوزٌ بنصاب، القاعة مع الحقيقة، أصواتٌ صائبة كمصوّت
+  pulseWins: integer('pulse_wins').default(0),
+  pulseVindicated: boolean('pulse_vindicated').default(false),
+  pulseCorrectVotes: integer('pulse_correct_votes').default(0),
   abilityUsed: boolean('ability_used').default(false),
   abilityCorrect: boolean('ability_correct'),
   xpEarned: integer('xp_earned').default(0),

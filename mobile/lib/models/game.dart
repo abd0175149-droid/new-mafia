@@ -661,10 +661,18 @@ class Confrontation {
     this.declinedBy,
     this.stageSeconds = 60,
     this.stageStartedAtMs,
+    this.timeUp = false,
+    this.pulse,
   });
 
   final String id;
   final int round, requesterPhysicalId, targetPhysicalId;
+
+  /// انقضى الوقت والمواجهة باقية على الشاشة حتى يغلقها الليدر
+  final bool timeUp;
+
+  /// 🗳️ ملخّص نبض الإقناع (علنيّ — لا أصوات فرديّة)
+  final PulseSummary? pulse;
 
   /// `PENDING` · `ACCEPTED` · `LIVE` · `DONE` · `DECLINED` · `CANCELLED`
   final String status;
@@ -714,12 +722,47 @@ class Confrontation {
       declinedBy: v['declinedBy'] as String?,
       stageSeconds: _i(v['stageSeconds'], 60),
       stageStartedAtMs: (v['stageStartedAt'] as num?)?.toInt(),
+      timeUp: v['timeUp'] == true,
+      pulse: PulseSummary.fromJson(v['pulse']),
     );
   }
 
   static List<Confrontation> listOf(Object? v) => v is! List
       ? const []
       : v.map(Confrontation.fromJson).whereType<Confrontation>().toList(growable: false);
+}
+
+/// 🗳️ ملخّص نبض الإقناع.
+class PulseSummary {
+  const PulseSummary({
+    this.req = 0,
+    this.tgt = 0,
+    this.eligible = 0,
+    this.quorum = false,
+    this.winner,
+    this.winnerPhysicalId,
+    this.pct = 0,
+  });
+  final int req, tgt, eligible, pct;
+  final bool quorum;
+
+  /// `REQ` · `TGT` · `TIE` · null (بلا نصاب)
+  final String? winner;
+  final int? winnerPhysicalId;
+  int get total => req + tgt;
+
+  static PulseSummary? fromJson(Object? v) {
+    if (v is! Map) return null;
+    return PulseSummary(
+      req: _i(v['req']),
+      tgt: _i(v['tgt']),
+      eligible: _i(v['eligible']),
+      quorum: v['quorum'] == true,
+      winner: v['winner'] as String?,
+      winnerPhysicalId: (v['winnerPhysicalId'] as num?)?.toInt(),
+      pct: _i(v['pct']),
+    );
+  }
 }
 
 /// حمولة `day:confrontation-updated` / `day:get-confrontations`.
@@ -733,9 +776,13 @@ class ConfrontationState {
     this.confrontations = const [],
     this.event,
     this.eventId,
+    this.pulseEnabled = true,
   });
 
   final bool enabled;
+
+  /// 🗳️ نبض الإقناع مفعّل في هذه الغرفة
+  final bool pulseEnabled;
   final int perPlayer, maxPerRound, round;
 
   /// physicalId → عدد المواجهات المقبولة له في هذه اللعبة
@@ -774,6 +821,7 @@ class ConfrontationState {
       confrontations: Confrontation.listOf(v['confrontations']),
       event: v['event'] as String?,
       eventId: v['id'] as String?,
+      pulseEnabled: v['pulseEnabled'] != false,
     );
   }
 }

@@ -210,6 +210,10 @@ class GameSessionController extends ChangeNotifier with WidgetsBindingObserver {
   String? _confError;
   String? get confrontationError => _confError;
 
+  /// 🗳️ صوتي في نبض كلّ مواجهة (id → REQ|TGT) — لا يصل بالبثّ، بل من ردّ الخادم لي وحدي
+  Map<String, String> _myPulseVotes = const {};
+  String? myPulseVote(String confrontationId) => _myPulseVotes[confrontationId];
+
   /// الطلب الموجَّه إليّ وينتظر ردّي.
   Confrontation? get incomingConfrontation => _confrontation?.confrontations
       .where((c) => c.isPending && c.targetPhysicalId == _physicalId)
@@ -245,6 +249,7 @@ class GameSessionController extends ChangeNotifier with WidgetsBindingObserver {
       if (res == null || res['success'] != true) return;
       if (res['phase'] != GamePhase.dayDiscussion) return;
       _confrontation = ConfrontationState.fromJson(res);
+      _myPulseVotes = _readMyVotes(res['myVotes']);
       notifyListeners();
     } catch (_) {/* البثّ يُصحّح */}
   }
@@ -269,6 +274,40 @@ class GameSessionController extends ChangeNotifier with WidgetsBindingObserver {
         return false;
       }
       _confrontation = ConfrontationState.fromJson(res) ?? _confrontation;
+      return true;
+    } finally {
+      _confBusy = false;
+      notifyListeners();
+    }
+  }
+
+  static Map<String, String> _readMyVotes(Object? v) {
+    if (v is! Map) return const {};
+    return {for (final e in v.entries) '${e.key}': '${e.value}'};
+  }
+
+  /// 🗳️ صوتٌ في نبض الإقناع (يُستبدل ما دامت المواجهة جارية).
+  Future<bool> castPulse(String id, String side) async {
+    if (_confBusy) return false;
+    _confBusy = true;
+    _confError = null;
+    notifyListeners();
+    try {
+      final res = await SocketService.instance.ask('day:confrontation-pulse', {
+        'roomId': _roomId,
+        'id': id,
+        'side': side,
+      });
+      if (res == null) {
+        _confError = 'لا اتصال بالخادم';
+        return false;
+      }
+      if (res['success'] != true) {
+        _confError = '${res['error'] ?? 'تعذّر إرسال الصوت'}';
+        return false;
+      }
+      _confrontation = ConfrontationState.fromJson(res) ?? _confrontation;
+      _myPulseVotes = _readMyVotes(res['myVotes']);
       return true;
     } finally {
       _confBusy = false;
@@ -2069,6 +2108,7 @@ class GameSessionController extends ChangeNotifier with WidgetsBindingObserver {
         _refreshConfrontations();
       } else if (_confrontation != null) {
         _confrontation = null;
+        _myPulseVotes = const {};
         notifyListeners();
       }
     });

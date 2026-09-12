@@ -300,26 +300,64 @@ class _ActiveCard extends StatelessWidget {
     final meTgt = conf.targetPhysicalId == me;
     final left = conf.stageLeft();
 
+    final timeLbl = conf.timeUp ? 'انتهى الوقت' : '$leftث';
+    final pulseOn = c.confrontation?.pulseEnabled ?? true;
+
     if (!meReq && !meTgt) {
+      if (!pulseOn) {
+        return Container(
+          width: double.infinity,
+          padding: const EdgeInsets.all(12),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(12),
+            color: const Color(0x0DFFFFFF),
+            border: Border.all(color: const Color(0xFF2A2A2A)),
+          ),
+          child: Text.rich(
+            TextSpan(children: [
+              const TextSpan(text: '⚔️ مواجهة جارية: '),
+              TextSpan(text: _name(c, conf.requesterPhysicalId), style: ar(12, weight: FontWeight.bold)),
+              const TextSpan(text: ' ضدّ '),
+              TextSpan(text: _name(c, conf.targetPhysicalId), style: ar(12, weight: FontWeight.bold)),
+              TextSpan(text: ' ($timeLbl)'),
+            ]),
+            textAlign: TextAlign.center,
+            style: ar(12, color: const Color(0xFF999999)),
+          ),
+        );
+      }
+      // 🗳️ نبض الإقناع: زرّان كبيران، الاختيار قابلٌ للتغيير حتى يغلق الليدر
+      final my = c.myPulseVote(conf.id);
+      const sky = Color(0xFF7DD3FC);
       return Container(
         width: double.infinity,
-        padding: const EdgeInsets.all(12),
+        padding: const EdgeInsets.all(14),
         decoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(12),
-          color: const Color(0x0DFFFFFF),
-          border: Border.all(color: const Color(0xFF2A2A2A)),
+          borderRadius: BorderRadius.circular(14),
+          color: const Color(0xFF0EA5E9).withValues(alpha: 0.1),
+          border: Border.all(color: const Color(0xFF0EA5E9).withValues(alpha: 0.5), width: 2),
         ),
-        child: Text.rich(
-          TextSpan(children: [
-            const TextSpan(text: '⚔️ مواجهة جارية: '),
-            TextSpan(text: _name(c, conf.requesterPhysicalId), style: ar(12, weight: FontWeight.bold)),
-            const TextSpan(text: ' ضدّ '),
-            TextSpan(text: _name(c, conf.targetPhysicalId), style: ar(12, weight: FontWeight.bold)),
-            TextSpan(text: ' ($leftث)'),
+        child: Column(children: [
+          Text.rich(
+            TextSpan(children: [
+              const TextSpan(text: '🗳️ من أقنعك أكثر؟ '),
+              TextSpan(text: '($timeLbl)', style: mono(11, color: const Color(0xFF999999))),
+            ]),
+            textAlign: TextAlign.center,
+            style: ar(14, color: sky, weight: FontWeight.w900),
+          ),
+          const SizedBox(height: 10),
+          Row(children: [
+            Expanded(child: _pulseBtn(c, conf, 'REQ', conf.requesterPhysicalId, 'الطالب', my == 'REQ', _gold)),
+            const SizedBox(width: 8),
+            Expanded(child: _pulseBtn(c, conf, 'TGT', conf.targetPhysicalId, 'المستهدَف', my == 'TGT', _rose)),
           ]),
-          textAlign: TextAlign.center,
-          style: ar(12, color: const Color(0xFF999999)),
-        ),
+          const SizedBox(height: 8),
+          Text(
+            my != null ? 'يمكنك تغيير رأيك حتى يغلق الليدر المواجهة' : 'صوتك سرّيّ — تُعرض النسبة فقط على الشاشة',
+            style: ar(10, color: const Color(0xFF888888)),
+          ),
+        ]),
       );
     }
 
@@ -338,15 +376,45 @@ class _ActiveCard extends StatelessWidget {
         Text('🎙️ كلمتك الآن — مواجهةٌ مع $other',
             style: ar(15, color: _gold, weight: FontWeight.w900)),
         const SizedBox(height: 4),
-        Text('$left',
-            style: mono(36,
-                color: left <= 10 ? const Color(0xFFF87171) : Colors.white,
-                weight: FontWeight.w900)),
-        Text('الطرفان يتحدّثان معاً — ${conf.stageSeconds} ثانية',
+        if (conf.timeUp)
+          Text('⏱ انتهى الوقت — بانتظار الليدر',
+              style: ar(15, color: _rose, weight: FontWeight.w900))
+        else
+          Text('$left',
+              style: mono(36,
+                  color: left <= 10 ? const Color(0xFFF87171) : Colors.white,
+                  weight: FontWeight.w900)),
+        Text(pulseOn ? '🗳️ القاعة تصوّت الآن لمن يقنعها' : 'الطرفان يتحدّثان معاً — ${conf.stageSeconds} ثانية',
             style: ar(10, color: const Color(0xFF888888))),
       ]),
     );
   }
+
+  Widget _pulseBtn(GameSessionController c, Confrontation conf, String side, int pid, String role, bool on, Color color) =>
+      Opacity(
+        opacity: c.confrontationBusy ? 0.5 : 1,
+        child: Material(
+          color: Colors.transparent,
+          child: InkWell(
+            borderRadius: BorderRadius.circular(12),
+            onTap: c.confrontationBusy ? null : () => c.castPulse(conf.id, side),
+            child: Container(
+              padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 6),
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(12),
+                color: on ? color.withValues(alpha: 0.2) : const Color(0x0DFFFFFF),
+                border: Border.all(color: on ? color : const Color(0x26FFFFFF), width: on ? 2 : 1),
+              ),
+              child: Column(children: [
+                Text('${on ? '✓ ' : ''}${_name(c, pid)}',
+                    maxLines: 1, overflow: TextOverflow.ellipsis,
+                    style: ar(13, color: on ? color : Colors.white, weight: FontWeight.bold)),
+                Text('$role #$pid', style: ar(10, color: const Color(0xFF999999))),
+              ]),
+            ),
+          ),
+        ),
+      );
 }
 
 /// ورقة اختيار المستهدَف.

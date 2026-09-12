@@ -83,9 +83,18 @@ const waveCss = `
   `;
 
 // ⏱️ حلقة تقدّم حول المؤقّت (تحمرّ تحت ١٠ث)
-function Ring({ left, total }: { left: number; total: number }) {
+function Ring({ left, total, timeUp }: { left: number; total: number; timeUp?: boolean }) {
     const r = 118, C = 2 * Math.PI * r, frac = total > 0 ? Math.max(0, Math.min(1, left / total)) : 0;
-    const danger = left <= 10;
+    const danger = left <= 10 && !timeUp;
+    if (timeUp) return (
+      <div className="relative w-[300px] h-[300px] flex items-center justify-center">
+        <svg viewBox="0 0 300 300" className="absolute inset-0"><circle cx="150" cy="150" r={r} fill="none" stroke="#3a1a10" strokeWidth="10" /></svg>
+        <div className="text-center px-6">
+          <span className="block text-4xl font-black text-[#ffccd5]" style={{ fontFamily: 'Amiri, serif' }}>انتهى الوقت</span>
+          <span className="text-[#808080] font-mono tracking-[0.3em] text-xs">TIME UP · بانتظار الليدر</span>
+        </div>
+      </div>
+    );
     return (
       <div className={`relative w-[300px] h-[300px] flex items-center justify-center `}>
         <svg viewBox="0 0 300 300" className="absolute inset-0 -rotate-90">
@@ -118,7 +127,11 @@ export default function DisplayConfrontation({ roomId, players }: Props) {
       let n: typeof notice = null;
       if (p.event === 'declined') n = { kind: 'declined', text: `${nameOf(c.targetPhysicalId, players)} رفض مواجهة ${nameOf(c.requesterPhysicalId, players)}` };
       else if (p.event === 'cancelled') n = { kind: 'cancelled', text: `أُلغيت مواجهة ${nameOf(c.requesterPhysicalId, players)} و${nameOf(c.targetPhysicalId, players)}` };
-      else if (p.event === 'ended') n = { kind: 'done', text: `انتهت المواجهة — القرار للتصويت` };
+      else if (p.event === 'ended') {
+        const ps = (c as any).pulse;
+        const pn = (pid: number) => nameOf(pid, players);
+        n = { kind: 'done', text: ps?.quorum && ps.winner && ps.winner !== 'TIE' ? `القاعة اقتنعت بـ${pn(ps.winnerPhysicalId)} — ${ps.pct}٪` : ps?.quorum ? 'القاعة انقسمت بالتساوي' : 'انتهت المواجهة — القرار للتصويت' };
+      }
       if (n) {
         setNotice(n);
         if (noticeTimer.current) clearTimeout(noticeTimer.current);
@@ -230,9 +243,30 @@ export default function DisplayConfrontation({ roomId, players }: Props) {
               <Ring
                 left={active.stageStartedAt ? secsLeft(active.stageStartedAt + active.stageSeconds * 1000) : active.stageSeconds}
                 total={active.stageSeconds}
+                timeUp={active.timeUp}
               />
               <Card pid={active.targetPhysicalId} p={P(active.targetPhysicalId)} side="tgt" />
             </div>
+            {/* 🗳️ نبض الإقناع — شريط شدّ الحبل: يمينه الطالب ويساره المستهدَف، والمؤشّر ينزلق نحو صاحب الأصوات الأكثر */}
+            {conf?.pulseEnabled !== false && active.pulse && (() => {
+              const ps = active.pulse!; const tot = ps.req + ps.tgt; const share = tot ? ps.req / tot : .5;
+              return (
+                <div className="relative z-10 w-[min(1100px,92vw)] mt-2">
+                  <div className="flex items-end justify-between mb-2">
+                    <div className="text-right"><p className="text-[#C5A059] text-xl" style={{ fontFamily: 'Amiri, serif' }}>{P(active.requesterPhysicalId)?.name || `#${active.requesterPhysicalId}`}</p><p className="text-4xl font-black font-mono text-white leading-none">{ps.req}</p></div>
+                    <p className="text-[#808080] font-mono text-sm tracking-widest">🗳️ من أقنعك؟ · صوّت {tot} من {ps.eligible}{ps.quorum ? '' : ' · دون النصاب'}</p>
+                    <div className="text-left"><p className="text-[#ffccd5] text-xl" style={{ fontFamily: 'Amiri, serif' }}>{P(active.targetPhysicalId)?.name || `#${active.targetPhysicalId}`}</p><p className="text-4xl font-black font-mono text-white leading-none">{ps.tgt}</p></div>
+                  </div>
+                  <div className="relative h-7 rounded-full border border-white/10" style={{ background: 'linear-gradient(90deg,#8A0303 0%,#3a1a10 50%,#7a5f2a 50%,#C5A059 100%)' }}>
+                    <motion.div
+                      animate={{ right: `calc(${(share * 100).toFixed(1)}% - 22px)` }}
+                      transition={{ type: 'spring', damping: 18, stiffness: 120 }}
+                      className="absolute -top-2 w-11 h-11 rounded-full bg-white shadow-[0_0_28px_rgba(255,255,255,.75)] flex items-center justify-center text-lg"
+                    >⚖️</motion.div>
+                  </div>
+                </div>
+              );
+            })()}
           </motion.div>
         )}
       </AnimatePresence>

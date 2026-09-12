@@ -778,6 +778,8 @@ export default function LeaderDayView({ gameState, emit, setError }: LeaderDayVi
   // 🎩 نافذة العمدة — بين فرز التصويت وتنفيذ الإعدام
   // ══════════════════════════════════════════════
   const [mayorWindowLocal, setMayorWindowLocal] = useState<any>(null);
+  // 🗳️ اقتراح فضّ التعادل بخاسر نبض المواجهة (يصل مع day:tie حين يكون المفتاح مفعّلاً)
+  const [pulseSuggestion, setPulseSuggestion] = useState<{ physicalId: number; pct: number; winnerPhysicalId: number } | null>(null);
   const [mayorBusy, setMayorBusy] = useState(false);
 
   // ── 🪑 بعد نقل/تبادل مقعد: امحُ كل ما هو مفهرس بالمقاعد على هذه الشاشة ──
@@ -820,7 +822,13 @@ export default function LeaderDayView({ gameState, emit, setError }: LeaderDayVi
     s.on('day:mayor-window', onWin);
     s.on('day:mayor-window-closed', onClosed);
     s.on('day:mayor-revealed', onClosed);
+    const onTie = (d: any) => setPulseSuggestion(d?.pulseSuggestion || null);
+    const onVoting = () => setPulseSuggestion(null);
+    s.on('day:tie', onTie);
+    s.on('day:voting-started', onVoting);
     return () => {
+      s.off('day:tie', onTie);
+      s.off('day:voting-started', onVoting);
       s.off('day:mayor-window', onWin);
       s.off('day:mayor-window-closed', onClosed);
       s.off('day:mayor-revealed', onClosed);
@@ -1313,6 +1321,11 @@ export default function LeaderDayView({ gameState, emit, setError }: LeaderDayVi
             <button onClick={() => handleTieBreaker('NARROW')} className="w-full noir-card p-4 text-white hover:border-[#C5A059] transition-colors text-center font-mono uppercase tracking-widest">
               🎯 حصر التصويت بين المتعادلين (Narrow)
             </button>
+            {pulseSuggestion && (
+              <button onClick={() => handleTieBreaker('PULSE')} className="w-full bg-sky-500/10 border border-sky-500/60 p-4 text-sky-200 font-bold text-center hover:bg-sky-500/20 transition-colors" dir="rtl">
+                🗳️ فضّ التعادل بنبض القاعة — إقصاء #{pulseSuggestion.physicalId} {nameOfSeat(pulseSuggestion.physicalId)} (خسر النبض أمام #{pulseSuggestion.winnerPhysicalId} بنسبة {pulseSuggestion.pct}٪)
+              </button>
+            )}
             <button onClick={() => handleTieBreaker('ELIMINATE_ALL')} className="w-full bg-[#8A0303]/20 border border-[#8A0303] p-4 text-[#8A0303] font-bold text-center font-mono uppercase tracking-widest hover:bg-[#8A0303]/40 transition-colors">
               💀 إقصاء جميع المتعادلين (Eliminate All)
             </button>
@@ -1699,6 +1712,11 @@ export default function LeaderDayView({ gameState, emit, setError }: LeaderDayVi
           <button onClick={() => handleTieBreaker('NARROW')} className="noir-card p-4 text-white hover:border-[#C5A059]">حصر التصويت بالمتعادلين</button>
           <button onClick={() => handleTieBreaker('CANCEL')} className="noir-card p-4 text-[#8A0303] hover:border-[#8A0303]">إلغاء التصويت (الانتقال لليل)</button>
           <button onClick={() => handleTieBreaker('ELIMINATE_ALL')} className="bg-[#8A0303]/20 border border-[#8A0303] p-4 text-[#8A0303] font-bold">إقصاء جميع المتعادلين</button>
+          {pulseSuggestion && (
+            <button onClick={() => handleTieBreaker('PULSE')} className="col-span-2 bg-sky-500/10 border border-sky-500/60 p-4 text-sky-200 font-bold" dir="rtl">
+              🗳️ فضّ التعادل بنبض القاعة — إقصاء #{pulseSuggestion.physicalId} {nameOfSeat(pulseSuggestion.physicalId)} ({pulseSuggestion.pct}٪ ضدّه)
+            </button>
+          )}
         </div>
       </div>
     );

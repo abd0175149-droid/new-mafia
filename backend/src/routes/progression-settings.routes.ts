@@ -27,6 +27,9 @@ const DEFAULT_CONFIG = {
     confrontationOnMafia: 25,         // ⚔️ مواجهة كشفت مافيا (نصف الديل)
     failedConfrontation: -5,          // ⚔️ مواجهة قادت القاعة إلى مواطن
     mafiaConfrontationOnMafia: 0,     // ⚔️ مافيا واجه زميله (XP صفر؛ العقوبة في RR)
+    pulseWin: 10,                     // 🗳️ إقناع القاعة (فوز بنبض المواجهة بنصاب)
+    pulseVindicated: 10,              // 🗳️ القاعة مع الحقيقة
+    pulseCorrectVote: 3,              // 🗳️ حدسٌ صائب لكلّ مصوّت (سقف ٣ في المباراة)
     teamEliminationBonus: 15,
     jesterWin: 50,
     jesterLoss: 0,
@@ -43,6 +46,7 @@ const DEFAULT_CONFIG = {
     confrontationOnMafia: 10,         // ⚔️ نصف الديل
     failedConfrontation: -15,         // ⚔️ نصف الديل
     mafiaConfrontationOnMafia: -15,   // ⚔️ غدر بالفريق (مواجهة مافيا على مافيا)
+    pulseVindicated: 5,               // 🗳️ الرتبة تُربط بالحقيقة وحدها: ربح النبض وكان محقّاً
     survivedToEnd: 5,
     abilityCorrect: 5,
     abilityIncorrect: -5,

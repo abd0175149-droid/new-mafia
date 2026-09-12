@@ -14,10 +14,14 @@ export interface ConfItem {
   createdAt: number; respondBy: number; timedOut?: boolean;
   acceptedBy?: 'TARGET' | 'LEADER'; declinedBy?: 'TARGET' | 'LEADER';
   stageSeconds: number; stageStartedAt?: number | null; finishedAt?: number;
+  timeUp?: boolean;
+  pulse?: PulseSummary | null;
 }
+export interface PulseSummary { req: number; tgt: number; eligible: number; quorum: boolean; winner: 'REQ' | 'TGT' | 'TIE' | null; winnerPhysicalId: number | null; loserPhysicalId: number | null; pct: number; }
 export interface ConfPayload {
   round: number; enabled: boolean; perPlayer: number; maxPerRound: number;
   respondSeconds: number; stageSeconds: number; used: Record<string, number>;
+  pulseEnabled?: boolean; pulseBreaksTies?: boolean;
   confrontations: ConfItem[]; serverTime: number; event?: string; id?: string | null;
 }
 
@@ -85,7 +89,7 @@ export default function LeaderConfrontationPanel({ gameState, emit, setError, mo
     } catch (e: any) { setError(e?.message || 'تعذّر تنفيذ الإجراء'); }
     finally { setBusy(null); }
   };
-  const setSettings = async (patch: { enabled?: boolean; perPlayer?: number }) => {
+  const setSettings = async (patch: { enabled?: boolean; perPlayer?: number; pulseEnabled?: boolean; pulseBreaksTies?: boolean }) => {
     try {
       const r = await emit('leader:confrontation-settings', { roomId, ...patch });
       if (!r?.success) setError(r?.error || 'تعذّر تغيير الإعداد');
@@ -146,6 +150,15 @@ export default function LeaderConfrontationPanel({ gameState, emit, setError, mo
               {[1, 2, 3, 4, 5].map(n => <option key={n} value={n}>{n} لكلّ لاعب</option>)}
             </select>
           )}
+          {mode === 'full' && (
+            <button
+              onClick={() => setSettings({ pulseEnabled: !(conf?.pulseEnabled !== false) })}
+              title="نبض الإقناع: تصويت القاعة أثناء المواجهة"
+              className={`px-3 py-1 rounded-lg text-[11px] font-bold border transition-colors ${conf?.pulseEnabled !== false ? 'bg-sky-500/15 border-sky-500/50 text-sky-300' : 'bg-[#1a1a1a] border-[#333] text-gray-500'}`}
+            >
+              🗳️ النبض {conf?.pulseEnabled !== false ? 'مفعّل' : 'معطّل'}
+            </button>
+          )}
           <button
             onClick={() => setSettings({ enabled: !enabled })}
             className={`px-3 py-1 rounded-lg text-[11px] font-bold border transition-colors ${enabled ? 'bg-emerald-500/15 border-emerald-500/50 text-emerald-300' : 'bg-[#1a1a1a] border-[#333] text-gray-500 hover:border-[#555]'}`}
@@ -169,11 +182,29 @@ export default function LeaderConfrontationPanel({ gameState, emit, setError, mo
             ))}
           </div>
           <div className="text-center mt-3">
-            <span className="text-5xl font-black font-mono text-white">
-              {active.stageStartedAt ? secsLeft(active.stageStartedAt + active.stageSeconds * 1000) : active.stageSeconds}
-            </span>
-            <span className="text-xs text-[#808080] font-mono mr-2">ث — {STATUS_AR[active.status]} (من {active.stageSeconds}ث)</span>
+            {active.timeUp ? (
+              <span className="text-2xl font-black text-[#ffccd5]">⏱ انتهى الوقت — بانتظار الإغلاق</span>
+            ) : (
+              <>
+                <span className="text-5xl font-black font-mono text-white">
+                  {active.stageStartedAt ? secsLeft(active.stageStartedAt + active.stageSeconds * 1000) : active.stageSeconds}
+                </span>
+                <span className="text-xs text-[#808080] font-mono mr-2">ث — {STATUS_AR[active.status]} (من {active.stageSeconds}ث)</span>
+              </>
+            )}
           </div>
+          {/* 🗳️ نبض الإقناع — المجموعان لحظيّاً (الأصوات الفرديّة سرّ) */}
+          {conf?.pulseEnabled !== false && active.pulse && (() => {
+            const ps = active.pulse!; const tot = ps.req + ps.tgt; const share = tot ? ps.req / tot : .5;
+            return (
+              <div className="mt-3 p-3 rounded-lg bg-black/30 border border-[#2a2a2a]">
+                <div className="flex justify-between text-xs font-mono text-[#C5A059]"><span>الطالب {ps.req}</span><span className="text-[#808080]">صوّت {tot} من {ps.eligible}{ps.quorum ? ' ✓ نصاب' : ' — دون النصاب'}</span><span className="text-[#ffccd5]">{ps.tgt} المستهدَف</span></div>
+                <div className="relative h-3 mt-2 rounded-full bg-gradient-to-l from-[#C5A059] via-[#3a2a10] to-[#8A0303]">
+                  <div className="absolute -top-1 w-5 h-5 rounded-full bg-white shadow transition-all" style={{ right: `calc(${(share * 100).toFixed(1)}% - 10px)` }} />
+                </div>
+              </div>
+            );
+          })()}
           {/* ⏱️ تعديلٌ حيّ لمدّة المواجهة الجارية — تمتدّ أو تقصر دون إعادة العدّ */}
           <div className="grid grid-cols-4 gap-2 mt-2">
             <button disabled={!!busy} onClick={() => act(active.id, 'adjust', { delta: 30 })} className="bg-[#C5A059]/10 border border-[#C5A059]/40 text-[#C5A059] py-2 font-mono text-xs font-bold hover:bg-[#C5A059]/20">+30s</button>
@@ -182,7 +213,7 @@ export default function LeaderConfrontationPanel({ gameState, emit, setError, mo
             <button disabled={!!busy} onClick={() => act(active.id, 'adjust', { delta: -30 })} className="bg-[#8A0303]/10 border border-[#8A0303]/40 text-[#ffccd5] py-2 font-mono text-xs font-bold hover:bg-[#8A0303]/20">-30s</button>
           </div>
           <div className="grid grid-cols-2 gap-2 mt-3">
-            <button disabled={!!busy} onClick={() => act(active.id, 'end')} className="bg-[#111] border border-[#555] text-white py-3 font-bold text-sm hover:border-[#C5A059]">✅ إنهاء المواجهة</button>
+            <button disabled={!!busy} onClick={() => act(active.id, 'end')} className={`py-3 font-bold text-sm border ${active.timeUp ? 'bg-green-900 border-green-500 text-white animate-pulse' : 'bg-[#111] border-[#555] text-white hover:border-[#C5A059]'}`}>🔒 إغلاق المواجهة{active.timeUp ? ' وختم النبض' : ''}</button>
             <button disabled={!!busy} onClick={() => act(active.id, 'cancel')} className="bg-[#8A0303]/10 border border-[#8A0303]/50 text-[#ffccd5] py-3 font-bold text-sm">✕ إلغاء</button>
           </div>
         </div>
@@ -231,7 +262,7 @@ export default function LeaderConfrontationPanel({ gameState, emit, setError, mo
         <div className="mt-3 flex flex-wrap gap-2">
           {finished.map(c => (
             <span key={c.id} className={`text-[10px] font-mono px-2 py-1 rounded border ${c.status === 'DONE' ? 'border-emerald-500/30 text-emerald-300' : 'border-[#8A0303]/40 text-[#ffccd5]/80'}`}>
-              #{c.requesterPhysicalId} ← #{c.targetPhysicalId}: {STATUS_AR[c.status]}{c.status === 'DECLINED' ? (c.declinedBy === 'LEADER' ? ' (الليدر)' : ' (المستهدَف)') : ''}
+              #{c.requesterPhysicalId} ← #{c.targetPhysicalId}: {STATUS_AR[c.status]}{c.status === 'DECLINED' ? (c.declinedBy === 'LEADER' ? ' (الليدر)' : ' (المستهدَف)') : ''}{c.status === 'DONE' && c.pulse?.quorum && c.pulse.winner && c.pulse.winner !== 'TIE' ? ` · النبض مع #${c.pulse.winnerPhysicalId} (${c.pulse.pct}٪)` : c.status === 'DONE' && c.pulse ? (c.pulse.quorum ? ' · النبض تعادل' : ' · النبض دون النصاب') : ''}
             </span>
           ))}
         </div>

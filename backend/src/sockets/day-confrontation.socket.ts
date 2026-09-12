@@ -18,6 +18,7 @@ import {
   requestConfrontation, acceptConfrontation, declineConfrontation, cancelConfrontation,
   startConfrontation, endConfrontation, markTimedOut, adjustConfrontationStage, stageSecondsFor,
   findConfrontation, publicConfrontations, stageDeadline, CONFRONTATION_RESPOND_SECONDS,
+  castPulse, markTimeUp, myPulseVotes,
 } from '../game/confrontation-engine.js';
 
 const timers = new Map<string, NodeJS.Timeout>();
@@ -48,7 +49,7 @@ function armRespondTimer(io: Server, roomId: string, id: string, ms: number) {
   }, Math.max(0, ms)));
 }
 
-/** مؤقّت المواجهة: LIVE → DONE تلقائيّاً عند انقضاء المدّة (والليدر يسبقه بزرّ الإنهاء أو يمدّدها). */
+/** مؤقّت المواجهة: عند انقضاء المدّة يُعلَّم timeUp فقط — الإغلاق بيد الليدر (أو تلقائيّاً عند بدء التصويت/المواجهة التالية). */
 function armStageTimer(io: Server, roomId: string, id: string, deadline: number) {
   const key = `${roomId}:${id}:stage`;
   clearTimer(key);
@@ -61,10 +62,10 @@ function armStageTimer(io: Server, roomId: string, id: string, deadline: number)
       const dl = stageDeadline(c);
       if (!c || dl == null) return;
       if (dl !== deadline) return;                       // بدأت مرحلةٌ أحدث — لها مؤقّتها
-      if (c.status === 'LIVE') {
-        endConfrontation(state, id);
+      // ⏱️ انقضى الوقت: تبقى المواجهة على الشاشة والنبض مفتوحاً حتى يغلقها الليدر (قرار المالك 2026-09-12)
+      if (markTimeUp(state, id)) {
         await setGameState(roomId, state);
-        broadcast(io, roomId, state, 'ended', id);
+        broadcast(io, roomId, state, 'timeup', id);
       }
     } catch (e) { console.error('⚔️ stage-timer', e); }
   }, Math.max(0, deadline - Date.now())));
@@ -145,17 +146,32 @@ export function registerDayConfrontationEvents(io: Server, socket: Socket) {
     } catch (err: any) { reply(callback, { success: false, error: err.message }); }
   });
 
+  // ── 🗳️ صوتٌ في نبض الإقناع (من حيٍّ غير طرف، أثناء LIVE ولو انقضى الوقت) ──
+  socket.on('day:confrontation-pulse', async (data: { roomId: string; id: string; side: 'REQ' | 'TGT' }, callback) => {
+    try {
+      if (socket.data.role !== 'player') return reply(callback, { success: false, error: 'غير مصرح' });
+      const voter = Number(socket.data.physicalId);
+      const state = await getGameState(data.roomId);
+      if (!state) return reply(callback, { success: false, error: 'الغرفة غير موجودة' });
+      castPulse(state, data.id, voter, data.side);
+      await setGameState(data.roomId, state);
+      broadcast(io, data.roomId, state, 'pulse', data.id);   // الملخّص فقط — لا أصوات فرديّة
+      reply(callback, { success: true, myVotes: myPulseVotes(state, voter), ...publicConfrontations(state) });
+    } catch (err: any) { reply(callback, { success: false, error: err.message }); }
+  });
+
   // ── استعادة الحالة (لمن فاته البثّ) ──
   socket.on('day:get-confrontations', async (data: { roomId: string }, callback) => {
     try {
       const state = await getGameState(data.roomId);
       if (!state) return reply(callback, { success: false, error: 'الغرفة غير موجودة' });
-      reply(callback, { success: true, phase: state.phase, ...publicConfrontations(state) });
+      const myVotes = socket.data.role === 'player' ? myPulseVotes(state, Number(socket.data.physicalId)) : {};
+      reply(callback, { success: true, phase: state.phase, myVotes, ...publicConfrontations(state) });
     } catch (err: any) { reply(callback, { success: false, error: err.message }); }
   });
 
   // ── الليدر: إعدادات الميزة في أيّ مرحلة (كمفتاح غرفة التشاور) ──
-  socket.on('leader:confrontation-settings', async (data: { roomId: string; enabled?: boolean; perPlayer?: number; stageSeconds?: number }, callback) => {
+  socket.on('leader:confrontation-settings', async (data: { roomId: string; enabled?: boolean; perPlayer?: number; stageSeconds?: number; pulseEnabled?: boolean; pulseBreaksTies?: boolean }, callback) => {
     try {
       if (socket.data.role !== 'leader') return reply(callback, { success: false, error: 'Only leader' });
       const state = await getGameState(data.roomId);
@@ -165,6 +181,8 @@ export function registerDayConfrontationEvents(io: Server, socket: Socket) {
         state.config.confrontationsPerPlayer = Math.min(Math.max(Math.floor(data.perPlayer), 1), 5);
       if (typeof data.stageSeconds === 'number' && Number.isFinite(data.stageSeconds))
         state.config.confrontationStageSeconds = stageSecondsFor(state, data.stageSeconds);
+      if (typeof data.pulseEnabled === 'boolean') state.config.pulseEnabled = data.pulseEnabled;
+      if (typeof data.pulseBreaksTies === 'boolean') state.config.pulseBreaksTies = data.pulseBreaksTies;
       await setGameState(data.roomId, state);
       io.to(data.roomId).emit('room:config-updated', {
         confrontationEnabled: state.config.confrontationEnabled === true,

@@ -21,6 +21,7 @@ interface Props {
 
 export default function PlayerConfrontation({ roomId, emit, on, myId, players, round, isDead, initial }: Props) {
   const [conf, setConf] = useState<ConfPayload | null>(initial || null);
+  const [myVotes, setMyVotes] = useState<Record<string, 'REQ' | 'TGT'>>({});   // 🗳️ صوتي في كلّ مواجهة
   const [sheet, setSheet] = useState(false);
   const [target, setTarget] = useState<number | ''>('');
   const [busy, setBusy] = useState(false);
@@ -35,12 +36,14 @@ export default function PlayerConfrontation({ roomId, emit, on, myId, players, r
     const c1 = on('day:confrontation-updated', (p: ConfPayload) => { setConf(p); setErr(''); });
     const c2 = on('game:phase-changed', (d: any) => {
       if (d?.phase !== 'DAY_DISCUSSION') { setConf(null); setSheet(false); setTarget(''); }
-      else if (roomRef.current && emit) emit('day:get-confrontations', { roomId: roomRef.current }).then((r: any) => { if (r?.success) setConf(r); }).catch(() => {});
+      else if (roomRef.current && emit) emit('day:get-confrontations', { roomId: roomRef.current }).then((r: any) => { if (r?.success) { setConf(r); setMyVotes(r.myVotes || {}); } }).catch(() => {});
     });
     const c3 = on('room:seats-remapped', () => {
       setConf(null); setSheet(false); setTarget('');
-      if (roomRef.current && emit) emit('day:get-confrontations', { roomId: roomRef.current }).then((r: any) => { if (r?.success && r.phase === 'DAY_DISCUSSION') setConf(r); }).catch(() => {});
+      if (roomRef.current && emit) emit('day:get-confrontations', { roomId: roomRef.current }).then((r: any) => { if (r?.success && r.phase === 'DAY_DISCUSSION') { setConf(r); setMyVotes(r.myVotes || {}); } }).catch(() => {});
     });
+    // استعادة صوتي عند التركيب (البثّ لا يحمل الأصوات الفرديّة)
+    if (roomRef.current && emit) emit('day:get-confrontations', { roomId: roomRef.current }).then((r: any) => { if (r?.success && r.myVotes) setMyVotes(r.myVotes); }).catch(() => {});
     return () => { c1?.(); c2?.(); c3?.(); };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [on, emit]);
@@ -78,6 +81,15 @@ export default function PlayerConfrontation({ roomId, emit, on, myId, players, r
       if (!r?.success) setErr(r?.error || 'تعذّر إرسال الطلب');
       else { setSheet(false); setTarget(''); }
     } catch (e: any) { setErr(e?.message || 'تعذّر إرسال الطلب'); }
+    finally { setBusy(false); }
+  };
+  const pulse = async (c: ConfItem, side: 'REQ' | 'TGT') => {
+    setBusy(true); setErr('');
+    try {
+      const r = await emit('day:confrontation-pulse', { roomId, id: c.id, side });
+      if (!r?.success) setErr(r?.error || 'تعذّر إرسال الصوت');
+      else if (r.myVotes) setMyVotes(r.myVotes);
+    } catch (e: any) { setErr(e?.message || 'تعذّر إرسال الصوت'); }
     finally { setBusy(false); }
   };
   const respond = async (c: ConfItem, accept: boolean) => {
@@ -131,17 +143,40 @@ export default function PlayerConfrontation({ roomId, emit, on, myId, players, r
       {active && (() => {
         const meReq = active.requesterPhysicalId === myId, meTgt = active.targetPhysicalId === myId;
         const left = active.stageStartedAt ? secsLeft(active.stageStartedAt + active.stageSeconds * 1000) : active.stageSeconds;
-        if (!meReq && !meTgt) return (
-          <div className="p-3 rounded-xl border border-[#2a2a2a] bg-white/5 text-center text-[11px] text-[#999]">
-            ⚔️ مواجهة جارية: <b className="text-white">{nameOf(active.requesterPhysicalId)}</b> ضدّ <b className="text-white">{nameOf(active.targetPhysicalId)}</b> ({left}ث)
-          </div>
-        );
+        const timeLbl = active.timeUp ? 'انتهى الوقت' : `${left}ث`;
+        if (!meReq && !meTgt) {
+          const my = myVotes[active.id];
+          if (conf.pulseEnabled === false) return (
+            <div className="p-3 rounded-xl border border-[#2a2a2a] bg-white/5 text-center text-[11px] text-[#999]">
+              ⚔️ مواجهة جارية: <b className="text-white">{nameOf(active.requesterPhysicalId)}</b> ضدّ <b className="text-white">{nameOf(active.targetPhysicalId)}</b> ({timeLbl})
+            </div>
+          );
+          // 🗳️ نبض الإقناع: زرّان كبيران، الاختيار قابلٌ للتغيير حتى يغلق الليدر
+          return (
+            <div className="p-3.5 rounded-xl border-2 border-sky-500/50 bg-sky-500/10 text-center">
+              <p className="text-sky-200 text-sm font-black">🗳️ من أقنعك أكثر؟ <span className="font-mono text-[#999] text-xs">({timeLbl})</span></p>
+              <div className="grid grid-cols-2 gap-2 mt-2">
+                <button disabled={busy} onClick={() => pulse(active, 'REQ')} className={`py-3 rounded-xl border font-bold text-sm ${my === 'REQ' ? 'bg-[#C5A059]/25 border-[#C5A059] text-[#C5A059]' : 'bg-white/5 border-white/15 text-white'}`}>
+                  {my === 'REQ' ? '✓ ' : ''}{nameOf(active.requesterPhysicalId)}<span className="block text-[10px] text-[#999]">الطالب #{active.requesterPhysicalId}</span>
+                </button>
+                <button disabled={busy} onClick={() => pulse(active, 'TGT')} className={`py-3 rounded-xl border font-bold text-sm ${my === 'TGT' ? 'bg-[#8A0303]/30 border-[#ffccd5] text-[#ffccd5]' : 'bg-white/5 border-white/15 text-white'}`}>
+                  {my === 'TGT' ? '✓ ' : ''}{nameOf(active.targetPhysicalId)}<span className="block text-[10px] text-[#999]">المستهدَف #{active.targetPhysicalId}</span>
+                </button>
+              </div>
+              <p className="text-[10px] text-[#888] mt-2">{my ? 'يمكنك تغيير رأيك حتى يغلق الليدر المواجهة' : 'صوتك سرّيّ — تُعرض النسبة فقط على الشاشة'}</p>
+            </div>
+          );
+        }
         const other = nameOf(meReq ? active.targetPhysicalId : active.requesterPhysicalId);
         return (
           <div className="p-4 rounded-xl border-2 text-center border-[#C5A059] bg-[#C5A059]/15 shadow-[0_0_24px_rgba(197,160,89,0.3)]">
             <p className="text-sm font-black text-[#C5A059]">🎙️ كلمتك الآن — مواجهةٌ مع {other}</p>
-            <p className={`text-4xl font-mono font-black mt-1 ${left <= 10 ? 'text-red-400 animate-pulse' : 'text-white'}`}>{left}</p>
-            <p className="text-[10px] text-[#888]">الطرفان يتحدّثان معاً — {active.stageSeconds} ثانية</p>
+            {active.timeUp ? (
+              <p className="text-lg font-black text-[#ffccd5] mt-1">⏱ انتهى الوقت — بانتظار الليدر</p>
+            ) : (
+              <p className={`text-4xl font-mono font-black mt-1 ${left <= 10 ? 'text-red-400 animate-pulse' : 'text-white'}`}>{left}</p>
+            )}
+            <p className="text-[10px] text-[#888]">{conf.pulseEnabled === false ? `الطرفان يتحدّثان معاً — ${active.stageSeconds} ثانية` : '🗳️ القاعة تصوّت الآن لمن يقنعها'}</p>
           </div>
         );
       })()}

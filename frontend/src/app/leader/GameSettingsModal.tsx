@@ -134,6 +134,12 @@ export default function GameSettingsModal({ gameState, emit, onConfig, onClose, 
                 <Row label="مدّة المواجهة" k="confrontationStageSeconds" hint="للطرفين معاً؛ يمكن تمديدها أو تقصيرها حيّاً من لوحة المواجهة">
                   <Num k="confrontationStageSeconds" value={c.confrontationStageSeconds ?? 60} min={20} max={300} step={10} unit="ث" disabled={c.confrontationEnabled !== true} />
                 </Row>
+                <Row label="🗳️ نبض الإقناع" k="pulseEnabled" hint="القاعة تصوّت من هواتفها أثناء المواجهة لمن أقنعها؛ يُعرض على الشاشة ويُختم عند الإغلاق">
+                  <Toggle k="pulseEnabled" value={c.pulseEnabled !== false} disabled={c.confrontationEnabled !== true} />
+                </Row>
+                <Row label="النبض يفضّ تعادل الإقصاء" k="pulseBreaksTies" hint="عند تعادل التصويت وأحد المتعادلين خاسر نبض هذه الجولة، يُقترح إقصاؤه (بزرّ، لا تلقائيّاً)">
+                  <Toggle k="pulseBreaksTies" value={c.pulseBreaksTies === true} disabled={c.confrontationEnabled !== true || c.pulseEnabled === false} />
+                </Row>
               </>
             )}
             {isRemote && (

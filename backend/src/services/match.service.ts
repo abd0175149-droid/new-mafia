@@ -169,6 +169,11 @@ export async function finalizeMatch(state: GameState): Promise<void> {
       const mafiaConfrontationOnMafiaCount = myConfrontations.filter(c => c.outcome === 'MAFIA_BETRAYAL').length;
       const confrontationOutcome: string | null = myConfrontations.length
         ? (myConfrontations.find(c => c.outcome && c.outcome !== 'NONE')?.outcome || 'NONE') : null;
+      // 🗳️ نبض الإقناع: فوزٌ بنصاب، والقاعة مع الحقيقة، وحدسٌ صائب كمصوّت
+      const allConfs = tracking.confrontations || [];
+      const pulseWins = allConfs.filter(c => c.pulse?.quorum && c.pulse.winnerPhysicalId === p.physicalId).length;
+      const pulseVindicatedCount = allConfs.filter(c => c.pulseVindicated && c.pulse?.winnerPhysicalId === p.physicalId).length;
+      const pulseCorrectVotes = allConfs.filter(c => (c.correctVoters || []).includes(p.physicalId)).length;
 
       // 🎯 المصدر الموحّد لحساب النقاط (كل الأدوار بما فيها المحايدون) — نفس قيمة الإجمالي المطبَّق
       const rewardOpts = {
@@ -182,6 +187,9 @@ export async function finalizeMatch(state: GameState): Promise<void> {
         successfulConfrontationsCount,
         failedConfrontationsCount,
         mafiaConfrontationOnMafiaCount,
+        pulseWins,
+        pulseVindicatedCount,
+        pulseCorrectVotes,
         abilityCorrectCount,
         abilityIncorrectCount,
         teamEliminationBonus: teamElimBonus,
@@ -222,6 +230,9 @@ export async function finalizeMatch(state: GameState): Promise<void> {
         dealSuccess: dealOutcome ? dealOutcome.success : null,
         confrontationInitiated: myConfrontations.length > 0,
         confrontationOutcome,
+        pulseWins,
+        pulseVindicated: pulseVindicatedCount > 0,
+        pulseCorrectVotes,
         abilityUsed: p.role === 'ASSASSIN' ? true : abilityResults.length > 0,
         abilityCorrect: abilityResults.length > 0 ? abilityResults.some(a => a.correct) : null,
         // 💾 تُحفظ القيم لكل الأدوار (حتى المحايدين) — لا أصفار بعد الآن. تُتخطّى المباريات التجريبية فقط.

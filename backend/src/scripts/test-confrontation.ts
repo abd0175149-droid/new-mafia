@@ -11,6 +11,7 @@ import {
   requestConfrontation, requestBlockReason, acceptConfrontation, declineConfrontation, cancelConfrontation,
   startConfrontation, endConfrontation, markTimedOut, blockingConfrontation,
   stampConfrontationOutcome, publicConfrontations, usedBy, stageDeadline, adjustConfrontationStage, stageSecondsFor,
+  castPulse, markTimeUp, pulseSummary, pulseTieSuggestion, pulseBadges, confrontationNotes, myPulseVotes,
 } from '../game/confrontation-engine.js';
 import { computeMatchReward, computeMatchBreakdown, buildDisplayBreakdown } from '../services/progression.service.js';
 import { remapPhysicalIds } from '../game/seat-remap.js';
@@ -112,10 +113,9 @@ async function main() {
     check('الثالثة في الجولة ممنوعة', !!requestBlockReason(s, 5, 1) || !!requestBlockReason(s, 5, 2));
     s.discussionState = { status: 'WAITING', isFinished: true };
     startConfrontation(s, a.id);
-    check('لا تبدأ ثانيةٌ والأولى جارية', !!err(() => startConfrontation(s, b.id)));
-    endConfrontation(s, a.id);
     startConfrontation(s, b.id);
-    check('لا تبدأ ثالثةٌ وثانيةٌ جارية', !!err(() => startConfrontation(s, a.id)));
+    check('بدء الثانية يغلق الأولى تلقائيّاً (قرار المالك)', a.status === 'DONE' && b.status === 'LIVE');
+    check('المنتهية لا تُبدأ ثانيةً', !!err(() => startConfrontation(s, a.id)));
     endConfrontation(s, b.id);
     s.round = 3;
     check('الجولة الجديدة: العدّ يبدأ من صفر', publicConfrontations(s).confrontations.length === 0 && requestBlockReason(s, 2, 1) === null);
@@ -224,12 +224,79 @@ async function main() {
     check('لا تعديل بعد الانتهاء', !!err(() => { endConfrontation(s, c.id); adjustConfrontationStage(s, c.id, 10); }));
   }
 
+  section('8) نبض الإقناع: من يصوّت، النصاب، البقاء بعد الوقت، الختم، الشارات، فضّ التعادل، السرّيّة');
+  {
+    const s = fresh([P(1, Role.GODFATHER), P(2, Role.CITIZEN), P(3, Role.CITIZEN), P(4, Role.CITIZEN), P(5, Role.CITIZEN), P(6, Role.CITIZEN, false)]);
+    const c = requestConfrontation(s, 2, 1); acceptConfrontation(s, c.id, 'TARGET');
+    check('لا تصويت قبل البدء', !!err(() => castPulse(s, c.id, 3, 'REQ')));
+    s.discussionState = { status: 'WAITING', isFinished: true };
+    startConfrontation(s, c.id, 1000, 60);
+    check('طرفٌ لا يصوّت', !!err(() => castPulse(s, c.id, 1, 'TGT')));
+    check('ميّتٌ لا يصوّت', !!err(() => castPulse(s, c.id, 6, 'REQ')));
+    castPulse(s, c.id, 3, 'REQ');
+    check('المؤهّلون ٣ (٥ أحياء − طرفان) وصوتٌ واحد ⇒ بلا نصاب', pulseSummary(s, c).eligible === 3 && pulseSummary(s, c).quorum === false);
+    castPulse(s, c.id, 4, 'TGT'); castPulse(s, c.id, 4, 'REQ');
+    check('تغيير الرأي يستبدل الصوت', pulseSummary(s, c).req === 2 && pulseSummary(s, c).tgt === 0);
+    check('النصاب ٢ من ٣ ⇒ الفائز الطالب ١٠٠٪', pulseSummary(s, c).quorum && pulseSummary(s, c).winner === 'REQ' && pulseSummary(s, c).pct === 100);
+    check('انقضاء الوقت يبقيها LIVE بعلم timeUp', markTimeUp(s, c.id)?.timeUp === true && c.status === 'LIVE');
+    castPulse(s, c.id, 5, 'TGT');
+    check('التصويت مفتوح بعد انقضاء الوقت', pulseSummary(s, c).tgt === 1);
+    adjustConfrontationStage(s, c.id, 30, 30000);
+    check('تمديدٌ بعد الوقت يعيد العدّ (timeUp=false)', c.timeUp === false);
+    const pub = publicConfrontations(s);
+    check('البثّ لا يحمل الأصوات الفرديّة ويحمل الملخّص', !('pulseVotes' in (pub.confrontations[0] as any)) && (pub.confrontations[0] as any).pulse.req === 2);
+    check('صوتي يعود لي وحدي', myPulseVotes(s, 5)[c.id] === 'TGT' && !myPulseVotes(s, 2)[c.id]);
+    endConfrontation(s, c.id);
+    check('الإغلاق يختم الملخّص في التتبّع', s.performanceTracking.confrontations[0].pulse.winner === 'REQ' && s.performanceTracking.confrontations[0].pulse.pct === 67);
+    const badges = pulseBadges(s);
+    check('شارات التصويت: الطالب فائز ٦٧٪ والمستهدَف خاسر ٣٣٪', badges[2]?.won === true && badges[2].pct === 67 && badges[1]?.won === false && badges[1].pct === 33);
+    // فضّ التعادل بالمفتاح
+    check('بلا مفتاح ⇒ لا اقتراح', pulseTieSuggestion(s, [{ targetPhysicalId: 1 }, { targetPhysicalId: 3 }]) === null);
+    s.config.pulseBreaksTies = true;
+    const sug = pulseTieSuggestion(s, [{ targetPhysicalId: 1 }, { targetPhysicalId: 3 }]);
+    check('بالمفتاح: خاسر النبض #1 هو المقترح', sug?.physicalId === 1 && sug.winnerPhysicalId === 2);
+    check('لا اقتراح إن لم يكن خاسر النبض بين المتعادلين', pulseTieSuggestion(s, [{ targetPhysicalId: 3 }, { targetPhysicalId: 4 }]) === null);
+    // الختم من التصويت: أُقصي #1 مافيا ⇒ الطالب المواطن ربح النبض وكان محقّاً؛ المصوّتون له صائبون
+    stampConfrontationOutcome(s, 1);
+    const e = s.performanceTracking.confrontations[0];
+    check('القاعة مع الحقيقة + المصوّتون الصائبون [3,4]', e.pulseVindicated === true && JSON.stringify(e.correctVoters) === '[3,4]' && e.outcome === 'MAFIA_EXPOSED');
+    check('سطر الكشف', confrontationNotes(s, [1])[1].includes('خسر النبض'));
+  }
+  {
+    // بدء مواجهةٍ ثانية يغلق الجارية؛ والنبض بلا نصاب ⇒ لا فائز ولا شارات
+    const s = fresh([P(1, Role.GODFATHER), P(2, Role.CITIZEN), P(3, Role.CITIZEN), P(4, Role.CITIZEN), P(5, Role.CITIZEN)], { perPlayer: 2 });
+    const a = requestConfrontation(s, 2, 1); acceptConfrontation(s, a.id, 'TARGET');
+    const b = requestConfrontation(s, 3, 4); acceptConfrontation(s, b.id, 'TARGET');
+    s.discussionState = { status: 'WAITING', isFinished: true };
+    startConfrontation(s, a.id); markTimeUp(s, a.id);
+    startConfrontation(s, b.id);
+    check('بدء الثانية أغلق الأولى وختمها', a.status === 'DONE' && b.status === 'LIVE' && a.pulse?.quorum === false);
+    check('بلا نصاب ⇒ لا شارات', Object.keys(pulseBadges(s)).length === 0);
+    check('المصوّت المواطن الذي واجه مافيا (2) يصوّت في مواجهة غيره', !err(() => castPulse(s, b.id, 2, 'REQ')));
+  }
+
+  section('9) النقاط: النبض خبرةٌ إلّا «القاعة مع الحقيقة» (+5 رتبة)');
+  {
+    const base = { role: 'CITIZEN', winner: 'CITIZEN', survivedToEnd: true, roundsSurvived: 3, successfulDealsCount: 0, failedDealsCount: 0, mafiaDealOnMafiaCount: 0, abilityCorrectCount: 0, abilityIncorrectCount: 0, teamEliminationBonus: 0, assassinContractsCompleted: 0 };
+    const r0 = computeMatchReward(base as any, undefined);
+    const r1 = computeMatchReward({ ...base, pulseWins: 1 } as any, undefined);
+    const r2 = computeMatchReward({ ...base, pulseWins: 1, pulseVindicatedCount: 1 } as any, undefined);
+    const r3 = computeMatchReward({ ...base, pulseCorrectVotes: 5 } as any, undefined);
+    check('فوز بالنبض: +10 خبرة و0 رتبة', r1.xpEarned - r0.xpEarned === 10 && r1.rrChange === r0.rrChange);
+    check('القاعة مع الحقيقة: +5 رتبة و+10 خبرة إضافيّة', r2.rrChange - r0.rrChange === 5 && r2.xpEarned - r1.xpEarned === 10);
+    check('حدسٌ صائب مقيّد بـ٣ (٩ خبرة)', r3.xpEarned - r0.xpEarned === 9 && r3.rrChange === r0.rrChange);
+    const b = computeMatchBreakdown({ ...base, pulseWins: 1, pulseVindicatedCount: 1, pulseCorrectVotes: 1 } as any, undefined);
+    check('التفصيل يحمل بنود النبض', b.xp.pulseWin === 10 && b.xp.pulseVindicated === 10 && b.xp.pulseCorrectVote === 3 && b.rr.pulseVindicated === 5);
+  }
+
   section('7) نقل المقاعد يعيد ترقيم الطالب/المستهدَف والعدّاد');
   {
     const s = fresh([P(1, Role.GODFATHER), P(2, Role.CITIZEN), P(3, Role.CITIZEN)]);
     const c = requestConfrontation(s, 2, 1); acceptConfrontation(s, c.id, 'TARGET');
-    remapPhysicalIds(s, new Map([[2, 7], [1, 9]]));
+    s.discussionState = { status: 'WAITING', isFinished: true }; startConfrontation(s, c.id); castPulse(s, c.id, 3, 'REQ');
+    remapPhysicalIds(s, new Map([[2, 7], [1, 9], [3, 8]]));
     check('requester 2→7, target 1→9', c.requesterPhysicalId === 7 && c.targetPhysicalId === 9);
+    check('أصوات النبض تُرقَّم 3→8', c.pulseVotes![8] === 'REQ' && !c.pulseVotes![3]);
     check('confrontationsUsed 2→7', usedBy(s, 7) === 1 && usedBy(s, 2) === 0);
   }
 

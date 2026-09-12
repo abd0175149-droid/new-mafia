@@ -31,6 +31,8 @@ const ID_ARRAY_FIELDS = new Set([
   'withdrawn', 'accusedIds',
   // 🎁 سجلّ رابحي السحب عبر عمر الغرفة (يستمر بين الألعاب — لذا يجب ترقيمه)
   'luckyDrawHistory',
+  // 🗳️ من صوّت صواباً في نبض الإقناع
+  'correctVoters',
 ]);
 
 // قواميس مفاتيحها physicalIds (Record<physicalId, ...>)
@@ -40,6 +42,8 @@ const ID_KEYED_RECORDS = new Set([
   'dealRegisteredRound',
   // ⚔️ عدّاد مواجهات النهار: physicalId → عدد المقبولة في اللعبة
   'confrontationsUsed',
+  // 🗳️ أصوات نبض الإقناع: physicalId → REQ|TGT
+  'pulseVotes',
 ]);
 
 // قواميس **قيمها** physicalIds ومفاتيحها شيء آخر (مثل معرّف القدرة)

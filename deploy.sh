@@ -485,6 +485,10 @@ CREATE UNIQUE INDEX IF NOT EXISTS uq_wa_rank_player_city_tier
 -- ⚔️ مواجهة النهار الوجاهيّة — أثرها في دفتر المباراة (2026-09-11)
 ALTER TABLE match_players ADD COLUMN IF NOT EXISTS confrontation_initiated BOOLEAN DEFAULT false;
 ALTER TABLE match_players ADD COLUMN IF NOT EXISTS confrontation_outcome VARCHAR(20);
+-- 🗳️ نبض الإقناع (2026-09-12)
+ALTER TABLE match_players ADD COLUMN IF NOT EXISTS pulse_wins INTEGER DEFAULT 0;
+ALTER TABLE match_players ADD COLUMN IF NOT EXISTS pulse_vindicated BOOLEAN DEFAULT false;
+ALTER TABLE match_players ADD COLUMN IF NOT EXISTS pulse_correct_votes INTEGER DEFAULT 0;
 SQL
 then
   say "   ✅ الترحيل تمّ"

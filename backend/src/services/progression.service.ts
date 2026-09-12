@@ -91,6 +91,9 @@ export function calculateMatchXP(params: {
   successfulConfrontationsCount?: number;   // ⚔️ مواجهة كشفت مافيا
   failedConfrontationsCount?: number;       // ⚔️ مواجهة مواطن على مواطن
   mafiaConfrontationOnMafiaCount?: number;  // ⚔️ مافيا واجه مافيا
+  pulseWins?: number;                        // 🗳️ فوز بنبض القاعة
+  pulseVindicatedCount?: number;             // 🗳️ القاعة مع الحقيقة
+  pulseCorrectVotes?: number;                // 🗳️ حدس صائب (مقيّد بـ٣)
 }, cfg?: any, abilityRates?: { correctXp?: number; wrongXp?: number }): number {
   const c = cfg?.xp || DEFAULT_CONFIG.xp;
   let xp = 0;
@@ -110,6 +113,9 @@ export function calculateMatchXP(params: {
   xp += (params.successfulConfrontationsCount || 0) * (c.confrontationOnMafia ?? 25);
   xp += (params.failedConfrontationsCount || 0) * (c.failedConfrontation ?? -5);
   xp += (params.mafiaConfrontationOnMafiaCount || 0) * (c.mafiaConfrontationOnMafia ?? 0);
+  xp += (params.pulseWins || 0) * (c.pulseWin ?? 10);
+  xp += (params.pulseVindicatedCount || 0) * (c.pulseVindicated ?? 10);
+  xp += Math.min(3, params.pulseCorrectVotes || 0) * (c.pulseCorrectVote ?? 3);
   xp += params.teamEliminationBonus;
 
   return Math.max(0, xp);
@@ -124,6 +130,7 @@ export function calculateMatchRR(params: {
   successfulConfrontationsCount?: number;
   failedConfrontationsCount?: number;
   mafiaConfrontationOnMafiaCount?: number;
+  pulseVindicatedCount?: number;
   survivedToEnd: boolean;
   abilityCorrectCount: number;
   abilityIncorrectCount: number;
@@ -141,6 +148,7 @@ export function calculateMatchRR(params: {
   rr += (params.successfulConfrontationsCount || 0) * (c.confrontationOnMafia ?? 10);
   rr += (params.failedConfrontationsCount || 0) * (c.failedConfrontation ?? -15);
   rr += (params.mafiaConfrontationOnMafiaCount || 0) * (c.mafiaConfrontationOnMafia ?? -15);
+  rr += (params.pulseVindicatedCount || 0) * (c.pulseVindicated ?? 5);
   if (params.survivedToEnd) rr += c.survivedToEnd;
   rr += params.abilityCorrectCount * abCorrect;
   rr += params.abilityIncorrectCount * abWrong;
@@ -164,6 +172,9 @@ export function computeMatchReward(opts: {
   successfulConfrontationsCount?: number;   // ⚔️ مواجهة كشفت مافيا (اختياريّة — المستدعون القدامى)
   failedConfrontationsCount?: number;       // ⚔️ مواجهة مواطن على مواطن
   mafiaConfrontationOnMafiaCount?: number;  // ⚔️ مافيا واجه مافيا
+  pulseWins?: number;
+  pulseVindicatedCount?: number;
+  pulseCorrectVotes?: number;
   abilityCorrectCount: number;
   abilityIncorrectCount: number;
   teamEliminationBonus: number;
@@ -211,6 +222,9 @@ export function computeMatchReward(opts: {
     successfulConfrontationsCount: opts.successfulConfrontationsCount || 0,
     failedConfrontationsCount: opts.failedConfrontationsCount || 0,
     mafiaConfrontationOnMafiaCount: opts.mafiaConfrontationOnMafiaCount || 0,
+    pulseWins: opts.pulseWins || 0,
+    pulseVindicatedCount: opts.pulseVindicatedCount || 0,
+    pulseCorrectVotes: opts.pulseCorrectVotes || 0,
     teamEliminationBonus: opts.teamEliminationBonus,
   }, c, roleAb ? { correctXp: roleAb.correctXp, wrongXp: roleAb.wrongXp } : undefined);
 
@@ -222,6 +236,7 @@ export function computeMatchReward(opts: {
     successfulConfrontationsCount: opts.successfulConfrontationsCount || 0,
     failedConfrontationsCount: opts.failedConfrontationsCount || 0,
     mafiaConfrontationOnMafiaCount: opts.mafiaConfrontationOnMafiaCount || 0,
+    pulseVindicatedCount: opts.pulseVindicatedCount || 0,
     survivedToEnd: opts.survivedToEnd,
     abilityCorrectCount: opts.abilityCorrectCount,
     abilityIncorrectCount: opts.abilityIncorrectCount,
@@ -238,6 +253,7 @@ export function computeMatchBreakdown(opts: {
   role: string; winner: string | null; survivedToEnd: boolean; roundsSurvived: number;
   successfulDealsCount: number; failedDealsCount: number; mafiaDealOnMafiaCount: number;
   successfulConfrontationsCount?: number; failedConfrontationsCount?: number; mafiaConfrontationOnMafiaCount?: number;
+  pulseWins?: number; pulseVindicatedCount?: number; pulseCorrectVotes?: number;
   abilityCorrectCount: number; abilityIncorrectCount: number; teamEliminationBonus: number;
   assassinContractsCompleted: number;
 }, cfg?: any): { won: boolean; team: 'MAFIA' | 'CITIZEN' | 'NEUTRAL'; xp: Record<string, number>; rr: Record<string, number> } {
@@ -281,6 +297,9 @@ export function computeMatchBreakdown(opts: {
       confrontationSuccess: (opts.successfulConfrontationsCount || 0) * (cx.confrontationOnMafia ?? 25),
       confrontationFailed: (opts.failedConfrontationsCount || 0) * (cx.failedConfrontation ?? -5),
       mafiaConfrontationOnMafia: (opts.mafiaConfrontationOnMafiaCount || 0) * (cx.mafiaConfrontationOnMafia ?? 0),
+      pulseWin: (opts.pulseWins || 0) * (cx.pulseWin ?? 10),
+      pulseVindicated: (opts.pulseVindicatedCount || 0) * (cx.pulseVindicated ?? 10),
+      pulseCorrectVote: Math.min(3, opts.pulseCorrectVotes || 0) * (cx.pulseCorrectVote ?? 3),
       teamElimBonus: opts.teamEliminationBonus,
     },
     rr: {
@@ -291,6 +310,7 @@ export function computeMatchBreakdown(opts: {
       confrontationSuccess: (opts.successfulConfrontationsCount || 0) * (cr.confrontationOnMafia ?? 10),
       confrontationFailed: (opts.failedConfrontationsCount || 0) * (cr.failedConfrontation ?? -15),
       mafiaConfrontationOnMafia: (opts.mafiaConfrontationOnMafiaCount || 0) * (cr.mafiaConfrontationOnMafia ?? -15),
+      pulseVindicated: (opts.pulseVindicatedCount || 0) * (cr.pulseVindicated ?? 5),
       survivedToEnd: opts.survivedToEnd ? cr.survivedToEnd : 0,
       abilityCorrect: opts.abilityCorrectCount * abCorrRr,
       abilityIncorrect: opts.abilityIncorrectCount * abWrongRr,
@@ -313,6 +333,9 @@ const BREAKDOWN_META: Record<string, { label: string; icon: string }> = {
   confrontationSuccess: { label: 'مواجهة كشفت مافيا', icon: '⚔️' },
   confrontationFailed: { label: 'مواجهة على مواطن', icon: '🩹' },
   mafiaConfrontationOnMafia: { label: 'غدر بالفريق (مواجهة مافيا)', icon: '🔴' },
+  pulseWin: { label: 'إقناع القاعة', icon: '🗳️' },
+  pulseVindicated: { label: 'القاعة مع الحقيقة', icon: '🎯' },
+  pulseCorrectVote: { label: 'حدسٌ صائب', icon: '💡' },
   teamElimBonus: { label: 'مكافأة إقصاء خصم', icon: '⚔️' },
   neutralResult: { label: 'نتيجة الدور المحايد', icon: '🎭' },
   contracts: { label: 'عقود منجزة', icon: '🎯' },
@@ -351,6 +374,9 @@ export function buildDisplayBreakdown(row: any, cfg?: any): {
       successfulConfrontationsCount: row.confrontationOutcome === 'MAFIA_EXPOSED' ? 1 : 0,
       failedConfrontationsCount: row.confrontationOutcome === 'CITIZEN_HIT' ? 1 : 0,
       mafiaConfrontationOnMafiaCount: row.confrontationOutcome === 'MAFIA_BETRAYAL' ? 1 : 0,
+      pulseWins: row.pulseWins || 0,
+      pulseVindicatedCount: row.pulseVindicated ? 1 : 0,
+      pulseCorrectVotes: row.pulseCorrectVotes || 0,
       abilityCorrectCount: row.abilityUsed && row.abilityCorrect === true ? 1 : 0,
       abilityIncorrectCount: row.abilityUsed && row.abilityCorrect === false ? 1 : 0,
       teamEliminationBonus: 0, // غير معروف من الحقول → يلتقطه بند التسوية

@@ -65,6 +65,9 @@ export default function DisplayDayView({ roomId, players, initialDiscussionState
   // Discussion UI States
   const [discussionState, setDiscussionState] = useState<any>(initialDiscussionState || null);
   const [silencedPlayerId, setSilencedPlayerId] = useState<number | null>(null);
+  // 🗳️ نبض الإقناع: شارات التصويت وسطور الكشف
+  const [pulseBadges, setPulseBadges] = useState<Record<number, { won: boolean; pct: number; vsPhysicalId: number }>>({});
+  const [confrontationNotes, setConfrontationNotes] = useState<Record<number, string>>({});
   // 🎩 العمدة: مشهد الكشف + لافتة إعادة التصويت بأمره + تأجيل اليوم
   const [mayorScene, setMayorScene] = useState<{ physicalId: number; name: string; decision: string; voteWeight?: number } | null>(null);
   const mayorSceneTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -199,6 +202,7 @@ export default function DisplayDayView({ roomId, players, initialDiscussionState
 
     const onVotingStarted = (data: any) => {
       setCandidates(data.candidates);
+      setPulseBadges(data.pulseBadges || {});
       setTotalVotesCast(0);
       setTieBreakerLevel(data.tieBreakerLevel || 0);
       setMayorRevote(!!data.mayorRevote);
@@ -239,6 +243,7 @@ export default function DisplayDayView({ roomId, players, initialDiscussionState
 
     const onRevealed = (data: any) => {
       setEliminatedIds(data.eliminated);
+      setConfrontationNotes(data.confrontationNotes || {});
       setRevealedRoles(data.revealedRoles);
       setRevealType(data.type);
       // تحديث عداد الفرق فقط بعد كشف الهوية — وليس قبلها
@@ -819,6 +824,12 @@ export default function DisplayDayView({ roomId, players, initialDiscussionState
                           DEAL
                         </div>
                       )}
+                      {/* 🗳️ شارة نبض المواجهة (المستوى ٢) */}
+                      {pulseBadges[candidate.targetPhysicalId] && (
+                        <div className={`absolute -bottom-3 left-1/2 -translate-x-1/2 whitespace-nowrap text-[11px] px-3 py-1 rounded-full z-30 border font-bold ${pulseBadges[candidate.targetPhysicalId].won ? 'bg-[#0f2a1a] border-emerald-500/60 text-emerald-300' : 'bg-[#2a0f0f] border-[#8A0303] text-[#ffccd5]'}`} dir="rtl">
+                          ⚔️ {pulseBadges[candidate.targetPhysicalId].won ? `القاعة اقتنعت به ${pulseBadges[candidate.targetPhysicalId].pct}٪` : `لم تقتنع به القاعة ${pulseBadges[candidate.targetPhysicalId].pct}٪`}
+                        </div>
+                      )}
                       <MafiaCard
                         playerNumber={candidate.targetPhysicalId}
                         playerName={targetName}
@@ -1252,7 +1263,7 @@ export default function DisplayDayView({ roomId, players, initialDiscussionState
               <p className="text-[#9a8f7d] text-2xl" style={{ fontFamily: 'Amiri, serif' }}>لا موت اليوم — الليلة تبدأ</p>
             </motion.div>
           ) : (
-            <RevealCeremony players={players} revealedRoles={revealedRoles} revealType={revealType} />
+            <RevealCeremony players={players} revealedRoles={revealedRoles} revealType={revealType} notes={confrontationNotes} />
           )
         )}
 
@@ -1287,7 +1298,8 @@ export default function DisplayDayView({ roomId, players, initialDiscussionState
 // ══════════════════════════════════════════════════════
 // 🎬 RevealCeremony — كشف الهوية السينمائي
 // ══════════════════════════════════════════════════════
-function RevealCeremony({ players, revealedRoles, revealType }: {
+function RevealCeremony({ players, revealedRoles, revealType, notes }: {
+  notes?: Record<number, string>;
   players: any[];
   revealedRoles: any[];
   revealType: string;
@@ -1395,6 +1407,12 @@ function RevealCeremony({ players, revealedRoles, revealType }: {
               transition={{ type: 'spring', damping: 15, delay: i * 0.3 }}
               className="flex flex-col items-center relative"
             >
+              {/* 🗳️ سطر المواجهة: «وُوجه وخسر النبض ٦٤٪» */}
+              {isGrayed && notes?.[roleInfo.physicalId] && (
+                <motion.p initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: .4 }} className="absolute -top-8 text-[#C5A059] text-lg whitespace-nowrap" style={{ fontFamily: 'Amiri, serif' }} dir="rtl">
+                  {notes[roleInfo.physicalId]}
+                </motion.p>
+              )}
               {/* أيقونة الفريق — تظهر فوق الكارد بعد التحول للرمادي */}
               <AnimatePresence>
                 {isGrayed && (
