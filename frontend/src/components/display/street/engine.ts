@@ -205,7 +205,7 @@ class StreetEngine {
   envNight: THREE.Texture | null = null; envDawn: THREE.Texture | null = null; pmrem!: THREE.PMREMGenerator; windows!: THREE.InstancedMesh; soft = texSoft(); curtain = texCurtain();
   shots!: Record<string, Shot>; cur = 'A'; shotT = 0; order = ['A', 'B', 'C']; oi = 0; evShot: string | null = null; _p = new THREE.Vector3(-.8, 1.7, 11); _l = new THREE.Vector3(.4, 2, -30); sway = new THREE.Vector3(); cutting = false; frameShift = 0;
   ev = { silence: 0, disable: 0, snipe: 0, kill: 0, saved: 0 }; posterCb: ((url: string) => void) | null = null; fpsEma = 0; facadeGroup: THREE.Group | null = null; ready = false; readyAt = 0; assetsReady: Promise<void> = Promise.resolve();
-  prewarmDone = false; prewarmMs = 0; posters: Partial<Record<StreetMode, string>> = {}; lastFrameAt = 0; frameIndex = 0; transMarkAt = 0; transPending = false; lastTransitionMs = 0; dusk = false;
+  prewarmDone = false; warming = false; prewarmMs = 0; posters: Partial<Record<StreetMode, string>> = {}; lastFrameAt = 0; frameIndex = 0; transMarkAt = 0; transPending = false; lastTransitionMs = 0; dusk = false;
   STEAM_O = new THREE.Vector3(2.2, .1, -14); EXH_O = new THREE.Vector3(3.4, .4, -6.6);
   /** للشارة التشخيصيّة */
   lastTris = 0; lastCalls = 0;
@@ -224,7 +224,7 @@ class StreetEngine {
     const bs = debugParam('brot'); if (bs === '180') this.frontSign = -1; const sh = debugParam('shot'); if (sh) setTimeout(() => { if (this.shots[sh]) { this.evShot = sh; this.shotT = 0; this.order = [sh]; this.cur = sh; } }, 1500);
     this.build(); this.buildPost(); this.applyQuality(); this.applyPreset(this.NIGHT); this.loadAssets();
     // الظلال والانعكاس بالتناوب: المشهد كان يُرسم 4 مرّات في الإطار (عرض + انعكاس + ظلّان) — الآن ~2.2
-    this.renderer.shadowMap.autoUpdate = false; const origBefore = this.reflector.onBeforeRender.bind(this.reflector); this.reflector.onBeforeRender = (...args: any[]) => { if (this.frameIndex % 2 === 1) (origBefore as any)(...args); };
+    this.renderer.shadowMap.autoUpdate = false; /* الانعكاس يبقى كلّ إطار: تخطّيه بالتناوب أفسد نسيج البِرَك */
     this.assetsReady.then(() => this.prewarm());
   }
 
@@ -591,7 +591,7 @@ class StreetEngine {
    * النتيجة: أوّل ليلٍ يبدأ في الإطار نفسه، والملصق جاهزٌ بلا التقاطٍ أثناء اللعب.
    */
   async prewarm() {
-    if (this.disposed || !this.ok) return; const t0 = performance.now();
+    if (this.disposed || !this.ok || this.warming) return; const t0 = performance.now(); this.warming = true;
     const rt = new THREE.WebGLRenderTarget(1280, 720); const saved = { from: this.from, to: this.to, t: this.transT, mode: this.mode, active: this.active };
     const buf = new Uint8Array(1280 * 720 * 4); const cvs = document.createElement('canvas'); cvs.width = 1280; cvs.height = 720; const ctx = cvs.getContext('2d')!;
     for (const [m, P] of [['night', this.NIGHT], ['dawn', this.DAWN], ['day', this.DAY]] as [StreetMode, Preset][]) {
@@ -599,10 +599,10 @@ class StreetEngine {
       try { await (this.renderer as any).compileAsync(this.scene, this.camera); } catch { /* noop */ }
       this.renderer.shadowMap.needsUpdate = true; this.renderer.setRenderTarget(rt); this.renderer.render(this.scene, this.camera); this.renderer.setRenderTarget(null);
       try { this.renderer.readRenderTargetPixels(rt, 0, 0, 1280, 720, buf); const img = ctx.createImageData(1280, 720); for (let y = 0; y < 720; y++) img.data.set(buf.subarray((719 - y) * 1280 * 4, (720 - y) * 1280 * 4), y * 1280 * 4); ctx.putImageData(img, 0, 0); this.posters[m] = cvs.toDataURL('image/jpeg', .82); } catch { /* noop */ }
-      if (this.disposed) return;
+      if (this.disposed) { this.warming = false; return; }
     }
     rt.dispose(); this.mode = saved.mode; this.from = saved.from; this.to = saved.to; this.transT = saved.t; this.lerpPreset(this.from, this.to, this.transT); this.applyCrowdMode(); this.scene.environment = this.mode === 'night' ? this.envNight : this.envDawn;
-    this.prewarmDone = true; this.prewarmMs = Math.round(performance.now() - t0); console.info('🔥 prewarm', this.prewarmMs, 'ms');
+    this.warming = false; this.prewarmDone = true; this.prewarmMs = Math.round(performance.now() - t0); console.info('🔥 prewarm', this.prewarmMs, 'ms');
   }
   /** الغسق (تلميح الموجّه): يهبط الضوء نحو الليل بمقدار 45% خلال ثانيتين، ويعود إن أُلغي */
   setDusk(on: boolean) {
@@ -617,6 +617,7 @@ class StreetEngine {
   private loop = () => {
     this.raf = requestAnimationFrame(this.loop); if (!this.container || !this.active) return;
     // ⏱️ سقف 30 إطاراً في كلّ الأوضاع (تجربة سينمائيّة لا لعبة): يوفّر الحرارة ويثبّت الإيقاع
+    if (this.warming) return; /* أثناء الإحماء لا يُرسم على الشاشة كي لا تتسرّب إضاءة الأوضاع المخفيّة */
     const nowTs = performance.now(); if (nowTs - this.lastFrameAt < 30) return; this.lastFrameAt = nowTs; this.frameIndex++;
     const dtRaw = Math.min(.5, this.clock.getDelta()), dt = Math.min(.05, dtRaw), time = this.clock.elapsedTime; const ev = this.ev; if (dtRaw > 0) this.fpsEma += ((1 / dtRaw) - this.fpsEma) * .08; this.lastTris = this.renderer.info.render.triangles; this.lastCalls = this.renderer.info.render.calls; this.renderer.info.reset();
     // 🧪 فحص الإطارات بعد اكتمال الأصول بثانيتين (لا أثناء التحميل)، نافذة 4 ثوانٍ؛ 30 إطاراً كافية (تجربة سينمائيّة لا لعبة)
