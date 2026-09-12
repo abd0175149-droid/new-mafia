@@ -1056,6 +1056,12 @@ function DisplayPageContent() {
   const lobbyH = 'calc(100dvh - 48px)';   // ارتفاع شاشتي اللوبي والتوزيع = المنطقة الصالحة (بلا ناف بار)
 
   // 📊 الناف بار يظهر أثناء اللعب فقط — المنطقة الصالحة تحجز ارتفاعه (DisplayViewportProvider)
+  // 🏙️ إحماء أصول زقاق الليل/الفجر أثناء اللوبي (قرار المالك 2026-09-12) — لا انتظار عند أوّل ليل
+  useEffect(() => {
+    if (step !== 'lobby' || phase !== Phase.LOBBY) return;
+    const t = setTimeout(() => { import('@/components/display/street/engine').then(m => m.preloadStreetAssets()).catch(() => {}); }, 2000);
+    return () => clearTimeout(t);
+  }, [step, phase]);
   const navVisible = step === 'lobby' && phase !== Phase.LOBBY && phase !== Phase.ROLE_GENERATION && phase !== Phase.ROLE_BINDING && (teamCounts.mafiaAlive > 0 || teamCounts.citizenAlive > 0 || (teamCounts.neutralAlive ?? 0) > 0);
 
   return (

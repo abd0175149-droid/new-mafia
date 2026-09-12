@@ -14,6 +14,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import NightAnimCinematic from '@/components/NightAnimCinematic';
 
 const StreetScene = dynamic(() => import('./StreetScene'), { ssr: false, loading: () => <div className="absolute inset-0" style={{ background: '#2a1a2e' }} /> });
+// 🔒 الاسم في بطاقة الحدث فقط؛ المشهد ثلاثيّ الأبعاد يتلقّى نوع الحدث لا أكثر.
 
 interface Props {
   events: any[];            // كلّ أحداث هذا الصباح بترتيب وصولها
@@ -56,7 +57,7 @@ export default function MorningReport({ events, current, players, teamCounts, ro
       `}</style>
 
       {/* 🏙️ الزقاق نفسه عند الفجر — three.js — مع شروقٍ يمسح الشاشة فوقه */}
-      <StreetScene mode="dawn" />
+      <StreetScene mode="dawn" event={current?.type ?? null} eventKey={events.length} />
       <div className="mr-sweep absolute inset-0 pointer-events-none" style={{ background: 'linear-gradient(180deg, rgba(10,8,20,.55) 0%, rgba(255,190,110,0) 45%, rgba(255,190,110,.18) 100%)' }} />
       <div className="absolute inset-x-0 top-0 h-[180px] pointer-events-none" style={{ background: 'linear-gradient(180deg, rgba(0,0,0,.6), transparent)' }} />
 

@@ -2,6 +2,10 @@
 const nextConfig = {
   reactStrictMode: true,
   output: 'standalone',
+  // 🏙️ أصول شاشة القاعة ثلاثيّة الأبعاد: أسماء ثابتة ⇒ كاش سنة (تغييرُ أصلٍ = تغييرُ اسمه)
+  async headers() {
+    return [{ source: '/3d/:path*', headers: [{ key: 'Cache-Control', value: 'public, max-age=31536000, immutable' }] }];
+  },
   async rewrites() {
     const backendUrl = process.env.BACKEND_URL || 'http://127.0.0.1:4000';
     return [
