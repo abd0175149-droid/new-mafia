@@ -3,7 +3,7 @@
 كلّ أصول Poly Haven تحت CC0 (لا يلزم إسناد). أصول Sketchfab تحت CC-BY 4.0 ويلزم إسنادها في صفحة «عن التطبيق»:
 
 - sketchfab/pierce_arrow — "1933 Pierce Arrow Silver Arrow look-alike V2" — Libau Media (robinmikart) — CC-BY 4.0 — https://sketchfab.com/3d-models/1933-pierce-arrow-silver-arrow-look-alike-v2-152dbf047cc24ec0979639fe91a9ad9f
-- sketchfab/gangster — "1920's Gangster" — Wolf3D — CC-BY 4.0 — https://sketchfab.com/3d-models/7a633a06e91f40b291b2a9ebf1834507
+- sketchfab/gangster — "Empire of Sin: Al-Capone" — Zorg_Sinister — CC-BY 4.0 as declared by the uploader (the character originates from the game Empire of Sin; owner's choice 2026-09-12, replaceable by "1920's Gangster" Wolf3D https://sketchfab.com/3d-models/7a633a06e91f40b291b2a9ebf1834507) — https://sketchfab.com/3d-models/empire-of-sin-al-capone-97275cfeda5e47e7aba092ba21bdc0ae
 - sketchfab/fedoras — "fedoras" — CC-BY 4.0 — https://sketchfab.com/3d-models/c456f905f8c04169b8864bd7be04b554
 
 ## Poly Haven (CC0)

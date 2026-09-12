@@ -366,9 +366,22 @@ class StreetEngine {
     loadGLTF(PH('modular_fire_escape')).then(g => { if (!g || this.disposed) return; [[-1, -18], [1, -34], [-1, -52]].forEach(([side, z]) => { const m = this.prep(g.scene.clone(true)); this.fit(m, 9.5, 'y'); m.position.set(side * (FACE + .1), 3.3, z); m.rotation.y = side > 0 ? -Math.PI / 2 : Math.PI / 2; S.add(m); }); });
     // Sketchfab (CC-BY): car, character, fedora
     loadGLTF(SF('pierce_arrow')).then(g => { if (!g || this.disposed) return; const m = this.prep(g.scene); const b = new THREE.Box3().setFromObject(m); const s = new THREE.Vector3(); b.getSize(s); const long = s.x >= s.z ? 'x' : 'z'; this.fit(m, 5.0, long); if (long === 'z') m.rotation.y = Math.PI / 2; this.car.children.slice().forEach(c => this.car.remove(c)); this.car.add(m); });
-    loadGLTF(SF('gangster')).then(g => { if (!g || this.disposed) return; const m = this.prep(g.scene); this.fit(m, 1.85, 'y'); this.fig.children.filter(c => c.name === 'proc').forEach(c => this.fig.remove(c)); this.fig.add(m); this.ember.position.set(.2, 1.45, .3); this.emberLight.position.copy(this.ember.position);
+    loadGLTF(SF('gangster')).then(g => { if (!g || this.disposed) return; const m = this.prep(g.scene); m.traverse(o => { if ((o as THREE.SkinnedMesh).isSkinnedMesh) o.frustumCulled = false; }); this.poseFigure(m); this.fit(m, 1.85, 'y'); this.fig.children.filter(c => c.name === 'proc').forEach(c => this.fig.remove(c)); this.fig.add(m); this.figModel = m; this.ember.position.set(.2, 1.45, .3); this.emberLight.position.copy(this.ember.position);
       this.clips = g.animations || []; if (this.clips.length) { this.mixer = new THREE.AnimationMixer(m); this.playClip(this.mode === 'dawn' ? 'walk' : 'idle'); } });
     loadGLTF(SF('fedoras')).then(g => { if (!g || this.disposed) return; const m = this.prep(g.scene); this.fit(m, .34, 'x'); this.hat.children.filter(c => c.name === 'proc').forEach(c => this.hat.remove(c)); this.hat.add(m); });
+  }
+  figModel: THREE.Object3D | null = null; bones: Record<string, THREE.Object3D> = {};
+  /** الملفّ مُهيكل بلا حركات (وضعيّة T): نُنزل الذراعين ونثني المرفقين ونميل الرأس قليلاً — ثمّ تهتزّ الوقفة في الحلقة */
+  private poseFigure(root: THREE.Object3D) {
+    const find = (rx: RegExp) => { let hit: THREE.Object3D | null = null; root.traverse(o => { if (!hit && (o as THREE.Bone).isBone && rx.test(o.name)) hit = o; }); return hit as THREE.Object3D | null; };
+    const B = this.bones; const set = (k: string, rx: RegExp) => { const b = find(rx); if (b) B[k] = b; };
+    set('shR', /^Shoulder_R/); set('shL', /^Shoulder_L/); set('elR', /^Elbow_R/); set('elL', /^Elbow_L/); set('head', /^Head/); set('neck', /^Neck/); set('spine', /^Spine1|^Chest/); set('root', /^Root_M/);
+    const rot = (k: string, x: number, y: number, z: number) => { const b = B[k]; if (b) { b.rotation.x += x; b.rotation.y += y; b.rotation.z += z; } };
+    // محاور العظام غير معروفة: نجرّب الدوران حول كلّ محورٍ بالاتّجاهين ونُبقي ما يُنزل المرفق أكثر (أدنى y عالميّ)
+    const lower = (sh: string, el: string, amt: number) => { const S = B[sh], E = B[el]; if (!S || !E) return; const start = S.rotation.clone(); let best = { y: Infinity, r: start.clone() }; const wp = new THREE.Vector3();
+      for (const ax of ['x', 'y', 'z'] as const) for (const sg of [1, -1]) { S.rotation.copy(start); (S.rotation as any)[ax] += sg * amt; root.updateMatrixWorld(true); E.getWorldPosition(wp); if (wp.y < best.y) best = { y: wp.y, r: S.rotation.clone() }; }
+      S.rotation.copy(best.r); root.updateMatrixWorld(true); };
+    lower('shR', 'elR', 1.3); lower('shL', 'elL', 1.3); rot('head', .12, .25, 0);
   }
   private playClip(kind: 'idle' | 'walk') {
     if (!this.mixer || !this.clips.length) return; const pick = (rx: RegExp) => this.clips.find(c => rx.test(c.name)); const clip = kind === 'walk' ? (pick(/walk/i) || this.clips[0]) : (pick(/idle|stand|smok|breath/i) || this.clips[0]);
@@ -416,7 +429,7 @@ class StreetEngine {
   setMode(m: StreetMode, opts?: { instant?: boolean }) {
     if (m === this.mode && this.dawnT !== 0) return; this.mode = m;
     if (m === 'dawn') { if (opts?.instant) { this.dawnT = 1; this.applyDawn(1); this.fig.position.z = -70; this.shutter.position.y = 2.2; } else { this.dawnT = 0; this.dawnStart = performance.now(); this.evShot = 'DAWN'; this.shotT = 0; } this.playClip('walk'); }
-    else { this.dawnT = -1; this.applyDawn(0); this.fig.position.set(-FACE + 1.9, 0, -3.2); this.fig.rotation.y = .6; this.hat.visible = false; this.shutter.position.y = 1.5; this.evShot = null; this.cutTo('A'); this.playClip('idle'); }
+    else { this.dawnT = -1; this.applyDawn(0); this.fig.position.set(-FACE + 1.9, 0, -3.2); this.fig.rotation.y = .6; this.fig.visible = true; this.hat.visible = false; this.shutter.position.y = 1.5; this.evShot = null; this.cutTo('A'); this.playClip('idle'); }
   }
   fireEvent(k: StreetEvent) {
     this.evShot = k; this.shotT = 0; this.onCut?.(true);
@@ -437,11 +450,11 @@ class StreetEngine {
     this.raf = requestAnimationFrame(this.loop); if (!this.container) return;
     const dt = Math.min(.05, this.clock.getDelta()), time = this.clock.elapsedTime; const ev = this.ev;
     if (!this.probe.done) { this.probe.frames++; this.probe.t += dt; if (this.probe.t >= 3) { this.probe.done = true; const fps = this.probe.frames / this.probe.t; if (fps < 28 && this.quality === 'high') this.setQuality('med'); else if (fps < 20 && this.quality === 'med') this.setQuality('low'); } }
-    if (this.dawnT >= 0 && this.dawnT < 1) { this.dawnT = Math.min(1, (performance.now() - this.dawnStart) / 8000); this.applyDawn(this.dawnT); if (this.dawnT > .5) { this.fig.position.z -= dt * .9; this.fig.rotation.y += (Math.PI - this.fig.rotation.y) * .05; } if (this.dawnT > .7) this.shutter.position.y = Math.min(2.2, this.shutter.position.y + dt * .5); }
-    else if (this.mode === 'dawn' && this.fig.position.z > -70) this.fig.position.z -= dt * .9;
+    if (this.dawnT >= 0 && this.dawnT < 1) { this.dawnT = Math.min(1, (performance.now() - this.dawnStart) / 8000); this.applyDawn(this.dawnT); if (this.dawnT > .5) { if (this.mixer) { this.fig.position.z -= dt * .9; this.fig.rotation.y += (Math.PI - this.fig.rotation.y) * .05; } else this.fig.visible = this.dawnT < .75; } if (this.dawnT > .7) this.shutter.position.y = Math.min(2.2, this.shutter.position.y + dt * .5); }
+    else if (this.mode === 'dawn' && this.mixer && this.fig.position.z > -70) this.fig.position.z -= dt * .9;
     const dim = ev.silence > 0 ? (ev.silence < 2 ? .6 : 1) : 1;
     this.lamps.forEach((l, i) => { let f = 1; if (i === 0) { if (ev.kill > 0) { const k = ev.kill; f = k < 1.2 ? (Math.sin(k * 40) > 0.2 ? 1 : .15) : k < 1.8 ? .6 : 0; } if (ev.saved > 0) f = 1 + Math.min(1.2, ev.saved * 1.5) * Math.max(0, 1 - (ev.saved - 1.5) * .7); }
-      const flick = 1 - (Math.sin(time * 23 + l.flick) > 0.97 ? .35 : 0) * (i === 2 ? 1 : 0); const I = l.on * f * flick * dim; l.pl.intensity = 30 * I; if (l.sl) l.sl.intensity = 60 * I; l.bulbMat.color.setRGB(3 * I, 2.3 * I, 1.4 * I, THREE.LinearSRGBColorSpace); (l.cone.material as THREE.ShaderMaterial).uniforms.uI.value = .55 * I; l.cone.visible = I > .01; });
+      const flick = 1 - (Math.sin(time * 23 + l.flick) > 0.97 ? .35 : 0) * (i === 2 ? 1 : 0); const I = l.on * f * flick * dim; l.pl.intensity = 18 * I; if (l.sl) l.sl.intensity = 36 * I; l.bulbMat.color.setRGB(3 * I, 2.3 * I, 1.4 * I, THREE.LinearSRGBColorSpace); (l.cone.material as THREE.ShaderMaterial).uniforms.uI.value = .55 * I; l.cone.visible = I > .01; });
     this.neons.forEach(n => { let on = n.on && !(ev.silence > 0 && ev.silence < 2.2); if (n.broken && on) on = (Math.sin(time * 9) + Math.sin(time * 23.7)) > -.3; (n.mesh.material as THREE.MeshBasicMaterial).color.copy(n.base).multiplyScalar(on ? 1 : .06); n.light.intensity = on ? 4 : 0; });
     if (ev.kill > 0) { ev.kill += dt; const h = this.hat; if (h.visible && h.position.y > .18) { h.position.y -= dt * (2.5 + (5.4 - h.position.y) * 1.5); h.rotation.x += dt * 4; h.rotation.z += dt * 2; if (h.position.y <= .18) { h.position.y = .18; h.rotation.set(.1, 0, .05); } } if (ev.kill > 8) ev.kill = 0; }
     if (ev.saved > 0) { ev.saved += dt; this.fig.rotation.y += (.6 + Math.sin(Math.min(Math.PI, ev.saved)) * 1.4 - this.fig.rotation.y) * .08; this.ember.visible = ev.saved < 2.5; this.emberLight.intensity = ev.saved < 2.5 ? 3 : 0; if (ev.saved > 6) { ev.saved = 0; this.ember.visible = true; this.emberLight.intensity = 3; } }
@@ -450,6 +463,7 @@ class StreetEngine {
     if (ev.snipe > 0) { ev.snipe += dt; const fl = ev.snipe < .15 ? 1 : ev.snipe < .3 ? .4 : ev.snipe < .4 ? 1 : 0; if (!this.snipeL) { this.snipeL = new THREE.PointLight(0xfff2d0, 0, 20, 1.5); this.snipeL.position.set(FACE - 1.2, 8.6, -11); this.scene.add(this.snipeL); } this.snipeL.intensity = fl * 400; if (ev.snipe > 7) ev.snipe = 0; }
     this.pigeons.forEach(p => { if (p.t >= 0) { p.t += dt; const k = p.t; p.s.material.opacity = k < 3 ? Math.min(1, k * 4) * (1 - k / 3) : 0; p.s.position.set(p.ox + Math.sin(k * 3 + p.oz) * k * .8 - k * 1.2, 11.5 + k * 2.2 + Math.sin(k * 14) * .15, p.oz + k * 1.3); p.s.scale.set(.35, .22 * (0.5 + Math.abs(Math.sin(k * 18))), 1); if (k > 3) p.t = -1; } });
     if (this.mode === 'night' && ev.saved === 0) { const pulse = .5 + .5 * Math.sin(time * 1.6); this.emberLight.intensity = 2 + pulse * 3; if (!this.mixer) this.fig.position.y = Math.sin(time * 1.3) * .012; }
+    if (!this.mixer && this.figModel) { const B = this.bones; if (B.spine) B.spine.rotation.z = Math.sin(time * .9) * .025; if (B.head) B.head.rotation.y = .25 + Math.sin(time * .35) * .18; }
     this.mixer?.update(dt);
     this.laundry.forEach(l => { l.m.rotation.x = Math.sin(time * 1.4 + l.ph) * .18; l.m.rotation.y = Math.sin(time * .9 + l.ph) * .12; });
     if (this.rain && (this.rain.material as THREE.LineBasicMaterial).opacity > 0) { const a = (this.rain.geometry.attributes.position as THREE.BufferAttribute).array as Float32Array, n = this.rain.userData.count as number; for (let i = 0; i < n; i++) { a[i * 6 + 1] -= dt * 16; a[i * 6 + 4] -= dt * 16; if (a[i * 6 + 1] < 0) { a[i * 6 + 1] += 24; a[i * 6 + 4] += 24; } } (this.rain.geometry.attributes.position as THREE.BufferAttribute).needsUpdate = true; this.rain.position.set(this.camera.position.x, 0, this.camera.position.z + 10); }

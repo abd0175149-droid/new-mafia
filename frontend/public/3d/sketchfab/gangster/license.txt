@@ -1,0 +1,11 @@
+Model Information:
+* title:	Empire of Sin: Al-Capone
+* source:	https://sketchfab.com/3d-models/empire-of-sin-al-capone-97275cfeda5e47e7aba092ba21bdc0ae
+* author:	Zorg_Sinister (https://sketchfab.com/4130ff15fe394c239cc064b5286c43)
+
+Model License:
+* license type:	CC-BY-4.0 (http://creativecommons.org/licenses/by/4.0/)
+* requirements:	Author must be credited. Commercial use is allowed.
+
+If you use this 3D model in your project be sure to copy paste this credit wherever you share it:
+This work is based on "Empire of Sin: Al-Capone" (https://sketchfab.com/3d-models/empire-of-sin-al-capone-97275cfeda5e47e7aba092ba21bdc0ae) by Zorg_Sinister (https://sketchfab.com/4130ff15fe394c239cc064b5286c43) licensed under CC-BY-4.0 (http://creativecommons.org/licenses/by/4.0/)
