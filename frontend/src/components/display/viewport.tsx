@@ -76,7 +76,7 @@ export function balancedRows(n: number, rows: number): number[] {
  * extraH: ارتفاعٌ إضافيّ تحت كلّ كرت (اسم، شريط أصوات…) يُحسب بوحدات الكرت المرجعيّ.
  */
 export function computeCardGrid(n: number, availW: number, availH: number, opts: { gap?: number; extraH?: number; maxK?: number; minK?: number } = {}): CardGrid {
-  const gap = opts.gap ?? 20, extraH = opts.extraH ?? 0, maxK = opts.maxK ?? 1.35, minK = opts.minK ?? 0.3;
+  const gap = opts.gap ?? 20, extraH = opts.extraH ?? 0, maxK = opts.maxK ?? 2, minK = opts.minK ?? 0.3;
   if (n <= 0) return { cols: 0, rows: 0, k: 1, cardW: CARD_W, cardH: CARD_H, rowCounts: [], gap };
   const itemH = CARD_H + extraH;
   let best: CardGrid | null = null;
@@ -85,7 +85,8 @@ export function computeCardGrid(n: number, availW: number, availH: number, opts:
     const kW = (availW - gap * (cols - 1)) / (cols * CARD_W);
     const kH = (availH - gap * (rows - 1)) / (rows * itemH);
     const k = Math.min(kW, kH, maxK);
-    if (!best || k > best.k + 1e-6) best = { cols, rows, k, cardW: CARD_W * k, cardH: CARD_H * k, rowCounts: balancedRows(n, rows), gap };
+    // عند تساوي الحجم (سقف maxK مثلاً) نفضّل الصفوف الأقلّ: صفٌّ عريض لا عمودٌ طويل
+    if (!best || k > best.k + 1e-6 || (Math.abs(k - best.k) <= 1e-6 && rows < best.rows)) best = { cols, rows, k, cardW: CARD_W * k, cardH: CARD_H * k, rowCounts: balancedRows(n, rows), gap };
   }
   const g = best!;
   g.k = Math.max(minK, g.k);

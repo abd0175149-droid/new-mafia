@@ -2109,7 +2109,7 @@ function GameOverCard({ player, role, isMafia, flipDelay, isAlive }: {
 // ══════════════════════════════════════════════════════
 function RosterGrid({ players, reservedH, render }: { players: any[]; reservedH: number; render: (p: any, i: number, k: number) => React.ReactNode }) {
   const vp = useDisplayViewport();
-  const grid = computeCardGrid(players.length, vp.availW, Math.max(200, vp.availH - reservedH), { gap: 18, maxK: 1.25 });
+  const grid = computeCardGrid(players.length, vp.availW, Math.max(200, vp.availH - reservedH), { gap: 18, maxK: 1.8 });
   return (
     <GridRows items={players} grid={grid} render={(p, i) => render(p, i, grid.k)} />
   );
