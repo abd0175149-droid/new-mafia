@@ -156,6 +156,7 @@ export function registerDayConfrontationEvents(io: Server, socket: Socket) {
       castPulse(state, data.id, voter, data.side);
       await setGameState(data.roomId, state);
       broadcast(io, data.roomId, state, 'pulse', data.id);   // الملخّص فقط — لا أصوات فرديّة
+      console.log(`🗳️ Pulse vote #${voter} → ${data.side} (${data.id}) in ${data.roomId}`);
       reply(callback, { success: true, myVotes: myPulseVotes(state, voter), ...publicConfrontations(state) });
     } catch (err: any) { reply(callback, { success: false, error: err.message }); }
   });

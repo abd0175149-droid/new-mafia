@@ -26,7 +26,7 @@ const Card = memo(function Card({ pid, p, side }: { pid: number; p: any; side: '
     return (
       <motion.div
         initial={{ opacity: 0, y: 30, scale: .9 }}
-        animate={{ opacity: 1, y: 0, scale: 1.12 }}
+        animate={{ opacity: 1, y: 0, scale: 1 }}
         transition={{ type: 'spring', damping: 18, stiffness: 120 }}
         className="flex flex-col items-center gap-4 will-change-transform"
       >
@@ -221,7 +221,7 @@ export default function DisplayConfrontation({ roomId, players }: Props) {
           <motion.div
             key="conf-active"
             initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0, scale: 1.04 }}
-            className="fixed inset-0 z-[65] bg-black/92 backdrop-blur-md flex flex-col items-center justify-center gap-6 overflow-hidden"
+            className="fixed inset-0 z-[65] bg-black/92 backdrop-blur-md flex flex-col items-center justify-start pt-6 pb-44 gap-4 overflow-hidden"
             dir="rtl"
           >
             <style>{waveCss}</style>
@@ -238,7 +238,7 @@ export default function DisplayConfrontation({ roomId, players }: Props) {
                 🎙️ الطرفان يتحدّثان معاً
               </motion.p>
             </div>
-            <div className="flex items-center gap-10 relative z-10" style={{ perspective: 1400 }}>
+            <div className="flex-1 min-h-0 flex items-center gap-10 relative z-10" style={{ perspective: 1400 }}>
               <Card pid={active.requesterPhysicalId} p={P(active.requesterPhysicalId)} side="req" />
               <Ring
                 left={active.stageStartedAt ? secsLeft(active.stageStartedAt + active.stageSeconds * 1000) : active.stageSeconds}
@@ -251,7 +251,7 @@ export default function DisplayConfrontation({ roomId, players }: Props) {
             {conf?.pulseEnabled !== false && active.pulse && (() => {
               const ps = active.pulse!; const tot = ps.req + ps.tgt; const share = tot ? ps.req / tot : .5;
               return (
-                <div className="relative z-10 w-[min(1100px,92vw)] mt-2">
+                <div className="absolute bottom-6 inset-x-0 mx-auto z-20 w-[min(1200px,94vw)] px-6 py-4 rounded-2xl bg-black/70 border border-[#C5A059]/25 backdrop-blur">
                   <div className="flex items-end justify-between mb-2">
                     <div className="text-right"><p className="text-[#C5A059] text-xl" style={{ fontFamily: 'Amiri, serif' }}>{P(active.requesterPhysicalId)?.name || `#${active.requesterPhysicalId}`}</p><p className="text-4xl font-black font-mono text-white leading-none">{ps.req}</p></div>
                     <p className="text-[#808080] font-mono text-sm tracking-widest">🗳️ من أقنعك؟ · صوّت {tot} من {ps.eligible}{ps.quorum ? '' : ' · دون النصاب'}</p>
