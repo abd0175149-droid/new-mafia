@@ -3,6 +3,15 @@
 import { useEffect, useRef } from 'react';
 import { motion } from 'framer-motion';
 import MafiaCard from '@/components/MafiaCard';
+import { useEffect as useEffectR, useState as useStateR } from 'react';
+
+// 🃏 كرتُ من خرج من اللعبة: يظهر بوجهه العلنيّ (الرقم والاسم) ثمّ يُقلب إلى دوره — كما في الإقصاء النهاريّ.
+//    (قرار المالك 2026-09-12). من لم يخرج (تعطيلٌ مثلاً) لا يمرّ من هنا: يُعرض دوره بلا هويّة.
+function DeadRevealCard(props: any) {
+  const [flipped, setFlipped] = useStateR(false);
+  useEffectR(() => { const t = setTimeout(() => setFlipped(true), 1800); return () => clearTimeout(t); }, []);
+  return <MafiaCard {...props} isFlipped={flipped} flipDurationMs={900} />;
+}
 import { Role, ROLE_NAMES, ROLE_ICONS } from '@/lib/constants';
 
 // ══════════════════════════════════════════════════════
@@ -430,12 +439,11 @@ function MorningAssassinationAnim({ data, players }: NightAnimProps) {
           animate={{ opacity: 1, y: 0 }}
           transition={{ delay: 0.8, type: 'spring', damping: 12 }}
         >
-          <MafiaCard
+          <DeadRevealCard
             playerNumber={data.targetPhysicalId!}
             playerName={data.targetName || 'Unknown'}
             role={targetRole}
-            isFlipped={true}
-            flippable={false}
+                        flippable={false}
             isAlive={true}
             size="fluid"
             className="w-48 h-[16rem] md:w-56 md:h-[19rem]"
@@ -536,12 +544,11 @@ function MorningSnipeAnim({ data, players, success }: NightAnimProps & { success
           {/* كارد القناص */}
           <div className="flex flex-col items-center">
             <p className="text-[#C5A059] text-xs font-mono mb-2 tracking-widest">القناص</p>
-            <MafiaCard
+            <DeadRevealCard
               playerNumber={sniperPhysicalId}
               playerName={sniperName || 'Unknown'}
               role="SNIPER"
-              isFlipped={true}
-              flippable={false}
+                            flippable={false}
               isAlive={true}
               size="fluid"
               className="w-40 h-[14rem] md:w-48 md:h-[16rem]"
@@ -553,12 +560,11 @@ function MorningSnipeAnim({ data, players, success }: NightAnimProps & { success
           {/* كارد الهدف */}
           <div className="flex flex-col items-center">
             <p className="text-[#8A0303] text-xs font-mono mb-2 tracking-widest">الهدف</p>
-            <MafiaCard
+            <DeadRevealCard
               playerNumber={data.targetPhysicalId!}
               playerName={data.targetName || 'Unknown'}
               role={targetRole}
-              isFlipped={true}
-              flippable={false}
+                            flippable={false}
               isAlive={true}
               size="fluid"
               className="w-40 h-[14rem] md:w-48 md:h-[16rem]"
@@ -576,12 +582,11 @@ function MorningSnipeAnim({ data, players, success }: NightAnimProps & { success
           animate={{ opacity: 1, y: 0 }}
           transition={{ delay: 0.8, type: 'spring', damping: 12 }}
         >
-          <MafiaCard
+          <DeadRevealCard
             playerNumber={data.targetPhysicalId!}
             playerName={data.targetName || 'Unknown'}
             role={targetRole}
-            isFlipped={true}
-            flippable={false}
+                        flippable={false}
             isAlive={true}
             size="fluid"
             className="w-48 h-[16rem] md:w-56 md:h-[19rem]"
@@ -938,12 +943,11 @@ export default function NightAnimCinematic({ data, players }: NightAnimProps) {
               animate={{ opacity: 1, y: 0, scale: 1 }}
               transition={{ delay: 0.85, type: 'spring', damping: 12 }}
             >
-              <MafiaCard
+              <DeadRevealCard
                 playerNumber={data.targetPhysicalId!}
                 playerName={data.targetName || 'Unknown'}
                 role={String(data.extra.targetRole)}
-                isFlipped={true}
-                flippable={false}
+                                flippable={false}
                 isAlive={false}
                 size="fluid"
                 className="w-48 h-[16rem] md:w-56 md:h-[19rem]"
@@ -993,12 +997,11 @@ export default function NightAnimCinematic({ data, players }: NightAnimProps) {
               animate={{ opacity: 1, y: 0 }}
               transition={{ delay: 0.8, type: 'spring', damping: 12 }}
             >
-              <MafiaCard
+              <DeadRevealCard
                 playerNumber={data.targetPhysicalId!}
                 playerName={data.targetName || 'Unknown'}
                 role={data.extra.targetRole}
-                isFlipped={true}
-                flippable={false}
+                                flippable={false}
                 isAlive={true}
                 size="fluid"
                 className="w-48 h-[16rem] md:w-56 md:h-[19rem]"
@@ -1063,12 +1066,11 @@ export default function NightAnimCinematic({ data, players }: NightAnimProps) {
               animate={{ opacity: 1, y: 0 }}
               transition={{ delay: 0.8, type: 'spring', damping: 12 }}
             >
-              <MafiaCard
+              <DeadRevealCard
                 playerNumber={data.targetPhysicalId!}
                 playerName={data.targetName}
                 role={(data.extra?.role as Role) || Role.OLDER_BROTHER}
-                isFlipped={true}
-                flippable={false}
+                                flippable={false}
                 isAlive={false}
                 size="fluid"
                 className="w-48 h-[16rem] md:w-56 md:h-[19rem]"

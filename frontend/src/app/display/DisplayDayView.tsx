@@ -127,7 +127,11 @@ export default function DisplayDayView({ roomId, players, initialDiscussionState
   // Calculate zoom + pan when speaker changes
   useEffect(() => {
     if (discussionState && discussionState.currentSpeakerId) {
-      setTimeout(() => {
+      // 🔴 المتحدّث الأوّل كان يهبط في مكانٍ خاطئ ثمّ يصحّ من الثاني فصاعداً: عند بدء الطابور يختفي
+      //    رأس «مرحلة النقاش» ويظهر شريط الترتيب فيتغيّر camKey ويُعاد القياس واللوحُ ما زال يتحرّك،
+      //    وكان القياس يطرح هدفَ الإزاحة لا قيمتها اللحظيّة. الحلّ: نقيس مركز الغلاف الساكن (لا يتأثّر
+      //    بتحويل اللوح لأنّه أبوه، واللوح متمركزٌ فيه)، ونعيد القياس مرّةً بعد استقرار التخطيط.
+      const compute = () => {
         const el = document.getElementById(`speaker-card-${discussionState.currentSpeakerId}`);
         const parent = containerRef.current;
         if (el && parent) {
@@ -167,9 +171,10 @@ export default function DisplayDayView({ roomId, players, initialDiscussionState
           // 🔴 كان يُلتقط مرّةً «عند الراحة» بمؤقّت 300ms ثمّ يُستعمل لاحقاً — فإن تغيّر التخطيط بعده
           //    (ظهور شريط الترتيب، إعادة حساب الشبكة) تحرّك الكرت إلى مكانٍ غريب. المركز لا يتأثّر
           //    بالتكبير (transformOrigin في الوسط)، ويتأثّر بالإزاحة الحاليّة فقط — فنقيسه الآن ونطرحها.
-          const prect = parent.getBoundingClientRect();
-          const pScreenCx = (prect.left + prect.width / 2) / fz - boardPanRef.current.x;
-          const pScreenCy = (prect.top + prect.height / 2) / fz - boardPanRef.current.y;
+          const wrap = parent.parentElement as HTMLElement | null;   // الغلاف الساكن (flex center) — لا transform عليه
+          const prect = (wrap ?? parent).getBoundingClientRect();
+          const pScreenCx = wrap ? (prect.left + prect.width / 2) / fz : (prect.left + prect.width / 2) / fz - boardPanRef.current.x;
+          const pScreenCy = wrap ? (prect.top + prect.height / 2) / fz : (prect.top + prect.height / 2) / fz - boardPanRef.current.y;
 
           // ── Framer Motion Translation Math ──
           // After scale S around parent center with transformOrigin:center:
@@ -180,7 +185,10 @@ export default function DisplayDayView({ roomId, players, initialDiscussionState
 
           setBoardPan({ x: tx, y: ty });
         }
-      }, 150);
+      };
+      const t1 = setTimeout(compute, 150);
+      const t2 = setTimeout(compute, 900);   // بعد اختفاء الرأس وظهور الشريط وإعادة حساب zoom
+      return () => { clearTimeout(t1); clearTimeout(t2); };
     } else {
       setBoardPan({ x: 0, y: 0 });
     }
@@ -1200,38 +1208,7 @@ export default function DisplayDayView({ roomId, players, initialDiscussionState
               </motion.div>
             )}
 
-            {/* ── الهيدر — أسفل الشاشة ── */}
-            <div className="absolute bottom-0 left-0 right-0 flex items-center justify-between px-6 py-4 border-t border-[#2a2a2a] bg-black/60 backdrop-blur-sm">
-              {/* يسار: لوجو + اسم + المرحلة */}
-              <div className="flex items-center gap-4">
-                <Image src="/mafia_logo.png" alt="Mafia" width={36} height={36} className="w-[36px] h-[36px] drop-shadow-[0_0_12px_rgba(138,3,3,0.3)]" priority />
-                <div className="flex flex-col leading-none">
-                  <span className="text-xl font-black tracking-tight text-[#C5A059]" style={{ fontFamily: 'Amiri, serif' }}>MAFIA</span>
-                  <span className="flex justify-between w-full text-[7px] font-light text-[#8A0303]" dir="ltr" style={{ fontFamily: 'Amiri, serif' }}>{'CLUB'.split('').map((l, i) => <span key={i}>{l}</span>)}</span>
-                </div>
-                <div className="w-[1px] h-7 bg-[#2a2a2a] mx-2" />
-                <div className="flex flex-col">
-                  <span className="text-base font-black text-[#C5A059]" style={{ fontFamily: 'Amiri, serif' }}>
-                    {justificationData.resultType === 'TIE' ? 'تعادل - كلمة الدفاع' : 'كلمة الدفاع الأخيرة'}
-                  </span>
-                  <span className="text-[7px] font-mono text-[#808080] tracking-[0.3em] uppercase">
-                    {justificationData.resultType === 'TIE' ? 'TIED DEFENDANTS' : 'FINAL DEFENSE'}
-                  </span>
-                </div>
-              </div>
-
-              {/* وسط: عدد المتهمين */}
-              <div className="flex flex-col items-center">
-                <span className="text-[7px] font-mono text-[#808080] uppercase tracking-widest">ACCUSED</span>
-                <span className="text-xl font-mono font-black text-[#C5A059]">{justificationData.accused.length}</span>
-              </div>
-
-              {/* يمين: عدد الأصوات */}
-              <div className="flex flex-col items-center">
-                <span className="text-[7px] font-mono text-[#808080] uppercase tracking-widest">VOTES AGAINST</span>
-                <span className="text-xl font-mono font-black text-[#8A0303]">{justificationData.topVotes}</span>
-              </div>
-            </div>
+            {/* (حُذف الشريط السفليّ للتبرير — قرار المالك 2026-09-12) */}
           </motion.div>
           );
         })()}
@@ -1245,12 +1222,12 @@ export default function DisplayDayView({ roomId, players, initialDiscussionState
             exit={{ opacity: 0, scale: 1.1 }}
             className="text-center w-full min-h-[60vh] flex flex-col items-center justify-center"
           >
-            {/* خلفية حمراء نابضة */}
+            {/* خلفية داكنة نابضة (لا أحمر — قرار المالك) */}
             <motion.div
               className="absolute inset-0 pointer-events-none"
               animate={{ opacity: [0, 0.08, 0] }}
               transition={{ duration: 2, repeat: Infinity }}
-              style={{ background: 'radial-gradient(circle at center, rgba(138,3,3,0.4) 0%, transparent 70%)' }}
+              style={{ background: 'radial-gradient(circle at center, rgba(197,160,89,0.18) 0%, transparent 70%)' }}
             />
 
             {mayorPostponed ? (
@@ -1406,7 +1383,7 @@ function RevealCeremony({ players, revealedRoles, revealType, notes }: {
         className="absolute inset-0 pointer-events-none"
         animate={{ opacity: [0, 0.15, 0] }}
         transition={{ duration: 3, repeat: Infinity }}
-        style={{ background: 'radial-gradient(ellipse at center, rgba(138,3,3,0.3) 0%, transparent 60%)' }}
+        style={{ background: 'radial-gradient(ellipse at center, rgba(197,160,89,0.10) 0%, transparent 60%)' }}
       />
 
       {/* عنوان */}

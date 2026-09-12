@@ -114,6 +114,18 @@
   }
 }
 
+/* ═══ Noir Vignette — شاشة القاعة: أسود وتدرّجاته فقط (قرار المالك 2026-09-12: لا أحمر في الخلفيّة) ═══ */
+.noir-vignette::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 1;
+  background:
+    radial-gradient(ellipse at top, rgba(255,255,255,0.03) 0%, transparent 45%),
+    radial-gradient(ellipse at center, transparent 45%, rgba(0,0,0,0.55) 100%);
+}
+
 /* ═══ Blood Vignette — تدرج أحمر دموي على حواف الشاشة ═══ */
 .blood-vignette::before {
   content: '';

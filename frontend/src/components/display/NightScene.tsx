@@ -52,7 +52,7 @@ export default function NightScene({ animation, stepType, players, oneNight }: P
 
       {/* العنوان — يتلاشى بعد ثوانٍ ليترك المشهد */}
       <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: [0, 1, 1, 0.25], y: 0 }} transition={{ duration: 9, times: [0, 0.1, 0.7, 1] }} className="absolute inset-x-0 top-[26%] text-center pointer-events-none">
-        <h2 className="text-8xl font-black text-white tracking-wide" style={{ fontFamily: 'Amiri, serif', textShadow: '0 0 50px rgba(138,3,3,.55), 0 0 12px rgba(0,0,0,.8)' }}>الظلام دامس</h2>
+        <h2 className="text-8xl font-black text-white tracking-wide" style={{ fontFamily: 'Amiri, serif', textShadow: '0 0 50px rgba(0,0,0,.9), 0 0 12px rgba(0,0,0,.8)' }}>الظلام دامس</h2>
         <p className="text-[#9a8f7d] text-xl font-mono tracking-[0.5em] mt-2">OPERATION NIGHTFALL</p>
       </motion.div>
 
@@ -81,7 +81,7 @@ export default function NightScene({ animation, stepType, players, oneNight }: P
             key={`${animation.type}-${animation.targetPhysicalId ?? ''}`}
             initial={{ opacity: 0, scale: 0.85, y: '-45%', x: '-50%' }} animate={{ opacity: 1, scale: 1, y: '-50%', x: '-50%' }} exit={{ opacity: 0, scale: 0.9, y: '-55%', x: '-50%' }}
             transition={{ type: 'spring', damping: 18, stiffness: 140 }}
-            className="absolute left-1/2 top-1/2 w-[min(60vw,900px)] rounded-3xl border border-[#8A0303]/40 bg-black/70 backdrop-blur-md p-10 shadow-[0_0_80px_rgba(138,3,3,.35)]"
+            className="absolute left-1/2 top-1/2 w-[min(60vw,900px)] rounded-3xl border border-[#C5A059]/30 bg-black/70 backdrop-blur-md p-10 shadow-[0_0_80px_rgba(0,0,0,.7)]"
           >
             <NightAnimCinematic data={animation} players={players} />
           </motion.div>

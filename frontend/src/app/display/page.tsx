@@ -1061,7 +1061,7 @@ function DisplayPageContent() {
   return (
     // 📐 الجذر مقفولٌ على ارتفاع الشاشة: لا تمرير أبداً؛ FitToScreen يصغّر ما يفيض (قرار المالك 2026-09-12)
     <DisplayViewportProvider navVisible={navVisible}>
-    <div className="display-bg h-[100dvh] relative overflow-hidden flex flex-col items-center justify-center px-8 py-6 font-sans blood-vignette selection:bg-[#8A0303] selection:text-white w-full">
+    <div className="display-bg h-[100dvh] relative overflow-hidden flex flex-col items-center justify-center px-8 py-6 font-sans noir-vignette selection:bg-[#8A0303] selection:text-white w-full">
 
       <div className="relative z-10 w-full h-full min-h-0 flex flex-col items-center justify-center">
 
@@ -1745,7 +1745,7 @@ function DisplayPageContent() {
                   className="absolute inset-0 pointer-events-none"
                   style={{
                     background: isMafiaWin
-                      ? 'radial-gradient(ellipse at center, rgba(138,3,3,0.2) 0%, transparent 70%)'
+                      ? 'radial-gradient(ellipse at center, rgba(255,255,255,0.07) 0%, transparent 70%)'
                       : isJesterWin
                       ? 'radial-gradient(ellipse at center, rgba(245,158,11,0.2) 0%, transparent 70%)'
                       : 'radial-gradient(ellipse at center, rgba(197,160,89,0.15) 0%, transparent 70%)',
@@ -1926,8 +1926,8 @@ function DisplayPageContent() {
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
           >
-            {/* خلفية حمراء متوهجة */}
-            <div className="absolute inset-0 bg-[radial-gradient(circle_at_center,rgba(138,3,3,0.3)_0%,transparent_70%)]" />
+            {/* خلفية ذهبيّة خافتة (لا أحمر — قرار المالك 2026-09-12) */}
+            <div className="absolute inset-0 bg-[radial-gradient(circle_at_center,rgba(197,160,89,0.16)_0%,transparent_70%)]" />
 
             <motion.div
               initial={{ scale: 0.6, opacity: 0 }}
