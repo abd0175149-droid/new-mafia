@@ -554,7 +554,7 @@ export default function LeaderDayView({ gameState, emit, setError }: LeaderDayVi
   const [votingDuration, setVotingDuration] = useState<number | null>(null);
 
   const handleStartVoting = async () => {
-    if (!(await swalConfirm('هل أنت متأكد من بدء التصويت؟ لن تتمكن من تعديل الاتفاقيات.'))) return;
+    // (قرار المالك 2026-09-12: بلا نافذة تأكيد — الزرّ يبدأ التصويت مباشرةً)
     localVoteTotalRef.current = 0; // تصفير العداد المحلي عند بدء تصويت جديد
     try {
       await emit('day:start-voting', { roomId: gameState.roomId, durationSeconds: votingDuration || undefined });
