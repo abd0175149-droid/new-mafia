@@ -25,11 +25,17 @@ function tierFor(mode: StageMode): Tier {
   try { const q = new URLSearchParams(location.search).get('q') || localStorage.getItem('display3dQuality') || 'high'; if (mode === 'day') return q === 'high' ? 'live' : 'poster'; return q === 'low' ? 'poster' : 'live'; } catch { return 'live'; }
 }
 
-export default function StreetStage({ mode, event, eventKey, docked, ambient }: { mode: StageMode; event?: string | null; eventKey?: string | number; docked?: boolean; ambient?: boolean }) {
+export default function StreetStage({ mode, event, eventKey, docked, ambient, debug }: { mode: StageMode; event?: string | null; eventKey?: string | number; docked?: boolean; ambient?: boolean; debug?: boolean }) {
   const ref = useRef<HTMLDivElement>(null);
   const [ok, setOk] = useState(true);
   const [poster, setPoster] = useState<string | null>(null);
   const [tier, setTier] = useState<Tier>('live');
+  const [stats, setStats] = useState('');
+  // 🧪 شارة التشخيص (مؤقّتة حتى الاختبار على جهاز القاعة): أيّ نسخةٍ تعمل وبأيّ جودة — تُخفى بـ ?dbg=0 أو localStorage display3dDebug=0
+  useEffect(() => {
+    if (!debug) return; let hide = false; try { hide = new URLSearchParams(location.search).get('dbg') === '0' || localStorage.getItem('display3dDebug') === '0'; } catch { /* noop */ }
+    if (hide) return; const t = setInterval(() => { const e = getStreetEngine(); if (!e) { setStats('NO WEBGL'); return; } const st = e.stats(); setStats(`ENV ${st.mode.toUpperCase()} · QUALITY ${st.quality.toUpperCase()}${st.ambient ? ' (AMBIENT)' : ''} · ${tier === 'poster' ? 'STATIC POSTER' : 'LIVE 3D'} · ${st.fps} FPS · ${st.tris} TRIS · ${st.calls} CALLS`); }, 1000); return () => clearInterval(t);
+  }, [debug, tier, mode]);
 
   useEffect(() => {
     const el = ref.current; const eng = getStreetEngine(); if (!el || !eng) { setOk(false); return; }
@@ -60,6 +66,7 @@ export default function StreetStage({ mode, event, eventKey, docked, ambient }: 
         <img src={poster} alt="" className="absolute" style={{ inset: '-4%', width: '108%', height: '108%', objectFit: 'cover', animation: 'kb 40s ease-in-out infinite alternate' }} />
       )}
       {ambient && mode === 'day' && !hidden && <div className="absolute inset-0" style={{ background: 'linear-gradient(180deg, rgba(5,5,7,.58), rgba(5,5,7,.8))' }} />}
+      {!!stats && <div className="absolute left-2 bottom-2 z-[999] font-mono text-[11px] tracking-wider text-[#9fe0a8] bg-black/70 border border-[#9fe0a8]/30 rounded px-2 py-0.5" dir="ltr" style={{ pointerEvents: 'none' }}>{stats}</div>}
       <style>{`@keyframes kb { from { transform: scale(1) translateX(0) } to { transform: scale(1.06) translateX(-2%) } }`}</style>
     </div>
   );

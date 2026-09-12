@@ -9,6 +9,7 @@
 import { motion, AnimatePresence } from 'framer-motion';
 import NightAnimCinematic from '@/components/NightAnimCinematic';
 import PropStage from './PropStage';
+import FitToScreen from '@/components/FitToScreen';
 
 interface Props { events: any[]; current: any | null; players: any[]; teamCounts?: { citizenAlive: number; mafiaAlive: number; neutralAlive?: number }; round?: number; }
 const HEADLINES: Record<string, { title: string; tone: 'blood' | 'gold' | 'ash' }> = {
@@ -46,18 +47,18 @@ export default function MorningReport({ events, current, players, teamCounts, ro
 
       {/* البطاقة المرساة يميناً — الثلثان الأيسران للمشهد وحدثه */}
       <div className="absolute right-[3%] top-[150px] bottom-[40px] w-[36%] flex flex-col gap-3">
-        <div className="flex-1 min-h-0 flex items-start">
+        <div className="flex-1 min-h-0 flex items-stretch">
           <AnimatePresence mode="wait">
             {current ? (
               <motion.div key={`${keyOf(current)}-${events.length}`}
                 initial={{ opacity: 0, x: 40 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: 40 }} transition={{ type: 'spring', damping: 18, stiffness: 120 }}
-                className="w-full max-h-full overflow-hidden rounded-3xl border border-white/15 bg-black/60 backdrop-blur-md p-6 shadow-2xl">
+                className="w-full h-full min-h-0 flex flex-col overflow-hidden rounded-3xl border border-white/15 bg-black/60 backdrop-blur-md p-6 shadow-2xl">
                 {(() => { const h = headline(current.type); return (
                   <div className="flex items-center gap-4 mb-3 border-b border-white/15 pb-3">
                     <PropStage type={current.type} size={96} />
                     <h3 className="text-4xl font-black leading-tight" style={{ fontFamily: 'Amiri, serif', color: toneColor[h.tone] }}>{h.title}</h3>
                   </div>); })()}
-                <div className="morning-cinematic"><NightAnimCinematic data={current} players={players} /></div>
+                <div className="morning-cinematic flex-1 min-h-0"><FitToScreen><NightAnimCinematic data={current} players={players} /></FitToScreen></div>
               </motion.div>
             ) : quiet ? (
               <motion.div key="quiet" initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="w-full rounded-3xl border border-white/15 bg-black/55 backdrop-blur-md p-8 text-center">
@@ -85,7 +86,7 @@ export default function MorningReport({ events, current, players, teamCounts, ro
           </div>
         )}
       </div>
-      <style>{`.morning-cinematic .text-7xl, .morning-cinematic .text-8xl, .morning-cinematic .md\\:text-8xl { font-size: 3rem !important; line-height: 1 } .morning-cinematic { max-height: 52vh; overflow: hidden }`}</style>
+      <style>{`.morning-cinematic .text-7xl, .morning-cinematic .text-8xl, .morning-cinematic .md\\:text-8xl { font-size: 3rem !important; line-height: 1 } .morning-cinematic { overflow: hidden }`}</style>
     </div>
   );
 }

@@ -24,7 +24,7 @@ function Preview() {
   return (
     <div className="display-bg h-[100dvh] w-full overflow-hidden px-8 py-6 text-white">
       <div className="relative w-full h-full">
-        <StreetStage mode={scene === 'dawn' ? 'dawn' : scene === 'day' ? 'day' : 'night'} event={scene === 'dawn' && evt >= 0 ? MOCK_EVENTS[evt].type : null} eventKey={evt} docked={scene === 'dawn'} ambient={scene === 'day'} />
+        <StreetStage mode={scene === 'dawn' ? 'dawn' : scene === 'day' ? 'day' : 'night'} event={scene === 'dawn' && evt >= 0 ? MOCK_EVENTS[evt].type : null} eventKey={evt} docked={scene === 'dawn'} ambient={scene === 'day'} debug />
         <div className="relative z-10 w-full h-full">
           {scene === 'dawn' ? (
             <MorningReport events={MOCK_EVENTS.slice(0, evt >= 0 ? evt + 1 : MOCK_EVENTS.length)} current={evt >= 0 ? MOCK_EVENTS[evt] : null} players={MOCK_PLAYERS} teamCounts={{ citizenAlive: 8, mafiaAlive: 3, neutralAlive: 1 }} round={2} />

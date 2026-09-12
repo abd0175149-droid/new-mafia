@@ -204,7 +204,10 @@ class StreetEngine {
   reflector!: Reflector; skyMat!: THREE.ShaderMaterial; stars!: THREE.Points; moon!: THREE.Sprite; sun!: THREE.Mesh; shafts = new THREE.Group(); skyline!: THREE.Mesh; hemi!: THREE.HemisphereLight; sunLight!: THREE.DirectionalLight; snipeL: THREE.PointLight | null = null;
   envNight: THREE.Texture | null = null; envDawn: THREE.Texture | null = null; pmrem!: THREE.PMREMGenerator; windows!: THREE.InstancedMesh; soft = texSoft(); curtain = texCurtain();
   shots!: Record<string, Shot>; cur = 'A'; shotT = 0; order = ['A', 'B', 'C']; oi = 0; evShot: string | null = null; _p = new THREE.Vector3(-.8, 1.7, 11); _l = new THREE.Vector3(.4, 2, -30); sway = new THREE.Vector3(); cutting = false; frameShift = 0;
-  ev = { silence: 0, disable: 0, snipe: 0, kill: 0, saved: 0 }; posterCb: ((url: string) => void) | null = null;
+  ev = { silence: 0, disable: 0, snipe: 0, kill: 0, saved: 0 }; posterCb: ((url: string) => void) | null = null; fpsEma = 0; facadeGroup: THREE.Group | null = null;
+  /** للشارة التشخيصيّة */
+  lastTris = 0; lastCalls = 0;
+  stats() { return { mode: this.mode, quality: this.quality, ambient: this.ambient, fps: Math.round(this.fpsEma), tris: (this.lastTris / 1000).toFixed(0) + 'k', calls: this.lastCalls }; }
   NIGHT: Preset = { top: new THREE.Color(0x02030a), hor: new THREE.Color(0x1a1420), fog: new THREE.Color(0x0a0b12), fd: .03, hemi: .22, hemiC: new THREE.Color(0x223046), exp: .95, sun: 0, lamps: 1, rain: 1 };
   DAWN: Preset = { top: new THREE.Color(0x4f6690), hor: new THREE.Color(0xe9a878), fog: new THREE.Color(0xb99e86), fd: .012, hemi: .85, hemiC: new THREE.Color(0xffd9b0), exp: 1.0, sun: 1, lamps: 0, rain: 0 };
   DAY: Preset = { top: new THREE.Color(0x5b6472), hor: new THREE.Color(0x9a948c), fog: new THREE.Color(0x777370), fd: .014, hemi: 1.0, hemiC: new THREE.Color(0xcfd6e0), exp: .85, sun: .3, lamps: 0, rain: 0 };
@@ -215,7 +218,7 @@ class StreetEngine {
     this.renderer.outputColorSpace = THREE.SRGBColorSpace; this.renderer.toneMapping = THREE.ACESFilmicToneMapping; this.renderer.toneMappingExposure = .95;
     this.renderer.shadowMap.enabled = true; this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     this.renderer.domElement.style.cssText = 'position:absolute;inset:0;width:100%;height:100%;display:block';
-    this.pmrem = new THREE.PMREMGenerator(this.renderer); this.quality = detectQuality(); this.from = this.to = this.NIGHT;
+    this.pmrem = new THREE.PMREMGenerator(this.renderer); this.renderer.info.autoReset = false; this.quality = detectQuality(); this.from = this.to = this.NIGHT;
     const bs = debugParam('brot'); if (bs === '180') this.frontSign = -1; const sh = debugParam('shot'); if (sh) setTimeout(() => { if (this.shots[sh]) { this.evShot = sh; this.shotT = 0; this.order = [sh]; this.cur = sh; } }, 1500);
     this.build(); this.buildPost(); this.applyQuality(); this.applyPreset(this.NIGHT); this.loadAssets();
   }
@@ -244,12 +247,12 @@ class StreetEngine {
     this.MAT = MAT; S.add(this.proc);
     this.buildProceduralBuildings(MAT);
     // ground
-    this.reflector = new Reflector(new THREE.PlaneGeometry(STREET_W + .2, 160), { clipBias: .003, textureWidth: 1024, textureHeight: 1024, color: 0x5a5a5e }); this.reflector.rotation.x = -Math.PI / 2; this.reflector.position.set(0, -.01, -40); S.add(this.reflector);
-    const asphaltMat = this.std(M.asphalt, { transparent: true, alphaMap: puddleMask(), roughness: .35, metalness: .05, color: 0xbbbbbb }); MAT.asphalt = asphaltMat; const asphalt = new THREE.Mesh(new THREE.PlaneGeometry(STREET_W + .2, 160), asphaltMat); asphalt.rotation.x = -Math.PI / 2; asphalt.position.set(0, .005, -40); asphalt.receiveShadow = true; S.add(asphalt);
-    ([-1, 1] as const).forEach(s => { const sw = new THREE.Mesh(new THREE.BoxGeometry(SIDE_W, .16, 160), MAT.cobble); sw.position.set(s * (STREET_W / 2 + SIDE_W / 2), .08, -40); sw.receiveShadow = true; S.add(sw); const curb = new THREE.Mesh(new THREE.BoxGeometry(.18, .18, 160), MAT.plaster); curb.position.set(s * (STREET_W / 2 + .09), .09, -40); S.add(curb); });
-    const railMat = new THREE.MeshStandardMaterial({ color: 0x6a6a70, roughness: .45, metalness: .8 }); [-1.3, 1.3].forEach(x => { const r = new THREE.Mesh(new THREE.BoxGeometry(.09, .03, 160), railMat); r.position.set(x, .02, -40); S.add(r); });
+    this.reflector = new Reflector(new THREE.PlaneGeometry(STREET_W + .2, 220), { clipBias: .003, textureWidth: 1024, textureHeight: 1024, color: 0x5a5a5e }); this.reflector.rotation.x = -Math.PI / 2; this.reflector.position.set(0, -.01, -60); S.add(this.reflector);
+    const asphaltMat = this.std(M.asphalt, { transparent: true, alphaMap: puddleMask(), roughness: .35, metalness: .05, color: 0xbbbbbb }); MAT.asphalt = asphaltMat; const asphalt = new THREE.Mesh(new THREE.PlaneGeometry(STREET_W + .2, 220), asphaltMat); asphalt.rotation.x = -Math.PI / 2; asphalt.position.set(0, .005, -60); asphalt.receiveShadow = true; S.add(asphalt);
+    ([-1, 1] as const).forEach(s => { const sw = new THREE.Mesh(new THREE.BoxGeometry(SIDE_W, .16, 220), MAT.cobble); sw.position.set(s * (STREET_W / 2 + SIDE_W / 2), .08, -60); sw.receiveShadow = true; S.add(sw); const curb = new THREE.Mesh(new THREE.BoxGeometry(.18, .18, 220), MAT.plaster); curb.position.set(s * (STREET_W / 2 + .09), .09, -60); S.add(curb); });
+    const railMat = new THREE.MeshStandardMaterial({ color: 0x6a6a70, roughness: .45, metalness: .8 }); [-1.3, 1.3].forEach(x => { const r = new THREE.Mesh(new THREE.BoxGeometry(.09, .03, 220), railMat); r.position.set(x, .02, -60); S.add(r); });
     // سلك الترام (خطوط: أنحف عنصرٍ ممكن)
-    { const wires: THREE.Vector3[] = []; [-1.3, 1.3].forEach(x => wires.push(new THREE.Vector3(x, 6.1, 8), new THREE.Vector3(x, 6.1, -74))); for (let z = -4; z > -72; z -= 12) { wires.push(new THREE.Vector3(-FACE, 6.6, z), new THREE.Vector3(FACE, 6.6, z)); [-1.3, 1.3].forEach(x => wires.push(new THREE.Vector3(x, 6.6, z), new THREE.Vector3(x, 6.1, z))); } S.add(new THREE.LineSegments(new THREE.BufferGeometry().setFromPoints(wires), new THREE.LineBasicMaterial({ color: 0x1a1a1a }))); }
+    { const wires: THREE.Vector3[] = []; [-1.3, 1.3].forEach(x => wires.push(new THREE.Vector3(x, 6.1, 8), new THREE.Vector3(x, 6.1, -100))); for (let z = -4; z > -98; z -= 12) { wires.push(new THREE.Vector3(-FACE, 6.6, z), new THREE.Vector3(FACE, 6.6, z)); [-1.3, 1.3].forEach(x => wires.push(new THREE.Vector3(x, 6.6, z), new THREE.Vector3(x, 6.1, z))); } S.add(new THREE.LineSegments(new THREE.BufferGeometry().setFromPoints(wires), new THREE.LineBasicMaterial({ color: 0x1a1a1a }))); }
     // lamps: the Poly Haven post carries the light; the cone/bulb are effects hung on its head
     const coneMat = new THREE.ShaderMaterial({ transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, uniforms: { uColor: { value: new THREE.Color(0xffb347) }, uI: { value: .55 } },
       vertexShader: 'varying vec2 vUv; varying vec3 vN; varying vec3 vV; void main(){ vUv=uv; vN=normalize(normalMatrix*normal); vec4 mv=modelViewMatrix*vec4(position,1.); vV=normalize(-mv.xyz); gl_Position=projectionMatrix*mv; }',
@@ -272,7 +275,7 @@ class StreetEngine {
     const cube = (stops: [number, string][], blobs: boolean) => { const faces: HTMLCanvasElement[] = []; for (let f = 0; f < 6; f++) { const c = cv(64, 64), x = c.getContext('2d')!; const g = x.createLinearGradient(0, 0, 0, 64); stops.forEach(([o, col]) => g.addColorStop(o, col)); x.fillStyle = g; x.fillRect(0, 0, 64, 64); if (blobs) for (let k = 0; k < 5; k++) { x.fillStyle = 'rgba(255,180,90,.5)'; x.beginPath(); x.arc(rnd() * 64, 20 + rnd() * 30, 3 + rnd() * 4, 0, 7); x.fill(); } faces.push(c); } const ct = new THREE.CubeTexture(faces); ct.needsUpdate = true; ct.colorSpace = THREE.SRGBColorSpace; return this.pmrem.fromCubemap(ct).texture; };
     this.envNight = cube([[0, '#0b0d16'], [.6, '#1a1712'], [1, '#3a2a14']], true); this.envDawn = cube([[0, '#5b6f9a'], [.55, '#f2a86b'], [1, '#4a3a2a']], false); S.environment = this.envNight;
     // hat (fedora asset replaces the procedural stand-in), cars (assets replace stand-ins)
-    { const c = new THREE.Mesh(new THREE.CylinderGeometry(.14, .16, .16, 14), MAT.dark); c.position.y = .09; c.name = 'proc'; this.hat.add(c); const b = new THREE.Mesh(new THREE.CylinderGeometry(.3, .3, .02, 18), MAT.dark); b.name = 'proc'; this.hat.add(b); this.hat.position.set(-FACE + 2.8, 6, -4.2); this.hat.scale.setScalar(1.7); this.hat.visible = false; S.add(this.hat); this.hatLight = new THREE.PointLight(0xffd9a0, 0, 7, 2); this.hatLight.position.set(-FACE + 3.6, 2.4, -3.6); S.add(this.hatLight); }
+    { const c = new THREE.Mesh(new THREE.CylinderGeometry(.14, .16, .16, 14), MAT.dark); c.position.y = .09; c.name = 'proc'; this.hat.add(c); const b = new THREE.Mesh(new THREE.CylinderGeometry(.3, .3, .02, 18), MAT.dark); b.name = 'proc'; this.hat.add(b); this.hat.position.set(-FACE + 1.7, 6, -4.2); this.hat.scale.setScalar(1.7); this.hat.visible = false; S.add(this.hat); this.hatLight = new THREE.PointLight(0xffd9a0, 0, 7, 2); this.hatLight.position.set(-FACE + 2.8, 2.4, -3.6); S.add(this.hatLight); }
     this.car.position.set(3.6, 0, -9); this.car.rotation.y = Math.PI / 2 + .05; S.add(this.car); this.car2.position.set(-3.5, 0, -31); this.car2.rotation.y = -Math.PI / 2 - .04; S.add(this.car2);
     this.ember = new THREE.Mesh(new THREE.SphereGeometry(.018, 6, 6), new THREE.MeshBasicMaterial({ color: new THREE.Color(0xff6a2a).multiplyScalar(6), toneMapped: false })); this.ember.position.set(-FACE + 2.1, 1.45, -2.9); S.add(this.ember); this.emberLight = new THREE.PointLight(0xff6a2a, .8, 1.4, 2); this.emberLight.position.copy(this.ember.position); S.add(this.emberLight);
     for (let k = 0; k < 7; k++) { const s = new THREE.Sprite(new THREE.SpriteMaterial({ map: this.soft, color: 0xd8d8e0, transparent: true, opacity: 0 })); s.scale.set(.35, .22, 1); S.add(s); this.pigeons.push({ s, t: -1, ox: FACE - 1.5 + (rnd() - .5) * 2, oz: -11 + (rnd() - .5) * 3 }); }
@@ -283,7 +286,7 @@ class StreetEngine {
       A: { len: 18, fov: 50, at: t => [new THREE.Vector3(-.8, 1.7, 11 - t * 4.5), new THREE.Vector3(.4, 2.0, -30)] },
       B: { len: 18, fov: 46, at: t => { const e = 1 - Math.pow(1 - t, 3); return [new THREE.Vector3(2.5, 12 - e * 9.5, 3 - e * 2), new THREE.Vector3(-2.5, 1.2, -12)]; } },
       C: { len: 18, fov: 22, at: t => [new THREE.Vector3(1.2, 1.9, -52 + t * 2), new THREE.Vector3(FIG().x + .3, 1.4, FIG().z)] },
-      KILL: { len: 7, fov: 34, at: t => [new THREE.Vector3(-FACE + 6.8, 1.5 + (1 - t) * .4, -8.2), new THREE.Vector3(-FACE + 2.8, 4.6 - Math.min(1, t * 1.6) * 4.3, -4.2)] },
+      KILL: { len: 7, fov: 34, at: t => [new THREE.Vector3(-FACE + 6.8, 1.5 + (1 - t) * .4, -8.2), new THREE.Vector3(-FACE + 1.7, 4.6 - Math.min(1, t * 1.6) * 4.3, -4.2)] },
       SAVED: { len: 6, fov: 42, at: () => [new THREE.Vector3(-FACE + 6, 1.6, -1), new THREE.Vector3(FIG().x, 1.5, FIG().z)] },
       SILENCE: { len: 5, fov: 40, at: () => { const n = this.neons[0]; const p = n ? n.mesh.position : new THREE.Vector3(FACE, 5, -8); return [new THREE.Vector3(p.x - Math.sign(p.x) * 7, 3.2, p.z + 3), p.clone()]; } },
       DISABLE: { len: 6, fov: 40, at: () => [new THREE.Vector3(-2.5, 2.4, -8.5), new THREE.Vector3(2.2, .6, -14)] },
@@ -341,7 +344,7 @@ class StreetEngine {
     this.place('trashbag', .7, 'x', [[-FACE + 1.5, -16.9, 0], [-FACE + 2.1, -44.6, 2]]); this.place('wooden_ladder', 3.2, 'y', [[-FACE + .35, -58, Math.PI / 2 + .35]], .16);
     this.place('covered_car', 4.4, 'z', [[3.4, -46, .02]], 0);
     // أعمدة الكهرباء (أصل بدل الإجرائيّ)
-    loadGLTF(PH('modular_electricity_poles')).then(g => { if (!g || this.disposed) return; [-16, -50].forEach(z => { const m = this.prep(g.scene.clone(true)); this.fit(m, 7.4, 'y'); m.position.set(-7.1, 0, z); m.rotation.y = Math.PI / 2; S.add(m); }); });
+    loadGLTF(PH('modular_electricity_poles')).then(g => { if (!g || this.disposed) return; [-16, -50, -84].forEach(z => { const m = this.prep(g.scene.clone(true)); this.fit(m, 7.4, 'y'); m.position.set(-7.1, 0, z); m.rotation.y = Math.PI / 2; S.add(m); }); });
     // ديورامة 1930: صناديق وسلّة وصحيفة
     loadGLTF(SF('diorama1930')).then(g => { if (!g || this.disposed) return; const pick = (rx: RegExp) => { let hit: THREE.Object3D | null = null; g.scene.traverse((o: THREE.Object3D) => { if (!hit && rx.test(o.name)) hit = o; }); return hit as THREE.Object3D | null; };
       const put = (o: THREE.Object3D | null, size: number, x: number, z: number, r: number) => { if (!o) return; const m = this.prep(o.clone(true)); this.fit(m, size, 'y'); m.position.set(x, .16, z); m.rotation.y = r; S.add(m); };
@@ -349,8 +352,8 @@ class StreetEngine {
     // 🏛️ طقم الواجهات البنّيّة — يستبدل المباني الإجرائيّة كاملةً
     loadGLTF(SF('brownstone')).then(g => { if (!g || this.disposed) return; this.buildBrownstoneStreet(g.scene); });
     // المظلّات والشرفات وحبال الغسيل (أصول)
-    loadGLTF(SF('awning')).then(g => { if (!g || this.disposed) return; g.scene.traverse((o: THREE.Object3D) => { const mm = (o as THREE.Mesh).material as THREE.MeshStandardMaterial | undefined; if (mm && mm.isMeshStandardMaterial) { mm.metalness = 0; mm.roughness = .95; mm.envMapIntensity = .2; mm.color.multiplyScalar(.75); } }); for (let z = 0; z > -68; z -= 9.5) ([-1, 1] as const).forEach(side => { if (rnd() > .7) return; const m = this.prep(g.scene.clone(true)); this.fit(m, 2.6, 'x'); const b = new THREE.Box3().setFromObject(m); const s = new THREE.Vector3(); b.getSize(s); m.position.set(side * (FACE - s.z / 2 - .05), 2.9, z - 3 - rnd() * 3); m.rotation.y = side > 0 ? Math.PI : 0; S.add(m); }); });
-    loadGLTF(SF('balcony')).then(g => { if (!g || this.disposed) return; for (let k = 0; k < 8; k++) { const side = k % 2 ? 1 : -1; const m = this.prep(g.scene.clone(true)); const b1 = new THREE.Box3().setFromObject(m); const s1 = new THREE.Vector3(); b1.getSize(s1); const big: 'x' | 'y' | 'z' = s1.x >= s1.y && s1.x >= s1.z ? 'x' : s1.y >= s1.z ? 'y' : 'z'; this.fit(m, 2.4, big); const b2 = new THREE.Box3().setFromObject(m); const s2 = new THREE.Vector3(); b2.getSize(s2); if (s2.x > s2.z) m.rotation.y = Math.PI / 2; /* أنحف محور عمودياً على الواجهة */ const b = new THREE.Box3().setFromObject(m); const s = new THREE.Vector3(); b.getSize(s); const c = new THREE.Vector3(); b.getCenter(c); m.position.set(side * (FACE - s.x / 2 - .02) - c.x, 5.6 + Math.floor(rnd() * 3) * 3.4 - b.min.y, -4 - k * 8 - rnd() * 3 - c.z); S.add(m); } });
+    loadGLTF(SF('awning')).then(g => { if (!g || this.disposed) return; g.scene.traverse((o: THREE.Object3D) => { const mm = (o as THREE.Mesh).material as THREE.MeshStandardMaterial | undefined; if (mm && mm.isMeshStandardMaterial) { mm.metalness = 0; mm.roughness = .95; mm.envMapIntensity = .2; mm.color.multiplyScalar(.75); } }); ([[-1, -6.5], [1, -2.6]] as [number, number][]).forEach(([side, z]) => { const m = this.prep(g.scene.clone(true)); this.fit(m, 2.6, 'x'); const b = new THREE.Box3().setFromObject(m); const s = new THREE.Vector3(); b.getSize(s); m.position.set(side * (FACE - s.z / 2 - .05), 2.9, z); m.rotation.y = side > 0 ? Math.PI : 0; S.add(m); }); });
+    loadGLTF(SF('balcony')).then(() => { /* تُوضع بعد الواجهات على الشبابيك المكتشفة فقط (placeBalconies) */ }); if (false) loadGLTF(SF('balcony')).then(g => { if (!g || this.disposed) return; for (let k = 0; k < 8; k++) { const side = k % 2 ? 1 : -1; const m = this.prep(g.scene.clone(true)); const b1 = new THREE.Box3().setFromObject(m); const s1 = new THREE.Vector3(); b1.getSize(s1); const big: 'x' | 'y' | 'z' = s1.x >= s1.y && s1.x >= s1.z ? 'x' : s1.y >= s1.z ? 'y' : 'z'; this.fit(m, 2.4, big); const b2 = new THREE.Box3().setFromObject(m); const s2 = new THREE.Vector3(); b2.getSize(s2); if (s2.x > s2.z) m.rotation.y = Math.PI / 2; /* أنحف محور عمودياً على الواجهة */ const b = new THREE.Box3().setFromObject(m); const s = new THREE.Vector3(); b.getSize(s); const c = new THREE.Vector3(); b.getCenter(c); m.position.set(side * (FACE - s.x / 2 - .02) - c.x, 5.6 + Math.floor(rnd() * 3) * 3.4 - b.min.y, -4 - k * 8 - rnd() * 3 - c.z); S.add(m); } });
     loadGLTF(SF('clothesline')).then(g => { if (!g || this.disposed) return; ([[-1, -14], [1, -38], [-1, -62]] as [number, number][]).forEach(([side, z], i) => { const m = this.prep(g.scene.clone(true), false); const b1 = new THREE.Box3().setFromObject(m); const s1 = new THREE.Vector3(); b1.getSize(s1); const axis: 'x' | 'y' | 'z' = s1.x >= s1.y && s1.x >= s1.z ? 'x' : s1.y >= s1.z ? 'y' : 'z'; this.fit(m, 3.2, axis); const b = new THREE.Box3().setFromObject(m); const sz = new THREE.Vector3(); b.getSize(sz); const long: 'x' | 'z' = sz.x >= sz.z ? 'x' : 'z'; if (long === 'x') m.rotation.y = Math.PI / 2; const b2 = new THREE.Box3().setFromObject(m); const c = new THREE.Vector3(); b2.getCenter(c); m.position.set(side * (FACE - .9) - c.x, 6.2 + i * 1.5 - b2.min.y, z - c.z); S.add(m); this.laundry.push({ m, ph: rnd() * 6 }); }); });
     // Sketchfab: cars, fedora
     const putCar = (name: string, host: THREE.Group, len: number) => loadGLTF(SF(name)).then(g => { if (!g || this.disposed) return; const m = this.prep(g.scene); const b = new THREE.Box3().setFromObject(m); const s = new THREE.Vector3(); b.getSize(s); const long: 'x' | 'z' = s.x >= s.z ? 'x' : 'z'; this.fit(m, len, long); if (long === 'z') m.rotation.y = Math.PI / 2; const b2 = new THREE.Box3().setFromObject(m); const c = new THREE.Vector3(); b2.getCenter(c); m.position.x -= c.x; m.position.z -= c.z; host.children.slice().forEach(ch => host.remove(ch)); host.add(m); });
@@ -359,27 +362,57 @@ class StreetEngine {
     // 👥 الحشد: حركات Mixamo تُعاد توجيهها على هياكل الشخصيّات
     this.loadCrowd();
   }
+  /**
+   * الشرفات على الشبابيك فقط (قرار المالك): تُكشف تجاويف النوافذ بأشعّةٍ من الشارع نحو الواجهة؛
+   * حيث يكون الاصطدام أعمق من خطّ الجدار بأكثر من 6سم على امتداد 0.7–2.4م نعدّه شبّاكاً ونعلّق عليه شرفة.
+   */
+  private lumCache = new Map<THREE.Texture, { ctx: CanvasRenderingContext2D; w: number; h: number } | null>();
+  /** إضاءة نقطة القوام عند الاصطدام (النوافذ مرسومة لا مجوّفة في طقم الواجهات: الزجاج داكن) */
+  private texLum(hit: THREE.Intersection): number {
+    const m = hit.object as THREE.Mesh; const mat = (Array.isArray(m.material) ? m.material[0] : m.material) as THREE.MeshStandardMaterial; const tex = mat?.map; if (!tex || !hit.uv) return 1;
+    let e = this.lumCache.get(tex); if (e === undefined) { try { const img = tex.image as any; const w = Math.min(512, img.width || 512), h = Math.min(512, img.height || 512); const c = document.createElement('canvas'); c.width = w; c.height = h; const ctx = c.getContext('2d', { willReadFrequently: true })!; ctx.drawImage(img, 0, 0, w, h); e = { ctx, w, h }; } catch { e = null; } this.lumCache.set(tex, e); }
+    if (!e) return 1; const u = ((hit.uv.x % 1) + 1) % 1, v = ((hit.uv.y % 1) + 1) % 1; const px = e.ctx.getImageData(Math.floor(u * (e.w - 1)), Math.floor((tex.flipY ? (1 - v) : v) * (e.h - 1)), 1, 1).data; return (px[0] * .299 + px[1] * .587 + px[2] * .114) / 255;
+  }
+  private async placeBalconies() {
+    const g = await loadGLTF(SF('balcony')); if (!g || this.disposed || !this.facadeGroup) return;
+    const ray = new THREE.Raycaster(); const origin = new THREE.Vector3(), dir = new THREE.Vector3(); let placed = 0; const rows = [5.0, 8.4, 11.8];
+    for (const side of [-1, 1] as const) {
+      for (const y of rows) { let span: number[] = []; const flush = () => { if (span.length >= 2) { const zc = (span[0] + span[span.length - 1]) / 2, wdt = Math.abs(span[0] - span[span.length - 1]) + .35; if (wdt >= .7 && wdt <= 2.4 && rnd() > .45 && placed < 14) { const m = this.prep(g.scene.clone(true)); const b1 = new THREE.Box3().setFromObject(m); const s1 = new THREE.Vector3(); b1.getSize(s1); const big: 'x' | 'y' | 'z' = s1.x >= s1.y && s1.x >= s1.z ? 'x' : s1.y >= s1.z ? 'y' : 'z'; this.fit(m, Math.max(1.4, wdt + .5), big); const b2 = new THREE.Box3().setFromObject(m); const s2 = new THREE.Vector3(); b2.getSize(s2); if (s2.x > s2.z) m.rotation.y = Math.PI / 2; const b = new THREE.Box3().setFromObject(m); const s = new THREE.Vector3(); b.getSize(s); const c = new THREE.Vector3(); b.getCenter(c); m.position.set(side * (FACE - s.x / 2 - .02) - c.x, y - 1.0 - b.min.y, zc - c.z); this.scene.add(m); placed++; } } span = []; };
+        for (let z = 2; z > -98; z -= .35) { origin.set(side * (FACE - 3), y, z); dir.set(side, 0, 0); ray.set(origin, dir); const hit = ray.intersectObject(this.facadeGroup, true)[0]; const depth = hit ? hit.distance - 3 : -1; const dark = hit ? this.texLum(hit) < .2 : false; if ((depth > .06 && depth < 1.2) || (dark && depth > -.3 && depth < 1.2)) span.push(z); else flush(); } flush(); }
+    }
+    console.info('🏛️ balconies on windows:', placed);
+  }
   /** يضع قطع الطقم على الجانبين حتى نهاية الشارع، بمقياسٍ موحّد (ارتفاع 13–19م) ووجهها إلى الشارع */
   /** الوجه الأماميّ للقطعة: الاتّجاه الأفقيّ الذي تتجمّع فيه أكبر مساحة أوجهٍ (الواجهة المفصّلة لا الظهر) */
   private frontDir(obj: THREE.Object3D): THREE.Vector3 {
     obj.updateMatrixWorld(true); const acc: Record<string, number> = { px: 0, nx: 0, pz: 0, nz: 0 }; const a = new THREE.Vector3(), b = new THREE.Vector3(), c = new THREE.Vector3(), n = new THREE.Vector3(), e = new THREE.Vector3();
     obj.traverse(o => { const m = o as THREE.Mesh; if (!m.isMesh) return; const g = m.geometry; const pos = g.attributes.position; if (!pos) return; const idx = g.index; const tri = idx ? idx.count / 3 : pos.count / 3;
-      for (let i = 0; i < tri; i++) { const i0 = idx ? idx.getX(i * 3) : i * 3, i1 = idx ? idx.getX(i * 3 + 1) : i * 3 + 1, i2 = idx ? idx.getX(i * 3 + 2) : i * 3 + 2; a.fromBufferAttribute(pos, i0).applyMatrix4(m.matrixWorld); b.fromBufferAttribute(pos, i1).applyMatrix4(m.matrixWorld); c.fromBufferAttribute(pos, i2).applyMatrix4(m.matrixWorld); e.subVectors(c, a); n.subVectors(b, a).cross(e); const area = n.length() / 2; if (area === 0) continue; n.divideScalar(area * 2); if (Math.abs(n.y) > .6) continue; if (Math.abs(n.x) > Math.abs(n.z)) { if (n.x > 0) acc.px += area; else acc.nx += area; } else { if (n.z > 0) acc.pz += area; else acc.nz += area; } } });
-    const best = Object.entries(acc).sort((p, q) => q[1] - p[1])[0][0]; return best === 'px' ? new THREE.Vector3(1, 0, 0) : best === 'nx' ? new THREE.Vector3(-1, 0, 0) : best === 'pz' ? new THREE.Vector3(0, 0, 1) : new THREE.Vector3(0, 0, -1);
+      for (let i = 0; i < tri; i++) { const i0 = idx ? idx.getX(i * 3) : i * 3, i1 = idx ? idx.getX(i * 3 + 1) : i * 3 + 1, i2 = idx ? idx.getX(i * 3 + 2) : i * 3 + 2; a.fromBufferAttribute(pos, i0).applyMatrix4(m.matrixWorld); b.fromBufferAttribute(pos, i1).applyMatrix4(m.matrixWorld); c.fromBufferAttribute(pos, i2).applyMatrix4(m.matrixWorld); e.subVectors(c, a); n.subVectors(b, a).cross(e); const area = n.length() / 2; if (area === 0) continue; n.divideScalar(area * 2); if (Math.abs(n.y) > .6) continue; const wgt = 1 + Math.min(area, .5); /* عدد الأوجه (التفصيل) لا المساحة: الجدران الجانبيّة الصمّاء كانت تخدع القياس */ if (Math.abs(n.x) > Math.abs(n.z)) { if (n.x > 0) acc.px += wgt; else acc.nx += wgt; } else { if (n.z > 0) acc.pz += wgt; else acc.nz += wgt; } } });
+    // تباين القوام على كلّ وجه: الواجهة الحقيقيّة (نوافذ وأبواب) متباينة، والظهر الأصمّ مسطّح
+    const box = new THREE.Box3().setFromObject(obj); const size = new THREE.Vector3(); box.getSize(size); const ctr = new THREE.Vector3(); box.getCenter(ctr); const ray = new THREE.Raycaster();
+    const variance = (dirKey: string) => { const d = dirKey === 'px' ? new THREE.Vector3(-1, 0, 0) : dirKey === 'nx' ? new THREE.Vector3(1, 0, 0) : dirKey === 'pz' ? new THREE.Vector3(0, 0, -1) : new THREE.Vector3(0, 0, 1); const vals: number[] = [];
+      for (const fy of [.3, .55, .8]) for (let i = 0; i < 14; i++) { const t = (i + .5) / 14; const o = new THREE.Vector3(); if (dirKey === 'px' || dirKey === 'nx') o.set(dirKey === 'px' ? box.max.x + 2 : box.min.x - 2, box.min.y + size.y * fy, box.min.z + size.z * t); else o.set(box.min.x + size.x * t, box.min.y + size.y * fy, dirKey === 'pz' ? box.max.z + 2 : box.min.z - 2); ray.set(o, d); const hit = ray.intersectObject(obj, true)[0]; if (hit) vals.push(this.texLum(hit)); }
+      if (vals.length < 6) return 0; const mean = vals.reduce((a2, b2) => a2 + b2, 0) / vals.length; return vals.reduce((a2, b2) => a2 + (b2 - mean) ** 2, 0) / vals.length; };
+    const score: Record<string, number> = {}; for (const k of Object.keys(acc)) score[k] = variance(k) * 1000 + acc[k] * .001;
+    const best = Object.entries(score).sort((p, q) => q[1] - p[1])[0][0]; return best === 'px' ? new THREE.Vector3(1, 0, 0) : best === 'nx' ? new THREE.Vector3(-1, 0, 0) : best === 'pz' ? new THREE.Vector3(0, 0, 1) : new THREE.Vector3(0, 0, -1);
   }
   private buildBrownstoneStreet(src: THREE.Object3D) {
     const rootNode = src.getObjectByName('RootNode') || src; const pieces: THREE.Object3D[] = rootNode.children.filter(o => /^Brownstone_/.test(o.name) && !/Commercial|Complex/.test(o.name)); // القطع العليا فقط (لا العُقد الفرعيّة)
     if (!pieces.length) return; seed = 4242; const shuffled = pieces.slice().sort(() => rnd() - .5);
     const group = new THREE.Group(); let idx = 0;
-    ([-1, 1] as const).forEach(side => { let z = 6; let guard = 0; while (z > -74 && guard++ < 40) { const piece = shuffled[idx++ % shuffled.length]; const w = new THREE.Group(); const m = this.prep(piece.clone(true)); w.add(m);
+    ([-1, 1] as const).forEach(side => { let z = 6; let guard = 0; while (z > -100 && guard++ < 60) { const piece = shuffled[idx++ % shuffled.length]; const w = new THREE.Group(); const m = this.prep(piece.clone(true)); w.add(m);
       // 1) الوجه الأماميّ (بالمساحة) يُدار ليواجه الشارع: يسار الشارع يواجه +x، يمينه −x
-      const f = this.frontDir(w); const want = new THREE.Vector3(-side, 0, 0); const ang = Math.atan2(want.z, want.x) - Math.atan2(f.z, f.x); w.rotation.y = ang * this.frontSign;
+      const f = this.frontDir(w); const want = new THREE.Vector3(-side, 0, 0); const ang = Math.atan2(want.x, want.z) - Math.atan2(f.x, f.z); w.rotation.y = ang * this.frontSign;
       // 2) مقياسٌ موحّد بالارتفاع، ثمّ الإرساء على خطّ الواجهة والأرض
       const h = 13 + rnd() * 6; this.fit(w, h, 'y'); const b = new THREE.Box3().setFromObject(w); const sz = new THREE.Vector3(); b.getSize(sz); const width = sz.z; if (!isFinite(width) || width < 2 || width > 42) { console.warn('🏛️ piece skipped', piece.name, sz.toArray().map(v => +v.toFixed(1))); continue; }
       const nearX = side > 0 ? b.min.x : b.max.x; w.position.x += side * FACE - nearX; w.position.z += (z - width / 2) - (b.max.z + b.min.z) / 2; w.position.y -= b.min.y;
       console.info('🏛️ piece', piece.name, 'size', sz.toArray().map(v => +v.toFixed(1)).join('x'), 'front', f.toArray().join(','), 'side', side, 'z', z.toFixed(1));
       group.add(w); z -= width + .25; } });
-    this.scene.add(group); this.scene.remove(this.proc); this.proc.traverse(o => { const m = o as THREE.Mesh; if (m.isMesh) m.geometry.dispose(); });
+    // سدّ نهاية الشارع: قطعة عريضة تواجه الكاميرا عند z=-104 (كان فراغاً أسود)
+    { const piece = shuffled.find(p => /FlatFacade_9|Lowrise|Classic/.test(p.name)) || shuffled[0]; const w = new THREE.Group(); w.add(this.prep(piece.clone(true))); const f = this.frontDir(w); w.rotation.y = Math.atan2(0, 1) - Math.atan2(f.x, f.z); this.fit(w, 17, 'y'); const b = new THREE.Box3().setFromObject(w); const sz = new THREE.Vector3(); b.getSize(sz); const k = Math.max(1, 26 / Math.max(sz.x, 1)); w.scale.x *= k; const b2 = new THREE.Box3().setFromObject(w); w.position.x -= (b2.max.x + b2.min.x) / 2; w.position.z += -104 - b2.max.z; w.position.y -= b2.min.y; group.add(w); }
+    this.scene.add(group); this.facadeGroup = group; this.scene.remove(this.proc); this.proc.traverse(o => { const m = o as THREE.Mesh; if (m.isMesh) m.geometry.dispose(); });
+    // الشرفات: نوافذ الطقم مرسومة لا مجوّفة، ولا مرساة موثوقة لها → لا تُوضع شرفات منفصلة (قاعدة المالك: على الشبابيك فقط)
+    if (debugParam('balconies') === '1') this.placeBalconies();
     // نيون فوق بعض الواجهات (قوام مضيء على لوح — تأثير لا شكل هندسيّ)
     const neonColors = ['#ff3fa4', '#4ad2ff', '#ffb347', '#7dff9a']; const names = ['TRATTORIA', 'BARBIERE', 'CAFFÈ', 'HOTEL'];
     names.forEach((nm, i) => { const side = i % 2 ? 1 : -1; const col = neonColors[i]; const mat = new THREE.MeshBasicMaterial({ map: texNeon(nm, col), transparent: true, toneMapped: false, color: new THREE.Color(col).multiplyScalar(2.2), side: THREE.DoubleSide, depthWrite: false }); const m = new THREE.Mesh(new THREE.PlaneGeometry(3.6, .9), mat); m.position.set(side * (FACE - .4), 4.8 + rnd(), -6 - i * 15); m.rotation.y = side > 0 ? -Math.PI / 2 : Math.PI / 2; this.scene.add(m); const light = new THREE.PointLight(col, 4, 7, 2); light.position.set(side * (FACE - .9), m.position.y, m.position.z); this.scene.add(light); this.neons.push({ mesh: m, light, base: mat.color.clone(), broken: i === 1, on: this.mode === 'night' }); });
@@ -454,7 +487,7 @@ class StreetEngine {
     }
     this.applyCrowdMode();
   }
-  private playW(w: Walker, k: string) { if (!w.mixer || w.cur === k) return; const a = w.acts[k] || w.acts.idle; if (!a) return; const prev = w.acts[w.cur]; if (prev && prev !== a) prev.fadeOut(.5); a.reset().fadeIn(.5).play(); w.cur = k; }
+  private playW(w: Walker, k: string) { if (!w.mixer || w.cur === k) return; const a = w.acts[k] || w.acts.idle; if (!a) return; const prev = w.acts[w.cur]; if (prev && prev !== a) prev.fadeOut(.5); a.reset().fadeIn(.5).play(); w.mixer.update(0.001); w.cur = k; }
   private applyCrowdMode() {
     const night = this.mode === 'night';
     this.walkers.forEach(w => { w.root.visible = night ? w.night : w.day; if (!w.root.visible) return;
@@ -538,7 +571,7 @@ class StreetEngine {
   fireEvent(k: StreetEvent) {
     this.evShot = k; this.shotT = 0; this.dip(250);
     this.gestureT = 0; this.gestureKind = k === 'SILENCE' ? 'shush' : 'react';
-    if (k === 'KILL') { this.ev.kill = .001; this.hat.visible = true; this.hat.position.set(-FACE + 2.8, 5.4, -4.2); this.hat.rotation.set(0, 0, 0); }
+    if (k === 'KILL') { this.ev.kill = .001; this.hat.visible = true; this.hat.position.set(-FACE + 1.7, 5.4, -4.2); this.hat.rotation.set(0, 0, 0); }
     if (k === 'SAVED') this.ev.saved = .001; if (k === 'SILENCE') this.ev.silence = .001; if (k === 'DISABLE') { this.ev.disable = .001; this.purple.items.forEach(i => (i.life = rnd())); } if (k === 'SNIPE') { this.ev.snipe = .001; this.pigeons.forEach(p => (p.t = 0)); }
   }
   /** غطسة سوداء قصيرة يملكها المحرّك (لا حالة React) */
@@ -552,7 +585,7 @@ class StreetEngine {
   private loop = () => {
     this.raf = requestAnimationFrame(this.loop); if (!this.container || !this.active) return;
     if (this.ambient) { this.frameSkip = (this.frameSkip + 1) % 2; if (this.frameSkip) return; }
-    const dtRaw = Math.min(.5, this.clock.getDelta()), dt = Math.min(.05, dtRaw), time = this.clock.elapsedTime; const ev = this.ev;
+    const dtRaw = Math.min(.5, this.clock.getDelta()), dt = Math.min(.05, dtRaw), time = this.clock.elapsedTime; const ev = this.ev; if (dtRaw > 0) this.fpsEma += ((1 / dtRaw) - this.fpsEma) * .08; this.lastTris = this.renderer.info.render.triangles; this.lastCalls = this.renderer.info.render.calls; this.renderer.info.reset();
     if (!this.probe.done) { this.probe.frames++; this.probe.t += dtRaw; if (this.probe.t >= 3) { this.probe.done = true; const fps = this.probe.frames / this.probe.t; if (fps < 28 && this.quality === 'high') this.setQuality('med'); else if (fps < 20 && this.quality === 'med') this.setQuality('low'); } }
     if (this.transT < 1) { this.transT = Math.min(1, (performance.now() - this.transStart) / this.transMs); this.lerpPreset(this.from, this.to, this.transT); }
     const dim = ev.silence > 0 ? (ev.silence < 2 ? .6 : 1) : 1;

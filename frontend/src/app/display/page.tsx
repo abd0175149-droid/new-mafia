@@ -1084,7 +1084,8 @@ function DisplayPageContent() {
     return () => clearTimeout(t);
   }, [step, phase]);
   // 🏙️ المضيف الدائم للمدينة: الطور → وضع (الليل/الفجر/النهار خلف الكروت)، 'off' في اللوبي والنهاية
-  const stageMode: StageMode = step !== 'lobby' ? 'off' : phase === Phase.NIGHT ? 'night' : phase === Phase.MORNING_RECAP ? 'dawn' : phase.startsWith('DAY_') ? 'day' : 'off';
+  // قرار المالك 2026-09-12: كلّ ما ليس ليلاً نهارٌ — حتى اللوبي وتوزيع الأدوار؛ تقرير الفجر وحده بإضاءة الفجر
+  const stageMode: StageMode = step === 'lobby' && phase === Phase.NIGHT ? 'night' : step === 'lobby' && phase === Phase.MORNING_RECAP ? 'dawn' : 'day';
   const navVisible = step === 'lobby' && phase !== Phase.LOBBY && phase !== Phase.ROLE_GENERATION && phase !== Phase.ROLE_BINDING && (teamCounts.mafiaAlive > 0 || teamCounts.citizenAlive > 0 || (teamCounts.neutralAlive ?? 0) > 0);
 
   return (
@@ -1092,7 +1093,7 @@ function DisplayPageContent() {
     <DisplayViewportProvider navVisible={navVisible}>
     <div className="display-bg h-[100dvh] relative overflow-hidden flex flex-col items-center justify-center px-8 py-6 font-sans noir-vignette selection:bg-[#8A0303] selection:text-white w-full">
       {/* 🏙️ مشهد المدينة الدائم خلف كلّ الطبقات */}
-      <StreetStage mode={stageMode} event={phase === Phase.MORNING_RECAP ? (animation?.type ?? null) : null} eventKey={animation?.eventKey ?? morningEvents.length} docked={phase === Phase.MORNING_RECAP} ambient={stageMode === 'day'} />
+      <StreetStage mode={stageMode} event={phase === Phase.MORNING_RECAP ? (animation?.type ?? null) : null} eventKey={animation?.eventKey ?? morningEvents.length} docked={phase === Phase.MORNING_RECAP} ambient={stageMode === 'day'} debug />
 
       <div className="relative z-10 w-full h-full min-h-0 flex flex-col items-center justify-center">
 
