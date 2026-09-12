@@ -12,9 +12,13 @@
 //    طبقاتُ المواجهة والمُسكَت وشريطُ الطابور مع المحتوى. `zoom` لا يفعل ذلك:
 //    تبقى الطبقات الثابتة على الشاشة كاملةً ويُصغَّر ما بداخلها فقط.
 //
-// العرض: الابن يأخذ `100/zoom %` من العرض كي يملأ الشاشة بعد التصغير (لا يبقى
-// شريطٌ فارغٌ على الجانبين). القياس عبر getBoundingClientRect (يعكس zoom) مقسوماً
-// على zoom الحاليّ ⇒ الارتفاع الطبيعيّ، فلا يعتمد على تفاصيل تنفيذ offsetHeight.
+// القياس (مثبَّتٌ تجريبيّاً على Chrome 152 بـPlaywright، 2026-09-12):
+//   - `width:100%` تحت zoom تملأ الحاوية المرئيّة كاملةً (offsetWidth = العرض/zoom) —
+//     فلا تُعوَّض بـ`100/zoom %`: ذلك يجعل التخطيط يعتمد على zoom فيتذبذب القياس
+//     ويسقط React بـ«Maximum update depth» (حدث في شاشة التصويت).
+//   - offsetHeight/scrollHeight بوحدات التخطيط (غير مصغَّرة) ⇒ الارتفاع الطبيعيّ مباشرةً،
+//     ولا يتغيّر مع zoom لأنّ عرض التخطيط ثابت. getBoundingClientRect يعكس التصغير.
+//   - `position:fixed` بداخله يبقى محسوباً على الشاشة (inset-0 يغطّيها كاملةً).
 //
 // من يقيس الشاشة بالبكسل الحقيقيّ (كاميرا لوح النقاش) يقرأ `data-fit-zoom` ويقسم عليه.
 // ══════════════════════════════════════════════════════
@@ -34,8 +38,7 @@ export default function FitToScreen({ children, className = '' }: { children: Re
     if (!outer || !inner) return;
     const avail = outer.clientHeight;
     if (avail <= 0) return;
-    const rendered = inner.getBoundingClientRect().height;
-    const natural = rendered / (zoomRef.current || 1);
+    const natural = inner.scrollHeight;   // وحدات التخطيط — مستقلّة عن zoom
     const next = natural > 0 ? Math.max(MIN_ZOOM, Math.min(1, avail / natural)) : 1;
     // تسامحٌ صغير كي لا نتذبذب بين قيمتين متقاربتين عند إعادة الانسياب
     if (Math.abs(next - zoomRef.current) > 0.004) {
@@ -65,7 +68,7 @@ export default function FitToScreen({ children, className = '' }: { children: Re
         ref={innerRef}
         data-fit-zoom={zoom}
         className="flex flex-col items-center justify-center"
-        style={{ zoom, width: `${100 / zoom}%` } as any}
+        style={{ zoom, width: '100%' } as any}
       >
         {children}
       </div>

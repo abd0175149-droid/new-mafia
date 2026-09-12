@@ -1538,15 +1538,7 @@ function RevealCeremony({ players, revealedRoles, revealType, notes }: {
       </div>
 
       {/* هيدر سفلي */}
-      <div className="absolute bottom-0 left-0 right-0 flex items-center justify-between px-6 py-3 border-t border-[#2a2a2a]/50 bg-black/50 backdrop-blur-sm z-10">
-        <div className="flex items-center gap-3">
-          <Image src="/mafia_logo.png" alt="Mafia" width={28} height={28} className="w-[28px] h-[28px] opacity-60" priority />
-          <span className="text-sm font-black text-[#C5A059]/60" style={{ fontFamily: 'Amiri, serif' }}>MAFIA CLUB</span>
-        </div>
-        <span className="text-[#808080] text-[10px] font-mono tracking-[0.4em] uppercase">
-          {revealType === 'DEAL_ELIMINATION' ? 'DEAL EXECUTION' : 'ELIMINATION PROTOCOL'}
-        </span>
-      </div>
+      {/* (حُذف الشريط السفليّ «ELIMINATION PROTOCOL» — كان يغطّي أسفل الكرت؛ قرار المالك 2026-09-12) */}
     </motion.div>
   );
 }
