@@ -10,8 +10,7 @@
 // لا تصويرَ للأدوار الفعليّة في الغرفة (أدوار الأحياء سرّ): الشريط أيقوناتُ الليل المعتادة.
 // ══════════════════════════════════════════════════════
 import dynamic from 'next/dynamic';
-import { motion, AnimatePresence } from 'framer-motion';
-import NightAnimCinematic from '@/components/NightAnimCinematic';
+import { motion } from 'framer-motion';
 
 // 🏙️ المشهد الثلاثيّ الأبعاد (three) — عميلٌ فقط
 const StreetScene = dynamic(() => import('./StreetScene'), { ssr: false, loading: () => <div className="absolute inset-0" style={{ background: '#05060c' }} /> });
@@ -34,7 +33,7 @@ const NIGHT_ROLES: Array<{ keys: string[]; icon: string; label: string; en: stri
   { keys: ['ASSASSIN', 'ASSASSIN_KILL'], icon: '🗡️', label: 'السفّاح', en: 'ASSASSIN' },
 ];
 
-export default function NightScene({ animation, stepType, players, oneNight }: Props) {
+export default function NightScene({ stepType, oneNight }: Props) {
   const activeIdx = stepType ? NIGHT_ROLES.findIndex(r => r.keys.some(k => stepType.toUpperCase().includes(k))) : -1;
 
   return (
@@ -50,10 +49,11 @@ export default function NightScene({ animation, stepType, players, oneNight }: P
       {/* تعتيمٌ خفيف أسفل الشاشة كي تُقرأ الطبقات فوقه */}
       <div className="absolute inset-x-0 bottom-0 h-[35%] pointer-events-none" style={{ background: 'linear-gradient(180deg, transparent, rgba(0,0,0,.55))' }} />
 
-      {/* العنوان — يتلاشى بعد ثوانٍ ليترك المشهد */}
-      <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: [0, 1, 1, 0.25], y: 0 }} transition={{ duration: 9, times: [0, 0.1, 0.7, 1] }} className="absolute inset-x-0 top-[26%] text-center pointer-events-none">
-        <h2 className="text-8xl font-black text-white tracking-wide" style={{ fontFamily: 'Amiri, serif', textShadow: '0 0 50px rgba(0,0,0,.9), 0 0 12px rgba(0,0,0,.8)' }}>الظلام دامس</h2>
-        <p className="text-[#9a8f7d] text-xl font-mono tracking-[0.5em] mt-2">OPERATION NIGHTFALL</p>
+      {/* العنوان — ذهبيّ بطابع النادي، في الزاوية كي لا يحجب المدينة (قرار المالك 2026-09-12) */}
+      <motion.div initial={{ opacity: 0, y: 18 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 1.2, delay: .4 }} className="absolute left-8 bottom-7 pointer-events-none text-left" dir="ltr">
+        <div className="flex items-center gap-3 mb-1"><span className="h-px w-12 bg-[#C5A059]/70" /><span className="text-[10px] font-mono tracking-[0.5em] text-[#C5A059]/90">OPERATION NIGHTFALL</span></div>
+        <h2 className="text-6xl font-black leading-none" dir="rtl" style={{ fontFamily: 'Amiri, serif', background: 'linear-gradient(180deg, #f6e7bd 0%, #C5A059 52%, #7d5f2a 100%)', WebkitBackgroundClip: 'text', backgroundClip: 'text', color: 'transparent', filter: 'drop-shadow(0 2px 0 rgba(0,0,0,.85)) drop-shadow(0 0 22px rgba(197,160,89,.35))' }}>الظلام دامس</h2>
+        <p className="text-[11px] font-mono tracking-[0.35em] text-[#9a8f7d] mt-2">THE CITY SLEEPS · NOBODY TALKS</p>
       </motion.div>
 
       {/* شريط «من يتحرّك الليلة» */}
@@ -74,19 +74,7 @@ export default function NightScene({ animation, stepType, players, oneNight }: P
         {oneNight && <p className="text-[10px] text-[#C5A059] mt-1 text-center">الجميع يختار الآن</p>}
       </div>
 
-      {/* مشهد الخطوة — وسط الشاشة، كبير */}
-      <AnimatePresence>
-        {animation && (
-          <motion.div
-            key={`${animation.type}-${animation.targetPhysicalId ?? ''}`}
-            initial={{ opacity: 0, scale: 0.85, y: '-45%', x: '-50%' }} animate={{ opacity: 1, scale: 1, y: '-50%', x: '-50%' }} exit={{ opacity: 0, scale: 0.9, y: '-55%', x: '-50%' }}
-            transition={{ type: 'spring', damping: 18, stiffness: 140 }}
-            className="absolute left-1/2 top-1/2 w-[min(60vw,900px)] rounded-3xl border border-[#C5A059]/30 bg-black/70 backdrop-blur-md p-10 shadow-[0_0_80px_rgba(0,0,0,.7)]"
-          >
-            <NightAnimCinematic data={animation} players={players} />
-          </motion.div>
-        )}
-      </AnimatePresence>
+      {/* لا صندوقَ للخطوة فوق المدينة: الدور الجاري يُضاء في الشريط، والمشهد ثلاثيّ الأبعاد يبقى نظيفاً (قرار المالك 2026-09-12) */}
     </div>
   );
 }

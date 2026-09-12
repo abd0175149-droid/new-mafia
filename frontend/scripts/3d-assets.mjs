@@ -13,7 +13,9 @@ const API = 'https://api.polyhaven.com';
 const RES = '1k';
 const WEBP_Q = 82;
 
-const MODELS = ['street_lamp_01', 'street_lamp_02', 'fire_hydrant', 'modular_fire_escape', 'metal_trash_can', 'water_manhole_cover', 'modular_metal_gutter'];
+const MODELS = ['street_lamp_01', 'street_lamp_02', 'fire_hydrant', 'modular_fire_escape', 'metal_trash_can', 'water_manhole_cover', 'modular_metal_gutter',
+  // دفعة إثراء الشارع (قرار المالك 2026-09-12: عناصر أكثر بلا ثقل)
+  'wooden_crate_01', 'wooden_crate_02', 'wooden_barrels_01', 'painted_wooden_bench', 'outdoor_table_chair_set_01', 'standing_chalkboard_01', 'planter_box_01', 'cardboard_box_01', 'trashbag', 'wooden_ladder', 'covered_car'];
 const TEXTURES = ['red_brick_03', 'plastered_wall_04', 'asphalt_02', 'cobblestone_floor_08', 'painted_plaster_wall', 'wood_planks_grey'];
 const HDRIS = ['moonless_golf', 'klippad_sunrise_2'];
 

@@ -64,8 +64,8 @@ export default function MorningReport({ events, current, players, teamCounts, ro
       {/* رأس الصحيفة */}
       <div className="absolute inset-x-0 top-0 px-10 pt-6 flex items-end justify-between">
         <div>
-          <p className="text-[11px] font-mono tracking-[0.5em] text-[#ffe7a8]/70">MORNING INTELLIGENCE REPORT{round ? ` · ROUND ${round}` : ''}</p>
-          <h2 className="text-7xl font-black text-white leading-none mt-1" style={{ fontFamily: 'Amiri, serif', textShadow: '0 0 40px rgba(255,200,120,.35)' }}>تقرير الفجر</h2>
+          <div className="flex items-center gap-3"><span className="h-px w-12 bg-[#C5A059]/70" /><p className="text-[10px] font-mono tracking-[0.5em] text-[#C5A059]/90">MORNING INTELLIGENCE REPORT{round ? ` · ROUND ${round}` : ''}</p></div>
+          <h2 className="text-7xl font-black leading-none mt-1" style={{ fontFamily: 'Amiri, serif', background: 'linear-gradient(180deg, #f6e7bd 0%, #C5A059 52%, #7d5f2a 100%)', WebkitBackgroundClip: 'text', backgroundClip: 'text', color: 'transparent', filter: 'drop-shadow(0 2px 0 rgba(0,0,0,.85)) drop-shadow(0 0 22px rgba(197,160,89,.35))' }}>تقرير الفجر</h2>
         </div>
         {teamCounts && (
           <div className="flex items-center gap-8 pb-2">

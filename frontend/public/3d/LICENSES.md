@@ -9,13 +9,24 @@
 ## Poly Haven (CC0)
 - hdri/klippad_sunrise_2_1k.hdr — "klippad_sunrise_2" — Poly Haven — CC0 — https://polyhaven.com/a/klippad_sunrise_2
 - hdri/moonless_golf_1k.hdr — "moonless_golf" — Poly Haven — CC0 — https://polyhaven.com/a/moonless_golf
+- models/cardboard_box_01 — "cardboard_box_01" — Poly Haven — CC0 — https://polyhaven.com/a/cardboard_box_01
+- models/covered_car — "covered_car" — Poly Haven — CC0 — https://polyhaven.com/a/covered_car
 - models/fire_hydrant — "fire_hydrant" — Poly Haven — CC0 — https://polyhaven.com/a/fire_hydrant
 - models/metal_trash_can — "metal_trash_can" — Poly Haven — CC0 — https://polyhaven.com/a/metal_trash_can
 - models/modular_fire_escape — "modular_fire_escape" — Poly Haven — CC0 — https://polyhaven.com/a/modular_fire_escape
 - models/modular_metal_gutter — "modular_metal_gutter" — Poly Haven — CC0 — https://polyhaven.com/a/modular_metal_gutter
+- models/outdoor_table_chair_set_01 — "outdoor_table_chair_set_01" — Poly Haven — CC0 — https://polyhaven.com/a/outdoor_table_chair_set_01
+- models/painted_wooden_bench — "painted_wooden_bench" — Poly Haven — CC0 — https://polyhaven.com/a/painted_wooden_bench
+- models/planter_box_01 — "planter_box_01" — Poly Haven — CC0 — https://polyhaven.com/a/planter_box_01
+- models/standing_chalkboard_01 — "standing_chalkboard_01" — Poly Haven — CC0 — https://polyhaven.com/a/standing_chalkboard_01
 - models/street_lamp_01 — "street_lamp_01" — Poly Haven — CC0 — https://polyhaven.com/a/street_lamp_01
 - models/street_lamp_02 — "street_lamp_02" — Poly Haven — CC0 — https://polyhaven.com/a/street_lamp_02
+- models/trashbag — "trashbag" — Poly Haven — CC0 — https://polyhaven.com/a/trashbag
 - models/water_manhole_cover — "water_manhole_cover" — Poly Haven — CC0 — https://polyhaven.com/a/water_manhole_cover
+- models/wooden_barrels_01 — "wooden_barrels_01" — Poly Haven — CC0 — https://polyhaven.com/a/wooden_barrels_01
+- models/wooden_crate_01 — "wooden_crate_01" — Poly Haven — CC0 — https://polyhaven.com/a/wooden_crate_01
+- models/wooden_crate_02 — "wooden_crate_02" — Poly Haven — CC0 — https://polyhaven.com/a/wooden_crate_02
+- models/wooden_ladder — "wooden_ladder" — Poly Haven — CC0 — https://polyhaven.com/a/wooden_ladder
 - tex/asphalt_02_* — "asphalt_02" — Poly Haven — CC0 — https://polyhaven.com/a/asphalt_02
 - tex/cobblestone_floor_08_* — "cobblestone_floor_08" — Poly Haven — CC0 — https://polyhaven.com/a/cobblestone_floor_08
 - tex/painted_plaster_wall_* — "painted_plaster_wall" — Poly Haven — CC0 — https://polyhaven.com/a/painted_plaster_wall
