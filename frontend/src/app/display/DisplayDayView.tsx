@@ -101,10 +101,12 @@ export default function DisplayDayView({ roomId, players, initialDiscussionState
     if (!discussionState?.currentSpeakerId && containerRef.current) {
       const timer = setTimeout(() => {
         if (containerRef.current) {
+          // 📐 FitToScreen قد يصغّر اللوح بـzoom: نقيس بالبكسل الحقيقيّ ثمّ نحوّل إلى بكسل التخطيط
+          const fz = Number((containerRef.current.closest('[data-fit-zoom]') as HTMLElement | null)?.dataset.fitZoom || 1) || 1;
           const rect = containerRef.current.getBoundingClientRect();
           naturalParentPos.current = {
-            cx: rect.left + rect.width / 2,
-            cy: rect.top + rect.height / 2,
+            cx: (rect.left + rect.width / 2) / fz,
+            cy: (rect.top + rect.height / 2) / fz,
           };
         }
       }, 300);
@@ -119,12 +121,15 @@ export default function DisplayDayView({ roomId, players, initialDiscussionState
         const el = document.getElementById(`speaker-card-${discussionState.currentSpeakerId}`);
         const parent = containerRef.current;
         if (el && parent) {
+          // 📐 كلّ أبعاد الشاشة الحقيقيّة تُقسم على zoom الحاوية كي تطابق بكسل التخطيط
+          const fz = Number((parent.closest('[data-fit-zoom]') as HTMLElement | null)?.dataset.fitZoom || 1) || 1;
+          const vw = window.innerWidth / fz, vh = window.innerHeight / fz;
           // ── Dynamic Scale Factor ──
           // Card always fills 75% of viewport height after zoom
-          const targetHeight = window.innerHeight * 0.75;
+          const targetHeight = vh * 0.75;
           let S = targetHeight / el.offsetHeight;
           // Protect width: card must not exceed 42% of viewport width (space for timer)
-          S = Math.min(S, (window.innerWidth * 0.42) / el.offsetWidth);
+          S = Math.min(S, (vw * 0.42) / el.offsetWidth);
           S = Math.max(S, 1.2); // Minimum zoom
           setZoomScale(S);
 
@@ -141,13 +146,13 @@ export default function DisplayDayView({ roomId, players, initialDiscussionState
           // ── Fixed Target Screen Positions ──
           // These are ABSOLUTE screen coordinates where the card center will ALWAYS land
           const targetScreenX = isNativeLeft
-            ? window.innerWidth * 0.38   // Card left-third, timer on right
-            : window.innerWidth * 0.62;  // Card right-third, timer on left
-          const targetScreenY = window.innerHeight * 0.50; // Always vertically centered
+            ? vw * 0.38   // Card left-third, timer on right
+            : vw * 0.62;  // Card right-third, timer on left
+          const targetScreenY = vh * 0.50; // Always vertically centered
 
           // ── Parent's Natural Screen Center (captured at rest) ──
-          const pScreenCx = naturalParentPos.current?.cx ?? window.innerWidth / 2;
-          const pScreenCy = naturalParentPos.current?.cy ?? window.innerHeight / 2;
+          const pScreenCx = naturalParentPos.current?.cx ?? vw / 2;
+          const pScreenCy = naturalParentPos.current?.cy ?? vh / 2;
 
           // ── Framer Motion Translation Math ──
           // After scale S around parent center with transformOrigin:center:
@@ -943,7 +948,7 @@ export default function DisplayDayView({ roomId, players, initialDiscussionState
               initial={{ opacity: 0, y: 30 }}
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, y: -30 }}
-              className="w-full h-[calc(100vh-2rem)] flex flex-col items-center justify-center relative"
+              className="w-full min-h-[60vh] flex flex-col items-center justify-center relative"
             >
               {/* ── كروت المتهمين أفقياً + تايمر ── */}
               <div className="flex flex-wrap justify-center items-start gap-6 md:gap-10 w-full max-w-[1700px] mx-auto px-4 relative">
@@ -1212,7 +1217,7 @@ export default function DisplayDayView({ roomId, players, initialDiscussionState
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0, scale: 1.1 }}
-            className="text-center w-full h-[calc(100vh-2rem)] flex flex-col items-center justify-center"
+            className="text-center w-full min-h-[60vh] flex flex-col items-center justify-center"
           >
             {/* خلفية حمراء نابضة */}
             <motion.div
@@ -1363,7 +1368,7 @@ function RevealCeremony({ players, revealedRoles, revealType, notes }: {
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
       exit={{ opacity: 0 }}
-      className="w-full h-[calc(100vh-2rem)] flex flex-col items-center justify-center relative overflow-hidden"
+      className="w-full min-h-[60vh] flex flex-col items-center justify-center relative overflow-hidden"
     >
       {/* خلفية سينمائية */}
       <motion.div
@@ -1575,7 +1580,7 @@ function AshCeremony({ players, ashData }: {
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
       exit={{ opacity: 0 }}
-      className="w-full h-[calc(100vh-2rem)] flex flex-col items-center justify-center relative overflow-hidden"
+      className="w-full min-h-[60vh] flex flex-col items-center justify-center relative overflow-hidden"
     >
       <motion.div
         className="absolute inset-0 pointer-events-none"
@@ -1699,7 +1704,7 @@ function BombCeremony({ players, bombData }: {
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
       exit={{ opacity: 0 }}
-      className="w-full h-[calc(100vh-2rem)] flex flex-col items-center justify-center relative overflow-hidden"
+      className="w-full min-h-[60vh] flex flex-col items-center justify-center relative overflow-hidden"
     >
       {/* خلفية انفجارية */}
       <motion.div

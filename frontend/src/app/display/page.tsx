@@ -8,6 +8,7 @@ import { Phase, isMafiaRole, Role } from '@/lib/constants';
 import { getSocket } from '@/lib/socket';
 import type { Socket } from 'socket.io-client';
 import DisplayDayView from './DisplayDayView';
+import FitToScreen from '@/components/FitToScreen';
 import MafiaCard from '@/components/MafiaCard';
 import NightAnimCinematic from '@/components/NightAnimCinematic';
 import EliminationFx from '@/components/EliminationFx';
@@ -1043,9 +1044,10 @@ function DisplayPageContent() {
   // 🖥️ واجهة العرض
   // ══════════════════════════════════════════════════
   return (
-    <div className="display-bg min-h-screen relative overflow-hidden flex flex-col items-center justify-center p-8 font-sans blood-vignette selection:bg-[#8A0303] selection:text-white w-full">
-      
-      <div className="relative z-10 w-full h-full flex flex-col items-center justify-center">
+    // 📐 الجذر مقفولٌ على ارتفاع الشاشة: لا تمرير أبداً؛ FitToScreen يصغّر ما يفيض (قرار المالك 2026-09-12)
+    <div className="display-bg h-[100dvh] relative overflow-hidden flex flex-col items-center justify-center px-8 py-6 font-sans blood-vignette selection:bg-[#8A0303] selection:text-white w-full">
+
+      <div className="relative z-10 w-full h-full min-h-0 flex flex-col items-center justify-center">
 
         {/* ══════════════════════════════════════════════════ */}
         {/* 📊 ناف بار ثابت — أعداد الفرق (يظهر بعد بدء اللعبة) */}
@@ -1147,9 +1149,10 @@ function DisplayPageContent() {
 
         {/* Spacer — يدفع المحتوى تحت الناف بار الثابت */}
         {step === 'lobby' && phase !== Phase.LOBBY && phase !== Phase.ROLE_GENERATION && phase !== Phase.ROLE_BINDING && (teamCounts.mafiaAlive > 0 || teamCounts.citizenAlive > 0 || (teamCounts.neutralAlive ?? 0) > 0) && (
-          <div className="w-full h-16 shrink-0" />
+          <div className="w-full h-14 shrink-0" />
         )}
 
+        <FitToScreen className="flex-1">
         <AnimatePresence mode="wait">
 
           {/* ══════════════════════════════════════════ */}
@@ -1563,7 +1566,7 @@ function DisplayPageContent() {
             initial={{ opacity: 0, scale: 0.95 }}
             animate={{ opacity: 1, scale: 1 }}
             exit={{ opacity: 0 }}
-            className="w-full max-w-[1600px] relative z-10 flex flex-col items-center justify-center p-8 min-h-[80vh]"
+            className="w-full max-w-[1600px] relative z-10 flex flex-col items-center justify-center p-8"
           >
 
 
@@ -1949,6 +1952,7 @@ function DisplayPageContent() {
         })()}
 
       </AnimatePresence>
+        </FitToScreen>
 
       {/* ═══ Overlay كشف دور اللاعب المُقصى إدارياً ═══ */}
       <AnimatePresence>

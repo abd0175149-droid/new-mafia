@@ -10,6 +10,7 @@ import { memo, useEffect, useRef, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { getSocket } from '@/lib/socket';
 import MafiaCard from '@/components/MafiaCard';
+import FitToScreen from '@/components/FitToScreen';
 import type { ConfPayload, ConfItem } from '@/app/leader/LeaderConfrontationPanel';
 
 interface Props {
@@ -221,12 +222,13 @@ export default function DisplayConfrontation({ roomId, players }: Props) {
           <motion.div
             key="conf-active"
             initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0, scale: 1.04 }}
-            className="fixed inset-0 z-[65] bg-black/92 backdrop-blur-md flex flex-col items-center justify-start pt-6 pb-44 gap-4 overflow-hidden"
+            className="fixed inset-0 z-[65] bg-black/92 backdrop-blur-md flex flex-col items-stretch overflow-hidden pt-16 pb-40"
             dir="rtl"
           >
             <style>{waveCss}</style>
             {/* نبضة ضوءٍ تعبر الشاشة عند البدء */}
             <div className="conf-sweep" aria-hidden />
+            <FitToScreen className="flex-1">
             <div className="text-center relative z-10">
               <p className="text-[#8A0303] font-mono tracking-[0.5em] text-sm uppercase">Confrontation</p>
               <h2 className="text-5xl font-black text-white mt-1" style={{ fontFamily: 'Amiri, serif', textShadow: '0 0 30px rgba(138,3,3,0.5)' }}>⚔️ مواجهة</h2>
@@ -238,7 +240,7 @@ export default function DisplayConfrontation({ roomId, players }: Props) {
                 🎙️ الطرفان يتحدّثان معاً
               </motion.p>
             </div>
-            <div className="flex-1 min-h-0 flex items-center gap-10 relative z-10" style={{ perspective: 1400 }}>
+            <div className="flex items-center gap-10 relative z-10 mt-2" style={{ perspective: 1400 }}>
               <Card pid={active.requesterPhysicalId} p={P(active.requesterPhysicalId)} side="req" />
               <Ring
                 left={active.stageStartedAt ? secsLeft(active.stageStartedAt + active.stageSeconds * 1000) : active.stageSeconds}
@@ -247,6 +249,7 @@ export default function DisplayConfrontation({ roomId, players }: Props) {
               />
               <Card pid={active.targetPhysicalId} p={P(active.targetPhysicalId)} side="tgt" />
             </div>
+            </FitToScreen>
             {/* 🗳️ نبض الإقناع — شريط شدّ الحبل: يمينه الطالب ويساره المستهدَف، والمؤشّر ينزلق نحو صاحب الأصوات الأكثر */}
             {conf?.pulseEnabled !== false && active.pulse && (() => {
               const ps = active.pulse!; const tot = ps.req + ps.tgt; const share = tot ? ps.req / tot : .5;
@@ -259,7 +262,7 @@ export default function DisplayConfrontation({ roomId, players }: Props) {
                   </div>
                   <div className="relative h-7 rounded-full border border-white/10" style={{ background: 'linear-gradient(90deg,#8A0303 0%,#3a1a10 50%,#7a5f2a 50%,#C5A059 100%)' }}>
                     <motion.div
-                      animate={{ right: `calc(${(share * 100).toFixed(1)}% - 22px)` }}
+                      animate={{ left: `calc(${(share * 100).toFixed(1)}% - 22px)` }}
                       transition={{ type: 'spring', damping: 18, stiffness: 120 }}
                       className="absolute -top-2 w-11 h-11 rounded-full bg-white shadow-[0_0_28px_rgba(255,255,255,.75)] flex items-center justify-center text-lg"
                     >⚖️</motion.div>
