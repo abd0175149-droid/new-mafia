@@ -6,9 +6,14 @@
 // ثمّ صفحةَ صحيفةٍ: الحدث الجاري في العنوان الرئيس (كبيراً في المنتصف بمشهده)، والأحداث
 // السابقة عناوين فرعيّة على الجانب، وعدّادا الأحياء في الأسفل. الأحداث تصل واحداً واحداً
 // (display:morning-event) والصفحة تجمعها؛ كلّ حدثٍ جديد يدخل بطبولٍ وقلبٍ للعنوان.
+// 🔒 لا أسماءَ في العناوين الفرعيّة أبداً: سياسة الكشف (من يُسمّى ومن يبقى مجهولاً كصاحب
+//    القدرة المعطَّلة) تعيش في NightAnimCinematic وحده — الصفحة لا تضيف معلومةً فوقه.
 // ══════════════════════════════════════════════════════
+import dynamic from 'next/dynamic';
 import { motion, AnimatePresence } from 'framer-motion';
 import NightAnimCinematic from '@/components/NightAnimCinematic';
+
+const StreetScene = dynamic(() => import('./StreetScene'), { ssr: false, loading: () => <div className="absolute inset-0" style={{ background: '#2a1a2e' }} /> });
 
 interface Props {
   events: any[];            // كلّ أحداث هذا الصباح بترتيب وصولها
@@ -50,13 +55,10 @@ export default function MorningReport({ events, current, players, teamCounts, ro
         @media (prefers-reduced-motion: reduce) { .mr-sun, .mr-rays, .mr-sweep { animation: none !important } }
       `}</style>
 
-      {/* الشروق يمسح الشاشة */}
-      <div className="absolute inset-0" style={{ background: 'linear-gradient(180deg,#0b0f1e 0%,#2a1a2e 35%,#6a2f2a 65%,#c98a3a 100%)' }} />
-      <div className="mr-sweep absolute inset-0" style={{ background: 'linear-gradient(180deg, rgba(255,214,150,0) 40%, rgba(255,190,110,.22) 100%)' }} />
-      <div className="mr-sun absolute left-1/2 -translate-x-1/2 bottom-[18%] w-[420px] h-[420px] rounded-full" style={{ background: 'radial-gradient(circle, #ffe7a8 0%, #f1b34a 45%, rgba(241,179,74,0) 72%)', filter: 'blur(2px)' }} />
-      <div className="mr-rays absolute left-1/2 -translate-x-1/2 bottom-[-10%] w-[1400px] h-[1400px] rounded-full opacity-[.13] pointer-events-none" style={{ background: 'repeating-conic-gradient(from 0deg, rgba(255,230,170,.9) 0deg 6deg, transparent 6deg 16deg)' }} />
-      {/* أفق المدينة مضاء */}
-      <div className="absolute inset-x-0 bottom-0 h-[22%]" style={{ background: 'linear-gradient(180deg, transparent, rgba(20,10,10,.55) 40%, rgba(15,8,8,.9))' }} />
+      {/* 🏙️ الزقاق نفسه عند الفجر — three.js — مع شروقٍ يمسح الشاشة فوقه */}
+      <StreetScene mode="dawn" />
+      <div className="mr-sweep absolute inset-0 pointer-events-none" style={{ background: 'linear-gradient(180deg, rgba(10,8,20,.55) 0%, rgba(255,190,110,0) 45%, rgba(255,190,110,.18) 100%)' }} />
+      <div className="absolute inset-x-0 top-0 h-[180px] pointer-events-none" style={{ background: 'linear-gradient(180deg, rgba(0,0,0,.6), transparent)' }} />
 
       {/* رأس الصحيفة */}
       <div className="absolute inset-x-0 top-0 px-10 pt-6 flex items-end justify-between">
@@ -117,7 +119,6 @@ export default function MorningReport({ events, current, players, teamCounts, ro
                 <span className="text-2xl">{h.icon}</span>
                 <div className="min-w-0">
                   <p className="text-lg font-bold truncate" style={{ fontFamily: 'Amiri, serif', color: toneColor[h.tone] }}>{h.title}</p>
-                  {e.targetName && <p className="text-xs text-[#ddd] truncate">{e.targetName}</p>}
                 </div>
               </motion.div>
             ); })}

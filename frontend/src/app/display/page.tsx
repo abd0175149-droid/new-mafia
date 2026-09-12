@@ -1470,7 +1470,6 @@ function DisplayPageContent() {
                     return (
                       <motion.div
                         key={p.physicalId}
-                        layout
                         initial={{ opacity: 0, scale: 0.9, y: 10 }}
                         animate={luckySpin ? {
                           opacity: luckyActive ? 1 : 0.25,
@@ -1588,7 +1587,6 @@ function DisplayPageContent() {
                 render={(p: any, i: number, k: number) => (
                   <motion.div
                     key={p.physicalId}
-                    layout
                     initial={{ opacity: 0, scale: 0.9, y: 10 }}
                     animate={{ opacity: 1, scale: 1, y: 0 }}
                     transition={{ delay: i * 0.04 }}

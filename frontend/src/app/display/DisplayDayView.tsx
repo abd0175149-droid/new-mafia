@@ -91,13 +91,20 @@ export default function DisplayDayView({ roomId, players, initialDiscussionState
 
   const containerRef = useRef<HTMLDivElement>(null);
   const [boardPan, setBoardPan] = useState({ x: 0, y: 0 });
+  const boardPanRef = useRef({ x: 0, y: 0 });
+  boardPanRef.current = boardPan;
+  // 📐 الشبكات المحسوبة على المنطقة الصالحة (الناف بار وشريط الترتيب محجوزان تلقائيّاً)
+  const vp = useDisplayViewport();
+  const alivePlayersList = players.filter(p => p.isAlive);
+  const boardGrid = computeCardGrid(alivePlayersList.length, vp.availW - 16, vp.availH - 56, { gap: 22, maxK: 1.2 });
+  const votingGrid = computeCardGrid(candidates.length, vp.availW - 16, vp.availH - 120, { gap: 18, extraH: 64, maxK: 1.3 });
+  // مفتاح إعادة حساب الكاميرا: أيّ تغيّرٍ في المنطقة الصالحة أو حجم الكرت
+  const camKey = `${vp.w}x${vp.h}:${vp.top}:${vp.right}:${boardGrid.k.toFixed(3)}`;
   const [timerPos, setTimerPos] = useState<'left' | 'right'>('right');
   const [zoomScale, setZoomScale] = useState(1);
 
   // Store parent's natural screen center (captured when scale=1, no speaker)
   const naturalParentPos = useRef<{ cx: number; cy: number } | null>(null);
-  // 📐 آخر منطقةٍ صالحة — للكاميرا (المؤثّر يُغلق على قيمٍ قديمة وإلّا)
-  const vpRef = useRef({ w: 1920, h: 1080, top: 0, right: 0 });
 
   // Capture the grid container's natural screen position while at rest
   useEffect(() => {
@@ -126,8 +133,8 @@ export default function DisplayDayView({ roomId, players, initialDiscussionState
         if (el && parent) {
           // 📐 المنطقة الصالحة (تحت الناف بار، يسار شريط الترتيب) بالبكسل الحقيقيّ ثمّ بوحدات التخطيط
           const fz = totalZoomOf(parent);
-          const areaLeft = 0, areaRight = vpRef.current.w - vpRef.current.right;
-          const areaTop = vpRef.current.top + 20, areaBottom = vpRef.current.h - 20;
+          const areaLeft = 0, areaRight = vp.w - vp.right;
+          const areaTop = vp.top + 20, areaBottom = vp.h - 20;
           const vw = (areaRight - areaLeft) / fz, vh = (areaBottom - areaTop) / fz;
           const ox = areaLeft / fz, oy = areaTop / fz;
           // ── Dynamic Scale Factor ──
@@ -156,9 +163,13 @@ export default function DisplayDayView({ roomId, players, initialDiscussionState
             : vw * 0.60); // Card right-third, timer on left
           const targetScreenY = oy + vh * 0.50; // وسط المنطقة الصالحة
 
-          // ── Parent's Natural Screen Center (captured at rest) ──
-          const pScreenCx = naturalParentPos.current?.cx ?? ox + vw / 2;
-          const pScreenCy = naturalParentPos.current?.cy ?? oy + vh / 2;
+          // ── مركز اللوح على الشاشة الآن ──
+          // 🔴 كان يُلتقط مرّةً «عند الراحة» بمؤقّت 300ms ثمّ يُستعمل لاحقاً — فإن تغيّر التخطيط بعده
+          //    (ظهور شريط الترتيب، إعادة حساب الشبكة) تحرّك الكرت إلى مكانٍ غريب. المركز لا يتأثّر
+          //    بالتكبير (transformOrigin في الوسط)، ويتأثّر بالإزاحة الحاليّة فقط — فنقيسه الآن ونطرحها.
+          const prect = parent.getBoundingClientRect();
+          const pScreenCx = (prect.left + prect.width / 2) / fz - boardPanRef.current.x;
+          const pScreenCy = (prect.top + prect.height / 2) / fz - boardPanRef.current.y;
 
           // ── Framer Motion Translation Math ──
           // After scale S around parent center with transformOrigin:center:
@@ -173,7 +184,8 @@ export default function DisplayDayView({ roomId, players, initialDiscussionState
     } else {
       setBoardPan({ x: 0, y: 0 });
     }
-  }, [discussionState?.currentSpeakerId, phase]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [discussionState?.currentSpeakerId, phase, camKey]);
 
   // Timer Tick Effect
   useEffect(() => {
@@ -467,12 +479,6 @@ export default function DisplayDayView({ roomId, players, initialDiscussionState
   };
   const discussionCardSize = getCardSize(aliveCount);
   const votingCardSize = getCardSize(candidates.length);
-  // 📐 الشبكات المحسوبة على المنطقة الصالحة (الناف بار وشريط الترتيب محجوزان تلقائيّاً)
-  const vp = useDisplayViewport();
-  vpRef.current = { w: vp.w, h: vp.h, top: vp.top, right: vp.right };
-  const alivePlayersList = players.filter(p => p.isAlive);
-  const boardGrid = computeCardGrid(alivePlayersList.length, vp.availW - 16, vp.availH - 56, { gap: 22, maxK: 1.2 });
-  const votingGrid = computeCardGrid(candidates.length, vp.availW - 16, vp.availH - 120, { gap: 18, extraH: 64, maxK: 1.3 });
 
   const prevVotesRef = useRef(totalVotesCast);
   const sortedCandidates = [...candidates].sort((a,b) => b.votes - a.votes);
@@ -494,7 +500,7 @@ export default function DisplayDayView({ roomId, players, initialDiscussionState
   }, [totalVotesCast, currentOrderStr, phase]);
 
   return (
-    <div className="w-full mx-auto flex flex-col items-center justify-center px-4 py-2">
+    <div className="w-full mx-auto grid [&>*]:col-start-1 [&>*]:row-start-1 items-center justify-items-center px-4 py-2">
       {/* ⚔️ مواجهة النهار — شريط الطلبات، إعلان الرفض، وطبقة التنفيذ (على مستوى الصفحة) */}
       <DisplayConfrontation roomId={roomId} players={players as any} />
       {/* 🎩 مشهد كشف العمدة — يعلو كلّ شيء لثوانٍ */}
@@ -552,7 +558,7 @@ export default function DisplayDayView({ roomId, players, initialDiscussionState
           </motion.div>
         )}
       </AnimatePresence>
-      <AnimatePresence mode="wait">
+      <AnimatePresence initial={false}>
         
         {/* DISCUSSION AREA */}
         {phase === 'DISCUSSION' && (
@@ -822,7 +828,6 @@ export default function DisplayDayView({ roomId, players, initialDiscussionState
 
                 return (
                   <motion.div
-                    layout
                     key={isDeal ? `deal-${candidate.id}` : `player-${candidate.targetPhysicalId}`}
                     initial={{ opacity: 0, y: 30 }}
                     animate={{ opacity: 1, y: 0 }}
@@ -885,6 +890,13 @@ export default function DisplayDayView({ roomId, players, initialDiscussionState
           </motion.div>
         )}
 
+        {/* JUSTIFICATION PHASE — بلا بيانات (حدثٌ فاتنا): لافتةٌ بدل شاشةٍ فارغة */}
+        {phase === 'JUSTIFICATION' && !justificationData && (
+          <motion.div key="justification-empty" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="text-center py-20">
+            <h2 className="text-6xl font-black text-[#C5A059]" style={{ fontFamily: 'Amiri, serif' }}>كلمة الدفاع الأخيرة</h2>
+            <p className="text-[#808080] font-mono tracking-[0.4em] mt-3">FINAL DEFENSE</p>
+          </motion.div>
+        )}
         {/* JUSTIFICATION PHASE */}
         {phase === 'JUSTIFICATION' && justificationData && (() => {
           const accusedList = justificationData.accused || [];
