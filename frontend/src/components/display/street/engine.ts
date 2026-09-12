@@ -205,9 +205,11 @@ class StreetEngine {
   envNight: THREE.Texture | null = null; envDawn: THREE.Texture | null = null; pmrem!: THREE.PMREMGenerator; windows!: THREE.InstancedMesh; soft = texSoft(); curtain = texCurtain();
   shots!: Record<string, Shot>; cur = 'A'; shotT = 0; order = ['A', 'B', 'C']; oi = 0; evShot: string | null = null; _p = new THREE.Vector3(-.8, 1.7, 11); _l = new THREE.Vector3(.4, 2, -30); sway = new THREE.Vector3(); cutting = false; frameShift = 0;
   ev = { silence: 0, disable: 0, snipe: 0, kill: 0, saved: 0 }; posterCb: ((url: string) => void) | null = null; fpsEma = 0; facadeGroup: THREE.Group | null = null; ready = false; readyAt = 0; assetsReady: Promise<void> = Promise.resolve();
+  prewarmDone = false; prewarmMs = 0; posters: Partial<Record<StreetMode, string>> = {}; lastFrameAt = 0; frameIndex = 0; transMarkAt = 0; transPending = false; lastTransitionMs = 0; dusk = false;
+  STEAM_O = new THREE.Vector3(2.2, .1, -14); EXH_O = new THREE.Vector3(3.4, .4, -6.6);
   /** للشارة التشخيصيّة */
   lastTris = 0; lastCalls = 0;
-  stats() { return { mode: this.mode, quality: this.quality, ambient: this.ambient, ready: this.ready, active: this.active, fps: this.active ? Math.round(this.fpsEma) : 0, tris: (this.lastTris / 1000).toFixed(0) + 'k', calls: this.lastCalls }; }
+  stats() { return { mode: this.mode, quality: this.quality, ambient: this.ambient, ready: this.ready, prewarm: this.prewarmDone, prewarmMs: this.prewarmMs, lastTransitionMs: this.lastTransitionMs, active: this.active, fps: this.active ? Math.round(this.fpsEma) : 0, tris: (this.lastTris / 1000).toFixed(0) + 'k', calls: this.lastCalls }; }
   NIGHT: Preset = { top: new THREE.Color(0x02030a), hor: new THREE.Color(0x1a1420), fog: new THREE.Color(0x0a0b12), fd: .03, hemi: .22, hemiC: new THREE.Color(0x223046), exp: .95, sun: 0, lamps: 1, rain: 1 };
   DAWN: Preset = { top: new THREE.Color(0x4f6690), hor: new THREE.Color(0xe9a878), fog: new THREE.Color(0xb99e86), fd: .012, hemi: .85, hemiC: new THREE.Color(0xffd9b0), exp: 1.0, sun: 1, lamps: 0, rain: 0 };
   DAY: Preset = { top: new THREE.Color(0x5b6472), hor: new THREE.Color(0x9a948c), fog: new THREE.Color(0x777370), fd: .014, hemi: 1.0, hemiC: new THREE.Color(0xcfd6e0), exp: .85, sun: .3, lamps: 0, rain: 0 };
@@ -221,6 +223,9 @@ class StreetEngine {
     this.pmrem = new THREE.PMREMGenerator(this.renderer); this.renderer.info.autoReset = false; this.quality = detectQuality(); this.manualQuality = !!debugParam('q'); this.from = this.to = this.NIGHT;
     const bs = debugParam('brot'); if (bs === '180') this.frontSign = -1; const sh = debugParam('shot'); if (sh) setTimeout(() => { if (this.shots[sh]) { this.evShot = sh; this.shotT = 0; this.order = [sh]; this.cur = sh; } }, 1500);
     this.build(); this.buildPost(); this.applyQuality(); this.applyPreset(this.NIGHT); this.loadAssets();
+    // الظلال والانعكاس بالتناوب: المشهد كان يُرسم 4 مرّات في الإطار (عرض + انعكاس + ظلّان) — الآن ~2.2
+    this.renderer.shadowMap.autoUpdate = false; const origBefore = this.reflector.onBeforeRender.bind(this.reflector); this.reflector.onBeforeRender = (...args: any[]) => { if (this.frameIndex % 2 === 1) (origBefore as any)(...args); };
+    this.assetsReady.then(() => this.prewarm());
   }
 
   /* ── materials ── */
@@ -554,7 +559,7 @@ class StreetEngine {
   dispose() { if (this.disposed) return; this.disposed = true; this.unmountDom(); if (this.raf) cancelAnimationFrame(this.raf); this.renderer.dispose(); this.pmrem.dispose(); if (engine === this) engine = null; }
   /** الليل ← الفجر ← النهار: الإضاءة تتحوّل داخل اللقطة الجارية بلا قطع */
   setMode(m: StreetMode, opts?: { instant?: boolean }) {
-    if (m === this.mode) return; const prevMode = this.mode; this.mode = m;
+    if (m === this.mode) return; const prevMode = this.mode; this.mode = m; this.dusk = false; this.transMarkAt = performance.now(); this.transPending = true;
     const target = m === 'night' ? this.NIGHT : m === 'dawn' ? this.DAWN : this.DAY; this.from = this.snapshot(); this.to = target; this.transT = opts?.instant ? 1 : 0; this.transStart = performance.now(); this.transMs = m === 'dawn' && prevMode === 'night' ? 8000 : 4000;
     if (opts?.instant) this.applyPreset(target);
     if (m === 'night') { this.hat.visible = false; this.evShot = null; this.cut('A'); } else if (m === 'dawn' && prevMode === 'night') { this.evShot = 'DAWN'; this.shotT = 0; }
@@ -580,13 +585,39 @@ class StreetEngine {
   private dip(ms: number) { if (!this.dipEl) return; this.dipEl.style.opacity = '1'; setTimeout(() => { if (this.dipEl) this.dipEl.style.opacity = '0'; }, ms); }
   /** قطعٌ محروس: يُصفَّر العدّاد فوراً ولا يُقبل قطعٌ آخر أثناء الغطسة (كان يُستدعى كلّ إطار فيومض) */
   private cut(name: string) { if (this.cutting) return; this.cutting = true; this.cur = name; this.shotT = 0; this.dip(260); setTimeout(() => { this.cutting = false; }, 300); }
+  /**
+   * 🔥 الإحماء (خطّة الإحماء 2026-09-12): بعد اكتمال الأصول يُجمَّع تظليل كلّ وضعٍ ويُرسم إطارٌ مخفيّ له خارج الشاشة
+   * (ليل/فجر/نهار) فتُرفع القوام كلّها إلى البطاقة، وتُلتقط صورة 1280×720 لكلّ وضع تبقى في الذاكرة.
+   * النتيجة: أوّل ليلٍ يبدأ في الإطار نفسه، والملصق جاهزٌ بلا التقاطٍ أثناء اللعب.
+   */
+  async prewarm() {
+    if (this.disposed || !this.ok) return; const t0 = performance.now();
+    const rt = new THREE.WebGLRenderTarget(1280, 720); const saved = { from: this.from, to: this.to, t: this.transT, mode: this.mode, active: this.active };
+    const buf = new Uint8Array(1280 * 720 * 4); const cvs = document.createElement('canvas'); cvs.width = 1280; cvs.height = 720; const ctx = cvs.getContext('2d')!;
+    for (const [m, P] of [['night', this.NIGHT], ['dawn', this.DAWN], ['day', this.DAY]] as [StreetMode, Preset][]) {
+      this.mode = m; this.applyPreset(P); this.applyCrowdMode(); this.lamps.forEach(l => { l.cone.visible = true; }); this.scene.environment = m === 'night' ? this.envNight : this.envDawn;
+      try { await (this.renderer as any).compileAsync(this.scene, this.camera); } catch { /* noop */ }
+      this.renderer.shadowMap.needsUpdate = true; this.renderer.setRenderTarget(rt); this.renderer.render(this.scene, this.camera); this.renderer.setRenderTarget(null);
+      try { this.renderer.readRenderTargetPixels(rt, 0, 0, 1280, 720, buf); const img = ctx.createImageData(1280, 720); for (let y = 0; y < 720; y++) img.data.set(buf.subarray((719 - y) * 1280 * 4, (720 - y) * 1280 * 4), y * 1280 * 4); ctx.putImageData(img, 0, 0); this.posters[m] = cvs.toDataURL('image/jpeg', .82); } catch { /* noop */ }
+      if (this.disposed) return;
+    }
+    rt.dispose(); this.mode = saved.mode; this.from = saved.from; this.to = saved.to; this.transT = saved.t; this.lerpPreset(this.from, this.to, this.transT); this.applyCrowdMode(); this.scene.environment = this.mode === 'night' ? this.envNight : this.envDawn;
+    this.prewarmDone = true; this.prewarmMs = Math.round(performance.now() - t0); console.info('🔥 prewarm', this.prewarmMs, 'ms');
+  }
+  /** الغسق (تلميح الموجّه): يهبط الضوء نحو الليل بمقدار 45% خلال ثانيتين، ويعود إن أُلغي */
+  setDusk(on: boolean) {
+    if (this.dusk === on || this.mode !== 'day') return; this.dusk = on; const D = this.DAY, N = this.NIGHT;
+    const mix = (k: number): Preset => ({ top: D.top.clone().lerp(N.top, k), hor: D.hor.clone().lerp(N.hor, k), fog: D.fog.clone().lerp(N.fog, k), fd: D.fd + (N.fd - D.fd) * k, hemi: D.hemi + (N.hemi - D.hemi) * k, hemiC: D.hemiC.clone().lerp(N.hemiC, k), exp: D.exp + (N.exp - D.exp) * k, sun: D.sun * (1 - k), lamps: k > .3 ? 1 : 0, rain: k });
+    this.from = this.snapshot(); this.to = on ? mix(.45) : this.DAY; this.transT = 0; this.transStart = performance.now(); this.transMs = on ? 2000 : 1000;
+  }
   /** يلتقط الإطار التالي كصورة (ملصق الأجهزة الضعيفة) */
-  async capturePoster(): Promise<string> { await this.assetsReady; if (this.disposed) return ''; this.transT = 1; this.applyPreset(this.to); this.applyCrowdMode(); return new Promise(res => { this.posterCb = res; }); }
+  async capturePoster(): Promise<string> { await this.assetsReady; if (this.disposed) return ''; if (this.posters[this.mode]) return this.posters[this.mode]!; this.transT = 1; this.applyPreset(this.to); this.applyCrowdMode(); return new Promise(res => { this.posterCb = res; }); }
 
   /* ── loop ── */
   private loop = () => {
     this.raf = requestAnimationFrame(this.loop); if (!this.container || !this.active) return;
-    if (this.ambient) { this.frameSkip = (this.frameSkip + 1) % 2; if (this.frameSkip) return; }
+    // ⏱️ سقف 30 إطاراً في كلّ الأوضاع (تجربة سينمائيّة لا لعبة): يوفّر الحرارة ويثبّت الإيقاع
+    const nowTs = performance.now(); if (nowTs - this.lastFrameAt < 30) return; this.lastFrameAt = nowTs; this.frameIndex++;
     const dtRaw = Math.min(.5, this.clock.getDelta()), dt = Math.min(.05, dtRaw), time = this.clock.elapsedTime; const ev = this.ev; if (dtRaw > 0) this.fpsEma += ((1 / dtRaw) - this.fpsEma) * .08; this.lastTris = this.renderer.info.render.triangles; this.lastCalls = this.renderer.info.render.calls; this.renderer.info.reset();
     // 🧪 فحص الإطارات بعد اكتمال الأصول بثانيتين (لا أثناء التحميل)، نافذة 4 ثوانٍ؛ 30 إطاراً كافية (تجربة سينمائيّة لا لعبة)
     if (!this.probe.done && !this.manualQuality && this.ready && performance.now() - this.readyAt > 2000) { this.probe.frames++; this.probe.t += dtRaw; if (this.probe.t >= 4) { this.probe.done = true; const fps = this.probe.frames / this.probe.t; console.info('🧪 fps probe', fps.toFixed(1)); if (fps < 18) this.setQuality('low'); else if (fps < 30 && this.quality === 'high') this.setQuality('med'); } }
@@ -606,12 +637,14 @@ class StreetEngine {
     this.laundry.forEach(l => { l.m.rotation.x = Math.sin(time * 1.4 + l.ph) * .04; });
     if (this.rain && (this.rain.material as THREE.LineBasicMaterial).opacity > 0) { const a = (this.rain.geometry.attributes.position as THREE.BufferAttribute).array as Float32Array, n = this.rain.userData.count as number; for (let i = 0; i < n; i++) { a[i * 6 + 1] -= dt * 16; a[i * 6 + 4] -= dt * 16; if (a[i * 6 + 1] < 0) { a[i * 6 + 1] += 24; a[i * 6 + 4] += 24; } } (this.rain.geometry.attributes.position as THREE.BufferAttribute).needsUpdate = true; this.rain.position.set(this.camera.position.x, 0, this.camera.position.z + 10); }
     const upd = (ps: PS, origin: THREE.Vector3, speed: number, spread: number, maxLife: number, alpha: number, grow: number) => { ps.items.forEach(it => { it.life += dt / maxLife; if (it.life > 1) { it.life = 0; it.s.position.set(origin.x + (rnd() - .5) * spread, origin.y, origin.z + (rnd() - .5) * spread); it.vx = (rnd() - .5) * .3; it.vz = (rnd() - .5) * .3; } it.s.position.y += dt * speed; it.s.position.x += (it.vx || 0) * dt; it.s.position.z += (it.vz || 0) * dt; const l = it.life; it.s.material.opacity = alpha * Math.sin(l * Math.PI); const sc = 1 + l * grow; it.s.scale.set(sc, sc, 1); }); };
-    const STEAM_O = new THREE.Vector3(2.2, .1, -14); upd(this.steam, STEAM_O, .9, 1.4, 4.5, .07, 2.4); if (ev.disable > 0 && ev.disable < 5) upd(this.purple, STEAM_O, 1.2, 2.4, 3.8, .38, 2.6); else this.purple.items.forEach(i => (i.s.material.opacity = 0)); upd(this.exhaust, new THREE.Vector3(3.4, .4, -6.6), .5, .4, 2.5, .06, 1.8);
+    upd(this.steam, this.STEAM_O, .9, 1.4, 4.5, .07, 2.4); if (ev.disable > 0 && ev.disable < 5) upd(this.purple, this.STEAM_O, 1.2, 2.4, 3.8, .38, 2.6); else this.purple.items.forEach(i => (i.s.material.opacity = 0)); upd(this.exhaust, this.EXH_O, .5, .4, 2.5, .06, 1.8);
     // camera (بالساعة الحقيقيّة)
     const s = this.shots[this.evShot || this.cur]; this.shotT += dtRaw; const t = Math.min(1, this.shotT / s.len); const [p, l] = s.at(t); const k = (a: number) => 1 - Math.pow(1 - a, dtRaw * 60); this._p.lerp(p, k(this.evShot ? .35 : .12)); this._l.lerp(l, k(.12)); this.sway.set(Math.sin(time * .7) * .03, Math.sin(time * 1.1) * .02, 0); this.camera.position.copy(this._p).add(this.sway); this.camera.lookAt(this._l); this.camera.fov += (s.fov - this.camera.fov) * .08; this.camera.updateProjectionMatrix();
     if (this.evShot) { if (this.shotT >= s.len) { this.evShot = null; this.cut(this.cur); } } else if (this.shotT >= s.len && !this.cutting) { this.oi = (this.oi + 1) % this.order.length; this.cut(this.order[this.oi]); }
     const d = this.camera.position.distanceTo(this.evShot === 'KILL' ? this.hat.position : (this.figLamp?.root.position || this.car.position)); (this.bokeh.uniforms as any).focus.value += (d - (this.bokeh.uniforms as any).focus.value) * .1;
+    if (this.frameIndex % 2 === 0) this.renderer.shadowMap.needsUpdate = true;
     this.composer.render(dtRaw);
+    if (this.transPending) { this.transPending = false; this.lastTransitionMs = Math.round(performance.now() - this.transMarkAt); }
     if (this.posterCb) { const cb = this.posterCb; this.posterCb = null; try { cb(this.renderer.domElement.toDataURL('image/jpeg', .85)); } catch { cb(''); } }
   };
 }

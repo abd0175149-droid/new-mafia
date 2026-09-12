@@ -76,7 +76,7 @@ export default function NightScene({ stepType, oneNight, abilities, beats }: Pro
 
       {/* شارة انتظار النمط */}
       {waiting && (
-        <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 rounded-2xl border border-[#C5A059]/40 bg-black/60 backdrop-blur-md px-7 py-4 text-center">
+        <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 rounded-2xl border border-[#C5A059]/40 bg-black/60 backdrop-blur-sm px-7 py-4 text-center">
           <p className="text-[10px] font-mono tracking-[0.35em] text-[#C5A059] mb-1">NIGHT MODE · بانتظار الموجّه</p>
           <p className="text-sm text-[#cfc6b8]">ليلة واحدة أم دورٌ فدور؟</p>
         </motion.div>
@@ -86,7 +86,7 @@ export default function NightScene({ stepType, oneNight, abilities, beats }: Pro
       <AnimatePresence>
         {showing && showingRole && (
           <motion.div key={showing.id} initial={{ opacity: 0, x: -24 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -24 }} transition={{ duration: .45 }}
-            className="absolute left-[3%] top-[9%] flex items-center gap-4 rounded-2xl border border-[#C5A059]/40 bg-black/65 backdrop-blur-md px-4 py-3" dir="rtl">
+            className="absolute left-[3%] top-[9%] flex items-center gap-4 rounded-2xl border border-[#C5A059]/40 bg-black/65 backdrop-blur-sm px-4 py-3" dir="rtl">
             <PropStage type={showing.ability} size={112} />
             <div className="text-right">
               <h4 className="text-3xl font-black text-[#e2c07a] leading-tight" style={{ fontFamily: 'Amiri, serif' }}>{showingRole.beat}</h4>

@@ -1567,6 +1567,9 @@ export default function LeaderDayView({ gameState, emit, setError }: LeaderDayVi
     const revealedRolesData: Record<number, string> = {};
     rolesArr.forEach((r: any) => { revealedRolesData[r.physicalId] = r.role; });
 
+    // 🔮 تلميح مبكّر للشاشة: لمس/تمرير فوق زرّ الليل يبدأ الغسق هناك، والابتعاد بلا ضغط يعيده
+    const armNight = () => { emit('display:hint', { roomId: gameState.roomId, kind: 'night-arming' }).catch(() => {}); };
+    const disarmNight = () => { emit('display:hint', { roomId: gameState.roomId, kind: 'night-disarm' }).catch(() => {}); };
     const handleStartNight = async () => {
       setLoading(true);
       try {
@@ -1687,6 +1690,7 @@ export default function LeaderDayView({ gameState, emit, setError }: LeaderDayVi
         ) : (
           <button
             onClick={handleStartNight}
+            onPointerEnter={armNight} onPointerLeave={disarmNight} onTouchStart={armNight} onFocus={armNight} onBlur={disarmNight}
             disabled={loading}
             className="btn-premium px-16 py-6 !text-xl !border-[#C5A059] group"
           >

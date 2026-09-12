@@ -24,7 +24,7 @@ type Tier = 'live' | 'poster';
 // الملصق الثابت فقط عندما تثبت الجودة «منخفض» بعد الفحص (أقلّ من 18 إطاراً)؛ 30 إطاراً كافية للمشهد الحيّ
 function tierFor(q: string): Tier { return q === 'low' ? 'poster' : 'live'; }
 
-export default function StreetStage({ mode, event, eventKey, docked, ambient, debug }: { mode: StageMode; event?: string | null; eventKey?: string | number; docked?: boolean; ambient?: boolean; debug?: boolean }) {
+export default function StreetStage({ mode, event, eventKey, docked, ambient, debug, hint }: { mode: StageMode; event?: string | null; eventKey?: string | number; docked?: boolean; ambient?: boolean; debug?: boolean; hint?: string | null }) {
   const ref = useRef<HTMLDivElement>(null);
   const [ok, setOk] = useState(true);
   const [poster, setPoster] = useState<string | null>(null);
@@ -33,7 +33,7 @@ export default function StreetStage({ mode, event, eventKey, docked, ambient, de
   // 🧪 شارة التشخيص (مؤقّتة حتى الاختبار على جهاز القاعة): أيّ نسخةٍ تعمل وبأيّ جودة — تُخفى بـ ?dbg=0 أو localStorage display3dDebug=0
   useEffect(() => {
     if (!debug) return; let hide = false; try { hide = new URLSearchParams(location.search).get('dbg') === '0' || localStorage.getItem('display3dDebug') === '0'; } catch { /* noop */ }
-    if (hide) return; const t = setInterval(() => { const e = getStreetEngine(); if (!e) { setStats('NO WEBGL'); return; } const st = e.stats(); setStats(`ENV ${st.mode.toUpperCase()} · QUALITY ${st.quality.toUpperCase()}${st.ambient ? ' (AMBIENT)' : ''} · ${tier === 'poster' ? 'STATIC POSTER' : 'LIVE 3D'} · ${st.ready ? '' : 'LOADING · '}${st.fps} FPS · ${st.tris} TRIS · ${st.calls} CALLS`); }, 1000); return () => clearInterval(t);
+    if (hide) return; const t = setInterval(() => { const e = getStreetEngine(); if (!e) { setStats('NO WEBGL'); return; } const st = e.stats(); setStats(`ENV ${st.mode.toUpperCase()} · QUALITY ${st.quality.toUpperCase()}${st.ambient ? ' (AMBIENT)' : ''} · ${tier === 'poster' ? 'STATIC POSTER' : 'LIVE 3D'} · ${st.ready ? (st.prewarm ? `WARM ${st.prewarmMs}ms` : 'WARMING') : 'LOADING'} · ${st.fps} FPS · ${st.tris} TRIS · ${st.calls} CALLS · LAST SWITCH ${st.lastTransitionMs}ms`); }, 1000); return () => clearInterval(t);
   }, [debug, tier, mode]);
 
   const [quality, setQuality] = useState('high');
@@ -51,6 +51,8 @@ export default function StreetStage({ mode, event, eventKey, docked, ambient, de
     else { setPoster(null); eng.setActive(true); }
   }, [mode, docked, ambient, quality]);
 
+  // 🔮 تلميح الموجّه: الغسق يبدأ قبل الضغط على «بدء الليل» ويعود إن تراجع
+  useEffect(() => { const eng = getStreetEngine(); if (!eng) return; if (hint === 'night-arming') eng.setDusk(true); else if (hint === 'night-disarm') eng.setDusk(false); }, [hint]);
   useEffect(() => {
     if (!event) return; const k = EVENT_MAP[event]; if (!k) return; getStreetEngine()?.fireEvent(k);
     // eslint-disable-next-line react-hooks/exhaustive-deps

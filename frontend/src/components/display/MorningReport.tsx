@@ -52,7 +52,7 @@ export default function MorningReport({ events, current, players, teamCounts, ro
             {current ? (
               <motion.div key={`${keyOf(current)}-${events.length}`}
                 initial={{ opacity: 0, x: 40 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: 40 }} transition={{ type: 'spring', damping: 18, stiffness: 120 }}
-                className="w-full h-full min-h-0 flex flex-col overflow-hidden rounded-3xl border border-white/15 bg-black/60 backdrop-blur-md p-6 shadow-2xl">
+                className="w-full h-full min-h-0 flex flex-col overflow-hidden rounded-3xl border border-white/15 bg-black/60 backdrop-blur-sm p-6 shadow-2xl">
                 {(() => { const h = headline(current.type); return (
                   <div className="flex items-center gap-4 mb-3 border-b border-white/15 pb-3">
                     <PropStage type={current.type} size={96} />
@@ -61,12 +61,12 @@ export default function MorningReport({ events, current, players, teamCounts, ro
                 <div className="morning-cinematic flex-1 min-h-0"><FitToScreen><NightAnimCinematic data={current} players={players} /></FitToScreen></div>
               </motion.div>
             ) : quiet ? (
-              <motion.div key="quiet" initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="w-full rounded-3xl border border-white/15 bg-black/55 backdrop-blur-md p-8 text-center">
+              <motion.div key="quiet" initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="w-full rounded-3xl border border-white/15 bg-black/55 backdrop-blur-sm p-8 text-center">
                 <p className="text-5xl font-black text-white" style={{ fontFamily: 'Amiri, serif' }}>ليلةٌ هادئة</p>
                 <p className="text-[#ffe7a8]/70 font-mono tracking-[0.4em] mt-2 text-xs">NOTHING TO REPORT… YET</p>
               </motion.div>
             ) : (
-              <motion.div key="done" initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="w-full rounded-3xl border border-white/15 bg-black/55 backdrop-blur-md p-8 text-center">
+              <motion.div key="done" initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="w-full rounded-3xl border border-white/15 bg-black/55 backdrop-blur-sm p-8 text-center">
                 <p className="text-4xl font-black text-white" style={{ fontFamily: 'Amiri, serif' }}>هذا ما جرى الليلة</p>
                 <p className="text-[#ffe7a8]/70 font-mono tracking-[0.4em] mt-2 text-xs">{events.length} EVENTS</p>
               </motion.div>

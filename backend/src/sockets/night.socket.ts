@@ -534,6 +534,15 @@ async function dispatchAutoStepToPlayers(io: Server, roomId: string, durationSec
 export function registerNightEvents(io: Server, socket: Socket) {
 
   // ── بدء مرحلة الليل ──────────────────────────
+  // ── 🔮 تلميحات الموجّه المبكّرة للشاشة (خطّة الإحماء 2026-09-12): تحمل نوع التلميح فقط ──
+  socket.on('display:hint', async (data: { roomId: string; kind: 'night-arming' | 'night-disarm' }, callback?) => {
+    if (socket.data.authStaff) socket.data.role = 'leader';
+    if (socket.data.role !== 'leader') return callback?.({ success: false, error: 'Only leader' });
+    if (data?.kind !== 'night-arming' && data?.kind !== 'night-disarm') return callback?.({ success: false, error: 'bad hint' });
+    await emitTrustedOnly(io, data.roomId, 'display:hint', { kind: data.kind });
+    callback?.({ success: true });
+  });
+
   socket.on('night:start', async (data: { roomId: string }, callback) => {
     try {
       if (socket.data.authStaff) socket.data.role = 'leader';
@@ -1266,6 +1275,8 @@ export function registerNightEvents(io: Server, socket: Socket) {
           teamCounts: getTeamCounts(state.players),
         });
 
+        // 🏙️ للشاشة: أنواع أحداث الصباح فقط (بلا أسماء ولا أهداف) كي تُجهَّز الأدوات والبطاقات قبل عرضها
+        await emitTrustedOnly(io, data.roomId, 'display:morning-manifest', { types: (events as any[]).map((e: any) => e.type) });
         // إرسال كروت الملخص لليدر
         socket.emit('night:morning-recap', {
           events,
@@ -1344,6 +1355,8 @@ export function registerNightEvents(io: Server, socket: Socket) {
         }
       }
 
+      // 🏙️ للشاشة: أنواع أحداث الصباح فقط (بلا أسماء ولا أهداف)
+      await emitTrustedOnly(io, data.roomId, 'display:morning-manifest', { types: (resolution.events as any[]).map((e: any) => e.type) });
       // إرسال كروت الملخص لليدر + حالة الفوز المعلقة + اللاعبين المحدّثين
       socket.emit('night:morning-recap', {
         events: resolution.events,

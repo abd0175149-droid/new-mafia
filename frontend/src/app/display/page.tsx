@@ -115,6 +115,7 @@ function DisplayPageContent() {
   const [nightAbilities, setNightAbilities] = useState<string[]>([]);
   const [nightBeats, setNightBeats] = useState<NightBeat[]>([]);
   const beatIdRef = useRef(0); const prevStepRef = useRef<string | null>(null);
+  const [stageHint, setStageHint] = useState<string | null>(null);
   const pushBeats = (abilities: string[]) => { if (!abilities?.length) return; setNightBeats(prev => [...prev, ...abilities.map(a => ({ id: ++beatIdRef.current, ability: a }))]); };
   const resetNightUi = () => { setOneNight(false); setNightAbilities([]); setNightBeats([]); prevStepRef.current = null; };
   const animTimerRef = useRef<NodeJS.Timeout | null>(null);
@@ -505,6 +506,8 @@ function DisplayPageContent() {
       if (prevStepRef.current && prevStepRef.current !== next) pushBeats([prevStepRef.current]);
       prevStepRef.current = next; setNightStepType(next);
     };
+    const onHint = (data: any) => { setStageHint(data?.kind ? `${data.kind}#${Date.now()}` : null); };
+    const onMorningManifest = (data: any) => { import('@/components/display/street/props').then(m => (data?.types || []).forEach((t: string) => m.prerenderProp(m.propFor(t)))).catch(() => {}); };
     const onOneStarted = (data: any) => { setOneNight(true); setNightAbilities(Array.isArray(data?.abilities) ? data.abilities : []); setNightBeats([]); };
     const onOneProgress = (data: any) => { if (Array.isArray(data?.acted)) pushBeats(data.acted.filter(Boolean)); };
 
@@ -609,6 +612,8 @@ function DisplayPageContent() {
     socket.on('night:step-info', onNightStepInfo);
     socket.on('night:one-started', onOneStarted);
     socket.on('night:one-progress', onOneProgress);
+    socket.on('display:hint', onHint);
+    socket.on('display:morning-manifest', onMorningManifest);
     socket.on('display:morning-event', onMorningEvent);
     socket.on('display:night-started', onNightStarted);
     socket.on('game:over', onGameOver);
@@ -857,6 +862,8 @@ function DisplayPageContent() {
       socket.off('night:step-info', onNightStepInfo);
       socket.off('night:one-started', onOneStarted);
       socket.off('night:one-progress', onOneProgress);
+      socket.off('display:hint', onHint);
+      socket.off('display:morning-manifest', onMorningManifest);
       socket.off('display:morning-event', onMorningEvent);
       socket.off('display:night-started', onNightStarted);
       socket.off('game:over', onGameOver);
@@ -1080,12 +1087,14 @@ function DisplayPageContent() {
   // 🏙️ إحماء أصول زقاق الليل/الفجر أثناء اللوبي (قرار المالك 2026-09-12) — لا انتظار عند أوّل ليل
   useEffect(() => {
     if (step !== 'lobby' || phase !== Phase.LOBBY) return;
-    const t = setTimeout(() => { import('@/components/display/street/engine').then(m => m.preloadStreetAssets()).catch(() => {}); }, 2000);
+    const t = setTimeout(() => { import('@/components/display/street/engine').then(m => m.preloadStreetAssets()).catch(() => {}); import('@/components/display/street/props').then(m => m.preloadProps()).catch(() => {}); }, 2000);
     return () => clearTimeout(t);
   }, [step, phase]);
   // 🏙️ المضيف الدائم للمدينة: الطور → وضع (الليل/الفجر/النهار خلف الكروت)، 'off' في اللوبي والنهاية
   // قرار المالك 2026-09-12: كلّ ما ليس ليلاً نهارٌ — حتى اللوبي وتوزيع الأدوار؛ تقرير الفجر وحده بإضاءة الفجر
   const stageMode: StageMode = step === 'lobby' && phase === Phase.NIGHT ? 'night' : step === 'lobby' && phase === Phase.MORNING_RECAP ? 'dawn' : 'day';
+  // 🔥 قبل كلّ ليل (كشف الإقصاء): إحماءٌ ثانٍ لموادّ الليل كي يبقى الليل الثاني والثالث فوريّين
+  useEffect(() => { if (step === 'lobby' && (phase as string) === 'DAY_REVEALED') import('@/components/display/street/engine').then(m => m.getStreetEngine()?.prewarm()).catch(() => {}); }, [step, phase]);
   const navVisible = step === 'lobby' && phase !== Phase.LOBBY && phase !== Phase.ROLE_GENERATION && phase !== Phase.ROLE_BINDING && (teamCounts.mafiaAlive > 0 || teamCounts.citizenAlive > 0 || (teamCounts.neutralAlive ?? 0) > 0);
 
   return (
@@ -1093,7 +1102,7 @@ function DisplayPageContent() {
     <DisplayViewportProvider navVisible={navVisible}>
     <div className="display-bg h-[100dvh] relative overflow-hidden flex flex-col items-center justify-center px-8 py-6 font-sans noir-vignette selection:bg-[#8A0303] selection:text-white w-full">
       {/* 🏙️ مشهد المدينة الدائم خلف كلّ الطبقات */}
-      <StreetStage mode={stageMode} event={phase === Phase.MORNING_RECAP ? (animation?.type ?? null) : null} eventKey={animation?.eventKey ?? morningEvents.length} docked={phase === Phase.MORNING_RECAP} ambient={stageMode === 'day'} debug />
+      <StreetStage mode={stageMode} event={phase === Phase.MORNING_RECAP ? (animation?.type ?? null) : null} eventKey={animation?.eventKey ?? morningEvents.length} docked={phase === Phase.MORNING_RECAP} ambient={stageMode === 'day'} debug hint={stageHint ? stageHint.split('#')[0] + '#' + stageHint.split('#')[1] : null} />
 
       <div className="relative z-10 w-full h-full min-h-0 flex flex-col items-center justify-center">
 
@@ -1664,6 +1673,14 @@ function DisplayPageContent() {
           <motion.div key="night" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="relative z-10 w-full" style={{ height: 'calc(100dvh - 48px - 56px)' }}>
             <NightScene stepType={nightStepType} oneNight={oneNight} abilities={nightAbilities} beats={nightBeats} />
           </motion.div>
+        )}
+
+        {/* 🔥 تركيبٌ مخفيّ للطبقة التالية (خطّة الإحماء): الليل أثناء النهار، والصباح أثناء الليل — تُحسب الخطوط والقياسات مسبقاً */}
+        {step === 'lobby' && phase.startsWith('DAY_') && (
+          <div key="night-prewarm" aria-hidden className="absolute inset-0 pointer-events-none" style={{ visibility: 'hidden', zIndex: -1 }}><NightScene stepType={null} oneNight={false} abilities={[]} beats={[]} /></div>
+        )}
+        {step === 'lobby' && phase === Phase.NIGHT && (
+          <div key="morning-prewarm" aria-hidden className="absolute inset-0 pointer-events-none" style={{ visibility: 'hidden', zIndex: -1 }}><MorningReport events={[]} current={null} players={players} teamCounts={teamCounts} /></div>
         )}
 
         {/* ═══ الصباح — «تقرير الفجر» ═══ */}
