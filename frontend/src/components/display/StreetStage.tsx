@@ -21,9 +21,8 @@ const EVENT_MAP: Record<string, StreetEvent> = {
 export type StageMode = StreetMode | 'off';
 type Tier = 'live' | 'poster';
 
-function tierFor(mode: StageMode): Tier {
-  try { const q = new URLSearchParams(location.search).get('q') || localStorage.getItem('display3dQuality') || 'high'; if (mode === 'day') return q === 'high' ? 'live' : 'poster'; return q === 'low' ? 'poster' : 'live'; } catch { return 'live'; }
-}
+// الملصق الثابت فقط عندما تثبت الجودة «منخفض» بعد الفحص (أقلّ من 18 إطاراً)؛ 30 إطاراً كافية للمشهد الحيّ
+function tierFor(q: string): Tier { return q === 'low' ? 'poster' : 'live'; }
 
 export default function StreetStage({ mode, event, eventKey, docked, ambient, debug }: { mode: StageMode; event?: string | null; eventKey?: string | number; docked?: boolean; ambient?: boolean; debug?: boolean }) {
   const ref = useRef<HTMLDivElement>(null);
@@ -34,22 +33,23 @@ export default function StreetStage({ mode, event, eventKey, docked, ambient, de
   // 🧪 شارة التشخيص (مؤقّتة حتى الاختبار على جهاز القاعة): أيّ نسخةٍ تعمل وبأيّ جودة — تُخفى بـ ?dbg=0 أو localStorage display3dDebug=0
   useEffect(() => {
     if (!debug) return; let hide = false; try { hide = new URLSearchParams(location.search).get('dbg') === '0' || localStorage.getItem('display3dDebug') === '0'; } catch { /* noop */ }
-    if (hide) return; const t = setInterval(() => { const e = getStreetEngine(); if (!e) { setStats('NO WEBGL'); return; } const st = e.stats(); setStats(`ENV ${st.mode.toUpperCase()} · QUALITY ${st.quality.toUpperCase()}${st.ambient ? ' (AMBIENT)' : ''} · ${tier === 'poster' ? 'STATIC POSTER' : 'LIVE 3D'} · ${st.fps} FPS · ${st.tris} TRIS · ${st.calls} CALLS`); }, 1000); return () => clearInterval(t);
+    if (hide) return; const t = setInterval(() => { const e = getStreetEngine(); if (!e) { setStats('NO WEBGL'); return; } const st = e.stats(); setStats(`ENV ${st.mode.toUpperCase()} · QUALITY ${st.quality.toUpperCase()}${st.ambient ? ' (AMBIENT)' : ''} · ${tier === 'poster' ? 'STATIC POSTER' : 'LIVE 3D'} · ${st.ready ? '' : 'LOADING · '}${st.fps} FPS · ${st.tris} TRIS · ${st.calls} CALLS`); }, 1000); return () => clearInterval(t);
   }, [debug, tier, mode]);
 
+  const [quality, setQuality] = useState('high');
   useEffect(() => {
     const el = ref.current; const eng = getStreetEngine(); if (!el || !eng) { setOk(false); return; }
-    eng.mount(el); return () => eng.unmount();
+    eng.mount(el); setQuality(eng.quality); eng.onQuality = (q) => setQuality(q); return () => { eng.onQuality = null; eng.unmount(); };
   }, []);
 
   useEffect(() => {
     const eng = getStreetEngine(); if (!eng) return;
     if (mode === 'off') { eng.setActive(false); return; }
-    const t = tierFor(mode); setTier(t);
+    const t = tierFor(quality); setTier(t);
     eng.setMode(mode); eng.setAmbient(!!ambient && mode === 'day'); eng.setFrameShift(docked ? .17 : 0);
     if (t === 'poster') { eng.setActive(true); eng.capturePoster().then(url => { if (url) setPoster(url); eng.setActive(false); }); }
     else { setPoster(null); eng.setActive(true); }
-  }, [mode, docked, ambient]);
+  }, [mode, docked, ambient, quality]);
 
   useEffect(() => {
     if (!event) return; const k = EVENT_MAP[event]; if (!k) return; getStreetEngine()?.fireEvent(k);

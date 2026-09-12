@@ -168,7 +168,7 @@ export function preloadStreetAssets() {
 function detectQuality(): Quality {
   try {
     const q = new URLSearchParams(location.search).get('q'); if (q === 'high' || q === 'med' || q === 'low') return q;
-    const s = localStorage.getItem('display3dQuality'); if (s === 'high' || s === 'med' || s === 'low') return s;
+    localStorage.removeItem('display3dQuality'); // 🔴 كانت درجةٌ متدنّية تُحفظ من فحصٍ جرى أثناء التحميل فتلتصق بالجهاز
   } catch { /* noop */ }
   return 'high';
 }
@@ -204,10 +204,10 @@ class StreetEngine {
   reflector!: Reflector; skyMat!: THREE.ShaderMaterial; stars!: THREE.Points; moon!: THREE.Sprite; sun!: THREE.Mesh; shafts = new THREE.Group(); skyline!: THREE.Mesh; hemi!: THREE.HemisphereLight; sunLight!: THREE.DirectionalLight; snipeL: THREE.PointLight | null = null;
   envNight: THREE.Texture | null = null; envDawn: THREE.Texture | null = null; pmrem!: THREE.PMREMGenerator; windows!: THREE.InstancedMesh; soft = texSoft(); curtain = texCurtain();
   shots!: Record<string, Shot>; cur = 'A'; shotT = 0; order = ['A', 'B', 'C']; oi = 0; evShot: string | null = null; _p = new THREE.Vector3(-.8, 1.7, 11); _l = new THREE.Vector3(.4, 2, -30); sway = new THREE.Vector3(); cutting = false; frameShift = 0;
-  ev = { silence: 0, disable: 0, snipe: 0, kill: 0, saved: 0 }; posterCb: ((url: string) => void) | null = null; fpsEma = 0; facadeGroup: THREE.Group | null = null;
+  ev = { silence: 0, disable: 0, snipe: 0, kill: 0, saved: 0 }; posterCb: ((url: string) => void) | null = null; fpsEma = 0; facadeGroup: THREE.Group | null = null; ready = false; readyAt = 0; assetsReady: Promise<void> = Promise.resolve();
   /** للشارة التشخيصيّة */
   lastTris = 0; lastCalls = 0;
-  stats() { return { mode: this.mode, quality: this.quality, ambient: this.ambient, fps: Math.round(this.fpsEma), tris: (this.lastTris / 1000).toFixed(0) + 'k', calls: this.lastCalls }; }
+  stats() { return { mode: this.mode, quality: this.quality, ambient: this.ambient, ready: this.ready, active: this.active, fps: this.active ? Math.round(this.fpsEma) : 0, tris: (this.lastTris / 1000).toFixed(0) + 'k', calls: this.lastCalls }; }
   NIGHT: Preset = { top: new THREE.Color(0x02030a), hor: new THREE.Color(0x1a1420), fog: new THREE.Color(0x0a0b12), fd: .03, hemi: .22, hemiC: new THREE.Color(0x223046), exp: .95, sun: 0, lamps: 1, rain: 1 };
   DAWN: Preset = { top: new THREE.Color(0x4f6690), hor: new THREE.Color(0xe9a878), fog: new THREE.Color(0xb99e86), fd: .012, hemi: .85, hemiC: new THREE.Color(0xffd9b0), exp: 1.0, sun: 1, lamps: 0, rain: 0 };
   DAY: Preset = { top: new THREE.Color(0x5b6472), hor: new THREE.Color(0x9a948c), fog: new THREE.Color(0x777370), fd: .014, hemi: 1.0, hemiC: new THREE.Color(0xcfd6e0), exp: .85, sun: .3, lamps: 0, rain: 0 };
@@ -218,7 +218,7 @@ class StreetEngine {
     this.renderer.outputColorSpace = THREE.SRGBColorSpace; this.renderer.toneMapping = THREE.ACESFilmicToneMapping; this.renderer.toneMappingExposure = .95;
     this.renderer.shadowMap.enabled = true; this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     this.renderer.domElement.style.cssText = 'position:absolute;inset:0;width:100%;height:100%;display:block';
-    this.pmrem = new THREE.PMREMGenerator(this.renderer); this.renderer.info.autoReset = false; this.quality = detectQuality(); this.from = this.to = this.NIGHT;
+    this.pmrem = new THREE.PMREMGenerator(this.renderer); this.renderer.info.autoReset = false; this.quality = detectQuality(); this.manualQuality = !!debugParam('q'); this.from = this.to = this.NIGHT;
     const bs = debugParam('brot'); if (bs === '180') this.frontSign = -1; const sh = debugParam('shot'); if (sh) setTimeout(() => { if (this.shots[sh]) { this.evShot = sh; this.shotT = 0; this.order = [sh]; this.cur = sh; } }, 1500);
     this.build(); this.buildPost(); this.applyQuality(); this.applyPreset(this.NIGHT); this.loadAssets();
   }
@@ -327,7 +327,8 @@ class StreetEngine {
     return loadGLTF(sf ? SF(name) : PH(name)).then(g => { if (!g || this.disposed) return; spots.forEach(([x, z, r]) => { const m = this.prep(g.scene.clone(true), shadow); this.fit(m, size, axis); m.position.set(x, y, z); m.rotation.y = r; this.scene.add(m); }); });
   }
   private async loadAssets() {
-    const S = this.scene;
+    const S = this.scene; const pending: Promise<unknown>[] = []; const track = <T,>(p: Promise<T>) => { pending.push(p); return p; };
+    this.assetsReady = new Promise<void>(res => { setTimeout(async () => { await Promise.allSettled(pending); this.ready = true; this.readyAt = performance.now(); res(); }, 0); });
     for (const k of ['brick', 'plaster', 'plaster2', 'asphalt', 'cobble', 'wood']) this.swapSurface(k, this.MAT[k]);
     loadHDR(`${ASSET_ROOT}/hdri/moonless_golf_1k.hdr`).then((t: THREE.Texture | null) => { if (!t || this.disposed) return; this.envNight = this.pmrem.fromEquirectangular(t).texture; if (this.mode === 'night') S.environment = this.envNight; });
     loadHDR(`${ASSET_ROOT}/hdri/klippad_sunrise_2_1k.hdr`).then((t: THREE.Texture | null) => { if (!t || this.disposed) return; this.envDawn = this.pmrem.fromEquirectangular(t).texture; if (this.mode !== 'night') S.environment = this.envDawn; });
@@ -350,17 +351,17 @@ class StreetEngine {
       const put = (o: THREE.Object3D | null, size: number, x: number, z: number, r: number) => { if (!o) return; const m = this.prep(o.clone(true)); this.fit(m, size, 'y'); m.position.set(x, .16, z); m.rotation.y = r; S.add(m); };
       put(pick(/^crate low_7/), .6, FACE - 2.4, -29.2, .6); put(pick(/^crate low2/), .6, -FACE + 2.3, -41.6, 1.9); put(pick(/^kosz/), .9, FACE - 1.2, -41, .2); put(pick(/^Newspaper/), .3, -FACE + 2.2, -9.2, .4); });
     // 🏛️ طقم الواجهات البنّيّة — يستبدل المباني الإجرائيّة كاملةً
-    loadGLTF(SF('brownstone')).then(g => { if (!g || this.disposed) return; this.buildBrownstoneStreet(g.scene); });
+    track(loadGLTF(SF('brownstone')).then(g => { if (!g || this.disposed) return; this.buildBrownstoneStreet(g.scene); }));
     // المظلّات والشرفات وحبال الغسيل (أصول)
     loadGLTF(SF('awning')).then(g => { if (!g || this.disposed) return; g.scene.traverse((o: THREE.Object3D) => { const mm = (o as THREE.Mesh).material as THREE.MeshStandardMaterial | undefined; if (mm && mm.isMeshStandardMaterial) { mm.metalness = 0; mm.roughness = .95; mm.envMapIntensity = .2; mm.color.multiplyScalar(.75); } }); ([[-1, -6.5], [1, -2.6]] as [number, number][]).forEach(([side, z]) => { const m = this.prep(g.scene.clone(true)); this.fit(m, 2.6, 'x'); const b = new THREE.Box3().setFromObject(m); const s = new THREE.Vector3(); b.getSize(s); m.position.set(side * (FACE - s.z / 2 - .05), 2.9, z); m.rotation.y = side > 0 ? Math.PI : 0; S.add(m); }); });
     loadGLTF(SF('balcony')).then(() => { /* تُوضع بعد الواجهات على الشبابيك المكتشفة فقط (placeBalconies) */ }); if (false) loadGLTF(SF('balcony')).then(g => { if (!g || this.disposed) return; for (let k = 0; k < 8; k++) { const side = k % 2 ? 1 : -1; const m = this.prep(g.scene.clone(true)); const b1 = new THREE.Box3().setFromObject(m); const s1 = new THREE.Vector3(); b1.getSize(s1); const big: 'x' | 'y' | 'z' = s1.x >= s1.y && s1.x >= s1.z ? 'x' : s1.y >= s1.z ? 'y' : 'z'; this.fit(m, 2.4, big); const b2 = new THREE.Box3().setFromObject(m); const s2 = new THREE.Vector3(); b2.getSize(s2); if (s2.x > s2.z) m.rotation.y = Math.PI / 2; /* أنحف محور عمودياً على الواجهة */ const b = new THREE.Box3().setFromObject(m); const s = new THREE.Vector3(); b.getSize(s); const c = new THREE.Vector3(); b.getCenter(c); m.position.set(side * (FACE - s.x / 2 - .02) - c.x, 5.6 + Math.floor(rnd() * 3) * 3.4 - b.min.y, -4 - k * 8 - rnd() * 3 - c.z); S.add(m); } });
     loadGLTF(SF('clothesline')).then(g => { if (!g || this.disposed) return; ([[-1, -14], [1, -38], [-1, -62]] as [number, number][]).forEach(([side, z], i) => { const m = this.prep(g.scene.clone(true), false); const b1 = new THREE.Box3().setFromObject(m); const s1 = new THREE.Vector3(); b1.getSize(s1); const axis: 'x' | 'y' | 'z' = s1.x >= s1.y && s1.x >= s1.z ? 'x' : s1.y >= s1.z ? 'y' : 'z'; this.fit(m, 3.2, axis); const b = new THREE.Box3().setFromObject(m); const sz = new THREE.Vector3(); b.getSize(sz); const long: 'x' | 'z' = sz.x >= sz.z ? 'x' : 'z'; if (long === 'x') m.rotation.y = Math.PI / 2; const b2 = new THREE.Box3().setFromObject(m); const c = new THREE.Vector3(); b2.getCenter(c); m.position.set(side * (FACE - .9) - c.x, 6.2 + i * 1.5 - b2.min.y, z - c.z); S.add(m); this.laundry.push({ m, ph: rnd() * 6 }); }); });
     // Sketchfab: cars, fedora
     const putCar = (name: string, host: THREE.Group, len: number) => loadGLTF(SF(name)).then(g => { if (!g || this.disposed) return; const m = this.prep(g.scene); const b = new THREE.Box3().setFromObject(m); const s = new THREE.Vector3(); b.getSize(s); const long: 'x' | 'z' = s.x >= s.z ? 'x' : 'z'; this.fit(m, len, long); if (long === 'z') m.rotation.y = Math.PI / 2; const b2 = new THREE.Box3().setFromObject(m); const c = new THREE.Vector3(); b2.getCenter(c); m.position.x -= c.x; m.position.z -= c.z; host.children.slice().forEach(ch => host.remove(ch)); host.add(m); });
-    putCar('pierce_arrow', this.car, 5.0); putCar('coupe33', this.car2, 4.4);
+    track(putCar('pierce_arrow', this.car, 5.0)); track(putCar('coupe33', this.car2, 4.4));
     loadGLTF(SF('fedoras')).then(g => { if (!g || this.disposed) return; const m = this.prep(g.scene); this.fit(m, .34, 'x'); this.hat.children.filter(c => c.name === 'proc').forEach(c => this.hat.remove(c)); this.hat.add(m); });
     // 👥 الحشد: حركات Mixamo تُعاد توجيهها على هياكل الشخصيّات
-    this.loadCrowd();
+    track(this.loadCrowd());
   }
   /**
    * الشرفات على الشبابيك فقط (قرار المالك): تُكشف تجاويف النوافذ بأشعّةٍ من الشارع نحو الواجهة؛
@@ -517,7 +518,8 @@ class StreetEngine {
     this.vig = new ShaderPass(VignetteShader); this.vig.uniforms.offset.value = .92; this.vig.uniforms.darkness.value = 1.15; this.composer.addPass(this.vig);
     this.composer.addPass(new OutputPass()); this.smaa = new SMAAPass(w, h); this.composer.addPass(this.smaa);
   }
-  setQuality(q: Quality) { this.quality = q; try { localStorage.setItem('display3dQuality', q); } catch { /* noop */ } this.applyQuality(); }
+  onQuality: ((q: Quality) => void) | null = null; manualQuality = false;
+  setQuality(q: Quality) { this.quality = q; this.applyQuality(); this.onQuality?.(q); }
   private applyQuality() {
     const hi = this.quality === 'high' && !this.ambient, md = this.quality === 'med' || (this.quality === 'high' && this.ambient); this.renderer.setPixelRatio(hi ? Math.min(devicePixelRatio, 1.5) : md ? 1 : .75);
     this.bokeh.enabled = hi; this.bloom.enabled = hi || md; this.film.enabled = hi || md; this.smaa.enabled = hi || md; this.renderer.shadowMap.enabled = hi || md; this.lamps.forEach(l => { if (l.sl) l.sl.castShadow = hi; }); this.reflector.visible = hi; this.makeRain(hi ? 1800 : md ? 900 : 0); this.resize();
@@ -579,14 +581,15 @@ class StreetEngine {
   /** قطعٌ محروس: يُصفَّر العدّاد فوراً ولا يُقبل قطعٌ آخر أثناء الغطسة (كان يُستدعى كلّ إطار فيومض) */
   private cut(name: string) { if (this.cutting) return; this.cutting = true; this.cur = name; this.shotT = 0; this.dip(260); setTimeout(() => { this.cutting = false; }, 300); }
   /** يلتقط الإطار التالي كصورة (ملصق الأجهزة الضعيفة) */
-  capturePoster(): Promise<string> { return new Promise(res => { this.posterCb = res; }); }
+  async capturePoster(): Promise<string> { await this.assetsReady; if (this.disposed) return ''; this.transT = 1; this.applyPreset(this.to); this.applyCrowdMode(); return new Promise(res => { this.posterCb = res; }); }
 
   /* ── loop ── */
   private loop = () => {
     this.raf = requestAnimationFrame(this.loop); if (!this.container || !this.active) return;
     if (this.ambient) { this.frameSkip = (this.frameSkip + 1) % 2; if (this.frameSkip) return; }
     const dtRaw = Math.min(.5, this.clock.getDelta()), dt = Math.min(.05, dtRaw), time = this.clock.elapsedTime; const ev = this.ev; if (dtRaw > 0) this.fpsEma += ((1 / dtRaw) - this.fpsEma) * .08; this.lastTris = this.renderer.info.render.triangles; this.lastCalls = this.renderer.info.render.calls; this.renderer.info.reset();
-    if (!this.probe.done) { this.probe.frames++; this.probe.t += dtRaw; if (this.probe.t >= 3) { this.probe.done = true; const fps = this.probe.frames / this.probe.t; if (fps < 28 && this.quality === 'high') this.setQuality('med'); else if (fps < 20 && this.quality === 'med') this.setQuality('low'); } }
+    // 🧪 فحص الإطارات بعد اكتمال الأصول بثانيتين (لا أثناء التحميل)، نافذة 4 ثوانٍ؛ 30 إطاراً كافية (تجربة سينمائيّة لا لعبة)
+    if (!this.probe.done && !this.manualQuality && this.ready && performance.now() - this.readyAt > 2000) { this.probe.frames++; this.probe.t += dtRaw; if (this.probe.t >= 4) { this.probe.done = true; const fps = this.probe.frames / this.probe.t; console.info('🧪 fps probe', fps.toFixed(1)); if (fps < 18) this.setQuality('low'); else if (fps < 30 && this.quality === 'high') this.setQuality('med'); } }
     if (this.transT < 1) { this.transT = Math.min(1, (performance.now() - this.transStart) / this.transMs); this.lerpPreset(this.from, this.to, this.transT); }
     const dim = ev.silence > 0 ? (ev.silence < 2 ? .6 : 1) : 1;
     this.lamps.forEach((l, i) => { let f = 1; if (i === 0) { if (ev.kill > 0) { const k = ev.kill; f = k < 1.2 ? (Math.sin(k * 40) > 0.2 ? 1 : .15) : k < 1.8 ? .6 : 0; } if (ev.saved > 0) f = 1 + Math.min(1.2, ev.saved * 1.5) * Math.max(0, 1 - (ev.saved - 1.5) * .7); }
