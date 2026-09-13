@@ -72,10 +72,16 @@ async function autoFinalizeIfStuck(io: Server, roomId: string): Promise<void> {
   io.to(roomId).emit('day:elimination-revealed', {
     eliminated: pr.eliminated,
     revealedRoles: pr.revealedRoles,
+    causes: pr.causes || [],
+    deal: pr.deal || null,
+    pendingSecondary: [],
     type: pr.type,
     pendingWinner: winner,
     auto: true,
   });
+  // 💣 نتيجة قنبلةٍ محبوسة حتى الكشف (2026-09-13): تُطلق هنا أيضاً كي لا تضيع في الإنهاء التلقائيّ
+  if ((state as any).heldBombResult) { const held = (state as any).heldBombResult; (state as any).heldBombResult = null; io.to(roomId).emit('day:bomb-result', held); }
+  (state as any).eliminationRevealed = true;
 
   // 2) إنهاء اللعبة (مكافئ لضغط «إنهاء»)
   state.winner = winner as any;
