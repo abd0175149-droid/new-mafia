@@ -29,12 +29,26 @@ const WALL = new THREE.Vector3(-FACE + .85, 0, -12);
 let seed = 4242; const rnd = () => { seed = (seed * 16807) % 2147483647; return (seed - 1) / 2147483646; };
 
 export class ExecutionController {
-  on = false; state: 'idle' | 'armed' | 'running' | 'holding' | 'ending' = 'idle';
+  on = false; warmed = false; state: 'idle' | 'armed' | 'running' | 'holding' | 'ending' = 'idle';
   tpl: { M: ExecTemplate | null; F: ExecTemplate | null } = { M: null, F: null };
   onBeat: ((b: ExecBeat) => void) | null = null; onChange: ((on: boolean) => void) | null = null;
   private figs: Fig[] = []; private beats: Beat[] = []; private bi = 0; private t = 0; private condemned: Fig | null = null; private victim: Fig | null = null;
   private smokes: Smoke[] = []; private flashL: THREE.PointLight | null = null; private flashS: THREE.Sprite | null = null; private flashT = -1; shake = 0; private endTimer: any = null;
-  constructor(private E: StreetEngine) {}
+  constructor(private E: StreetEngine) { this.ensureFx(); /* الأضواء والرذاذ تُبنى مع المحرّك: إضافة ضوءٍ لاحقاً تعيد تجميع كلّ التظليل */ }
+  /** 🔥 إحماء قوالب الحشد بعد تحميلها: نسخةٌ من كلّ قالب تُرسم إطاراً واحداً خارج الكادر فتُجمَّع برامج الجلد قبل أوّل إقصاء */
+  async warmTemplates() {
+    const E = this.E as any; if (E.disposed) return; /* بعد إحماء الأوضاع (prewarm) لا قبله — كان يسبقه فيُلغيه */ for (let i = 0; i < 1200 && !E.prewarmDone; i++) await new Promise(r => setTimeout(r, 100)); for (let i = 0; i < 200 && E.warming; i++) await new Promise(r => setTimeout(r, 100)); if (E.disposed || this.on) return;
+    const t0 = performance.now(); E.warming = true; /* الحلقة المرئيّة تتوقّف أثناء الإحماء كي لا تتسرّب اللقطة */
+    const probes: Fig[] = []; for (const g of ['M', 'F'] as const) { if (!this.tpl[g]) continue; const f = this.make(-100 - (g === 'M' ? 0 : 1), g, true); if (!f) continue; f.root.position.set(WALL.x + 2 + (g === 'M' ? 0 : 1.2), f.root.position.y, WALL.z); this.play(f, 'idle'); probes.push(f); }
+    // 🔴 الشاشة تقف طوال النهار على «الخلفيّة المعتَّمة» (جودة متوسّطة بلا بوكيه ولا انعكاس ولا ظلال)، ومشهد الإقصاء يرفعها إلى العليا.
+    //    أوّل إطارٍ بالجودة العليا كان يجمّع مئة برنامج تظليل دفعةً واحدة (21 ثانية تجمّد على جهاز القاعة). نجمّعها هنا في إطارٍ مخفيّ:
+    //    الحشد في الكادر، الكاميرا على لقطة الساحة، والمُركِّب يرسم إلى مخازنه لا إلى الشاشة.
+    const savedOn = this.on; this.on = true; E.applyQuality(); const savedEv = E.evShot, savedT = E.shotT; E.evShot = 'EX_WIDE'; E.shotT = 0;
+    const [p, l] = E.shots.EX_WIDE.at(0); const camP = E.camera.position.clone(), camQ = E.camera.quaternion.clone(); E.camera.position.copy(p); E.camera.lookAt(l);
+    try { await E.renderer.compileAsync(E.scene, E.camera); E.renderer.shadowMap.needsUpdate = true; E.composer.renderToScreen = false; E.composer.render(1 / 30); } catch { /* noop */ } finally { E.composer.renderToScreen = true; }
+    probes.forEach(f => this.remove(f)); E.camera.position.copy(camP); E.camera.quaternion.copy(camQ); E.evShot = savedEv; E.shotT = savedT; this.on = savedOn; E.applyQuality(); E.warming = false;
+    this.warmed = true; console.info('⚖️ execution scene warmed (hi-quality passes + crowd)', Math.round(performance.now() - t0), 'ms');
+  }
 
   /* ── لقطات المشهد (تُدمج في جدول لقطات المحرّك) ── */
   shots(): Record<string, { len: number; fov: number; at: (t: number) => [THREE.Vector3, THREE.Vector3] }> {
@@ -107,7 +121,10 @@ export class ExecutionController {
     const all = alive.slice(); primary.forEach(p => { if (!all.some(a => a.id === p.id)) all.push({ id: p.id, gender: p.gender }); });
     if (this.state !== 'armed') { this.ensureCrowd(all, true); this.setOn(true); } else this.ensureCrowd(all, false);
     if (this.endTimer) { clearTimeout(this.endTimer); this.endTimer = null; }
-    this.beats = []; this.bi = 0; this.t = 0; let t = this.state === 'armed' ? 1.5 : 3.0; const B = (at: number, fn: () => void) => this.beats.push({ t: at, fn });
+    this.beats = []; this.bi = 0; this.t = 0; const B = (at: number, fn: () => void) => this.beats.push({ t: at, fn });
+    // إن كان الحشد ما زال يمشي إلى مواضعه (تلميحٌ متأخّر) ينتظر الاقتيادُ وصولَه — حتى 5 ثوانٍ
+    let remain = 0; this.figs.forEach(f => { if (f.goal && f.act === 'idle') remain = Math.max(remain, Math.hypot(f.goal[0] - f.root.position.x, f.goal[1] - f.root.position.z)); });
+    let t = this.state === 'armed' ? Math.min(5, Math.max(1.5, remain / 2.0 + .4)) : 3.0;
     if (this.state !== 'armed') { B(0, () => { this.cut('EX_WIDE'); this.emit('gather', null, true); }); }
     primary.forEach(pv => { const t0 = t;
       B(t0, () => { const f = this.figs.find(x => x.id === pv.id) || null; this.condemned = f; if (f) { f.goal = [WALL.x + .7, WALL.z]; f.face = [WALL.x + 5, WALL.z + .3];

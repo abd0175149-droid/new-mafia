@@ -14,6 +14,8 @@ import { useDisplayViewport, computeCardGrid, CardZoom, GridRows, totalZoomOf } 
 // ⚖️ مشهد الإقصاء النهاريّ فوق مدينة الشارع (قرارات المالك 2026-09-13) — يحلّ محلّ مراسم البطاقات حين يتوفّر المحرّك؛ وإلّا المراسم القديمة
 import ExecutionCeremony, { executionSceneAvailable, type ExecEntry } from '@/components/display/ExecutionCeremony';
 import { getStreetEngine } from '@/components/display/street/engine';
+import { useGameConfig } from '@/hooks/useGameConfig';
+const SOCKET_URL_FOR_CARDS = process.env.NEXT_PUBLIC_SOCKET_URL || '';
 
 // 🔊 لا نداءَ صوتٍ محلّيٍّ في هذه الشاشة — الموجّه هو المصدر (setLocalPlayback(false)).
 //    المؤقّتُ والتصويتُ وكشفُ المُسكَت واكتمالُ التصويت تُعزف عنده وتصل مرآةً.
@@ -63,6 +65,12 @@ export default function DisplayDayView({ roomId, players, initialDiscussionState
   const [secondaryVictims, setSecondaryVictims] = useState<ExecEntry[]>([]);
   const [sceneMode, setSceneMode] = useState(false); const sceneModeRef = useRef(false);
   const playersRef = useRef<any[]>(players); useEffect(() => { playersRef.current = players; }, [players]);
+  // 🔥 تحضير مسبق لبطاقات الأدوار (الشاشة موثوقة فتستلم الأدوار مع «بانتظار القرار»): صور القالب والأيقونة تُجلب قبل الكشف
+  const { getRoleById, getCardForRole } = useGameConfig(); const cardCfgRef = useRef({ getRoleById, getCardForRole }); useEffect(() => { cardCfgRef.current = { getRoleById, getCardForRole }; }, [getRoleById, getCardForRole]);
+  const prefetchCardArt = (roles: string[]) => { try { const seen = new Set<string>(); roles.forEach(r => { const def: any = cardCfgRef.current.getRoleById(r); const tpl: any = cardCfgRef.current.getCardForRole(r); const icon = def?.cardOverrides?.icon || tpl?.icon; const urls: string[] = [];
+    if (icon && (icon.type === 'image' || icon.type === 'IMAGE')) { const v = icon.value || icon.url || ''; if (v) urls.push(v.startsWith('http') ? v : `${SOCKET_URL_FOR_CARDS}${v}`); }
+    const sf = tpl?.secretFace?.customImageUrl; if (sf) urls.push(sf.startsWith('http') ? sf : `${SOCKET_URL_FOR_CARDS}${sf}`);
+    urls.forEach(u => { if (seen.has(u)) return; seen.add(u); const im = new window.Image(); im.src = u; }); }); } catch { /* noop */ } };
 
   // Justification UI States
   const [justificationData, setJustificationData] = useState<any>(null);
@@ -271,6 +279,11 @@ export default function DisplayDayView({ roomId, players, initialDiscussionState
       setRevealType(data.type);
       setMayorPostponed(!!data.mayorPostponed);
       setPhase('PENDING');
+      // ⚖️ التحضير المسبق هنا لا عند الضغط: الحشد يتجمّع (لا يكشف شيئاً) وصور بطاقات الأدوار تُجلب، فالكشف يبدأ في الإطار نفسه
+      if (!data.mayorPostponed && (data.eliminated || []).length && executionSceneAvailable()) {
+        const eng = getStreetEngine(); eng?.exec.arm(playersRef.current.filter((p: any) => p.isAlive !== false).map((p: any) => ({ id: p.physicalId, gender: p.gender === 'FEMALE' ? 'F' : 'M' })));
+      }
+      if (Array.isArray(data.revealedRoles) && data.revealedRoles.length) prefetchCardArt(data.revealedRoles.map((r: any) => r.role));
     };
 
     // 🎩 كشف العمدة — مشهد سينمائيّ يعلو كلّ شيء لثوانٍ

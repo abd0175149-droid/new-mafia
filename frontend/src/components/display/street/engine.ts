@@ -467,7 +467,8 @@ class StreetEngine {
    * (كلا الهيكلين في وضعيّة T): Wt(t) = Ws(t)·O حيث O = Ws0⁻¹·Wt0، ثمّ يُحوَّل إلى دورانٍ محلّيّ هرميّاً.
    * لا تُلمس مصفوفات الربط ولا يُستدعى pose() (SkeletonUtils.retarget كان يُفسد الجلد).
    */
-  retargetLocal(target: THREE.SkinnedMesh, srcHips: THREE.Bone, clip: THREE.AnimationClip, names: Record<string, string>): THREE.AnimationClip {
+  /** يُنفَّذ على دفعات (30 إطاراً ثمّ يُفسح للمتصفّح): كان يجمّد اللوبي ~22 ثانية لثلاثة موديلات × أربعة مقاطع */
+  async retargetLocal(target: THREE.SkinnedMesh, srcHips: THREE.Bone, clip: THREE.AnimationClip, names: Record<string, string>): Promise<THREE.AnimationClip> {
     const fps = 30, n = Math.max(2, Math.round(clip.duration * fps)); const times = new Float32Array(n); for (let i = 0; i < n; i++) times[i] = i / fps;
     // ترتيب هرميّ لعظام الهدف (من الجذر إلى الأطراف)
     const bones = target.skeleton.bones; const set = new Set<THREE.Object3D>(bones); const roots = bones.filter(b => !b.parent || !set.has(b.parent)); const ordered: THREE.Bone[] = []; const walk = (b: THREE.Object3D) => { if (set.has(b)) ordered.push(b as THREE.Bone); b.children.forEach(walk); }; roots.forEach(walk);
@@ -483,6 +484,7 @@ class StreetEngine {
     const parentWorldOf = (b: THREE.Bone, worldNow: Map<THREE.Bone, THREE.Quaternion>): THREE.Quaternion => { const p = b.parent as THREE.Object3D | null; if (p && set.has(p) && worldNow.has(p as THREE.Bone)) return worldNow.get(p as THREE.Bone)!; return p ? p.getWorldQuaternion(new THREE.Quaternion()) : new THREE.Quaternion(); };
     const q = new THREE.Quaternion(), qs = new THREE.Quaternion();
     for (let i = 0; i < n; i++) {
+      if (i % 30 === 29) await new Promise(r => setTimeout(r, 0));
       mixer.setTime(i / fps); srcHips.updateMatrixWorld(true); const worldNow = new Map<THREE.Bone, THREE.Quaternion>();
       for (const b of ordered) { const pw = parentWorldOf(b, worldNow); const sn = names[b.name]; let local: THREE.Quaternion;
         if (sn && srcByName.has(sn)) { srcByName.get(sn)!.getWorldQuaternion(qs); q.copy(qs).multiply(offset.get(b)!); local = pw.clone().invert().multiply(q); } else local = restLocal.get(b)!.clone();
@@ -507,18 +509,18 @@ class StreetEngine {
     const extra: Record<string, THREE.AnimationClip> = {}; for (const n of ['fall', 'react_death']) { const g = await loadGLTF(ANIM(n)); if (g?.animations?.[0]) extra[n] = g.animations[0]; }
     const allClips = { ...clips, ...extra };
     /** إعادة الاستهداف مرّةً لكلّ موديل (لا لكلّ نسخة): المقاطع المعاد استهدافها تُسمّى عظامها بالاسم فتصلح لكلّ النسخ */
-    const retargetSet = (src: string, scene: THREE.Object3D): Record<string, THREE.AnimationClip> => {
+    const retargetSet = async (src: string, scene: THREE.Object3D): Promise<Record<string, THREE.AnimationClip>> => {
       if (this.retargetCache[src]) return this.retargetCache[src]; const out: Record<string, THREE.AnimationClip> = {}; if (!skeleton) return out;
       const probe = SkeletonUtils.clone(scene); let sk: THREE.SkinnedMesh | null = null; probe.traverse(o => { if (!sk && (o as THREE.SkinnedMesh).isSkinnedMesh) sk = o as THREE.SkinnedMesh; }); if (!sk) return out;
       try { const names: Record<string, string> = {}; (sk as THREE.SkinnedMesh).skeleton.bones.forEach(b => { const base = b.name.replace(/_\d+$/, ''); if (AS_TO_MIXAMO[base]) names[b.name] = 'mixamorig' + AS_TO_MIXAMO[base]; });
-        for (const k of Object.keys(allClips)) out[k] = this.retargetLocal(sk as THREE.SkinnedMesh, skeleton, allClips[k], names);
+        for (const k of Object.keys(allClips)) out[k] = await this.retargetLocal(sk as THREE.SkinnedMesh, skeleton, allClips[k], names);
         console.info('🏙️ retarget', src, Object.keys(out).join(','), 'tracks', Object.values(out).map(c => c.tracks.length).join('/'), 'mapped', Object.keys(names).length);
       } catch (e) { console.warn('🏙️ retarget failed, procedural gait:', src, String(e)); }
       this.retargetCache[src] = out; return out;
     };
     for (const sp of specs) {
       const g = await loadGLTF(sp.glb ? SFB(sp.src) : SF(sp.src)); if (!g || this.disposed) continue;
-      const rset = sp.kinds.every(k => k === 'seat') ? {} : retargetSet(sp.src, g.scene);
+      const rset = sp.kinds.every(k => k === 'seat') ? {} : await retargetSet(sp.src, g.scene); if (this.disposed) return;
       for (let i = 0; i < sp.n; i++) {
         const root = SkeletonUtils.clone(g.scene); this.prep(root, i === 0); this.pinRigidProps(root); root.traverse(o => { if ((o as THREE.SkinnedMesh).isSkinnedMesh) o.frustumCulled = false; });
         const wrap = new THREE.Group(); wrap.add(root); this.fit(wrap, sp.h, 'y');
@@ -532,8 +534,9 @@ class StreetEngine {
     this.applyCrowdMode();
     // ⚖️ قوالب حشد الإقصاء: الرجل نسخةٌ مخفَّفة (8.9k مثلّث بدل 29.6k) لأنّ الحشد قد يبلغ 27 نسخة؛ المرأة كما هي (5.7k)
     const lite = await loadGLTF(SFB('gangster_lite')); const dot = await loadGLTF(SF('dotty')); if (this.disposed) return;
-    if (lite) this.exec.tpl.M = { scene: lite.scene, h: 1.85, clips: retargetSet('gangster_lite', lite.scene) };
-    if (dot) this.exec.tpl.F = { scene: dot.scene, h: 1.7, clips: retargetSet('dotty', dot.scene) };
+    if (lite) this.exec.tpl.M = { scene: lite.scene, h: 1.85, clips: await retargetSet('gangster_lite', lite.scene) };
+    if (dot) this.exec.tpl.F = { scene: dot.scene, h: 1.7, clips: await retargetSet('dotty', dot.scene) };
+    void this.exec.warmTemplates();
   }
   private playW(w: Walker, k: string) { if (!w.mixer || w.cur === k) return; const a = w.acts[k] || w.acts.idle; if (!a) return; const prev = w.acts[w.cur]; if (prev && prev !== a) prev.fadeOut(.5); a.reset().fadeIn(.5).play(); w.mixer.update(0.001); w.cur = k; }
   private applyCrowdMode() {
@@ -570,7 +573,7 @@ class StreetEngine {
   applyQuality() {
     const amb = this.ambient && !this.exec?.on; /* أثناء مشهد الإقصاء المدينة مسرحٌ لا خلفيّة */
     const hi = this.quality === 'high' && !amb, md = this.quality === 'med' || (this.quality === 'high' && amb); this.renderer.setPixelRatio(hi ? Math.min(devicePixelRatio, 1.5) : md ? 1 : .75);
-    this.bokeh.enabled = hi; this.bloom.enabled = hi || md; this.film.enabled = hi || md; this.smaa.enabled = hi || md; this.renderer.shadowMap.enabled = hi || md; this.lamps.forEach(l => { if (l.sl) l.sl.castShadow = hi; }); this.reflector.visible = hi; this.makeRain(hi ? 1800 : md ? 900 : 0); this.resize();
+    this.bokeh.enabled = hi; this.bloom.enabled = hi || md; this.film.enabled = hi || md; this.smaa.enabled = hi || md; this.renderer.shadowMap.enabled = hi || md; this.lamps.forEach(l => { if (l.sl) l.sl.castShadow = hi || md; }); /* 🔴 تبديل castShadow بين الخلفيّة والمشهد كان يغيّر تعريفات التظليل فيعيد تجميع ~120 برنامجاً (20 ثانية تجمّد) — الظلال ثابتة في كلّ ما فوق «منخفض» */ this.reflector.visible = hi; this.makeRain(hi ? 1800 : md ? 900 : 0); this.resize();
   }
   private makeRain(count: number) {
     if (this.rain) { this.scene.remove(this.rain); this.rain.geometry.dispose(); this.rain = null; } if (!count) return;
