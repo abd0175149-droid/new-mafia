@@ -40,10 +40,13 @@ export function teamOf(role: string | null | undefined, getTeamForRole: (r: stri
 }
 const genderOf = (p: any): 'M' | 'F' => (p?.gender === 'FEMALE' ? 'F' : 'M');
 
-/** هل المشهد ثلاثيّ الأبعاد متاح لهذا الجهاز؟ (يعمل، أصوله جاهزة، وليس على الجودة المنخفضة/الملصق) */
-export function executionSceneAvailable(): boolean {
-  const eng = getStreetEngine(); return !!eng && eng.ok && eng.ready && eng.prewarmDone && eng.quality !== 'low' && !!(eng.exec.tpl.M || eng.exec.tpl.F);
+/** لماذا لا يتوفّر المشهد؟ '' = متاح. (يُطبع في الكونسول لحظة الكشف ويظهر في شارة التشخيص) */
+export function executionSceneReason(): string {
+  const eng = getStreetEngine(); if (!eng) return 'no-webgl'; if (!eng.ok) return 'renderer-failed'; if (!eng.ready) return 'assets-loading';
+  if (!(eng.exec.tpl.M || eng.exec.tpl.F)) return 'crowd-templates-missing'; if (eng.quality === 'low') return 'quality-low(poster)'; return '';
 }
+/** هل المشهد ثلاثيّ الأبعاد متاح لهذا الجهاز؟ (يعمل، أصوله وقوالب الحشد جاهزة، وليس على الجودة المنخفضة/الملصق). الإحماء ليس شرطاً: غيابه يكلّف تلعثم إطارٍ واحد لا المشهد كلّه */
+export function executionSceneAvailable(): boolean { const r = executionSceneReason(); if (r) console.warn('⚖️ execution scene unavailable:', r); return !r; }
 
 export default function ExecutionCeremony({ players, primary, secondary, holdForSecondary, notes, title, subtitle, onDone }: {
   players: any[]; primary: ExecEntry[]; secondary: ExecEntry[]; holdForSecondary?: boolean; notes?: Record<number, string>; title?: string; subtitle?: string; onDone?: () => void;

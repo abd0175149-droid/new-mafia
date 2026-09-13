@@ -32,8 +32,8 @@ export default function StreetStage({ mode, event, eventKey, docked, ambient, de
   const [stats, setStats] = useState('');
   // 🧪 شارة التشخيص (مؤقّتة حتى الاختبار على جهاز القاعة): أيّ نسخةٍ تعمل وبأيّ جودة — تُخفى بـ ?dbg=0 أو localStorage display3dDebug=0
   useEffect(() => {
-    if (!debug) return; let hide = false; try { hide = new URLSearchParams(location.search).get('dbg') === '0' || localStorage.getItem('display3dDebug') === '0'; } catch { /* noop */ }
-    if (hide) return; const t = setInterval(() => { const e = getStreetEngine(); if (!e) { setStats('NO WEBGL'); return; } const st = e.stats(); setStats(`ENV ${st.mode.toUpperCase()} · QUALITY ${st.quality.toUpperCase()}${st.ambient ? ' (AMBIENT)' : ''} · ${tier === 'poster' ? 'STATIC POSTER' : 'LIVE 3D'} · ${st.ready ? (st.prewarm ? `WARM ${st.prewarmMs}ms` : 'WARMING') : 'LOADING'} · ${st.fps} FPS · ${st.tris} TRIS · ${st.calls} CALLS · LAST SWITCH ${st.lastTransitionMs}ms`); }, 1000); return () => clearInterval(t);
+    if (!debug) return; let hide = false; try { const dbg = new URLSearchParams(location.search).get('dbg'); hide = dbg === '0' || (localStorage.getItem('display3dDebug') === '0' && dbg !== '1'); /* ?dbg=1 يُظهرها ولو أُخفيت */ } catch { /* noop */ }
+    if (hide) return; const t = setInterval(() => { const e = getStreetEngine(); if (!e) { setStats('NO WEBGL'); return; } const st = e.stats(); const exr = e.exec ? ((e.exec.tpl.M || e.exec.tpl.F) ? (st.quality === 'low' ? 'EXEC OFF(low)' : 'EXEC READY') : 'EXEC OFF(no-crowd)') : 'EXEC ?'; setStats(`${exr} · ENV ${st.mode.toUpperCase()} · QUALITY ${st.quality.toUpperCase()}${st.ambient ? ' (AMBIENT)' : ''} · ${tier === 'poster' ? 'STATIC POSTER' : 'LIVE 3D'} · ${st.ready ? (st.prewarm ? `WARM ${st.prewarmMs}ms` : 'WARMING') : 'LOADING'} · ${st.fps} FPS · ${st.tris} TRIS · ${st.calls} CALLS · LAST SWITCH ${st.lastTransitionMs}ms`); }, 1000); return () => clearInterval(t);
   }, [debug, tier, mode]);
 
   const [quality, setQuality] = useState('high');
