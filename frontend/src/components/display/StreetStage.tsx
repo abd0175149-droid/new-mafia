@@ -37,6 +37,9 @@ export default function StreetStage({ mode, event, eventKey, docked, ambient, de
   }, [debug, tier, mode]);
 
   const [quality, setQuality] = useState('high');
+  // ⚖️ أثناء مشهد الإقصاء المدينة مسرحٌ مضاء لا خلفيّة معتَّمة
+  const [execOn, setExecOn] = useState(false);
+  useEffect(() => { const eng = getStreetEngine(); if (!eng) return; eng.exec.onChange = (on) => setExecOn(on); return () => { eng.exec.onChange = null; }; }, []);
   useEffect(() => {
     const el = ref.current; const eng = getStreetEngine(); if (!el || !eng) { setOk(false); return; }
     eng.mount(el); setQuality(eng.quality); eng.onQuality = (q) => setQuality(q); (window as any).__street = eng; return () => { eng.onQuality = null; eng.unmount(); };
@@ -67,7 +70,7 @@ export default function StreetStage({ mode, event, eventKey, docked, ambient, de
         // 📷 الأجهزة الضعيفة: صورةٌ من المشهد نفسه بحركة كاميرا بطيئة
         <img src={poster} alt="" className="absolute" style={{ inset: '-4%', width: '108%', height: '108%', objectFit: 'cover', animation: 'kb 40s ease-in-out infinite alternate' }} />
       )}
-      {ambient && mode === 'day' && !hidden && <div className="absolute inset-0" style={{ background: 'linear-gradient(180deg, rgba(5,5,7,.58), rgba(5,5,7,.8))' }} />}
+      {ambient && mode === 'day' && !hidden && !execOn && <div className="absolute inset-0" style={{ background: 'linear-gradient(180deg, rgba(5,5,7,.58), rgba(5,5,7,.8))' }} />}
       {!!stats && <div className="absolute left-2 bottom-2 z-[999] font-mono text-[11px] tracking-wider text-[#9fe0a8] bg-black/70 border border-[#9fe0a8]/30 rounded px-2 py-0.5" dir="ltr" style={{ pointerEvents: 'none' }}>{stats}</div>}
       <style>{`@keyframes kb { from { transform: scale(1) translateX(0) } to { transform: scale(1.06) translateX(-2%) } }`}</style>
     </div>

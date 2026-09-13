@@ -212,10 +212,14 @@ export async function getVoteResult(roomId: string): Promise<VoteSortResult> {
 
 // ── حسم النتيجة (مع إقصاء فعلي) ──────────────────
 
+/** 🎬 سببُ كلّ خروجٍ في هذا الإقصاء — تحتاجه شاشةُ القاعة لتعرف مَن سقط عند الجدار ومَن سقط من بين الحشد */
+export type EliminationCause = 'DAY_VOTE' | 'DEAL' | 'DEAL_BACKFIRE' | 'TWIN_SUICIDE' | 'ELIMINATE_ALL';
 export interface VoteResolution {
   type: 'ELIMINATION' | 'DEAL_ELIMINATION' | 'TIE';
   eliminated: number[];        // physicalIds المقصيين
   revealedRoles: { physicalId: number; role: string }[];
+  causes: { physicalId: number; by: EliminationCause }[];
+  deal?: { initiatorPhysicalId: number; targetPhysicalId: number; success: boolean } | null;
   winResult: WinResult;
   tiedCandidates?: Candidate[]; // في حال التعادل
   neutralWin?: NeutralResult | null; // 🎭 فوز محايد (مثل المهرج)
@@ -232,7 +236,7 @@ export async function resolveVoting(roomId: string): Promise<VoteResolution> {
   const sorted = [...state.votingState.candidates].sort((a, b) => b.votes - a.votes);
 
   if (sorted.length === 0) {
-    return { type: 'TIE', eliminated: [], revealedRoles: [], winResult: WinResult.GAME_CONTINUES };
+    return { type: 'TIE', eliminated: [], revealedRoles: [], causes: [], winResult: WinResult.GAME_CONTINUES };
   }
 
   const topVotes = sorted[0].votes;
@@ -244,6 +248,7 @@ export async function resolveVoting(roomId: string): Promise<VoteResolution> {
       type: 'TIE',
       eliminated: [],
       revealedRoles: [],
+      causes: [],
       winResult: WinResult.GAME_CONTINUES,
       tiedCandidates: tied,
     };
@@ -253,6 +258,8 @@ export async function resolveVoting(roomId: string): Promise<VoteResolution> {
   const winner = sorted[0];
   const eliminated: number[] = [];
   const revealedRoles: { physicalId: number; role: string }[] = [];
+  const causes: { physicalId: number; by: EliminationCause }[] = [];
+  let deal: VoteResolution['deal'] = null;
 
   if (winner.type === CandidateType.PLAYER) {
     // فوز لاعب عادي: يُقصى وتكشف هويته
@@ -261,6 +268,7 @@ export async function resolveVoting(roomId: string): Promise<VoteResolution> {
       player.isAlive = false;
       eliminated.push(player.physicalId);
       revealedRoles.push({ physicalId: player.physicalId, role: player.role || 'UNKNOWN' });
+      causes.push({ physicalId: player.physicalId, by: 'DAY_VOTE' });
       checkPolicewomanTrigger(state, player.physicalId);
 
       // ── تتبع الإقصاء ──
@@ -321,6 +329,7 @@ export async function resolveVoting(roomId: string): Promise<VoteResolution> {
       target.isAlive = false;
       eliminated.push(target.physicalId);
       revealedRoles.push({ physicalId: target.physicalId, role: target.role || 'UNKNOWN' });
+      causes.push({ physicalId: target.physicalId, by: 'DEAL' });
       checkPolicewomanTrigger(state, target.physicalId);
 
       // إذا الدور غير معروف (null) → يُعامل كمواطن (الأسوأ للمُبادر)
@@ -337,6 +346,7 @@ export async function resolveVoting(roomId: string): Promise<VoteResolution> {
       // الديل يعتبر ناجحاً ومستحقاً للنقاط فقط إذا كان المبادر (مواطن) وأخرج (مافيا).
       // إذا قام مافيا بعمل ديل على مافيا، فهو يعتبر ديل فاشل (لأنه أضر بفريقه) ولن يحصل على نقاط.
       const isSuccessfulDeal = !initiatorIsMafia && targetIsMafia;
+      deal = { initiatorPhysicalId: winner.initiatorPhysicalId!, targetPhysicalId: winner.targetPhysicalId, success: isSuccessfulDeal };
 
       // ── تتبع نتيجة الاتفاقية ──
       if (!state.performanceTracking) state.performanceTracking = { dealOutcomes: [], abilityResults: [], eliminationLog: [] };
@@ -358,6 +368,7 @@ export async function resolveVoting(roomId: string): Promise<VoteResolution> {
         eliminated.push(initiator.physicalId);
         checkPolicewomanTrigger(state, initiator.physicalId);
         revealedRoles.push({ physicalId: initiator.physicalId, role: initiator.role || 'UNKNOWN' });
+        causes.push({ physicalId: initiator.physicalId, by: 'DEAL_BACKFIRE' });
         // 🃏 سقوط صاحب الاتفاقية الخاطئة يُسجَّل بطريقةٍ مميّزة (قرار 2026-08-11):
         //    المدينة صوّتت على **هدفه** لا عليه — فمهرجٌ أسقط نفسه بديلٍ خاطئ
         //    لا يُحتسب «مُقصىً بالتصويت» ولا يفوز. فوزه حين يكون هو الهدف وحده.
@@ -412,6 +423,7 @@ export async function resolveVoting(roomId: string): Promise<VoteResolution> {
             // إضافة المنتحر لقائمة المُقصين لتظهر في الواجهة
             eliminated.push(twinResult.suicidePhysicalId!);
             revealedRoles.push({ physicalId: twinResult.suicidePhysicalId!, role: 'OLDER_BROTHER' });
+            causes.push({ physicalId: twinResult.suicidePhysicalId!, by: 'TWIN_SUICIDE' });
             console.log(`👥 Twin suicide triggered in vote: Older Brother #${twinResult.suicidePhysicalId}`);
           }
         } else if (twinResult.type === 'TRANSFORM') {
@@ -454,7 +466,7 @@ export async function resolveVoting(roomId: string): Promise<VoteResolution> {
 
   await setGameState(roomId, state);
 
-  return { type: winner.type === CandidateType.DEAL ? 'DEAL_ELIMINATION' : 'ELIMINATION', eliminated, revealedRoles, winResult, neutralWin };
+  return { type: winner.type === CandidateType.DEAL ? 'DEAL_ELIMINATION' : 'ELIMINATION', eliminated, revealedRoles, causes, deal, winResult, neutralWin };
 }
 
 // ── كسر التعادل ──────────────────────────────────

@@ -442,6 +442,10 @@ export interface GameState {
     above: { physicalId: number; name: string; role: string } | null;
     below: { physicalId: number; name: string; role: string } | null;
   } | null;
+  // 🎬 مشهد الإقصاء النهاريّ (2026-09-13): هل ضغط الموجّه «كشف الأدوار» لهذا الإقصاء؟
+  //    نتيجةُ القنبلة تُحبس في heldBombResult حتى الكشف كي لا تسبق مشهدَ الإعدام على الشاشة.
+  eliminationRevealed?: boolean;
+  heldBombResult?: any | null;
   // 🜂 لعنةُ الرماد — معلّقة بانتظار اختيار الموجّه (على قالب pendingBomb)
   pendingAshCurse?: {
     phoenixPhysicalId: number;

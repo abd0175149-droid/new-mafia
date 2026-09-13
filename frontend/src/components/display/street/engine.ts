@@ -29,6 +29,8 @@ import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { RGBELoader } from 'three/examples/jsm/loaders/RGBELoader.js';
 import * as SkeletonUtils from 'three/examples/jsm/utils/SkeletonUtils.js';
+import { ExecutionController } from './execution';
+export type { ExecFigure, ExecVictim, ExecBeat, ExecTeam } from './execution';
 
 export type StreetMode = 'night' | 'dawn' | 'day';
 export type StreetEvent = 'KILL' | 'SAVED' | 'SILENCE' | 'DISABLE' | 'SNIPE';
@@ -214,6 +216,8 @@ class StreetEngine {
   DAWN: Preset = { top: new THREE.Color(0x4f6690), hor: new THREE.Color(0xe9a878), fog: new THREE.Color(0xb99e86), fd: .012, hemi: .85, hemiC: new THREE.Color(0xffd9b0), exp: 1.0, sun: 1, lamps: 0, rain: 0 };
   DAY: Preset = { top: new THREE.Color(0x5b6472), hor: new THREE.Color(0x9a948c), fog: new THREE.Color(0x777370), fd: .014, hemi: 1.0, hemiC: new THREE.Color(0xcfd6e0), exp: .85, sun: .3, lamps: 0, rain: 0 };
   MAT!: Record<string, THREE.MeshStandardMaterial>; frontSign = 1;
+  /** ⚖️ مشهد الإقصاء النهاريّ (execution.ts) */
+  exec!: ExecutionController; retargetCache: Record<string, Record<string, THREE.AnimationClip>> = {};
 
   constructor() {
     try { this.renderer = new THREE.WebGLRenderer({ antialias: false, powerPreference: 'high-performance', preserveDrawingBuffer: false }); } catch { this.ok = false; this.from = this.to = this.NIGHT; return; }
@@ -222,7 +226,7 @@ class StreetEngine {
     this.renderer.domElement.style.cssText = 'position:absolute;inset:0;width:100%;height:100%;display:block';
     this.pmrem = new THREE.PMREMGenerator(this.renderer); this.renderer.info.autoReset = false; this.quality = detectQuality(); this.manualQuality = !!debugParam('q'); this.from = this.to = this.NIGHT;
     const bs = debugParam('brot'); if (bs === '180') this.frontSign = -1; const sh = debugParam('shot'); if (sh) setTimeout(() => { if (this.shots[sh]) { this.evShot = sh; this.shotT = 0; this.order = [sh]; this.cur = sh; } }, 1500);
-    this.build(); this.buildPost(); this.applyQuality(); this.applyPreset(this.NIGHT); this.loadAssets();
+    this.build(); this.exec = new ExecutionController(this); Object.assign(this.shots, this.exec.shots()); this.buildPost(); this.applyQuality(); this.applyPreset(this.NIGHT); this.loadAssets();
     // الظلال والانعكاس بالتناوب: المشهد كان يُرسم 4 مرّات في الإطار (عرض + انعكاس + ظلّان) — الآن ~2.2
     this.renderer.shadowMap.autoUpdate = false; /* الانعكاس يبقى كلّ إطار: تخطّيه بالتناوب أفسد نسيج البِرَك */
     this.assetsReady.then(() => this.prewarm());
@@ -321,16 +325,16 @@ class StreetEngine {
     windows.forEach((w, i) => { d.position.set(w.x, w.y, w.z); d.rotation.set(0, w.ry, 0); d.updateMatrix(); im.setMatrixAt(i, d.matrix); if (w.lit) c.setRGB(w.warm ? 2.6 : 1.2, w.warm ? 1.7 : 1.5, w.warm ? .8 : 2.2, THREE.LinearSRGBColorSpace); else c.setRGB(.08, .09, .13, THREE.LinearSRGBColorSpace); im.setColorAt(i, c); });
     im.instanceMatrix.needsUpdate = true; S.add(im); this.windows = im;
   }
-  private particles(n: number, color: number, size: number, origin: THREE.Vector3, spread: number): PS {
+  particles(n: number, color: number, size: number, origin: THREE.Vector3, spread: number): PS {
     const g = new THREE.Group(); const items: PS['items'] = [];
     for (let i = 0; i < n; i++) { const s = new THREE.Sprite(new THREE.SpriteMaterial({ map: this.soft, color, transparent: true, opacity: 0, depthWrite: false })); s.scale.set(size, size, 1); const life = rnd(); s.position.set(origin.x + (rnd() - .5) * spread, origin.y + life * 3, origin.z + (rnd() - .5) * spread); g.add(s); items.push({ s, life }); }
     this.scene.add(g); return { g, items };
   }
 
   /* ── assets ── */
-  private fit(obj: THREE.Object3D, target: number, axis: 'x' | 'y' | 'z') { const b = new THREE.Box3().setFromObject(obj); const s = new THREE.Vector3(); b.getSize(s); const k = target / (s[axis] || 1); obj.scale.multiplyScalar(k); const b2 = new THREE.Box3().setFromObject(obj); obj.position.y -= b2.min.y; return k; }
+  fit(obj: THREE.Object3D, target: number, axis: 'x' | 'y' | 'z') { const b = new THREE.Box3().setFromObject(obj); const s = new THREE.Vector3(); b.getSize(s); const k = target / (s[axis] || 1); obj.scale.multiplyScalar(k); const b2 = new THREE.Box3().setFromObject(obj); obj.position.y -= b2.min.y; return k; }
   /** أجسامٌ صلبة غير مجلَّدة داخل موديل الشخصيّة (قبّعة/عينان/فم/سيجار في Al Capone تحت RootNode لا تحت الهيكل) تبقى في وضعيّة T بينما الرأس يتحرّك — نُلحق كلّ واحدٍ بأقرب عظمة مع حفظ موضعه العالميّ */
-  private pinRigidProps(root: THREE.Object3D) {
+  pinRigidProps(root: THREE.Object3D) {
     let skinned: THREE.SkinnedMesh | null = null; root.traverse(o => { if (!skinned && (o as THREE.SkinnedMesh).isSkinnedMesh) skinned = o as THREE.SkinnedMesh; }); if (!skinned) return;
     root.updateMatrixWorld(true); const bones = (skinned as THREE.SkinnedMesh).skeleton.bones.filter(b => !/_end/i.test(b.name)); const rigid: THREE.Mesh[] = [];
     root.traverse(o => { const m = o as THREE.Mesh; if (m.isMesh && !(m as unknown as THREE.SkinnedMesh).isSkinnedMesh) rigid.push(m); });
@@ -338,7 +342,7 @@ class StreetEngine {
     rigid.forEach(m => { new THREE.Box3().setFromObject(m).getCenter(c); let best: THREE.Bone | null = null, bd = Infinity; bones.forEach(b => { b.getWorldPosition(bp); const d = bp.distanceToSquared(c); if (d < bd) { bd = d; best = b; } }); if (best) { (best as THREE.Bone).attach(m); n++; } });
     if (n) console.info('🏙️ rigid props pinned to bones:', n);
   }
-  private prep(root: THREE.Object3D, shadow = true) { root.traverse(o => { const m = o as THREE.Mesh; if (m.isMesh) { m.castShadow = shadow; m.receiveShadow = true; } }); return root; }
+  prep(root: THREE.Object3D, shadow = true) { root.traverse(o => { const m = o as THREE.Mesh; if (m.isMesh) { m.castShadow = shadow; m.receiveShadow = true; } }); return root; }
   private place(name: string, size: number, axis: 'x' | 'y' | 'z', spots: [number, number, number][], y = .16, shadow = true, sf = false) {
     return loadGLTF(sf ? SF(name) : PH(name)).then(g => { if (!g || this.disposed) return; spots.forEach(([x, z, r]) => { const m = this.prep(g.scene.clone(true), shadow); this.fit(m, size, axis); m.position.set(x, y, z); m.rotation.y = r; this.scene.add(m); }); });
   }
@@ -454,14 +458,16 @@ class StreetEngine {
   private boneTreeFromNodes(root: THREE.Object3D): THREE.Bone | null {
     let hips: THREE.Object3D | null = null; root.traverse(o => { if (!hips && /^mixamorig:?Hips$/.test(o.name)) hips = o; }); if (!hips) { console.warn('🏙️ mixamo hips not found'); return null; }
     const conv = (o: THREE.Object3D): THREE.Bone => { const b = new THREE.Bone(); b.name = o.name; b.position.copy(o.position); b.quaternion.copy(o.quaternion); b.scale.copy(o.scale); o.children.forEach(c => b.add(conv(c))); return b; };
-    return conv(hips);
+    // 🔴 الـArmature فوق الورك يحمل دوران +90° حول X (تحويل Blender من Z-up): إسقاطه كان يدير إطار المصدر كلَّه فتخرج الذراعان
+    //    إلى الأمام 45° في كلّ المقاطع (الوقوف والمشي معاً). جذرٌ يحمل دوران الأسلاف يُعيد الإطار العالميّ للمصدر مطابقاً للهدف.
+    const H = hips as THREE.Object3D; H.updateWorldMatrix(true, false); const rootBone = new THREE.Bone(); rootBone.name = 'mixamoRoot'; if (H.parent) H.parent.getWorldQuaternion(rootBone.quaternion); rootBone.add(conv(H)); return rootBone;
   }
   /**
    * إعادة توجيه حركةٍ من هيكل Mixamo إلى هيكل الشخصيّة بنقل الدوران العالميّ مع إزاحة وضعيّة الراحة
    * (كلا الهيكلين في وضعيّة T): Wt(t) = Ws(t)·O حيث O = Ws0⁻¹·Wt0، ثمّ يُحوَّل إلى دورانٍ محلّيّ هرميّاً.
    * لا تُلمس مصفوفات الربط ولا يُستدعى pose() (SkeletonUtils.retarget كان يُفسد الجلد).
    */
-  private retargetLocal(target: THREE.SkinnedMesh, srcHips: THREE.Bone, clip: THREE.AnimationClip, names: Record<string, string>): THREE.AnimationClip {
+  retargetLocal(target: THREE.SkinnedMesh, srcHips: THREE.Bone, clip: THREE.AnimationClip, names: Record<string, string>): THREE.AnimationClip {
     const fps = 30, n = Math.max(2, Math.round(clip.duration * fps)); const times = new Float32Array(n); for (let i = 0; i < n; i++) times[i] = i / fps;
     // ترتيب هرميّ لعظام الهدف (من الجذر إلى الأطراف)
     const bones = target.skeleton.bones; const set = new Set<THREE.Object3D>(bones); const roots = bones.filter(b => !b.parent || !set.has(b.parent)); const ordered: THREE.Bone[] = []; const walk = (b: THREE.Object3D) => { if (set.has(b)) ordered.push(b as THREE.Bone); b.children.forEach(walk); }; roots.forEach(walk);
@@ -497,27 +503,37 @@ class StreetEngine {
       { src: 'dotty', n: 2, kinds: ['walk', 'idle'], night: [false, true], day: [true, true], sides: [1, -1], zs: [-38, -12], h: 1.7 },
       { src: 'moneyman', glb: true, n: 1, kinds: ['seat'], night: [true], day: [true], sides: [1], zs: [-2.6], h: 1.35 },
     ];
+    // ⚖️ حركات الإقصاء (اختياريّة): إن وُجدت anim/fall.glb و anim/react_death.glb تُستخدم، وإلّا سقوطٌ إجرائيّ
+    const extra: Record<string, THREE.AnimationClip> = {}; for (const n of ['fall', 'react_death']) { const g = await loadGLTF(ANIM(n)); if (g?.animations?.[0]) extra[n] = g.animations[0]; }
+    const allClips = { ...clips, ...extra };
+    /** إعادة الاستهداف مرّةً لكلّ موديل (لا لكلّ نسخة): المقاطع المعاد استهدافها تُسمّى عظامها بالاسم فتصلح لكلّ النسخ */
+    const retargetSet = (src: string, scene: THREE.Object3D): Record<string, THREE.AnimationClip> => {
+      if (this.retargetCache[src]) return this.retargetCache[src]; const out: Record<string, THREE.AnimationClip> = {}; if (!skeleton) return out;
+      const probe = SkeletonUtils.clone(scene); let sk: THREE.SkinnedMesh | null = null; probe.traverse(o => { if (!sk && (o as THREE.SkinnedMesh).isSkinnedMesh) sk = o as THREE.SkinnedMesh; }); if (!sk) return out;
+      try { const names: Record<string, string> = {}; (sk as THREE.SkinnedMesh).skeleton.bones.forEach(b => { const base = b.name.replace(/_\d+$/, ''); if (AS_TO_MIXAMO[base]) names[b.name] = 'mixamorig' + AS_TO_MIXAMO[base]; });
+        for (const k of Object.keys(allClips)) out[k] = this.retargetLocal(sk as THREE.SkinnedMesh, skeleton, allClips[k], names);
+        console.info('🏙️ retarget', src, Object.keys(out).join(','), 'tracks', Object.values(out).map(c => c.tracks.length).join('/'), 'mapped', Object.keys(names).length);
+      } catch (e) { console.warn('🏙️ retarget failed, procedural gait:', src, String(e)); }
+      this.retargetCache[src] = out; return out;
+    };
     for (const sp of specs) {
       const g = await loadGLTF(sp.glb ? SFB(sp.src) : SF(sp.src)); if (!g || this.disposed) continue;
+      const rset = sp.kinds.every(k => k === 'seat') ? {} : retargetSet(sp.src, g.scene);
       for (let i = 0; i < sp.n; i++) {
         const root = SkeletonUtils.clone(g.scene); this.prep(root, i === 0); this.pinRigidProps(root); root.traverse(o => { if ((o as THREE.SkinnedMesh).isSkinnedMesh) o.frustumCulled = false; });
         const wrap = new THREE.Group(); wrap.add(root); this.fit(wrap, sp.h, 'y');
         const w: Walker = { root: wrap, groundY: wrap.position.y + .16 /* سطح الرصيف */, mixer: null, acts: {}, cur: '', kind: sp.kinds[i], side: sp.sides[i], z: sp.zs[i], dir: i % 2 ? 1 : -1, speed: .9 + rnd() * .4, pause: 0, night: sp.night[i], day: sp.day[i], gait: null };
         let skinned: THREE.SkinnedMesh | null = null; root.traverse(o => { if (!skinned && (o as THREE.SkinnedMesh).isSkinnedMesh) skinned = o as THREE.SkinnedMesh; });
-        if (skinned && skeleton && sp.kinds[i] !== 'seat') {
-          try {
-            const names: Record<string, string> = {}; (skinned as THREE.SkinnedMesh).skeleton.bones.forEach(b => { const base = b.name.replace(/_\d+$/, ''); if (AS_TO_MIXAMO[base]) names[b.name] = 'mixamorig' + AS_TO_MIXAMO[base]; });
-            w.mixer = new THREE.AnimationMixer(root);
-            for (const k of Object.keys(clips)) { const rc = this.retargetLocal(skinned, skeleton, clips[k], names); w.acts[k] = w.mixer.clipAction(rc); }
-            console.info('🏙️ retarget', sp.src, Object.keys(w.acts).join(','), 'tracks', Object.values(w.acts).map(a => a.getClip().tracks.length).join('/'), 'mapped', Object.keys(names).length);
-            if (!Object.keys(w.acts).length) w.mixer = null;
-          } catch (e) { console.warn('🏙️ retarget failed, procedural gait:', sp.src, String(e)); w.mixer = null; }
-        }
+        if (skinned && sp.kinds[i] !== 'seat' && Object.keys(rset).length) { w.mixer = new THREE.AnimationMixer(root); for (const k of Object.keys(rset)) w.acts[k] = w.mixer.clipAction(rset[k]); }
         if (!w.mixer && skinned) { const find = (rx: RegExp) => { const out: THREE.Object3D[] = []; (skinned as THREE.SkinnedMesh).skeleton.bones.forEach(b => { if (rx.test(b.name)) out.push(b); }); return out; }; w.gait = { hips: find(/^Hip_[RL]/), knees: find(/^Knee_[RL]/), arms: find(/^Shoulder_[RL]/) }; }
         this.scene.add(wrap); this.walkers.push(w); if (w.kind === 'lamp') this.figLamp = w;
       }
     }
     this.applyCrowdMode();
+    // ⚖️ قوالب حشد الإقصاء: الرجل نسخةٌ مخفَّفة (8.9k مثلّث بدل 29.6k) لأنّ الحشد قد يبلغ 27 نسخة؛ المرأة كما هي (5.7k)
+    const lite = await loadGLTF(SFB('gangster_lite')); const dot = await loadGLTF(SF('dotty')); if (this.disposed) return;
+    if (lite) this.exec.tpl.M = { scene: lite.scene, h: 1.85, clips: retargetSet('gangster_lite', lite.scene) };
+    if (dot) this.exec.tpl.F = { scene: dot.scene, h: 1.7, clips: retargetSet('dotty', dot.scene) };
   }
   private playW(w: Walker, k: string) { if (!w.mixer || w.cur === k) return; const a = w.acts[k] || w.acts.idle; if (!a) return; const prev = w.acts[w.cur]; if (prev && prev !== a) prev.fadeOut(.5); a.reset().fadeIn(.5).play(); w.mixer.update(0.001); w.cur = k; }
   private applyCrowdMode() {
@@ -551,8 +567,9 @@ class StreetEngine {
   }
   onQuality: ((q: Quality) => void) | null = null; manualQuality = false;
   setQuality(q: Quality) { this.quality = q; this.applyQuality(); this.onQuality?.(q); }
-  private applyQuality() {
-    const hi = this.quality === 'high' && !this.ambient, md = this.quality === 'med' || (this.quality === 'high' && this.ambient); this.renderer.setPixelRatio(hi ? Math.min(devicePixelRatio, 1.5) : md ? 1 : .75);
+  applyQuality() {
+    const amb = this.ambient && !this.exec?.on; /* أثناء مشهد الإقصاء المدينة مسرحٌ لا خلفيّة */
+    const hi = this.quality === 'high' && !amb, md = this.quality === 'med' || (this.quality === 'high' && amb); this.renderer.setPixelRatio(hi ? Math.min(devicePixelRatio, 1.5) : md ? 1 : .75);
     this.bokeh.enabled = hi; this.bloom.enabled = hi || md; this.film.enabled = hi || md; this.smaa.enabled = hi || md; this.renderer.shadowMap.enabled = hi || md; this.lamps.forEach(l => { if (l.sl) l.sl.castShadow = hi; }); this.reflector.visible = hi; this.makeRain(hi ? 1800 : md ? 900 : 0); this.resize();
   }
   private makeRain(count: number) {
@@ -560,10 +577,10 @@ class StreetEngine {
     const pos = new Float32Array(count * 6); for (let i = 0; i < count; i++) { const x = (rnd() - .5) * 40, y = rnd() * 24, z = (rnd() - .5) * 60 - 10; pos[i * 6] = x; pos[i * 6 + 1] = y; pos[i * 6 + 2] = z; pos[i * 6 + 3] = x + .04; pos[i * 6 + 4] = y - .5; pos[i * 6 + 5] = z; }
     const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.BufferAttribute(pos, 3)); this.rain = new THREE.LineSegments(g, new THREE.LineBasicMaterial({ color: 0xaab4c8, transparent: true, opacity: .28 * this.to.rain })); this.rain.userData.count = count; this.scene.add(this.rain);
   }
-  private resize() {
+  resize() {
     const el = this.container; if (!el) return; const w = Math.max(2, el.clientWidth), h = Math.max(2, el.clientHeight);
-    this.renderer.setSize(w, h, false); this.camera.aspect = w / h; if (this.frameShift) this.camera.setViewOffset(w, h, -this.frameShift * w, 0, w, h); else this.camera.clearViewOffset(); this.camera.updateProjectionMatrix(); this.composer.setSize(w, h); this.bloom.setSize(w, h); this.smaa.setSize(w * this.renderer.getPixelRatio(), h * this.renderer.getPixelRatio());
-    if (this.active) this.composer.render(0); // لا إطارَ أسود عند تغيّر القياس
+    this.renderer.setSize(w, h, false); this.camera.aspect = w / h; const fs = this.frameShift || (this.exec?.on ? .17 : 0); if (fs) this.camera.setViewOffset(w, h, -fs * w, 0, w, h); else this.camera.clearViewOffset(); this.camera.updateProjectionMatrix(); this.composer.setSize(w, h); this.bloom.setSize(w, h); this.smaa.setSize(w * this.renderer.getPixelRatio(), h * this.renderer.getPixelRatio());
+    if (this.active && !this.warming) this.composer.render(0); // لا إطارَ أسود عند تغيّر القياس (وليس أثناء الإحماء كي لا تتسرّب إضاءة الأوضاع المخفيّة)
   }
   /** إزاحة الإطار (0 = مركز، .17 = المشهد في الثلثين الأيسرين والبطاقة يميناً) */
   setFrameShift(f: number) { if (this.frameShift === f) return; this.frameShift = f; this.resize(); }
@@ -608,9 +625,9 @@ class StreetEngine {
     if (k === 'SAVED') this.ev.saved = .001; if (k === 'SILENCE') this.ev.silence = .001; if (k === 'DISABLE') { this.ev.disable = .001; this.purple.items.forEach(i => (i.life = rnd())); } if (k === 'SNIPE') { this.ev.snipe = .001; this.pigeons.forEach(p => (p.t = 0)); }
   }
   /** غطسة سوداء قصيرة يملكها المحرّك (لا حالة React) */
-  private dip(ms: number) { if (!this.dipEl) return; this.dipEl.style.opacity = '1'; setTimeout(() => { if (this.dipEl) this.dipEl.style.opacity = '0'; }, ms); }
+  dip(ms: number) { if (!this.dipEl) return; this.dipEl.style.opacity = '1'; setTimeout(() => { if (this.dipEl) this.dipEl.style.opacity = '0'; }, ms); }
   /** قطعٌ محروس: يُصفَّر العدّاد فوراً ولا يُقبل قطعٌ آخر أثناء الغطسة (كان يُستدعى كلّ إطار فيومض) */
-  private cut(name: string) { if (this.cutting) return; this.cutting = true; this.cur = name; this.shotT = 0; this.dip(260); setTimeout(() => { this.cutting = false; }, 300); }
+  cut(name: string) { if (this.cutting) return; this.cutting = true; this.cur = name; this.shotT = 0; this.dip(260); setTimeout(() => { this.cutting = false; }, 300); }
   /**
    * 🔥 الإحماء (خطّة الإحماء 2026-09-12): بعد اكتمال الأصول يُجمَّع تظليل كلّ وضعٍ ويُرسم إطارٌ مخفيّ له خارج الشاشة
    * (ليل/فجر/نهار) فتُرفع القوام كلّها إلى البطاقة، وتُلتقط صورة 1280×720 لكلّ وضع تبقى في الذاكرة.
@@ -672,7 +689,7 @@ class StreetEngine {
     if (ev.snipe > 0) { ev.snipe += dt; const fl = ev.snipe < .15 ? 1 : ev.snipe < .3 ? .4 : ev.snipe < .4 ? 1 : 0; if (!this.snipeL) { this.snipeL = new THREE.PointLight(0xfff2d0, 0, 20, 1.5); this.snipeL.position.set(FACE - 1.2, 8.6, -11); this.scene.add(this.snipeL); } this.snipeL.intensity = fl * 400; if (ev.snipe > 7) ev.snipe = 0; }
     this.pigeons.forEach(p => { if (p.t >= 0) { p.t += dt; const k = p.t; p.s.material.opacity = k < 3 ? Math.min(1, k * 4) * (1 - k / 3) : 0; p.s.position.set(p.ox + Math.sin(k * 3 + p.oz) * k * .8 - k * 1.2, 11.5 + k * 2.2 + Math.sin(k * 14) * .15, p.oz + k * 1.3); p.s.scale.set(.35, .22 * (0.5 + Math.abs(Math.sin(k * 18))), 1); if (k > 3) p.t = -1; } });
     if (this.mode === 'night') { const pulse = .5 + .5 * Math.sin(time * 1.6); this.emberLight.intensity = (this.ember.visible ? 1 : 0) * (.5 + pulse * .7); if (this.figLamp) { const hp = this.figLamp.root.position; this.ember.position.set(hp.x + .2, 1.45, hp.z + .3); this.emberLight.position.copy(this.ember.position); } } else this.emberLight.intensity = 0;
-    this.updateCrowd(dt, time);
+    this.updateCrowd(dt, time); this.exec.update(dt, time);
     this.laundry.forEach(l => { l.m.rotation.x = Math.sin(time * 1.4 + l.ph) * .04; });
     if (this.rain && (this.rain.material as THREE.LineBasicMaterial).opacity > 0) { const a = (this.rain.geometry.attributes.position as THREE.BufferAttribute).array as Float32Array, n = this.rain.userData.count as number; for (let i = 0; i < n; i++) { a[i * 6 + 1] -= dt * 16; a[i * 6 + 4] -= dt * 16; if (a[i * 6 + 1] < 0) { a[i * 6 + 1] += 24; a[i * 6 + 4] += 24; } } (this.rain.geometry.attributes.position as THREE.BufferAttribute).needsUpdate = true; this.rain.position.set(this.camera.position.x, 0, this.camera.position.z + 10); }
     const upd = (ps: PS, origin: THREE.Vector3, speed: number, spread: number, maxLife: number, alpha: number, grow: number) => { ps.items.forEach(it => { it.life += dt / maxLife; if (it.life > 1) { it.life = 0; it.s.position.set(origin.x + (rnd() - .5) * spread, origin.y, origin.z + (rnd() - .5) * spread); it.vx = (rnd() - .5) * .3; it.vz = (rnd() - .5) * .3; } it.s.position.y += dt * speed; it.s.position.x += (it.vx || 0) * dt; it.s.position.z += (it.vz || 0) * dt; const l = it.life; it.s.material.opacity = alpha * Math.sin(l * Math.PI); const sc = 1 + l * grow; it.s.scale.set(sc, sc, 1); }); };
@@ -680,7 +697,7 @@ class StreetEngine {
     // camera (بالساعة الحقيقيّة)
     const s = this.shots[this.evShot || this.cur]; this.shotT += dtRaw; const t = Math.min(1, this.shotT / s.len); const [p, l] = s.at(t); const k = (a: number) => 1 - Math.pow(1 - a, dtRaw * 60); this._p.lerp(p, k(this.evShot ? .35 : .12)); this._l.lerp(l, k(.12)); this.sway.set(Math.sin(time * .7) * .03, Math.sin(time * 1.1) * .02, 0); this.camera.position.copy(this._p).add(this.sway); this.camera.lookAt(this._l); this.camera.fov += (s.fov - this.camera.fov) * .08; this.camera.updateProjectionMatrix();
     if (this.evShot) { if (this.shotT >= s.len) { this.evShot = null; this.cut(this.cur); } } else if (this.shotT >= s.len && !this.cutting) { this.oi = (this.oi + 1) % this.order.length; this.cut(this.order[this.oi]); }
-    const d = this.camera.position.distanceTo(this.evShot === 'KILL' ? this.hat.position : (this.figLamp?.root.position || this.car.position)); (this.bokeh.uniforms as any).focus.value += (d - (this.bokeh.uniforms as any).focus.value) * .1;
+    const d = this.camera.position.distanceTo(this.exec.focus() || (this.evShot === 'KILL' ? this.hat.position : (this.figLamp?.root.position || this.car.position))); (this.bokeh.uniforms as any).focus.value += (d - (this.bokeh.uniforms as any).focus.value) * .1;
     if (this.frameIndex % 2 === 0) this.renderer.shadowMap.needsUpdate = true;
     this.composer.render(dtRaw);
     if (this.transPending) { this.transPending = false; this.lastTransitionMs = Math.round(performance.now() - this.transMarkAt); }

@@ -29,7 +29,7 @@ import { scheduleRevealGrace, clearRevealGrace } from '../game/reveal-grace.js';
 import { processTwinBond, applySuicide, applyTransform } from '../game/twin-engine.js';
 import { notifyTwinTransform } from './twin-notify.js';
 import { clearGameTimer, adjustGameTimer } from '../game/game-timer.js';
-import { emitStateSanitized, emitPhaseChangedSanitized } from './broadcast.util.js';
+import { emitStateSanitized, emitPhaseChangedSanitized, emitEliminationPending, spectatorRoom, emitTrustedOnly } from './broadcast.util.js';
 import {
   isMayorEligible,
   mayorVoteWeight,
@@ -943,10 +943,14 @@ export function registerDayEvents(io: Server, socket: Socket) {
       state.pendingResolution = {
         eliminated: [],
         revealedRoles: [],
+        causes: [],
+        deal: null,
         winResult: WinResult.GAME_CONTINUES,
         type: 'MAYOR_POSTPONED',
         neutralWin: null,
       } as any;
+      state.eliminationRevealed = false;
+      state.heldBombResult = null;
       state.withdrawalState = null;
       state.justificationData = null;
       state.phase = Phase.DAY_ELIMINATION;
@@ -956,9 +960,11 @@ export function registerDayEvents(io: Server, socket: Socket) {
       io.to(data.roomId).emit('day:mayor-revealed', { ...revealPayload, savedPhysicalId: (window.winner as any).targetPhysicalId ?? null });
       io.to(data.roomId).emit('day:mayor-window-closed', {});
       await emitPhaseChangedSanitized(io, data.roomId, { phase: Phase.DAY_ELIMINATION, state });
-      io.to(data.roomId).emit('day:elimination-pending', {
+      await emitEliminationPending(io, data.roomId, {
         eliminated: [],
         revealedRoles: [],
+        causes: [],
+        deal: null,
         winResult: WinResult.GAME_CONTINUES,
         type: 'MAYOR_POSTPONED',
         pendingBomb: null,
@@ -1034,14 +1040,35 @@ export function registerDayEvents(io: Server, socket: Socket) {
         }
       }
 
+      // 🎬 مصدرُ الحقيقة هو الخادم (pendingResolution) لا ما أرسله الموجّه؛ الأسبابُ والديل يُستخرجان منه
+      const pr: any = currentState?.pendingResolution || {};
+      const eliminatedIds: number[] = Array.isArray(pr.eliminated) && pr.eliminated.length ? pr.eliminated : (result.eliminated || []);
+      const revealedRolesOut = Array.isArray(pr.revealedRoles) && pr.revealedRoles.length ? pr.revealedRoles : (result.revealedRoles || []);
+      const causesOut = Array.isArray(pr.causes) ? pr.causes : eliminatedIds.map((id: number) => ({ physicalId: id, by: result.type === 'DEAL_ELIMINATION' ? 'DEAL' : 'DAY_VOTE' }));
+      const pendingSecondary: string[] = [];
+      if (currentState?.pendingBomb || currentState?.heldBombResult) pendingSecondary.push('BOMB');
+      if (currentState?.pendingAshCurse) pendingSecondary.push('ASH');
       io.to(data.roomId).emit('day:elimination-revealed', {
-        eliminated: result.eliminated,
-        revealedRoles: result.revealedRoles,
-        type: result.type,
+        eliminated: eliminatedIds,
+        revealedRoles: revealedRolesOut,
+        causes: causesOut,
+        deal: pr.deal || null,
+        pendingSecondary,
+        type: pr.type || result.type,
         pendingWinner,
         teamCounts: currentState ? getTeamCounts(currentState.players) : undefined,
-        confrontationNotes: currentState ? confrontationNotes(currentState, result.eliminated || []) : {},   // 🗳️ «وُوجه وخسر النبض»
+        confrontationNotes: currentState ? confrontationNotes(currentState, eliminatedIds) : {},   // 🗳️ «وُوجه وخسر النبض»
       });
+      // 💣 نتيجةُ القنبلة المحبوسة (قرار المالك 2026-09-13): تُبثّ الآن، بعد الكشف لا قبله — للجميع عدا الموجّه (وصلته لحظة القرار)
+      if (currentState) {
+        currentState.eliminationRevealed = true;
+        if (currentState.heldBombResult) {
+          const held = currentState.heldBombResult; currentState.heldBombResult = null;
+          for (const s of await io.in(data.roomId).fetchSockets()) if (s.data.role !== 'leader') s.emit('day:bomb-result', held);
+          io.to(spectatorRoom(data.roomId)).emit('day:bomb-result', held);
+        }
+        await setGameState(data.roomId, currentState);
+      }
 
       // 🜂 لعنةُ الرماد **بعد** الكشف (قرارُ المالك 2026-08-29).
       //
@@ -1178,7 +1205,7 @@ export function registerDayEvents(io: Server, socket: Socket) {
               const suicideEvent = applySuicide(state, twinResult);
               if (suicideEvent) {
                 checkPolicewomanTrigger(state, twinResult.suicidePhysicalId!);
-                io.to(data.roomId).emit('display:morning-event', {
+                await emitTrustedOnly(io, data.roomId, 'display:morning-event', {
                   type: 'TWIN_SUICIDE',
                   targetPhysicalId: twinResult.suicidePhysicalId,
                   targetName: twinResult.suicideName,
@@ -1221,14 +1248,22 @@ export function registerDayEvents(io: Server, socket: Socket) {
 
       await setGameState(data.roomId, state);
 
-      // بث النتيجة
-      io.to(data.roomId).emit('day:bomb-result', {
+      // بث النتيجة — 🎬 إن لم يُكشف الإقصاءُ بعد تُحبس للغرفة حتى «كشف الأدوار» (الموجّه يستلمها الآن لتُغلق شاشتُه)
+      const bombPayload = {
         bombEliminated,
         bombRevealedRoles,
         bombRR: totalBombRR,
         winResult,
         teamCounts: getTeamCounts(state.players),
-      });
+      };
+      if (state.eliminationRevealed === false) {
+        state.heldBombResult = bombPayload;
+        await setGameState(data.roomId, state);
+        for (const s of await io.in(data.roomId).fetchSockets()) if (s.data.role === 'leader') s.emit('day:bomb-result', bombPayload);
+        console.log(`💣 Bomb result held until reveal — room ${data.roomId}`);
+      } else {
+        io.to(data.roomId).emit('day:bomb-result', bombPayload);
+      }
 
       console.log(`💣 Bomb decision executed: eliminated ${bombEliminated.join(', ') || 'none'}, RR: ${totalBombRR}`);
       callback({ success: true, bombEliminated, bombRR: totalBombRR, winResult });
@@ -1260,6 +1295,8 @@ export function registerDayEvents(io: Server, socket: Socket) {
         for (const s of await io.in(data.roomId).fetchSockets()) {
           if (s.data.role === 'leader') s.emit('day:ash-curse-closed', {});
         }
+        // 🎬 الشاشة تنتظر ضحيّةً ثانية بعد الكشف — تُبلَّغ أن لا أحد (أنواعٌ فقط)
+        await emitTrustedOnly(io, data.roomId, 'display:execution-secondary-cancelled', { kind: 'ASH' });
         console.log(`🜂 Ash curse skipped by leader — room ${data.roomId}`);
         return callback({ success: true, skipped: true });
       }
@@ -1378,6 +1415,7 @@ export function registerDayEvents(io: Server, socket: Socket) {
         const revealedRoles: { physicalId: number; role: string }[] = [];
         // 🃏 من سقط لأنّ اتفاقيته خابت — ليس هدف تصويتٍ فلا يفوز به مهرج
         const dealBackfireIds = new Set<number>();
+        const twinSuicideIds = new Set<number>();
 
         if (data.tiedCandidates) {
           for (const candidate of data.tiedCandidates) {
@@ -1458,7 +1496,8 @@ export function registerDayEvents(io: Server, socket: Socket) {
                   // (مطابق لمسار التصويت العادي في vote-engine.ts)
                   eliminated.push(twinResult.suicidePhysicalId!);
                   revealedRoles.push({ physicalId: twinResult.suicidePhysicalId!, role: 'OLDER_BROTHER' });
-                  io.to(data.roomId).emit('display:morning-event', {
+                  twinSuicideIds.add(twinResult.suicidePhysicalId!);
+                  await emitTrustedOnly(io, data.roomId, 'display:morning-event', {
                     type: 'TWIN_SUICIDE',
                     targetPhysicalId: twinResult.suicidePhysicalId,
                     targetName: twinResult.suicideName,
@@ -1511,29 +1550,37 @@ export function registerDayEvents(io: Server, socket: Socket) {
         }
 
         // تغيير المرحلة لـ DAY_ELIMINATION
+        const allCauses = eliminated.map(id => ({ physicalId: id, by: dealBackfireIds.has(id) ? 'DEAL_BACKFIRE' : twinSuicideIds.has(id) ? 'TWIN_SUICIDE' : 'ELIMINATE_ALL' }));
         state.phase = Phase.DAY_ELIMINATION;
         state.pendingResolution = {
           eliminated,
           revealedRoles,
+          causes: allCauses,
+          deal: null,
           winResult,
           type: 'ELIMINATE_ALL',
           neutralWin: neutralWin || null,
         } as any;
+        state.eliminationRevealed = false;
+        state.heldBombResult = null;
         await setGameState(data.roomId, state);
         await setPhase(data.roomId, Phase.DAY_ELIMINATION);
 
         // بث تغيير المرحلة مع الحالة (لمنع فقدان pendingBomb)
         await emitPhaseChangedSanitized(io, data.roomId, { phase: Phase.DAY_ELIMINATION, state });
 
-        // بث الإقصاء مع نتيجة الفوز والقنبلة
-        io.to(data.roomId).emit('day:elimination-pending', {
+        // بث الإقصاء مع نتيجة الفوز والقنبلة (الأدوار والقنبلة للموثوقين فقط)
+        await emitEliminationPending(io, data.roomId, {
           eliminated,
           revealedRoles,
+          causes: allCauses,
+          deal: null,
           type: 'ELIMINATE_ALL',
           winResult,
           pendingBomb: state.pendingBomb || null,
           neutralWin: neutralWin || null,
         });
+        await emitExecutionManifest(io, data.roomId, state, eliminated.length, allCauses);
 
         // 🜂 لا نافذةَ رمادٍ هنا: تُفتح بعد الكشف (day:trigger-reveal)
 
@@ -2029,6 +2076,14 @@ async function emitMayorWindow(io: Server, roomId: string, state: any, window: a
   }
 }
 
+// 🎬 بيانُ مشهد الإقصاء لشاشة القاعة (2026-09-13): أعدادٌ وأنواعٌ فقط، بلا أرقامٍ ولا أدوار —
+//    كي تُحمّي الشاشةُ الحشدَ والحركات قبل أن يضغط الموجّه «كشف الأدوار».
+async function emitExecutionManifest(io: Server, roomId: string, state: any, count: number, causes: { by: string }[]) {
+  const secondary = state?.pendingBomb ? 'BOMB' : state?.pendingAshCurse ? 'ASH'
+    : causes.some(c => c.by === 'DEAL_BACKFIRE' || c.by === 'TWIN_SUICIDE') ? 'INLINE' : 'NONE';
+  await emitTrustedOnly(io, roomId, 'display:execution-manifest', { count, secondary });
+}
+
 // تنفيذ الإقصاء فعليّاً (المسار الأصليّ حرفيّاً) — يُستدعى من execute-elimination
 // ومن day:mayor-decision(PASS) حتى لا يتكرّر المنطق.
 async function performElimination(io: Server, roomId: string) {
@@ -2050,24 +2105,31 @@ async function performElimination(io: Server, roomId: string) {
       stateAfter.pendingResolution = {
         eliminated: result.eliminated,
         revealedRoles: result.revealedRoles,
+        causes: result.causes,
+        deal: result.deal || null,
         winResult: result.winResult,
         type: result.type,
         neutralWin: result.neutralWin || null,
       } as any;
+      stateAfter.eliminationRevealed = false;
+      stateAfter.heldBombResult = null;
       stateAfter.phase = Phase.DAY_ELIMINATION;
       await setGameState(roomId, stateAfter);
     }
     await setPhase(roomId, Phase.DAY_ELIMINATION);
     // ⚠️ مهم: إرسال state مع phase-changed لمنع REST fallback من مسح pendingBomb
     await emitPhaseChangedSanitized(io, roomId, { phase: Phase.DAY_ELIMINATION, state: stateAfter });
-    io.to(roomId).emit('day:elimination-pending', {
+    await emitEliminationPending(io, roomId, {
       eliminated: result.eliminated,
       revealedRoles: result.revealedRoles,
+      causes: result.causes,
+      deal: result.deal || null,
       winResult: result.winResult,
       type: result.type,
       pendingBomb: stateAfter?.pendingBomb || null,
       neutralWin: result.neutralWin || null,
     });
+    await emitExecutionManifest(io, roomId, stateAfter, result.eliminated.length, result.causes);
     console.log(`📦 elimination-pending sent — pendingBomb: ${JSON.stringify(stateAfter?.pendingBomb || null)}${result.neutralWin?.won ? ' — 🤡 JESTER WIN!' : ''}`);
     // 🜂 لا نافذةَ رمادٍ هنا: تُفتح بعد الكشف (day:trigger-reveal)
     console.log(`📦 eliminated: ${result.eliminated}, revealedRoles: ${JSON.stringify(result.revealedRoles)}`);

@@ -11,6 +11,9 @@ import EliminationFx from '@/components/EliminationFx';
 import DiscussionQueueRail from './DiscussionQueueRail';
 import DisplayConfrontation from './DisplayConfrontation';
 import { useDisplayViewport, computeCardGrid, CardZoom, GridRows, totalZoomOf } from '@/components/display/viewport';
+// ⚖️ مشهد الإقصاء النهاريّ فوق مدينة الشارع (قرارات المالك 2026-09-13) — يحلّ محلّ مراسم البطاقات حين يتوفّر المحرّك؛ وإلّا المراسم القديمة
+import ExecutionCeremony, { executionSceneAvailable, type ExecEntry } from '@/components/display/ExecutionCeremony';
+import { getStreetEngine } from '@/components/display/street/engine';
 
 // 🔊 لا نداءَ صوتٍ محلّيٍّ في هذه الشاشة — الموجّه هو المصدر (setLocalPlayback(false)).
 //    المؤقّتُ والتصويتُ وكشفُ المُسكَت واكتمالُ التصويت تُعزف عنده وتصل مرآةً.
@@ -54,6 +57,12 @@ export default function DisplayDayView({ roomId, players, initialDiscussionState
   const [eliminatedIds, setEliminatedIds] = useState<number[]>([]);
   const [revealedRoles, setRevealedRoles] = useState<any[]>([]);
   const [revealType, setRevealType] = useState<string>('');
+  // ⚖️ مشهد الإقصاء: سبب كلّ خروج (من الخادم)، ما ينتظر بعده (قنبلة/رماد)، وضحايا الحشد اللاحقون
+  const [causes, setCauses] = useState<Record<number, string>>({});
+  const [pendingSecondary, setPendingSecondary] = useState<string[]>([]);
+  const [secondaryVictims, setSecondaryVictims] = useState<ExecEntry[]>([]);
+  const [sceneMode, setSceneMode] = useState(false); const sceneModeRef = useRef(false);
+  const playersRef = useRef<any[]>(players); useEffect(() => { playersRef.current = players; }, [players]);
 
   // Justification UI States
   const [justificationData, setJustificationData] = useState<any>(null);
@@ -277,6 +286,10 @@ export default function DisplayDayView({ roomId, players, initialDiscussionState
       setConfrontationNotes(data.confrontationNotes || {});
       setRevealedRoles(data.revealedRoles);
       setRevealType(data.type);
+      // ⚖️ المشهد ثلاثيّ الأبعاد إن كان المحرّك جاهزاً (وليس على الملصق)؛ الأسباب والانتظار من الخادم
+      const cz: Record<number, string> = {}; (data.causes || []).forEach((c: any) => { cz[c.physicalId] = c.by; }); setCauses(cz);
+      setPendingSecondary(Array.isArray(data.pendingSecondary) ? data.pendingSecondary : []); setSecondaryVictims([]);
+      const scene = executionSceneAvailable() && (data.revealedRoles || []).length > 0; sceneModeRef.current = scene; setSceneMode(scene);
       // تحديث عداد الفرق فقط بعد كشف الهوية — وليس قبلها
       if (data.teamCounts) {
         setLocalTeamCounts(data.teamCounts);
@@ -326,6 +339,12 @@ export default function DisplayDayView({ roomId, players, initialDiscussionState
 
     // 💣 نتيجة القنبلة — بعد قرار الليدر
     const onBombResult = (data: any) => {
+      if (sceneModeRef.current) {
+        // ⚖️ في المشهد: ضحايا القنبلة يسقطون من بين الحشد بدل مراسم منفصلة
+        setSecondaryVictims(prev => [...prev, ...((data.bombRevealedRoles || []) as any[]).map(r => ({ physicalId: r.physicalId, role: r.role, cause: 'GODFATHER_BOMB', key: `bomb:${r.physicalId}` }))]);
+        setPendingSecondary(prev => prev.filter(k => k !== 'BOMB'));
+        return;
+      }
       setBombData({
         bombEliminated: data.bombEliminated || [],
         bombRevealedRoles: data.bombRevealedRoles || [],
@@ -349,9 +368,24 @@ export default function DisplayDayView({ roomId, players, initialDiscussionState
     socket.on('day:justification-timer-stopped', onJustificationTimerStopped);
     // 🜂 لعنةُ الرماد — نتيجةٌ فقط. النافذةُ نفسُها لا تصل هنا أبداً (سرُّ الموجّه).
     const onAshResult = (data: any) => {
+      if (sceneModeRef.current) {
+        setSecondaryVictims(prev => [...prev, { physicalId: data.targetPhysicalId, role: data.revealedRole, cause: 'ASH_CURSE', key: `ash:${data.targetPhysicalId}` }]);
+        setPendingSecondary(prev => prev.filter(k => k !== 'ASH'));
+        return;
+      }
       setAshData(data);
       setPhase('ASH');
     };
+    // ⚖️ الموجّه تخطّى الرماد: لا ضحيّة ثانية — الحشد يتفرّق
+    const onSecondaryCancelled = () => { setPendingSecondary([]); getStreetEngine()?.exec.end(); };
+    // ⚖️ تلميح الموجّه (مرّ على زرّ الكشف): الحشد يبدأ التجمّع قبل الضغط، ويعود إن تراجع
+    const onHint = (data: { kind?: string }) => {
+      const eng = getStreetEngine(); if (!eng) return;
+      if (data?.kind === 'execution-arming' && executionSceneAvailable()) eng.exec.arm(playersRef.current.filter((p: any) => p.isAlive !== false).map((p: any) => ({ id: p.physicalId, gender: p.gender === 'FEMALE' ? 'F' : 'M' })));
+      else if (data?.kind === 'execution-disarm') eng.exec.disarm();
+    };
+    socket.on('display:execution-secondary-cancelled', onSecondaryCancelled);
+    socket.on('display:hint', onHint);
 
     socket.on('day:bomb-result', onBombResult);
     socket.on('day:ash-curse-result', onAshResult);
@@ -469,6 +503,8 @@ export default function DisplayDayView({ roomId, players, initialDiscussionState
       socket.off('day:justification-timer-stopped', onJustificationTimerStopped);
       socket.off('day:bomb-result', onBombResult);
       socket.off('day:ash-curse-result', onAshResult);
+      socket.off('display:execution-secondary-cancelled', onSecondaryCancelled);
+      socket.off('display:hint', onHint);
       socket.off('day:mayor-revealed', onMayorRevealed);
       socket.off('day:voting-complete', onVotingComplete);
       socket.off('day:withdrawal-update', onWithdrawalUpdate);
@@ -1270,6 +1306,14 @@ export default function DisplayDayView({ roomId, players, initialDiscussionState
               <h2 className="text-6xl font-black text-[#C5A059] mb-4" style={{ fontFamily: 'Amiri, serif' }}>العمدة أجّل الإعدام</h2>
               <p className="text-[#9a8f7d] text-2xl" style={{ fontFamily: 'Amiri, serif' }}>لا موت اليوم — الليلة تبدأ</p>
             </motion.div>
+          ) : sceneMode ? (
+            <ExecutionCeremony key="execution-scene"
+              players={players}
+              primary={revealedRoles.filter((r: any) => causes[r.physicalId] !== 'DEAL_BACKFIRE' && causes[r.physicalId] !== 'TWIN_SUICIDE').map((r: any) => ({ physicalId: r.physicalId, role: r.role, cause: causes[r.physicalId] || (revealType === 'DEAL_ELIMINATION' ? 'DEAL' : revealType === 'ELIMINATE_ALL' ? 'ELIMINATE_ALL' : 'DAY_VOTE') }))}
+              secondary={[...revealedRoles.filter((r: any) => causes[r.physicalId] === 'DEAL_BACKFIRE' || causes[r.physicalId] === 'TWIN_SUICIDE').map((r: any) => ({ physicalId: r.physicalId, role: r.role, cause: causes[r.physicalId], key: `inline:${r.physicalId}` })), ...secondaryVictims]}
+              holdForSecondary={pendingSecondary.length > 0}
+              notes={confrontationNotes}
+              subtitle={revealType === 'DEAL_ELIMINATION' ? 'DEAL EXECUTION — IDENTITY REVEAL' : revealType === 'ELIMINATE_ALL' ? 'ELIMINATE ALL' : 'IDENTITY DECLASSIFIED'} />
           ) : (
             <RevealCeremony players={players} revealedRoles={revealedRoles} revealType={revealType} notes={confrontationNotes} />
           )

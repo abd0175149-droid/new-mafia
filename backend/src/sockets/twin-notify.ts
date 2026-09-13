@@ -7,6 +7,7 @@
 import type { Server } from 'socket.io';
 import { Role, isMafiaRole } from '../game/roles.js';
 import { Phase, ROLE_NAMES_AR } from '../game/state.js';
+import { emitTrustedOnly } from './broadcast.util.js';
 
 // إرسال حدث لكل اتصالات لاعب محدّد عبر physicalId
 function emitToPlayer(io: Server, roomId: string, physicalId: number, event: string, payload: any) {
@@ -60,7 +61,8 @@ export function notifyTwinTransform(io: Server, roomId: string, state: any) {
 
   // 3) الإظهار على شاشة العرض (النهار فقط — الليل يُكشف من الملخص)
   if (state.phase !== Phase.MORNING_RECAP) {
-    io.to(roomId).emit('display:morning-event', {
+    // 🔒 دورٌ جديد في الحمولة — للموجّه وشاشة القاعة فقط (2026-09-13)
+    void emitTrustedOnly(io, roomId, 'display:morning-event', {
       type: 'TWIN_TRANSFORM',
       targetPhysicalId: younger.physicalId,
       targetName: younger.name,

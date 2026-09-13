@@ -43,6 +43,32 @@ export function stripSecrets(state: any): any {
   };
 }
 
+/**
+ * 🎬 أسرارُ ما قبل الكشف (2026-09-13): بين «بانتظار القرار» و«كشف الأدوار» تحمل الحالةُ
+ *    أدوارَ المُقصَين (pendingResolution.revealedRoles) وأدوارَ جيران القنبلة — بل وجودُ
+ *    pendingBomb نفسُه يفضح أنّ المُقصى شيخُ المافيا. تُحذف من كلّ ما يصل غيرَ الموثوقين.
+ */
+export function stripEliminationSecrets(state: any): any {
+  if (!state) return state;
+  const out: any = { ...state };
+  if (out.pendingResolution) out.pendingResolution = { ...out.pendingResolution, revealedRoles: [], causes: undefined, deal: undefined };
+  if (out.pendingBomb) out.pendingBomb = null;
+  if (out.heldBombResult) out.heldBombResult = null;
+  return out;
+}
+
+/**
+ * 🎬 «بانتظار القرار» بلا أسرار: الغرفةُ تعرف مَن خرج (الأرقام) لا أدوارَهم ولا القنبلة؛
+ *    الموجّه وشاشةُ القاعة يستلمان الحمولةَ كاملةً (الموجّه يحتاج pendingBomb لشاشة القرار).
+ *    كان بثّاً عامّاً يحمل revealedRoles وأدوار الجيران قبل الكشف — يُقرأ من أدوات المطوّر على أيّ هاتف.
+ */
+export async function emitEliminationPending(io: Server, roomId: string, payload: any): Promise<void> {
+  const publicPayload = { ...payload, revealedRoles: [], pendingBomb: null, causes: undefined, deal: undefined };
+  const sockets = await io.in(roomId).fetchSockets();
+  for (const s of sockets) s.emit('day:elimination-pending', isTrusted(s) ? payload : publicPayload);
+  io.to(spectatorRoom(roomId)).emit('day:elimination-pending', publicPayload);
+}
+
 function isTrusted(sock: any): boolean {
   const role = sock?.data?.role;
   return role === 'leader' || role === 'display';
@@ -100,10 +126,17 @@ export async function emitPhaseChangedSanitized(
   const spectatorPayload = state ? { ...payload, state: stripSecrets(state) } : payload;
   io.to(spectatorRoom(roomId)).emit('game:phase-changed', spectatorPayload); // 👁️ معقّمة دائماً
   if (!state?.config?.isRemote) {
+    // 🎬 محلّيّاً كما كان — إلّا أسرارَ ما قبل الكشف فتُحذف عن غير الموثوقين (2026-09-13)
+    if (state && (state.pendingResolution || state.pendingBomb || state.heldBombResult)) {
+      const localStripped = { ...payload, state: stripEliminationSecrets(state) };
+      const socks = await io.in(roomId).fetchSockets();
+      for (const s of socks) s.emit('game:phase-changed', isTrusted(s) ? payload : localStripped);
+      return;
+    }
     io.to(roomId).emit('game:phase-changed', payload); // بلا state أو محلي: بلا تغيير
     return;
   }
-  const strippedPayload = { ...payload, state: stripSecrets(state) };
+  const strippedPayload = { ...payload, state: stripEliminationSecrets(stripSecrets(state)) };
   const sockets = await io.in(roomId).fetchSockets();
   for (const s of sockets) {
     s.emit('game:phase-changed', isTrusted(s) ? payload : strippedPayload);

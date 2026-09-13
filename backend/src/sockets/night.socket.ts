@@ -535,10 +535,10 @@ export function registerNightEvents(io: Server, socket: Socket) {
 
   // ── بدء مرحلة الليل ──────────────────────────
   // ── 🔮 تلميحات الموجّه المبكّرة للشاشة (خطّة الإحماء 2026-09-12): تحمل نوع التلميح فقط ──
-  socket.on('display:hint', async (data: { roomId: string; kind: 'night-arming' | 'night-disarm' }, callback?) => {
+  socket.on('display:hint', async (data: { roomId: string; kind: 'night-arming' | 'night-disarm' | 'execution-arming' | 'execution-disarm' }, callback?) => {
     if (socket.data.authStaff) socket.data.role = 'leader';
     if (socket.data.role !== 'leader') return callback?.({ success: false, error: 'Only leader' });
-    if (data?.kind !== 'night-arming' && data?.kind !== 'night-disarm') return callback?.({ success: false, error: 'bad hint' });
+    if (!['night-arming', 'night-disarm', 'execution-arming', 'execution-disarm'].includes(data?.kind)) return callback?.({ success: false, error: 'bad hint' });
     await emitTrustedOnly(io, data.roomId, 'display:hint', { kind: data.kind });
     callback?.({ success: true });
   });

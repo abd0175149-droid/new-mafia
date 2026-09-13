@@ -1547,6 +1547,12 @@ export default function LeaderDayView({ gameState, emit, setError }: LeaderDayVi
 
         <button
           onClick={handleTriggerReveal}
+          // ⚖️ تلميح مبكّر للشاشة: لمس/تمرير فوق زرّ الكشف يجمّع الحشد هناك، والابتعاد بلا ضغط يفرّقه
+          onPointerEnter={() => { emit('display:hint', { roomId: gameState.roomId, kind: 'execution-arming' }).catch(() => {}); }}
+          onTouchStart={() => { emit('display:hint', { roomId: gameState.roomId, kind: 'execution-arming' }).catch(() => {}); }}
+          onFocus={() => { emit('display:hint', { roomId: gameState.roomId, kind: 'execution-arming' }).catch(() => {}); }}
+          onPointerLeave={() => { emit('display:hint', { roomId: gameState.roomId, kind: 'execution-disarm' }).catch(() => {}); }}
+          onBlur={() => { emit('display:hint', { roomId: gameState.roomId, kind: 'execution-disarm' }).catch(() => {}); }}
           className="btn-premium px-12 py-5 !text-lg !border-[#8A0303] animate-pulse"
         >
           <span className="text-white">DECLASSIFY AND REVEAL IDENTITY 💀</span>
