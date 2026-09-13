@@ -19,7 +19,7 @@ export type ExecBeat = { name: ExecBeatName; victimId: number | null; primary: b
 export type ExecTemplate = { scene: THREE.Object3D; h: number; clips: Record<string, THREE.AnimationClip> };
 
 type Fig = { id: number; gender: 'M' | 'F'; root: THREE.Group; tilt: THREE.Group; mixer: THREE.AnimationMixer | null; acts: Record<string, THREE.AnimationAction>; cur: string; spot: [number, number]; home: [number, number]; goal: [number, number] | null; face: [number, number] | null; act: 'idle' | 'stagger' | 'fall' | 'dead'; actT: number; flinch: number; back: number; walk: number };
-type Smoke = { ps: { items: { s: THREE.Sprite; life: number; vx?: number; vz?: number }[] }; on: boolean; t: number; origin: THREE.Vector3; light: THREE.PointLight };
+type Smoke = { ps: { g: THREE.Group; items: { s: THREE.Sprite; life: number; vx?: number; vz?: number }[] }; on: boolean; t: number; origin: THREE.Vector3; light: THREE.PointLight };
 type Beat = { t: number; fn: () => void };
 
 export const TEAM_COLOR: Record<ExecTeam, number> = { CITIZEN: 0x4aa3ff, MAFIA: 0xff3b3b, NEUTRAL: 0xffd23f };
@@ -47,7 +47,7 @@ export class ExecutionController {
     const [p, l] = E.shots.EX_WIDE.at(0); const camP = E.camera.position.clone(), camQ = E.camera.quaternion.clone(); E.camera.position.copy(p); E.camera.lookAt(l);
     try { await E.renderer.compileAsync(E.scene, E.camera); E.renderer.shadowMap.needsUpdate = true; E.composer.renderToScreen = false; E.composer.render(1 / 30); } catch { /* noop */ } finally { E.composer.renderToScreen = true; }
     probes.forEach(f => this.remove(f)); E.camera.position.copy(camP); E.camera.quaternion.copy(camQ); E.evShot = savedEv; E.shotT = savedT; this.on = savedOn; E.applyQuality(); E.warming = false;
-    this.warmed = true; console.info('⚖️ execution scene warmed (hi-quality passes + crowd)', Math.round(performance.now() - t0), 'ms');
+    this.warmed = true; E.readyAt = performance.now(); E.probe = { frames: 0, t: 0, done: false }; /* فحص الإطارات يُعاد بعد اكتمال كلّ الأصول لا قبلها */ console.info('⚖️ execution scene warmed (hi-quality passes + crowd)', Math.round(performance.now() - t0), 'ms');
   }
 
   /* ── لقطات المشهد (تُدمج في جدول لقطات المحرّك) ── */
@@ -91,16 +91,16 @@ export class ExecutionController {
   /** يبني الحشد لقائمة الأحياء (يعيد استخدام الموجودين، يضيف الناقصين، يحذف الزائدين) */
   private ensureCrowd(alive: ExecFigure[], instant: boolean) {
     const keep = new Set(alive.map(a => a.id)); this.figs = this.figs.filter(f => { if (keep.has(f.id) || f.act === 'dead') return true; this.remove(f); return false; });
-    let k = 0; alive.forEach((a, i) => { let f = this.figs.find(x => x.id === a.id); if (!f) { const nf = this.make(a.id, a.gender, i < 8); if (!nf) return; f = nf; this.figs.push(f); const side = i % 2 ? 1 : -1; f.home = [side * (FACE - 2.2), -26 + rnd() * 20]; f.root.position.set(f.home[0], f.root.position.y, f.home[1]); f.root.rotation.y = rnd() * 6.28; }
+    let k = 0; alive.forEach((a, i) => { let f = this.figs.find(x => x.id === a.id); if (!f) { const nf = this.make(a.id, a.gender, false); /* الحشد بلا ظلال: المحكوم والضحيّة وحدهما يُظلّان */ if (!nf) return; f = nf; this.figs.push(f); const side = i % 2 ? 1 : -1; f.home = [side * (FACE - 2.2), -26 + rnd() * 20]; f.root.position.set(f.home[0], f.root.position.y, f.home[1]); f.root.rotation.y = rnd() * 6.28; }
       if (f.act === 'dead') return; f.spot = this.spotOf(k++, alive.length); if (instant) { f.root.position.set(f.spot[0], f.root.position.y, f.spot[1]); f.goal = null; f.face = [WALL.x, WALL.z]; this.play(f, 'idle'); } else { f.goal = f.spot; f.face = null; } });
   }
   private ensureFx() {
     if (this.smokes.length) return; const E = this.E as any;
-    for (let i = 0; i < 3; i++) { const ps = E.particles(70, 0xffffff, 1.4, WALL.clone(), .6); ps.items.forEach((it: any) => { it.life = 2; }); const light = new THREE.PointLight(0xffffff, 0, 7, 2); this.E.scene.add(light); this.smokes.push({ ps, on: false, t: 0, origin: WALL.clone(), light }); }
+    for (let i = 0; i < 3; i++) { const ps = E.particles(70, 0xffffff, 1.4, WALL.clone(), .6); ps.g.visible = false; /* 210 نداء رسم خامل — تُخفى حتى تشتعل */ ps.items.forEach((it: any) => { it.life = 2; }); const light = new THREE.PointLight(0xffffff, 0, 7, 2); this.E.scene.add(light); this.smokes.push({ ps, on: false, t: 0, origin: WALL.clone(), light }); }
     this.flashL = new THREE.PointLight(0xfff0c8, 0, 9, 1.6); this.E.scene.add(this.flashL); this.flashS = new THREE.Sprite(new THREE.SpriteMaterial({ map: (this.E as any).soft, color: 0xffe9b0, transparent: true, opacity: 0, depthWrite: false })); this.flashS.scale.set(.5, .5, 1); this.E.scene.add(this.flashS);
   }
   private startSmoke(pos: THREE.Vector3, team: ExecTeam) {
-    const sm = this.smokes.find(s => !s.on) || this.smokes[0]; const c = new THREE.Color(TEAM_COLOR[team]); sm.on = true; sm.t = 0; sm.origin.set(pos.x, .6, pos.z); sm.light.color.copy(c); sm.light.position.set(pos.x, 1.2, pos.z);
+    const sm = this.smokes.find(s => !s.on) || this.smokes[0]; const c = new THREE.Color(TEAM_COLOR[team]); sm.on = true; sm.ps.g.visible = true; sm.t = 0; sm.origin.set(pos.x, .6, pos.z); sm.light.color.copy(c); sm.light.position.set(pos.x, 1.2, pos.z);
     sm.ps.items.forEach(it => { it.life = 1 + rnd(); (it.s.material as THREE.SpriteMaterial).color.copy(c); });
   }
 
@@ -127,7 +127,7 @@ export class ExecutionController {
     let t = this.state === 'armed' ? Math.min(5, Math.max(1.5, remain / 2.0 + .4)) : 3.0;
     if (this.state !== 'armed') { B(0, () => { this.cut('EX_WIDE'); this.emit('gather', null, true); }); }
     primary.forEach(pv => { const t0 = t;
-      B(t0, () => { const f = this.figs.find(x => x.id === pv.id) || null; this.condemned = f; if (f) { f.goal = [WALL.x + .7, WALL.z]; f.face = [WALL.x + 5, WALL.z + .3];
+      B(t0, () => { const f = this.figs.find(x => x.id === pv.id) || null; this.condemned = f; if (f) { this.shadowOn(f); f.goal = [WALL.x + .7, WALL.z]; f.face = [WALL.x + 5, WALL.z + .3];
         // مدّة الاقتياد تتبع المسافة الفعليّة (1.15 م/ث) بين 2.5 و6 ثوانٍ؛ ما بعدها من بِيتات يُزاح بالفرق عن الـ3 ثوانٍ الافتراضيّة
         const d = Math.hypot(WALL.x + .7 - f.root.position.x, WALL.z - f.root.position.z); const dur = Math.min(6, Math.max(2.5, d / 1.15 + .6)); const shift = dur - 3.0; if (Math.abs(shift) > .05) for (let i = this.bi; i < this.beats.length; i++) this.beats[i].t += shift; }
         this.cut('EX_ESCORT'); this.emit('escort', pv.id, true); });
@@ -151,7 +151,7 @@ export class ExecutionController {
     // أزل بِيت الإنهاء/التعليق السابق (سيُعاد بعد الضحايا الجدد)
     this.beats = this.beats.filter(b => !(b as any).tail); const B = (at: number, fn: () => void) => this.beats.push({ t: at, fn });
     victims.forEach(v => { const t0 = t;
-      B(t0, () => { let f = this.figs.find(x => x.id === v.id && x.act !== 'dead') || null; if (!f) { f = this.make(v.id, v.gender, true); if (f) { f.spot = this.spotOf(this.figs.length, this.figs.length + 1); f.root.position.set(f.spot[0], f.root.position.y, f.spot[1]); f.face = [WALL.x, WALL.z]; this.play(f, 'idle'); this.figs.push(f); } } this.victim = f; this.cut('EX_PAN'); this.emit('pan', v.id, false); });
+      B(t0, () => { let f = this.figs.find(x => x.id === v.id && x.act !== 'dead') || null; if (!f) { f = this.make(v.id, v.gender, true); if (f) { f.spot = this.spotOf(this.figs.length, this.figs.length + 1); f.root.position.set(f.spot[0], f.root.position.y, f.spot[1]); f.face = [WALL.x, WALL.z]; this.play(f, 'idle'); this.figs.push(f); } } this.victim = f; if (f) this.shadowOn(f); this.cut('EX_PAN'); this.emit('pan', v.id, false); });
       B(t0 + 1.4, () => { const f = this.victim; if (f) { f.act = 'stagger'; f.actT = 0; } this.cut('EX_VICTIM'); this.emit('victim-fall', v.id, false); });
       B(t0 + 2.6, () => { if (this.victim) this.startSmoke(this.victim.root.position, v.team); this.emit('victim-smoke', v.id, false); });
       B(t0 + 3.8, () => this.emit('victim-flip', v.id, false));
@@ -167,8 +167,9 @@ export class ExecutionController {
   private finish() {
     this.state = 'ending'; this.emit('end', null, true); this.figs.forEach(f => { if (f.act === 'idle') { f.goal = f.home; f.face = null; } });
     const E = this.E as any; E.evShot = null; E.cut('A');
-    this.endTimer = setTimeout(() => { this.clearCrowd(); this.smokes.forEach(s => { s.on = false; s.light.intensity = 0; s.ps.items.forEach(it => { (it.s.material as THREE.SpriteMaterial).opacity = 0; }); }); this.state = 'idle'; this.setOn(false); this.endTimer = null; }, 9000);
+    this.endTimer = setTimeout(() => { this.clearCrowd(); this.smokes.forEach(s => { s.on = false; s.ps.g.visible = false; s.light.intensity = 0; s.ps.items.forEach(it => { (it.s.material as THREE.SpriteMaterial).opacity = 0; }); }); this.state = 'idle'; this.setOn(false); this.endTimer = null; }, 9000);
   }
+  private shadowOn(f: Fig) { f.root.traverse(o => { if ((o as THREE.Mesh).isMesh) (o as THREE.Mesh).castShadow = true; }); }
   private startFall(f: Fig) { f.act = 'fall'; f.actT = 0; if (f.acts.fall) this.play(f, 'fall', true); }
 
   /* ── كلّ إطار ── */
@@ -189,7 +190,7 @@ export class ExecutionController {
     if (this.shake > 0) { this.shake -= dt; this.E.camera.position.x += (rnd() - .5) * this.shake * .3; this.E.camera.position.y += (rnd() - .5) * this.shake * .3; }
     this.smokes.forEach(sm => { if (!sm.on) return; sm.t += dt; const alive = sm.t < 4.4; sm.light.intensity = alive ? (.7 + Math.sin(sm.t * 9) * .25) * Math.min(1, sm.t * 3) : Math.max(0, sm.light.intensity - dt * 2);
       sm.ps.items.forEach(it => { it.life += dt / 3.8; const m = it.s.material as THREE.SpriteMaterial; if (it.life > 1) { if (!alive) { m.opacity = 0; return; } it.life = 0; it.s.position.set(sm.origin.x + (rnd() - .5) * .6, sm.origin.y, sm.origin.z + (rnd() - .5) * .6); it.vx = (rnd() - .5) * .35; it.vz = (rnd() - .5) * .35; } it.s.position.y += dt * 1.15; it.s.position.x += (it.vx || 0) * dt; it.s.position.z += (it.vz || 0) * dt; m.opacity = .3 * Math.sin(it.life * Math.PI); const sc = 1 + it.life * 3; it.s.scale.set(sc, sc, 1); });
-      if (sm.t > 9) { sm.on = false; sm.light.intensity = 0; } });
+      if (sm.t > 9) { sm.on = false; sm.ps.g.visible = false; sm.light.intensity = 0; } });
     void time;
   }
 }
