@@ -211,7 +211,9 @@ class StreetEngine {
   STEAM_O = new THREE.Vector3(2.2, .1, -14); EXH_O = new THREE.Vector3(3.4, .4, -6.6);
   /** للشارة التشخيصيّة */
   lastTris = 0; lastCalls = 0; shadowEvery = 2;
-  stats() { return { mode: this.mode, quality: this.quality, ambient: this.ambient, ready: this.ready, prewarm: this.prewarmDone, prewarmMs: this.prewarmMs, lastTransitionMs: this.lastTransitionMs, active: this.active, fps: this.active ? Math.round(this.fpsEma) : 0, tris: (this.lastTris / 1000).toFixed(0) + 'k', calls: this.lastCalls }; }
+  /** اسم بطاقة الرسوميّات كما يراها المتصفّح (Intel مدمجة أم NVIDIA/AMD منفصلة) — يحسم سبب الإطارات القليلة على لابتوبات القاعة */
+  gpuName(): string { try { const gl = this.renderer.getContext(); const ext = gl.getExtension('WEBGL_debug_renderer_info'); return ext ? String(gl.getParameter(ext.UNMASKED_RENDERER_WEBGL)) : String(gl.getParameter(gl.RENDERER)); } catch { return '?'; } }
+  stats() { return { gpu: this.gpuName(), mode: this.mode, quality: this.quality, ambient: this.ambient, ready: this.ready, prewarm: this.prewarmDone, prewarmMs: this.prewarmMs, lastTransitionMs: this.lastTransitionMs, active: this.active, fps: this.active ? Math.round(this.fpsEma) : 0, tris: (this.lastTris / 1000).toFixed(0) + 'k', calls: this.lastCalls }; }
   NIGHT: Preset = { top: new THREE.Color(0x02030a), hor: new THREE.Color(0x1a1420), fog: new THREE.Color(0x0a0b12), fd: .03, hemi: .22, hemiC: new THREE.Color(0x223046), exp: .95, sun: 0, lamps: 1, rain: 1 };
   DAWN: Preset = { top: new THREE.Color(0x4f6690), hor: new THREE.Color(0xe9a878), fog: new THREE.Color(0xb99e86), fd: .012, hemi: .85, hemiC: new THREE.Color(0xffd9b0), exp: 1.0, sun: 1, lamps: 0, rain: 0 };
   DAY: Preset = { top: new THREE.Color(0x5b6472), hor: new THREE.Color(0x9a948c), fog: new THREE.Color(0x777370), fd: .014, hemi: 1.0, hemiC: new THREE.Color(0xcfd6e0), exp: .85, sun: .3, lamps: 0, rain: 0 };
@@ -226,7 +228,7 @@ class StreetEngine {
     this.renderer.domElement.style.cssText = 'position:absolute;inset:0;width:100%;height:100%;display:block';
     this.pmrem = new THREE.PMREMGenerator(this.renderer); this.renderer.info.autoReset = false; this.quality = detectQuality(); this.manualQuality = !!debugParam('q'); this.from = this.to = this.NIGHT;
     const bs = debugParam('brot'); if (bs === '180') this.frontSign = -1; const sh = debugParam('shot'); if (sh) setTimeout(() => { if (this.shots[sh]) { this.evShot = sh; this.shotT = 0; this.order = [sh]; this.cur = sh; } }, 1500);
-    this.build(); this.exec = new ExecutionController(this); Object.assign(this.shots, this.exec.shots()); this.buildPost(); this.applyQuality(); this.applyPreset(this.NIGHT); this.loadAssets();
+    console.info('🏙️ GPU:', this.gpuName()); this.build(); this.exec = new ExecutionController(this); Object.assign(this.shots, this.exec.shots()); this.buildPost(); this.applyQuality(); this.applyPreset(this.NIGHT); this.loadAssets();
     // الظلال والانعكاس بالتناوب: المشهد كان يُرسم 4 مرّات في الإطار (عرض + انعكاس + ظلّان) — الآن ~2.2
     this.renderer.shadowMap.autoUpdate = false; /* الانعكاس يبقى كلّ إطار: تخطّيه بالتناوب أفسد نسيج البِرَك */
     this.assetsReady.then(() => this.prewarm());
