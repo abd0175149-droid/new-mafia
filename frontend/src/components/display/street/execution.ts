@@ -38,15 +38,11 @@ export class ExecutionController {
   /** 🔥 إحماء قوالب الحشد بعد تحميلها: نسخةٌ من كلّ قالب تُرسم إطاراً واحداً خارج الكادر فتُجمَّع برامج الجلد قبل أوّل إقصاء */
   async warmTemplates() {
     const E = this.E as any; if (E.disposed) return; /* بعد إحماء الأوضاع (prewarm) لا قبله — كان يسبقه فيُلغيه */ for (let i = 0; i < 1200 && !E.prewarmDone; i++) await new Promise(r => setTimeout(r, 100)); for (let i = 0; i < 200 && E.warming; i++) await new Promise(r => setTimeout(r, 100)); if (E.disposed || this.on) return;
-    const t0 = performance.now(); E.warming = true; /* الحلقة المرئيّة تتوقّف أثناء الإحماء كي لا تتسرّب اللقطة */
+    const t0 = performance.now();
+    // نسختان من الحشد في الكادر (مرئيّتان) ليُجمَّع برنامج الجلد؛ لا تغيير في الجودة ولا في القياس هنا (كان يمسح اللوحة ويوقف الحلقة فيظهر وميضٌ أسود)
     const probes: Fig[] = []; for (const g of ['M', 'F'] as const) { if (!this.tpl[g]) continue; const f = this.make(-100 - (g === 'M' ? 0 : 1), g, true); if (!f) continue; f.root.position.set(WALL.x + 2 + (g === 'M' ? 0 : 1.2), f.root.position.y, WALL.z); this.play(f, 'idle'); probes.push(f); }
-    // 🔴 الشاشة تقف طوال النهار على «الخلفيّة المعتَّمة» (جودة متوسّطة بلا بوكيه ولا انعكاس ولا ظلال)، ومشهد الإقصاء يرفعها إلى العليا.
-    //    أوّل إطارٍ بالجودة العليا كان يجمّع مئة برنامج تظليل دفعةً واحدة (21 ثانية تجمّد على جهاز القاعة). نجمّعها هنا في إطارٍ مخفيّ:
-    //    الحشد في الكادر، الكاميرا على لقطة الساحة، والمُركِّب يرسم إلى مخازنه لا إلى الشاشة.
-    const savedOn = this.on; this.on = true; E.applyQuality(); const savedEv = E.evShot, savedT = E.shotT; E.evShot = 'EX_WIDE'; E.shotT = 0;
-    const [p, l] = E.shots.EX_WIDE.at(0); const camP = E.camera.position.clone(), camQ = E.camera.quaternion.clone(); E.camera.position.copy(p); E.camera.lookAt(l);
-    try { await E.renderer.compileAsync(E.scene, E.camera); E.renderer.shadowMap.needsUpdate = true; E.composer.renderToScreen = false; E.composer.render(1 / 30); } catch { /* noop */ } finally { E.composer.renderToScreen = true; }
-    probes.forEach(f => this.remove(f)); E.camera.position.copy(camP); E.camera.quaternion.copy(camQ); E.evShot = savedEv; E.shotT = savedT; this.on = savedOn; E.applyQuality(); E.warming = false;
+    try { await E.renderer.compileAsync(E.scene, E.camera); E.composer.renderToScreen = false; E.composer.render(1 / 30); } catch { /* noop */ } finally { E.composer.renderToScreen = true; }
+    probes.forEach(f => this.remove(f));
     this.warmed = true; E.readyAt = performance.now(); E.probe = { frames: 0, t: 0, done: false }; /* فحص الإطارات يُعاد بعد اكتمال كلّ الأصول لا قبلها */ console.info('⚖️ execution scene warmed (hi-quality passes + crowd)', Math.round(performance.now() - t0), 'ms');
   }
 
@@ -74,8 +70,8 @@ export class ExecutionController {
   /* ── الشخصيّات ── */
   private make(id: number, gender: 'M' | 'F', shadow: boolean): Fig | null {
     const tpl = this.tpl[gender] || this.tpl.M || this.tpl.F; if (!tpl) return null; const E = this.E as any;
-    const model = SkeletonUtils.clone(tpl.scene); E.prep(model, shadow); E.pinRigidProps(model); model.traverse((o: THREE.Object3D) => { if ((o as THREE.SkinnedMesh).isSkinnedMesh) o.frustumCulled = false; });
-    const tilt = new THREE.Group(); tilt.add(model); const root = new THREE.Group(); root.add(tilt); E.fit(root, tpl.h, 'y'); root.position.y += .16;
+    const model = SkeletonUtils.clone(tpl.scene); E.prep(model, shadow, false); E.pinRigidProps(model); model.traverse((o: THREE.Object3D) => { if ((o as THREE.SkinnedMesh).isSkinnedMesh) o.frustumCulled = false; });
+    const tilt = new THREE.Group(); tilt.add(model); const root = new THREE.Group(); root.add(tilt); E.fit(root, tpl.h, 'y'); root.position.y += .16; { const bs = E.blobShadow(1.3); bs.position.y = (-root.position.y + .17) / root.scale.x; bs.scale.setScalar(1 / root.scale.x); root.add(bs); }
     const f: Fig = { id, gender, root, tilt, mixer: null, acts: {}, cur: '', spot: [0, 0], home: [0, 0], goal: null, face: null, act: 'idle', actT: 0, flinch: 0, back: 0, walk: 0 };
     if (Object.keys(tpl.clips).length) { f.mixer = new THREE.AnimationMixer(model); for (const k of Object.keys(tpl.clips)) f.acts[k] = f.mixer.clipAction(tpl.clips[k]); }
     this.E.scene.add(root); return f;
@@ -188,8 +184,8 @@ export class ExecutionController {
     });
     if (this.flashT >= 0 && this.flashL && this.flashS) { this.flashT += dt; const k = this.flashT; const on = k < .08 || (k > .12 && k < .16); const c = this.condemned?.root.position || WALL; this.flashL.position.set(c.x + 5.5, 1.7, c.z + 1.5); this.flashL.intensity = on ? 30 : 0; this.flashS.position.set(c.x + .15, 1.35, c.z + .05); (this.flashS.material as THREE.SpriteMaterial).opacity = on ? 1 : 0; if (k > .3) { this.flashT = -1; (this.flashS.material as THREE.SpriteMaterial).opacity = 0; this.flashL.intensity = 0; } }
     if (this.shake > 0) { this.shake -= dt; this.E.camera.position.x += (rnd() - .5) * this.shake * .3; this.E.camera.position.y += (rnd() - .5) * this.shake * .3; }
-    this.smokes.forEach(sm => { if (!sm.on) return; sm.t += dt; const alive = sm.t < 4.4; sm.light.intensity = alive ? (.7 + Math.sin(sm.t * 9) * .25) * Math.min(1, sm.t * 3) : Math.max(0, sm.light.intensity - dt * 2);
-      sm.ps.items.forEach(it => { it.life += dt / 3.8; const m = it.s.material as THREE.SpriteMaterial; if (it.life > 1) { if (!alive) { m.opacity = 0; return; } it.life = 0; it.s.position.set(sm.origin.x + (rnd() - .5) * .6, sm.origin.y, sm.origin.z + (rnd() - .5) * .6); it.vx = (rnd() - .5) * .35; it.vz = (rnd() - .5) * .35; } it.s.position.y += dt * 1.15; it.s.position.x += (it.vx || 0) * dt; it.s.position.z += (it.vz || 0) * dt; m.opacity = .3 * Math.sin(it.life * Math.PI); const sc = 1 + it.life * 3; it.s.scale.set(sc, sc, 1); });
+    this.smokes.forEach(sm => { if (!sm.on) return; sm.t += dt; const alive = sm.t < 4.4; sm.light.intensity = alive ? (.45 + Math.sin(sm.t * 9) * .15) * Math.min(1, sm.t * 3) : Math.max(0, sm.light.intensity - dt * 2);
+      sm.ps.items.forEach(it => { it.life += dt / 3.8; const m = it.s.material as THREE.SpriteMaterial; if (it.life > 1) { if (!alive) { m.opacity = 0; return; } it.life = 0; it.s.position.set(sm.origin.x + (rnd() - .5) * .6, sm.origin.y, sm.origin.z + (rnd() - .5) * .6); it.vx = (rnd() - .5) * .35; it.vz = (rnd() - .5) * .35; } it.s.position.y += dt * 1.15; it.s.position.x += (it.vx || 0) * dt; it.s.position.z += (it.vz || 0) * dt; m.opacity = .26 * Math.sin(it.life * Math.PI); const sc = 1 + it.life * 2.2; it.s.scale.set(sc, sc, 1); });
       if (sm.t > 9) { sm.on = false; sm.ps.g.visible = false; sm.light.intensity = 0; } });
     void time;
   }

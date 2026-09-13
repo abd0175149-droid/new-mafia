@@ -25,7 +25,7 @@ import { SMAAPass } from 'three/examples/jsm/postprocessing/SMAAPass.js';
 import { OutputPass } from 'three/examples/jsm/postprocessing/OutputPass.js';
 import { VignetteShader } from 'three/examples/jsm/shaders/VignetteShader.js';
 import { Reflector } from 'three/examples/jsm/objects/Reflector.js';
-import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
+import { mergeGeometries, deinterleaveGeometry } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { RGBELoader } from 'three/examples/jsm/loaders/RGBELoader.js';
 import * as SkeletonUtils from 'three/examples/jsm/utils/SkeletonUtils.js';
@@ -148,8 +148,11 @@ function loadTex(url: string, srgb: boolean, rep: [number, number]) {
   const k = url + rep.join('x'); if (!cache.has(k)) cache.set(k, texLoader.loadAsync(url).then(t => { t.wrapS = t.wrapT = THREE.RepeatWrapping; t.repeat.set(rep[0], rep[1]); t.anisotropy = 8; if (srgb) t.colorSpace = THREE.SRGBColorSpace; return t; }).catch(() => null)); return cache.get(k)!;
 }
 function loadHDR(url: string) { if (!cache.has(url)) cache.set(url, rgbeLoader.loadAsync(url).catch(() => null)); return cache.get(url)!; }
-const PH = (n: string) => `${ASSET_ROOT}/models/${n}/${n}.gltf`;
-const SF = (n: string) => `${ASSET_ROOT}/sketchfab/${n}/scene.gltf`;
+/** الأصول المخفَّفة (gltf-transform: weld → simplify → join → flatten): 1.37M مثلّث في المشهد كانت أغلبها براغي أعمدة الكهرباء والمصابيح والحنفيّة */
+const LITE_PH = new Set(['modular_electricity_poles', 'street_lamp_01', 'street_lamp_02', 'fire_hydrant', 'wooden_barrels_01', 'metal_trash_can', 'cardboard_box_01', 'wooden_crate_01', 'wooden_crate_02', 'outdoor_table_chair_set_01', 'planter_box_01', 'trashbag', 'wooden_ladder', 'water_manhole_cover', 'standing_chalkboard_01', 'painted_wooden_bench', 'modular_fire_escape', 'covered_car']);
+const LITE_SF = new Set(['pierce_arrow', 'coupe33', 'awning', 'clothesline', 'diorama1930', 'brownstone', 'fedoras']);
+const PH = (n: string) => LITE_PH.has(n) ? `${ASSET_ROOT}/models/${n}/${n}.lite.glb` : `${ASSET_ROOT}/models/${n}/${n}.gltf`;
+const SF = (n: string) => LITE_SF.has(n) ? `${ASSET_ROOT}/sketchfab/${n}/scene.lite.glb` : `${ASSET_ROOT}/sketchfab/${n}/scene.gltf`;
 const TEX = (n: string, k: 'diff' | 'nor' | 'rough') => `${ASSET_ROOT}/tex/${n}_${k}.webp`;
 const SURFACES: Record<string, { name: string; rep: [number, number] }> = { brick: { name: 'red_brick_03', rep: [2, 3] }, plaster: { name: 'plastered_wall_04', rep: [1.5, 1.5] }, plaster2: { name: 'painted_plaster_wall', rep: [1.5, 1.5] }, asphalt: { name: 'asphalt_02', rep: [8, 40] }, cobble: { name: 'cobblestone_floor_08', rep: [2, 24] }, wood: { name: 'wood_planks_grey', rep: [1, 1] } };
 
@@ -202,7 +205,7 @@ class StreetEngine {
   lamps: Lamp[] = []; neons: Neon[] = []; clubLights: THREE.PointLight[] = []; laundry: { m: THREE.Object3D; ph: number }[] = []; pigeons: { s: THREE.Sprite; t: number; ox: number; oz: number }[] = [];
   rain: THREE.LineSegments | null = null; steam!: PS; purple!: PS; exhaust!: PS;
   proc = new THREE.Group(); hat = new THREE.Group(); hatLight!: THREE.PointLight; car = new THREE.Group(); car2 = new THREE.Group(); ember!: THREE.Mesh; emberLight!: THREE.PointLight;
-  walkers: Walker[] = []; clipsMixamo: Record<string, THREE.AnimationClip> = {}; figLamp: Walker | null = null; gestureT = -1; gestureKind = '';
+  blobTex: THREE.Texture | null = null; walkers: Walker[] = []; clipsMixamo: Record<string, THREE.AnimationClip> = {}; figLamp: Walker | null = null; gestureT = -1; gestureKind = '';
   reflector!: Reflector; skyMat!: THREE.ShaderMaterial; stars!: THREE.Points; moon!: THREE.Sprite; sun!: THREE.Mesh; shafts = new THREE.Group(); skyline!: THREE.Mesh; hemi!: THREE.HemisphereLight; sunLight!: THREE.DirectionalLight; snipeL: THREE.PointLight | null = null;
   envNight: THREE.Texture | null = null; envDawn: THREE.Texture | null = null; pmrem!: THREE.PMREMGenerator; windows!: THREE.InstancedMesh; soft = texSoft(); curtain = texCurtain();
   shots!: Record<string, Shot>; cur = 'A'; shotT = 0; order = ['A', 'B', 'C']; oi = 0; evShot: string | null = null; _p = new THREE.Vector3(-.8, 1.7, 11); _l = new THREE.Vector3(.4, 2, -30); sway = new THREE.Vector3(); cutting = false; frameShift = 0;
@@ -231,7 +234,7 @@ class StreetEngine {
     console.info('🏙️ GPU:', this.gpuName()); this.build(); this.exec = new ExecutionController(this); Object.assign(this.shots, this.exec.shots()); this.buildPost(); this.applyQuality(); this.applyPreset(this.NIGHT); this.loadAssets();
     // الظلال والانعكاس بالتناوب: المشهد كان يُرسم 4 مرّات في الإطار (عرض + انعكاس + ظلّان) — الآن ~2.2
     this.renderer.shadowMap.autoUpdate = false; /* الانعكاس يبقى كلّ إطار: تخطّيه بالتناوب أفسد نسيج البِرَك */
-    this.assetsReady.then(() => this.prewarm());
+    this.assetsReady.then(() => this.prewarm()); this.assetsReady.then(() => setTimeout(() => { if (!this.disposed) { this.mergeStatic(); this.renderer.shadowMap.needsUpdate = true; } }, 2500));
   }
 
   /* ── materials ── */
@@ -258,7 +261,7 @@ class StreetEngine {
     this.MAT = MAT; S.add(this.proc);
     this.buildProceduralBuildings(MAT);
     // ground
-    this.reflector = new Reflector(new THREE.PlaneGeometry(STREET_W + .2, 220), { clipBias: .003, textureWidth: 1024, textureHeight: 1024, color: 0x5a5a5e }); this.reflector.rotation.x = -Math.PI / 2; this.reflector.position.set(0, -.01, -60); S.add(this.reflector);
+    this.reflector = new Reflector(new THREE.PlaneGeometry(STREET_W + .2, 220), { clipBias: .003, textureWidth: 768, textureHeight: 768, color: 0x5a5a5e } /* البِرَك تُرسم من الكاميرا المعكوسة: 768 يكفي بصريّاً ويوفّر 44% من الملء */); this.reflector.rotation.x = -Math.PI / 2; this.reflector.position.set(0, -.01, -60); S.add(this.reflector);
     const asphaltMat = this.std(M.asphalt, { transparent: true, alphaMap: puddleMask(), roughness: .35, metalness: .05, color: 0xbbbbbb }); MAT.asphalt = asphaltMat; const asphalt = new THREE.Mesh(new THREE.PlaneGeometry(STREET_W + .2, 220), asphaltMat); asphalt.rotation.x = -Math.PI / 2; asphalt.position.set(0, .005, -60); asphalt.receiveShadow = true; S.add(asphalt);
     ([-1, 1] as const).forEach(s => { const sw = new THREE.Mesh(new THREE.BoxGeometry(SIDE_W, .16, 220), MAT.cobble); sw.position.set(s * (STREET_W / 2 + SIDE_W / 2), .08, -60); sw.receiveShadow = true; S.add(sw); const curb = new THREE.Mesh(new THREE.BoxGeometry(.18, .18, 220), MAT.plaster); curb.position.set(s * (STREET_W / 2 + .09), .09, -60); S.add(curb); });
     const railMat = new THREE.MeshStandardMaterial({ color: 0x6a6a70, roughness: .45, metalness: .8 }); [-1.3, 1.3].forEach(x => { const r = new THREE.Mesh(new THREE.BoxGeometry(.09, .03, 220), railMat); r.position.set(x, .02, -60); S.add(r); });
@@ -344,7 +347,21 @@ class StreetEngine {
     rigid.forEach(m => { new THREE.Box3().setFromObject(m).getCenter(c); let best: THREE.Bone | null = null, bd = Infinity; bones.forEach(b => { b.getWorldPosition(bp); const d = bp.distanceToSquared(c); if (d < bd) { bd = d; best = b; } }); if (best) { (best as THREE.Bone).attach(m); n++; } });
     if (n) console.info('🏙️ rigid props pinned to bones:', n);
   }
-  prep(root: THREE.Object3D, shadow = true) { root.traverse(o => { const m = o as THREE.Mesh; if (m.isMesh) { m.castShadow = shadow; m.receiveShadow = true; } }); return root; }
+  prep(root: THREE.Object3D, shadow = true, mergeStatic = true) { root.traverse(o => { const m = o as THREE.Mesh; if (m.isMesh) { m.castShadow = shadow; m.receiveShadow = true; if (mergeStatic && !(m as unknown as THREE.SkinnedMesh).isSkinnedMesh) m.userData.mergeStatic = true; } }); return root; }
+  /**
+   * 🧱 دمج الثوابت (2026-09-14): كلّ الشبكات الثابتة التي تتشارك المادّة نفسها وتخطيط السمات نفسه تُدمج في شبكةٍ واحدة
+   * بمواضعها العالميّة (واجهات، مصابيح، أعمدة، صناديق…) — من ~750 نداء رسم إلى بضع عشرات، بلا تغيير في الشكل.
+   * الشخصيّات والسيّارات والأجسام المتحرّكة (القبّعة، الرذاذ) لا تُدمج.
+   */
+  mergeStatic() {
+    if (this.disposed) return; const S = this.scene; S.updateMatrixWorld(true);
+    const groups = new Map<string, { mat: THREE.Material; geos: THREE.BufferGeometry[]; cast: boolean }>(); const remove: THREE.Mesh[] = [];
+    S.traverse(o => { const m = o as THREE.Mesh; if (!m.isMesh || !m.userData.mergeStatic || (m as unknown as THREE.SkinnedMesh).isSkinnedMesh || (m as unknown as THREE.InstancedMesh).isInstancedMesh || Array.isArray(m.material)) return; if (!m.visible) return;
+      const g = m.geometry; if (!g.attributes.position) return; const key = (m.material as THREE.Material).uuid + '|' + Object.keys(g.attributes).sort().join(',') + '|' + (g.index ? 'i' : 'n');
+      const gg = g.clone(); deinterleaveGeometry(gg); /* ملفّات gltf-transform تأتي بسماتٍ متداخلة والدمج لا يقبلها */ gg.applyMatrix4(m.matrixWorld); if (gg.attributes.normal) gg.normalizeNormals(); const grp = groups.get(key) || { mat: m.material as THREE.Material, geos: [], cast: false }; grp.geos.push(gg); grp.cast = grp.cast || m.castShadow; groups.set(key, grp); remove.push(m); });
+    let merged = 0; groups.forEach(grp => { try { const g = mergeGeometries(grp.geos, false); if (!g) return; g.computeBoundingSphere(); const mesh = new THREE.Mesh(g, grp.mat); mesh.castShadow = grp.cast; mesh.receiveShadow = true; mesh.frustumCulled = true; mesh.name = 'static-merged'; S.add(mesh); merged++; } catch (e) { console.warn('🧱 merge skipped', String(e)); } });
+    remove.forEach(m => { m.parent?.remove(m); }); console.info('🧱 static merge:', remove.length, 'meshes →', merged);
+  }
   private place(name: string, size: number, axis: 'x' | 'y' | 'z', spots: [number, number, number][], y = .16, shadow = true, sf = false) {
     return loadGLTF(sf ? SF(name) : PH(name)).then(g => { if (!g || this.disposed) return; spots.forEach(([x, z, r]) => { const m = this.prep(g.scene.clone(true), shadow); this.fit(m, size, axis); m.position.set(x, y, z); m.rotation.y = r; this.scene.add(m); }); });
   }
@@ -367,7 +384,7 @@ class StreetEngine {
     this.place('trashbag', .7, 'x', [[-FACE + 1.5, -16.9, 0], [-FACE + 2.1, -44.6, 2]]); this.place('wooden_ladder', 3.2, 'y', [[-FACE + .35, -58, Math.PI / 2 + .35]], .16);
     this.place('covered_car', 4.4, 'z', [[3.4, -46, .02]], 0);
     // أعمدة الكهرباء (أصل بدل الإجرائيّ)
-    loadGLTF(PH('modular_electricity_poles')).then(g => { if (!g || this.disposed) return; [-11, -50, -84].forEach(z => { const m = this.prep(g.scene.clone(true)); this.fit(m, 7.4, 'y'); m.position.set(-6.2, 0, z); m.rotation.y = Math.PI / 2; S.add(m); }); });
+    loadGLTF(PH('modular_electricity_poles')).then(g => { if (!g || this.disposed) return; [-11, -50].forEach(z => { const m = this.prep(g.scene.clone(true)); this.fit(m, 7.4, 'y'); m.position.set(-6.2, 0, z); m.rotation.y = Math.PI / 2; S.add(m); }); });
     // ديورامة 1930: صناديق وسلّة وصحيفة
     loadGLTF(SF('diorama1930')).then(g => { if (!g || this.disposed) return; const pick = (rx: RegExp) => { let hit: THREE.Object3D | null = null; g.scene.traverse((o: THREE.Object3D) => { if (!hit && rx.test(o.name)) hit = o; }); return hit as THREE.Object3D | null; };
       const put = (o: THREE.Object3D | null, size: number, x: number, z: number, r: number) => { if (!o) return; const m = this.prep(o.clone(true)); this.fit(m, size, 'y'); m.position.set(x, .16, z); m.rotation.y = r; S.add(m); };
@@ -379,9 +396,9 @@ class StreetEngine {
     loadGLTF(SF('balcony')).then(() => { /* تُوضع بعد الواجهات على الشبابيك المكتشفة فقط (placeBalconies) */ }); if (false) loadGLTF(SF('balcony')).then(g => { if (!g || this.disposed) return; for (let k = 0; k < 8; k++) { const side = k % 2 ? 1 : -1; const m = this.prep(g.scene.clone(true)); const b1 = new THREE.Box3().setFromObject(m); const s1 = new THREE.Vector3(); b1.getSize(s1); const big: 'x' | 'y' | 'z' = s1.x >= s1.y && s1.x >= s1.z ? 'x' : s1.y >= s1.z ? 'y' : 'z'; this.fit(m, 2.4, big); const b2 = new THREE.Box3().setFromObject(m); const s2 = new THREE.Vector3(); b2.getSize(s2); if (s2.x > s2.z) m.rotation.y = Math.PI / 2; /* أنحف محور عمودياً على الواجهة */ const b = new THREE.Box3().setFromObject(m); const s = new THREE.Vector3(); b.getSize(s); const c = new THREE.Vector3(); b.getCenter(c); m.position.set(side * (FACE - s.x / 2 - .02) - c.x, 5.6 + Math.floor(rnd() * 3) * 3.4 - b.min.y, -4 - k * 8 - rnd() * 3 - c.z); S.add(m); } });
     loadGLTF(SF('clothesline')).then(g => { if (!g || this.disposed) return; ([[-1, -14], [1, -38], [-1, -62]] as [number, number][]).forEach(([side, z], i) => { const m = this.prep(g.scene.clone(true), false); const b1 = new THREE.Box3().setFromObject(m); const s1 = new THREE.Vector3(); b1.getSize(s1); const axis: 'x' | 'y' | 'z' = s1.x >= s1.y && s1.x >= s1.z ? 'x' : s1.y >= s1.z ? 'y' : 'z'; this.fit(m, 3.2, axis); const b = new THREE.Box3().setFromObject(m); const sz = new THREE.Vector3(); b.getSize(sz); const long: 'x' | 'z' = sz.x >= sz.z ? 'x' : 'z'; if (long === 'x') m.rotation.y = Math.PI / 2; const b2 = new THREE.Box3().setFromObject(m); const c = new THREE.Vector3(); b2.getCenter(c); m.position.set(side * (FACE - .9) - c.x, 6.2 + i * 1.5 - b2.min.y, z - c.z); S.add(m); this.laundry.push({ m, ph: rnd() * 6 }); }); });
     // Sketchfab: cars, fedora
-    const putCar = (name: string, host: THREE.Group, len: number) => loadGLTF(SF(name)).then(g => { if (!g || this.disposed) return; const m = this.prep(g.scene); const b = new THREE.Box3().setFromObject(m); const s = new THREE.Vector3(); b.getSize(s); const long: 'x' | 'z' = s.x >= s.z ? 'x' : 'z'; this.fit(m, len, long); if (long === 'z') m.rotation.y = Math.PI / 2; const b2 = new THREE.Box3().setFromObject(m); const c = new THREE.Vector3(); b2.getCenter(c); m.position.x -= c.x; m.position.z -= c.z; host.children.slice().forEach(ch => host.remove(ch)); host.add(m); });
+    const putCar = (name: string, host: THREE.Group, len: number) => loadGLTF(SF(name)).then(g => { if (!g || this.disposed) return; const m = this.prep(g.scene, true, false); const b = new THREE.Box3().setFromObject(m); const s = new THREE.Vector3(); b.getSize(s); const long: 'x' | 'z' = s.x >= s.z ? 'x' : 'z'; this.fit(m, len, long); if (long === 'z') m.rotation.y = Math.PI / 2; const b2 = new THREE.Box3().setFromObject(m); const c = new THREE.Vector3(); b2.getCenter(c); m.position.x -= c.x; m.position.z -= c.z; host.children.slice().forEach(ch => host.remove(ch)); host.add(m); });
     track(putCar('pierce_arrow', this.car, 5.0)); track(putCar('coupe33', this.car2, 4.4));
-    loadGLTF(SF('fedoras')).then(g => { if (!g || this.disposed) return; const m = this.prep(g.scene); this.fit(m, .34, 'x'); this.hat.children.filter(c => c.name === 'proc').forEach(c => this.hat.remove(c)); this.hat.add(m); });
+    loadGLTF(SF('fedoras')).then(g => { if (!g || this.disposed) return; const m = this.prep(g.scene, true, false); this.fit(m, .34, 'x'); this.hat.children.filter(c => c.name === 'proc').forEach(c => this.hat.remove(c)); this.hat.add(m); });
     // 👥 الحشد: حركات Mixamo تُعاد توجيهها على هياكل الشخصيّات
     track(this.loadCrowd());
   }
@@ -456,6 +473,11 @@ class StreetEngine {
       ([['MAFIA', '#e2c07a', yTop - 2.25, 2.3], ['CLUB', '#ff4a4a', yTop - 2.95, 1.7]] as [string, string, number, number][]).forEach(([txt, col, y, w]) => { const mat = new THREE.MeshBasicMaterial({ map: texNeon(txt, col), transparent: true, toneMapped: false, color: new THREE.Color(col).multiplyScalar(2.4), depthWrite: false }); const m = new THREE.Mesh(new THREE.PlaneGeometry(w, w / 4), mat); m.position.set(x0 + depth / 2, y, zf); m.rotation.y = face > 0 ? 0 : Math.PI; S.add(m); this.neons.push({ mesh: m, light: new THREE.PointLight(col, 0, 0), base: mat.color.clone(), broken: false, on: this.mode === 'night', club: true }); });
       const glow = new THREE.PointLight(0xffc48a, 6, 9, 2); glow.position.set(x0 + depth / 2, yTop - 1.8, z + face * 1.2); S.add(glow); this.clubLights.push(glow); });
   }
+  /** ظلّ تلامس رخيص تحت الشخصيّة (قرص ناعم داكن) — الظلال الحيّة نهاراً مطفأة */
+  blobShadow(size = 1.2): THREE.Mesh {
+    if (!this.blobTex) { const c = document.createElement('canvas'); c.width = c.height = 64; const x = c.getContext('2d')!; const g = x.createRadialGradient(32, 32, 4, 32, 32, 30); g.addColorStop(0, 'rgba(0,0,0,.55)'); g.addColorStop(.6, 'rgba(0,0,0,.22)'); g.addColorStop(1, 'rgba(0,0,0,0)'); x.fillStyle = g; x.fillRect(0, 0, 64, 64); this.blobTex = new THREE.CanvasTexture(c); }
+    const m = new THREE.Mesh(new THREE.PlaneGeometry(size, size * .7), new THREE.MeshBasicMaterial({ map: this.blobTex, transparent: true, depthWrite: false, toneMapped: false })); m.rotation.x = -Math.PI / 2; m.position.y = .005; m.renderOrder = 1; return m;
+  }
   /* ── crowd & animation ── */
   private boneTreeFromNodes(root: THREE.Object3D): THREE.Bone | null {
     let hips: THREE.Object3D | null = null; root.traverse(o => { if (!hips && /^mixamorig:?Hips$/.test(o.name)) hips = o; }); if (!hips) { console.warn('🏙️ mixamo hips not found'); return null; }
@@ -503,7 +525,8 @@ class StreetEngine {
     for (const [k, g] of [['idle', idle], ['walk', walk], ['smoke', smoke], ['sit', sit]] as [string, any][]) { if (!g) continue; if (g.animations?.[0]) clips[k] = g.animations[0]; if (!skelRoot) skelRoot = this.boneTreeFromNodes(g.scene); }
     const skeleton = skelRoot; this.clipsMixamo = clips;
     const specs: { src: string; glb?: boolean; n: number; kinds: Walker['kind'][]; night: boolean[]; day: boolean[]; sides: (1 | -1)[]; zs: number[]; h: number }[] = [
-      { src: 'gangster', n: 3, kinds: ['lamp', 'walk', 'idle'], night: [true, true, false], day: [true, true, true], sides: [-1, 1, -1], zs: [-3.2, -20, -50], h: 1.85 },
+      { src: 'gangster', n: 1, kinds: ['lamp'], night: [true], day: [true], sides: [-1], zs: [-3.2], h: 1.85 }, /* شخصيّة المصباح وحدها بالتفاصيل الكاملة (لقطة قريبة) */
+      { src: 'gangster_lite', glb: true, n: 2, kinds: ['walk', 'idle'], night: [true, false], day: [true, true], sides: [1, -1], zs: [-20, -50], h: 1.85 },
       { src: 'dotty', n: 2, kinds: ['walk', 'idle'], night: [false, true], day: [true, true], sides: [1, -1], zs: [-38, -12], h: 1.7 },
       { src: 'moneyman', glb: true, n: 1, kinds: ['seat'], night: [true], day: [true], sides: [1], zs: [-2.6], h: 1.35 },
     ];
@@ -524,8 +547,8 @@ class StreetEngine {
       const g = await loadGLTF(sp.glb ? SFB(sp.src) : SF(sp.src)); if (!g || this.disposed) continue;
       const rset = sp.kinds.every(k => k === 'seat') ? {} : await retargetSet(sp.src, g.scene); if (this.disposed) return;
       for (let i = 0; i < sp.n; i++) {
-        const root = SkeletonUtils.clone(g.scene); this.prep(root, i === 0); this.pinRigidProps(root); root.traverse(o => { if ((o as THREE.SkinnedMesh).isSkinnedMesh) o.frustumCulled = false; });
-        const wrap = new THREE.Group(); wrap.add(root); this.fit(wrap, sp.h, 'y');
+        const root = SkeletonUtils.clone(g.scene); this.prep(root, i === 0, false); this.pinRigidProps(root); root.traverse(o => { if ((o as THREE.SkinnedMesh).isSkinnedMesh) o.frustumCulled = false; });
+        const wrap = new THREE.Group(); wrap.add(root); this.fit(wrap, sp.h, 'y'); { const bs = this.blobShadow(1.3); bs.position.y = (-wrap.position.y + .01) / wrap.scale.x; bs.scale.setScalar(1 / wrap.scale.x); wrap.add(bs); }
         const w: Walker = { root: wrap, groundY: wrap.position.y + .16 /* سطح الرصيف */, mixer: null, acts: {}, cur: '', kind: sp.kinds[i], side: sp.sides[i], z: sp.zs[i], dir: i % 2 ? 1 : -1, speed: .9 + rnd() * .4, pause: 0, night: sp.night[i], day: sp.day[i], gait: null };
         let skinned: THREE.SkinnedMesh | null = null; root.traverse(o => { if (!skinned && (o as THREE.SkinnedMesh).isSkinnedMesh) skinned = o as THREE.SkinnedMesh; });
         if (skinned && sp.kinds[i] !== 'seat' && Object.keys(rset).length) { w.mixer = new THREE.AnimationMixer(root); for (const k of Object.keys(rset)) w.acts[k] = w.mixer.clipAction(rset[k]); }
@@ -577,8 +600,8 @@ class StreetEngine {
     // 📉 قياس جهاز القاعة (2026-09-13): 12 إطاراً في اللوبي بالخلفيّة المعتَّمة — الستارة الداكنة تخفي التوهّج والتنعيم والظلال الحيّة فلا يُدفع ثمنها هناك.
     //    والمشهد يأخذ الجودة العليا فقط إن كانت الإطارات المقاسة في الخلفيّة ≥ 26، وإلّا المتوسّطة (بلا بوكيه ولا انعكاس).
     const execHi = !!this.exec?.on && (this.fpsEma === 0 || this.fpsEma >= 26);
-    const hi = this.quality === 'high' && !amb && (!this.exec?.on || execHi), md = this.quality === 'med' || (this.quality === 'high' && (amb || (this.exec?.on && !execHi))); this.renderer.setPixelRatio(hi ? Math.min(devicePixelRatio, this.exec?.on ? 1.25 : 1.5) : md ? 1 : .75);
-    this.bokeh.enabled = hi; this.bloom.enabled = (hi || md) && !amb; this.film.enabled = (hi || md) && !amb; this.smaa.enabled = (hi || md) && !amb; this.renderer.shadowMap.enabled = hi || md; this.lamps.forEach(l => { if (l.sl) l.sl.castShadow = hi || md; }); this.shadowEvery = amb ? 6 : this.exec?.on ? 3 : 2; /* 🔴 تبديل castShadow بين الخلفيّة والمشهد كان يغيّر تعريفات التظليل فيعيد تجميع ~120 برنامجاً (20 ثانية تجمّد) — الظلال ثابتة في كلّ ما فوق «منخفض» */ this.reflector.visible = hi && !this.exec?.on; /* لا انعكاس أثناء المشهد: نهارٌ جافّ، والمرآة تُضاعف رسم المدينة والحشد */ this.makeRain(hi ? 1800 : md ? 900 : 0); this.resize();
+    const hi = this.quality === 'high' && !amb && (!this.exec?.on || execHi), md = this.quality === 'med' || (this.quality === 'high' && (amb || (this.exec?.on && !execHi))); this.renderer.setPixelRatio(hi ? Math.min(devicePixelRatio, this.exec?.on ? 1.25 : 1.5) : md ? (this.fpsEma > 0 && this.fpsEma < 26 ? .8 : 1) : .75);
+    this.bokeh.enabled = hi; this.bloom.enabled = (hi || md) && !amb; this.film.enabled = (hi || md) && !amb; this.smaa.enabled = (hi || md) && !amb; this.renderer.shadowMap.enabled = hi || md; this.lamps.forEach(l => { if (l.sl) l.sl.castShadow = hi || md; }); this.shadowEvery = this.mode !== 'night' ? 0 /* نهاراً وفجراً المصابيح مطفأة: خريطة ظلّها بلا أثر مرئيّ — لا تُحدَّث أبداً */ : amb ? 6 : 3; /* ليلاً كلّ ثالث إطار: ظلّ شخصيّة المصباح لا يحتاج أكثر على 30 إطاراً */ /* 🔴 تبديل castShadow بين الخلفيّة والمشهد كان يغيّر تعريفات التظليل فيعيد تجميع ~120 برنامجاً (20 ثانية تجمّد) — الظلال ثابتة في كلّ ما فوق «منخفض» */ this.reflector.visible = hi && !this.exec?.on; /* لا انعكاس أثناء المشهد: نهارٌ جافّ، والمرآة تُضاعف رسم المدينة والحشد */ this.makeRain(hi ? 1800 : md ? 900 : 0); this.resize();
   }
   private makeRain(count: number) {
     if (this.rain) { this.scene.remove(this.rain); this.rain.geometry.dispose(); this.rain = null; } if (!count) return;
@@ -614,7 +637,7 @@ class StreetEngine {
     const target = m === 'night' ? this.NIGHT : m === 'dawn' ? this.DAWN : this.DAY; this.from = this.snapshot(); this.to = target; this.transT = opts?.instant ? 1 : 0; this.transStart = performance.now(); this.transMs = m === 'dawn' && prevMode === 'night' ? 8000 : 4000;
     if (opts?.instant) this.applyPreset(target);
     if (m === 'night') { this.hat.visible = false; this.evShot = null; this.cut('A'); } else if (m === 'dawn' && prevMode === 'night') { this.evShot = 'DAWN'; this.shotT = 0; }
-    this.applyCrowdMode(); this.scene.environment = m === 'night' ? this.envNight : this.envDawn;
+    this.applyCrowdMode(); this.scene.environment = m === 'night' ? this.envNight : this.envDawn; this.applyQuality(); this.renderer.shadowMap.needsUpdate = true;
   }
   private snapshot(): Preset { const f = this.scene.fog as THREE.FogExp2; return { top: (this.skyMat.uniforms.top.value as THREE.Color).clone(), hor: (this.skyMat.uniforms.hor.value as THREE.Color).clone(), fog: f.color.clone(), fd: f.density, hemi: this.hemi.intensity, hemiC: this.hemi.color.clone(), exp: this.renderer.toneMappingExposure, sun: this.skyMat.uniforms.sunI.value as number, lamps: this.lamps[0]?.on ?? 1, rain: this.rain ? (this.rain.material as THREE.LineBasicMaterial).opacity / .28 : 0 }; }
   private applyPreset(P: Preset) { this.lerpPreset(this.from = P, P, 1); }
@@ -706,7 +729,7 @@ class StreetEngine {
     const s = this.shots[this.evShot || this.cur]; this.shotT += dtRaw; const t = Math.min(1, this.shotT / s.len); const [p, l] = s.at(t); const k = (a: number) => 1 - Math.pow(1 - a, dtRaw * 60); this._p.lerp(p, k(this.evShot ? .35 : .12)); this._l.lerp(l, k(.12)); this.sway.set(Math.sin(time * .7) * .03, Math.sin(time * 1.1) * .02, 0); this.camera.position.copy(this._p).add(this.sway); this.camera.lookAt(this._l); this.camera.fov += (s.fov - this.camera.fov) * .08; this.camera.updateProjectionMatrix();
     if (this.evShot) { if (this.shotT >= s.len) { this.evShot = null; this.cut(this.cur); } } else if (this.shotT >= s.len && !this.cutting) { this.oi = (this.oi + 1) % this.order.length; this.cut(this.order[this.oi]); }
     const d = this.camera.position.distanceTo(this.exec.focus() || (this.evShot === 'KILL' ? this.hat.position : (this.figLamp?.root.position || this.car.position))); (this.bokeh.uniforms as any).focus.value += (d - (this.bokeh.uniforms as any).focus.value) * .1;
-    if (this.frameIndex % this.shadowEvery === 0) this.renderer.shadowMap.needsUpdate = true;
+    if (this.shadowEvery && this.frameIndex % this.shadowEvery === 0) this.renderer.shadowMap.needsUpdate = true;
     this.composer.render(dtRaw);
     if (this.transPending) { this.transPending = false; this.lastTransitionMs = Math.round(performance.now() - this.transMarkAt); }
     if (this.posterCb) { const cb = this.posterCb; this.posterCb = null; try { cb(this.renderer.domElement.toDataURL('image/jpeg', .85)); } catch { cb(''); } }
