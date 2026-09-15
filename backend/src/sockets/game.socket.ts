@@ -60,10 +60,11 @@ export function registerGameEvents(io: Server, socket: Socket) {
   });
 
   // ── انقطاع الاتصال ──────────────────────────
-  socket.on('disconnect', () => {
+  socket.on('disconnect', (reason: string) => {
     const { roomId, role: socketRole, physicalId } = socket.data;
     if (roomId) {
-      console.log(`📴 Disconnected: ${socketRole === 'leader' ? 'Leader' : `Player #${physicalId}`} from ${roomId}`);
+      // السبب يميّز الشبكة (transport close/error) عن تجمّد المتصفّح (ping timeout) عن الإغلاق المتعمّد (client namespace disconnect)
+      console.log(`📴 Disconnected: ${socketRole === 'leader' ? 'Leader' : socketRole === 'display' ? 'Display' : `Player #${physicalId}`} from ${roomId} — ${reason}`);
 
       // إشعار الباقين
       io.to(roomId).emit('game:player-disconnected', {

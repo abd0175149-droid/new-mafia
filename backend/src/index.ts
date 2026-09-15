@@ -92,8 +92,9 @@ const io = new Server(server, {
     origin: env.FRONTEND_URL ? env.FRONTEND_URL.split(',') : '*',
     methods: ['GET', 'POST'],
   },
-  pingTimeout: 15000,   // 15 ثانية (كان 60) — اكتشاف أسرع للانقطاع
-  pingInterval: 10000,  // 10 ثوانٍ (كان 25) — فحص حياة الاتصال أكثر تواتراً
+  // 2026-09-15: 15 ثانية كانت تُسقط شاشة القاعة عند أيّ تجمّدٍ قصير في المتصفّح (تجميع تظليل/تبويب مخفيّ) فتبدو «معلّقة» — 40 ثانية توازن بين اكتشاف الانقطاع وصبرٍ على الشاشة
+  pingTimeout: 40000,
+  pingInterval: 12000,
 });
 (global as any).io = io;
 

@@ -41,7 +41,10 @@ export class ExecutionController {
     const t0 = performance.now();
     // نسختان من الحشد في الكادر (مرئيّتان) ليُجمَّع برنامج الجلد؛ لا تغيير في الجودة ولا في القياس هنا (كان يمسح اللوحة ويوقف الحلقة فيظهر وميضٌ أسود)
     const probes: Fig[] = []; for (const g of ['M', 'F'] as const) { if (!this.tpl[g]) continue; const f = this.make(-100 - (g === 'M' ? 0 : 1), g, true); if (!f) continue; f.root.position.set(WALL.x + 2 + (g === 'M' ? 0 : 1.2), f.root.position.y, WALL.z); this.play(f, 'idle'); probes.push(f); }
-    try { await E.renderer.compileAsync(E.scene, E.camera); E.composer.renderToScreen = false; E.composer.render(1 / 30); } catch { /* noop */ } finally { E.composer.renderToScreen = true; }
+    // 🔴 الخلفيّة المعتَّمة تُطفئ التوهّج والفيلم والتنعيم والبوكيه، فبرامجها لم تكن تُجمَّع إلا لحظة أوّل إقصاء — على بطاقة ضعيفة تجميدٌ يتجاوز 15 ثانية
+    //    فيسقط اتّصال الشاشة (ping timeout) وتبدو معلّقة. نرسم هنا إطاراً مخفيّاً بكلّ المراحل مفعّلة (بلا تغيير قياس، فلا وميض) ثمّ نعيدها.
+    const passes = [E.bokeh, E.bloom, E.film, E.smaa] as { enabled: boolean }[]; const was = passes.map(x => x.enabled);
+    try { await E.renderer.compileAsync(E.scene, E.camera); passes.forEach(x => { x.enabled = true; }); E.composer.renderToScreen = false; E.composer.render(1 / 30); } catch { /* noop */ } finally { passes.forEach((x, i) => { x.enabled = was[i]; }); E.composer.renderToScreen = true; }
     probes.forEach(f => this.remove(f));
     this.warmed = true; E.readyAt = performance.now(); E.probe = { frames: 0, t: 0, done: false }; /* فحص الإطارات يُعاد بعد اكتمال كلّ الأصول لا قبلها */ console.info('⚖️ execution scene warmed (hi-quality passes + crowd)', Math.round(performance.now() - t0), 'ms');
   }

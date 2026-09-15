@@ -6418,12 +6418,12 @@ async function readSeatLayoutOnly(activityId: any): Promise<any> {
 
   // ── تنظيف عند قطع الاتصال ─────────────────────
 
-  socket.on('disconnect', () => {
+  socket.on('disconnect', (reason: string) => {
     if (socket.data.role === 'leader' && socket.data.roomId) {
-      console.log(`⚠️ Leader disconnected from room ${socket.data.roomId}`);
+      console.log(`⚠️ Leader disconnected from room ${socket.data.roomId} — ${reason}`);
     }
     if (socket.data.role === 'display' && socket.data.roomId) {
-      console.log(`⚠️ Display disconnected from room ${socket.data.roomId}`);
+      console.log(`⚠️ Display disconnected from room ${socket.data.roomId} — ${reason}`);
     }
     // 🕵️ انقطاع لاعبٍ أثناء لعبةٍ حيّة = مغادرةٌ تُسجَّل فوراً.
     // بدونه كان «غادر ولم يعد» (قتل التطبيق، نفاد البطارية، خروجٌ من القاعة)

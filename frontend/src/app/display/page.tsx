@@ -1090,6 +1090,12 @@ function DisplayPageContent() {
     const t = setTimeout(() => { import('@/components/display/street/engine').then(m => m.preloadStreetAssets()).catch(() => {}); import('@/components/display/street/props').then(m => m.preloadProps()).catch(() => {}); }, 2000);
     return () => clearTimeout(t);
   }, [step, phase]);
+  // 🔒 شاشة القاعة: قفل الشاشة (لا يُطفأ العرض) + تسجيل إخفاء التبويب — التبويب المخفيّ يُكبح مؤقّتاته فتتأخّر ردود نبض المقبس وتُقطع الجلسة
+  useEffect(() => {
+    let lock: any = null; const acquire = async () => { try { lock = await (navigator as any).wakeLock?.request?.('screen'); } catch { /* غير مدعوم أو مرفوض */ } };
+    void acquire(); const onVis = () => { console.warn('🖥️ display visibility:', document.visibilityState, new Date().toISOString()); if (document.visibilityState === 'visible') void acquire(); };
+    document.addEventListener('visibilitychange', onVis); return () => { document.removeEventListener('visibilitychange', onVis); try { lock?.release?.(); } catch { /* noop */ } };
+  }, []);
   // 🏙️ المضيف الدائم للمدينة: الطور → وضع (الليل/الفجر/النهار خلف الكروت)، 'off' في اللوبي والنهاية
   // قرار المالك 2026-09-12: كلّ ما ليس ليلاً نهارٌ — حتى اللوبي وتوزيع الأدوار؛ تقرير الفجر وحده بإضاءة الفجر
   const stageMode: StageMode = step === 'lobby' && phase === Phase.NIGHT ? 'night' : step === 'lobby' && phase === Phase.MORNING_RECAP ? 'dawn' : 'day';
