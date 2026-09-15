@@ -206,7 +206,7 @@ class StreetEngine {
   rain: THREE.LineSegments | null = null; steam!: PS; purple!: PS; exhaust!: PS;
   proc = new THREE.Group(); hat = new THREE.Group(); hatLight!: THREE.PointLight; car = new THREE.Group(); car2 = new THREE.Group(); ember!: THREE.Mesh; emberLight!: THREE.PointLight;
   blobTex: THREE.Texture | null = null; walkers: Walker[] = []; clipsMixamo: Record<string, THREE.AnimationClip> = {}; figLamp: Walker | null = null; gestureT = -1; gestureKind = '';
-  reflector!: Reflector; skyMat!: THREE.ShaderMaterial; stars!: THREE.Points; moon!: THREE.Sprite; sun!: THREE.Mesh; shafts = new THREE.Group(); skyline!: THREE.Mesh; hemi!: THREE.HemisphereLight; sunLight!: THREE.DirectionalLight; snipeL: THREE.PointLight | null = null;
+  reflector!: Reflector; skyMat!: THREE.ShaderMaterial; stars!: THREE.Points; moon!: THREE.Sprite; sun!: THREE.Mesh; shafts = new THREE.Group(); skyline!: THREE.Mesh; hemi!: THREE.HemisphereLight; sunLight!: THREE.DirectionalLight; snipeL!: THREE.PointLight;
   envNight: THREE.Texture | null = null; envDawn: THREE.Texture | null = null; pmrem!: THREE.PMREMGenerator; windows!: THREE.InstancedMesh; soft = texSoft(); curtain = texCurtain();
   shots!: Record<string, Shot>; cur = 'A'; shotT = 0; order = ['A', 'B', 'C']; oi = 0; evShot: string | null = null; _p = new THREE.Vector3(-.8, 1.7, 11); _l = new THREE.Vector3(.4, 2, -30); sway = new THREE.Vector3(); cutting = false; frameShift = 0;
   ev = { silence: 0, disable: 0, snipe: 0, kill: 0, saved: 0 }; posterCb: ((url: string) => void) | null = null; fpsEma = 0; facadeGroup: THREE.Group | null = null; ready = false; readyAt = 0; assetsReady: Promise<void> = Promise.resolve();
