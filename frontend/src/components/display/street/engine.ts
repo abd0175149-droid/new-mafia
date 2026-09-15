@@ -231,7 +231,7 @@ class StreetEngine {
     this.renderer.domElement.style.cssText = 'position:absolute;inset:0;width:100%;height:100%;display:block';
     this.pmrem = new THREE.PMREMGenerator(this.renderer); this.renderer.info.autoReset = false; this.quality = detectQuality(); this.manualQuality = !!debugParam('q'); this.from = this.to = this.NIGHT;
     const bs = debugParam('brot'); if (bs === '180') this.frontSign = -1; const sh = debugParam('shot'); if (sh) setTimeout(() => { if (this.shots[sh]) { this.evShot = sh; this.shotT = 0; this.order = [sh]; this.cur = sh; } }, 1500);
-    console.info('🏙️ GPU:', this.gpuName()); this.build(); this.exec = new ExecutionController(this); Object.assign(this.shots, this.exec.shots()); this.buildPost(); this.applyQuality(); this.applyPreset(this.NIGHT); this.loadAssets();
+    console.info('🏙️ GPU:', this.gpuName()); this.build(); this.snipeL = new THREE.PointLight(0xfff2d0, 0, 20, 1.5); this.snipeL.position.set(FACE - 1.2, 8.6, -11); this.scene.add(this.snipeL); /* يُبنى مع المشهد: إضافة ضوءٍ لاحقاً تعيد تجميع كلّ التظليل */ this.exec = new ExecutionController(this); Object.assign(this.shots, this.exec.shots()); this.buildPost(); this.applyQuality(); this.applyPreset(this.NIGHT); this.loadAssets();
     // الظلال والانعكاس بالتناوب: المشهد كان يُرسم 4 مرّات في الإطار (عرض + انعكاس + ظلّان) — الآن ~2.2
     this.renderer.shadowMap.autoUpdate = false; /* الانعكاس يبقى كلّ إطار: تخطّيه بالتناوب أفسد نسيج البِرَك */
     this.assetsReady.then(() => this.prewarm()); this.assetsReady.then(() => setTimeout(() => { if (!this.disposed) { this.mergeStatic(); this.renderer.shadowMap.needsUpdate = true; } }, 2500));
@@ -603,7 +603,7 @@ class StreetEngine {
     const hi = this.quality === 'high' && !amb && (!this.exec?.on || execHi), md = this.quality === 'med' || (this.quality === 'high' && (amb || (this.exec?.on && !execHi))); this.renderer.setPixelRatio(hi ? Math.min(devicePixelRatio, this.exec?.on ? 1.25 : 1.5) : md ? (this.fpsEma > 0 && this.fpsEma < 26 ? .8 : 1) : .75);
     this.bokeh.enabled = hi; this.bloom.enabled = (hi || md) && !amb; this.film.enabled = (hi || md) && !amb; this.smaa.enabled = (hi || md) && !amb; this.renderer.shadowMap.enabled = hi || md; this.lamps.forEach(l => { if (l.sl) l.sl.castShadow = hi || md; }); this.shadowEvery = this.mode !== 'night' ? 0 /* نهاراً وفجراً المصابيح مطفأة: خريطة ظلّها بلا أثر مرئيّ — لا تُحدَّث أبداً */ : amb ? 6 : 3; /* ليلاً كلّ ثالث إطار: ظلّ شخصيّة المصباح لا يحتاج أكثر على 30 إطاراً */ /* 🔴 تبديل castShadow بين الخلفيّة والمشهد كان يغيّر تعريفات التظليل فيعيد تجميع ~120 برنامجاً (20 ثانية تجمّد) — الظلال ثابتة في كلّ ما فوق «منخفض» */ this.reflector.visible = hi && !this.exec?.on; /* لا انعكاس أثناء المشهد: نهارٌ جافّ، والمرآة تُضاعف رسم المدينة والحشد */ this.makeRain(hi ? 1800 : md ? 900 : 0); this.resize();
   }
-  private makeRain(count: number) {
+  makeRain(count: number) {
     if (this.rain) { this.scene.remove(this.rain); this.rain.geometry.dispose(); this.rain = null; } if (!count) return;
     const pos = new Float32Array(count * 6); for (let i = 0; i < count; i++) { const x = (rnd() - .5) * 40, y = rnd() * 24, z = (rnd() - .5) * 60 - 10; pos[i * 6] = x; pos[i * 6 + 1] = y; pos[i * 6 + 2] = z; pos[i * 6 + 3] = x + .04; pos[i * 6 + 4] = y - .5; pos[i * 6 + 5] = z; }
     const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.BufferAttribute(pos, 3)); this.rain = new THREE.LineSegments(g, new THREE.LineBasicMaterial({ color: 0xaab4c8, transparent: true, opacity: .28 * this.to.rain })); this.rain.userData.count = count; this.scene.add(this.rain);
@@ -717,7 +717,7 @@ class StreetEngine {
     if (ev.saved > 0) { ev.saved += dt; this.ember.visible = ev.saved < 2.5 && this.mode === 'night'; if (ev.saved > 6) ev.saved = 0; }
     if (ev.silence > 0) { ev.silence += dt; this.hemi.intensity = this.to.hemi * dim; if (ev.silence > 5) ev.silence = 0; }
     if (ev.disable > 0) { ev.disable += dt; if (ev.disable > 7) ev.disable = 0; }
-    if (ev.snipe > 0) { ev.snipe += dt; const fl = ev.snipe < .15 ? 1 : ev.snipe < .3 ? .4 : ev.snipe < .4 ? 1 : 0; if (!this.snipeL) { this.snipeL = new THREE.PointLight(0xfff2d0, 0, 20, 1.5); this.snipeL.position.set(FACE - 1.2, 8.6, -11); this.scene.add(this.snipeL); } this.snipeL.intensity = fl * 400; if (ev.snipe > 7) ev.snipe = 0; }
+    if (ev.snipe > 0) { ev.snipe += dt; const fl = ev.snipe < .15 ? 1 : ev.snipe < .3 ? .4 : ev.snipe < .4 ? 1 : 0;  this.snipeL.intensity = fl * 400; if (ev.snipe > 7) ev.snipe = 0; }
     this.pigeons.forEach(p => { if (p.t >= 0) { p.t += dt; const k = p.t; p.s.material.opacity = k < 3 ? Math.min(1, k * 4) * (1 - k / 3) : 0; p.s.position.set(p.ox + Math.sin(k * 3 + p.oz) * k * .8 - k * 1.2, 11.5 + k * 2.2 + Math.sin(k * 14) * .15, p.oz + k * 1.3); p.s.scale.set(.35, .22 * (0.5 + Math.abs(Math.sin(k * 18))), 1); if (k > 3) p.t = -1; } });
     if (this.mode === 'night') { const pulse = .5 + .5 * Math.sin(time * 1.6); this.emberLight.intensity = (this.ember.visible ? 1 : 0) * (.5 + pulse * .7); if (this.figLamp) { const hp = this.figLamp.root.position; this.ember.position.set(hp.x + .2, 1.45, hp.z + .3); this.emberLight.position.copy(this.ember.position); } } else this.emberLight.intensity = 0;
     this.updateCrowd(dt, time); this.exec.update(dt, time);

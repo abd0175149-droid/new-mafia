@@ -43,8 +43,8 @@ export class ExecutionController {
     const probes: Fig[] = []; for (const g of ['M', 'F'] as const) { if (!this.tpl[g]) continue; const f = this.make(-100 - (g === 'M' ? 0 : 1), g, true); if (!f) continue; f.root.position.set(WALL.x + 2 + (g === 'M' ? 0 : 1.2), f.root.position.y, WALL.z); this.play(f, 'idle'); probes.push(f); }
     // 🔴 الخلفيّة المعتَّمة تُطفئ التوهّج والفيلم والتنعيم والبوكيه، فبرامجها لم تكن تُجمَّع إلا لحظة أوّل إقصاء — على بطاقة ضعيفة تجميدٌ يتجاوز 15 ثانية
     //    فيسقط اتّصال الشاشة (ping timeout) وتبدو معلّقة. نرسم هنا إطاراً مخفيّاً بكلّ المراحل مفعّلة (بلا تغيير قياس، فلا وميض) ثمّ نعيدها.
-    const passes = [E.bokeh, E.bloom, E.film, E.smaa] as { enabled: boolean }[]; const was = passes.map(x => x.enabled);
-    try { await E.renderer.compileAsync(E.scene, E.camera); passes.forEach(x => { x.enabled = true; }); E.composer.renderToScreen = false; E.composer.render(1 / 30); } catch { /* noop */ } finally { passes.forEach((x, i) => { x.enabled = was[i]; }); E.composer.renderToScreen = true; }
+    const passes = [E.bokeh, E.bloom, E.film, E.smaa] as { enabled: boolean }[]; const was = passes.map(x => x.enabled); const refl = E.reflector.visible; const rainWas = !!E.rain;
+    try { await E.renderer.compileAsync(E.scene, E.camera); passes.forEach(x => { x.enabled = true; }); E.reflector.visible = true; /* مرآة البِرَك تُجمَّع هنا أيضاً (تظهر ليلاً بالجودة العليا فقط) */ if (!rainWas) E.makeRain(300); E.renderer.shadowMap.needsUpdate = true; E.composer.renderToScreen = false; E.composer.render(1 / 30); } catch { /* noop */ } finally { passes.forEach((x, i) => { x.enabled = was[i]; }); E.reflector.visible = refl; if (!rainWas) E.makeRain(0); E.composer.renderToScreen = true; }
     probes.forEach(f => this.remove(f));
     this.warmed = true; E.readyAt = performance.now(); E.probe = { frames: 0, t: 0, done: false }; /* فحص الإطارات يُعاد بعد اكتمال كلّ الأصول لا قبلها */ console.info('⚖️ execution scene warmed (hi-quality passes + crowd)', Math.round(performance.now() - t0), 'ms');
   }
