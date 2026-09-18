@@ -18,6 +18,7 @@ interface Candidate {
   ordersTotal: number;
   minTopup: number;
   waterCharge: number;
+  loyaltyDiscount?: number;
   gameFee: number;
   grandTotal: number;
   invoiceNo: number | null;
@@ -36,6 +37,7 @@ interface InvoiceDetail {
   locationName: string; activityName: string; activityDate: string;
   playerName: string; lines: InvoiceLine[];
   ordersCount: number; ordersTotal: number; minTopup: number; waterCharge: number;
+  loyaltyDiscount?: number; loyaltyItemName?: string | null;
   gameFeeApplied: boolean; gameFeeAmount: number; grandTotal: number;
   invoiceNo: number | null; printedAt: string | null;
   isPaid: boolean; paidAt: string | null;
@@ -308,6 +310,7 @@ export default function VenueInvoicesPage() {
                   {c.waterCharge > 0 && <span className="text-cyan-400/90"> + مياه {jod(c.waterCharge)}</span>}
                   {c.minTopup > 0 && <span className="text-sky-400/90"> + حدّ أدنى {jod(c.minTopup)}</span>}
                   {c.gameFee > 0 && <span className="text-amber-400/90"> + رسوم {jod(c.gameFee)}</span>}
+                  {(c.loyaltyDiscount || 0) > 0 && <span className="text-emerald-400/90"> − 🎟️ ولاء {jod(c.loyaltyDiscount || 0)}</span>}
                 </p>
               </div>
               <div className="text-left shrink-0">
@@ -401,6 +404,7 @@ export default function VenueInvoicesPage() {
                   {detail.waterCharge > 0 && <Row label="مياه ×1" value={jod(detail.waterCharge)} tone="amber" />}
                   {detail.minTopup > 0 && <Row label="حدّ أدنى للاستهلاك" value={jod(detail.minTopup)} tone="amber" />}
                   {detail.gameFeeApplied && <Row label="رسوم اللعبة" value={jod(detail.gameFeeAmount)} tone="amber" />}
+                  {(detail.loyaltyDiscount || 0) > 0 && <Row label={`🎟️ مشروب بطاقة الولاء${detail.loyaltyItemName ? ` (${detail.loyaltyItemName})` : ''}`} value={`− ${jod(detail.loyaltyDiscount || 0)}`} />}
                   <div className="border-t border-white/10 pt-1.5 flex justify-between">
                     <span className="text-sm font-bold">الإجماليّ</span>
                     <span className="text-sm font-bold text-emerald-400 tabular-nums">{jod(detail.grandTotal)}</span>
@@ -469,6 +473,7 @@ export default function VenueInvoicesPage() {
               {payFor.waterCharge > 0 && <> · مياه {jod(payFor.waterCharge)}</>}
               {payFor.minTopup > 0 && <> · حدّ أدنى {jod(payFor.minTopup)}</>}
               {payFor.gameFee > 0 && <> · دخوليّة {jod(payFor.gameFee)}</>}
+              {(payFor.loyaltyDiscount || 0) > 0 && <> · 🎟️ خصم ولاء −{jod(payFor.loyaltyDiscount || 0)}</>}
             </p>
             <p className="text-[10.5px] text-[#5A6862] mt-2 leading-relaxed">
               {payFor.gameFee > 0 && 'سيُسجَّل حجز اللاعب مدفوعاً باسمك. '}

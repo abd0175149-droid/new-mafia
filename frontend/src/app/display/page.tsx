@@ -19,6 +19,7 @@ import type { NightBeat } from '@/components/display/NightScene';
 import EliminationFx from '@/components/EliminationFx';
 import { EntranceOverlay, ENTRANCE_FULL_MS, ENTRANCE_COMPACT_MS, type EntrancePayload } from '@/components/EntranceOverlay';
 import { BirthdayCelebration, type Celebrant } from '@/components/BirthdayCelebration';
+import { LoyaltyCelebration, type LoyaltyCelebrant } from '@/components/LoyaltyCelebration';
 // 🔊 الشاشةُ لا تعزف من تلقائها — الموجّه هو المصدر الوحيد (setLocalPlayback(false)).
 //    ما هنا: تحميلُ الخريطة لمعرفة أين الملفّ حين يصل نداءُ الموجّه، وتطبيقُ الوارد،
 //    وفكُّ القفل واستئنافُ الفراش عند اللمسة. لا نداءَ صوتٍ محلّيّ — أيُّ نداءٍ يُضاف
@@ -146,6 +147,9 @@ function DisplayPageContent() {
   // 🎂 احتفالية عيد الميلاد (يطلقها القائد) — طبقة بمستوى الصفحة
   const [birthday, setBirthday] = useState<Celebrant[] | null>(null);
   const birthdayTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // 🎟️ «دخول الدون» — تحيّة صاحب بطاقة الولاء المكتملة (يبثّها الخادم عند الانضمام، موثوقة فقط)
+  const [loyaltyCeleb, setLoyaltyCeleb] = useState<LoyaltyCelebrant | null>(null);
+  const loyaltyTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [discussionState, setDiscussionState] = useState<any>(null);
   const [teamCounts, setTeamCounts] = useState<{citizenAlive: number; mafiaAlive: number; neutralAlive?: number}>({citizenAlive: 0, mafiaAlive: 0, neutralAlive: 0});
   const [replayData, setReplayData] = useState<any>(null);
@@ -547,6 +551,12 @@ function DisplayPageContent() {
       if (birthdayTimerRef.current) clearTimeout(birthdayTimerRef.current);
       setBirthday(null);
     };
+    const onLoyaltyCelebration = (data: any) => {
+      if (!data?.name) return;
+      setLoyaltyCeleb(data);
+      if (loyaltyTimerRef.current) clearTimeout(loyaltyTimerRef.current);
+      loyaltyTimerRef.current = setTimeout(() => setLoyaltyCeleb(null), Number(data?.durationMs) || 8000);
+    };
 
     // 🪙 تغيير المظهر أثناء الجلسة — يظهر على الشاشة فوراً بلا إعادة انضمام
     const onCosmeticsUpdated = (data: any) => {
@@ -607,6 +617,7 @@ function DisplayPageContent() {
     socket.on('player:cosmetics-updated', onCosmeticsUpdated);
     socket.on('display:birthday-celebration', onBirthdayCelebration);
     socket.on('display:birthday-celebration-clear', onBirthdayClear);
+    socket.on('display:loyalty-celebration', onLoyaltyCelebration);
     socket.on('game:phase-changed', onPhaseChanged);
     socket.on('night:animation', onNightAnimation);
     socket.on('night:step-info', onNightStepInfo);
@@ -813,6 +824,7 @@ function DisplayPageContent() {
       setAdminRevealFlipped(false);
 
       if (birthdayTimerRef.current) { clearTimeout(birthdayTimerRef.current); birthdayTimerRef.current = null; }
+      if (loyaltyTimerRef.current) { clearTimeout(loyaltyTimerRef.current); loyaltyTimerRef.current = null; }
       setBirthday(null);
 
       clearLuckyTimers();
@@ -854,6 +866,7 @@ function DisplayPageContent() {
       socket.off('player:cosmetics-updated', onCosmeticsUpdated);
       socket.off('display:birthday-celebration', onBirthdayCelebration);
       socket.off('display:birthday-celebration-clear', onBirthdayClear);
+      socket.off('display:loyalty-celebration', onLoyaltyCelebration);
       if (birthdayTimerRef.current) clearTimeout(birthdayTimerRef.current);
       socket.off('display:sound-play');
       socket.off('chips:victory-sting');
@@ -1394,6 +1407,11 @@ function DisplayPageContent() {
         {/* 🎂 احتفالية عيد الميلاد — مستوى الصفحة أيضاً (تعمل بكل المراحل) */}
         <AnimatePresence>
           {step === 'lobby' && birthday && <BirthdayCelebration key="bday" celebrants={birthday} />}
+        </AnimatePresence>
+
+        {/* 🎟️ «دخول الدون» — بكلّ المراحل: الدخول المتأخّر يحدث أثناء اللعب أيضاً */}
+        <AnimatePresence>
+          {loyaltyCeleb && <LoyaltyCelebration key="loyalty" data={loyaltyCeleb} />}
         </AnimatePresence>
 
         {/* ══════════════════════════════════════════ */}

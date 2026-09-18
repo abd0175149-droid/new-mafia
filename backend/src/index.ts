@@ -59,6 +59,7 @@ import adminConsentsRoutes from './routes/admin-consents.routes.js';
 import staffActionLogRoutes from './routes/staff-action-log.routes.js';
 import { venueRouter, playerFnbRouter } from './routes/fnb.routes.js';
 import chipsRoutes from './routes/chips.routes.js';
+import loyaltyRoutes from './routes/loyalty.routes.js';
 import chipsStoreRoutes from './routes/chips-store.routes.js';
 import appReleaseRoutes from './routes/app-release.routes.js';
 import citiesRoutes from './routes/cities.routes.js';
@@ -210,6 +211,7 @@ app.use('/api/reservations', reservationsRoutes);
 app.use('/api/venue', venueRouter);      // 🏪 كونسول حساب المكان (منيو/طلبات/فواتير)
 app.use('/api/fnb', playerFnbRouter);    // 🍽️ طلبات المنيو — جهة اللاعب
 app.use('/api/chips', chipsRoutes);      // 🪙 اقتصاد التشبس (محفظة + دفتر + شحن إداري)
+app.use('/api/loyalty', loyaltyRoutes);  // 🎟️ بطاقة الولاء (ختم الدون)
 app.use('/api/chips', chipsStoreRoutes); // 🏦 خزنة الدون (كتالوج + إيجار + تجهيز)
 app.use('/api/app', appReleaseRoutes);   // 📱 بوابة إصدار التطبيق + ملفّا روابط المنصّتين
 app.use('/api/cities', citiesRoutes);    // 🏙️ المدن (عامّ: الفعّالة · إداريّ: إضافة/تسمية/تفعيل)
@@ -722,6 +724,51 @@ async function main() {
         RAISE WARNING 'rank_bonuses unique index skipped: %', SQLERRM;
       END $$`);
       await db.execute(sql`CREATE INDEX IF NOT EXISTS rank_bonuses_activity_idx ON rank_bonuses (activity_id)`);
+      // ── 🎟️ بطاقة الولاء (ختم الدون) ──
+      await db.execute(sql`CREATE TABLE IF NOT EXISTS loyalty_config (id SERIAL PRIMARY KEY, key VARCHAR(40) UNIQUE NOT NULL, value JSONB NOT NULL, updated_at TIMESTAMP DEFAULT NOW() NOT NULL)`);
+      await db.execute(sql`CREATE TABLE IF NOT EXISTS loyalty_stamps (
+        id SERIAL PRIMARY KEY,
+        player_id INTEGER NOT NULL REFERENCES players(id) ON DELETE CASCADE,
+        activity_id INTEGER NOT NULL,
+        booking_id INTEGER,
+        location_id INTEGER,
+        period VARCHAR(7) NOT NULL,
+        lead_hours NUMERIC(7,1),
+        match_id INTEGER,
+        source VARCHAR(10) DEFAULT 'auto' NOT NULL,
+        granted_by INTEGER,
+        note TEXT,
+        voided_at TIMESTAMP,
+        voided_by INTEGER,
+        void_reason TEXT,
+        created_at TIMESTAMP DEFAULT NOW() NOT NULL,
+        UNIQUE (player_id, activity_id)
+      )`);
+      await db.execute(sql`CREATE INDEX IF NOT EXISTS loyalty_stamps_period_idx ON loyalty_stamps (period, player_id)`);
+      await db.execute(sql`CREATE TABLE IF NOT EXISTS loyalty_rewards (
+        id SERIAL PRIMARY KEY,
+        player_id INTEGER NOT NULL REFERENCES players(id) ON DELETE CASCADE,
+        period VARCHAR(7) NOT NULL,
+        seq INTEGER NOT NULL,
+        kind VARCHAR(12),
+        status VARCHAR(16) DEFAULT 'pending_choice' NOT NULL,
+        value JSONB DEFAULT '{}'::jsonb,
+        earned_at TIMESTAMP DEFAULT NOW() NOT NULL,
+        choose_by TIMESTAMP,
+        expires_at TIMESTAMP,
+        redeemed_at TIMESTAMP,
+        redeemed_ref_type VARCHAR(12),
+        redeemed_ref_id INTEGER,
+        redeemed_by INTEGER,
+        celebrated_at TIMESTAMP,
+        void_reason TEXT,
+        note TEXT,
+        UNIQUE (player_id, period, seq)
+      )`);
+      await db.execute(sql`CREATE INDEX IF NOT EXISTS loyalty_rewards_player_status_idx ON loyalty_rewards (player_id, status)`);
+      await db.execute(sql`ALTER TABLE bookings ADD COLUMN IF NOT EXISTS loyalty_reward_id INTEGER`);
+      await db.execute(sql`ALTER TABLE order_invoices ADD COLUMN IF NOT EXISTS loyalty_discount NUMERIC(10,2) DEFAULT 0`);
+      await db.execute(sql`ALTER TABLE order_invoices ADD COLUMN IF NOT EXISTS loyalty_reward_id INTEGER`);
       await db.execute(sql`CREATE TABLE IF NOT EXISTS analytics_cache (key VARCHAR(40) PRIMARY KEY, payload JSONB NOT NULL, refreshed_at TIMESTAMP DEFAULT NOW() NOT NULL)`);
       await db.execute(sql`CREATE TABLE IF NOT EXISTS analytics_config (key VARCHAR(40) PRIMARY KEY, value JSONB NOT NULL, updated_at TIMESTAMP DEFAULT NOW() NOT NULL)`);
       // ── 🍽️ نظام طلبات المنيو والفواتير (F&B) ──
@@ -2109,6 +2156,11 @@ async function main() {
     const { startExpiryScheduler } = await import('./services/chips-store.service.js');
     startExpiryScheduler();
   } catch (e: any) { console.warn('⚠️ birthday scheduler init:', e.message); }
+  // ── 🎟️ مجدول بطاقة الولاء — انتهاء المكافآت، الاختيار التلقائيّ، التذكيرات ──
+  try {
+    const { startLoyaltyScheduler } = await import('./services/loyalty.service.js');
+    startLoyaltyScheduler();
+  } catch (e: any) { console.warn('⚠️ loyalty scheduler init:', e.message); }
 
   // ── 📊 تحديث كاش التحليلات: عند الإقلاع إن كان قديماً + ليليّاً الساعة ٤ فجراً ──
   try {

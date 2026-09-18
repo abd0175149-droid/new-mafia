@@ -58,6 +58,7 @@ export const CHIPS_REASONS = [
   'refund',             // استرجاع تشبس (لا استرداد نقدي أبداً)
   'reward_top3',        // مكافأة أفضل ثلاثة — سبب مستقلّ
   'reward_birthday',    // عيديّة ميلاد — سبب مستقلّ
+  'reward_loyalty',     // 🎟️ مكافأة بطاقة الولاء (اختيار التشبس)
   'gift_in',            // إهداء وارد — المرحلة 4
   'gift_out',           // إهداء صادر — المرحلة 4
 ] as const;
@@ -96,7 +97,7 @@ export function getChipsPack(id: string): ChipsPack | undefined {
 // ══════════════════════════════════════════════════════
 export const CHIPS_REASON_CANON_SQL = `
   CASE
-    WHEN l.reason IN ('reward_top3','reward_birthday') THEN l.reason
+    WHEN l.reason IN ('reward_top3','reward_birthday','reward_loyalty') THEN l.reason
     WHEN l.idempotency_key LIKE 'top3:%'     THEN 'reward_top3'
     WHEN l.idempotency_key LIKE 'birthday:%' THEN 'reward_birthday'
     ELSE l.reason
@@ -109,6 +110,7 @@ export const REASON_CATEGORY: Record<string, 'topup' | 'reward' | 'drop' | 'sink
   admin_adjust: 'other',
   reward_top3: 'reward',
   reward_birthday: 'reward',
+  reward_loyalty: 'reward',
   drop_win: 'drop',
   drop_top3: 'drop',
   drop_first_match: 'drop',

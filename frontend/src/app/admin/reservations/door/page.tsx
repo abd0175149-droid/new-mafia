@@ -11,7 +11,7 @@
 //    تقدّم العمل. و«تراجع» يبقى ثوانيَ بدل نافذة تأكيدٍ تعترض إيقاع الباب.
 // ══════════════════════════════════════════════════════
 
-import { useCallback, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { motion, AnimatePresence } from 'framer-motion';
 import { RES_COLORS, matchesSearch, isPending, isWaitlist } from '@/lib/reservation-status';
@@ -48,6 +48,15 @@ export default function DoorMode() {
   // بمحرّك القيود نفسه ومثبَّتٌ للشخص فلا يأخذه غيره.
   const [seatBusy, setSeatBusy] = useState<number | null>(null);
   const [seatOf, setSeatOf] = useState<Record<number, number>>({});
+  // 🎟️ بطاقة الولاء على الباب: من له زيارة مجّانيّة لا يُطلب منه رسم — ومن أكمل بطاقته يُعرف
+  const [loyaltyOf, setLoyaltyOf] = useState<Record<number, { stamps: number; completed: boolean; freeVisit: boolean; freeDrink: boolean }>>({});
+  const loyaltyIdsKey = R.scoped.map(r => r.playerId).filter(Boolean).sort((a: any, b: any) => a - b).join(',');
+  useEffect(() => {
+    if (!loyaltyIdsKey) { setLoyaltyOf({}); return; }
+    apiFetch(`/api/loyalty/venue/status?playerIds=${loyaltyIdsKey}`)
+      .then((d: any) => setLoyaltyOf(d?.enabled ? (d.players || {}) : {}))
+      .catch(() => setLoyaltyOf({}));
+  }, [loyaltyIdsKey]);
   const assignSeat = useCallback(async (r: any) => {
     if (!R.activityId || R.activityId === 'all') return;
     setSeatBusy(r.id);
@@ -191,6 +200,24 @@ export default function DoorMode() {
                         <span className="text-[12px] px-2 rounded-full border font-black"
                           style={{ color: '#C5A059', borderColor: '#C5A05988', background: '#C5A05918' }}>
                           🪑 مقعد {ar(seatOf[r.id])}
+                        </span>
+                      )}
+                      {r.playerId && loyaltyOf[r.playerId]?.freeVisit && (
+                        <span className="text-[11px] px-1.5 rounded-full border font-bold"
+                          style={{ color: '#34d399', borderColor: '#34d39966', background: '#34d39914' }}>
+                          🎟️ زيارة مجّانيّة
+                        </span>
+                      )}
+                      {r.playerId && loyaltyOf[r.playerId]?.freeDrink && (
+                        <span className="text-[11px] px-1.5 rounded-full border font-bold"
+                          style={{ color: '#2dd4bf', borderColor: '#2dd4bf66', background: '#2dd4bf14' }}>
+                          ☕ مشروب ولاء
+                        </span>
+                      )}
+                      {r.playerId && (loyaltyOf[r.playerId]?.stamps || 0) > 0 && (
+                        <span className="text-[11px] px-1.5 rounded-full border font-bold"
+                          style={{ color: '#fbbf24', borderColor: '#fbbf2466', background: '#fbbf2412' }}>
+                          ✦ {ar(loyaltyOf[r.playerId].stamps)}
                         </span>
                       )}
                     </span>

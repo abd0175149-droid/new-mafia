@@ -303,6 +303,9 @@ export default function PlayerCardPage() {
         </p>
       )}
 
+      {/* 🎟️ بطاقةُ الولاء — تُخفى كلّيّاً إن كانت الميزةُ متوقّفةً أو لا صلاحية */}
+      <LoyaltyMiniCard playerId={playerId} />
+
       {/* ═══ ⑤ سطرُ النبض ═══ */}
       <p className="text-[12px] text-gray-500 px-1 leading-relaxed">
         {rhythm.lastNight
@@ -470,6 +473,51 @@ export default function PlayerCardPage() {
         </div>
       )}
     </div>
+  );
+}
+
+// ── 🎟️ بطاقةُ الولاء (ختمُ الدون) — أختامُ الشهر + رابطٌ للوحة الولاء ──
+// 🔴 صامتةٌ عند أيّ فشل (٤٠٣/٤٠٤/ميزة متوقّفة): لا تُظهر خطأً في بطاقةِ الليلة.
+function LoyaltyMiniCard({ playerId }: { playerId: number }) {
+  const [d, setD] = useState<any>(null);
+  useEffect(() => {
+    let alive = true;
+    api(`/api/loyalty/admin/players/${playerId}`)
+      .then(r => { if (alive && r?.card && r?.cfg) setD(r); })
+      .catch(() => {});
+    return () => { alive = false; };
+  }, [playerId]);
+  if (!d) return null;
+  const N = Math.max(1, Number(d.cfg.stampsPerReward) || 5);
+  const inCard = Math.max(0, Math.min(N, Number(d.card.inCard) || 0));
+  const available = (d.rewards || []).filter((r: any) => r.status === 'available').length;
+  const pending = (d.rewards || []).filter((r: any) => r.status === 'pending_choice').length;
+  return (
+    <a href={`/admin/loyalty?player=${playerId}`}
+      className="block bg-gray-800/50 border border-gray-700/40 rounded-2xl px-4 py-3 hover:border-amber-500/40 transition">
+      <div className="flex items-center gap-3">
+        <span className="text-base">🎟️</span>
+        <span className="flex-1 min-w-0">
+          <b className="block text-[13px] text-white">بطاقة الولاء</b>
+          <span className="block text-[11px] text-gray-500">
+            {ar(inCard)}/{ar(N)} هذا الشهر
+            {d.card.cardsCompleted > 0 && <> · {ar(d.card.cardsCompleted)} مكتملة</>}
+            {available > 0 && <span className="text-emerald-400"> · {ar(available)} مكافأة متاحة</span>}
+            {pending > 0 && <span className="text-violet-300"> · {ar(pending)} بانتظار الاختيار</span>}
+          </span>
+        </span>
+        <span className="inline-flex items-center gap-1" dir="ltr">
+          {Array.from({ length: N }).map((_, i) => (
+            <span key={i} className="rounded-full inline-block" style={{
+              width: 10, height: 10,
+              background: i < inCard ? '#f59e0b' : 'rgba(148,163,184,.15)',
+              border: i < inCard ? '1px solid #fbbf24' : '1px solid rgba(148,163,184,.3)',
+            }} />
+          ))}
+        </span>
+        <span className="text-gray-600 text-xs">←</span>
+      </div>
+    </a>
   );
 }
 

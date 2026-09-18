@@ -239,6 +239,10 @@ router.delete('/book/:activityId', authenticatePlayer, async (req: Request, res:
     }
 
     await db.update(bookings).set({ deletedAt: new Date() } as any).where(eq(bookings.id, bk.id));
+    // 🎟️ زيارة مجّانيّة كانت مطبَّقة على هذا الحجز → تعود متاحة
+    if ((bk as any).loyaltyRewardId) {
+      try { const { releaseFreeVisit } = await import('../services/loyalty.service.js'); await releaseFreeVisit(bk.id); } catch { /* غير حاجب */ }
+    }
 
     // 🔗 المرآة — نفس ما يفعله حذفُ الموظّف وفكُّ التثبيت
     await db.update(reservations).set({
@@ -391,7 +395,18 @@ router.post('/book', authenticatePlayer, requireConsent, async (req: Request, re
       console.warn('⚠️ auto-reservation on player booking failed:', e?.message);
     }
 
-    res.status(201).json({ success: true, booking: result[0] });
+    // 🎟️ بطاقة الولاء: هل يُحتسب هذا الحجز ختماً؟ وهل لديه زيارة مجّانيّة تُطبَّق؟
+    let loyalty: any = null;
+    try {
+      const { bookingOutcome, applyFreeVisit } = await import('../services/loyalty.service.js');
+      loyalty = await bookingOutcome(player.playerId, { id: activity.id, date: activity.date as any, locationId: activity.locationId ?? null }, new Date(result[0].createdAt || Date.now()));
+      if (loyalty && player.playerId && req.body?.useLoyaltyReward !== false && !isFreeAccount) {
+        const fv = await applyFreeVisit(player.playerId, result[0].id, { id: activity.id, name: activity.name, basePrice: activity.basePrice as any });
+        loyalty.freeVisitApplied = fv.applied; if (fv.applied) { loyalty.rewardId = fv.rewardId; result[0].isFree = true; result[0].isPaid = true; }
+      }
+    } catch (e: any) { console.warn('⚠️ loyalty on booking:', e?.message); }
+
+    res.status(201).json({ success: true, booking: result[0], loyalty });
 
     // 🔔 Push للموظفين (حجز جديد من تطبيق اللاعب) + تأكيد للاعب
     import('../services/fcm.service.js').then(({ sendPushToStaffByPermission, sendPushToPlayer }) => {
@@ -512,6 +527,11 @@ router.get('/activities/upcoming', async (req: Request, res: Response) => {
     const { countBookedPeopleBatch } = await import('../services/booking-count.service.js');
     const bookedMap = await countBookedPeopleBatch(filtered.map((a: any) => a.id));
 
+    // 🎟️ بطاقة الولاء: ساعة القطع لكلّ فعاليّة (null عند إيقاف الميزة أو خارج أماكنها — فلا يظهر شيء)
+    let loyaltyCfg: any = null;
+    try { const { activityHints } = await import('../services/loyalty.service.js'); const h = await activityHints(); loyaltyCfg = h.enabled ? h.cfg : null; } catch { /* بلا تلميح */ }
+    const { cutoffFor: loyaltyCutoff, isLocationEnabled: loyaltyLoc } = await import('../services/loyalty.service.js');
+
     const enriched = await Promise.all(filtered.map(async (act) => {
 
       // 🎯 توحيد 2026-08-06: العروض مسارٌ مهجور يخدم الفعاليّات القديمة فقط.
@@ -530,6 +550,8 @@ router.get('/activities/upcoming', async (req: Request, res: Response) => {
         hasMenu: act.locationId ? menuLocIds.has(borrowMap.get(act.locationId) ?? act.locationId) : false,
         bookedCount: bookedMap.get(act.id) ?? 0,
         maxPlayers: act.maxCapacity || 20,
+        loyaltyCutoffAt: loyaltyCfg && loyaltyLoc(loyaltyCfg, act.locationId) ? loyaltyCutoff(loyaltyCfg, act.date as any).toISOString() : null,
+        loyaltyMinLeadHours: loyaltyCfg && loyaltyLoc(loyaltyCfg, act.locationId) ? loyaltyCfg.minLeadHours : null,
       };
     }));
 

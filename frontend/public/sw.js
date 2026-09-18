@@ -165,6 +165,10 @@ function resolveNotificationUrl(type, data) {
       return '/player/home';
     case 'rank_bonus':
       return '/player/rank';
+    case 'loyalty_stamp': case 'loyalty_reward': case 'loyalty_missed': case 'loyalty_reset': case 'loyalty_expiring':
+      return data.url || '/player/loyalty';
+    case 'loyalty_reminder':
+      return data.url || '/player/games';
     case 'feedback_survey':
       return data.sessionId ? `/player/feedback?sessionId=${data.sessionId}` : '/player/feedback';
     case 'order_status':

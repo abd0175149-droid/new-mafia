@@ -33,6 +33,10 @@ export interface InvoiceData {
   minTopup: number;
   /** 💧 الماء التلقائيّ — صفر إن كان معطّلاً أو وصله ماءٌ من طلبه (مفرداً أو ضمن عرض) */
   waterCharge: number;
+  /** 🎟️ خصم مشروب بطاقة الولاء (أغلى مشروبٍ مؤهَّل حتى السقف) — صفر بلا مكافأة متاحة */
+  loyaltyDiscount: number;
+  loyaltyRewardId: number | null;
+  loyaltyItemName: string | null;
   gameFeeApplied: boolean;
   gameFeeAmount: number;
   grandTotal: number;
@@ -170,6 +174,16 @@ export async function buildInvoiceData(
     waterCharge = hasWater ? 0 : water.price;
   }
 
+  // 🎟️ مشروب الولاء: خصمٌ من النادي (حصّته) — يُحتسب ضمن الحدّ الأدنى كما الماء (الاستهلاك حصل فعلاً)
+  let loyaltyDiscount = 0; let loyaltyRewardId: number | null = null; let loyaltyItemName: string | null = null;
+  if (playerOrders.length > 0) {
+    try {
+      const { drinkDiscountFor } = await import('./loyalty.service.js');
+      const d = await drinkDiscountFor(db, playerId, locationId, activityId);
+      loyaltyDiscount = d.discount; loyaltyRewardId = d.rewardId; loyaltyItemName = d.itemName;
+    } catch { /* بلا خصم */ }
+  }
+
   // 💳 التكملة: الماء استهلاكٌ فعليّ فيُحتسب ضمن الحدّ — رسوم اللعبة وحدها خارج المقارنة
   const minTopup = minCharge > 0 && played ? Math.max(0, minCharge - (ordersTotal + waterCharge)) : 0;
 
@@ -212,9 +226,12 @@ export async function buildInvoiceData(
     ordersTotal,
     minTopup,
     waterCharge,
+    loyaltyDiscount,
+    loyaltyRewardId,
+    loyaltyItemName,
     gameFeeApplied,
     gameFeeAmount,
-    grandTotal: ordersTotal + waterCharge + minTopup + gameFeeAmount,
+    grandTotal: Math.max(0, ordersTotal + waterCharge + minTopup + gameFeeAmount - loyaltyDiscount),
   };
 }
 
@@ -244,6 +261,8 @@ export async function issueInvoiceNumber(
         data.ordersTotal = parseFloat(existing.ordersTotal || '0');
         data.minTopup = parseFloat(existing.minTopup || '0');
         data.waterCharge = parseFloat(existing.waterCharge || '0');
+        data.loyaltyDiscount = parseFloat((existing as any).loyaltyDiscount || '0');
+        data.loyaltyRewardId = (existing as any).loyaltyRewardId ?? null;
         data.gameFeeApplied = existing.gameFeeApplied === true;
         data.gameFeeAmount = parseFloat(existing.gameFeeAmount || '0');
         data.grandTotal = parseFloat(existing.grandTotal || '0');
@@ -254,6 +273,8 @@ export async function issueInvoiceNumber(
         ordersTotal: data.ordersTotal.toFixed(2),
         minTopup: data.minTopup.toFixed(2),
         waterCharge: data.waterCharge.toFixed(2),
+        loyaltyDiscount: data.loyaltyDiscount.toFixed(2),
+        loyaltyRewardId: data.loyaltyRewardId,
         gameFeeApplied: data.gameFeeApplied,
         gameFeeAmount: data.gameFeeAmount.toFixed(2),
         grandTotal: data.grandTotal.toFixed(2),
@@ -278,6 +299,8 @@ export async function issueInvoiceNumber(
       ordersTotal: data.ordersTotal.toFixed(2),
       minTopup: data.minTopup.toFixed(2),
       waterCharge: data.waterCharge.toFixed(2),
+      loyaltyDiscount: data.loyaltyDiscount.toFixed(2),
+      loyaltyRewardId: data.loyaltyRewardId,
       gameFeeApplied: data.gameFeeApplied,
       gameFeeAmount: data.gameFeeAmount.toFixed(2),
       grandTotal: data.grandTotal.toFixed(2),
@@ -394,6 +417,7 @@ export function invoiceHtml(data: InvoiceData, invoiceNo: number, printedByName:
       ${data.waterCharge > 0 ? `<div class="sum fee"><span>مياه ×1</span><span>${fmt(data.waterCharge)} د.أ</span></div>` : ''}
       ${data.minTopup > 0 ? `<div class="sum fee"><span>حدّ أدنى للاستهلاك</span><span>${fmt(data.minTopup)} د.أ</span></div>` : ''}
       ${data.gameFeeApplied ? `<div class="sum fee"><span>رسوم اللعبة</span><span>${fmt(data.gameFeeAmount)} د.أ</span></div>` : ''}
+      ${data.loyaltyDiscount > 0 ? `<div class="sum fee"><span>🎟️ مشروب بطاقة الولاء${data.loyaltyItemName ? ` (${esc(data.loyaltyItemName)})` : ''}</span><span>−${fmt(data.loyaltyDiscount)} د.أ</span></div>` : ''}
       <div class="sum grand"><span>الإجماليّ</span><span>${fmt(data.grandTotal)} د.أ</span></div>
     </div>
     <div class="foot">أصدرها: ${esc(printedByName)} — شكراً لزيارتكم</div>

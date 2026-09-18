@@ -978,10 +978,22 @@ venueRouter.get('/invoices/candidates', authenticate, requireVenuePermission('in
     const invs = await db.select({
       playerId: orderInvoices.playerId, invoiceNo: orderInvoices.invoiceNo, printedAt: orderInvoices.printedAt,
       isPaid: orderInvoices.isPaid, paidAt: orderInvoices.paidAt, gameFeeAmount: orderInvoices.gameFeeAmount,
-      minTopup: orderInvoices.minTopup, waterCharge: orderInvoices.waterCharge,
+      minTopup: orderInvoices.minTopup, waterCharge: orderInvoices.waterCharge, loyaltyDiscount: orderInvoices.loyaltyDiscount,
     }).from(orderInvoices)
       .where(and(eq(orderInvoices.locationId, locId), eq(orderInvoices.activityId, activityId)));
     const invByPlayer = new Map(invs.map(i => [i.playerId, i]));
+
+    // 🎟️ خصم مشروب الولاء الحيّ لغير المحصَّلين (لاعبون قلائل — استعلامٌ لكلّ لاعب مقبول)
+    const loyaltyByPlayer = new Map<number, number>();
+    try {
+      const { drinkDiscountFor } = await import('../services/loyalty.service.js');
+      for (const r of rows) {
+        const inv = invByPlayer.get(r.playerId);
+        if (inv?.isPaid) continue;
+        const d = await drinkDiscountFor(db, r.playerId, locId, activityId);
+        if (d.discount > 0) loyaltyByPlayer.set(r.playerId, d.discount);
+      }
+    } catch { /* بلا خصم */ }
 
     res.json({
       success: true,
@@ -1004,6 +1016,7 @@ venueRouter.get('/invoices/candidates', authenticate, requireVenuePermission('in
           ? parseFloat(inv.minTopup || '0')
           : (playedIds.has(r.playerId) ? Math.max(0, minCharge - (ordersTotal + waterCharge)) : 0);
         const feeShown = inv?.isPaid ? parseFloat(inv.gameFeeAmount || '0') : gameFee;
+        const loyaltyDiscount = inv?.isPaid ? parseFloat((inv as any).loyaltyDiscount || '0') : (loyaltyByPlayer.get(r.playerId) || 0);
         return {
           playerId: r.playerId,
           playerName: r.playerName,
@@ -1011,8 +1024,9 @@ venueRouter.get('/invoices/candidates', authenticate, requireVenuePermission('in
           ordersTotal,
           minTopup,
           waterCharge,
+          loyaltyDiscount,
           gameFee: feeShown,
-          grandTotal: ordersTotal + waterCharge + minTopup + feeShown,
+          grandTotal: Math.max(0, ordersTotal + waterCharge + minTopup + feeShown - loyaltyDiscount),
           invoiceNo: inv?.invoiceNo ?? null,
           printedAt: inv?.printedAt ?? null,
           isPaid: inv?.isPaid === true,
@@ -1267,6 +1281,8 @@ venueRouter.post('/invoices/:activityId/:playerId/pay', authenticate, requireVen
         ordersTotal: data.ordersTotal.toFixed(2),
         minTopup: data.minTopup.toFixed(2),
         waterCharge: data.waterCharge.toFixed(2),
+        loyaltyDiscount: data.loyaltyDiscount.toFixed(2),
+        loyaltyRewardId: data.loyaltyRewardId,
         gameFeeApplied: data.gameFeeApplied,
         gameFeeAmount: data.gameFeeAmount.toFixed(2),
         grandTotal: data.grandTotal.toFixed(2),
@@ -1285,6 +1301,11 @@ venueRouter.post('/invoices/:activityId/:playerId/pay', authenticate, requireVen
       }
     });
     if (!paidRow) return res.status(400).json({ error: 'الفاتورة محصَّلة مسبقاً' });
+
+    // 🎟️ مشروب الولاء استُخدم فعلاً مع التحصيل
+    if (data.loyaltyRewardId && data.loyaltyDiscount > 0) {
+      try { const { redeemDrinkOnInvoice } = await import('../services/loyalty.service.js'); await redeemDrinkOnInvoice(data.loyaltyRewardId, inv.id, data.loyaltyDiscount, data.loyaltyItemName, staffId); } catch { /* غير حاجب */ }
+    }
 
     res.json({
       success: true,

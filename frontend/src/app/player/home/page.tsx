@@ -12,6 +12,8 @@ import { usePushNotifications } from '@/hooks/usePushNotifications';
 import { useModalScrollLock } from '@/hooks/useModalScrollLock';
 import InstallGuide from '@/components/InstallGuide';
 import { IcoPlate } from '@/components/fnb/icons';
+import { useLoyalty } from '@/hooks/useLoyalty';
+import { LoyaltyHomeBanner } from '@/components/LoyaltyStamps';
 
 // مجموعة الواتساب ليست حساب أعمال — رابط دعوة عاديّ لا يمسّه إجراء ميتا، فيبقى.
 // 🔴 المجموعةُ العامّة احتياطاً فقط: الخادمُ يقرّر أيَّ مجموعةٍ حسب مدينة
@@ -53,6 +55,8 @@ export default function HomePage() {
   const [fnb, setFnb] = useState<{ context: any | null; next: any | null } | null>(null);
   const [fnbShelf, setFnbShelf] = useState<{ items: any[]; total: number; bundles: number }>({ items: [], total: 0, bundles: 0 });
   const [fnbOpen, setFnbOpen] = useState(0);
+  // 🎟️ بطاقة الولاء — لا تُرسم اللافتة إلا والميزة مفعَّلة من الداشبورد (enabled)
+  const loyalty = useLoyalty();
 
   // ── منع السكرول + swipe-to-close ──
   const activityModal = useModalScrollLock({
@@ -601,6 +605,9 @@ export default function HomePage() {
           ))}
         </div>
       )}
+
+      {/* 🎟️ بطاقة الولاء — تظهر فقط عند تشغيل الميزة */}
+      {loyalty.data?.enabled && <LoyaltyHomeBanner me={loyalty.data} />}
 
       {/* 🏦 خزنة الدون — باب ثانٍ للمتجر.
           ⚠️ كان قرص الرصيد في الترويسة **الباب الوحيد** إليه من الصفحة كلها،

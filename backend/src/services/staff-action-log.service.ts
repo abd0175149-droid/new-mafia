@@ -122,6 +122,13 @@ export const ACTION_CATALOG: Record<string, { category: string; labelAr: string 
   'chips:grant-top3': { category: 'CHIPS', labelAr: 'منح مكافأة أفضل ثلاثة' },
   'chips:grant-birthday': { category: 'CHIPS', labelAr: 'منح عيديّة ميلاد' },
   'chips:item-create': { category: 'CHIPS', labelAr: 'إضافة عنصر للخزنة' },
+  // ── 🎟️ بطاقة الولاء ──
+  'rest:loyalty-toggle': { category: 'LOYALTY', labelAr: 'تشغيل/إيقاف بطاقة الولاء' },
+  'rest:loyalty-config-save': { category: 'LOYALTY', labelAr: 'تعديل إعدادات بطاقة الولاء' },
+  'rest:loyalty-stamp-manual': { category: 'LOYALTY', labelAr: 'منح ختم ولاء يدويّ' },
+  'rest:loyalty-stamp-void': { category: 'LOYALTY', labelAr: 'إلغاء ختم ولاء' },
+  'rest:loyalty-reward-void': { category: 'LOYALTY', labelAr: 'إلغاء مكافأة ولاء' },
+  'rest:loyalty-reward-redeem': { category: 'LOYALTY', labelAr: 'استخدام/اختيار مكافأة ولاء بالنيابة' },
 };
 
 // ── أسماء الفئات بالعربية (للعرض والفلترة) ─────────────────────────────
@@ -143,6 +150,7 @@ export const CATEGORY_LABELS: Record<string, string> = {
   TEMPLATE_EDIT: 'قوالب المقاعد',
   ACTIVITY: 'الفعاليات',
   CHIPS: 'التشبس 🪙',
+  LOYALTY: 'بطاقة الولاء 🎟️',
   OTHER: 'أخرى',
 };
 

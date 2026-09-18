@@ -10,6 +10,7 @@ import { getCachedFix } from '@/hooks/useGeolocation';
 import { useActivityPulse } from '@/hooks/useActivityPulse';
 import NightPulse from '@/components/NightPulse';
 import OrderPanel from '@/components/OrderPanel';
+import { useLoyalty, remainingAr, fmtTimeAr, fmtLeadAr, periodNameAr, arNum as arN } from '@/hooks/useLoyalty';
 
 type Tab = 'upcoming' | 'pulse' | 'history';
 
@@ -51,6 +52,13 @@ function GamesContent() {
   const [cancelLoading, setCancelLoading] = useState(false);
   const [selectedOffer, setSelectedOffer] = useState<number | null>(null);
   const [offerError, setOfferError] = useState(false);
+  // 🎟️ بطاقة الولاء: حالة اللاعب (مفعَّلة؟ زيارة مجّانيّة متاحة؟) + نبضة كلّ ٣٠ ثانية لعدّادات القطع
+  const loyalty = useLoyalty();
+  const [useFreeVisit, setUseFreeVisit] = useState(true);
+  const [loyaltyToast, setLoyaltyToast] = useState<string | null>(null);
+  const [, setLoyaltyTick] = useState(0);
+  useEffect(() => { const t = setInterval(() => setLoyaltyTick(x => x + 1), 30_000); return () => clearInterval(t); }, []);
+  const freeVisitReward = loyalty.data?.enabled ? (loyalty.data.available || []).find(r => r.kind === 'free_visit') : null;
   // 🍽️ استعراض منيو المكان وقت الحجز (عرضٌ فقط — الطلب يبقى داخل نافذته).
   //    العارض هو OrderPanel نفسه بوضع browse — لا عارض ثانٍ يتخلّف عن الأوّل
   //    (كان يقرأ components والخادم يعيد slots، فظهرت العروض بلا مكوّنات).
@@ -216,12 +224,19 @@ function GamesContent() {
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${player.token}`,
         },
-        body: JSON.stringify({ activityId, offerId }),
+        body: JSON.stringify({ activityId, offerId, useLoyaltyReward: useFreeVisit }),
       });
       const data = await res.json();
 
       if (data.success) {
         setMyBookings(prev => [...prev, data.booking]);
+        // 🎟️ الولاء: تأكيد تطبيق الزيارة المجّانيّة أو حكم الختم
+        if (data.loyalty) {
+          if (data.loyalty.freeVisitApplied) setLoyaltyToast('🎟️ طُبّقت زيارتك المجّانيّة — رسم اللعبة ٠ د.أ');
+          else if (data.loyalty.qualifies) setLoyaltyToast('✦ حجزك يُحتسب ختماً — العب مباراةً الليلة ليُثبَّت');
+          setTimeout(() => setLoyaltyToast(null), 4500);
+          void loyalty.refresh(true);
+        }
         setActivities(prev => prev.map(a =>
           a.id === activityId ? { ...a, bookedCount: (a.bookedCount || 0) + 1 } : a
         ));
@@ -530,6 +545,20 @@ function GamesContent() {
                         </div>
                       </div>
                     </div>
+
+                    {/* 🎟️ سطر الختم: يظهر فقط حين تكون الميزة مفعَّلة (loyaltyCutoffAt من الخادم) */}
+                    {act.loyaltyCutoffAt && loyalty.data?.enabled && !booked && (() => {
+                      const left = remainingAr(act.loyaltyCutoffAt);
+                      return left ? (
+                        <div className="mt-2.5 px-2.5 py-1.5 rounded-lg flex items-center justify-between text-[11px]" style={{ background: 'rgba(52,211,153,0.08)', border: '1px solid rgba(52,211,153,0.25)', color: '#a7f3d0' }}>
+                          <span>✦ الحجز الآن يُحتسب ختماً</span><b className="tabular-nums">⏳ {left}</b>
+                        </div>
+                      ) : (
+                        <div className="mt-2.5 px-2.5 py-1.5 rounded-lg text-[11px]" style={{ background: 'rgba(251,113,133,0.06)', border: '1px solid rgba(251,113,133,0.2)', color: '#fda4af' }}>
+                          فات وقت الختم — كان القطع {fmtTimeAr(new Date(act.loyaltyCutoffAt))}
+                        </div>
+                      );
+                    })()}
 
                     {/* ── العدد رقماً كبيراً + حالة الطلب ── */}
                     <div className="flex items-end justify-between mt-3.5 pt-3.5 border-t border-white/[0.06]">
@@ -960,6 +989,16 @@ function GamesContent() {
 
       {/* ── Modal تأكيد الحجز ── */}
       <AnimatePresence>
+        {loyaltyToast && (
+          <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }}
+            className="fixed left-1/2 -translate-x-1/2 z-[70] px-4 py-2.5 rounded-xl text-[12.5px] font-bold text-black shadow-xl"
+            style={{ bottom: 'calc(var(--nav-h) + 14px)', background: 'linear-gradient(135deg, #fbbf24, #f59e0b)' }}>
+            {loyaltyToast}
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      <AnimatePresence>
         {confirmBooking && (
           <motion.div
             initial={{ opacity: 0 }}
@@ -997,6 +1036,35 @@ function GamesContent() {
                   <p>💰 {confirmBooking.basePrice} د.أ</p>
                 )}
               </div>
+
+              {/* 🎟️ حكم الختم + الزيارة المجّانيّة — فقط عند تشغيل الميزة */}
+              {confirmBooking.loyaltyCutoffAt && loyalty.data?.enabled && (() => {
+                const cut = new Date(confirmBooking.loyaltyCutoffAt);
+                const leadH = (new Date(confirmBooking.date).getTime() - Date.now()) / 3600e3;
+                const ok = cut.getTime() > Date.now();
+                return (
+                  <div className="mb-3 px-3 py-2.5 rounded-xl" style={ok ? { background: 'rgba(52,211,153,0.08)', border: '1px solid rgba(52,211,153,0.3)' } : { background: 'rgba(251,113,133,0.07)', border: '1px solid rgba(251,113,133,0.25)' }}>
+                    <div className="flex items-center justify-between gap-2">
+                      <b className="text-[13px]" style={{ color: ok ? '#a7f3d0' : '#fda4af' }}>{ok ? '✦ هذا الحجز يُحتسب ختماً' : 'فات وقت الختم لهذه الفعاليّة'}</b>
+                      <span className="text-[11px] tabular-nums" style={{ color: ok ? '#34d399' : '#fb7185' }}>{ok ? `قبل الموعد بـ${fmtLeadAr(leadH)}` : `القطع كان ${fmtTimeAr(cut)}`}</span>
+                    </div>
+                    <p className="text-[11px] text-gray-400 mt-1 leading-snug">
+                      {ok ? 'بشرط أن تلعب مباراةً واحدة الليلة. لو ألغيت الحجز وأعدته بعد الموعد يسقط الختم.' : `الحجز ما زال ممكناً لكن بلا ختم — المرّة الجاية احجز قبل الفعاليّة بـ${arN(confirmBooking.loyaltyMinLeadHours || loyalty.data?.config?.minLeadHours || 6)} ساعات.`}
+                    </p>
+                  </div>
+                );
+              })()}
+              {freeVisitReward && !confirmBooking.isTestLocation && (
+                <div className="mb-3 px-3 py-2.5 rounded-xl" style={{ background: 'rgba(251,191,36,0.08)', border: '1px solid rgba(251,191,36,0.3)' }}>
+                  <div className="flex items-center justify-between gap-2">
+                    <b className="text-[13px] text-amber-400">🎟️ لديك زيارة مجّانيّة من بطاقة {periodNameAr(freeVisitReward.period)}</b>
+                    <button type="button" onClick={() => setUseFreeVisit(v => !v)} className="relative shrink-0 rounded-full transition-colors" style={{ width: 40, height: 22, background: useFreeVisit ? '#d97706' : '#374151' }} aria-label="استخدام الزيارة المجّانيّة">
+                      <span className="absolute top-[3px] rounded-full bg-white transition-all" style={{ width: 16, height: 16, right: useFreeVisit ? 3 : 21 }} />
+                    </button>
+                  </div>
+                  <p className="text-[11px] text-gray-400 mt-1">{useFreeVisit ? 'تُطبَّق على هذا الحجز: رسم اللعبة ٠ د.أ.' : 'لن تُستخدم الآن — تبقى لحجزٍ لاحق.'}</p>
+                </div>
+              )}
 
               {/* 🍽️ منيو المكان — يطّلع عليه قبل تأكيد الحجز */}
               {confirmBooking.hasMenu && (

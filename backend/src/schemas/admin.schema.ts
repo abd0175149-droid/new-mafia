@@ -164,6 +164,8 @@ export const bookings = pgTable('bookings', {
   playerId: integer('player_id'),
   ticketNumber: varchar('ticket_number', { length: 50 }),
   checkedIn: boolean('checked_in').default(false),
+  // 🎟️ زيارة مجّانيّة من بطاقة الولاء — يربط الحجز بمكافأته (إلغاء الحجز يعيدها)
+  loyaltyRewardId: integer('loyalty_reward_id'),
   createdAt: timestamp('created_at').defaultNow().notNull(),
   deletedAt: timestamp('deleted_at'),
 });

@@ -361,6 +361,17 @@ export async function finalizeMatch(state: GameState): Promise<void> {
       console.warn('⚠️ Chips drops skipped:', dropErr?.message);
     }
 
+    // ── 🎟️ ختم بطاقة الولاء — حجزٌ مبكّر من التطبيق + هذه المباراة = ختم (قيدٌ فريد لكلّ فعاليّة) ──
+    try {
+      const { grantStampsForMatch } = await import('./loyalty.service.js');
+      await grantStampsForMatch({
+        matchId: state.matchId!, activityId: state.activityId ?? null, locationId: state.locationId ?? null, isTestMatch: isTestGame,
+        players: playerRows.map(row => ({ playerId: row.playerId, name: row.playerName })),
+      });
+    } catch (loyErr: any) {
+      console.warn('⚠️ Loyalty stamps skipped:', loyErr?.message);
+    }
+
     // ── 🔊 نغمة النصر المشتراة ──
     // تُبثّ من هنا لأن finalizeMatch هو نقطة النهاية الوحيدة المحروسة ضد التكرار
     // (game:over يُبثّ من أربعة مسارات). جهاز القائد يعزفها والشاشة تتبعه بالمرآة.

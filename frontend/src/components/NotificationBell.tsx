@@ -24,6 +24,10 @@ function resolveNotificationUrl(type: string, data: any): string | null {
       return '/player/home';
     case 'rank_bonus':
       return '/player/rank';
+    case 'loyalty_stamp': case 'loyalty_reward': case 'loyalty_missed': case 'loyalty_reset': case 'loyalty_expiring':
+      return '/player/loyalty';
+    case 'loyalty_reminder':
+      return '/player/games';
     case 'feedback_survey':
       return data?.sessionId ? `/player/feedback?sessionId=${data.sessionId}` : '/player/feedback';
     case 'custom':
@@ -45,12 +49,14 @@ const TYPE_ICONS: Record<string, string> = {
   new_activity: '📅', game_ended: '🎮', custom: '📢', reminder: '⏰',
   friend_booked: '👥', level_up: '🏆', booking_confirmed: '✅', comeback: '🔥',
   feedback_survey: '📋', order_status: '🍽️', rank_bonus: '🎁',
+  loyalty_stamp: '✦', loyalty_reward: '🎁', loyalty_reminder: '⏰', loyalty_missed: 'ℹ️', loyalty_reset: '🗓️', loyalty_expiring: '⏳',
 };
 
 const TYPE_COLORS: Record<string, string> = {
   new_activity: '#f59e0b', game_ended: '#ef4444', custom: '#8b5cf6', reminder: '#3b82f6',
   friend_booked: '#22c55e', level_up: '#f59e0b', booking_confirmed: '#22c55e', comeback: '#ef4444',
   feedback_survey: '#8b5cf6', order_status: '#10b981', rank_bonus: '#f59e0b',
+  loyalty_stamp: '#f59e0b', loyalty_reward: '#10b981', loyalty_reminder: '#38bdf8', loyalty_missed: '#fb7185', loyalty_reset: '#9ca3af', loyalty_expiring: '#f59e0b',
 };
 
 export function NotificationBell() {

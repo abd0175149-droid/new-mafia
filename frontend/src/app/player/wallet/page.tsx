@@ -24,6 +24,7 @@ const MOVE: Record<string, { icon: string; label: string }> = {
   refund: { icon: '↩️', label: 'استرجاع' },
   gift_in: { icon: '🎀', label: 'هديّة وصلتك' },
   gift_out: { icon: '🎀', label: 'هديّة أرسلتها' },
+  reward_loyalty: { icon: '🎟️', label: 'مكافأة بطاقة الولاء' },
 };
 
 function fmtDate(iso: string) {

@@ -2431,6 +2431,15 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
         gameName: addedState.config.gameName,
         constraintViolation,
       });
+      // 🎟️ صاحب بطاقة ولاء مكتملة لم يُحتفَ به بعد → تحيّة «دخول الدون» على شاشة القاعة (مرّة لكلّ بطاقة)
+      {
+        const pidForLoyalty = Number(finalPlayer?.playerId || data.playerId || 0);
+        if (pidForLoyalty > 0) {
+          import('../services/loyalty.service.js').then(({ celebrateOnJoin }) => celebrateOnJoin(io, data.roomId, {
+            playerId: pidForLoyalty, physicalId: actualPhysicalId, name: finalPlayer?.name || data.name, avatarUrl: finalPlayer?.avatarUrl || null,
+          }, (addedState as any).locationId ?? null)).catch(() => {});
+        }
+      }
       console.log(`🪑 Player auto-joined: #${actualPhysicalId} - ${data.name} (${data.gender || 'MALE'})${constraintViolation ? ' [CONSTRAINT VIOLATED]' : ''}`);
     } catch (err: any) {
       callback({ success: false, error: err.message });
