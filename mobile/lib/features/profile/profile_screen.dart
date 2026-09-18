@@ -9,6 +9,7 @@ import '../../app/config.dart';
 import '../../app/theme/theme.dart';
 import '../../core/api/api_client.dart';
 import '../../core/api/auth_repository.dart';
+import '../../core/api/loyalty_api.dart';
 import '../../core/socket/socket_service.dart';
 import '../../core/storage/session_store.dart';
 import '../../core/ui/toast.dart';
@@ -478,6 +479,8 @@ class ProfileScreenState extends State<ProfileScreen> {
         onTap: () async {
           await AuthRepository.instance.logout();
           SocketService.instance.reauth();
+          // 🎟️ حمولةُ ولاء حسابٍ خرج لا تُعرض لمن يدخل بعده
+          LoyaltyApi.instance.clear();
           AppState.instance.onLoggedOut();
         },
         borderRadius: BorderRadius.circular(12),

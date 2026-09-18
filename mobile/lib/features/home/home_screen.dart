@@ -10,6 +10,7 @@ import '../../core/ui/glass.dart';
 import '../../app/router.dart';
 import '../../app/theme/theme.dart';
 import '../../core/api/api_client.dart';
+import '../../core/api/loyalty_api.dart';
 import '../../core/cities/city_service.dart';
 import '../../core/cities/city_widgets.dart';
 import '../../core/location/location_service.dart';
@@ -21,6 +22,7 @@ import '../../models/home.dart';
 import '../../models/player.dart';
 import '../../models/profile.dart' show Standing;
 import '../gates/home_city_sheet.dart';
+import '../loyalty/loyalty_widgets.dart';
 import '../notifications/inbox_sheet.dart';
 import '../shell/chips_balance_pill.dart';
 import '../profile/profile_palette.dart';
@@ -99,10 +101,15 @@ class _HomeScreenState extends State<HomeScreen> {
             : null)
         .catchError((_) => null);
 
+    // 🎟️ بطاقة الولاء — نداءٌ مستقلّ آخر. اللافتة تستمع إلى `LoyaltyApi`
+    //    بنفسها فلا تحتاج نتيجةً هنا؛ وفشله أو `enabled:false` يعني غيابها.
+    final loyalty = LoyaltyApi.instance.refresh();
+
     final p = await profile;
     final a = await acts;
     final f = await fnb;
     final fd = await feed;
+    await loyalty;
     if (!mounted) return;
     setState(() {
       _profile = p;
@@ -221,6 +228,9 @@ class _HomeScreenState extends State<HomeScreen> {
                 const SizedBox(height: 20),
                 FriendsFeedSection(items: _feed),
               ],
+              // 🎟️ بطاقة الولاء — فراغها العلويّ داخلها، فتزول كلّها حين
+              //    تكون الميزة معطّلة (المفتاح الرئيسيّ).
+              const LoyaltyHomeBanner(topGap: 20),
               // 🏦 HOME-2: لافتة الخزنة. حبّة الرصيد في الترويسة بابٌ صغير
               //    مخبوء — من لا يعرف أنها تُنقر لا يجد المتجر من هنا أبداً.
               const SizedBox(height: 20),

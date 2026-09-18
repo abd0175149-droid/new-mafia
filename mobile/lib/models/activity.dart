@@ -80,6 +80,8 @@ class Activity {
     this.cityId,
     this.cityName,
     this.locationRegion,
+    this.loyaltyCutoffAt,
+    this.loyaltyMinLeadHours,
   });
 
   final int id;
@@ -97,6 +99,12 @@ class Activity {
 
   /// الحيّ/المنطقة — تصل من الخادم اليوم ولم تكن تُقرأ.
   final String? locationRegion;
+
+  /// 🎟️ بطاقة الولاء: آخر لحظةٍ يُحتسب فيها الحجز ختماً. `null` يعني أن
+  ///    الميزة معطّلة (المفتاح الرئيسيّ) أو المكان خارج البرنامج — ولا
+  ///    يُعرض عندها أيّ سطرٍ عن الأختام.
+  final DateTime? loyaltyCutoffAt;
+  final int? loyaltyMinLeadHours;
 
   /// «المكان · الحيّ» — الحيّ يُلحق فقط حين يوجد.
   String? get locationLine {
@@ -139,6 +147,11 @@ class Activity {
         cityId: j['cityId'] == null ? null : _i(j['cityId']),
         cityName: LocationOffer._s(j['cityName']),
         locationRegion: LocationOffer._s(j['locationRegion']),
+        loyaltyCutoffAt: j['loyaltyCutoffAt'] == null
+            ? null
+            : DateTime.tryParse('${j['loyaltyCutoffAt']}'),
+        loyaltyMinLeadHours:
+            j['loyaltyMinLeadHours'] == null ? null : _i(j['loyaltyMinLeadHours']),
       );
 }
 

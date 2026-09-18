@@ -5,6 +5,7 @@ import '../core/routing/destination.dart';
 import '../features/auth/auth_screen.dart';
 import '../features/feedback/feedback_screen.dart';
 import '../features/host/host_screen.dart';
+import '../features/loyalty/loyalty_screen.dart';
 import '../features/game/game_screen.dart';
 import '../features/game/game_session_controller.dart';
 import '../features/games/games_screen.dart';
@@ -41,6 +42,7 @@ abstract final class Routes {
   static const order = '/player/order';
   static const feedback = '/player/feedback';
   static const history = '/player/history';
+  static const loyalty = '/player/loyalty';
   static const debugPush = '/player/debug-push';
 
   /// عامّة دائماً — لا حارس ولا بوّابة ولا انتظار جلسة.
@@ -126,6 +128,13 @@ GoRouter buildRouter(AppConfig config) {
       GoRoute(
         path: Routes.order,
         builder: (_, __) => const OrderScreen(),
+      ),
+
+      // 🎟️ بطاقة الولاء — مسارٌ أعلى كالمحفظة: وجهة إشعارات الأختام
+      //    والمكافآت (`/player/loyalty`) تُكتب في الخادم بمسار الويب.
+      GoRoute(
+        path: Routes.loyalty,
+        builder: (_, __) => const LoyaltyScreen(),
       ),
 
       // `?sessionId=` يصل من نقرة إشعار إغلاق الغرفة فيتجاوز أوّل الطابور

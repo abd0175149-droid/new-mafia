@@ -14,6 +14,15 @@ import '../../core/storage/session_store.dart';
 // ══════════════════════════════════════════════════════
 // في ترويسة الرئيسية، وهي **الباب الوحيد** إلى الخزنة من هذه الشاشة.
 
+/// 🔔 ناقوس إعادة الجلب: شاشةٌ تعرف أن الرصيد تغيّر للتوّ (اختيار
+/// مكافأة تشبس من بطاقة الولاء) تقرعه فتُحدَّث كلّ الحبّات المعروضة
+/// دون انتظار بثّ السوكِت أو عودة التطبيق من الخلفيّة.
+class ChipsRefreshBus extends ChangeNotifier {
+  ChipsRefreshBus._();
+  static final ChipsRefreshBus instance = ChipsRefreshBus._();
+  void ping() => notifyListeners();
+}
+
 class ChipsBalancePill extends StatefulWidget {
   const ChipsBalancePill({super.key, this.onTap});
 
@@ -36,12 +45,14 @@ class _ChipsBalancePillState extends State<ChipsBalancePill> with WidgetsBinding
       _fetch();
       SocketService.instance.on('chips:balance-updated', _onUpdate);
     }
+    ChipsRefreshBus.instance.addListener(_fetch);
   }
 
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
     SocketService.instance.off('chips:balance-updated', _onUpdate);
+    ChipsRefreshBus.instance.removeListener(_fetch);
     _deltaTimer?.cancel();
     super.dispose();
   }

@@ -72,6 +72,13 @@ const _typeIcons = <String, String>{
   'rank_bonus': '🎁',
   'rank_up': '🏆',
   'rank_down': '📉',
+  // 🎟️ بطاقة الولاء
+  'loyalty_stamp': '✦',
+  'loyalty_reward': '🎁',
+  'loyalty_reminder': '⏰',
+  'loyalty_missed': 'ℹ️',
+  'loyalty_reset': '🗓️',
+  'loyalty_expiring': '⏳',
 };
 
 const _typeColors = <String, Color>{
@@ -88,6 +95,13 @@ const _typeColors = <String, Color>{
   'rank_bonus': Color(0xFFF59E0B),
   'rank_up': Color(0xFFF59E0B),
   'rank_down': Color(0xFFEF4444),
+  // 🎟️ بطاقة الولاء
+  'loyalty_stamp': Color(0xFFF59E0B),
+  'loyalty_reward': Color(0xFF10B981),
+  'loyalty_reminder': Color(0xFF0EA5E9),
+  'loyalty_missed': Color(0xFFF43F5E),
+  'loyalty_reset': Color(0xFF6B7280),
+  'loyalty_expiring': Color(0xFFF59E0B),
 };
 
 String notificationIcon(String type) => _typeIcons[type] ?? '🔔';
@@ -143,6 +157,17 @@ String? resolveNotificationUrl(String type, Map<String, dynamic> data) {
       final city = data['cityId'];
       final cityId = city is num ? city.toInt() : int.tryParse('${city ?? ''}');
       return cityId == null ? '/player/rank' : '/player/rank?city=$cityId';
+
+    // 🎟️ الولاء: الخادم يرسل `url` صريحاً، وهذا احتياطٌ لخادمٍ لم يرسله.
+    //    التذكير قبل القطع يفتح الفعاليّات لا البطاقة — الفعل هناك.
+    case 'loyalty_reminder':
+      return '/player/games';
+    case 'loyalty_stamp':
+    case 'loyalty_reward':
+    case 'loyalty_missed':
+    case 'loyalty_reset':
+    case 'loyalty_expiring':
+      return '/player/loyalty';
 
     case 'booking_confirmed':
     case 'game_ended':

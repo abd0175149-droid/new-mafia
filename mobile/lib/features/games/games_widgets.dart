@@ -7,6 +7,7 @@ import '../../core/cities/city_widgets.dart';
 import '../../models/activity.dart';
 import '../../models/city.dart';
 import '../../models/profile.dart';
+import '../loyalty/loyalty_widgets.dart';
 import '../profile/profile_palette.dart';
 
 // ══════════════════════════════════════════════════════
@@ -347,6 +348,12 @@ class ActivityCard extends StatelessWidget {
                     ),
                     const SizedBox(height: 6),
                     _capacityBar(a),
+                    // 🎟️ سطر الختم — لا يصل `loyaltyCutoffAt` إلّا والميزة
+                    //    مفعّلة، فغيابُه يعني صمتاً لا سطراً فارغاً.
+                    if (a.loyaltyCutoffAt != null) ...[
+                      const SizedBox(height: 6),
+                      LoyaltyCutoffLine(cutoffAt: a.loyaltyCutoffAt!),
+                    ],
                   ],
                 ),
               ),

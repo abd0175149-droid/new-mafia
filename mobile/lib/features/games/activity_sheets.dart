@@ -1,8 +1,11 @@
 import 'package:flutter/material.dart';
 
+import '../../core/api/loyalty_api.dart';
 import '../../core/cities/city_widgets.dart';
 import '../../core/routing/destination.dart';
 import '../../models/activity.dart';
+import '../../models/loyalty.dart';
+import '../loyalty/loyalty_widgets.dart';
 import '../order/order_widgets.dart' show kEmeraldText;
 import '../profile/profile_palette.dart';
 import 'location_menu_sheet.dart';
@@ -305,14 +308,25 @@ class _DetailsSheet extends StatelessWidget {
 // ══════════════════════════════════════════════════════
 // (ب) ورقة تأكيد الحجز
 // ══════════════════════════════════════════════════════
-/// تعيد فهرس العرض المختار، أو `-1` إن لم تكن هناك عروض، أو `null` إلغاءً.
-Future<int?> showBookingConfirm(
+/// ما اختاره اللاعب في ورقة التأكيد.
+///
+/// `offerIndex` فهرس العرض أو `null` بلا عروض. و`useLoyaltyReward` تُرسل
+/// `false` حين يطفئ اللاعب تطبيق زيارته المجّانيّة على هذا الحجز — الخادم
+/// يطبّقها افتراضاً، فلا تُرسل إلّا عند الإطفاء.
+class BookingChoice {
+  const BookingChoice({this.offerIndex, this.useLoyaltyReward = true});
+  final int? offerIndex;
+  final bool useLoyaltyReward;
+}
+
+/// تعيد اختيار اللاعب، أو `null` إلغاءً.
+Future<BookingChoice?> showBookingConfirm(
   BuildContext context, {
   required Activity activity,
   int? homeCityId,
   String? homeCityName,
 }) {
-  return showModalBottomSheet<int>(
+  return showModalBottomSheet<BookingChoice>(
     context: context,
     useRootNavigator: true,
     backgroundColor: Colors.transparent,
@@ -344,13 +358,29 @@ class _ConfirmSheetState extends State<_ConfirmSheet> {
   int? _offer;
   bool _error = false;
 
+  // 🎟️ الزيارة المجّانيّة: تُطبَّق افتراضاً — من يريد ادّخارها يطفئها
+  bool _useFreeVisit = true;
+
+  /// زيارةٌ مجّانيّة جاهزة — من حمولة `/me` المحفوظة، ومقفلةٌ على المفتاح
+  /// الرئيسيّ (`enabled`) ثمّ على وجود القطع لهذه الفعاليّة (مكانٌ داخل
+  /// البرنامج).
+  LoyaltyReward? get _freeVisit {
+    final me = LoyaltyApi.instance.me;
+    if (me == null || !me.enabled) return null;
+    if (widget.activity.loyaltyCutoffAt == null) return null;
+    return me.availableFreeVisit;
+  }
+
   void _confirm() {
     final a = widget.activity;
     if (a.offers.isNotEmpty && _offer == null) {
       setState(() => _error = true);
       return;
     }
-    Navigator.of(context).pop(_offer ?? -1);
+    Navigator.of(context).pop(BookingChoice(
+      offerIndex: _offer,
+      useLoyaltyReward: _freeVisit == null || _useFreeVisit,
+    ));
   }
 
   @override
@@ -388,6 +418,15 @@ class _ConfirmSheetState extends State<_ConfirmSheet> {
               AwayCityNote(
                   cityName: a.cityName!, homeCityName: widget.homeCityName, size: 11),
               const SizedBox(height: 6),
+            ],
+            // 🎟️ حكم الختم — أخضر قبل القطع وورديّ بعده، بشرط اللعب
+            if (a.loyaltyCutoffAt != null) ...[
+              const SizedBox(height: 8),
+              LoyaltyVerdictBox(cutoffAt: a.loyaltyCutoffAt!),
+            ],
+            if (_freeVisit != null) ...[
+              const SizedBox(height: 10),
+              _freeVisitBox(_freeVisit!),
             ],
             if (a.offers.isNotEmpty) _offerPicker(a),
             if (_error) ...[
@@ -471,6 +510,44 @@ class _ConfirmSheetState extends State<_ConfirmSheet> {
   Widget _line(String t) => Padding(
         padding: const EdgeInsets.only(bottom: 6),
         child: Text(t, style: ar(14, color: Tw.gray300)),
+      );
+
+  /// 🎟️ «لديك زيارة مجّانيّة» مع مفتاح تطبيقها — مفعّلٌ افتراضاً.
+  Widget _freeVisitBox(LoyaltyReward r) => Container(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(12),
+          color: const Color(0x1AF59E0B),
+          border: Border.all(color: const Color(0x59F59E0B)),
+        ),
+        child: Row(children: [
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text('🎟️ لديك زيارة مجّانيّة من بطاقة ${periodMonthName(r.period)}',
+                    style: ar(12.5, color: Tw.amber400, weight: FontWeight.w700)),
+                const SizedBox(height: 2),
+                Text(
+                  _useFreeVisit
+                      ? 'ستُطبَّق على هذا الحجز — رسم اللعبة ٠ د.أ'
+                      : 'لن تُطبَّق — تبقى لحجزٍ قادم',
+                  style: ar(10.5, color: Tw.gray400),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(width: 8),
+          Switch(
+            value: _useFreeVisit,
+            onChanged: (v) => setState(() => _useFreeVisit = v),
+            activeThumbColor: Colors.black,
+            activeTrackColor: Tw.amber400,
+            inactiveThumbColor: Tw.gray400,
+            inactiveTrackColor: const Color(0x33FFFFFF),
+            trackOutlineColor: WidgetStateProperty.all(Colors.transparent),
+          ),
+        ]),
       );
 
   Widget _offerPicker(Activity a) => Column(

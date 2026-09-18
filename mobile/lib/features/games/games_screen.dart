@@ -6,8 +6,10 @@ import 'package:flutter/material.dart';
 import '../../app/router.dart';
 import '../../app/theme/theme.dart';
 import '../../core/api/api_client.dart';
+import '../../core/api/loyalty_api.dart';
 import '../../core/cities/city_service.dart';
 import '../../core/storage/session_store.dart';
+import '../../core/ui/toast.dart';
 import '../../models/activity.dart';
 import '../../models/city.dart';
 import '../../models/profile.dart';
@@ -74,6 +76,12 @@ class GamesScreenState extends State<GamesScreen> {
     _load().then((_) => _openFocused());
   }
 
+  @override
+  void dispose() {
+    MafiaToast.hide();
+    super.dispose();
+  }
+
   void reload() {
     if (!_loading) _load();
   }
@@ -86,6 +94,11 @@ class GamesScreenState extends State<GamesScreen> {
     }
     setState(() => _loading = true);
     final api = ApiClient.instance;
+
+    // 🎟️ حمولة الولاء تُنعَش مع الفعاليّات — ورقة التأكيد تقرأها من الذاكرة
+    //    (زيارةٌ مجّانيّة جاهزة؟). لا تُنتظر: فشلها يعني غياب الصندوق لا
+    //    تأخير القائمة.
+    unawaited(LoyaltyApi.instance.refresh());
 
     // كل نداء يتدهور وحده: غياب الحجوزات لا يُخفي الأنشطة، وغياب الغرف
     // لا يمنع الحجز. تجميعها في نداءٍ واحد يجعل أضعفها يُسقط أقواها.
@@ -248,27 +261,36 @@ class GamesScreenState extends State<GamesScreen> {
   }
 
   Future<void> _openBooking(Activity a) async {
-    final offerIndex = await showBookingConfirm(
+    final choice = await showBookingConfirm(
       context,
       activity: a,
       homeCityId: _homeCityId,
       homeCityName: _homeCityName,
     );
-    if (offerIndex == null || !mounted) return;
-    await _book(a, offerIndex < 0 ? null : offerIndex);
+    if (choice == null || !mounted) return;
+    await _book(a, choice.offerIndex, useLoyaltyReward: choice.useLoyaltyReward);
   }
 
-  Future<void> _book(Activity a, int? offerId) async {
+  Future<void> _book(Activity a, int? offerId, {bool useLoyaltyReward = true}) async {
     setState(() => _booking = a.id);
     try {
       final r = await ApiClient.instance.post('/api/player-app/book', body: {
         'activityId': a.id,
         if (offerId != null) 'offerId': offerId,
+        // 🎟️ الخادم يطبّق الزيارة المجّانيّة افتراضاً — تُرسل عند الإطفاء فقط
+        if (!useLoyaltyReward) 'useLoyaltyReward': false,
       });
       if (!mounted) return;
 
       if (r is Map && r['success'] == true) {
         setState(() => _bookedIds = {..._bookedIds, a.id});
+        // 🎟️ طُبّقت زيارةٌ مجّانيّة: يُخبَر اللاعب فوراً، وتُنعَش الحمولة
+        //    لأن المكافأة صارت «استُخدمت».
+        final loy = r['loyalty'];
+        if (loy is Map && loy['freeVisitApplied'] == true) {
+          MafiaToast.show(context, '🎟️ طُبّقت زيارتك المجّانيّة — رسم اللعبة ٠ د.أ');
+          unawaited(LoyaltyApi.instance.refresh());
+        }
         _load();
         return;
       }
