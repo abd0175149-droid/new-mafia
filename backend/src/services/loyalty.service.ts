@@ -18,6 +18,9 @@ import { loyaltyConfig, loyaltyStamps, loyaltyRewards, type LoyaltyRewardKind } 
 import { playerNotifications } from '../schemas/notification.schema.js';
 
 function rowsOf(res: any): any[] { return res?.rows ?? (Array.isArray(res) ? res : []); }
+// 🔴 مصفوفات المعاملات: drizzle يفرد المصفوفة JS إلى (a,b,c) فتصير record — نمرّرها كنصّ مصفوفة Postgres
+const pgIntArr = (ids: number[]) => `{${ids.map(n => Math.trunc(Number(n))).filter(Number.isFinite).join(',')}}`;
+const pgTextArr = (xs: string[]) => `{${xs.map(x => JSON.stringify(String(x))).join(',')}}`;
 const JO_OFFSET_MS = 3 * 3600e3;   // الأردن UTC+3 ثابت
 
 // ══════════════════════════════════════════════════════
@@ -521,7 +524,7 @@ export async function drinkDiscountFor(db: any, playerId: number, locationId: nu
       LEFT JOIN menu_categories mc ON mc.id = mi.category_id
      WHERE o.player_id = ${playerId} AND o.location_id = ${locationId} AND o.activity_id = ${activityId} AND o.status <> 'cancelled'
        AND COALESCE(mi.is_bundle, false) = false
-       AND (mi.category = ANY(${cats}::text[]) OR mc.name = ANY(${cats}::text[]))
+       AND (mi.category = ANY(${pgTextArr(cats)}::text[]) OR mc.name = ANY(${pgTextArr(cats)}::text[]))
      ORDER BY oi.unit_price_snapshot::numeric DESC LIMIT 1
   `);
   const row = rowsOf(r)[0];
@@ -700,7 +703,7 @@ export async function celebrateOnJoin(io: any, roomId: string, player: { playerI
 
 function locFilter(cfg: LoyaltyConfig, locationId?: number | null) {
   if (locationId) return sql`AND a.location_id = ${locationId}`;
-  if (cfg.locationIds.length) return sql`AND a.location_id = ANY(${cfg.locationIds}::int[])`;
+  if (cfg.locationIds.length) return sql`AND a.location_id = ANY(${pgIntArr(cfg.locationIds)}::int[])`;
   return sql`AND COALESCE(l.is_test_location, false) = false`;
 }
 
@@ -824,7 +827,7 @@ export async function adminPlayers(period: string, opts: { q?: string; filter?: 
   `);
   const rows = rowsOf(r);
   const ids = rows.map((x: any) => Number(x.id));
-  const rwRows: any = ids.length ? await db.execute(sql`SELECT id, player_id, status, kind, expires_at FROM loyalty_rewards WHERE period = ${period} AND player_id = ANY(${ids}::int[]) AND status <> 'void' ORDER BY seq`) : { rows: [] };
+  const rwRows: any = ids.length ? await db.execute(sql`SELECT id, player_id, status, kind, expires_at FROM loyalty_rewards WHERE period = ${period} AND player_id = ANY(${pgIntArr(ids)}::int[]) AND status <> 'void' ORDER BY seq`) : { rows: [] };
   const byP = new Map<number, any[]>();
   for (const x of rowsOf(rwRows)) { const a = byP.get(Number(x.player_id)) || []; a.push({ id: Number(x.id), status: x.status, kind: x.kind, expiresAt: x.expires_at }); byP.set(Number(x.player_id), a); }
   return {
@@ -980,7 +983,7 @@ export async function statusForPlayers(playerIds: number[]): Promise<Map<number,
            EXISTS (SELECT 1 FROM loyalty_rewards r WHERE r.player_id = p.id AND r.kind = 'free_visit' AND r.status = 'available' AND (r.expires_at IS NULL OR r.expires_at > NOW())) AS free_visit,
            EXISTS (SELECT 1 FROM loyalty_rewards r WHERE r.player_id = p.id AND r.kind = 'free_drink' AND r.status = 'available' AND (r.expires_at IS NULL OR r.expires_at > NOW())) AS free_drink,
            EXISTS (SELECT 1 FROM loyalty_rewards r WHERE r.player_id = p.id AND r.period = ${period} AND r.status <> 'void') AS completed
-      FROM players p WHERE p.id = ANY(${playerIds}::int[])
+      FROM players p WHERE p.id = ANY(${pgIntArr(playerIds)}::int[])
   `);
   for (const x of rowsOf(r)) out.set(Number(x.id), { stamps: Number(x.stamps), completed: !!x.completed, freeVisit: !!x.free_visit, freeDrink: !!x.free_drink });
   return out;
