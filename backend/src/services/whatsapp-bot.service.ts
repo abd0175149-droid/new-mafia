@@ -23,6 +23,7 @@ import { ROLE_NAMES_AR } from '../game/roles.js';
 import { sendMessage, isBotActive, isFreeWindowOpen, notifyAdmins } from './whatsapp-inbox.service.js';
 import { emitStateSanitized } from '../sockets/broadcast.util.js';
 import { sendPushToStaffByPermission, sendPushToPlayers } from './fcm.service.js';
+import { EXT_TOOLS_DEFAULTS, EXT_ALWAYS_ADMIN_ONLY, extToolDeclarations, execExtTool, handleExtButton, transcribePendingAudio, alertAdminsWA, auditBot, offerFreedSeat, type ExtHelpers } from './wa-bot-ext.service.js';
 
 const GEMINI_BASE = 'https://generativelanguage.googleapis.com/v1beta';
 const BOT_RESERVATION_TAG = 'بوت واتساب';
@@ -99,7 +100,7 @@ const DEFAULT_SYSTEM_PROMPT = `أنت «الدون» — المساعد الرس
 - «ما عندي معلومة أكيدة» أفضل ألف مرة من تخمين. إذا السؤال ضمن النطاق وما عندك جوابه: قلها صراحة واعرض التحويل للإدارة.
 - استدعِ handoff_to_human فوراً عند: طلب صريح لإنسان/موظف · شكوى أو مشكلة بحجز/دفع/تجربة · غضب واضح أو تكرار عدم الرضا · أي طلب خارج صلاحياتك المالية · نسيان كلمة سر لرقم غير مربوط بحساب لاعب.
 - العصبية والإساءة: امتص الموقف بهدوء واعتذار مرة واحدة، وحوّل مباشرة للإدارة — لا تجادل ولا ترد بالمثل مهما قال.
-- رسالة صوتية أو صورة أو ملف: «ما بقدر أسمع الصوتيات/أفتح الملفات 🙏 اكتبلي وبخدمك فوراً» — وإن تكررت الحاجة حوّل للإدارة.
+- الرسائل الصوتيّة تصلك **مفرَّغة نصّاً** مسبوقة بـ🎤 — عاملها كأيّ رسالة مكتوبة ولا تعلّق على كونها صوتيّة. إن كان التفريغ «[غير واضح]» أو تعذّر فتحها فاطلب منه بلطف إعادتها أو كتابتها. الصور والملفّات: «ما بقدر أفتح الصور والملفّات 🙏 اكتبلي وبخدمك فوراً».
 - رسائل غير مفهومة أو فارغة أو مجرد إيموجي: رد ترحيبي خفيف واعرض ماذا تقدر تساعد (فعاليات؟ حجز؟ سؤال عن اللعبة؟).
 
 ═══ ٦.٥ اللعبة الحية — أسرار العائلة 🤫 ═══
@@ -114,6 +115,18 @@ const DEFAULT_SYSTEM_PROMPT = `أنت «الدون» — المساعد الرس
 - الختم يحتاج حجزاً من **تطبيق اللاعب** قبل الموعد بالساعات المحدّدة + لعب مباراة. **الحجز عبرك لا يُحتسب ختماً** — فإن كان العميل لاعباً مسجّلاً وطلب الحجز منك والفعاليّة ما زال ختمها متاحاً (حقل loyaltyStamp بنتيجة الفعاليّات): نبّهه مرّة واحدة بلطف أنّ الحجز من التطبيق يكسبه ختماً، ثمّ احجز له إن أصرّ. لا تكرّر التنبيه.
 - أسئلة «كم ختم معي؟ / ليش ما انحسبت؟ / وين مكافأتي؟» ⟵ get_my_loyalty_card حصراً. اختيار المكافأة واستخدامها من التطبيق لا منك.
 - لا تعد بختم ولا بمكافأة ولا تمنح شيئاً — المنح آليّ من النظام، والاستثناءات بيد الإدارة.
+
+═══ ٦.٨ خدمات إضافيّة ═══
+- «شو فاتورتي؟ / كم عليّ؟» ⟵ get_my_invoice · «كم تشبس معي؟» ⟵ get_my_chips · «متى بتبدأ اللعبة؟ كم لعبة الليلة؟» ⟵ get_tonight_schedule (وقل دائماً إنّ الجدول تقديريّ) · شرح دور بالتفصيل ⟵ get_role_guide (أحدث من قاعدة المعرفة).
+- تغيير عدد الأشخاص في حجز قائم ⟵ request_change_people (لا تلغِ وتعد الحجز). التنفيذ آليّ بعد ضغطه.
+- مكافأة ولاء «بانتظار الاختيار» ⟵ اعرض عليه offer_loyalty_reward_choice — يختار بزرّ والتنفيذ آليّ ونهائيّ.
+- **زائر غير مسجَّل يريد حساباً** ⟵ اجمع منه بالترتيب وبسؤال واحد بكلّ رسالة: الاسم الكامل، ثمّ الجنس، ثمّ تاريخ الميلاد (حوّله إلى YYYY-MM-DD) ثمّ استدعِ start_registration. لا تطلب كلمة سرّ ولا موافقة على الشروط — كلمة السرّ المؤقّتة تصله آليّاً، والموافقة على سياسة الخصوصيّة والشروط تتمّ داخل التطبيق عند أوّل دخول. الحجز لا يحتاج حساباً، فلا تفرض التسجيل على من يريد الحجز فقط.
+- من على قائمة الانتظار قد يصله منك عرض «ثبّته لي» حين يفضى مقعد — التثبيت آليّ بزرّ.
+
+═══ ٦.٩ أدوات الإدارة 🔒 (تظهر لك فقط مع الأدمن) ═══
+- «كيف الليلة؟» ⟵ admin_tonight · تقارير ⟵ admin_quick_report (today/week/month) · الولاء ⟵ admin_loyalty_overview / admin_loyalty_player.
+- كلّ إجراء كتابة (ختم يدويّ، إلغاء مكافأة، شحن تشبس، إنشاء فعاليّة، قفل حساب، إعفاء سياج) يعرض أزرار تأكيد وينفَّذ آليّاً بعد ضغط الأدمن ويُسجَّل باسمه — لا تقل «تمّ» قبل أن تصلك نتيجة التنفيذ، ولا تكرّر الطلب إن قال إنّه ضغط.
+- شحن التشبس حركة ماليّة: اذكر للأدمن دائماً اسم اللاعب والباقة والمبلغ قبل التأكيد، وأنّها تُوثَّق باسمه ومصدرها واتساب.
 
 ═══ ٧. الذاكرة ═══
 - خزّن بأداة save_customer_note كل معلومة مفيدة على المدى الطويل، بصياغة قصيرة محايدة: تفضيلات (أيام، أماكن، رفقة)، مناسبات ذكرها، شكوى سابقة، كونه جديداً كلياً، أسباب إلغاءات سابقة.
@@ -158,11 +171,12 @@ const DEFAULT_TOOLS_CONFIG = {
   adminPassword: true,   // 🔒 إعادة تعيين كلمة سرّ لاعب عبر رقم هاتفه (أدمن فقط)
   adminBookings: true,   // 🔒 إضافة حجز للاعب + نقل حجز بين فعاليّتين (أدمن فقط)
   loyalty: true,         // 🎟️ بطاقة الولاء للاعب: أختامه وزياراته ومكافآته وموعد القطع
-  adminLoyalty: true,    // 🔒 بطاقة الولاء للإدارة: نظرة عامّة على الشهر + بطاقة لاعب عبر هاتفه (أدمن فقط)
+  adminLoyalty: true,    // 🔒 بطاقة الولاء للإدارة: نظرة عامّة على الشهر + بطاقة لاعب عبر هاتفه + ختم يدويّ/إلغاء مكافأة (أدمن فقط)
+  ...EXT_TOOLS_DEFAULTS, // الدفعات ١–٣: فاتورتي، التشبس، تعديل العدد، الجدول، دليل الأدوار، التسجيل، الصوت + أدوات الأدمن
 };
 
 // 🔒 أدوات مقيّدة بـ«الأدمن فقط» دائماً (مهما كان إعداد adminOnlyTools) — لا تُعرض لغير الأدمن أبداً
-const ALWAYS_ADMIN_ONLY = ['adminFinance', 'adminGame', 'adminPassword', 'adminBookings', 'adminLoyalty'];
+const ALWAYS_ADMIN_ONLY = ['adminFinance', 'adminGame', 'adminPassword', 'adminBookings', 'adminLoyalty', ...EXT_ALWAYS_ADMIN_ONLY];
 
 // 🌙 أنواع أحداث الليل القابلة لإعادة التوجيه بأمان + تسمياتها العربية
 const NIGHT_EVENT_AR: Record<string, string> = {
@@ -652,7 +666,7 @@ async function geminiGenerate(settings: any, systemText: string, contents: any[]
 }
 
 // 📊 تسجيل استهلاك ردّ كامل (مجموع نداءات جولة الأدوات) — fire & forget
-async function recordBotUsage(conversationId: number | null, source: 'live' | 'playground', model: string, acc: { calls: number; promptTokens: number; candidatesTokens: number; thoughtsTokens: number; totalTokens: number }) {
+async function recordBotUsage(conversationId: number | null, source: 'live' | 'playground', model: string, acc: { calls: number; promptTokens: number; candidatesTokens: number; thoughtsTokens: number; totalTokens: number; cachedTokens?: number }) {
   if (!acc.calls) return;
   try {
     const db = getDB();
@@ -667,6 +681,7 @@ async function recordBotUsage(conversationId: number | null, source: 'live' | 'p
       outputTokens: acc.candidatesTokens + acc.thoughtsTokens, // ما يُفوتره جوجل كإخراج
       thoughtsTokens: acc.thoughtsTokens,
       totalTokens: acc.totalTokens,
+      cachedTokens: acc.cachedTokens || 0,
     } as any);
   } catch (err: any) {
     console.warn('⚠️ WA bot usage record:', err.message);
@@ -1001,6 +1016,7 @@ function buildToolDeclarations(toolsConfig: any, opts?: { adminOnlyTools?: strin
       }, required: ['phone'] },
     });
   }
+  decls.push(...extToolDeclarations(t));
   return decls;
 }
 
@@ -1186,10 +1202,26 @@ async function resolveBotCity(db: any, playerId: number | null | undefined, city
   return { cityId: hit?.id ?? null, cityName: hit?.name ?? null, cities: list };
 }
 
+function extHelpers(): ExtHelpers {
+  return { sendMessage, isAdminConversation, notifyAdmins, fmtJo, seatAvailability, mirrorReservation: mirrorBotReservationToBookings as any };
+}
+
+// آخر رسالة واردة للمحادثة تحمل معرّف زرّ؟ (فرض «التأكيد بالزرّ» بالكود لا بالموجّه)
+async function lastInboundButtonId(db: any, convId: number): Promise<string | null> {
+  const [m] = await db.select({ payload: waMessages.payload, direction: waMessages.direction }).from(waMessages)
+    .where(and(eq(waMessages.conversationId, convId), eq(waMessages.direction, 'in'))).orderBy(desc(waMessages.id)).limit(1);
+  const p: any = m?.payload;
+  return p?.interactive?.button_reply?.id || p?.interactive?.list_reply?.id || null;
+}
+
 async function execTool(name: string, args: any, ctx: ToolCtx): Promise<any> {
   const db = getDB();
   if (!db) return { error: 'DB unavailable' };
   const { conv, dryRun } = ctx;
+  {
+    const ext = await execExtTool(name, args, ctx as any, extHelpers());
+    if (ext !== undefined) return ext;
+  }
 
   switch (name) {
     case 'get_available_activities': {
@@ -1366,7 +1398,11 @@ async function execTool(name: string, args: any, ctx: ToolCtx): Promise<any> {
 
     case 'create_reservation': {
       const activityId = parseInt(args.activity_id);
-      const people = Math.max(1, parseInt(args.people_count) || 1);
+      let people = Math.max(1, parseInt(args.people_count) || 1);
+      if (!dryRun) { // العدد المعتمد هو ما ضغط عليه العميل، لا ما يمرّره النموذج
+        const mmP = /^res_confirm:(\d+):(\d+)$/.exec((await lastInboundButtonId(db, conv.id)) || '');
+        if (mmP && parseInt(mmP[1]) === activityId) people = Math.max(1, parseInt(mmP[2]) || people);
+      }
       const [act] = await db.select({ id: activities.id, name: activities.name, date: activities.date, basePrice: activities.basePrice })
         .from(activities).where(eq(activities.id, activityId)).limit(1);
       if (!act) return { error: 'الفعالية غير موجودة — أعد عرض الفعاليات' };
@@ -1374,6 +1410,15 @@ async function execTool(name: string, args: any, ctx: ToolCtx): Promise<any> {
       const totalCost = Math.round(unitCost * people * 100) / 100;
       if (dryRun) {
         return { success: true, dryRun: true, reservation: { activity: act.name, people }, note: '(ساحة اختبار — لم يُسجّل حجز حقيقي)' };
+      }
+      // 🔒 فرضٌ بالكود: لا حجز إلا وآخر رسالة من العميل هي ضغطة زرّ التأكيد لهذه الفعاليّة نفسها.
+      //    كانت القاعدة في الموجّه وحده، فإلحاح العميل أو هلوسة النموذج يكفيان لتجاوزها.
+      {
+        const bid = await lastInboundButtonId(db, conv.id);
+        const mm = /^res_confirm:(\d+):(\d+)$/.exec(bid || '');
+        if (!mm || parseInt(mm[1]) !== activityId) {
+          return { needsConfirmation: true, note: 'لم يضغط العميل زرّ «تأكيد الحجز» لهذه الفعاليّة — لا يُنشأ حجز. استدعِ ask_confirmation واطلب منه الضغط على الزرّ.' };
+        }
       }
       // 🚫 مانع التكرار لحظة الإنشاء (حتى لو تجاوز النموذج ask_confirmation)
       const dupRes = await existingBookingFor(db, conv, activityId);
@@ -1415,6 +1460,7 @@ async function execTool(name: string, args: any, ctx: ToolCtx): Promise<any> {
           'reservation',
           { route: '/admin/reservations' },
         ).catch(() => {});
+        void alertAdminsWA(`waitlist:${saved.id}`, `قائمة انتظار: ${conv.displayName || conv.phone} — ${people} أشخاص في ${act.name} (المتبقّي ${av.remaining}). يحتاج تأكيدك.`, { exceptConvId: conv.id });
         notifyAdmins('⏳ حجز قائمة انتظار من البوت', `${conv.displayName || conv.phone} — ${people} أشخاص — ${act.name} (المتبقي ${av.remaining} من ${av.total})`, { conversationId: conv.id, url: `/admin/whatsapp?conv=${conv.id}`, tag: `wa-conv-${conv.id}` }).catch(() => {});
         return {
           success: true,
@@ -1512,6 +1558,7 @@ async function execTool(name: string, args: any, ctx: ToolCtx): Promise<any> {
       } as any).where(eq(waConversations.id, conv.id));
       const who = conv.displayName || conv.phone;
       const reason = String(args.reason || '').slice(0, 200);
+      void alertAdminsWA(`handoff:${conv.id}:${Math.floor(Date.now() / 3600e3)}`, `عميل بحاجة تدخّل بشريّ: ${who} — ${reason}`, { exceptConvId: conv.id });
       notifyAdmins('⚠️ عميل بحاجة تدخل بشري', `${who}: ${reason}`, { conversationId: conv.id, url: `/admin/whatsapp?conv=${conv.id}`, tag: `wa-conv-${conv.id}` }).catch(() => {});
       sendPushToStaffByPermission('bookings', '⚠️ واتساب: تحويل من البوت', `${who} — ${reason}`, 'whatsapp', { route: '/admin/whatsapp' }).catch(() => {});
       try {
@@ -1654,11 +1701,17 @@ async function execTool(name: string, args: any, ctx: ToolCtx): Promise<any> {
       // 🔗 الرابط يُرسل من الأداة حرفياً كنص خام — النموذج يكسر الروابط عند نسخها
       const locId = parseInt(args.location_id);
       const [loc] = await db
-        .select({ id: locations.id, name: locations.name, mapUrl: locations.mapUrl })
+        .select({ id: locations.id, name: locations.name, mapUrl: locations.mapUrl, lat: locations.latitude, lng: locations.longitude, region: locations.region })
         .from(locations)
         .where(and(eq(locations.id, locId), eq(locations.isActive, true), isNull(locations.deletedAt)))
         .limit(1);
       if (!loc) return { error: 'المكان غير موجود أو غير فعال — أعد جلب الأماكن' };
+      // 📍 إحداثيّات محفوظة ⟵ رسالة موقع تُفتح في الخرائط بلمسة (أوضح من رابط)
+      if (loc.lat != null && loc.lng != null && Number.isFinite(Number(loc.lat)) && Number.isFinite(Number(loc.lng))) {
+        if (dryRun) ctx.interactives.push({ kind: 'text', preview: `📍 موقع: ${loc.name}` });
+        else await sendMessage({ conversationId: conv.id, source: 'bot', location: { latitude: Number(loc.lat), longitude: Number(loc.lng), name: loc.name, address: loc.region || '' } } as any);
+        return { sent: true, location: loc.name, note: 'أُرسل الموقع كخريطة — اكتب جملة قصيرة فقط.' };
+      }
       const url = (loc.mapUrl || '').trim();
       if (!url) return { sent: false, note: `لا يوجد رابط خريطة مخزّن لـ${loc.name} — اعتذر واعرض التحويل للإدارة` };
       const fixed = /^https?:\/\//i.test(url) ? url : 'https://' + url;
@@ -2624,18 +2677,20 @@ export async function runAgent(opts: {
   customerCard: string;
   liveFacts?: string;
   dryRun: boolean;
-}): Promise<{ text: string; toolTrace: Array<{ name: string; args: any; result: any }>; interactives: any[]; usage: { calls: number; promptTokens: number; candidatesTokens: number; thoughtsTokens: number; totalTokens: number } }> {
+}): Promise<{ text: string; toolTrace: Array<{ name: string; args: any; result: any }>; interactives: any[]; usage: { calls: number; promptTokens: number; candidatesTokens: number; thoughtsTokens: number; totalTokens: number; cachedTokens: number } }> {
   const { settings, conv, dryRun } = opts;
   // 🔒 بوّابة أدوات «الأدمن فقط»: الساحة (dryRun) تُعامَل كأدمن لتُظهر كل الأدوات للاختبار.
   const isAdminConv = dryRun ? true : await isAdminConversation(conv);
   const toolDecls = buildToolDeclarations(settings.toolsConfig, { adminOnlyTools: settings.adminOnlyTools, isAdmin: isAdminConv });
+  // ⚡ الترتيب مقصود: الثابت أوّلاً (الموجّه ثمّ قاعدة المعرفة) والمتغيّر آخراً — مزوّد النموذج يخزّن
+  //    البادئة المشتركة تلقائيّاً (implicit caching) فتُفوتَر بخصم. كان الوقت وبطاقة العميل في الوسط
+  //    فتنكسر البادئة بعد الموجّه مباشرة وتُفوتَر قاعدة المعرفة (≈نصف التوكنز) كاملةً مع كلّ نداء.
   const systemText = [
     settings.systemPrompt,
-    // الآن بتوقيت الأردن — كل التواريخ من الأدوات تصلك منسّقة بنفس التوقيت
-    '\n───── الآن بتوقيت الأردن ─────\n' + fmtJo(new Date()),
-    '\n───── حقائق حيّة من النظام (تتقدّم على قاعدة المعرفة عند التعارض) ─────\n' + (opts.liveFacts || ''),
-    '\n───── بطاقة العميل الحالي ─────\n' + opts.customerCard,
     '\n───── قاعدة معرفة النادي ─────\n' + settings.knowledgeBase,
+    '\n───── حقائق حيّة من النظام (تتقدّم على قاعدة المعرفة عند التعارض) ─────\n' + (opts.liveFacts || ''),
+    '\n───── الآن بتوقيت الأردن ─────\n' + fmtJo(new Date()),
+    '\n───── بطاقة العميل الحالي ─────\n' + opts.customerCard,
   ].join('\n');
 
   const ctx: ToolCtx = { conv, dryRun, interactives: [], settings };
@@ -2645,7 +2700,7 @@ export async function runAgent(opts: {
   let finalText = '';
   let leakRetried = false;
   // 📊 تجميع التوكنز الفعلية عبر كل نداءات هذا الرد (كل نداء يُفوتر سياقه كاملاً)
-  const usageAcc = { calls: 0, promptTokens: 0, candidatesTokens: 0, thoughtsTokens: 0, totalTokens: 0 };
+  const usageAcc = { calls: 0, promptTokens: 0, candidatesTokens: 0, thoughtsTokens: 0, totalTokens: 0, cachedTokens: 0 };
 
   for (let loop = 0; loop <= (settings.maxToolLoops || 4); loop++) {
     const { parts, usage } = await geminiGenerate(settings, systemText, contents, toolDecls);
@@ -2654,6 +2709,7 @@ export async function runAgent(opts: {
     usageAcc.candidatesTokens += Number(usage?.candidatesTokenCount || 0);
     usageAcc.thoughtsTokens += Number(usage?.thoughtsTokenCount || 0);
     usageAcc.totalTokens += Number(usage?.totalTokenCount || 0);
+    usageAcc.cachedTokens += Number(usage?.cachedContentTokenCount || 0);
     const fnCalls = parts.filter((p: any) => p.functionCall);
     const textPart = parts.filter((p: any) => typeof p.text === 'string').map((p: any) => p.text).join('\n').trim();
 
@@ -2749,6 +2805,7 @@ async function processConversation(convId: number) {
     try {
       const p: any = lastMsg.payload;
       const btnId = p?.interactive?.button_reply?.id || p?.interactive?.list_reply?.id;
+      if (btnId && await handleExtButton(conv, btnId, extHelpers())) return;
       if (btnId === 'res_cancel') {
         await sendMessage({ conversationId: convId, text: 'تمام، ألغيت العملية 👍 إذا حابب تشوف الفعاليات بأي وقت أنا جاهز.', source: 'bot' });
         return;
@@ -2790,6 +2847,7 @@ async function processConversation(convId: number) {
             .set({ isFree: true, isPaid: true, paidAmount: '0' } as any)
             .where(eq(bookings.id, parseInt(adminFreeMatch[1]))).returning({ name: bookings.name });
           await sendMessage({ conversationId: convId, text: b ? `تمّ ✅ «${b.name}» صار مجانيّاً في الفعاليّة.` : 'ما لقيت الحجز 🙏', source: 'system' });
+          void auditBot(conv, 'wa:booking-set-free', { bookingId: parseInt(adminFreeMatch[1]) }, { targetName: b?.name ?? null, outcome: b ? 'success' : 'blocked' });
         } else {
           const actId = parseInt(adminPaidMatch![1]);
           const rcv = conv.displayName || 'أدمن واتساب';
@@ -2803,6 +2861,7 @@ async function processConversation(convId: number) {
               .where(eq(bookings.id, b.id));
           }
           await sendMessage({ conversationId: convId, text: `تمّ ✅ سُجّل الدفع لـ${bks.length} حجزاً في الفعاليّة (المستلم: ${rcv}).`, source: 'system' });
+          void auditBot(conv, 'wa:activity-mark-paid', { bookings: bks.length, unitPrice: unit, receivedBy: rcv }, { activityId: actId });
         }
         return;
       }
@@ -2852,6 +2911,7 @@ async function processConversation(convId: number) {
           ? `صار «${newT.name}» هو الضحيّة${oldT ? ` بدل «${oldT.name}»` : ''}`
           : `صار «${newT.name}» هو المُسكَت${oldT ? ` بدل «${oldT.name}»` : ''}`;
         await sendMessage({ conversationId: convId, text: `تمّ ✅ ${kindMsg}. سيظهر التصحيح عند كشف الحدث.`, source: 'system' });
+        void auditBot(conv, 'wa:night-event-retarget', { roomId, eventIndex: evIdx, type: ev.type, from: oldPid, to: newPid }, { targetName: newT.name });
         return;
       }
       // 🔒 إضافة حجز (أدمن) — حتميّ: إعادة فحص الأدمن ثم إنشاء الحجز من حمولة aux
@@ -2901,6 +2961,7 @@ async function processConversation(convId: number) {
           : '\n📄 الرقم مش مربوط بحساب لاعب — ما انسجّل بتفاصيل النشاط (بيظهر بمتابعة الحجوزات فقط).';
         await sendMessage({ conversationId: convId, text: `تمّ ✅ انحجز «${p.name}» (${p.phone}) — ${p.people} أشخاص في «${act?.name || ''}» ${act ? `(${fmtJo(act.date)})` : ''}.${over}${mirrorLine}`, source: 'system' });
         console.log(`🔒 WA bot ADMIN add-booking act=${p.actId} phone=${p.phone} people=${p.people} by conv ${convId}`);
+        void auditBot(conv, 'wa:booking-add', { phone: p.phone, people: p.people, overCapacity: av.remaining < p.people }, { activityId: p.actId, targetName: p.name });
         return;
       }
 
@@ -2947,6 +3008,7 @@ async function processConversation(convId: number) {
         const mirrorNote = movedMirror ? `\n(نُقل معه ${movedMirror} حجز تطبيق)` : '';
         await sendMessage({ conversationId: convId, text: `تمّ ✅ نُقل حجز ${p.phone} (${res.peopleCount} أشخاص) من «${fromAct?.name || ''}» إلى «${toAct?.name || ''}» ${toAct ? `(${fmtJo(toAct.date)})` : ''}.${mirrorNote}`, source: 'system' });
         console.log(`🔒 WA bot ADMIN move-booking res=${res.id} ${p.fromId}→${p.toId} by conv ${convId}`);
+        void auditBot(conv, 'wa:booking-move', { reservationId: res.id, from: p.fromId, to: p.toId, phone: p.phone }, { activityId: p.toId });
         return;
       }
 
@@ -2973,9 +3035,31 @@ async function processConversation(convId: number) {
           await sendPushToPlayer(updated.id, 'تم إعادة تعيين كلمة السر 🔐', `كلمة سرّك الجديدة: ${newPassword} — ادخل فيها وغيّرها فوراً لأمان حسابك.`, 'password_reset', {});
         } catch (e: any) { console.warn('⚠️ admin pwd push:', e?.message); }
         console.log(`🔐 WA bot ADMIN password reset for player #${updated.id} by conv ${convId}`);
+        void auditBot(conv, 'rest:player-reset-password', { playerId: updated.id, via: 'whatsapp' }, { targetName: updated.name });
         return;
       }
     } catch { /* تجاهل */ }
+
+    // 🚦 حدّ معدّل لكلّ محادثة: 30 ردّ بوت في الساعة (الأدمن مستثنى) — يحمي الفاتورة من محادثة منفلتة أو سكربت
+    if (!(await isAdminConversation(conv))) {
+      const [rl] = await db.select({ n: sql<number>`COUNT(*)` }).from(waMessages)
+        .where(and(eq(waMessages.conversationId, convId), eq(waMessages.source, 'bot'), gte(waMessages.createdAt, new Date(Date.now() - 3600e3))));
+      if (Number(rl?.n || 0) >= 30) {
+        await db.update(waConversations).set({ needsAttention: true, botPausedUntil: new Date(Date.now() + 3600e3), updatedAt: new Date() } as any).where(eq(waConversations.id, convId));
+        try { await sendMessage({ conversationId: convId, text: 'حكينا كتير اليوم 😅 حوّلت محادثتك للإدارة ليكملوا معك، وبرجع لخدمتك بعد شوي 🙏', source: 'system' }); } catch { /* تجاهل */ }
+        notifyAdmins('🚦 محادثة تجاوزت حدّ البوت', `${conv.displayName || conv.phone} — 30 ردّاً في ساعة، أُوقف البوت لها ساعة`, { conversationId: convId, url: `/admin/whatsapp?conv=${convId}`, tag: `wa-conv-${convId}` }).catch(() => {});
+        void alertAdminsWA(`ratelimit:${convId}:${Math.floor(Date.now() / 3600e3)}`, `محادثة ${conv.displayName || conv.phone} تجاوزت 30 ردّاً في ساعة — أُوقف البوت لها ساعة.`, { exceptConvId: convId });
+        return;
+      }
+    }
+
+    // 🎤 الرسائل الصوتيّة تُفرَّغ أوّلاً فتدخل السجلّ نصّاً
+    if (((settings.toolsConfig as any)?.voice ?? true) !== false) {
+      try {
+        const tr = await transcribePendingAudio(convId, settings);
+        if (tr.done) recordBotUsage(convId, 'live', settings.model || '', tr.usage).catch(() => {});
+      } catch (e: any) { console.warn('⚠️ WA audio:', e?.message); }
+    }
 
     const history = await buildHistory(db, conv, settings.contextMessages || 20);
     if (history.length === 0) return;
@@ -2997,6 +3081,7 @@ async function processConversation(convId: number) {
       if (settings.failHandoff) {
         await db.update(waConversations).set({ needsAttention: true, botPausedUntil: new Date(Date.now() + 3600e3), updatedAt: new Date() } as any)
           .where(eq(waConversations.id, convId));
+        void alertAdminsWA(`botfail:${convId}:${Math.floor(Date.now() / 3600e3)}`, `خلل بالبوت: ${conv.displayName || conv.phone} بانتظار ردّ بشريّ (${String(err?.message || '').slice(0, 80)}).`, { exceptConvId: convId });
         notifyAdmins('⚠️ خلل بالبوت — عميل بانتظار رد', conv.displayName || conv.phone, { conversationId: convId, url: `/admin/whatsapp?conv=${convId}`, tag: `wa-conv-${convId}` }).catch(() => {});
       }
     }
@@ -3101,6 +3186,7 @@ async function performCancellation(convId: number, reservationId: number) {
       text: `الفعالية بعد أقل من 3 ساعات فما بقدر ألغي تلقائياً 🙏\nحوّلت طلبك للإدارة وراح يتواصلوا معك بأسرع وقت.`,
       source: 'system',
     }).catch(() => {});
+    void alertAdminsWA(`latecancel:${r.id}`, `طلب إلغاء متأخّر (<3 ساعات): ${who} — ${r.activityName} (${when}). بحاجة قرارك.`, { exceptConvId: convId });
     notifyAdmins('⚠️ طلب إلغاء متأخر (<3 ساعات)', `${who} — ${r.activityName} (${when})`, { conversationId: convId, url: `/admin/whatsapp?conv=${convId}`, tag: `wa-conv-${convId}` }).catch(() => {});
     sendPushToStaffByPermission('bookings', '⚠️ طلب إلغاء متأخر من واتساب', `${who} — ${r.activityName}`, 'reservation', { route: '/admin/reservations' }).catch(() => {});
     return;
@@ -3125,6 +3211,8 @@ async function performCancellation(convId: number, reservationId: number) {
   notifyAdmins('❌ إلغاء حجز عبر البوت', `${who} — ${r.activityName} (${when}) — ${r.peopleCount} أشخاص`, { conversationId: convId, url: '/admin/reservations', tag: `wa-conv-${convId}` }).catch(() => {});
   sendPushToStaffByPermission('bookings', '❌ إلغاء حجز من بوت واتساب', `${who} — ${r.activityName} — ${r.peopleCount} أشخاص`, 'reservation', { route: '/admin/reservations' }).catch(() => {});
   console.log(`❌ WA bot: reservation #${r.id} cancelled (conv ${convId})`);
+  // 🪑 مقعدٌ تحرّر ⟵ أوّل المنتظرين (ممّن نافذته مفتوحة) يُعرض عليه بزرّ
+  void offerFreedSeat(Number(r.activityId), extHelpers());
 }
 
 // ══════════════════════════════════════════════════════
@@ -3202,9 +3290,12 @@ export async function getBotUsage() {
     ...(((settings as any).modelPrices || {}) as Record<string, { in: number; out: number }>),
   };
   const priceFor = (model: string) => priceMap[model] || { in: priceIn, out: priceOut };
-  const costOf = (p: number, o: number, model = '') => {
+  // 💸 توكنز الكاش (جزء من promptTokens) تُفوتَر بربع سعر الإدخال — خصم التخزين الضمنيّ عند المزوّد
+  const CACHED_INPUT_FACTOR = 0.25;
+  const costOf = (p: number, o: number, model = '', cached = 0) => {
     const pr = priceFor(model);
-    return (p / 1e6) * pr.in + (o / 1e6) * pr.out;
+    const c = Math.min(Math.max(cached, 0), p);
+    return ((p - c) / 1e6) * pr.in + (c / 1e6) * pr.in * CACHED_INPUT_FACTOR + (o / 1e6) * pr.out;
   };
 
   const { waBotUsage } = await import('../schemas/admin.schema.js');
@@ -3216,6 +3307,7 @@ export async function getBotUsage() {
     prompt: sql<number>`COALESCE(SUM(${waBotUsage.promptTokens}), 0)`,
     output: sql<number>`COALESCE(SUM(${waBotUsage.outputTokens}), 0)`,
     total: sql<number>`COALESCE(SUM(${waBotUsage.totalTokens}), 0)`,
+    cached: sql<number>`COALESCE(SUM(${waBotUsage.cachedTokens}), 0)`,
   }).from(waBotUsage).groupBy(waBotUsage.model);
 
   const since30 = new Date(Date.now() - 30 * 86400e3);
@@ -3224,7 +3316,7 @@ export async function getBotUsage() {
   const todayKey = ammanDayKey(new Date());
   const since7 = Date.now() - 7 * 86400e3;
 
-  const mk = () => ({ replies: 0, prompt: 0, output: 0, total: 0, cost: 0 });
+  const mk = () => ({ replies: 0, prompt: 0, output: 0, total: 0, cost: 0, cached: 0 });
   const sums = { today: mk(), d7: mk(), d30: mk() };
   const dayMap = new Map<string, { prompt: number; output: number; total: number; cost: number; replies: number }>();
   const convCost = new Map<number, number>();
@@ -3233,9 +3325,10 @@ export async function getBotUsage() {
 
   for (const r of rows30) {
     const p = Number(r.promptTokens || 0), o = Number(r.outputTokens || 0), t = Number(r.totalTokens || 0);
-    const c = costOf(p, o, r.model || '');
+    const ch = Number(r.cachedTokens || 0);
+    const c = costOf(p, o, r.model || '', ch);
     const key = ammanDayKey(r.createdAt);
-    const add = (b: any) => { b.replies++; b.prompt += p; b.output += o; b.total += t; b.cost += c; };
+    const add = (b: any) => { b.replies++; b.prompt += p; b.output += o; b.total += t; b.cost += c; b.cached += ch; };
     add(sums.d30);
     if (new Date(r.createdAt).getTime() >= since7) add(sums.d7);
     if (key === todayKey) add(sums.today);
@@ -3296,7 +3389,7 @@ export async function getBotUsage() {
   }
 
   const round6 = (x: number) => +x.toFixed(6);
-  const pack = (b: ReturnType<typeof mk>) => ({ replies: b.replies, prompt: b.prompt, output: b.output, total: b.total, cost: round6(b.cost) });
+  const pack = (b: ReturnType<typeof mk>) => ({ replies: b.replies, prompt: b.prompt, output: b.output, total: b.total, cached: b.cached, cacheHitRate: b.prompt ? Math.round((b.cached / b.prompt) * 1000) / 10 : 0, cost: round6(b.cost) });
 
   // الإجمالي الكلي: كل نموذج بسعره ثم الجمع (لا يختلط سعران أبداً)
   const allTime = { replies: 0, prompt: 0, output: 0, total: 0, cost: 0 };
@@ -3304,7 +3397,7 @@ export async function getBotUsage() {
     const p = Number(g.prompt || 0), o = Number(g.output || 0);
     allTime.replies += Number(g.rows || 0);
     allTime.prompt += p; allTime.output += o; allTime.total += Number(g.total || 0);
-    allTime.cost += costOf(p, o, g.model || '');
+    allTime.cost += costOf(p, o, g.model || '', Number(g.cached || 0));
   }
 
   return {

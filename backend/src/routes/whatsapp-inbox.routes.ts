@@ -378,6 +378,20 @@ router.post('/bot/locations/:id/toggle', authenticate, adminOnly, async (req: Re
 });
 
 // نبض البوت — إحصاءات سريعة
+// ⛔ قفل الإرسال (يُغلقه حدث صحّة الحساب من ميتا أو WA_SUSPENDED) — حالته ورفعه اليدويّ
+router.get('/sending-status', authenticate, adminOnly, async (_req: Request, res: Response) => {
+  const { sendingSuspendedReason } = await import('../services/whatsapp-inbox.service.js');
+  const reason = sendingSuspendedReason();
+  res.json({ suspended: !!reason, reason, envLocked: !!env.WA_SUSPENDED });
+});
+router.post('/sending-resume', authenticate, adminOnly, async (req: Request, res: Response) => {
+  if (env.WA_SUSPENDED) return res.status(409).json({ error: 'القفل مضبوط في البيئة (WA_SUSPENDED=1) — يُرفع من ملفّ البيئة وإعادة التشغيل' });
+  const { resumeSending } = await import('../services/whatsapp-inbox.service.js');
+  await resumeSending();
+  try { const { logStaffAction } = await import('../services/staff-action-log.service.js'); void logStaffAction({ staffId: (req as any).user?.id, staffUsername: (req as any).user?.username, staffRole: (req as any).user?.role, source: 'rest', action: 'rest:wa-sending-resume', category: 'WHATSAPP_ADMIN', labelAr: 'رفع قفل إرسال واتساب يدويّاً' }); } catch { /* غير حاجب */ }
+  res.json({ success: true });
+});
+
 router.get('/bot/usage', authenticate, adminOnly, async (_req: Request, res: Response) => {
   try {
     const { getBotUsage } = await import('../services/whatsapp-bot.service.js');

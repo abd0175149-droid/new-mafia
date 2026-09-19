@@ -110,6 +110,7 @@ export async function runStalledOrderScan(io?: any): Promise<void> {
       }
 
       console.log(`⏰ تذكير #${nth} للطلب ${r.id} (${r.status}, ${mins}د) — ${locName.get(r.locationId) || r.locationId}`);
+      if (nth >= 2) import('./wa-bot-ext.service.js').then(m => m.alertAdminsWA(`stalled-order:${r.id}`, `🍽️ طلب ${r.playerName} في ${locName.get(r.locationId) || 'المكان'} ${stage.verb} منذ ${mins} دقيقة (تذكير #${nth}).`)).catch(() => {});
     } catch (err: any) {
       console.warn(`⚠️ تذكير الطلب ${r.id}:`, err.message);
     }

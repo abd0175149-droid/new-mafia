@@ -161,9 +161,28 @@ export function isFreeWindowOpen(conv: { lastInboundAt: Date | null }): boolean 
 // DISABLED_UPDATE فأوقفنا «الحملات» فقط، بينما كان يجب أن يتوقّف كل شيء.
 let metaSuspension: string | null = null;
 
+// 🔒 القفل يُحفظ في القاعدة: كان في ذاكرة العمليّة فقط، فإعادة تشغيل الخادم ترفعه صامتةً
+//    بينما سبب القفل (مخالفة عند ميتا) ما زال قائماً. يُرفع يدويّاً حصراً (resumeSending).
 export function suspendSending(reason: string): void {
   metaSuspension = reason;
   console.warn(`⛔ WA sending suspended: ${reason}`);
+  const db = getDB();
+  if (db) db.execute(sql`INSERT INTO wa_runtime_flags (key, value, updated_at) VALUES ('sending_suspended', ${JSON.stringify({ reason, at: new Date().toISOString() })}::jsonb, NOW())
+    ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = NOW()`).catch(() => {});
+}
+export async function loadSendingSuspension(): Promise<void> {
+  try {
+    const db = getDB(); if (!db) return;
+    const r: any = await db.execute(sql`SELECT value FROM wa_runtime_flags WHERE key = 'sending_suspended' LIMIT 1`);
+    const v = (r?.rows ?? r ?? [])[0]?.value;
+    if (v?.reason) { metaSuspension = String(v.reason); console.warn(`⛔ WA sending still suspended (persisted): ${metaSuspension}`); }
+  } catch { /* الجدول قد لا يكون موجوداً بعد */ }
+}
+export async function resumeSending(): Promise<void> {
+  metaSuspension = null;
+  const db = getDB();
+  if (db) await db.execute(sql`DELETE FROM wa_runtime_flags WHERE key = 'sending_suspended'`).catch(() => {});
+  console.warn('✅ WA sending resumed manually');
 }
 
 /** سبب المنع إن كان الإرسال مقفلاً، وإلا null. */
@@ -645,6 +664,7 @@ export interface SendMessageInput {
   phone?: string;                       // بديل عن conversationId (أي صيغة)
   text?: string;                        // رسالة نصية
   interactive?: any;                    // كائن interactive جاهز (قوائم/أزرار — للبوت)
+  location?: { latitude: number; longitude: number; name?: string; address?: string };  // 📍 رسالة موقع
   source: 'staff' | 'bot' | 'system';
   staffId?: number;
   staffName?: string;
@@ -672,8 +692,9 @@ export async function sendMessage(input: SendMessageInput) {
   if (!conv) throw new Error('المحادثة غير موجودة');
 
   const hasInteractive = !!input.interactive;
+  const hasLocation = !!input.location;
   const text = (input.text || '').trim();
-  if (!hasInteractive && !text) throw new Error('لا يوجد محتوى للإرسال');
+  if (!hasInteractive && !hasLocation && !text) throw new Error('لا يوجد محتوى للإرسال');
 
   // ══════════════════════════════════════════════════════
   // 🔒 قيد الموافقة — البوّابة الوحيدة للصادر
@@ -694,6 +715,8 @@ export async function sendMessage(input: SendMessageInput) {
   // ── الإرسال عبر Cloud API ──
   const apiBody: any = hasInteractive
     ? { messaging_product: 'whatsapp', to: conv.waPhone, type: 'interactive', interactive: input.interactive }
+    : hasLocation
+    ? { messaging_product: 'whatsapp', to: conv.waPhone, type: 'location', location: input.location }
     : { messaging_product: 'whatsapp', to: conv.waPhone, type: 'text', text: { body: text } };
 
   const apiRes = await callWaApi(`${env.WA_PHONE_NUMBER_ID}/messages`, apiBody);
@@ -702,6 +725,7 @@ export async function sendMessage(input: SendMessageInput) {
   // ── التخزين ──
   const preview = hasInteractive
     ? (input.interactive?.body?.text || '📋 رسالة تفاعلية')
+    : hasLocation ? `📍 ${input.location?.name || 'موقع'}`
     : text;
 
   const [saved] = await db
@@ -711,7 +735,7 @@ export async function sendMessage(input: SendMessageInput) {
       wamid,
       direction: 'out',
       source: input.source,
-      msgType: hasInteractive ? 'interactive' : 'text',
+      msgType: hasInteractive ? 'interactive' : hasLocation ? 'location' : 'text',
       body: preview,
       payload: apiBody,
       status: 'sent',

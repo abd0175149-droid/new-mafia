@@ -724,6 +724,10 @@ async function main() {
         RAISE WARNING 'rank_bonuses unique index skipped: %', SQLERRM;
       END $$`);
       await db.execute(sql`CREATE INDEX IF NOT EXISTS rank_bonuses_activity_idx ON rank_bonuses (activity_id)`);
+      // ── 🤖 بوت الواتساب: توكنز الكاش + أعلام تشغيل دائمة (قفل الإرسال يصمد عبر إعادة التشغيل) ──
+      await db.execute(sql`ALTER TABLE wa_bot_usage ADD COLUMN IF NOT EXISTS cached_tokens INTEGER DEFAULT 0`).catch(() => {});
+      await db.execute(sql`CREATE TABLE IF NOT EXISTS wa_runtime_flags (key VARCHAR(40) PRIMARY KEY, value JSONB NOT NULL, updated_at TIMESTAMP DEFAULT NOW() NOT NULL)`);
+      await db.execute(sql`CREATE TABLE IF NOT EXISTS wa_bot_settings_history (id SERIAL PRIMARY KEY, saved_at TIMESTAMP DEFAULT NOW(), reason TEXT, system_prompt TEXT, knowledge_base TEXT)`);
       // ── 🎟️ بطاقة الولاء (ختم الدون) ──
       await db.execute(sql`CREATE TABLE IF NOT EXISTS loyalty_config (id SERIAL PRIMARY KEY, key VARCHAR(40) UNIQUE NOT NULL, value JSONB NOT NULL, updated_at TIMESTAMP DEFAULT NOW() NOT NULL)`);
       await db.execute(sql`CREATE TABLE IF NOT EXISTS loyalty_stamps (
@@ -2156,6 +2160,8 @@ async function main() {
     const { startExpiryScheduler } = await import('./services/chips-store.service.js');
     startExpiryScheduler();
   } catch (e: any) { console.warn('⚠️ birthday scheduler init:', e.message); }
+  // ── ⛔ قفل إرسال واتساب المحفوظ (إن وُجد) يُستعاد قبل أيّ إرسال ──
+  try { const { loadSendingSuspension } = await import('./services/whatsapp-inbox.service.js'); await loadSendingSuspension(); } catch { /* غير حرج */ }
   // ── 🎟️ مجدول بطاقة الولاء — انتهاء المكافآت، الاختيار التلقائيّ، التذكيرات ──
   try {
     const { startLoyaltyScheduler } = await import('./services/loyalty.service.js');

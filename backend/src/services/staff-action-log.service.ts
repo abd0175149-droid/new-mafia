@@ -122,6 +122,17 @@ export const ACTION_CATALOG: Record<string, { category: string; labelAr: string 
   'chips:grant-top3': { category: 'CHIPS', labelAr: 'منح مكافأة أفضل ثلاثة' },
   'chips:grant-birthday': { category: 'CHIPS', labelAr: 'منح عيديّة ميلاد' },
   'chips:item-create': { category: 'CHIPS', labelAr: 'إضافة عنصر للخزنة' },
+  // ── 🤖 إجراءات الأدمن عبر بوت الواتساب (source = whatsapp) ──
+  'wa:booking-set-free': { category: 'WHATSAPP_ADMIN', labelAr: 'واتساب: تحويل حجز لمجّانيّ' },
+  'wa:activity-mark-paid': { category: 'WHATSAPP_ADMIN', labelAr: 'واتساب: تسجيل دفع فعاليّة' },
+  'wa:night-event-retarget': { category: 'WHATSAPP_ADMIN', labelAr: 'واتساب: إعادة توجيه حدث ليل' },
+  'wa:booking-add': { category: 'WHATSAPP_ADMIN', labelAr: 'واتساب: إضافة حجز للاعب' },
+  'wa:booking-move': { category: 'WHATSAPP_ADMIN', labelAr: 'واتساب: نقل حجز بين فعاليّتين' },
+  'wa:loyalty-stamp-manual': { category: 'WHATSAPP_ADMIN', labelAr: 'واتساب: ختم ولاء يدويّ' },
+  'wa:loyalty-reward-void': { category: 'WHATSAPP_ADMIN', labelAr: 'واتساب: إلغاء مكافأة ولاء' },
+  'wa:chips-topup': { category: 'CHIPS', labelAr: 'واتساب: شحن رصيد تشبس' },
+  'wa:activity-create': { category: 'WHATSAPP_ADMIN', labelAr: 'واتساب: إنشاء فعاليّة' },
+  'wa:player-note': { category: 'WHATSAPP_ADMIN', labelAr: 'واتساب: ملاحظة على لاعب' },
   // ── 🎟️ بطاقة الولاء ──
   'rest:loyalty-toggle': { category: 'LOYALTY', labelAr: 'تشغيل/إيقاف بطاقة الولاء' },
   'rest:loyalty-config-save': { category: 'LOYALTY', labelAr: 'تعديل إعدادات بطاقة الولاء' },
@@ -151,6 +162,7 @@ export const CATEGORY_LABELS: Record<string, string> = {
   ACTIVITY: 'الفعاليات',
   CHIPS: 'التشبس 🪙',
   LOYALTY: 'بطاقة الولاء 🎟️',
+  WHATSAPP_ADMIN: 'أدمن عبر واتساب 🤖',
   OTHER: 'أخرى',
 };
 

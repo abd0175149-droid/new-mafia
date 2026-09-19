@@ -1,0 +1,692 @@
+// ══════════════════════════════════════════════════════
+// 🤖➕ امتداد محرّك الدون — الدفعات ١–٣ من خارطة التطوير (2026-09-19)
+//
+// معزول عن whatsapp-bot.service حتى لا يكبر ذلك الملفّ أكثر. المحرّك يستدعي ثلاث نقاط:
+//   • extToolDeclarations(t)      → إعلانات الأدوات الجديدة (t = مفاتيح مفعَّلة ومسموحة لهذا المتّصل)
+//   • execExtTool(name,args,ctx,h) → تنفيذ الأداة (undefined = ليست من هنا)
+//   • handleExtButton(...)        → مسارات الأزرار الحتميّة (true = عولجت)
+//
+// الثوابت الأمنيّة الموروثة: الهويّة من المحادثة لا من الوسائط · كلّ كتابة حسّاسة بزرّ تأكيد
+// ينفّذه الكود مع إعادة فحص الصلاحيّة لحظة الضغط · حمولات التأكيد في aux بانتهاء ١٠ دقائق ·
+// كلّ إجراء أدمن يُسجَّل في staff_action_log بمصدر whatsapp.
+// قرار المالك: أدوات الإدارة للأدمن فقط · شحن التشبس مسموح مع بيانٍ صريح · التسجيل من الواتساب
+// مسموح والموافقة على الشروط تبقى عند أوّل دخول فعليّ للتطبيق (بوّابة الموافقة القائمة).
+// ══════════════════════════════════════════════════════
+
+import { eq, and, isNull, sql, desc } from 'drizzle-orm';
+import crypto from 'crypto';
+import bcrypt from 'bcryptjs';
+import { getDB } from '../config/db.js';
+import { env } from '../config/env.js';
+import { players, playerNotes } from '../schemas/player.schema.js';
+import { activities, reservations, locations, staff, waConversations, waMessages } from '../schemas/admin.schema.js';
+import { logStaffAction } from './staff-action-log.service.js';
+
+const rowsOf = (r: any): any[] => r?.rows ?? (Array.isArray(r) ? r : []);
+const GRAPH = 'https://graph.facebook.com/v20.0';
+const GEMINI = 'https://generativelanguage.googleapis.com/v1beta';
+const APP_LOGIN_URL = 'https://club-mafia.grade.sbs/player/login';
+const CHANGE_CUTOFF_MS = 3 * 3600e3;
+const AUX_TTL_MS = 10 * 60e3;
+
+export interface ExtHelpers {
+  sendMessage: (i: any) => Promise<any>;
+  isAdminConversation: (conv: any) => Promise<boolean>;
+  notifyAdmins: (title: string, body: string, data?: Record<string, any>) => Promise<void>;
+  fmtJo: (d: any, withTime?: boolean) => string;
+  seatAvailability: (db: any, activityId: number) => Promise<{ total: number; booked: number; remaining: number }>;
+  mirrorReservation: (db: any, saved: any, tag: string) => Promise<any>;
+}
+interface Ctx { conv: any; dryRun: boolean; interactives: any[]; settings: any }
+
+// ══════════════════════════════════════════════════════
+// 🧾 تدقيق إجراءات الأدمن عبر البوت
+// ══════════════════════════════════════════════════════
+export async function staffOfConversation(conv: any): Promise<{ id: number; username: string; role: string; displayName: string } | null> {
+  try {
+    if (!conv?.playerId) return null;
+    const db = getDB(); if (!db) return null;
+    const [r] = await db.select({ id: staff.id, username: staff.username, role: staff.role, displayName: staff.displayName })
+      .from(players).innerJoin(staff, eq(players.linkedStaffId, staff.id)).where(eq(players.id, conv.playerId)).limit(1);
+    return r ? { id: r.id, username: r.username, role: String(r.role), displayName: r.displayName } : null;
+  } catch { return null; }
+}
+export async function auditBot(conv: any, action: string, details: any, extra?: { activityId?: number | null; targetName?: string | null; outcome?: string }) {
+  try {
+    const st = await staffOfConversation(conv);
+    await logStaffAction({
+      staffId: st?.id ?? null, staffUsername: st?.username ?? null, staffRole: st?.role ?? null,
+      source: 'whatsapp', action, outcome: extra?.outcome ?? 'success', activityId: extra?.activityId ?? null,
+      targetName: extra?.targetName ?? null, details: { convId: conv?.id, phone: conv?.phone, ...details },
+    });
+  } catch { /* التدقيق لا يحجب التنفيذ */ }
+}
+
+// ══════════════════════════════════════════════════════
+// 🔔 تنبيهات الأدمن على الواتساب — داخل نافذتهم المفتوحة فقط، وبمفتاح منع تكرار
+// ══════════════════════════════════════════════════════
+export async function alertAdminsWA(key: string, text: string, opts?: { exceptConvId?: number }): Promise<number> {
+  try {
+    const db = getDB(); if (!db) return 0;
+    const { getAux, setAux } = await import('../config/redis.js');
+    if (await getAux(`wa-alert:${key}`)) return 0;
+    await setAux(`wa-alert:${key}`, { at: Date.now() });
+    const r: any = await db.execute(sql`
+      SELECT c.id FROM wa_conversations c JOIN players p ON p.id = c.player_id JOIN staff s ON s.id = p.linked_staff_id
+       WHERE s.role = 'admin' AND c.last_inbound_at > NOW() - INTERVAL '23 hours 50 minutes'
+    `);
+    const { sendMessage } = await import('./whatsapp-inbox.service.js');
+    let n = 0;
+    for (const row of rowsOf(r)) {
+      if (opts?.exceptConvId && Number(row.id) === opts.exceptConvId) continue;
+      try { await sendMessage({ conversationId: Number(row.id), text: `🔔 ${text}`, source: 'system' }); n++; } catch { /* نافذة أُغلقت أو قفل إرسال */ }
+    }
+    return n;
+  } catch { return 0; }
+}
+
+// ══════════════════════════════════════════════════════
+// 🎤 الرسائل الصوتيّة — تفريغٌ ثمّ تُعامَل كنصّ
+// ══════════════════════════════════════════════════════
+const MAX_AUDIO_BYTES = 1_500_000;   // ≈ دقيقتان opus
+export async function transcribePendingAudio(convId: number, settings: any): Promise<{ done: number; usage: any }> {
+  const usage = { calls: 0, promptTokens: 0, candidatesTokens: 0, thoughtsTokens: 0, totalTokens: 0, cachedTokens: 0 };
+  const db = getDB(); if (!db) return { done: 0, usage };
+  const rows = await db.select().from(waMessages)
+    .where(and(eq(waMessages.conversationId, convId), eq(waMessages.direction, 'in'), eq(waMessages.msgType, 'audio')))
+    .orderBy(desc(waMessages.id)).limit(3);
+  let done = 0;
+  for (const m of rows) {
+    const p: any = m.payload || {};
+    if (p.transcribed || Date.now() - new Date(m.createdAt).getTime() > 15 * 60e3) continue;
+    const mediaId = p?.audio?.id; if (!mediaId) continue;
+    let text = '';
+    try {
+      const meta: any = await (await fetch(`${GRAPH}/${mediaId}`, { headers: { Authorization: `Bearer ${env.WA_TOKEN}` } })).json();
+      if (!meta?.url) throw new Error('no media url');
+      if (Number(meta.file_size || 0) > MAX_AUDIO_BYTES) { text = '[رسالة صوتيّة طويلة جدّاً — اطلب منه كتابتها أو تقصيرها]'; }
+      else {
+        const bin = Buffer.from(await (await fetch(meta.url, { headers: { Authorization: `Bearer ${env.WA_TOKEN}` } })).arrayBuffer());
+        if (bin.length > MAX_AUDIO_BYTES) text = '[رسالة صوتيّة طويلة جدّاً — اطلب منه كتابتها أو تقصيرها]';
+        else {
+          const mime = String(meta.mime_type || 'audio/ogg').split(';')[0].trim();
+          const res = await fetch(`${GEMINI}/models/${settings.model}:generateContent?key=${encodeURIComponent(settings.geminiApiKey)}`, {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              contents: [{ role: 'user', parts: [
+                { inline_data: { mime_type: mime, data: bin.toString('base64') } },
+                { text: 'فرّغ هذه الرسالة الصوتيّة حرفيّاً كما قيلت (غالباً بالعربيّة المحكيّة الأردنيّة) بلا أيّ إضافة أو تعليق أو ترجمة. إن كانت غير مفهومة أو صامتة فاكتب فقط: [غير واضح]' },
+              ] }],
+              generationConfig: { temperature: 0, maxOutputTokens: 600 },
+            }),
+          });
+          const data: any = await res.json().catch(() => ({}));
+          if (!res.ok) throw new Error(data?.error?.message || `Gemini ${res.status}`);
+          text = (data?.candidates?.[0]?.content?.parts || []).map((x: any) => x.text || '').join(' ').trim() || '[غير واضح]';
+          const u = data?.usageMetadata || {};
+          usage.calls++; usage.promptTokens += Number(u.promptTokenCount || 0); usage.candidatesTokens += Number(u.candidatesTokenCount || 0);
+          usage.thoughtsTokens += Number(u.thoughtsTokenCount || 0); usage.totalTokens += Number(u.totalTokenCount || 0);
+        }
+      }
+    } catch (e: any) {
+      console.warn('⚠️ WA audio transcribe:', e?.message);
+      text = '[تعذّر فتح الرسالة الصوتيّة — اطلب منه كتابتها]';
+    }
+    await db.update(waMessages).set({ body: `🎤 ${text}`.slice(0, 1500), payload: { ...p, transcribed: true, transcript: text } } as any).where(eq(waMessages.id, m.id));
+    try { const io = (global as any).io; if (io) io.to('wa:inbox').emit('wa:message:transcribed', { id: m.id, conversationId: convId, body: `🎤 ${text}` }); } catch { /* غير حرج */ }
+    done++;
+  }
+  return { done, usage };
+}
+
+// ══════════════════════════════════════════════════════
+// 📋 إعلانات الأدوات
+// ══════════════════════════════════════════════════════
+export const EXT_TOOLS_DEFAULTS = {
+  invoice: true,          // «شو فاتورتي الليلة؟»
+  chips: true,            // رصيد التشبس وحركاته
+  changePeople: true,     // تعديل عدد الأشخاص بحجزٍ قائم
+  schedule: true,         // جدول الليلة
+  roleGuide: true,        // دليل الأدوار الحيّ من role_definitions
+  register: true,         // تسجيل حساب لاعب من الواتساب
+  voice: true,            // فهم الرسائل الصوتيّة (تفريغ)
+  adminTonight: true,     // 🔒 لوحة الليلة
+  adminChips: true,       // 🔒 شحن تشبس بباقة معتمدة
+  adminActivities: true,  // 🔒 إنشاء فعاليّة
+  adminReports: true,     // 🔒 تقارير سريعة
+  adminPlayers: true,     // 🔒 قفل/فكّ حساب، إعفاء سياج، ملاحظة
+};
+export const EXT_ALWAYS_ADMIN_ONLY = ['adminTonight', 'adminChips', 'adminActivities', 'adminReports', 'adminPlayers'];
+
+export function extToolDeclarations(t: Record<string, any>): any[] {
+  const d: any[] = [];
+  const O = (properties: any, required: string[] = []) => ({ type: 'OBJECT', properties, required });
+  if (t.loyalty) d.push({ name: 'offer_loyalty_reward_choice', description: 'عرض أزرار اختيار مكافأة بطاقة الولاء للعميل عندما تكون له مكافأة «بانتظار الاختيار» (تعرفها من get_my_loyalty_card). التنفيذ آليّ بعد ضغطه والاختيار نهائيّ — لا تكتب بعدها إلا جملة قصيرة.', parameters: O({}) });
+  if (t.invoice) d.push({ name: 'get_my_invoice', description: 'فاتورة العميل نفسه في فعاليّة الليلة أو آخر فعاليّة (خلال 36 ساعة): طلباته من المنيو، الماء، تكملة الحدّ الأدنى، رسم اللعبة، خصم مشروب الولاء، الإجماليّ، وهل حُصّلت. «شو فاتورتي؟ كم عليّ؟».', parameters: O({}) });
+  if (t.chips) d.push({ name: 'get_my_chips', description: 'رصيد تشبس العميل وآخر حركاته وما يكفيه رصيده من الخزنة. «كم تشبس معي؟». الشراء من التطبيق فقط.', parameters: O({}) });
+  if (t.changePeople) d.push({ name: 'request_change_people', description: 'تعديل عدد الأشخاص في حجزٍ قائم للعميل بدل الإلغاء وإعادة الحجز. تعرض أزرار تأكيد والتنفيذ آليّ بعد ضغطه (قاعدة الـ3 ساعات نفسها، وفحص السعة عند الزيادة).', parameters: O({ activity_id: { type: 'NUMBER', description: 'معرّف الفعاليّة المحجوزة' }, new_count: { type: 'NUMBER', description: 'العدد الجديد (1–12)' } }, ['activity_id', 'new_count']) });
+  if (t.schedule) d.push({ name: 'get_tonight_schedule', description: 'جدول الليلة المكتوب لفعاليّة (كم لعبة، متى تبدأ كلّ واحدة، الاستراحات) — لفعاليّة العميل المحجوزة القادمة إن لم يُحدَّد معرّف. الجدول تقديريّ وقد ينزاح.', parameters: O({ activity_id: { type: 'NUMBER', description: 'معرّف الفعاليّة (اختياريّ)' } }) });
+  if (t.roleGuide) d.push({ name: 'get_role_guide', description: 'الدليل الحيّ للأدوار من النظام: بلا اسم يعيد قائمة الأدوار المفعَّلة بفريق كلٍّ منها والحدّ الأدنى للاعبين؛ وباسم دورٍ يعيد شرحه الكامل ونصائحه وقيوده. استخدمه عند أيّ شرح مفصّل لدور — هو أحدث من قاعدة المعرفة.', parameters: O({ role_name: { type: 'STRING', description: 'اسم الدور بالعربيّة كما ذكره العميل (اختياريّ)' } }) });
+  if (t.register) d.push({ name: 'start_registration', description: 'إنشاء حساب لاعب جديد لرقم هذه المحادثة (للزائر غير المسجَّل حصراً). اجمع منه أوّلاً: الاسم الكامل، الجنس، تاريخ الميلاد — سؤالاً واحداً بكلّ رسالة — ثمّ استدعِها فتعرض ملخّصاً وأزرار تأكيد. الحساب يُنشأ آليّاً بعد ضغطه وتصله كلمة سرّ مؤقّتة. الموافقة على سياسة الخصوصيّة والشروط تتمّ داخل التطبيق عند أوّل دخول — لا تطلبها أنت.', parameters: O({ full_name: { type: 'STRING', description: 'الاسم كما يريده في حسابه' }, gender: { type: 'STRING', description: 'male أو female' }, dob: { type: 'STRING', description: 'تاريخ الميلاد بصيغة YYYY-MM-DD' } }, ['full_name', 'gender', 'dob']) });
+
+  if (t.adminTonight) d.push({ name: 'admin_tonight', description: 'لوحة الليلة (أدمن فقط): لكلّ فعاليّة اليوم — المحجوزون والأشخاص، الحاضرون، قائمة الانتظار، المدفوع وغير المدفوع والمجّانيّ، المباريات التي لُعبت، أختام الولاء المتوقّعة، وطلبات المنيو المفتوحة وأقدمها. «كيف الليلة؟».', parameters: O({}) });
+  if (t.adminLoyalty) {
+    d.push({ name: 'admin_loyalty_grant_stamp', description: 'منح ختم ولاء يدويّ للاعب عن فعاليّة (أدمن فقط) — برقم هاتفه ومعرّف الفعاليّة وسبب مكتوب. يعرض أزرار تأكيد قبل التنفيذ.', parameters: O({ phone: { type: 'STRING', description: 'رقم اللاعب' }, activity_id: { type: 'NUMBER', description: 'معرّف الفعاليّة' }, reason: { type: 'STRING', description: 'السبب (3 أحرف فأكثر)' } }, ['phone', 'activity_id', 'reason']) });
+    d.push({ name: 'admin_loyalty_void_reward', description: 'إلغاء مكافأة ولاء (أدمن فقط) بمعرّفها (من admin_loyalty_player) وسبب مكتوب. يعرض أزرار تأكيد.', parameters: O({ reward_id: { type: 'NUMBER', description: 'معرّف المكافأة' }, reason: { type: 'STRING', description: 'السبب' } }, ['reward_id', 'reason']) });
+  }
+  if (t.adminChips) d.push({ name: 'admin_chips_topup', description: 'شحن رصيد تشبس للاعب بباقة معتمدة (أدمن فقط): p5 = 5 د.أ ← 55 تشبس · p10 = 10 د.أ ← 120 · p20 = 20 د.أ ← 260. برقم هاتف اللاعب. يعرض اسم اللاعب والباقة وأزرار تأكيد — حركة ماليّة موثَّقة باسم الأدمن ومصدرها واتساب، ويصل اللاعبَ إشعار.', parameters: O({ phone: { type: 'STRING', description: 'رقم اللاعب' }, pack: { type: 'STRING', description: 'p5 أو p10 أو p20' } }, ['phone', 'pack']) });
+  if (t.adminActivities) d.push({ name: 'admin_create_activity', description: 'إنشاء فعاليّة جديدة (أدمن فقط) في مكانٍ معيّن بتاريخ ووقت. السعر والسعة والقالب والمنيو والجدول تُنسخ من آخر فعاليّة في المكان نفسه ما لم تُحدَّد. يعرض ملخّصاً وأزرار تأكيد. لا يرسل إشعاراً للاعبين (ذلك من الداشبورد).', parameters: O({ location_id: { type: 'NUMBER', description: 'معرّف المكان من get_locations' }, date: { type: 'STRING', description: 'YYYY-MM-DD' }, time: { type: 'STRING', description: 'HH:mm بتوقيت الأردن (الافتراضيّ 19:00)' }, price: { type: 'NUMBER', description: 'سعر الشخص (اختياريّ)' }, capacity: { type: 'NUMBER', description: 'السعة (اختياريّ)' }, name: { type: 'STRING', description: 'اسم الفعاليّة (اختياريّ)' } }, ['location_id', 'date']) });
+  if (t.adminReports) d.push({ name: 'admin_quick_report', description: 'تقرير سريع (أدمن فقط) لفترة: today أو week أو month — الفعاليّات، الحضور (لاعبون لعبوا)، الحجوزات، إيراد رسوم اللعب المحصَّل، اللاعبون الجدد، الأكثر حضوراً، مع مقارنة بالفترة السابقة المماثلة.', parameters: O({ range: { type: 'STRING', description: 'today | week | month' } }, ['range']) });
+  if (t.adminPlayers) d.push({ name: 'admin_player_manage', description: 'إدارة حساب لاعب برقم هاتفه (أدمن فقط): lock (قفل) · unlock (فكّ) · geofence_exempt (إعفاء من سياج الموقع) · geofence_unexempt · note (ملاحظة على اللاعب). القفل والإعفاء بزرّ تأكيد؛ الملاحظة تُحفظ مباشرة.', parameters: O({ phone: { type: 'STRING', description: 'رقم اللاعب' }, action: { type: 'STRING', description: 'lock | unlock | geofence_exempt | geofence_unexempt | note' }, reason: { type: 'STRING', description: 'السبب أو نصّ الملاحظة' } }, ['phone', 'action', 'reason']) });
+  return d;
+}
+
+// ══════════════════════════════════════════════════════
+// أدوات مساعدة
+// ══════════════════════════════════════════════════════
+async function playerByPhone(db: any, raw: string) {
+  const { normalizeLocalPhone } = await import('../utils/phone.util.js');
+  const ph = normalizeLocalPhone(String(raw || '')); if (!ph) return { error: 'رقم غير صالح' as const };
+  const [pl] = await db.select({ id: players.id, name: players.name, phone: players.phone, isLocked: players.isLocked, geofenceExempt: players.geofenceExempt, chips: players.chipsBalance })
+    .from(players).where(eq(players.phone, ph)).limit(1);
+  return pl ? { pl } : { error: 'لا يوجد لاعب مسجّل بهذا الرقم' as const };
+}
+async function stash(key: string, payload: any) { const { setAux } = await import('../config/redis.js'); await setAux(key, { ...payload, expiresAt: Date.now() + AUX_TTL_MS }); }
+async function unstash(key: string): Promise<any | null> {
+  const { getAux, deleteAux } = await import('../config/redis.js');
+  const p = await getAux(key); await deleteAux(key).catch(() => {});
+  return p && p.expiresAt > Date.now() ? p : null;
+}
+const confirmButtons = (body: string, okId: string, okTitle: string, cancelId = 'ext_cancel') => ({
+  type: 'button', body: { text: body.slice(0, 1024) },
+  action: { buttons: [{ type: 'reply', reply: { id: okId, title: okTitle.slice(0, 20) } }, { type: 'reply', reply: { id: cancelId, title: 'إلغاء' } }] },
+});
+const JO = 3 * 3600e3;
+function jordanDayBounds(offsetDays = 0) {
+  const j = new Date(Date.now() + JO); const start = new Date(Date.UTC(j.getUTCFullYear(), j.getUTCMonth(), j.getUTCDate() + offsetDays) - JO);
+  return { start, end: new Date(start.getTime() + 86400e3) };
+}
+const REASON_AR: Record<string, string> = { drop_win: 'فوز مباراة', drop_top3: 'ضمن أفضل ثلاثة', drop_first_match: 'هديّة أوّل مباراة', admin_topup: 'شحن من الإدارة', admin_adjust: 'من النادي', rent_item: 'استئجار من الخزنة', renew_item: 'تجديد', refund: 'استرجاع', reward_top3: 'مكافأة الموسم', reward_birthday: 'عيديّة ميلاد', reward_loyalty: 'مكافأة بطاقة الولاء', gift_in: 'هديّة وصلتك', gift_out: 'هديّة أرسلتها' };
+const KIND_AR: Record<string, string> = { free_visit: '🎟️ زيارة مجّانيّة', free_drink: '☕ مشروب مجّاني', chips: '🪙 تشبس' };
+
+// ══════════════════════════════════════════════════════
+// ⚙️ تنفيذ الأدوات
+// ══════════════════════════════════════════════════════
+export async function execExtTool(name: string, args: any, ctx: Ctx, h: ExtHelpers): Promise<any | undefined> {
+  const db = getDB(); if (!db) return { error: 'DB unavailable' };
+  const { conv, dryRun } = ctx;
+  const adminGate = async () => (dryRun || await h.isAdminConversation(conv)) ? null : { error: 'هذه الأداة للأدمن فقط' };
+  const show = async (interactive: any, preview: string) => { if (dryRun) ctx.interactives.push({ kind: 'buttons', preview }); else await h.sendMessage({ conversationId: conv.id, interactive, source: 'bot' }); };
+
+  switch (name) {
+    // ───────── اللاعب ─────────
+    case 'offer_loyalty_reward_choice': {
+      if (!conv.playerId) return { error: 'المحادثة غير مربوطة بحساب لاعب' };
+      const L = await import('./loyalty.service.js');
+      const me: any = await L.getMyLoyalty(conv.playerId);
+      if (!me?.enabled) return { enabled: false, note: 'بطاقة الولاء غير متاحة حاليّاً' };
+      const rw = me.pendingChoice; if (!rw) return { pending: false, note: 'لا مكافأة بانتظار الاختيار — أخبره بحالته من get_my_loyalty_card' };
+      const kinds: string[] = (me.config.kinds || []).slice(0, 3);
+      if (!kinds.length) return { error: 'لا أنواع مكافآت مفعَّلة' };
+      const label: Record<string, string> = { free_visit: '🎟️ زيارة مجّانيّة', free_drink: '☕ مشروب مجّاني', chips: `🪙 ${me.config.chipsAmount} تشبس` };
+      await show({
+        type: 'button',
+        body: { text: `🎁 اكتملت بطاقتك! اختر مكافأتك (الاختيار نهائيّ):\n• زيارة مجّانيّة: رسم اللعب على النادي، تُطبَّق على حجزك القادم من التطبيق\n• مشروب مجّاني: حتى ${me.config.drinkCapJod} د.أ يُخصم من فاتورتك بالمكان\n• ${me.config.chipsAmount} تشبس: تدخل رصيدك فوراً` },
+        action: { buttons: kinds.map(k => ({ type: 'reply', reply: { id: `loy:${rw.id}:${k}`, title: label[k].slice(0, 20) } })) },
+      }, 'أزرار اختيار مكافأة الولاء');
+      return { sent: true, note: 'أُرسلت أزرار الاختيار — التنفيذ آليّ بعد ضغطه. اكتب جملة قصيرة فقط.' };
+    }
+
+    case 'get_my_invoice': {
+      if (!conv.playerId) return { registered: false, note: 'الفاتورة مربوطة بحساب لاعب — المحادثة غير مربوطة' };
+      const r: any = await db.execute(sql`
+        SELECT o.activity_id, o.location_id FROM orders o WHERE o.player_id = ${conv.playerId} AND o.status <> 'cancelled' AND o.created_at > NOW() - INTERVAL '36 hours'
+        UNION ALL
+        SELECT a.id, a.location_id FROM bookings b JOIN activities a ON a.id = b.activity_id
+         WHERE b.player_id = ${conv.playerId} AND b.deleted_at IS NULL AND a.date > NOW() - INTERVAL '36 hours' AND a.date < NOW() + INTERVAL '6 hours'
+        LIMIT 1
+      `);
+      const hit = rowsOf(r)[0];
+      if (!hit?.location_id) return { found: false, note: 'لا طلبات ولا فعاليّة له خلال آخر 36 ساعة — أخبره بذلك' };
+      const { buildInvoiceData } = await import('./fnb-invoice.service.js');
+      const inv: any = await buildInvoiceData(db as any, Number(hit.location_id), Number(hit.activity_id), conv.playerId);
+      if (inv?.error) return { found: false, note: `لا فاتورة بعد: ${inv.error}` };
+      const paid: any = await db.execute(sql`SELECT is_paid, invoice_no FROM order_invoices WHERE location_id = ${hit.location_id} AND activity_id = ${hit.activity_id} AND player_id = ${conv.playerId} LIMIT 1`);
+      const pr = rowsOf(paid)[0];
+      return {
+        found: true, activity: inv.activityName, location: inv.locationName,
+        lines: inv.lines.map((l: any) => ({ item: l.name, qty: l.quantity, total: l.lineTotal })),
+        ordersTotalJOD: inv.ordersTotal, waterJOD: inv.waterCharge, minimumTopupJOD: inv.minTopup,
+        gameFeeJOD: inv.gameFeeApplied ? inv.gameFeeAmount : 0, loyaltyDrinkDiscountJOD: inv.loyaltyDiscount || 0,
+        grandTotalJOD: inv.grandTotal, paid: !!pr?.is_paid, invoiceNo: pr?.invoice_no ?? null,
+        note: 'اعرضها له بنوداً قصيرة والإجماليّ بوضوح — الأرقام من النظام حرفيّاً بلا أيّ حساب منك. الدفع في المكان. «تكملة الحدّ الأدنى» تظهر فقط لمن لعب ولم تبلغ طلباته الحدّ.',
+      };
+    }
+
+    case 'get_my_chips': {
+      if (!conv.playerId) return { registered: false, note: 'التشبس مربوط بحساب لاعب' };
+      const C = await import('./chips.service.js');
+      const balance = await C.getChipsBalance(conv.playerId);
+      const ledger: any[] = await C.getPlayerLedger(conv.playerId, 8) as any;
+      let affordable = 0, cheapest: number | null = null;
+      try {
+        const { listCatalog } = await import('./chips-store.service.js');
+        const items: any[] = (await listCatalog(false)).filter((i: any) => i.isPurchasable !== false && !i.closedAt && Number(i.priceChips) > 0);
+        affordable = items.filter(i => Number(i.priceChips) <= balance).length;
+        cheapest = items.length ? Math.min(...items.map(i => Number(i.priceChips))) : null;
+      } catch { /* الكتالوج تكميليّ */ }
+      return {
+        balance, affordableItems: affordable, cheapestItemPrice: cheapest,
+        lastMoves: (ledger || []).map((l: any) => ({ amount: l.amount, what: REASON_AR[l.reason] || l.reason, when: h.fmtJo(l.createdAt, false) })),
+        note: 'الرصيد لا ينتهي؛ المزايا المستأجرة لها مدّة. الشراء والتجهيز من «خزنة الدون» في التطبيق فقط — لا بيع ولا شحن منك.',
+      };
+    }
+
+    case 'request_change_people': {
+      const actId = parseInt(args.activity_id); const n = Math.trunc(Number(args.new_count));
+      if (!Number.isFinite(actId) || !(n >= 1 && n <= 12)) return { error: 'معرّف الفعاليّة والعدد (1–12) مطلوبان' };
+      const [r] = await db.select({ id: reservations.id, people: reservations.peopleCount, status: reservations.status, name: activities.name, date: activities.date })
+        .from(reservations).innerJoin(activities, eq(reservations.activityId, activities.id))
+        .where(and(eq(reservations.activityId, actId), isNull(reservations.deletedAt), sql`(${reservations.phone} = ${conv.phone} ${conv.playerId ? sql`OR ${reservations.playerId} = ${conv.playerId}` : sql``})`)).limit(1);
+      if (!r) return { found: false, note: 'لا حجز له في هذه الفعاليّة — اعرض حجزاً جديداً' };
+      if (Number(r.people) === n) return { same: true, note: 'العدد هو نفسه — لا تغيير' };
+      await show(confirmButtons(`✏️ تعديل حجزك في «${r.name}» (${h.fmtJo(r.date)})\nمن ${r.people} إلى ${n} أشخاص — أثبّت التعديل؟`, `chgp:${r.id}:${n}`, 'ثبّت التعديل ✓', 'chg_keep'), `تعديل العدد ${r.people}→${n}`);
+      return { sent: true, note: 'أُرسلت أزرار التأكيد — التنفيذ آليّ بعد ضغطه.' };
+    }
+
+    case 'get_tonight_schedule': {
+      let actId = parseInt(args.activity_id);
+      if (!Number.isFinite(actId)) {
+        const r: any = await db.execute(sql`
+          SELECT a.id FROM reservations r JOIN activities a ON a.id = r.activity_id
+           WHERE r.deleted_at IS NULL AND a.deleted_at IS NULL AND a.date > NOW() - INTERVAL '6 hours'
+             AND (r.phone = ${conv.phone} ${conv.playerId ? sql`OR r.player_id = ${conv.playerId}` : sql``})
+           ORDER BY a.date ASC LIMIT 1`);
+        actId = Number(rowsOf(r)[0]?.id);
+        if (!Number.isFinite(actId)) {
+          const n: any = await db.execute(sql`SELECT id FROM activities WHERE deleted_at IS NULL AND status IN ('planned','active') AND date > NOW() - INTERVAL '6 hours' ORDER BY date ASC LIMIT 1`);
+          actId = Number(rowsOf(n)[0]?.id);
+        }
+      }
+      if (!Number.isFinite(actId)) return { found: false, note: 'لا فعاليّة قادمة' };
+      const [a] = await db.select({ name: activities.name, date: activities.date, sch: activities.gameSchedule }).from(activities).where(eq(activities.id, actId)).limit(1);
+      if (!a) return { found: false };
+      const items: any[] = Array.isArray(a.sch) ? a.sch as any[] : [];
+      if (!items.length) return { found: true, activity: a.name, dateText: h.fmtJo(a.date), schedule: [], note: 'لا جدول مكتوب لهذه الفعاليّة — اذكر موعد البدء فقط' };
+      return { found: true, activity: a.name, dateText: h.fmtJo(a.date), schedule: items.map(x => ({ what: x.label, kind: x.kind === 'break' ? 'استراحة' : 'لعبة', from: x.start, to: x.end })), note: 'الجدول تقديريّ وقد ينزاح حسب مجريات اللعب — قلها دائماً. المتأخّر ينضمّ للّعبة التالية.' };
+    }
+
+    case 'get_role_guide': {
+      const all: any = await db.execute(sql`SELECT name_ar, team, gen_min_players, one_liner, how_it_works, tips, extra_limits, interacts_with, win_condition_description FROM role_definitions ORDER BY team, gen_min_players, id`);
+      const roles = rowsOf(all);
+      const TEAM: Record<string, string> = { MAFIA: 'المافيا', CITIZEN: 'المواطنون', NEUTRAL: 'محايد' };
+      const norm = (s: string) => String(s || '').replace(/[أإآ]/g, 'ا').replace(/[ًٌٍَُِّْ]/g, '').replace(/ة/g, 'ه').replace(/^ال/, '').trim();
+      const q = norm(args.role_name || '');
+      if (!q) return { roles: roles.map(r => ({ name: r.name_ar, team: TEAM[r.team] || r.team, fromPlayers: r.gen_min_players, oneLine: r.one_liner })), note: 'اعرض القائمة مجمّعة بالفريق باختصار، واعرض شرح أيّ دور بالتفصيل.' };
+      const hit = roles.find(r => norm(r.name_ar) === q) || roles.find(r => norm(r.name_ar).includes(q) || q.includes(norm(r.name_ar)));
+      if (!hit) return { found: false, available: roles.map(r => r.name_ar), note: 'لم أجد دوراً بهذا الاسم — اعرض الأسماء المتاحة' };
+      return { found: true, name: hit.name_ar, team: TEAM[hit.team] || hit.team, fromPlayers: hit.gen_min_players, oneLine: hit.one_liner, howItWorks: hit.how_it_works, tips: hit.tips, limits: hit.extra_limits, interactsWith: hit.interacts_with, winCondition: hit.win_condition_description, note: 'اشرح بوضوح: فريقه، قدرته بالضبط، قيوده، ومن أيّ عدد يظهر — هذا المصدر أحدث من قاعدة المعرفة.' };
+    }
+
+    case 'start_registration': {
+      if (conv.playerId) return { already: true, note: 'هذا الرقم مربوط بحساب لاعب أصلاً — لا تسجيل جديد' };
+      const { normalizeLocalPhone } = await import('../utils/phone.util.js');
+      const ph = normalizeLocalPhone(conv.phone);
+      if (!ph) return { error: 'التسجيل من الواتساب متاح للأرقام الأردنيّة فقط — وجّهه للتسجيل من الموقع (send_social_links)' };
+      const [ex] = await db.select({ id: players.id }).from(players).where(eq(players.phone, ph)).limit(1);
+      if (ex) return { already: true, note: 'يوجد حساب بهذا الرقم — اربط المحادثة به عبر request_account_link برقمه نفسه' };
+      const nameIn = String(args.full_name || '').replace(/\s+/g, ' ').trim();
+      if (nameIn.length < 3 || nameIn.length > 60) return { error: 'الاسم يجب أن يكون بين 3 و60 حرفاً' };
+      const g = /^f|female|انث|أنث|بنت/i.test(String(args.gender || '')) ? 'FEMALE' : /^m|male|ذكر|شب/i.test(String(args.gender || '')) ? 'MALE' : null;
+      if (!g) return { error: 'الجنس مطلوب: ذكر أو أنثى' };
+      const dob = String(args.dob || '').trim();
+      const { ageFromDob } = await import('./consent.service.js');
+      const age = /^\d{4}-\d{2}-\d{2}$/.test(dob) ? ageFromDob(dob) : null;
+      if (age == null || age > 100) return { error: 'تاريخ الميلاد غير صالح — اطلبه بصيغة يوم/شهر/سنة وحوّله إلى YYYY-MM-DD' };
+      if (age < 8) return { error: 'الحدّ الأدنى للعمر ثماني سنوات' };
+      if (dryRun) { ctx.interactives.push({ kind: 'buttons', preview: `تأكيد إنشاء حساب: ${nameIn}` }); return { pendingConfirm: true, dryRun: true }; }
+      await stash(`wa-reg:${conv.id}`, { name: nameIn, gender: g, dob, phone: ph });
+      await h.sendMessage({ conversationId: conv.id, source: 'bot', interactive: confirmButtons(
+        `📝 إنشاء حسابك في نادي المافيا:\nالاسم: ${nameIn}\nالجنس: ${g === 'FEMALE' ? 'أنثى' : 'ذكر'}\nتاريخ الميلاد: ${dob}\nرقم الدخول: ${ph}\n\n${age < 18 ? 'عمرك دون 18 — سيُطلب تأكيد وليّ أمرك داخل التطبيق عند أوّل دخول.\n' : ''}أنشئ الحساب؟`,
+        'reg_ok', 'أنشئ حسابي ✓') });
+      return { pendingConfirm: true, note: 'أُرسل الملخّص وأزرار التأكيد — الإنشاء آليّ بعد ضغطه وتصله كلمة سرّ مؤقّتة. لا تكتب شيئاً طويلاً.' };
+    }
+
+    // ───────── الأدمن ─────────
+    case 'admin_tonight': {
+      const g = await adminGate(); if (g) return g;
+      const { start, end } = jordanDayBounds();
+      const acts: any = await db.execute(sql`
+        SELECT a.id, a.name, a.date, a.base_price, a.max_capacity, l.name AS loc FROM activities a LEFT JOIN locations l ON l.id = a.location_id
+         WHERE a.deleted_at IS NULL AND a.date >= ${start} AND a.date < ${end} AND COALESCE(l.is_test_location,false) = false ORDER BY a.date`);
+      const out: any[] = [];
+      let lc: any = null; try { const L = await import('./loyalty.service.js'); const c = await L.getLoyaltyConfig(); lc = c.enabled ? c : null; } catch { /* بلا ولاء */ }
+      for (const a of rowsOf(acts)) {
+        const r: any = await db.execute(sql`
+          SELECT (SELECT COUNT(*)::int FROM reservations r WHERE r.activity_id = ${a.id} AND r.deleted_at IS NULL AND r.status <> 'waitlist') AS res_rows,
+                 (SELECT COALESCE(SUM(people_count),0)::int FROM reservations r WHERE r.activity_id = ${a.id} AND r.deleted_at IS NULL AND r.status <> 'waitlist') AS res_people,
+                 (SELECT COUNT(*)::int FROM reservations r WHERE r.activity_id = ${a.id} AND r.deleted_at IS NULL AND r.status = 'waitlist') AS waitlist,
+                 (SELECT COUNT(*)::int FROM reservations r WHERE r.activity_id = ${a.id} AND r.deleted_at IS NULL AND r.attended = true) AS attended,
+                 (SELECT COUNT(*)::int FROM bookings b WHERE b.activity_id = ${a.id} AND b.deleted_at IS NULL) AS bookings,
+                 (SELECT COUNT(*)::int FROM bookings b WHERE b.activity_id = ${a.id} AND b.deleted_at IS NULL AND b.is_free) AS free,
+                 (SELECT COUNT(*)::int FROM bookings b WHERE b.activity_id = ${a.id} AND b.deleted_at IS NULL AND b.is_paid AND NOT b.is_free) AS paid,
+                 (SELECT COUNT(*)::int FROM bookings b WHERE b.activity_id = ${a.id} AND b.deleted_at IS NULL AND NOT b.is_paid AND NOT b.is_free) AS unpaid,
+                 (SELECT COALESCE(SUM(paid_amount),0) FROM bookings b WHERE b.activity_id = ${a.id} AND b.deleted_at IS NULL) AS collected,
+                 (SELECT COUNT(*)::int FROM matches m JOIN sessions s ON s.id = m.session_id WHERE s.activity_id = ${a.id} AND m.deleted_at IS NULL) AS matches,
+                 (SELECT COUNT(DISTINCT mp.player_id)::int FROM match_players mp JOIN matches m ON m.id = mp.match_id JOIN sessions s ON s.id = m.session_id WHERE s.activity_id = ${a.id} AND m.deleted_at IS NULL) AS played,
+                 (SELECT COUNT(*)::int FROM orders o WHERE o.activity_id = ${a.id} AND o.status IN ('new','preparing')) AS open_orders,
+                 (SELECT EXTRACT(EPOCH FROM (NOW() - MIN(o.created_at)))/60 FROM orders o WHERE o.activity_id = ${a.id} AND o.status IN ('new','preparing')) AS oldest_order_min,
+                 (SELECT COUNT(*)::int FROM bookings b WHERE b.activity_id = ${a.id} AND b.deleted_at IS NULL AND b.created_by = 'player-app'
+                     AND EXTRACT(EPOCH FROM (${a.date}::timestamp - b.created_at))/3600 >= ${lc ? lc.minLeadHours : 9999}) AS early_bookings,
+                 (SELECT COUNT(*)::int FROM loyalty_stamps st WHERE st.activity_id = ${a.id} AND st.voided_at IS NULL) AS stamps`);
+        const x = rowsOf(r)[0] || {};
+        out.push({
+          id: a.id, name: a.name, location: a.loc, startsAt: h.fmtJo(a.date), capacity: a.max_capacity, pricePerPerson: a.base_price,
+          reservations: { rows: x.res_rows, people: x.res_people, waitlist: x.waitlist, markedAttended: x.attended },
+          bookings: { total: x.bookings, paid: x.paid, unpaid: x.unpaid, free: x.free, collectedJOD: Number(x.collected || 0), expectedFromUnpaidJOD: Math.round(Number(x.unpaid || 0) * Number(a.base_price || 0) * 100) / 100 },
+          play: { matchesFinished: x.matches, playersPlayed: x.played },
+          menu: { openOrders: x.open_orders, oldestOpenOrderMinutes: x.oldest_order_min != null ? Math.round(Number(x.oldest_order_min)) : null },
+          loyalty: lc ? { earlyAppBookings: x.early_bookings, stampsGranted: x.stamps } : 'متوقّفة',
+        });
+      }
+      if (!out.length) return { activities: [], note: 'لا فعاليّات اليوم — اذكر أقرب فعاليّة قادمة إن سُئلت (get_available_activities)' };
+      return { day: h.fmtJo(new Date(), false), activities: out, note: 'لخّص للأدمن باختصار ما يحتاج تدخّلاً أوّلاً: غير المدفوعين، قائمة الانتظار، الطلبات المفتوحة المتأخّرة. الأرقام من النظام حرفيّاً.' };
+    }
+
+    case 'admin_loyalty_grant_stamp': {
+      const g = await adminGate(); if (g) return g;
+      const f = await playerByPhone(db, args.phone); if ('error' in f) return { error: f.error };
+      const actId = parseInt(args.activity_id); const reason = String(args.reason || '').trim();
+      if (reason.length < 3) return { error: 'السبب مطلوب (3 أحرف فأكثر)' };
+      const [a] = await db.select({ name: activities.name, date: activities.date }).from(activities).where(eq(activities.id, actId)).limit(1);
+      if (!a) return { error: 'الفعاليّة غير موجودة' };
+      if (dryRun) { ctx.interactives.push({ kind: 'buttons', preview: `ختم يدويّ: ${f.pl!.name}` }); return { pendingConfirm: true, dryRun: true }; }
+      await stash(`adm-stamp:${conv.id}`, { playerId: f.pl!.id, playerName: f.pl!.name, actId, actName: a.name, reason });
+      await h.sendMessage({ conversationId: conv.id, source: 'system', interactive: confirmButtons(`✦ منح ختم ولاء يدويّ؟\nاللاعب: ${f.pl!.name} (${f.pl!.phone})\nالفعاليّة: ${a.name} — ${h.fmtJo(a.date)}\nالسبب: ${reason}`, `admstamp:${conv.id}`, 'امنح الختم ✓') });
+      return { pendingConfirm: true, note: 'أُرسلت أزرار التأكيد — ينتظر ضغط الأدمن.' };
+    }
+
+    case 'admin_loyalty_void_reward': {
+      const g = await adminGate(); if (g) return g;
+      const id = parseInt(args.reward_id); const reason = String(args.reason || '').trim();
+      if (!Number.isFinite(id) || reason.length < 3) return { error: 'معرّف المكافأة والسبب مطلوبان' };
+      const rr: any = await db.execute(sql`SELECT r.id, r.kind, r.status, r.period, p.name FROM loyalty_rewards r JOIN players p ON p.id = r.player_id WHERE r.id = ${id}`);
+      const rw = rowsOf(rr)[0]; if (!rw) return { error: 'المكافأة غير موجودة' };
+      if (dryRun) { ctx.interactives.push({ kind: 'buttons', preview: `إلغاء مكافأة #${id}` }); return { pendingConfirm: true, dryRun: true }; }
+      await stash(`adm-voidrw:${conv.id}`, { rewardId: id, reason, playerName: rw.name });
+      await h.sendMessage({ conversationId: conv.id, source: 'system', interactive: confirmButtons(`🚫 إلغاء مكافأة ولاء #${id}؟\nاللاعب: ${rw.name}\nالنوع: ${KIND_AR[rw.kind] || 'لم يُختر'} · الحالة: ${rw.status} · بطاقة ${rw.period}\nالسبب: ${reason}`, `admvoidrw:${conv.id}`, 'ألغِ المكافأة') });
+      return { pendingConfirm: true };
+    }
+
+    case 'admin_chips_topup': {
+      const g = await adminGate(); if (g) return g;
+      const f = await playerByPhone(db, args.phone); if ('error' in f) return { error: f.error };
+      const { getChipsPack } = await import('../schemas/chips.schema.js');
+      const pack = getChipsPack(String(args.pack || '').trim().toLowerCase());
+      if (!pack) return { error: 'باقة غير معتمدة — المتاح: p5 (5 د.أ ← 55) · p10 (10 د.أ ← 120) · p20 (20 د.أ ← 260)' };
+      if (dryRun) { ctx.interactives.push({ kind: 'buttons', preview: `شحن ${pack.chips} تشبس لـ${f.pl!.name}` }); return { pendingConfirm: true, dryRun: true }; }
+      await stash(`adm-chips:${conv.id}`, { playerId: f.pl!.id, playerName: f.pl!.name, phone: f.pl!.phone, packId: pack.id, requestId: `wa-${conv.id}-${Date.now().toString(36)}` });
+      await h.sendMessage({ conversationId: conv.id, source: 'system', interactive: confirmButtons(
+        `🪙 شحن تشبس — حركة ماليّة\nاللاعب: ${f.pl!.name} (${f.pl!.phone})\nرصيده الآن: ${f.pl!.chips}\nالباقة: ${pack.labelAr}\n\nتُسجَّل باسمك ومصدرها «واتساب»، ويصل اللاعبَ إشعار. هل استلمت ${pack.jod} د.أ نقداً؟`,
+        `admchips:${conv.id}`, 'نعم، اشحن ✓') });
+      return { pendingConfirm: true, note: 'أُرسلت أزرار التأكيد — لا يُشحن شيء قبل ضغط الأدمن.' };
+    }
+
+    case 'admin_create_activity': {
+      const g = await adminGate(); if (g) return g;
+      const locId = parseInt(args.location_id);
+      const [loc] = await db.select({ id: locations.id, name: locations.name, isTest: locations.isTestLocation }).from(locations).where(and(eq(locations.id, locId), isNull(locations.deletedAt))).limit(1);
+      if (!loc) return { error: 'المكان غير موجود — استخدم get_locations' };
+      const date = String(args.date || '').trim(); const time = /^\d{1,2}:\d{2}$/.test(String(args.time || '')) ? String(args.time).padStart(5, '0') : '19:00';
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return { error: 'التاريخ بصيغة YYYY-MM-DD' };
+      const when = new Date(`${date}T${time}:00+03:00`);
+      if (isNaN(when.getTime()) || when.getTime() < Date.now() - 3600e3) return { error: 'التاريخ غير صالح أو في الماضي' };
+      const dupe: any = await db.execute(sql`SELECT id, name FROM activities WHERE location_id = ${locId} AND deleted_at IS NULL AND date = ${when} LIMIT 1`);
+      if (rowsOf(dupe)[0]) return { duplicate: true, existing: rowsOf(dupe)[0], note: 'توجد فعاليّة في المكان نفسه والموعد نفسه — لا تُنشئ ثانية' };
+      const tplR: any = await db.execute(sql`SELECT * FROM activities WHERE location_id = ${locId} AND deleted_at IS NULL ORDER BY date DESC LIMIT 1`);
+      const tpl = rowsOf(tplR)[0] || {};
+      const MON = ['كانون الثاني', 'شباط', 'آذار', 'نيسان', 'أيّار', 'حزيران', 'تمّوز', 'آب', 'أيلول', 'تشرين الأوّل', 'تشرين الثاني', 'كانون الأوّل'];
+      const j = new Date(when.getTime() + JO);
+      const nm = String(args.name || '').trim() || `${loc.name} ${j.getUTCDate()} ${MON[j.getUTCMonth()]}`;
+      const price = args.price != null && Number(args.price) >= 0 ? Number(args.price) : Number(tpl.base_price || 0);
+      const cap = args.capacity != null && Number(args.capacity) >= 6 ? Math.min(60, Math.trunc(Number(args.capacity))) : Number(tpl.max_capacity || 20);
+      if (dryRun) { ctx.interactives.push({ kind: 'buttons', preview: `إنشاء فعاليّة: ${nm}` }); return { pendingConfirm: true, dryRun: true }; }
+      await stash(`adm-newact:${conv.id}`, { locId, name: nm, whenISO: when.toISOString(), price, cap, tplId: tpl.id || null });
+      await h.sendMessage({ conversationId: conv.id, source: 'system', interactive: confirmButtons(
+        `📅 إنشاء فعاليّة جديدة؟\nالاسم: ${nm}\nالمكان: ${loc.name}\nالموعد: ${h.fmtJo(when)}\nالسعر: ${price} د.أ · السعة: ${cap}\n${tpl.id ? `الإعدادات (قالب المقاعد، المنيو، الجدول، السياج) منسوخة من «${tpl.name}».` : 'بلا فعاليّة سابقة للنسخ — إعدادات افتراضيّة.'}\nلا يُرسل إشعار للاعبين من هنا.`,
+        `admnewact:${conv.id}`, 'أنشئ الفعاليّة ✓') });
+      return { pendingConfirm: true };
+    }
+
+    case 'admin_quick_report': {
+      const g = await adminGate(); if (g) return g;
+      const range = ['today', 'week', 'month'].includes(String(args.range)) ? String(args.range) : 'today';
+      const days = range === 'today' ? 1 : range === 'week' ? 7 : 30;
+      const { end } = jordanDayBounds(); const from = new Date(end.getTime() - days * 86400e3); const prevFrom = new Date(from.getTime() - days * 86400e3);
+      const one = async (a: Date, b: Date) => {
+        const r: any = await db.execute(sql`
+          WITH acts AS (SELECT a.id FROM activities a LEFT JOIN locations l ON l.id = a.location_id WHERE a.deleted_at IS NULL AND a.date >= ${a} AND a.date < ${b} AND COALESCE(l.is_test_location,false) = false)
+          SELECT (SELECT COUNT(*)::int FROM acts) AS activities,
+                 (SELECT COUNT(*)::int FROM (SELECT DISTINCT s.activity_id, mp.player_id FROM match_players mp JOIN matches m ON m.id = mp.match_id JOIN sessions s ON s.id = m.session_id WHERE m.deleted_at IS NULL AND mp.player_id IS NOT NULL AND s.activity_id IN (SELECT id FROM acts)) v) AS visits,
+                 (SELECT COUNT(DISTINCT mp.player_id)::int FROM match_players mp JOIN matches m ON m.id = mp.match_id JOIN sessions s ON s.id = m.session_id WHERE m.deleted_at IS NULL AND s.activity_id IN (SELECT id FROM acts)) AS unique_players,
+                 (SELECT COUNT(*)::int FROM bookings b WHERE b.deleted_at IS NULL AND b.activity_id IN (SELECT id FROM acts)) AS bookings,
+                 (SELECT COALESCE(SUM(b.paid_amount),0) FROM bookings b WHERE b.deleted_at IS NULL AND b.activity_id IN (SELECT id FROM acts)) AS game_revenue,
+                 (SELECT COUNT(*)::int FROM bookings b WHERE b.deleted_at IS NULL AND NOT b.is_paid AND NOT b.is_free AND b.activity_id IN (SELECT id FROM acts)) AS unpaid_bookings,
+                 (SELECT COUNT(*)::int FROM players p WHERE p.created_at >= ${a} AND p.created_at < ${b} AND p.deleted_at IS NULL) AS new_players`);
+        const x = rowsOf(r)[0] || {};
+        return { activities: x.activities, visits: x.visits, uniquePlayers: x.unique_players, bookings: x.bookings, gameRevenueJOD: Number(x.game_revenue || 0), unpaidBookings: x.unpaid_bookings, newPlayers: x.new_players };
+      };
+      const cur = await one(from, end); const prev = await one(prevFrom, from);
+      const top: any = await db.execute(sql`
+        SELECT p.name, COUNT(DISTINCT s.activity_id)::int AS visits FROM match_players mp JOIN matches m ON m.id = mp.match_id JOIN sessions s ON s.id = m.session_id
+          JOIN activities a ON a.id = s.activity_id JOIN players p ON p.id = mp.player_id
+         WHERE m.deleted_at IS NULL AND a.date >= ${from} AND a.date < ${end} GROUP BY p.id, p.name ORDER BY visits DESC LIMIT 5`);
+      return { range, from: h.fmtJo(from, false), to: h.fmtJo(new Date(end.getTime() - 1), false), current: cur, previousSamePeriod: prev, topAttendees: rowsOf(top), note: 'اعرض الأرقام مع اتّجاهها مقابل الفترة السابقة (ارتفاع/انخفاض). إيراد رسوم اللعب = المحصَّل فعليّاً من الحجوزات فقط (لا يشمل المنيو ولا التشبس). التقارير التفصيليّة من الداشبورد.' };
+    }
+
+    case 'admin_player_manage': {
+      const g = await adminGate(); if (g) return g;
+      const f = await playerByPhone(db, args.phone); if ('error' in f) return { error: f.error };
+      const action = String(args.action || ''); const reason = String(args.reason || '').trim();
+      if (reason.length < 3) return { error: 'السبب/النصّ مطلوب (3 أحرف فأكثر)' };
+      if (action === 'note') {
+        if (dryRun) return { saved: true, dryRun: true };
+        const st = await staffOfConversation(conv);
+        await db.insert(playerNotes).values({ playerId: f.pl!.id, staffId: st?.id ?? null, staffUsername: st?.username ?? 'whatsapp', text: `💬 (واتساب) ${reason}`.slice(0, 1000) } as any);
+        await auditBot(conv, 'wa:player-note', { playerId: f.pl!.id }, { targetName: f.pl!.name });
+        return { saved: true, player: f.pl!.name };
+      }
+      const LABEL: Record<string, string> = { lock: '🔒 قفل الحساب', unlock: '🔓 فكّ قفل الحساب', geofence_exempt: '📍 إعفاء من سياج الموقع', geofence_unexempt: '📍 إلغاء إعفاء السياج' };
+      if (!LABEL[action]) return { error: 'إجراء غير معروف' };
+      if (dryRun) { ctx.interactives.push({ kind: 'buttons', preview: `${LABEL[action]}: ${f.pl!.name}` }); return { pendingConfirm: true, dryRun: true }; }
+      await stash(`adm-pl:${conv.id}`, { playerId: f.pl!.id, playerName: f.pl!.name, action, reason });
+      await h.sendMessage({ conversationId: conv.id, source: 'system', interactive: confirmButtons(`${LABEL[action]}؟\nاللاعب: ${f.pl!.name} (${f.pl!.phone})\nالحالة الآن: ${f.pl!.isLocked ? 'مقفل' : 'غير مقفل'} · السياج: ${f.pl!.geofenceExempt ? 'مُعفى' : 'غير مُعفى'}\nالسبب: ${reason}`, `admpl:${conv.id}`, 'نفّذ ✓') });
+      return { pendingConfirm: true };
+    }
+  }
+  return undefined;
+}
+
+// ══════════════════════════════════════════════════════
+// 🔘 مسارات الأزرار الحتميّة
+// ══════════════════════════════════════════════════════
+export async function handleExtButton(conv: any, btnId: string, h: ExtHelpers): Promise<boolean> {
+  const db = getDB(); if (!db || !btnId) return false;
+  const say = (text: string, source: 'bot' | 'system' = 'system') => h.sendMessage({ conversationId: conv.id, text, source }).catch(() => {});
+  const mustAdmin = async () => { if (await h.isAdminConversation(conv)) return true; await say('هذا الإجراء متاح للأدمن فقط 🔒'); return false; };
+
+  if (btnId === 'ext_cancel') { await say('تمام، ألغيت العمليّة 👍'); return true; }
+  if (btnId === 'chg_keep') { await say('تمام، حجزك زي ما هو 👌', 'bot'); return true; }
+  if (btnId === 'wl_skip') { await say('تمام — بتضلّ على قائمة الانتظار، وبنخبّرك لو فضي مقعد تاني 🙏', 'bot'); return true; }
+
+  // 🎁 اختيار مكافأة الولاء
+  let m = /^loy:(\d+):(free_visit|free_drink|chips)$/.exec(btnId);
+  if (m) {
+    if (!conv.playerId) { await say('المحادثة غير مربوطة بحساب لاعب 🙏'); return true; }
+    const L = await import('./loyalty.service.js');
+    const r = await L.chooseReward(conv.playerId, parseInt(m[1]), m[2] as any);
+    if (!r.ok) { await say(`ما قدرت أثبّت الاختيار: ${r.error} 🙏`); return true; }
+    const msg = m[2] === 'chips' ? `تمّ ✅ دخل رصيدك ${r.reward?.value?.chips ?? ''} تشبس 🪙 — افتح خزنة الدون بالتطبيق واختار اللي بعجبك.`
+      : m[2] === 'free_visit' ? 'تمّ ✅ زيارتك الجاية على النادي 🎟️ — بتنطبّق تلقائيّاً على أوّل حجز بتعمله من التطبيق.'
+      : 'تمّ ✅ مشروبك على النادي ☕ — اطلبه من منيو التطبيق بزيارتك الجاية وبينخصم من فاتورتك تلقائيّاً.';
+    await say(msg, 'bot'); return true;
+  }
+
+  // ✏️ تعديل عدد الأشخاص
+  m = /^chgp:(\d+):(\d+)$/.exec(btnId);
+  if (m) {
+    const resId = parseInt(m[1]); const n = parseInt(m[2]);
+    const [r] = await db.select({ id: reservations.id, people: reservations.peopleCount, actId: reservations.activityId, status: reservations.status, name: activities.name, date: activities.date })
+      .from(reservations).innerJoin(activities, eq(reservations.activityId, activities.id))
+      .where(and(eq(reservations.id, resId), isNull(reservations.deletedAt), sql`(${reservations.phone} = ${conv.phone} ${conv.playerId ? sql`OR ${reservations.playerId} = ${conv.playerId}` : sql``})`)).limit(1);
+    if (!r) { await say('ما لقيت الحجز (يمكن أُلغي) 🙏'); return true; }
+    const who = conv.displayName || conv.phone;
+    if (new Date(r.date).getTime() - Date.now() < CHANGE_CUTOFF_MS) {
+      await db.update(waConversations).set({ needsAttention: true, updatedAt: new Date() } as any).where(eq(waConversations.id, conv.id));
+      await say('الفعاليّة بعد أقلّ من 3 ساعات فما بقدر أعدّل تلقائيّاً 🙏 حوّلت طلبك للإدارة.');
+      h.notifyAdmins('⚠️ طلب تعديل عدد متأخّر (<3 ساعات)', `${who} — ${r.name}: ${r.people} → ${n}`, { conversationId: conv.id, url: `/admin/whatsapp?conv=${conv.id}` }).catch(() => {});
+      void alertAdminsWA(`chg-late:${r.id}:${n}`, `طلب تعديل عدد متأخّر: ${who} — ${r.name} (${r.people} → ${n}). بحاجة قرارك.`, { exceptConvId: conv.id });
+      return true;
+    }
+    const delta = n - Number(r.people || 1);
+    if (delta > 0 && r.status !== 'waitlist') {
+      const av = await h.seatAvailability(db, Number(r.actId));
+      if (av.remaining < delta) { await say(`ما في متّسع للزيادة 🙏 المتبقّي ${av.remaining} مقعد بس. بتحب أحوّلك للإدارة؟`, 'bot'); return true; }
+    }
+    await db.update(reservations).set({ peopleCount: n, notes: sql`COALESCE(${reservations.notes}, '') || ${` · ✏️ عُدّل العدد ${r.people}→${n} عبر البوت`}`, updatedAt: new Date() } as any).where(eq(reservations.id, r.id));
+    await say(`تمّ ✅ حجزك في «${r.name}» صار لـ${n} أشخاص — ${h.fmtJo(r.date)}.`, 'bot');
+    h.notifyAdmins('✏️ تعديل عدد عبر البوت', `${who} — ${r.name}: ${r.people} → ${n}`, { conversationId: conv.id, url: '/admin/reservations' }).catch(() => {});
+    return true;
+  }
+
+  // 📝 إنشاء حساب
+  if (btnId === 'reg_ok') {
+    const p = await unstash(`wa-reg:${conv.id}`);
+    if (!p) { await say('انتهت صلاحيّة الطلب (10 دقائق) — احكيلي «بدي أسجّل» ونعيدها بسرعة 🙏', 'bot'); return true; }
+    if (conv.playerId) { await say('رقمك مربوط بحساب أصلاً ✅'); return true; }
+    const [ex] = await db.select({ id: players.id }).from(players).where(eq(players.phone, p.phone)).limit(1);
+    if (ex) { await say('في حساب مسجَّل بهذا الرقم أصلاً — ادخل التطبيق برقمك، وإذا نسيت كلمة السرّ احكيلي 🙏', 'bot'); return true; }
+    const pwd = String(crypto.randomInt(100000, 1000000));
+    const [pl] = await db.insert(players).values({
+      phone: p.phone, passwordHash: await bcrypt.hash(pwd, 10), mustChangePassword: true, name: p.name, gender: p.gender, dob: p.dob,
+      xp: 200, welcomeBonusApplied: true,
+    } as any).returning({ id: players.id, name: players.name });
+    if (!pl) { await say('صار خلل بإنشاء الحساب 🙏 حوّلتك للإدارة.'); return true; }
+    await db.update(waConversations).set({ playerId: pl.id, displayName: pl.name, updatedAt: new Date() } as any).where(eq(waConversations.id, conv.id));
+    await say(`أهلاً فيك بالعيلة 🎭 حسابك جاهز ✅\n\n📱 رقم الدخول: ${p.phone}\n🔐 كلمة السرّ المؤقّتة: ${pwd}\n\nادخل من هون:\n${APP_LOGIN_URL}\n\nعند أوّل دخول رح يطلب منك التطبيق الموافقة على سياسة الخصوصيّة وشروط الاستخدام، وتغيير كلمة السرّ. ومعك 200 نقطة خبرة هديّة ترحيب 🎁`);
+    h.notifyAdmins('🆕 لاعب جديد سجّل من واتساب', `${pl.name} — ${p.phone}`, { conversationId: conv.id, url: `/admin/players/${pl.id}` }).catch(() => {});
+    void alertAdminsWA(`reg:${pl.id}`, `لاعب جديد سجّل حسابه من الواتساب: ${pl.name} (${p.phone}).`, { exceptConvId: conv.id });
+    try { const io = (global as any).io; if (io) io.to('wa:inbox').emit('wa:conversation:update', { id: conv.id, playerId: pl.id }); } catch { /* غير حرج */ }
+    console.log(`📝 WA bot: self-registration → player #${pl.id} (conv ${conv.id})`);
+    return true;
+  }
+
+  // 🪑 مقعد توفّر لمن على قائمة الانتظار
+  m = /^wl_take:(\d+)$/.exec(btnId);
+  if (m) {
+    const resId = parseInt(m[1]);
+    const [r] = await db.select().from(reservations).where(and(eq(reservations.id, resId), isNull(reservations.deletedAt), sql`(${reservations.phone} = ${conv.phone} ${conv.playerId ? sql`OR ${reservations.playerId} = ${conv.playerId}` : sql``})`)).limit(1);
+    if (!r) { await say('ما لقيت حجز الانتظار 🙏'); return true; }
+    if (r.status !== 'waitlist') { await say('حجزك مثبَّت أصلاً ✅', 'bot'); return true; }
+    const av = await h.seatAvailability(db, Number(r.activityId));
+    if (av.remaining < Number(r.peopleCount || 1)) { await say('للأسف انحجز المقعد قبل لحظات 🙏 بتضلّ على قائمة الانتظار وبنخبّرك أوّل ما يفضى.', 'bot'); return true; }
+    const [saved] = await db.update(reservations).set({ status: 'confirmed', notes: sql`COALESCE(${reservations.notes}, '') || ' · ✅ ثُبّت من قائمة الانتظار عبر البوت'`, updatedAt: new Date() } as any).where(eq(reservations.id, r.id)).returning();
+    await h.mirrorReservation(db, saved, '🤖 بوت واتساب').catch(() => {});
+    const [a] = await db.select({ name: activities.name, date: activities.date }).from(activities).where(eq(activities.id, Number(r.activityId))).limit(1);
+    await say(`تمّ ✅ حجزك مؤكَّد في «${a?.name || ''}» — ${a ? h.fmtJo(a.date) : ''} لـ${r.peopleCount} أشخاص. الدفع بالمكان 🎭`, 'bot');
+    h.notifyAdmins('✅ تثبيت من قائمة الانتظار عبر البوت', `${conv.displayName || conv.phone} — ${a?.name || ''}`, { conversationId: conv.id, url: '/admin/reservations' }).catch(() => {});
+    return true;
+  }
+
+  // ───────── إجراءات الأدمن ─────────
+  if (/^admstamp:\d+$/.test(btnId)) {
+    if (!(await mustAdmin())) return true;
+    const p = await unstash(`adm-stamp:${conv.id}`); if (!p) { await say('انتهت صلاحيّة الطلب (10 دقائق) 🙏'); return true; }
+    const st = await staffOfConversation(conv); const L = await import('./loyalty.service.js');
+    const r = await L.manualStamp(p.playerId, p.actId, st?.id ?? 0, `(واتساب) ${p.reason}`);
+    await auditBot(conv, 'wa:loyalty-stamp-manual', { playerId: p.playerId, reason: p.reason, ok: r.ok, rewardId: r.rewardId ?? null }, { activityId: p.actId, targetName: p.playerName, outcome: r.ok ? 'success' : 'blocked' });
+    await say(r.ok ? `تمّ ✅ خُتمت بطاقة «${p.playerName}» عن «${p.actName}».${r.rewardId ? ' 🎁 وبهذا الختم اكتملت بطاقته.' : ''}` : `ما تمّ: ${r.error}`);
+    return true;
+  }
+  if (/^admvoidrw:\d+$/.test(btnId)) {
+    if (!(await mustAdmin())) return true;
+    const p = await unstash(`adm-voidrw:${conv.id}`); if (!p) { await say('انتهت صلاحيّة الطلب 🙏'); return true; }
+    const st = await staffOfConversation(conv); const L = await import('./loyalty.service.js');
+    const r = await L.voidReward(p.rewardId, st?.id ?? 0, `(واتساب) ${p.reason}`);
+    await auditBot(conv, 'wa:loyalty-reward-void', { rewardId: p.rewardId, reason: p.reason, ok: r.ok }, { targetName: p.playerName, outcome: r.ok ? 'success' : 'blocked' });
+    await say(r.ok ? `تمّ ✅ أُلغيت مكافأة #${p.rewardId} لـ«${p.playerName}».` : `ما تمّ: ${r.error}`);
+    return true;
+  }
+  if (/^admchips:\d+$/.test(btnId)) {
+    if (!(await mustAdmin())) return true;
+    const p = await unstash(`adm-chips:${conv.id}`); if (!p) { await say('انتهت صلاحيّة الطلب (10 دقائق) — أعد الطلب 🙏'); return true; }
+    const st = await staffOfConversation(conv); const C = await import('./chips.service.js');
+    const r: any = await C.adminTopup({ playerId: p.playerId, packId: p.packId, staffId: st?.id ?? null, requestId: p.requestId, note: `شحن عبر واتساب — الأدمن ${st?.displayName || st?.username || conv.displayName || conv.phone}` });
+    await auditBot(conv, 'wa:chips-topup', { playerId: p.playerId, packId: p.packId, jod: r?.pack?.jod, chips: r?.pack?.chips, ledgerId: r?.ledgerId ?? null, ok: !!r?.ok, duplicate: !!r?.duplicate }, { targetName: p.playerName, outcome: r?.ok ? 'success' : 'blocked' });
+    if (!r?.ok) { await say(`ما تمّ الشحن: ${r?.message || 'خلل'} 🙏`); return true; }
+    await say(`تمّ ✅ شُحن ${r.pack.chips} 🪙 لـ«${p.playerName}» (${r.pack.jod} د.أ) — رصيده الآن ${r.balance}.\nقيد الدفتر #${r.ledgerId}${r.duplicate ? ' (مُنفَّذة سابقاً — لم تتكرّر)' : ''} · مسجَّل باسمك ومصدره واتساب · وصل اللاعبَ إشعار.`);
+    void alertAdminsWA(`chips:${r.ledgerId}`, `شحن تشبس عبر واتساب: ${r.pack.chips} 🪙 (${r.pack.jod} د.أ) لـ${p.playerName} — نفّذه ${st?.displayName || conv.displayName || conv.phone}.`, { exceptConvId: conv.id });
+    return true;
+  }
+  if (/^admnewact:\d+$/.test(btnId)) {
+    if (!(await mustAdmin())) return true;
+    const p = await unstash(`adm-newact:${conv.id}`); if (!p) { await say('انتهت صلاحيّة الطلب 🙏'); return true; }
+    const when = new Date(p.whenISO);
+    const dupe: any = await db.execute(sql`SELECT id FROM activities WHERE location_id = ${p.locId} AND deleted_at IS NULL AND date = ${when} LIMIT 1`);
+    if (rowsOf(dupe)[0]) { await say('أُنشئت فعاليّة بالموعد نفسه قبل ما تأكّد — ما كرّرتها 🙏'); return true; }
+    const tplR: any = p.tplId ? await db.execute(sql`SELECT * FROM activities WHERE id = ${p.tplId}`) : null;
+    const t = tplR ? (rowsOf(tplR)[0] || {}) : {};
+    const st = await staffOfConversation(conv);
+    const [a] = await db.insert(activities).values({
+      name: p.name, date: when, description: t.description || '', basePrice: String(p.price), status: 'planned', locationId: p.locId, driveLink: '',
+      enabledOfferIds: [], isLocked: false, maxCapacity: p.cap, difficulty: t.difficulty ?? undefined, requireTicket: t.require_ticket ?? false,
+      seatConstraints: t.seat_constraints ?? null, seatTemplateId: t.seat_template_id ?? null, menuOrderingEnabled: t.menu_ordering_enabled === true,
+      addGameFeeToBill: t.menu_ordering_enabled === true && t.add_game_fee_to_bill === true, geofenceEnabled: t.geofence_enabled === true,
+      geofenceRadiusM: t.geofence_radius_m ?? null, gameSchedule: t.game_schedule ?? [], createdBy: st?.id ?? null,
+    } as any).returning({ id: activities.id, name: activities.name });
+    await auditBot(conv, 'wa:activity-create', { name: p.name, locationId: p.locId, when: p.whenISO, price: p.price, capacity: p.cap, copiedFrom: p.tplId }, { activityId: a?.id ?? null });
+    await say(`تمّ ✅ أُنشئت «${a?.name}» (#${a?.id}) — ${h.fmtJo(when)}.\nتظهر الآن للاعبين في التطبيق وللبوت. لإرسال إشعار للاعبين أو تعديل التفاصيل: الداشبورد ← الأنشطة.`);
+    return true;
+  }
+  if (/^admpl:\d+$/.test(btnId)) {
+    if (!(await mustAdmin())) return true;
+    const p = await unstash(`adm-pl:${conv.id}`); if (!p) { await say('انتهت صلاحيّة الطلب 🙏'); return true; }
+    const st = await staffOfConversation(conv); const now = new Date();
+    const patch: any = p.action === 'lock' ? { isLocked: true, lockedAt: now, lockedBy: st?.id ?? null, lockedReason: `(واتساب) ${p.reason}`.slice(0, 200) }
+      : p.action === 'unlock' ? { isLocked: false, lockedAt: null, lockedBy: null, lockedReason: '' }
+      : p.action === 'geofence_exempt' ? { geofenceExempt: true, geofenceExemptReason: `(واتساب) ${p.reason}`.slice(0, 200), geofenceExemptBy: st?.id ?? null, geofenceExemptAt: now }
+      : { geofenceExempt: false, geofenceExemptReason: '', geofenceExemptBy: null, geofenceExemptAt: null };
+    await db.update(players).set(patch).where(eq(players.id, p.playerId));
+    await auditBot(conv, p.action.startsWith('geofence') ? 'rest:geofence-exempt' : 'rest:player-lock', { playerId: p.playerId, action: p.action, reason: p.reason, via: 'whatsapp' }, { targetName: p.playerName });
+    const DONE: Record<string, string> = { lock: 'قُفل حساب', unlock: 'فُكّ قفل حساب', geofence_exempt: 'أُعفي من سياج الموقع', geofence_unexempt: 'أُلغي إعفاء السياج عن' };
+    await say(`تمّ ✅ ${DONE[p.action]} «${p.playerName}».`);
+    return true;
+  }
+  return false;
+}
+
+// ══════════════════════════════════════════════════════
+// 🪑 إشعار أوّل المنتظرين عند توفّر مقعد (داخل نافذته المفتوحة فقط)
+// ══════════════════════════════════════════════════════
+export async function offerFreedSeat(activityId: number, h: ExtHelpers): Promise<boolean> {
+  try {
+    const db = getDB(); if (!db) return false;
+    const av = await h.seatAvailability(db, activityId);
+    if (av.remaining <= 0) return false;
+    const r: any = await db.execute(sql`
+      SELECT r.id, r.people_count, c.id AS conv_id, a.name, a.date
+        FROM reservations r JOIN activities a ON a.id = r.activity_id JOIN wa_conversations c ON c.phone = r.phone
+       WHERE r.activity_id = ${activityId} AND r.deleted_at IS NULL AND r.status = 'waitlist' AND a.date > NOW()
+         AND c.last_inbound_at > NOW() - INTERVAL '23 hours 50 minutes' AND r.people_count <= ${av.remaining}
+       ORDER BY r.created_at ASC LIMIT 1`);
+    const x = rowsOf(r)[0]; if (!x) return false;
+    const { getAux, setAux } = await import('../config/redis.js');
+    if (await getAux(`wl-offer:${x.id}`)) return false;
+    await setAux(`wl-offer:${x.id}`, { at: Date.now() });
+    await h.sendMessage({ conversationId: Number(x.conv_id), source: 'bot', interactive: {
+      type: 'button', body: { text: `🪑 خبر حلو: فضي مكان في «${x.name}» (${h.fmtJo(x.date)}) يكفي حجزك لـ${x.people_count} أشخاص.\nبتحب أثبّته إلك؟ (الأسبقيّة لمن يؤكّد أوّلاً)` },
+      action: { buttons: [{ type: 'reply', reply: { id: `wl_take:${x.id}`, title: 'ثبّته لي ✓' } }, { type: 'reply', reply: { id: 'wl_skip', title: 'لا، شكراً' } }] },
+    } });
+    return true;
+  } catch (e: any) { console.warn('⚠️ WA waitlist offer:', e?.message); return false; }
+}

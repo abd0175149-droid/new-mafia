@@ -344,6 +344,7 @@ export async function grantStampsForMatch(opts: {
       const rewardId = await maybeCreateReward(cfg, p.id, period, count);
       if (rewardId) {
         out.rewards.push(rewardId);
+        import('./wa-bot-ext.service.js').then(m => m.alertAdminsWA(`loyalty-card:${rewardId}`, `🎟️ ${p.name} أكمل بطاقة الولاء (${count} أختام) في ${act.name}.`)).catch(() => {});
         void notify(p.id, 'loyalty_reward', '🎁 اكتملت بطاقتك!', `${count} أختام ✦ في ${act.name} — اختر مكافأتك: ${rewardChoicesText(cfg)}.`, `reward:${rewardId}`, { rewardId: String(rewardId) });
       } else {
         const inCard = ((count - 1) % cfg.stampsPerReward) + 1;
