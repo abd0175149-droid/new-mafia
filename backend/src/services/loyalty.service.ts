@@ -33,8 +33,8 @@ export interface LoyaltyConfig {
   locationIds: number[];
   stampsPerReward: number;
   minLeadHours: number;
-  /** 'app' = حجز التطبيق فقط · 'any' = أيّ حجزٍ مرتبطٍ بحساب اللاعب (واتساب مثبَّت أيضاً) */
-  channel: 'app' | 'any';
+  /** 'app' = التطبيق فقط · 'app_bot' = التطبيق أو حجز اللاعب بنفسه عبر بوت الواتساب (قرار إداريّ) · 'any' = أيّ حجز مرتبط بحسابه */
+  channel: 'app' | 'app_bot' | 'any';
   maxRewardsPerMonth: number;
   rewardValidityDays: number;
   chooseWindowDays: number;
@@ -62,7 +62,7 @@ export const DEFAULT_LOYALTY_CONFIG: LoyaltyConfig = {
   locationIds: [],
   stampsPerReward: 5,
   minLeadHours: 6,
-  channel: 'app',
+  channel: 'app_bot',
   maxRewardsPerMonth: 3,
   rewardValidityDays: 45,
   chooseWindowDays: 3,
@@ -137,7 +137,7 @@ export async function saveLoyaltyConfig(patch: any): Promise<LoyaltyConfig> {
     locationIds: Array.isArray(p.locationIds) ? p.locationIds.map(Number).filter(Number.isFinite) : cur.locationIds,
     stampsPerReward: p.stampsPerReward != null ? clampInt(p.stampsPerReward, 1, 30, cur.stampsPerReward) : cur.stampsPerReward,
     minLeadHours: p.minLeadHours != null ? clampNum(p.minLeadHours, 0, 168, cur.minLeadHours) : cur.minLeadHours,
-    channel: p.channel === 'any' || p.channel === 'app' ? p.channel : cur.channel,
+    channel: p.channel === 'any' || p.channel === 'app' || p.channel === 'app_bot' ? p.channel : cur.channel,
     maxRewardsPerMonth: p.maxRewardsPerMonth != null ? clampInt(p.maxRewardsPerMonth, 1, 20, cur.maxRewardsPerMonth) : cur.maxRewardsPerMonth,
     rewardValidityDays: p.rewardValidityDays != null ? clampInt(p.rewardValidityDays, 1, 365, cur.rewardValidityDays) : cur.rewardValidityDays,
     chooseWindowDays: p.chooseWindowDays != null ? clampInt(p.chooseWindowDays, 1, 60, cur.chooseWindowDays) : cur.chooseWindowDays,
@@ -264,7 +264,14 @@ async function notify(playerId: number, type: string, title: string, body: strin
 
 export type VisitVerdict = 'stamped' | 'late' | 'channel' | 'no_booking' | 'voided' | 'no_show' | 'location' | 'test';
 
-interface BookingLead { bookingId: number; createdAt: Date; createdBy: string; leadHours: number; isApp: boolean }
+interface BookingLead { bookingId: number; createdAt: Date; createdBy: string; leadHours: number; isApp: boolean; isBot: boolean }
+/** وسم مرآة حجز البوت في bookings — اللاعب حجز بنفسه عبر «الدون» (لا يشمل «🔒 أدمن عبر بوت واتساب») */
+export const BOT_BOOKING_TAG = '🤖 بوت واتساب';
+export function channelAccepts(cfg: LoyaltyConfig, createdBy: string | null | undefined): boolean {
+  if (cfg.channel === 'any') return true;
+  if (createdBy === 'player-app') return true;
+  return cfg.channel === 'app_bot' && createdBy === BOT_BOOKING_TAG;
+}
 
 /** حجز اللاعب في فعاليّة (غير محذوف) بحسابه أو هاتفه — الأقدم إنشاءً */
 export async function bookingFor(activityId: number, playerId: number, phone?: string | null): Promise<BookingLead | null> {
@@ -274,17 +281,17 @@ export async function bookingFor(activityId: number, playerId: number, phone?: s
       FROM bookings b JOIN activities a ON a.id = b.activity_id
      WHERE b.activity_id = ${activityId} AND b.deleted_at IS NULL
        AND (b.player_id = ${playerId} ${phone ? sql`OR b.phone = ${phone}` : sql``})
-     ORDER BY (b.created_by = 'player-app') DESC, b.created_at ASC LIMIT 1
+     ORDER BY (b.created_by IN ('player-app', ${BOT_BOOKING_TAG})) DESC, b.created_at ASC LIMIT 1
   `);
   const row = rowsOf(r)[0];
   if (!row) return null;
   const lead = (new Date(row.date).getTime() - new Date(row.created_at).getTime()) / 3600e3;
-  return { bookingId: Number(row.id), createdAt: new Date(row.created_at), createdBy: String(row.created_by || ''), leadHours: Math.round(lead * 10) / 10, isApp: row.created_by === 'player-app' };
+  return { bookingId: Number(row.id), createdAt: new Date(row.created_at), createdBy: String(row.created_by || ''), leadHours: Math.round(lead * 10) / 10, isApp: row.created_by === 'player-app', isBot: row.created_by === BOT_BOOKING_TAG };
 }
 
 export function judgeBooking(cfg: LoyaltyConfig, bk: BookingLead | null): { ok: boolean; verdict: VisitVerdict; leadHours: number | null } {
   if (!bk) return { ok: false, verdict: 'no_booking', leadHours: null };
-  if (cfg.channel === 'app' && !bk.isApp) return { ok: false, verdict: 'channel', leadHours: bk.leadHours };
+  if (!channelAccepts(cfg, bk.createdBy)) return { ok: false, verdict: 'channel', leadHours: bk.leadHours };
   if (bk.leadHours < cfg.minLeadHours) return { ok: false, verdict: 'late', leadHours: bk.leadHours };
   return { ok: true, verdict: 'stamped', leadHours: bk.leadHours };
 }
@@ -327,7 +334,7 @@ export async function grantStampsForMatch(opts: {
         if (cfg.reminders.missed.enabled) {
           const why = j.verdict === 'late'
             ? `حجزت ${bk!.leadHours < 0 ? 'بعد بدء الفعاليّة' : `قبل ${fmtH(bk!.leadHours)} فقط`}`
-            : j.verdict === 'channel' ? 'حجزك لم يكن من التطبيق' : 'لم تحجز من التطبيق';
+            : j.verdict === 'channel' ? 'حجزك لم يكن من التطبيق ولا عبر الدون' : 'لم تحجز مسبقاً من التطبيق أو عبر الدون';
           const cut = cutoffFor(cfg, act.date);
           void notify(p.id, 'loyalty_missed', 'زيارة بلا ختم', `لعبت في ${act.name} لكن ${why}. المرّة الجاية احجز قبل ${fmtTimeJo(cut)} لتكسب الختم.`, `missed:${act.id}`, { activityId: String(act.id) });
         }
@@ -570,7 +577,7 @@ export async function visitsInPeriod(playerId: number, period: string, cfg?: Loy
     ), booked AS (
       SELECT DISTINCT ON (b.activity_id) b.activity_id, b.created_at, b.created_by
         FROM bookings b WHERE b.deleted_at IS NULL AND (b.player_id = ${playerId} ${phone ? sql`OR b.phone = ${phone}` : sql``})
-       ORDER BY b.activity_id, (b.created_by = 'player-app') DESC, b.created_at ASC
+       ORDER BY b.activity_id, (b.created_by IN ('player-app', ${BOT_BOOKING_TAG})) DESC, b.created_at ASC
     )
     SELECT a.id, a.name, a.date, a.location_id, l.name AS location_name, l.is_test_location,
            (pl.activity_id IS NOT NULL) AS played, bk.created_at AS booked_at, bk.created_by,
@@ -596,7 +603,7 @@ export async function visitsInPeriod(playerId: number, period: string, cfg?: Loy
     else if (!isLocationEnabled(cfg, row.location_id) || row.is_test_location) verdict = 'location';
     else if (!played) verdict = date.getTime() < Date.now() ? 'no_show' : 'no_booking';
     else if (!row.booked_at) verdict = 'no_booking';
-    else if (cfg.channel === 'app' && row.created_by !== 'player-app') verdict = 'channel';
+    else if (!channelAccepts(cfg, row.created_by)) verdict = 'channel';
     else if (lead !== null && lead < cfg.minLeadHours) verdict = 'late';
     else verdict = 'no_booking';
     out.push({ activityId: Number(row.id), activityName: String(row.name), date, locationName: row.location_name || null, played, verdict, leadHours: lead, bookingCreatedBy: row.created_by || null, stampNo: null, stampId: row.stamp_id ? Number(row.stamp_id) : null });
@@ -950,7 +957,7 @@ export async function simulate(period: string, hours: number, locationId?: numbe
   const cfg = await getLoyaltyConfig();
   const { from, to } = periodBounds(period);
   const lf = locFilter(cfg, locationId);
-  const chan = cfg.channel === 'app' ? sql`AND b.created_by = 'player-app'` : sql``;
+  const chan = cfg.channel === 'app' ? sql`AND b.created_by = 'player-app'` : cfg.channel === 'app_bot' ? sql`AND b.created_by IN ('player-app', ${BOT_BOOKING_TAG})` : sql``;
   const testF = cfg.excludeTestAccounts ? sql`AND COALESCE(p.is_test_account,false) = false` : sql``;
   const r: any = await db.execute(sql`
     WITH played AS (

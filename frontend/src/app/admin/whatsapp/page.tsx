@@ -1095,6 +1095,8 @@ const TOOL_LABELS: Record<string, string> = {
   adminActivities: '🔒 إنشاء فعاليّة بنسخ إعدادات آخر فعاليّة في المكان (أدمن فقط)',
   adminReports: '🔒 تقارير سريعة: اليوم / الأسبوع / الشهر (أدمن فقط)',
   adminPlayers: '🔒 قفل/فكّ حساب، إعفاء سياج الموقع، ملاحظة على لاعب (أدمن فقط)',
+  survey: '📝 استبيان ما بعد الأمسية بأزرار (يُرسل فقط لمن نافذته مفتوحة)',
+  adminSeating: '🔒 الإجلاس عبر المحرّك: عرض، تعيين مقعد، منع تجاور، إعادة توزيع في اللوبي (أدمن فقط)',
 };
 
 function Card({ title, children, wide }: { title: string; children: any; wide?: boolean }) {

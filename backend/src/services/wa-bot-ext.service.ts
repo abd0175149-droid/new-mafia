@@ -155,8 +155,10 @@ export const EXT_TOOLS_DEFAULTS = {
   adminActivities: true,  // 🔒 إنشاء فعاليّة
   adminReports: true,     // 🔒 تقارير سريعة
   adminPlayers: true,     // 🔒 قفل/فكّ حساب، إعفاء سياج، ملاحظة
+  survey: true,           // استبيان ما بعد الأمسية بأزرار (داخل نافذة ٢٤ ساعة المفتوحة فقط)
+  adminSeating: true,     // 🔒 الإجلاس عبر نقاط المحرّك نفسها (عرض، تعيين مقعد، منع تجاور، إعادة توزيع)
 };
-export const EXT_ALWAYS_ADMIN_ONLY = ['adminTonight', 'adminChips', 'adminActivities', 'adminReports', 'adminPlayers'];
+export const EXT_ALWAYS_ADMIN_ONLY = ['adminTonight', 'adminChips', 'adminActivities', 'adminReports', 'adminPlayers', 'adminSeating'];
 
 export function extToolDeclarations(t: Record<string, any>): any[] {
   const d: any[] = [];
@@ -178,6 +180,13 @@ export function extToolDeclarations(t: Record<string, any>): any[] {
   if (t.adminActivities) d.push({ name: 'admin_create_activity', description: 'إنشاء فعاليّة جديدة (أدمن فقط) في مكانٍ معيّن بتاريخ ووقت. السعر والسعة والقالب والمنيو والجدول تُنسخ من آخر فعاليّة في المكان نفسه ما لم تُحدَّد. يعرض ملخّصاً وأزرار تأكيد. لا يرسل إشعاراً للاعبين (ذلك من الداشبورد).', parameters: O({ location_id: { type: 'NUMBER', description: 'معرّف المكان من get_locations' }, date: { type: 'STRING', description: 'YYYY-MM-DD' }, time: { type: 'STRING', description: 'HH:mm بتوقيت الأردن (الافتراضيّ 19:00)' }, price: { type: 'NUMBER', description: 'سعر الشخص (اختياريّ)' }, capacity: { type: 'NUMBER', description: 'السعة (اختياريّ)' }, name: { type: 'STRING', description: 'اسم الفعاليّة (اختياريّ)' } }, ['location_id', 'date']) });
   if (t.adminReports) d.push({ name: 'admin_quick_report', description: 'تقرير سريع (أدمن فقط) لفترة: today أو week أو month — الفعاليّات، الحضور (لاعبون لعبوا)، الحجوزات، إيراد رسوم اللعب المحصَّل، اللاعبون الجدد، الأكثر حضوراً، مع مقارنة بالفترة السابقة المماثلة.', parameters: O({ range: { type: 'STRING', description: 'today | week | month' } }, ['range']) });
   if (t.adminPlayers) d.push({ name: 'admin_player_manage', description: 'إدارة حساب لاعب برقم هاتفه (أدمن فقط): lock (قفل) · unlock (فكّ) · geofence_exempt (إعفاء من سياج الموقع) · geofence_unexempt · note (ملاحظة على اللاعب). القفل والإعفاء بزرّ تأكيد؛ الملاحظة تُحفظ مباشرة.', parameters: O({ phone: { type: 'STRING', description: 'رقم اللاعب' }, action: { type: 'STRING', description: 'lock | unlock | geofence_exempt | geofence_unexempt | note' }, reason: { type: 'STRING', description: 'السبب أو نصّ الملاحظة' } }, ['phone', 'action', 'reason']) });
+  if (t.adminSeating) {
+    d.push({ name: 'admin_seating_view', description: 'عرض إجلاس الغرفة الحيّة لفعاليّة (أدمن فقط): من يجلس في أيّ مقعد، المنتظرون، والمقاعد المثبَّتة لمن لم يصل. بلا أيّ أدوار. بلا معرّف ⟵ فعاليّة اليوم ذات الغرفة المفتوحة.', parameters: O({ activity_id: { type: 'NUMBER', description: 'معرّف الفعاليّة (اختياريّ)' } }) });
+    d.push({ name: 'admin_seat_assign', description: 'تعيين مقعد لشخص قبل جلوسه (أدمن فقط) — **المحرّك** يختار الرقم وفق القيود والتقارب (كما يفعل وضع الباب)، ويُثبَّت له. لا يمكن اختيار رقم مقعد بعينه.', parameters: O({ phone: { type: 'STRING', description: 'رقم الشخص' }, name: { type: 'STRING', description: 'اسمه (اختياريّ)' }, activity_id: { type: 'NUMBER', description: 'معرّف الفعاليّة (اختياريّ)' } }, ['phone']) });
+    d.push({ name: 'admin_block_pair', description: 'منع لاعبَين من التجاور دائماً (أدمن فقط) برقمَي هاتفيهما وسبب — قيد يحترمه المحرّك في كلّ توزيع لاحق. بزرّ تأكيد.', parameters: O({ phone1: { type: 'STRING', description: 'رقم الأوّل' }, phone2: { type: 'STRING', description: 'رقم الثاني' }, reason: { type: 'STRING', description: 'السبب' } }, ['phone1', 'phone2', 'reason']) });
+    d.push({ name: 'admin_unblock_pair', description: 'إلغاء منع تجاور لاعبَين (أدمن فقط). بزرّ تأكيد.', parameters: O({ phone1: { type: 'STRING', description: 'رقم الأوّل' }, phone2: { type: 'STRING', description: 'رقم الثاني' } }, ['phone1', 'phone2']) });
+    d.push({ name: 'admin_reshuffle', description: 'إعادة توزيع مقاعد الغرفة وفق قيود المحرّك (أدمن فقط) — **في اللوبي قبل توزيع الأدوار فقط**. تُجري معاينة أوّلاً (كم مخالفة تبقى، أيّ قيود أُرخيت) ثمّ تعرض زرّ «طبّق».', parameters: O({ activity_id: { type: 'NUMBER', description: 'معرّف الفعاليّة (اختياريّ)' } }) });
+  }
   return d;
 }
 
@@ -205,6 +214,32 @@ const JO = 3 * 3600e3;
 function jordanDayBounds(offsetDays = 0) {
   const j = new Date(Date.now() + JO); const start = new Date(Date.UTC(j.getUTCFullYear(), j.getUTCMonth(), j.getUTCDate() + offsetDays) - JO);
   return { start, end: new Date(start.getTime() + 86400e3) };
+}
+// 🔁 استدعاء نقاط المحرّك القائمة من الداخل بهويّة الأدمن نفسه — نفس الحراسة ونفس القيود ونفس التدقيق،
+//    بلا نسخ منطق الإجلاس إلى البوت (فلا يمكن أن «يتجاوز» البوت ما يسمح به المحرّك).
+async function loopback(conv: any, method: string, path: string, body?: any): Promise<{ status: number; data: any }> {
+  const st = await staffOfConversation(conv);
+  if (!st) return { status: 403, data: { error: 'المحادثة غير مربوطة بحساب موظّف' } };
+  const { generateToken } = await import('../middleware/auth.js');
+  const tok = generateToken({ id: st.id, username: st.username, role: st.role as any, displayName: st.displayName } as any);
+  const res = await fetch(`http://127.0.0.1:${env.PORT}${path}`, { method, headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${tok}` }, body: body ? JSON.stringify(body) : undefined });
+  return { status: res.status, data: await res.json().catch(() => ({})) };
+}
+async function liveRoomOf(db: any, activityId?: number): Promise<{ state: any; activityId: number; activityName: string } | { error: string }> {
+  let actId = Number(activityId);
+  if (!Number.isFinite(actId) || actId <= 0) {
+    const r: any = await db.execute(sql`SELECT s.activity_id FROM sessions s JOIN activities a ON a.id = s.activity_id
+      WHERE s.is_active = true AND s.deleted_at IS NULL AND a.deleted_at IS NULL AND a.date > NOW() - INTERVAL '18 hours' ORDER BY s.created_at DESC LIMIT 1`);
+    actId = Number(rowsOf(r)[0]?.activity_id);
+    if (!Number.isFinite(actId)) return { error: 'لا غرفة مفتوحة لأيّ فعاليّة الآن' };
+  }
+  const rooms: any = await db.execute(sql`SELECT s.session_code, a.name FROM sessions s JOIN activities a ON a.id = s.activity_id WHERE s.activity_id = ${actId} AND s.is_active = true AND s.deleted_at IS NULL ORDER BY s.created_at`);
+  const { getRoomByCode } = await import('../game/state.js');
+  for (const r of rowsOf(rooms)) {
+    const st = await getRoomByCode(r.session_code).catch(() => null);
+    if (st) return { state: st, activityId: actId, activityName: r.name };
+  }
+  return { error: 'لا غرفة مفتوحة لهذه الفعاليّة بعد' };
 }
 const REASON_AR: Record<string, string> = { drop_win: 'فوز مباراة', drop_top3: 'ضمن أفضل ثلاثة', drop_first_match: 'هديّة أوّل مباراة', admin_topup: 'شحن من الإدارة', admin_adjust: 'من النادي', rent_item: 'استئجار من الخزنة', renew_item: 'تجديد', refund: 'استرجاع', reward_top3: 'مكافأة الموسم', reward_birthday: 'عيديّة ميلاد', reward_loyalty: 'مكافأة بطاقة الولاء', gift_in: 'هديّة وصلتك', gift_out: 'هديّة أرسلتها' };
 const KIND_AR: Record<string, string> = { free_visit: '🎟️ زيارة مجّانيّة', free_drink: '☕ مشروب مجّاني', chips: '🪙 تشبس' };
@@ -503,6 +538,60 @@ export async function execExtTool(name: string, args: any, ctx: Ctx, h: ExtHelpe
       await h.sendMessage({ conversationId: conv.id, source: 'system', interactive: confirmButtons(`${LABEL[action]}؟\nاللاعب: ${f.pl!.name} (${f.pl!.phone})\nالحالة الآن: ${f.pl!.isLocked ? 'مقفل' : 'غير مقفل'} · السياج: ${f.pl!.geofenceExempt ? 'مُعفى' : 'غير مُعفى'}\nالسبب: ${reason}`, `admpl:${conv.id}`, 'نفّذ ✓') });
       return { pendingConfirm: true };
     }
+    // ───────── الإجلاس (عبر نقاط المحرّك نفسها) ─────────
+    case 'admin_seating_view': {
+      const g = await adminGate(); if (g) return g;
+      const lr = await liveRoomOf(db, parseInt(args.activity_id)); if ('error' in lr) return { found: false, note: lr.error };
+      const st = lr.state;
+      return {
+        found: true, activity: lr.activityName, roomCode: st.roomCode, phase: st.phase, maxSeats: st.config?.maxPlayers,
+        seated: (st.players || []).filter((x: any) => !x.seatHeld).map((x: any) => ({ seat: x.physicalId, name: x.name, gender: x.gender === 'FEMALE' ? 'أنثى' : 'ذكر' })).sort((a: any, b: any) => a.seat - b.seat),
+        waitingNextGame: (st.spectators || []).map((x: any) => ({ seat: x.physicalId, name: x.name })),
+        pinnedForArrivals: (st.pinnedSeats || []).map((x: any) => ({ seat: Number(x.seatNumber), name: x.playerName || x.phone || '' })),
+        note: 'اعرضها قائمة مرتّبة بالمقعد. لا أدوار هنا إطلاقاً. تغيير مقعد لاعب جالس أثناء اللعب يتمّ من واجهة القائد فقط.',
+      };
+    }
+
+    case 'admin_seat_assign': {
+      const g = await adminGate(); if (g) return g;
+      if (dryRun) return { dryRun: true, note: '(ساحة اختبار — لا تعيين فعليّ)' };
+      const lr = await liveRoomOf(db, parseInt(args.activity_id)); if ('error' in lr) return { error: lr.error };
+      const f = await playerByPhone(db, args.phone);
+      const { normalizeLocalPhone } = await import('../utils/phone.util.js');
+      const ph = normalizeLocalPhone(String(args.phone || '')); if (!ph) return { error: 'رقم غير صالح' };
+      const pl = 'pl' in f ? f.pl : null;
+      const r = await loopback(conv, 'POST', '/api/seating/door-assign', { activityId: lr.activityId, phone: ph, name: pl?.name || String(args.name || '').trim() || ph, playerId: pl?.id ?? null });
+      if (r.status !== 200 || !r.data?.success) return { error: r.data?.error || 'تعذّر التعيين' };
+      await auditBot(conv, 'wa:seat-assign', { phone: ph, seat: r.data.seat, already: r.data.already ?? null }, { activityId: lr.activityId, targetName: pl?.name || args.name || ph });
+      return { assigned: true, seat: r.data.seat, already: r.data.already || null, who: pl?.name || args.name || ph, note: r.data.already ? 'له مقعد أصلاً (جالس/منتظر/مثبَّت) — أعطه رقمه.' : 'المحرّك اختار المقعد وفق القيود وثبّته له حتى يصل.' };
+    }
+
+    case 'admin_block_pair':
+    case 'admin_unblock_pair': {
+      const g = await adminGate(); if (g) return g;
+      const a = await playerByPhone(db, args.phone1); const b = await playerByPhone(db, args.phone2);
+      if ('error' in a) return { error: `الأوّل: ${a.error}` }; if ('error' in b) return { error: `الثاني: ${b.error}` };
+      if (a.pl!.id === b.pl!.id) return { error: 'الرقمان لنفس اللاعب' };
+      const block = name === 'admin_block_pair'; const reason = String(args.reason || '').trim();
+      if (block && reason.length < 3) return { error: 'السبب مطلوب' };
+      if (dryRun) { ctx.interactives.push({ kind: 'buttons', preview: `${block ? 'منع' : 'إلغاء منع'} تجاور ${a.pl!.name} و${b.pl!.name}` }); return { pendingConfirm: true, dryRun: true }; }
+      await stash(`adm-pair:${conv.id}`, { block, p1: a.pl!.id, p2: b.pl!.id, n1: a.pl!.name, n2: b.pl!.name, reason });
+      await h.sendMessage({ conversationId: conv.id, source: 'system', interactive: confirmButtons(`${block ? '🚫 منع تجاور دائم' : '✅ إلغاء منع التجاور'}؟\n${a.pl!.name} ↔ ${b.pl!.name}${block ? `\nالسبب: ${reason}\nالمحرّك سيُبعدهما في كلّ توزيع لاحق.` : ''}`, `admpair:${conv.id}`, 'نفّذ ✓') });
+      return { pendingConfirm: true };
+    }
+
+    case 'admin_reshuffle': {
+      const g = await adminGate(); if (g) return g;
+      if (dryRun) return { dryRun: true, note: '(ساحة اختبار — لا معاينة فعليّة)' };
+      const lr = await liveRoomOf(db, parseInt(args.activity_id)); if ('error' in lr) return { error: lr.error };
+      if (lr.state.phase !== 'LOBBY') return { blocked: true, note: `إعادة التوزيع متاحة في اللوبي فقط — المرحلة الآن ${lr.state.phase}. أثناء اللعب يُنقل اللاعب من واجهة القائد.` };
+      const r = await loopback(conv, 'POST', '/api/seating/reshuffle', { roomId: lr.state.roomId, dryRun: true });
+      if (r.status !== 200) return { error: r.data?.error || 'تعذّرت المعاينة' };
+      const moves = (r.data.arrangement || []).filter((x: any) => x.oldSeat != null && x.newSeat != null && x.oldSeat !== x.newSeat).length;
+      await stash(`adm-resh:${conv.id}`, { roomId: lr.state.roomId, activityId: lr.activityId });
+      await h.sendMessage({ conversationId: conv.id, source: 'system', interactive: confirmButtons(`🔀 معاينة إعادة توزيع «${lr.activityName}»\nاللاعبون: ${(lr.state.players || []).length} · ينتقل: ${moves || 'غير محدَّد'}\nمخالفات متبقّية: ${(r.data.violations || []).length} · قيود أُرخيت: ${(r.data.relaxedConstraints || []).length}\n\nأطبّق التوزيع؟ (سيرى اللاعبون مقاعدهم الجديدة على هواتفهم)`, `admresh:${conv.id}`, 'طبّق التوزيع ✓') });
+      return { previewed: true, violations: (r.data.violations || []).slice(0, 6), relaxed: r.data.relaxedConstraints || [], note: 'أُرسلت المعاينة وزرّ التطبيق — لا يُطبَّق شيء قبل ضغطه.' };
+    }
   }
   return undefined;
 }
@@ -598,7 +687,60 @@ export async function handleExtButton(conv: any, btnId: string, h: ExtHelpers): 
     return true;
   }
 
+  // 📝 استبيان ما بعد الأمسية
+  m = /^srv:(\d+):([1-5])$/.exec(btnId);
+  if (m) {
+    const rowId = parseInt(m[1]); const score = parseInt(m[2]);
+    const r: any = await db.execute(sql`UPDATE room_feedback SET overall = ${score}, submitted_at = NOW() WHERE id = ${rowId} AND player_id = ${conv.playerId ?? -1} AND submitted_at IS NULL RETURNING id, activity_id`);
+    const row = rowsOf(r)[0];
+    if (!row) { await say('وصل تقييمك قبل هيك 🙏 شكراً إلك.', 'bot'); return true; }
+    await h.sendMessage({ conversationId: conv.id, source: 'bot', interactive: { type: 'button', body: { text: score >= 4 ? 'يسلمو 🎭 تقييمك وصل. بتحب تضيف ملاحظة بكلمتين؟' : 'شكراً لصراحتك 🙏 رأيك بهمّنا. بتحكيلنا شو اللي ما عجبك لنصلّحه؟' },
+      action: { buttons: [{ type: 'reply', reply: { id: `srvn:${rowId}`, title: 'أضيف ملاحظة ✍️' } }, { type: 'reply', reply: { id: 'srv_done', title: 'خلص، شكراً' } }] } } }).catch(() => {});
+    if (score <= 2) {
+      h.notifyAdmins('😕 تقييم منخفض من واتساب', `${conv.displayName || conv.phone} قيّم الأمسية ${score}/5`, { conversationId: conv.id, url: '/admin/feedback' }).catch(() => {});
+      void alertAdminsWA(`survey-low:${rowId}`, `تقييم منخفض (${score}/5) من ${conv.displayName || conv.phone} — يستحقّ متابعة.`, { exceptConvId: conv.id });
+    }
+    return true;
+  }
+  m = /^srvn:(\d+)$/.exec(btnId);
+  if (m) {
+    const { setAux } = await import('../config/redis.js');
+    await setAux(`wa-survey-note:${conv.id}`, { rowId: parseInt(m[1]), expiresAt: Date.now() + 30 * 60e3 });
+    await say('تفضّل، اكتب ملاحظتك برسالة واحدة ✍️', 'bot'); return true;
+  }
+  if (btnId === 'srv_done') { await say('شكراً إلك 🎭 منشوفك بالأمسية الجاية.', 'bot'); return true; }
+
   // ───────── إجراءات الأدمن ─────────
+  if (/^admpair:\d+$/.test(btnId)) {
+    if (!(await mustAdmin())) return true;
+    const p = await unstash(`adm-pair:${conv.id}`); if (!p) { await say('انتهت صلاحيّة الطلب 🙏'); return true; }
+    if (p.block) {
+      const r = await loopback(conv, 'POST', '/api/seating/blocked-pairs', { player1Id: p.p1, player2Id: p.p2, reason: `(واتساب) ${p.reason}` });
+      await auditBot(conv, 'wa:seating-block-pair', { p1: p.p1, p2: p.p2, reason: p.reason, status: r.status }, { targetName: `${p.n1} ↔ ${p.n2}`, outcome: r.status === 200 ? 'success' : 'blocked' });
+      await say(r.status === 200 ? `تمّ ✅ «${p.n1}» و«${p.n2}» لن يتجاورا بعد اليوم.` : `ما تمّ: ${r.data?.error || 'خلل'}`);
+    } else {
+      const list = await loopback(conv, 'GET', '/api/seating/blocked-pairs');
+      const rows: any[] = list.data?.pairs || list.data?.data || (Array.isArray(list.data) ? list.data : []);
+      const hit = rows.find((x: any) => { const a = Number(x.player1Id ?? x.player1_id), b = Number(x.player2Id ?? x.player2_id); return (a === p.p1 && b === p.p2) || (a === p.p2 && b === p.p1); });
+      if (!hit) { await say('هذا الزوج غير ممنوع أصلاً 🙏'); return true; }
+      const r = await loopback(conv, 'DELETE', `/api/seating/blocked-pairs/${hit.id}`);
+      await auditBot(conv, 'wa:seating-unblock-pair', { p1: p.p1, p2: p.p2, status: r.status }, { targetName: `${p.n1} ↔ ${p.n2}`, outcome: r.status === 200 ? 'success' : 'blocked' });
+      await say(r.status === 200 ? `تمّ ✅ أُلغي منع التجاور بين «${p.n1}» و«${p.n2}».` : `ما تمّ: ${r.data?.error || 'خلل'}`);
+    }
+    return true;
+  }
+  if (/^admresh:\d+$/.test(btnId)) {
+    if (!(await mustAdmin())) return true;
+    const p = await unstash(`adm-resh:${conv.id}`); if (!p) { await say('انتهت صلاحيّة المعاينة (10 دقائق) — اطلبها من جديد 🙏'); return true; }
+    const { getRoom } = await import('../game/state.js');
+    const st: any = await getRoom(p.roomId).catch(() => null);
+    if (!st) { await say('الغرفة لم تعد موجودة 🙏'); return true; }
+    if (st.phase !== 'LOBBY') { await say(`فات الأوان — المرحلة صارت ${st.phase}. إعادة التوزيع في اللوبي فقط 🙏`); return true; }
+    const r = await loopback(conv, 'POST', '/api/seating/reshuffle', { roomId: p.roomId, dryRun: false });
+    await auditBot(conv, 'wa:seating-reshuffle', { roomId: p.roomId, success: !!r.data?.success, violations: (r.data?.violations || []).length }, { activityId: p.activityId, outcome: r.data?.success ? 'success' : 'blocked' });
+    await say(r.status === 200 && r.data?.success ? `تمّ ✅ أُعيد توزيع المقاعد. مخالفات متبقّية: ${(r.data.violations || []).length}.` : `ما طُبّق: ${r.data?.error || 'المحرّك لم يجد توزيعاً صالحاً'}`);
+    return true;
+  }
   if (/^admstamp:\d+$/.test(btnId)) {
     if (!(await mustAdmin())) return true;
     const p = await unstash(`adm-stamp:${conv.id}`); if (!p) { await say('انتهت صلاحيّة الطلب (10 دقائق) 🙏'); return true; }
@@ -689,4 +831,59 @@ export async function offerFreedSeat(activityId: number, h: ExtHelpers): Promise
     } });
     return true;
   } catch (e: any) { console.warn('⚠️ WA waitlist offer:', e?.message); return false; }
+}
+
+// ══════════════════════════════════════════════════════
+// 📝 استبيان ما بعد الأمسية — داخل نافذة ٢٤ ساعة المفتوحة فقط
+// ══════════════════════════════════════════════════════
+// المصدر هو صفّ room_feedback المعلَّق نفسه الذي يملؤه التطبيق (يُنشأ عند إغلاق الغرفة)، فتقييم الواتساب
+// يُغلق استبيان التطبيق أيضاً (ولا يُسأل اللاعب مرّتين، ولا يُحجب عنه التطبيق بعد مهلة الساعة).
+export async function captureSurveyNote(conv: any, text: string, h: ExtHelpers): Promise<boolean> {
+  try {
+    const { getAux, deleteAux } = await import('../config/redis.js');
+    const key = `wa-survey-note:${conv.id}`; const p = await getAux(key);
+    if (!p) return false;
+    await deleteAux(key).catch(() => {});
+    if (p.expiresAt < Date.now() || !text.trim()) return false;
+    const db = getDB(); if (!db) return false;
+    await db.execute(sql`UPDATE room_feedback SET notes = ${text.trim().slice(0, 1000)} WHERE id = ${p.rowId} AND player_id = ${conv.playerId ?? -1}`);
+    await h.sendMessage({ conversationId: conv.id, text: 'وصلت ملاحظتك ✅ شكراً — بنقرأها كلّها 🎭', source: 'bot' }).catch(() => {});
+    h.notifyAdmins('📝 ملاحظة استبيان من واتساب', `${conv.displayName || conv.phone}: ${text.trim().slice(0, 120)}`, { conversationId: conv.id, url: '/admin/feedback' }).catch(() => {});
+    return true;
+  } catch { return false; }
+}
+
+async function surveyTick() {
+  const db = getDB(); if (!db || !env.WA_TOKEN) return;
+  const { getBotSettings } = await import('./whatsapp-bot.service.js');
+  const settings: any = await getBotSettings();
+  if (!settings.enabled || (settings.toolsConfig?.survey ?? true) === false) return;
+  const { sendingSuspendedReason, sendMessage } = await import('./whatsapp-inbox.service.js');
+  if (sendingSuspendedReason()) return;
+  const r: any = await db.execute(sql`
+    SELECT f.id, f.player_id, c.id AS conv_id, a.name AS activity
+      FROM room_feedback f JOIN wa_conversations c ON c.player_id = f.player_id LEFT JOIN activities a ON a.id = f.activity_id
+     WHERE f.submitted_at IS NULL AND f.created_at < NOW() - INTERVAL '15 minutes' AND f.created_at > NOW() - INTERVAL '20 hours'
+       AND c.bot_enabled = true AND c.last_inbound_at > NOW() - INTERVAL '23 hours 30 minutes'
+     ORDER BY f.created_at DESC LIMIT 40`);
+  const { getAux, setAux } = await import('../config/redis.js');
+  const seenPlayer = new Set<number>();
+  for (const x of rowsOf(r)) {
+    if (seenPlayer.has(Number(x.player_id))) continue;           // أحدث غرفة فقط لكلّ لاعب
+    seenPlayer.add(Number(x.player_id));
+    if (await getAux(`wa-survey:${x.player_id}`)) continue;       // مرّة واحدة في اليوم لكلّ لاعب
+    await setAux(`wa-survey:${x.player_id}`, { at: Date.now(), rowId: x.id });
+    try {
+      await sendMessage({ conversationId: Number(x.conv_id), source: 'bot', interactive: { type: 'button',
+        body: { text: `🎭 كيف كانت أمسيتك${x.activity ? ` في «${x.activity}»` : ''}؟ تقييمك بكبسة وحدة بساعدنا نحسّن:` },
+        action: { buttons: [{ type: 'reply', reply: { id: `srv:${x.id}:5`, title: '😍 ممتازة' } }, { type: 'reply', reply: { id: `srv:${x.id}:4`, title: '🙂 جيّدة' } }, { type: 'reply', reply: { id: `srv:${x.id}:2`, title: '😕 مش قدّ التوقّع' } }] } } });
+    } catch { /* نافذة أُغلقت */ }
+  }
+}
+let surveyStarted = false;
+export function startWaSurveyScheduler(): void {
+  if (surveyStarted) return; surveyStarted = true;
+  const tick = () => surveyTick().catch(e => console.warn('⚠️ WA survey tick:', e?.message));
+  setTimeout(tick, 60_000); setInterval(tick, 10 * 60_000);
+  console.log('📝 WA post-event survey scheduler started (every 10m)');
 }

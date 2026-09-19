@@ -117,7 +117,7 @@ export function verdictLabel(v: LoyaltyVisit): { text: string; tone: 'ok' | 'bad
   switch (v.verdict) {
     case 'stamped': return { text: `✦ ختم ${arNum(v.stampNo ?? '')}`, tone: 'ok', why: v.leadHours != null ? `حجزت قبل ${fmtLeadAr(v.leadHours)} · لعبت` : 'لعبت' };
     case 'late': return { text: 'بلا ختم', tone: 'bad', why: v.leadHours != null && v.leadHours < 0 ? 'حجزت بعد بدء الفعاليّة' : `حجزت قبل ${fmtLeadAr(v.leadHours ?? 0)} فقط` };
-    case 'channel': return { text: 'بلا ختم', tone: 'bad', why: 'الحجز لم يكن من التطبيق' };
+    case 'channel': return { text: 'بلا ختم', tone: 'bad', why: 'الحجز لم يكن من التطبيق ولا عبر الدون على واتساب' };
     case 'no_booking': return { text: 'بلا ختم', tone: 'bad', why: 'لعبت بلا حجز من التطبيق' };
     case 'no_show': return { text: 'لم تلعب', tone: 'warn', why: 'حجزت ولم تلعب مباراة' };
     case 'voided': return { text: 'ختم ملغى', tone: 'muted', why: 'أُلغي من الإدارة' };

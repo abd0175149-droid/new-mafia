@@ -30,7 +30,7 @@ function periodLabel(p: string): string {
 const num = (v: any) => (v == null || v === '' ? '—' : Number(v).toLocaleString('en-US'));
 
 type LoyaltyConfig = {
-  enabled: boolean; locationIds: number[]; stampsPerReward: number; minLeadHours: number; channel: 'app' | 'any';
+  enabled: boolean; locationIds: number[]; stampsPerReward: number; minLeadHours: number; channel: 'app' | 'app_bot' | 'any';
   maxRewardsPerMonth: number; rewardValidityDays: number; chooseWindowDays: number;
   rewards: { freeVisit: { enabled: boolean }; freeDrink: { enabled: boolean; capJod: number; categories: string[] }; chips: { enabled: boolean; amount: number } };
   excludeTestAccounts: boolean; celebration: { enabled: boolean; durationMs: number };
@@ -113,7 +113,7 @@ function LoyaltyInner() {
   };
 
   const subtitle = config
-    ? `${config.stampsPerReward} أختام = مكافأة · الحجز قبل ${config.minLeadHours} ساعات${config.channel === 'app' ? ' من التطبيق' : ''} · الحضور = مباراة واحدة · حتّى ${config.maxRewardsPerMonth} مكافآت في الشهر`
+    ? `${config.stampsPerReward} أختام = مكافأة · الحجز قبل ${config.minLeadHours} ساعات${config.channel === 'app' ? ' من التطبيق' : config.channel === 'app_bot' ? ' من التطبيق أو بوت الواتساب' : ''} · الحضور = مباراة واحدة · حتّى ${config.maxRewardsPerMonth} مكافآت في الشهر`
     : 'ختم لكلّ حجز مبكّر من التطبيق يتبعه حضور — والبطاقة تتجدّد كلَّ شهر.';
 
   const showPeriod = tab !== 'settings';
@@ -716,10 +716,11 @@ function SettingsTab({ config, locations, period, onSaved, toast }: {
             control={
               <select value={draft.channel} onChange={e => set(['channel'], e.target.value)} className={`${inputCls} py-1 text-xs`}>
                 <option value="app">التطبيق فقط</option>
+                <option value="app_bot">التطبيق أو بوت الواتساب</option>
                 <option value="any">أيّ حجز مرتبط بالحساب</option>
               </select>
             }
-            help="«التطبيق فقط» يكافئ الحجز الذاتيّ؛ «أيّ حجز» يشمل واتساب واليدويّ." />
+            help="«التطبيق أو بوت الواتساب» يكافئ كلّ حجز ذاتيّ مبكّر (قرار إداريّ)؛ «أيّ حجز» يشمل ما يدخله الموظّف يدويّاً أيضاً." />
 
           <SettingCard icon="🎁" label="أقصى مكافآت في الشهر" control={<NumInput value={g(['maxRewardsPerMonth']) ?? 0} onChange={v => set(['maxRewardsPerMonth'], v)} min={1} max={20} />}
             help="بعد بلوغه تمتلئ البطاقة ولا تُمنح مكافآت جديدة حتّى الشهر التالي." />

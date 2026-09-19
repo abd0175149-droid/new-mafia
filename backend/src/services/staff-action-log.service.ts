@@ -133,6 +133,10 @@ export const ACTION_CATALOG: Record<string, { category: string; labelAr: string 
   'wa:chips-topup': { category: 'CHIPS', labelAr: 'واتساب: شحن رصيد تشبس' },
   'wa:activity-create': { category: 'WHATSAPP_ADMIN', labelAr: 'واتساب: إنشاء فعاليّة' },
   'wa:player-note': { category: 'WHATSAPP_ADMIN', labelAr: 'واتساب: ملاحظة على لاعب' },
+  'wa:seat-assign': { category: 'WHATSAPP_ADMIN', labelAr: 'واتساب: تعيين مقعد عبر المحرّك' },
+  'wa:seating-block-pair': { category: 'WHATSAPP_ADMIN', labelAr: 'واتساب: منع تجاور لاعبَين' },
+  'wa:seating-unblock-pair': { category: 'WHATSAPP_ADMIN', labelAr: 'واتساب: إلغاء منع تجاور' },
+  'wa:seating-reshuffle': { category: 'WHATSAPP_ADMIN', labelAr: 'واتساب: إعادة توزيع المقاعد' },
   // ── 🎟️ بطاقة الولاء ──
   'rest:loyalty-toggle': { category: 'LOYALTY', labelAr: 'تشغيل/إيقاف بطاقة الولاء' },
   'rest:loyalty-config-save': { category: 'LOYALTY', labelAr: 'تعديل إعدادات بطاقة الولاء' },

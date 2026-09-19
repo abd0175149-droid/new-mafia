@@ -23,7 +23,7 @@ import { ROLE_NAMES_AR } from '../game/roles.js';
 import { sendMessage, isBotActive, isFreeWindowOpen, notifyAdmins } from './whatsapp-inbox.service.js';
 import { emitStateSanitized } from '../sockets/broadcast.util.js';
 import { sendPushToStaffByPermission, sendPushToPlayers } from './fcm.service.js';
-import { EXT_TOOLS_DEFAULTS, EXT_ALWAYS_ADMIN_ONLY, extToolDeclarations, execExtTool, handleExtButton, transcribePendingAudio, alertAdminsWA, auditBot, offerFreedSeat, type ExtHelpers } from './wa-bot-ext.service.js';
+import { EXT_TOOLS_DEFAULTS, EXT_ALWAYS_ADMIN_ONLY, extToolDeclarations, execExtTool, handleExtButton, transcribePendingAudio, alertAdminsWA, auditBot, offerFreedSeat, captureSurveyNote, type ExtHelpers } from './wa-bot-ext.service.js';
 
 const GEMINI_BASE = 'https://generativelanguage.googleapis.com/v1beta';
 const BOT_RESERVATION_TAG = 'بوت واتساب';
@@ -112,7 +112,7 @@ const DEFAULT_SYSTEM_PROMPT = `أنت «الدون» — المساعد الرس
 
 ═══ ٦.٧ بطاقة الولاء 🎟️ ═══
 - قواعدها الحيّة تصلك في «حقائق حيّة من النظام» — التزم بأرقامها حرفيّاً ولا تحفظ أرقاماً من عندك. إن قالت الحقائق إنّها متوقّفة فلا تذكرها إطلاقاً.
-- الختم يحتاج حجزاً من **تطبيق اللاعب** قبل الموعد بالساعات المحدّدة + لعب مباراة. **الحجز عبرك لا يُحتسب ختماً** — فإن كان العميل لاعباً مسجّلاً وطلب الحجز منك والفعاليّة ما زال ختمها متاحاً (حقل loyaltyStamp بنتيجة الفعاليّات): نبّهه مرّة واحدة بلطف أنّ الحجز من التطبيق يكسبه ختماً، ثمّ احجز له إن أصرّ. لا تكرّر التنبيه.
+- الختم يحتاج حجزاً مسبقاً قبل الموعد بالساعات المحدّدة + لعب مباراة. قناة الحجز المقبولة تصلك في «حقائق حيّة»: حين تقول إنّ الحجز عبرك يُحتسب، فبشّر اللاعب **المسجَّل** عند تثبيت حجزه المبكّر بأنّ هذه الزيارة تكسبه ختماً إن لعب (حقل loyaltyStamp بنتيجة الفعاليّات يخبرك إن كان الموعد ما زال مفتوحاً). الزائر غير المربوط بحساب لا بطاقة له: اعرض عليه التسجيل مرّة واحدة بلا إلحاح.
 - أسئلة «كم ختم معي؟ / ليش ما انحسبت؟ / وين مكافأتي؟» ⟵ get_my_loyalty_card حصراً. اختيار المكافأة واستخدامها من التطبيق لا منك.
 - لا تعد بختم ولا بمكافأة ولا تمنح شيئاً — المنح آليّ من النظام، والاستثناءات بيد الإدارة.
 
@@ -122,10 +122,12 @@ const DEFAULT_SYSTEM_PROMPT = `أنت «الدون» — المساعد الرس
 - مكافأة ولاء «بانتظار الاختيار» ⟵ اعرض عليه offer_loyalty_reward_choice — يختار بزرّ والتنفيذ آليّ ونهائيّ.
 - **زائر غير مسجَّل يريد حساباً** ⟵ اجمع منه بالترتيب وبسؤال واحد بكلّ رسالة: الاسم الكامل، ثمّ الجنس، ثمّ تاريخ الميلاد (حوّله إلى YYYY-MM-DD) ثمّ استدعِ start_registration. لا تطلب كلمة سرّ ولا موافقة على الشروط — كلمة السرّ المؤقّتة تصله آليّاً، والموافقة على سياسة الخصوصيّة والشروط تتمّ داخل التطبيق عند أوّل دخول. الحجز لا يحتاج حساباً، فلا تفرض التسجيل على من يريد الحجز فقط.
 - من على قائمة الانتظار قد يصله منك عرض «ثبّته لي» حين يفضى مقعد — التثبيت آليّ بزرّ.
+- بعد الأمسية قد يصل اللاعبَ منك استبيان قصير بأزرار (تقييم + ملاحظة اختياريّة) — يُحفظ آليّاً. إن علّق على تجربته بلا استبيان فاشكره وخزّن ملاحظة، وإن كانت شكوى فحوّل للإدارة.
 
 ═══ ٦.٩ أدوات الإدارة 🔒 (تظهر لك فقط مع الأدمن) ═══
 - «كيف الليلة؟» ⟵ admin_tonight · تقارير ⟵ admin_quick_report (today/week/month) · الولاء ⟵ admin_loyalty_overview / admin_loyalty_player.
 - كلّ إجراء كتابة (ختم يدويّ، إلغاء مكافأة، شحن تشبس، إنشاء فعاليّة، قفل حساب، إعفاء سياج) يعرض أزرار تأكيد وينفَّذ آليّاً بعد ضغط الأدمن ويُسجَّل باسمه — لا تقل «تمّ» قبل أن تصلك نتيجة التنفيذ، ولا تكرّر الطلب إن قال إنّه ضغط.
+- الإجلاس: admin_seating_view (من جالس أين والمقاعد المثبَّتة) · admin_seat_assign (المحرّك يختار المقعد وفق القيود — أنت لا تختار رقماً) · admin_block_pair / admin_unblock_pair (منع تجاور لاعبَين دائماً) · admin_reshuffle (معاينة ثمّ تطبيق، في اللوبي قبل توزيع الأدوار فقط). لا تَعِد بمقعد معيّن ولا تتجاوز ما يقرّره المحرّك.
 - شحن التشبس حركة ماليّة: اذكر للأدمن دائماً اسم اللاعب والباقة والمبلغ قبل التأكيد، وأنّها تُوثَّق باسمه ومصدرها واتساب.
 
 ═══ ٧. الذاكرة ═══
@@ -1161,7 +1163,7 @@ async function fetchUpcomingActivities(db: any) {
     if (loyaltyCfg && loyaltyFns.isLocationEnabled(loyaltyCfg, a.locationId)) {
       const cut: Date = loyaltyFns.cutoffFor(loyaltyCfg, a.date);
       loyaltyStamp = cut.getTime() > Date.now()
-        ? `الحجز من التطبيق قبل ${fmtJo(cut)} يُحتسب ختماً`
+        ? (loyaltyCfg.channel !== 'app' ? `الحجز (من التطبيق أو عبرك لحساب مسجَّل) قبل ${fmtJo(cut)} يُحتسب ختماً` : `الحجز من التطبيق قبل ${fmtJo(cut)} يُحتسب ختماً`)
         : 'فات موعد الختم لهذه الفعاليّة (الحجز ما زال ممكناً بلا ختم)';
     }
     out.push({
@@ -1870,7 +1872,7 @@ async function execTool(name: string, args: any, ctx: ToolCtx): Promise<any> {
           chooseBefore: r.status === 'pending_choice' && r.chooseBy ? fmtJo(r.chooseBy, false) : undefined,
           expires: r.status === 'available' && r.expiresAt ? fmtJo(r.expiresAt, false) : undefined,
         })),
-        note: 'اشرح له وضعه باختصار: كم ختماً وكم بقي، ولماذا لم تُحسب أيّ زيارة (bookedHoursBefore سالب = حجز بعد بدء الفعاليّة). ذكّره أنّ الختم يحتاج حجزاً من **التطبيق** قبل الموعد بـminLeadHours ساعات + لعب مباراة، وأنّ الحجز عبر الواتساب لا يُحتسب. اختيار المكافأة واستخدامها من التطبيق (صفحة بطاقة الولاء) — الزيارة المجّانيّة تُطبَّق تلقائيّاً على حجزه التالي من التطبيق، والمشروب يُخصم من فاتورته في المكان.',
+        note: 'اشرح له وضعه باختصار: كم ختماً وكم بقي، ولماذا لم تُحسب أيّ زيارة (bookedHoursBefore سالب = حجز بعد بدء الفعاليّة). ذكّره أنّ الختم يحتاج حجزاً مسبقاً قبل الموعد بـminLeadHours ساعات + لعب مباراة — وقناة الحجز المقبولة كما في «حقائق حيّة من النظام». اختيار المكافأة واستخدامها من التطبيق (صفحة بطاقة الولاء) — الزيارة المجّانيّة تُطبَّق تلقائيّاً على حجزه التالي من التطبيق، والمشروب يُخصم من فاتورته في المكان.',
       };
     }
 
@@ -2564,7 +2566,8 @@ async function buildLiveFacts(db: any): Promise<string> {
       if (lc.rewards.freeVisit.enabled) kinds.push('زيارة مجّانيّة');
       if (lc.rewards.freeDrink.enabled) kinds.push(`مشروب مجّاني حتى ${lc.rewards.freeDrink.capJod} د.أ`);
       if (lc.rewards.chips.enabled) kinds.push(`${lc.rewards.chips.amount} تشبس`);
-      lines.push(`- 🎟️ بطاقة الولاء **مفعَّلة** (فترة ${currentPeriod()}): الختم = حجز من **تطبيق اللاعب** قبل موعد الفعاليّة بـ${lc.minLeadHours} ساعات على الأقلّ + لعب مباراة واحدة على الأقلّ في تلك الليلة. كلّ ${lc.stampsPerReward} أختام في الشهر = مكافأة يختارها اللاعب من التطبيق (${kinds.join(' / ')}). حدّ ${lc.maxRewardsPerMonth} مكافآت شهريّاً، وصلاحيّة المكافأة ${lc.rewardValidityDays} يوماً. البطاقة تُصفَّر أوّل كلّ شهر. ${lc.channel === 'app' ? '**الحجز عبرك (واتساب) لا يُحتسب ختماً** — من يريد الختم يحجز من التطبيق.' : ''}`);
+      const viaBot = lc.channel !== 'app';
+      lines.push(`- 🎟️ بطاقة الولاء **مفعَّلة** (فترة ${currentPeriod()}): الختم = حجز ${viaBot ? 'من **تطبيق اللاعب أو عبرك أنت (الدون)**' : 'من **تطبيق اللاعب**'} قبل موعد الفعاليّة بـ${lc.minLeadHours} ساعات على الأقلّ + لعب مباراة واحدة على الأقلّ في تلك الليلة. كلّ ${lc.stampsPerReward} أختام في الشهر = مكافأة يختارها اللاعب (${kinds.join(' / ')}). حدّ ${lc.maxRewardsPerMonth} مكافآت شهريّاً، وصلاحيّة المكافأة ${lc.rewardValidityDays} يوماً. البطاقة تُصفَّر أوّل كلّ شهر. ${viaBot ? '**الحجز عبرك يُحتسب ختماً بشرطين: أن يكون رقم المحادثة مربوطاً بحساب لاعب، وأن يتمّ الحجز قبل الموعد بالساعات المحدّدة.** الزائر غير المسجَّل لا بطاقة له — اعرض عليه التسجيل.' : '**الحجز عبرك (واتساب) لا يُحتسب ختماً** — من يريد الختم يحجز من التطبيق.'}`);
     } else {
       lines.push('- 🎟️ بطاقة الولاء **متوقّفة حاليّاً** — لا تذكرها ولا تعد بأختام أو مكافآت؛ إن سُئلت فقل إنّها غير متاحة الآن.');
     }
@@ -2572,6 +2575,23 @@ async function buildLiveFacts(db: any): Promise<string> {
   const text = lines.join('\n');
   liveFactsCache = { text, at: Date.now() };
   return text;
+}
+
+// 🎖️ فرض لقب المخاطبة بالكود. السبب: بطاقة العميل كانت تقول «يا مُخبر» والنموذج يكتب «يا كابو» —
+// لأنّ سجلّ المحادثة مليء بردودٍ قديمة نادته «كابو» فيقلّدها. التعليمات لا تكفي أمام أمثلة حيّة في السياق.
+const RANK_VOCATIVE_RE = /يا\s+(?:ال)?(?:كابو|جندي|مُخبر|مخبر|عرّاب|عراب|ساعد\s+الزعيم|دون|زعيم|بوس)(?![\u0600-\u06FF])/g;
+export async function addressTitleFor(db: any, conv: any): Promise<string> {
+  try {
+    if (!conv?.playerId) return '';
+    const st = await seasonStandingsFor(db, conv.playerId);
+    return st.best ? (RANK_ADDRESS[st.best.rankTier] || '') : '';
+  } catch { return ''; }
+}
+/** يستبدل أيّ لقب رتبة خاطئ باللقب الصحيح (أو يحذفه إن لم يكن للعميل لقب) */
+export function enforceAddress(text: string, allowed: string): string {
+  if (!text) return text;
+  let out = text.replace(RANK_VOCATIVE_RE, (m) => (allowed && m.replace(/\s+/g, ' ') === allowed ? m : (allowed || '')));
+  return out.replace(/[ \t]{2,}/g, ' ').replace(/ +([،,.!؟🎭🎖️])/g, '$1').replace(/^[،, ]+/gm, '').trim();
 }
 
 async function buildCustomerCard(db: any, conv: any): Promise<string> {
@@ -2618,15 +2638,17 @@ function msgToHistoryText(m: any): string {
   return body;
 }
 
-async function buildHistory(db: any, conv: any, limit: number) {
+async function buildHistory(db: any, conv: any, limit: number, addressTitle?: string) {
   const rows = await db.select().from(waMessages)
     .where(eq(waMessages.conversationId, conv.id))
     .orderBy(desc(waMessages.id)).limit(limit);
   rows.reverse();
   const contents: any[] = [];
   for (const m of rows) {
-    const text = msgToHistoryText(m);
+    let text = msgToHistoryText(m);
     if (!text) continue;
+    // ردود البوت القديمة تُنظَّف من ألقاب الرتب الخاطئة كي لا تعمل أمثلةً يقلّدها النموذج
+    if (m.direction !== 'in' && addressTitle !== undefined) text = enforceAddress(text, addressTitle);
     contents.push({ role: m.direction === 'in' ? 'user' : 'model', parts: [{ text }] });
   }
   // Gemini يشترط أن يبدأ السجل برسالة user
@@ -3042,6 +3064,9 @@ async function processConversation(convId: number) {
       }
     } catch { /* تجاهل */ }
 
+    // 📝 ملاحظة استبيان منتظَرة؟ (ضغط «أضيف ملاحظة» قبل قليل) — تُحفظ بالكود ولا تمرّ بالنموذج
+    if (lastMsg.msgType === 'text' && await captureSurveyNote(conv, String(lastMsg.body || ''), extHelpers())) return;
+
     // 🚦 حدّ معدّل لكلّ محادثة: 30 ردّ بوت في الساعة (الأدمن مستثنى) — يحمي الفاتورة من محادثة منفلتة أو سكربت
     if (!(await isAdminConversation(conv))) {
       const [rl] = await db.select({ n: sql<number>`COUNT(*)` }).from(waMessages)
@@ -3063,7 +3088,8 @@ async function processConversation(convId: number) {
       } catch (e: any) { console.warn('⚠️ WA audio:', e?.message); }
     }
 
-    const history = await buildHistory(db, conv, settings.contextMessages || 20);
+    const addressTitle = await addressTitleFor(db, conv);
+    const history = await buildHistory(db, conv, settings.contextMessages || 20, addressTitle);
     if (history.length === 0) return;
     if (!endsWithUserTurn(history)) return; // لا نص جديد من العميل — لا استدعاء للنموذج
     const customerCard = await buildCustomerCard(db, conv);
@@ -3072,8 +3098,9 @@ async function processConversation(convId: number) {
     try {
       const { text, usage } = await runAgent({ settings, conv, history, customerCard, liveFacts, dryRun: false });
       recordBotUsage(convId, 'live', settings.model || '', usage).catch(() => {});
-      if (text && text.trim()) {
-        await sendMessage({ conversationId: convId, text: text.trim(), source: 'bot' });
+      const finalOut = enforceAddress((text || '').trim(), addressTitle);
+      if (finalOut) {
+        await sendMessage({ conversationId: convId, text: finalOut, source: 'bot' });
       }
     } catch (err: any) {
       console.error('❌ WA bot engine:', err.message);

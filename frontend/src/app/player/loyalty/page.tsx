@@ -130,7 +130,7 @@ export default function LoyaltyPage() {
         <div className="rounded-2xl p-4" style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.06)' }}>
           <b className="text-[12.5px] text-white">كيف تكسب ختماً؟</b>
           <p className="text-[11.5px] text-gray-400 mt-1 leading-relaxed">
-            ✦ احجز من التطبيق قبل الفعاليّة بـ{arNum(data.config.minLeadHours)} ساعات على الأقلّ<br />
+            ✦ احجز من التطبيق{data.config.channel !== 'app' ? ' أو عبر «الدون» على واتساب' : ''} قبل الفعاليّة بـ{arNum(data.config.minLeadHours)} ساعات على الأقلّ<br />
             ✦ والعب مباراةً واحدة على الأقلّ في تلك الليلة<br />
             ✦ {arNum(N)} أختام = مكافأة تختارها: {data.config.kinds.map(k => KIND_LABEL[k].label).join(' أو ')}<br />
             ✦ البطاقة تُصفَّر أوّل كلّ شهر · المكافأة صالحة {arNum(data.config.rewardValidityDays)} يوماً

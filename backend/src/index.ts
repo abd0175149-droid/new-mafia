@@ -2160,6 +2160,8 @@ async function main() {
     const { startExpiryScheduler } = await import('./services/chips-store.service.js');
     startExpiryScheduler();
   } catch (e: any) { console.warn('⚠️ birthday scheduler init:', e.message); }
+  // ── 📝 استبيان ما بعد الأمسية عبر واتساب (داخل النافذة المفتوحة فقط) ──
+  try { const { startWaSurveyScheduler } = await import('./services/wa-bot-ext.service.js'); startWaSurveyScheduler(); } catch (e: any) { console.warn('⚠️ WA survey scheduler init:', e.message); }
   // ── ⛔ قفل إرسال واتساب المحفوظ (إن وُجد) يُستعاد قبل أيّ إرسال ──
   try { const { loadSendingSuspension } = await import('./services/whatsapp-inbox.service.js'); await loadSendingSuspension(); } catch { /* غير حرج */ }
   // ── 🎟️ مجدول بطاقة الولاء — انتهاء المكافآت، الاختيار التلقائيّ، التذكيرات ──

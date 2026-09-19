@@ -53,7 +53,7 @@ export function LoyaltyHomeBanner({ me }: { me: LoyaltyMe }) {
     : me.card.capReached
     ? 'بلغت حدّ الشهر — بطاقة الشهر القادم تنتظرك'
     : me.card.inCard === 0
-    ? `احجز من التطبيق قبل الفعاليّة بـ${arNum(me.config.minLeadHours)} ساعات والعب — ختمك الأوّل`
+    ? `احجز${me.config.channel === 'app' ? ' من التطبيق' : ''} قبل الفعاليّة بـ${arNum(me.config.minLeadHours)} ساعات والعب — ختمك الأوّل`
     : `بقي ${me.card.needed === 1 ? 'ختم واحد' : `${arNum(me.card.needed)} أختام`} للمكافأة`;
   return (
     <button
