@@ -1036,7 +1036,8 @@ class _StaffLink extends StatelessWidget {
 //    ويفتحها في المتصفّح — لا `launchUrl` مباشرةً، كي يبقى تصنيف الوجهات
 //    في مكانٍ واحد.
 const _kInstagram = 'https://www.instagram.com/mafia_club_jo/';
-const _kInstagramDm = 'https://ig.me/m/mafia_club_jo';
+// 💬 بوت واتساب «الدون» — الرقم الجديد منذ 2026-09-19 (الحساب القديم عطّلته ميتا فحُوِّل التواصل مؤقّتاً لإنستغرام)
+const _kWhatsappBot = 'https://wa.me/962781495972';
 const _kSnapchat = 'https://www.snapchat.com/add/mafia_club26';
 // 🔴 المجموعةُ العامّة احتياطاً فقط: الخادمُ يقرّر أيَّ مجموعةٍ حسب مدينة
 //    اللاعب وجنسه، وهذه قيمةُ ما قبل وصول الردّ أو عند تعذّره.
@@ -1115,11 +1116,11 @@ class _SocialSectionState extends State<_SocialSection> {
           ),
           const SizedBox(height: 8),
           _SocialWide(
-            emoji: '🆘',
-            title: 'تواصل مع الإدارة',
-            sub: 'مشكلة في حجزٍ أو رصيد؟ راسلنا مباشرةً',
-            tint: const Color(0xFFE1306C),
-            url: _kInstagramDm,
+            emoji: '🎩',
+            title: 'راسل الدون على واتساب',
+            sub: 'حجز، أسعار، أختامك ورتبتك — يردّ فوراً ويحوّلك للإدارة متى طلبت',
+            tint: const Color(0xFF25D366),
+            url: _kWhatsappBot,
           ),
         ],
       );

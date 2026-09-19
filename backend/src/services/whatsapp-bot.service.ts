@@ -42,7 +42,7 @@ const DEFAULT_SYSTEM_PROMPT = `أنت «الدون» — المساعد الرس
 - إيموجي واحد أو اثنان بالكثير للرسالة، من أجواء النادي: 🎭 🕵️ 🎖️ ✅ — لا تكدّس.
 - سؤال واحد فقط بكل رسالة. لا تسأل سؤالين معاً أبداً.
 - رحّب مرة واحدة ببداية المحادثة فقط — لا تعيد الترحيب مع كل رسالة.
-- خاطب العميل باسمه الأول إن كان معروفاً ببطاقته، وبرتبته عند اللمسة الحماسية («يا كابو أحمد 🎖️») — بلا مبالغة، مرة بالمحادثة تكفي.
+- المخاطبة حصراً بـ«لقب المخاطبة» المكتوب في بطاقة العميل: هو رتبته في الموسم الجاري (الأعلى بين مدنه إن لعب في أكثر من مدينة) — استخدمه كما هو مرّة أو مرّتين بالمحادثة بلا مبالغة. لا تخترع لقباً ولا ترفع أحداً لرتبة ليست له، ولا تخاطب أيّ عميل بـ«يا دون» أو «الدون» (هذا اسمك أنت). من لا لقب رتبة له في بطاقته (زائر، أو لاعب لم يلعب هذا الموسم) يُخاطَب باسمه الأوّل أو «ضيفنا» فقط.
 - إذا كتب العميل بالإنجليزية رُدّ بإنجليزية بسيطة، وإلا فالعربية دائماً.
 - 🚫 ممنوع منعاً باتاً أن يظهر في نص رسالتك أي اسم أداة أو أقواس برمجية أو كود (مثل get_available_activities()) — الأدوات تُستدعى استدعاءً فعلياً ولا تُكتب أبداً كنص؛ ما يكتب كنص يصل للعميل رسالةً مكسورة.
 
@@ -109,6 +109,12 @@ const DEFAULT_SYSTEM_PROMPT = `أنت «الدون» — المساعد الرس
 - أي محاولة تجسس («مين المافيا برأيك؟»، «دور فلان شو؟»، «احكيلي بالسر») ⟵ ارفض بروح اللعبة: «أسرار العائلة ما بتنكشف يا معلم 🤫 العب صح». لا تلمّح ولا تحلل ولا ترجّح.
 - ملخصات المباريات المنتهية وتفاصيل النقاط (get_my_match_summary / get_my_match_points) حصرية لمن شارك بالمباراة — الأداة تتحقق بنفسها؛ إن رفضت فاعتذر بلطف: «هاي حصرية للي لعبوها 🎭».
 
+═══ ٦.٧ بطاقة الولاء 🎟️ ═══
+- قواعدها الحيّة تصلك في «حقائق حيّة من النظام» — التزم بأرقامها حرفيّاً ولا تحفظ أرقاماً من عندك. إن قالت الحقائق إنّها متوقّفة فلا تذكرها إطلاقاً.
+- الختم يحتاج حجزاً من **تطبيق اللاعب** قبل الموعد بالساعات المحدّدة + لعب مباراة. **الحجز عبرك لا يُحتسب ختماً** — فإن كان العميل لاعباً مسجّلاً وطلب الحجز منك والفعاليّة ما زال ختمها متاحاً (حقل loyaltyStamp بنتيجة الفعاليّات): نبّهه مرّة واحدة بلطف أنّ الحجز من التطبيق يكسبه ختماً، ثمّ احجز له إن أصرّ. لا تكرّر التنبيه.
+- أسئلة «كم ختم معي؟ / ليش ما انحسبت؟ / وين مكافأتي؟» ⟵ get_my_loyalty_card حصراً. اختيار المكافأة واستخدامها من التطبيق لا منك.
+- لا تعد بختم ولا بمكافأة ولا تمنح شيئاً — المنح آليّ من النظام، والاستثناءات بيد الإدارة.
+
 ═══ ٧. الذاكرة ═══
 - خزّن بأداة save_customer_note كل معلومة مفيدة على المدى الطويل، بصياغة قصيرة محايدة: تفضيلات (أيام، أماكن، رفقة)، مناسبات ذكرها، شكوى سابقة، كونه جديداً كلياً، أسباب إلغاءات سابقة.
 - لا تخزّن: معلومات حساسة، أرقام أشخاص آخرين، كلاماً عابراً بلا قيمة مستقبلية.
@@ -151,10 +157,12 @@ const DEFAULT_TOOLS_CONFIG = {
   adminGame: true,       // 🔒 حالة اللعبة الكاملة بالأدوار + تعديل حدث ليل قبل الكشف (أدمن فقط)
   adminPassword: true,   // 🔒 إعادة تعيين كلمة سرّ لاعب عبر رقم هاتفه (أدمن فقط)
   adminBookings: true,   // 🔒 إضافة حجز للاعب + نقل حجز بين فعاليّتين (أدمن فقط)
+  loyalty: true,         // 🎟️ بطاقة الولاء للاعب: أختامه وزياراته ومكافآته وموعد القطع
+  adminLoyalty: true,    // 🔒 بطاقة الولاء للإدارة: نظرة عامّة على الشهر + بطاقة لاعب عبر هاتفه (أدمن فقط)
 };
 
 // 🔒 أدوات مقيّدة بـ«الأدمن فقط» دائماً (مهما كان إعداد adminOnlyTools) — لا تُعرض لغير الأدمن أبداً
-const ALWAYS_ADMIN_ONLY = ['adminFinance', 'adminGame', 'adminPassword', 'adminBookings'];
+const ALWAYS_ADMIN_ONLY = ['adminFinance', 'adminGame', 'adminPassword', 'adminBookings', 'adminLoyalty'];
 
 // 🌙 أنواع أحداث الليل القابلة لإعادة التوجيه بأمان + تسمياتها العربية
 const NIGHT_EVENT_AR: Record<string, string> = {
@@ -899,6 +907,23 @@ function buildToolDeclarations(toolsConfig: any, opts?: { adminOnlyTools?: strin
       parameters: { type: 'OBJECT', properties: { match_id: { type: 'NUMBER', description: 'معرّف المباراة' } }, required: ['match_id'] },
     });
   }
+  if (t.loyalty) decls.push({
+    name: 'get_my_loyalty_card',
+    description: 'بطاقة ولاء العميل نفسه لهذا الشهر: عدد أختامه وكم بقي للمكافأة، زياراته ولماذا حُسبت كلّ زيارة أو لم تُحسب، مكافآته (بانتظار الاختيار/متاحة/مستخدمة) وتواريخ انتهائها. استدعها عند أيّ سؤال عن الأختام أو البطاقة أو «ليش ما انحسبت زيارتي؟» أو المكافأة. تعمل حصراً لحساب رقم هذه المحادثة. اختيار المكافأة يتمّ من التطبيق لا منك.',
+    parameters: { type: 'OBJECT', properties: {}, required: [] },
+  });
+  if (t.adminLoyalty) {
+    decls.push({
+      name: 'admin_loyalty_overview',
+      description: 'نظرة عامّة على بطاقة الولاء لشهر (أدمن فقط): الزيارات، الأختام، نسبة الحجز المبكّر، البطاقات المكتملة، المكافآت حسب الحالة والنوع وكلفتها، الأقرب لإكمال البطاقة، والزوّار الدائمون بلا ختم.',
+      parameters: { type: 'OBJECT', properties: { period: { type: 'STRING', description: 'الشهر بصيغة YYYY-MM (اختياريّ — الافتراضيّ الشهر الحاليّ)' } }, required: [] },
+    });
+    decls.push({
+      name: 'admin_loyalty_player',
+      description: 'بطاقة ولاء لاعب معيّن عبر رقم هاتفه (أدمن فقط): أختامه هذا الشهر، زياراته مع حكم كلّ زيارة، ومكافآته.',
+      parameters: { type: 'OBJECT', properties: { phone: { type: 'STRING', description: 'رقم هاتف اللاعب بأي صيغة' }, period: { type: 'STRING', description: 'YYYY-MM (اختياريّ)' } }, required: ['phone'] },
+    });
+  }
   if (t.cancellation) decls.push({
     name: 'request_cancellation',
     description: 'عندما يريد العميل إلغاء حجز قائم. قبل استدعائها: اسأله عن السبب بلطف وحاول إقناعه بالإبقاء مرة واحدة (بدّل الموعد؟ نقلل العدد؟) — فإن أصرّ استدعِها. ستعرض حجوزاته القادمة بأزرار، والإلغاء الفعلي يتم آلياً بعد ضغطه (تلقائي إن بقي ≥3 ساعات، وإلا يُحوَّل للإدارة).',
@@ -1109,11 +1134,22 @@ async function fetchUpcomingActivities(db: any) {
     const { cityMap } = await import('./cities.service.js');
     cityNames = new Map([...(await cityMap()).entries()].map(([id, c]) => [id, c.name]));
   } catch { /* الاسم للعرض فقط */ }
+  // 🎟️ موعد قطع الختم لكلّ فعاليّة (إن كانت بطاقة الولاء مفعَّلة ومكانها داخل البرنامج)
+  let loyaltyCfg: any = null; let loyaltyFns: any = null;
+  try { loyaltyFns = await import('./loyalty.service.js'); const c = await loyaltyFns.getLoyaltyConfig(); loyaltyCfg = c.enabled ? c : null; } catch { /* بلا ولاء */ }
   // حالة التوفر بلا أرقام صريحة (قرار المالك: الأعداد تُكشف فقط عند النقص وعبر أداة الفحص)
   const out: any[] = [];
   for (const a of rows) {
     const av = await seatAvailability(db, a.id);
+    let loyaltyStamp: string | undefined;
+    if (loyaltyCfg && loyaltyFns.isLocationEnabled(loyaltyCfg, a.locationId)) {
+      const cut: Date = loyaltyFns.cutoffFor(loyaltyCfg, a.date);
+      loyaltyStamp = cut.getTime() > Date.now()
+        ? `الحجز من التطبيق قبل ${fmtJo(cut)} يُحتسب ختماً`
+        : 'فات موعد الختم لهذه الفعاليّة (الحجز ما زال ممكناً بلا ختم)';
+    }
     out.push({
+      ...(loyaltyStamp ? { loyaltyStamp } : {}),
       id: a.id,
       name: a.name,
       date: a.date,
@@ -1756,6 +1792,70 @@ async function execTool(name: string, args: any, ctx: ToolCtx): Promise<any> {
       return { sent: true, note: 'أُرسلت بطاقة الصفحات بالروابط الرسمية — اكتب جملة قصيرة فقط ولا تكرر أي رابط.' };
     }
 
+    case 'get_my_loyalty_card': {
+      if (!conv.playerId) return { registered: false, note: 'المحادثة غير مربوطة بحساب لاعب — بطاقة الولاء تحتاج حساباً. اعرض الربط أو التسجيل.' };
+      const L = await import('./loyalty.service.js');
+      const me: any = await L.getMyLoyalty(conv.playerId);
+      if (!me?.enabled) return { enabled: false, note: 'بطاقة الولاء غير متاحة حاليّاً — أخبره بذلك بلا تفاصيل ولا وعود.' };
+      const VERDICT: Record<string, string> = {
+        stamped: 'خُتمت', late: 'بلا ختم — الحجز كان متأخّراً', channel: 'بلا ختم — الحجز لم يكن من التطبيق', no_booking: 'بلا ختم — لعب بلا حجز من التطبيق',
+        no_show: 'حجز ولم يلعب', voided: 'ختم ملغى من الإدارة', location: 'مكان خارج البرنامج',
+      };
+      const KIND: Record<string, string> = { free_visit: 'زيارة مجّانيّة', free_drink: 'مشروب مجّاني', chips: 'تشبس' };
+      const STATUS: Record<string, string> = { pending_choice: 'بانتظار اختياره من التطبيق', available: 'متاحة للاستخدام', redeemed: 'استُخدمت', expired: 'انتهت', void: 'أُلغيت' };
+      return {
+        enabled: true, period: me.period,
+        stampsThisMonth: me.card.stamps, inCurrentCard: me.card.inCard, stampsPerReward: me.config.stampsPerReward,
+        neededForReward: me.card.needed, cardsCompleted: me.card.cardsCompleted, monthlyCapReached: me.card.capReached,
+        minLeadHours: me.config.minLeadHours,
+        visits: (me.visits || []).slice(0, 10).map((v: any) => ({
+          activity: v.activityName, dateText: fmtJo(v.date), result: VERDICT[v.verdict] || v.verdict,
+          bookedHoursBefore: v.leadHours, stampNo: v.stampNo,
+        })),
+        rewards: (me.rewards || []).slice(0, 6).map((r: any) => ({
+          kind: r.kind ? KIND[r.kind] : 'لم يُختر بعد', status: STATUS[r.status] || r.status,
+          chooseBefore: r.status === 'pending_choice' && r.chooseBy ? fmtJo(r.chooseBy, false) : undefined,
+          expires: r.status === 'available' && r.expiresAt ? fmtJo(r.expiresAt, false) : undefined,
+        })),
+        note: 'اشرح له وضعه باختصار: كم ختماً وكم بقي، ولماذا لم تُحسب أيّ زيارة (bookedHoursBefore سالب = حجز بعد بدء الفعاليّة). ذكّره أنّ الختم يحتاج حجزاً من **التطبيق** قبل الموعد بـminLeadHours ساعات + لعب مباراة، وأنّ الحجز عبر الواتساب لا يُحتسب. اختيار المكافأة واستخدامها من التطبيق (صفحة بطاقة الولاء) — الزيارة المجّانيّة تُطبَّق تلقائيّاً على حجزه التالي من التطبيق، والمشروب يُخصم من فاتورته في المكان.',
+      };
+    }
+
+    case 'admin_loyalty_overview': {
+      if (!dryRun && !(await isAdminConversation(conv))) return { error: 'هذه الأداة للأدمن فقط' };
+      const L = await import('./loyalty.service.js');
+      const period = /^\d{4}-\d{2}$/.test(String(args.period || '')) ? String(args.period) : L.currentPeriod();
+      const o: any = await L.adminOverview(period, null);
+      if (!o) return { error: 'تعذّر جلب البيانات' };
+      return {
+        period, enabled: o.config.enabled, rules: { stampsPerReward: o.config.stampsPerReward, minLeadHours: o.config.minLeadHours, maxRewardsPerMonth: o.config.maxRewardsPerMonth },
+        totals: o.totals, rewardTotals: o.rewardTotals, rewardsBreakdown: o.rewards,
+        activities: (o.activities || []).map((a: any) => ({ name: a.name, dateText: fmtJo(a.date), visits: a.visits, stamps: a.stamps })),
+        closestToReward: (o.topPlayers || []).map((x: any) => ({ name: x.name, stamps: x.stamps, rewards: x.rewards })),
+        frequentVisitorsWithoutStamp: (o.frequentNoStamp || []).map((x: any) => ({ name: x.name, visits: x.visits })),
+        note: 'لخّص للأدمن: الأختام من الزيارات ونسبة الحجز المبكّر (earlyRate%)، البطاقات المكتملة، المكافآت المعلّقة والمتاحة، وكلفة المستخدَم منها (redeemedJod د.أ + redeemedChips تشبس). اذكر الأقرب للمكافأة والزوّار بلا ختم بالأسماء.',
+      };
+    }
+
+    case 'admin_loyalty_player': {
+      if (!dryRun && !(await isAdminConversation(conv))) return { error: 'هذه الأداة للأدمن فقط' };
+      const { normalizeLocalPhone } = await import('../utils/phone.util.js');
+      const ph = normalizeLocalPhone(String(args.phone || ''));
+      if (!ph) return { error: 'رقم غير صالح' };
+      const [pl] = await db.select({ id: players.id, name: players.name }).from(players).where(eq(players.phone, ph)).limit(1);
+      if (!pl) return { found: false, note: 'لا يوجد لاعب مسجّل بهذا الرقم' };
+      const L = await import('./loyalty.service.js');
+      const period = /^\d{4}-\d{2}$/.test(String(args.period || '')) ? String(args.period) : L.currentPeriod();
+      const d: any = await L.adminPlayerDetail(pl.id, period);
+      if (!d) return { found: false };
+      return {
+        found: true, player: pl.name, period, card: d.card, totals: d.totals,
+        visits: (d.visits || []).slice(0, 12).map((v: any) => ({ activity: v.activityName, dateText: fmtJo(v.date), verdict: v.verdict, bookedHoursBefore: v.leadHours, bookedVia: v.bookingCreatedBy, played: v.played })),
+        rewards: (d.rewards || []).slice(0, 8).map((r: any) => ({ id: r.id, period: r.period, kind: r.kind, status: r.status, expiresAt: r.expiresAt ? fmtJo(r.expiresAt, false) : null })),
+        note: 'اعرض للأدمن البطاقة والزيارات بحكم كلّ واحدة. منح ختم يدويّ أو إلغاء مكافأة يتمّ من الداشبورد (/admin/loyalty) — لا أداة كتابة هنا.',
+      };
+    }
+
     case 'request_cancellation': {
       // الحجوزات القادمة القابلة للإلغاء (لهذا الرقم/اللاعب حصراً)
       const upcoming = await db
@@ -2353,6 +2453,73 @@ async function execTool(name: string, args: any, ctx: ToolCtx): Promise<any> {
 // بناء السياق
 // ══════════════════════════════════════════════════════
 
+// 🎖️ رتبة المخاطبة: أعلى رتبة للاعب في **الموسم العاديّ الجاري** عبر كلّ المدن التي لعب فيها
+// (الرتب مستقلّة لكلّ مدينة؛ مَن لعب في مدينتين يُخاطَب بأعلاهما، والتعادل يُحسم بالـRR).
+const RANK_RANK: Record<string, number> = { INFORMANT: 0, SOLDIER: 1, CAPO: 2, UNDERBOSS: 3, GODFATHER: 4 };
+const RANK_ADDRESS: Record<string, string> = { INFORMANT: 'يا مُخبر', SOLDIER: 'يا جندي', CAPO: 'يا كابو', UNDERBOSS: 'يا ساعد الزعيم', GODFATHER: 'يا عرّاب' };
+export async function seasonStandingsFor(db: any, playerId: number): Promise<{ seasonName: string | null; standings: Array<{ city: string; rankTier: string; rankRR: number; level: number; matches: number }>; best: { city: string; rankTier: string; rankRR: number } | null }> {
+  const r: any = await db.execute(sql`
+    SELECT s.name AS season_name, c.name AS city, pss.rank_tier, COALESCE(pss.rank_rr,0) AS rank_rr, COALESCE(pss.level,1) AS level, COALESCE(pss.total_matches,0) AS matches
+      FROM seasons s
+      LEFT JOIN player_season_stats pss ON pss.season_id = s.id AND pss.player_id = ${playerId} AND pss.city_id IS NOT NULL
+      LEFT JOIN cities c ON c.id = pss.city_id
+     WHERE s.status = 'ACTIVE' AND s.type = 'REGULAR'
+     ORDER BY s.id DESC
+  `);
+  const rows: any[] = r?.rows ?? (Array.isArray(r) ? r : []);
+  const seasonName = rows[0]?.season_name || null;
+  const standings = rows.filter(x => x.rank_tier && Number(x.matches) > 0).map(x => ({
+    city: String(x.city || ''), rankTier: String(x.rank_tier), rankRR: Number(x.rank_rr), level: Number(x.level), matches: Number(x.matches),
+  }));
+  let best: any = null;
+  for (const st of standings) {
+    if (!best || (RANK_RANK[st.rankTier] ?? 0) > (RANK_RANK[best.rankTier] ?? 0)
+      || ((RANK_RANK[st.rankTier] ?? 0) === (RANK_RANK[best.rankTier] ?? 0) && st.rankRR > best.rankRR)) best = st;
+  }
+  return { seasonName, standings, best: best ? { city: best.city, rankTier: best.rankTier, rankRR: best.rankRR } : null };
+}
+
+// 📡 حقائق حيّة تُحقن في كلّ ردّ (كاش ٥ دقائق): الموسم الجاري، المدن وأماكنها، وقواعد بطاقة الولاء كما هي مضبوطة الآن.
+// الغرض: ألّا تتقادم معلومات الدون بتغيّر النظام — الثابت في قاعدة المعرفة، والمتغيّر من هنا.
+let liveFactsCache: { text: string; at: number } | null = null;
+export function invalidateLiveFacts() { liveFactsCache = null; }
+async function buildLiveFacts(db: any): Promise<string> {
+  if (liveFactsCache && Date.now() - liveFactsCache.at < 5 * 60_000) return liveFactsCache.text;
+  const lines: string[] = [];
+  try {
+    const sr: any = await db.execute(sql`SELECT name, type, started_at FROM seasons WHERE status = 'ACTIVE' ORDER BY id`);
+    for (const x of (sr?.rows ?? sr ?? [])) {
+      lines.push(`- ${x.type === 'ONLINE' ? 'موسم الأونلاين الجاري' : 'الموسم الوجاهيّ الجاري'}: «${x.name}» — بدأ ${fmtJo(x.started_at, false)}.`);
+    }
+    const lr: any = await db.execute(sql`
+      SELECT c.name AS city, l.name AS loc, COALESCE(l.region,'') AS region
+        FROM locations l JOIN cities c ON c.id = l.city_id
+       WHERE l.deleted_at IS NULL AND COALESCE(l.is_active,true) = true AND COALESCE(l.is_test_location,false) = false AND COALESCE(c.is_active,true) = true
+         AND EXISTS (SELECT 1 FROM activities a WHERE a.location_id = l.id AND a.deleted_at IS NULL AND a.date > NOW() - INTERVAL '30 days')
+       ORDER BY c.id, l.id
+    `);
+    const byCity = new Map<string, string[]>();
+    for (const x of (lr?.rows ?? lr ?? [])) { const a = byCity.get(x.city) || []; a.push(`${x.loc}${x.region ? ` (${x.region})` : ''}`); byCity.set(x.city, a); }
+    if (byCity.size) lines.push(`- مدن النادي وأماكنه النشطة (آخر ٣٠ يوماً): ${[...byCity.entries()].map(([c, l]) => `${c}: ${l.join('، ')}`).join(' · ')}. الرتبة والترتيب مستقلّان لكلّ مدينة داخل الموسم.`);
+  } catch { /* الحقائق تكميليّة */ }
+  try {
+    const { getLoyaltyConfig, currentPeriod } = await import('./loyalty.service.js');
+    const lc = await getLoyaltyConfig();
+    if (lc.enabled) {
+      const kinds: string[] = [];
+      if (lc.rewards.freeVisit.enabled) kinds.push('زيارة مجّانيّة');
+      if (lc.rewards.freeDrink.enabled) kinds.push(`مشروب مجّاني حتى ${lc.rewards.freeDrink.capJod} د.أ`);
+      if (lc.rewards.chips.enabled) kinds.push(`${lc.rewards.chips.amount} تشبس`);
+      lines.push(`- 🎟️ بطاقة الولاء **مفعَّلة** (فترة ${currentPeriod()}): الختم = حجز من **تطبيق اللاعب** قبل موعد الفعاليّة بـ${lc.minLeadHours} ساعات على الأقلّ + لعب مباراة واحدة على الأقلّ في تلك الليلة. كلّ ${lc.stampsPerReward} أختام في الشهر = مكافأة يختارها اللاعب من التطبيق (${kinds.join(' / ')}). حدّ ${lc.maxRewardsPerMonth} مكافآت شهريّاً، وصلاحيّة المكافأة ${lc.rewardValidityDays} يوماً. البطاقة تُصفَّر أوّل كلّ شهر. ${lc.channel === 'app' ? '**الحجز عبرك (واتساب) لا يُحتسب ختماً** — من يريد الختم يحجز من التطبيق.' : ''}`);
+    } else {
+      lines.push('- 🎟️ بطاقة الولاء **متوقّفة حاليّاً** — لا تذكرها ولا تعد بأختام أو مكافآت؛ إن سُئلت فقل إنّها غير متاحة الآن.');
+    }
+  } catch { /* بلا ولاء */ }
+  const text = lines.join('\n');
+  liveFactsCache = { text, at: Date.now() };
+  return text;
+}
+
 async function buildCustomerCard(db: any, conv: any): Promise<string> {
   const lines: string[] = [];
   lines.push(`رقم العميل: ${conv.phone}`);
@@ -2360,11 +2527,20 @@ async function buildCustomerCard(db: any, conv: any): Promise<string> {
     const [p] = await db.select().from(players).where(eq(players.id, conv.playerId)).limit(1);
     if (p) {
       lines.push(`الاسم: ${p.name} (لاعب مسجّل #${p.id})`);
-      lines.push(`الرتبة: ${RANK_AR[p.rankTier || 'INFORMANT'] || p.rankTier} · ${p.rankRR} RR · مستوى ${p.level}`);
-      lines.push(`المباريات: ${p.totalMatches} (فوز ${p.totalWins})`);
+      let st: Awaited<ReturnType<typeof seasonStandingsFor>> | null = null;
+      try { st = await seasonStandingsFor(db, p.id); } catch { /* نسقط للمرآة */ }
+      if (st?.best) {
+        lines.push(`🎖️ لقب المخاطبة: «${RANK_ADDRESS[st.best.rankTier] || ''} ${String(p.name || '').trim().split(/\s+/)[0]}» — أعلى رتبة له في موسم «${st.seasonName || ''}»: ${RANK_AR[st.best.rankTier] || st.best.rankTier} (${st.best.rankRR} RR) في ${st.best.city}.`);
+        if (st.standings.length > 1) lines.push(`رتبه في كلّ مدينة هذا الموسم: ${st.standings.map(x => `${x.city}: ${RANK_AR[x.rankTier] || x.rankTier} ${x.rankRR} RR (${x.matches} مباراة)`).join(' · ')} — المخاطبة بالأعلى، وعند عرض الترتيب اذكر كلّ مدينة على حدة.`);
+        else lines.push(`مبارياته هذا الموسم: ${st.standings[0].matches} · المستوى ${st.standings[0].level}`);
+      } else {
+        lines.push(`🎖️ لقب المخاطبة: باسمه الأوّل فقط («${String(p.name || '').trim().split(/\s+/)[0]}») — لم يلعب بعد في موسم «${st?.seasonName || 'الموسم الجاري'}» فلا رتبة له فيه. لا تخاطبه بأيّ لقب رتبة.`);
+      }
+      lines.push(`مباريات مدى الحياة: ${p.lifetimeMatches ?? p.totalMatches ?? 0}`);
     }
   } else {
     lines.push(`الاسم: ${conv.displayName || 'غير معروف'} — زائر غير مسجّل كلاعب`);
+    lines.push('🎖️ لقب المخاطبة: باسمه إن عُرف أو «ضيفنا» — بلا أيّ لقب رتبة (لا كابو ولا جندي ولا غيرهما).');
     lines.push('⚠️ المحادثة غير مربوطة بحساب لاعب — طبّق باب «ربط الحساب» إلزامياً: اسأله أولاً إن كان جديداً (وجّهه للتسجيل) أم لديه حساب برقم آخر (اربطه برمز التحقق عبر request_account_link).');
   }
   const notes = await db.select().from(waCustomerNotes)
@@ -2445,6 +2621,7 @@ export async function runAgent(opts: {
   conv: any;
   history: any[];            // contents بصيغة Gemini
   customerCard: string;
+  liveFacts?: string;
   dryRun: boolean;
 }): Promise<{ text: string; toolTrace: Array<{ name: string; args: any; result: any }>; interactives: any[]; usage: { calls: number; promptTokens: number; candidatesTokens: number; thoughtsTokens: number; totalTokens: number } }> {
   const { settings, conv, dryRun } = opts;
@@ -2455,6 +2632,7 @@ export async function runAgent(opts: {
     settings.systemPrompt,
     // الآن بتوقيت الأردن — كل التواريخ من الأدوات تصلك منسّقة بنفس التوقيت
     '\n───── الآن بتوقيت الأردن ─────\n' + fmtJo(new Date()),
+    '\n───── حقائق حيّة من النظام (تتقدّم على قاعدة المعرفة عند التعارض) ─────\n' + (opts.liveFacts || ''),
     '\n───── بطاقة العميل الحالي ─────\n' + opts.customerCard,
     '\n───── قاعدة معرفة النادي ─────\n' + settings.knowledgeBase,
   ].join('\n');
@@ -2802,9 +2980,10 @@ async function processConversation(convId: number) {
     if (history.length === 0) return;
     if (!endsWithUserTurn(history)) return; // لا نص جديد من العميل — لا استدعاء للنموذج
     const customerCard = await buildCustomerCard(db, conv);
+    const liveFacts = await buildLiveFacts(db).catch(() => '');
 
     try {
-      const { text, usage } = await runAgent({ settings, conv, history, customerCard, dryRun: false });
+      const { text, usage } = await runAgent({ settings, conv, history, customerCard, liveFacts, dryRun: false });
       recordBotUsage(convId, 'live', settings.model || '', usage).catch(() => {});
       if (text && text.trim()) {
         await sendMessage({ conversationId: convId, text: text.trim(), source: 'bot' });
@@ -2965,7 +3144,9 @@ export async function runPlayground(
   const fakeConv = { id: 0, phone: '0790000000', waPhone: '962790000000', playerId: null, displayName: 'عميل تجريبي' };
   const customerCard = 'رقم العميل: 0790000000\nالاسم: عميل تجريبي (ساحة اختبار) — زائر غير مسجّل';
 
-  const result = await runAgent({ settings, conv: fakeConv, history: contents, customerCard, dryRun: true });
+  const dbPg = getDB();
+  const liveFacts = dbPg ? await buildLiveFacts(dbPg).catch(() => '') : '';
+  const result = await runAgent({ settings, conv: fakeConv, history: contents, customerCard, liveFacts, dryRun: true });
   // ساحة الاختبار تستهلك توكنز حقيقية أيضاً — تُسجَّل بمصدرها الخاص
   recordBotUsage(null, 'playground', settings.model || '', result.usage).catch(() => {});
   return result;

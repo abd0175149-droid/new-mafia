@@ -1081,6 +1081,8 @@ const TOOL_LABELS: Record<string, string> = {
   adminGame: '🔒 حالة اللعبة بالأدوار + إعادة توجيه حدث ليل (أدمن فقط)',
   adminPassword: '🔒 إعادة تعيين كلمة سرّ لاعب عبر رقمه (أدمن فقط)',
   adminBookings: '🔒 إضافة حجز للاعب + نقل حجز بين فعاليّتين (أدمن فقط)',
+  loyalty: '🎟️ بطاقة الولاء للاعب (أختامه، زياراته، مكافآته)',
+  adminLoyalty: '🔒 بطاقة الولاء للإدارة: نظرة الشهر + بطاقة لاعب عبر رقمه (أدمن فقط)',
 };
 
 function Card({ title, children, wide }: { title: string; children: any; wide?: boolean }) {

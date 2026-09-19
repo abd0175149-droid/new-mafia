@@ -21,7 +21,8 @@ import { LoyaltyHomeBanner } from '@/components/LoyaltyStamps';
 //    وصول الردّ أو عند تعذّره — زرٌّ لا يعمل أسوأُ من زرٍّ يفتح الأعمّ.
 const WHATSAPP_GROUP_FALLBACK = 'https://chat.whatsapp.com/Bz1ipm8YxR31u5OEUOxeJZ';
 const INSTAGRAM_URL = 'https://www.instagram.com/mafia_club_jo/';
-const INSTAGRAM_DM_URL = 'https://ig.me/m/mafia_club_jo';   // محادثة مباشرة — قناة التواصل الحاليّة
+// 💬 بوت واتساب «الدون» على الرقم الجديد (حساب ميتا جديد منذ 2026-09-19) — بلا نصّ مُسبق فيبقى wa.me آمناً
+const WHATSAPP_BOT_URL = 'https://wa.me/962781495972';
 const SNAPCHAT_URL = 'https://www.snapchat.com/add/mafia_club26';
 
 // 🏙️ ألوان المدن: المدينة ١ عنبريّة (الوجاهيّ الحاليّ)، وسائر المدن زرقاء — الأسماء من الخادم وحده
@@ -912,23 +913,19 @@ export default function HomePage() {
         </motion.a>
       </div>
 
-      {/* ── زر التواصل العائم ──
-          كان يفتح رقم بوت واتساب «الدون». عطّلت ميتا المحفظة نهائياً في
-          ٣١ يوليو ٢٠٢٦، فصار الرقم لا يستقبل ولا يردّ: العميل يكتب فلا
-          يصله شيء، ويقرأها تجاهلاً منّا. إنستغرام سليم خارج المحفظة
-          المعطَّلة، وبه نردّ فعلاً — فإليه يذهب الزرّ حتى يُرفع الحظر. */}
+      {/* ── زر التواصل العائم ── يفتح بوت واتساب «الدون».
+          تاريخه: عطّلت ميتا الحساب القديم في ٣١ يوليو ٢٠٢٦ فحُوِّل الزرّ مؤقّتاً إلى إنستغرام؛
+          عاد إلى واتساب في ١٩ أيلول ٢٠٢٦ مع الرقم الجديد (0781495972) على حساب أعمال جديد. */}
       <a
-        href={INSTAGRAM_DM_URL}
+        href={WHATSAPP_BOT_URL}
         target="_blank"
         rel="noopener noreferrer"
-        aria-label="راسلنا على إنستغرام"
-        className="fixed left-4 z-50 w-14 h-14 rounded-full flex items-center justify-center shadow-lg shadow-fuchsia-500/30 transition-transform hover:scale-110 active:scale-95"
-        style={{ bottom: 'calc(var(--nav-h) + 12px)', background: 'linear-gradient(135deg, #f9ce34, #ee2a7b 45%, #6228d7)' }}
+        aria-label="راسلنا على واتساب"
+        className="fixed left-4 z-50 w-14 h-14 rounded-full flex items-center justify-center shadow-lg shadow-emerald-500/30 transition-transform hover:scale-110 active:scale-95"
+        style={{ bottom: 'calc(var(--nav-h) + 12px)', background: 'linear-gradient(135deg, #25d366, #128c7e)' }}
       >
-        <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-          <rect x="2" y="2" width="20" height="20" rx="5.5" />
-          <circle cx="12" cy="12" r="4.2" />
-          <circle cx="17.7" cy="6.3" r="1.2" fill="white" stroke="none" />
+        <svg width="30" height="30" viewBox="0 0 24 24" fill="white" aria-hidden="true">
+          <path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884"/>
         </svg>
       </a>
 
