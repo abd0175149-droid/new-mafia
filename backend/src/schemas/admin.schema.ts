@@ -575,7 +575,11 @@ export const waBotUsage = pgTable('wa_bot_usage', {
   outputTokens: integer('output_tokens').default(0),                   // candidates + thoughts (ما يُفوتر كإخراج)
   thoughtsTokens: integer('thoughts_tokens').default(0),
   totalTokens: integer('total_tokens').default(0),
-  cachedTokens: integer('cached_tokens').default(0),                  // من promptTokens — خُدمت من كاش المزوّد وتُفوتَر بخصم
+  cachedTokens: integer('cached_tokens').default(0),
+  // 📈 قياس الجودة (منذ 2026-09-19): زمن الردّ، الأدوات المستدعاة، وأعلام (unknown/handoff/leak/fail/audio)
+  replyMs: integer('reply_ms'),
+  tools: jsonb('tools').default([]),
+  flags: jsonb('flags').default({}),                  // من promptTokens — خُدمت من كاش المزوّد وتُفوتَر بخصم
   createdAt: timestamp('created_at').defaultNow().notNull(),
 });
 

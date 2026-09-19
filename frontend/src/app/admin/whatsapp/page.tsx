@@ -12,6 +12,8 @@ import { useEffect, useState, useMemo, useCallback, useRef } from 'react';
 import { getSocket } from '@/lib/socket';
 import { swalConfirm, swalAlert, swalToast } from '@/lib/swal';
 import BookingForm from '../components/BookingForm';
+import BroadcastTab from './BroadcastTab';
+import QualityTab from './QualityTab';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || '';
 const MUTE_KEY = 'wa_inbox_muted';
@@ -163,7 +165,7 @@ export default function WhatsAppInboxPage() {
   const [asCustomer, setAsCustomer] = useState(false);   // 🎭 وضع «تكلّم بلسان العميل»
   const [muted, setMuted] = useState(false);
   const [mobilePane, setMobilePane] = useState<'list' | 'chat' | 'info'>('list');
-  const [mainTab, setMainTab] = useState<'chat' | 'bot'>('chat');
+  const [mainTab, setMainTab] = useState<'chat' | 'bot' | 'broadcast' | 'quality'>('chat');
   const [noteDraft, setNoteDraft] = useState('');
   const [showLink, setShowLink] = useState(false);
   const [linkQ, setLinkQ] = useState('');
@@ -557,6 +559,16 @@ export default function WhatsAppInboxPage() {
             onClick={() => setMainTab('bot')}
             className={`px-3 py-1 rounded-lg font-bold ${mainTab === 'bot' ? 'bg-amber-500/10 text-amber-400' : 'text-gray-400 hover:text-white'}`}
           >🤖 البوت</button>
+          {getUser()?.role === 'admin' && (<>
+            <button
+              onClick={() => setMainTab('broadcast')}
+              className={`px-3 py-1 rounded-lg font-bold ${mainTab === 'broadcast' ? 'bg-amber-500/10 text-amber-400' : 'text-gray-400 hover:text-white'}`}
+            >📢 البثّ</button>
+            <button
+              onClick={() => setMainTab('quality')}
+              className={`px-3 py-1 rounded-lg font-bold ${mainTab === 'quality' ? 'bg-amber-500/10 text-amber-400' : 'text-gray-400 hover:text-white'}`}
+            >📈 الجودة</button>
+          </>)}
         </div>
         <button
           onClick={toggleMute}
@@ -571,6 +583,9 @@ export default function WhatsAppInboxPage() {
       {mainTab === 'bot' && (
         <BotSettingsView onOpenConv={(id: number) => { setMainTab('chat'); openConv(id); }} />
       )}
+
+      {mainTab === 'broadcast' && <BroadcastTab apiFetch={apiFetch} />}
+      {mainTab === 'quality' && <QualityTab apiFetch={apiFetch} onOpenConv={(id: number) => { setMainTab('chat'); openConv(id); }} />}
 
       {/* ═══ اللوحات الثلاث ═══ */}
       <div className={`${mainTab === 'chat' ? 'grid' : 'hidden'} flex-1 min-h-0 grid-cols-1 md:grid-cols-[300px_1fr_280px] gap-0 bg-gray-900/60 border border-gray-800 rounded-2xl overflow-hidden`}>

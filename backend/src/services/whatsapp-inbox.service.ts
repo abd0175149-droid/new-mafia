@@ -665,7 +665,7 @@ export interface SendMessageInput {
   text?: string;                        // رسالة نصية
   interactive?: any;                    // كائن interactive جاهز (قوائم/أزرار — للبوت)
   location?: { latitude: number; longitude: number; name?: string; address?: string };  // 📍 رسالة موقع
-  source: 'staff' | 'bot' | 'system';
+  source: 'staff' | 'bot' | 'system' | 'broadcast';
   staffId?: number;
   staffName?: string;
 }

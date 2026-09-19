@@ -173,18 +173,19 @@ export function extToolDeclarations(t: Record<string, any>): any[] {
 
   if (t.adminTonight) d.push({ name: 'admin_tonight', description: 'لوحة الليلة (أدمن فقط): لكلّ فعاليّة اليوم — المحجوزون والأشخاص، الحاضرون، قائمة الانتظار، المدفوع وغير المدفوع والمجّانيّ، المباريات التي لُعبت، أختام الولاء المتوقّعة، وطلبات المنيو المفتوحة وأقدمها. «كيف الليلة؟».', parameters: O({}) });
   if (t.adminLoyalty) {
-    d.push({ name: 'admin_loyalty_grant_stamp', description: 'منح ختم ولاء يدويّ للاعب عن فعاليّة (أدمن فقط) — برقم هاتفه ومعرّف الفعاليّة وسبب مكتوب. يعرض أزرار تأكيد قبل التنفيذ.', parameters: O({ phone: { type: 'STRING', description: 'رقم اللاعب' }, activity_id: { type: 'NUMBER', description: 'معرّف الفعاليّة' }, reason: { type: 'STRING', description: 'السبب (3 أحرف فأكثر)' } }, ['phone', 'activity_id', 'reason']) });
+    d.push({ name: 'admin_loyalty_grant_stamp', description: 'منح ختم ولاء يدويّ للاعب عن فعاليّة (أدمن فقط) — برقم هاتفه ومعرّف الفعاليّة وسبب مكتوب. يعرض أزرار تأكيد قبل التنفيذ.', parameters: O({ phone: { type: 'STRING', description: 'رقم اللاعب أو اسمه' }, activity_id: { type: 'NUMBER', description: 'معرّف الفعاليّة' }, reason: { type: 'STRING', description: 'السبب (3 أحرف فأكثر)' } }, ['phone', 'activity_id', 'reason']) });
     d.push({ name: 'admin_loyalty_void_reward', description: 'إلغاء مكافأة ولاء (أدمن فقط) بمعرّفها (من admin_loyalty_player) وسبب مكتوب. يعرض أزرار تأكيد.', parameters: O({ reward_id: { type: 'NUMBER', description: 'معرّف المكافأة' }, reason: { type: 'STRING', description: 'السبب' } }, ['reward_id', 'reason']) });
   }
-  if (t.adminChips) d.push({ name: 'admin_chips_topup', description: 'شحن رصيد تشبس للاعب بباقة معتمدة (أدمن فقط): p5 = 5 د.أ ← 55 تشبس · p10 = 10 د.أ ← 120 · p20 = 20 د.أ ← 260. برقم هاتف اللاعب. يعرض اسم اللاعب والباقة وأزرار تأكيد — حركة ماليّة موثَّقة باسم الأدمن ومصدرها واتساب، ويصل اللاعبَ إشعار.', parameters: O({ phone: { type: 'STRING', description: 'رقم اللاعب' }, pack: { type: 'STRING', description: 'p5 أو p10 أو p20' } }, ['phone', 'pack']) });
+  if (t.adminChips) d.push({ name: 'admin_chips_topup', description: 'شحن رصيد تشبس للاعب بباقة معتمدة (أدمن فقط): p5 = 5 د.أ ← 55 تشبس · p10 = 10 د.أ ← 120 · p20 = 20 د.أ ← 260. برقم هاتف اللاعب. يعرض اسم اللاعب والباقة وأزرار تأكيد — حركة ماليّة موثَّقة باسم الأدمن ومصدرها واتساب، ويصل اللاعبَ إشعار.', parameters: O({ phone: { type: 'STRING', description: 'رقم اللاعب أو اسمه' }, pack: { type: 'STRING', description: 'p5 أو p10 أو p20' } }, ['phone', 'pack']) });
   if (t.adminActivities) d.push({ name: 'admin_create_activity', description: 'إنشاء فعاليّة جديدة (أدمن فقط) في مكانٍ معيّن بتاريخ ووقت. السعر والسعة والقالب والمنيو والجدول تُنسخ من آخر فعاليّة في المكان نفسه ما لم تُحدَّد. يعرض ملخّصاً وأزرار تأكيد. لا يرسل إشعاراً للاعبين (ذلك من الداشبورد).', parameters: O({ location_id: { type: 'NUMBER', description: 'معرّف المكان من get_locations' }, date: { type: 'STRING', description: 'YYYY-MM-DD' }, time: { type: 'STRING', description: 'HH:mm بتوقيت الأردن (الافتراضيّ 19:00)' }, price: { type: 'NUMBER', description: 'سعر الشخص (اختياريّ)' }, capacity: { type: 'NUMBER', description: 'السعة (اختياريّ)' }, name: { type: 'STRING', description: 'اسم الفعاليّة (اختياريّ)' } }, ['location_id', 'date']) });
   if (t.adminReports) d.push({ name: 'admin_quick_report', description: 'تقرير سريع (أدمن فقط) لفترة: today أو week أو month — الفعاليّات، الحضور (لاعبون لعبوا)، الحجوزات، إيراد رسوم اللعب المحصَّل، اللاعبون الجدد، الأكثر حضوراً، مع مقارنة بالفترة السابقة المماثلة.', parameters: O({ range: { type: 'STRING', description: 'today | week | month' } }, ['range']) });
-  if (t.adminPlayers) d.push({ name: 'admin_player_manage', description: 'إدارة حساب لاعب برقم هاتفه (أدمن فقط): lock (قفل) · unlock (فكّ) · geofence_exempt (إعفاء من سياج الموقع) · geofence_unexempt · note (ملاحظة على اللاعب). القفل والإعفاء بزرّ تأكيد؛ الملاحظة تُحفظ مباشرة.', parameters: O({ phone: { type: 'STRING', description: 'رقم اللاعب' }, action: { type: 'STRING', description: 'lock | unlock | geofence_exempt | geofence_unexempt | note' }, reason: { type: 'STRING', description: 'السبب أو نصّ الملاحظة' } }, ['phone', 'action', 'reason']) });
+  if (t.adminPlayers) d.push({ name: 'admin_find_player', description: 'بحث عن لاعب بالاسم أو الرقم (أدمن فقط): يعيد المطابقين مع أرقامهم ورتبهم وعدد مبارياتهم. كلّ أدوات الإدارة تقبل الاسم مباشرةً، فاستخدم هذه فقط عند الالتباس بين أكثر من لاعب.', parameters: O({ query: { type: 'STRING', description: 'اسم أو جزء منه أو رقم' } }, ['query']) });
+  if (t.adminPlayers) d.push({ name: 'admin_player_manage', description: 'إدارة حساب لاعب برقم هاتفه (أدمن فقط): lock (قفل) · unlock (فكّ) · geofence_exempt (إعفاء من سياج الموقع) · geofence_unexempt · note (ملاحظة على اللاعب). القفل والإعفاء بزرّ تأكيد؛ الملاحظة تُحفظ مباشرة.', parameters: O({ phone: { type: 'STRING', description: 'رقم اللاعب أو اسمه' }, action: { type: 'STRING', description: 'lock | unlock | geofence_exempt | geofence_unexempt | note' }, reason: { type: 'STRING', description: 'السبب أو نصّ الملاحظة' } }, ['phone', 'action', 'reason']) });
   if (t.adminSeating) {
     d.push({ name: 'admin_seating_view', description: 'عرض إجلاس الغرفة الحيّة لفعاليّة (أدمن فقط): من يجلس في أيّ مقعد، المنتظرون، والمقاعد المثبَّتة لمن لم يصل. بلا أيّ أدوار. بلا معرّف ⟵ فعاليّة اليوم ذات الغرفة المفتوحة.', parameters: O({ activity_id: { type: 'NUMBER', description: 'معرّف الفعاليّة (اختياريّ)' } }) });
     d.push({ name: 'admin_seat_assign', description: 'تعيين مقعد لشخص قبل جلوسه (أدمن فقط) — **المحرّك** يختار الرقم وفق القيود والتقارب (كما يفعل وضع الباب)، ويُثبَّت له. لا يمكن اختيار رقم مقعد بعينه.', parameters: O({ phone: { type: 'STRING', description: 'رقم الشخص' }, name: { type: 'STRING', description: 'اسمه (اختياريّ)' }, activity_id: { type: 'NUMBER', description: 'معرّف الفعاليّة (اختياريّ)' } }, ['phone']) });
-    d.push({ name: 'admin_block_pair', description: 'منع لاعبَين من التجاور دائماً (أدمن فقط) برقمَي هاتفيهما وسبب — قيد يحترمه المحرّك في كلّ توزيع لاحق. بزرّ تأكيد.', parameters: O({ phone1: { type: 'STRING', description: 'رقم الأوّل' }, phone2: { type: 'STRING', description: 'رقم الثاني' }, reason: { type: 'STRING', description: 'السبب' } }, ['phone1', 'phone2', 'reason']) });
-    d.push({ name: 'admin_unblock_pair', description: 'إلغاء منع تجاور لاعبَين (أدمن فقط). بزرّ تأكيد.', parameters: O({ phone1: { type: 'STRING', description: 'رقم الأوّل' }, phone2: { type: 'STRING', description: 'رقم الثاني' } }, ['phone1', 'phone2']) });
+    d.push({ name: 'admin_block_pair', description: 'منع لاعبَين من التجاور دائماً (أدمن فقط) برقمَي هاتفيهما وسبب — قيد يحترمه المحرّك في كلّ توزيع لاحق. بزرّ تأكيد.', parameters: O({ phone1: { type: 'STRING', description: 'رقم الأوّل أو اسمه' }, phone2: { type: 'STRING', description: 'رقم الثاني أو اسمه' }, reason: { type: 'STRING', description: 'السبب' } }, ['phone1', 'phone2', 'reason']) });
+    d.push({ name: 'admin_unblock_pair', description: 'إلغاء منع تجاور لاعبَين (أدمن فقط). بزرّ تأكيد.', parameters: O({ phone1: { type: 'STRING', description: 'رقم الأوّل أو اسمه' }, phone2: { type: 'STRING', description: 'رقم الثاني أو اسمه' } }, ['phone1', 'phone2']) });
     d.push({ name: 'admin_reshuffle', description: 'إعادة توزيع مقاعد الغرفة وفق قيود المحرّك (أدمن فقط) — **في اللوبي قبل توزيع الأدوار فقط**. تُجري معاينة أوّلاً (كم مخالفة تبقى، أيّ قيود أُرخيت) ثمّ تعرض زرّ «طبّق».', parameters: O({ activity_id: { type: 'NUMBER', description: 'معرّف الفعاليّة (اختياريّ)' } }) });
   }
   return d;
@@ -193,13 +194,32 @@ export function extToolDeclarations(t: Record<string, any>): any[] {
 // ══════════════════════════════════════════════════════
 // أدوات مساعدة
 // ══════════════════════════════════════════════════════
-async function playerByPhone(db: any, raw: string) {
-  const { normalizeLocalPhone } = await import('../utils/phone.util.js');
-  const ph = normalizeLocalPhone(String(raw || '')); if (!ph) return { error: 'رقم غير صالح' as const };
-  const [pl] = await db.select({ id: players.id, name: players.name, phone: players.phone, isLocked: players.isLocked, geofenceExempt: players.geofenceExempt, chips: players.chipsBalance })
-    .from(players).where(eq(players.phone, ph)).limit(1);
-  return pl ? { pl } : { error: 'لا يوجد لاعب مسجّل بهذا الرقم' as const };
+// 🔎 لاعب برقمه **أو باسمه**. الأدمن يتكلّم بالأسماء («كم ختم عند راكان؟») — اشتراط الرقم كان يُفشل السؤال التالي مباشرةً.
+//    اسم يطابق أكثر من لاعب ⟵ خطأ مع قائمة مرشّحين (اسم + آخر 4 أرقام) ليحدّد الأدمن، ولا تخمين أبداً في الإجراءات.
+export async function findPlayer(db: any, raw: string): Promise<{ pl: { id: number; name: string; phone: string; isLocked: boolean; geofenceExempt: boolean; chips: number } } | { error: string; candidates?: any[] }> {
+  const q = String(raw || '').trim();
+  if (!q) return { error: 'حدّد اللاعب برقمه أو اسمه' };
+  const cols = { id: players.id, name: players.name, phone: players.phone, isLocked: players.isLocked, geofenceExempt: players.geofenceExempt, chips: players.chipsBalance };
+  if (/^[+\d\s()-]{7,}$/.test(q)) {
+    const { normalizeLocalPhone } = await import('../utils/phone.util.js');
+    const ph = normalizeLocalPhone(q); if (!ph) return { error: 'رقم غير صالح' };
+    const [pl] = await db.select(cols).from(players).where(eq(players.phone, ph)).limit(1);
+    return pl ? { pl: pl as any } : { error: 'لا يوجد لاعب مسجّل بهذا الرقم' };
+  }
+  const r: any = await db.execute(sql`
+    SELECT id, name, phone, is_locked, geofence_exempt, chips_balance, COALESCE(lifetime_matches, 0) AS lm
+      FROM players
+     WHERE deleted_at IS NULL
+       AND translate(lower(name), 'أإآةىؤئ', 'اااهيوي') LIKE '%' || translate(lower(${q}), 'أإآةىؤئ', 'اااهيوي') || '%'
+     ORDER BY (translate(lower(name), 'أإآةىؤئ', 'اااهيوي') = translate(lower(${q}), 'أإآةىؤئ', 'اااهيوي')) DESC, lm DESC LIMIT 6`);
+  const rows = rowsOf(r);
+  if (!rows.length) return { error: `لا لاعب باسم يشبه «${q}» — اطلب رقمه أو جزءاً آخر من اسمه` };
+  const exact = rows.filter((x: any) => String(x.name).trim().toLowerCase() === q.toLowerCase());
+  const pick = exact.length === 1 ? exact[0] : rows.length === 1 ? rows[0] : null;
+  if (!pick) return { error: `أكثر من لاعب يطابق «${q}» — اسأل الأدمن أيّهم يقصد`, candidates: rows.map((x: any) => ({ name: x.name, phoneEndsWith: String(x.phone || '').slice(-4), matches: Number(x.lm) })) };
+  return { pl: { id: Number(pick.id), name: pick.name, phone: pick.phone, isLocked: !!pick.is_locked, geofenceExempt: !!pick.geofence_exempt, chips: Number(pick.chips_balance || 0) } };
 }
+const playerByPhone = findPlayer;
 async function stash(key: string, payload: any) { const { setAux } = await import('../config/redis.js'); await setAux(key, { ...payload, expiresAt: Date.now() + AUX_TTL_MS }); }
 async function unstash(key: string): Promise<any | null> {
   const { getAux, deleteAux } = await import('../config/redis.js');
@@ -430,7 +450,7 @@ export async function execExtTool(name: string, args: any, ctx: Ctx, h: ExtHelpe
 
     case 'admin_loyalty_grant_stamp': {
       const g = await adminGate(); if (g) return g;
-      const f = await playerByPhone(db, args.phone); if ('error' in f) return { error: f.error };
+      const f = await playerByPhone(db, args.phone); if ('error' in f) return { error: f.error, candidates: (f as any).candidates };
       const actId = parseInt(args.activity_id); const reason = String(args.reason || '').trim();
       if (reason.length < 3) return { error: 'السبب مطلوب (3 أحرف فأكثر)' };
       const [a] = await db.select({ name: activities.name, date: activities.date }).from(activities).where(eq(activities.id, actId)).limit(1);
@@ -455,7 +475,7 @@ export async function execExtTool(name: string, args: any, ctx: Ctx, h: ExtHelpe
 
     case 'admin_chips_topup': {
       const g = await adminGate(); if (g) return g;
-      const f = await playerByPhone(db, args.phone); if ('error' in f) return { error: f.error };
+      const f = await playerByPhone(db, args.phone); if ('error' in f) return { error: f.error, candidates: (f as any).candidates };
       const { getChipsPack } = await import('../schemas/chips.schema.js');
       const pack = getChipsPack(String(args.pack || '').trim().toLowerCase());
       if (!pack) return { error: 'باقة غير معتمدة — المتاح: p5 (5 د.أ ← 55) · p10 (10 د.أ ← 120) · p20 (20 د.أ ← 260)' };
@@ -519,9 +539,19 @@ export async function execExtTool(name: string, args: any, ctx: Ctx, h: ExtHelpe
       return { range, from: h.fmtJo(from, false), to: h.fmtJo(new Date(end.getTime() - 1), false), current: cur, previousSamePeriod: prev, topAttendees: rowsOf(top), note: 'اعرض الأرقام مع اتّجاهها مقابل الفترة السابقة (ارتفاع/انخفاض). إيراد رسوم اللعب = المحصَّل فعليّاً من الحجوزات فقط (لا يشمل المنيو ولا التشبس). التقارير التفصيليّة من الداشبورد.' };
     }
 
+    case 'admin_find_player': {
+      const g = await adminGate(); if (g) return g;
+      const q = String(args.query || '').trim(); if (q.length < 2) return { error: 'اكتب حرفين على الأقلّ' };
+      const r: any = await db.execute(sql`
+        SELECT id, name, phone, rank_tier, COALESCE(lifetime_matches,0) AS lm FROM players WHERE deleted_at IS NULL
+           AND (translate(lower(name), 'أإآةىؤئ', 'اااهيوي') LIKE '%' || translate(lower(${q}), 'أإآةىؤئ', 'اااهيوي') || '%' OR phone LIKE ${'%' + q.replace(/\D/g, '') + '%'})
+         ORDER BY lm DESC LIMIT 8`);
+      return { matches: rowsOf(r).map((x: any) => ({ id: x.id, name: x.name, phone: x.phone, rank: x.rank_tier, lifetimeMatches: Number(x.lm) })) };
+    }
+
     case 'admin_player_manage': {
       const g = await adminGate(); if (g) return g;
-      const f = await playerByPhone(db, args.phone); if ('error' in f) return { error: f.error };
+      const f = await playerByPhone(db, args.phone); if ('error' in f) return { error: f.error, candidates: (f as any).candidates };
       const action = String(args.action || ''); const reason = String(args.reason || '').trim();
       if (reason.length < 3) return { error: 'السبب/النصّ مطلوب (3 أحرف فأكثر)' };
       if (action === 'note') {
@@ -558,8 +588,9 @@ export async function execExtTool(name: string, args: any, ctx: Ctx, h: ExtHelpe
       const lr = await liveRoomOf(db, parseInt(args.activity_id)); if ('error' in lr) return { error: lr.error };
       const f = await playerByPhone(db, args.phone);
       const { normalizeLocalPhone } = await import('../utils/phone.util.js');
-      const ph = normalizeLocalPhone(String(args.phone || '')); if (!ph) return { error: 'رقم غير صالح' };
       const pl = 'pl' in f ? f.pl : null;
+      const ph = pl?.phone || normalizeLocalPhone(String(args.phone || ''));
+      if (!ph) return { error: ('error' in f ? f.error : 'رقم غير صالح'), candidates: (f as any).candidates };
       const r = await loopback(conv, 'POST', '/api/seating/door-assign', { activityId: lr.activityId, phone: ph, name: pl?.name || String(args.name || '').trim() || ph, playerId: pl?.id ?? null });
       if (r.status !== 200 || !r.data?.success) return { error: r.data?.error || 'تعذّر التعيين' };
       await auditBot(conv, 'wa:seat-assign', { phone: ph, seat: r.data.seat, already: r.data.already ?? null }, { activityId: lr.activityId, targetName: pl?.name || args.name || ph });
@@ -886,4 +917,64 @@ export function startWaSurveyScheduler(): void {
   const tick = () => surveyTick().catch(e => console.warn('⚠️ WA survey tick:', e?.message));
   setTimeout(tick, 60_000); setInterval(tick, 10 * 60_000);
   console.log('📝 WA post-event survey scheduler started (every 10m)');
+}
+
+// ══════════════════════════════════════════════════════
+// 📈 قياس جودة الدون — هل يؤدّي عمله؟ (الكلفة في getBotUsage)
+// ══════════════════════════════════════════════════════
+export async function getBotQuality(days = 30) {
+  const db = getDB(); if (!db) return null;
+  const d = Math.min(Math.max(Math.trunc(Number(days)) || 30, 1), 120);
+  const since = new Date(Date.now() - d * 86400e3);
+  // 1) قمع الحجز — من الرسائل نفسها (يعمل على التاريخ كلّه)
+  const fr: any = await db.execute(sql`
+    SELECT COUNT(DISTINCT conversation_id) FILTER (WHERE direction = 'in' AND source = 'customer')::int AS talked,
+           COUNT(DISTINCT conversation_id) FILTER (WHERE direction = 'out' AND payload->'interactive'->>'type' = 'list' AND payload::text LIKE '%"act:%')::int AS listed,
+           COUNT(DISTINCT conversation_id) FILTER (WHERE direction = 'out' AND payload::text LIKE '%res_confirm:%')::int AS asked,
+           COUNT(DISTINCT conversation_id) FILTER (WHERE direction = 'in' AND payload->'interactive'->'button_reply'->>'id' LIKE 'res_confirm:%')::int AS confirmed
+      FROM wa_messages WHERE created_at >= ${since}`);
+  const f = rowsOf(fr)[0] || {};
+  const br: any = await db.execute(sql`SELECT COUNT(*)::int AS n, COALESCE(SUM(people_count),0)::int AS people, COUNT(*) FILTER (WHERE status = 'waitlist')::int AS waitlist FROM reservations WHERE contact_method = 'بوت واتساب' AND created_at >= ${since}`);
+  const b = rowsOf(br)[0] || {};
+  // 2) الردود: من يردّ، وكم بسرعة
+  const mr: any = await db.execute(sql`
+    SELECT COUNT(*) FILTER (WHERE source = 'bot')::int AS bot, COUNT(*) FILTER (WHERE source = 'staff')::int AS staff,
+           COUNT(*) FILTER (WHERE source = 'customer')::int AS customer, COUNT(*) FILTER (WHERE direction = 'in' AND msg_type = 'audio')::int AS audio_in
+      FROM wa_messages WHERE created_at >= ${since}`);
+  const m = rowsOf(mr)[0] || {};
+  const ur: any = await db.execute(sql`
+    SELECT COUNT(*)::int AS replies,
+           percentile_cont(0.5) WITHIN GROUP (ORDER BY reply_ms) FILTER (WHERE reply_ms IS NOT NULL) AS p50,
+           percentile_cont(0.9) WITHIN GROUP (ORDER BY reply_ms) FILTER (WHERE reply_ms IS NOT NULL) AS p90,
+           COUNT(*) FILTER (WHERE flags ? 'unknown')::int AS unknown, COUNT(*) FILTER (WHERE flags ? 'handoff')::int AS handoff,
+           COUNT(*) FILTER (WHERE flags ? 'fail')::int AS fail, COUNT(*) FILTER (WHERE flags ? 'leak')::int AS leak,
+           COUNT(*) FILTER (WHERE flags->>'audio' = 'ok')::int AS audio_ok, COUNT(*) FILTER (WHERE flags->>'audio' = 'unclear')::int AS audio_unclear,
+           COUNT(*) FILTER (WHERE jsonb_array_length(COALESCE(tools,'[]'::jsonb)) > 0)::int AS with_tools,
+           MIN(created_at) FILTER (WHERE reply_ms IS NOT NULL) AS measured_since
+      FROM wa_bot_usage WHERE source = 'live' AND created_at >= ${since}`);
+  const u = rowsOf(ur)[0] || {};
+  const tr: any = await db.execute(sql`SELECT t AS tool, COUNT(*)::int AS n FROM wa_bot_usage, jsonb_array_elements_text(COALESCE(tools,'[]'::jsonb)) t WHERE source = 'live' AND created_at >= ${since} GROUP BY t ORDER BY n DESC LIMIT 15`);
+  const qr: any = await db.execute(sql`
+    SELECT u.created_at, u.conversation_id, c.display_name, u.flags FROM wa_bot_usage u LEFT JOIN wa_conversations c ON c.id = u.conversation_id
+     WHERE u.source = 'live' AND u.created_at >= ${since} AND (u.flags ? 'unknown' OR u.flags ? 'handoff' OR u.flags ? 'fail') ORDER BY u.id DESC LIMIT 40`);
+  // 3) أثر بطاقة الولاء: الحجز المبكّر أسبوعيّاً بحسب القناة
+  let minLead = 6; try { const L = await import('./loyalty.service.js'); minLead = (await L.getLoyaltyConfig()).minLeadHours; } catch { /* افتراضيّ */ }
+  const lr: any = await db.execute(sql`
+    SELECT to_char(date_trunc('week', a.date + INTERVAL '3 hours'), 'YYYY-MM-DD') AS week,
+           COUNT(*)::int AS bookings,
+           COUNT(*) FILTER (WHERE b.created_by = 'player-app' AND EXTRACT(EPOCH FROM (a.date - b.created_at))/3600 >= ${minLead})::int AS early_app,
+           COUNT(*) FILTER (WHERE b.created_by = '🤖 بوت واتساب' AND EXTRACT(EPOCH FROM (a.date - b.created_at))/3600 >= ${minLead})::int AS early_bot
+      FROM bookings b JOIN activities a ON a.id = b.activity_id LEFT JOIN locations l ON l.id = a.location_id
+     WHERE b.deleted_at IS NULL AND a.deleted_at IS NULL AND COALESCE(l.is_test_location,false) = false AND a.date >= ${new Date(Date.now() - 84 * 86400e3)} AND a.date < NOW()
+     GROUP BY 1 ORDER BY 1`);
+  const replies = Number(u.replies || 0);
+  return {
+    days: d, minLeadHours: minLead, measuredSince: u.measured_since || null,
+    funnel: { talked: Number(f.talked || 0), listed: Number(f.listed || 0), askedToConfirm: Number(f.asked || 0), confirmed: Number(f.confirmed || 0), reservations: Number(b.n || 0), people: Number(b.people || 0), waitlist: Number(b.waitlist || 0) },
+    messages: { bot: Number(m.bot || 0), staff: Number(m.staff || 0), customer: Number(m.customer || 0), audioIn: Number(m.audio_in || 0), automationRate: (Number(m.bot || 0) + Number(m.staff || 0)) ? Math.round((Number(m.bot || 0) / (Number(m.bot || 0) + Number(m.staff || 0))) * 1000) / 10 : 0 },
+    replies: { total: replies, p50Ms: u.p50 != null ? Math.round(Number(u.p50)) : null, p90Ms: u.p90 != null ? Math.round(Number(u.p90)) : null, withTools: Number(u.with_tools || 0), unknown: Number(u.unknown || 0), handoff: Number(u.handoff || 0), fail: Number(u.fail || 0), leak: Number(u.leak || 0), audioOk: Number(u.audio_ok || 0), audioUnclear: Number(u.audio_unclear || 0) },
+    tools: rowsOf(tr).map((x: any) => ({ tool: x.tool, n: Number(x.n) })),
+    issues: rowsOf(qr).map((x: any) => ({ at: x.created_at, conversationId: x.conversation_id, who: x.display_name || '', kind: x.flags?.fail ? 'fail' : x.flags?.handoff ? 'handoff' : 'unknown', question: x.flags?.question || '', detail: x.flags?.fail || x.flags?.handoff || '' })),
+    loyaltyWeekly: rowsOf(lr).map((x: any) => ({ week: x.week, bookings: Number(x.bookings), earlyApp: Number(x.early_app), earlyBot: Number(x.early_bot), earlyRate: Number(x.bookings) ? Math.round(((Number(x.early_app) + Number(x.early_bot)) / Number(x.bookings)) * 1000) / 10 : 0 })),
+  };
 }

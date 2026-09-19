@@ -668,8 +668,8 @@ async function geminiGenerate(settings: any, systemText: string, contents: any[]
 }
 
 // 📊 تسجيل استهلاك ردّ كامل (مجموع نداءات جولة الأدوات) — fire & forget
-async function recordBotUsage(conversationId: number | null, source: 'live' | 'playground', model: string, acc: { calls: number; promptTokens: number; candidatesTokens: number; thoughtsTokens: number; totalTokens: number; cachedTokens?: number }) {
-  if (!acc.calls) return;
+async function recordBotUsage(conversationId: number | null, source: 'live' | 'playground', model: string, acc: { calls: number; promptTokens: number; candidatesTokens: number; thoughtsTokens: number; totalTokens: number; cachedTokens?: number }, quality?: { replyMs?: number; tools?: string[]; flags?: Record<string, any> }) {
+  if (!acc.calls && !quality?.flags?.fail) return;
   try {
     const db = getDB();
     if (!db) return;
@@ -684,6 +684,9 @@ async function recordBotUsage(conversationId: number | null, source: 'live' | 'p
       thoughtsTokens: acc.thoughtsTokens,
       totalTokens: acc.totalTokens,
       cachedTokens: acc.cachedTokens || 0,
+      replyMs: quality?.replyMs ?? null,
+      tools: quality?.tools ?? [],
+      flags: quality?.flags ?? {},
     } as any);
   } catch (err: any) {
     console.warn('⚠️ WA bot usage record:', err.message);
@@ -937,8 +940,8 @@ function buildToolDeclarations(toolsConfig: any, opts?: { adminOnlyTools?: strin
     });
     decls.push({
       name: 'admin_loyalty_player',
-      description: 'بطاقة ولاء لاعب معيّن عبر رقم هاتفه (أدمن فقط): أختامه هذا الشهر، زياراته مع حكم كلّ زيارة، ومكافآته.',
-      parameters: { type: 'OBJECT', properties: { phone: { type: 'STRING', description: 'رقم هاتف اللاعب بأي صيغة' }, period: { type: 'STRING', description: 'YYYY-MM (اختياريّ)' } }, required: ['phone'] },
+      description: 'بطاقة ولاء لاعب معيّن (أدمن فقط) **برقم هاتفه أو باسمه**: أختامه هذا الشهر، زياراته مع حكم كلّ زيارة، ومكافآته. إن ذكر الأدمن اسماً فمرّره كما هو — لا تطلب الرقم.',
+      parameters: { type: 'OBJECT', properties: { phone: { type: 'STRING', description: 'رقم هاتف اللاعب **أو اسمه** (كلّه أو جزء منه)' }, period: { type: 'STRING', description: 'YYYY-MM (اختياريّ)' } }, required: ['phone'] },
     });
   }
   if (t.cancellation) decls.push({
@@ -1894,11 +1897,10 @@ async function execTool(name: string, args: any, ctx: ToolCtx): Promise<any> {
 
     case 'admin_loyalty_player': {
       if (!dryRun && !(await isAdminConversation(conv))) return { error: 'هذه الأداة للأدمن فقط' };
-      const { normalizeLocalPhone } = await import('../utils/phone.util.js');
-      const ph = normalizeLocalPhone(String(args.phone || ''));
-      if (!ph) return { error: 'رقم غير صالح' };
-      const [pl] = await db.select({ id: players.id, name: players.name }).from(players).where(eq(players.phone, ph)).limit(1);
-      if (!pl) return { found: false, note: 'لا يوجد لاعب مسجّل بهذا الرقم' };
+      const { findPlayer } = await import('./wa-bot-ext.service.js');
+      const fp = await findPlayer(db, String(args.phone || args.name || ''));
+      if ('error' in fp) return { found: false, candidates: (fp as any).candidates, note: fp.error };
+      const pl = fp.pl!;
       const L = await import('./loyalty.service.js');
       const period = /^\d{4}-\d{2}$/.test(String(args.period || '')) ? String(args.period) : L.currentPeriod();
       const d: any = await L.adminPlayerDetail(pl.id, period);
@@ -3097,14 +3099,26 @@ async function processConversation(convId: number) {
     const liveFacts = await buildLiveFacts(db).catch(() => '');
 
     try {
-      const { text, usage } = await runAgent({ settings, conv, history, customerCard, liveFacts, dryRun: false });
-      recordBotUsage(convId, 'live', settings.model || '', usage).catch(() => {});
+      const { text, usage, toolTrace } = await runAgent({ settings, conv, history, customerCard, liveFacts, dryRun: false });
+      // 📈 قياس الجودة: زمن الردّ من وصول رسالة العميل، الأدوات، وأعلام (سؤال بلا جواب / تحويل / تسريب / صوت)
+      {
+        const names = toolTrace.map(t => t.name);
+        const flags: Record<string, any> = {};
+        const q = String(lastMsg.body || '').slice(0, 200);
+        if (/ما عندي معلومة|ما عندي معلومه|مش متأكد|ما بعرف بالضبط|لا أملك معلومة/.test(text || '')) { flags.unknown = true; flags.question = q; }
+        const ho = toolTrace.find(t => t.name === 'handoff_to_human'); if (ho) { flags.handoff = String(ho.args?.reason || '').slice(0, 160); flags.question = q; }
+        if (names.includes('🛡️ leak-guard')) flags.leak = true;
+        if (lastMsg.msgType === 'audio') flags.audio = /\[غير واضح\]|تعذّر فتح/.test(String(lastMsg.body || '')) ? 'unclear' : 'ok';
+        if (await isAdminConversation(conv)) flags.admin = true;
+        recordBotUsage(convId, 'live', settings.model || '', usage, { replyMs: Math.max(0, Date.now() - new Date(lastMsg.createdAt).getTime()), tools: names.filter(n => !n.startsWith('🛡️')), flags }).catch(() => {});
+      }
       const finalOut = enforceAddress((text || '').trim(), addressTitle);
       if (finalOut) {
         await sendMessage({ conversationId: convId, text: finalOut, source: 'bot' });
       }
     } catch (err: any) {
       console.error('❌ WA bot engine:', err.message);
+      recordBotUsage(convId, 'live', settings.model || '', { calls: 0, promptTokens: 0, candidatesTokens: 0, thoughtsTokens: 0, totalTokens: 0 }, { replyMs: Math.max(0, Date.now() - new Date(lastMsg.createdAt).getTime()), tools: [], flags: { fail: String(err?.message || '').slice(0, 160), question: String(lastMsg.body || '').slice(0, 200) } }).catch(() => {});
       // الفشل الآمن: اعتذار + تحويل حسب الإعدادات
       const failMsg = settings.failMessage || DEFAULT_FAIL_MESSAGE;
       try { await sendMessage({ conversationId: convId, text: failMsg, source: 'system' }); } catch { /* تجاهل */ }

@@ -46,11 +46,12 @@ console.log('\n🔒 فحص سياسة واتساب — مطابقة الكود �
 
 // ── ١) لا محرّك حملات ولا بثّ جماعيّ ──────────────────
 console.log('١) «The bulk campaign feature has been removed from our software»:');
-for (const gone of ['whatsapp-campaigns.service.ts', 'whatsapp-broadcast.service.ts']) {
+// (بثّ النوافذ المفتوحة أُعيد عمداً 2026-09-19 — قيوده تُفحص في القسم ٩. محرّك الحملات/القوالب يبقى محذوفاً.)
+for (const gone of ['whatsapp-campaigns.service.ts']) {
   check(!fs.existsSync(path.join(SRC, 'services', gone)), `الملف ${gone} غير موجود`);
 }
-const importers = files.filter((f) => /whatsapp-(campaigns|broadcast)\.service/.test(code(f)));
-check(importers.length === 0, 'لا ملفّ يستورد محرّك الحملات أو البثّ',
+const importers = files.filter((f) => /whatsapp-campaigns\.service/.test(code(f)));
+check(importers.length === 0, 'لا ملفّ يستورد محرّك الحملات',
   importers.map((f) => path.relative(SRC, f)).join(', '));
 
 // ── ٢) لا رفع ملفّات أرقام ────────────────────────────
@@ -67,8 +68,8 @@ check(parsers.length === 0, 'لا محلّل ملفّات أرقام في أي �
 console.log('\n٣) لا واجهة برمجية تُطلق إرسالاً جماعياً:');
 const bulkRoutes = [...routesCode.matchAll(/router\.\w+\(\s*'([^']+)'/g)]
   .map((m) => m[1])
-  .filter((r) => /campaign|broadcast/i.test(r));
-check(bulkRoutes.length === 0, 'لا مسار يحمل campaign أو broadcast', bulkRoutes.join(' · '));
+  .filter((r) => /campaign/i.test(r) || (/broadcast/i.test(r) && !/^\/open-window-broadcast(\/|$)/.test(r)));
+check(bulkRoutes.length === 0, 'لا مسار حملات، ولا بثّ خارج /open-window-broadcast المقيَّد', bulkRoutes.join(' · '));
 
 // ── ٤) منفذ واحد إلى Cloud API ────────────────────────
 console.log('\n٤) منفذ واحد فقط إلى واتساب — وهو المشروط:');
@@ -126,16 +127,26 @@ check(/env\.WA_SUSPENDED/.test(inboxSrc), 'والقفل التشغيليّ WA_SU
 const remSrc = code(path.join(SRC, 'services', 'whatsapp-reminder.service.ts'));
 check(/if \(env\.WA_SUSPENDED\)/.test(remSrc), 'ومجدول التذكير لا يبدأ أصلاً وهو مرفوع');
 
-// ── ٩) لا واجهة تُطلق شيئاً من ذلك ────────────────────
-console.log('\n٩) لا واجهة إدارة تُطلق حملة أو بثّاً:');
+// ── ٩) البثّ: أُعيد بقرار المالك 2026-09-19 على حسابٍ جديد — والفحص يثبت قيوده لا غيابه ──
+// (التظلّم كان عن الحساب القديم المعطَّل. ما يجب أن يبقى صحيحاً: لا حملات، لا قوالب، ولا مخاطبة لنافذة مغلقة.)
+console.log('\n٩) لا حملات، والبثّ مقيَّد بالنافذة المفتوحة عبر sendMessage وحدها:');
 const page = path.join(ROOT, '..', 'frontend', 'src', 'app', 'admin', 'whatsapp', 'page.tsx');
 if (fs.existsSync(page)) {
   const ui = read(page);
-  check(!/<BroadcastView|<CampaignsView|<CampaignWizard|<CampaignMonitor/.test(ui),
-    'لا مكوّن بثّ أو حملات مُركَّب في الصفحة');
-  check(!/whatsapp\/(campaigns|broadcast)/.test(ui), 'ولا نداء لمسار حملة أو بثّ');
+  check(!/<CampaignsView|<CampaignWizard|<CampaignMonitor/.test(ui), 'لا مكوّن حملات مُركَّب في الصفحة');
+  check(!/whatsapp\/campaigns/.test(ui), 'ولا نداء لمسار حملة');
 } else {
   check(true, 'تخطّي فحص الواجهة (المصادر غير متاحة هنا)');
+}
+const bsvc = path.join(SRC, 'services', 'whatsapp-broadcast.service.ts');
+if (fs.existsSync(bsvc)) {
+  const b = read(bsvc);
+  check(/sendMessage\(/.test(b) && !/graph\.facebook\.com|callWaApi|type:\s*'template'/.test(b), 'البثّ لا يملك مسار إرسال خاصّاً — يمرّ من sendMessage (حارس النافذة + قفل الإرسال)');
+  check(/wa_optouts/.test(b), 'والمعتذرون مستبعدون من الجمهور');
+  check(/BROADCAST_MAX_TARGETS\s*=\s*\d+/.test(b) && /BROADCAST_MIN_GAP_MS/.test(b), 'وله سقف مستلمين وفاصل زمنيّ بين بثّين');
+  check(/sendingSuspendedReason\(\)/.test(b), 'ويتوقّف إن أقفلت ميتا الإرسال أثناءه');
+} else {
+  check(true, 'لا خدمة بثّ في المصادر');
 }
 
 // ══════════════════════════════════════════════════════

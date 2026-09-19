@@ -379,6 +379,34 @@ router.post('/bot/locations/:id/toggle', authenticate, adminOnly, async (req: Re
 });
 
 // نبض البوت — إحصاءات سريعة
+// 📈 جودة الدون
+router.get('/bot/quality', authenticate, adminOnly, async (req: Request, res: Response) => {
+  try { const { getBotQuality } = await import('../services/wa-bot-ext.service.js'); res.json(await getBotQuality(Number(req.query.days) || 30)); }
+  catch (e: any) { console.error('❌ bot/quality:', e.message); res.status(500).json({ error: e.message }); }
+});
+
+// 📢 بثّ النوافذ المفتوحة — أدمن فقط. كلّ رسالة تمرّ من sendMessage (حارس النافذة وقفل الإرسال يسريان)
+router.get('/open-window-broadcast/audience', authenticate, adminOnly, async (req: Request, res: Response) => {
+  try {
+    const B = await import('../services/whatsapp-broadcast.service.js');
+    const aud = await B.previewAudience({ filter: String(req.query.filter || 'all') as any, activityId: req.query.activityId ? Number(req.query.activityId) : null });
+    res.json({ ...aud, status: await B.broadcastStatus(), history: await B.listBroadcasts(15), activities: await B.upcomingActivities() });
+  } catch (e: any) { res.status(500).json({ error: e.message }); }
+});
+router.post('/open-window-broadcast', authenticate, adminOnly, async (req: Request, res: Response) => {
+  try {
+    const B = await import('../services/whatsapp-broadcast.service.js');
+    const u: any = (req as any).user;
+    const r = await B.startBroadcast({ body: req.body?.body, filter: req.body?.filter || 'all', activityId: req.body?.activityId ?? null, excludeIds: Array.isArray(req.body?.excludeIds) ? req.body.excludeIds : [], appendOptout: req.body?.appendOptout !== false, createdBy: u?.displayName || u?.username || '' });
+    if (!r.ok) return res.status(400).json({ error: r.error });
+    try { const { logStaffAction } = await import('../services/staff-action-log.service.js'); void logStaffAction({ staffId: u?.id, staffUsername: u?.username, staffRole: u?.role, source: 'rest', action: 'rest:wa-broadcast', category: 'WHATSAPP_ADMIN', labelAr: 'بثّ واتساب للنوافذ المفتوحة', details: { broadcastId: r.id, targets: r.total, filter: req.body?.filter || 'all', body: String(req.body?.body || '').slice(0, 200) } }); } catch { /* غير حاجب */ }
+    res.json({ success: true, id: r.id, total: r.total });
+  } catch (e: any) { res.status(500).json({ error: e.message }); }
+});
+router.post('/open-window-broadcast/:id/stop', authenticate, adminOnly, async (req: Request, res: Response) => {
+  const B = await import('../services/whatsapp-broadcast.service.js'); B.stopBroadcast(parseInt(req.params.id)); res.json({ success: true });
+});
+
 // ⛔ قفل الإرسال (يُغلقه حدث صحّة الحساب من ميتا أو WA_SUSPENDED) — حالته ورفعه اليدويّ
 router.get('/sending-status', authenticate, adminOnly, async (_req: Request, res: Response) => {
   const { sendingSuspendedReason } = await import('../services/whatsapp-inbox.service.js');

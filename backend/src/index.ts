@@ -726,6 +726,9 @@ async function main() {
       await db.execute(sql`CREATE INDEX IF NOT EXISTS rank_bonuses_activity_idx ON rank_bonuses (activity_id)`);
       // ── 🤖 بوت الواتساب: توكنز الكاش + أعلام تشغيل دائمة (قفل الإرسال يصمد عبر إعادة التشغيل) ──
       await db.execute(sql`ALTER TABLE wa_bot_usage ADD COLUMN IF NOT EXISTS cached_tokens INTEGER DEFAULT 0`).catch(() => {});
+      await db.execute(sql`ALTER TABLE wa_bot_usage ADD COLUMN IF NOT EXISTS reply_ms INTEGER`).catch(() => {});
+      await db.execute(sql`ALTER TABLE wa_bot_usage ADD COLUMN IF NOT EXISTS tools JSONB DEFAULT '[]'::jsonb`).catch(() => {});
+      await db.execute(sql`ALTER TABLE wa_bot_usage ADD COLUMN IF NOT EXISTS flags JSONB DEFAULT '{}'::jsonb`).catch(() => {});
       await db.execute(sql`CREATE TABLE IF NOT EXISTS wa_runtime_flags (key VARCHAR(40) PRIMARY KEY, value JSONB NOT NULL, updated_at TIMESTAMP DEFAULT NOW() NOT NULL)`);
       await db.execute(sql`CREATE TABLE IF NOT EXISTS wa_bot_settings_history (id SERIAL PRIMARY KEY, saved_at TIMESTAMP DEFAULT NOW(), reason TEXT, system_prompt TEXT, knowledge_base TEXT)`);
       // ── 🎟️ بطاقة الولاء (ختم الدون) ──
