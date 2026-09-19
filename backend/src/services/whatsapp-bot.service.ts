@@ -1908,9 +1908,14 @@ async function execTool(name: string, args: any, ctx: ToolCtx): Promise<any> {
       return {
         found: true, player: pl.name, playerPhoneEndsWith: String(pl.phone || '').slice(-4), period, card: d.card, totals: d.totals,
         otherPlayersWithSimilarName: (fp as any).others?.length ? (fp as any).others : undefined,
-        visits: (d.visits || []).slice(0, 12).map((v: any) => ({ activity: v.activityName, dateText: fmtJo(v.date), verdict: v.verdict, bookedHoursBefore: v.leadHours, bookedVia: v.bookingCreatedBy, played: v.played })),
+        // زيارات فعليّة فقط: لعب أو حجز، وفي الماضي. (visitsInPeriod تسرد كلّ فعاليّات الشهر — فعاليّة لم يقترب منها ليست «غياباً».)
+        visits: (d.visits || []).filter((v: any) => new Date(v.date).getTime() < Date.now() && (v.played || v.leadHours != null)).slice(0, 12).map((v: any) => ({
+          activity: v.activityName, dateText: fmtJo(v.date), played: v.played,
+          result: ({ stamped: '✦ أخذ ختماً', late: `حجز متأخّراً (قبل ${v.leadHours} ساعة فقط) — بلا ختم`, channel: 'حجزه من قناة لا تُحتسب (سجّله موظّف) — بلا ختم', no_booking: 'لعب بلا حجز مسبق — بلا ختم', voided: 'ختم أُلغي', no_show: 'حجز ولم يلعب — بلا ختم', location: 'مكان غير مشمول بالبطاقة', test: 'حساب/مكان تجريبيّ' } as Record<string, string>)[v.verdict] || 'بلا ختم',
+          bookedVia: v.bookingCreatedBy || null,
+        })),
         rewards: (d.rewards || []).slice(0, 8).map((r: any) => ({ id: r.id, period: r.period, kind: r.kind, status: r.status, expiresAt: r.expiresAt ? fmtJo(r.expiresAt, false) : null })),
-        note: 'اعرض للأدمن البطاقة والزيارات، وسبب كلّ زيارة **كما ورد في verdict حرفيّاً** — لا تخمّن أسباباً ولا تقل «إمّا… أو». إن وُجد otherPlayersWithSimilarName فاذكر اسم اللاعب الكامل الذي أجبت عنه وأنّ هناك أسماء مشابهة، واسأل إن كان يقصد غيره. منح ختم يدويّ أو إلغاء مكافأة يتمّ من الداشبورد (/admin/loyalty) — لا أداة كتابة هنا.',
+        note: 'اعرض للأدمن البطاقة والزيارات، وسبب كلّ زيارة **كما ورد في result حرفيّاً** — لا تخمّن أسباباً ولا تقل «إمّا… أو». إن وُجد otherPlayersWithSimilarName فاذكر اسم اللاعب الكامل الذي أجبت عنه وأنّ هناك أسماء مشابهة، واسأل إن كان يقصد غيره. منح ختم يدويّ أو إلغاء مكافأة يتمّ من الداشبورد (/admin/loyalty) — لا أداة كتابة هنا.',
       };
     }
 
@@ -2619,6 +2624,10 @@ async function buildCustomerCard(db: any, conv: any): Promise<string> {
     lines.push(`الاسم: ${conv.displayName || 'غير معروف'} — زائر غير مسجّل كلاعب`);
     lines.push('🎖️ لقب المخاطبة: باسمه إن عُرف أو «ضيفنا» — بلا أيّ لقب رتبة (لا كابو ولا جندي ولا غيرهما).');
     lines.push('⚠️ المحادثة غير مربوطة بحساب لاعب — طبّق باب «ربط الحساب» إلزامياً: اسأله أولاً إن كان جديداً (وجّهه للتسجيل) أم لديه حساب برقم آخر (اربطه برمز التحقق عبر request_account_link).');
+  }
+  // 🔒 هويّة الأدمن صريحةً في البطاقة. بدونها رفض النموذج سؤال الأدمن عن لاعب آخر («أسرار شخصيّة») رغم أنّ الأدوات معروضة له.
+  if (await isAdminConversation(conv).catch(() => false)) {
+    lines.push('🔒 هذا المتحدّث **أدمن موثَّق** (رقمه مربوط بحساب إداريّ). قاعدة «لا معلومات عن لاعب آخر» **لا تسري عليه**: أيّ سؤال منه عن لاعب أو حجز أو ماليّة أو ولاء ⟵ استدعِ أداة الإدارة المناسبة فوراً، بلا رفض وبلا طلب إثبات.');
   }
   const notes = await db.select().from(waCustomerNotes)
     .where(eq(waCustomerNotes.phone, conv.phone))
