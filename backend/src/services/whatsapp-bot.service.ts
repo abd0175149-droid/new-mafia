@@ -2468,7 +2468,8 @@ export async function seasonStandingsFor(db: any, playerId: number): Promise<{ s
   `);
   const rows: any[] = r?.rows ?? (Array.isArray(r) ? r : []);
   const seasonName = rows[0]?.season_name || null;
-  const standings = rows.filter(x => x.rank_tier && Number(x.matches) > 0).map(x => ({
+  // صفٌّ بلا مباريات ولا نقاط = لم يبدأ موسمه بعد؛ نقاطٌ من مكافأة بلا مباريات تكفي لاعتباره صاحب رتبة
+  const standings = rows.filter(x => x.rank_tier && (Number(x.matches) > 0 || Number(x.rank_rr) > 0)).map(x => ({
     city: String(x.city || ''), rankTier: String(x.rank_tier), rankRR: Number(x.rank_rr), level: Number(x.level), matches: Number(x.matches),
   }));
   let best: any = null;
