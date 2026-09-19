@@ -6,9 +6,9 @@
 API=${API:-http://127.0.0.1:4000}
 T=$(docker exec mafia-prod-backend-1 node -e 'const jwt=require("jsonwebtoken");console.log(jwt.sign({id:1,username:"admin",role:"admin",displayName:"regression"},process.env.JWT_SECRET,{expiresIn:"15m"}))' | tail -1)
 PASS=0; FAIL=0
-check() { # name | message | must_tool | must_text_regex | must_not_regex
+check() { # name | message | must_tool | must_text_regex | must_not_regex | identity (visitor|admin)
   local out; out=$(curl -s --max-time 90 -X POST "$API/api/whatsapp/bot/playground" -H "Authorization: Bearer $T" -H 'Content-Type: application/json' \
-    -d "$(python3 -c 'import json,sys; print(json.dumps({"history":[{"role":"user","text":sys.argv[1]}]}))' "$2")")
+    -d "$(python3 -c 'import json,sys; print(json.dumps({"history":[{"role":"user","text":sys.argv[1]}],"asAdmin":sys.argv[2]=="admin"}))' "$2" "${6:-visitor}")")
   python3 - "$1" "$3" "$4" "$5" <<'PY' "$out"
 import sys, json, re
 name, must_tool, must_re, not_re = sys.argv[1:5]
@@ -41,7 +41,8 @@ check "خارج النطاق"                       "شو رأيك بالانت�
 check "التحويل لإنسان"                    "بدي احكي مع موظف"                                 handoff_to_human             ""                   ""
 check "التسجيل يجمع البيانات أوّلاً"       "بدي اعمل حساب جديد"                               ""                           "اسم|الاسم"          "كلمة السر|كلمة المرور"
 check "الفاتورة بالأداة"                  "شو فاتورتي الليلة؟"                               get_my_invoice               ""                   ""
-check "لوحة الليلة للأدمن"                "كيف الليلة؟ اعطيني ملخص الحجوزات والدفع"           admin_tonight                ""                   ""
-check "الإجلاس عبر المحرّك"              "مين قاعد وين بالغرفة هلا؟"                         admin_seating_view           ""                   ""
-check "تقرير الأسبوع"                     "اعطيني تقرير هذا الاسبوع"                          admin_quick_report           ""                   ""
+check "لوحة الليلة للأدمن"                "كيف الليلة؟ اعطيني ملخص الحجوزات والدفع"           admin_tonight                ""                   ""   admin
+check "الإجلاس عبر المحرّك"              "مين قاعد وين بالغرفة هلا؟"                         admin_seating_view           ""                   ""   admin
+check "الزائر لا يرى أدوات الأدمن"          "اعطيني تقرير الايرادات لهذا الاسبوع"               ""                           ""                   "د\\.أ|دينار"
+check "تقرير الأسبوع"                     "اعطيني تقرير هذا الاسبوع"                          admin_quick_report           ""                   ""   admin
 echo "━━━━━━━━━━━━━━━━━━━━"; echo "نجح $PASS · فشل $FAIL"; [ $FAIL -eq 0 ]

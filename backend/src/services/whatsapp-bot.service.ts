@@ -2699,10 +2699,11 @@ export async function runAgent(opts: {
   customerCard: string;
   liveFacts?: string;
   dryRun: boolean;
+  asAdmin?: boolean;         // ساحة الاختبار فقط
 }): Promise<{ text: string; toolTrace: Array<{ name: string; args: any; result: any }>; interactives: any[]; usage: { calls: number; promptTokens: number; candidatesTokens: number; thoughtsTokens: number; totalTokens: number; cachedTokens: number } }> {
   const { settings, conv, dryRun } = opts;
   // 🔒 بوّابة أدوات «الأدمن فقط»: الساحة (dryRun) تُعامَل كأدمن لتُظهر كل الأدوات للاختبار.
-  const isAdminConv = dryRun ? true : await isAdminConversation(conv);
+  const isAdminConv = dryRun ? !!opts.asAdmin : await isAdminConversation(conv);
   const toolDecls = buildToolDeclarations(settings.toolsConfig, { adminOnlyTools: settings.adminOnlyTools, isAdmin: isAdminConv });
   // ⚡ الترتيب مقصود: الثابت أوّلاً (الموجّه ثمّ قاعدة المعرفة) والمتغيّر آخراً — مزوّد النموذج يخزّن
   //    البادئة المشتركة تلقائيّاً (implicit caching) فتُفوتَر بخصم. كان الوقت وبطاقة العميل في الوسط
@@ -3250,6 +3251,7 @@ async function performCancellation(convId: number, reservationId: number) {
 
 export async function runPlayground(
   history: Array<{ role: 'user' | 'model'; text: string }>,
+  opts?: { asAdmin?: boolean },
 ) {
   const settings = await getBotSettings();
   if (!settings.geminiApiKey) throw new Error('أدخل مفتاح Gemini واحفظه أولاً');
@@ -3260,11 +3262,15 @@ export async function runPlayground(
   if (contents.length === 0) throw new Error('اكتب رسالة أولاً');
 
   const fakeConv = { id: 0, phone: '0790000000', waPhone: '962790000000', playerId: null, displayName: 'عميل تجريبي' };
-  const customerCard = 'رقم العميل: 0790000000\nالاسم: عميل تجريبي (ساحة اختبار) — زائر غير مسجّل';
+  // ساحة الاختبار بهويّتين: زائر (بلا أدوات أدمن — كما يراها عميل حقيقيّ) أو أدمن (لاختبار أدوات الإدارة)
+  const asAdmin = !!opts?.asAdmin;
+  const customerCard = asAdmin
+    ? 'رقم العميل: 0790000000\nالاسم: أدمن تجريبي (ساحة اختبار) — حساب أدمن موثَّق، أدوات الإدارة 🔒 متاحة له.\n🎖️ لقب المخاطبة: باسمه فقط.'
+    : 'رقم العميل: 0790000000\nالاسم: عميل تجريبي (ساحة اختبار) — زائر غير مسجّل\n🎖️ لقب المخاطبة: «ضيفنا» بلا أيّ لقب رتبة.';
 
   const dbPg = getDB();
   const liveFacts = dbPg ? await buildLiveFacts(dbPg).catch(() => '') : '';
-  const result = await runAgent({ settings, conv: fakeConv, history: contents, customerCard, liveFacts, dryRun: true });
+  const result = await runAgent({ settings, conv: fakeConv, history: contents, customerCard, liveFacts, dryRun: true, asAdmin });
   // ساحة الاختبار تستهلك توكنز حقيقية أيضاً — تُسجَّل بمصدرها الخاص
   recordBotUsage(null, 'playground', settings.model || '', result.usage).catch(() => {});
   return result;

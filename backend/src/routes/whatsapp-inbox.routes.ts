@@ -340,7 +340,8 @@ router.post('/bot/playground', authenticate, adminOnly, async (req: Request, res
     const { runPlayground } = await import('../services/whatsapp-bot.service.js');
     const history = Array.isArray(req.body?.history) ? req.body.history : [];
     // وضع الحملة: يحاكي محادثة بدأت من قالب تسويقي (لاختبار باب ٨ قبل أي رقم حقيقي)
-    const result = await runPlayground(history);
+    // asAdmin: الافتراضيّ true للتوافق مع اللوحة (تعرض كلّ الأدوات)؛ اختبارات الانحدار تحدّده صراحةً
+    const result = await runPlayground(history, { asAdmin: req.body?.asAdmin !== false });
     res.json({ success: true, ...result });
   } catch (err: any) {
     res.status(400).json({ error: err.message });
