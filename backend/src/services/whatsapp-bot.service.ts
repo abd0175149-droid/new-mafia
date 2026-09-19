@@ -2715,7 +2715,9 @@ export async function runAgent(opts: {
 
     if (fnCalls.length === 0) {
       // 🛡️ حارس التسريب: اسم أداة/كود بالنص ⟵ محاولة تصحيح واحدة يستدعيها فيها فعلياً
-      if (!leakRetried && detectToolLeak(textPart, toolNames)) {
+      // إعادة المحاولة فقط إن لم تُنفَّذ أداة بعد: بعد التنفيذ يكون «التسريب» غالباً اسم حقلٍ من النتيجة في
+      // تقرير، وإعادة المحاولة كانت تُضيّع التقرير كلّه («الأمور تحت السيطرة»). التنظيف النهائيّ يكفي هناك.
+      if (!leakRetried && toolTrace.length === 0 && detectToolLeak(textPart, toolNames)) {
         leakRetried = true;
         toolTrace.push({ name: '🛡️ leak-guard', args: { leaked: textPart.slice(0, 120) }, result: { retried: true } });
         contents.push({ role: 'model', parts });
