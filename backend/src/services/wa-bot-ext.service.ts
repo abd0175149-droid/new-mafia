@@ -217,7 +217,9 @@ export async function findPlayer(db: any, raw: string): Promise<{ pl: { id: numb
   const exact = rows.filter((x: any) => String(x.name).trim().toLowerCase() === q.toLowerCase());
   const pick = exact.length === 1 ? exact[0] : rows.length === 1 ? rows[0] : null;
   if (!pick) return { error: `أكثر من لاعب يطابق «${q}» — اسأل الأدمن أيّهم يقصد`, candidates: rows.map((x: any) => ({ name: x.name, phoneEndsWith: String(x.phone || '').slice(-4), matches: Number(x.lm) })) };
-  return { pl: { id: Number(pick.id), name: pick.name, phone: pick.phone, isLocked: !!pick.is_locked, geofenceExempt: !!pick.geofence_exempt, chips: Number(pick.chips_balance || 0) } };
+  // اسم مطابق حرفيّاً لكن غيره يحمل الاسم نفسه ضمن اسمه («محمد» وعشرات غيره): نُعيد المطابق ونُعلِم الأدمن بالبقيّة
+  const others = rows.filter((x: any) => x.id !== pick.id).map((x: any) => `${x.name} (…${String(x.phone || '').slice(-4)})`);
+  return { pl: { id: Number(pick.id), name: pick.name, phone: pick.phone, isLocked: !!pick.is_locked, geofenceExempt: !!pick.geofence_exempt, chips: Number(pick.chips_balance || 0) }, others } as any;
 }
 const playerByPhone = findPlayer;
 async function stash(key: string, payload: any) { const { setAux } = await import('../config/redis.js'); await setAux(key, { ...payload, expiresAt: Date.now() + AUX_TTL_MS }); }
