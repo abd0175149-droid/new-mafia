@@ -2579,7 +2579,7 @@ async function buildLiveFacts(db: any): Promise<string> {
 
 // 🎖️ فرض لقب المخاطبة بالكود. السبب: بطاقة العميل كانت تقول «يا مُخبر» والنموذج يكتب «يا كابو» —
 // لأنّ سجلّ المحادثة مليء بردودٍ قديمة نادته «كابو» فيقلّدها. التعليمات لا تكفي أمام أمثلة حيّة في السياق.
-const RANK_VOCATIVE_RE = /يا\s+(?:ال)?(?:كابو|جندي|مُخبر|مخبر|عرّاب|عراب|ساعد\s+الزعيم|دون|زعيم|بوس)(?![\u0600-\u06FF])/g;
+const RANK_VOCATIVE_RE = /يا\s+(?:ال)?(?:كابو|جندي|مُخبر|مخبر|عرّاب|عراب|ساعد\s+الزعيم|دون|زعيم|بوس)(?![ء-يً-ْٮ-ۓ])/g;   // التالي ليس حرفاً عربيّاً (الفاصلة «،» مسموحة)
 export async function addressTitleFor(db: any, conv: any): Promise<string> {
   try {
     if (!conv?.playerId) return '';
@@ -2591,7 +2591,7 @@ export async function addressTitleFor(db: any, conv: any): Promise<string> {
 export function enforceAddress(text: string, allowed: string): string {
   if (!text) return text;
   let out = text.replace(RANK_VOCATIVE_RE, (m) => (allowed && m.replace(/\s+/g, ' ') === allowed ? m : (allowed || '')));
-  return out.replace(/[ \t]{2,}/g, ' ').replace(/ +([،,.!؟🎭🎖️])/g, '$1').replace(/^[،, ]+/gm, '').trim();
+  return out.replace(/[ \t]{2,}/g, ' ').replace(/ +([،,.!؟])/g, '$1').replace(/^[،, ]+/gm, '').trim();
 }
 
 async function buildCustomerCard(db: any, conv: any): Promise<string> {
