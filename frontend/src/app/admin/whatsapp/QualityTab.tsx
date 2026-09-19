@@ -158,17 +158,27 @@ export default function QualityTab({ apiFetch, onOpenConv }: { apiFetch: Fetcher
         </p>
         {weekly.length === 0 ? <p className="text-xs text-gray-500">لا بيانات.</p> : (
           <div className="overflow-x-auto">
-            <div className="flex items-end gap-2 h-44 min-w-[520px]">
-              {weekly.map(w => (
-                <div key={w.week} className="flex-1 flex flex-col items-center gap-1 min-w-0" title={`${w.bookings} حجزاً · مبكّر من التطبيق ${w.earlyApp} · من البوت ${w.earlyBot}`}>
-                  <span className="text-[10.5px] text-gray-300 tabular-nums">{n(w.earlyRate)}٪</span>
-                  <div className="w-full flex-1 flex flex-col justify-end rounded-t bg-gray-800/60 overflow-hidden" style={{ maxHeight: `${Math.max(8, (w.bookings / wMax) * 100)}%` }}>
-                    <div style={{ height: `${(w.earlyBot / Math.max(1, w.bookings)) * 100}%`, background: '#34d399' }} />
-                    <div style={{ height: `${(w.earlyApp / Math.max(1, w.bookings)) * 100}%`, background: '#fbbf24' }} />
+            <div className="flex items-end gap-2 min-w-[520px]">
+              {weekly.map(w => {
+                // ارتفاعات بالبكسل صراحةً: النِّسب المئويّة داخل عمود flex بلا ارتفاع محدَّد تنهار إلى صفر
+                const H = 140;
+                const colH = Math.max(6, Math.round((w.bookings / wMax) * H));
+                const botH = Math.round((w.earlyBot / Math.max(1, w.bookings)) * colH);
+                const appH = Math.round((w.earlyApp / Math.max(1, w.bookings)) * colH);
+                return (
+                  <div key={w.week} className="flex-1 flex flex-col items-center gap-1 min-w-0" title={`${w.bookings} حجزاً · مبكّر من التطبيق ${w.earlyApp} · من البوت ${w.earlyBot}`}>
+                    <span className="text-[10.5px] text-gray-300 tabular-nums">{n(w.earlyRate)}٪</span>
+                    <div className="w-full flex flex-col justify-end" style={{ height: H }}>
+                      <div className="w-full flex flex-col justify-end rounded-t bg-gray-700/70 overflow-hidden" style={{ height: colH }}>
+                        <div style={{ height: botH, background: '#34d399' }} />
+                        <div style={{ height: appH, background: '#fbbf24' }} />
+                      </div>
+                    </div>
+                    <span className="text-[10px] text-gray-400 tabular-nums">{n(w.bookings)}</span>
+                    <span className="text-[10px] text-gray-500 tabular-nums" dir="ltr">{w.week.slice(5)}</span>
                   </div>
-                  <span className="text-[10px] text-gray-500 tabular-nums" dir="ltr">{w.week.slice(5)}</span>
-                </div>
-              ))}
+                );
+              })}
             </div>
           </div>
         )}
