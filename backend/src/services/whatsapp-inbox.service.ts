@@ -58,6 +58,12 @@ async function callWaApi(path: string, body: any): Promise<any> {
       const msg = data?.error?.message || `WhatsApp API HTTP ${res.status}`;
       const err: any = new Error(msg);
       err.waError = data?.error || null;
+      // ⛔ حظر على مستوى التطبيق/الحساب (OAuth 200 «API access blocked»، 368 حظر مؤقّت، 131031 حساب مقفل):
+      //    كلّ محاولة لاحقة ستفشل بالمثل — نقفل الإرسال فوراً بدل مواصلة الطرق (2026-09-20: حُظر التطبيق ولم يُقفل شيء).
+      const code = Number(data?.error?.code);
+      if ((code === 200 && /access blocked/i.test(msg)) || code === 368 || code === 131031) {
+        try { suspendSending(`ميتا ترفض الطلبات: ${msg} (code ${code})`); } catch { /* غير حاجب */ }
+      }
       throw err;
     }
     return data;
