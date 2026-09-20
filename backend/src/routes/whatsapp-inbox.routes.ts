@@ -669,7 +669,9 @@ router.delete('/messages/:id', authenticate, adminOnly, async (req: Request, res
 // 📋 قوالب الرسائل المحلية (للبث — ليست قوالب ميتا)
 // ══════════════════════════════════════════════════════
 
-router.get('/templates', authenticate, adminOnly, async (_req: Request, res: Response) => {
+// ⚠️ المسار ليس /templates: الراوتر الأقدم whatsapp.routes (مركَّب قبل هذا على /api/whatsapp) يملك /templates لجدول آخر
+//    (whatsapp_templates بحقل template لا body) فكان يحجب هذه المسارات كلّها — حفظ قالب البثّ رجع 400.
+router.get('/open-window-broadcast/templates', authenticate, adminOnly, async (_req: Request, res: Response) => {
   try {
     const db = getDB();
     if (!db) return res.status(503).json({ error: 'DB unavailable' });
@@ -680,7 +682,7 @@ router.get('/templates', authenticate, adminOnly, async (_req: Request, res: Res
   }
 });
 
-router.post('/templates', authenticate, adminOnly, async (req: Request, res: Response) => {
+router.post('/open-window-broadcast/templates', authenticate, adminOnly, async (req: Request, res: Response) => {
   try {
     const db = getDB();
     if (!db) return res.status(503).json({ error: 'DB unavailable' });
@@ -696,7 +698,7 @@ router.post('/templates', authenticate, adminOnly, async (req: Request, res: Res
   }
 });
 
-router.put('/templates/:id', authenticate, adminOnly, async (req: Request, res: Response) => {
+router.put('/open-window-broadcast/templates/:id', authenticate, adminOnly, async (req: Request, res: Response) => {
   try {
     const db = getDB();
     if (!db) return res.status(503).json({ error: 'DB unavailable' });
@@ -712,7 +714,7 @@ router.put('/templates/:id', authenticate, adminOnly, async (req: Request, res: 
   }
 });
 
-router.delete('/templates/:id', authenticate, adminOnly, async (req: Request, res: Response) => {
+router.delete('/open-window-broadcast/templates/:id', authenticate, adminOnly, async (req: Request, res: Response) => {
   try {
     const db = getDB();
     if (!db) return res.status(503).json({ error: 'DB unavailable' });

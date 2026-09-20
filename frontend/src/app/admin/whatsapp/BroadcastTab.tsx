@@ -56,7 +56,7 @@ export default function BroadcastTab({ apiFetch }: { apiFetch: Fetcher }) {
   const needsActivity = filter === 'activity' || filter === 'not_booked_activity';
 
   const loadTpls = useCallback(async () => {
-    try { const d = await apiFetch('/api/whatsapp/templates'); setTpls(d.templates || []); } catch { /* غير حاجب */ }
+    try { const d = await apiFetch('/api/whatsapp/open-window-broadcast/templates'); setTpls(d.templates || []); } catch { /* غير حاجب */ }
   }, [apiFetch]);
   useEffect(() => { loadTpls(); }, [loadTpls]);
   const currentTpl = tpls.find(t => t.id === tplId) || null;
@@ -66,13 +66,13 @@ export default function BroadcastTab({ apiFetch }: { apiFetch: Fetcher }) {
     if (body.trim().length < 5) { swalToast('اكتب النصّ أوّلاً', 'warning'); return; }
     try {
       if (currentTpl && tplDirty && await swalConfirm(`تحديث القالب «${currentTpl.name}» بالنصّ الحاليّ؟\n(«لا» = حفظه كقالب جديد)`, { title: 'حفظ القالب', confirmText: 'حدّثه', cancelText: 'لا، جديد', icon: 'question' })) {
-        await apiFetch(`/api/whatsapp/templates/${currentTpl.id}`, { method: 'PUT', body: JSON.stringify({ body }) });
+        await apiFetch(`/api/whatsapp/open-window-broadcast/templates/${currentTpl.id}`, { method: 'PUT', body: JSON.stringify({ body }) });
         swalToast('حُدّث القالب', 'success');
       } else {
         const r = await Swal.fire({ title: 'اسم القالب', input: 'text', inputPlaceholder: 'مثال: تذكير فعاليّة الغد', showCancelButton: true, confirmButtonText: 'احفظ', cancelButtonText: 'إلغاء', background: '#141210', color: '#e7e2d6', confirmButtonColor: '#d97706', inputValidator: v => (!v?.trim() ? 'اكتب اسماً' : undefined) });
         const name = String(r.value || '').trim();
         if (!r.isConfirmed || !name) return;
-        const d = await apiFetch('/api/whatsapp/templates', { method: 'POST', body: JSON.stringify({ name, body }) });
+        const d = await apiFetch('/api/whatsapp/open-window-broadcast/templates', { method: 'POST', body: JSON.stringify({ name, body }) });
         setTplId(d.template?.id ?? null);
         swalToast('حُفظ القالب', 'success');
       }
@@ -81,7 +81,7 @@ export default function BroadcastTab({ apiFetch }: { apiFetch: Fetcher }) {
   };
   const deleteTpl = async () => {
     if (!currentTpl || !(await swalConfirm(`حذف القالب «${currentTpl.name}»؟`, { confirmText: 'احذفه', danger: true }))) return;
-    await apiFetch(`/api/whatsapp/templates/${currentTpl.id}`, { method: 'DELETE' }).catch(() => {});
+    await apiFetch(`/api/whatsapp/open-window-broadcast/templates/${currentTpl.id}`, { method: 'DELETE' }).catch(() => {});
     setTplId(null); loadTpls();
   };
 
