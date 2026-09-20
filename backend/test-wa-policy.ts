@@ -143,7 +143,8 @@ if (fs.existsSync(bsvc)) {
   const b = read(bsvc);
   check(/sendMessage\(/.test(b) && !/graph\.facebook\.com|callWaApi|type:\s*'template'/.test(b), 'البثّ لا يملك مسار إرسال خاصّاً — يمرّ من sendMessage (حارس النافذة + قفل الإرسال)');
   check(/wa_optouts/.test(b), 'والمعتذرون مستبعدون من الجمهور');
-  check(/BROADCAST_MAX_TARGETS\s*=\s*\d+/.test(b) && /BROADCAST_MIN_GAP_MS/.test(b), 'وله سقف مستلمين وفاصل زمنيّ بين بثّين');
+  // (الفاصل الزمنيّ بين بثّين أُلغي بقرار المالك 2026-09-20 — بقي سقف المستلمين وخيار استثناء مستلمي بثّ سابق)
+  check(/BROADCAST_MAX_TARGETS\s*=\s*\d+/.test(b), 'وله سقف مستلمين');
   check(/sendingSuspendedReason\(\)/.test(b), 'ويتوقّف إن أقفلت ميتا الإرسال أثناءه');
 } else {
   check(true, 'لا خدمة بثّ في المصادر');

@@ -126,7 +126,7 @@ export default function BroadcastTab({ apiFetch }: { apiFetch: Fetcher }) {
 
   const send = async () => {
     const ok = await swalConfirm(
-      `ستُرسَل هذه الرسالة إلى ${targets.length} شخصاً نافذتهم مفتوحة الآن.\nلا يمكن التراجع عمّا أُرسل، ولن يتاح بثّ آخر لهم قبل ١٢ ساعة.`,
+      `ستُرسَل هذه الرسالة إلى ${targets.length} شخصاً نافذتهم مفتوحة الآن.\nلا يمكن التراجع عمّا أُرسل.`,
       { title: 'تأكيد البثّ', confirmText: `أرسل إلى ${targets.length}`, icon: 'warning' },
     );
     if (!ok) return;
@@ -155,7 +155,7 @@ export default function BroadcastTab({ apiFetch }: { apiFetch: Fetcher }) {
         <div className="space-y-4 min-w-0">
           <div className="rounded-2xl border border-amber-500/20 bg-amber-500/5 p-4 text-[13px] leading-relaxed text-amber-100/90">
             <b className="text-amber-400">ما يفعله هذا التبويب:</b> يرسل رسالة نصّيّة واحدة لمن راسلونا خلال آخر 24 ساعة فقط — هؤلاء وحدهم تسمح ميتا بمراسلتهم مجّاناً وبلا قالب.
-            لا يصل لمن أُغلقت نافذته، ولا لمن كتب «إيقاف». السقف: بثّ واحد كلّ ١٢ ساعة و{status?.maxTargets ?? 300} مستلم.
+            لا يصل لمن أُغلقت نافذته، ولا لمن كتب «إيقاف». السقف: {status?.maxTargets ?? 300} مستلم للبثّ الواحد.
           </div>
 
           {runningRow && (

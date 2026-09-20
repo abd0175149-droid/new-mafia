@@ -7,7 +7,7 @@
 //   • لا مسار إرسال خاصّ: كلّ رسالة تمرّ من sendMessage نفسها ⇒ حارس نافذة الـ24 ساعة وقفل الإرسال يسريان حرفيّاً.
 //     لا قوالب، ولا مخاطبة لنافذة مغلقة، ولا رقم لم يراسلنا.
 //   • المعتذرون (wa_optouts) مستبعدون إجباريّاً، وكلّ بثّ يُذيَّل بسطر «لإيقاف الرسائل أرسل: إيقاف».
-//   • سقف: بثّ واحد كلّ 12 ساعة · 300 مستلم كحدّ أقصى · رسالة كلّ ~1.3 ثانية.
+//   • سقف: 300 مستلم (فاصل الـ12 ساعة أُلغي بقرار المالك 2026-09-20) كحدّ أقصى · رسالة كلّ ~1.3 ثانية.
 //   • إيقاف تلقائيّ: قفل إرسال من ميتا أثناء البثّ، أو 5 إخفاقات متتالية، أو زرّ الإيقاف.
 //   • كلّ بثّ يُسجَّل في wa_broadcasts وفي سجلّ عمليّات الموظّفين.
 
@@ -18,7 +18,6 @@ import { sendMessage, sendingSuspendedReason } from './whatsapp-inbox.service.js
 
 const rowsOf = (r: any): any[] => r?.rows ?? (Array.isArray(r) ? r : []);
 export const BROADCAST_MAX_TARGETS = 300;
-export const BROADCAST_MIN_GAP_MS = 12 * 3600e3;
 const PACE_MS = 1300;
 const WINDOW_MARGIN = "23 hours 45 minutes";
 const OPTOUT_FOOTER = '\n\n— لإيقاف هذه الرسائل أرسل: إيقاف';
@@ -71,9 +70,7 @@ export function fillVars(body: string, t: { name: string; rank: string; activity
 
 export async function broadcastStatus() {
   const db = getDB(); if (!db) return { running: null, nextAllowedAt: null, suspended: null };
-  const [last] = await db.select().from(waBroadcasts).orderBy(desc(waBroadcasts.id)).limit(1);
-  const nextAllowedAt = last ? new Date(new Date(last.createdAt).getTime() + BROADCAST_MIN_GAP_MS) : null;
-  return { running, suspended: sendingSuspendedReason(), nextAllowedAt: nextAllowedAt && nextAllowedAt.getTime() > Date.now() ? nextAllowedAt.toISOString() : null, maxTargets: BROADCAST_MAX_TARGETS };
+  return { running, suspended: sendingSuspendedReason(), nextAllowedAt: null, maxTargets: BROADCAST_MAX_TARGETS };
 }
 
 export async function startBroadcast(input: AudienceQuery & { body: string; createdBy: string; appendOptout?: boolean; templateId?: number | null }): Promise<{ ok: boolean; error?: string; id?: number; total?: number }> {
@@ -84,15 +81,7 @@ export async function startBroadcast(input: AudienceQuery & { body: string; crea
   if (/https?:\/\/(?!club-mafia\.grade\.sbs|mafia-club\.masaros\.net|(www\.)?instagram\.com\/mafia_club_jo)/i.test(body)) return { ok: false, error: 'الروابط الخارجيّة غير مسموحة في البثّ (روابط النادي فقط)' };
   const blocked = sendingSuspendedReason(); if (blocked) return { ok: false, error: `الإرسال مقفل: ${blocked}` };
   if (running) return { ok: false, error: 'هناك بثّ جارٍ الآن' };
-  const st = await broadcastStatus();
-  // الفاصل الزمنيّ غايته ألّا يصل الشخصَ بثّان متقاربان. إن استُثني مستلمو **كلّ** بثوث آخر 12 ساعة فلا أحد يصله اثنان ⟵ يُسمح.
-  if (st.nextAllowedAt) {
-    const rr: any = await db.execute(sql`SELECT id FROM wa_broadcasts WHERE created_at > NOW() - INTERVAL '12 hours'`);
-    const recent = rowsOf(rr).map((x: any) => Number(x.id));
-    const ex = new Set((input.excludeBroadcastIds || []).map(Number));
-    if (recent.every((id: number) => ex.has(id))) st.nextAllowedAt = null;
-  }
-  if (st.nextAllowedAt) return { ok: false, error: `بثّ واحد كلّ ١٢ ساعة (أو استثنِ مستلمي البثّ السابق لترسل للباقي) — المتاح بعد ${new Date(st.nextAllowedAt).toLocaleTimeString('ar-JO', { hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Amman' })}` };
+  // (حظر الـ12 ساعة بين البثوث أُلغي بقرار المالك 2026-09-20. الحماية من التكرار صارت بيده: خيار «استثنِ من وصلهم بثّ سابق».)
   let activityName = '', venueName = '', whenText = '';
   if (/\{(الفعالية|المكان|الموعد)\}/.test(body)) {
     if (!input.activityId) return { ok: false, error: 'النصّ فيه متغيّر فعاليّة ({الفعالية}/{المكان}/{الموعد}) — اختر فعاليّة من الفلتر أوّلاً' };
