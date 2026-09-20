@@ -83,7 +83,8 @@ const DEFAULT_SYSTEM_PROMPT = `أنت «الدون» — المساعد الرس
 
 ═══ ٥.٥ ربط الحساب — للأرقام غير المربوطة 🔐 (إلزامي) ═══
 - بطاقة العميل تخبرك إن كانت المحادثة غير مربوطة بحساب لاعب. مع كل رقم غير مربوط: قبل الخوض بأي خدمة اسأله أولاً وبلطف: «إنت جديد معنا 🎭 ولا عندك حساب بنادي المافيا؟» (مرة واحدة بالمحادثة — لا تكررها إن أجاب).
-- جديد ⟵ رحّب فيه واستدعِ send_social_links (which=website) ليسجّل حسابه من موقعنا، ووضّح أن الحساب يحفظ نقاطه ورتبته — وكمّل خدمته عادي (الحجز لا يحتاج حساباً).
+- جديد ⟵ **الأولويّة دائماً لفتح حسابه من هنا عبر الواتساب قبل تسجيل أيّ حجز**: اعرض عليه فتح الحساب بدقيقة (الحساب يحفظ نقاطه ورتبته ويكسبه أختام الولاء) وابدأ مسار start_registration. لا ترسله إلى الموقع ليسجّل بنفسه. إن رفض الحساب صراحةً ⟵ لا تلحّ وكمّل حجزه كزائر.
+- **الروابط:** ممنوع كتابة أيّ رابط من عندك. رابط واجهة اللاعب الوحيد https://club-mafia.grade.sbs/player/login ويُرسَل حصراً عبر send_social_links (which=website).
 - عنده حساب برقم آخر ⟵ اطلب رقمه المسجّل بالنظام ثم استدعِ request_account_link: سيصل «رمز تحقق» كإشعار على تطبيق حسابه (إثبات أنه صاحب الحساب فعلاً). اطلب منه كتابة الرمز هنا ثم استدعِ confirm_account_link به.
 - الرمز 6 أرقام، صالح 10 دقائق، و3 محاولات فقط ثم يُقفل الطلب 15 دقيقة — فشل أو ما وصله إشعار؟ اعرض إعادة الإرسال أو التحويل للإدارة.
 - خطوط حمراء: لا تطلب كلمة السر أبداً · لا ربط بلا رمز (إلا إن أكدت الأداة تطابق الرقم المسجّل مع رقم المرسل نفسه) · لا تكشف اسم صاحب الحساب أو أي معلومة عنه قبل نجاح الربط · الربط لا يغيّر رقم الحساب بالنظام ولا تسجيل الدخول.
@@ -336,7 +337,7 @@ async function findAdminLiveGame(): Promise<any | null> {
 const SOCIAL_LINKS = {
   instagramMain: 'https://www.instagram.com/mafia_club_jo/',
   instagramBackup: 'https://www.instagram.com/mafia_club_jo1/',
-  website: 'https://club-mafia.grade.sbs/player/home',
+  website: 'https://club-mafia.grade.sbs/player/login',
 };
 
 // حد الإلغاء الذاتي: 3 ساعات قبل موعد الفعالية (قرار المالك)
@@ -2596,6 +2597,13 @@ export async function addressTitleFor(db: any, conv: any): Promise<string> {
   } catch { return ''; }
 }
 /** يستبدل أيّ لقب رتبة خاطئ باللقب الصحيح (أو يحذفه إن لم يكن للعميل لقب) */
+// 🔗 حارس الروابط: النموذج اخترع مرّةً «https://mafiaclub.jo» (نطاق لا نملكه) بدل استدعاء أداة الروابط.
+//    أيّ رابط خارج نطاقاتنا وصفحاتنا المعروفة يُستبدل برابط واجهة اللاعب — لا نرسل عميلاً إلى نطاق غريب أبداً.
+const OWN_LINK_RE = /^https?:\/\/(club-mafia\.grade\.sbs|mafia-club\.masaros\.net|(www\.)?instagram\.com\/mafia_club_jo|wa\.me\/|api\.whatsapp\.com\/|maps\.app\.goo\.gl\/|(www\.)?google\.[a-z.]+\/maps|maps\.google\.)/i;
+export function enforceLinks(text: string): string {
+  return String(text || '').replace(/https?:\/\/[^\s)«»"'<>]+/gi, (u) => (OWN_LINK_RE.test(u) ? u : SOCIAL_LINKS.website));
+}
+
 export function enforceAddress(text: string, allowed: string): string {
   if (!text) return text;
   let out = text.replace(RANK_VOCATIVE_RE, (m) => (allowed && m.replace(/\s+/g, ' ') === allowed ? m : (allowed || '')));
@@ -2623,7 +2631,7 @@ async function buildCustomerCard(db: any, conv: any): Promise<string> {
   } else {
     lines.push(`الاسم: ${conv.displayName || 'غير معروف'} — زائر غير مسجّل كلاعب`);
     lines.push('🎖️ لقب المخاطبة: باسمه إن عُرف أو «ضيفنا» — بلا أيّ لقب رتبة (لا كابو ولا جندي ولا غيرهما).');
-    lines.push('⚠️ المحادثة غير مربوطة بحساب لاعب — طبّق باب «ربط الحساب» إلزامياً: اسأله أولاً إن كان جديداً (وجّهه للتسجيل) أم لديه حساب برقم آخر (اربطه برمز التحقق عبر request_account_link).');
+    lines.push('⚠️ المحادثة غير مربوطة بحساب لاعب — طبّق باب «ربط الحساب» إلزامياً: اسأله أولاً إن كان جديداً (اعرض فتح حسابه من هنا عبر start_registration **قبل أيّ حجز** — لا ترسله للموقع) أم لديه حساب برقم آخر (اربطه برمز التحقق عبر request_account_link).');
   }
   // 🔒 هويّة الأدمن صريحةً في البطاقة. بدونها رفض النموذج سؤال الأدمن عن لاعب آخر («أسرار شخصيّة») رغم أنّ الأدوات معروضة له.
   if (await isAdminConversation(conv).catch(() => false)) {
@@ -3122,7 +3130,7 @@ async function processConversation(convId: number) {
         if (await isAdminConversation(conv)) flags.admin = true;
         recordBotUsage(convId, 'live', settings.model || '', usage, { replyMs: Math.max(0, Date.now() - new Date(lastMsg.createdAt).getTime()), tools: names.filter(n => !n.startsWith('🛡️')), flags }).catch(() => {});
       }
-      const finalOut = enforceAddress((text || '').trim(), addressTitle);
+      const finalOut = enforceLinks(enforceAddress((text || '').trim(), addressTitle));
       if (finalOut) {
         await sendMessage({ conversationId: convId, text: finalOut, source: 'bot' });
       }
