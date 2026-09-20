@@ -397,7 +397,7 @@ router.post('/open-window-broadcast', authenticate, adminOnly, async (req: Reque
   try {
     const B = await import('../services/whatsapp-broadcast.service.js');
     const u: any = (req as any).user;
-    const r = await B.startBroadcast({ body: req.body?.body, filter: req.body?.filter || 'all', activityId: req.body?.activityId ?? null, excludeIds: Array.isArray(req.body?.excludeIds) ? req.body.excludeIds : [], appendOptout: req.body?.appendOptout !== false, createdBy: u?.displayName || u?.username || '' });
+    const r = await B.startBroadcast({ body: req.body?.body, filter: req.body?.filter || 'all', activityId: req.body?.activityId ?? null, excludeIds: Array.isArray(req.body?.excludeIds) ? req.body.excludeIds : [], templateId: req.body?.templateId ? Number(req.body.templateId) : null, appendOptout: req.body?.appendOptout !== false, createdBy: u?.displayName || u?.username || '' });
     if (!r.ok) return res.status(400).json({ error: r.error });
     try { const { logStaffAction } = await import('../services/staff-action-log.service.js'); void logStaffAction({ staffId: u?.id, staffUsername: u?.username, staffRole: u?.role, source: 'rest', action: 'rest:wa-broadcast', category: 'WHATSAPP_ADMIN', labelAr: 'بثّ واتساب للنوافذ المفتوحة', details: { broadcastId: r.id, targets: r.total, filter: req.body?.filter || 'all', body: String(req.body?.body || '').slice(0, 200) } }); } catch { /* غير حاجب */ }
     res.json({ success: true, id: r.id, total: r.total });

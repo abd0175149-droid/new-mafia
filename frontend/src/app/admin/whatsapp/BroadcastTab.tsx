@@ -7,10 +7,12 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { getSocket } from '@/lib/socket';
+import Swal from 'sweetalert2';
 import { swalConfirm, swalToast } from '@/lib/swal';
 
 type Fetcher = (path: string, opts?: RequestInit) => Promise<any>;
-type Filter = 'all' | 'players' | 'visitors' | 'booked_upcoming' | 'activity';
+type Filter = 'all' | 'players' | 'visitors' | 'booked_upcoming' | 'activity' | 'not_booked_activity';
+interface Tpl { id: number; name: string; body: string; usedCount: number }
 interface Target { id: number; phone: string; name: string; isPlayer: boolean; rank: string; windowClosesAt: string }
 
 const FILTERS: Array<{ key: Filter; label: string }> = [
@@ -19,12 +21,13 @@ const FILTERS: Array<{ key: Filter; label: string }> = [
   { key: 'visitors', label: 'زوّار غير مسجّلين' },
   { key: 'booked_upcoming', label: 'لهم حجز قادم' },
   { key: 'activity', label: 'حاجزو فعاليّة محدّدة' },
+  { key: 'not_booked_activity', label: 'لم يحجزوا بعد في فعاليّة' },
 ];
 const STATUS_AR: Record<string, string> = { running: 'جارٍ', done: 'اكتمل', stopped: 'أُوقف' };
 
-function fill(body: string, t: { name: string; rank: string }) {
+function fill(body: string, t: { name: string; rank: string; activity?: string }) {
   const first = (t.name || '').trim().split(/\s+/)[0] || '';
-  return body.replace(/\{الاسم\}/g, first).replace(/\{الاسم_الكامل\}/g, t.name || '').replace(/\{الرتبة\}/g, t.rank || '');
+  return body.replace(/\{الاسم\}/g, first).replace(/\{الاسم_الكامل\}/g, t.name || '').replace(/\{الرتبة\}/g, t.rank || '').replace(/\{الفعالية\}/g, t.activity || '⟨اختر فعاليّة⟩');
 }
 function hoursLeft(iso: string) {
   const ms = new Date(iso).getTime() - Date.now();
@@ -47,10 +50,43 @@ export default function BroadcastTab({ apiFetch }: { apiFetch: Fetcher }) {
   const [loading, setLoading] = useState(true);
   const [sending, setSending] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+  const [tpls, setTpls] = useState<Tpl[]>([]);
+  const [tplId, setTplId] = useState<number | null>(null);
+  const needsActivity = filter === 'activity' || filter === 'not_booked_activity';
+
+  const loadTpls = useCallback(async () => {
+    try { const d = await apiFetch('/api/whatsapp/templates'); setTpls(d.templates || []); } catch { /* غير حاجب */ }
+  }, [apiFetch]);
+  useEffect(() => { loadTpls(); }, [loadTpls]);
+  const currentTpl = tpls.find(t => t.id === tplId) || null;
+  const tplDirty = !!currentTpl && currentTpl.body.trim() !== body.trim();
+
+  const saveTpl = async () => {
+    if (body.trim().length < 5) { swalToast('اكتب النصّ أوّلاً', 'warning'); return; }
+    try {
+      if (currentTpl && tplDirty && await swalConfirm(`تحديث القالب «${currentTpl.name}» بالنصّ الحاليّ؟\n(«لا» = حفظه كقالب جديد)`, { title: 'حفظ القالب', confirmText: 'حدّثه', cancelText: 'لا، جديد', icon: 'question' })) {
+        await apiFetch(`/api/whatsapp/templates/${currentTpl.id}`, { method: 'PUT', body: JSON.stringify({ body }) });
+        swalToast('حُدّث القالب', 'success');
+      } else {
+        const r = await Swal.fire({ title: 'اسم القالب', input: 'text', inputPlaceholder: 'مثال: تذكير فعاليّة الغد', showCancelButton: true, confirmButtonText: 'احفظ', cancelButtonText: 'إلغاء', background: '#141210', color: '#e7e2d6', confirmButtonColor: '#d97706', inputValidator: v => (!v?.trim() ? 'اكتب اسماً' : undefined) });
+        const name = String(r.value || '').trim();
+        if (!r.isConfirmed || !name) return;
+        const d = await apiFetch('/api/whatsapp/templates', { method: 'POST', body: JSON.stringify({ name, body }) });
+        setTplId(d.template?.id ?? null);
+        swalToast('حُفظ القالب', 'success');
+      }
+      await loadTpls();
+    } catch (e: any) { swalToast(e.message || 'تعذّر الحفظ', 'error'); }
+  };
+  const deleteTpl = async () => {
+    if (!currentTpl || !(await swalConfirm(`حذف القالب «${currentTpl.name}»؟`, { confirmText: 'احذفه', danger: true }))) return;
+    await apiFetch(`/api/whatsapp/templates/${currentTpl.id}`, { method: 'DELETE' }).catch(() => {});
+    setTplId(null); loadTpls();
+  };
 
   const load = useCallback(async () => {
     try {
-      const qs = `filter=${filter}${filter === 'activity' && activityId ? `&activityId=${activityId}` : ''}`;
+      const qs = `filter=${filter}${(filter === 'activity' || filter === 'not_booked_activity') && activityId ? `&activityId=${activityId}` : ''}`;
       const d = await apiFetch(`/api/whatsapp/open-window-broadcast/audience?${qs}`);
       setRows(d.rows || []); setStatus(d.status || null); setHistory(d.history || []); setActivities(d.activities || []);
       setErr(null);
@@ -74,12 +110,14 @@ export default function BroadcastTab({ apiFetch }: { apiFetch: Fetcher }) {
 
   const targets = useMemo(() => rows.filter(r => !excluded.has(r.id)), [rows, excluded]);
   const sample = targets[0];
+  const activityName = activities.find(a => a.id === activityId)?.name || '';
+  const missingActivity = (needsActivity || /\{الفعالية\}/.test(body)) && !activityId;
   const blockedReason: string | null =
     status?.suspended ? `الإرسال مقفل: ${status.suspended}`
     : status?.running ? 'هناك بثّ جارٍ الآن'
     : status?.nextAllowedAt ? `بثّ واحد كلّ ١٢ ساعة — المتاح ${fmt(status.nextAllowedAt)}`
     : null;
-  const canSend = !blockedReason && !sending && targets.length > 0 && body.trim().length >= 5 && body.length <= 900;
+  const canSend = !blockedReason && !sending && !missingActivity && targets.length > 0 && body.trim().length >= 5 && body.length <= 900;
 
   const send = async () => {
     const ok = await swalConfirm(
@@ -89,10 +127,10 @@ export default function BroadcastTab({ apiFetch }: { apiFetch: Fetcher }) {
     if (!ok) return;
     setSending(true);
     try {
-      const r = await apiFetch('/api/whatsapp/open-window-broadcast', { method: 'POST', body: JSON.stringify({ body, filter, activityId, excludeIds: Array.from(excluded), appendOptout: footer }) });
+      const r = await apiFetch('/api/whatsapp/open-window-broadcast', { method: 'POST', body: JSON.stringify({ body, filter, activityId, templateId: currentTpl && !tplDirty ? currentTpl.id : null, excludeIds: Array.from(excluded), appendOptout: footer }) });
       swalToast(`بدأ البثّ إلى ${r.total}`, 'success');
-      setBody(''); setExcluded(new Set());
-      await load();
+      setBody(''); setTplId(null); setExcluded(new Set());
+      await load(); loadTpls();
     } catch (e: any) { swalToast(e.message || 'تعذّر بدء البثّ', 'error'); }
     setSending(false);
   };
@@ -133,7 +171,7 @@ export default function BroadcastTab({ apiFetch }: { apiFetch: Fetcher }) {
                   className={`px-3 py-1.5 rounded-xl text-xs font-bold border ${filter === f.key ? 'bg-amber-500/10 text-amber-400 border-amber-500/40' : 'border-gray-800 text-gray-400 hover:text-white'}`}>{f.label}</button>
               ))}
             </div>
-            {filter === 'activity' && (
+            {(needsActivity || /\{الفعالية\}/.test(body)) && (
               <select value={activityId ?? ''} onChange={e => { setActivityId(e.target.value ? Number(e.target.value) : null); setExcluded(new Set()); }}
                 className="w-full bg-gray-950 border border-gray-800 rounded-xl px-3 py-2 text-sm text-white">
                 <option value="">— اختر الفعاليّة —</option>
@@ -141,17 +179,28 @@ export default function BroadcastTab({ apiFetch }: { apiFetch: Fetcher }) {
               </select>
             )}
 
+            {/* ── القوالب المحفوظة ── */}
+            <div className="flex flex-wrap items-center gap-2">
+              <select value={tplId ?? ''} onChange={e => { const id = e.target.value ? Number(e.target.value) : null; setTplId(id); const t = tpls.find(x => x.id === id); if (t) setBody(t.body); }}
+                className="flex-1 min-w-[180px] bg-gray-950 border border-gray-800 rounded-xl px-3 py-2 text-sm text-white">
+                <option value="">{tpls.length ? '— اختر قالباً محفوظاً —' : '— لا قوالب محفوظة بعد —'}</option>
+                {tpls.map(t => <option key={t.id} value={t.id}>{t.name}{t.usedCount ? ` · استُعمل ${t.usedCount}` : ''}</option>)}
+              </select>
+              <button onClick={saveTpl} className="px-3 py-2 rounded-xl text-xs font-bold border border-gray-800 text-gray-300 hover:text-white hover:border-amber-500/40">💾 {currentTpl && tplDirty ? 'حفظ التعديل' : 'حفظ كقالب'}</button>
+              {currentTpl && <button onClick={deleteTpl} className="px-3 py-2 rounded-xl text-xs font-bold border border-gray-800 text-rose-300/80 hover:text-rose-300" title="حذف القالب">🗑</button>}
+            </div>
+
             <div>
               <textarea value={body} onChange={e => setBody(e.target.value)} rows={7} maxLength={900} dir="rtl"
                 placeholder={'مثال:\nمسا الخير {الاسم} 🎭\nبكرا الخميس لعبة الساعة 7 بمزاج أفندينا — بقي مقاعد قليلة. احجز من هون بكلمة «احجز».'}
                 className="w-full bg-gray-950 border border-gray-800 rounded-xl px-3 py-2.5 text-sm text-white leading-relaxed focus:border-amber-500/50 outline-none" />
               <div className="flex flex-wrap items-center gap-1.5 mt-1.5">
-                {['{الاسم}', '{الاسم_الكامل}', '{الرتبة}'].map(v => (
+                {['{الاسم}', '{الاسم_الكامل}', '{الرتبة}', '{الفعالية}'].map(v => (
                   <button key={v} onClick={() => setBody(b => b + v)} className="px-2 py-1 rounded-lg text-[11px] bg-gray-800 text-gray-300 hover:text-white" dir="rtl">{v}</button>
                 ))}
                 <span className={`mr-auto text-[11px] tabular-nums ${body.length > 850 ? 'text-rose-400' : 'text-gray-500'}`}>{body.length} / 900</span>
               </div>
-              <p className="text-[11px] text-gray-500 mt-1">{'{الرتبة}'} تبقى فارغة للزائر غير المسجّل — لا تبنِ الجملة عليها. الروابط الخارجيّة مرفوضة (روابط النادي فقط).</p>
+              <p className="text-[11px] text-gray-500 mt-1">{'{الرتبة}'} تبقى فارغة للزائر غير المسجّل — لا تبنِ الجملة عليها. {'{الفعالية}'} = اسم الفعاليّة المختارة في الفلتر. الروابط الخارجيّة مرفوضة (روابط النادي فقط).</p>
             </div>
 
             <label className="flex items-center gap-2 text-xs text-gray-300 cursor-pointer">
@@ -163,11 +212,12 @@ export default function BroadcastTab({ apiFetch }: { apiFetch: Fetcher }) {
               <div>
                 <div className="text-[11px] text-gray-500 mb-1">معاينة كما تصل إلى {sample.name}:</div>
                 <div className="max-w-md rounded-2xl rounded-tr-sm px-3 py-2 text-sm text-white whitespace-pre-wrap leading-relaxed" style={{ background: '#005c4b' }}>
-                  {fill(body, sample)}{footer ? '\n\n— لإيقاف هذه الرسائل أرسل: إيقاف' : ''}
+                  {fill(body, { ...sample, activity: activityName })}{footer ? '\n\n— لإيقاف هذه الرسائل أرسل: إيقاف' : ''}
                 </div>
               </div>
             )}
 
+            {missingActivity && <p className="text-xs text-amber-300 font-bold">اختر الفعاليّة أوّلاً.</p>}
             {blockedReason && <p className="text-xs text-rose-300 font-bold">⛔ {blockedReason}</p>}
             <button disabled={!canSend} onClick={send}
               className="w-full py-3 rounded-xl text-sm font-black text-black disabled:opacity-40 disabled:cursor-not-allowed"
