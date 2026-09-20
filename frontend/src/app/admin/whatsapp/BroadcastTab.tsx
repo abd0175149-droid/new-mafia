@@ -25,9 +25,10 @@ const FILTERS: Array<{ key: Filter; label: string }> = [
 ];
 const STATUS_AR: Record<string, string> = { running: 'جارٍ', done: 'اكتمل', stopped: 'أُوقف' };
 
-function fill(body: string, t: { name: string; rank: string; activity?: string }) {
+const ACT_VARS = /\{(الفعالية|المكان|الموعد)\}/;
+function fill(body: string, t: { name: string; rank: string; activity?: string; venue?: string; when?: string }) {
   const first = (t.name || '').trim().split(/\s+/)[0] || '';
-  return body.replace(/\{الاسم\}/g, first).replace(/\{الاسم_الكامل\}/g, t.name || '').replace(/\{الرتبة\}/g, t.rank || '').replace(/\{الفعالية\}/g, t.activity || '⟨اختر فعاليّة⟩');
+  return body.replace(/\{الاسم\}/g, first).replace(/\{الاسم_الكامل\}/g, t.name || '').replace(/\{الرتبة\}/g, t.rank || '').replace(/\{الفعالية\}/g, t.activity || '⟨اختر فعاليّة⟩').replace(/\{المكان\}/g, t.venue || '⟨المكان⟩').replace(/\{الموعد\}/g, t.when || '⟨الموعد⟩');
 }
 function hoursLeft(iso: string) {
   const ms = new Date(iso).getTime() - Date.now();
@@ -41,7 +42,7 @@ export default function BroadcastTab({ apiFetch }: { apiFetch: Fetcher }) {
   const [filter, setFilter] = useState<Filter>('all');
   const [activityId, setActivityId] = useState<number | null>(null);
   const [rows, setRows] = useState<Target[]>([]);
-  const [activities, setActivities] = useState<Array<{ id: number; name: string; date: string }>>([]);
+  const [activities, setActivities] = useState<Array<{ id: number; name: string; date: string; venue?: string; when?: string }>>([]);
   const [status, setStatus] = useState<any>(null);
   const [history, setHistory] = useState<any[]>([]);
   const [excluded, setExcluded] = useState<Set<number>>(new Set());
@@ -110,8 +111,8 @@ export default function BroadcastTab({ apiFetch }: { apiFetch: Fetcher }) {
 
   const targets = useMemo(() => rows.filter(r => !excluded.has(r.id)), [rows, excluded]);
   const sample = targets[0];
-  const activityName = activities.find(a => a.id === activityId)?.name || '';
-  const missingActivity = (needsActivity || /\{الفعالية\}/.test(body)) && !activityId;
+  const act = activities.find(a => a.id === activityId);
+  const missingActivity = (needsActivity || ACT_VARS.test(body)) && !activityId;
   const blockedReason: string | null =
     status?.suspended ? `الإرسال مقفل: ${status.suspended}`
     : status?.running ? 'هناك بثّ جارٍ الآن'
@@ -171,7 +172,7 @@ export default function BroadcastTab({ apiFetch }: { apiFetch: Fetcher }) {
                   className={`px-3 py-1.5 rounded-xl text-xs font-bold border ${filter === f.key ? 'bg-amber-500/10 text-amber-400 border-amber-500/40' : 'border-gray-800 text-gray-400 hover:text-white'}`}>{f.label}</button>
               ))}
             </div>
-            {(needsActivity || /\{الفعالية\}/.test(body)) && (
+            {(needsActivity || ACT_VARS.test(body)) && (
               <select value={activityId ?? ''} onChange={e => { setActivityId(e.target.value ? Number(e.target.value) : null); setExcluded(new Set()); }}
                 className="w-full bg-gray-950 border border-gray-800 rounded-xl px-3 py-2 text-sm text-white">
                 <option value="">— اختر الفعاليّة —</option>
@@ -195,12 +196,12 @@ export default function BroadcastTab({ apiFetch }: { apiFetch: Fetcher }) {
                 placeholder={'مثال:\nمسا الخير {الاسم} 🎭\nبكرا الخميس لعبة الساعة 7 بمزاج أفندينا — بقي مقاعد قليلة. احجز من هون بكلمة «احجز».'}
                 className="w-full bg-gray-950 border border-gray-800 rounded-xl px-3 py-2.5 text-sm text-white leading-relaxed focus:border-amber-500/50 outline-none" />
               <div className="flex flex-wrap items-center gap-1.5 mt-1.5">
-                {['{الاسم}', '{الاسم_الكامل}', '{الرتبة}', '{الفعالية}'].map(v => (
+                {['{الاسم}', '{الاسم_الكامل}', '{الرتبة}', '{الفعالية}', '{المكان}', '{الموعد}'].map(v => (
                   <button key={v} onClick={() => setBody(b => b + v)} className="px-2 py-1 rounded-lg text-[11px] bg-gray-800 text-gray-300 hover:text-white" dir="rtl">{v}</button>
                 ))}
                 <span className={`mr-auto text-[11px] tabular-nums ${body.length > 850 ? 'text-rose-400' : 'text-gray-500'}`}>{body.length} / 900</span>
               </div>
-              <p className="text-[11px] text-gray-500 mt-1">{'{الرتبة}'} تبقى فارغة للزائر غير المسجّل — لا تبنِ الجملة عليها. {'{الفعالية}'} = اسم الفعاليّة المختارة في الفلتر. الروابط الخارجيّة مرفوضة (روابط النادي فقط).</p>
+              <p className="text-[11px] text-gray-500 mt-1">{'{الرتبة}'} تبقى فارغة للزائر غير المسجّل — لا تبنِ الجملة عليها. {'{الفعالية}'} و{'{المكان}'} و{'{الموعد}'} تتبع الفعاليّة المختارة. الروابط الخارجيّة مرفوضة (روابط النادي فقط).</p>
             </div>
 
             <label className="flex items-center gap-2 text-xs text-gray-300 cursor-pointer">
@@ -212,7 +213,7 @@ export default function BroadcastTab({ apiFetch }: { apiFetch: Fetcher }) {
               <div>
                 <div className="text-[11px] text-gray-500 mb-1">معاينة كما تصل إلى {sample.name}:</div>
                 <div className="max-w-md rounded-2xl rounded-tr-sm px-3 py-2 text-sm text-white whitespace-pre-wrap leading-relaxed" style={{ background: '#005c4b' }}>
-                  {fill(body, { ...sample, activity: activityName })}{footer ? '\n\n— لإيقاف هذه الرسائل أرسل: إيقاف' : ''}
+                  {fill(body, { ...sample, activity: act?.name, venue: act?.venue, when: act?.when })}{footer ? '\n\n— لإيقاف هذه الرسائل أرسل: إيقاف' : ''}
                 </div>
               </div>
             )}

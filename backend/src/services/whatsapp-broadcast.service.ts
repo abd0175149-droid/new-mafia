@@ -58,9 +58,9 @@ export async function previewAudience(q: AudienceQuery) {
   return { total: rows.length, rows: rows.slice(0, BROADCAST_MAX_TARGETS), capped: rows.length > BROADCAST_MAX_TARGETS };
 }
 
-export function fillVars(body: string, t: { name: string; rank: string; activity?: string }): string {
+export function fillVars(body: string, t: { name: string; rank: string; activity?: string; venue?: string; when?: string }): string {
   const first = String(t.name || '').trim().split(/\s+/)[0] || '';
-  return body.replace(/\{الاسم\}/g, first).replace(/\{الاسم_الكامل\}/g, t.name || '').replace(/\{الرتبة\}/g, t.rank || '').replace(/\{الفعالية\}/g, t.activity || '');
+  return body.replace(/\{الاسم\}/g, first).replace(/\{الاسم_الكامل\}/g, t.name || '').replace(/\{الرتبة\}/g, t.rank || '').replace(/\{الفعالية\}/g, t.activity || '').replace(/\{المكان\}/g, t.venue || '').replace(/\{الموعد\}/g, t.when || '');
 }
 
 export async function broadcastStatus() {
@@ -80,11 +80,14 @@ export async function startBroadcast(input: AudienceQuery & { body: string; crea
   if (running) return { ok: false, error: 'هناك بثّ جارٍ الآن' };
   const st = await broadcastStatus();
   if (st.nextAllowedAt) return { ok: false, error: `بثّ واحد كلّ ١٢ ساعة — المتاح بعد ${new Date(st.nextAllowedAt).toLocaleTimeString('ar-JO', { hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Amman' })}` };
-  let activityName = '';
-  if (/\{الفعالية\}/.test(body)) {
-    if (!input.activityId) return { ok: false, error: 'النصّ فيه {الفعالية} — اختر فعاليّة من الفلتر أوّلاً' };
-    const ar: any = await db.execute(sql`SELECT name FROM activities WHERE id = ${Number(input.activityId)} AND deleted_at IS NULL`);
+  let activityName = '', venueName = '', whenText = '';
+  if (/\{(الفعالية|المكان|الموعد)\}/.test(body)) {
+    if (!input.activityId) return { ok: false, error: 'النصّ فيه متغيّر فعاليّة ({الفعالية}/{المكان}/{الموعد}) — اختر فعاليّة من الفلتر أوّلاً' };
+    const ar: any = await db.execute(sql`SELECT a.name, a.date, l.name AS venue FROM activities a LEFT JOIN locations l ON l.id = a.location_id WHERE a.id = ${Number(input.activityId)} AND a.deleted_at IS NULL`);
     activityName = rowsOf(ar)[0]?.name || '';
+    venueName = rowsOf(ar)[0]?.venue || '';
+    whenText = rowsOf(ar)[0]?.date ? fmtWhen(rowsOf(ar)[0].date) : '';
+    if (/\{المكان\}/.test(body) && !venueName) return { ok: false, error: 'الفعاليّة بلا مكان محدَّد — احذف {المكان} من النصّ' };
     if (!activityName) return { ok: false, error: 'الفعاليّة غير موجودة' };
   }
   const aud = await previewAudience(input);
@@ -101,7 +104,7 @@ export async function startBroadcast(input: AudienceQuery & { body: string; crea
       if (stopFlags.has(row.id)) { status = 'stopped'; break; }
       if (sendingSuspendedReason()) { status = 'stopped'; break; }           // إنذار صحّة الحساب أثناء البثّ
       try {
-        await sendMessage({ conversationId: t.id, text: fillVars(body, { ...t, activity: activityName }) + (withFooter ? OPTOUT_FOOTER : ''), source: 'broadcast' as any });
+        await sendMessage({ conversationId: t.id, text: fillVars(body, { ...t, activity: activityName, venue: venueName, when: whenText }) + (withFooter ? OPTOUT_FOOTER : ''), source: 'broadcast' as any });
         sent++; streak = 0;
       } catch (e: any) {
         if (e?.code === 'WINDOW_EXPIRED') { skipped++; }                     // النافذة أُغلقت بين المعاينة والإرسال
@@ -120,10 +123,18 @@ export async function startBroadcast(input: AudienceQuery & { body: string; crea
   return { ok: true, id: row.id, total: targets.length };
 }
 
+// «الأحد 20 أيلول · 7:00 م» بتوقيت عمّان
+export function fmtWhen(d: any): string {
+  const dt = new Date(d);
+  const day = dt.toLocaleDateString('ar-JO', { weekday: 'long', day: 'numeric', month: 'long', timeZone: 'Asia/Amman', numberingSystem: 'latn' } as any);
+  const tm = dt.toLocaleTimeString('ar-JO', { hour: 'numeric', minute: '2-digit', timeZone: 'Asia/Amman', numberingSystem: 'latn' } as any);
+  return `${day} · ${tm}`;
+}
+
 export async function upcomingActivities() {
   const db = getDB(); if (!db) return [];
-  const r: any = await db.execute(sql`SELECT id, name, date FROM activities WHERE deleted_at IS NULL AND date > NOW() - INTERVAL '6 hours' ORDER BY date LIMIT 12`);
-  return rowsOf(r).map((x: any) => ({ id: Number(x.id), name: x.name, date: x.date }));
+  const r: any = await db.execute(sql`SELECT a.id, a.name, a.date, l.name AS venue FROM activities a LEFT JOIN locations l ON l.id = a.location_id WHERE a.deleted_at IS NULL AND a.date > NOW() - INTERVAL '6 hours' ORDER BY a.date LIMIT 12`);
+  return rowsOf(r).map((x: any) => ({ id: Number(x.id), name: x.name, date: x.date, venue: x.venue || '', when: fmtWhen(x.date) }));
 }
 
 export function stopBroadcast(id: number) { stopFlags.add(Number(id)); return true; }
