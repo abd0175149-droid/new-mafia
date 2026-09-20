@@ -25,7 +25,7 @@ const OPTOUT_FOOTER = '\n\n— لإيقاف هذه الرسائل أرسل: إي
 const RANK_AR: Record<string, string> = { INFORMANT: 'مُخبر', SOLDIER: 'جندي', CAPO: 'كابو', UNDERBOSS: 'ساعد الزعيم', GODFATHER: 'العرّاب' };
 
 export type AudienceFilter = 'all' | 'players' | 'visitors' | 'booked_upcoming' | 'activity' | 'not_booked_activity';
-export interface AudienceQuery { filter: AudienceFilter; activityId?: number | null; excludeIds?: number[] }
+export interface AudienceQuery { filter: AudienceFilter; activityId?: number | null; excludeIds?: number[]; excludeBroadcastIds?: number[] }
 
 const stopFlags = new Set<number>();
 let running: number | null = null;
@@ -41,12 +41,18 @@ export async function previewAudience(q: AudienceQuery) {
     : f === 'not_booked_activity' && q.activityId ? sql`AND NOT EXISTS (SELECT 1 FROM reservations r WHERE r.deleted_at IS NULL AND r.activity_id = ${Number(q.activityId)} AND COALESCE(r.status, '') <> 'cancelled' AND (r.phone = c.phone OR (c.player_id IS NOT NULL AND r.player_id = c.player_id))) AND NOT EXISTS (SELECT 1 FROM bookings b WHERE b.deleted_at IS NULL AND b.activity_id = ${Number(q.activityId)} AND (b.phone = c.phone OR (c.player_id IS NOT NULL AND b.player_id = c.player_id)))`
     : (f === 'activity' || f === 'not_booked_activity') ? sql`AND false`   // فلتر فعاليّة بلا فعاليّة مختارة ⟵ لا أحد (لا «الكلّ» بالخطأ)
     : sql``;
+  // استثناء من وصلهم بثّ سابق: من جدول المستلمين، ومن رسائل البثّ ضمن زمن ذلك البثّ (للبثوث الأقدم من الجدول)
+  const exB = (q.excludeBroadcastIds || []).map(Number).filter(n => Number.isInteger(n) && n > 0).slice(0, 10);
+  const exBLit = `{${exB.join(',')}}`;
+  const notSentBefore = exB.length ? sql`AND NOT EXISTS (SELECT 1 FROM wa_broadcast_recipients br WHERE br.conversation_id = c.id AND br.broadcast_id = ANY(${exBLit}::int[]))
+       AND NOT EXISTS (SELECT 1 FROM wa_messages m JOIN wa_broadcasts b ON b.id = ANY(${exBLit}::int[]) WHERE m.conversation_id = c.id AND m.source = 'broadcast' AND m.created_at >= b.created_at AND m.created_at <= COALESCE(b.finished_at, NOW()) + INTERVAL '1 minute')` : sql``;
   const r: any = await db.execute(sql`
     SELECT c.id, c.phone, c.display_name, c.player_id, c.last_inbound_at, p.name AS player_name, p.rank_tier
       FROM wa_conversations c LEFT JOIN players p ON p.id = c.player_id
      WHERE c.last_inbound_at > NOW() - INTERVAL '23 hours 45 minutes'
        AND NOT EXISTS (SELECT 1 FROM wa_optouts o WHERE o.phone = c.phone)
        ${extra}
+       ${notSentBefore}
      ORDER BY c.last_inbound_at DESC LIMIT ${BROADCAST_MAX_TARGETS + 50}
   `);
   const ex = new Set((q.excludeIds || []).map(Number));
@@ -79,7 +85,14 @@ export async function startBroadcast(input: AudienceQuery & { body: string; crea
   const blocked = sendingSuspendedReason(); if (blocked) return { ok: false, error: `الإرسال مقفل: ${blocked}` };
   if (running) return { ok: false, error: 'هناك بثّ جارٍ الآن' };
   const st = await broadcastStatus();
-  if (st.nextAllowedAt) return { ok: false, error: `بثّ واحد كلّ ١٢ ساعة — المتاح بعد ${new Date(st.nextAllowedAt).toLocaleTimeString('ar-JO', { hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Amman' })}` };
+  // الفاصل الزمنيّ غايته ألّا يصل الشخصَ بثّان متقاربان. إن استُثني مستلمو **كلّ** بثوث آخر 12 ساعة فلا أحد يصله اثنان ⟵ يُسمح.
+  if (st.nextAllowedAt) {
+    const rr: any = await db.execute(sql`SELECT id FROM wa_broadcasts WHERE created_at > NOW() - INTERVAL '12 hours'`);
+    const recent = rowsOf(rr).map((x: any) => Number(x.id));
+    const ex = new Set((input.excludeBroadcastIds || []).map(Number));
+    if (recent.every((id: number) => ex.has(id))) st.nextAllowedAt = null;
+  }
+  if (st.nextAllowedAt) return { ok: false, error: `بثّ واحد كلّ ١٢ ساعة (أو استثنِ مستلمي البثّ السابق لترسل للباقي) — المتاح بعد ${new Date(st.nextAllowedAt).toLocaleTimeString('ar-JO', { hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Amman' })}` };
   let activityName = '', venueName = '', whenText = '';
   if (/\{(الفعالية|المكان|الموعد)\}/.test(body)) {
     if (!input.activityId) return { ok: false, error: 'النصّ فيه متغيّر فعاليّة ({الفعالية}/{المكان}/{الموعد}) — اختر فعاليّة من الفلتر أوّلاً' };
@@ -106,6 +119,7 @@ export async function startBroadcast(input: AudienceQuery & { body: string; crea
       try {
         await sendMessage({ conversationId: t.id, text: fillVars(body, { ...t, activity: activityName, venue: venueName, when: whenText }) + (withFooter ? OPTOUT_FOOTER : ''), source: 'broadcast' as any });
         sent++; streak = 0;
+        await db.execute(sql`INSERT INTO wa_broadcast_recipients (broadcast_id, conversation_id) VALUES (${row.id}, ${t.id}) ON CONFLICT DO NOTHING`).catch(() => {});
       } catch (e: any) {
         if (e?.code === 'WINDOW_EXPIRED') { skipped++; }                     // النافذة أُغلقت بين المعاينة والإرسال
         else if (e?.code === 'SENDING_SUSPENDED') { status = 'stopped'; break; }

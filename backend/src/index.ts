@@ -1489,6 +1489,15 @@ async function main() {
           finished_at TIMESTAMP
         )
       `);
+      // 📢 مستلمو كلّ بثّ — لخيار «استثنِ من وصلهم بثّ سابق»
+      await db.execute(sql`
+        CREATE TABLE IF NOT EXISTS wa_broadcast_recipients (
+          broadcast_id INTEGER NOT NULL,
+          conversation_id INTEGER NOT NULL,
+          sent_at TIMESTAMP DEFAULT NOW() NOT NULL,
+          PRIMARY KEY (broadcast_id, conversation_id)
+        )
+      `).catch(() => {});
       // 📋 مرآة قوالب ميتا (استوديو القوالب)
       await db.execute(sql`
         CREATE TABLE IF NOT EXISTS wa_templates (

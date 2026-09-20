@@ -53,6 +53,7 @@ export default function BroadcastTab({ apiFetch }: { apiFetch: Fetcher }) {
   const [err, setErr] = useState<string | null>(null);
   const [tpls, setTpls] = useState<Tpl[]>([]);
   const [tplId, setTplId] = useState<number | null>(null);
+  const [exB, setExB] = useState<number[]>([]);
   const needsActivity = filter === 'activity' || filter === 'not_booked_activity';
 
   const loadTpls = useCallback(async () => {
@@ -88,12 +89,12 @@ export default function BroadcastTab({ apiFetch }: { apiFetch: Fetcher }) {
   const load = useCallback(async () => {
     try {
       const qs = `filter=${filter}${(filter === 'activity' || filter === 'not_booked_activity') && activityId ? `&activityId=${activityId}` : ''}`;
-      const d = await apiFetch(`/api/whatsapp/open-window-broadcast/audience?${qs}`);
+      const d = await apiFetch(`/api/whatsapp/open-window-broadcast/audience?${qs}${exB.length ? `&excludeBroadcasts=${exB.join(',')}` : ''}`);
       setRows(d.rows || []); setStatus(d.status || null); setHistory(d.history || []); setActivities(d.activities || []);
       setErr(null);
     } catch (e: any) { setErr(e.message); }
     setLoading(false);
-  }, [apiFetch, filter, activityId]);
+  }, [apiFetch, filter, activityId, exB]);
 
   useEffect(() => { setLoading(true); load(); }, [load]);
   // أثناء بثٍّ جارٍ: حدّث العدّادات كلّ 5 ثوانٍ، وعند انتهائه فوراً
@@ -113,24 +114,27 @@ export default function BroadcastTab({ apiFetch }: { apiFetch: Fetcher }) {
   const sample = targets[0];
   const act = activities.find(a => a.id === activityId);
   const missingActivity = (needsActivity || ACT_VARS.test(body)) && !activityId;
+  // الفاصل يسقط إن استُثني مستلمو كلّ بثوث آخر 12 ساعة (الخادم يعيد الفحص)
+  const recentIds = history.filter(h => Date.now() - new Date(h.createdAt).getTime() < 12 * 3600e3).map(h => h.id as number);
+  const coversRecent = recentIds.length > 0 && recentIds.every(id => exB.includes(id));
   const blockedReason: string | null =
     status?.suspended ? `الإرسال مقفل: ${status.suspended}`
     : status?.running ? 'هناك بثّ جارٍ الآن'
-    : status?.nextAllowedAt ? `بثّ واحد كلّ ١٢ ساعة — المتاح ${fmt(status.nextAllowedAt)}`
+    : status?.nextAllowedAt && !coversRecent ? `بثّ واحد كلّ ١٢ ساعة — المتاح ${fmt(status.nextAllowedAt)}. أو استثنِ مستلمي البثّ السابق لترسل للباقي الآن`
     : null;
   const canSend = !blockedReason && !sending && !missingActivity && targets.length > 0 && body.trim().length >= 5 && body.length <= 900;
 
   const send = async () => {
     const ok = await swalConfirm(
-      `ستُرسَل هذه الرسالة إلى ${targets.length} شخصاً نافذتهم مفتوحة الآن.\nلا يمكن التراجع عمّا أُرسل، ولن يتاح بثّ آخر قبل ١٢ ساعة.`,
+      `ستُرسَل هذه الرسالة إلى ${targets.length} شخصاً نافذتهم مفتوحة الآن.\nلا يمكن التراجع عمّا أُرسل، ولن يتاح بثّ آخر لهم قبل ١٢ ساعة.`,
       { title: 'تأكيد البثّ', confirmText: `أرسل إلى ${targets.length}`, icon: 'warning' },
     );
     if (!ok) return;
     setSending(true);
     try {
-      const r = await apiFetch('/api/whatsapp/open-window-broadcast', { method: 'POST', body: JSON.stringify({ body, filter, activityId, templateId: currentTpl && !tplDirty ? currentTpl.id : null, excludeIds: Array.from(excluded), appendOptout: footer }) });
+      const r = await apiFetch('/api/whatsapp/open-window-broadcast', { method: 'POST', body: JSON.stringify({ body, filter, activityId, templateId: currentTpl && !tplDirty ? currentTpl.id : null, excludeBroadcastIds: exB, excludeIds: Array.from(excluded), appendOptout: footer }) });
       swalToast(`بدأ البثّ إلى ${r.total}`, 'success');
-      setBody(''); setTplId(null); setExcluded(new Set());
+      setBody(''); setTplId(null); setExcluded(new Set()); setExB([]);
       await load(); loadTpls();
     } catch (e: any) { swalToast(e.message || 'تعذّر بدء البثّ', 'error'); }
     setSending(false);
@@ -178,6 +182,25 @@ export default function BroadcastTab({ apiFetch }: { apiFetch: Fetcher }) {
                 <option value="">— اختر الفعاليّة —</option>
                 {activities.map(a => <option key={a.id} value={a.id}>{a.name} · {fmt(a.date)}</option>)}
               </select>
+            )}
+
+            {/* ── استثناء من وصلهم بثّ سابق ── */}
+            {history.filter(h => h.sentCount > 0).length > 0 && (
+              <div>
+                <div className="text-[11px] text-gray-500 mb-1">استثنِ من وصلهم بثّ سابق (يُرسَل للباقي فقط):</div>
+                <div className="flex flex-wrap gap-1.5">
+                  {history.filter(h => h.sentCount > 0).slice(0, 6).map(h => {
+                    const on = exB.includes(h.id);
+                    return (
+                      <button key={h.id} onClick={() => { setExB(p => on ? p.filter(x => x !== h.id) : [...p, h.id]); setExcluded(new Set()); }} title={h.body}
+                        className={`px-2.5 py-1.5 rounded-xl text-[11px] border max-w-full text-right ${on ? 'bg-rose-500/10 text-rose-200 border-rose-500/40' : 'border-gray-800 text-gray-400 hover:text-white'}`}>
+                        {on ? '⊘ ' : ''}#{h.id} · {fmt(h.createdAt)} · {h.sentCount} مستلماً
+                        <span className="block text-[10.5px] opacity-70 truncate max-w-[240px]">{String(h.body || '').split('\n')[0]}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
             )}
 
             {/* ── القوالب المحفوظة ── */}
