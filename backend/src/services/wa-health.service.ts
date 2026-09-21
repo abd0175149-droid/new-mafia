@@ -62,7 +62,9 @@ function collectErrors(hs: any, issues: string[], notes: string[]) {
     if (e.can_send_message === 'BLOCKED') issues.push(`${e.entity_type}: الإرسال محظور`);
     for (const er of e.errors || []) {
       const line = `${e.entity_type} ${er.error_code}: ${er.error_description || ''}`.trim();
-      (IGNORED_CODES.has(Number(er.error_code)) ? notes : issues).push(line);
+      // أخطاء المكالمات الصوتيّة (SIP/calling، عائلة 1380xx) لا تعنينا: لا نستعمل مكالمات واتساب أصلاً
+      const benign = IGNORED_CODES.has(Number(er.error_code)) || /^1380\d\d$/.test(String(er.error_code)) || /SIP|calling/i.test(er.error_description || '');
+      (benign ? notes : issues).push(line);
     }
   }
 }
