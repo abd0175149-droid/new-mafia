@@ -14,6 +14,7 @@ import { swalConfirm, swalAlert, swalToast } from '@/lib/swal';
 import BookingForm from '../components/BookingForm';
 import BroadcastTab from './BroadcastTab';
 import QualityTab from './QualityTab';
+import HealthBar from './HealthBar';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || '';
 const MUTE_KEY = 'wa_inbox_muted';
@@ -578,6 +579,8 @@ export default function WhatsAppInboxPage() {
           {muted ? '🔕 مكتوم' : '🔔 الصوت'}
         </button>
       </div>
+
+      {getUser()?.role === 'admin' && <HealthBar apiFetch={apiFetch} />}
 
       {/* ═══ تبويب البوت ═══ */}
       {mainTab === 'bot' && (

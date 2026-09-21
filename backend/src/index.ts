@@ -2176,6 +2176,7 @@ async function main() {
   try { const { startWaSurveyScheduler } = await import('./services/wa-bot-ext.service.js'); startWaSurveyScheduler(); } catch (e: any) { console.warn('⚠️ WA survey scheduler init:', e.message); }
   // ── ⛔ قفل إرسال واتساب المحفوظ (إن وُجد) يُستعاد قبل أيّ إرسال ──
   try { const { loadSendingSuspension } = await import('./services/whatsapp-inbox.service.js'); await loadSendingSuspension(); } catch { /* غير حرج */ }
+  try { const { startWaHealthMonitor } = await import('./services/wa-health.service.js'); await startWaHealthMonitor(); } catch (e: any) { console.warn('⚠️ WA health monitor init:', e.message); }
   // ── 🎟️ مجدول بطاقة الولاء — انتهاء المكافآت، الاختيار التلقائيّ، التذكيرات ──
   try {
     const { startLoyaltyScheduler } = await import('./services/loyalty.service.js');

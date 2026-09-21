@@ -407,6 +407,15 @@ router.post('/open-window-broadcast/:id/stop', authenticate, adminOnly, async (r
   const B = await import('../services/whatsapp-broadcast.service.js'); B.stopBroadcast(parseInt(req.params.id)); res.json({ success: true });
 });
 
+// 🩺 صحّة واتساب عند ميتا (آخر فحص للمراقب؛ ?force=1 يفحص الآن)
+router.get('/health', authenticate, adminOnly, async (req: Request, res: Response) => {
+  try {
+    const H = await import('../services/wa-health.service.js');
+    const cached = H.getWaHealth();
+    res.json(req.query.force || !cached ? await H.checkWaHealth() : cached);
+  } catch (e: any) { res.status(500).json({ error: e.message }); }
+});
+
 // ⛔ قفل الإرسال (يُغلقه حدث صحّة الحساب من ميتا أو WA_SUSPENDED) — حالته ورفعه اليدويّ
 router.get('/sending-status', authenticate, adminOnly, async (_req: Request, res: Response) => {
   const { sendingSuspendedReason } = await import('../services/whatsapp-inbox.service.js');
