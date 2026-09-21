@@ -416,6 +416,12 @@ router.get('/health', authenticate, adminOnly, async (req: Request, res: Respons
   } catch (e: any) { res.status(500).json({ error: e.message }); }
 });
 
+// 🔔 إشعار تجريبيّ — للتأكّد أنّ تنبيهات الصحّة تصل هاتف الأدمن فعلاً
+router.post('/health/test-alert', authenticate, adminOnly, async (_req: Request, res: Response) => {
+  try { const H = await import('../services/wa-health.service.js'); res.json({ success: true, ...(await H.notify('🔔 تجربة تنبيه واتساب', 'هذا إشعار تجريبيّ من مراقب صحّة واتساب — إن وصلك فالتنبيهات تعمل.')) }); }
+  catch (e: any) { res.status(500).json({ error: e.message }); }
+});
+
 // ⛔ قفل الإرسال (يُغلقه حدث صحّة الحساب من ميتا أو WA_SUSPENDED) — حالته ورفعه اليدويّ
 router.get('/sending-status', authenticate, adminOnly, async (_req: Request, res: Response) => {
   const { sendingSuspendedReason } = await import('../services/whatsapp-inbox.service.js');

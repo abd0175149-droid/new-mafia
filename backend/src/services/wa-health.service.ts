@@ -127,9 +127,23 @@ export async function checkWaHealth(): Promise<WaHealth> {
   return h;
 }
 
-async function notify(title: string, body: string) {
-  try { const { sendPushToAdmins } = await import('./fcm.service.js'); await sendPushToAdmins(title, body, 'wa_health', { url: '/admin/whatsapp' }); }
-  catch (e: any) { console.warn('⚠️ WA health push:', e?.message); }
+// 📱 التنبيه يذهب إلى **هواتف الأدمنز** عبر حسابات اللاعبين المربوطة بهم (players.linked_staff_id):
+//    توكنات الموظّفين (staff_fcm_tokens) هي متصفّحات لوحة المكان لا هواتف — أوّل نسخة أرسلت إليها وحدها
+//    فسجّل FCM «نجاحاً» ولم يصل المالكَ شيء (2026-09-21).
+export async function notify(title: string, body: string): Promise<{ players: number }> {
+  let n = 0;
+  try {
+    const F = await import('./fcm.service.js');
+    const db = getDB();
+    if (db) {
+      const r: any = await db.execute(sql`SELECT p.id FROM players p JOIN staff s ON s.id = p.linked_staff_id WHERE s.role = 'admin' AND p.deleted_at IS NULL`);
+      const ids = (r?.rows ?? r ?? []).map((x: any) => Number(x.id));
+      n = ids.length;
+      if (ids.length) await F.sendPushToPlayers(ids, title, body, 'wa_health', { url: '/admin/whatsapp', tag: 'wa_health' });
+    }
+    await F.sendPushToAdmins(title, body, 'wa_health', { url: '/admin/whatsapp' });
+  } catch (e: any) { console.warn('⚠️ WA health push:', e?.message); }
+  return { players: n };
 }
 
 async function onChange(h: WaHealth) {

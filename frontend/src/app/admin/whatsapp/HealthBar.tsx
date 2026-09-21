@@ -70,6 +70,7 @@ export default function HealthBar({ apiFetch }: { apiFetch: Fetcher }) {
           </div>
           <div className="flex items-center gap-2">
             <button disabled={busy} onClick={async () => { setBusy(true); await load(true); setBusy(false); }} className="px-2 py-1 rounded-lg border border-gray-800 text-gray-300 hover:text-white disabled:opacity-50">{busy ? '⏳ يفحص…' : '↻ افحص الآن'}</button>
+            <button onClick={async () => { try { const r = await apiFetch('/api/whatsapp/health/test-alert', { method: 'POST' }); swalToast(`أُرسل إشعار تجريبيّ إلى ${r.players} أدمن — افحص هاتفك`, 'info'); } catch (e: any) { swalToast(e.message, 'error'); } }} className="px-2 py-1 rounded-lg border border-gray-800 text-gray-300 hover:text-white">🔔 جرّب التنبيه</button>
             <span className="text-gray-500">يُفحص تلقائيّاً كلّ 10 دقائق، وأيّ تغيّر يصلك إشعاراً على التطبيق.</span>
           </div>
         </div>
