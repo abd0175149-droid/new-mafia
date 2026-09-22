@@ -89,6 +89,103 @@ export async function alertAdminsWA(key: string, text: string, opts?: { exceptCo
 // 🎤 الرسائل الصوتيّة — تفريغٌ ثمّ تُعامَل كنصّ
 // ══════════════════════════════════════════════════════
 const MAX_AUDIO_BYTES = 1_500_000;   // ≈ دقيقتان opus
+// ══════════════════════════════════════════════════════
+// 🎧 حفظُ الصوت على القرص — ليُسمَع من اللوحة لاحقاً
+// ══════════════════════════════════════════════════════
+// ميتا تحتفظ بالوسائط ٣٠ يوماً ثمّ تختفي، ونحن ننزّل الملفّ أصلاً للتفريغ —
+// فحفظُه هنا مجّانيّ ويجعل السماع ممكناً بعد انتهاء مدّة ميتا وبلا تنزيلٍ ثانٍ.
+export const WA_MEDIA_DIR = process.env.WA_MEDIA_DIR || 'uploads/wa-media';
+
+export function waMediaPath(mediaId: string, mime = ''): string {
+  const ext = /ogg/.test(mime) ? 'ogg' : /mpeg|mp3/.test(mime) ? 'mp3' : /mp4|m4a|aac/.test(mime) ? 'm4a' : /amr/.test(mime) ? 'amr' : /wav/.test(mime) ? 'wav' : 'bin';
+  return `${WA_MEDIA_DIR}/${String(mediaId).replace(/[^\w.-]/g, '')}.${ext}`;
+}
+
+export async function saveWaMedia(mediaId: string, mime: string, bin: Buffer): Promise<string | null> {
+  try {
+    const fs = await import('fs/promises');
+    await fs.mkdir(WA_MEDIA_DIR, { recursive: true });
+    const p = waMediaPath(mediaId, mime);
+    await fs.writeFile(p, bin);
+    return p;
+  } catch (e: any) {
+    console.warn('⚠️ WA media save:', e?.message);
+    return null;
+  }
+}
+
+/** ينزّل وسائط رسالةٍ من ميتا (أو يقرؤها من القرص إن حُفظت) */
+export async function fetchWaMedia(mediaId: string): Promise<{ bin: Buffer; mime: string } | null> {
+  const fs = await import('fs/promises');
+  // القرص أوّلاً — لا تنزيل مكرّر، ويعمل بعد انتهاء مدّة ميتا
+  for (const ext of ['ogg', 'mp3', 'm4a', 'amr', 'wav', 'bin']) {
+    const p = `${WA_MEDIA_DIR}/${String(mediaId).replace(/[^\w.-]/g, '')}.${ext}`;
+    try {
+      const bin = await fs.readFile(p);
+      const mime = ext === 'ogg' ? 'audio/ogg' : ext === 'mp3' ? 'audio/mpeg' : ext === 'm4a' ? 'audio/mp4' : ext === 'amr' ? 'audio/amr' : ext === 'wav' ? 'audio/wav' : 'application/octet-stream';
+      return { bin, mime };
+    } catch { /* غير محفوظ */ }
+  }
+  try {
+    const meta: any = await (await fetch(`${GRAPH}/${mediaId}`, { headers: { Authorization: `Bearer ${env.WA_TOKEN}` } })).json();
+    if (!meta?.url) return null;
+    const mime = String(meta.mime_type || 'audio/ogg').split(';')[0].trim();
+    const bin = Buffer.from(await (await fetch(meta.url, { headers: { Authorization: `Bearer ${env.WA_TOKEN}` } })).arrayBuffer());
+    await saveWaMedia(mediaId, mime, bin);
+    return { bin, mime };
+  } catch (e: any) {
+    console.warn('⚠️ WA media fetch:', e?.message);
+    return null;
+  }
+}
+
+/** تفريغ رسالةٍ صوتيّةٍ واحدة — النواة المشتركة بين التفريغ التلقائيّ وتفريغ الطلب */
+async function transcribeOne(m: any, settings: any): Promise<{ text: string; usage: any }> {
+  const usage = { calls: 0, promptTokens: 0, candidatesTokens: 0, thoughtsTokens: 0, totalTokens: 0, cachedTokens: 0 };
+  const p: any = m.payload || {};
+  const mediaId = p?.audio?.id;
+  if (!mediaId) return { text: '[لا يوجد ملفّ صوتيّ في هذه الرسالة]', usage };
+  let text = '';
+  try {
+    const media = await fetchWaMedia(mediaId);
+    if (!media) throw new Error('no media');
+    if (media.bin.length > MAX_AUDIO_BYTES) {
+      text = '[رسالة صوتيّة طويلة جدّاً — اطلب منه كتابتها أو تقصيرها]';
+    } else {
+      const res = await fetch(`${GEMINI}/models/${settings.model}:generateContent?key=${encodeURIComponent(settings.geminiApiKey)}`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          contents: [{ role: 'user', parts: [
+            { inline_data: { mime_type: media.mime, data: media.bin.toString('base64') } },
+            { text: 'فرّغ هذه الرسالة الصوتيّة حرفيّاً كما قيلت (غالباً بالعربيّة المحكيّة الأردنيّة) بلا أيّ إضافة أو تعليق أو ترجمة. إن كانت غير مفهومة أو صامتة فاكتب فقط: [غير واضح]' },
+          ] }],
+          generationConfig: { temperature: 0, maxOutputTokens: 600 },
+        }),
+      });
+      const data: any = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data?.error?.message || `Gemini ${res.status}`);
+      text = (data?.candidates?.[0]?.content?.parts || []).map((x: any) => x.text || '').join(' ').trim() || '[غير واضح]';
+      const u = data?.usageMetadata || {};
+      usage.calls++; usage.promptTokens += Number(u.promptTokenCount || 0); usage.candidatesTokens += Number(u.candidatesTokenCount || 0);
+      usage.thoughtsTokens += Number(u.thoughtsTokenCount || 0); usage.totalTokens += Number(u.totalTokenCount || 0);
+    }
+  } catch (e: any) {
+    console.warn('⚠️ WA audio transcribe:', e?.message);
+    text = '[تعذّر فتح الرسالة الصوتيّة — اطلب منه كتابتها]';
+  }
+  const db = getDB();
+  if (db) {
+    await db.update(waMessages)
+      .set({ body: `🎤 ${text}`.slice(0, 1500), payload: { ...p, transcribed: true, transcript: text } } as any)
+      .where(eq(waMessages.id, m.id));
+    try {
+      const io = (global as any).io;
+      if (io) io.to('wa:inbox').emit('wa:message:transcribed', { id: m.id, conversationId: m.conversationId, body: `🎤 ${text}`, transcript: text });
+    } catch { /* غير حرج */ }
+  }
+  return { text, usage };
+}
+
 export async function transcribePendingAudio(convId: number, settings: any): Promise<{ done: number; usage: any }> {
   const usage = { calls: 0, promptTokens: 0, candidatesTokens: 0, thoughtsTokens: 0, totalTokens: 0, cachedTokens: 0 };
   const db = getDB(); if (!db) return { done: 0, usage };
@@ -99,45 +196,38 @@ export async function transcribePendingAudio(convId: number, settings: any): Pro
   for (const m of rows) {
     const p: any = m.payload || {};
     if (p.transcribed || Date.now() - new Date(m.createdAt).getTime() > 15 * 60e3) continue;
-    const mediaId = p?.audio?.id; if (!mediaId) continue;
-    let text = '';
-    try {
-      const meta: any = await (await fetch(`${GRAPH}/${mediaId}`, { headers: { Authorization: `Bearer ${env.WA_TOKEN}` } })).json();
-      if (!meta?.url) throw new Error('no media url');
-      if (Number(meta.file_size || 0) > MAX_AUDIO_BYTES) { text = '[رسالة صوتيّة طويلة جدّاً — اطلب منه كتابتها أو تقصيرها]'; }
-      else {
-        const bin = Buffer.from(await (await fetch(meta.url, { headers: { Authorization: `Bearer ${env.WA_TOKEN}` } })).arrayBuffer());
-        if (bin.length > MAX_AUDIO_BYTES) text = '[رسالة صوتيّة طويلة جدّاً — اطلب منه كتابتها أو تقصيرها]';
-        else {
-          const mime = String(meta.mime_type || 'audio/ogg').split(';')[0].trim();
-          const res = await fetch(`${GEMINI}/models/${settings.model}:generateContent?key=${encodeURIComponent(settings.geminiApiKey)}`, {
-            method: 'POST', headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              contents: [{ role: 'user', parts: [
-                { inline_data: { mime_type: mime, data: bin.toString('base64') } },
-                { text: 'فرّغ هذه الرسالة الصوتيّة حرفيّاً كما قيلت (غالباً بالعربيّة المحكيّة الأردنيّة) بلا أيّ إضافة أو تعليق أو ترجمة. إن كانت غير مفهومة أو صامتة فاكتب فقط: [غير واضح]' },
-              ] }],
-              generationConfig: { temperature: 0, maxOutputTokens: 600 },
-            }),
-          });
-          const data: any = await res.json().catch(() => ({}));
-          if (!res.ok) throw new Error(data?.error?.message || `Gemini ${res.status}`);
-          text = (data?.candidates?.[0]?.content?.parts || []).map((x: any) => x.text || '').join(' ').trim() || '[غير واضح]';
-          const u = data?.usageMetadata || {};
-          usage.calls++; usage.promptTokens += Number(u.promptTokenCount || 0); usage.candidatesTokens += Number(u.candidatesTokenCount || 0);
-          usage.thoughtsTokens += Number(u.thoughtsTokenCount || 0); usage.totalTokens += Number(u.totalTokenCount || 0);
-        }
-      }
-    } catch (e: any) {
-      console.warn('⚠️ WA audio transcribe:', e?.message);
-      text = '[تعذّر فتح الرسالة الصوتيّة — اطلب منه كتابتها]';
-    }
-    await db.update(waMessages).set({ body: `🎤 ${text}`.slice(0, 1500), payload: { ...p, transcribed: true, transcript: text } } as any).where(eq(waMessages.id, m.id));
-    try { const io = (global as any).io; if (io) io.to('wa:inbox').emit('wa:message:transcribed', { id: m.id, conversationId: convId, body: `🎤 ${text}` }); } catch { /* غير حرج */ }
+    const r = await transcribeOne(m, settings);
+    usage.calls += r.usage.calls; usage.promptTokens += r.usage.promptTokens;
+    usage.candidatesTokens += r.usage.candidatesTokens; usage.thoughtsTokens += r.usage.thoughtsTokens;
+    usage.totalTokens += r.usage.totalTokens;
     done++;
   }
   return { done, usage };
 }
+
+/**
+ * تفريغٌ عند الطلب من اللوحة — بلا حدّ زمنيّ وبلا اشتراط أن يكون البوت قد عمل.
+ * ضروريّ لأنّ التفريغ التلقائيّ لا يقع إن كان البوت مطفأً لتلك المحادثة أو مرّ وقتٌ طويل.
+ */
+export async function transcribeMessageOnDemand(messageId: number): Promise<{ ok: boolean; transcript?: string; error?: string }> {
+  const db = getDB(); if (!db) return { ok: false, error: 'قاعدة البيانات غير متاحة' };
+  const [m] = await db.select().from(waMessages).where(eq(waMessages.id, messageId)).limit(1);
+  if (!m) return { ok: false, error: 'الرسالة غير موجودة' };
+  if (m.msgType !== 'audio') return { ok: false, error: 'هذه ليست رسالة صوتيّة' };
+  const p: any = m.payload || {};
+  if (p.transcript) return { ok: true, transcript: String(p.transcript) };
+  const { getBotSettings } = await import('./whatsapp-bot.service.js');
+  const settings: any = await getBotSettings();
+  if (!settings?.geminiApiKey) return { ok: false, error: 'مفتاح Gemini غير مضبوط' };
+  const r = await transcribeOne(m, settings);
+  // الاستهلاك يُسجَّل كي لا يختفي تفريغٌ طلبتَه من حساب التكلفة
+  try {
+    const { recordBotUsageExternal } = await import('./whatsapp-bot.service.js') as any;
+    if (recordBotUsageExternal) await recordBotUsageExternal(m.conversationId, settings.model || '', r.usage);
+  } catch { /* تكميليّ */ }
+  return { ok: true, transcript: r.text };
+}
+
 
 // ══════════════════════════════════════════════════════
 // 📋 إعلانات الأدوات

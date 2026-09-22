@@ -445,6 +445,47 @@ router.get('/bot/usage', authenticate, adminOnly, async (_req: Request, res: Res
   }
 });
 
+// ══════════════════════════════════════════════════════
+// 🎧 وسائط الرسائل الواردة — تشغيلُ الصوت من اللوحة
+// ══════════════════════════════════════════════════════
+// المفتاح هو **معرّف الرسالة** لا معرّف الوسيط: كي لا يصير المسار وكيلاً مفتوحاً
+// يجلب أيّ ملفٍّ من Graph بتوكننا. لا يُخدَم إلّا ما وصلنا فعلاً وخُزّن عندنا.
+router.get('/messages/:id/media', authenticate, adminOnly, async (req: Request, res: Response) => {
+  try {
+    const db = getDB();
+    if (!db) return res.status(503).json({ error: 'DB unavailable' });
+    const id = parseInt(req.params.id);
+    const [m] = await db.select().from(waMessages).where(eq(waMessages.id, id)).limit(1);
+    if (!m) return res.status(404).json({ error: 'الرسالة غير موجودة' });
+    const p: any = m.payload || {};
+    const mediaId = p?.audio?.id || p?.image?.id || p?.video?.id || p?.document?.id || p?.voice?.id;
+    if (!mediaId) return res.status(404).json({ error: 'لا يوجد ملفّ في هذه الرسالة' });
+
+    const { fetchWaMedia } = await import('../services/wa-bot-ext.service.js');
+    const media = await fetchWaMedia(String(mediaId));
+    if (!media) return res.status(404).json({ error: 'تعذّر جلب الملفّ — قد تكون ميتا حذفته (٣٠ يوماً)' });
+
+    res.setHeader('Content-Type', media.mime || 'application/octet-stream');
+    res.setHeader('Content-Length', String(media.bin.length));
+    res.setHeader('Cache-Control', 'private, max-age=86400');
+    res.send(media.bin);
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ── 📝 تفريغ رسالةٍ صوتيّة عند الطلب (يعمل حتّى لو كان البوت مطفأً أو مرّ وقتٌ طويل) ──
+router.post('/messages/:id/transcribe', authenticate, adminOnly, async (req: Request, res: Response) => {
+  try {
+    const { transcribeMessageOnDemand } = await import('../services/wa-bot-ext.service.js');
+    const out = await transcribeMessageOnDemand(parseInt(req.params.id));
+    if (!out.ok) return res.status(400).json(out);
+    res.json({ success: true, ...out });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // ── ⏱️ أثر متابعة المحادثات الصامتة ──
 router.get('/bot/followup-stats', authenticate, adminOnly, async (req: Request, res: Response) => {
   try {

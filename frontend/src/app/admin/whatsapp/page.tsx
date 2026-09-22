@@ -300,6 +300,13 @@ export default function WhatsAppInboxPage() {
       setMessages(prev => prev.map(m => (m.id === d.id ? { ...m, deletedAt: d.deletedAt, deletedBy: d.deletedBy } : m)));
     };
 
+    const onTranscribed = (p: any) => {
+      // التفريغ التلقائيّ يصل بعد ثوانٍ من الرسالة — بلا هذا يبقى «🎤 رسالة صوتية» حتّى إعادة التحميل
+      setMessages(prev => prev.map(x => (x.id === p.id
+        ? { ...x, body: p.body, payload: { ...(x.payload || {}), transcript: p.transcript, transcribed: true } }
+        : x)));
+    };
+    s.on('wa:message:transcribed', onTranscribed);
     s.on('wa:message:new', onNew);
     s.on('wa:status:update', onStatus);
     s.on('wa:reaction', onReaction);
@@ -307,6 +314,7 @@ export default function WhatsAppInboxPage() {
     s.on('wa:message:deleted', onDeleted);
     return () => {
       s.off('wa:message:new', onNew);
+      s.off('wa:message:transcribed', onTranscribed);
       s.off('wa:status:update', onStatus);
       s.off('wa:reaction', onReaction);
       s.off('wa:conversation:update', onConvUpdate);
@@ -768,7 +776,11 @@ export default function WhatsAppInboxPage() {
                       {g.m.deletedAt ? (
                         <div className="italic text-gray-500 text-[12.5px]">🗑️ حُذفت من السجل بواسطة {g.m.deletedBy || 'أدمن'}</div>
                       ) : (
-                        <div className="whitespace-pre-wrap break-words">{g.m.body || <span className="text-gray-500 italic">[{g.m.msgType}]</span>}</div>
+                        g.m.msgType === 'audio' && g.m.direction === 'in' ? (
+                          <AudioBubble m={g.m} />
+                        ) : (
+                          <div className="whitespace-pre-wrap break-words">{g.m.body || <span className="text-gray-500 italic">[{g.m.msgType}]</span>}</div>
+                        )
                       )}
                       <div className="flex items-center gap-1.5 justify-end mt-0.5 text-[10px] text-gray-500">
                         {/* أدوات الرسالة: معلومات + حذف (تظهر عند المرور) */}
@@ -1122,6 +1134,85 @@ const TOOL_LABELS: Record<string, string> = {
   survey: '📝 استبيان ما بعد الأمسية بأزرار (يُرسل فقط لمن نافذته مفتوحة)',
   adminSeating: '🔒 الإجلاس عبر المحرّك: عرض، تعيين مقعد، منع تجاور، إعادة توزيع في اللوبي (أدمن فقط)',
 };
+
+// ══════════════════════════════════════════════════════
+// 🎧 فقاعة الرسالة الصوتيّة — تشغيلٌ من اللوحة + تفريغٌ نصّيّ
+// ══════════════════════════════════════════════════════
+// الصوت لا يُجلب برابطٍ مباشر: Cloud API يطلب توكننا، و<audio src> لا يحمل ترويسة
+// Authorization. فنجلبه blob عبر apiFetch ثمّ نصنع رابط كائن محلّيّاً.
+function AudioBubble({ m }: { m: any }) {
+  const [url, setUrl] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+  const [txt, setTxt] = useState<string | null>(m.payload?.transcript || null);
+  const [showTxt, setShowTxt] = useState(false);
+
+  useEffect(() => () => { if (url) URL.revokeObjectURL(url); }, [url]);
+
+  const load = async () => {
+    if (url || busy) return;
+    setBusy(true); setErr(null);
+    try {
+      const res = await fetch(`${API_URL}/api/whatsapp/messages/${m.id}/media`, {
+        headers: { Authorization: `Bearer ${getToken()}` },
+      });
+      if (!res.ok) {
+        const e = await res.json().catch(() => ({}));
+        throw new Error(e.error || `تعذّر الجلب (${res.status})`);
+      }
+      setUrl(URL.createObjectURL(await res.blob()));
+    } catch (e: any) { setErr(e.message); }
+    finally { setBusy(false); }
+  };
+
+  const transcribe = async () => {
+    setBusy(true); setErr(null);
+    try {
+      const r = await apiFetch(`/api/whatsapp/messages/${m.id}/transcribe`, { method: 'POST' });
+      setTxt(r.transcript || '[غير واضح]');
+      setShowTxt(true);
+    } catch (e: any) { setErr(e.message); }
+    finally { setBusy(false); }
+  };
+
+  // التفريغ يُخزَّن في نصّ الرسالة مسبوقاً بـ🎤 — فإن كان موجوداً فهو الجسد نفسه
+  const bodyTranscript = typeof m.body === 'string' && m.body.startsWith('🎤 ') && m.body !== '🎤 رسالة صوتية'
+    ? m.body.slice(2).trim() : null;
+  const transcript = txt || bodyTranscript;
+
+  return (
+    <div className="min-w-[210px]">
+      {url ? (
+        <audio src={url} controls autoPlay className="w-full h-9" />
+      ) : (
+        <button onClick={load} disabled={busy}
+          className="flex items-center gap-2 text-[12.5px] text-gray-100 hover:text-white disabled:opacity-50">
+          <span className="w-7 h-7 rounded-full bg-emerald-600/25 border border-emerald-500/40 flex items-center justify-center">▶</span>
+          {busy ? 'جارٍ التحميل…' : '🎤 رسالة صوتيّة — اضغط للسماع'}
+        </button>
+      )}
+
+      <div className="flex items-center gap-2 mt-1">
+        {transcript ? (
+          <button onClick={() => setShowTxt(v => !v)} className="text-[10.5px] text-sky-300 hover:text-sky-200">
+            {showTxt ? '▲ إخفاء التفريغ' : '📝 عرض التفريغ'}
+          </button>
+        ) : (
+          <button onClick={transcribe} disabled={busy} className="text-[10.5px] text-sky-300 hover:text-sky-200 disabled:opacity-50">
+            {busy ? '…' : '📝 فرّغها نصّاً'}
+          </button>
+        )}
+      </div>
+
+      {showTxt && transcript && (
+        <div className="mt-1 text-[12.5px] whitespace-pre-wrap break-words bg-black/25 border border-gray-700/50 rounded-lg px-2 py-1.5">
+          {transcript}
+        </div>
+      )}
+      {err && <div className="text-[10.5px] text-rose-400 mt-1">⚠️ {err}</div>}
+    </div>
+  );
+}
 
 function Card({ title, children, wide }: { title: string; children: any; wide?: boolean }) {
   return (

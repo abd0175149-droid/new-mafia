@@ -549,6 +549,11 @@ export async function getBotSettings() {
   return row;
 }
 
+/** تسجيل استهلاكٍ من خارج المحرّك (تفريغُ صوتٍ طلبَه الأدمن من اللوحة) — كي لا تختفي كلفته */
+export async function recordBotUsageExternal(conversationId: number | null, model: string, acc: any): Promise<void> {
+  await recordBotUsage(conversationId, 'live', model, acc, { tools: ['transcribe'], flags: { onDemand: true } }).catch(() => {});
+}
+
 export function maskApiKey(key: string): string {
   if (!key) return '';
   if (key.length <= 8) return '••••';
@@ -792,7 +797,7 @@ function buildToolDeclarations(toolsConfig: any, opts?: { adminOnlyTools?: strin
     });
     decls.push({
       name: 'create_reservation',
-      description: 'إنشاء حجز مؤكد في متابعة الحجوزات. تُستدعى حصراً بعد أن يضغط العميل زر التأكيد (يصلك اختيار يبدأ بـ res_confirm يحمل المعرف والعدد).',
+      description: 'إنشاء حجز مؤكد **باسم صاحب هذه المحادثة نفسه** في متابعة الحجوزات. تُستدعى حصراً بعد أن يضغط العميل زر التأكيد (يصلك اختيار يبدأ بـ res_confirm يحمل المعرف والعدد). ⛔ لا تُستعمل أبداً لحجز شخصٍ آخر ولو طلب الأدمن ذلك — لذلك admin_add_booking برقم الشخص.',
       parameters: {
         type: 'OBJECT',
         properties: {
@@ -984,13 +989,18 @@ function buildToolDeclarations(toolsConfig: any, opts?: { adminOnlyTools?: strin
   if (t.adminBookings) {
     decls.push({
       name: 'admin_add_booking',
-      description: 'إضافة حجز للاعب في فعاليّة نيابةً عنه (أدمن فقط) — لمن اتّصل هاتفياً أو حجز حضورياً. تحتاج: الفعاليّة، الاسم، رقم الهاتف، وعدد الأشخاص. تعرض ملخّصاً وحالة المقاعد وأزرار تأكيد؛ لا يُسجَّل الحجز إلا بعد ضغط الأدمن التأكيد.',
+      description: '**الأداة الوحيدة** لحجز الأدمن لشخصٍ آخر (أدمن فقط) — لمن اتّصل هاتفياً أو حجز حضورياً أو طلب الأدمن الحجز له. '
+        + '🔴 رقم هاتف الشخص **إلزاميّ**: إن لم يذكره الأدمن فاطلبه صراحةً قبل أيّ شيء («عطيني رقمه وبحجزله») ولا تستدعِ الأداة بلا رقم ولا تخترع رقماً. '
+        + 'بالرقم يُربط الحجز ببطاقة اللاعب إن كان له حساب في النادي — فتُحتسب له نقاطه وأختامه ويظهر في تفاصيل النشاط. '
+        + 'الاسم اختياريّ: إن كان الرقم لحساب لاعب يُؤخذ اسمه من حسابه تلقائيّاً، ويلزم الاسم فقط إن كان الرقم لضيفٍ بلا حساب. '
+        + '⛔ لا تستعمل create_reservation أبداً لحجز الأدمن لغيره — تلك تحجز باسم صاحب هذه المحادثة نفسه. '
+        + 'تعرض الأداة ملخّصاً يبيّن هل الرقم مربوط بحساب لاعب أم ضيف، وحالة المقاعد، وأزرار تأكيد؛ ولا يُسجَّل الحجز إلا بعد ضغط الأدمن.',
       parameters: { type: 'OBJECT', properties: {
         activity_id: { type: 'NUMBER', description: 'معرّف الفعاليّة (من get_available_activities)' },
-        name: { type: 'STRING', description: 'اسم اللاعب كما يُسجَّل في الحجز' },
-        phone: { type: 'STRING', description: 'رقم هاتف اللاعب بأي صيغة' },
+        name: { type: 'STRING', description: 'اسم الشخص — يلزم فقط إن لم يكن رقمه مربوطاً بحساب لاعب' },
+        phone: { type: 'STRING', description: 'رقم هاتف الشخص المحجوز له (إلزاميّ) — اطلبه من الأدمن إن لم يذكره' },
         people_count: { type: 'NUMBER', description: 'عدد الأشخاص (1 فأكثر)' },
-      }, required: ['activity_id', 'name', 'phone', 'people_count'] },
+      }, required: ['activity_id', 'phone', 'people_count'] },
     });
     decls.push({
       name: 'admin_move_booking',
@@ -2275,15 +2285,30 @@ async function execTool(name: string, args: any, ctx: ToolCtx): Promise<any> {
     case 'admin_add_booking': {
       const actId = Number(args.activity_id);
       const people = Math.max(1, parseInt(args.people_count) || 1);
-      const name = String(args.name || '').trim();
+      const typedName = String(args.name || '').trim();
       const { normalizeLocalPhone } = await import('../utils/phone.util.js');
       const phone = normalizeLocalPhone(String(args.phone || ''));
-      if (!name) return { error: 'الاسم مطلوب' };
-      if (!phone) return { error: 'رقم الهاتف غير صالح — لازم موبايل أردني (07XXXXXXXX)' };
+      if (!phone) {
+        return { error: 'رقم هاتف الشخص مطلوب — اطلبه من الأدمن («عطيني رقمه وبحجزله»). بلا رقم لا يُربط الحجز ببطاقة اللاعب ولا تُحتسب له نقاطه.' };
+      }
 
       const [act] = await db.select({ name: activities.name, date: activities.date })
         .from(activities).where(eq(activities.id, actId)).limit(1);
       if (!act) return { error: 'الفعاليّة غير موجودة' };
+
+      // 🔗 الرقم أوّلاً ثمّ الهويّة: حجزُ الأدمن لشخصٍ له حساب يجب أن يُربط ببطاقته
+      //    (نقاطه وأختامه وظهوره في تفاصيل النشاط)، لا أن يُسجَّل كضيفٍ جديد باسمٍ يكتبه الأدمن.
+      //    players.phone فريد فالمطابقة التامّة بعد التطبيع لا لبس فيها.
+      const [linkedPlayer] = await db
+        .select({ id: players.id, name: players.name, rankTier: players.rankTier, matches: players.totalMatches })
+        .from(players).where(eq(players.phone, phone)).limit(1);
+      const name = linkedPlayer?.name || typedName;
+      if (!name) {
+        return { error: `الرقم ${phone} غير مربوط بحساب لاعب — اطلب اسم الشخص من الأدمن ليُسجَّل كضيف.` };
+      }
+      const whoLine = linkedPlayer
+        ? `👤 ${linkedPlayer.name} — حساب لاعب مسجَّل${linkedPlayer.rankTier ? ` (${RANK_AR[linkedPlayer.rankTier] || linkedPlayer.rankTier})` : ''}${linkedPlayer.matches ? ` · ${linkedPlayer.matches} مباراة` : ''}`
+        : `👤 ${name} — ضيف (الرقم غير مربوط بحساب لاعب)`;
 
       // مانع التكرار: هل له حجز أصلاً في هذه الفعاليّة؟ (بالهاتف — يغطّي الحجز غير المربوط)
       const [dupRes] = await db.select({ people: reservations.peopleCount, status: reservations.status })
@@ -2299,10 +2324,10 @@ async function execTool(name: string, args: any, ctx: ToolCtx): Promise<any> {
 
       if (!dryRun) {
         const { setAux } = await import('../config/redis.js');
-        await setAux(`adm-addbk:${conv.id}`, { actId, name, phone, people, expiresAt: Date.now() + 10 * 60e3 });
+        await setAux(`adm-addbk:${conv.id}`, { actId, name, phone, people, playerId: linkedPlayer?.id || null, expiresAt: Date.now() + 10 * 60e3 });
         await sendMessage({ conversationId: conv.id, source: 'bot', interactive: {
           type: 'button',
-          body: { text: `📋 إضافة حجز:\n• الاسم: ${name}\n• الرقم: ${phone}\n• العدد: ${people}\n• الفعاليّة: ${act.name} (${fmtJo(act.date)})\n\n${seatNote}\n\nأثبّت الحجز؟` },
+          body: { text: `📋 إضافة حجز:\n${whoLine}\n• الرقم: ${phone}\n• العدد: ${people}\n• الفعاليّة: ${act.name} (${fmtJo(act.date)})\n\n${seatNote}\n\nأثبّت الحجز؟` },
           action: { buttons: [
             { type: 'reply', reply: { id: `admaddbk:${conv.id}`, title: 'نعم، احجز ✅' } },
             { type: 'reply', reply: { id: 'admincancel', title: 'إلغاء' } },
@@ -2310,7 +2335,14 @@ async function execTool(name: string, args: any, ctx: ToolCtx): Promise<any> {
         } });
         ctx.interactives.push({ kind: 'buttons', preview: 'تأكيد إضافة حجز' });
       }
-      return { pendingConfirm: true, seats: av, note: 'أُرسلت أزرار التأكيد — لا تؤكّد نصّاً، ينتظر ضغط الأدمن.' };
+      return {
+        pendingConfirm: true, seats: av,
+        linkedToPlayer: !!linkedPlayer,
+        playerName: linkedPlayer?.name || null,
+        note: linkedPlayer
+          ? `أُرسلت أزرار التأكيد. الرقم مربوط بحساب «${linkedPlayer.name}» فالحجز سيُنسب لبطاقته — أخبر الأدمن بذلك باختصار وانتظر ضغطه.`
+          : 'أُرسلت أزرار التأكيد. الرقم غير مربوط بحساب لاعب فسيُسجَّل كضيف — أخبر الأدمن وانتظر ضغطه. لا تؤكّد نصّاً.',
+      };
     }
 
     // 🔒 نقل حجز بين فعاليّتين — ينقل معه مرآة حجز التطبيق وإلا انكسر عدّ المقاعد
@@ -2655,6 +2687,9 @@ async function buildCustomerCard(db: any, conv: any): Promise<string> {
   // 🔒 هويّة الأدمن صريحةً في البطاقة. بدونها رفض النموذج سؤال الأدمن عن لاعب آخر («أسرار شخصيّة») رغم أنّ الأدوات معروضة له.
   if (await isAdminConversation(conv).catch(() => false)) {
     lines.push('🔒 هذا المتحدّث **أدمن موثَّق** (رقمه مربوط بحساب إداريّ). قاعدة «لا معلومات عن لاعب آخر» **لا تسري عليه**: أيّ سؤال منه عن لاعب أو حجز أو ماليّة أو ولاء ⟵ استدعِ أداة الإدارة المناسبة فوراً، بلا رفض وبلا طلب إثبات.');
+    // 🔴 الحجز نيابةً عن غيره: بلا رقمٍ يُسجَّل الشخص ضيفاً جديداً فتضيع نقاطه وأختامه
+    //    وظهوره في تفاصيل النشاط — والرقم هو المفتاح الوحيد لبطاقته (players.phone فريد).
+    lines.push('📋 إن طلب هذا الأدمن حجزاً **لشخصٍ آخر**: اطلب **رقم هاتف ذلك الشخص أوّلاً** (سؤال واحد: «عطيني رقمه وبحجزله»)، ثمّ استدعِ `admin_add_booking` بالرقم. الرقم يربط الحجز ببطاقة اللاعب إن كان له حساب فتُحتسب نقاطه وأختامه — وبدونه يُسجَّل ضيفاً جديداً وتضيع. ⛔ لا تستعمل `create_reservation` لحجز غيره أبداً (تلك تحجز باسم صاحب المحادثة نفسه)، ولا تخترع رقماً، ولا تكتفِ بالاسم.');
   }
   // 🎁 حالة هذا الشخص من عرضِ الحديث النشط (أخذها · محجوزة بانتظار حساب · بانتظار مدينته)
   try {
@@ -3014,7 +3049,8 @@ async function processConversation(convId: number) {
         }
         const [act] = await db.select({ name: activities.name, date: activities.date })
           .from(activities).where(eq(activities.id, p.actId)).limit(1);
-        const [pl] = await db.select({ id: players.id }).from(players).where(eq(players.phone, p.phone)).limit(1);
+        // يُعاد الحلّ لحظة التنفيذ لا وقت العرض: قد يكون الشخص فتح حسابه بين الطلب والضغط
+        const [pl] = await db.select({ id: players.id, name: players.name }).from(players).where(eq(players.phone, p.phone)).limit(1);
         const av = await seatAvailability(db, p.actId);
         const [savedRes] = await db.insert(reservations).values({
           activityId: p.actId,
@@ -3032,9 +3068,11 @@ async function processConversation(convId: number) {
           .catch((e: any) => { console.warn('⚠️ admin booking mirror:', e?.message); return false; });
         const over = av.remaining < p.people ? `\n⚠️ الحجز تجاوز السعة (كان المتبقي ${av.remaining}).` : '';
         const mirrorLine = pl?.id
-          ? (mirrored ? '\n📄 وانسجّل بتفاصيل النشاط.' : '\n📄 له صفّ بتفاصيل النشاط أصلاً.')
-          : '\n📄 الرقم مش مربوط بحساب لاعب — ما انسجّل بتفاصيل النشاط (بيظهر بمتابعة الحجوزات فقط).';
-        await sendMessage({ conversationId: convId, text: `تمّ ✅ انحجز «${p.name}» (${p.phone}) — ${p.people} أشخاص في «${act?.name || ''}» ${act ? `(${fmtJo(act.date)})` : ''}.${over}${mirrorLine}`, source: 'system' });
+          ? (mirrored
+            ? `\n🔗 مربوط ببطاقة «${pl.name}» — بتنحسبله نقاطه وبيظهر بتفاصيل النشاط.`
+            : `\n🔗 مربوط ببطاقة «${pl.name}» — وله صفّ بتفاصيل النشاط أصلاً.`)
+          : '\n📄 الرقم مش مربوط بحساب لاعب — انحجز كضيف (بيظهر بمتابعة الحجوزات فقط).';
+        await sendMessage({ conversationId: convId, text: `تمّ ✅ انحجز «${pl?.name || p.name}» (${p.phone}) — ${p.people} أشخاص في «${act?.name || ''}» ${act ? `(${fmtJo(act.date)})` : ''}.${over}${mirrorLine}`, source: 'system' });
         console.log(`🔒 WA bot ADMIN add-booking act=${p.actId} phone=${p.phone} people=${p.people} by conv ${convId}`);
         void auditBot(conv, 'wa:booking-add', { phone: p.phone, people: p.people, overCapacity: av.remaining < p.people }, { activityId: p.actId, targetName: p.name });
         return;
