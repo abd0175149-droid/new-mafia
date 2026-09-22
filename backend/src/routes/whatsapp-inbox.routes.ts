@@ -9,7 +9,7 @@
 
 import { Router, type Request, type Response, type NextFunction } from 'express';
 import crypto from 'crypto';
-import { eq, desc, and, lt, sql, or, ilike, isNull } from 'drizzle-orm';
+import { eq, desc, and, lt, sql, or, ilike, isNull, inArray } from 'drizzle-orm';
 import { getDB } from '../config/db.js';
 import { env } from '../config/env.js';
 import { waConversations, waMessages, waCustomerNotes, waOptouts, waMessageTemplates, bookings, locations } from '../schemas/admin.schema.js';
@@ -159,9 +159,21 @@ router.get('/conversations', authenticate, adminOnly, async (req: Request, res: 
       .limit(limit)
       .offset(offset);
 
+    // 🖼️ صورة الملفّ: واتساب لا يرسل صورة المتواصل إطلاقاً (الويبهوك يحمل الاسم فقط،
+    //    ولا endpoint لصورة رقمٍ آخر) — فالمصدر الوحيد الممكن هو صورة حسابه في تطبيق
+    //    اللاعب إن كانت المحادثة مربوطة. استعلامٌ واحد بالجملة، لا واحدٌ لكلّ صفّ.
+    const pids = [...new Set(rows.map((c: any) => c.playerId).filter(Boolean))] as number[];
+    const avatars = new Map<number, string>();
+    if (pids.length) {
+      const prs = await db.select({ id: players.id, avatarUrl: players.avatarUrl })
+        .from(players).where(inArray(players.id, pids));
+      for (const p of prs) if (p.avatarUrl) avatars.set(p.id, p.avatarUrl);
+    }
+
     // حقول محسوبة للواجهة + فلترة bot/human (محسوبة زمنياً فلا تصلح شرط SQL ثابت)
     let list = rows.map((c: any) => ({
       ...c,
+      avatarUrl: c.playerId ? (avatars.get(c.playerId) || null) : null,
       botActive: isBotActive(c),
       windowOpen: isFreeWindowOpen(c),
     }));
@@ -205,9 +217,16 @@ router.get('/conversations/:id/messages', authenticate, adminOnly, async (req: R
       .orderBy(desc(waMessages.id))
       .limit(limit);
 
+    let avatarUrl: string | null = null;
+    if (conv.playerId) {
+      const [pl] = await db.select({ avatarUrl: players.avatarUrl })
+        .from(players).where(eq(players.id, conv.playerId)).limit(1);
+      avatarUrl = pl?.avatarUrl || null;
+    }
+
     res.json({
       success: true,
-      conversation: { ...conv, botActive: isBotActive(conv), windowOpen: isFreeWindowOpen(conv) },
+      conversation: { ...conv, avatarUrl, botActive: isBotActive(conv), windowOpen: isFreeWindowOpen(conv) },
       messages, // الأحدث أولاً
       hasMore: messages.length === limit,
     });

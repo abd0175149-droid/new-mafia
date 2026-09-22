@@ -652,11 +652,7 @@ export default function WhatsAppInboxPage() {
                     selId === c.id ? 'bg-gray-800/60 shadow-[inset_3px_0_0_#f59e0b]' : ''
                   }`}
                 >
-                  <div className={`w-10 h-10 rounded-full flex items-center justify-center font-bold text-sm shrink-0 ${
-                    c.playerId ? 'bg-gradient-to-br from-amber-500 to-amber-700 text-gray-950' : 'bg-gray-700 text-gray-200'
-                  }`}>
-                    {(c.displayName || c.phone || '?').trim().charAt(0)}
-                  </div>
+                  <ConvAvatar c={c} size={40} />
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-1.5">
                       <span className="font-bold text-[13px] text-white truncate">{c.displayName || intlPhone(c.phone)}</span>
@@ -696,11 +692,7 @@ export default function WhatsAppInboxPage() {
               {/* الرأس */}
               <div className="flex items-center gap-3 px-4 py-2.5 border-b border-gray-800 bg-gray-900/80">
                 <button className="md:hidden text-gray-400 text-lg" onClick={() => setMobilePane('list')}>▶</button>
-                <div className={`w-9 h-9 rounded-full flex items-center justify-center font-bold text-sm shrink-0 ${
-                  conv.playerId ? 'bg-gradient-to-br from-amber-500 to-amber-700 text-gray-950' : 'bg-gray-700 text-gray-200'
-                }`}>
-                  {(conv.displayName || '?').trim().charAt(0) || '؟'}
-                </div>
+                <ConvAvatar c={conv} size={36} />
                 <div className="min-w-0">
                   <div className="font-bold text-sm text-white flex items-center gap-2 flex-wrap">
                     {conv.displayName || intlPhone(conv.phone)}
@@ -1211,6 +1203,49 @@ function AudioBubble({ m }: { m: any }) {
       )}
       {err && <div className="text-[10.5px] text-rose-400 mt-1">⚠️ {err}</div>}
     </div>
+  );
+}
+
+// ══════════════════════════════════════════════════════
+// 🖼️ صورة المتواصل
+// ══════════════════════════════════════════════════════
+// واتساب لا يرسل صورة العميل إطلاقاً (الويبهوك يحمل الاسم فقط، ولا endpoint لصورة
+// رقمٍ آخر في Cloud API — منعٌ مقصود من ميتا). فالمصدر الوحيد هو صورة حسابه في تطبيق
+// اللاعب إن كانت المحادثة مربوطة. ومن لا صورة له: حرفٌ بلونٍ **ثابت مشتقّ من رقمه**
+// لا رماديٌّ موحَّد — فلكلّ شخصٍ هويّة بصريّة تُميّزه في القائمة.
+const AVATAR_COLORS = [
+  'from-sky-500 to-sky-700', 'from-violet-500 to-violet-700', 'from-emerald-500 to-emerald-700',
+  'from-rose-500 to-rose-700', 'from-orange-500 to-orange-700', 'from-teal-500 to-teal-700',
+  'from-fuchsia-500 to-fuchsia-700', 'from-lime-600 to-lime-800', 'from-cyan-500 to-cyan-700',
+  'from-indigo-500 to-indigo-700',
+];
+function hueOf(key: string): string {
+  let h = 0;
+  for (let i = 0; i < key.length; i++) h = (h * 31 + key.charCodeAt(i)) >>> 0;
+  return AVATAR_COLORS[h % AVATAR_COLORS.length];
+}
+
+function ConvAvatar({ c, size = 40 }: { c: any; size?: number }) {
+  const [broken, setBroken] = useState(false);
+  const label = (c?.displayName || c?.phone || '?').trim().charAt(0) || '؟';
+  const src = c?.avatarUrl && !broken ? `${API_URL}${c.avatarUrl}` : null;
+  const cls = `rounded-full shrink-0 overflow-hidden flex items-center justify-center font-bold`;
+  const style = { width: size, height: size, fontSize: Math.round(size * 0.38) };
+
+  if (src) {
+    return (
+      <div className={`${cls} ring-2 ring-amber-500/50`} style={style} title="صورة حسابه في التطبيق">
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img src={src} alt="" className="w-full h-full object-cover" onError={() => setBroken(true)} />
+      </div>
+    );
+  }
+  return (
+    <div
+      className={`${cls} bg-gradient-to-br ${c?.playerId ? 'from-amber-500 to-amber-700 text-gray-950' : `${hueOf(String(c?.phone || label))} text-white/95`}`}
+      style={style}
+      title={c?.playerId ? 'حساب لاعب مربوط — بلا صورة في التطبيق' : 'رقم غير مربوط بحساب'}
+    >{label}</div>
   );
 }
 
