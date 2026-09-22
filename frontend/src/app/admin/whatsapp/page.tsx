@@ -1324,13 +1324,36 @@ function FollowupCard({ s, patch }: { s: any; patch: (k: string, v: any) => void
       <Row label="لا تُتابع صمتاً أقدم من (ساعة)">
         <NumInput value={f.maxSilenceHours} onChange={v => set('maxSilenceHours', v)} min={1} max={24} />
       </Row>
-      <Row label="ساعات الهدوء (من / إلى)">
-        <div className="flex items-center gap-1.5">
-          <NumInput value={f.quietFromHour} onChange={v => set('quietFromHour', v)} min={0} max={23} />
-          <span className="text-gray-600 text-xs">→</span>
-          <NumInput value={f.quietToHour} onChange={v => set('quietToHour', v)} min={0} max={23} />
+      {/* 🔴 حقلان متجاوران في سياق RTL: الأوّل يُرسم يميناً، فيقرؤه المستخدم «إلى» ويكتب
+          فيه «من» — وقد وقع هذا فعلاً فصارت ساعات الهدوء تغطّي النهار كلّه والميزة صامتة
+          بلا خطأ ولا سجلّ. العلاج ثلاثيّ: dir=ltr يثبّت الترتيب · وسمٌ فوق كلّ حقل ·
+          وجملةٌ تقول المعنى لا الأرقام. */}
+      <Row label="ساعات الهدوء — لا متابعة فيها">
+        <div className="flex items-end gap-2" dir="ltr">
+          <div className="text-center">
+            <div className="text-[9.5px] text-gray-500 font-bold mb-0.5">من الساعة</div>
+            <NumInput value={f.quietFromHour} onChange={v => set('quietFromHour', v)} min={0} max={23} />
+          </div>
+          <span className="text-gray-600 text-xs pb-1.5">→</span>
+          <div className="text-center">
+            <div className="text-[9.5px] text-gray-500 font-bold mb-0.5">إلى الساعة</div>
+            <NumInput value={f.quietToHour} onChange={v => set('quietToHour', v)} min={0} max={23} />
+          </div>
         </div>
       </Row>
+      {(() => {
+        const from = Number(f.quietFromHour), to = Number(f.quietToHour);
+        const span = from === to ? 0 : (from < to ? to - from : 24 - from + to);
+        const h12 = (h: number) => `${h % 12 === 0 ? 12 : h % 12}${h < 12 ? ' صباحاً' : ' مساءً'}`;
+        return (
+          <div className={`text-[11px] py-2 border-b border-dashed border-gray-800 ${span >= 12 ? 'text-amber-300' : 'text-gray-500'}`}>
+            {span === 0
+              ? '🔔 لا ساعات هدوء — المتابعة تعمل على مدار اليوم.'
+              : `🔕 لا متابعة بين ${h12(from)} و${h12(to)} — أي ${span} ساعة صمت يوميّاً، والمتابعة تعمل في الـ${24 - span} ساعة الباقية.`}
+            {span >= 12 && ' ⚠️ هذه فترة هدوءٍ طويلة — تأكّد أنّ الحقلين ليسا معكوسين.'}
+          </div>
+        );
+      })()}
       <Row label="سقف المتابعات اليوميّ">
         <NumInput value={f.maxPerDay} onChange={v => set('maxPerDay', v)} min={0} max={1000} />
       </Row>
