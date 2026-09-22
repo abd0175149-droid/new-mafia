@@ -1431,6 +1431,9 @@ function BotSettingsView({ onOpenConv }: { onOpenConv?: (id: number) => void }) 
         contextMessages: s.contextMessages, pauseMinutes: s.pauseMinutes, maxToolLoops: s.maxToolLoops,
         failMessage: s.failMessage, failHandoff: s.failHandoff, toolsConfig: s.toolsConfig,
         adminOnlyTools: s.adminOnlyTools || [],
+        // ⏱️ إعدادات المتابعة — غيابُها من هذا الجسم كان يعني أنّ كلّ ضبطٍ لها يُرسل
+        //    ناقصاً، فيعود الخادم بالقيمة القديمة ويبدو كأنّ الصفحة «رجعت لحالها».
+        ...(s.followup !== undefined ? { followup: s.followup } : {}),
         ...extra,
       };
       if (s.priceInputPer1M !== undefined) body.priceInputPer1M = s.priceInputPer1M;

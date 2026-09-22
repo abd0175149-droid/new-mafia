@@ -24,6 +24,9 @@ const fu = code('services/wa-followup.service.ts');
 const bot = code('services/whatsapp-bot.service.ts');
 const inbox = code('services/whatsapp-inbox.service.ts');
 const boot = code('index.ts');
+// الواجهة: حارسٌ على جسم الحفظ نفسه (خارج src)
+const uiPath = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'frontend', 'src', 'app', 'admin', 'whatsapp', 'page.tsx');
+const ui = fs.existsSync(uiPath) ? fs.readFileSync(uiPath, 'utf8') : '';
 
 console.log('\n⏱️ فحص حرّاس المتابعة\n');
 
@@ -73,6 +76,12 @@ check(/enabled: false/.test(fu), 'يُنشر مطفأً — التفعيل قر�
 check(/'followup'\]/.test(bot) && /mergeFollowup/.test(bot),
   'الإعدادات تُحفظ عبر القائمة البيضاء وتُنقَّح في الخادم');
 check(!/setTimeout\([^)]*followup/i.test(bot), 'لا مؤقّتات متابعة في ذاكرة المحرّك');
+// 🔴 الحارس الذي كان ناقصاً: جسمُ الحفظ في الواجهة يُبنى حقلاً حقلاً لا بنسخ الكائن،
+//    فحقلٌ جديد في البطاقة لا يصل الخادم أبداً ويبدو كأنّ «الصفحة رجعت لحالها».
+check(!ui || /followup: s\.followup/.test(ui),
+  'جسمُ حفظ إعدادات البوت يحمل followup',
+  'بدونه يُرسل الحفظ ناقصاً فيعود الخادم بالقيمة القديمة');
+check(!ui || /FollowupCard/.test(ui), 'بطاقة المتابعة مركَّبة في تبويب البوت');
 
 console.log(`\n${'═'.repeat(48)}`);
 console.log(fail === 0 ? `✅ كلّ الحرّاس سليمة (${pass})` : `❌ ${fail} حارساً ساقطاً من ${pass + fail}`);
