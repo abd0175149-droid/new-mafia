@@ -247,8 +247,9 @@ export const EXT_TOOLS_DEFAULTS = {
   adminPlayers: true,     // 🔒 قفل/فكّ حساب، إعفاء سياج، ملاحظة
   survey: true,           // استبيان ما بعد الأمسية بأزرار (داخل نافذة ٢٤ ساعة المفتوحة فقط)
   adminSeating: true,     // 🔒 الإجلاس عبر نقاط المحرّك نفسها (عرض، تعيين مقعد، منع تجاور، إعادة توزيع)
+  adminKb: true,          // 🔒 قراءة قاعدة المعرفة وتعديلها من الواتساب (بلقطةٍ وتراجع)
 };
-export const EXT_ALWAYS_ADMIN_ONLY = ['adminTonight', 'adminChips', 'adminActivities', 'adminReports', 'adminPlayers', 'adminSeating'];
+export const EXT_ALWAYS_ADMIN_ONLY = ['adminTonight', 'adminChips', 'adminActivities', 'adminReports', 'adminPlayers', 'adminSeating', 'adminKb'];
 
 export function extToolDeclarations(t: Record<string, any>): any[] {
   const d: any[] = [];
@@ -261,6 +262,11 @@ export function extToolDeclarations(t: Record<string, any>): any[] {
   if (t.roleGuide) d.push({ name: 'get_role_guide', description: 'الدليل الحيّ للأدوار من النظام: بلا اسم يعيد قائمة الأدوار المفعَّلة بفريق كلٍّ منها والحدّ الأدنى للاعبين؛ وباسم دورٍ يعيد شرحه الكامل ونصائحه وقيوده. استخدمه عند أيّ شرح مفصّل لدور — هو أحدث من قاعدة المعرفة.', parameters: O({ role_name: { type: 'STRING', description: 'اسم الدور بالعربيّة كما ذكره العميل (اختياريّ)' } }) });
   if (t.register) d.push({ name: 'start_registration', description: 'إنشاء حساب لاعب جديد لرقم هذه المحادثة (للزائر غير المسجَّل حصراً). اجمع منه أوّلاً: الاسم الكامل، الجنس، تاريخ الميلاد — سؤالاً واحداً بكلّ رسالة — ثمّ استدعِها فتعرض ملخّصاً وأزرار تأكيد. الحساب يُنشأ آليّاً بعد ضغطه وتصله كلمة سرّ مؤقّتة. الموافقة على سياسة الخصوصيّة والشروط تتمّ داخل التطبيق عند أوّل دخول — لا تطلبها أنت.', parameters: O({ full_name: { type: 'STRING', description: 'الاسم كما يريده في حسابه' }, gender: { type: 'STRING', description: 'male أو female' }, dob: { type: 'STRING', description: 'تاريخ الميلاد بصيغة YYYY-MM-DD' } }, ['full_name', 'gender', 'dob']) });
 
+  if (t.adminKb) {
+    d.push({ name: 'admin_kb_show', description: 'قراءة ما تقوله قاعدة معرفة النادي عن موضوعٍ ما (أدمن فقط) — تعيد المقاطع المطابقة بنصّها الحرفيّ مع أرقام أسطرها. استعملها **قبل** أيّ تعديل ليرى الأدمن الصيغة القائمة، وبعده للتأكّد. وإن لم تجد شيئاً فأخبره أنّ البوت لا يملك معلومةً عن الموضوع وأنّ أيّ جوابٍ عنه تخمين.', parameters: O({ query: { type: 'STRING', description: 'كلمة أو عبارة للبحث عنها في المعرفة' } }, ['query']) });
+    d.push({ name: 'admin_kb_add', description: 'إضافة معلومة جديدة إلى قاعدة معرفة النادي (أدمن فقط) — إضافةٌ محضة لا تمسّ حرفاً قائماً. صُغ المعلومة جملةً مكتملة مفهومة بلا سياق المحادثة (مثال: «عدد اللاعبين بالأمسية بين ٢٠ و٣٥ بحسب الفعاليّة»). تعرض معاينة وأزرار تأكيد ولا تُكتب إلا بضغط الأدمن. ⚠️ لتصحيح معلومة قائمة استعمل admin_kb_replace لا هذه.', parameters: O({ fact: { type: 'STRING', description: 'نصّ المعلومة كما ستُحفظ (10 أحرف فأكثر)' }, section: { type: 'STRING', description: 'عنوان البابّ الذي تُضاف تحته (اختياريّ — يُنشأ إن لم يوجد)' } }, ['fact']) });
+    d.push({ name: 'admin_kb_replace', description: 'تصحيح نصٍّ قائم في قاعدة المعرفة (أدمن فقط): يستبدل find بـreplace. 🔴 لا يُنفَّذ إلا إن طابق find موضعاً واحداً بالضبط — وإلا رُفض وعُرضت المواضع ليختار الأدمن صيغةً أدقّ. استعمل admin_kb_show أوّلاً وانسخ النصّ القديم حرفيّاً. replace فارغ = حذف. تعرض معاينة وأزرار تأكيد.', parameters: O({ find: { type: 'STRING', description: 'النصّ القديم حرفيّاً (5 أحرف فأكثر)' }, replace: { type: 'STRING', description: 'النصّ الجديد — فارغ يعني حذف القديم' } }, ['find', 'replace']) });
+  }
   if (t.adminTonight) d.push({ name: 'admin_tonight', description: 'لوحة الليلة (أدمن فقط): لكلّ فعاليّة اليوم — المحجوزون والأشخاص، الحاضرون، قائمة الانتظار، المدفوع وغير المدفوع والمجّانيّ، المباريات التي لُعبت، أختام الولاء المتوقّعة، وطلبات المنيو المفتوحة وأقدمها. «كيف الليلة؟».', parameters: O({}) });
   if (t.adminLoyalty) {
     d.push({ name: 'admin_loyalty_grant_stamp', description: 'منح ختم ولاء يدويّ للاعب عن فعاليّة (أدمن فقط) — برقم هاتفه ومعرّف الفعاليّة وسبب مكتوب. يعرض أزرار تأكيد قبل التنفيذ.', parameters: O({ phone: { type: 'STRING', description: 'رقم اللاعب أو اسمه' }, activity_id: { type: 'NUMBER', description: 'معرّف الفعاليّة' }, reason: { type: 'STRING', description: 'السبب (3 أحرف فأكثر)' } }, ['phone', 'activity_id', 'reason']) });
@@ -499,6 +505,83 @@ export async function execExtTool(name: string, args: any, ctx: Ctx, h: ExtHelpe
       return { pendingConfirm: true, note: 'أُرسل الملخّص وأزرار التأكيد — الإنشاء آليّ بعد ضغطه وتصله كلمة سرّ مؤقّتة. لا تكتب شيئاً طويلاً.' };
     }
 
+    // ───────── 📚 قاعدة المعرفة (أدمن) ─────────
+    // 🔴 ثلاثة أفعالٍ محدودة لا «أرسل لي المعرفة الجديدة»: سبعة عشر ألف حرفٍ لا تمرّ في
+    //    رسالة، وترك النموذج يُعيد كتابة الملفّ كلّه يعني حذفاً صامتاً لما لم يفهمه.
+    //    والكتابة لا تقع هنا: هذه تتحقّق وتعاين، والتنفيذ في معالج الزرّ الحتميّ.
+    case 'admin_kb_show': {
+      const g = await adminGate(); if (g) return g;
+      const q = String(args.query || '').trim();
+      if (q.length < 2) return { error: 'اكتب كلمةً للبحث (حرفان فأكثر)' };
+      const { getBotSettings } = await import('./whatsapp-bot.service.js');
+      const st: any = await getBotSettings();
+      const kb = String(st.knowledgeBase || '');
+      const hits = kb.split('\n').map((t: string, i: number) => ({ line: i + 1, text: t }))
+        .filter((x: any) => x.text.includes(q)).slice(0, 12);
+      if (!hits.length) {
+        return { found: 0, kbChars: kb.length,
+          note: 'لا ذكر لهذه العبارة في المعرفة إطلاقاً. أخبر الأدمن صراحةً أنّ البوت لا يملك معلومةً عنها وأنّ أيّ جوابٍ عنها الآن تخمين — واعرض إضافتها بـadmin_kb_add.' };
+      }
+      return { found: hits.length, lines: hits, kbChars: kb.length,
+        note: 'اعرض النصّ الحرفيّ كما هو بلا إعادة صياغة ليقرّر الأدمن. وللتصحيح انسخ النصّ القديم حرفيّاً إلى admin_kb_replace.' };
+    }
+
+    case 'admin_kb_add':
+    case 'admin_kb_replace': {
+      const g = await adminGate(); if (g) return g;
+      const { getBotSettings } = await import('./whatsapp-bot.service.js');
+      const st: any = await getBotSettings();
+      const kb = String(st.knowledgeBase || '');
+      const KB_MAX = 40000;
+      let next = '', preview = '', kind: 'add' | 'replace' = 'add';
+
+      if (name === 'admin_kb_add') {
+        const fact = String(args.fact || '').trim();
+        if (fact.length < 10) return { error: 'المعلومة قصيرة جدّاً — اكتبها جملةً مكتملة مفهومة بلا سياق المحادثة' };
+        if (kb.includes(fact)) return { error: 'هذه المعلومة موجودة حرفيّاً في المعرفة أصلاً' };
+        const section = String(args.section || '').trim();
+        const bullet = fact.startsWith('-') ? fact : '- ' + fact;
+        if (section && kb.includes(section)) {
+          const at = kb.indexOf(section);
+          const eol = kb.indexOf('\n', at);
+          const cut = eol < 0 ? kb.length : eol + 1;
+          next = kb.slice(0, cut) + bullet + '\n' + kb.slice(cut);
+        } else if (section) {
+          next = kb.replace(/\s+$/, '') + '\n\n═══ ' + section + ' ═══\n' + bullet + '\n';
+        } else {
+          next = kb.replace(/\s+$/, '') + '\n' + bullet + '\n';
+        }
+        preview = '📚 إضافة إلى المعرفة' + (section ? ' (باب: ' + section + ')' : '') + ':\n\n' + bullet;
+      } else {
+        kind = 'replace';
+        const find = String(args.find || '').trim();
+        const rep = String(args.replace ?? '');
+        if (find.length < 5) return { error: 'النصّ القديم قصير جدّاً — انسخه حرفيّاً من admin_kb_show (٥ أحرف فأكثر)' };
+        const parts = kb.split(find);
+        const count = parts.length - 1;
+        if (count === 0) return { error: 'لم أجد هذا النصّ حرفيّاً — استعمل admin_kb_show وانسخه كما هو بفواصله وتشكيله' };
+        if (count > 1) {
+          return {
+            error: 'النصّ مكرّر في ' + count + ' مواضع — لا أعدّل بالتخمين',
+            matches: kb.split('\n').filter((l: string) => l.includes(find)).slice(0, 6),
+            note: 'اعرض المواضع على الأدمن واطلب نصّاً أطول يميّز الموضع المقصود.',
+          };
+        }
+        next = parts[0] + rep + parts[1];
+        preview = '📚 تصحيح في المعرفة:\n\n❌ القديم:\n' + find.slice(0, 280) + '\n\n✅ الجديد:\n' + (rep ? rep.slice(0, 280) : '(حذف)');
+      }
+
+      if (next.length > KB_MAX) return { error: 'المعرفة ستتجاوز الحدّ (' + KB_MAX + ' حرف) — احذف ما لم يعد صحيحاً قبل الإضافة' };
+      const delta = next.length - kb.length;
+      // 💸 كلّ حرفٍ يُضاف يُدفع ثمنه مع **كلّ ردّ** إلى الأبد (٩٨٪ من الكلفة إدخال)
+      const sizeLine = '\n\n📏 المعرفة: ' + kb.length + ' ← ' + next.length + ' حرف (' + (delta >= 0 ? '+' : '') + delta + ')';
+      if (dryRun) { ctx.interactives.push({ kind: 'buttons', preview: 'تأكيد تعديل المعرفة' }); return { pendingConfirm: true, dryRun: true, delta }; }
+
+      await stash('adm-kb:' + conv.id, { kind, next, before: kb.length, after: next.length });
+      await show(confirmButtons(preview + sizeLine + '\n\nأحفظ التعديل؟', 'admkb:' + conv.id, 'احفظ ✅'), 'تأكيد تعديل المعرفة');
+      return { pendingConfirm: true, delta, note: 'أُرسلت المعاينة وأزرار التأكيد — لا تقل إنّ التعديل تمّ، ينتظر ضغط الأدمن.' };
+    }
+
     // ───────── الأدمن ─────────
     case 'admin_tonight': {
       const g = await adminGate(); if (g) return g;
@@ -730,6 +813,50 @@ export async function handleExtButton(conv: any, btnId: string, h: ExtHelpers): 
   if (btnId === 'ext_cancel') { await say('تمام، ألغيت العمليّة 👍'); return true; }
   if (btnId === 'chg_keep') { await say('تمام، حجزك زي ما هو 👌', 'bot'); return true; }
   if (btnId === 'wl_skip') { await say('تمام — بتضلّ على قائمة الانتظار، وبنخبّرك لو فضي مقعد تاني 🙏', 'bot'); return true; }
+
+  // 📚 حفظ تعديل المعرفة — حتميّ: لقطةٌ قبل الكتابة، وفحصُ تغيّرٍ متزامن، وتراجعٌ بزرّ
+  if (/^admkb:(\d+)$/.test(btnId)) {
+    if (!await mustAdmin()) return true;
+    const pend = await unstash('adm-kb:' + conv.id);
+    if (!pend) { await say('انتهت صلاحيّة التعديل (10 دقائق) — أعد الطلب 🙏'); return true; }
+    const { getBotSettings } = await import('./whatsapp-bot.service.js');
+    const st: any = await getBotSettings();
+    const cur = String(st.knowledgeBase || '');
+    // ⚠️ قد يكون أحدٌ عدّل المعرفة من الداشبورد بين المعاينة والضغط — الكتابة فوقها
+    //    تمحو عمله بصمت. الحجم وحده كاشفٌ كافٍ ورخيص.
+    if (cur.length !== Number(pend.before)) {
+      await say('⚠️ المعرفة تغيّرت من مكانٍ آخر بعد المعاينة — ما حفظت شي. أعد الطلب لتراها بصيغتها الجديدة.');
+      return true;
+    }
+    await db.execute(sql`INSERT INTO wa_bot_settings_history (reason, system_prompt, knowledge_base)
+      VALUES (${'تعديل من واتساب — ' + (conv.displayName || conv.phone)}, ${st.systemPrompt || ''}, ${cur})`);
+    await db.execute(sql`UPDATE wa_bot_settings SET knowledge_base = ${String(pend.next)},
+      updated_by = ${'واتساب: ' + (conv.displayName || conv.phone)}, updated_at = NOW() WHERE id = ${st.id}`);
+    await say('تمّ الحفظ ✅ المعرفة صارت ' + pend.after + ' حرف (كانت ' + pend.before + ').\nالتعديل ساري على الرسالة الجاية فوراً.');
+    await h.sendMessage({ conversationId: conv.id, source: 'system', interactive: {
+      type: 'button', body: { text: '📚 محفوظ. إذا بدك ترجع عن التعديل اضغط تراجع:' },
+      action: { buttons: [{ type: 'reply', reply: { id: 'admkbundo:' + conv.id, title: '↩️ تراجع' } }] },
+    } }).catch(() => {});
+    void auditBot(conv, 'wa:kb-edit', { kind: pend.kind, before: pend.before, after: pend.after });
+    void alertAdminsWA('kbedit:' + Date.now(), '📚 ' + (conv.displayName || conv.phone) + ' عدّل قاعدة معرفة الدون (' + pend.before + ' ← ' + pend.after + ' حرف).', { exceptConvId: conv.id });
+    return true;
+  }
+
+  // ↩️ تراجع عن آخر تعديل معرفة — يستعيد آخر لقطة محفوظة
+  if (/^admkbundo:(\d+)$/.test(btnId)) {
+    if (!await mustAdmin()) return true;
+    const hr: any = await db.execute(sql`SELECT id, knowledge_base FROM wa_bot_settings_history ORDER BY id DESC LIMIT 1`);
+    const snap = rowsOf(hr)[0];
+    if (!snap) { await say('ما في لقطة محفوظة للتراجع 🙏'); return true; }
+    const { getBotSettings } = await import('./whatsapp-bot.service.js');
+    const st: any = await getBotSettings();
+    const back = String(snap.knowledge_base || '');
+    await db.execute(sql`UPDATE wa_bot_settings SET knowledge_base = ${back},
+      updated_by = ${'تراجع من واتساب: ' + (conv.displayName || conv.phone)}, updated_at = NOW() WHERE id = ${st.id}`);
+    await say('رجّعت المعرفة للنسخة السابقة ✅ (' + back.length + ' حرف).');
+    void auditBot(conv, 'wa:kb-undo', { historyId: snap.id, restoredChars: back.length });
+    return true;
+  }
 
   // 🎁 اختيار مكافأة الولاء
   let m = /^loy:(\d+):(free_visit|free_drink|chips)$/.exec(btnId);
