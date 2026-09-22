@@ -487,6 +487,11 @@ async function handleInboundMessage(db: any, msg: any, contacts: any[]) {
     return; // لا نمرّر ضغطة زرّ التذكير للبوت
   }
 
+  // ── ⏱️ رفضٌ صريح للمتابعة («مش مهتمّ»، «بعدين») ⟵ لا متابعة أخرى لهذه المحادثة ──
+  import('./wa-followup.service.js')
+    .then(m => m.noteInboundForFollowup(conv.id, body))
+    .catch(() => { /* تكميليّ */ });
+
   // ── 🎁 عرضُ الحديث مع البوت (إن كان هناك عرضٌ نشط) ──
   // fire-and-forget: صامتٌ تماماً بلا عرض (نداءُ كاشٍ واحد)، ولا يؤخّر الردّ ولا يُفشله.
   import('./wa-reward.service.js')

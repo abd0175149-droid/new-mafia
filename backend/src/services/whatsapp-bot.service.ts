@@ -571,7 +571,7 @@ export async function updateBotSettings(patch: Record<string, any>, updatedBy: s
   await getBotSettings(); // ضمان وجود الصف
   const allowed = ['enabled', 'geminiApiKey', 'model', 'systemPrompt', 'knowledgeBase',
     'contextMessages', 'pauseMinutes', 'maxToolLoops', 'failMessage', 'failHandoff', 'toolsConfig',
-    'adminOnlyTools', 'priceInputPer1M', 'priceOutputPer1M'];
+    'adminOnlyTools', 'priceInputPer1M', 'priceOutputPer1M', 'followup'];
   const clean: any = {};
   for (const k of allowed) if (patch[k] !== undefined) clean[k] = patch[k];
   // مفتاح فارغ أو مقنّع = لا تغيير عليه
@@ -581,6 +581,11 @@ export async function updateBotSettings(patch: Record<string, any>, updatedBy: s
   if (clean.contextMessages !== undefined) clean.contextMessages = Math.min(Math.max(parseInt(clean.contextMessages) || 20, 4), 60);
   if (clean.pauseMinutes !== undefined) clean.pauseMinutes = Math.min(Math.max(parseInt(clean.pauseMinutes) || 30, 1), 24 * 60);
   if (clean.maxToolLoops !== undefined) clean.maxToolLoops = Math.min(Math.max(parseInt(clean.maxToolLoops) || 4, 1), 8);
+  // ⏱️ إعدادات المتابعة تُنقَّح وتُحدّ في مكانٍ واحد (mergeFollowup) فلا تصل قيمةٌ خارج المدى من الواجهة
+  if (clean.followup !== undefined) {
+    const { mergeFollowup } = await import('./wa-followup.service.js');
+    clean.followup = mergeFollowup(clean.followup);
+  }
   // أسعار الفوترة الرسمية ($ لكل مليون) — أرقام موجبة بدقة 4 منازل
   for (const pk of ['priceInputPer1M', 'priceOutputPer1M'] as const) {
     if (clean[pk] !== undefined) {
@@ -3178,6 +3183,56 @@ async function processConversation(convId: number) {
       rerunAfter.delete(convId);
       handleBotIncoming(convId);
     }
+  }
+}
+
+// ══════════════════════════════════════════════════════
+// ⏱️ متابعةٌ آليّة بعد صمت العميل — تعليمةٌ داخليّة لا رسالةٌ مزوَّرة
+// ══════════════════════════════════════════════════════
+// الفرق عن «حقن رسالة» اليدويّ: الحقنُ يكتب صفّاً في `wa_messages` بدور العميل،
+// فيُلوَّث السجلّ برسالةٍ لم يكتبها أحد وتظهر في الإنبوكس وفي كلّ سياقٍ لاحق.
+// هنا التعليمة تُمرَّر **للنموذج وحده** ولا تُخزَّن ولا يراها العميل — وهي أيضاً
+// دورُ user الذي يشترطه Gemini لإنهاء السجلّ (وإلّا رفض النداء).
+export async function runFollowUp(convId: number, stage: 1 | 2, instruction: string): Promise<{ sent: boolean; reason?: string }> {
+  const db = getDB();
+  if (!db) return { sent: false, reason: 'no-db' };
+  const settings = await getBotSettings();
+  if (!settings.enabled || !settings.geminiApiKey) return { sent: false, reason: 'bot-off' };
+
+  const [conv] = await db.select().from(waConversations).where(eq(waConversations.id, convId)).limit(1);
+  if (!conv) return { sent: false, reason: 'no-conv' };
+  if (!isBotActive(conv)) return { sent: false, reason: 'paused' };
+  if (!isFreeWindowOpen(conv)) return { sent: false, reason: 'window' };
+
+  const addressTitle = await addressTitleFor(db, conv);
+  const history = await buildHistory(db, conv, settings.contextMessages || 20, addressTitle);
+  if (history.length === 0) return { sent: false, reason: 'empty-history' };
+  // التعليمة آخر دورٍ في السجلّ — فيصير السجلّ منتهياً بـuser كما يلزم
+  history.push({ role: 'user', parts: [{ text: instruction }] });
+
+  const customerCard = await buildCustomerCard(db, conv);
+  const liveFacts = await buildLiveFacts(db).catch(() => '');
+  const startedAt = Date.now();
+
+  try {
+    const { text, usage, toolTrace } = await runAgent({ settings, conv, history, customerCard, liveFacts, dryRun: false });
+    const names = toolTrace.map(t => t.name);
+    recordBotUsage(convId, 'live', settings.model || '', usage, {
+      replyMs: Date.now() - startedAt,
+      tools: names.filter(n => !n.startsWith('🛡️')),
+      flags: { followup: stage },
+    }).catch(() => {});
+    const finalOut = enforceLinks(enforceAddress((text || '').trim(), addressTitle));
+    if (!finalOut) return { sent: false, reason: 'empty-reply' };
+    await sendMessage({ conversationId: convId, text: finalOut, source: 'bot' });
+    return { sent: true };
+  } catch (err: any) {
+    console.warn('⚠️ WA follow-up:', err?.message || err);
+    recordBotUsage(convId, 'live', settings.model || '', { calls: 0, promptTokens: 0, candidatesTokens: 0, thoughtsTokens: 0, totalTokens: 0 },
+      { replyMs: Date.now() - startedAt, tools: [], flags: { fail: String(err?.message || '').slice(0, 160), followup: stage } }).catch(() => {});
+    // ⚠️ لا رسالة اعتذارٍ هنا ولا تحويل: العميل لم يسأل شيئاً أصلاً، فالاعتذار عن
+    //    متابعةٍ فاشلة إزعاجٌ مضاعف. يُسجَّل الخلل ويُترك الأمر.
+    return { sent: false, reason: 'error' };
   }
 }
 

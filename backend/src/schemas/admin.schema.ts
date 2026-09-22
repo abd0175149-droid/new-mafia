@@ -418,6 +418,11 @@ export const waConversations = pgTable('wa_conversations', {
   //    (بحث O(1) بلا join مع كل رسالة — تُقرأ في بطاقة العميل)
   campaignId: integer('campaign_id'),
   campaignAt: timestamp('campaign_at'),
+  // ⏱️ حالة المتابعة الآليّة: 0 لم تُرسل · 1 الأولى · 2 الثانية (وهي الأخيرة)
+  followupStage: integer('followup_stage').default(0),
+  followupLastAt: timestamp('followup_last_at'),
+  followupStoppedAt: timestamp('followup_stopped_at'),
+  followupStopReason: varchar('followup_stop_reason', { length: 40 }).default(''),
   status: varchar('status', { length: 20 }).default('open').notNull(), // open | closed
   createdAt: timestamp('created_at').defaultNow().notNull(),
   updatedAt: timestamp('updated_at').defaultNow().notNull(),
@@ -554,6 +559,8 @@ export const waBotSettings = pgTable('wa_bot_settings', {
   failHandoff: boolean('fail_handoff').default(true).notNull(),        // تحويل للإدارة عند الفشل
   toolsConfig: jsonb('tools_config').default({}),                      // مفاتيح تفعيل الأدوات
   adminOnlyTools: jsonb('admin_only_tools').default([]),               // 🔒 مفاتيح أدوات متاحة للمحادثات المرتبطة بحساب أدمن فقط
+  // ⏱️ متابعة المحادثات الصامتة قبل الحجز — كلّ إعداداتها (التوقيت، الجمهور، نصّ التعليمة)
+  followup: jsonb('followup').default({}),
   // 💵 أسعار جوجل الرسمية للنموذج الحالي ($ لكل مليون توكن) — التكلفة الحقيقية = توكنز فعلية × هذه الأسعار
   priceInputPer1M: decimal('price_input_per_1m', { precision: 10, scale: 4 }).default('0.10'),
   priceOutputPer1M: decimal('price_output_per_1m', { precision: 10, scale: 4 }).default('0.40'),

@@ -1159,6 +1159,99 @@ function Toggle({ on, onClick }: { on: boolean; onClick: () => void }) {
   );
 }
 
+// ══════════════════════════════════════════════════════
+// ⏱️ متابعة المحادثات الصامتة — من راسلنا ولم يُثبّت حجزاً
+// ══════════════════════════════════════════════════════
+const FU_DEFAULT = {
+  enabled: false, firstAfterMinutes: 10, secondAfterHours: 12, maxSilenceHours: 6,
+  quietFromHour: 23, quietToHour: 9, maxPerDay: 60, audience: 'unbooked',
+  instructionFirst: '', instructionSecond: '',
+};
+
+function FollowupCard({ s, patch }: { s: any; patch: (k: string, v: any) => void }) {
+  const f = { ...FU_DEFAULT, ...(s.followup || {}) };
+  const set = (k: string, v: any) => patch('followup', { ...f, [k]: v });
+  const [stats, setStats] = useState<any>(null);
+  const [showTexts, setShowTexts] = useState(false);
+
+  useEffect(() => {
+    apiFetch('/api/whatsapp/bot/followup-stats').then(r => setStats(r.stats)).catch(() => {});
+  }, []);
+
+  return (
+    <Card title="⏱️ متابعة من راسلنا ولم يحجز" wide>
+      <Row label="تشغيل المتابعة الآليّة">
+        <Toggle on={!!f.enabled} onClick={() => set('enabled', !f.enabled)} />
+      </Row>
+      <p className="text-[11px] text-gray-500 leading-relaxed py-2 border-b border-dashed border-gray-800">
+        حين تسكت محادثةٌ ولم يُثبّت صاحبها حجزاً، يُكمل الدون من حيث توقّفتما — بتعليمةٍ داخليّة
+        <b className="text-gray-400"> لا يراها العميل ولا تدخل سجلّ المحادثة</b>، فيختار هو ما يقوله بحسب ما جرى بينكما.
+        متابعتان على الأكثر ثمّ صمتٌ نهائيّ، ومن يقول «مش مهتمّ» يُستثنى فوراً.
+      </p>
+
+      <Row label="المتابعة الأولى بعد (دقيقة)">
+        <NumInput value={f.firstAfterMinutes} onChange={v => set('firstAfterMinutes', v)} min={1} max={1440} />
+      </Row>
+      <Row label="المتابعة الثانية بعد (ساعة) — ٠ = واحدة فقط">
+        <NumInput value={f.secondAfterHours} onChange={v => set('secondAfterHours', v)} min={0} max={23} />
+      </Row>
+      <Row label="لا تُتابع صمتاً أقدم من (ساعة)">
+        <NumInput value={f.maxSilenceHours} onChange={v => set('maxSilenceHours', v)} min={1} max={24} />
+      </Row>
+      <Row label="ساعات الهدوء (من / إلى)">
+        <div className="flex items-center gap-1.5">
+          <NumInput value={f.quietFromHour} onChange={v => set('quietFromHour', v)} min={0} max={23} />
+          <span className="text-gray-600 text-xs">→</span>
+          <NumInput value={f.quietToHour} onChange={v => set('quietToHour', v)} min={0} max={23} />
+        </div>
+      </Row>
+      <Row label="سقف المتابعات اليوميّ">
+        <NumInput value={f.maxPerDay} onChange={v => set('maxPerDay', v)} min={0} max={1000} />
+      </Row>
+      <Row label="مَن يُتابَع">
+        <select value={f.audience} onChange={e => set('audience', e.target.value)}
+          className="bg-gray-950 border border-gray-800 rounded-lg px-2.5 py-1.5 text-xs text-white focus:border-amber-500 outline-none">
+          <option value="unbooked">كلّ من لم يُثبّت حجزاً</option>
+          <option value="new_only">الجدد بلا حساب فقط</option>
+        </select>
+      </Row>
+
+      {stats && (
+        <div className="flex flex-wrap gap-x-5 gap-y-1 text-[11px] text-gray-400 pt-2.5 mt-1 border-t border-gray-800">
+          <span>آخر {stats.days} أيّام:</span>
+          <span>أولى <b className="text-white">{stats.first_sent ?? 0}</b></span>
+          <span>ثانية <b className="text-white">{stats.second_sent ?? 0}</b></span>
+          <span>ردّوا <b className="text-emerald-400">{stats.replied ?? 0}</b></span>
+          <span>حجزوا بعدها <b className="text-emerald-400">{stats.booked ?? 0}</b></span>
+          <span>أوقفوها <b className="text-amber-400">{stats.stopped_by_customer ?? 0}</b></span>
+          <span className="text-gray-600">اليوم {stats.today ?? 0}</span>
+        </div>
+      )}
+
+      <button onClick={() => setShowTexts(v => !v)} className="text-[11px] text-gray-500 hover:text-white mt-2">
+        {showTexts ? '▲ إخفاء نصّ التعليمة' : '▼ تعديل نصّ التعليمة الداخليّة'}
+      </button>
+      {showTexts && (
+        <div className="space-y-2 mt-2">
+          <div>
+            <label className="text-[10px] text-gray-500 font-bold block mb-1">تعليمة المتابعة الأولى</label>
+            <textarea value={f.instructionFirst} onChange={e => set('instructionFirst', e.target.value)} rows={5}
+              placeholder="اتركه فارغاً للنصّ الافتراضيّ"
+              className="w-full bg-gray-950 border border-gray-800 rounded-lg px-2.5 py-2 text-[11px] text-white outline-none focus:border-amber-500 leading-relaxed" />
+          </div>
+          <div>
+            <label className="text-[10px] text-gray-500 font-bold block mb-1">تعليمة المتابعة الثانية</label>
+            <textarea value={f.instructionSecond} onChange={e => set('instructionSecond', e.target.value)} rows={4}
+              placeholder="اتركه فارغاً للنصّ الافتراضيّ"
+              className="w-full bg-gray-950 border border-gray-800 rounded-lg px-2.5 py-2 text-[11px] text-white outline-none focus:border-amber-500 leading-relaxed" />
+          </div>
+          <p className="text-[10px] text-gray-600">التعليمة تخاطب الدون لا العميل — اكتبها كأمرٍ له: «أرسل متابعةً واحدة قصيرة…».</p>
+        </div>
+      )}
+    </Card>
+  );
+}
+
 function BotSettingsView({ onOpenConv }: { onOpenConv?: (id: number) => void }) {
   const [s, setS] = useState<any | null>(null);
   const [loading, setLoading] = useState(true);
@@ -1323,6 +1416,8 @@ function BotSettingsView({ onOpenConv }: { onOpenConv?: (id: number) => void }) 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-3 pb-6">
         {/* 📊 الاستهلاك والتكلفة الحقيقية */}
         <UsageCard s={s} patch={patch} onOpenConv={onOpenConv} />
+        {/* ⏱️ متابعة المحادثات الصامتة */}
+        <FollowupCard s={s} patch={patch} />
         {/* المفتاح والنموذج */}
         <Card title="🔑 الاتصال بالنموذج">
           <Row label="Gemini API Key">

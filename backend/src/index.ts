@@ -784,6 +784,13 @@ async function main() {
       //    والمطالبةُ تحمل **ما لم يُمنح بعد ولماذا** (بلا حساب، بلا مدينة،
       //    مستبعَد) — وهذا نصفُ قيمة الميزة: «٣١ حادثوا البوت ولم يأخذوا لأنّهم
       //    بلا حساب» رقمٌ يقود قراراً، بخلاف صمتٍ لا يُفسَّر.
+      // ── ⏱️ متابعة المحادثات الصامتة قبل الحجز ──
+      await db.execute(sql`ALTER TABLE wa_bot_settings ADD COLUMN IF NOT EXISTS followup JSONB DEFAULT '{}'::jsonb`);
+      await db.execute(sql`ALTER TABLE wa_conversations ADD COLUMN IF NOT EXISTS followup_stage SMALLINT DEFAULT 0`);
+      await db.execute(sql`ALTER TABLE wa_conversations ADD COLUMN IF NOT EXISTS followup_last_at TIMESTAMP`);
+      await db.execute(sql`ALTER TABLE wa_conversations ADD COLUMN IF NOT EXISTS followup_stopped_at TIMESTAMP`);
+      await db.execute(sql`ALTER TABLE wa_conversations ADD COLUMN IF NOT EXISTS followup_stop_reason VARCHAR(40) DEFAULT ''`);
+      await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_wa_conv_followup ON wa_conversations (followup_stage, last_message_at) WHERE status = 'open'`);
       await db.execute(sql`CREATE TABLE IF NOT EXISTS wa_reward_config (key VARCHAR(40) PRIMARY KEY, value JSONB NOT NULL, updated_at TIMESTAMP DEFAULT NOW() NOT NULL)`);
       await db.execute(sql`CREATE TABLE IF NOT EXISTS wa_reward_events (
         id SERIAL PRIMARY KEY,
@@ -2242,6 +2249,8 @@ async function main() {
   //    المسحُ عند الإقلاع ليس ترفاً: سقوطُ الخادم بين إدراج الدفتر والمصالحة
   //    يترك نقاطاً مُنحت ولا يراها صاحبها — وهذا ما يُعيد إظهارها.
   try { const { startRewardScheduler } = await import('./services/wa-reward.service.js'); startRewardScheduler(); } catch (e: any) { console.warn('⚠️ WA reward scheduler init:', e.message); }
+  // ── ⏱️ متابعةُ من راسلنا ولم يحجز — ماسحٌ يقرأ القاعدة، فلا تُضيّع إعادةُ التشغيل متابعةً ولا تُكرّرها ──
+  try { const { startFollowupScheduler } = await import('./services/wa-followup.service.js'); startFollowupScheduler(); } catch (e: any) { console.warn('⚠️ WA follow-up scheduler init:', e.message); }
   // ── 🎟️ مجدول بطاقة الولاء — انتهاء المكافآت، الاختيار التلقائيّ، التذكيرات ──
   try {
     const { startLoyaltyScheduler } = await import('./services/loyalty.service.js');

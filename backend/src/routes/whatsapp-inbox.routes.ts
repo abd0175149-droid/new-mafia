@@ -445,6 +445,16 @@ router.get('/bot/usage', authenticate, adminOnly, async (_req: Request, res: Res
   }
 });
 
+// ── ⏱️ أثر متابعة المحادثات الصامتة ──
+router.get('/bot/followup-stats', authenticate, adminOnly, async (req: Request, res: Response) => {
+  try {
+    const { getFollowupStats } = await import('../services/wa-followup.service.js');
+    res.json({ success: true, stats: await getFollowupStats(Number(req.query.days) || 7) });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 router.get('/bot/stats', authenticate, adminOnly, async (_req: Request, res: Response) => {
   try {
     const { getBotStats } = await import('../services/whatsapp-bot.service.js');
