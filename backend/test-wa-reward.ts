@@ -112,6 +112,11 @@ check(/sweepReconcile/.test(boot) || /startRewardScheduler/.test(boot),
   'المجدوِل يعمل عند الإقلاع (مسحٌ لما مُنح ولم يظهر)');
 check(/meta = COALESCE\(meta,'\{\}'::jsonb\) \|\| /.test(svc),
   'عمود meta يُدمج بـcast صريح إلى jsonb');
+check(/isoRow\(/.test(svc) && /isoRows\(/.test(svc),
+  'الطوابع تخرج للواجهة بصيغة ISO بلاحقة Z',
+  'db.execute يُعيدها نصّاً بلا منطقة فيقرؤها المتصفّح محلّيّاً ويخسر ٣ ساعات');
+check((svc.match(/rowsOf\(r\)\[0\] \?\? null\)/g) || []).length >= 1 || /isoRow\(rowsOf/.test(svc),
+  'getLiveEvent/getEvent يمرّان بالتطبيع');
 
 // ── النتيجة ───────────────────────────────────────────
 console.log(`\n${'═'.repeat(48)}`);

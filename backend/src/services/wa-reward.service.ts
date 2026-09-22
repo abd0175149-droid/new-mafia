@@ -170,7 +170,7 @@ export async function getLiveEvent(): Promise<any | null> {
       SELECT * FROM wa_reward_events
        WHERE status = 'running' AND starts_at <= NOW() AND ends_at > NOW()
        ORDER BY id DESC LIMIT 1`);
-    ev = rowsOf(r)[0] ?? null;
+    ev = isoRow(rowsOf(r)[0] ?? null);
   } catch { ev = null; }
   liveCache = { ev, at: Date.now() };
   return ev;
@@ -180,7 +180,7 @@ export async function getEvent(id: number): Promise<any | null> {
   const db = getDB();
   if (!db) return null;
   const r = await db.execute(sql`SELECT * FROM wa_reward_events WHERE id = ${id} LIMIT 1`);
-  return rowsOf(r)[0] ?? null;
+  return isoRow(rowsOf(r)[0] ?? null);
 }
 
 export async function listEvents(limit = 30): Promise<any[]> {
@@ -191,7 +191,7 @@ export async function listEvents(limit = 30): Promise<any[]> {
            (SELECT COUNT(*)::int FROM wa_reward_claims c WHERE c.event_id = e.id AND c.state = 'pending_link') AS pending_link,
            (SELECT COUNT(*)::int FROM wa_reward_claims c WHERE c.event_id = e.id AND c.state = 'pending_city') AS pending_city
       FROM wa_reward_events e ORDER BY e.id DESC LIMIT ${Math.min(100, Math.max(1, limit))}`);
-  return rowsOf(r);
+  return isoRows(rowsOf(r));
 }
 
 export interface CreateEventInput {
@@ -363,7 +363,7 @@ export async function createEvent(input: CreateEventInput): Promise<any> {
     if (isUniqueViolation(e)) return { ok: false, error: 'هناك عرضٌ يعمل الآن — أنهِه أوّلاً أو اجعل هذا مجدولاً بعده.' };
     throw e;
   }
-  const ev = rowsOf(r)[0];
+  const ev = isoRow(rowsOf(r)[0]);
   invalidateLiveEvent();
   await invalidateBotFacts();
   if (ev?.status === 'running') void announceEvent(ev).catch(() => {});
@@ -393,7 +393,7 @@ export async function setEventStatus(id: number, status: EventStatus, by = ''): 
   }
   invalidateLiveEvent();
   await invalidateBotFacts();
-  const next = rowsOf(r)[0];
+  const next = isoRow(rowsOf(r)[0]);
   // إنهاءٌ صريح ⟵ مصالحةٌ ختاميّة تضمن ظهور كلّ ما مُنح
   if (ended) void sweepReconcile(id).catch(() => {});
   if (status === 'running') void announceEvent(next).catch(() => {});
@@ -511,6 +511,27 @@ async function setClaim(claimId: number, patch: Record<string, any>): Promise<vo
   if (!sets.length) return;
   await db.execute(sql`UPDATE wa_reward_claims SET ${sql.join(sets, sql`, `)} WHERE id = ${claimId}`);
 }
+
+// ══════════════════════════════════════════════════════
+// 🕒 تطبيع الطوابع قبل إرسالها للواجهة
+// ══════════════════════════════════════════════════════
+// ⚠️ `db.execute()` في drizzle يُعيد أعمدة `timestamp` **نصّاً خاماً** كما تأتي من
+//    بوستجرس: «2026-09-22 15:26:08.538» — ساعةُ UTC بلا علامة منطقة (التحويل إلى
+//    Date يقع في مخطَّط drizzle وحده، ولا مخطَّط لاستعلامٍ خام). والمتصفّح يقرأ نصّاً
+//    كهذا على أنّه **توقيتٌ محلّيّ**، فيخسر ثلاث ساعات في عمّان: عرضُ أربع ساعات ظهر
+//    متبقّيه ساعةً واحدة. الخادم نفسه كان سليماً (يعمل بـUTC فيقرأها صحيحة) —
+//    العطل في السلك وحده، ولذلك يُصلَح عند مخرجه.
+const NAIVE_TS = /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}(\.\d+)?$/;
+function isoRow<T>(row: T): T {
+  if (!row || typeof row !== 'object') return row;
+  const out: any = { ...(row as any) };
+  for (const k of Object.keys(out)) {
+    const v = out[k];
+    if (typeof v === 'string' && NAIVE_TS.test(v)) out[k] = v.replace(' ', 'T') + 'Z';
+  }
+  return out;
+}
+const isoRows = <T>(rows: T[]): T[] => rows.map(isoRow);
 
 /** خطأُ تعارضٍ فريد من بوستجرس (23505) */
 function isUniqueViolation(err: any): boolean {
@@ -1145,10 +1166,10 @@ export async function getEventReport(eventId: number): Promise<any> {
     event: ev,
     byState,
     rejects: rowsOf(rj).map((r: any) => ({ code: r.reject_code, n: Number(r.n) })),
-    newAccounts: rowsOf(newAcc),
+    newAccounts: isoRows(rowsOf(newAcc)),
     bookedWithin48h: Number(rowsOf(conv)[0]?.n || 0),
     aiUsage: rowsOf(cost)[0] || null,
-    awarded: rowsOf(top),
+    awarded: isoRows(rowsOf(top)),
   };
 }
 

@@ -40,9 +40,16 @@ const STATUS_AR: Record<string, { label: string; cls: string }> = {
   cancelled: { label: '✖️ ملغى', cls: 'text-gray-500' },
 };
 
+// 🕒 طابعٌ بلا منطقة («2026-09-22 15:26:08») يقرؤه المتصفّح **محلّيّاً** فيخسر ٣ ساعات
+//    في عمّان. الخادم يرسلها الآن بلاحقة Z، وهذا حارسٌ ثانٍ لا يزيد شيئاً إن كانت سليمة.
+function toDate(v: any): Date {
+  if (typeof v === 'string' && !/[Zz]|[+-]\d{2}:?\d{2}$/.test(v)) return new Date(v.replace(' ', 'T') + 'Z');
+  return new Date(v);
+}
+
 function fmtDT(v: any) {
   if (!v) return '—';
-  return new Date(v).toLocaleString('ar-JO', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Amman' });
+  return toDate(v).toLocaleString('ar-JO', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Amman' });
 }
 
 function Field({ label, hint, children }: { label: string; hint?: string; children: any }) {
@@ -160,7 +167,7 @@ export default function RewardsTab({ apiFetch }: { apiFetch: Fetcher }) {
   const unit = KINDS.find(k => k.key === form.kind)!.unit;
   const maxAmount = (cfg || data.config).maxAmount[form.kind as Kind];
 
-  const remainMs = live ? new Date(live.ends_at).getTime() - now : 0;
+  const remainMs = live ? toDate(live.ends_at).getTime() - now : 0;
   const hh = Math.max(0, Math.floor(remainMs / 3600e3));
   const mm = Math.max(0, Math.floor((remainMs % 3600e3) / 60000));
   const ss = Math.max(0, Math.floor((remainMs % 60000) / 1000));
