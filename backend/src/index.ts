@@ -50,6 +50,7 @@ import progressionSettingsRoutes from './routes/progression-settings.routes.js';
 import anticheatRoutes from './routes/anticheat.routes.js';
 import whatsappRoutes from './routes/whatsapp.routes.js';
 import whatsappInboxRoutes from './routes/whatsapp-inbox.routes.js';
+import waRewardRoutes from './routes/wa-reward.routes.js';
 import seatingRoutes from './routes/seating.routes.js';
 import seatTemplatesRoutes from './routes/seat-templates.routes.js';
 import reservationsRoutes from './routes/reservations.routes.js';
@@ -205,6 +206,7 @@ app.use('/api/analytics', analyticsRoutes);
 app.use('/api/admin/consents', adminConsentsRoutes); // ⚖️ سجلّ الموافقات (adminOnly · قراءةٌ فقط)
 app.use('/api/whatsapp', whatsappRoutes);
 app.use('/api/whatsapp', whatsappInboxRoutes);  // 💬 مركز المحادثات: webhook + send + inbox
+app.use('/api/whatsapp', waRewardRoutes);       // 🎁 عروض الحديث مع البوت (نقاط هديّة)
 app.use('/api/seating', seatingRoutes);
 app.use('/api/seat-templates', seatTemplatesRoutes);
 app.use('/api/reservations', reservationsRoutes);
@@ -776,6 +778,65 @@ async function main() {
       await db.execute(sql`ALTER TABLE bookings ADD COLUMN IF NOT EXISTS loyalty_reward_id INTEGER`);
       await db.execute(sql`ALTER TABLE order_invoices ADD COLUMN IF NOT EXISTS loyalty_discount NUMERIC(10,2) DEFAULT 0`);
       await db.execute(sql`ALTER TABLE order_invoices ADD COLUMN IF NOT EXISTS loyalty_reward_id INTEGER`);
+      // ── 🎁 عروضُ الحديث مع البوت (نقاطٌ هديّة لمن يحادث الدون خلال ساعاتٍ محدَّدة) ──
+      //
+      // 🔴 المطالبةُ صفٌّ مستقلٌّ عن الدفتر عمداً: الدفترُ يحمل **ما مُنح**،
+      //    والمطالبةُ تحمل **ما لم يُمنح بعد ولماذا** (بلا حساب، بلا مدينة،
+      //    مستبعَد) — وهذا نصفُ قيمة الميزة: «٣١ حادثوا البوت ولم يأخذوا لأنّهم
+      //    بلا حساب» رقمٌ يقود قراراً، بخلاف صمتٍ لا يُفسَّر.
+      await db.execute(sql`CREATE TABLE IF NOT EXISTS wa_reward_config (key VARCHAR(40) PRIMARY KEY, value JSONB NOT NULL, updated_at TIMESTAMP DEFAULT NOW() NOT NULL)`);
+      await db.execute(sql`CREATE TABLE IF NOT EXISTS wa_reward_events (
+        id SERIAL PRIMARY KEY,
+        name VARCHAR(120) NOT NULL,
+        status VARCHAR(16) DEFAULT 'scheduled' NOT NULL,
+        starts_at TIMESTAMP NOT NULL,
+        ends_at TIMESTAMP NOT NULL,
+        kind VARCHAR(8) DEFAULT 'RR' NOT NULL,
+        amount INTEGER NOT NULL,
+        season_id INTEGER,
+        only_city_id INTEGER,
+        min_messages INTEGER DEFAULT 1 NOT NULL,
+        max_players INTEGER DEFAULT 0 NOT NULL,
+        max_total_points INTEGER DEFAULT 0 NOT NULL,
+        grace_hours INTEGER DEFAULT 24 NOT NULL,
+        cooldown_days INTEGER DEFAULT 7 NOT NULL,
+        exclude_staff BOOLEAN DEFAULT true NOT NULL,
+        skip_activity_hours BOOLEAN DEFAULT false NOT NULL,
+        promote_in_bot BOOLEAN DEFAULT true NOT NULL,
+        announce JSONB DEFAULT '{}'::jsonb,
+        awarded_count INTEGER DEFAULT 0 NOT NULL,
+        awarded_points INTEGER DEFAULT 0 NOT NULL,
+        created_by VARCHAR(100) DEFAULT '',
+        meta JSONB DEFAULT '{}'::jsonb,
+        created_at TIMESTAMP DEFAULT NOW() NOT NULL,
+        updated_at TIMESTAMP DEFAULT NOW() NOT NULL,
+        ended_at TIMESTAMP
+      )`);
+      await db.execute(sql`CREATE TABLE IF NOT EXISTS wa_reward_claims (
+        id SERIAL PRIMARY KEY,
+        event_id INTEGER NOT NULL REFERENCES wa_reward_events(id) ON DELETE CASCADE,
+        conversation_id INTEGER NOT NULL,
+        phone VARCHAR(20) DEFAULT '' NOT NULL,
+        player_id INTEGER,
+        messages_counted INTEGER DEFAULT 0 NOT NULL,
+        first_message_at TIMESTAMP DEFAULT NOW() NOT NULL,
+        last_message_at TIMESTAMP DEFAULT NOW() NOT NULL,
+        state VARCHAR(20) DEFAULT 'counting' NOT NULL,
+        reject_code VARCHAR(32) DEFAULT '',
+        city_id INTEGER,
+        amount INTEGER DEFAULT 0 NOT NULL,
+        kind VARCHAR(8) DEFAULT '',
+        awarded_at TIMESTAMP,
+        ledger_ref VARCHAR(64) DEFAULT '',
+        expires_at TIMESTAMP,
+        meta JSONB DEFAULT '{}'::jsonb
+      )`);
+      // مطالبةٌ واحدة لكلّ محادثة، ومنحةٌ واحدة لكلّ لاعب — القاعدة تمنع الازدواج لا الكود
+      await db.execute(sql`CREATE UNIQUE INDEX IF NOT EXISTS uq_wa_reward_claim_conv ON wa_reward_claims (event_id, conversation_id)`);
+      await db.execute(sql`CREATE UNIQUE INDEX IF NOT EXISTS uq_wa_reward_claim_player ON wa_reward_claims (event_id, player_id) WHERE player_id IS NOT NULL`);
+      await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_wa_reward_claims_state ON wa_reward_claims (state, expires_at)`);
+      // عرضٌ واحد يعمل في اللحظة الواحدة — وإلّا فمطالبتان لنفس المحادثة
+      await db.execute(sql`CREATE UNIQUE INDEX IF NOT EXISTS uq_wa_reward_one_running ON wa_reward_events ((status)) WHERE status = 'running'`);
       await db.execute(sql`CREATE TABLE IF NOT EXISTS analytics_cache (key VARCHAR(40) PRIMARY KEY, payload JSONB NOT NULL, refreshed_at TIMESTAMP DEFAULT NOW() NOT NULL)`);
       await db.execute(sql`CREATE TABLE IF NOT EXISTS analytics_config (key VARCHAR(40) PRIMARY KEY, value JSONB NOT NULL, updated_at TIMESTAMP DEFAULT NOW() NOT NULL)`);
       // ── 🍽️ نظام طلبات المنيو والفواتير (F&B) ──
@@ -2177,6 +2238,10 @@ async function main() {
   // ── ⛔ قفل إرسال واتساب المحفوظ (إن وُجد) يُستعاد قبل أيّ إرسال ──
   try { const { loadSendingSuspension } = await import('./services/whatsapp-inbox.service.js'); await loadSendingSuspension(); } catch { /* غير حرج */ }
   try { const { startWaHealthMonitor } = await import('./services/wa-health.service.js'); await startWaHealthMonitor(); } catch (e: any) { console.warn('⚠️ WA health monitor init:', e.message); }
+  // ── 🎁 عروضُ الحديث مع البوت: بدءٌ وإنهاءٌ آليّان + مسحُ مصالحةٍ احتياطيّ ──
+  //    المسحُ عند الإقلاع ليس ترفاً: سقوطُ الخادم بين إدراج الدفتر والمصالحة
+  //    يترك نقاطاً مُنحت ولا يراها صاحبها — وهذا ما يُعيد إظهارها.
+  try { const { startRewardScheduler } = await import('./services/wa-reward.service.js'); startRewardScheduler(); } catch (e: any) { console.warn('⚠️ WA reward scheduler init:', e.message); }
   // ── 🎟️ مجدول بطاقة الولاء — انتهاء المكافآت، الاختيار التلقائيّ، التذكيرات ──
   try {
     const { startLoyaltyScheduler } = await import('./services/loyalty.service.js');

@@ -487,6 +487,12 @@ async function handleInboundMessage(db: any, msg: any, contacts: any[]) {
     return; // لا نمرّر ضغطة زرّ التذكير للبوت
   }
 
+  // ── 🎁 عرضُ الحديث مع البوت (إن كان هناك عرضٌ نشط) ──
+  // fire-and-forget: صامتٌ تماماً بلا عرض (نداءُ كاشٍ واحد)، ولا يؤخّر الردّ ولا يُفشله.
+  import('./wa-reward.service.js')
+    .then(m => m.onInboundMessage({ id: updatedConv.id, phone: updatedConv.phone, playerId: updatedConv.playerId }))
+    .catch((err: any) => console.warn('⚠️ WA reward hook:', err?.message || err));
+
   // ── تمرير للبوت إن كان نشطاً ──
   if (isBotActive(updatedConv)) {
     forwardToBot(updatedConv);

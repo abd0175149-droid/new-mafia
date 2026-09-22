@@ -1821,6 +1821,12 @@ async function execTool(name: string, args: any, ctx: ToolCtx): Promise<any> {
         await db.insert(waCustomerNotes).values({ phone: conv.phone, playerId: st.playerId, note: `🔗 رُبطت المحادثة بحساب اللاعب ${pl?.name || st.playerId} بعد تحقق برمز عبر إشعار التطبيق`, source: 'bot' } as any);
       } catch { /* الملاحظة تكميلية */ }
       notifyAdmins('🔗 ربط ذاتي موثق', `${conv.displayName || conv.phone} رُبط بحساب ${pl?.name || '#' + st.playerId} (رمز تحقق)`, { conversationId: conv.id, url: `/admin/whatsapp?conv=${conv.id}`, tag: `wa-conv-${conv.id}` }).catch(() => {});
+      // 🎁 مطالبةٌ معلَّقة من عرضِ الحديث؟ صُرِفها الآن — هذا أحدُ ثلاثة مواضع (ربطٌ برمز ·
+      //    إنشاءُ حساب · ربطٌ يدويّ من الإنبوكس) ونسيانُ أيّها يُنتج «وين نقاطي» بلا سبب ظاهر.
+      try {
+        const { settlePendingForConversation } = await import('./wa-reward.service.js');
+        await settlePendingForConversation(conv.id, st.playerId, 'account-link');
+      } catch { /* المكافأة تكميليّة — لا تُفشل الربط */ }
       try { const io = (global as any).io; if (io) io.to('wa:inbox').emit('wa:conversation:update', { id: conv.id, playerId: st.playerId }); } catch { /* غير حرج */ }
       return {
         linked: true,
@@ -2581,6 +2587,14 @@ async function buildLiveFacts(db: any): Promise<string> {
       lines.push('- 🎟️ بطاقة الولاء **متوقّفة حاليّاً** — لا تذكرها ولا تعد بأختام أو مكافآت؛ إن سُئلت فقل إنّها غير متاحة الآن.');
     }
   } catch { /* بلا ولاء */ }
+  // 🎁 عرضُ الحديث النشط — يُروَّج له من داخل المحادثة إن فُعّل في إعداداته.
+  //    ⚠️ الكاش خمس دقائق، فبدءُ العرض وإيقافه ينادي invalidateLiveFacts() —
+  //    وإلّا استمرّ البوت يَعِد بعرضٍ انتهى.
+  try {
+    const { liveEventFactLine } = await import('./wa-reward.service.js');
+    const line = await liveEventFactLine();
+    if (line) lines.push(line);
+  } catch { /* بلا عروض */ }
   const text = lines.join('\n');
   liveFactsCache = { text, at: Date.now() };
   return text;
@@ -2637,6 +2651,12 @@ async function buildCustomerCard(db: any, conv: any): Promise<string> {
   if (await isAdminConversation(conv).catch(() => false)) {
     lines.push('🔒 هذا المتحدّث **أدمن موثَّق** (رقمه مربوط بحساب إداريّ). قاعدة «لا معلومات عن لاعب آخر» **لا تسري عليه**: أيّ سؤال منه عن لاعب أو حجز أو ماليّة أو ولاء ⟵ استدعِ أداة الإدارة المناسبة فوراً، بلا رفض وبلا طلب إثبات.');
   }
+  // 🎁 حالة هذا الشخص من عرضِ الحديث النشط (أخذها · محجوزة بانتظار حساب · بانتظار مدينته)
+  try {
+    const { customerCardLine } = await import('./wa-reward.service.js');
+    const line = await customerCardLine(conv.id, conv.playerId ?? null);
+    if (line) lines.push(line);
+  } catch { /* بلا عروض */ }
   const notes = await db.select().from(waCustomerNotes)
     .where(eq(waCustomerNotes.phone, conv.phone))
     .orderBy(desc(waCustomerNotes.createdAt)).limit(6);
@@ -2850,6 +2870,11 @@ async function processConversation(convId: number) {
     try {
       const p: any = lastMsg.payload;
       const btnId = p?.interactive?.button_reply?.id || p?.interactive?.list_reply?.id;
+      // 🎁 زرّ المدينة الأساسيّة (عرضُ الحديث): حتميّ — يكتب المدينة ثمّ يصرف النقاط
+      if (btnId?.startsWith('rwcity:')) {
+        const { handleCityButton } = await import('./wa-reward.service.js');
+        if (await handleCityButton(conv, btnId)) return;
+      }
       if (btnId && await handleExtButton(conv, btnId, extHelpers())) return;
       if (btnId === 'res_cancel') {
         await sendMessage({ conversationId: convId, text: 'تمام، ألغيت العملية 👍 إذا حابب تشوف الفعاليات بأي وقت أنا جاهز.', source: 'bot' });

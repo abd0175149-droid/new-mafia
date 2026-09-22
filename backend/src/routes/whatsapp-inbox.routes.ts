@@ -623,6 +623,13 @@ router.post('/conversations/:id/link-player', authenticate, adminOnly, async (re
     if (!updated) return res.status(404).json({ error: 'المحادثة غير موجودة' });
 
     res.json({ success: true, conversation: { ...updated, botActive: isBotActive(updated), windowOpen: isFreeWindowOpen(updated) } });
+
+    // 🎁 الموضع الثالث لصرف مطالبةٍ معلَّقة من عرضِ الحديث (بعد الردّ — لا يؤخّر الواجهة)
+    if (playerId !== null) {
+      import('../services/wa-reward.service.js')
+        .then(m => m.settlePendingForConversation(convId, playerId, 'manual-link'))
+        .catch(() => { /* تكميليّ */ });
+    }
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }

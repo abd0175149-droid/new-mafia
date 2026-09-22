@@ -59,6 +59,7 @@ export const CHIPS_REASONS = [
   'reward_top3',        // مكافأة أفضل ثلاثة — سبب مستقلّ
   'reward_birthday',    // عيديّة ميلاد — سبب مستقلّ
   'reward_loyalty',     // 🎟️ مكافأة بطاقة الولاء (اختيار التشبس)
+  'reward_chat',        // 🎁 مكافأة عرض الحديث مع بوت الواتساب
   'gift_in',            // إهداء وارد — المرحلة 4
   'gift_out',           // إهداء صادر — المرحلة 4
 ] as const;
@@ -111,6 +112,7 @@ export const REASON_CATEGORY: Record<string, 'topup' | 'reward' | 'drop' | 'sink
   reward_top3: 'reward',
   reward_birthday: 'reward',
   reward_loyalty: 'reward',
+  reward_chat: 'reward',
   drop_win: 'drop',
   drop_top3: 'drop',
   drop_first_match: 'drop',

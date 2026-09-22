@@ -699,6 +699,13 @@ export async function handleExtButton(conv: any, btnId: string, h: ExtHelpers): 
     h.notifyAdmins('🆕 لاعب جديد سجّل من واتساب', `${pl.name} — ${p.phone}`, { conversationId: conv.id, url: `/admin/players/${pl.id}` }).catch(() => {});
     void alertAdminsWA(`reg:${pl.id}`, `لاعب جديد سجّل حسابه من الواتساب: ${pl.name} (${p.phone}).`, { exceptConvId: conv.id });
     try { const io = (global as any).io; if (io) io.to('wa:inbox').emit('wa:conversation:update', { id: conv.id, playerId: pl.id }); } catch { /* غير حرج */ }
+    // 🎁 نقاطٌ كانت محجوزةً له في عرضِ الحديث؟ تُصرف الآن — هذه هي اللحظة التي وُعد بها.
+    //    (conv.playerId يُحدَّث في الكائن أيضاً كي لا يقرأ ما بعدُ قيمةً قديمة)
+    conv.playerId = pl.id;
+    try {
+      const { settlePendingForConversation } = await import('./wa-reward.service.js');
+      await settlePendingForConversation(conv.id, pl.id, 'registration');
+    } catch { /* المكافأة تكميليّة — لا تُفشل التسجيل */ }
     console.log(`📝 WA bot: self-registration → player #${pl.id} (conv ${conv.id})`);
     return true;
   }
