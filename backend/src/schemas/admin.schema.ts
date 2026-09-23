@@ -94,6 +94,8 @@ export const staff = pgTable('staff', {
   photoUrl: text('photo_url'),
   permissions: jsonb('permissions').default(['activities', 'bookings', 'finances', 'locations']),
   lastLogin: timestamp('last_login'),
+  // 🔒 كلّ رمزٍ صدر قبل هذه اللحظة يُرفض — «أغلق جلسات هذا الموظّف»
+  tokensValidFrom: timestamp('tokens_valid_from'),
   isPartner: boolean('is_partner').default(false),
   isActive: boolean('is_active').default(true),
   locationId: integer('location_id').references(() => locations.id, { onDelete: 'set null' }),

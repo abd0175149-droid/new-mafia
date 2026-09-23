@@ -7,6 +7,7 @@ import jwt from 'jsonwebtoken';
 import bcrypt from 'bcryptjs';
 import { env } from '../config/env.js';
 import { verifyPlayerToken } from './player-auth.middleware.js';
+import { isStaffTokenRevoked } from './token-revocation.js';
 
 // ── أنواع البيانات ──────────────────────────────────
 
@@ -60,6 +61,11 @@ export function authenticate(req: Request, res: Response, next: NextFunction): v
 
   try {
     const decoded = jwt.verify(token, env.JWT_SECRET) as JwtPayload;
+    // 🔒 رمزٌ صدر قبل لحظة إبطال جلسات هذا الموظّف = جلسةٌ أُغلقت
+    if (isStaffTokenRevoked(decoded as any)) {
+      res.status(401).json({ error: 'أُغلقت جلستك — سجّل الدخول من جديد', code: 'SESSION_REVOKED' });
+      return;
+    }
     req.user = decoded;
     next();
   } catch (err) {
@@ -103,6 +109,10 @@ export function staffOrSelf(paramName: string = 'id', staffRoles: readonly strin
       // (1) توكن موظف صالح بدورٍ مسموح؟ → مسموح (يشمل تصرّف الأدمن نيابةً عن أي لاعب)
       try {
         const decoded = jwt.verify(token, env.JWT_SECRET) as JwtPayload;
+        if (isStaffTokenRevoked(decoded as any)) {
+          res.status(401).json({ error: 'أُغلقت جلستك — سجّل الدخول من جديد', code: 'SESSION_REVOKED' });
+          return;
+        }
         if (!staffRoles.includes(decoded.role)) {
           res.status(403).json({ error: 'ليس لديك صلاحية لهذا الإجراء' });
           return;
@@ -141,6 +151,10 @@ export function authenticatePlayerOrStaff(req: Request, res: Response, next: Nex
     const token = authHeader.slice(7);
     try {
       const decoded = jwt.verify(token, env.JWT_SECRET) as JwtPayload;
+      if (isStaffTokenRevoked(decoded as any)) {
+        res.status(401).json({ error: 'أُغلقت جلستك — سجّل الدخول من جديد', code: 'SESSION_REVOKED' });
+        return;
+      }
       // نفسُ قائمة الأدوار: شريكُ المكان لا يقرأ ملفّاتِ اللاعبين من أيّ باب.
       if (!PLAYER_DATA_ROLES.includes(decoded.role as any)) {
         res.status(403).json({ error: 'ليس لديك صلاحية لهذا الإجراء' });

@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useMemo } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { swalConfirm } from '@/lib/swal';
+import { swalConfirm, swalToast } from '@/lib/swal';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || '';
 
@@ -211,6 +211,25 @@ export default function StaffManagementPage() {
     }
   }
 
+  // ══ إغلاق جلسات موظّف ══
+  // رمز الموظّف بلا حالة ومدّته ٧ أيّام: تغييرُ كلمة السرّ أو إيقافُ الحساب
+  // لا يُخرج من هو داخلٌ الآن. هذا الزرّ وحده يفعل.
+  async function handleRevoke(u: any) {
+    const ok = await swalConfirm(
+      `سيخرج «${u.displayName}» فوراً من كلّ جهازٍ هو داخلٌ منه — الداشبورد وشاشة الليدر معاً، ويحتاج تسجيل دخولٍ جديد.
+
+كلمةُ سرّه لا تتغيّر وحسابُه يبقى نشطاً.`,
+      { title: '🔒 إغلاق كلّ جلساته؟', confirmText: 'أغلق الجلسات', danger: true },
+    );
+    if (!ok) return;
+    try {
+      await apiFetch(`/api/staff/${u.id}/revoke-sessions`, { method: 'POST' });
+      swalToast(`أُغلقت جلسات ${u.displayName} ✅`, 'success');
+    } catch (err: any) {
+      alert(err.message || 'تعذّر الإغلاق');
+    }
+  }
+
   // ══ Player Search (for linking) ══
   async function searchPlayers(q: string) {
     setPlayerSearch(q);
@@ -326,6 +345,13 @@ export default function StaffManagementPage() {
                         <div className="flex items-center justify-center gap-1">
                           <button onClick={() => handleOpenEdit(u)} className="p-1.5 rounded-lg text-gray-500 hover:text-white hover:bg-gray-700 transition" title="إعدادات">
                             ⚙️
+                          </button>
+                          <button
+                            onClick={() => handleRevoke(u)}
+                            className="p-1.5 rounded-lg text-amber-400/70 hover:text-amber-400 hover:bg-amber-500/10 transition"
+                            title="إغلاق كلّ جلساته — يخرج فوراً من كلّ جهاز"
+                          >
+                            🔒
                           </button>
                           <button 
                             onClick={() => handleDelete(u.id, currentUserId)} 

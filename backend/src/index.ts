@@ -4,6 +4,7 @@
 // ══════════════════════════════════════════════════════
 
 import express from 'express';
+import { isStaffTokenRevoked, startRevocationWatcher } from './middleware/token-revocation.js';
 import { createServer } from 'http';
 import { Server } from 'socket.io';
 import cors from 'cors';
@@ -118,6 +119,8 @@ io.use((socket, next) => {
     for (const staffTok of staffCandidates) {
       try {
         const dec: any = jwt.verify(staffTok, env.JWT_SECRET);
+        // 🔒 المقبس بابٌ ثانٍ للجلسة — إغلاقُ الجلسات يجب أن يغلقه أيضاً
+        if (isStaffTokenRevoked(dec)) throw new Error('SESSION_REVOKED');
         if (dec && ['admin', 'manager', 'leader'].includes(dec.role)) {
           socket.data.authStaff = { id: dec.id, role: dec.role, username: dec.username };
           socket.data.role = 'leader';
@@ -790,6 +793,7 @@ async function main() {
       // ── ⏱️ متابعة المحادثات الصامتة قبل الحجز ──
       await db.execute(sql`ALTER TABLE wa_bot_settings ADD COLUMN IF NOT EXISTS followup JSONB DEFAULT '{}'::jsonb`);
       await db.execute(sql`ALTER TABLE wa_bot_settings ADD COLUMN IF NOT EXISTS restyle JSONB DEFAULT '{}'::jsonb`);
+      await db.execute(sql`ALTER TABLE staff ADD COLUMN IF NOT EXISTS tokens_valid_from TIMESTAMP`);
       await db.execute(sql`ALTER TABLE wa_conversations ADD COLUMN IF NOT EXISTS followup_stage SMALLINT DEFAULT 0`);
       await db.execute(sql`ALTER TABLE wa_conversations ADD COLUMN IF NOT EXISTS followup_last_at TIMESTAMP`);
       await db.execute(sql`ALTER TABLE wa_conversations ADD COLUMN IF NOT EXISTS followup_stopped_at TIMESTAMP`);
@@ -2240,6 +2244,8 @@ async function main() {
   // المنح محروس بمفتاح دفتر سنوي، فتكرار الفحص لا يمنح مرتين أبداً.
   try {
     const { startBirthdayScheduler } = await import('./services/chips-rewards.service.js');
+    // 🔒 قائمةُ الجلسات المُغلقة — تُحمَّل عند الإقلاع وتُنعَّش كلّ ٣٠ ثانية
+    startRevocationWatcher();
     startBirthdayScheduler();
     const { startExpiryScheduler } = await import('./services/chips-store.service.js');
     startExpiryScheduler();

@@ -144,6 +144,30 @@ router.put('/:id', authenticate, adminOnly, async (req: Request, res: Response) 
 });
 
 // PUT /api/staff/:id/password (admin only)
+// ══════════════════════════════════════════════════════
+// 🔒 POST /:id/revoke-sessions — إغلاق كلّ جلسات موظّف
+// ══════════════════════════════════════════════════════
+// رموزُ الموظّفين بلا حالة ومدّتها ٧ أيّام، فتغييرُ كلمة السرّ أو تعطيلُ
+// الحساب لا يُخرج من هو داخلٌ الآن. هذا المنفذ يضبط `tokens_valid_from`
+// فيُرفض كلّ رمزٍ صدر قبل هذه اللحظة — في الـAPI والمقبس معاً.
+router.post('/:id/revoke-sessions', authenticate, adminOnly, async (req: Request, res: Response) => {
+  try {
+    const db = getDB();
+    if (!db) return res.status(503).json({ error: 'DB unavailable' });
+    const id = parseInt(req.params.id);
+    const [row] = await db.select({ id: staff.id, displayName: staff.displayName })
+      .from(staff).where(eq(staff.id, id)).limit(1);
+    if (!row) return res.status(404).json({ error: 'الموظّف غير موجود' });
+
+    const { revokeStaffSessions } = await import('../middleware/token-revocation.js');
+    const at = await revokeStaffSessions(id);
+    console.log(`🔒 [staff] أُغلقت جلسات ${row.displayName} (#${id}) بيد ${req.user?.username}`);
+    res.json({ success: true, revokedAt: at.toISOString(), name: row.displayName });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 router.put('/:id/password', authenticate, adminOnly, async (req: Request, res: Response) => {
   const db = getDB();
   if (!db) return res.status(503).json({ error: 'قاعدة البيانات غير متوفرة' });
