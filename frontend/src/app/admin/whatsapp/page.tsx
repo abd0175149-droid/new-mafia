@@ -57,10 +57,35 @@ const ROLE_AR: Record<string, string> = {
 const FILTERS = [
   { key: 'all', label: 'الكل' },
   { key: 'unread', label: 'غير مقروء' },
+  { key: 'open', label: '🟢 نافذة مفتوحة' },
+  { key: 'attn', label: '⚠️ تدخل' },
   { key: 'bot', label: '🤖 بوت' },
   { key: 'human', label: '👤 بشري' },
-  { key: 'attn', label: '⚠️ تدخل' },
 ] as const;
+
+// ── الترتيب ──
+// النافذة أهمّ حقيقةٍ زمنيّة في واتساب، ولم يكن في الصفحة ما يرتّب الناس بها.
+// كلّه في الخادم: الترتيب في المتصفّح يرتّب الصفحة المحمَّلة فيبدو صحيحاً وهو كاذب.
+const SORTS = [
+  { key: 'recent', label: 'الأحدث رسالةً' },
+  { key: 'closing', label: '⏳ النافذة تُغلق أوّلاً' },
+  { key: 'fresh', label: '🟢 النافذة تُغلق أخيراً' },
+  { key: 'waiting', label: '⌛ الأطول انتظاراً للردّ' },
+] as const;
+const WIN_SORTS = ['closing', 'fresh'];
+
+/** ما بقي من النافذة نصّاً قصيراً: «٢س ١٠د» */
+function fmtLeft(h: number): string {
+  const m = Math.round(h * 60);
+  return m >= 60 ? `${Math.floor(m / 60)}س ${m % 60}د` : `${m}د`;
+}
+/** لون الحالة وعنوان مجموعتها — عتبتان: ساعة، ثمّ أربع ساعات */
+function winTone(h: number): { color: string; group: string } {
+  if (h <= 0) return { color: '#6b7280', group: 'مغلقة' };
+  if (h <= 1) return { color: '#fb7185', group: 'تنتهي خلال ساعة' };
+  if (h <= 4) return { color: '#fbbf24', group: 'تنتهي اليوم' };
+  return { color: '#34d399', group: 'متّسعة' };
+}
 
 function fmtTime(d: any) {
   if (!d) return '';
@@ -155,6 +180,9 @@ export default function WhatsAppInboxPage() {
   const [convs, setConvs] = useState<any[]>([]);
   const [loadingConvs, setLoadingConvs] = useState(true);
   const [filter, setFilter] = useState<string>('all');
+  const [sort, setSort] = useState<string>('recent');
+  const [counts, setCounts] = useState<Record<string, number> | null>(null);
+  const [lightbox, setLightbox] = useState<string | null>(null);
   const [q, setQ] = useState('');
   const [selId, setSelId] = useState<number | null>(null);
   const [messages, setMessages] = useState<any[]>([]);
@@ -167,7 +195,9 @@ export default function WhatsAppInboxPage() {
   const [asCustomer, setAsCustomer] = useState(false);   // 🎭 وضع «تكلّم بلسان العميل»
   const [muted, setMuted] = useState(false);
   const [mobilePane, setMobilePane] = useState<'list' | 'chat' | 'info'>('list');
-  const [mainTab, setMainTab] = useState<'chat' | 'bot' | 'broadcast' | 'quality' | 'rewards'>('chat');
+  // مستويان بدل خمسة تبويباتٍ متساوية: الوارد عملٌ يوميّ، والإدارة ضبطٌ وتحليل
+  const [mainTab, setMainTab] = useState<'chat' | 'admin'>('chat');
+  const [adminSec, setAdminSec] = useState<'don' | 'know' | 'perf' | 'cast' | 'offers'>('don');
   const [noteDraft, setNoteDraft] = useState('');
   const [showLink, setShowLink] = useState(false);
   const [linkQ, setLinkQ] = useState('');
@@ -186,14 +216,15 @@ export default function WhatsAppInboxPage() {
   const loadConvs = useCallback(async (opts?: { silent?: boolean }) => {
     try {
       if (!opts?.silent) setLoadingConvs(true);
-      const data = await apiFetch(`/api/whatsapp/conversations?filter=${filter}&q=${encodeURIComponent(q)}&limit=100`);
+      const data = await apiFetch(`/api/whatsapp/conversations?filter=${filter}&sort=${sort}&q=${encodeURIComponent(q)}&limit=100`);
       setConvs(data.conversations || []);
+      apiFetch('/api/whatsapp/conversations/counts').then(r => setCounts(r.counts)).catch(() => {});
     } catch (e: any) {
       if (!opts?.silent) swalAlert('تعذر جلب المحادثات: ' + e.message, 'error');
     } finally {
       setLoadingConvs(false);
     }
-  }, [filter, q]);
+  }, [filter, sort, q]);
 
   useEffect(() => { loadConvs(); }, [loadConvs]);
 
@@ -349,10 +380,21 @@ export default function WhatsAppInboxPage() {
   // ── فتح مباشر من إشعار push: /admin/whatsapp?conv=ID ──
   useEffect(() => {
     try {
-      const id = parseInt(new URLSearchParams(window.location.search).get('conv') || '');
+      const sp = new URLSearchParams(window.location.search);
+      const id = parseInt(sp.get('conv') || '');
+      // `?tab=` كان يصل من إشعار العروض ولا يقرؤه أحد — رابطٌ ميّت منذ إضافته
+      const tab = sp.get('tab');
       if (id) {
         setMainTab('chat');
         openConv(id);
+      } else if (tab) {
+        const SEC: Record<string, 'don' | 'know' | 'perf' | 'cast' | 'offers'> = {
+          rewards: 'offers', offers: 'offers', broadcast: 'cast', cast: 'cast',
+          quality: 'perf', perf: 'perf', bot: 'don', don: 'don', know: 'know',
+        };
+        if (SEC[tab]) { setMainTab('admin'); setAdminSec(SEC[tab]); }
+      }
+      if (id || tab) {
         // تنظيف الرابط حتى لا يُعاد الفتح عند refresh
         window.history.replaceState({}, '', '/admin/whatsapp');
       }
@@ -561,28 +603,13 @@ export default function WhatsAppInboxPage() {
           )}
         </h1>
         <div className="flex items-center gap-1 bg-gray-900 border border-gray-800 rounded-xl p-1 text-sm">
-          <button
-            onClick={() => setMainTab('chat')}
-            className={`px-3 py-1 rounded-lg font-bold ${mainTab === 'chat' ? 'bg-amber-500/10 text-amber-400' : 'text-gray-400 hover:text-white'}`}
-          >المحادثات</button>
-          <button
-            onClick={() => setMainTab('bot')}
-            className={`px-3 py-1 rounded-lg font-bold ${mainTab === 'bot' ? 'bg-amber-500/10 text-amber-400' : 'text-gray-400 hover:text-white'}`}
-          >🤖 البوت</button>
-          {getUser()?.role === 'admin' && (<>
+          {([['chat', 'الوارد'], ['admin', '⚙️ الإدارة']] as const).map(([k, l]) => (
             <button
-              onClick={() => setMainTab('broadcast')}
-              className={`px-3 py-1 rounded-lg font-bold ${mainTab === 'broadcast' ? 'bg-amber-500/10 text-amber-400' : 'text-gray-400 hover:text-white'}`}
-            >📢 البثّ</button>
-            <button
-              onClick={() => setMainTab('quality')}
-              className={`px-3 py-1 rounded-lg font-bold ${mainTab === 'quality' ? 'bg-amber-500/10 text-amber-400' : 'text-gray-400 hover:text-white'}`}
-            >📈 الجودة</button>
-            <button
-              onClick={() => setMainTab('rewards')}
-              className={`px-3 py-1 rounded-lg font-bold ${mainTab === 'rewards' ? 'bg-amber-500/10 text-amber-400' : 'text-gray-400 hover:text-white'}`}
-            >🎁 العروض</button>
-          </>)}
+              key={k}
+              onClick={() => setMainTab(k)}
+              className={`px-3.5 py-1 rounded-lg font-bold ${mainTab === k ? 'bg-amber-500/10 text-amber-400' : 'text-gray-400 hover:text-white'}`}
+            >{l}</button>
+          ))}
         </div>
         <button
           onClick={toggleMute}
@@ -595,14 +622,46 @@ export default function WhatsAppInboxPage() {
 
       {getUser()?.role === 'admin' && <HealthBar apiFetch={apiFetch} />}
 
-      {/* ═══ تبويب البوت ═══ */}
-      {mainTab === 'bot' && (
-        <BotSettingsView onOpenConv={(id: number) => { setMainTab('chat'); openConv(id); }} />
+      {/* ═══ الإدارة: شريطٌ جانبيّ يجمع الأقسام بمعناها ═══ */}
+      {mainTab === 'admin' && (
+        <div className="flex-1 min-h-0 grid grid-cols-1 md:grid-cols-[190px_1fr] gap-0 overflow-hidden">
+          <div className="border-l border-gray-800 p-2 flex md:flex-col gap-1 overflow-x-auto md:overflow-x-visible">
+            {([
+              ['sep', 'الدون'],
+              ['don', '🎩 السلوك والأدوات'],
+              ['know', '📚 المعرفة والتجربة'],
+              ['perf', '📈 الأداء والكلفة'],
+              ['sep', 'الوصول للناس'],
+              ['cast', '📢 البثّ'],
+              ['offers', '🎁 العروض'],
+            ] as const).map(([k, l], i) => k === 'sep' ? (
+              <div key={'s' + i} className="hidden md:block text-[9.5px] font-bold text-gray-600 px-2.5 pt-2.5 pb-1">{l}</div>
+            ) : (
+              <button
+                key={k}
+                onClick={() => setAdminSec(k)}
+                className={`text-right whitespace-nowrap text-[12.5px] font-bold px-2.5 py-1.5 rounded-lg ${
+                  adminSec === k ? 'bg-amber-500/10 text-amber-400' : 'text-gray-400 hover:text-white hover:bg-gray-800/50'
+                }`}
+              >{l}</button>
+            ))}
+          </div>
+          <div className="min-h-0 overflow-y-auto p-2 flex flex-col gap-3">
+            {adminSec === 'perf' && (
+              <QualityTab apiFetch={apiFetch} onOpenConv={(id: number) => { setMainTab('chat'); openConv(id); }} />
+            )}
+            {/* المكوّن يبقى مركّباً عبر الأقسام الثلاثة فلا يضيع تعديلٌ غير محفوظ */}
+            {(['don', 'know', 'perf'] as const).includes(adminSec as any) && (
+              <BotSettingsView
+                section={adminSec as any}
+                onOpenConv={(id: number) => { setMainTab('chat'); openConv(id); }}
+              />
+            )}
+            {adminSec === 'cast' && <BroadcastTab apiFetch={apiFetch} />}
+            {adminSec === 'offers' && <RewardsTab apiFetch={apiFetch} />}
+          </div>
+        </div>
       )}
-
-      {mainTab === 'broadcast' && <BroadcastTab apiFetch={apiFetch} />}
-      {mainTab === 'quality' && <QualityTab apiFetch={apiFetch} onOpenConv={(id: number) => { setMainTab('chat'); openConv(id); }} />}
-      {mainTab === 'rewards' && <RewardsTab apiFetch={apiFetch} />}
 
       {/* ═══ اللوحات الثلاث ═══ */}
       <div className={`${mainTab === 'chat' ? 'grid' : 'hidden'} flex-1 min-h-0 grid-cols-1 md:grid-cols-[300px_1fr_280px] gap-0 bg-gray-900/60 border border-gray-800 rounded-2xl overflow-hidden`}>
@@ -617,66 +676,116 @@ export default function WhatsAppInboxPage() {
               className="w-full bg-gray-950 border border-gray-800 rounded-xl px-3.5 py-2 text-sm text-white placeholder-gray-600 focus:border-amber-500 outline-none"
             />
           </div>
-          <div className="flex gap-1.5 px-3 py-2 border-b border-gray-800 overflow-x-auto" style={{ scrollbarWidth: 'none' }}>
+          <div className="flex gap-1.5 px-3 py-2 overflow-x-auto" style={{ scrollbarWidth: 'none' }}>
             {FILTERS.map(f => (
               <button
                 key={f.key}
                 onClick={() => setFilter(f.key)}
-                className={`whitespace-nowrap text-xs font-bold rounded-full px-3 py-1 border transition-colors ${
+                className={`whitespace-nowrap text-xs font-bold rounded-full px-3 py-1 border transition-colors flex items-center gap-1 ${
                   filter === f.key
                     ? 'bg-amber-500 text-gray-950 border-amber-500'
                     : 'text-gray-400 border-gray-800 hover:text-white'
                 }`}
               >
                 {f.label}
+                {counts && <span className="text-[9.5px] opacity-75 tabular-nums">{counts[f.key] ?? 0}</span>}
               </button>
             ))}
           </div>
+
+          {/* الترتيب — منفصلٌ عن الفلتر، وافتراضيّه «الأحدث» فلا يتغيّر شيءٌ لمن لا يستعمله */}
+          <div className="flex items-center gap-1.5 px-3 pb-2 border-b border-gray-800">
+            <label className="text-[10px] text-gray-600 shrink-0">الترتيب</label>
+            <select
+              value={sort}
+              onChange={e => setSort(e.target.value)}
+              className={`flex-1 min-w-0 bg-gray-950 border rounded-lg px-2 py-1 text-[11.5px] outline-none cursor-pointer ${
+                sort === 'recent' ? 'border-gray-800 text-gray-300' : 'border-sky-500/60 text-sky-300'
+              }`}
+            >
+              {SORTS.map(o => <option key={o.key} value={o.key}>{o.label}</option>)}
+            </select>
+          </div>
+
           <div className="flex-1 overflow-y-auto">
             {loadingConvs ? (
               <div className="p-6 text-center text-gray-500 text-sm">جارٍ التحميل…</div>
             ) : convs.length === 0 ? (
               <div className="p-8 text-center text-gray-500 text-sm">
                 <div className="text-3xl mb-2">💬</div>
-                لا محادثات {filter !== 'all' ? 'مطابقة للفلتر' : 'بعد — أول رسالة من عميل ستظهر هنا'}
+                لا محادثات {filter !== 'all' || sort !== 'recent' ? 'مطابقة' : 'بعد — أول رسالة من عميل ستظهر هنا'}
               </div>
-            ) : convs.map(c => {
-              const cPaused = c.botPausedUntil && new Date(c.botPausedUntil).getTime() > Date.now();
-              const cBot = c.botEnabled && !cPaused;
-              const cWin = windowHoursLeft(c.lastInboundAt) > 0;
-              return (
-                <button
-                  key={c.id}
-                  onClick={() => openConv(c.id)}
-                  className={`w-full text-right flex gap-2.5 px-3 py-2.5 border-b border-gray-800/60 hover:bg-gray-800/40 transition-colors ${
-                    selId === c.id ? 'bg-gray-800/60 shadow-[inset_3px_0_0_#f59e0b]' : ''
-                  }`}
-                >
-                  <ConvAvatar c={c} size={40} />
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-1.5">
-                      <span className="font-bold text-[13px] text-white truncate">{c.displayName || intlPhone(c.phone)}</span>
-                      <span className="text-[10px] text-gray-500 mr-auto shrink-0">{fmtWhen(c.lastMessageAt)}</span>
-                    </div>
-                    <div className="flex items-center gap-1.5 mt-0.5">
-                      <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${cWin ? 'bg-emerald-400' : 'bg-gray-600'}`} title={cWin ? 'نافذة الرد مفتوحة' : 'النافذة منتهية'} />
-                      <span className="text-xs text-gray-400 truncate flex-1">{c.lastMessagePreview || '—'}</span>
-                      {c.needsAttention && (
-                        <span className="text-[9px] font-bold rounded-full px-1.5 py-px shrink-0 bg-rose-500/15 text-rose-400 animate-pulse">⚠️</span>
-                      )}
-                      <span className={`text-[9px] font-bold rounded-full px-1.5 py-px shrink-0 ${
-                        cBot ? 'bg-sky-500/10 text-sky-400' : 'bg-amber-500/10 text-amber-400'
-                      }`}>{cBot ? '🤖' : '👤'}</span>
-                      {c.unreadCount > 0 && (
-                        <span className="bg-emerald-500 text-gray-950 text-[10px] font-bold rounded-full min-w-[18px] h-[18px] flex items-center justify-center px-1 shrink-0">
-                          {c.unreadCount}
-                        </span>
-                      )}
-                    </div>
+            ) : (() => {
+              const winMode = WIN_SORTS.includes(sort);
+              let lastGroup = '';
+              return convs.map(c => {
+                const cPaused = c.botPausedUntil && new Date(c.botPausedUntil).getTime() > Date.now();
+                const cBot = c.botEnabled && !cPaused;
+                const left = windowHoursLeft(c.lastInboundAt);
+                const tn = winTone(left);
+                const head = winMode && tn.group !== lastGroup ? (lastGroup = tn.group) : null;
+                return (
+                  <div key={c.id}>
+                    {head && (
+                      <div
+                        className="sticky top-0 z-[2] px-3 py-1 text-[10px] font-bold bg-gray-900 border-b border-gray-800"
+                        style={{ color: tn.color }}
+                      >{head}</div>
+                    )}
+                    <button
+                      onClick={() => openConv(c.id)}
+                      className={`w-full text-right flex gap-2.5 px-3 py-2.5 border-b border-gray-800/60 hover:bg-gray-800/40 transition-colors ${
+                        selId === c.id ? 'bg-gray-800/60 shadow-[inset_3px_0_0_#f59e0b]' : ''
+                      }`}
+                    >
+                      <ConvAvatar c={c} size={40} />
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-1.5">
+                          <span className="font-bold text-[13px] text-white truncate">{c.displayName || intlPhone(c.phone)}</span>
+                          <span className="text-[10px] text-gray-500 mr-auto shrink-0">
+                            {fmtWhen(c.lastMessageAt)}
+                          </span>
+                        </div>
+                        <div className="flex items-center gap-1.5 mt-0.5">
+                          {!winMode && (
+                            <span
+                              className={`w-1.5 h-1.5 rounded-full shrink-0 ${left > 0 ? 'bg-emerald-400' : 'bg-gray-600'}`}
+                              title={left > 0 ? 'نافذة الرد مفتوحة' : 'النافذة منتهية'}
+                            />
+                          )}
+                          <span className="text-xs text-gray-400 truncate flex-1">{c.lastMessagePreview || '—'}</span>
+                          {c.needsAttention && (
+                            <span className="text-[9px] font-bold rounded-full px-1.5 py-px shrink-0 bg-rose-500/15 text-rose-400 animate-pulse">⚠️</span>
+                          )}
+                          <span className={`text-[9px] font-bold rounded-full px-1.5 py-px shrink-0 ${
+                            cBot ? 'bg-sky-500/10 text-sky-400' : 'bg-amber-500/10 text-amber-400'
+                          }`}>{cBot ? '🤖' : '👤'}</span>
+                          {c.unreadCount > 0 && (
+                            <span className="bg-emerald-500 text-gray-950 text-[10px] font-bold rounded-full min-w-[18px] h-[18px] flex items-center justify-center px-1 shrink-0">
+                              {c.unreadCount}
+                            </span>
+                          )}
+                        </div>
+                        {/* شريطٌ يفرغ + رقمٌ صريح — لا يُعرض إلا في وضع النافذة فلا يزحم الصفّ */}
+                        {winMode && (
+                          <div className="flex items-center gap-1.5 mt-1">
+                            <span className="flex-1 h-[3px] rounded-full bg-gray-700 overflow-hidden">
+                              <span
+                                className="block h-full rounded-full"
+                                style={{ width: `${Math.max(2, Math.min(100, (left / 24) * 100))}%`, background: tn.color }}
+                              />
+                            </span>
+                            <span className="text-[10px] font-bold tabular-nums shrink-0" style={{ color: tn.color }}>
+                              {left > 0 ? fmtLeft(left) : '—'}
+                            </span>
+                          </div>
+                        )}
+                      </div>
+                    </button>
                   </div>
-                </button>
-              );
-            })}
+                );
+              });
+            })()}
           </div>
         </div>
 
@@ -707,12 +816,21 @@ export default function WhatsAppInboxPage() {
                   </div>
                   <div className="text-[11px] text-gray-500" dir="ltr">{intlPhone(conv.phone)}</div>
                 </div>
-                <div className="mr-auto flex items-center gap-2.5 shrink-0">
-                  <span className={`hidden sm:flex text-[11px] font-bold rounded-full px-2.5 py-1 ${
-                    winH > 0 ? 'bg-emerald-500/10 text-emerald-400' : 'bg-rose-500/10 text-rose-400'
-                  }`}>
-                    {winH > 0 ? `🟢 ${Math.ceil(winH)} ساعة` : '🔴 النافذة منتهية'}
-                  </span>
+                <div className="mr-auto flex items-center gap-2 shrink-0">
+                  {/* 🔗 حساب اللاعب — للمربوط وحده. لا زرَّ معطّلاً ولا زرّاً يقود إلى لا شيء. */}
+                  {ctx?.player ? (
+                    <a
+                      href={`/admin/players/${ctx.player.id}`}
+                      className="text-[11px] font-bold rounded-lg px-2.5 py-1 border border-amber-500/50 bg-amber-500/10 text-amber-400 hover:bg-amber-500/20 whitespace-nowrap"
+                      title="فتح ملفّ اللاعب في لوحة الإدارة"
+                    >👤 حساب اللاعب ↗</a>
+                  ) : ctx ? (
+                    <button
+                      onClick={() => { setMobilePane('info'); setShowLink(true); }}
+                      className="text-[11px] font-bold rounded-lg px-2.5 py-1 border border-dashed border-gray-700 text-gray-500 hover:text-gray-300 whitespace-nowrap"
+                      title="الرقم غير مربوط بأيّ لاعب — لا حساب يُفتح"
+                    >🔗 ربط بلاعب</button>
+                  ) : null}
                   <button
                     onClick={toggleBot}
                     className="flex items-center gap-1.5 text-[11px] font-bold text-gray-300"
@@ -726,6 +844,27 @@ export default function WhatsAppInboxPage() {
                   <button className="hidden md:block text-gray-500 hover:text-white px-1" onClick={() => setMobilePane('info')} title="لوحة العميل">👤</button>
                 </div>
               </div>
+
+              {/* ⏳ النافذة — مكانٌ واحد يقولها: كانت تُعرض ثلاث مرّاتٍ بثلاثة أشكال */}
+              {(() => {
+                const tn = winTone(winH);
+                return (
+                  <div className="flex items-center gap-2 px-4 py-1 border-b border-gray-800 bg-gray-950/60 text-[11px] font-bold">
+                    <span style={{ color: tn.color }} className="shrink-0">
+                      {winH > 0 ? `⏳ النافذة تُغلق بعد ${fmtLeft(winH)}` : '🔒 النافذة مغلقة'}
+                    </span>
+                    <span className="flex-1 h-1 rounded-full bg-gray-700 overflow-hidden min-w-[40px]">
+                      <span
+                        className="block h-full rounded-full"
+                        style={{ width: `${winH > 0 ? Math.max(2, Math.min(100, (winH / 24) * 100)) : 100}%`, background: tn.color }}
+                      />
+                    </span>
+                    <span className="text-gray-600 font-normal shrink-0 hidden sm:inline">
+                      آخر رسالةٍ منه {fmtWhen(conv.lastInboundAt)}
+                    </span>
+                  </div>
+                );
+              })()}
 
               {/* شريط الإيقاف المؤقت */}
               {conv.botEnabled && paused && (
@@ -770,13 +909,18 @@ export default function WhatsAppInboxPage() {
                       ) : (
                         g.m.msgType === 'audio' && g.m.direction === 'in' ? (
                           <AudioBubble m={g.m} />
+                        ) : ['image', 'sticker'].includes(g.m.msgType) && g.m.direction === 'in' ? (
+                          <ImageBubble m={g.m} onOpen={setLightbox} />
+                        ) : ['video', 'document'].includes(g.m.msgType) && g.m.direction === 'in' ? (
+                          <FileBubble m={g.m} />
                         ) : (
                           <div className="whitespace-pre-wrap break-words">{g.m.body || <span className="text-gray-500 italic">[{g.m.msgType}]</span>}</div>
                         )
                       )}
                       <div className="flex items-center gap-1.5 justify-end mt-0.5 text-[10px] text-gray-500">
                         {/* أدوات الرسالة: معلومات + حذف (تظهر عند المرور) */}
-                        <span className="hidden group-hover:flex items-center gap-1 ml-auto">
+                        {/* كانت group-hover فقط — ولا مرورَ على الشاشات اللمسيّة والصفحة لها تخطيط موبايل */}
+                        <span className="flex items-center gap-1 ml-auto opacity-40 group-hover:opacity-100 transition-opacity">
                           <button
                             onClick={() => swalAlert(messageInfoText(g.m), 'info')}
                             className="text-gray-500 hover:text-sky-400 px-0.5"
@@ -872,6 +1016,24 @@ export default function WhatsAppInboxPage() {
             <div className="flex-1 overflow-y-auto p-3.5 flex flex-col gap-3">
               <button className="md:hidden self-start text-gray-400 text-sm" onClick={() => setMobilePane('chat')}>◀ رجوع للمحادثة</button>
 
+              {/* ⚡ الإجراءات أوّلاً — أكثرها استعمالاً */}
+              <div className="bg-gray-900 border border-gray-800 rounded-xl p-3.5 flex flex-col gap-2">
+                <div className="text-[10.5px] font-bold text-gray-500">⚡ إجراءات سريعة</div>
+                <button onClick={openBooking} className="w-full bg-amber-500 hover:bg-amber-400 text-gray-950 font-bold rounded-lg py-2 text-xs">
+                  + حجز جديد
+                </button>
+                {ctx?.player && (
+                  <a href={`/admin/players/${ctx.player.id}`} className="w-full text-center border border-gray-700 hover:border-amber-500 hover:text-amber-400 text-gray-300 font-bold rounded-lg py-2 text-xs">
+                    👤 فتح ملف اللاعب
+                  </a>
+                )}
+                <button
+                  onClick={() => { navigator.clipboard?.writeText(intlPhone(conv.phone)); swalToast('نُسخ الرقم 📋', 'success'); }}
+                  className="w-full border border-gray-700 hover:border-amber-500 hover:text-amber-400 text-gray-300 font-bold rounded-lg py-2 text-xs"
+                >
+                  📋 نسخ الرقم
+                </button>
+              </div>
               {/* بطاقة اللاعب */}
               <div className="bg-gray-900 border border-gray-800 rounded-xl p-3.5">
                 <div className="text-[10.5px] font-bold text-gray-500 mb-2.5 flex items-center justify-between">
@@ -985,8 +1147,10 @@ export default function WhatsAppInboxPage() {
               </div>
 
               {/* آخر الحجوزات */}
-              <div className="bg-gray-900 border border-gray-800 rounded-xl p-3.5">
-                <div className="text-[10.5px] font-bold text-gray-500 mb-2">🎫 آخر الحجوزات</div>
+              <details open className="bg-gray-900 border border-gray-800 rounded-xl p-3.5">
+                <summary className="text-[10.5px] font-bold text-gray-500 mb-2 cursor-pointer list-none">
+                  🎫 آخر الحجوزات {ctx?.bookings?.length ? `(${ctx.bookings.length})` : ''}
+                </summary>
                 {!ctx ? null : ctx.bookings?.length ? ctx.bookings.map((b: any) => {
                   const st = b.isFree ? { l: 'مجاني', c: 'text-sky-400 bg-sky-500/10' } : b.isPaid ? { l: 'مدفوع', c: 'text-emerald-400 bg-emerald-500/10' } : { l: 'غير مدفوع', c: 'text-rose-400 bg-rose-500/10' };
                   return (
@@ -999,14 +1163,14 @@ export default function WhatsAppInboxPage() {
                 }) : (
                   <div className="text-center text-gray-600 text-[11px] py-1.5">لا حجوزات سابقة</div>
                 )}
-              </div>
+              </details>
 
               {/* الملاحظات الدائمة */}
-              <div className="bg-gray-900 border border-gray-800 rounded-xl p-3.5">
-                <div className="text-[10.5px] font-bold text-gray-500 mb-2 flex justify-between">
-                  <span>📝 ملاحظات دائمة</span>
+              <details className="bg-gray-900 border border-gray-800 rounded-xl p-3.5">
+                <summary className="text-[10.5px] font-bold text-gray-500 mb-2 flex justify-between cursor-pointer list-none">
+                  <span>📝 ملاحظات دائمة {ctx?.notes?.length ? `(${ctx.notes.length})` : ''}</span>
                   <span className="text-[9px] font-normal">ذاكرة البوت + الإدارة</span>
-                </div>
+                </summary>
                 {ctx?.notes?.length ? ctx.notes.map((n: any) => (
                   <div key={n.id} className="bg-gray-950 border border-gray-800 rounded-lg px-2.5 py-1.5 mb-1.5 text-xs text-gray-300">
                     {n.note}
@@ -1023,26 +1187,8 @@ export default function WhatsAppInboxPage() {
                   />
                   <button onClick={addNote} disabled={!noteDraft.trim()} className="text-xs font-bold text-amber-400 border border-gray-800 rounded-lg px-2.5 disabled:opacity-30">حفظ</button>
                 </div>
-              </div>
+              </details>
 
-              {/* إجراءات سريعة */}
-              <div className="bg-gray-900 border border-gray-800 rounded-xl p-3.5 flex flex-col gap-2">
-                <div className="text-[10.5px] font-bold text-gray-500">⚡ إجراءات سريعة</div>
-                <button onClick={openBooking} className="w-full bg-amber-500 hover:bg-amber-400 text-gray-950 font-bold rounded-lg py-2 text-xs">
-                  + حجز جديد
-                </button>
-                {ctx?.player && (
-                  <a href={`/admin/players/${ctx.player.id}`} className="w-full text-center border border-gray-700 hover:border-amber-500 hover:text-amber-400 text-gray-300 font-bold rounded-lg py-2 text-xs">
-                    👤 فتح ملف اللاعب
-                  </a>
-                )}
-                <button
-                  onClick={() => { navigator.clipboard?.writeText(intlPhone(conv.phone)); swalToast('نُسخ الرقم 📋', 'success'); }}
-                  className="w-full border border-gray-700 hover:border-amber-500 hover:text-amber-400 text-gray-300 font-bold rounded-lg py-2 text-xs"
-                >
-                  📋 نسخ الرقم
-                </button>
-              </div>
             </div>
           )}
         </div>
@@ -1060,6 +1206,28 @@ export default function WhatsAppInboxPage() {
           </button>
         ))}
       </div>
+
+      {/* ═══ مكبِّر الصورة ═══ */}
+      {lightbox && (
+        <div
+          className="fixed inset-0 z-[90] bg-black/90 backdrop-blur-sm flex items-center justify-center p-4"
+          onClick={() => setLightbox(null)}
+        >
+          <div className="absolute top-4 right-4 flex gap-2" onClick={e => e.stopPropagation()}>
+            <a
+              href={lightbox}
+              download="wa-image"
+              className="text-xs font-bold border border-gray-700 bg-gray-900 text-gray-300 hover:text-white rounded-lg px-3 py-1.5"
+            >⬇ تنزيل</a>
+            <button
+              onClick={() => setLightbox(null)}
+              className="text-xs font-bold border border-gray-700 bg-gray-900 text-gray-300 hover:text-white rounded-lg px-3 py-1.5"
+            >✕ إغلاق</button>
+          </div>
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src={lightbox} alt="" className="max-w-full max-h-[85vh] rounded-xl border border-gray-700" onClick={e => e.stopPropagation()} />
+        </div>
+      )}
 
       {/* ═══ نموذج الحجز ═══ */}
       {mainTab === 'chat' && showBookingForm && bkData && conv && (
@@ -1204,6 +1372,94 @@ function AudioBubble({ m }: { m: any }) {
       )}
       {err && <div className="text-[10.5px] text-rose-400 mt-1">⚠️ {err}</div>}
     </div>
+  );
+}
+
+// ══════════════════════════════════════════════════════
+// 🖼️ فقاعة الصورة — تُعرض في مكانها من المحادثة
+// ══════════════════════════════════════════════════════
+// المسار نفسه الذي يخدم الصوت (`/messages/:id/media`) يقرأ `payload.image.id`
+// أصلاً — فالصورة كانت مدعومةً في الخادم وينقصها من يعرضها فقط.
+// 🔴 سلوك البوت لا يتغيّر: `extractInbound` يحوّل الصورة إلى نصّ «📷 صورة»
+//    ولا شيء يمرّرها إلى النموذج — فيبقى الدون يعتذر عن قراءتها.
+function ImageBubble({ m, onOpen }: { m: any; onOpen: (url: string) => void }) {
+  const [url, setUrl] = useState<string | null>(null);
+  const [err, setErr] = useState<string | null>(null);
+
+  useEffect(() => {
+    let dead = false;
+    let made: string | null = null;
+    (async () => {
+      try {
+        const res = await fetch(`${API_URL}/api/whatsapp/messages/${m.id}/media`, {
+          headers: { Authorization: `Bearer ${getToken()}` },
+        });
+        if (!res.ok) {
+          const e = await res.json().catch(() => ({}));
+          throw new Error(e.error || `تعذّر الجلب (${res.status})`);
+        }
+        made = URL.createObjectURL(await res.blob());
+        if (dead) { URL.revokeObjectURL(made); return; }
+        setUrl(made);
+      } catch (e: any) { if (!dead) setErr(e.message); }
+    })();
+    return () => { dead = true; if (made) URL.revokeObjectURL(made); };
+  }, [m.id]);
+
+  const caption = m.body && m.body !== '📷 صورة' && m.body !== '🩵 ملصق' ? m.body : '';
+  return (
+    <div className="min-w-[160px]">
+      {url ? (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img
+          src={url}
+          alt=""
+          onClick={() => onOpen(url)}
+          className="rounded-xl border border-gray-700/60 cursor-zoom-in max-w-[210px] max-h-[260px] object-cover"
+        />
+      ) : err ? (
+        <div className="text-[11.5px] text-rose-400 border border-rose-500/30 bg-rose-500/5 rounded-lg px-2.5 py-2">
+          ⚠️ {err}
+        </div>
+      ) : (
+        <div className="w-[190px] h-[130px] rounded-xl bg-gray-800/60 border border-gray-700/50 animate-pulse" />
+      )}
+      {caption && <div className="mt-1.5 whitespace-pre-wrap break-words">{caption}</div>}
+      <div className="text-[10px] text-gray-500 mt-1">
+        {m.msgType === 'sticker' ? '🩵 ملصق' : '📷 صورة'} · الدون لا يقرأ الصور
+      </div>
+    </div>
+  );
+}
+
+/** فيديو أو ملفّ: حبّةُ تنزيلٍ لا مشغّل — اللوحة ليست مكان المشاهدة */
+function FileBubble({ m }: { m: any }) {
+  const [busy, setBusy] = useState(false);
+  const grab = async () => {
+    setBusy(true);
+    try {
+      const res = await fetch(`${API_URL}/api/whatsapp/messages/${m.id}/media`, {
+        headers: { Authorization: `Bearer ${getToken()}` },
+      });
+      if (!res.ok) throw new Error('تعذّر الجلب');
+      const u = URL.createObjectURL(await res.blob());
+      const a = document.createElement('a');
+      a.href = u; a.download = m.body || 'file';
+      a.click();
+      setTimeout(() => URL.revokeObjectURL(u), 5000);
+    } catch (e: any) { swalToast(e.message, 'error'); }
+    finally { setBusy(false); }
+  };
+  return (
+    <button onClick={grab} disabled={busy} className="flex items-center gap-2 text-[12.5px] text-gray-100 hover:text-white disabled:opacity-50">
+      <span className="w-7 h-7 rounded-lg bg-sky-600/25 border border-sky-500/40 flex items-center justify-center">
+        {m.msgType === 'video' ? '🎥' : '📄'}
+      </span>
+      <span className="text-right">
+        {m.body || (m.msgType === 'video' ? 'فيديو' : 'ملفّ')}
+        <small className="block text-[10px] text-gray-500">{busy ? 'جارٍ التنزيل…' : 'اضغط للتنزيل'}</small>
+      </span>
+    </button>
   );
 }
 
@@ -1402,7 +1658,11 @@ function FollowupCard({ s, patch }: { s: any; patch: (k: string, v: any) => void
   );
 }
 
-function BotSettingsView({ onOpenConv }: { onOpenConv?: (id: number) => void }) {
+// `section` يقسم البطاقات على أقسام شريط الإدارة بلا فقدِ الحالة بينها:
+// المكوّن يبقى مركّباً والأقسام تُخفي ما ليس لها، فالتعديلُ غير المحفوظ لا يضيع.
+type BotSection = 'all' | 'don' | 'know' | 'perf';
+function BotSettingsView({ onOpenConv, section = 'all' }: { onOpenConv?: (id: number) => void; section?: BotSection }) {
+  const show = (k: BotSection) => section === 'all' || section === k;
   const [s, setS] = useState<any | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -1568,7 +1828,9 @@ function BotSettingsView({ onOpenConv }: { onOpenConv?: (id: number) => void }) 
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-3 pb-6">
         {/* 📊 الاستهلاك والتكلفة الحقيقية */}
-        <UsageCard s={s} patch={patch} onOpenConv={onOpenConv} />
+        {show('perf') && <UsageCard s={s} patch={patch} onOpenConv={onOpenConv} />}
+
+        {show('don') && (<>
         {/* ⏱️ متابعة المحادثات الصامتة */}
         <FollowupCard s={s} patch={patch} />
         {/* المفتاح والنموذج */}
@@ -1670,6 +1932,9 @@ function BotSettingsView({ onOpenConv }: { onOpenConv?: (id: number) => void }) 
         </Card>
 
         {/* الشخصية */}
+        </>)}
+
+        {show('know') && (<>
         <Card title="🎭 شخصية البوت (System Prompt)" wide>
           <textarea
             value={s.systemPrompt}
@@ -1731,6 +1996,7 @@ function BotSettingsView({ onOpenConv }: { onOpenConv?: (id: number) => void }) 
             <button onClick={() => setPg([])} className="border border-gray-700 text-gray-400 hover:text-white rounded-xl px-3 text-xs" title="محادثة جديدة">🗑</button>
           </div>
         </Card>
+        </>)}
       </div>
     </div>
   );

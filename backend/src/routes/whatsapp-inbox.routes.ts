@@ -139,6 +139,7 @@ router.get('/conversations', authenticate, adminOnly, async (req: Request, res: 
 
     const q = String(req.query.q || '').trim();
     const filter = String(req.query.filter || 'all');
+    const sort = String(req.query.sort || 'recent');
     const limit = Math.min(parseInt(String(req.query.limit)) || 50, 200);
     const offset = parseInt(String(req.query.offset)) || 0;
 
@@ -149,13 +150,45 @@ router.get('/conversations', authenticate, adminOnly, async (req: Request, res: 
         ilike(waConversations.phone, `%${q}%`),
       ));
     }
+
+    // ══════════════════════════════════════════════════════
+    // 🔴 الفلاتر شروطُ استعلامٍ لا تصفيةٌ بعد القصّ
+    // ══════════════════════════════════════════════════════
+    // كانت bot/human/attn تُطبَّق على الصفحة المقطوعة (100 صفّ) بعد ترتيبها
+    // بالأحدث — فمحادثةٌ تحتاج تدخّلاً وترتيبها 101 لا تظهر في فلتر «تدخّل»
+    // إطلاقاً. الفلتر الذي يُخفي ما يبحث عنه المستخدم أسوأ من غيابه.
+    const botActiveSql = sql`${waConversations.botEnabled} = true
+      AND (${waConversations.botPausedUntil} IS NULL OR ${waConversations.botPausedUntil} < NOW())`;
     if (filter === 'unread') conds.push(sql`${waConversations.unreadCount} > 0`);
+    else if (filter === 'bot') conds.push(botActiveSql);
+    else if (filter === 'human') conds.push(sql`NOT (${botActiveSql})`);
+    else if (filter === 'attn') conds.push(eq(waConversations.needsAttention, true));
+    else if (filter === 'open') conds.push(sql`${waConversations.lastInboundAt} > NOW() - INTERVAL '24 hours'`);
+
+    // ── الترتيب ──
+    // نافذة الخدمة أهمّ حقيقةٍ زمنيّة في واتساب، ولا سبيل لترتيب الناس بها
+    // في المتصفّح: الترتيب هناك يرتّب المئة المحمَّلة فقط فيبدو صحيحاً وهو كاذب.
+    const openWindow = sql`${waConversations.lastInboundAt} > NOW() - INTERVAL '24 hours'`;
+    let orderBy: any = desc(waConversations.lastMessageAt);
+    if (sort === 'closing') {
+      // الأقرب إغلاقاً أوّلاً = الأقدم رسالةً واردة — والمغلقة تُستبعد لا تُذيَّل
+      conds.push(openWindow);
+      orderBy = sql`${waConversations.lastInboundAt} ASC`;
+    } else if (sort === 'fresh') {
+      conds.push(openWindow);
+      orderBy = sql`${waConversations.lastInboundAt} DESC`;
+    } else if (sort === 'waiting') {
+      // «الأطول انتظاراً للردّ» تقريبٌ مقصود: غير المقروءة مرتّبةً بالأقدم.
+      // الدقّة التامّة تحتاج آخر صادرٍ لكلّ محادثة، وهو استعلامٌ أثقل بلا فائدةٍ تُذكر.
+      conds.push(sql`${waConversations.unreadCount} > 0`);
+      orderBy = sql`${waConversations.lastMessageAt} ASC`;
+    }
 
     let query: any = db.select().from(waConversations);
     if (conds.length > 0) query = query.where(and(...conds));
 
     const rows = await query
-      .orderBy(desc(waConversations.lastMessageAt))
+      .orderBy(orderBy)
       .limit(limit)
       .offset(offset);
 
@@ -170,20 +203,43 @@ router.get('/conversations', authenticate, adminOnly, async (req: Request, res: 
       for (const p of prs) if (p.avatarUrl) avatars.set(p.id, p.avatarUrl);
     }
 
-    // حقول محسوبة للواجهة + فلترة bot/human (محسوبة زمنياً فلا تصلح شرط SQL ثابت)
-    let list = rows.map((c: any) => ({
+    // حقول محسوبة للواجهة (الفلترة صارت في الاستعلام أعلاه)
+    const list = rows.map((c: any) => ({
       ...c,
       avatarUrl: c.playerId ? (avatars.get(c.playerId) || null) : null,
       botActive: isBotActive(c),
       windowOpen: isFreeWindowOpen(c),
     }));
-    if (filter === 'bot') list = list.filter((c: any) => c.botActive);
-    if (filter === 'human') list = list.filter((c: any) => !c.botActive);
-    if (filter === 'attn') list = list.filter((c: any) => c.needsAttention);
-
     res.json({ success: true, conversations: list });
   } catch (err: any) {
     console.error('❌ whatsapp/conversations:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ══════════════════════════════════════════════════════
+// GET /api/whatsapp/conversations/counts — عدّادات الفلاتر
+// ══════════════════════════════════════════════════════
+// استعلامٌ واحد بـ FILTER بدل ستّة: الرقم على الشارة يجعل الفلتر قراراً
+// («في ثلاث تحتاج تدخّلاً») لا تجربةً بالضغط.
+router.get('/conversations/counts', authenticate, adminOnly, async (_req: Request, res: Response) => {
+  try {
+    const db = getDB();
+    if (!db) return res.status(503).json({ error: 'DB unavailable' });
+    const r: any = await db.execute(sql`
+      SELECT
+        COUNT(*)::int AS "all",
+        COUNT(*) FILTER (WHERE unread_count > 0)::int AS "unread",
+        COUNT(*) FILTER (WHERE last_inbound_at > NOW() - INTERVAL '24 hours')::int AS "open",
+        COUNT(*) FILTER (WHERE needs_attention = true)::int AS "attn",
+        COUNT(*) FILTER (WHERE bot_enabled = true
+          AND (bot_paused_until IS NULL OR bot_paused_until < NOW()))::int AS "bot",
+        COUNT(*) FILTER (WHERE NOT (bot_enabled = true
+          AND (bot_paused_until IS NULL OR bot_paused_until < NOW())))::int AS "human"
+      FROM wa_conversations`);
+    const row = (r.rows || r)[0] || {};
+    res.json({ success: true, counts: row });
+  } catch (err: any) {
     res.status(500).json({ error: err.message });
   }
 });

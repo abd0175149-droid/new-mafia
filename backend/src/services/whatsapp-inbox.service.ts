@@ -425,6 +425,11 @@ async function handleInboundMessage(db: any, msg: any, contacts: any[]) {
     .returning();
   if (!saved) return; // سباق dedupe
 
+  // 📥 الصور والملصقات والفيديو والملفّات: تُنزَّل الآن لتبقى بعد حذف ميتا لها
+  if (['image', 'sticker', 'video', 'document'].includes(msgType)) {
+    import('./wa-bot-ext.service.js').then(m => m.cacheInboundMedia(msg)).catch(() => {});
+  }
+
   // ── التفاعلات (رياكشن): تُلصق بالرسالة الهدف ولا تدخل مسار الرسائل ──
   // لا تفتح نافذة الـ24 ساعة، لا unread، لا push، ولا تمرير للبوت — كانت
   // تصل كرسالة فارغة فتُشغّل البوت بلا دور user جديد ويفشل نداء Gemini

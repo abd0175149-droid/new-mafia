@@ -96,9 +96,27 @@ const MAX_AUDIO_BYTES = 1_500_000;   // ≈ دقيقتان opus
 // فحفظُه هنا مجّانيّ ويجعل السماع ممكناً بعد انتهاء مدّة ميتا وبلا تنزيلٍ ثانٍ.
 export const WA_MEDIA_DIR = process.env.WA_MEDIA_DIR || 'uploads/wa-media';
 
+// خريطةُ امتدادٍ واحدة للحفظ والقراءة معاً — الترتيب مقصود: الصورة والفيديو
+// قبل الصوت، وإلّا التقط `/mp4/` فيديوَ واتساب وحفظه بامتداد صوتيّ.
+const MEDIA_EXT: Array<[RegExp, string, string]> = [
+  [/jpeg|jpg/, 'jpg', 'image/jpeg'],
+  [/png/, 'png', 'image/png'],
+  [/webp/, 'webp', 'image/webp'],
+  [/gif/, 'gif', 'image/gif'],
+  [/video\/mp4/, 'mp4', 'video/mp4'],
+  [/3gpp|3gp/, '3gp', 'video/3gpp'],
+  [/pdf/, 'pdf', 'application/pdf'],
+  [/ogg/, 'ogg', 'audio/ogg'],
+  [/mpeg|mp3/, 'mp3', 'audio/mpeg'],
+  [/mp4|m4a|aac/, 'm4a', 'audio/mp4'],
+  [/amr/, 'amr', 'audio/amr'],
+  [/wav/, 'wav', 'audio/wav'],
+];
+const EXT_MIME: Record<string, string> = Object.fromEntries(MEDIA_EXT.map(([, e, m]) => [e, m]));
+
 export function waMediaPath(mediaId: string, mime = ''): string {
-  const ext = /ogg/.test(mime) ? 'ogg' : /mpeg|mp3/.test(mime) ? 'mp3' : /mp4|m4a|aac/.test(mime) ? 'm4a' : /amr/.test(mime) ? 'amr' : /wav/.test(mime) ? 'wav' : 'bin';
-  return `${WA_MEDIA_DIR}/${String(mediaId).replace(/[^\w.-]/g, '')}.${ext}`;
+  const hit = MEDIA_EXT.find(([re]) => re.test(mime));
+  return `${WA_MEDIA_DIR}/${String(mediaId).replace(/[^\w.-]/g, '')}.${hit ? hit[1] : 'bin'}`;
 }
 
 export async function saveWaMedia(mediaId: string, mime: string, bin: Buffer): Promise<string | null> {
@@ -117,19 +135,18 @@ export async function saveWaMedia(mediaId: string, mime: string, bin: Buffer): P
 /** ينزّل وسائط رسالةٍ من ميتا (أو يقرؤها من القرص إن حُفظت) */
 export async function fetchWaMedia(mediaId: string): Promise<{ bin: Buffer; mime: string } | null> {
   const fs = await import('fs/promises');
+  const safe = String(mediaId).replace(/[^\w.-]/g, '');
   // القرص أوّلاً — لا تنزيل مكرّر، ويعمل بعد انتهاء مدّة ميتا
-  for (const ext of ['ogg', 'mp3', 'm4a', 'amr', 'wav', 'bin']) {
-    const p = `${WA_MEDIA_DIR}/${String(mediaId).replace(/[^\w.-]/g, '')}.${ext}`;
+  for (const ext of [...Object.keys(EXT_MIME), 'bin']) {
     try {
-      const bin = await fs.readFile(p);
-      const mime = ext === 'ogg' ? 'audio/ogg' : ext === 'mp3' ? 'audio/mpeg' : ext === 'm4a' ? 'audio/mp4' : ext === 'amr' ? 'audio/amr' : ext === 'wav' ? 'audio/wav' : 'application/octet-stream';
-      return { bin, mime };
-    } catch { /* غير محفوظ */ }
+      const bin = await fs.readFile(`${WA_MEDIA_DIR}/${safe}.${ext}`);
+      return { bin, mime: EXT_MIME[ext] || 'application/octet-stream' };
+    } catch { /* غير محفوظ بهذا الامتداد */ }
   }
   try {
     const meta: any = await (await fetch(`${GRAPH}/${mediaId}`, { headers: { Authorization: `Bearer ${env.WA_TOKEN}` } })).json();
     if (!meta?.url) return null;
-    const mime = String(meta.mime_type || 'audio/ogg').split(';')[0].trim();
+    const mime = String(meta.mime_type || 'application/octet-stream').split(';')[0].trim();
     const bin = Buffer.from(await (await fetch(meta.url, { headers: { Authorization: `Bearer ${env.WA_TOKEN}` } })).arrayBuffer());
     await saveWaMedia(mediaId, mime, bin);
     return { bin, mime };
@@ -137,6 +154,18 @@ export async function fetchWaMedia(mediaId: string): Promise<{ bin: Buffer; mime
     console.warn('⚠️ WA media fetch:', e?.message);
     return null;
   }
+}
+
+// ══════════════════════════════════════════════════════
+// 📥 حفظُ وسائط الوارد لحظةَ وصولها
+// ══════════════════════════════════════════════════════
+// ميتا تحذف الوسائط بعد ٣٠ يوماً. الصوت ينجو لأنّنا ننزّله للتفريغ، أمّا
+// الصورة فلا ينزّلها شيء — فتضيع صامتةً ويبقى في السجلّ «📷 صورة» بلا صورة.
+// نداءٌ لا يُنتظر: فشلُه لا يؤخّر ردّ الويبهوك ولا يُسقط الرسالة.
+export function cacheInboundMedia(msg: any): void {
+  const id = msg?.image?.id || msg?.sticker?.id || msg?.video?.id || msg?.document?.id;
+  if (!id) return;
+  void fetchWaMedia(String(id)).catch(() => { /* الوسيط ليس حرجاً */ });
 }
 
 /** تفريغ رسالةٍ صوتيّةٍ واحدة — النواة المشتركة بين التفريغ التلقائيّ وتفريغ الطلب */
