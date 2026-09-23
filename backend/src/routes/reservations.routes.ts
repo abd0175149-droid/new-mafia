@@ -139,6 +139,21 @@ router.post('/:id/wa-sent', authenticate, async (req: Request, res: Response) =>
   res.json(result[0]);
 });
 
+// ── ↩️ فكُّ طيّ مجموعة (تصحيحٌ يدويّ) ──
+// الطيّ آليٌّ عند دخول الغرفة وعند إنهاء الفعاليّة؛ وهذا صمّام الأمان إن طُويت
+// مجموعةٌ خطأً (مرافقون حضروا بلا حجزٍ من التطبيق مثلاً). العدد يُستعاد من
+// العمود المحفوظ لا من الملاحظة النصّيّة.
+router.post('/:id/undo-collapse', authenticate, async (req: Request, res: Response) => {
+  try {
+    const { undoCollapse } = await import('../services/reservation-collapse.service.js');
+    const out = await undoCollapse(parseInt(req.params.id));
+    if (!out.ok) return res.status(400).json(out);
+    res.json({ success: true, peopleCount: out.restored });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 router.put('/:id', authenticate, async (req: Request, res: Response) => {
   const db = getDB();
   if (!db) return res.status(503).json({ error: 'قاعدة البيانات غير متوفرة' });

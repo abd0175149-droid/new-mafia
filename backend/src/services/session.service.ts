@@ -327,6 +327,17 @@ export async function endActivityRoom(
   if (activityId) await completeActivity(activityId).catch(() => false);
 
   // 4) استبيانات التقييم لكل المشاركين + إشعار (من DB — يعمل دائماً)
+  // 🏁 الطيُّ الختاميّ لمجموعات المتابعة: من لم يدخل صاحبُ مجموعته الغرفة يبقى عدده
+  //    كاملاً فينتفخ التقرير التاريخيّ. بعد انتهاء الأمسية لم يعد للرقم المجهول وظيفة —
+  //    ومن حضر فعلاً له صفّ حجزٍ يعدّه. العدد الأصليّ محفوظ في companions_collapsed.
+  try {
+    if (ses.activityId) {
+      const { collapseRemainingForActivity } = await import('./reservation-collapse.service.js');
+      const r = await collapseRemainingForActivity(ses.activityId);
+      if (r.collapsed) console.log(`🏁 endActivityRoom: طُويت ${r.collapsed} مجموعة (${r.companions} مرافقاً)`);
+    }
+  } catch (e: any) { console.warn('⚠️ endActivityRoom collapse failed:', e?.message || e); }
+
   let feedbackCount = 0;
   try {
     const { createPendingForSession } = await import('./feedback.service.js');

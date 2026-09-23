@@ -119,6 +119,16 @@ export default function ResRow({ r, onOpen, onAttend }: {
             {(r.peopleCount ?? 1) > 1 && (
               <span className="text-[11.5px] text-gray-500">· {ar(r.peopleCount)} أشخاص</span>
             )}
+            {/* 🪑 مجموعةٌ انطوت: حجزَ لأصدقائه ثمّ حجز كلٌّ منهم لنفسه من التطبيق، فطُوي
+                عددُه إلى واحد لئلّا يُعدّوا مرّتين. الرقم الأصليّ يبقى هنا ظاهراً. */}
+            {(r.companionsCollapsed ?? 0) > 0 && (
+              <span
+                className="text-[10.5px] px-1.5 py-px rounded-full border font-bold text-sky-300 border-sky-500/40"
+                title="كان حاجزاً لمجموعة، وانطوى عددُه بعد أن حجز أصدقاؤه لأنفسهم — الرقم الأصليّ محفوظ"
+              >
+                🪑 كان {ar(1 + (r.companionsCollapsed ?? 0))}
+              </span>
+            )}
             {st !== 'confirmed' && (
               <span
                 className="text-[10.5px] px-1.5 py-px rounded-full border font-bold"

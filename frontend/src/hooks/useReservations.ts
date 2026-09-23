@@ -34,6 +34,9 @@ export interface Reservation {
   appConfirmed: boolean | null;
   appConfirmedAt: string | null;
   attended: boolean | null;
+  /** 🪑 كم مرافقاً انطوى بعد أن حجز كلٌّ منهم لنفسه (العدد الأصليّ = 1 + هذا) */
+  companionsCollapsed?: number | null;
+  companionsCollapsedAt?: string | null;
   notes: string | null;
   remindOptIn: boolean | null;
   /** آخرُ رسالةِ واتساب يدويّةٍ أرسلها موظّفٌ من حسابه — لا علاقة لها بالبوت */

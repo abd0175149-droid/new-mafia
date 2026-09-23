@@ -607,6 +607,10 @@ export const reservations = pgTable('reservations', {
   appConfirmed: boolean('app_confirmed').default(false),
   appConfirmedAt: timestamp('app_confirmed_at'),
   attended: boolean('attended'),  // null = لم يُحدد بعد | true = حضر | false = لم يحضر
+  // 🪑 طيُّ المجموعة: كم مرافقاً انطوى ومتى (العدد الأصليّ = 1 + هذا الرقم).
+  //    عمودٌ رقميّ لا ملاحظة نصّيّة — الملاحظةُ لا تُجمع في تقرير ولا تُحصى.
+  companionsCollapsed: integer('companions_collapsed').default(0),
+  companionsCollapsedAt: timestamp('companions_collapsed_at'),
   notes: text('notes').default(''),
   createdBy: varchar('created_by', { length: 100 }).default(''),
   // 🔔 تذكير واتساب قبل اللعبة بساعة — موافقة ضمنيّة افتراضيّة (يُرسَل لمن نافذته مفتوحة وقت الإرسال)

@@ -1752,6 +1752,17 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
         await emitStateSanitized(io, data.roomId, 'game:state-sync', state);
 
         console.log(`♻️ Player ${data.name} returned to held seat #${heldPlayer.physicalId} in room ${data.roomId}`);
+        // 🪑 طيُّ مجموعة المتابعة: دخل الغرفة ⟵ انتهت مهمّة «الرقم المجهول»،
+        //    فأصدقاؤه صاروا لاعبين مستقلّين يعدّهم حجزُ كلٍّ منهم. (reservation-collapse.service)
+        //    fire-and-forget: تصحيحُ عدٍّ لا بوّابةُ دخول — لا يُفشل الانضمام أبداً.
+        void import('../services/reservation-collapse.service.js')
+          .then(m => m.collapseGroupOnRoomJoin(
+            (socket.data as any)?.authPlayer?.playerId ?? data.playerId ?? null,
+            (state as any)?.activityId ?? null,
+            data.phone ?? null,
+          ))
+          .catch(() => { /* تكميليّ */ });
+
         return callback({
           success: true,
           assignedSeat: heldPlayer.physicalId,
@@ -2214,6 +2225,17 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
         await emitStateSanitized(io, data.roomId, 'game:state-sync', fresh);
 
         console.log(`👁️ Spectator ${data.name} seated #${seat} (phase: ${fresh.phase})`);
+        // 🪑 طيُّ مجموعة المتابعة: دخل الغرفة ⟵ انتهت مهمّة «الرقم المجهول»،
+        //    فأصدقاؤه صاروا لاعبين مستقلّين يعدّهم حجزُ كلٍّ منهم. (reservation-collapse.service)
+        //    fire-and-forget: تصحيحُ عدٍّ لا بوّابةُ دخول — لا يُفشل الانضمام أبداً.
+        void import('../services/reservation-collapse.service.js')
+          .then(m => m.collapseGroupOnRoomJoin(
+            (socket.data as any)?.authPlayer?.playerId ?? data.playerId ?? null,
+            (fresh as any)?.activityId ?? (state as any)?.activityId ?? null,
+            data.phone ?? null,
+          ))
+          .catch(() => { /* تكميليّ */ });
+
         return callback({
           success: true,
           spectator: true,
@@ -2424,6 +2446,17 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
         rankTier: finalPlayer?.rankTier || null,
         cosmetics: (finalPlayer as any)?.cosmetics || null,
       });
+
+        // 🪑 طيُّ مجموعة المتابعة: دخل الغرفة ⟵ انتهت مهمّة «الرقم المجهول»،
+        //    فأصدقاؤه صاروا لاعبين مستقلّين يعدّهم حجزُ كلٍّ منهم. (reservation-collapse.service)
+        //    fire-and-forget: تصحيحُ عدٍّ لا بوّابةُ دخول — لا يُفشل الانضمام أبداً.
+        void import('../services/reservation-collapse.service.js')
+          .then(m => m.collapseGroupOnRoomJoin(
+            (socket.data as any)?.authPlayer?.playerId ?? data.playerId ?? null,
+            activityId ?? (addedState as any)?.activityId ?? null,
+            data.phone ?? null,
+          ))
+          .catch(() => { /* تكميليّ */ });
 
       callback({
         success: true,

@@ -784,6 +784,9 @@ async function main() {
       //    والمطالبةُ تحمل **ما لم يُمنح بعد ولماذا** (بلا حساب، بلا مدينة،
       //    مستبعَد) — وهذا نصفُ قيمة الميزة: «٣١ حادثوا البوت ولم يأخذوا لأنّهم
       //    بلا حساب» رقمٌ يقود قراراً، بخلاف صمتٍ لا يُفسَّر.
+      // ── 🪑 طيُّ مجموعات المتابعة (علاج العدّ المزدوج) ──
+      await db.execute(sql`ALTER TABLE reservations ADD COLUMN IF NOT EXISTS companions_collapsed INTEGER DEFAULT 0`);
+      await db.execute(sql`ALTER TABLE reservations ADD COLUMN IF NOT EXISTS companions_collapsed_at TIMESTAMP`);
       // ── ⏱️ متابعة المحادثات الصامتة قبل الحجز ──
       await db.execute(sql`ALTER TABLE wa_bot_settings ADD COLUMN IF NOT EXISTS followup JSONB DEFAULT '{}'::jsonb`);
       await db.execute(sql`ALTER TABLE wa_conversations ADD COLUMN IF NOT EXISTS followup_stage SMALLINT DEFAULT 0`);
