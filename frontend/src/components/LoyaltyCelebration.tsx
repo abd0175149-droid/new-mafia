@@ -7,6 +7,7 @@
 // ══════════════════════════════════════════════════════
 
 import { motion } from 'framer-motion';
+import { DonSeal, sealTilt } from '@/components/DonSeal';
 
 export interface LoyaltyCelebrant {
   playerId: number; physicalId?: number | null; name: string; avatarUrl?: string | null;
@@ -42,7 +43,7 @@ export function LoyaltyCelebration({ data }: { data: LoyaltyCelebrant }) {
           <div className="flex gap-3 my-4">
             {Array.from({ length: n }).map((_, i) => (
               <motion.div key={i} initial={{ scale: 0.4, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} transition={{ delay: 0.35 + i * 0.12, type: 'spring', damping: 10 }}
-                className="rounded-full grid place-items-center" style={{ width: 54, height: 54, fontSize: 24, border: '2px solid #fbbf24', color: '#fbbf24', background: 'radial-gradient(circle, rgba(251,191,36,0.3), rgba(251,191,36,0.06))', boxShadow: '0 0 18px rgba(251,191,36,0.35)' }}>✦</motion.div>
+                className="grid place-items-center"><DonSeal size={62} tilt={sealTilt(i)} /></motion.div>
             ))}
           </div>
           <p className="text-2xl" style={{ color: '#e5dfd0' }}>

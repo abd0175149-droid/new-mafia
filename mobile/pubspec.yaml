@@ -160,6 +160,9 @@ flutter:
     #    داخل الواجهة، فرسمت شاشة الترحيب أيقونةً عامّة بدل هويّة النادي —
     #    أوّل انطباعٍ لمستخدمٍ جديد (AUTH-1).
     - assets/icon/splash_logo.png
+    # 🕴️ نقش ختم الدون — الشعار مقصوصاً وأبيضَ بالكامل: يُلوَّن بـsrcIn فتُقرأ
+    #    قناة ألفا وحدها. نسخةٌ مطابقة لما تستعمله الويب (frontend/public/seal_mark.png).
+    - assets/icon/seal_mark.png
     # 🚶 مقطع شاشة الترحيب — مُصيَّر من محرّك شاشة القاعة (scripts/render-welcome.mjs)
     - assets/video/club-entry.mp4
 

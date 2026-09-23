@@ -11,6 +11,7 @@ import { motion } from 'framer-motion';
 import { useLoyalty, arNum, periodNameAr, fmtDateAr, verdictLabel, KIND_LABEL, type LoyaltyReward } from '@/hooks/useLoyalty';
 import { StampRow, ChooseRewardSheet } from '@/components/LoyaltyStamps';
 import { ChipsBalancePill } from '@/components/ChipsBalancePill';
+import '@/components/DonSeal.css';
 
 const TONE: Record<string, { bg: string; color: string; border: string }> = {
   ok: { bg: 'rgba(52,211,153,0.12)', color: '#34d399', border: 'rgba(52,211,153,0.3)' },
@@ -18,6 +19,18 @@ const TONE: Record<string, { bg: string; color: string; border: string }> = {
   warn: { bg: 'rgba(251,191,36,0.12)', color: '#fbbf24', border: 'rgba(251,191,36,0.3)' },
   muted: { bg: 'rgba(107,114,128,0.15)', color: '#9ca3af', border: 'rgba(107,114,128,0.3)' },
 };
+/** ما بقي من شهر البطاقة بتوقيت عمّان (UTC+3 بلا توقيتٍ صيفيّ منذ ٢٠٢٢) */
+function daysLeftAr(period?: string): string {
+  if (!period) return '';
+  const [y, m] = period.split('-').map(Number);
+  const endUtc = Date.UTC(y, m, 1) - 3 * 3600e3; // بداية الشهر التالي بتوقيت عمّان
+  const d = Math.ceil((endUtc - Date.now()) / 86400e3);
+  if (d <= 0) return 'انتهى الشهر';
+  if (d === 1) return 'آخر يوم';
+  if (d === 2) return 'يومان';
+  return `${arNum(d)} أيّام`;
+}
+
 const STATUS_AR: Record<string, string> = { pending_choice: 'بانتظار اختيارك', available: 'جاهزة للاستخدام', redeemed: 'استُخدمت', expired: 'انتهت', void: 'أُلغيت' };
 
 export default function LoyaltyPage() {
@@ -37,6 +50,15 @@ export default function LoyaltyPage() {
   const available = data.available || [];
   const visits = data.visits || [];
   const stampsCount = visits.filter(v => v.verdict === 'stamped').length;
+  // عند بلوغ حدّ الشهر تُعرض البطاقة كاملةً: الشهر انتهى ولاءً، لا بطاقة نصف فارغة
+  const filled = data.card.capReached ? N : data.card.inCard;
+  const statusLine = pending
+    ? 'اكتملت البطاقة — مكافأتك بانتظار اختيارك'
+    : data.card.capReached
+    ? `بلغت حدّ الشهر (${arNum(cfg.maxRewardsPerMonth)} مكافآت) — بطاقة الشهر القادم تنتظرك`
+    : data.card.inCard === 0
+    ? `أوّل ختمٍ يفتح البطاقة · ${arNum(N)} أختام تجلب مكافأة`
+    : `بقي ${data.card.needed === 1 ? 'ختم واحد' : `${arNum(data.card.needed)} أختام`} — وتختار مكافأتك${data.card.cardsCompleted > 0 ? ` · أكملت ${arNum(data.card.cardsCompleted)} هذا الشهر` : ''}`;
 
   return (
     <div dir="rtl" className="min-h-screen bg-[#050505] pb-24">
@@ -50,31 +72,56 @@ export default function LoyaltyPage() {
 
       <div className="max-w-lg mx-auto px-4 pt-4 space-y-3">
         {/* البطاقة */}
-        <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}
-          className="rounded-2xl p-5 text-center relative overflow-hidden"
-          style={{ background: 'linear-gradient(135deg, rgba(251,191,36,0.10), rgba(5,5,5,0.9))', border: '1px solid rgba(251,191,36,0.22)' }}>
-          <p className="text-amber-400 text-lg" style={{ fontFamily: 'Amiri, serif' }}>بطاقة {periodNameAr(data.period)}</p>
-          <div className="flex justify-center my-3"><StampRow total={N} filled={data.card.inCard} size={52} /></div>
-          <p className="text-3xl font-black text-amber-400 leading-none tabular-nums">
-            {arNum(data.card.inCard)} <span className="text-sm text-gray-400 font-normal">/ {arNum(N)} أختام</span>
-          </p>
-          <p className="text-gray-400 text-[11.5px] mt-2 leading-relaxed">
-            {data.card.capReached
-              ? `بلغت حدّ الشهر (${arNum(data.config.maxRewardsPerMonth)} مكافآت) — بطاقة الشهر القادم تنتظرك`
-              : data.card.cardsCompleted > 0
-              ? `أكملت ${data.card.cardsCompleted === 1 ? 'بطاقة' : `${arNum(data.card.cardsCompleted)} بطاقات`} هذا الشهر · الحدّ ${arNum(data.config.maxRewardsPerMonth)} شهريّاً`
-              : `${arNum(N)} أختام = مكافأة · تُصفَّر البطاقة أوّل كلّ شهر`}
-          </p>
-          {pending && (
-            <div className="mt-3 p-3 rounded-xl flex items-center justify-between gap-2" style={{ background: 'rgba(52,211,153,0.08)', border: '1px solid rgba(52,211,153,0.3)' }}>
-              <span className="text-[12px]" style={{ color: '#a7f3d0' }}>🎁 مكافأة جاهزة — اختر قبل {fmtDateAr(pending.chooseBy)}</span>
-              <button onClick={() => setChooseFor(pending)} className="px-3 py-1.5 rounded-xl text-xs font-black text-black" style={{ background: 'linear-gradient(135deg, #fbbf24, #d97706)' }}>اختر</button>
+        <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="don-card p-[18px]">
+          <div className="flex items-start justify-between gap-3">
+            <div className="min-w-0">
+              <p className="text-[22px] font-bold leading-tight" style={{ fontFamily: 'Amiri, serif', color: '#F6E7D6' }}>بطاقة {periodNameAr(data.period)}</p>
+              <p className="text-[11px] mt-0.5" style={{ color: '#B79295' }}>ختمٌ لكلّ ليلةٍ حجزتها مبكّراً ولعبتها</p>
+            </div>
+            <span className="text-[10.5px] font-semibold px-2.5 py-[5px] rounded-full whitespace-nowrap"
+              style={{ border: '1px solid rgba(201,164,92,0.34)', color: '#D4B77E', background: 'rgba(0,0,0,0.24)' }}>
+              ⏳ {daysLeftAr(data.period)}
+            </span>
+          </div>
+
+          <div className="flex justify-center my-5"><StampRow total={N} filled={filled} size={52} /></div>
+
+          <div className="flex items-center gap-2 pt-3" style={{ borderTop: '1px solid rgba(201,164,92,0.2)' }}>
+            <span className="w-1.5 h-1.5 rounded-full shrink-0" style={{ background: '#C9A45C' }} />
+            <p className="text-[12.5px] flex-1 min-w-0" style={{ color: '#F0E2E2' }}>{statusLine}</p>
+            <span className="text-[11px] tabular-nums shrink-0" style={{ color: '#BFA48F' }}>{arNum(filled)}/{arNum(N)}</span>
+          </div>
+
+          {!data.card.capReached && cfg.kinds.length > 0 && (
+            <div className="mt-3 p-[10px] rounded-xl" style={{ background: 'rgba(0,0,0,0.26)', border: '1px solid rgba(201,164,92,0.22)' }}>
+              <p className="text-[10px] font-semibold mb-2" style={{ color: '#C9A45C' }}>
+                {pending ? 'اختر واحدة — الاختيار نهائيّ' : 'مكافأتك عند الاكتمال — تختار واحدة'}
+              </p>
+              <div className="flex gap-1.5 flex-wrap">
+                {cfg.kinds.map(k => (
+                  <span key={k} className="text-[10.5px] px-2.5 py-1 rounded-full" style={{ border: '1px solid rgba(201,164,92,0.24)', color: '#BFA48F' }}>
+                    {KIND_LABEL[k].icon} {k === 'chips' ? `${arNum(cfg.chipsAmount)} تشبس` : KIND_LABEL[k].label}
+                  </span>
+                ))}
+              </div>
             </div>
           )}
+
+          <button
+            onClick={() => (pending ? setChooseFor(pending) : router.push('/player/home'))}
+            className="w-full mt-3 py-[11px] rounded-xl text-[13px] font-black"
+            style={{ background: 'linear-gradient(180deg,#EBD6A4,#C9A45C 55%,#A8823E)', color: '#2A1208', border: '1px solid rgba(201,164,92,0.55)' }}>
+            {pending ? `🎁 اختر مكافأتك — قبل ${fmtDateAr(pending.chooseBy)}` : 'احجز ليلتك القادمة'}
+          </button>
+
+          <p className="text-[10px] leading-relaxed text-center mt-2" style={{ color: '#9C8285' }}>
+            الختم يحتاج حجزاً{cfg.channel === 'app' ? ' من التطبيق' : ' من التطبيق أو عبر «الدون» على واتساب'} قبل الفعاليّة بـ{arNum(cfg.minLeadHours)} ساعات ولعب مباراة
+          </p>
+
           {available.map(r => (
-            <div key={r.id} className="mt-2 p-3 rounded-xl text-right" style={{ background: 'rgba(251,191,36,0.07)', border: '1px solid rgba(251,191,36,0.25)' }}>
-              <p className="text-[12.5px] text-white font-bold">{KIND_LABEL[r.kind || '']?.icon} {KIND_LABEL[r.kind || '']?.label} — جاهزة</p>
-              <p className="text-[11px] text-gray-400 mt-0.5">
+            <div key={r.id} className="mt-2 p-3 rounded-xl text-right" style={{ background: 'rgba(0,0,0,0.26)', border: '1px solid rgba(201,164,92,0.28)' }}>
+              <p className="text-[12.5px] font-bold" style={{ color: '#F6E7D6' }}>{KIND_LABEL[r.kind || '']?.icon} {KIND_LABEL[r.kind || '']?.label} — جاهزة</p>
+              <p className="text-[11px] mt-0.5" style={{ color: '#BFA48F' }}>
                 {r.kind === 'free_visit' ? 'تُطبَّق تلقائيّاً على حجزك القادم من التطبيق' : `تُخصم من فاتورتك في المكان (حتى ${arNum(r.value?.capJod ?? cfg.drinkCapJod)} د.أ)`}
                 {' · '}تنتهي {fmtDateAr(r.expiresAt)}
               </p>

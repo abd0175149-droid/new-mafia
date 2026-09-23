@@ -1,6 +1,6 @@
 import 'dart:async';
+import 'dart:math' as math;
 
-import 'package:dotted_border/dotted_border.dart';
 import 'package:flutter/material.dart';
 
 import '../../app/router.dart';
@@ -8,6 +8,7 @@ import '../../core/api/loyalty_api.dart';
 import '../../models/fnb.dart' show arDigits;
 import '../../models/loyalty.dart';
 import '../profile/profile_palette.dart';
+import 'don_seal.dart';
 
 // ══════════════════════════════════════════════════════
 // 🎟️ قطع بطاقة الولاء المشتركة — الرئيسيّة والألعاب والبطاقة
@@ -21,85 +22,77 @@ const kLoyaltyGreenText = Color(0xFF9BE0B6);
 const kLoyaltyRose = Color(0xFFFB7185);
 
 // ══════════════════════════════════════════════════════
-// ✦ دائرة الختم
+// ✦ خانات البطاقة
 // ══════════════════════════════════════════════════════
-/// مملوءةٌ عنبريّةً بـ✦ للختم المكتسب، ومتقطّعةٌ للباقي، وخضراء بـ🎁
-/// حين تُلحق مكافأةً جاهزة.
-class StampCircle extends StatelessWidget {
-  const StampCircle({
+/// المختومة ختمُ شمعٍ بالشعار، والفارغة حلقةٌ متقطّعة برقمها، والأخيرة
+/// حلقةٌ صلبة: المكافأة على بعد ختمٍ واحد.
+
+class StampSlot extends StatelessWidget {
+  const StampSlot({
     super.key,
     required this.size,
-    this.filled = false,
-    this.gift = false,
+    required this.label,
+    this.last = false,
   });
 
   final double size;
-  final bool filled, gift;
+  final String label;
+  final bool last;
 
   @override
-  Widget build(BuildContext context) {
-    if (gift) {
-      return Container(
+  Widget build(BuildContext context) => SizedBox(
         width: size,
         height: size,
-        decoration: BoxDecoration(
-          shape: BoxShape.circle,
-          color: const Color(0x2622C55E),
-          border: Border.all(color: const Color(0x8022C55E)),
-        ),
-        child: Center(child: Text('🎁', style: TextStyle(fontSize: size * 0.46))),
-      );
-    }
-    if (filled) {
-      return Container(
-        width: size,
-        height: size,
-        decoration: BoxDecoration(
-          shape: BoxShape.circle,
-          gradient: const LinearGradient(
-            begin: Alignment.topLeft,
-            end: Alignment.bottomRight,
-            colors: [Color(0xFFFBBF24), Color(0xFFF59E0B)],
+        child: CustomPaint(
+          painter: _SlotPainter(last: last),
+          child: Center(
+            child: Text(
+              label,
+              style: TextStyle(
+                fontFamily: 'Tajawal',
+                fontSize: math.max(9, size * 0.3),
+                fontWeight: FontWeight.w600,
+                color: last ? kSealBrassHi : const Color(0x5CC9A45C),
+                letterSpacing: 0,
+              ),
+            ),
           ),
-          boxShadow: [
-            BoxShadow(
-                color: const Color(0x66F59E0B),
-                blurRadius: size * 0.3,
-                spreadRadius: 0),
-          ],
-        ),
-        child: Center(
-          child: Text('✦',
-              style: TextStyle(
-                  fontSize: size * 0.5,
-                  color: Colors.black,
-                  fontWeight: FontWeight.w900,
-                  letterSpacing: 0)),
         ),
       );
-    }
-    return DottedBorder(
-      color: const Color(0x66FBBF24),
-      borderType: BorderType.Circle,
-      dashPattern: const [4, 3],
-      strokeWidth: 1.2,
-      padding: EdgeInsets.zero,
-      child: SizedBox(
-        width: size,
-        height: size,
-        child: Center(
-          child: Text('✦',
-              style: TextStyle(
-                  fontSize: size * 0.4,
-                  color: const Color(0x33FBBF24),
-                  letterSpacing: 0)),
-        ),
-      ),
-    );
-  }
 }
 
-/// صفّ الأختام: N دوائر + 🎁 حين تكون مكافأةٌ معلّقةً أو جاهزة.
+class _SlotPainter extends CustomPainter {
+  const _SlotPainter({required this.last});
+
+  final bool last;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final c = Offset(size.width / 2, size.height / 2);
+    final r = size.width / 2 - 0.75;
+    final p = Paint()
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = last ? 1.2 : 1.0
+      ..strokeCap = StrokeCap.round
+      ..color = last ? const Color(0x99EBD6A4) : const Color(0x4DC9A45C);
+    if (last) {
+      canvas.drawCircle(c, r, p);
+      return;
+    }
+    // حلقةٌ متقطّعة: عدد الشرطات يتبع المحيط كي تبقى كثافتها ثابتة
+    final n = math.max(10, (size.width / 4).round());
+    final step = 2 * math.pi / n;
+    final rect = Rect.fromCircle(center: c, radius: r);
+    for (var i = 0; i < n; i++) {
+      canvas.drawArc(rect, i * step, step * 0.55, false, p);
+    }
+  }
+
+  @override
+  bool shouldRepaint(_SlotPainter old) => old.last != last;
+}
+
+/// صفّ الأختام: N خانة + 🎁 حين تكون مكافأةٌ معلّقةً أو جاهزة.
 class StampRow extends StatelessWidget {
   const StampRow({
     super.key,
@@ -118,10 +111,30 @@ class StampRow extends StatelessWidget {
   Widget build(BuildContext context) => Wrap(
         spacing: gap,
         runSpacing: gap,
+        alignment: WrapAlignment.center,
         children: [
           for (var i = 0; i < total; i++)
-            StampCircle(size: size, filled: i < filled),
-          if (gift) StampCircle(size: size, gift: true),
+            if (i < filled)
+              DonSeal(size: size, tiltDeg: sealTilt(i))
+            else
+              StampSlot(
+                size: size,
+                label: arDigits(i + 1),
+                last: i == total - 1,
+              ),
+          if (gift)
+            Container(
+              width: size,
+              height: size,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                color: const Color(0x42000000),
+                border: Border.all(color: const Color(0x99EBD6A4)),
+              ),
+              child: Center(
+                child: Text('🎁', style: TextStyle(fontSize: size * 0.42)),
+              ),
+            ),
         ],
       );
 }
@@ -168,72 +181,64 @@ class _Banner extends StatelessWidget {
     final Color statusColor;
     if (pending != null) {
       status = 'اكتملت! مكافأتك بانتظار اختيارك';
-      statusColor = kLoyaltyGreen;
+      statusColor = kSealBrassHi;
     } else if (card.capReached) {
       status = 'بلغت حدّ الشهر — بطاقة الشهر القادم تنتظرك';
-      statusColor = const Color(0xFF9A8F7E);
+      statusColor = kCardMuted;
+    } else if (card.inCard == 0) {
+      status = 'احجز مبكّراً والعب — ختمك الأوّل';
+      statusColor = const Color(0xFFC4A9A2);
     } else {
       status = 'بقي ${arDigits(card.needed)} أختام للمكافأة';
-      statusColor = const Color(0xFFD6B77A);
+      statusColor = const Color(0xFFC4A9A2);
     }
 
-    return GestureDetector(
+    return DonCard(
+      mini: true,
+      padding: const EdgeInsets.all(14),
       onTap: () => pushTo(Routes.loyalty),
-      behavior: HitTestBehavior.opaque,
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
-        decoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(14),
-          gradient: const LinearGradient(
-            begin: Alignment.topRight,
-            end: Alignment.bottomLeft,
-            colors: [Color(0x26F59E0B), Color(0x0DF59E0B)],
-          ),
-          border: Border.all(color: const Color(0x40F59E0B)),
-        ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(children: [
-              const Text('🎟️', style: TextStyle(fontSize: 24)),
-              const SizedBox(width: 10),
-              Expanded(
-                child: Text('بطاقة الولاء — ${me.monthName}',
-                    style: const TextStyle(
-                        fontFamily: 'Amiri',
-                        fontSize: 17,
-                        fontWeight: FontWeight.w900,
-                        color: Tw.amber400,
-                        letterSpacing: 0)),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(children: [
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text('بطاقة ${me.monthName}',
+                      style: const TextStyle(
+                          fontFamily: 'Amiri',
+                          fontSize: 17,
+                          fontWeight: FontWeight.w900,
+                          color: kCardCream,
+                          letterSpacing: 0)),
+                  const SizedBox(height: 2),
+                  Text(status, style: ar(11.5, color: statusColor)),
+                ],
               ),
-              const Icon(Icons.arrow_back_ios_new, size: 14, color: Tw.amber400),
-            ]),
-            const SizedBox(height: 10),
-            StampRow(total: n, filled: filled, gift: hasGift, size: 24),
-            const SizedBox(height: 10),
-            Row(children: [
-              Expanded(
-                child: Text(status,
-                    style: ar(11, color: statusColor, weight: FontWeight.w600)),
-              ),
-              if (pending != null) ...[
-                const SizedBox(width: 8),
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 5),
-                  decoration: BoxDecoration(
-                    borderRadius: BorderRadius.circular(8),
-                    gradient: const LinearGradient(
-                      colors: [Color(0xFF4ADE80), Color(0xFF22C55E)],
-                    ),
-                  ),
-                  // «←» حرفيّ: يشير يساراً وهو اتجاه التقدّم في RTL
-                  child: Text('اختر ←',
-                      style: ar(11, color: Colors.black, weight: FontWeight.w700)),
+            ),
+            const SizedBox(width: 10),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 13, vertical: 6),
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(10),
+                border: Border.all(color: const Color(0x8CC9A45C)),
+                gradient: const LinearGradient(
+                  begin: Alignment.topCenter,
+                  end: Alignment.bottomCenter,
+                  colors: [kSealBrassHi, kSealBrass, Color(0xFFA8823E)],
+                  stops: [0.0, 0.55, 1.0],
                 ),
-              ],
-            ]),
-          ],
-        ),
+              ),
+              // «←» حرفيّ: يشير يساراً وهو اتجاه التقدّم في RTL
+              child: Text(pending != null ? 'اختر ←' : 'افتح ←',
+                  style: ar(11.5,
+                      color: const Color(0xFF2A1208), weight: FontWeight.w900)),
+            ),
+          ]),
+          const SizedBox(height: 12),
+          Center(child: StampRow(total: n, filled: filled, gift: hasGift, size: 34, gap: 7)),
+        ],
       ),
     );
   }

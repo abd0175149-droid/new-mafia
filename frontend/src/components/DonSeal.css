@@ -1,0 +1,149 @@
+/* ══════════════════════════════════════════════════════
+   🕴️ ختم الدون — شمعٌ أسودُ مذهَّب، الشعار كما هو داخل إطارٍ متّجه
+   ══════════════════════════════════════════════════════
+   القاعدة: الإطار SVG (يبقى حادّاً عند أيّ حجم) والشعار قناعٌ على لونٍ
+   واحد (الرسم الأصليّ حرفيّاً، بلا تثخينٍ ولا إعادة رسم).
+   البروز `drop-shadow` على الحاوية لا على المقنَّع — المرشِّح يسبق القناع
+   في CSS، فوضعُه على العنصر نفسه يقصّ الظلّ قبل أن يُرى.
+   --sz حجم القرص · --rx/--ry إزاحة البروز (تتبع الحجم) */
+
+.don-seal-wrap {
+  display: inline-grid;
+  place-items: center;
+  flex: 0 0 auto;
+  width: var(--sz, 52px);
+  height: var(--sz, 52px);
+}
+
+.don-seal {
+  position: relative;
+  width: var(--sz, 52px);
+  height: var(--sz, 52px);
+  flex: 0 0 auto;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  background: radial-gradient(circle at 36% 26%, #3e3539, #1e1b1d 52%, #0a090a 84%);
+  box-shadow: 0 5px 12px rgba(0, 0, 0, 0.8), inset 0 0 0 2px rgba(201, 164, 92, 0.4);
+}
+
+/* لمعة الشمع */
+.don-seal::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: 3;
+  border-radius: 50%;
+  pointer-events: none;
+  background: radial-gradient(circle at 32% 22%, rgba(255, 255, 255, 0.24), transparent 48%);
+}
+
+/* حافّةٌ غير منتظمة كشمعٍ ضُغط — خلف القرص */
+.don-seal::after {
+  content: '';
+  position: absolute;
+  inset: -3%;
+  z-index: -1;
+  border-radius: 50%;
+  filter: blur(1.5px);
+  background: conic-gradient(from 12deg,
+      #171416 0 6%, transparent 9% 17%, #171416 20% 27%,
+      transparent 31% 39%, #171416 43% 51%, transparent 55% 62%,
+      #171416 66% 74%, transparent 78% 86%, #171416 89% 96%, transparent 99%);
+}
+
+.don-seal__ring {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  color: rgba(232, 201, 120, 0.85);
+  pointer-events: none;
+}
+.don-seal__ring svg {
+  width: 100%;
+  height: 100%;
+  filter: drop-shadow(var(--rx) var(--ry) 0 rgba(0, 0, 0, 0.75))
+          drop-shadow(calc(var(--rx) * -0.7) calc(var(--ry) * -0.7) 0 rgba(255, 255, 255, 0.15));
+}
+
+.don-seal__emboss {
+  position: relative;
+  z-index: 2;
+  width: 100%;
+  height: 100%;
+  display: grid;
+  place-items: center;
+  filter: drop-shadow(var(--rx) var(--ry) 0 rgba(0, 0, 0, 0.8))
+          drop-shadow(calc(var(--rx) * -0.75) calc(var(--ry) * -0.75) 0 rgba(255, 255, 255, 0.17));
+}
+
+.don-seal__mark {
+  width: 68%;
+  height: 68%;
+  background: var(--seal-mark, #e8c978);
+  /* `seal_mark.png`: الشعار نفسه مقصوصاً على حدود الشفافيّة وأبيضَ بالكامل
+     — القناع يقرأ قناة ألفا وحدها، والملفّ الأصليّ يبقى كما هو لبقيّة الواجهة. */
+  -webkit-mask: url('/seal_mark.png') center / contain no-repeat;
+  mask: url('/seal_mark.png') center / contain no-repeat;
+}
+
+/* خانةٌ لم تُختم بعد */
+.don-slot {
+  position: relative;
+  width: var(--sz, 52px);
+  height: var(--sz, 52px);
+  flex: 0 0 auto;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  border: 1px dashed rgba(201, 164, 92, 0.3);
+  color: rgba(201, 164, 92, 0.36);
+  box-shadow: inset 0 2px 8px rgba(0, 0, 0, 0.5);
+}
+/* الخانة الأخيرة: حلقةٌ صلبة — المكافأة على بعد ختمٍ واحد */
+.don-slot--last {
+  border: 1px solid rgba(235, 214, 164, 0.6);
+  color: #ebd6a4;
+}
+
+/* ══════════════════════════════════════════════════════
+   🃏 أرضيّة البطاقة — عنّابيّ ذو نسيجٍ قماشيّ وإطارٍ نحاسيّ داخليّ
+   ══════════════════════════════════════════════════════ */
+.don-card {
+  position: relative;
+  overflow: hidden;
+  border-radius: 20px;
+  border: 1px solid #5c2029;
+  background:
+    radial-gradient(120% 85% at 78% -14%, #5e1f2a, transparent 58%),
+    linear-gradient(170deg, #4d1821 0%, #451520 52%, #310f16 100%);
+  box-shadow: 0 28px 58px -26px rgba(0, 0, 0, 0.92), inset 0 0 70px rgba(30, 8, 12, 0.5);
+}
+/* نسيج مائل خفيف — يمنع العنّابيّ من أن يقرأ كمسطّحٍ رقميّ */
+.don-card::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  opacity: 0.5;
+  background:
+    repeating-linear-gradient(45deg, rgba(255, 255, 255, 0.022) 0 2px, transparent 2px 4px),
+    repeating-linear-gradient(-45deg, rgba(0, 0, 0, 0.06) 0 2px, transparent 2px 4px);
+}
+/* الإطار النحاسيّ الداخليّ */
+.don-card::after {
+  content: '';
+  position: absolute;
+  inset: 7px;
+  border-radius: 14px;
+  pointer-events: none;
+  border: 1.5px solid rgba(201, 164, 92, 0.34);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08), 0 1px 0 rgba(0, 0, 0, 0.5);
+}
+.don-card > * { position: relative; z-index: 2; }
+
+/* لافتةٌ مصغّرة بالأرضيّة نفسها */
+.don-card--mini { border-radius: 16px; }
+.don-card--mini::after { inset: 5px; border-radius: 11px; }

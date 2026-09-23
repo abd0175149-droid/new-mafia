@@ -6,6 +6,7 @@ import '../../models/fnb.dart' show arDigits;
 import '../../models/loyalty.dart';
 import '../profile/profile_palette.dart';
 import '../shell/chips_balance_pill.dart';
+import 'don_seal.dart';
 import 'loyalty_choose_sheet.dart';
 import 'loyalty_widgets.dart';
 
@@ -174,96 +175,149 @@ class _CardHero extends StatelessWidget {
     final n = me.config.stampsPerReward;
     final card = me.card;
     final pending = me.pendingChoice;
+    // عند بلوغ حدّ الشهر تُعرض البطاقة كاملةً: الشهر انتهى ولاءً
     final filled = card.capReached ? n : card.inCard;
 
-    final String sub;
-    if (card.capReached) {
-      sub = 'بلغت حدّ الشهر (${arDigits(me.config.maxRewardsPerMonth)} مكافآت) — بطاقة الشهر القادم تنتظرك';
-    } else if (card.cardsCompleted > 0) {
-      sub = 'اكتملت ${arDigits(card.cardsCompleted)} بطاقة هذا الشهر · الحدّ ${arDigits(me.config.maxRewardsPerMonth)} مكافآت';
+    final String status;
+    if (pending != null) {
+      status = 'اكتملت البطاقة — مكافأتك بانتظار اختيارك';
+    } else if (card.capReached) {
+      status = 'بلغت حدّ الشهر (${arDigits(me.config.maxRewardsPerMonth)} مكافآت) — بطاقة الشهر القادم تنتظرك';
+    } else if (card.inCard == 0) {
+      status = 'أوّل ختمٍ يفتح البطاقة · ${arDigits(n)} أختام تجلب مكافأة';
     } else {
-      sub = 'بقي ${arDigits(card.needed)} أختام للمكافأة · الحدّ ${arDigits(me.config.maxRewardsPerMonth)} مكافآت في الشهر';
+      status = 'بقي ${card.needed == 1 ? 'ختم واحد' : '${arDigits(card.needed)} أختام'} — وتختار مكافأتك'
+          '${card.cardsCompleted > 0 ? ' · أكملت ${arDigits(card.cardsCompleted)} هذا الشهر' : ''}';
     }
 
-    return Container(
-      padding: const EdgeInsets.all(18),
-      decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(16),
-        gradient: const LinearGradient(
-          begin: Alignment.topRight,
-          end: Alignment.bottomLeft,
-          colors: [Color(0x2EF59E0B), Color(0xE6050505)],
-        ),
-        border: Border.all(color: const Color(0x59F59E0B)),
-      ),
+    return DonCard(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          Text('بطاقة ${me.monthName}',
-              textAlign: TextAlign.center,
-              style: const TextStyle(
-                  fontFamily: 'Amiri',
-                  fontSize: 22,
-                  fontWeight: FontWeight.w900,
-                  color: Tw.amber400,
-                  letterSpacing: 0)),
-          const SizedBox(height: 16),
-          Center(
-            child: StampRow(
-              total: n,
-              filled: filled,
-              gift: pending != null,
-              size: 52,
-              gap: 10,
+          Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text('بطاقة ${me.monthName}',
+                      style: const TextStyle(
+                          fontFamily: 'Amiri',
+                          fontSize: 22,
+                          fontWeight: FontWeight.w900,
+                          color: kCardCream,
+                          letterSpacing: 0)),
+                  const SizedBox(height: 2),
+                  Text('ختمٌ لكلّ ليلةٍ حجزتها مبكّراً ولعبتها',
+                      style: ar(11, color: kCardMuted)),
+                ],
+              ),
             ),
+            const SizedBox(width: 10),
+            DonChip(text: '⏳ ${_daysLeftAr(me.period)}'),
+          ]),
+          const SizedBox(height: 18),
+          Center(child: StampRow(total: n, filled: filled, size: 52, gap: 9)),
+          const SizedBox(height: 16),
+          Container(
+            padding: const EdgeInsets.only(top: 12),
+            decoration: const BoxDecoration(
+              border: Border(top: BorderSide(color: Color(0x33C9A45C))),
+            ),
+            child: Row(children: [
+              Container(
+                width: 6,
+                height: 6,
+                decoration: const BoxDecoration(
+                    shape: BoxShape.circle, color: kSealBrass),
+              ),
+              const SizedBox(width: 8),
+              Expanded(child: Text(status, style: ar(12.5, color: kCardBody))),
+              const SizedBox(width: 8),
+              Text('${arDigits(filled)}/${arDigits(n)}',
+                  style: num_(11, color: const Color(0xFFBFA48F))),
+            ]),
           ),
-          const SizedBox(height: 14),
-          Text('${arDigits(filled)} / ${arDigits(n)} أختام',
-              textAlign: TextAlign.center,
-              style: num_(20, color: Colors.white, weight: FontWeight.w700)),
-          const SizedBox(height: 4),
-          Text(sub,
-              textAlign: TextAlign.center,
-              style: ar(11, color: Tw.gray400, height: 1.5)),
-          if (pending != null) ...[
-            const SizedBox(height: 14),
+          if (!card.capReached && me.config.kinds.isNotEmpty) ...[
+            const SizedBox(height: 12),
             Container(
-              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+              padding: const EdgeInsets.all(10),
               decoration: BoxDecoration(
                 borderRadius: BorderRadius.circular(12),
-                color: const Color(0x1F22C55E),
-                border: Border.all(color: const Color(0x5922C55E)),
+                color: const Color(0x42000000),
+                border: Border.all(color: const Color(0x38C9A45C)),
               ),
-              child: Row(children: [
-                Expanded(
-                  child: Text(
-                    '🎁 مكافأة جاهزة — اختر قبل ${pending.chooseBy != null ? jordanDayMonth(pending.chooseBy!) : 'انتهاء المهلة'}',
-                    style: ar(12, color: kLoyaltyGreenText, weight: FontWeight.w700),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    pending != null
+                        ? 'اختر واحدة — الاختيار نهائيّ'
+                        : 'مكافأتك عند الاكتمال — تختار واحدة',
+                    style: ar(10, color: kSealBrass, weight: FontWeight.w600),
                   ),
-                ),
-                const SizedBox(width: 8),
-                InkWell(
-                  onTap: onChoose,
-                  borderRadius: BorderRadius.circular(8),
-                  child: Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
-                    decoration: BoxDecoration(
-                      borderRadius: BorderRadius.circular(8),
-                      gradient: const LinearGradient(
-                        colors: [Color(0xFF4ADE80), Color(0xFF22C55E)],
-                      ),
-                    ),
-                    child: Text('اختر',
-                        style: ar(12, color: Colors.black, weight: FontWeight.w700)),
+                  const SizedBox(height: 7),
+                  Wrap(
+                    spacing: 5,
+                    runSpacing: 5,
+                    children: [
+                      for (final k in me.config.kinds)
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 9, vertical: 4),
+                          decoration: BoxDecoration(
+                            borderRadius: BorderRadius.circular(99),
+                            border:
+                                Border.all(color: const Color(0x3DC9A45C)),
+                          ),
+                          child: Text(_kindChip(k, me.config),
+                              style: ar(10.5, color: const Color(0xFFBFA48F))),
+                        ),
+                    ],
                   ),
-                ),
-              ]),
+                ],
+              ),
             ),
           ],
+          const SizedBox(height: 12),
+          DonButton(
+            label: pending != null
+                ? '🎁 اختر مكافأتك${pending.chooseBy != null ? ' — قبل ${jordanDayMonth(pending.chooseBy!)}' : ''}'
+                : 'احجز ليلتك القادمة',
+            // «احجز ليلتك القادمة» رجوعٌ إلى الرئيسيّة لا دفعُ نسخةٍ ثانية منها
+            onTap: pending != null ? onChoose : () => popOrHome(context),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            'الختم يحتاج حجزاً من التطبيق قبل الفعاليّة بـ${arDigits(me.config.minLeadHours)} ساعات ولعب مباراة',
+            textAlign: TextAlign.center,
+            style: ar(10, color: kCardFaint, height: 1.6),
+          ),
         ],
       ),
     );
   }
+
+  String _kindChip(String k, LoyaltyConfig cfg) => switch (k) {
+        'free_visit' => '🎟️ زيارة',
+        'free_drink' => '☕ مشروب',
+        'chips' => '🪙 ${arDigits(cfg.chipsAmount)} تشبس',
+        _ => k,
+      };
+}
+
+/// ما بقي من شهر البطاقة بتوقيت عمّان (UTC+3 بلا توقيتٍ صيفيّ منذ ٢٠٢٢)
+String _daysLeftAr(String period) {
+  final parts = period.split('-');
+  if (parts.length < 2) return '';
+  final y = int.tryParse(parts[0]), m = int.tryParse(parts[1]);
+  if (y == null || m == null) return '';
+  final endUtc = DateTime.utc(y, m + 1, 1).subtract(const Duration(hours: 3));
+  final ms = endUtc.difference(DateTime.now().toUtc()).inMilliseconds;
+  final d = (ms / 86400000).ceil();
+  if (d <= 0) return 'انتهى الشهر';
+  if (d == 1) return 'آخر يوم';
+  if (d == 2) return 'يومان';
+  return '${arDigits(d)} أيّام';
 }
 
 /// مكافأةٌ جاهزة — زيارة أو مشروب (التشبس فوريّةٌ فلا تكون «جاهزة»).
