@@ -39,6 +39,7 @@ async function apiFetch(path: string, opts?: RequestInit) {
     const err = await res.json().catch(() => ({}));
     const e: any = new Error(err.error || `API error ${res.status}`);
     e.code = err.code; e.status = res.status;
+    e.body = err;   // بعض الأخطاء تحمل بيانات (نصّا المراجعة مثلاً) لا رسالةً فقط
     throw e;
   }
   return res.json();
@@ -141,7 +142,8 @@ function Ticks({ status }: { status: string }) {
 }
 function SourceTag({ m }: { m: any }) {
   if (m.source === 'bot') return <span className="text-sky-400 font-bold">🤖 البوت</span>;
-  if (m.source === 'staff') return <span className="text-amber-400 font-bold">👤 موظف</span>;
+  // اسم الموظّف كان يُمرَّر للخادم ولا يُخزَّن، فكانت كلّ ردود البشر «موظف»
+  if (m.source === 'staff') return <span className="text-amber-400 font-bold">👤 {m.payload?.by || 'موظف'}</span>;
   if (m.source === 'system') return <span className="text-violet-400 font-bold">⚙️ النظام</span>;
   if (m.source === 'template') return <span className="text-violet-400 font-bold">📋 قالب</span>;
   if (m.source === 'broadcast') return <span className="text-teal-400 font-bold">📢 بث</span>;
@@ -166,6 +168,23 @@ function messageInfoText(m: any): string {
     lines.push('سجل الحالة:');
     for (const h of hist) lines.push(`  • ${STATUS_AR[h.status] || h.status} — ${fmtTime(h.at)}`);
   }
+  if (m.payload?.by) lines.push(`كتبها: ${m.payload.by}`);
+  if (m.payload?.styled && m.payload?.original) {
+    lines.push('');
+    lines.push('نصّ الموظّف قبل صياغة الدون:');
+    lines.push(m.payload.original);
+    lines.push('');
+  } else if (m.payload?.styleSkipped) {
+    const WHY: Record<string, string> = {
+      off: 'الصياغة مطفأة', 'no-key': 'لا مفتاح للنموذج', 'no-letters': 'نصٌّ بلا حروف (رابط أو رمز)',
+      'too-short': 'أقصر من الحدّ', timeout: 'تجاوزت الصياغة مهلتها — أُرسل نصّك',
+      empty: 'عادت الصياغة فارغة', bypass: 'عطّلها الموظّف لهذه الرسالة',
+      'approved-mine': 'الحارس اعترض واختار الموظّف نصّه', 'approved-styled': 'الحارس اعترض واختار الموظّف الصياغة',
+    };
+    const k = String(m.payload.styleSkipped);
+    lines.push(`الصياغة: ${WHY[k] || (k.startsWith('guard:') ? `أوقفها الحارس (${k.slice(6)})` : k.startsWith('error:') ? `تعذّرت (${k.slice(6)})` : k)}`);
+  }
+  if (m.payload?.signed) lines.push('تحمل توقيع التحويل (أوّل ردٍّ بشريّ في الجلسة)');
   if (m.payload?.customerReaction?.emoji) lines.push(`تفاعل العميل: ${m.payload.customerReaction.emoji} (${fmtTime(m.payload.customerReaction.at)})`);
   if (m.errorMessage) lines.push(`الخطأ: ${m.errorMessage}`);
   if (m.deletedAt) lines.push(`محذوفة من السجل: بواسطة ${m.deletedBy || 'أدمن'} — ${fmtWhen(m.deletedAt)}`);
@@ -193,6 +212,9 @@ export default function WhatsAppInboxPage() {
   const [draft, setDraft] = useState('');
   const [sending, setSending] = useState(false);
   const [asCustomer, setAsCustomer] = useState(false);   // 🎭 وضع «تكلّم بلسان العميل»
+  // ✨ الصياغة: مفعّلةٌ افتراضيّاً، وتُطفأ لرسالةٍ بعينها حين يكون الحرف مقدَّساً
+  const [styleOn, setStyleOn] = useState(true);
+  const [review, setReview] = useState<{ original: string; styled: string; reason: string } | null>(null);
   const [muted, setMuted] = useState(false);
   const [mobilePane, setMobilePane] = useState<'list' | 'chat' | 'info'>('list');
   // مستويان بدل خمسة تبويباتٍ متساوية: الوارد عملٌ يوميّ، والإدارة ضبطٌ وتحليل
@@ -441,17 +463,17 @@ export default function WhatsAppInboxPage() {
   }, [draft, selId, sending]);
 
   // ── الإرسال ──
-  const send = useCallback(async () => {
-    const text = draft.trim();
+  /** الإرسال الفعليّ — `opts.raw` يتخطّى الصياغة (تعطيلٌ يدويّ أو اختيارٌ بعد المراجعة) */
+  const doSend = useCallback(async (text: string, opts?: { raw?: boolean; approved?: 'mine' | 'styled' }) => {
     if (!text || !selId || sending) return;
-    if (asCustomer) return injectAsCustomer();
     setSending(true);
     try {
       const res = await apiFetch('/api/whatsapp/send', {
         method: 'POST',
-        body: JSON.stringify({ conversationId: selId, text }),
+        body: JSON.stringify({ conversationId: selId, text, raw: !!opts?.raw, approved: opts?.approved }),
       });
       setDraft('');
+      setReview(null);
       if (res.message) setMessages(prev => (prev.some(m => m.id === res.message.id) ? prev : [...prev, res.message]));
       if (res.conversation) {
         setConv((prev: any) => ({ ...prev, ...res.conversation }));
@@ -459,12 +481,21 @@ export default function WhatsAppInboxPage() {
       }
       scrollBottom();
     } catch (e: any) {
-      if (e.code === 'WINDOW_EXPIRED') swalAlert('نافذة الرد المجانية (24 ساعة) منتهية — لا يمكن الإرسال حتى يراسلك العميل من جديد.', 'warning');
+      // ⚠️ الحارس أوقفها: الصياغة غيّرت رقماً أو رابطاً — النسختان تعودان للحكم
+      if (e.code === 'RESTYLE_REVIEW') setReview({ original: e.body?.original, styled: e.body?.styled, reason: e.body?.reason });
+      else if (e.code === 'WINDOW_EXPIRED') swalAlert('نافذة الرد المجانية (24 ساعة) منتهية — لا يمكن الإرسال حتى يراسلك العميل من جديد.', 'warning');
       else swalAlert('فشل الإرسال: ' + e.message, 'error');
     } finally {
       setSending(false);
     }
-  }, [draft, selId, sending, scrollBottom, asCustomer, injectAsCustomer]);
+  }, [selId, sending, scrollBottom]);
+
+  const send = useCallback(() => {
+    const text = draft.trim();
+    if (!text || !selId || sending) return;
+    if (asCustomer) return injectAsCustomer();
+    return doSend(text, { raw: !styleOn });
+  }, [draft, selId, sending, asCustomer, injectAsCustomer, doSend, styleOn]);
 
   // ── مفتاح البوت ──
   const toggleBot = useCallback(async () => {
@@ -935,6 +966,9 @@ export default function WhatsAppInboxPage() {
                           )}
                         </span>
                         {g.m.direction === 'out' && <SourceTag m={g.m} />}
+                        {g.m.payload?.styled && (
+                          <span className="text-violet-400 font-bold" title="أعاد الدون صياغتها — النصّ الأصليّ في «معلومات الرسالة»">✨ صيغت</span>
+                        )}
                         <span>{fmtTime(g.m.createdAt)}</span>
                         {g.m.direction === 'out' && <Ticks status={g.m.status} />}
                       </div>
@@ -957,6 +991,36 @@ export default function WhatsAppInboxPage() {
               <div className="border-t border-gray-800 bg-gray-900/80 p-3">
                 {winH > 0 ? (
                   <>
+                    {/* ⚠️ بطاقة المراجعة — تظهر حين يمسك الحارس تفصيلاً تغيّر */}
+                    {review && (
+                      <div className="mb-2.5 rounded-xl border border-rose-500/45 bg-rose-500/[0.06] p-2.5">
+                        <div className="text-[11.5px] font-bold text-rose-400 mb-2">⚠️ {review.reason} — لم تُرسل</div>
+                        <div className="bg-gray-950 border border-gray-800 border-r-2 border-r-amber-500 rounded-lg px-2.5 py-1.5 text-[12px] mb-1.5">
+                          <div className="text-[9.5px] text-gray-500 font-bold mb-0.5">نصّك</div>
+                          <div className="whitespace-pre-wrap break-words text-gray-100">{review.original}</div>
+                        </div>
+                        <div className="bg-gray-950 border border-gray-800 border-r-2 border-r-violet-500 rounded-lg px-2.5 py-1.5 text-[12px] mb-2">
+                          <div className="text-[9.5px] text-gray-500 font-bold mb-0.5">صياغة الدون</div>
+                          <div className="whitespace-pre-wrap break-words text-gray-100">{review.styled}</div>
+                        </div>
+                        <div className="flex gap-1.5 flex-wrap">
+                          <button
+                            onClick={() => doSend(review.original, { raw: true, approved: 'mine' })}
+                            disabled={sending}
+                            className="flex-1 min-w-[96px] bg-amber-500 hover:bg-amber-400 text-gray-950 font-bold rounded-lg py-1.5 text-[11.5px] disabled:opacity-50"
+                          >أرسل نصّي</button>
+                          <button
+                            onClick={() => doSend(review.styled, { raw: true, approved: 'styled' })}
+                            disabled={sending}
+                            className="flex-1 min-w-[96px] border border-gray-700 hover:border-violet-400 hover:text-violet-300 text-gray-300 font-bold rounded-lg py-1.5 text-[11.5px] disabled:opacity-50"
+                          >أرسل الصياغة</button>
+                          <button
+                            onClick={() => { setDraft(review.original); setReview(null); }}
+                            className="flex-1 min-w-[72px] border border-gray-700 hover:border-amber-500 hover:text-amber-400 text-gray-300 font-bold rounded-lg py-1.5 text-[11.5px]"
+                          >عدّل</button>
+                        </div>
+                      </div>
+                    )}
                     <div className="flex gap-2 items-center">
                       <span
                         className="text-gray-600 text-xs border border-dashed border-gray-700 rounded-xl px-3 py-2.5 cursor-not-allowed select-none"
@@ -971,6 +1035,17 @@ export default function WhatsAppInboxPage() {
                         className={`text-xs rounded-xl px-3 py-2.5 border transition-colors shrink-0 ${
                           asCustomer ? 'bg-violet-500/15 text-violet-300 border-violet-500/50' : 'text-gray-500 border-gray-800 hover:text-white'}`}
                       >🎭</button>
+                      {/* ✨ إطفاءُ الصياغة لهذه الرسالة — للروابط وأرقام الحوالات ورموز التحقّق */}
+                      {!asCustomer && (
+                        <button
+                          onClick={() => setStyleOn(v => !v)}
+                          title={styleOn
+                            ? 'الدون يعيد صياغة ردّك بصوته — اضغط لإرسال نصّك حرفيّاً'
+                            : 'الصياغة معطّلة لهذه الرسالة — اضغط لإعادتها'}
+                          className={`text-xs rounded-xl px-3 py-2.5 border transition-colors shrink-0 ${
+                            styleOn ? 'bg-violet-500/10 text-violet-300 border-violet-500/45' : 'text-gray-600 border-gray-800 hover:text-white'}`}
+                        >{styleOn ? '✨' : '✳'}</button>
+                      )}
                       <input
                         value={draft}
                         onChange={e => setDraft(e.target.value)}
@@ -989,10 +1064,14 @@ export default function WhatsAppInboxPage() {
                         {sending ? '…' : asCustomer ? 'للدون 🎭' : 'إرسال ◀'}
                       </button>
                     </div>
-                    <div className={`text-[10.5px] mt-1.5 ${asCustomer ? 'text-violet-300' : 'text-gray-600'}`}>
+                    <div className={`text-[10.5px] mt-1.5 ${asCustomer || styleOn ? 'text-violet-300' : 'text-gray-600'}`}>
                       {asCustomer
                         ? '🎭 وضع الحقن: نصّك لا يصل العميل إطلاقاً — يصل الدون كأنه كلام العميل، والعميل يستقبل ردّ الدون عليه. مفيد لمن اتصل هاتفياً أو سأل حضورياً.'
-                        : '💡 الرد اليدوي يوقف البوت 30 دقيقة لهذه المحادثة'}
+                        : sending && styleOn
+                        ? '✨ يصوغها الدون…'
+                        : styleOn
+                        ? '✨ الدون يعيد صياغة ردّك بصوته قبل إرساله — بلا إضافةِ معلومة · الرد اليدوي يوقف البوت 30 دقيقة'
+                        : '✳ الصياغة معطّلة لهذه الرسالة — تُرسل بنصّك حرفياً · الرد اليدوي يوقف البوت 30 دقيقة'}
                     </div>
                   </>
                 ) : (
@@ -1661,6 +1740,68 @@ function FollowupCard({ s, patch }: { s: any; patch: (k: string, v: any) => void
 // `section` يقسم البطاقات على أقسام شريط الإدارة بلا فقدِ الحالة بينها:
 // المكوّن يبقى مركّباً والأقسام تُخفي ما ليس لها، فالتعديلُ غير المحفوظ لا يضيع.
 type BotSection = 'all' | 'don' | 'know' | 'perf';
+// ══════════════════════════════════════════════════════
+// ✨ إعدادات صياغة ردود الموظّفين
+// ══════════════════════════════════════════════════════
+function RestyleCard({ s, patch }: { s: any; patch: (k: string, v: any) => void }) {
+  const r = s.restyle || {};
+  const set = (k: string, v: any) => patch('restyle', { ...r, [k]: v });
+  const on = r.enabled === true;
+  const sign = r.signature !== false;
+  return (
+    <Card title="✨ صياغة ردود الموظّفين — ثبات الأسلوب أمام العميل" wide>
+      <Row label="إعادة الصياغة مفعّلة">
+        <Toggle on={on} onClick={() => set('enabled', !on)} />
+      </Row>
+      {on && (<>
+        <Row label="لا تُصَغ الردود الأقصر من (كلمة)">
+          <NumInput value={r.minWords ?? 4} onChange={n => set('minWords', n)} min={0} max={20} />
+        </Row>
+        <Row label="مهلة الصياغة (ثانية) ثمّ يُرسل نصّك">
+          <NumInput value={Math.round((r.timeoutMs ?? 4000) / 1000)} onChange={n => set('timeoutMs', n * 1000)} min={2} max={15} />
+        </Row>
+        <Row label="حين يمسك الحارس رقماً تغيّر">
+          <select
+            value={r.onGuardFail || 'review'}
+            onChange={e => set('onGuardFail', e.target.value)}
+            className="bg-gray-950 border border-gray-800 rounded-lg px-2.5 py-1.5 text-xs text-white focus:border-amber-500 outline-none"
+          >
+            <option value="review">اعرضها عليّ لأحكم (موصى)</option>
+            <option value="send_mine">أرسل نصّي كما هو</option>
+            <option value="send_styled">أرسل الصياغة رغم ذلك</option>
+          </select>
+        </Row>
+        <div className="text-[10.5px] text-gray-500 leading-relaxed mt-1 mb-2 border-t border-gray-800 pt-2">
+          الصياغة نداءٌ منفصل: <b className="text-gray-400">بلا أدوات وبلا قاعدة معرفة وبلا سجلّ المحادثة</b> — الشخصيّة والنصّ فقط.
+          ولهذا لا يمكنها أن تحجز شيئاً أو تخترع معلومة، وكلفتها جزءٌ يسير من كلفة ردٍّ عاديّ.
+          والحارس يوقف الرسالة إن سقط رقمٌ أو رابطٌ من نصّك أو ظهر جديدٌ لم تكتبه.
+        </div>
+        <Row label="توقيع أوّل ردٍّ بشريّ في الجلسة">
+          <Toggle on={sign} onClick={() => set('signature', !sign)} />
+        </Row>
+        {sign && (<>
+          <Row label="صيغة التوقيع">
+            <input
+              value={r.signatureText ?? '— {name} من الإدارة'}
+              onChange={e => set('signatureText', e.target.value)}
+              placeholder="— {name} من الإدارة"
+              className="bg-gray-950 border border-gray-800 rounded-lg px-2.5 py-1.5 text-xs text-white focus:border-amber-500 outline-none max-w-[260px] w-full"
+            />
+          </Row>
+          <Row label="يعود التوقيع بعد صمتٍ (دقيقة)">
+            <NumInput value={r.resignAfterMin ?? 30} onChange={n => set('resignAfterMin', n)} min={0} max={1440} />
+          </Row>
+          <div className="text-[10.5px] text-gray-500 leading-relaxed mt-1">
+            توقيعٌ في كلّ رسالة يكشف أنّ «الدون» عدّة أشخاص، وبلا توقيعٍ إطلاقاً لا يعرف العميل أنّ إنساناً استلم أمره.
+            فمرّةً عند انتقال الجلسة من البوت إلى إنسان — ويعود إن تولّاها موظّفٌ آخر أو طال الصمت.
+            <b className="text-gray-400"> {'{name}'} إلزاميّة</b> وإلّا رُدّت الصيغة للافتراضيّة.
+          </div>
+        </>)}
+      </>)}
+    </Card>
+  );
+}
+
 function BotSettingsView({ onOpenConv, section = 'all' }: { onOpenConv?: (id: number) => void; section?: BotSection }) {
   const show = (k: BotSection) => section === 'all' || section === k;
   const [s, setS] = useState<any | null>(null);
@@ -1718,6 +1859,8 @@ function BotSettingsView({ onOpenConv, section = 'all' }: { onOpenConv?: (id: nu
         // ⏱️ إعدادات المتابعة — غيابُها من هذا الجسم كان يعني أنّ كلّ ضبطٍ لها يُرسل
         //    ناقصاً، فيعود الخادم بالقيمة القديمة ويبدو كأنّ الصفحة «رجعت لحالها».
         ...(s.followup !== undefined ? { followup: s.followup } : {}),
+        // ✨ وكذلك الصياغة — غيابُها من الجسم يعني عودةَ الإعدادات كما كانت
+        ...(s.restyle !== undefined ? { restyle: s.restyle } : {}),
         ...extra,
       };
       if (s.priceInputPer1M !== undefined) body.priceInputPer1M = s.priceInputPer1M;
@@ -1831,6 +1974,8 @@ function BotSettingsView({ onOpenConv, section = 'all' }: { onOpenConv?: (id: nu
         {show('perf') && <UsageCard s={s} patch={patch} onOpenConv={onOpenConv} />}
 
         {show('don') && (<>
+        {/* ✨ صياغة ردود الموظّفين */}
+        <RestyleCard s={s} patch={patch} />
         {/* ⏱️ متابعة المحادثات الصامتة */}
         <FollowupCard s={s} patch={patch} />
         {/* المفتاح والنموذج */}

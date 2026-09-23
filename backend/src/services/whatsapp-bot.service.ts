@@ -576,7 +576,7 @@ export async function updateBotSettings(patch: Record<string, any>, updatedBy: s
   await getBotSettings(); // ضمان وجود الصف
   const allowed = ['enabled', 'geminiApiKey', 'model', 'systemPrompt', 'knowledgeBase',
     'contextMessages', 'pauseMinutes', 'maxToolLoops', 'failMessage', 'failHandoff', 'toolsConfig',
-    'adminOnlyTools', 'priceInputPer1M', 'priceOutputPer1M', 'followup'];
+    'adminOnlyTools', 'priceInputPer1M', 'priceOutputPer1M', 'followup', 'restyle'];
   const clean: any = {};
   for (const k of allowed) if (patch[k] !== undefined) clean[k] = patch[k];
   // مفتاح فارغ أو مقنّع = لا تغيير عليه
@@ -590,6 +590,11 @@ export async function updateBotSettings(patch: Record<string, any>, updatedBy: s
   if (clean.followup !== undefined) {
     const { mergeFollowup } = await import('./wa-followup.service.js');
     clean.followup = mergeFollowup(clean.followup);
+  }
+  // ✨ وكذلك إعدادات الصياغة — الحدّ في مكانٍ واحد لا في الواجهة
+  if (clean.restyle !== undefined) {
+    const { mergeRestyle } = await import('./wa-restyle.service.js');
+    clean.restyle = mergeRestyle(clean.restyle);
   }
   // أسعار الفوترة الرسمية ($ لكل مليون) — أرقام موجبة بدقة 4 منازل
   for (const pk of ['priceInputPer1M', 'priceOutputPer1M'] as const) {

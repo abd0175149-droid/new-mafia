@@ -789,6 +789,7 @@ async function main() {
       await db.execute(sql`ALTER TABLE reservations ADD COLUMN IF NOT EXISTS companions_collapsed_at TIMESTAMP`);
       // ── ⏱️ متابعة المحادثات الصامتة قبل الحجز ──
       await db.execute(sql`ALTER TABLE wa_bot_settings ADD COLUMN IF NOT EXISTS followup JSONB DEFAULT '{}'::jsonb`);
+      await db.execute(sql`ALTER TABLE wa_bot_settings ADD COLUMN IF NOT EXISTS restyle JSONB DEFAULT '{}'::jsonb`);
       await db.execute(sql`ALTER TABLE wa_conversations ADD COLUMN IF NOT EXISTS followup_stage SMALLINT DEFAULT 0`);
       await db.execute(sql`ALTER TABLE wa_conversations ADD COLUMN IF NOT EXISTS followup_last_at TIMESTAMP`);
       await db.execute(sql`ALTER TABLE wa_conversations ADD COLUMN IF NOT EXISTS followup_stopped_at TIMESTAMP`);

@@ -690,6 +690,9 @@ export interface SendMessageInput {
   source: 'staff' | 'bot' | 'system' | 'broadcast';
   staffId?: number;
   staffName?: string;
+  /** يُدمج في `payload` المحفوظ: اسم الموظّف ونصّه قبل الصياغة — كان الاسم
+   *  يُمرَّر ولا يُخزَّن، فلا يُعرف لاحقاً مَن كتب الردّ إلّا برقمٍ في عمود. */
+  meta?: Record<string, any>;
 }
 
 export async function sendMessage(input: SendMessageInput) {
@@ -759,7 +762,7 @@ export async function sendMessage(input: SendMessageInput) {
       source: input.source,
       msgType: hasInteractive ? 'interactive' : hasLocation ? 'location' : 'text',
       body: preview,
-      payload: apiBody,
+      payload: input.meta ? { ...apiBody, ...input.meta } : apiBody,
       status: 'sent',
       staffId: input.staffId || null,
     } as any)

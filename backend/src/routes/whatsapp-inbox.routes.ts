@@ -107,16 +107,68 @@ router.post('/webhook', (req: Request, res: Response) => {
 router.post('/send', botOrAdmin, async (req: Request, res: Response) => {
   try {
     const caller = (req as any).waCaller as 'bot' | 'staff';
-    const { conversationId, phone, text, interactive } = req.body || {};
+    const { conversationId, phone, text, interactive, raw, approved } = req.body || {};
+    const convId = conversationId ? parseInt(conversationId) : undefined;
+    const staffId = caller === 'staff' ? (req as any).user?.id : undefined;
+    const staffName = caller === 'staff' ? (req as any).user?.displayName : undefined;
+
+    // ══════════════════════════════════════════════════════
+    // ✨ ردّ الموظّف يمرّ بالدون قبل واتساب
+    // ══════════════════════════════════════════════════════
+    // ليسمع العميل صوتاً واحداً مهما تعدّد من يكتب. ثلاثة لا تمرّ من هنا:
+    // ردّ البوت (هو صاحب الصوت أصلاً)، والرسائل التفاعليّة (لا نصّ حرّ)،
+    // و`raw` حين يطفئها الموظّف لرسالةٍ بعينها — للروابط وأرقام الحوالات
+    // ورموز التحقّق حيث الحرفُ الواحد مقدَّس.
+    let finalText: string = typeof text === 'string' ? text : '';
+    const meta: Record<string, any> = {};
+    if (caller === 'staff' && finalText.trim() && !interactive && convId) {
+      const { getBotSettings } = await import('../services/whatsapp-bot.service.js');
+      const settings: any = await getBotSettings().catch(() => null);
+      const rs = await import('../services/wa-restyle.service.js');
+      const cfg = rs.getRestyleSettings(settings);
+
+      if (!raw && settings) {
+        const out = await rs.restyleStaffText(finalText, settings);
+        if (out.review) {
+          // لا تُرسل: الحارس رأى رقماً تغيّر. النسختان تعودان للموظّف ليحكم،
+          // ثمّ يُعيد الإرسال بـ`raw:true` بما اختاره.
+          return res.status(409).json({
+            error: 'الصياغة غيّرت تفصيلاً — راجعها',
+            code: 'RESTYLE_REVIEW',
+            original: out.original,
+            styled: out.text,
+            reason: out.reason,
+          });
+        }
+        finalText = out.text;
+        if (out.styled) { meta.styled = true; meta.original = out.original; }
+        else if (out.reason && !['off', 'unchanged'].includes(out.reason)) meta.styleSkipped = out.reason;
+      } else if (raw) {
+        meta.styleSkipped = approved === 'styled' ? 'approved-styled' : approved === 'mine' ? 'approved-mine' : 'bypass';
+        if (approved === 'styled') meta.styled = true;
+      }
+
+      // ✍️ توقيعُ أوّل ردٍّ بشريّ في الجلسة — ثمّ صمت.
+      // مشروطٌ بتفعيل الصياغة (الواجهة تعرضهما معاً)، ويسقط حين يطفئ الموظّف
+      // ✳ يدويّاً لهذه الرسالة: «أرسل نصّي حرفيّاً» تعني ألّا يُضاف إليه شيء.
+      // أمّا اختيارُه بعد اعتراض الحارس فليس تعطيلاً، فيبقى التوقيع.
+      const manualBypass = !!raw && !approved;
+      if (cfg.enabled && !manualBypass && await rs.shouldSign(convId, staffId, cfg)) {
+        finalText = rs.applySignature(finalText, staffName || '', cfg);
+        meta.signed = true;
+      }
+    }
+    if (caller === 'staff' && staffName) meta.by = staffName;
 
     const result = await sendMessage({
-      conversationId: conversationId ? parseInt(conversationId) : undefined,
+      conversationId: convId,
       phone,
-      text,
+      text: finalText,
       interactive,
       source: caller === 'bot' ? 'bot' : 'staff',
-      staffId: caller === 'staff' ? (req as any).user?.id : undefined,
-      staffName: caller === 'staff' ? (req as any).user?.displayName : undefined,
+      staffId,
+      staffName,
+      meta: Object.keys(meta).length ? meta : undefined,
     });
 
     res.json({ success: true, ...result });

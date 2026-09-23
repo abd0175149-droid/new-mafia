@@ -561,6 +561,8 @@ export const waBotSettings = pgTable('wa_bot_settings', {
   adminOnlyTools: jsonb('admin_only_tools').default([]),               // 🔒 مفاتيح أدوات متاحة للمحادثات المرتبطة بحساب أدمن فقط
   // ⏱️ متابعة المحادثات الصامتة قبل الحجز — كلّ إعداداتها (التوقيت، الجمهور، نصّ التعليمة)
   followup: jsonb('followup').default({}),
+  // ✨ صياغة ردود الموظّفين بصوت الدون — تشغيلها وحارسها وتوقيع التحويل
+  restyle: jsonb('restyle').default({}),
   // 💵 أسعار جوجل الرسمية للنموذج الحالي ($ لكل مليون توكن) — التكلفة الحقيقية = توكنز فعلية × هذه الأسعار
   priceInputPer1M: decimal('price_input_per_1m', { precision: 10, scale: 4 }).default('0.10'),
   priceOutputPer1M: decimal('price_output_per_1m', { precision: 10, scale: 4 }).default('0.40'),
