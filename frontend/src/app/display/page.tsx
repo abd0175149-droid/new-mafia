@@ -610,9 +610,19 @@ function DisplayPageContent() {
       if (data.teamCounts) setTeamCounts(data.teamCounts);
     };
 
+    // ↩️ رجع لاعبٌ أُقصي بالعقوبات — نقيضُ onAdminEliminated
+    const onPlayerRestored = (data: any) => {
+      setPlayers(prev => prev.map((p: any) =>
+        p.physicalId === data.physicalId ? { ...p, isAlive: true, penalties: 0 } : p
+      ));
+      setPlayerCount(prev => prev + 1);
+      if (data.teamCounts) setTeamCounts(data.teamCounts);
+    };
+
     // ── تسجيل كل الأحداث ──
     socket.on('room:player-joined', onPlayerJoined);
     socket.on('room:player-kicked', onPlayerKicked);
+    socket.on('admin:player-restored', onPlayerRestored);
     socket.on('room:player-updated', onPlayerUpdated);
     socket.on('player:cosmetics-updated', onCosmeticsUpdated);
     socket.on('display:birthday-celebration', onBirthdayCelebration);
@@ -862,6 +872,7 @@ function DisplayPageContent() {
       socket.off('game:state-updated', onStateSync);
       socket.off('room:player-joined', onPlayerJoined);
       socket.off('room:player-kicked', onPlayerKicked);
+      socket.off('admin:player-restored', onPlayerRestored);
       socket.off('room:player-updated', onPlayerUpdated);
       socket.off('player:cosmetics-updated', onCosmeticsUpdated);
       socket.off('display:birthday-celebration', onBirthdayCelebration);

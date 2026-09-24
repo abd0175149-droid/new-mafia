@@ -10,6 +10,7 @@ import PhoneSpectatorView from './PhoneSpectatorView';
 import RemoteVoice from './RemoteVoice';
 import { useActiveSpeaker } from '../hooks/useActiveSpeaker';
 import ConfrontationControls from './ConfrontationControls';
+import { swalToast } from '@/lib/swal';
 import InviteModal from './InviteModal';
 import RolesDeck from './RolesDeck';
 import MyTasksPanel from './MyTasksPanel';
@@ -958,12 +959,23 @@ export default function PlayerFlow({ initialRoomCode = '', inviteFlag = false, i
       }
     });
 
+    // ↩️ أُلغي إقصاؤه — شاشته تقول «أُقصيت» حتّى يصلها نقيضُها، فتُعاد كما كانت
+    const cleanupPenaltyRestored = on('player:penalty-restored', (data: { message: string }) => {
+      setIsPlayerDead(false);
+      setCardFlipped(false);
+      setPenalties(0);
+      setPenaltyAlert(null);
+      swalToast(data?.message || 'رجعت للعبة 🎩', 'success');
+      if (navigator.vibrate) navigator.vibrate([120, 80, 120]);
+    });
+
     return () => {
       cleanupSeat();
       cleanupRemap();
       cleanupKick();
       cleanupPenalty();
       cleanupPenaltyEjected();
+      cleanupPenaltyRestored();
       cleanupChatToggle();
     };
   }, [on, initialRoomCode, physicalId, roomId]);

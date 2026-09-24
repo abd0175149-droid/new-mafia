@@ -2000,7 +2000,7 @@ export function registerDayEvents(io: Server, socket: Socket) {
   });
 
   // ── كشف دور اللاعب المُقصى على الـ Display ──
-  socket.on('admin:reveal-eliminated', (data: {
+  socket.on('admin:reveal-eliminated', async (data: {
     roomId: string;
     physicalId: number;
     playerName: string;
@@ -2012,6 +2012,17 @@ export function registerDayEvents(io: Server, socket: Socket) {
       playerName: data.playerName,
       role: data.role,
     });
+    // 🔴 الكشفُ كان بثّاً عابراً لا أثر له في الحالة — فلا شيء يعرف لاحقاً أنّ
+    //    الدور صار علنيّاً. وهو بالضبط الشرط الذي يمنع إعادة المُقصى بالعقوبات
+    //    (`leader:restore-penalized`): بعد أن يراه الجميع، إعادتُه تفسد اللعبة.
+    try {
+      const st = await getGameState(data.roomId);
+      const pl = st?.players.find(p => p.physicalId === data.physicalId);
+      if (st && pl && !pl.cardRevealed) {
+        pl.cardRevealed = true;
+        await setGameState(data.roomId, st);
+      }
+    } catch { /* الكشفُ وصل الشاشة فعلاً — تسجيلُه أثرٌ لا شرطُ نجاح */ }
     callback?.({ success: true });
   });
 

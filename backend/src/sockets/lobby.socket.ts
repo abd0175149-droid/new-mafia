@@ -4364,6 +4364,68 @@ async function readSeatLayoutOnly(activityId: any): Promise<any> {
     }
   });
 
+  // ══════════════════════════════════════════════════════
+  // ↩️ إعادة لاعبٍ أُقصي بالعقوبات
+  // ══════════════════════════════════════════════════════
+  // `leader:record-penalty` كان طريقاً باتجاهٍ واحد: خطأٌ في الضغط أو عقوبةٌ
+  // أُلغيت بعد نقاشٍ تعني لاعباً خارج اللعبة بلا رجعة.
+  //
+  // 🔴 الشرط الحاكم: **ما لم يُعرَض كرته على الشاشة**. بمجرّد أن يُكشف دورُه
+  //    أمام الطاولة تصير المعلومة عامّة، وإعادته بعدها تفسد اللعبة لا تصلحها
+  //    — فالكلّ يعرف دوره. ولهذا صار الكشفُ يُسجَّل في الحالة (`cardRevealed`)
+  //    بعد أن كان بثّاً عابراً لا أثر له.
+  socket.on('leader:restore-penalized', async (data: {
+    roomId: string;
+    targetPhysicalId: number;
+  }, callback) => {
+    try {
+      if (socket.data.role !== 'leader') {
+        return callback({ success: false, error: 'Only leader' });
+      }
+      const state = await getGameState(data.roomId);
+      if (!state) return callback({ success: false, error: 'Room not found' });
+
+      const player = state.players.find(p => p.physicalId === data.targetPhysicalId);
+      if (!player) return callback({ success: false, error: 'اللاعب غير موجود' });
+      if (!player.penaltyKicked) {
+        return callback({ success: false, error: 'هذا اللاعب لم يُقصَ بالعقوبات' });
+      }
+      if (player.cardRevealed) {
+        return callback({ success: false, error: 'عُرض كرته على الشاشة — لا يمكن إعادته بعد كشف دوره' });
+      }
+
+      player.isAlive = true;
+      player.penaltyKicked = false;
+      // تصفير العقوبات ضرورةٌ لا لطف: حارسُ `record-penalty` يرفض تسجيل عقوبةٍ
+      // لمن بلغ الحدّ، فلو أُبقيت العقوبات عند الحدّ لعاد اللاعبُ بلا إمكان
+      // معاقبته ولا إقصائه ثانيةً.
+      player.penalties = 0;
+
+      await setGameState(data.roomId, state);
+
+      const room = activeRooms.get(data.roomId);
+      if (room) room.playerCount = presentPlayers(state).length;
+
+      // إبلاغ اللاعب نفسه — شاشته تقول «أُقصيت» حتّى يصلها نقيضُها
+      for (const s of await io.in(data.roomId).fetchSockets()) {
+        if (s.data.role === 'player' && s.data.physicalId === data.targetPhysicalId) {
+          s.emit('player:penalty-restored', { message: 'رجعت للعبة — أُلغي إقصاؤك.' });
+        }
+      }
+      // شاشة القاعة تتابع `isAlive` بأحداثٍ بعينها لا بالحالة الكاملة
+      io.to(data.roomId).emit('admin:player-restored', {
+        physicalId: data.targetPhysicalId,
+        teamCounts: getTeamCounts(state.players),
+      });
+      await emitStateSanitized(io, data.roomId, 'game:state-updated', state);
+
+      callback({ success: true });
+      console.log(`↩️ Leader restored penalized player #${data.targetPhysicalId} in room ${data.roomId}`);
+    } catch (err: any) {
+      callback({ success: false, error: err.message });
+    }
+  });
+
   // ── تحديث عدد اللاعبين الأقصى ──────────────────
   socket.on('room:update-max-players', async (data: {
     roomId: string;
@@ -6032,6 +6094,7 @@ async function readSeatLayoutOnly(activityId: any): Promise<any> {
       disabledRoleName: undefined,
       penalties: shouldResetPenalties ? 0 : (p.penalties || 0),
       penaltyKicked: shouldResetPenalties ? false : (p.penaltyKicked || false),
+      cardRevealed: false,   // 🃏 كشفُ لعبةٍ سابقة لا يُورَّث للعبة جديدة
       // ❄️ أعلام الغياب لا تُورَّث: من جُمّد في لعبةٍ سابقة كان يبقى مجمّداً
       //    في اللوبي الجديد: الشاشة تُخفيه وقياسُ الأدوار يعدّه — شبحٌ بلا سبب ظاهر.
       frozen: false,

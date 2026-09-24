@@ -6,7 +6,7 @@ import MafiaCard from '@/components/MafiaCard';
 import Image from 'next/image';
 import { ROLE_NAMES, ROLE_ICONS, MAFIA_ROLES, type Role } from '@/lib/constants';
 import { getSocket } from '@/lib/socket';
-import { swalConfirm } from '@/lib/swal';
+import { swalConfirm, swalToast, swalAlert } from '@/lib/swal';
 import { useSeatMove } from './SeatMove';
 import LeaderConfrontationPanel from './LeaderConfrontationPanel';
 
@@ -211,6 +211,7 @@ export default function LeaderDayView({ gameState, emit, setError }: LeaderDayVi
   const [penalizingId, setPenalizingId] = useState<number | null>(null);
   const [penalizingLoading, setPenalizingLoading] = useState(false);
   const [showQuickPenalties, setShowQuickPenalties] = useState(false);
+  const [restoringId, setRestoringId] = useState<number | null>(null);
   // 🎭 الأدوار المكشوفة داخل قائمة العقوبات (physicalIds) — مخفية افتراضياً حتى الضغط على الاسم
   // (مستقلة عن revealedRoles الخاصة بعرض الكشف العام حتى لا يتداخل التصفير)
   const [penaltyRevealed, setPenaltyRevealed] = useState<Set<number>>(() => new Set());
@@ -268,7 +269,21 @@ export default function LeaderDayView({ gameState, emit, setError }: LeaderDayVi
                   <div key={p.physicalId} className="flex items-center gap-2 bg-black/40 border border-red-500/30 rounded-lg px-3 py-1.5">
                     <span className="text-red-500 font-mono font-bold text-sm">#{p.physicalId}</span>
                     <span className="text-red-400/70 text-xs">{p.name}</span>
-                    <span className="text-[8px] bg-red-500/20 text-red-400 px-1.5 py-0.5 rounded font-mono uppercase">مُقصى</span>
+                    {/* ↩️ الإعادة ممكنةٌ ما لم يُعرَض كرته: بعد كشف دوره أمام الطاولة
+                        تصير المعلومة عامّة، وإعادتُه تفسد اللعبة لا تصلحها. */}
+                    {p.cardRevealed ? (
+                      <span
+                        className="text-[8px] bg-black/60 text-gray-500 px-1.5 py-0.5 rounded font-mono"
+                        title="عُرض كرته على الشاشة — صار دورُه معروفاً فلا يمكن إعادته"
+                      >كُشف كرته</span>
+                    ) : (
+                      <button
+                        onClick={() => handleRestore(p)}
+                        disabled={restoringId === p.physicalId}
+                        className="text-[9px] bg-emerald-500/15 text-emerald-300 border border-emerald-500/40 hover:bg-emerald-500/25 disabled:opacity-40 px-2 py-0.5 rounded font-bold transition-colors"
+                        title="إعادته للّعبة — متاحة ما دام كرته لم يُعرض"
+                      >{restoringId === p.physicalId ? '…' : '↩️ أرجعه'}</button>
+                    )}
                   </div>
                 ))}
               </div>
@@ -513,6 +528,26 @@ export default function LeaderDayView({ gameState, emit, setError }: LeaderDayVi
     }, 100);
     return () => clearInterval(interval);
   }, [gameState.discussionState]);
+
+  // ↩️ إعادة مُقصى بالعقوبات — الخادم هو من يحرس الشرط، وهذا الزرّ يعكسه فقط
+  const handleRestore = async (p: any) => {
+    const ok = await swalConfirm(
+      `سيعود «${p.name}» (#${p.physicalId}) للّعبة حيّاً، وتُصفَّر عقوباته.
+
+تُصفَّر لأنّ من بلغ الحدّ لا يمكن تسجيل عقوبةٍ جديدة عليه — فلولا التصفير لعاد بلا إمكان معاقبته.`,
+      { title: '↩️ إرجاعه للّعبة؟', confirmText: 'أرجعه' },
+    );
+    if (!ok) return;
+    setRestoringId(p.physicalId);
+    try {
+      await emit('leader:restore-penalized', { roomId: gameState.roomId, targetPhysicalId: p.physicalId });
+      swalToast(`رجع ${p.name} للّعبة ✅`, 'success');
+    } catch (e: any) {
+      swalAlert(e?.message || 'تعذّرت الإعادة');
+    } finally {
+      setRestoringId(null);
+    }
+  };
 
   const alivePlayers = gameState.players.filter((p: any) => p.isAlive);
   const penaltyKickedPlayers = gameState.players.filter((p: any) => !p.isAlive && p.penaltyKicked);
