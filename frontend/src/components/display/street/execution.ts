@@ -127,7 +127,8 @@ export class ExecutionController {
   private assertNeutral(f: Fig, where: string) {
     if (isNeutral(f.charId)) return;
     console.error(`⚖️ NEUTRALITY VIOLATION @${where}: «${f.charId}» (${charOf(f.charId)?.label ?? '?'}) شخصيّةُ دورٍ تُقصى — تُستبدل بمحايد`);
-    const n = pickNeutral(f.gender, rnd, this.loadedIds());
+    const k = this.figs.indexOf(f); const near = new Set([this.figs[k - 1]?.charId, this.figs[k + 1]?.charId].filter(Boolean) as string[]);
+    const n = pickNeutral(f.gender, rnd, this.loadedIds(), near);
     if (n) this.swapLook(f, n.id); else console.error('⚖️ لا محايدَ محمَّلاً للاستبدال — يبقى الشكل كما هو (خرقٌ غير قابلٍ للتصحيح)');
   }
   private clearCrowd() { this.figs.forEach(f => this.remove(f)); this.figs = []; this.condemned = null; this.victim = null; }
@@ -138,9 +139,9 @@ export class ExecutionController {
     //    من المحمَّل فقط. مشهدٌ جديد = خلطٌ جديد؛ والقائمون يحتفظون بشكلهم داخل المشهد.
     const fresh = alive.filter(a => !this.figs.some(x => x.id === a.id));
     const loaded = this.loadedIds(); const pool = CHARACTERS.filter(c => loaded.has(c.id));
-    const cards = drawCrowd(fresh.length, rnd, pool); const cardOf = new Map(fresh.map((a, i) => [a.id, cards[i]]));
+    const cards = drawCrowd(fresh.map(a => ({ gender: a.gender, neutral: victims.has(a.id) })), rnd, pool); const cardOf = new Map(fresh.map((a, i) => [a.id, cards[i]]));
     let k = 0; alive.forEach((a, i) => { let f = this.figs.find(x => x.id === a.id); if (!f) {
-        const wanted = victims.has(a.id) ? (pickNeutral(a.gender, rnd, loaded)?.id ?? null) : (cardOf.get(a.id)?.id ?? null);
+        const wanted = cardOf.get(a.id)?.id ?? null;
         const charId = wanted ? this.resolveChar(wanted, a.gender, victims.has(a.id)) : null;
         if (!charId) { if (victims.has(a.id)) console.error(`⚖️ لا محايدَ محمَّلاً للضحيّة #${a.id} — تُترك بلا مجسّم`); return; }
         const nf = this.make(a.id, a.gender, false, charId); /* الحشد بلا ظلال: المحكوم والضحيّة وحدهما يُظلّان */ if (!nf) return; f = nf; this.figs.push(f); const side = i % 2 ? 1 : -1; f.home = [side * (FACE - 2.2), -26 + rnd() * 20]; f.root.position.set(f.home[0], f.root.position.y, f.home[1]); f.root.rotation.y = rnd() * 6.28; }

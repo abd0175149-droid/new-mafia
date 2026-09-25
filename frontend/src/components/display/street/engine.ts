@@ -725,18 +725,18 @@ class StreetEngine {
       { role: 'walk', side: 1, z: -38, night: false, day: true }, { role: 'idle', side: -1, z: -12, night: true, day: true },
       { role: 'idle', side: 1, z: -7.5, night: true, day: true }, { role: 'seat', side: -1, z: -10, night: true, day: true }, /* على البنش */
     ];
-    const cards = drawCrowd(SLOTS.length, rnd); console.info('🎴 مشاةُ الشارع:', cards.map(c => c.id).join(' · '));
+    const cards = drawCrowd(SLOTS.map((_, k) => ({ gender: k % 2 ? 'F' : 'M' })), rnd); console.info('🎴 مشاةُ الشارع:', cards.map(c => c?.id).join(' · '));
     /** قالبُ شخصيّة: يحمّل المخفَّف ويعيد التوجيه (مرّةً) ويسجّله لمشهد الإقصاء؛ ثمّ يُنشئ مشاةَ الشارع الذين ينتظرونه */
     const ensureTemplate = async (id: string) => {
       if (this.exec.tpl.has(id) || this.disposed) return; const c = charOf(id); if (!c) return;
       const g = await loadGLTF(charPath(id, true)); if (!g || this.disposed) return;
       const rset = await retargetSet(id, g.scene); if (this.disposed) return;
       this.exec.tpl.set(id, { scene: g.scene, h: c.h, clips: rset });
-      cards.forEach((card, k) => { if (card.id === id) { const sl = SLOTS[k]; spawn(g.scene, rset, sl.role, sl.side, sl.z, c.h, sl.night, sl.day, false); } });
+      cards.forEach((card, k) => { if (card && card.id === id) { const sl = SLOTS[k]; spawn(g.scene, rset, sl.role, sl.side, sl.z, c.h, sl.night, sl.day, false); } });
     };
     // ③ الترتيب الكسول: المحايدون (الضحايا لا تكون إلّا منهم) ← بطاقاتُ الشارع ← الباقون، واحداً واحداً
     const order: string[] = []; const push = (id: string) => { if (!order.includes(id)) order.push(id); };
-    NEUTRAL.forEach(c => push(c.id)); cards.forEach(c => push(c.id)); CHARACTERS.forEach(c => push(c.id));
+    NEUTRAL.forEach(c => push(c.id)); cards.forEach(c => { if (c) push(c.id); }); CHARACTERS.forEach(c => push(c.id));
     for (const id of order) {
       await ensureTemplate(id); if (this.disposed) return;
       if (id === NEUTRAL[NEUTRAL.length - 1].id) { console.info('👥 المحايدون جاهزون —', Math.round(performance.now() - tCrowd), 'ms منذ بدء الحشد'); void this.exec.warmTemplates(); }
