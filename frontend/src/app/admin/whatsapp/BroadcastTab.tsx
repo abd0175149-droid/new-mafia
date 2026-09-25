@@ -5,7 +5,7 @@
 // القيود كلّها في الخادم (whatsapp-broadcast.service): هذه الواجهة تعرضها ولا تفرضها.
 // ══════════════════════════════════════════════════════
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { getSocket } from '@/lib/socket';
 import Swal from 'sweetalert2';
 import { swalConfirm, swalToast } from '@/lib/swal';
@@ -25,10 +25,17 @@ const FILTERS: Array<{ key: Filter; label: string }> = [
 ];
 const STATUS_AR: Record<string, string> = { running: 'جارٍ', done: 'اكتمل', stopped: 'أُوقف' };
 
-const ACT_VARS = /\{(الفعالية|المكان|الموعد)\}/;
-function fill(body: string, t: { name: string; rank: string; activity?: string; venue?: string; when?: string }) {
+const ACT_VARS = /\{(الفعالية|المكان|الموقع|الموعد)\}/;
+function fill(body: string, t: { name: string; rank: string; activity?: string; venue?: string; place?: string; when?: string }) {
   const first = (t.name || '').trim().split(/\s+/)[0] || '';
-  return body.replace(/\{الاسم\}/g, first).replace(/\{الاسم_الكامل\}/g, t.name || '').replace(/\{الرتبة\}/g, t.rank || '').replace(/\{الفعالية\}/g, t.activity || '⟨اختر فعاليّة⟩').replace(/\{المكان\}/g, t.venue || '⟨المكان⟩').replace(/\{الموعد\}/g, t.when || '⟨الموعد⟩');
+  return body
+    .replace(/\{الاسم\}/g, first)
+    .replace(/\{الاسم_الكامل\}/g, t.name || '')
+    .replace(/\{الرتبة\}/g, t.rank || '')
+    .replace(/\{الفعالية\}/g, t.activity || '⟨اختر فعاليّة⟩')
+    .replace(/\{الموقع\}/g, t.place || t.venue || '⟨الموقع⟩')
+    .replace(/\{المكان\}/g, t.venue || '⟨المكان⟩')
+    .replace(/\{الموعد\}/g, t.when || '⟨الموعد⟩');
 }
 function hoursLeft(iso: string) {
   const ms = new Date(iso).getTime() - Date.now();
@@ -47,6 +54,31 @@ export default function BroadcastTab({ apiFetch }: { apiFetch: Fetcher }) {
   const [history, setHistory] = useState<any[]>([]);
   const [excluded, setExcluded] = useState<Set<number>>(new Set());
   const [body, setBody] = useState('');
+  const bodyRef = useRef<HTMLTextAreaElement>(null);
+
+  // ══════════════════════════════════════════════════════
+  // 🏷️ إدراج متغيّرٍ عند المؤشّر
+  // ══════════════════════════════════════════════════════
+  // كان الزرّ يُلحق المتغيّر بآخر النصّ دائماً (`setBody(b => b + v)`): تكتب
+  // جملةً، تضع المؤشّر في وسطها، تضغط الزرّ — فيهبط المتغيّر في آخر الرسالة
+  // بعيداً عمّا تنظر إليه، فيبدو كأنّ الزرّ لا يعمل. وهو يعمل في المكان الخطأ.
+  //
+  // و`onMouseDown` يمنع الافتراضيّ كي لا يفقد الحقلُ تركيزَه قبل النقرة،
+  // فيبقى موضعُ المؤشّر معروفاً.
+  const insertVar = (v: string) => {
+    const el = bodyRef.current;
+    if (!el) { setBody(b => b + v); return; }
+    const start = el.selectionStart ?? body.length;
+    const end = el.selectionEnd ?? start;
+    const next = body.slice(0, start) + v + body.slice(end);
+    if (next.length > 900) return;             // الحدّ نفسه الذي يفرضه الحقل
+    setBody(next);
+    requestAnimationFrame(() => {
+      el.focus();
+      const at = start + v.length;
+      el.setSelectionRange(at, at);
+    });
+  };
   const [footer, setFooter] = useState(true);
   const [loading, setLoading] = useState(true);
   const [sending, setSending] = useState(false);
@@ -215,16 +247,17 @@ export default function BroadcastTab({ apiFetch }: { apiFetch: Fetcher }) {
             </div>
 
             <div>
-              <textarea value={body} onChange={e => setBody(e.target.value)} rows={7} maxLength={900} dir="rtl"
+              <textarea ref={bodyRef} value={body} onChange={e => setBody(e.target.value)} rows={7} maxLength={900} dir="rtl"
                 placeholder={'مثال:\nمسا الخير {الاسم} 🎭\nبكرا الخميس لعبة الساعة 7 بمزاج أفندينا — بقي مقاعد قليلة. احجز من هون بكلمة «احجز».'}
                 className="w-full bg-gray-950 border border-gray-800 rounded-xl px-3 py-2.5 text-sm text-white leading-relaxed focus:border-amber-500/50 outline-none" />
               <div className="flex flex-wrap items-center gap-1.5 mt-1.5">
-                {['{الاسم}', '{الاسم_الكامل}', '{الرتبة}', '{الفعالية}', '{المكان}', '{الموعد}'].map(v => (
-                  <button key={v} onClick={() => setBody(b => b + v)} className="px-2 py-1 rounded-lg text-[11px] bg-gray-800 text-gray-300 hover:text-white" dir="rtl">{v}</button>
+                {['{الاسم}', '{الاسم_الكامل}', '{الرتبة}', '{الفعالية}', '{المكان}', '{الموقع}', '{الموعد}'].map(v => (
+                  <button key={v} type="button" onMouseDown={e => e.preventDefault()} onClick={() => insertVar(v)}
+                    className="px-2 py-1 rounded-lg text-[11px] bg-gray-800 text-gray-300 hover:text-white" dir="rtl">{v}</button>
                 ))}
                 <span className={`mr-auto text-[11px] tabular-nums ${body.length > 850 ? 'text-rose-400' : 'text-gray-500'}`}>{body.length} / 900</span>
               </div>
-              <p className="text-[11px] text-gray-500 mt-1">{'{الرتبة}'} تبقى فارغة للزائر غير المسجّل — لا تبنِ الجملة عليها. {'{الفعالية}'} و{'{المكان}'} و{'{الموعد}'} تتبع الفعاليّة المختارة. الروابط الخارجيّة مرفوضة (روابط النادي فقط).</p>
+              <p className="text-[11px] text-gray-500 mt-1">{'{الرتبة}'} تبقى فارغة للزائر غير المسجّل — لا تبنِ الجملة عليها. {'{المكان}'} اسم الكافيه وحده، و{'{الموقع}'} الاسم والمنطقة والمدينة معاً («مزاج افندينا — الشميساني، عمّان») — وهو الأنسب لمن لم يزُرنا قطّ. {'{الفعالية}'} و{'{المكان}'} و{'{الموقع}'} و{'{الموعد}'} تتبع الفعاليّة المختارة. الروابط الخارجيّة مرفوضة (روابط النادي فقط).</p>
             </div>
 
             <label className="flex items-center gap-2 text-xs text-gray-300 cursor-pointer">
@@ -236,7 +269,7 @@ export default function BroadcastTab({ apiFetch }: { apiFetch: Fetcher }) {
               <div>
                 <div className="text-[11px] text-gray-500 mb-1">معاينة كما تصل إلى {sample.name}:</div>
                 <div className="max-w-md rounded-2xl rounded-tr-sm px-3 py-2 text-sm text-white whitespace-pre-wrap leading-relaxed" style={{ background: '#005c4b' }}>
-                  {fill(body, { ...sample, activity: act?.name, venue: act?.venue, when: act?.when })}{footer ? '\n\n— لإيقاف هذه الرسائل أرسل: إيقاف' : ''}
+                  {fill(body, { ...sample, activity: act?.name, venue: act?.venue, place: (act as any)?.place, when: act?.when })}{footer ? '\n\n— لإيقاف هذه الرسائل أرسل: إيقاف' : ''}
                 </div>
               </div>
             )}

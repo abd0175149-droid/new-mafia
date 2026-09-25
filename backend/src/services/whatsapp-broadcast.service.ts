@@ -63,9 +63,31 @@ export async function previewAudience(q: AudienceQuery) {
   return { total: rows.length, rows: rows.slice(0, BROADCAST_MAX_TARGETS), capped: rows.length > BROADCAST_MAX_TARGETS };
 }
 
-export function fillVars(body: string, t: { name: string; rank: string; activity?: string; venue?: string; when?: string }): string {
+// ══════════════════════════════════════════════════════
+// 📍 «الموقع» — المكان كاملاً لمن لا يعرف أين هو
+// ══════════════════════════════════════════════════════
+// `{المكان}` اسمُ الكافيه وحده، وهو لا يكفي من لم يزُرنا قطّ. و`{الموقع}`
+// يجمع الاسم والمنطقة والمدينة منسَّقةً: «مزاج افندينا — الشميساني، عمّان».
+// ويسقط الجزءُ الناقص بلا فاصلةٍ يتيمة.
+export function formatPlace(venue?: string, region?: string, city?: string): string {
+  const v = (venue || '').trim();
+  const tail = [region, city].map(x => (x || '').trim()).filter(Boolean).join('، ');
+  if (!v) return tail;
+  return tail ? `${v} — ${tail}` : v;
+}
+
+export function fillVars(body: string, t: { name: string; rank: string; activity?: string; venue?: string; when?: string; place?: string }): string {
   const first = String(t.name || '').trim().split(/\s+/)[0] || '';
-  return body.replace(/\{الاسم\}/g, first).replace(/\{الاسم_الكامل\}/g, t.name || '').replace(/\{الرتبة\}/g, t.rank || '').replace(/\{الفعالية\}/g, t.activity || '').replace(/\{المكان\}/g, t.venue || '').replace(/\{الموعد\}/g, t.when || '');
+  return body
+    .replace(/\{الاسم\}/g, first)
+    .replace(/\{الاسم_الكامل\}/g, t.name || '')
+    .replace(/\{الرتبة\}/g, t.rank || '')
+    .replace(/\{الفعالية\}/g, t.activity || '')
+    // 🔴 «الموقع» قبل «المكان»: لولا الترتيب لالتقط `{المكان}` جزءاً من
+    //    `{الموقع}`؟ لا — لكنّ الوضوح مقصود، والاثنان مستقلّان.
+    .replace(/\{الموقع\}/g, t.place || t.venue || '')
+    .replace(/\{المكان\}/g, t.venue || '')
+    .replace(/\{الموعد\}/g, t.when || '');
 }
 
 export async function broadcastStatus() {
@@ -82,14 +104,21 @@ export async function startBroadcast(input: AudienceQuery & { body: string; crea
   const blocked = sendingSuspendedReason(); if (blocked) return { ok: false, error: `الإرسال مقفل: ${blocked}` };
   if (running) return { ok: false, error: 'هناك بثّ جارٍ الآن' };
   // (حظر الـ12 ساعة بين البثوث أُلغي بقرار المالك 2026-09-20. الحماية من التكرار صارت بيده: خيار «استثنِ من وصلهم بثّ سابق».)
-  let activityName = '', venueName = '', whenText = '';
-  if (/\{(الفعالية|المكان|الموعد)\}/.test(body)) {
-    if (!input.activityId) return { ok: false, error: 'النصّ فيه متغيّر فعاليّة ({الفعالية}/{المكان}/{الموعد}) — اختر فعاليّة من الفلتر أوّلاً' };
-    const ar: any = await db.execute(sql`SELECT a.name, a.date, l.name AS venue FROM activities a LEFT JOIN locations l ON l.id = a.location_id WHERE a.id = ${Number(input.activityId)} AND a.deleted_at IS NULL`);
-    activityName = rowsOf(ar)[0]?.name || '';
-    venueName = rowsOf(ar)[0]?.venue || '';
-    whenText = rowsOf(ar)[0]?.date ? fmtWhen(rowsOf(ar)[0].date) : '';
-    if (/\{المكان\}/.test(body) && !venueName) return { ok: false, error: 'الفعاليّة بلا مكان محدَّد — احذف {المكان} من النصّ' };
+  let activityName = '', venueName = '', whenText = '', placeText = '';
+  if (/\{(الفعالية|المكان|الموقع|الموعد)\}/.test(body)) {
+    if (!input.activityId) return { ok: false, error: 'النصّ فيه متغيّر فعاليّة ({الفعالية}/{المكان}/{الموقع}/{الموعد}) — اختر فعاليّة من الفلتر أوّلاً' };
+    const ar: any = await db.execute(sql`
+      SELECT a.name, a.date, l.name AS venue, l.region, c.name AS city
+        FROM activities a
+        LEFT JOIN locations l ON l.id = a.location_id
+        LEFT JOIN cities c ON c.id = l.city_id
+       WHERE a.id = ${Number(input.activityId)} AND a.deleted_at IS NULL`);
+    const row = rowsOf(ar)[0] || {};
+    activityName = row.name || '';
+    venueName = row.venue || '';
+    placeText = formatPlace(row.venue, row.region, row.city);
+    whenText = row.date ? fmtWhen(row.date) : '';
+    if (/\{(المكان|الموقع)\}/.test(body) && !venueName) return { ok: false, error: 'الفعاليّة بلا مكان محدَّد — احذف {المكان} و{الموقع} من النصّ' };
     if (!activityName) return { ok: false, error: 'الفعاليّة غير موجودة' };
   }
   const aud = await previewAudience(input);
@@ -106,7 +135,7 @@ export async function startBroadcast(input: AudienceQuery & { body: string; crea
       if (stopFlags.has(row.id)) { status = 'stopped'; break; }
       if (sendingSuspendedReason()) { status = 'stopped'; break; }           // إنذار صحّة الحساب أثناء البثّ
       try {
-        await sendMessage({ conversationId: t.id, text: fillVars(body, { ...t, activity: activityName, venue: venueName, when: whenText }) + (withFooter ? OPTOUT_FOOTER : ''), source: 'broadcast' as any });
+        await sendMessage({ conversationId: t.id, text: fillVars(body, { ...t, activity: activityName, venue: venueName, place: placeText, when: whenText }) + (withFooter ? OPTOUT_FOOTER : ''), source: 'broadcast' as any });
         sent++; streak = 0;
         await db.execute(sql`INSERT INTO wa_broadcast_recipients (broadcast_id, conversation_id) VALUES (${row.id}, ${t.id}) ON CONFLICT DO NOTHING`).catch(() => {});
       } catch (e: any) {
@@ -136,8 +165,16 @@ export function fmtWhen(d: any): string {
 
 export async function upcomingActivities() {
   const db = getDB(); if (!db) return [];
-  const r: any = await db.execute(sql`SELECT a.id, a.name, a.date, l.name AS venue FROM activities a LEFT JOIN locations l ON l.id = a.location_id WHERE a.deleted_at IS NULL AND a.date > NOW() - INTERVAL '6 hours' ORDER BY a.date LIMIT 12`);
-  return rowsOf(r).map((x: any) => ({ id: Number(x.id), name: x.name, date: x.date, venue: x.venue || '', when: fmtWhen(x.date) }));
+  const r: any = await db.execute(sql`
+    SELECT a.id, a.name, a.date, l.name AS venue, l.region, c.name AS city
+      FROM activities a
+      LEFT JOIN locations l ON l.id = a.location_id
+      LEFT JOIN cities c ON c.id = l.city_id
+     WHERE a.deleted_at IS NULL AND a.date > NOW() - INTERVAL '6 hours' ORDER BY a.date LIMIT 12`);
+  return rowsOf(r).map((x: any) => ({
+    id: Number(x.id), name: x.name, date: x.date,
+    venue: x.venue || '', place: formatPlace(x.venue, x.region, x.city), when: fmtWhen(x.date),
+  }));
 }
 
 export function stopBroadcast(id: number) { stopFlags.add(Number(id)); return true; }
