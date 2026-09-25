@@ -32,6 +32,7 @@ import { MeshoptDecoder } from 'three/examples/jsm/libs/meshopt_decoder.module.j
 import { RGBELoader } from 'three/examples/jsm/loaders/RGBELoader.js';
 import * as SkeletonUtils from 'three/examples/jsm/utils/SkeletonUtils.js';
 import { buildBoneMap, coreBoneName } from './bone-map';
+import { CHARACTERS, NEUTRAL, charOf, charPath, drawCrowd } from './characters';
 import { ExecutionController } from './execution';
 export type { ExecFigure, ExecVictim, ExecBeat, ExecTeam } from './execution';
 
@@ -198,7 +199,7 @@ export function preloadStreetAssets() {
   if (typeof window === 'undefined') return;
   ['street_lamp_01', 'street_lamp_02', 'fire_hydrant', 'modular_fire_escape', 'metal_trash_can', 'water_manhole_cover', 'modular_electricity_poles', 'wooden_crate_01', 'wooden_crate_02', 'wooden_barrels_01', 'painted_wooden_bench', 'outdoor_table_chair_set_01', 'standing_chalkboard_01', 'planter_box_01', 'cardboard_box_01', 'trashbag', 'wooden_ladder'].forEach(n => loadGLTF(PH(n)));
   ['pierce_arrow', 'coupe33', 'fedoras', 'brownstone', 'awning', 'balcony', 'diorama1930'].forEach(n => loadGLTF(SF(n)));
-  loadGLTF(SFB('mafia_boss')); loadGLTF(SFB('mafia_boss_lite')); ['neutral_idle', 'walking', 'smoking', 'sitting'].forEach(n => loadGLTF(ANIM(n)));
+  loadGLTF(charPath('mafia_boss', false)); NEUTRAL.forEach(c => loadGLTF(charPath(c.id, true))); ['neutral_idle', 'walking', 'smoking', 'sitting'].forEach(n => loadGLTF(ANIM(n)));
   Object.values(SURFACES).forEach(s => { loadTex(TEX(s.name, 'diff'), true, s.rep); loadTex(TEX(s.name, 'nor'), false, s.rep); loadTex(TEX(s.name, 'rough'), false, s.rep); });
   loadHDR(`${ASSET_ROOT}/hdri/moonless_golf_1k.hdr`); loadHDR(`${ASSET_ROOT}/hdri/klippad_sunrise_2_1k.hdr`);
 }
@@ -559,7 +560,9 @@ class StreetEngine {
    */
   /** يُنفَّذ على دفعات (30 إطاراً ثمّ يُفسح للمتصفّح): كان يجمّد اللوبي ~22 ثانية لثلاثة موديلات × أربعة مقاطع */
   async retargetLocal(target: THREE.SkinnedMesh, srcHips: THREE.Bone, clip: THREE.AnimationClip, names: Record<string, string>, grounded = false, label = ''): Promise<THREE.AnimationClip> {
-    const fps = 30, n = Math.max(2, Math.round(clip.duration * fps)); const times = new Float32Array(n); for (let i = 0; i < n; i++) times[i] = i / fps;
+    // المقاطعُ الطويلة (idle 8.8ث · smoke 17.9ث · sit 9.6ث) على 15 إطاراً/ث: نصفُ كلفة إعادة التوجيه،
+    // والفرقُ لا يُرى (slerp بين المفاتيح). المشي القصير يبقى على 30.
+    const fps = clip.duration > 4 ? 15 : 30, n = Math.max(2, Math.round(clip.duration * fps)); const times = new Float32Array(n); for (let i = 0; i < n; i++) times[i] = i / fps;
     // ترتيب هرميّ لعظام الهدف (من الجذر إلى الأطراف)
     const bones = target.skeleton.bones; const set = new Set<THREE.Object3D>(bones); const roots = bones.filter(b => !b.parent || !set.has(b.parent)); const ordered: THREE.Bone[] = []; const walk = (b: THREE.Object3D) => { if (set.has(b)) ordered.push(b as THREE.Bone); b.children.forEach(walk); }; roots.forEach(walk);
     // وضعيّة الراحة (كما حُمِّلت): دوران عالميّ لكلّ عظمة هدف ومصدر
@@ -663,30 +666,30 @@ class StreetEngine {
       top.updateMatrixWorld(true);
     }
   }
+  /**
+   * 👥 الحشد والقوالب (قرارات المالك 2026-09-25):
+   *  • رجلُ المصباح `mafia_boss` بالنسخة الكاملة (لقطةٌ قريبة).
+   *  • مشاةُ الشارع (٦ مواضع) يُسحبون من الكيس المخلوط للعشرة بنسخهم المخفَّفة.
+   *  • قوالبُ مشهد الإقصاء = كلُّ شخصيّةٍ حُمِّلت (خريطة `exec.tpl`).
+   *  • تحميلٌ كسول: المحايدون الأربعة أوّلاً (الضحيّة لا تكون إلّا محايداً) ثمّ بطاقاتُ
+   *    الشارع ثمّ الباقون — واحداً واحداً في الخلفيّة كي لا يتجمّد الإقلاع. كلُّ ماشٍ
+   *    يظهر لحظةَ جهوزيّة قالبه.
+   *  • إعادةُ التوجيه مرّةً لكلّ شخصيّة: الكاملُ والمخفَّف هيكلُهما واحد فيتشاركان المقاطع.
+   */
   private async loadCrowd() {
     const [idle, walk, smoke, sit] = await Promise.all(['neutral_idle', 'walking', 'smoking', 'sitting'].map(n => loadGLTF(ANIM(n))));
     if (this.disposed) return;
     const clips: Record<string, THREE.AnimationClip> = {}; let skelRoot: THREE.Bone | null = null;
     for (const [k, g] of [['idle', idle], ['walk', walk], ['smoke', smoke], ['sit', sit]] as [string, any][]) { if (!g) continue; if (g.animations?.[0]) clips[k] = g.animations[0]; if (!skelRoot) skelRoot = this.boneTreeFromNodes(g.scene); }
     const skeleton = skelRoot; this.clipsMixamo = clips;
-    const specs: { src: string; glb?: boolean; n: number; kinds: Walker['kind'][]; night: boolean[]; day: boolean[]; sides: (1 | -1)[]; zs: number[]; h: number }[] = [
-      /* 🎩 قرار المالك 2026-09-25: المشهد كلُّه من زعيم المافيا وحده. شخصيّات
-         Advanced Skeleton (gangster · gangster_lite · dotty · moneyman) أُخرجت:
-         هيكلُها لا يقبل صيغة إعادة التوجيه الصحيحة، فتبقى أذرعُها بلا تأرجح.
-         ملفّاتها باقيةٌ في public/3d/ وتراخيصها في LICENSES.md إن رُدّت يوماً. */
-      { src: 'mafia_boss', glb: true, n: 1, kinds: ['lamp'], night: [true], day: [true], sides: [-1], zs: [-3.2], h: 1.85 }, /* رجل المصباح — لقطةٌ قريبة بالتفاصيل الكاملة */
-      { src: 'mafia_boss_lite', glb: true, n: 2, kinds: ['walk', 'idle'], night: [true, false], day: [true, true], sides: [1, -1], zs: [-20, -50], h: 1.85 },
-      { src: 'mafia_boss_lite', glb: true, n: 2, kinds: ['walk', 'idle'], night: [false, true], day: [true, true], sides: [1, -1], zs: [-38, -12], h: 1.78 },
-      { src: 'mafia_boss_lite', glb: true, n: 1, kinds: ['idle'], night: [true], day: [true], sides: [1], zs: [-7.5], h: 1.85 },
-      { src: 'mafia_boss_lite', glb: true, n: 1, kinds: ['seat'], night: [true], day: [true], sides: [-1], zs: [-10], h: 1.75 }, /* على البنش */
-    ];
     // ⚖️ حركات الإقصاء (اختياريّة): إن وُجدت anim/fall.glb و anim/react_death.glb تُستخدم، وإلّا سقوطٌ إجرائيّ
     const extra: Record<string, THREE.AnimationClip> = {}; for (const n of FALL_CLIPS) { const g = await loadGLTF(ANIM(n), true); if (g?.animations?.[0]) extra[n] = g.animations[0]; }
     const allClips = { ...clips, ...extra };
-    /** إعادة الاستهداف مرّةً لكلّ موديل (لا لكلّ نسخة): المقاطع المعاد استهدافها تُسمّى عظامها بالاسم فتصلح لكلّ النسخ */
+    /** إعادة الاستهداف مرّةً لكلّ شخصيّة (لا لكلّ نسخة ولا لكلّ ملفّ): المقاطع تُسمّي عظامها بالاسم فتصلح للكامل والمخفَّف */
     const retargetSet = async (src: string, scene: THREE.Object3D): Promise<Record<string, THREE.AnimationClip>> => {
       if (this.retargetCache[src]) return this.retargetCache[src]; const out: Record<string, THREE.AnimationClip> = {}; if (!skeleton) return out;
       const probe = SkeletonUtils.clone(scene); let sk: THREE.SkinnedMesh | null = null; probe.traverse(o => { if (!sk && (o as THREE.SkinnedMesh).isSkinnedMesh) sk = o as THREE.SkinnedMesh; }); if (!sk) return out;
+      const t0 = performance.now();
       try {
         // أسماءُ عظام المصدر تُقرأ من الهيكل المحمَّل فعلاً، لا تُبنى افتراضاً:
         // three تحذف `:` من `mixamorig:Hips` عند التحميل، فالبناءُ بالتخمين يخطئ.
@@ -697,32 +700,49 @@ class StreetEngine {
         // بدل mixerٍ يُركَّب على مقاطع بصفر مسارات فتقف الشخصيّة متجمّدة.
         if (!map.ok) { this.retargetCache[src] = out; return out; }
         for (const k of Object.keys(allClips)) out[k] = await this.retargetLocal(sk as THREE.SkinnedMesh, skeleton, allClips[k], map.names, GROUNDED_CLIPS.has(k), `${src}/${k}`);
-        console.info('🏙️ retarget', src, Object.keys(out).join(','), 'tracks', Object.values(out).map(c => c.tracks.length).join('/'), 'mapped', map.matched, '/', targetNames.length, '· محاذاة الاتّجاه');
+        console.info('🏙️ retarget', src, Object.keys(out).join(','), 'tracks', Object.values(out).map(c => c.tracks.length).join('/'), 'mapped', map.matched, '/', targetNames.length, '· محاذاة الاتّجاه ·', Math.round(performance.now() - t0), 'ms');
       } catch (e) { console.error('🏙️ فشلت إعادة التوجيه، البديل الإجرائيّ يعمل:', src, String(e)); }
       this.retargetCache[src] = out; return out;
     };
-    for (const sp of specs) {
-      const g = await loadGLTF(sp.glb ? SFB(sp.src) : SF(sp.src)); if (!g || this.disposed) continue;
-      const rset = await retargetSet(sp.src, g.scene); if (this.disposed) return;
-      for (let i = 0; i < sp.n; i++) {
-        const root = SkeletonUtils.clone(g.scene); this.prep(root, i === 0, false); this.pinRigidProps(root); root.traverse(o => { if ((o as THREE.SkinnedMesh).isSkinnedMesh) o.frustumCulled = false; });
-        const wrap = new THREE.Group(); wrap.add(root); this.fit(wrap, sp.h, 'y'); { const bs = this.blobShadow(1.3); bs.position.y = (-wrap.position.y + .01) / wrap.scale.x; bs.scale.setScalar(1 / wrap.scale.x); wrap.add(bs); }
-        const w: Walker = { root: wrap, groundY: wrap.position.y + .16 /* سطح الرصيف */, mixer: null, acts: {}, cur: '', role: sp.kinds[i], kind: sp.kinds[i], side: sp.sides[i], z: sp.zs[i], dir: i % 2 ? 1 : -1, speed: .9 + rnd() * .4, pause: 0, night: sp.night[i], day: sp.day[i], gait: null };
-        let skinned: THREE.SkinnedMesh | null = null; root.traverse(o => { if (!skinned && (o as THREE.SkinnedMesh).isSkinnedMesh) skinned = o as THREE.SkinnedMesh; });
-        if (skinned && Object.keys(rset).length) { w.mixer = new THREE.AnimationMixer(root); for (const k of Object.keys(rset)) w.acts[k] = w.mixer.clipAction(rset[k]); }
-        // البديلُ الإجرائيّ يبحث بالمعنى (UpLeg/Leg/Arm) لا بتسمية Advanced Skeleton:
-        // شخصيّةٌ بتسميةٍ أخرى كانت تقف جامدةً بلا حركةٍ ولا بديل.
-        if (!w.mixer && skinned) { const find = (suffix: string) => { const out: THREE.Object3D[] = []; (skinned as THREE.SkinnedMesh).skeleton.bones.forEach(b => { const c = coreBoneName(b.name); if (c === 'Left' + suffix || c === 'Right' + suffix) out.push(b); }); return out; }; w.gait = { hips: find('UpLeg'), knees: find('Leg'), arms: find('Arm') }; }
-        this.scene.add(wrap); this.walkers.push(w); if (w.kind === 'lamp') this.figLamp = w;
-      }
+    /** ينشئ ماشياً من مشهدٍ محمَّل ومقاطعه */
+    const spawn = (scene: THREE.Object3D, rset: Record<string, THREE.AnimationClip>, role: Walker['kind'], side: 1 | -1, z: number, h: number, night: boolean, day: boolean, shadow: boolean) => {
+      const root = SkeletonUtils.clone(scene); this.prep(root, shadow, false); this.pinRigidProps(root); root.traverse(o => { if ((o as THREE.SkinnedMesh).isSkinnedMesh) o.frustumCulled = false; });
+      const wrap = new THREE.Group(); wrap.add(root); this.fit(wrap, h, 'y'); { const bs = this.blobShadow(1.3); bs.position.y = (-wrap.position.y + .01) / wrap.scale.x; bs.scale.setScalar(1 / wrap.scale.x); wrap.add(bs); }
+      const w: Walker = { root: wrap, groundY: wrap.position.y + .16 /* سطح الرصيف */, mixer: null, acts: {}, cur: '', role, kind: role, side, z, dir: z % 2 ? 1 : -1, speed: .9 + rnd() * .4, pause: 0, night, day, gait: null };
+      let skinned: THREE.SkinnedMesh | null = null; root.traverse(o => { if (!skinned && (o as THREE.SkinnedMesh).isSkinnedMesh) skinned = o as THREE.SkinnedMesh; });
+      if (skinned && Object.keys(rset).length) { w.mixer = new THREE.AnimationMixer(root); for (const k of Object.keys(rset)) w.acts[k] = w.mixer.clipAction(rset[k]); }
+      // البديلُ الإجرائيّ يبحث بالمعنى (UpLeg/Leg/Arm) لا بتسمية Advanced Skeleton:
+      // شخصيّةٌ بتسميةٍ أخرى كانت تقف جامدةً بلا حركةٍ ولا بديل.
+      if (!w.mixer && skinned) { const find = (suffix: string) => { const out: THREE.Object3D[] = []; (skinned as THREE.SkinnedMesh).skeleton.bones.forEach(b => { const c = coreBoneName(b.name); if (c === 'Left' + suffix || c === 'Right' + suffix) out.push(b); }); return out; }; w.gait = { hips: find('UpLeg'), knees: find('Leg'), arms: find('Arm') }; }
+      this.scene.add(wrap); this.walkers.push(w); if (role === 'lamp') this.figLamp = w; this.applyCrowdMode(); return w;
+    };
+    const tCrowd = performance.now();
+    // ① رجلُ المصباح — النسخة الكاملة، لقطةٌ قريبة
+    { const g = await loadGLTF(charPath('mafia_boss', false)); if (this.disposed) return; if (g) spawn(g.scene, await retargetSet('mafia_boss', g.scene), 'lamp', -1, -3.2, charOf('mafia_boss')!.h, true, true, true); }
+    // ② مواضعُ الشارع الستّة — بطاقاتٌ من الكيس المخلوط للعشرة (النسخ المخفَّفة)
+    const SLOTS: { role: Walker['kind']; side: 1 | -1; z: number; night: boolean; day: boolean }[] = [
+      { role: 'walk', side: 1, z: -20, night: true, day: true }, { role: 'idle', side: -1, z: -50, night: false, day: true },
+      { role: 'walk', side: 1, z: -38, night: false, day: true }, { role: 'idle', side: -1, z: -12, night: true, day: true },
+      { role: 'idle', side: 1, z: -7.5, night: true, day: true }, { role: 'seat', side: -1, z: -10, night: true, day: true }, /* على البنش */
+    ];
+    const cards = drawCrowd(SLOTS.length, rnd); console.info('🎴 مشاةُ الشارع:', cards.map(c => c.id).join(' · '));
+    /** قالبُ شخصيّة: يحمّل المخفَّف ويعيد التوجيه (مرّةً) ويسجّله لمشهد الإقصاء؛ ثمّ يُنشئ مشاةَ الشارع الذين ينتظرونه */
+    const ensureTemplate = async (id: string) => {
+      if (this.exec.tpl.has(id) || this.disposed) return; const c = charOf(id); if (!c) return;
+      const g = await loadGLTF(charPath(id, true)); if (!g || this.disposed) return;
+      const rset = await retargetSet(id, g.scene); if (this.disposed) return;
+      this.exec.tpl.set(id, { scene: g.scene, h: c.h, clips: rset });
+      cards.forEach((card, k) => { if (card.id === id) { const sl = SLOTS[k]; spawn(g.scene, rset, sl.role, sl.side, sl.z, c.h, sl.night, sl.day, false); } });
+    };
+    // ③ الترتيب الكسول: المحايدون (الضحايا لا تكون إلّا منهم) ← بطاقاتُ الشارع ← الباقون، واحداً واحداً
+    const order: string[] = []; const push = (id: string) => { if (!order.includes(id)) order.push(id); };
+    NEUTRAL.forEach(c => push(c.id)); cards.forEach(c => push(c.id)); CHARACTERS.forEach(c => push(c.id));
+    for (const id of order) {
+      await ensureTemplate(id); if (this.disposed) return;
+      if (id === NEUTRAL[NEUTRAL.length - 1].id) { console.info('👥 المحايدون جاهزون —', Math.round(performance.now() - tCrowd), 'ms منذ بدء الحشد'); void this.exec.warmTemplates(); }
+      await new Promise(r => setTimeout(r, 250)); // فسحةٌ للحلقة بين قالبٍ وآخر
     }
-    this.applyCrowdMode();
-    // ⚖️ قوالب حشد الإقصاء: الرجل نسخةٌ مخفَّفة (8.9k مثلّث بدل 29.6k) لأنّ الحشد قد يبلغ 27 نسخة؛ المرأة كما هي (5.7k)
-    const lite = await loadGLTF(SFB('mafia_boss_lite')); if (this.disposed) return;
-    // قالبٌ واحد للجنسين: لم تبقَ شخصيّةٌ أنثى في المشهد بعد قرار 2026-09-25.
-    // والنسخة المخفَّفة (9k مثلّث بدل 30k) لأنّ الحشد قد يبلغ 27 نسخة.
-    if (lite) { const c = await retargetSet('mafia_boss_lite', lite.scene); this.exec.tpl.M = { scene: lite.scene, h: 1.85, clips: c }; this.exec.tpl.F = { scene: lite.scene, h: 1.78, clips: c }; }
-    void this.exec.warmTemplates();
+    console.info('👥 القوالب العشرة جاهزة —', Math.round(performance.now() - tCrowd), 'ms · إعادة توجيه', Object.keys(this.retargetCache).length, 'شخصيّة');
   }
   /** مقطعٌ مفروض للفحص: ?clip=smoke يضع كلَّ المشاة فيه مهما كان دورهم —
    *  الطريقة الوحيدة لمعاينة sit/smoke على شخصيّةٍ دورها idle قبل إقرارها. */

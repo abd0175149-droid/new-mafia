@@ -10,6 +10,7 @@
 import * as THREE from 'three';
 import * as SkeletonUtils from 'three/examples/jsm/utils/SkeletonUtils.js';
 import type { StreetEngine } from './engine';
+import { CHARACTERS, NEUTRAL, charOf, isNeutral, drawCrowd, pickNeutral, type CharacterDef, type Gender } from './characters';
 
 export type ExecTeam = 'MAFIA' | 'CITIZEN' | 'NEUTRAL';
 export type ExecFigure = { id: number; gender: 'M' | 'F' };
@@ -18,7 +19,7 @@ export type ExecBeatName = 'gather' | 'escort' | 'close' | 'shot' | 'fall' | 'sm
 export type ExecBeat = { name: ExecBeatName; victimId: number | null; primary: boolean };
 export type ExecTemplate = { scene: THREE.Object3D; h: number; clips: Record<string, THREE.AnimationClip> };
 
-type Fig = { id: number; gender: 'M' | 'F'; root: THREE.Group; tilt: THREE.Group; mixer: THREE.AnimationMixer | null; acts: Record<string, THREE.AnimationAction>; cur: string; spot: [number, number]; home: [number, number]; goal: [number, number] | null; face: [number, number] | null; act: 'idle' | 'stagger' | 'fall' | 'dead'; actT: number; flinch: number; back: number; walk: number; fallKey: string | null };
+type Fig = { id: number; gender: 'M' | 'F'; /** شكلُ الشخصيّة في هذا المشهد — يُخلط من جديد في كلّ مشهد */ charId: string; root: THREE.Group; tilt: THREE.Group; mixer: THREE.AnimationMixer | null; acts: Record<string, THREE.AnimationAction>; cur: string; spot: [number, number]; home: [number, number]; goal: [number, number] | null; face: [number, number] | null; act: 'idle' | 'stagger' | 'fall' | 'dead'; actT: number; flinch: number; back: number; walk: number; fallKey: string | null };
 type Smoke = { ps: { g: THREE.Group; items: { s: THREE.Sprite; life: number; vx?: number; vz?: number }[] }; on: boolean; t: number; origin: THREE.Vector3; light: THREE.PointLight };
 type Beat = { t: number; fn: () => void };
 
@@ -34,7 +35,11 @@ let seed = 4242; const rnd = () => { seed = (seed * 16807) % 2147483647; return 
 
 export class ExecutionController {
   on = false; warmed = false; state: 'idle' | 'armed' | 'running' | 'holding' | 'ending' = 'idle';
-  tpl: { M: ExecTemplate | null; F: ExecTemplate | null } = { M: null, F: null };
+  /** قالبٌ لكلّ شخصيّة (النسخة المخفَّفة + مقاطعها المعاد توجيهها) — يُملأ كسولاً */
+  tpl = new Map<string, ExecTemplate>();
+  /** يجوز تشغيل المشهد متى ما حُمِّل محايدٌ واحد: الضحيّة لا تكون إلّا محايداً */
+  ready(): boolean { return NEUTRAL.some(c => this.tpl.has(c.id)); }
+  private loadedIds(): Set<string> { return new Set(this.tpl.keys()); }
   onBeat: ((b: ExecBeat) => void) | null = null; onChange: ((on: boolean) => void) | null = null;
   private figs: Fig[] = []; private beats: Beat[] = []; private bi = 0; private t = 0; private condemned: Fig | null = null; private victim: Fig | null = null;
   private smokes: Smoke[] = []; private flashL: THREE.PointLight | null = null; private flashS: THREE.Sprite | null = null; private flashT = -1; shake = 0; private endTimer: any = null;
@@ -44,7 +49,7 @@ export class ExecutionController {
     const E = this.E as any; if (E.disposed) return; /* بعد إحماء الأوضاع (prewarm) لا قبله — كان يسبقه فيُلغيه */ for (let i = 0; i < 1200 && !E.prewarmDone; i++) await new Promise(r => setTimeout(r, 100)); for (let i = 0; i < 200 && E.warming; i++) await new Promise(r => setTimeout(r, 100)); if (E.disposed || this.on) return;
     const t0 = performance.now();
     // نسختان من الحشد في الكادر (مرئيّتان) ليُجمَّع برنامج الجلد؛ لا تغيير في الجودة ولا في القياس هنا (كان يمسح اللوحة ويوقف الحلقة فيظهر وميضٌ أسود)
-    const probes: Fig[] = []; for (const g of ['M', 'F'] as const) { if (!this.tpl[g]) continue; const f = this.make(-100 - (g === 'M' ? 0 : 1), g, true); if (!f) continue; f.root.position.set(WALL.x + 2 + (g === 'M' ? 0 : 1.2), f.root.position.y, WALL.z); this.play(f, 'idle'); probes.push(f); }
+    const probes: Fig[] = []; Array.from(this.tpl.keys()).slice(0, 2).forEach((id, i) => { const f = this.make(-100 - i, charOf(id)?.gender || 'M', true, id); if (!f) return; f.root.position.set(WALL.x + 2 + i * 1.2, f.root.position.y, WALL.z); this.play(f, 'idle'); probes.push(f); });
     // 🔴 الخلفيّة المعتَّمة تُطفئ التوهّج والفيلم والتنعيم والبوكيه، فبرامجها لم تكن تُجمَّع إلا لحظة أوّل إقصاء — على بطاقة ضعيفة تجميدٌ يتجاوز 15 ثانية
     //    فيسقط اتّصال الشاشة (ping timeout) وتبدو معلّقة. نرسم هنا إطاراً مخفيّاً بكلّ المراحل مفعّلة (بلا تغيير قياس، فلا وميض) ثمّ نعيدها.
     const passes = [E.bokeh, E.bloom, E.film, E.smaa] as { enabled: boolean }[]; const was = passes.map(x => x.enabled); const refl = E.reflector.visible; const rainWas = !!E.rain;
@@ -75,11 +80,24 @@ export class ExecutionController {
   private setOn(on: boolean) { if (this.on === on) return; this.on = on; const E = this.E as any; E.applyQuality(); E.resize(); try { this.onChange?.(on); } catch { /* noop */ } }
 
   /* ── الشخصيّات ── */
-  private make(id: number, gender: 'M' | 'F', shadow: boolean): Fig | null {
-    const tpl = this.tpl[gender] || this.tpl.M || this.tpl.F; if (!tpl) return null; const E = this.E as any;
+  /**
+   * يختار قالباً محمَّلاً للبطاقة المسحوبة. لم تُحمَّل بعد (تحميلٌ كسول) ⇒ بديلٌ من الجنس نفسه
+   * (المحايدُ أوّلاً) ثمّ أيُّ محمَّل. `mustBeNeutral` يحصر البديل في المحايدين مهما كان.
+   */
+  private resolveChar(wanted: string, gender: Gender, mustBeNeutral: boolean): string | null {
+    const loaded = this.loadedIds();
+    if (loaded.has(wanted) && (!mustBeNeutral || isNeutral(wanted))) return wanted;
+    if (mustBeNeutral) return pickNeutral(gender, rnd, loaded)?.id ?? null;
+    const same = CHARACTERS.filter(c => loaded.has(c.id) && c.gender === gender);
+    const alt = same.find(c => c.neutral) || same[0] || CHARACTERS.find(c => loaded.has(c.id));
+    if (alt && alt.id !== wanted) console.info(`⚖️ «${wanted}» لم يُحمَّل بعد — بديلٌ مؤقّت «${alt.id}»`);
+    return alt?.id ?? null;
+  }
+  private make(id: number, gender: 'M' | 'F', shadow: boolean, charId: string): Fig | null {
+    const tpl = this.tpl.get(charId); if (!tpl) return null; const E = this.E as any;
     const model = SkeletonUtils.clone(tpl.scene); E.prep(model, shadow, false); E.pinRigidProps(model); model.traverse((o: THREE.Object3D) => { if ((o as THREE.SkinnedMesh).isSkinnedMesh) o.frustumCulled = false; });
     const tilt = new THREE.Group(); tilt.add(model); const root = new THREE.Group(); root.add(tilt); E.fit(root, tpl.h, 'y'); root.position.y += .16; { const bs = E.blobShadow(1.3); bs.position.y = (-root.position.y + .17) / root.scale.x; bs.scale.setScalar(1 / root.scale.x); root.add(bs); }
-    const f: Fig = { id, gender, root, tilt, mixer: null, acts: {}, cur: '', spot: [0, 0], home: [0, 0], goal: null, face: null, act: 'idle', actT: 0, flinch: 0, back: 0, walk: 0, fallKey: null };
+    const f: Fig = { id, gender, charId, root, tilt, mixer: null, acts: {}, cur: '', spot: [0, 0], home: [0, 0], goal: null, face: null, act: 'idle', actT: 0, flinch: 0, back: 0, walk: 0, fallKey: null };
     if (Object.keys(tpl.clips).length) { f.mixer = new THREE.AnimationMixer(model); for (const k of Object.keys(tpl.clips)) f.acts[k] = f.mixer.clipAction(tpl.clips[k]); }
     this.E.scene.add(root); return f;
   }
@@ -90,11 +108,42 @@ export class ExecutionController {
   }
   private spotOf(k: number, n: number): [number, number] { const th = .15 + ((k % 9) / 8) * 1.2; const ring = Math.floor(k / 9); const r0 = 4.4 + ring * 1.4 + ((k % 3) * .5); return [WALL.x + Math.sin(th) * r0 + 1.2, WALL.z + Math.cos(th) * r0 - 1.0]; }
   private remove(f: Fig) { this.E.scene.remove(f.root); f.mixer?.stopAllAction(); }
+  /**
+   * يبدّل شكلَ شخصيّةٍ قائمة في مكانها (موضعٌ ودورانٌ وحالةٌ كما هي): يُستدعى خلف
+   * الغطسة السوداء لقطع الكاميرا فلا يُرى التبديل. الضحيّةُ في `fireSecondary`
+   * تكون قائمةً في الحشد بشكلٍ قد يدلّ على دور — هنا تصير محايدة قبل أن تُكشف.
+   */
+  private swapLook(f: Fig, charId: string) {
+    if (f.charId === charId) return; const tpl = this.tpl.get(charId); if (!tpl) return;
+    const nf = this.make(f.id, f.gender, true, charId); if (!nf) return;
+    nf.root.position.copy(f.root.position); nf.root.rotation.copy(f.root.rotation); nf.tilt.rotation.copy(f.tilt.rotation); nf.tilt.position.copy(f.tilt.position);
+    nf.spot = f.spot; nf.home = f.home; nf.goal = f.goal; nf.face = f.face; nf.act = f.act; nf.actT = f.actT; nf.flinch = f.flinch; nf.back = f.back; nf.walk = f.walk; nf.fallKey = f.fallKey;
+    const cur = f.cur; this.remove(f); Object.assign(f, nf); f.cur = ''; if (cur) this.play(f, cur);
+  }
+  /**
+   * 🔴 قاعدةُ الحياد — تأكيدٌ ذاتيُّ التصحيح: مَن سيُقصى لا بدّ أن يكون محايداً. الخرقُ
+   * يُطبع خطأً صريحاً ثمّ يُصحَّح فوراً ببديلٍ محايد؛ لا يُرمى استثناء (الشاشة لا تنهار).
+   */
+  private assertNeutral(f: Fig, where: string) {
+    if (isNeutral(f.charId)) return;
+    console.error(`⚖️ NEUTRALITY VIOLATION @${where}: «${f.charId}» (${charOf(f.charId)?.label ?? '?'}) شخصيّةُ دورٍ تُقصى — تُستبدل بمحايد`);
+    const n = pickNeutral(f.gender, rnd, this.loadedIds());
+    if (n) this.swapLook(f, n.id); else console.error('⚖️ لا محايدَ محمَّلاً للاستبدال — يبقى الشكل كما هو (خرقٌ غير قابلٍ للتصحيح)');
+  }
   private clearCrowd() { this.figs.forEach(f => this.remove(f)); this.figs = []; this.condemned = null; this.victim = null; }
   /** يبني الحشد لقائمة الأحياء (يعيد استخدام الموجودين، يضيف الناقصين، يحذف الزائدين) */
-  private ensureCrowd(alive: ExecFigure[], instant: boolean) {
+  private ensureCrowd(alive: ExecFigure[], instant: boolean, victims: ReadonlySet<number> = new Set()) {
     const keep = new Set(alive.map(a => a.id)); this.figs = this.figs.filter(f => { if (keep.has(f.id) || f.act === 'dead') return true; this.remove(f); return false; });
-    let k = 0; alive.forEach((a, i) => { let f = this.figs.find(x => x.id === a.id); if (!f) { const nf = this.make(a.id, a.gender, false); /* الحشد بلا ظلال: المحكوم والضحيّة وحدهما يُظلّان */ if (!nf) return; f = nf; this.figs.push(f); const side = i % 2 ? 1 : -1; f.home = [side * (FACE - 2.2), -26 + rnd() * 20]; f.root.position.set(f.home[0], f.root.position.y, f.home[1]); f.root.rotation.y = rnd() * 6.28; }
+    // 🎴 الكيسُ المخلوط: بطاقةٌ لكلّ حيٍّ جديد بترتيب مواضع الحشد (فلا جارَين متطابقَين)،
+    //    من المحمَّل فقط. مشهدٌ جديد = خلطٌ جديد؛ والقائمون يحتفظون بشكلهم داخل المشهد.
+    const fresh = alive.filter(a => !this.figs.some(x => x.id === a.id));
+    const loaded = this.loadedIds(); const pool = CHARACTERS.filter(c => loaded.has(c.id));
+    const cards = drawCrowd(fresh.length, rnd, pool); const cardOf = new Map(fresh.map((a, i) => [a.id, cards[i]]));
+    let k = 0; alive.forEach((a, i) => { let f = this.figs.find(x => x.id === a.id); if (!f) {
+        const wanted = victims.has(a.id) ? (pickNeutral(a.gender, rnd, loaded)?.id ?? null) : (cardOf.get(a.id)?.id ?? null);
+        const charId = wanted ? this.resolveChar(wanted, a.gender, victims.has(a.id)) : null;
+        if (!charId) { if (victims.has(a.id)) console.error(`⚖️ لا محايدَ محمَّلاً للضحيّة #${a.id} — تُترك بلا مجسّم`); return; }
+        const nf = this.make(a.id, a.gender, false, charId); /* الحشد بلا ظلال: المحكوم والضحيّة وحدهما يُظلّان */ if (!nf) return; f = nf; this.figs.push(f); const side = i % 2 ? 1 : -1; f.home = [side * (FACE - 2.2), -26 + rnd() * 20]; f.root.position.set(f.home[0], f.root.position.y, f.home[1]); f.root.rotation.y = rnd() * 6.28; }
       if (f.act === 'dead') return; f.spot = this.spotOf(k++, alive.length); if (instant) { f.root.position.set(f.spot[0], f.root.position.y, f.spot[1]); f.goal = null; f.face = [WALL.x, WALL.z]; this.play(f, 'idle'); } else { f.goal = f.spot; f.face = null; } });
   }
   private ensureFx() {
@@ -110,7 +159,7 @@ export class ExecutionController {
   /* ── الواجهة العامّة ── */
   /** تلميح الموجّه (مرّ على زرّ الكشف): الحشد يبدأ التجمّع من الرصيفين */
   arm(alive: ExecFigure[]) {
-    if (this.state === 'running' || this.state === 'holding') return; if (!this.tpl.M && !this.tpl.F) return;
+    if (this.state === 'running' || this.state === 'holding') return; if (!this.ready()) return;
     this.ensureFx(); this.ensureCrowd(alive, false); if (this.endTimer) { clearTimeout(this.endTimer); this.endTimer = null; }
     this.state = 'armed'; this.setOn(true); this.cut('EX_WIDE'); this.emit('gather', null, true);
   }
@@ -120,9 +169,12 @@ export class ExecutionController {
    * الكشف وصل: المحكومون بالتتابع عند الجدار. hold = تبقى الساحة قائمةً بانتظار ضحيّةٍ ثانية (قنبلة/رماد)
    */
   fire(primary: ExecVictim[], alive: ExecFigure[], opts?: { hold?: boolean }) {
-    if (!this.tpl.M && !this.tpl.F) return false; this.ensureFx();
+    if (!this.ready()) return false; this.ensureFx();
     const all = alive.slice(); primary.forEach(p => { if (!all.some(a => a.id === p.id)) all.push({ id: p.id, gender: p.gender }); });
-    if (this.state !== 'armed') { this.ensureCrowd(all, true); this.setOn(true); } else this.ensureCrowd(all, false);
+    const victimIds = new Set(primary.map(p => p.id));
+    if (this.state !== 'armed') { this.ensureCrowd(all, true, victimIds); this.setOn(true); } else this.ensureCrowd(all, false, victimIds);
+    // المحكومُ القائم منذ التسليح قد يحمل شكلَ دور: يصير محايداً الآن، خلف غطسة الاقتياد
+    this.figs.forEach(f => { if (victimIds.has(f.id) && f.act !== 'dead') this.assertNeutral(f, 'fire'); });
     if (this.endTimer) { clearTimeout(this.endTimer); this.endTimer = null; }
     this.beats = []; this.bi = 0; this.t = 0; const B = (at: number, fn: () => void) => this.beats.push({ t: at, fn });
     // إن كان الحشد ما زال يمشي إلى مواضعه (تلميحٌ متأخّر) ينتظر الاقتيادُ وصولَه — حتى 5 ثوانٍ
@@ -130,7 +182,7 @@ export class ExecutionController {
     let t = this.state === 'armed' ? Math.min(5, Math.max(1.5, remain / 2.0 + .4)) : 3.0;
     if (this.state !== 'armed') { B(0, () => { this.cut('EX_WIDE'); this.emit('gather', null, true); }); }
     primary.forEach(pv => { const t0 = t;
-      B(t0, () => { const f = this.figs.find(x => x.id === pv.id) || null; this.condemned = f; if (f) { this.shadowOn(f); f.goal = [WALL.x + .7, WALL.z]; f.face = [WALL.x + 5, WALL.z + .3];
+      B(t0, () => { const f = this.figs.find(x => x.id === pv.id) || null; this.condemned = f; if (f) { this.assertNeutral(f, 'escort'); this.shadowOn(f); f.goal = [WALL.x + .7, WALL.z]; f.face = [WALL.x + 5, WALL.z + .3];
         // مدّة الاقتياد تتبع المسافة الفعليّة (1.15 م/ث) بين 2.5 و6 ثوانٍ؛ ما بعدها من بِيتات يُزاح بالفرق عن الـ3 ثوانٍ الافتراضيّة
         const d = Math.hypot(WALL.x + .7 - f.root.position.x, WALL.z - f.root.position.z); const dur = Math.min(6, Math.max(2.5, d / 1.15 + .6)); const shift = dur - 3.0; if (Math.abs(shift) > .05) for (let i = this.bi; i < this.beats.length; i++) this.beats[i].t += shift; }
         this.cut('EX_ESCORT'); this.emit('escort', pv.id, true); });
@@ -146,16 +198,16 @@ export class ExecutionController {
   }
   /** ضحايا من بين الحشد (ديل مرتدّ/توأم في الحدث نفسه، أو قنبلة/رماد لاحقاً) */
   fireSecondary(victims: ExecVictim[], alive: ExecFigure[], opts?: { hold?: boolean }) {
-    if (!victims.length) return false; if (!this.tpl.M && !this.tpl.F) return false; this.ensureFx();
-    if (this.state === 'idle' || this.state === 'ending') { const all = alive.slice(); victims.forEach(v => { if (!all.some(a => a.id === v.id)) all.push({ id: v.id, gender: v.gender }); }); if (this.endTimer) { clearTimeout(this.endTimer); this.endTimer = null; } this.ensureCrowd(all, true); this.setOn(true); this.beats = []; this.bi = 0; this.t = 0; }
+    if (!victims.length) return false; if (!this.ready()) return false; this.ensureFx();
+    if (this.state === 'idle' || this.state === 'ending') { const all = alive.slice(); victims.forEach(v => { if (!all.some(a => a.id === v.id)) all.push({ id: v.id, gender: v.gender }); }); if (this.endTimer) { clearTimeout(this.endTimer); this.endTimer = null; } this.ensureCrowd(all, true, new Set(victims.map(v => v.id))); this.setOn(true); this.beats = []; this.bi = 0; this.t = 0; }
     // إن كان المشهد جارياً نُلحق بعد آخر بِيت؛ وإن كان معلّقاً (holding) نبدأ فوراً
     const last = this.beats.length ? Math.max(this.t, this.beats[this.beats.length - 1].t) : this.t;
     let t = this.state === 'holding' ? this.t + .3 : last + .5;
     // أزل بِيت الإنهاء/التعليق السابق (سيُعاد بعد الضحايا الجدد)
     this.beats = this.beats.filter(b => !(b as any).tail); const B = (at: number, fn: () => void) => this.beats.push({ t: at, fn });
     victims.forEach(v => { const t0 = t;
-      B(t0, () => { let f = this.figs.find(x => x.id === v.id && x.act !== 'dead') || null; if (!f) { f = this.make(v.id, v.gender, true); if (f) { f.spot = this.spotOf(this.figs.length, this.figs.length + 1); f.root.position.set(f.spot[0], f.root.position.y, f.spot[1]); f.face = [WALL.x, WALL.z]; this.play(f, 'idle'); this.figs.push(f); } } this.victim = f; if (f) this.shadowOn(f); this.cut('EX_PAN'); this.emit('pan', v.id, false); });
-      B(t0 + 1.4, () => { const f = this.victim; if (f) { f.act = 'stagger'; f.actT = 0; if (f.acts.react_death) this.play(f, 'react_death', true); } this.cut('EX_VICTIM'); this.emit('victim-fall', v.id, false); });
+      B(t0, () => { let f = this.figs.find(x => x.id === v.id && x.act !== 'dead') || null; if (f) this.assertNeutral(f, 'pan'); /* قائمٌ في الحشد بشكلٍ قد يدلّ على دور — يُبدَّل خلف غطسة EX_PAN */ if (!f) { const nid = pickNeutral(v.gender, rnd, this.loadedIds())?.id; if (!nid) console.error(`⚖️ لا محايدَ محمَّلاً للضحيّة #${v.id} — تُترك بلا مجسّم`); f = nid ? this.make(v.id, v.gender, true, nid) : null; if (f) { f.spot = this.spotOf(this.figs.length, this.figs.length + 1); f.root.position.set(f.spot[0], f.root.position.y, f.spot[1]); f.face = [WALL.x, WALL.z]; this.play(f, 'idle'); this.figs.push(f); } } this.victim = f; if (f) this.shadowOn(f); this.cut('EX_PAN'); this.emit('pan', v.id, false); });
+      B(t0 + 1.4, () => { const f = this.victim; if (f) { this.assertNeutral(f, 'stagger'); f.act = 'stagger'; f.actT = 0; if (f.acts.react_death) this.play(f, 'react_death', true); } this.cut('EX_VICTIM'); this.emit('victim-fall', v.id, false); });
       // ⏱️ +0.6 ث (قرار المالك 2026-09-25): كان بين بدء السقوط والدخان نصفُ ثانية
       //    فقط، والمقطعُ الحقيقيّ يحتاج ~1.2 — كان الدخان يسبق وصولَ الجسد للأرض.
       //    وما بعده أُزيح معه كي يبقى الفاصلُ بين البِيتات كما ضُبط.
@@ -177,6 +229,7 @@ export class ExecutionController {
   }
   private shadowOn(f: Fig) { f.root.traverse(o => { if ((o as THREE.Mesh).isMesh) (o as THREE.Mesh).castShadow = true; }); }
   private startFall(f: Fig) {
+    this.assertNeutral(f, 'fall');
     f.act = 'fall'; f.actT = 0;
     // 🎬 تنويعٌ بين المقاطع الموجودة فقط: ملفٌّ واحدٌ يكفي، والثلاثة تمنع تكرار
     //    المشهد نفسه حين يسقط أكثر من واحدٍ في الليلة.
