@@ -13,6 +13,65 @@ import { FEEDBACK_QUESTIONS } from '../services/feedback.service.js';
 
 const router = Router();
 
+// ══════════════════════════════════════════════════════
+// 📝 تحرير الأسئلة — الأسئلة بياناتٌ لا شيفرة
+// ══════════════════════════════════════════════════════
+router.get('/questions', authenticate, managerOrAbove, async (_req: Request, res: Response) => {
+  try {
+    const sv = await import('../services/survey.service.js');
+    const { getBotSettings } = await import('../services/whatsapp-bot.service.js');
+    const bot: any = await getBotSettings().catch(() => null);
+    res.json({
+      success: true,
+      questions: await sv.listQuestions(),
+      settings: sv.getSurveySettings(bot),
+      fiveScale: sv.FIVE_SCALE,
+    });
+  } catch (err: any) { res.status(500).json({ error: err.message }); }
+});
+
+router.post('/questions', authenticate, managerOrAbove, async (req: Request, res: Response) => {
+  try {
+    const sv = await import('../services/survey.service.js');
+    const q = await sv.upsertQuestion(req.body || {});
+    res.json({ success: true, question: q });
+  } catch (err: any) { res.status(400).json({ error: err.message }); }
+});
+
+router.put('/questions/:id', authenticate, managerOrAbove, async (req: Request, res: Response) => {
+  try {
+    const sv = await import('../services/survey.service.js');
+    const q = await sv.upsertQuestion(req.body || {}, parseInt(req.params.id));
+    res.json({ success: true, question: q });
+  } catch (err: any) { res.status(400).json({ error: err.message }); }
+});
+
+// التقاعد لا الحذف — إجاباتُ سؤالٍ محذوفٍ تصير أرقاماً بلا سؤال
+router.delete('/questions/:id', authenticate, managerOrAbove, async (req: Request, res: Response) => {
+  try {
+    const sv = await import('../services/survey.service.js');
+    await sv.retireQuestion(parseInt(req.params.id));
+    res.json({ success: true });
+  } catch (err: any) { res.status(400).json({ error: err.message }); }
+});
+
+// إعدادات الإرسال تعيش مع إعدادات البوت (بجانب followup/restyle)
+router.put('/survey-settings', authenticate, managerOrAbove, async (req: Request, res: Response) => {
+  try {
+    const { updateBotSettings } = await import('../services/whatsapp-bot.service.js');
+    const out = await updateBotSettings({ survey: req.body || {} }, (req as any).user?.username || 'admin');
+    res.json({ success: true, settings: (out as any)?.survey ?? null });
+  } catch (err: any) { res.status(400).json({ error: err.message }); }
+});
+
+// متوسّطات الأسئلة الجديدة (المخزَّنة في JSONB) — الأعمدة القديمة في /stats
+router.get('/new-averages', authenticate, managerOrAbove, async (req: Request, res: Response) => {
+  try {
+    const sv = await import('../services/survey.service.js');
+    res.json({ success: true, rows: await sv.newQuestionAverages(Number(req.query.days) || 30) });
+  } catch (err: any) { res.status(500).json({ error: err.message }); }
+});
+
 const DIMS = ['overall','venue','gameplay','clarity','pacing','seating','leader','fairness','atmosphere','value','recommend'] as const;
 
 function buildFilters(req: Request): SQL[] {

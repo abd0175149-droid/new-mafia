@@ -794,6 +794,21 @@ async function main() {
       await db.execute(sql`ALTER TABLE wa_bot_settings ADD COLUMN IF NOT EXISTS followup JSONB DEFAULT '{}'::jsonb`);
       await db.execute(sql`ALTER TABLE wa_bot_settings ADD COLUMN IF NOT EXISTS restyle JSONB DEFAULT '{}'::jsonb`);
       await db.execute(sql`ALTER TABLE staff ADD COLUMN IF NOT EXISTS tokens_valid_from TIMESTAMP`);
+      await db.execute(sql`ALTER TABLE room_feedback ADD COLUMN IF NOT EXISTS answers JSONB DEFAULT '{}'::jsonb`);
+      await db.execute(sql`
+        CREATE TABLE IF NOT EXISTS survey_questions (
+          id SERIAL PRIMARY KEY,
+          key VARCHAR(40) NOT NULL UNIQUE,
+          text TEXT NOT NULL,
+          type VARCHAR(12) NOT NULL DEFAULT 'likert',
+          channel VARCHAR(8) NOT NULL DEFAULT 'app',
+          options JSONB DEFAULT '[]'::jsonb,
+          sort_order INTEGER NOT NULL DEFAULT 100,
+          enabled BOOLEAN NOT NULL DEFAULT TRUE,
+          column_name VARCHAR(40),
+          created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+          retired_at TIMESTAMP
+        )`);
       await db.execute(sql`ALTER TABLE wa_conversations ADD COLUMN IF NOT EXISTS followup_stage SMALLINT DEFAULT 0`);
       await db.execute(sql`ALTER TABLE wa_conversations ADD COLUMN IF NOT EXISTS followup_last_at TIMESTAMP`);
       await db.execute(sql`ALTER TABLE wa_conversations ADD COLUMN IF NOT EXISTS followup_stopped_at TIMESTAMP`);
@@ -2246,6 +2261,9 @@ async function main() {
     const { startBirthdayScheduler } = await import('./services/chips-rewards.service.js');
     // 🔒 قائمةُ الجلسات المُغلقة — تُحمَّل عند الإقلاع وتُنعَّش كلّ ٣٠ ثانية
     startRevocationWatcher();
+    // 📝 بذرُ الأحد عشر سؤالاً بأعمدتها — لا يلمس صفّاً عُدّل من اللوحة
+    (await import('./services/survey.service.js')).seedSurveyQuestions().catch(e =>
+      console.warn('⚠️ seedSurveyQuestions:', e?.message));
     startBirthdayScheduler();
     const { startExpiryScheduler } = await import('./services/chips-store.service.js');
     startExpiryScheduler();

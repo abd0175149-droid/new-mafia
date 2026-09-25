@@ -164,7 +164,10 @@ function FeedbackInner() {
             <span style={{ color: '#fff', fontSize: 14, fontWeight: 600, lineHeight: 1.5 }}>{q.text}</span>
           </div>
           <div style={{ display: 'flex', gap: 6, justifyContent: 'space-between' }}>
-            {SCALE.map(s => {
+            {/* سؤالٌ بخياراتٍ مخصّصة يُعرض بخياراته — وإلّا فالمقياس ١–٥ الثابت.
+                بلا هذا كانت نصوصُ الخيارات تُكتب من اللوحة ولا تصل اللاعب. */}
+            {(Array.isArray((q as any).options) && (q as any).options.length ? (q as any).options : SCALE).map((raw: any) => {
+              const s = raw.v !== undefined ? raw : { v: raw.score, label: raw.label, color: '#84cc16' };
               const sel = answers[q.key] === s.v;
               return (
                 <button key={s.v}
@@ -178,8 +181,8 @@ function FeedbackInner() {
                     display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2,
                   }}
                 >
-                  <span>{s.v}</span>
-                  <span style={{ fontSize: 8, fontWeight: 600 }}>{sel ? s.label : ''}</span>
+                  <span style={{ fontSize: raw.v !== undefined ? 16 : 11 }}>{raw.v !== undefined ? s.v : s.label}</span>
+                  <span style={{ fontSize: 8, fontWeight: 600 }}>{raw.v !== undefined && sel ? s.label : ''}</span>
                 </button>
               );
             })}

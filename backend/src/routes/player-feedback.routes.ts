@@ -33,9 +33,17 @@ router.get('/:sessionId', authenticatePlayer, async (req: Request, res: Response
   const ctx = await getSessionContext(sessionId, playerId);
   if (!ctx) return res.status(403).json({ error: 'لا يوجد استبيان مطلوب لهذه الغرفة' });
 
+  // الأسئلة صارت بياناتٍ تُحرَّر من اللوحة — و`FEEDBACK_QUESTIONS` شبكةُ أمانٍ
+  // إن لم يُبذَر الجدول بعد (أوّل إقلاعٍ بعد النشرة).
+  const { listQuestions } = await import('../services/survey.service.js');
+  const live = await listQuestions({ channel: 'app', onlyEnabled: true }).catch(() => []);
+  const questions = live.length
+    ? live.map(q => ({ key: q.key, dimension: '', text: q.text, type: q.type, options: q.options }))
+    : FEEDBACK_QUESTIONS;
+
   res.json({
     success: true,
-    questions: FEEDBACK_QUESTIONS,
+    questions,
     alreadyDone: !!ctx.submittedAt,
     context: {
       sessionId,
@@ -60,13 +68,19 @@ router.post('/:sessionId', authenticatePlayer, async (req: Request, res: Respons
     return res.status(400).json({ error: 'الإجابات مطلوبة' });
   }
 
+  // 🔴 المطلوبُ ما هو معروضٌ فعلاً: كان الحارس يشترط الأحد عشر مفتاحاً كلّها،
+  //    فإطفاءُ سؤالٍ من اللوحة كان سيردّ كلّ استجابةٍ بخطأ «إجابة ناقصة».
+  const { listQuestions } = await import('../services/survey.service.js');
+  const live = await listQuestions({ channel: 'app', onlyEnabled: true }).catch(() => []);
+  const asked = live.length ? live.filter(q => q.type !== 'text') : FEEDBACK_KEYS.map(k => ({ key: k } as any));
+
   const clean: Record<string, number> = {};
-  for (const key of FEEDBACK_KEYS) {
-    const v = Number(answers[key]);
+  for (const q of asked) {
+    const v = Number(answers[q.key]);
     if (!Number.isInteger(v) || v < 1 || v > 5) {
-      return res.status(400).json({ error: `إجابة غير صالحة أو ناقصة: ${key}` });
+      return res.status(400).json({ error: `إجابة غير صالحة أو ناقصة: ${q.key}` });
     }
-    clean[key] = v;
+    clean[q.key] = v;
   }
 
   const result = await submitSessionFeedback(sessionId, playerId, clean, typeof notes === 'string' ? notes : undefined);

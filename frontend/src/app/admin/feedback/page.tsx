@@ -7,6 +7,7 @@
 
 import { useEffect, useMemo, useState, useCallback } from 'react';
 import { motion, AnimatePresence, animate } from 'framer-motion';
+import SurveyQuestions from './SurveyQuestions';
 import {
   ResponsiveContainer, LineChart, Line, XAxis, YAxis, Tooltip, CartesianGrid,
 } from 'recharts';
@@ -102,7 +103,7 @@ export default function AdminFeedbackPage() {
   const [to, setTo] = useState('');
   const [activityId, setActivityId] = useState('');
   const [activities, setActivities] = useState<any[]>([]);
-  const [tab, setTab] = useState<'overview' | 'people' | 'comments'>('overview');
+  const [tab, setTab] = useState<'overview' | 'people' | 'comments' | 'questions'>('overview');
   const [search, setSearch] = useState('');
   const [expanded, setExpanded] = useState<number | null>(null);
   const token = typeof window !== 'undefined' ? localStorage.getItem('token') : null;
@@ -224,6 +225,7 @@ export default function AdminFeedbackPage() {
           ['overview', '📊 نظرة عامة'],
           ['people', `👥 المُقيّمون${hasData ? ` · ${respondentsByPerson.length}` : ''}`],
           ['comments', `💬 الملاحظات${data?.comments?.length ? ` · ${data.comments.length}` : ''}`],
+          ['questions', '📝 الأسئلة'],
         ] as const).map(([key, label]) => (
           <button key={key} onClick={() => setTab(key)}
             className={`relative px-4 py-2 text-sm font-bold rounded-lg transition-colors ${
@@ -238,6 +240,30 @@ export default function AdminFeedbackPage() {
       </div>
     </div>
   );
+
+  // 📝 محرّر الأسئلة مستقلٌّ عن ملخّص التقييمات، فلا ينتظر تحميلَه
+  if (tab === 'questions') {
+    return (
+      <div dir="rtl">
+        {toolbar}
+        <div className="mt-4">
+          <SurveyQuestions apiFetch={async (path, opts) => {
+            const res = await fetch(path, {
+              ...opts,
+              headers: {
+                'Content-Type': 'application/json',
+                Authorization: `Bearer ${token}`,
+                ...(opts?.headers || {}),
+              },
+            });
+            const d = await res.json().catch(() => ({}));
+            if (!res.ok) throw new Error(d.error || `خطأ ${res.status}`);
+            return d;
+          }} />
+        </div>
+      </div>
+    );
+  }
 
   if (loading) {
     return (

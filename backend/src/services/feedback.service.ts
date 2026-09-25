@@ -221,18 +221,25 @@ export async function submitSessionFeedback(
   if (ctx.submittedAt) return { ok: true }; // عُبّئ مسبقاً — لا شيء للقيام به
 
   try {
+    // 🔴 الأسئلة الجديدة (بلا عمود) تُكتب في `answers` من نوع JSONB. بلا هذا
+    //    كانت إجاباتها تُرسَل من التطبيق وتسقط في الفراغ بصمت.
+    let extra: Record<string, number> = {};
+    try {
+      const { listQuestions } = await import('./survey.service.js');
+      const qs = await listQuestions({ channel: 'app', onlyEnabled: true });
+      for (const q of qs) {
+        if (!q.column && answers[q.key] !== undefined) extra[q.key] = answers[q.key];
+      }
+    } catch { extra = {}; }
+
+    // 🔴 لا نكتب عموداً لم يُسأل عنه: كان الجسمُ يسند الأحد عشر كلّها، فإطفاءُ
+    //    سؤالٍ من اللوحة يعني محوَ قيمةٍ سابقة (كتقييم وصل من الواتساب) بـNULL.
+    const cols: Record<string, number> = {};
+    for (const k of FEEDBACK_KEYS) if (answers[k] !== undefined) cols[k] = answers[k];
+
     await db.update(roomFeedback).set({
-      overall: answers.overall,
-      venue: answers.venue,
-      gameplay: answers.gameplay,
-      clarity: answers.clarity,
-      pacing: answers.pacing,
-      seating: answers.seating,
-      leader: answers.leader,
-      fairness: answers.fairness,
-      atmosphere: answers.atmosphere,
-      value: answers.value,
-      recommend: answers.recommend,
+      ...cols,
+      ...(Object.keys(extra).length ? { answers: sql`COALESCE(${roomFeedback.answers}, '{}'::jsonb) || ${JSON.stringify(extra)}::jsonb` } : {}),
       notes: notes?.slice(0, 1000) || null,
       submittedAt: new Date(),
     } as any).where(and(

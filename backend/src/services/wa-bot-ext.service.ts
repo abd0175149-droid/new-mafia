@@ -973,19 +973,41 @@ export async function handleExtButton(conv: any, btnId: string, h: ExtHelpers): 
     return true;
   }
 
-  // 📝 استبيان ما بعد الأمسية
-  m = /^srv:(\d+):([1-5])$/.exec(btnId);
+  // 📝 استبيان ما بعد الأمسية — `srv:<صفّ>:<سؤال>:<درجة>`
+  // (الشكل القديم `srv:<صفّ>:<درجة>` يبقى مقبولاً: أزرارٌ أُرسلت قبل النشرة)
+  m = /^srv:(\d+):(\d+):([1-5])$/.exec(btnId) || /^srv:(\d+):()([1-5])$/.exec(btnId);
   if (m) {
-    const rowId = parseInt(m[1]); const score = parseInt(m[2]);
-    const r: any = await db.execute(sql`UPDATE room_feedback SET overall = ${score}, submitted_at = NOW() WHERE id = ${rowId} AND player_id = ${conv.playerId ?? -1} AND submitted_at IS NULL RETURNING id, activity_id`);
-    const row = rowsOf(r)[0];
-    if (!row) { await say('وصل تقييمك قبل هيك 🙏 شكراً إلك.', 'bot'); return true; }
-    await h.sendMessage({ conversationId: conv.id, source: 'bot', interactive: { type: 'button', body: { text: score >= 4 ? 'يسلمو 🎭 تقييمك وصل. بتحب تضيف ملاحظة بكلمتين؟' : 'شكراً لصراحتك 🙏 رأيك بهمّنا. بتحكيلنا شو اللي ما عجبك لنصلّحه؟' },
-      action: { buttons: [{ type: 'reply', reply: { id: `srvn:${rowId}`, title: 'أضيف ملاحظة ✍️' } }, { type: 'reply', reply: { id: 'srv_done', title: 'خلص، شكراً' } }] } } }).catch(() => {});
-    if (score <= 2) {
-      h.notifyAdmins('😕 تقييم منخفض من واتساب', `${conv.displayName || conv.phone} قيّم الأمسية ${score}/5`, { conversationId: conv.id, url: '/admin/feedback' }).catch(() => {});
-      void alertAdminsWA(`survey-low:${rowId}`, `تقييم منخفض (${score}/5) من ${conv.displayName || conv.phone} — يستحقّ متابعة.`, { exceptConvId: conv.id });
+    const rowId = parseInt(m[1]); const qid = m[2] ? parseInt(m[2]) : 0; const score = parseInt(m[3]);
+    const sv = await import('./survey.service.js');
+    const { getBotSettings } = await import('./whatsapp-bot.service.js');
+    const botS: any = await getBotSettings();
+    const cfg = sv.getSurveySettings(botS);
+    const questions = await sv.waQuestions(cfg);
+    const q = questions.find(x => x.id === qid) || questions[0];
+    if (!q) { await say('شكراً إلك 🎭', 'bot'); return true; }
+
+    const ok = await sv.recordAnswer(rowId, conv.playerId ?? -1, q, score);
+    if (!ok) { await say('وصل تقييمك قبل هيك 🙏 شكراً إلك.', 'bot'); return true; }
+
+    const { getAux, setAux } = await import('../config/redis.js');
+    const posKey = `wa-survey-at:${conv.id}`;
+    const pos: any = (await getAux(posKey)) || { rowId, idx: 0, total: questions.length };
+    const nextIdx = Math.max(pos.idx ?? 0, questions.findIndex(x => x.id === q.id)) + 1;
+
+    if (nextIdx < questions.length) {
+      // 🔴 السؤال التالي فوراً — والإجابةُ الأولى محفوظةٌ أصلاً: من يصمت الآن
+      //    يبقى جوابُه، فإجابةٌ واحدة خيرٌ من لا شيء.
+      await setAux(posKey, { rowId, idx: nextIdx, total: questions.length });
+      await sendSurveyQuestion(conv.id, rowId, questions[nextIdx], nextIdx, questions.length).catch(() => {});
+      if (score <= cfg.lowThreshold) void lowScoreAlert(h, conv, rowId, score);
+      return true;
     }
+
+    await sv.closeSurvey(rowId, conv.playerId ?? -1);
+    await h.sendMessage({ conversationId: conv.id, source: 'bot', interactive: { type: 'button',
+      body: { text: score > cfg.lowThreshold ? `يسلمو 🎭 تقييمك وصل. ${cfg.notePrompt}` : `شكراً لصراحتك 🙏 رأيك بهمّنا. ${cfg.notePrompt}` },
+      action: { buttons: [{ type: 'reply', reply: { id: `srvn:${rowId}`, title: 'أضيف ملاحظة ✍️' } }, { type: 'reply', reply: { id: 'srv_done', title: 'خلص، شكراً' } }] } } }).catch(() => {});
+    if (score <= cfg.lowThreshold) void lowScoreAlert(h, conv, rowId, score);
     return true;
   }
   m = /^srvn:(\d+)$/.exec(btnId);
@@ -1139,17 +1161,60 @@ export async function captureSurveyNote(conv: any, text: string, h: ExtHelpers):
   } catch { return false; }
 }
 
+// ══════════════════════════════════════════════════════
+// 📝 إرسال سؤالٍ واحد من أسئلة الاستبيان
+// ══════════════════════════════════════════════════════
+// واتساب يسمح بثلاثة أزرارٍ لا أكثر، بعنوانٍ ≤٢٠ حرفاً. فما زاد على ثلاثة
+// خياراتٍ يُرسل **قائمةً تفاعليّة** (تحتمل عشرة) — وهذا ما يجعل المقياس
+// الخماسيّ الكامل ممكناً بعد أن كان ٥/٤/٢ بلا «متوسّط».
+async function sendSurveyQuestion(convId: number, rowId: number, q: any, idx: number, total: number): Promise<void> {
+  const { sendMessage } = await import('./whatsapp-inbox.service.js');
+  const { FIVE_SCALE } = await import('./survey.service.js');
+  const opts: Array<{ label: string; score: number }> =
+    (q.type === 'scale' && Array.isArray(q.options) && q.options.length ? q.options : FIVE_SCALE);
+  const body = String(q.text || '').slice(0, 900);
+  const tail = total > 1 ? ` (${idx + 1}/${total})` : '';
+
+  if (opts.length <= 3) {
+    await sendMessage({ conversationId: convId, source: 'bot', interactive: { type: 'button',
+      body: { text: body + tail },
+      action: { buttons: opts.map(o => ({ type: 'reply', reply: { id: `srv:${rowId}:${q.id}:${o.score}`, title: o.label.slice(0, 20) } })) } } });
+    return;
+  }
+  await sendMessage({ conversationId: convId, source: 'bot', interactive: { type: 'list',
+    body: { text: body + tail },
+    action: {
+      button: 'اختر تقييمك',
+      sections: [{ rows: opts.slice(0, 10).map(o => ({ id: `srv:${rowId}:${q.id}:${o.score}`, title: o.label.slice(0, 24) })) }],
+    } } });
+}
+
+/** تنبيهُ التقييم المنخفض — يُنادى من موضعين فلا يُكرَّر نصّه */
+function lowScoreAlert(h: any, conv: any, rowId: number, score: number): void {
+  h.notifyAdmins('😕 تقييم منخفض من واتساب', `${conv.displayName || conv.phone} قيّم الأمسية ${score}/5`,
+    { conversationId: conv.id, url: '/admin/feedback' }).catch(() => {});
+  void alertAdminsWA(`survey-low:${rowId}`, `تقييم منخفض (${score}/5) من ${conv.displayName || conv.phone} — يستحقّ متابعة.`, { exceptConvId: conv.id });
+}
+
 async function surveyTick() {
   const db = getDB(); if (!db || !env.WA_TOKEN) return;
   const { getBotSettings } = await import('./whatsapp-bot.service.js');
   const settings: any = await getBotSettings();
   if (!settings.enabled || (settings.toolsConfig?.survey ?? true) === false) return;
-  const { sendingSuspendedReason, sendMessage } = await import('./whatsapp-inbox.service.js');
+  const sv = await import('./survey.service.js');
+  const cfg = sv.getSurveySettings(settings);
+  if (!cfg.enabled) return;
+  const questions = await sv.waQuestions(cfg);
+  if (!questions.length) return;               // لا سؤال على هذه القناة ⇒ لا رسالة
+  const { sendingSuspendedReason } = await import('./whatsapp-inbox.service.js');
   if (sendingSuspendedReason()) return;
+
   const r: any = await db.execute(sql`
     SELECT f.id, f.player_id, c.id AS conv_id, a.name AS activity
       FROM room_feedback f JOIN wa_conversations c ON c.player_id = f.player_id LEFT JOIN activities a ON a.id = f.activity_id
-     WHERE f.submitted_at IS NULL AND f.created_at < NOW() - INTERVAL '15 minutes' AND f.created_at > NOW() - INTERVAL '20 hours'
+     WHERE f.submitted_at IS NULL
+       AND f.created_at < NOW() - (${cfg.delayMin} || ' minutes')::interval
+       AND f.created_at > NOW() - (${cfg.validHours} || ' hours')::interval
        AND c.bot_enabled = true AND c.last_inbound_at > NOW() - INTERVAL '23 hours 30 minutes'
      ORDER BY f.created_at DESC LIMIT 40`);
   const { getAux, setAux } = await import('../config/redis.js');
@@ -1157,12 +1222,17 @@ async function surveyTick() {
   for (const x of rowsOf(r)) {
     if (seenPlayer.has(Number(x.player_id))) continue;           // أحدث غرفة فقط لكلّ لاعب
     seenPlayer.add(Number(x.player_id));
-    if (await getAux(`wa-survey:${x.player_id}`)) continue;       // مرّة واحدة في اليوم لكلّ لاعب
-    await setAux(`wa-survey:${x.player_id}`, { at: Date.now(), rowId: x.id });
+    // مرّة واحدة في الفترة لكلّ لاعب — المهلة داخل القيمة لأنّ `setAux` بـTTL ثابت
+    const seen: any = await getAux(`wa-survey:${x.player_id}`);
+    if (seen && Number(seen.until || 0) > Date.now()) continue;
+    await setAux(`wa-survey:${x.player_id}`, { at: Date.now(), rowId: x.id, until: Date.now() + cfg.onceHours * 3600e3 });
     try {
-      await sendMessage({ conversationId: Number(x.conv_id), source: 'bot', interactive: { type: 'button',
-        body: { text: `🎭 كيف كانت أمسيتك${x.activity ? ` في «${x.activity}»` : ''}؟ تقييمك بكبسة وحدة بساعدنا نحسّن:` },
-        action: { buttons: [{ type: 'reply', reply: { id: `srv:${x.id}:5`, title: '😍 ممتازة' } }, { type: 'reply', reply: { id: `srv:${x.id}:4`, title: '🙂 جيّدة' } }, { type: 'reply', reply: { id: `srv:${x.id}:2`, title: '😕 مش قدّ التوقّع' } }] } } });
+      // موضعُ اللاعب من الأسئلة — النمطُ نفسه المستعمَل في زرّ «أضيف ملاحظة»
+      await setAux(`wa-survey-at:${Number(x.conv_id)}`, { rowId: Number(x.id), idx: 0, total: questions.length });
+      const first = { ...questions[0] };
+      first.text = String(first.text).replace('{الفعاليّة}', x.activity || 'الأمسية');
+      if (questions.length === 1 && !/[؟?]/.test(first.text)) first.text += ' 🎭';
+      await sendSurveyQuestion(Number(x.conv_id), Number(x.id), first, 0, questions.length);
     } catch { /* نافذة أُغلقت */ }
   }
 }
