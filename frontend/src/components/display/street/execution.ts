@@ -18,7 +18,7 @@ export type ExecBeatName = 'gather' | 'escort' | 'close' | 'shot' | 'fall' | 'sm
 export type ExecBeat = { name: ExecBeatName; victimId: number | null; primary: boolean };
 export type ExecTemplate = { scene: THREE.Object3D; h: number; clips: Record<string, THREE.AnimationClip> };
 
-type Fig = { id: number; gender: 'M' | 'F'; root: THREE.Group; tilt: THREE.Group; mixer: THREE.AnimationMixer | null; acts: Record<string, THREE.AnimationAction>; cur: string; spot: [number, number]; home: [number, number]; goal: [number, number] | null; face: [number, number] | null; act: 'idle' | 'stagger' | 'fall' | 'dead'; actT: number; flinch: number; back: number; walk: number };
+type Fig = { id: number; gender: 'M' | 'F'; root: THREE.Group; tilt: THREE.Group; mixer: THREE.AnimationMixer | null; acts: Record<string, THREE.AnimationAction>; cur: string; spot: [number, number]; home: [number, number]; goal: [number, number] | null; face: [number, number] | null; act: 'idle' | 'stagger' | 'fall' | 'dead'; actT: number; flinch: number; back: number; walk: number; fallKey: string | null };
 type Smoke = { ps: { g: THREE.Group; items: { s: THREE.Sprite; life: number; vx?: number; vz?: number }[] }; on: boolean; t: number; origin: THREE.Vector3; light: THREE.PointLight };
 type Beat = { t: number; fn: () => void };
 
@@ -26,6 +26,10 @@ export const TEAM_COLOR: Record<ExecTeam, number> = { CITIZEN: 0x4aa3ff, MAFIA: 
 const FACE = 12 / 2 + 3.2;
 /** موقع الإعدام: الجدار الأيسر شمال باب النادي (اللافتة تبقى في الكادر) */
 const WALL = new THREE.Vector3(-FACE + .85, 0, -12);
+/** مقاطعُ السقوط بترتيب الأفضليّة — يُختار من الموجود منها عشوائيّاً، وغيابُها كلُّها يُبقي السقوط الإجرائيّ */
+const FALL_KEYS = ['fall', 'fall_b', 'fall_c'];
+/** مدّةُ الترنّح الإجرائيّ حين لا يوجد مقطعُ ارتدادٍ حقيقيّ */
+const STAGGER_FALLBACK = .7;
 let seed = 4242; const rnd = () => { seed = (seed * 16807) % 2147483647; return (seed - 1) / 2147483646; };
 
 export class ExecutionController {
@@ -75,7 +79,7 @@ export class ExecutionController {
     const tpl = this.tpl[gender] || this.tpl.M || this.tpl.F; if (!tpl) return null; const E = this.E as any;
     const model = SkeletonUtils.clone(tpl.scene); E.prep(model, shadow, false); E.pinRigidProps(model); model.traverse((o: THREE.Object3D) => { if ((o as THREE.SkinnedMesh).isSkinnedMesh) o.frustumCulled = false; });
     const tilt = new THREE.Group(); tilt.add(model); const root = new THREE.Group(); root.add(tilt); E.fit(root, tpl.h, 'y'); root.position.y += .16; { const bs = E.blobShadow(1.3); bs.position.y = (-root.position.y + .17) / root.scale.x; bs.scale.setScalar(1 / root.scale.x); root.add(bs); }
-    const f: Fig = { id, gender, root, tilt, mixer: null, acts: {}, cur: '', spot: [0, 0], home: [0, 0], goal: null, face: null, act: 'idle', actT: 0, flinch: 0, back: 0, walk: 0 };
+    const f: Fig = { id, gender, root, tilt, mixer: null, acts: {}, cur: '', spot: [0, 0], home: [0, 0], goal: null, face: null, act: 'idle', actT: 0, flinch: 0, back: 0, walk: 0, fallKey: null };
     if (Object.keys(tpl.clips).length) { f.mixer = new THREE.AnimationMixer(model); for (const k of Object.keys(tpl.clips)) f.acts[k] = f.mixer.clipAction(tpl.clips[k]); }
     this.E.scene.add(root); return f;
   }
@@ -151,11 +155,14 @@ export class ExecutionController {
     this.beats = this.beats.filter(b => !(b as any).tail); const B = (at: number, fn: () => void) => this.beats.push({ t: at, fn });
     victims.forEach(v => { const t0 = t;
       B(t0, () => { let f = this.figs.find(x => x.id === v.id && x.act !== 'dead') || null; if (!f) { f = this.make(v.id, v.gender, true); if (f) { f.spot = this.spotOf(this.figs.length, this.figs.length + 1); f.root.position.set(f.spot[0], f.root.position.y, f.spot[1]); f.face = [WALL.x, WALL.z]; this.play(f, 'idle'); this.figs.push(f); } } this.victim = f; if (f) this.shadowOn(f); this.cut('EX_PAN'); this.emit('pan', v.id, false); });
-      B(t0 + 1.4, () => { const f = this.victim; if (f) { f.act = 'stagger'; f.actT = 0; } this.cut('EX_VICTIM'); this.emit('victim-fall', v.id, false); });
-      B(t0 + 2.6, () => { if (this.victim) this.startSmoke(this.victim.root.position, v.team); this.emit('victim-smoke', v.id, false); });
-      B(t0 + 3.8, () => this.emit('victim-flip', v.id, false));
-      B(t0 + 5.4, () => this.emit('victim-gray', v.id, false));
-      t = t0 + 6.5; });
+      B(t0 + 1.4, () => { const f = this.victim; if (f) { f.act = 'stagger'; f.actT = 0; if (f.acts.react_death) this.play(f, 'react_death', true); } this.cut('EX_VICTIM'); this.emit('victim-fall', v.id, false); });
+      // ⏱️ +0.6 ث (قرار المالك 2026-09-25): كان بين بدء السقوط والدخان نصفُ ثانية
+      //    فقط، والمقطعُ الحقيقيّ يحتاج ~1.2 — كان الدخان يسبق وصولَ الجسد للأرض.
+      //    وما بعده أُزيح معه كي يبقى الفاصلُ بين البِيتات كما ضُبط.
+      B(t0 + 3.2, () => { if (this.victim) this.startSmoke(this.victim.root.position, v.team); this.emit('victim-smoke', v.id, false); });
+      B(t0 + 4.4, () => this.emit('victim-flip', v.id, false));
+      B(t0 + 6.0, () => this.emit('victim-gray', v.id, false));
+      t = t0 + 7.1; });
     if (opts?.hold) { const b: any = { t, fn: () => { this.state = 'holding'; this.cut('EX_WIDE'); this.emit('hold', null, false); } }; b.tail = true; this.beats.push(b); }
     else this.pushEnd(t);
     this.beats.sort((a, b) => a.t - b.t); this.bi = this.beats.findIndex(b => b.t > this.t); if (this.bi < 0) this.bi = this.beats.length; this.state = 'running'; return true;
@@ -169,7 +176,16 @@ export class ExecutionController {
     this.endTimer = setTimeout(() => { this.clearCrowd(); this.smokes.forEach(s => { s.on = false; s.ps.g.visible = false; s.light.intensity = 0; s.ps.items.forEach(it => { (it.s.material as THREE.SpriteMaterial).opacity = 0; }); }); this.state = 'idle'; this.setOn(false); this.endTimer = null; }, 9000);
   }
   private shadowOn(f: Fig) { f.root.traverse(o => { if ((o as THREE.Mesh).isMesh) (o as THREE.Mesh).castShadow = true; }); }
-  private startFall(f: Fig) { f.act = 'fall'; f.actT = 0; if (f.acts.fall) this.play(f, 'fall', true); }
+  private startFall(f: Fig) {
+    f.act = 'fall'; f.actT = 0;
+    // 🎬 تنويعٌ بين المقاطع الموجودة فقط: ملفٌّ واحدٌ يكفي، والثلاثة تمنع تكرار
+    //    المشهد نفسه حين يسقط أكثر من واحدٍ في الليلة.
+    const avail = FALL_KEYS.filter(k => f.acts[k]);
+    f.fallKey = avail.length ? avail[Math.floor(rnd() * avail.length)] : null;
+    if (f.fallKey) this.play(f, f.fallKey, true);
+  }
+  /** طولُ مقطعٍ إن وُجد، وإلّا الافتراضيّ */
+  private clipLen(f: Fig, k: string | null, fallback: number) { return k && f.acts[k] ? f.acts[k].getClip().duration : fallback; }
 
   /* ── كلّ إطار ── */
   update(dt: number, time: number) {
@@ -182,8 +198,19 @@ export class ExecutionController {
         if (!f.goal) { if (f.cur !== 'idle') this.play(f, 'idle'); const tgt = f.face || (f !== this.condemned ? [WALL.x, WALL.z] : null); if (tgt) { const ang = Math.atan2(tgt[0] - f.root.position.x, tgt[1] - f.root.position.z); let da = ang - f.root.rotation.y; da = Math.atan2(Math.sin(da), Math.cos(da)); f.root.rotation.y += da * Math.min(1, dt * 5); } }
         if (f.flinch > 0) { f.flinch -= dt; f.tilt.position.z = -Math.sin(Math.max(0, f.flinch) * 6) * .12; } else f.tilt.position.z = 0;
         if (f.back > 0) { f.back -= dt; const dx = f.root.position.x - WX, dz = f.root.position.z - WZ, d = Math.hypot(dx, dz) || 1; f.root.position.x += dx / d * dt * .5; f.root.position.z += dz / d * dt * .5; }
-      } else if (f.act === 'stagger') { f.actT += dt; const k = Math.min(1, f.actT / .7); f.tilt.rotation.z = Math.sin(k * Math.PI) * .35; if (k >= 1) { f.tilt.rotation.z = 0; this.startFall(f); } }
-      else if (f.act === 'fall') { f.actT += dt; if (!f.acts.fall) { const k = Math.min(1, f.actT / 1.1), e = k * k * (3 - 2 * k); f.tilt.rotation.x = Math.PI / 2 * e; f.tilt.position.y = e * .12; /* يسقط إلى الأمام نحو الحشد لا إلى الخلف داخل الواجهة */ } if (f.actT > 1.3) f.act = 'dead'; }
+      } else if (f.act === 'stagger') {
+        f.actT += dt;
+        const dur = this.clipLen(f, f.acts.react_death ? 'react_death' : null, STAGGER_FALLBACK);
+        // بلا مقطعِ ارتدادٍ يبقى الميلُ الإجرائيّ؛ ومعه لا نضيف ميلاً فوق الحركة
+        if (!f.acts.react_death) f.tilt.rotation.z = Math.sin(Math.min(1, f.actT / dur) * Math.PI) * .35;
+        if (f.actT >= dur) { f.tilt.rotation.z = 0; this.startFall(f); }
+      }
+      else if (f.act === 'fall') {
+        f.actT += dt;
+        if (!f.fallKey) { const k = Math.min(1, f.actT / 1.1), e = k * k * (3 - 2 * k); f.tilt.rotation.x = Math.PI / 2 * e; f.tilt.position.y = e * .12; /* يسقط إلى الأمام نحو الحشد لا إلى الخلف داخل الواجهة */ }
+        // الحالةُ تتبع طولَ المقطع لا رقماً ثابتاً — والمقطعُ مثبَّتٌ على آخر إطار
+        if (f.actT > Math.max(1.3, this.clipLen(f, f.fallKey, 1.3))) f.act = 'dead';
+      }
     });
     if (this.flashT >= 0 && this.flashL && this.flashS) { this.flashT += dt; const k = this.flashT; const on = k < .08 || (k > .12 && k < .16); const c = this.condemned?.root.position || WALL; this.flashL.position.set(c.x + 5.5, 1.7, c.z + 1.5); this.flashL.intensity = on ? 30 : 0; this.flashS.position.set(c.x + .15, 1.35, c.z + .05); (this.flashS.material as THREE.SpriteMaterial).opacity = on ? 1 : 0; if (k > .3) { this.flashT = -1; (this.flashS.material as THREE.SpriteMaterial).opacity = 0; this.flashL.intensity = 0; } }
     if (this.shake > 0) { this.shake -= dt; this.E.camera.position.x += (rnd() - .5) * this.shake * .3; this.E.camera.position.y += (rnd() - .5) * this.shake * .3; }

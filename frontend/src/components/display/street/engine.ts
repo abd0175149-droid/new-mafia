@@ -180,6 +180,13 @@ const SURFACES: Record<string, { name: string; rep: [number, number] }> = { bric
 const ANIM = (n: string) => `${ASSET_ROOT}/anim/${n}.glb`;
 const SFB = (n: string) => `${ASSET_ROOT}/sketchfab/${n}/scene.glb`;
 
+/**
+ * مقاطعُ السقوط: تُحمَّل إن وُجدت (اختياريّة)، وهي وحدها التي يُحتفظ لها بارتفاع
+ * الحوض. المشي والوقوف والتدخين والجلوس لا يمسّها التعديل — حوضُها ثابتٌ أصلاً
+ * وإضافةُ مسارٍ لها تُدخل انزلاقاً لا وجود له اليوم.
+ */
+const FALL_CLIPS = ['fall', 'fall_b', 'fall_c', 'react_death'];
+
 /** الإحماء: يُستدعى من اللوبي كي تكون الأصول في الذاكرة قبل أوّل ليل */
 export function preloadStreetAssets() {
   if (typeof window === 'undefined') return;
@@ -523,7 +530,7 @@ class StreetEngine {
    * لا تُلمس مصفوفات الربط ولا يُستدعى pose() (SkeletonUtils.retarget كان يُفسد الجلد).
    */
   /** يُنفَّذ على دفعات (30 إطاراً ثمّ يُفسح للمتصفّح): كان يجمّد اللوبي ~22 ثانية لثلاثة موديلات × أربعة مقاطع */
-  async retargetLocal(target: THREE.SkinnedMesh, srcHips: THREE.Bone, clip: THREE.AnimationClip, names: Record<string, string>, restFrame: boolean): Promise<THREE.AnimationClip> {
+  async retargetLocal(target: THREE.SkinnedMesh, srcHips: THREE.Bone, clip: THREE.AnimationClip, names: Record<string, string>, restFrame: boolean, grounded = false, label = ''): Promise<THREE.AnimationClip> {
     const fps = 30, n = Math.max(2, Math.round(clip.duration * fps)); const times = new Float32Array(n); for (let i = 0; i < n; i++) times[i] = i / fps;
     // ترتيب هرميّ لعظام الهدف (من الجذر إلى الأطراف)
     const bones = target.skeleton.bones; const set = new Set<THREE.Object3D>(bones); const roots = bones.filter(b => !b.parent || !set.has(b.parent)); const ordered: THREE.Bone[] = []; const walk = (b: THREE.Object3D) => { if (set.has(b)) ordered.push(b as THREE.Bone); b.children.forEach(walk); }; roots.forEach(walk);
@@ -535,6 +542,31 @@ class StreetEngine {
     const offset = new Map<THREE.Bone, THREE.Quaternion>(); ordered.forEach(b => { const sn = names[b.name]; if (!sn || !srcByName.has(sn)) return; offset.set(b, restFrame
       ? restWorld.get(b)!.clone().multiply(srcRestWorld.get(sn)!.clone().invert())
       : srcRestWorld.get(sn)!.clone().invert().multiply(restWorld.get(b)!)); });
+    // ── ارتفاع الحوض (مقاطع السقوط وحدها) ──────────────────────────────
+    // 🔴 إعادةُ التوجيه تبعث الدورانات فقط، فارتفاعُ الحوض يُحذف. هذا لا يضرّ
+    //    المشي والوقوف (القدمان على الأرض والحوض ثابت)، لكنّ السقوط ينزل فيه
+    //    الحوضُ من متر إلى الأرض: بلا هذا المسار يلتفّ الجسدُ ويبقى طائراً.
+    //    نأخذ Y وحدها (X وZ يبقيان عند الراحة ⇒ In Place فعليّ) ونضربها بنسبة
+    //    ارتفاع حوض الهدف إلى ارتفاع حوض المصدر، فتصلح لأيّ طول.
+    //    القياسُ بالموضع **العالميّ**: قيمُ المسار المحلّيّة في ملفّات Mixamo
+    //    تعيش في إطارٍ مُدار (‎+90°X من Blender) فـY المحلّيّة ليست الارتفاع.
+    let hipsBone: THREE.Bone | null = null, srcHipsBone: THREE.Bone | null = null;
+    let hipsOut: Float32Array | null = null, hipsScale = 1, srcRestY = 0;
+    const hipsRestWorld = new THREE.Vector3(), hipsParentInv = new THREE.Matrix4();
+    if (grounded) {
+      hipsBone = ordered.find(b => names[b.name] && coreBoneName(b.name) === 'Hips') || null;
+      const sn = hipsBone ? names[hipsBone.name] : null;
+      srcHipsBone = sn ? (srcByName.get(sn) || null) : null;
+      if (hipsBone && srcHipsBone) {
+        hipsBone.getWorldPosition(hipsRestWorld);
+        srcRestY = srcHipsBone.getWorldPosition(new THREE.Vector3()).y;
+        hipsScale = Math.abs(srcRestY) > 1e-6 ? hipsRestWorld.y / srcRestY : 1;
+        const p = hipsBone.parent; if (p) { p.updateWorldMatrix(true, false); hipsParentInv.copy(p.matrixWorld).invert(); }
+        hipsOut = new Float32Array(n * 3);
+      } else {
+        console.error(`🎬 «${label || clip.name}»: لم يُعثر على عظمة الحوض — سيُحذف ارتفاعُها ويبقى الجسد طائراً.`);
+      }
+    }
     // تشغيل المصدر إطاراً إطاراً وتجميع الدورانات المحلّيّة للهدف
     const mixer = new THREE.AnimationMixer(srcHips); const action = mixer.clipAction(clip); action.play(); mixer.update(0);
     const out = new Map<THREE.Bone, Float32Array>(); ordered.forEach(b => out.set(b, new Float32Array(n * 4)));
@@ -543,13 +575,50 @@ class StreetEngine {
     for (let i = 0; i < n; i++) {
       if (i % 30 === 29) await new Promise(r => setTimeout(r, 0));
       mixer.setTime(i / fps); srcHips.updateMatrixWorld(true); const worldNow = new Map<THREE.Bone, THREE.Quaternion>();
+      if (hipsOut && srcHipsBone) { const w = hipsRestWorld.clone(); w.y += (srcHipsBone.getWorldPosition(new THREE.Vector3()).y - srcRestY) * hipsScale; w.applyMatrix4(hipsParentInv); hipsOut[i * 3] = w.x; hipsOut[i * 3 + 1] = w.y; hipsOut[i * 3 + 2] = w.z; }
       for (const b of ordered) { const pw = parentWorldOf(b, worldNow); const sn = names[b.name]; let local: THREE.Quaternion;
         if (sn && srcByName.has(sn)) { srcByName.get(sn)!.getWorldQuaternion(qs); if (restFrame) q.copy(offset.get(b)!).multiply(qs); else q.copy(qs).multiply(offset.get(b)!); local = pw.clone().invert().multiply(q); } else local = restLocal.get(b)!.clone();
         worldNow.set(b, pw.clone().multiply(local)); const arr = out.get(b)!; arr[i * 4] = local.x; arr[i * 4 + 1] = local.y; arr[i * 4 + 2] = local.z; arr[i * 4 + 3] = local.w; }
     }
     action.stop(); mixer.uncacheRoot(srcHips);
     const tracks: THREE.KeyframeTrack[] = []; ordered.forEach(b => { if (!offset.has(b)) return; tracks.push(new THREE.QuaternionKeyframeTrack(`${b.name}.quaternion`, times, out.get(b)!)); });
+    if (hipsOut && hipsBone) {
+      tracks.push(new THREE.VectorKeyframeTrack(`${hipsBone.name}.position`, times, hipsOut));
+      this.reportGround(target, ordered, out, hipsBone, hipsOut, n, label || clip.name);
+    }
     return new THREE.AnimationClip(clip.name, n / fps, tracks);
+  }
+  /**
+   * مع `clampWhenFinished` يثبت الجسد على آخر إطار — فإن كان تحت الأرض غاص وإن
+   * كان فوقها طاف. نضع الهيكل على آخر إطار، نقيس أخفض نقطةٍ في الجلد فعلاً
+   * (`computeBoundingBox` يطبّق العظام)، ثمّ نعيد وضعيّة الراحة كما كانت —
+   * الهدفُ نفسه يُعاد استعماله للمقطع التالي، وتركُه مقلوباً يفسد ما بعده.
+   */
+  private reportGround(target: THREE.SkinnedMesh, ordered: THREE.Bone[], out: Map<THREE.Bone, Float32Array>, hipsBone: THREE.Bone, hipsOut: Float32Array, n: number, label: string) {
+    let top: THREE.Object3D = target; while (top.parent) top = top.parent;
+    const savedQ = ordered.map(b => b.quaternion.clone()); const savedP = hipsBone.position.clone();
+    try {
+      top.updateMatrixWorld(true); target.computeBoundingBox();
+      const restBB = target.boundingBox!.clone().applyMatrix4(target.matrixWorld);
+      const base = restBB.min.y, h = restBB.max.y - restBB.min.y;
+      const i = n - 1;
+      ordered.forEach(b => { const a = out.get(b)!; b.quaternion.set(a[i * 4], a[i * 4 + 1], a[i * 4 + 2], a[i * 4 + 3]); });
+      hipsBone.position.set(hipsOut[i * 3], hipsOut[i * 3 + 1], hipsOut[i * 3 + 2]);
+      top.updateMatrixWorld(true); target.computeBoundingBox();
+      const endBB = target.boundingBox!.clone().applyMatrix4(target.matrixWorld);
+      const drop = endBB.min.y - base;                       // سالبٌ = غاص تحت الأرض
+      const lie = (endBB.max.y - endBB.min.y) / (h || 1);     // نسبةُ الارتفاع الباقي: ممدّدٌ ⇒ صغيرة
+      const tol = h * 0.03;
+      const ok = Math.abs(drop) <= tol;
+      console[ok ? 'info' : 'error'](
+        `🎬 «${label}» آخر إطار: أخفضُ نقطةٍ ${drop >= 0 ? '+' : ''}${drop.toFixed(3)} م عن أرض الراحة ` +
+        `(المسموح ±${tol.toFixed(3)}) · الارتفاع الباقي ${(lie * 100).toFixed(0)}% من الوقوف ${ok ? '✅' : '❌ اضبط المقطع'}`,
+      );
+    } catch (e) { console.warn('🎬 تعذّر قياس استقرار السقوط:', label, String(e)); }
+    finally {
+      ordered.forEach((b, k) => b.quaternion.copy(savedQ[k])); hipsBone.position.copy(savedP);
+      top.updateMatrixWorld(true);
+    }
   }
   private async loadCrowd() {
     const [idle, walk, smoke, sit] = await Promise.all(['neutral_idle', 'walking', 'smoking', 'sitting'].map(n => loadGLTF(ANIM(n))));
@@ -569,7 +638,7 @@ class StreetEngine {
       { src: 'mafia_boss_lite', glb: true, n: 1, kinds: ['seat'], night: [true], day: [true], sides: [1], zs: [-2.6], h: 1.75 },
     ];
     // ⚖️ حركات الإقصاء (اختياريّة): إن وُجدت anim/fall.glb و anim/react_death.glb تُستخدم، وإلّا سقوطٌ إجرائيّ
-    const extra: Record<string, THREE.AnimationClip> = {}; for (const n of ['fall', 'react_death']) { const g = await loadGLTF(ANIM(n), true); if (g?.animations?.[0]) extra[n] = g.animations[0]; }
+    const extra: Record<string, THREE.AnimationClip> = {}; for (const n of FALL_CLIPS) { const g = await loadGLTF(ANIM(n), true); if (g?.animations?.[0]) extra[n] = g.animations[0]; }
     const allClips = { ...clips, ...extra };
     /** إعادة الاستهداف مرّةً لكلّ موديل (لا لكلّ نسخة): المقاطع المعاد استهدافها تُسمّى عظامها بالاسم فتصلح لكلّ النسخ */
     const retargetSet = async (src: string, scene: THREE.Object3D): Promise<Record<string, THREE.AnimationClip>> => {
@@ -584,7 +653,7 @@ class StreetEngine {
         // أقلُّ من الحدّ ⇒ لا مقاطع: `rset` فارغةٌ فيشتغل البديل الإجرائيّ أدناه،
         // بدل mixerٍ يُركَّب على مقاطع بصفر مسارات فتقف الشخصيّة متجمّدة.
         if (!map.ok) { this.retargetCache[src] = out; return out; }
-        for (const k of Object.keys(allClips)) out[k] = await this.retargetLocal(sk as THREE.SkinnedMesh, skeleton, allClips[k], map.names, map.mixamoRig);
+        for (const k of Object.keys(allClips)) out[k] = await this.retargetLocal(sk as THREE.SkinnedMesh, skeleton, allClips[k], map.names, map.mixamoRig, FALL_CLIPS.includes(k), `${src}/${k}`);
         console.info('🏙️ retarget', src, Object.keys(out).join(','), 'tracks', Object.values(out).map(c => c.tracks.length).join('/'), 'mapped', map.matched, '/', targetNames.length, map.mixamoRig ? '· إطار الراحة (Mixamo)' : '· دلتا عالميّة');
       } catch (e) { console.error('🏙️ فشلت إعادة التوجيه، البديل الإجرائيّ يعمل:', src, String(e)); }
       this.retargetCache[src] = out; return out;
