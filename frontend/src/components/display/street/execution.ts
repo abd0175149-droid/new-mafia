@@ -193,7 +193,10 @@ export class ExecutionController {
       B(t0 + 6.4, () => this.emit('flip', pv.id, true));
       B(t0 + 8.2, () => this.emit('gray', pv.id, true));
       t = t0 + 10; });
-    if (opts?.hold) B(t, () => { this.state = 'holding'; this.cut('EX_WIDE'); this.emit('hold', null, true); });
+    // 🔴 بِيتُ التعليق يُوسم `tail` مثل بِيت الإنهاء: `fireSecondary` يزيل الذيل ويعيده بعد ضحاياه.
+    //    بلا الوسم كانت ضحايا الحشد الفوريّة (ديل مرتدّ/توأم، تُطلق مباشرةً بعد fire) تُلحَق
+    //    بعد التعليق — والتعليقُ يوقف الزمن — فلا تُكشف أبداً (كشفته محاكاةُ الحياد 2026-09-26).
+    if (opts?.hold) { const b: any = { t, fn: () => { this.state = 'holding'; this.cut('EX_WIDE'); this.emit('hold', null, true); } }; b.tail = true; this.beats.push(b); }
     else this.pushEnd(t);
     this.state = 'running'; return true;
   }
