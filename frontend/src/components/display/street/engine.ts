@@ -40,6 +40,10 @@ export type StreetEvent = 'KILL' | 'SAVED' | 'SILENCE' | 'DISABLE' | 'SNIPE';
 export type Quality = 'high' | 'med' | 'low';
 
 const STREET_W = 12, SIDE_W = 3.2, FACE = STREET_W / 2 + SIDE_W;
+/** ممرّا المشاة على الرصيف (مسافةً من الواجهة): جانبُ الشارع للقادم نحو الكاميرا، وجانبُ الواجهة للذاهب */
+const WALK_LANE_CURB = 2.5, WALK_LANE_WALL = 1.85;
+/** أدنى مسافةٍ بين ماشيَين قبل أن يقف الخلفيّ */
+const WALK_MIN_GAP = .9;
 const ASSET_ROOT = '/3d';
 const DISPOSE_AFTER_MS = 90_000;
 
@@ -402,18 +406,19 @@ class StreetEngine {
     this.place('metal_trash_can', .9, 'y', [[-FACE + 1.0, -16, .3], [FACE - 1.1, -30, 2.4], [-FACE + 1.1, -44, 1.1]]);
     this.place('water_manhole_cover', .7, 'x', [[2.2, -14, 0]], .01, false);
     loadGLTF(PH('modular_fire_escape')).then(g => { if (!g || this.disposed) return; ([[-1, -18], [1, -34], [-1, -52]] as [number, number][]).forEach(([side, z]) => { const m = this.prep(g.scene.clone(true)); this.fit(m, 9.5, 'y'); m.position.set(side * (FACE + .1), 3.3, z); m.rotation.y = side > 0 ? -Math.PI / 2 : Math.PI / 2; S.add(m); }); });
-    this.place('wooden_crate_01', .8, 'x', [[FACE - 1.4, -27.5, .2], [FACE - 1.4, -28.4, 1.1], [FACE - .7, -27.9, -.3]]); this.place('wooden_crate_02', 1.15, 'x', [[FACE - 1.5, -26.3, .1]]);
-    this.place('wooden_barrels_01', 1.4, 'x', [[-FACE + 1.6, -40.5, .4]]); this.place('painted_wooden_bench', 1.8, 'x', [[-FACE + 1.4, -10, Math.PI / 2]]);
-    this.place('outdoor_table_chair_set_01', 1.6, 'x', [[FACE - 1.7, -1.6, .3], [FACE - 1.7, -3.6, -.2]]); this.place('standing_chalkboard_01', .9, 'y', [[FACE - 1.0, -.4, -.6]]);
-    this.place('planter_box_01', 1.0, 'x', [[-FACE + 1.0, -13.2, Math.PI / 2], [FACE - 1.0, -21.6, Math.PI / 2]]); this.place('cardboard_box_01', .6, 'x', [[-FACE + 1.9, -16.4, .5], [FACE - 2.0, -30.9, 1.3]]);
-    this.place('trashbag', .7, 'x', [[-FACE + 1.5, -16.9, 0], [-FACE + 2.1, -44.6, 2]]); this.place('wooden_ladder', 3.2, 'y', [[-FACE + .35, -58, Math.PI / 2 + .35]], .16);
+    this.place('wooden_crate_01', .8, 'x', [[FACE - 1.1, -27.5, .2], [FACE - 1.1, -28.4, 1.1], [FACE - .5, -27.9, -.3]]); this.place('wooden_crate_02', 1.15, 'x', [[FACE - .95, -26.3, .1]]);
+    this.place('wooden_barrels_01', 1.4, 'x', [[-FACE + .95, -40.5, .4]]); this.place('painted_wooden_bench', 1.8, 'x', [[-FACE + 1.4, -10, Math.PI / 2]]);
+    // 🪑 الأثاثُ ملاصقٌ للواجهة (≥ 7.7 من المحور) خارج شريط المشي [6.7, 7.35]
+    this.place('outdoor_table_chair_set_01', 1.6, 'x', [[FACE - .95, -1.6, .3], [FACE - .95, -3.6, -.2]]); this.place('standing_chalkboard_01', .9, 'y', [[FACE - .6, -.4, -.6]]);
+    this.place('planter_box_01', 1.0, 'x', [[-FACE + 1.0, -13.2, Math.PI / 2], [FACE - 1.0, -21.6, Math.PI / 2]]); this.place('cardboard_box_01', .6, 'x', [[-FACE + 1.1, -16.4, .5], [FACE - 1.1, -30.9, 1.3]]);
+    this.place('trashbag', .7, 'x', [[-FACE + .9, -16.9, 0], [-FACE + 1.0, -44.6, 2]]); this.place('wooden_ladder', 3.2, 'y', [[-FACE + .35, -58, Math.PI / 2 + .35]], .16);
     this.place('covered_car', 4.4, 'z', [[3.4, -46, .02]], 0);
     // أعمدة الكهرباء (أصل بدل الإجرائيّ)
     loadGLTF(PH('modular_electricity_poles')).then(g => { if (!g || this.disposed) return; [-11, -50].forEach(z => { const m = this.prep(g.scene.clone(true)); this.fit(m, 7.4, 'y'); m.position.set(-6.2, 0, z); m.rotation.y = Math.PI / 2; S.add(m); }); });
     // ديورامة 1930: صناديق وسلّة وصحيفة
     loadGLTF(SF('diorama1930')).then(g => { if (!g || this.disposed) return; const pick = (rx: RegExp) => { let hit: THREE.Object3D | null = null; g.scene.traverse((o: THREE.Object3D) => { if (!hit && rx.test(o.name)) hit = o; }); return hit as THREE.Object3D | null; };
       const put = (o: THREE.Object3D | null, size: number, x: number, z: number, r: number) => { if (!o) return; const m = this.prep(o.clone(true)); this.fit(m, size, 'y'); m.position.set(x, .16, z); m.rotation.y = r; S.add(m); };
-      put(pick(/^crate low_7/), .6, FACE - 2.4, -29.2, .6); put(pick(/^crate low2/), .6, -FACE + 2.3, -41.6, 1.9); put(pick(/^kosz/), .9, FACE - 1.2, -41, .2); put(pick(/^Newspaper/), .3, -FACE + 2.2, -9.2, .4); });
+      put(pick(/^crate low_7/), .6, FACE - 1.0, -29.2, .6); put(pick(/^crate low2/), .6, -FACE + 1.1, -41.6, 1.9); put(pick(/^kosz/), .9, FACE - 1.2, -41, .2); put(pick(/^Newspaper/), .3, -FACE + 2.2, -9.2, .4); });
     // 🏛️ طقم الواجهات البنّيّة — يستبدل المباني الإجرائيّة كاملةً
     track(loadGLTF(SF('brownstone')).then(g => { if (!g || this.disposed) return; this.buildBrownstoneStreet(g.scene); }));
     // المظلّات والشرفات وحبال الغسيل (أصول)
@@ -716,8 +721,19 @@ class StreetEngine {
   private updateCrowd(dt: number, time: number) {
     this.walkers.forEach(w => { if (!w.root.visible) return; w.mixer?.update(dt);
       if (w.kind === 'walk') {
+        // 🚶 ممرّان على الرصيف بقاعدة «الزم يمينك»: القادمُ نحو الكاميرا (+z) على جانب
+        //    الرصيف الملاصق للشارع، والذاهبُ (−z) على الجانب الملاصق للواجهة. كان الجميع
+        //    على خطٍّ واحد فيخترق المتقابلان بعضهما. الممرّان داخل الشريط |x| ∈ [6.7, 7.35]:
+        //    خلف أعمدة الإنارة (±6.2) وقبل الأثاث الملاصق للواجهة (≥ 7.7).
+        const laneX = w.side * (FACE - (w.dir > 0 ? WALK_LANE_CURB : WALK_LANE_WALL));
+        w.root.position.x += (laneX - w.root.position.x) * Math.min(1, dt * 2.5);
         if (w.pause > 0) { w.pause -= dt; this.playW(w, 'idle'); if (w.pause <= 0) this.playW(w, 'walk'); }
-        else { if (rnd() < dt * .03) w.pause = 2 + rnd() * 4; w.z += w.dir * w.speed * dt; if (w.z > 2) w.dir = -1; if (w.z < -66) w.dir = 1; w.root.position.z = w.z; w.root.rotation.y += ((w.dir > 0 ? 0 : Math.PI) - w.root.rotation.y) * .1; if (w.mixer && w.acts.walk) w.acts.walk.timeScale = w.speed / 1.25;
+        else {
+          // 🚧 من أمامه أحدٌ على مسافةٍ قريبة يقف حتّى يبتعد (طابورٌ طبيعيّ خلف المتوقّف)
+          const blocked = this.walkers.some(o => o !== w && o.root.visible && o.kind !== 'seat' && Math.abs(o.root.position.x - w.root.position.x) < WALK_MIN_GAP && (o.z - w.z) * w.dir > 0 && Math.abs(o.z - w.z) < WALK_MIN_GAP * 2);
+          if (blocked) { this.playW(w, 'idle'); }
+          else { if (w.cur !== 'walk') this.playW(w, 'walk'); if (rnd() < dt * .03) w.pause = 2 + rnd() * 4; w.z += w.dir * w.speed * dt; if (w.z > 2) w.dir = -1; if (w.z < -66) w.dir = 1; }
+          w.root.position.z = w.z; w.root.rotation.y += ((w.dir > 0 ? 0 : Math.PI) - w.root.rotation.y) * .1; if (w.mixer && w.acts.walk) w.acts.walk.timeScale = w.speed / 1.25;
           if (w.gait) { const s = Math.sin(time * 6 * w.speed); w.gait.hips.forEach((b, i) => b.rotation.x = (i ? -s : s) * .5); w.gait.knees.forEach((b, i) => b.rotation.x = Math.max(0, (i ? s : -s)) * .7); w.gait.arms.forEach((b, i) => b.rotation.x = (i ? s : -s) * .35); } }
       }
       if (w === this.figLamp && this.mode === 'night') { const B = w.root; if (!w.mixer) B.position.y = w.groundY + Math.sin(time * 1.3) * .012; if (this.gestureT >= 0) { this.gestureT += dt; const g = Math.sin(Math.min(1, this.gestureT / 3.2) * Math.PI); B.rotation.y = .6 + g * (this.gestureKind === 'shush' ? -.5 : .8); if (this.gestureT > 3.2) { this.gestureT = -1; B.rotation.y = .6; } } }
