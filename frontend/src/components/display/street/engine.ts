@@ -196,8 +196,8 @@ const GROUNDED_CLIPS = new Set(['sit', ...FALL_CLIPS]);
 /** الإحماء: يُستدعى من اللوبي كي تكون الأصول في الذاكرة قبل أوّل ليل */
 export function preloadStreetAssets() {
   if (typeof window === 'undefined') return;
-  ['street_lamp_01', 'street_lamp_02', 'fire_hydrant', 'modular_fire_escape', 'metal_trash_can', 'water_manhole_cover', 'modular_electricity_poles', 'wooden_crate_01', 'wooden_crate_02', 'wooden_barrels_01', 'painted_wooden_bench', 'outdoor_table_chair_set_01', 'standing_chalkboard_01', 'planter_box_01', 'cardboard_box_01', 'trashbag', 'wooden_ladder', 'covered_car'].forEach(n => loadGLTF(PH(n)));
-  ['pierce_arrow', 'coupe33', 'fedoras', 'brownstone', 'awning', 'balcony', 'clothesline', 'diorama1930'].forEach(n => loadGLTF(SF(n)));
+  ['street_lamp_01', 'street_lamp_02', 'fire_hydrant', 'modular_fire_escape', 'metal_trash_can', 'water_manhole_cover', 'modular_electricity_poles', 'wooden_crate_01', 'wooden_crate_02', 'wooden_barrels_01', 'painted_wooden_bench', 'outdoor_table_chair_set_01', 'standing_chalkboard_01', 'planter_box_01', 'cardboard_box_01', 'trashbag', 'wooden_ladder'].forEach(n => loadGLTF(PH(n)));
+  ['pierce_arrow', 'coupe33', 'fedoras', 'brownstone', 'awning', 'balcony', 'diorama1930'].forEach(n => loadGLTF(SF(n)));
   loadGLTF(SFB('mafia_boss')); loadGLTF(SFB('mafia_boss_lite')); ['neutral_idle', 'walking', 'smoking', 'sitting'].forEach(n => loadGLTF(ANIM(n)));
   Object.values(SURFACES).forEach(s => { loadTex(TEX(s.name, 'diff'), true, s.rep); loadTex(TEX(s.name, 'nor'), false, s.rep); loadTex(TEX(s.name, 'rough'), false, s.rep); });
   loadHDR(`${ASSET_ROOT}/hdri/moonless_golf_1k.hdr`); loadHDR(`${ASSET_ROOT}/hdri/klippad_sunrise_2_1k.hdr`);
@@ -239,7 +239,7 @@ class StreetEngine {
   shots!: Record<string, Shot>; cur = 'A'; shotT = 0; order = ['A', 'B', 'C']; oi = 0; evShot: string | null = null; _p = new THREE.Vector3(-.8, 1.7, 11); _l = new THREE.Vector3(.4, 2, -30); sway = new THREE.Vector3(); cutting = false; frameShift = 0;
   ev = { silence: 0, disable: 0, snipe: 0, kill: 0, saved: 0 }; posterCb: ((url: string) => void) | null = null; fpsEma = 0; facadeGroup: THREE.Group | null = null; ready = false; readyAt = 0; assetsReady: Promise<void> = Promise.resolve();
   prewarmDone = false; warming = false; prewarmMs = 0; posters: Partial<Record<StreetMode, string>> = {}; lastFrameAt = 0; frameIndex = 0; transMarkAt = 0; transPending = false; lastTransitionMs = 0; dusk = false;
-  STEAM_O = new THREE.Vector3(2.2, .1, -14); EXH_O = new THREE.Vector3(3.4, .4, -6.6);
+  STEAM_O = new THREE.Vector3(2.2, .1, -14); EXH_O = new THREE.Vector3(4.7, .4, -6.6);
   /** للشارة التشخيصيّة */
   lastTris = 0; lastCalls = 0; shadowEvery = 2;
   /** اسم بطاقة الرسوميّات كما يراها المتصفّح (Intel مدمجة أم NVIDIA/AMD منفصلة) — يحسم سبب الإطارات القليلة على لابتوبات القاعة */
@@ -321,10 +321,10 @@ class StreetEngine {
     this.envNight = cube([[0, '#0b0d16'], [.6, '#1a1712'], [1, '#3a2a14']], true); this.envDawn = cube([[0, '#5b6f9a'], [.55, '#f2a86b'], [1, '#4a3a2a']], false); S.environment = this.envNight;
     // hat (fedora asset replaces the procedural stand-in), cars (assets replace stand-ins)
     { const c = new THREE.Mesh(new THREE.CylinderGeometry(.14, .16, .16, 14), MAT.dark); c.position.y = .09; c.name = 'proc'; this.hat.add(c); const b = new THREE.Mesh(new THREE.CylinderGeometry(.3, .3, .02, 18), MAT.dark); b.name = 'proc'; this.hat.add(b); this.hat.position.set(-FACE + 1.7, 6, -4.2); this.hat.scale.setScalar(1.7); this.hat.visible = false; S.add(this.hat); this.hatLight = new THREE.PointLight(0xffd9a0, 0, 7, 2); this.hatLight.position.set(-FACE + 2.8, 2.4, -3.6); S.add(this.hatLight); }
-    this.car.position.set(3.6, 0, -9); this.car.rotation.y = Math.PI / 2 + .05; S.add(this.car); this.car2.position.set(-3.5, 0, -31); this.car2.rotation.y = -Math.PI / 2 - .04; S.add(this.car2);
+    /* عند الرصيف (حافّته ±6): كانتا على ±3.5 أي في حارة السير على 1.6م من الرصيف */ this.car.position.set(4.9, 0, -9); this.car.rotation.y = Math.PI / 2 + .05; S.add(this.car); this.car2.position.set(-4.9, 0, -31); this.car2.rotation.y = -Math.PI / 2 - .04; S.add(this.car2);
     this.ember = new THREE.Mesh(new THREE.SphereGeometry(.018, 6, 6), new THREE.MeshBasicMaterial({ color: new THREE.Color(0xff6a2a).multiplyScalar(6), toneMapped: false })); this.ember.position.set(-FACE + 2.1, 1.45, -2.9); S.add(this.ember); this.emberLight = new THREE.PointLight(0xff6a2a, .8, 1.4, 2); this.emberLight.position.copy(this.ember.position); S.add(this.emberLight);
     for (let k = 0; k < 7; k++) { const s = new THREE.Sprite(new THREE.SpriteMaterial({ map: this.soft, color: 0xd8d8e0, transparent: true, opacity: 0 })); s.scale.set(.35, .22, 1); S.add(s); this.pigeons.push({ s, t: -1, ox: FACE - 1.5 + (rnd() - .5) * 2, oz: -11 + (rnd() - .5) * 3 }); }
-    const STEAM_O = new THREE.Vector3(2.2, .1, -14); this.steam = this.particles(14, 0x8a8580, .7, STEAM_O, 1.4); this.purple = this.particles(44, 0x5a2ea0, 1.5, STEAM_O, 2.4); this.exhaust = this.particles(6, 0x777780, .4, new THREE.Vector3(3.4, .4, -6.6), .4);
+    const STEAM_O = new THREE.Vector3(2.2, .1, -14); this.steam = this.particles(14, 0x8a8580, .7, STEAM_O, 1.4); this.purple = this.particles(44, 0x5a2ea0, 1.5, STEAM_O, 2.4); this.exhaust = this.particles(6, 0x777780, .4, new THREE.Vector3(4.7, .4, -6.6), .4);
     // shots (الفجر/الصباح: الإطار يُزاح كي يبقى المشهد في الثلثين الأيسرين والبطاقة على اليمين)
     const FIG = () => this.figLamp ? this.figLamp.root.position : new THREE.Vector3(-FACE + 1.9, 0, -3.2);
     this.shots = {
@@ -406,15 +406,17 @@ class StreetEngine {
     loadGLTF(PH('street_lamp_01')).then(g => { if (!g || this.disposed) return; this.lamps.forEach(l => { const m = this.prep(g.scene.clone(true)); this.fit(m, 3.9, 'y'); m.rotation.y = l.g.position.x < 0 ? Math.PI / 2 : -Math.PI / 2; l.g.add(m); const b = new THREE.Box3().setFromObject(m); const head = new THREE.Vector3(-Math.sign(l.g.position.x) * .35, b.max.y - .35, 0); l.bulb.position.copy(head); l.pl.position.copy(head); if (l.sl) l.sl.position.copy(head); l.cone.position.set(head.x, head.y - 1.85, 0); }); });
     this.place('fire_hydrant', .8, 'y', [[FACE - 1.2, -6, 0]]);
     this.place('metal_trash_can', .9, 'y', [[-FACE + 1.0, -16, .3], [FACE - 1.1, -30, 2.4], [-FACE + 1.1, -44, 1.1]]);
-    this.place('water_manhole_cover', .7, 'x', [[2.2, -14, 0]], .01, false);
+    // غطاءُ البالوعة كان لوحاً فاتحاً يبدو ورقةً بيضاء من العلو ليلاً: حديدٌ داكن خشن
+    loadGLTF(PH('water_manhole_cover')).then(g => { if (!g || this.disposed) return; const m = this.prep(g.scene.clone(true), false); m.traverse(o => { const mm = (o as THREE.Mesh).material as THREE.MeshStandardMaterial | undefined; if (mm && mm.isMeshStandardMaterial) { mm.color.multiplyScalar(.28); mm.roughness = .85; mm.metalness = .35; } }); this.fit(m, .7, 'x'); m.position.set(2.2, .01, -14); S.add(m); });
     loadGLTF(PH('modular_fire_escape')).then(g => { if (!g || this.disposed) return; ([[-1, -18], [1, -34], [-1, -52]] as [number, number][]).forEach(([side, z]) => { const m = this.prep(g.scene.clone(true)); this.fit(m, 9.5, 'y'); m.position.set(side * (FACE + .1), 3.3, z); m.rotation.y = side > 0 ? -Math.PI / 2 : Math.PI / 2; S.add(m); }); });
     this.place('wooden_crate_01', .8, 'x', [[FACE - 1.1, -27.5, .2], [FACE - 1.1, -28.4, 1.1], [FACE - .5, -27.9, -.3]]); this.place('wooden_crate_02', 1.15, 'x', [[FACE - .95, -26.3, .1]]);
     this.place('wooden_barrels_01', 1.4, 'x', [[-FACE + .95, -40.5, .4]]); this.place('painted_wooden_bench', 1.8, 'x', [[-FACE + 1.4, -10, -Math.PI / 2]]); /* ظهرُه إلى الواجهة: كان مقلوباً فيجلس الجالس خلف ظهره */
     // 🪑 الأثاثُ ملاصقٌ للواجهة (≥ 7.7 من المحور) خارج شريط المشي [6.7, 7.35]
     this.place('outdoor_table_chair_set_01', 1.6, 'x', [[FACE - .95, -1.6, .3], [FACE - .95, -3.6, -.2]]); this.place('standing_chalkboard_01', .9, 'y', [[FACE - .6, -.4, -.6]]);
     this.place('planter_box_01', 1.0, 'x', [[-FACE + 1.0, -13.2, Math.PI / 2], [FACE - 1.0, -21.6, Math.PI / 2]]); this.place('cardboard_box_01', .6, 'x', [[-FACE + 1.1, -16.4, .5], [FACE - 1.1, -30.9, 1.3]]);
-    this.place('trashbag', .7, 'x', [[-FACE + .9, -16.9, 0], [-FACE + 1.0, -44.6, 2]]); this.place('wooden_ladder', 3.2, 'y', [[-FACE + .35, -58, Math.PI / 2 + .35]], .16);
-    this.place('covered_car', 4.4, 'z', [[3.4, -46, .02]], 0);
+    // 🗓️ حُذفا (تدقيق 2026-09-25): أكياسُ القمامة البلاستيكيّة (ما بعد الخمسينيّات) والسيّارة
+    //    المغطّاة (هيئةُ سيدان حديثة تحت غطاء) — كلاهما يفضح الحقبة في اللقطة العميقة.
+    this.place('wooden_ladder', 3.2, 'y', [[-FACE + .35, -58, Math.PI / 2 + .35]], .16);
     // أعمدة الكهرباء (أصل بدل الإجرائيّ)
     loadGLTF(PH('modular_electricity_poles')).then(g => { if (!g || this.disposed) return; [-11, -50].forEach(z => { const m = this.prep(g.scene.clone(true)); this.fit(m, 7.4, 'y'); m.position.set(-6.2, 0, z); m.rotation.y = Math.PI / 2; S.add(m); }); });
     // ديورامة 1930: صناديق وسلّة وصحيفة
@@ -426,7 +428,9 @@ class StreetEngine {
     // المظلّات والشرفات وحبال الغسيل (أصول)
     loadGLTF(SF('awning')).then(g => { if (!g || this.disposed) return; g.scene.traverse((o: THREE.Object3D) => { const mm = (o as THREE.Mesh).material as THREE.MeshStandardMaterial | undefined; if (mm && mm.isMeshStandardMaterial) { mm.metalness = 0; mm.roughness = .95; mm.envMapIntensity = .2; mm.color.multiplyScalar(.75); } }); ([[-1, -6.5], [1, -2.6]] as [number, number][]).forEach(([side, z]) => { const m = this.prep(g.scene.clone(true)); this.fit(m, 2.6, 'x'); m.rotation.y = side > 0 ? Math.PI : 0; m.position.set(0, 2.9, z); m.updateMatrixWorld(true); const b = new THREE.Box3().setFromObject(m); /* أصل الموديل ليس مركزه: نُزيح ظهر المظلّة (أبعد حافّة عن الشارع بعد الدوران) حتى يلامس الواجهة */ m.position.x += side > 0 ? (FACE - .04) - b.max.x : (-FACE + .04) - b.min.x; S.add(m); }); });
     loadGLTF(SF('balcony')).then(() => { /* تُوضع بعد الواجهات على الشبابيك المكتشفة فقط (placeBalconies) */ }); if (false) loadGLTF(SF('balcony')).then(g => { if (!g || this.disposed) return; for (let k = 0; k < 8; k++) { const side = k % 2 ? 1 : -1; const m = this.prep(g.scene.clone(true)); const b1 = new THREE.Box3().setFromObject(m); const s1 = new THREE.Vector3(); b1.getSize(s1); const big: 'x' | 'y' | 'z' = s1.x >= s1.y && s1.x >= s1.z ? 'x' : s1.y >= s1.z ? 'y' : 'z'; this.fit(m, 2.4, big); const b2 = new THREE.Box3().setFromObject(m); const s2 = new THREE.Vector3(); b2.getSize(s2); if (s2.x > s2.z) m.rotation.y = Math.PI / 2; /* أنحف محور عمودياً على الواجهة */ const b = new THREE.Box3().setFromObject(m); const s = new THREE.Vector3(); b.getSize(s); const c = new THREE.Vector3(); b.getCenter(c); m.position.set(side * (FACE - s.x / 2 - .02) - c.x, 5.6 + Math.floor(rnd() * 3) * 3.4 - b.min.y, -4 - k * 8 - rnd() * 3 - c.z); S.add(m); } });
-    loadGLTF(SF('clothesline')).then(g => { if (!g || this.disposed) return; ([[-1, -14], [1, -38], [-1, -62]] as [number, number][]).forEach(([side, z], i) => { const m = this.prep(g.scene.clone(true), false); const b1 = new THREE.Box3().setFromObject(m); const s1 = new THREE.Vector3(); b1.getSize(s1); const axis: 'x' | 'y' | 'z' = s1.x >= s1.y && s1.x >= s1.z ? 'x' : s1.y >= s1.z ? 'y' : 'z'; this.fit(m, 3.2, axis); const b = new THREE.Box3().setFromObject(m); const sz = new THREE.Vector3(); b.getSize(sz); const long: 'x' | 'z' = sz.x >= sz.z ? 'x' : 'z'; if (long === 'x') m.rotation.y = Math.PI / 2; const b2 = new THREE.Box3().setFromObject(m); const c = new THREE.Vector3(); b2.getCenter(c); m.position.set(side * (FACE - .9) - c.x, 6.2 + i * 1.5 - b2.min.y, z - c.z); S.add(m); this.laundry.push({ m, ph: rnd() * 6 }); }); });
+    // 🧺 حبالُ الغسيل تُشدّ بين الواجهتين عبر الشارع على ارتفاع الطابق الثاني — كما في ليتل إيتالي —
+    //    بدل أصلٍ يطفو أمام الواجهة على 6م بلا مرساة (تدقيق 2026-09-25). حبلٌ مترخّم وقطعٌ باهتة تتأرجح.
+    ([[-14, 7.8], [-38, 8.6], [-62, 7.4]] as [number, number][]).forEach(([z, y]) => this.buildClothesline(z, y));
     // Sketchfab: cars, fedora
     const putCar = (name: string, host: THREE.Group, len: number) => loadGLTF(SF(name)).then(g => { if (!g || this.disposed) return; const m = this.prep(g.scene, true, false); const b = new THREE.Box3().setFromObject(m); const s = new THREE.Vector3(); b.getSize(s); const long: 'x' | 'z' = s.x >= s.z ? 'x' : 'z'; this.fit(m, len, long); if (long === 'z') m.rotation.y = Math.PI / 2; const b2 = new THREE.Box3().setFromObject(m); const c = new THREE.Vector3(); b2.getCenter(c); m.position.x -= c.x; m.position.z -= c.z; host.children.slice().forEach(ch => host.remove(ch)); host.add(m); });
     track(putCar('pierce_arrow', this.car, 5.0)); track(putCar('coupe33', this.car2, 4.4));
@@ -469,7 +473,10 @@ class StreetEngine {
     const best = Object.entries(score).sort((p, q) => q[1] - p[1])[0][0]; return best === 'px' ? new THREE.Vector3(1, 0, 0) : best === 'nx' ? new THREE.Vector3(-1, 0, 0) : best === 'pz' ? new THREE.Vector3(0, 0, 1) : new THREE.Vector3(0, 0, -1);
   }
   private buildBrownstoneStreet(src: THREE.Object3D) {
-    const rootNode = src.getObjectByName('RootNode') || src; const pieces: THREE.Object3D[] = rootNode.children.filter(o => /^Brownstone_/.test(o.name) && !/Commercial|Complex/.test(o.name)); // القطع العليا فقط (لا العُقد الفرعيّة)
+    // 🏛️ قطعٌ مختارة (تدقيق 2026-09-25): مكيّفاتُ النوافذ مطبوعةٌ في قوام أكثر قطع الطقم — لا تُخفى
+    //    (شبكات Maskedstuff هي سلالمُ الحريق لا المكيّفات). فتُحصر الواجهاتُ في الخالية منها:
+    //    طوبٌ أحمر/بنّيّ + قطعةُ حجرٍ فاتحٍ واحدة للتنويع. الثمنُ تكرارٌ أكثر على طول الشارع.
+    const rootNode = src.getObjectByName('RootNode') || src; const pieces: THREE.Object3D[] = rootNode.children.filter(o => /^Brownstone_(Classic_1|FlatFacade_4|FlatFacade_6_B|FlatFacade_9_B|Harlem_1_B|Lowrise_1)$/.test(o.name));
     if (!pieces.length) return; seed = 4242; const shuffled = pieces.slice().sort(() => rnd() - .5);
     const group = new THREE.Group(); let idx = 0;
     ([-1, 1] as const).forEach(side => { let z = 6; let guard = 0; while (z > -100 && guard++ < 60) { const piece = shuffled[idx++ % shuffled.length]; const w = new THREE.Group(); const m = this.prep(piece.clone(true)); w.add(m);
@@ -480,8 +487,9 @@ class StreetEngine {
       const nearX = side > 0 ? b.min.x : b.max.x; w.position.x += side * FACE - nearX; w.position.z += (z - width / 2) - (b.max.z + b.min.z) / 2; w.position.y -= b.min.y;
       console.info('🏛️ piece', piece.name, 'size', sz.toArray().map(v => +v.toFixed(1)).join('x'), 'front', f.toArray().join(','), 'side', side, 'z', z.toFixed(1));
       group.add(w); z -= width + .25; } });
-    // سدّ نهاية الشارع: قطعة عريضة تواجه الكاميرا عند z=-104 (كان فراغاً أسود)
-    { const piece = shuffled.find(p => /FlatFacade_9|Lowrise|Classic/.test(p.name)) || shuffled[0]; const w = new THREE.Group(); w.add(this.prep(piece.clone(true))); const f = this.frontDir(w); w.rotation.y = Math.atan2(0, 1) - Math.atan2(f.x, f.z); this.fit(w, 17, 'y'); const b = new THREE.Box3().setFromObject(w); const sz = new THREE.Vector3(); b.getSize(sz); const k = Math.max(1, 26 / Math.max(sz.x, 1)); w.scale.x *= k; const b2 = new THREE.Box3().setFromObject(w); w.position.x -= (b2.max.x + b2.min.x) / 2; w.position.z += -104 - b2.max.z; w.position.y -= b2.min.y; group.add(w); }
+    // 🛣️ نهاية الشارع تقاطعٌ لا جدارٌ أصمّ: واجهتان تواجهان الكاميرا على جانبَي الفراغ عند z=-106،
+    //    والأسفلتُ يستمرّ إلى الضباب وخطّ الأفق (z=-125). كان جداراً واحداً يسدّ الشارع كطريقٍ مسدود.
+    ([-1, 1] as const).forEach(side => { const piece = shuffled.find(p => /Lowrise_1$|Harlem_1_B/.test(p.name)) || shuffled[0]; const w = new THREE.Group(); w.add(this.prep(piece.clone(true))); const f = this.frontDir(w); w.rotation.y = Math.atan2(0, 1) - Math.atan2(f.x, f.z); this.fit(w, 15, 'y'); const b = new THREE.Box3().setFromObject(w); const sz = new THREE.Vector3(); b.getSize(sz); const k = Math.max(1, 22 / Math.max(sz.x, 1)); w.scale.x *= k; const b2 = new THREE.Box3().setFromObject(w); const inner = side > 0 ? b2.min.x : b2.max.x; w.position.x += side * (FACE + .3) - inner; w.position.z += -106 - b2.max.z; w.position.y -= b2.min.y; group.add(w); });
     this.scene.add(group); this.facadeGroup = group; this.scene.remove(this.proc); this.proc.traverse(o => { const m = o as THREE.Mesh; if (m.isMesh) m.geometry.dispose(); });
     // الشرفات: نوافذ الطقم مرسومة لا مجوّفة، ولا مرساة موثوقة لها → لا تُوضع شرفات منفصلة (قاعدة المالك: على الشبابيك فقط)
     if (debugParam('balconies') === '1') this.placeBalconies();
@@ -490,8 +498,8 @@ class StreetEngine {
     // 🪧 لافتة النادي (قرار المالك 2026-09-12): «MAFIA» ذهبيّ و«CLUB» أحمر النادي، نيون فوق واجهة الدخول قرب بداية الشارع — تُستعمل نفسها في تطبيق اللاعب
     ([['MAFIA', '#e2c07a', 6.2, 4.2], ['CLUB', '#ff4a4a', 5.1, 3.0]] as [string, string, number, number][]).forEach(([txt, col, y, w]) => { const mat = new THREE.MeshBasicMaterial({ map: texNeon(txt, col), transparent: true, toneMapped: false, color: new THREE.Color(col).multiplyScalar(2.4), side: THREE.DoubleSide, depthWrite: false }); const m = new THREE.Mesh(new THREE.PlaneGeometry(w, w / 4), mat); m.position.set(-FACE + .42, y, 3.2); m.rotation.y = Math.PI / 2; this.scene.add(m); const light = new THREE.PointLight(col, 5, 9, 2); light.position.set(-FACE + 1.2, y, 3.2); this.scene.add(light); this.neons.push({ mesh: m, light, base: mat.color.clone(), broken: false, on: this.mode === 'night', club: true }); });
     // blade sign deeper in the street: two faces + logo, visible from most shots
-    this.buildBladeSign(-18);
-    names.forEach((nm, i) => { const side = i % 2 ? 1 : -1; const col = neonColors[i]; const mat = new THREE.MeshBasicMaterial({ map: texNeon(nm, col), transparent: true, toneMapped: false, color: new THREE.Color(col).multiplyScalar(2.2), side: THREE.DoubleSide, depthWrite: false }); const m = new THREE.Mesh(new THREE.PlaneGeometry(3.6, .9), mat); m.position.set(side * (FACE - .4), 4.8 + rnd(), -6 - i * 15); m.rotation.y = side > 0 ? -Math.PI / 2 : Math.PI / 2; this.scene.add(m); const light = new THREE.PointLight(col, 4, 7, 2); light.position.set(side * (FACE - .9), m.position.y, m.position.z); this.scene.add(light); this.neons.push({ mesh: m, light, base: mat.color.clone(), broken: i === 1, on: this.mode === 'night' }); });
+    this.buildBladeSign(-3); /* عند المدخل (النيون على z=+3.2) لا على بُعد 21م — لافتتان لمدخلٍ واحد */
+    names.forEach((nm, i) => { const side = i % 2 ? 1 : -1; const col = neonColors[i]; const mat = new THREE.MeshBasicMaterial({ map: texNeon(nm, col), transparent: true, toneMapped: false, color: new THREE.Color(col).multiplyScalar(2.2), side: THREE.DoubleSide, depthWrite: false }); const m = new THREE.Mesh(new THREE.PlaneGeometry(3.6, .9), mat); m.position.set(side * (FACE - .4), 3.45 /* فوق واجهة المتجر وتحت صفّ النوافذ الأوّل (~3.9) — كانت على ارتفاع الطابق الثاني */, -6 - i * 15); m.rotation.y = side > 0 ? -Math.PI / 2 : Math.PI / 2; this.scene.add(m); const light = new THREE.PointLight(col, 4, 7, 2); light.position.set(side * (FACE - .9), m.position.y, m.position.z); this.scene.add(light); this.neons.push({ mesh: m, light, base: mat.color.clone(), broken: i === 1, on: this.mode === 'night' }); });
   }
 
   /** لافتة النادي البارزة: صفيحة معدنيّة عموديّة تخرج من الواجهة، على كلّ وجهٍ شعارٌ مضاء وسطران نيون (MAFIA ذهبيّ / CLUB أحمر النادي) */
@@ -504,6 +512,15 @@ class StreetEngine {
       const logo = new THREE.Mesh(new THREE.PlaneGeometry(1.5, 1.5), new THREE.MeshBasicMaterial({ map: logoTex, transparent: true, toneMapped: false, color: new THREE.Color(0xffffff).multiplyScalar(1.6), depthWrite: false })); logo.position.set(x0 + depth / 2, yTop - 1.05, zf); logo.rotation.y = face > 0 ? 0 : Math.PI; S.add(logo);
       ([['MAFIA', '#e2c07a', yTop - 2.25, 2.3], ['CLUB', '#ff4a4a', yTop - 2.95, 1.7]] as [string, string, number, number][]).forEach(([txt, col, y, w]) => { const mat = new THREE.MeshBasicMaterial({ map: texNeon(txt, col), transparent: true, toneMapped: false, color: new THREE.Color(col).multiplyScalar(2.4), depthWrite: false }); const m = new THREE.Mesh(new THREE.PlaneGeometry(w, w / 4), mat); m.position.set(x0 + depth / 2, y, zf); m.rotation.y = face > 0 ? 0 : Math.PI; S.add(m); this.neons.push({ mesh: m, light: new THREE.PointLight(col, 0, 0), base: mat.color.clone(), broken: false, on: this.mode === 'night', club: true }); });
       const glow = new THREE.PointLight(0xffc48a, 6, 9, 2); glow.position.set(x0 + depth / 2, yTop - 1.8, z + face * 1.2); S.add(glow); this.clubLights.push(glow); });
+  }
+  /** حبلُ غسيلٍ عبر الشارع: قطعٌ مكافئ بين الواجهتين بترخيم 0.6م، تتدلّى منه قطعٌ قماشيّة باهتة. المجموعة مركزُها على الحبل كي يكون التأرجح حول الحبل لا حول أصل العالم */
+  private buildClothesline(z: number, y: number) {
+    const g = new THREE.Group(); g.position.set(0, y, z); const N = 26, pts: THREE.Vector3[] = [];
+    for (let i = 0; i <= N; i++) { const t = i / N; pts.push(new THREE.Vector3(-FACE + .15 + t * (2 * FACE - .3), -Math.sin(t * Math.PI) * .6, 0)); }
+    g.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints(pts), new THREE.LineBasicMaterial({ color: 0x2a2622 })));
+    const cols = [0xd9d2c0, 0xbfc7cf, 0xc9b9a6, 0x8e9ab0, 0xd4c4b0, 0x9c7c72, 0xe8e2d4];
+    for (let i = 2; i < N - 1; i += 1 + Math.floor(rnd() * 2)) { if (rnd() < .3) continue; const p = pts[i]; const w = .38 + rnd() * .34, h = .5 + rnd() * .45; const m = new THREE.Mesh(new THREE.PlaneGeometry(w, h), new THREE.MeshStandardMaterial({ color: cols[Math.floor(rnd() * cols.length)], roughness: 1, side: THREE.DoubleSide })); m.position.set(p.x, p.y - h / 2, (rnd() - .5) * .04); g.add(m); }
+    this.scene.add(g); this.laundry.push({ m: g, ph: rnd() * 6 });
   }
   /** ظلّ تلامس رخيص تحت الشخصيّة (قرص ناعم داكن) — الظلال الحيّة نهاراً مطفأة */
   blobShadow(size = 1.2): THREE.Mesh {
