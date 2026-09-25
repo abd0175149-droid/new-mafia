@@ -7,6 +7,14 @@
 - sketchfab/fedoras — "fedoras" — CC-BY 4.0 — https://sketchfab.com/3d-models/c456f905f8c04169b8864bd7be04b554
 - sketchfab/mafia_boss — "mafia_boss" (زعيم المافيا) — مولَّدٌ بـMeshy AI (خطّة Pro، رخصةٌ خاصّة للمالك بموجب شروط Meshy التجاريّة) ومركَّبٌ ومحرَّكٌ بـAdobe Mixamo — ليس CC — https://www.meshy.ai/ · https://www.mixamo.com/
 - sketchfab/hitman — "hitman" (القاتل المأجور) — مولَّدٌ بـMeshy AI (خطّة Pro، رخصةٌ خاصّة للمالك بموجب شروط Meshy التجاريّة) ومركَّبٌ ومحرَّكٌ بـAdobe Mixamo — ليس CC — https://www.meshy.ai/ · https://www.mixamo.com/
+- sketchfab/citizen_f — "citizen_f" (مواطنة) — مولَّدٌ بـMeshy AI (خطّة Pro، رخصةٌ خاصّة للمالك بموجب شروط Meshy التجاريّة) ومركَّبٌ ومحرَّكٌ بـAdobe Mixamo — ليس CC — https://www.meshy.ai/ · https://www.mixamo.com/
+- sketchfab/jazz_singer — "jazz_singer" (مغنّية الجاز) — مولَّدٌ بـMeshy AI (خطّة Pro، رخصةٌ خاصّة للمالك بموجب شروط Meshy التجاريّة) ومركَّبٌ ومحرَّكٌ بـAdobe Mixamo — ليس CC — https://www.meshy.ai/ · https://www.mixamo.com/
+- sketchfab/newsboy — "newsboy" (بائع الصحف) — مولَّدٌ بـMeshy AI (خطّة Pro، رخصةٌ خاصّة للمالك بموجب شروط Meshy التجاريّة) ومركَّبٌ ومحرَّكٌ بـAdobe Mixamo — ليس CC — https://www.meshy.ai/ · https://www.mixamo.com/
+- sketchfab/worker — "worker" (العامل) — مولَّدٌ بـMeshy AI (خطّة Pro، رخصةٌ خاصّة للمالك بموجب شروط Meshy التجاريّة) ومركَّبٌ ومحرَّكٌ بـAdobe Mixamo — ليس CC — https://www.meshy.ai/ · https://www.mixamo.com/
+- sketchfab/policewoman — "policewoman" (الشرطيّة) — مولَّدٌ بـMeshy AI (خطّة Pro، رخصةٌ خاصّة للمالك بموجب شروط Meshy التجاريّة) ومركَّبٌ ومحرَّكٌ بـAdobe Mixamo — ليس CC — https://www.meshy.ai/ · https://www.mixamo.com/
+- sketchfab/detective — "detective" (المحقّق) — مولَّدٌ بـMeshy AI (خطّة Pro، رخصةٌ خاصّة للمالك بموجب شروط Meshy التجاريّة) ومركَّبٌ ومحرَّكٌ بـAdobe Mixamo — ليس CC — https://www.meshy.ai/ · https://www.mixamo.com/
+- sketchfab/doctor — "doctor" (الطبيب) — مولَّدٌ بـMeshy AI (خطّة Pro، رخصةٌ خاصّة للمالك بموجب شروط Meshy التجاريّة) ومركَّبٌ ومحرَّكٌ بـAdobe Mixamo — ليس CC — https://www.meshy.ai/ · https://www.mixamo.com/
+- sketchfab/consigliere — "consigliere" (المستشار) — مولَّدٌ بـMeshy AI (خطّة Pro، رخصةٌ خاصّة للمالك بموجب شروط Meshy التجاريّة) ومركَّبٌ ومحرَّكٌ بـAdobe Mixamo — ليس CC — https://www.meshy.ai/ · https://www.mixamo.com/
 
 ## Poly Haven (CC0)
 - hdri/klippad_sunrise_2_1k.hdr — "klippad_sunrise_2" — Poly Haven — CC0 — https://polyhaven.com/a/klippad_sunrise_2
