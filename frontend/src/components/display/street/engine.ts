@@ -512,25 +512,29 @@ class StreetEngine {
     const H = hips as THREE.Object3D; H.updateWorldMatrix(true, false); const rootBone = new THREE.Bone(); rootBone.name = 'mixamoRoot'; if (H.parent) H.parent.getWorldQuaternion(rootBone.quaternion); rootBone.add(conv(H)); return rootBone;
   }
   /**
-   * إعادة توجيه حركةٍ من هيكل Mixamo إلى هيكل الشخصيّة، بصيغتين تُختار حسب الهيكل:
-   *   • `restFrame` (هياكل Mixamo): Wt(t) = Wt0·Ws0⁻¹·Ws(t) — يُنقل دورانُ العظمة في إطار راحتها.
-   *   • وإلّا (Advanced Skeleton): Wt(t) = Ws(t)·Ws0⁻¹·Wt0 — دلتا في الإطار العالميّ.
+   * إعادة توجيه حركةٍ من هيكل Mixamo إلى هيكل الشخصيّة **بمحاذاة اتّجاه العظام**:
+   *   Wt(t) = Ws(t) · Ws0⁻¹ · A_b · Wt0
+   * حيث A_b أقصرُ دورانٍ يحمل اتّجاهَ العظمة في راحة الهدف إلى اتّجاهها في راحة المصدر.
+   * أي: يُوضع الهدف أوّلاً في وضعيّة راحة المصدر (T) بأقلّ التواءٍ ممكن، ثمّ تُساق عظامه
+   * بدورانات المصدر العالميّة — فيكون اتّجاهُ كلّ عظمةٍ في العالم مطابقاً للمصدر إطاراً إطاراً.
    * ثمّ يُحوَّل الناتج إلى دورانٍ محلّيّ هرميّاً.
    *
-   * 🔴 لماذا صيغتان؟ ملفّات الحركة راحتُها T (الذراع أفقيّة) والشخصيّات راحتُها A (مائلة 45°).
-   *    الدلتا العالميّة تحتسب فرقَ T→A مرّتين: تنزل اليدان خلف الظهر ويذبل التأرجح إلى الثلث.
-   *    صيغةُ إطار الراحة تعالج ذلك، لكنّها تفترض أنّ محاور العظام المحلّيّة عند الهدف تطابق
-   *    محاورَ المصدر — وهذا يصحّ لهياكل Mixamo ولا يصحّ لـAdvanced Skeleton، إذ تُدار الحركةُ
-   *    عندها بفرق المحاور فتبقى الذراعان مفرودتين جانباً.
-   *    قياسٌ بـ`scripts/check-retarget.mjs` (تأرجح اليد أمام/خلف الورك · بُعدها الجانبيّ):
-   *      mafia_boss (Mixamo):  عالميّة 0.124/0.076  ·  إطار الراحة 0.404/0.073 ✅
-   *      gangster_lite (AS):   عالميّة 0.151/0.145 ✅ ·  إطار الراحة 0.306/0.578 ✗ (ذراعان مفرودتان)
-   *    المصدر نفسه يتأرجح 0.462م، فشخصيّات AS تبقى دون المثال: علاجها يحتاج خريطة محاورٍ
-   *    بين الهيكلين أو إعادةَ تركيبها عبر Mixamo.
+   * 🔴 تاريخُ الخطأ (2026-09-25) — صيغتان سابقتان بدتا صحيحتين لأنّ مقياسي كان خاطئاً:
+   *    • دلتا عالميّة Ws(t)·Ws0⁻¹·Wt0: تحتسب فرقَ راحة T→A مرّتين ⇒ اليدان خلف الظهر.
+   *    • إطارُ الراحة Wt0·Ws0⁻¹·Ws(t): تفترض تطابقَ محاور العظام المحلّيّة، وهي لا تتطابق حتّى
+   *      بين ملفَّي Mixamo مرّا بمسارَي تحويلٍ مختلفَين ⇒ الذراع تلتفّ إلى داخل الصدر.
+   *    كنتُ أقيس «مسافة اليد عن الورك» وهي عمياء عن يدٍ تخترق الجسد. المقياسُ الصحيح هو
+   *    **زاوية اتّجاه كلّ عظمة مقارنةً بالمصدر** (`scripts/check-retarget.mjs`):
+   *      mafia_boss:    دلتا عالميّة 47° · إطار الراحة 46° · محاذاة 0°   (العضد، متوسّط الدورة)
+   *      gangster_lite: دلتا عالميّة 47° · إطار الراحة 50° · محاذاة 0°
+   *    فالصيغةُ واحدةٌ لكلّ الهياكل، ولا حاجة للتفريق بينها.
+   *
+   *    A_b يُحسب من العظمة إلى ابنها «الرئيس» (العمود الفقريّ يُفضَّل على الساقين عند الورك،
+   *    والرقبة على الكتفين عند الصدر)؛ والطرفُ الذي لا ابنَ له يرث محاذاة أبيه.
    * لا تُلمس مصفوفات الربط ولا يُستدعى pose() (SkeletonUtils.retarget كان يُفسد الجلد).
    */
   /** يُنفَّذ على دفعات (30 إطاراً ثمّ يُفسح للمتصفّح): كان يجمّد اللوبي ~22 ثانية لثلاثة موديلات × أربعة مقاطع */
-  async retargetLocal(target: THREE.SkinnedMesh, srcHips: THREE.Bone, clip: THREE.AnimationClip, names: Record<string, string>, restFrame: boolean, grounded = false, label = ''): Promise<THREE.AnimationClip> {
+  async retargetLocal(target: THREE.SkinnedMesh, srcHips: THREE.Bone, clip: THREE.AnimationClip, names: Record<string, string>, grounded = false, label = ''): Promise<THREE.AnimationClip> {
     const fps = 30, n = Math.max(2, Math.round(clip.duration * fps)); const times = new Float32Array(n); for (let i = 0; i < n; i++) times[i] = i / fps;
     // ترتيب هرميّ لعظام الهدف (من الجذر إلى الأطراف)
     const bones = target.skeleton.bones; const set = new Set<THREE.Object3D>(bones); const roots = bones.filter(b => !b.parent || !set.has(b.parent)); const ordered: THREE.Bone[] = []; const walk = (b: THREE.Object3D) => { if (set.has(b)) ordered.push(b as THREE.Bone); b.children.forEach(walk); }; roots.forEach(walk);
@@ -539,9 +543,24 @@ class StreetEngine {
     const restLocal = new Map<THREE.Bone, THREE.Quaternion>(), restWorld = new Map<THREE.Bone, THREE.Quaternion>(); ordered.forEach(b => { restLocal.set(b, b.quaternion.clone()); restWorld.set(b, b.getWorldQuaternion(new THREE.Quaternion())); });
     const srcByName = new Map<string, THREE.Bone>(); srcHips.traverse(o => { if ((o as THREE.Bone).isBone) srcByName.set(o.name, o as THREE.Bone); });
     const srcRestWorld = new Map<string, THREE.Quaternion>(); srcByName.forEach((b, k) => srcRestWorld.set(k, b.getWorldQuaternion(new THREE.Quaternion())));
-    const offset = new Map<THREE.Bone, THREE.Quaternion>(); ordered.forEach(b => { const sn = names[b.name]; if (!sn || !srcByName.has(sn)) return; offset.set(b, restFrame
-      ? restWorld.get(b)!.clone().multiply(srcRestWorld.get(sn)!.clone().invert())
-      : srcRestWorld.get(sn)!.clone().invert().multiply(restWorld.get(b)!)); });
+    // A_b: محاذاةُ اتّجاه كلّ عظمة (الهدف → المصدر) في وضعيّة الراحة
+    const tPos = new Map<THREE.Bone, THREE.Vector3>(); ordered.forEach(b => tPos.set(b, b.getWorldPosition(new THREE.Vector3())));
+    const sPos = new Map<string, THREE.Vector3>(); srcByName.forEach((b, k) => sPos.set(k, b.getWorldPosition(new THREE.Vector3())));
+    const isTrunk = (b: THREE.Object3D) => /Spine|Neck|Head/.test(coreBoneName(b.name) || '');
+    const align = new Map<THREE.Bone, THREE.Quaternion>();
+    ordered.forEach(b => {
+      const sn = names[b.name]; if (!sn || !srcByName.has(sn)) return;
+      const kids = b.children.filter(c => (c as THREE.Bone).isBone && names[c.name] && srcByName.has(names[c.name])) as THREE.Bone[];
+      const child = kids.find(isTrunk) || kids[0];
+      let A: THREE.Quaternion | null = null;
+      if (child) {
+        const dT = tPos.get(child)!.clone().sub(tPos.get(b)!), dS = sPos.get(names[child.name])!.clone().sub(sPos.get(sn)!);
+        if (dT.lengthSq() > 1e-10 && dS.lengthSq() > 1e-10) A = new THREE.Quaternion().setFromUnitVectors(dT.normalize(), dS.normalize());
+      }
+      if (!A) { const p = b.parent as THREE.Bone | null; A = (p && align.get(p)) ? align.get(p)!.clone() : new THREE.Quaternion(); }
+      align.set(b, A);
+    });
+    const offset = new Map<THREE.Bone, THREE.Quaternion>(); ordered.forEach(b => { const sn = names[b.name]; if (!sn || !srcByName.has(sn)) return; offset.set(b, srcRestWorld.get(sn)!.clone().invert().multiply(align.get(b)!).multiply(restWorld.get(b)!)); });
     // ── ارتفاع الحوض (مقاطع السقوط وحدها) ──────────────────────────────
     // 🔴 إعادةُ التوجيه تبعث الدورانات فقط، فارتفاعُ الحوض يُحذف. هذا لا يضرّ
     //    المشي والوقوف (القدمان على الأرض والحوض ثابت)، لكنّ السقوط ينزل فيه
@@ -577,7 +596,7 @@ class StreetEngine {
       mixer.setTime(i / fps); srcHips.updateMatrixWorld(true); const worldNow = new Map<THREE.Bone, THREE.Quaternion>();
       if (hipsOut && srcHipsBone) { const w = hipsRestWorld.clone(); w.y += (srcHipsBone.getWorldPosition(new THREE.Vector3()).y - srcRestY) * hipsScale; w.applyMatrix4(hipsParentInv); hipsOut[i * 3] = w.x; hipsOut[i * 3 + 1] = w.y; hipsOut[i * 3 + 2] = w.z; }
       for (const b of ordered) { const pw = parentWorldOf(b, worldNow); const sn = names[b.name]; let local: THREE.Quaternion;
-        if (sn && srcByName.has(sn)) { srcByName.get(sn)!.getWorldQuaternion(qs); if (restFrame) q.copy(offset.get(b)!).multiply(qs); else q.copy(qs).multiply(offset.get(b)!); local = pw.clone().invert().multiply(q); } else local = restLocal.get(b)!.clone();
+        if (sn && srcByName.has(sn)) { srcByName.get(sn)!.getWorldQuaternion(qs); q.copy(qs).multiply(offset.get(b)!); local = pw.clone().invert().multiply(q); } else local = restLocal.get(b)!.clone();
         worldNow.set(b, pw.clone().multiply(local)); const arr = out.get(b)!; arr[i * 4] = local.x; arr[i * 4 + 1] = local.y; arr[i * 4 + 2] = local.z; arr[i * 4 + 3] = local.w; }
     }
     action.stop(); mixer.uncacheRoot(srcHips);
@@ -653,8 +672,8 @@ class StreetEngine {
         // أقلُّ من الحدّ ⇒ لا مقاطع: `rset` فارغةٌ فيشتغل البديل الإجرائيّ أدناه،
         // بدل mixerٍ يُركَّب على مقاطع بصفر مسارات فتقف الشخصيّة متجمّدة.
         if (!map.ok) { this.retargetCache[src] = out; return out; }
-        for (const k of Object.keys(allClips)) out[k] = await this.retargetLocal(sk as THREE.SkinnedMesh, skeleton, allClips[k], map.names, map.mixamoRig, FALL_CLIPS.includes(k), `${src}/${k}`);
-        console.info('🏙️ retarget', src, Object.keys(out).join(','), 'tracks', Object.values(out).map(c => c.tracks.length).join('/'), 'mapped', map.matched, '/', targetNames.length, map.mixamoRig ? '· إطار الراحة (Mixamo)' : '· دلتا عالميّة');
+        for (const k of Object.keys(allClips)) out[k] = await this.retargetLocal(sk as THREE.SkinnedMesh, skeleton, allClips[k], map.names, FALL_CLIPS.includes(k), `${src}/${k}`);
+        console.info('🏙️ retarget', src, Object.keys(out).join(','), 'tracks', Object.values(out).map(c => c.tracks.length).join('/'), 'mapped', map.matched, '/', targetNames.length, '· محاذاة الاتّجاه');
       } catch (e) { console.error('🏙️ فشلت إعادة التوجيه، البديل الإجرائيّ يعمل:', src, String(e)); }
       this.retargetCache[src] = out; return out;
     };

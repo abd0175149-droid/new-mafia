@@ -108,13 +108,6 @@ export interface BoneMapResult {
   /** اسمُ عظمة الهدف → اسمُ عظمة المصدر (كما هي محمَّلة) */
   names: Record<string, string>;
   matched: number;
-  /**
-   * كلُّ العظام المنطبقة جاءت من مسار Mixamo (هويّةً) ⇒ محاورُ العظام المحلّيّة
-   * تطابق محاور ملفّات الحركة. هذا شرطُ صحّة صيغة «إطار الراحة» في إعادة
-   * التوجيه: بدونه (هيكل Advanced Skeleton مثلاً) تُدار الحركةُ بفرق المحاور
-   * فتبقى الذراعان مفرودتين جانباً.
-   */
-  mixamoRig: boolean;
   /** عظامُ الهدف التي لم تنطبق — للتشخيص */
   unmatched: string[];
   ok: boolean;
@@ -129,14 +122,12 @@ export function buildBoneMap(targetBoneNames: string[], sourceBoneNames: string[
   const src = new Set(sourceBoneNames);
   const names: Record<string, string> = {};
   const unmatched: string[] = [];
-  let viaMixamo = 0;
   for (const t of targetBoneNames) {
     const core = coreBoneName(t);
     const s = core ? resolveSourceName(core, src) : null;
-    if (s) { names[t] = s; if (/mixamorig/i.test(t)) viaMixamo++; } else unmatched.push(t);
+    if (s) names[t] = s; else unmatched.push(t);
   }
   const matched = Object.keys(names).length;
-  const mixamoRig = matched > 0 && viaMixamo === matched;
   const ok = matched >= MIN_BONE_MATCH;
   if (!ok) {
     console.error(
@@ -145,5 +136,5 @@ export function buildBoneMap(targetBoneNames: string[], sourceBoneNames: string[
       `   افحص الملفّ: node scripts/inspect-character.mjs <path>`,
     );
   }
-  return { names, matched, unmatched, ok, mixamoRig };
+  return { names, matched, unmatched, ok };
 }
