@@ -190,6 +190,8 @@ const SFB = (n: string) => `${ASSET_ROOT}/sketchfab/${n}/scene.glb`;
  * وإضافةُ مسارٍ لها تُدخل انزلاقاً لا وجود له اليوم.
  */
 const FALL_CLIPS = ['fall', 'fall_b', 'fall_c', 'react_death'];
+/** مقاطعُ يهبط فيها الحوض عن ارتفاع الوقوف: السقوط، والجلوس (حوضه على 0.51م) */
+const GROUNDED_CLIPS = new Set(['sit', ...FALL_CLIPS]);
 
 /** الإحماء: يُستدعى من اللوبي كي تكون الأصول في الذاكرة قبل أوّل ليل */
 export function preloadStreetAssets() {
@@ -659,7 +661,7 @@ class StreetEngine {
       { src: 'mafia_boss_lite', glb: true, n: 2, kinds: ['walk', 'idle'], night: [true, false], day: [true, true], sides: [1, -1], zs: [-20, -50], h: 1.85 },
       { src: 'mafia_boss_lite', glb: true, n: 2, kinds: ['walk', 'idle'], night: [false, true], day: [true, true], sides: [1, -1], zs: [-38, -12], h: 1.78 },
       { src: 'mafia_boss_lite', glb: true, n: 1, kinds: ['idle'], night: [true], day: [true], sides: [1], zs: [-7.5], h: 1.85 },
-      { src: 'mafia_boss_lite', glb: true, n: 1, kinds: ['seat'], night: [true], day: [true], sides: [1], zs: [-2.6], h: 1.75 },
+      { src: 'mafia_boss_lite', glb: true, n: 1, kinds: ['seat'], night: [true], day: [true], sides: [-1], zs: [-10], h: 1.75 }, /* على البنش */
     ];
     // ⚖️ حركات الإقصاء (اختياريّة): إن وُجدت anim/fall.glb و anim/react_death.glb تُستخدم، وإلّا سقوطٌ إجرائيّ
     const extra: Record<string, THREE.AnimationClip> = {}; for (const n of FALL_CLIPS) { const g = await loadGLTF(ANIM(n), true); if (g?.animations?.[0]) extra[n] = g.animations[0]; }
@@ -677,20 +679,20 @@ class StreetEngine {
         // أقلُّ من الحدّ ⇒ لا مقاطع: `rset` فارغةٌ فيشتغل البديل الإجرائيّ أدناه،
         // بدل mixerٍ يُركَّب على مقاطع بصفر مسارات فتقف الشخصيّة متجمّدة.
         if (!map.ok) { this.retargetCache[src] = out; return out; }
-        for (const k of Object.keys(allClips)) out[k] = await this.retargetLocal(sk as THREE.SkinnedMesh, skeleton, allClips[k], map.names, FALL_CLIPS.includes(k), `${src}/${k}`);
+        for (const k of Object.keys(allClips)) out[k] = await this.retargetLocal(sk as THREE.SkinnedMesh, skeleton, allClips[k], map.names, GROUNDED_CLIPS.has(k), `${src}/${k}`);
         console.info('🏙️ retarget', src, Object.keys(out).join(','), 'tracks', Object.values(out).map(c => c.tracks.length).join('/'), 'mapped', map.matched, '/', targetNames.length, '· محاذاة الاتّجاه');
       } catch (e) { console.error('🏙️ فشلت إعادة التوجيه، البديل الإجرائيّ يعمل:', src, String(e)); }
       this.retargetCache[src] = out; return out;
     };
     for (const sp of specs) {
       const g = await loadGLTF(sp.glb ? SFB(sp.src) : SF(sp.src)); if (!g || this.disposed) continue;
-      const rset = sp.kinds.every(k => k === 'seat') ? {} : await retargetSet(sp.src, g.scene); if (this.disposed) return;
+      const rset = await retargetSet(sp.src, g.scene); if (this.disposed) return;
       for (let i = 0; i < sp.n; i++) {
         const root = SkeletonUtils.clone(g.scene); this.prep(root, i === 0, false); this.pinRigidProps(root); root.traverse(o => { if ((o as THREE.SkinnedMesh).isSkinnedMesh) o.frustumCulled = false; });
         const wrap = new THREE.Group(); wrap.add(root); this.fit(wrap, sp.h, 'y'); { const bs = this.blobShadow(1.3); bs.position.y = (-wrap.position.y + .01) / wrap.scale.x; bs.scale.setScalar(1 / wrap.scale.x); wrap.add(bs); }
         const w: Walker = { root: wrap, groundY: wrap.position.y + .16 /* سطح الرصيف */, mixer: null, acts: {}, cur: '', kind: sp.kinds[i], side: sp.sides[i], z: sp.zs[i], dir: i % 2 ? 1 : -1, speed: .9 + rnd() * .4, pause: 0, night: sp.night[i], day: sp.day[i], gait: null };
         let skinned: THREE.SkinnedMesh | null = null; root.traverse(o => { if (!skinned && (o as THREE.SkinnedMesh).isSkinnedMesh) skinned = o as THREE.SkinnedMesh; });
-        if (skinned && sp.kinds[i] !== 'seat' && Object.keys(rset).length) { w.mixer = new THREE.AnimationMixer(root); for (const k of Object.keys(rset)) w.acts[k] = w.mixer.clipAction(rset[k]); }
+        if (skinned && Object.keys(rset).length) { w.mixer = new THREE.AnimationMixer(root); for (const k of Object.keys(rset)) w.acts[k] = w.mixer.clipAction(rset[k]); }
         // البديلُ الإجرائيّ يبحث بالمعنى (UpLeg/Leg/Arm) لا بتسمية Advanced Skeleton:
         // شخصيّةٌ بتسميةٍ أخرى كانت تقف جامدةً بلا حركةٍ ولا بديل.
         if (!w.mixer && skinned) { const find = (suffix: string) => { const out: THREE.Object3D[] = []; (skinned as THREE.SkinnedMesh).skeleton.bones.forEach(b => { const c = coreBoneName(b.name); if (c === 'Left' + suffix || c === 'Right' + suffix) out.push(b); }); return out; }; w.gait = { hips: find('UpLeg'), knees: find('Leg'), arms: find('Arm') }; }
@@ -712,7 +714,10 @@ class StreetEngine {
   private applyCrowdMode() {
     const night = this.mode === 'night';
     this.walkers.forEach(w => { w.root.visible = night ? w.night : w.day; if (!w.root.visible) return;
-      if (w.kind === 'seat') { w.root.position.set(FACE - 1.3, .16 + w.groundY, w.z); w.root.rotation.y = Math.PI * .85; return; }
+      // 🪑 الجالس على البنش المطليّ (z=-10 يسار الشارع): مقعدُه على 0.32م، وفي مقطع الجلوس
+      //    الحوضُ على 0.51 والقدم على 0.27 — إنزالُ الجذر 0.19 يضع الحوض على المقعد والقدمين
+      //    على الأرض معاً (مُقاس). كان هذا الدور مجسّماً جالساً بلا هيكل؛ صار شخصيّةً بحركة.
+      if (w.kind === 'seat') { w.root.position.set(w.side * (FACE - 1.42), w.groundY - .19, w.z); w.root.rotation.y = w.side > 0 ? -Math.PI / 2 : Math.PI / 2; this.playW(w, 'sit'); return; }
       if (w.kind === 'lamp' && night) { w.root.position.set(-FACE + 1.9, w.groundY, w.z); w.root.rotation.y = .6; this.playW(w, 'smoke'); return; }
       if (w.kind === 'idle' && night) { w.root.position.set(w.side * (FACE - 1.1), w.groundY, w.z); w.root.rotation.y = w.side > 0 ? Math.PI / 2 : -Math.PI / 2; this.playW(w, 'idle'); return; }
       w.root.position.set(w.side * (FACE - 2.2) /* ممرّ المشي وسط الرصيف: بعيدٌ عن أعمدة الرصيف (حافّة الرصيف) وأرجل المظلّات (عند الواجهة) */, w.groundY, w.z); w.root.rotation.y = w.dir > 0 ? 0 : Math.PI; this.playW(w, 'walk'); w.kind = w.kind === 'lamp' || w.kind === 'idle' ? 'walk' : w.kind; });
