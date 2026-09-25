@@ -184,8 +184,8 @@ const SFB = (n: string) => `${ASSET_ROOT}/sketchfab/${n}/scene.glb`;
 export function preloadStreetAssets() {
   if (typeof window === 'undefined') return;
   ['street_lamp_01', 'street_lamp_02', 'fire_hydrant', 'modular_fire_escape', 'metal_trash_can', 'water_manhole_cover', 'modular_electricity_poles', 'wooden_crate_01', 'wooden_crate_02', 'wooden_barrels_01', 'painted_wooden_bench', 'outdoor_table_chair_set_01', 'standing_chalkboard_01', 'planter_box_01', 'cardboard_box_01', 'trashbag', 'wooden_ladder', 'covered_car'].forEach(n => loadGLTF(PH(n)));
-  ['pierce_arrow', 'coupe33', 'gangster', 'dotty', 'fedoras', 'brownstone', 'awning', 'balcony', 'clothesline', 'diorama1930'].forEach(n => loadGLTF(SF(n)));
-  loadGLTF(SFB('moneyman')); loadGLTF(SFB('mafia_boss')); ['neutral_idle', 'walking', 'smoking', 'sitting'].forEach(n => loadGLTF(ANIM(n)));
+  ['pierce_arrow', 'coupe33', 'fedoras', 'brownstone', 'awning', 'balcony', 'clothesline', 'diorama1930'].forEach(n => loadGLTF(SF(n)));
+  loadGLTF(SFB('mafia_boss')); loadGLTF(SFB('mafia_boss_lite')); ['neutral_idle', 'walking', 'smoking', 'sitting'].forEach(n => loadGLTF(ANIM(n)));
   Object.values(SURFACES).forEach(s => { loadTex(TEX(s.name, 'diff'), true, s.rep); loadTex(TEX(s.name, 'nor'), false, s.rep); loadTex(TEX(s.name, 'rough'), false, s.rep); });
   loadHDR(`${ASSET_ROOT}/hdri/moonless_golf_1k.hdr`); loadHDR(`${ASSET_ROOT}/hdri/klippad_sunrise_2_1k.hdr`);
 }
@@ -244,7 +244,10 @@ class StreetEngine {
     this.renderer.outputColorSpace = THREE.SRGBColorSpace; this.renderer.toneMapping = THREE.ACESFilmicToneMapping; this.renderer.toneMappingExposure = .95;
     this.renderer.shadowMap.enabled = true; this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     this.renderer.domElement.style.cssText = 'position:absolute;inset:0;width:100%;height:100%;display:block';
-    this.pmrem = new THREE.PMREMGenerator(this.renderer); this.renderer.info.autoReset = false; this.quality = detectQuality(); this.manualQuality = !!debugParam('q'); this.from = this.to = this.NIGHT;
+    this.pmrem = new THREE.PMREMGenerator(this.renderer); this.renderer.info.autoReset = false; this.quality = detectQuality(); this.manualQuality = !!debugParam('q');
+    // 🔬 `?dbg=1` يعرض المحرّك للقياس من المتصفّح (مواضعُ العظام إطاراً إطاراً).
+    //    بلا هذا لا سبيل للحكم على التأرجح إلّا بالعين، وقد أخطأت.
+    if (debugParam('dbg') === '1') (window as unknown as Record<string, unknown>).__street = this; this.from = this.to = this.NIGHT;
     const bs = debugParam('brot'); if (bs === '180') this.frontSign = -1; const sh = debugParam('shot'); if (sh) setTimeout(() => { if (this.shots[sh]) { this.evShot = sh; this.shotT = 0; this.order = [sh]; this.cur = sh; } }, 1500);
     console.info('🏙️ GPU:', this.gpuName()); this.build(); this.snipeL = new THREE.PointLight(0xfff2d0, 0, 20, 1.5); this.snipeL.position.set(FACE - 1.2, 8.6, -11); this.scene.add(this.snipeL); /* يُبنى مع المشهد: إضافة ضوءٍ لاحقاً تعيد تجميع كلّ التظليل */ this.exec = new ExecutionController(this); Object.assign(this.shots, this.exec.shots()); this.buildPost(); this.applyQuality(); this.applyPreset(this.NIGHT); this.loadAssets();
     // الظلال والانعكاس بالتناوب: المشهد كان يُرسم 4 مرّات في الإطار (عرض + انعكاس + ظلّان) — الآن ~2.2
@@ -555,12 +558,15 @@ class StreetEngine {
     for (const [k, g] of [['idle', idle], ['walk', walk], ['smoke', smoke], ['sit', sit]] as [string, any][]) { if (!g) continue; if (g.animations?.[0]) clips[k] = g.animations[0]; if (!skelRoot) skelRoot = this.boneTreeFromNodes(g.scene); }
     const skeleton = skelRoot; this.clipsMixamo = clips;
     const specs: { src: string; glb?: boolean; n: number; kinds: Walker['kind'][]; night: boolean[]; day: boolean[]; sides: (1 | -1)[]; zs: number[]; h: number }[] = [
-      { src: 'gangster', n: 1, kinds: ['lamp'], night: [true], day: [true], sides: [-1], zs: [-3.2], h: 1.85 }, /* شخصيّة المصباح وحدها بالتفاصيل الكاملة (لقطة قريبة) */
-      { src: 'gangster_lite', glb: true, n: 2, kinds: ['walk', 'idle'], night: [true, false], day: [true, true], sides: [1, -1], zs: [-20, -50], h: 1.85 },
-      { src: 'dotty', n: 2, kinds: ['walk', 'idle'], night: [false, true], day: [true, true], sides: [1, -1], zs: [-38, -12], h: 1.7 },
-      /* 🎩 زعيم المافيا: لقطةٌ قريبة على الرصيف المقابل لرجل المصباح — أوّل شخصيّةٍ بعظام Mixamo خالصة */
-      { src: 'mafia_boss', glb: true, n: 1, kinds: ['idle'], night: [true], day: [true], sides: [1], zs: [-7.5], h: 1.85 },
-      { src: 'moneyman', glb: true, n: 1, kinds: ['seat'], night: [true], day: [true], sides: [1], zs: [-2.6], h: 1.35 },
+      /* 🎩 قرار المالك 2026-09-25: المشهد كلُّه من زعيم المافيا وحده. شخصيّات
+         Advanced Skeleton (gangster · gangster_lite · dotty · moneyman) أُخرجت:
+         هيكلُها لا يقبل صيغة إعادة التوجيه الصحيحة، فتبقى أذرعُها بلا تأرجح.
+         ملفّاتها باقيةٌ في public/3d/ وتراخيصها في LICENSES.md إن رُدّت يوماً. */
+      { src: 'mafia_boss', glb: true, n: 1, kinds: ['lamp'], night: [true], day: [true], sides: [-1], zs: [-3.2], h: 1.85 }, /* رجل المصباح — لقطةٌ قريبة بالتفاصيل الكاملة */
+      { src: 'mafia_boss_lite', glb: true, n: 2, kinds: ['walk', 'idle'], night: [true, false], day: [true, true], sides: [1, -1], zs: [-20, -50], h: 1.85 },
+      { src: 'mafia_boss_lite', glb: true, n: 2, kinds: ['walk', 'idle'], night: [false, true], day: [true, true], sides: [1, -1], zs: [-38, -12], h: 1.78 },
+      { src: 'mafia_boss_lite', glb: true, n: 1, kinds: ['idle'], night: [true], day: [true], sides: [1], zs: [-7.5], h: 1.85 },
+      { src: 'mafia_boss_lite', glb: true, n: 1, kinds: ['seat'], night: [true], day: [true], sides: [1], zs: [-2.6], h: 1.75 },
     ];
     // ⚖️ حركات الإقصاء (اختياريّة): إن وُجدت anim/fall.glb و anim/react_death.glb تُستخدم، وإلّا سقوطٌ إجرائيّ
     const extra: Record<string, THREE.AnimationClip> = {}; for (const n of ['fall', 'react_death']) { const g = await loadGLTF(ANIM(n), true); if (g?.animations?.[0]) extra[n] = g.animations[0]; }
@@ -600,9 +606,10 @@ class StreetEngine {
     }
     this.applyCrowdMode();
     // ⚖️ قوالب حشد الإقصاء: الرجل نسخةٌ مخفَّفة (8.9k مثلّث بدل 29.6k) لأنّ الحشد قد يبلغ 27 نسخة؛ المرأة كما هي (5.7k)
-    const lite = await loadGLTF(SFB('gangster_lite')); const dot = await loadGLTF(SF('dotty')); if (this.disposed) return;
-    if (lite) this.exec.tpl.M = { scene: lite.scene, h: 1.85, clips: await retargetSet('gangster_lite', lite.scene) };
-    if (dot) this.exec.tpl.F = { scene: dot.scene, h: 1.7, clips: await retargetSet('dotty', dot.scene) };
+    const lite = await loadGLTF(SFB('mafia_boss_lite')); if (this.disposed) return;
+    // قالبٌ واحد للجنسين: لم تبقَ شخصيّةٌ أنثى في المشهد بعد قرار 2026-09-25.
+    // والنسخة المخفَّفة (9k مثلّث بدل 30k) لأنّ الحشد قد يبلغ 27 نسخة.
+    if (lite) { const c = await retargetSet('mafia_boss_lite', lite.scene); this.exec.tpl.M = { scene: lite.scene, h: 1.85, clips: c }; this.exec.tpl.F = { scene: lite.scene, h: 1.78, clips: c }; }
     void this.exec.warmTemplates();
   }
   /** مقطعٌ مفروض للفحص: ?clip=smoke يضع كلَّ المشاة فيه مهما كان دورهم —
