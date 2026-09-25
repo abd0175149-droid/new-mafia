@@ -82,6 +82,32 @@ function hhmmAr(t: string): string {
   return `${ar(h)}:${ar(m[2])} ${period}`;
 }
 
+// ══════════════════════════════════════════════════════
+// 📅 أحدُ الأسبوع لأيّ تاريخ
+// ══════════════════════════════════════════════════════
+// القاعدةُ نفسُها التي في الخادم حرفيّاً (`weekStartAmman`): السبتُ يومٌ خارج
+// الأسبوع لا آخرُه، فمن اختاره أراد الأسبوعَ الذي يبدأ غداً. ولو خالفت الواجهةُ
+// الخادمَ هنا لرأى المستخدمُ أسبوعاً واختار الخادمُ غيرَه.
+function sundayOf(iso: string): string {
+  const [y, m, d] = iso.split('-').map(Number);
+  const t = Date.UTC(y, m - 1, d);
+  const dow = new Date(t).getUTCDay();
+  return new Date(dow === 6 ? t + 86400000 : t - dow * 86400000).toISOString().slice(0, 10);
+}
+const shiftDays = (iso: string, n: number) => {
+  const [y, m, d] = iso.split('-').map(Number);
+  return new Date(Date.UTC(y, m - 1, d + n)).toISOString().slice(0, 10);
+};
+/** كم يوماً بين اليوم وذلك التاريخ (موجبٌ للمستقبل) */
+const daysFromToday = (iso: string) => {
+  const [y, m, d] = iso.split('-').map(Number);
+  return Math.round((Date.UTC(y, m - 1, d) - Date.UTC(new Date().getUTCFullYear(), new Date().getUTCMonth(), new Date().getUTCDate())) / 86400000);
+};
+// 🔴 الخادم يتخطّى أيّ تاريخٍ يبعد عن الآن أكثر من ٦٠ يوماً («خارج المدى
+//    المعقول» — حارسٌ وُضع بعد نشاطِ ٤:٠٠ فجراً أُنشئ بالخطأ). فالنافذة تقف
+//    عند الحدّ نفسه بدل أن تَعِد بإنشاءٍ يُتخطّى صامتاً.
+const MAX_AHEAD_DAYS = 60;
+
 export default function WeekGamesModal({
   open, onClose, onDone, apiFetch,
 }: {
@@ -101,6 +127,8 @@ export default function WeekGamesModal({
   // 🏙️ المكانُ قابلٌ للتبديل قبل الإنشاء — القالبُ يقترح مكانَه، والمدينةُ تتبع المكان
   const [locations, setLocations] = useState<any[]>([]);
   const [locId, setLocId] = useState<string>('');
+  // 📅 أسبوعٌ مختار: '' = الأسبوع الذي يحسبه الخادم تلقائيّاً (السلوك القديم)
+  const [weekRef, setWeekRef] = useState('');
   const selLoc = locations.find(l => String(l.id) === locId);
   const locName: string = selLoc?.name || pv?.locationName || '';
   const cityName: string | null = selLoc ? (selLoc.cityName ?? null) : (pv?.cityName ?? null);
@@ -117,7 +145,9 @@ export default function WeekGamesModal({
   const load = useCallback(async () => {
     setLoading(true); setErr('');
     try {
-      const d: Preview = await apiFetch('/api/activities/week/preview');
+      // ظهرُ اليومِ بـUTC: يقع داخل اليوم المدنيّ نفسه في عمّان مهما كان الفارق
+      const d: Preview = await apiFetch(
+        '/api/activities/week/preview' + (weekRef ? `?ref=${weekRef}T12:00:00Z` : ''));
       setPv(d);
       setRows(d.days || []);
       setLocId(d.locationId ? String(d.locationId) : '');
@@ -135,14 +165,17 @@ export default function WeekGamesModal({
     } finally {
       setLoading(false);
     }
-  }, [apiFetch]);
+  }, [apiFetch, weekRef]);
 
   useEffect(() => { if (open) load(); }, [open, load]);
 
   const pending = rows.filter(r => !r.exists);
+  // 🔴 مقياسٌ واحد للمدى: لو حسبه الشريطُ وحده لبقي الزرُّ يَعِد بإنشاءٍ
+  //    يتخطّاه الخادمُ صامتاً — فالتعطيلُ هنا لا في الشريط فقط.
+  const weekTooFar = !!pv && daysFromToday(shiftDays(pv.weekStartAmman, 4)) > MAX_AHEAD_DAYS;
 
   const create = async () => {
-    if (!pv || pending.length === 0) return;
+    if (!pv || pending.length === 0 || weekTooFar) return;
     const locationId = locId ? Number(locId) : pv.locationId;
     if (!locationId) { setErr('اختر المكان أوّلاً — لا تُنشأ فعاليّةٌ بلا مكان'); return; }
     setBusy(true); setErr('');
@@ -219,6 +252,65 @@ export default function WeekGamesModal({
               </div>
               <button onClick={onClose} className="w-9 h-9 rounded-lg text-gray-500 hover:text-white">✕</button>
             </div>
+
+            {/* ── اختيار الأسبوع ── */}
+            {pv && (() => {
+              const start = pv.weekStartAmman;
+              const end = shiftDays(start, 4);            // الجمعة: آخرُ أيّام القالب
+              const ahead = daysFromToday(start);
+              const tooFar = weekTooFar;
+              const past = ahead < 0;
+              return (
+                <div className="px-4 py-2.5 border-b border-gray-800 bg-gray-950/50">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    {/* «التالي» يسارُ العربيّة اتّجاهُ التقدّم */}
+                    <button
+                      onClick={() => setWeekRef(shiftDays(start, -7))}
+                      className="w-8 h-8 rounded-lg border border-gray-800 text-gray-400 hover:text-white hover:border-gray-600 shrink-0"
+                      title="الأسبوع السابق"
+                    >›</button>
+                    <div className="flex-1 min-w-0 text-center">
+                      <div className="text-[12.5px] font-bold text-white truncate">
+                        {prettyAmman(start + ' 00:00').split(' · ')[0]} — {prettyAmman(end + ' 00:00').split(' · ')[0]}
+                      </div>
+                      <div className="text-[10px] text-gray-500">
+                        {ahead === 0 ? 'هذا الأسبوع' : past ? `أسبوعٌ مضى · قبل ${Math.abs(ahead)} يوماً`
+                          : ahead <= 7 ? 'الأسبوع القادم' : `بعد ${ahead} يوماً`}
+                      </div>
+                    </div>
+                    <button
+                      onClick={() => setWeekRef(shiftDays(start, 7))}
+                      className="w-8 h-8 rounded-lg border border-gray-800 text-gray-400 hover:text-white hover:border-gray-600 shrink-0"
+                      title="الأسبوع التالي"
+                    >‹</button>
+                    <input
+                      type="date"
+                      value={start}
+                      onChange={e => e.target.value && setWeekRef(sundayOf(e.target.value))}
+                      className="bg-gray-950 border border-gray-800 rounded-lg px-2 py-1.5 text-[11.5px] text-white focus:border-amber-500 outline-none shrink-0"
+                      title="اختر أيّ يومٍ من الأسبوع — يُضبط على أحدِه"
+                    />
+                    {weekRef && (
+                      <button
+                        onClick={() => setWeekRef('')}
+                        className="text-[11px] text-gray-500 hover:text-amber-400 border border-gray-800 rounded-lg px-2 py-1.5 shrink-0"
+                      >↺ هذا الأسبوع</button>
+                    )}
+                  </div>
+                  {/* أيُّ تاريخٍ يُضبط على أحدِ أسبوعه، فالبداية أحدٌ دائماً */}
+                  {past && (
+                    <p className="text-[10.5px] text-amber-400/90 mt-1.5 leading-relaxed">
+                      ⚠️ أسبوعٌ مضى — الإنشاء ممكنٌ لكنّ الأنشطة ستولد بتاريخٍ سابق.
+                    </p>
+                  )}
+                  {tooFar && (
+                    <p className="text-[10.5px] text-rose-400 mt-1.5 leading-relaxed">
+                      ⛔ أبعدُ من {MAX_AHEAD_DAYS} يوماً — الخادم يتخطّى هذه التواريخ. اختر أسبوعاً أقرب.
+                    </p>
+                  )}
+                </div>
+              );
+            })()}
 
             {/* ── الجسم ── */}
             <div className="overflow-y-auto p-3 space-y-2.5 flex-1">
@@ -430,7 +522,7 @@ export default function WeekGamesModal({
               </button>
               <button
                 onClick={create}
-                disabled={busy || loading || pending.length === 0}
+                disabled={busy || loading || pending.length === 0 || weekTooFar}
                 className="px-5 h-11 rounded-xl text-[13.5px] font-bold shrink-0 disabled:opacity-40"
                 style={{ background: 'linear-gradient(135deg,#fbbf24,#f59e0b)', color: '#0a0805' }}
               >
