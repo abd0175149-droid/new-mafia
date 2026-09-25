@@ -718,6 +718,26 @@ async function recordBotUsage(conversationId: number | null, source: 'live' | 'p
 // تعريفات الأدوات (function declarations)
 // ══════════════════════════════════════════════════════
 
+/**
+ * مَن يجوز أن يُنسب إليه التحصيل — الموظّفون النشطون بأدوارٍ ميدانيّة.
+ * الاسمُ من جدول الموظّفين لا من نصٍّ حرّ: تقريرُ التسوية يجمع بهذه السلسلة،
+ * فاختلافُ صياغتها يفرّق الشخصَ الواحد إلى شخصين في الحساب.
+ */
+async function listCollectors(): Promise<Array<{ id: number; name: string }>> {
+  try {
+    const db = getDB();
+    if (!db) return [];
+    const { staff } = await import('../schemas/admin.schema.js');
+    const rows = await db.select({ id: staff.id, username: staff.username, displayName: staff.displayName })
+      .from(staff)
+      .where(and(eq(staff.isActive, true), isNull(staff.deletedAt),
+        inArray(staff.role, ['admin', 'manager', 'leader'] as any)))
+      .orderBy(staff.displayName)
+      .limit(10);
+    return rows.map((r) => ({ id: r.id, name: String(r.displayName || r.username || '').trim() || `#${r.id}` }));
+  } catch { return []; }
+}
+
 // 🔒 هل المحادثة مرتبطة بحساب أدمن؟ (رقمها مربوط بحساب لاعب مرتبط بموظّف role=admin)
 // نفس سلسلة الربط المعتمدة في notifyAdmins — بوّابة أدوات «الأدمن فقط».
 async function isAdminConversation(conv: any): Promise<boolean> {
@@ -2280,12 +2300,22 @@ async function execTool(name: string, args: any, ctx: ToolCtx): Promise<any> {
       const ppl = (b: any) => Number(b.count || 1);
       const freeB = bks.filter((b) => b.isFree), paidB = bks.filter((b) => !b.isFree && b.isPaid), unpaidB = bks.filter((b) => !b.isFree && !b.isPaid);
       const revenue = Math.round(bks.reduce((s, b) => s + Number(b.paidAmount || 0), 0) * 100) / 100;
+      // 💡 «المتوقَّع» = ما لم يُسجَّل بعد: غيرُ المدفوعين × سعر الفعاليّة.
+      //    بلا هذا الرقم كان التقرير يقول «الإيراد صفر» لليلةٍ امتلأ صندوقُها
+      //    ولم يُسجَّل تحصيلُها — وهو ما وقع فعلاً في آب ٢٠٢٦ سبعةَ عشر يوماً.
+      const unit = Number(act.basePrice || 0);
+      const expected = Math.round(unpaidB.reduce((s, b) => s + ppl(b) * unit, 0) * 100) / 100;
       const out: any = {
-        activity: act.name, dateText: fmtJo(act.date),
+        activity: act.name, activityId: act.id, dateText: fmtJo(act.date),
         players: bks.length, people: bks.reduce((s, b) => s + ppl(b), 0),
         free: freeB.length, freePeople: freeB.reduce((s, b) => s + ppl(b), 0),
-        paid: paidB.length, unpaid: unpaidB.length, revenueJOD: revenue,
-        note: `تقرير «${act.name}»: ${bks.length} حجز (${bks.reduce((s, b) => s + ppl(b), 0)} شخص) — مجانيّون ${freeB.length}، مدفوع ${paidB.length}، غير مدفوع ${unpaidB.length}، الإيراد ${revenue} د.أ. اعرضها منظّمة بنقاط قصيرة.`,
+        paid: paidB.length, unpaid: unpaidB.length,
+        revenueJOD: revenue, unitPriceJOD: unit,
+        expectedFromUnpaidJOD: expected, totalIfAllPaidJOD: Math.round((revenue + expected) * 100) / 100,
+        note: `تقرير «${act.name}»: ${bks.length} حجز (${bks.reduce((s, b) => s + ppl(b), 0)} شخص) — مجانيّون ${freeB.length}، مدفوع ${paidB.length}، غير مدفوع ${unpaidB.length}. `
+          + `المسجَّل ${revenue} د.أ${expected > 0 ? `، والمتوقَّع من غير المدفوعين ${expected} د.أ (${unpaidB.length} × ${unit}) فيصير المجموع ${Math.round((revenue + expected) * 100) / 100} د.أ` : ''}. `
+          + (expected > 0 ? 'اذكر المتوقَّع صراحةً واعرض أن تثبّت التحصيل عبر admin_mark_activity_paid. ' : '')
+          + 'اعرضها منظّمة بنقاط قصيرة.',
       };
       if (args.include_names) out.names = bks.map((b) => ({ name: b.name, phone: b.phone, count: ppl(b), status: b.isFree ? 'مجانيّ' : b.isPaid ? 'مدفوع' : 'غير مدفوع' }));
       return out;
@@ -2445,24 +2475,52 @@ async function execTool(name: string, args: any, ctx: ToolCtx): Promise<any> {
 
     case 'admin_mark_activity_paid': {
       const actId = Number(args.activity_id);
-      const [act] = await db.select({ name: activities.name }).from(activities).where(eq(activities.id, actId)).limit(1);
+      const [act] = await db.select({ name: activities.name, basePrice: activities.basePrice })
+        .from(activities).where(eq(activities.id, actId)).limit(1);
       if (!act) return { error: 'الفعاليّة غير موجودة' };
-      const bks = await db.select({ id: bookings.id, isFree: bookings.isFree, isPaid: bookings.isPaid })
+      const bks = await db.select({ id: bookings.id, count: bookings.count, isFree: bookings.isFree, isPaid: bookings.isPaid })
         .from(bookings).where(and(eq(bookings.activityId, actId), isNull(bookings.deletedAt)));
-      const unpaid = bks.filter((b) => !b.isFree && !b.isPaid).length;
+      const unpaidRows = bks.filter((b) => !b.isFree && !b.isPaid);
+      const unpaid = unpaidRows.length;
       if (unpaid === 0) return { note: `ما في حجوزات غير مدفوعة في «${act.name}» — الكل مدفوع أو مجانيّ.` };
+      const unit = Number(act.basePrice || 0);
+      const expected = Math.round(unpaidRows.reduce((t, b) => t + Number(b.count || 1) * unit, 0) * 100) / 100;
+
+      // 🔴 «مَن حصّل؟» سؤالٌ لا افتراض: كان المُستلِم يُكتب اسمَ صاحب المحادثة
+      //    دائماً، والأدمن قد يسجّل تحصيلاً قبضه غيرُه. والقائمة تضمن اسماً
+      //    موحَّداً من جدول الموظّفين بدل نصٍّ حرّ يفرّق الشخص الواحد في التقارير.
+      const collectors = await listCollectors();
       if (!dryRun) {
-        await sendMessage({ conversationId: conv.id, source: 'bot', interactive: {
-          type: 'button',
-          body: { text: `تسجيل الدفع لـ${unpaid} حجزاً غير مدفوع في «${act.name}»؟` },
-          action: { buttons: [
-            { type: 'reply', reply: { id: `adminpaid:${actId}`, title: `نعم، ادفع ${unpaid} ✅`.slice(0, 20) } },
-            { type: 'reply', reply: { id: 'admincancel', title: 'إلغاء' } },
-          ] },
-        } });
-        ctx.interactives.push({ kind: 'buttons', preview: 'تأكيد تسجيل الدفع الجماعيّ' });
+        if (collectors.length) {
+          await sendMessage({ conversationId: conv.id, source: 'bot', interactive: {
+            type: 'list',
+            body: { text: `«${act.name}»
+${unpaid} حجزاً غير مدفوع × ${unit} د.أ = ${expected} د.أ
+
+مين حصّل المبلغ؟` },
+            action: {
+              button: 'اختر المُحصِّل',
+              sections: [{ rows: collectors.slice(0, 10).map((c) => ({
+                id: `admrcv:${actId}:${c.id}`, title: c.name.slice(0, 24),
+              })) }],
+            },
+          } });
+          ctx.interactives.push({ kind: 'list', preview: `اختيار المُحصِّل (${collectors.length})` });
+        } else {
+          // لا موظّفين مفعَّلين؟ نعود للمسار القديم بدل أن نقف
+          await sendMessage({ conversationId: conv.id, source: 'bot', interactive: {
+            type: 'button',
+            body: { text: `تسجيل الدفع لـ${unpaid} حجزاً غير مدفوع في «${act.name}» (${expected} د.أ)؟` },
+            action: { buttons: [
+              { type: 'reply', reply: { id: `adminpaid:${actId}`, title: `نعم، ${expected} د.أ ✅`.slice(0, 20) } },
+              { type: 'reply', reply: { id: 'admincancel', title: 'إلغاء' } },
+            ] },
+          } });
+          ctx.interactives.push({ kind: 'buttons', preview: 'تأكيد تسجيل الدفع الجماعيّ' });
+        }
       }
-      return { pendingConfirm: true, count: unpaid, note: 'أُرسلت أزرار التأكيد — ينتظر ضغط الأدمن.' };
+      return { pendingConfirm: true, count: unpaid, unitPriceJOD: unit, expectedJOD: expected,
+        note: `أُرسلت قائمةُ المُحصِّلين — ينتظر اختيار الأدمن. المتوقَّع ${expected} د.أ.` };
     }
 
     // ══════ 🎮 حالة اللعبة الكاملة بالأدوار (أدمن فقط) ══════
@@ -2955,8 +3013,54 @@ async function processConversation(convId: number) {
         await sendMessage({ conversationId: convId, text: 'تمام، ألغيت العمليّة 👍', source: 'system' });
         return;
       }
+      // 👤 اختيرَ المُحصِّل ⇒ نعرض التأكيد باسمه والمبلغ. خطوتان لا واحدة:
+      //    المالُ يستحقّ تأكيداً صريحاً بعد أن يُقرأ الاسمُ والرقمُ معاً.
+      const admRcvMatch = /^admrcv:(\d+):(\d+)$/.exec(btnId || '');
+      if (admRcvMatch) {
+        if (!(await isAdminConversation(conv))) {
+          await sendMessage({ conversationId: convId, text: 'هذا الإجراء متاح للأدمن فقط 🔒', source: 'system' });
+          return;
+        }
+        const actId = parseInt(admRcvMatch[1]);
+        const staffId = parseInt(admRcvMatch[2]);
+        const { staff } = await import('../schemas/admin.schema.js');
+        const [who] = await db.select({ username: staff.username, displayName: staff.displayName })
+          .from(staff).where(eq(staff.id, staffId)).limit(1);
+        const [a2] = await db.select({ name: activities.name, basePrice: activities.basePrice })
+          .from(activities).where(eq(activities.id, actId)).limit(1);
+        if (!who || !a2) {
+          await sendMessage({ conversationId: convId, text: 'ما لقيت الموظّف أو الفعاليّة 🙏', source: 'system' });
+          return;
+        }
+        // 🔴 يُعاد الحساب الآن لا يُؤخذ من الرسالة: بين العرض والضغط قد يُسجَّل
+        //    دفعٌ من اللوحة، فالرقمُ المعروض في التأكيد هو رقمُ اللحظة.
+        const rows = await db.select({ count: bookings.count }).from(bookings)
+          .where(and(eq(bookings.activityId, actId), isNull(bookings.deletedAt),
+            eq(bookings.isFree, false), eq(bookings.isPaid, false)));
+        if (!rows.length) {
+          await sendMessage({ conversationId: convId, text: `ما ضلّ حجزٌ غير مدفوع في «${a2.name}» — غالباً سُجّل من اللوحة.`, source: 'system' });
+          return;
+        }
+        const unit2 = Number(a2.basePrice || 0);
+        const total2 = Math.round(rows.reduce((t, b) => t + Number(b.count || 1) * unit2, 0) * 100) / 100;
+        const nm = String(who.displayName || who.username || '').trim();
+        await sendMessage({ conversationId: convId, source: 'bot', interactive: {
+          type: 'button',
+          body: { text: `تثبيت التحصيل؟
+
+«${a2.name}»
+${rows.length} حجزاً × ${unit2} د.أ = *${total2} د.أ*
+المُحصِّل: ${nm}` },
+          action: { buttons: [
+            { type: 'reply', reply: { id: `adminpaid:${actId}:${staffId}`, title: `ثبّت ${total2} د.أ ✅`.slice(0, 20) } },
+            { type: 'reply', reply: { id: 'admincancel', title: 'إلغاء' } },
+          ] },
+        } });
+        return;
+      }
+
       const adminFreeMatch = /^adminfree:(\d+)$/.exec(btnId || '');
-      const adminPaidMatch = /^adminpaid:(\d+)$/.exec(btnId || '');
+      const adminPaidMatch = /^adminpaid:(\d+)(?::(\d+))?$/.exec(btnId || '');
       if (adminFreeMatch || adminPaidMatch) {
         if (!(await isAdminConversation(conv))) {
           await sendMessage({ conversationId: convId, text: 'هذا الإجراء متاح للأدمن فقط 🔒', source: 'system' });
@@ -2970,8 +3074,16 @@ async function processConversation(convId: number) {
           void auditBot(conv, 'wa:booking-set-free', { bookingId: parseInt(adminFreeMatch[1]) }, { targetName: b?.name ?? null, outcome: b ? 'success' : 'blocked' });
         } else {
           const actId = parseInt(adminPaidMatch![1]);
-          const rcv = conv.displayName || 'أدمن واتساب';
-          const [act] = await db.select({ basePrice: activities.basePrice }).from(activities).where(eq(activities.id, actId)).limit(1);
+          // المُحصِّل المختار من القائمة، وإلّا صاحبُ المحادثة (أزرارٌ قديمة)
+          let rcv = conv.displayName || 'أدمن واتساب';
+          if (adminPaidMatch![2]) {
+            const { staff } = await import('../schemas/admin.schema.js');
+            const [w] = await db.select({ username: staff.username, displayName: staff.displayName })
+              .from(staff).where(eq(staff.id, parseInt(adminPaidMatch![2]))).limit(1);
+            if (w) rcv = String(w.displayName || w.username || '').trim() || rcv;
+          }
+          const [act] = await db.select({ name: activities.name, basePrice: activities.basePrice })
+            .from(activities).where(eq(activities.id, actId)).limit(1);
           const unit = Number(act?.basePrice || 0);
           const bks = await db.select({ id: bookings.id, count: bookings.count })
             .from(bookings).where(and(eq(bookings.activityId, actId), isNull(bookings.deletedAt), eq(bookings.isFree, false), eq(bookings.isPaid, false)));
@@ -2980,7 +3092,14 @@ async function processConversation(convId: number) {
               .set({ isPaid: true, paidAmount: String(Math.round(unit * Number(b.count || 1) * 100) / 100), receivedBy: rcv } as any)
               .where(eq(bookings.id, b.id));
           }
-          await sendMessage({ conversationId: convId, text: `تمّ ✅ سُجّل الدفع لـ${bks.length} حجزاً في الفعاليّة (المستلم: ${rcv}).`, source: 'system' });
+          // مُستلِمُ الفعاليّة يطغى على مُستلِم الحجز في تقرير التسوية — يُكتب
+          // على الفارغ وحده كي لا يُمحى ضبطٌ سابق من صفحة المالية.
+          await db.update(activities).set({ receivedBy: rcv } as any)
+            .where(and(eq(activities.id, actId), sql`COALESCE(${activities.receivedBy}, '') = ''`));
+          const totalPaid = Math.round(bks.reduce((t, b) => t + unit * Number(b.count || 1), 0) * 100) / 100;
+          await sendMessage({ conversationId: convId, text: `تمّ ✅ «${act?.name || 'الفعاليّة'}»
+سُجّل الدفع لـ${bks.length} حجزاً — *${totalPaid} د.أ*
+المُحصِّل: ${rcv}`, source: 'system' });
           void auditBot(conv, 'wa:activity-mark-paid', { bookings: bks.length, unitPrice: unit, receivedBy: rcv }, { activityId: actId });
         }
         return;
