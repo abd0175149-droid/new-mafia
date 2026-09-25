@@ -102,8 +102,10 @@ export function drawCrowd(slots: readonly CrowdSlot[], rnd: () => number, pool: 
  */
 export function pickNeutral(gender: Gender, rnd: () => number, loaded?: ReadonlySet<string>, exclude?: ReadonlySet<string>): CharacterDef | null {
   const all = NEUTRAL.filter(c => !loaded || loaded.has(c.id));
-  const ok = exclude && all.some(c => !exclude.has(c.id)) ? all.filter(c => !exclude.has(c.id)) : all;   // تجنّبُ الجيران إن أمكن
-  const same = ok.filter(c => c.gender === gender);
-  const from = same.length ? same : ok;
+  // الأولويّة: جنسُ اللاعب أوّلاً، ثمّ تجنّبُ الجيران داخل الجنس إن أمكن — لا العكس
+  // (كان تجنّبُ الجيران يسبق الجنس فتظهر لاعبةٌ بشكل رجلٍ إذا كان جاراها المرأتين المحايدتين)
+  const same = all.filter(c => c.gender === gender);
+  const base = same.length ? same : all;
+  const from = exclude && base.some(c => !exclude.has(c.id)) ? base.filter(c => !exclude.has(c.id)) : base;
   return from.length ? from[Math.floor(rnd() * from.length)] : null;
 }
