@@ -108,6 +108,24 @@ const daysFromToday = (iso: string) => {
 //    عند الحدّ نفسه بدل أن تَعِد بإنشاءٍ يُتخطّى صامتاً.
 const MAX_AHEAD_DAYS = 60;
 
+/**
+ * يُعيد ضبط ساعة فتح الأبواب لصفٍّ لم يُنشأ بعد.
+ * 🔴 عمّان +٣ طوال العام منذ إلغاء التوقيت الصيفيّ (٢٠٢٢) — وهو الافتراضُ
+ *    نفسُه في `ammanWallToUtc` بالخادم. لو اختلفا لأُنشئت الألعاب بساعةٍ غير
+ *    التي تُعرض.
+ */
+function atTime(row: { dateAmman: string; dateUtc: string }, hhmm: string) {
+  const day = row.dateAmman.split(' ')[0];
+  const [y, m, d] = day.split('-').map(Number);
+  const [h, mi] = hhmm.split(':').map(Number);
+  if (![y, m, d, h, mi].every(Number.isFinite)) return row;
+  return {
+    ...row,
+    dateUtc: new Date(Date.UTC(y, m - 1, d, h - 3, mi)).toISOString(),
+    dateAmman: `${day} ${String(h).padStart(2, '0')}:${String(mi).padStart(2, '0')}`,
+  };
+}
+
 export default function WeekGamesModal({
   open, onClose, onDone, apiFetch,
 }: {
@@ -129,6 +147,8 @@ export default function WeekGamesModal({
   const [locId, setLocId] = useState<string>('');
   // 📅 أسبوعٌ مختار: '' = الأسبوع الذي يحسبه الخادم تلقائيّاً (السلوك القديم)
   const [weekRef, setWeekRef] = useState('');
+  // ⏰ وقتُ بدايةٍ واحد يسري على كلّ ما سيُنشأ — كان ثابتاً في الشيفرة لكلّ يوم
+  const [startTime, setStartTime] = useState('');
   const selLoc = locations.find(l => String(l.id) === locId);
   const locName: string = selLoc?.name || pv?.locationName || '';
   const cityName: string | null = selLoc ? (selLoc.cityName ?? null) : (pv?.cityName ?? null);
@@ -150,6 +170,11 @@ export default function WeekGamesModal({
         '/api/activities/week/preview' + (weekRef ? `?ref=${weekRef}T12:00:00Z` : ''));
       setPv(d);
       setRows(d.days || []);
+      // القالبُ يبدأ بوقتٍ واحد للأيّام كلّها عادةً — نأخذه افتراضاً بلا فرضِه
+      const times = (d.days || []).map(x => (x.dateAmman || '').split(' ')[1]).filter(Boolean);
+      const common = times.sort((a, b) =>
+        times.filter(t => t === b).length - times.filter(t => t === a).length)[0] || '';
+      setStartTime(common);
       setLocId(d.locationId ? String(d.locationId) : '');
       apiFetch('/api/locations').then(l => setLocations(Array.isArray(l) ? l : [])).catch(() => setLocations([]));
       // الاثنينُ افتراضاً: أوّلُ يومٍ في الأسبوع لا يشغله القالب
@@ -168,6 +193,13 @@ export default function WeekGamesModal({
   }, [apiFetch, weekRef]);
 
   useEffect(() => { if (open) load(); }, [open, load]);
+
+  // الموجودُ سلفاً لا يُمسّ: الوقتُ الجديد لما سيُنشأ وحده
+  const applyStartTime = (hhmm: string) => {
+    setStartTime(hhmm);
+    if (!/^\d{2}:\d{2}$/.test(hhmm)) return;
+    setRows(prev => prev.map(r => (r.exists ? r : { ...r, ...atTime(r, hhmm) })));
+  };
 
   const pending = rows.filter(r => !r.exists);
   // 🔴 مقياسٌ واحد للمدى: لو حسبه الشريطُ وحده لبقي الزرُّ يَعِد بإنشاءٍ
@@ -263,12 +295,12 @@ export default function WeekGamesModal({
               return (
                 <div className="px-4 py-2.5 border-b border-gray-800 bg-gray-950/50">
                   <div className="flex items-center gap-2 flex-wrap">
-                    {/* «التالي» يسارُ العربيّة اتّجاهُ التقدّم */}
+                    {/* 🔴 كلماتٌ لا أسهم: السهمُ في واجهةٍ عربيّة يحتمل قراءتين
+                        (اتّجاهُ الزمن أم اتّجاهُ القراءة؟) — والكلمة لا تحتمل إلّا واحدة. */}
                     <button
                       onClick={() => setWeekRef(shiftDays(start, -7))}
-                      className="w-8 h-8 rounded-lg border border-gray-800 text-gray-400 hover:text-white hover:border-gray-600 shrink-0"
-                      title="الأسبوع السابق"
-                    >›</button>
+                      className="px-2.5 h-8 rounded-lg border border-gray-800 text-[11.5px] font-bold text-gray-400 hover:text-white hover:border-gray-600 shrink-0"
+                    >السابق</button>
                     <div className="flex-1 min-w-0 text-center">
                       <div className="text-[12.5px] font-bold text-white truncate">
                         {prettyAmman(start + ' 00:00').split(' · ')[0]} — {prettyAmman(end + ' 00:00').split(' · ')[0]}
@@ -280,9 +312,8 @@ export default function WeekGamesModal({
                     </div>
                     <button
                       onClick={() => setWeekRef(shiftDays(start, 7))}
-                      className="w-8 h-8 rounded-lg border border-gray-800 text-gray-400 hover:text-white hover:border-gray-600 shrink-0"
-                      title="الأسبوع التالي"
-                    >‹</button>
+                      className="px-2.5 h-8 rounded-lg border border-gray-800 text-[11.5px] font-bold text-gray-400 hover:text-white hover:border-gray-600 shrink-0"
+                    >التالي</button>
                     <input
                       type="date"
                       value={start}
@@ -297,6 +328,22 @@ export default function WeekGamesModal({
                       >↺ هذا الأسبوع</button>
                     )}
                   </div>
+                  {/* ⏰ وقتُ بدايةٍ واحد لكلّ ما سيُنشأ */}
+                  <div className="flex items-center gap-2 mt-2 flex-wrap">
+                    <label className="text-[11px] text-gray-500 shrink-0">وقت البداية لكلّ الألعاب</label>
+                    <input
+                      type="time"
+                      value={startTime}
+                      onChange={e => applyStartTime(e.target.value)}
+                      className="bg-gray-950 border border-gray-800 rounded-lg px-2 py-1.5 text-[12px] text-white focus:border-amber-500 outline-none"
+                    />
+                    <span className="text-[10.5px] text-gray-600">
+                      {pending.length
+                        ? `يسري على ${pending.length === 1 ? 'اللعبة التي ستُنشأ' : `الـ${pending.length} ألعاب التي ستُنشأ`} — والموجودُ سلفاً لا يُمسّ`
+                        : 'لا شيء لإنشائه في هذا الأسبوع'}
+                    </span>
+                  </div>
+
                   {/* أيُّ تاريخٍ يُضبط على أحدِ أسبوعه، فالبداية أحدٌ دائماً */}
                   {past && (
                     <p className="text-[10.5px] text-amber-400/90 mt-1.5 leading-relaxed">

@@ -149,15 +149,17 @@ export function groupLocationsByCity(locations: any[]): LocationGroup[] {
   });
 }
 
+// 🔴 بلا إيموجي: قائمةُ الاختيار يرسمها النظام بخطٍّ قد لا يحمل الرمز، فيظهر
+//    مربّعاً مكسوراً في كلّ صفّ. الكلمةُ تصل دائماً، والرمزُ لا.
 export const locationOptionLabel = (l: any): string =>
-  `${l.name}${l.region ? ` · ${l.region}` : ''}${l.isTestLocation ? ' 🧪' : ''}`;
+  `${l.name}${l.region ? ` · ${l.region}` : ''}${l.isTestLocation ? ' (اختبار)' : ''}`;
 
-/** `<optgroup label="🏙️ المدينة">` لكلّ مدينة — يُوضع مباشرةً داخل `<select>` */
+/** `<optgroup label="المدينة">` لكلّ مدينة — يُوضع مباشرةً داخل `<select>` */
 export function LocationOptgroups({ locations, labelOf = locationOptionLabel }: { locations: any[]; labelOf?: (l: any) => string }) {
   return (
     <>
       {groupLocationsByCity(locations).map(g => (
-        <optgroup key={g.key} label={`🏙️ ${g.cityName}`}>
+        <optgroup key={g.key} label={g.cityName}>
           {g.items.map((l: any) => (
             <option key={l.id} value={l.id}>{labelOf(l)}</option>
           ))}

@@ -382,3 +382,24 @@
     radial-gradient(90% 40% at 50% -5%, rgba(197, 160, 89, 0.05), transparent 60%),
     radial-gradient(120% 70% at 50% 115%, rgba(138, 3, 3, 0.09), transparent 55%);
 }
+
+
+/* ══════════════════════════════════════════════════════
+   ▾ قوائم الاختيار — نافذةُ الخيارات
+   ══════════════════════════════════════════════════════
+   🔴 الحقلُ نفسُه يقبل تنسيقنا، أمّا **نافذةُ الخيارات** فيرسمها النظام
+      بألوانه: أبيضُ على داكنٍ في لوحةٍ داكنة، وصفٌّ محدَّدٌ بأزرقِ ويندوز.
+      كروم يحترم `background-color`/`color` على `option` و`optgroup` — وهو
+      المنفذ الوحيد لتوحيدها مع بقيّة اللوحة. */
+select option,
+select optgroup {
+  background-color: #0b0c0f;
+  color: #e8eaf0;
+}
+select optgroup {
+  font-weight: 700;
+  color: #f0b429;
+}
+select option:disabled {
+  color: #5b6270;
+}
