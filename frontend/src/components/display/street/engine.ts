@@ -590,7 +590,10 @@ class StreetEngine {
     if (dot) this.exec.tpl.F = { scene: dot.scene, h: 1.7, clips: await retargetSet('dotty', dot.scene) };
     void this.exec.warmTemplates();
   }
-  private playW(w: Walker, k: string) { if (!w.mixer || w.cur === k) return; const a = w.acts[k] || w.acts.idle; if (!a) return; const prev = w.acts[w.cur]; if (prev && prev !== a) prev.fadeOut(.5); a.reset().fadeIn(.5).play(); w.mixer.update(0.001); w.cur = k; }
+  /** مقطعٌ مفروض للفحص: ?clip=smoke يضع كلَّ المشاة فيه مهما كان دورهم —
+   *  الطريقة الوحيدة لمعاينة sit/smoke على شخصيّةٍ دورها idle قبل إقرارها. */
+  private forceClip = debugParam('clip');
+  private playW(w: Walker, k: string) { if (this.forceClip) k = this.forceClip; if (!w.mixer || w.cur === k) return; const a = w.acts[k] || w.acts.idle; if (!a) return; const prev = w.acts[w.cur]; if (prev && prev !== a) prev.fadeOut(.5); a.reset().fadeIn(.5).play(); w.mixer.update(0.001); w.cur = k; }
   private applyCrowdMode() {
     const night = this.mode === 'night';
     this.walkers.forEach(w => { w.root.visible = night ? w.night : w.day; if (!w.root.visible) return;
