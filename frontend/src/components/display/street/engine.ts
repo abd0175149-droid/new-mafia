@@ -220,7 +220,7 @@ type PS = { g: THREE.Group; items: { s: THREE.Sprite; life: number; vx?: number;
 type Shot = { len: number; fov: number; at: (t: number) => [THREE.Vector3, THREE.Vector3] };
 type Preset = { top: THREE.Color; hor: THREE.Color; fog: THREE.Color; fd: number; hemi: number; hemiC: THREE.Color; exp: number; sun: number; lamps: number; rain: number };
 /** شخصيّة في الحشد: نسخة هيكليّة بحركاتها وحالتها */
-type Walker = { root: THREE.Object3D; groundY: number; mixer: THREE.AnimationMixer | null; acts: Record<string, THREE.AnimationAction>; cur: string; kind: 'lamp' | 'walk' | 'idle' | 'seat'; side: 1 | -1; z: number; dir: 1 | -1; speed: number; pause: number; night: boolean; day: boolean; gait: { hips: THREE.Object3D[]; knees: THREE.Object3D[]; arms: THREE.Object3D[] } | null };
+type Walker = { root: THREE.Object3D; groundY: number; mixer: THREE.AnimationMixer | null; acts: Record<string, THREE.AnimationAction>; cur: string; /** الدورُ الأصليّ: لا يتغيّر — منه يُشتقّ `kind` عند كلّ تبديل وضع */ role: 'lamp' | 'walk' | 'idle' | 'seat'; kind: 'lamp' | 'walk' | 'idle' | 'seat'; side: 1 | -1; z: number; dir: 1 | -1; speed: number; pause: number; night: boolean; day: boolean; gait: { hips: THREE.Object3D[]; knees: THREE.Object3D[]; arms: THREE.Object3D[] } | null };
 
 /* 🦴 خريطة العظام انتقلت إلى «./bone-map» — صارت تعرّفاً تلقائيّاً يشمل
    Advanced Skeleton وMixamo وأيّ تسميةٍ شائعة، كي تعمل شخصيّاتٌ جديدة بلا تعديل كود. */
@@ -409,7 +409,7 @@ class StreetEngine {
     this.place('water_manhole_cover', .7, 'x', [[2.2, -14, 0]], .01, false);
     loadGLTF(PH('modular_fire_escape')).then(g => { if (!g || this.disposed) return; ([[-1, -18], [1, -34], [-1, -52]] as [number, number][]).forEach(([side, z]) => { const m = this.prep(g.scene.clone(true)); this.fit(m, 9.5, 'y'); m.position.set(side * (FACE + .1), 3.3, z); m.rotation.y = side > 0 ? -Math.PI / 2 : Math.PI / 2; S.add(m); }); });
     this.place('wooden_crate_01', .8, 'x', [[FACE - 1.1, -27.5, .2], [FACE - 1.1, -28.4, 1.1], [FACE - .5, -27.9, -.3]]); this.place('wooden_crate_02', 1.15, 'x', [[FACE - .95, -26.3, .1]]);
-    this.place('wooden_barrels_01', 1.4, 'x', [[-FACE + .95, -40.5, .4]]); this.place('painted_wooden_bench', 1.8, 'x', [[-FACE + 1.4, -10, Math.PI / 2]]);
+    this.place('wooden_barrels_01', 1.4, 'x', [[-FACE + .95, -40.5, .4]]); this.place('painted_wooden_bench', 1.8, 'x', [[-FACE + 1.4, -10, -Math.PI / 2]]); /* ظهرُه إلى الواجهة: كان مقلوباً فيجلس الجالس خلف ظهره */
     // 🪑 الأثاثُ ملاصقٌ للواجهة (≥ 7.7 من المحور) خارج شريط المشي [6.7, 7.35]
     this.place('outdoor_table_chair_set_01', 1.6, 'x', [[FACE - .95, -1.6, .3], [FACE - .95, -3.6, -.2]]); this.place('standing_chalkboard_01', .9, 'y', [[FACE - .6, -.4, -.6]]);
     this.place('planter_box_01', 1.0, 'x', [[-FACE + 1.0, -13.2, Math.PI / 2], [FACE - 1.0, -21.6, Math.PI / 2]]); this.place('cardboard_box_01', .6, 'x', [[-FACE + 1.1, -16.4, .5], [FACE - 1.1, -30.9, 1.3]]);
@@ -690,7 +690,7 @@ class StreetEngine {
       for (let i = 0; i < sp.n; i++) {
         const root = SkeletonUtils.clone(g.scene); this.prep(root, i === 0, false); this.pinRigidProps(root); root.traverse(o => { if ((o as THREE.SkinnedMesh).isSkinnedMesh) o.frustumCulled = false; });
         const wrap = new THREE.Group(); wrap.add(root); this.fit(wrap, sp.h, 'y'); { const bs = this.blobShadow(1.3); bs.position.y = (-wrap.position.y + .01) / wrap.scale.x; bs.scale.setScalar(1 / wrap.scale.x); wrap.add(bs); }
-        const w: Walker = { root: wrap, groundY: wrap.position.y + .16 /* سطح الرصيف */, mixer: null, acts: {}, cur: '', kind: sp.kinds[i], side: sp.sides[i], z: sp.zs[i], dir: i % 2 ? 1 : -1, speed: .9 + rnd() * .4, pause: 0, night: sp.night[i], day: sp.day[i], gait: null };
+        const w: Walker = { root: wrap, groundY: wrap.position.y + .16 /* سطح الرصيف */, mixer: null, acts: {}, cur: '', role: sp.kinds[i], kind: sp.kinds[i], side: sp.sides[i], z: sp.zs[i], dir: i % 2 ? 1 : -1, speed: .9 + rnd() * .4, pause: 0, night: sp.night[i], day: sp.day[i], gait: null };
         let skinned: THREE.SkinnedMesh | null = null; root.traverse(o => { if (!skinned && (o as THREE.SkinnedMesh).isSkinnedMesh) skinned = o as THREE.SkinnedMesh; });
         if (skinned && Object.keys(rset).length) { w.mixer = new THREE.AnimationMixer(root); for (const k of Object.keys(rset)) w.acts[k] = w.mixer.clipAction(rset[k]); }
         // البديلُ الإجرائيّ يبحث بالمعنى (UpLeg/Leg/Arm) لا بتسمية Advanced Skeleton:
@@ -713,14 +713,17 @@ class StreetEngine {
   private playW(w: Walker, k: string) { if (this.forceClip) k = this.forceClip; if (!w.mixer || w.cur === k) return; const a = w.acts[k] || w.acts.idle; if (!a) return; const prev = w.acts[w.cur]; if (prev && prev !== a) prev.fadeOut(.5); a.reset().fadeIn(.5).play(); w.mixer.update(0.001); w.cur = k; }
   private applyCrowdMode() {
     const night = this.mode === 'night';
-    this.walkers.forEach(w => { w.root.visible = night ? w.night : w.day; if (!w.root.visible) return;
+    // 🔴 كان النهار يكتب `kind = 'walk'` فوق الدور، والإحماءُ يمرّ بالنهار قبل أوّل ليل:
+    //    فلا يقف أحدٌ عند المصباح ولا يقف واقفٌ في أيّ ليلٍ بعد ذلك، وتبقى جمرةُ السيجارة
+    //    معلّقةً في الهواء عند المصباح بلا صاحب. الدورُ ثابتٌ والنوعُ يُشتقّ منه كلّ مرّة.
+    this.walkers.forEach(w => { w.kind = night || w.role === 'seat' ? w.role : 'walk'; w.root.visible = night ? w.night : w.day; if (!w.root.visible) return;
       // 🪑 الجالس على البنش المطليّ (z=-10 يسار الشارع): مقعدُه على 0.32م، وفي مقطع الجلوس
       //    الحوضُ على 0.51 والقدم على 0.27 — إنزالُ الجذر 0.19 يضع الحوض على المقعد والقدمين
       //    على الأرض معاً (مُقاس). كان هذا الدور مجسّماً جالساً بلا هيكل؛ صار شخصيّةً بحركة.
       if (w.kind === 'seat') { w.root.position.set(w.side * (FACE - 1.42), w.groundY - .19, w.z); w.root.rotation.y = w.side > 0 ? -Math.PI / 2 : Math.PI / 2; this.playW(w, 'sit'); return; }
       if (w.kind === 'lamp' && night) { w.root.position.set(-FACE + 1.9, w.groundY, w.z); w.root.rotation.y = .6; this.playW(w, 'smoke'); return; }
       if (w.kind === 'idle' && night) { w.root.position.set(w.side * (FACE - 1.1), w.groundY, w.z); w.root.rotation.y = w.side > 0 ? Math.PI / 2 : -Math.PI / 2; this.playW(w, 'idle'); return; }
-      w.root.position.set(w.side * (FACE - 2.2) /* ممرّ المشي وسط الرصيف: بعيدٌ عن أعمدة الرصيف (حافّة الرصيف) وأرجل المظلّات (عند الواجهة) */, w.groundY, w.z); w.root.rotation.y = w.dir > 0 ? 0 : Math.PI; this.playW(w, 'walk'); w.kind = w.kind === 'lamp' || w.kind === 'idle' ? 'walk' : w.kind; });
+      w.root.position.set(w.side * (FACE - 2.2) /* ممرّ المشي وسط الرصيف: بعيدٌ عن أعمدة الرصيف (حافّة الرصيف) وأرجل المظلّات (عند الواجهة) */, w.groundY, w.z); w.root.rotation.y = w.dir > 0 ? 0 : Math.PI; this.playW(w, 'walk'); });
     this.ember.visible = night && !!this.figLamp?.root.visible;
   }
   private updateCrowd(dt: number, time: number) {
