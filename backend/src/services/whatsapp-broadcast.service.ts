@@ -100,7 +100,7 @@ export async function startBroadcast(input: AudienceQuery & { body: string; crea
   const body = String(input.body || '').trim();
   if (body.length < 5) return { ok: false, error: 'اكتب نصّ الرسالة (٥ أحرف على الأقلّ)' };
   if (body.length > 900) return { ok: false, error: 'النصّ طويل — الحدّ ٩٠٠ حرف' };
-  if (/https?:\/\/(?!club-mafia\.grade\.sbs|mafia-club\.masaros\.net|(www\.)?instagram\.com\/mafia_club_jo)/i.test(body)) return { ok: false, error: 'الروابط الخارجيّة غير مسموحة في البثّ (روابط النادي فقط)' };
+  // (قيدُ الروابط الخارجيّة أُلغي نهائيّاً بقرار المالك 2026-09-26: كان يمنع حتّى رابط قناة الواتساب. أيُّ رابطٍ يُرسل.)
   const blocked = sendingSuspendedReason(); if (blocked) return { ok: false, error: `الإرسال مقفل: ${blocked}` };
   if (running) return { ok: false, error: 'هناك بثّ جارٍ الآن' };
   // (حظر الـ12 ساعة بين البثوث أُلغي بقرار المالك 2026-09-20. الحماية من التكرار صارت بيده: خيار «استثنِ من وصلهم بثّ سابق».)
