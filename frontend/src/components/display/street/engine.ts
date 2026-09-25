@@ -154,8 +154,10 @@ gltfLoader.setMeshoptDecoder(MeshoptDecoder);
 const texLoader = new THREE.TextureLoader();
 const rgbeLoader = new RGBELoader();
 const cache = new Map<string, Promise<any>>();
-function loadGLTF(url: string) {
+/** `optional`: أصلٌ غيابُه تصميمٌ لا عطل (حركات الإقصاء مثلاً) — لا يُصرخ به */
+function loadGLTF(url: string, optional = false) {
   if (!cache.has(url)) cache.set(url, gltfLoader.loadAsync(url).catch(e => {
+    if (optional) { console.info('🏙️ أصلٌ اختياريّ غير موجود (البديل يعمل):', url); return null; }
     // خطأٌ لا تحذير: أصلٌ مفقودٌ أو مضغوطٌ بامتدادٍ غير مدعوم يُخرج قطعةً من
     // المشهد بلا أثرٍ آخر، والتحذيرُ يضيع بين تحذيرات المتصفّح.
     console.error(`🏙️ تعذّر تحميل أصل 3D: ${url.split('/').pop()}\n   المسار: ${url}\n   السبب: ${e?.message || e}\n   افحص الملفّ: node scripts/inspect-character.mjs public${url}`);
@@ -544,7 +546,7 @@ class StreetEngine {
       { src: 'moneyman', glb: true, n: 1, kinds: ['seat'], night: [true], day: [true], sides: [1], zs: [-2.6], h: 1.35 },
     ];
     // ⚖️ حركات الإقصاء (اختياريّة): إن وُجدت anim/fall.glb و anim/react_death.glb تُستخدم، وإلّا سقوطٌ إجرائيّ
-    const extra: Record<string, THREE.AnimationClip> = {}; for (const n of ['fall', 'react_death']) { const g = await loadGLTF(ANIM(n)); if (g?.animations?.[0]) extra[n] = g.animations[0]; }
+    const extra: Record<string, THREE.AnimationClip> = {}; for (const n of ['fall', 'react_death']) { const g = await loadGLTF(ANIM(n), true); if (g?.animations?.[0]) extra[n] = g.animations[0]; }
     const allClips = { ...clips, ...extra };
     /** إعادة الاستهداف مرّةً لكلّ موديل (لا لكلّ نسخة): المقاطع المعاد استهدافها تُسمّى عظامها بالاسم فتصلح لكلّ النسخ */
     const retargetSet = async (src: string, scene: THREE.Object3D): Promise<Record<string, THREE.AnimationClip>> => {
