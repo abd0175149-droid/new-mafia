@@ -185,7 +185,7 @@ export function preloadStreetAssets() {
   if (typeof window === 'undefined') return;
   ['street_lamp_01', 'street_lamp_02', 'fire_hydrant', 'modular_fire_escape', 'metal_trash_can', 'water_manhole_cover', 'modular_electricity_poles', 'wooden_crate_01', 'wooden_crate_02', 'wooden_barrels_01', 'painted_wooden_bench', 'outdoor_table_chair_set_01', 'standing_chalkboard_01', 'planter_box_01', 'cardboard_box_01', 'trashbag', 'wooden_ladder', 'covered_car'].forEach(n => loadGLTF(PH(n)));
   ['pierce_arrow', 'coupe33', 'gangster', 'dotty', 'fedoras', 'brownstone', 'awning', 'balcony', 'clothesline', 'diorama1930'].forEach(n => loadGLTF(SF(n)));
-  loadGLTF(SFB('moneyman')); ['neutral_idle', 'walking', 'smoking', 'sitting'].forEach(n => loadGLTF(ANIM(n)));
+  loadGLTF(SFB('moneyman')); loadGLTF(SFB('mafia_boss')); ['neutral_idle', 'walking', 'smoking', 'sitting'].forEach(n => loadGLTF(ANIM(n)));
   Object.values(SURFACES).forEach(s => { loadTex(TEX(s.name, 'diff'), true, s.rep); loadTex(TEX(s.name, 'nor'), false, s.rep); loadTex(TEX(s.name, 'rough'), false, s.rep); });
   loadHDR(`${ASSET_ROOT}/hdri/moonless_golf_1k.hdr`); loadHDR(`${ASSET_ROOT}/hdri/klippad_sunrise_2_1k.hdr`);
 }
@@ -543,6 +543,8 @@ class StreetEngine {
       { src: 'gangster', n: 1, kinds: ['lamp'], night: [true], day: [true], sides: [-1], zs: [-3.2], h: 1.85 }, /* شخصيّة المصباح وحدها بالتفاصيل الكاملة (لقطة قريبة) */
       { src: 'gangster_lite', glb: true, n: 2, kinds: ['walk', 'idle'], night: [true, false], day: [true, true], sides: [1, -1], zs: [-20, -50], h: 1.85 },
       { src: 'dotty', n: 2, kinds: ['walk', 'idle'], night: [false, true], day: [true, true], sides: [1, -1], zs: [-38, -12], h: 1.7 },
+      /* 🎩 زعيم المافيا: لقطةٌ قريبة على الرصيف المقابل لرجل المصباح — أوّل شخصيّةٍ بعظام Mixamo خالصة */
+      { src: 'mafia_boss', glb: true, n: 1, kinds: ['idle'], night: [true], day: [true], sides: [1], zs: [-7.5], h: 1.85 },
       { src: 'moneyman', glb: true, n: 1, kinds: ['seat'], night: [true], day: [true], sides: [1], zs: [-2.6], h: 1.35 },
     ];
     // ⚖️ حركات الإقصاء (اختياريّة): إن وُجدت anim/fall.glb و anim/react_death.glb تُستخدم، وإلّا سقوطٌ إجرائيّ
