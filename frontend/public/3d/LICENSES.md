@@ -6,6 +6,7 @@
 - sketchfab/gangster — "Empire of Sin: Al-Capone" — Zorg_Sinister — CC-BY 4.0 as declared by the uploader (the character originates from the game Empire of Sin; owner's choice 2026-09-12, replaceable by "1920's Gangster" Wolf3D https://sketchfab.com/3d-models/7a633a06e91f40b291b2a9ebf1834507) — https://sketchfab.com/3d-models/empire-of-sin-al-capone-97275cfeda5e47e7aba092ba21bdc0ae
 - sketchfab/fedoras — "fedoras" — CC-BY 4.0 — https://sketchfab.com/3d-models/c456f905f8c04169b8864bd7be04b554
 - sketchfab/mafia_boss — "mafia_boss" (زعيم المافيا) — مولَّدٌ بـMeshy AI (خطّة Pro، رخصةٌ خاصّة للمالك بموجب شروط Meshy التجاريّة) ومركَّبٌ ومحرَّكٌ بـAdobe Mixamo — ليس CC — https://www.meshy.ai/ · https://www.mixamo.com/
+- sketchfab/hitman — "hitman" (القاتل المأجور) — مولَّدٌ بـMeshy AI (خطّة Pro، رخصةٌ خاصّة للمالك بموجب شروط Meshy التجاريّة) ومركَّبٌ ومحرَّكٌ بـAdobe Mixamo — ليس CC — https://www.meshy.ai/ · https://www.mixamo.com/
 
 ## Poly Haven (CC0)
 - hdri/klippad_sunrise_2_1k.hdr — "klippad_sunrise_2" — Poly Haven — CC0 — https://polyhaven.com/a/klippad_sunrise_2

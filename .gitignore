@@ -20,3 +20,6 @@ backend/src/scripts/battery-alert.ts
 # نفايات Finder على الماك — لا تخصّ المشروع
 .DS_Store
 **/.DS_Store
+
+# مصادر الشخصيّات الخامّة (Meshy برخصةٍ خاصّة + Mixamo) — المستودع عامّ، لا تُرفع
+frontend/assets-src/
