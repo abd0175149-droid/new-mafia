@@ -37,6 +37,11 @@ export const roomFeedback = pgTable('room_feedback', {
   //    إلى عمودٍ بترحيلٍ صغيرٍ يخصّه وحده.
   answers: jsonb('answers').default({}),
   // ── حالة ──
+  // 🔴 مِن أين جاء التقييم: 'app' | 'wa'. كان يُستنتَج استنتاجاً (الواتساب
+  //    يملأ `overall` وحده) — وهو استنتاجٌ صحيحٌ حتّى 2026-09-25 وحدها، فبعدها
+  //    صار الواتساب يسأل أكثر من سؤال وصارت أسئلة التطبيق تُطفأ. `null` =
+  //    صفٌّ تاريخيٌّ لم يُوسَم عند كتابته (يُملأ مرّةً بالاستنتاج عند الترحيل).
+  source: varchar('source', { length: 8 }),
   submittedAt: timestamp('submitted_at'),        // null = معلّق، غير null = مُعبّأ
   createdAt: timestamp('created_at').defaultNow().notNull(), // لحظة الإغلاق (مرساة مهلة الحجب)
 }, (t) => ({

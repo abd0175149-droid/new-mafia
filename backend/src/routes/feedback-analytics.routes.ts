@@ -75,6 +75,8 @@ router.get('/new-averages', authenticate, managerOrAbove, async (req: Request, r
 const DIMS = ['overall','venue','gameplay','clarity','pacing','seating','leader','fairness','atmosphere','value','recommend'] as const;
 
 function buildFilters(req: Request): SQL[] {
+  // القناة: app | wa — و`null` صفوفٌ تاريخيّة وُسمت بالاستنتاج عند الترحيل
+  const srcRaw = String(req.query.source || '').trim();
   // نحسب فقط الاستبيانات المُعبّأة (المعلّقة لها submitted_at = null)
   const conds: SQL[] = [isNotNull(roomFeedback.submittedAt)];
   const { from, to, locationId, leaderId, activityId } = req.query as Record<string, string>;
@@ -84,6 +86,7 @@ function buildFilters(req: Request): SQL[] {
   if (Number.isFinite(loc)) conds.push(eq(roomFeedback.locationId, loc));
   if (Number.isFinite(led)) conds.push(eq(roomFeedback.leaderStaffId, led));
   if (Number.isFinite(act)) conds.push(eq(roomFeedback.activityId, act));
+  if (srcRaw === 'app' || srcRaw === 'wa') conds.push(eq(roomFeedback.source, srcRaw));
   return conds;
 }
 
@@ -183,11 +186,27 @@ router.get('/summary', authenticate, managerOrAbove, async (req: Request, res: R
       .groupBy(sql`DATE_TRUNC('week', ${roomFeedback.playedAt})`)
       .orderBy(sql`DATE_TRUNC('week', ${roomFeedback.playedAt})`);
 
+    // ── تفصيل القناة: كم عبر التطبيق وكم عبر الواتساب، ومتوسّط كلٍّ ──
+    // الواتساب يسأل سؤالاً أو سؤالين، والتطبيق يسأل كلّ المفعَّل — فمقارنةُ
+    // متوسّطيهما مقارنةُ أداتين لا مقارنةُ جمهورين، والواجهة تقول ذلك.
+    const bySourceRows: any[] = await db.select({
+      source: roomFeedback.source,
+      n: sql<number>`COUNT(*)::int`,
+      avgOverall: sql<number>`ROUND(AVG(${roomFeedback.overall}),2)`,
+      withNotes: sql<number>`COUNT(*) FILTER (WHERE ${roomFeedback.notes} IS NOT NULL AND ${roomFeedback.notes} <> '')::int`,
+    }).from(roomFeedback).where(where).groupBy(roomFeedback.source);
+    const bySource = {
+      app: bySourceRows.find(r => r.source === 'app') || { n: 0, avgOverall: null, withNotes: 0 },
+      wa: bySourceRows.find(r => r.source === 'wa') || { n: 0, avgOverall: null, withNotes: 0 },
+      unknown: bySourceRows.find(r => !r.source) || { n: 0, avgOverall: null, withNotes: 0 },
+    };
+
     // الملاحظات (بالاسم — حسب طلب المنتج)
     const commentConds = [...conds, isNotNull(roomFeedback.notes), ne(roomFeedback.notes, '')];
     const comments = await db.select({
       notes: roomFeedback.notes,
       overall: roomFeedback.overall,
+      source: roomFeedback.source,
       playedAt: roomFeedback.playedAt,
       createdAt: roomFeedback.createdAt,
       playerName: players.name,
@@ -207,6 +226,7 @@ router.get('/summary', authenticate, managerOrAbove, async (req: Request, res: R
     const respondents = await db.select({
       playerId: roomFeedback.playerId,
       playerName: players.name,
+      source: roomFeedback.source,
       overall: roomFeedback.overall,
       venue: roomFeedback.venue,
       gameplay: roomFeedback.gameplay,
@@ -249,6 +269,7 @@ router.get('/summary', authenticate, managerOrAbove, async (req: Request, res: R
       byLeader,
       byActivity,
       trend,
+      bySource,
       comments,
       respondents,
     });

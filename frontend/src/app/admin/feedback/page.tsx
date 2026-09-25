@@ -102,6 +102,7 @@ export default function AdminFeedbackPage() {
   const [from, setFrom] = useState('');
   const [to, setTo] = useState('');
   const [activityId, setActivityId] = useState('');
+  const [source, setSource] = useState('');
   const [activities, setActivities] = useState<any[]>([]);
   const [tab, setTab] = useState<'overview' | 'people' | 'comments' | 'questions'>('overview');
   const [search, setSearch] = useState('');
@@ -116,11 +117,12 @@ export default function AdminFeedbackPage() {
       if (from) qs.set('from', from);
       if (to) qs.set('to', to);
       if (activityId) qs.set('activityId', activityId);
+      if (source) qs.set('source', source);
       const res = await fetch(`/api/feedback/summary?${qs.toString()}`, { headers: { Authorization: `Bearer ${token}` } });
       const d = await res.json();
       if (d.success) setData(d);
     } catch {} finally { setLoading(false); }
-  }, [token, from, to, activityId]);
+  }, [token, from, to, activityId, source]);
 
   useEffect(() => { load(); }, [load]);
 
@@ -152,6 +154,17 @@ export default function AdminFeedbackPage() {
   const weakestKey = dimsSorted.length ? dimsSorted[dimsSorted.length - 1].key : null;
 
   // مُقيّمون مُزال منهم التكرار حسب الشخص (أحدث تقييم لكل لاعب)
+  // 📲 القناة: من أين جاء التقييم. الشارة على كلّ صفٍّ لا في مكانٍ واحد،
+  //     لأنّ السؤال يُطرح وأنت تقرأ تقييماً بعينه لا وأنت تقرأ المجموع.
+  const SrcBadge = ({ src }: { src?: string | null }) => {
+    const m: Record<string, { t: string; c: string }> = {
+      wa: { t: '💬 واتساب', c: 'text-emerald-400 bg-emerald-500/10' },
+      app: { t: '📱 التطبيق', c: 'text-sky-400 bg-sky-500/10' },
+    };
+    const v = m[src || ''] || { t: '؟ غير معروف', c: 'text-gray-500 bg-gray-500/10' };
+    return <span className={`text-[9px] font-bold rounded-full px-1.5 py-px shrink-0 ${v.c}`}>{v.t}</span>;
+  };
+
   const respondentsByPerson = useMemo(() => {
     const seen = new Set<number>();
     const out: any[] = [];
@@ -210,8 +223,19 @@ export default function AdminFeedbackPage() {
             <input type="date" value={to} onChange={e => setTo(e.target.value)}
               className="bg-gray-900 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white outline-none focus:border-amber-500 transition-colors" />
           </label>
-          {(from || to || activityId) && (
-            <button onClick={() => { setFrom(''); setTo(''); setActivityId(''); }}
+          <label className="flex flex-col gap-1">
+            <span className="text-[10px] text-gray-500">القناة</span>
+            <select
+              value={source} onChange={e => setSource(e.target.value)}
+              className="bg-gray-900 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white outline-none focus:border-amber-500 transition-colors"
+            >
+              <option value="">كلّ القنوات</option>
+              <option value="app">📱 التطبيق</option>
+              <option value="wa">💬 واتساب</option>
+            </select>
+          </label>
+          {(from || to || activityId || source) && (
+            <button onClick={() => { setFrom(''); setTo(''); setActivityId(''); setSource(''); }}
               className="px-3 py-2 text-xs text-gray-400 hover:text-white border border-gray-700 hover:border-gray-500 rounded-lg transition-colors">
               ✕ مسح
             </button>
@@ -299,6 +323,51 @@ export default function AdminFeedbackPage() {
         {/* ════════════════ نظرة عامة ════════════════ */}
         {tab === 'overview' && (
           <motion.div key="overview" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }} className="space-y-5">
+
+            {/* 📲 من أين جاءت التقييمات — ضمن الفلتر الحاليّ (اختر فعاليّةً لترى تفصيلها) */}
+            {data.bySource && (
+              <div className="rounded-2xl border border-gray-800 bg-gray-900/50 p-4">
+                <div className="flex items-baseline gap-2 flex-wrap mb-3">
+                  <h3 className="text-sm font-bold text-white">من أين جاءت التقييمات</h3>
+                  <span className="text-[11px] text-gray-500">
+                    {activityId ? 'في هذه الفعاليّة' : 'في كلّ ما يطابق الفلتر'}
+                  </span>
+                </div>
+                <div className="grid grid-cols-2 md:grid-cols-3 gap-2.5">
+                  {([
+                    ['app', '📱 التطبيق', '#56B6F0'],
+                    ['wa', '💬 واتساب', '#34D399'],
+                    ['unknown', '؟ غير معروف', '#6b7280'],
+                  ] as const).map(([k, label, color]) => {
+                    const v = (data.bySource as any)[k] || { n: 0, avgOverall: null, withNotes: 0 };
+                    if (k === 'unknown' && !v.n) return null;
+                    return (
+                      <button
+                        key={k}
+                        onClick={() => k !== 'unknown' && setSource(source === k ? '' : k)}
+                        className={`text-right rounded-xl border p-3 transition-colors ${
+                          source === k ? 'border-amber-500 bg-amber-500/5' : 'border-gray-800 bg-gray-950/50 hover:border-gray-700'
+                        }`}
+                      >
+                        <div className="text-[11px] mb-1" style={{ color }}>{label}</div>
+                        <div className="flex items-baseline gap-2">
+                          <span className="text-2xl font-black tabular-nums text-white">{v.n}</span>
+                          <span className="text-xs text-gray-500">تقييماً</span>
+                        </div>
+                        <div className="text-[10.5px] text-gray-500 mt-1">
+                          متوسّط {v.avgOverall ?? '—'}/5 · {v.withNotes} بملاحظة
+                        </div>
+                      </button>
+                    );
+                  })}
+                </div>
+                <p className="text-[10.5px] text-gray-600 mt-3 leading-relaxed">
+                  الواتساب يسأل سؤالاً أو سؤالين، والتطبيق يسأل كلّ المفعَّل — فمقارنةُ المتوسّطين
+                  مقارنةُ <b className="text-gray-400">أداتين</b> لا مقارنةُ جمهورين.
+                  {(data.bySource.unknown?.n ?? 0) > 0 && ' و«غير معروف» صفوفٌ قديمة وُسمت باستنتاجٍ لا بتسجيل.'}
+                </p>
+              </div>
+            )}
 
             {/* Hero: نبض الرضا */}
             <div className="relative overflow-hidden rounded-2xl border border-amber-500/15 bg-gradient-to-bl from-amber-500/[0.07] via-gray-900/40 to-gray-900/20 p-6">
@@ -465,6 +534,7 @@ export default function AdminFeedbackPage() {
                           <div className="font-bold text-white text-sm truncate flex items-center gap-1.5">
                             {r.playerName || 'لاعب'}
                             {r.notes && <span title="ترك ملاحظة">📝</span>}
+                            <SrcBadge src={r.source} />
                           </div>
                           <div className="text-[10px] text-gray-500 truncate">
                             {!activityId && r.activityName ? `${r.activityName} · ` : ''}
@@ -525,6 +595,7 @@ export default function AdminFeedbackPage() {
                       <span className="text-xs font-black px-2 py-0.5 rounded-full" style={{ color: ratingColor(c.overall), background: `${ratingColor(c.overall)}1a` }}>
                         {c.overall ?? '—'}/5
                       </span>
+                      <SrcBadge src={c.source} />
                     </div>
                     <p className="text-sm text-gray-200 leading-relaxed mb-2">“{c.notes}”</p>
                     <div className="text-[10px] text-gray-600 flex flex-wrap gap-x-2">

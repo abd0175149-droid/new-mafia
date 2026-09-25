@@ -132,5 +132,22 @@ check(/tab === 'questions'/.test(page) && page.indexOf("tab === 'questions'") < 
   'المحرّر لا ينتظر تحميل ملخّص التقييمات');
 check(/\(q as any\)\.options/.test(app), 'التطبيق يعرض الخيارات المخصّصة حين توجد');
 
+// ══════════════════════════════════════════════════════
+console.log('\n📲 تمييز القناة');
+// ══════════════════════════════════════════════════════
+check(/source: varchar\('source'/.test(schema), 'العمود في المخطّط');
+check(/ADD COLUMN IF NOT EXISTS source VARCHAR/.test(boot), 'الترحيل عند الإقلاع');
+check(/WHERE source IS NULL AND submitted_at IS NOT NULL/.test(boot),
+  'الصفوف التاريخيّة تُوسَم مرّةً واحدة — ولا يُعاد وسمُ ما وُسم');
+check(/source: 'app'/.test(fb), 'مسارُ التطبيق يسم نفسه');
+check(/source = COALESCE\(source,/.test(svc),
+  'ومسارُ الواتساب كذلك — بـCOALESCE كي لا يُنتزع صفٌّ بدأه التطبيق');
+check(/srcRaw === 'app'/.test(far), 'فلترُ القناة في الاستعلام');
+check(/groupBy\(roomFeedback\.source\)/.test(far), 'وتفصيلُ القناة محسوبٌ لا مستنتَج');
+check(/source: roomFeedback\.source/.test(far), 'والقناة تُعاد مع كلّ صفٍّ للواجهة');
+check(/SrcBadge/.test(page), 'الشارة على كلّ صفٍّ في الواجهة');
+check(/مقارنةُ/.test(page) && /أداتين/.test(page),
+  'والواجهة تقول إنّ مقارنة المتوسّطين مقارنةُ أداتين لا جمهورين');
+
 console.log(`\n${fail ? '❌' : '✅'} ${pass} نجح · ${fail} فشل\n`);
 process.exit(fail ? 1 : 0);

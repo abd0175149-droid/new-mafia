@@ -147,20 +147,22 @@ const COL_OK = /^[a-z_]{2,40}$/;   // حارسٌ على اسم العمود قب
  * يعيد false إن كان الصفّ غير موجودٍ أو لغير هذا اللاعب.
  */
 export async function recordAnswer(
-  rowId: number, playerId: number, q: SurveyQuestion, score: number,
+  rowId: number, playerId: number, q: SurveyQuestion, score: number, src: 'wa' | 'app' = 'wa',
 ): Promise<boolean> {
   const db = getDB();
   if (!db) return false;
   const s = Math.min(Math.max(Math.round(score), 1), 5);
+  // الوسمُ عند أوّل إجابة: `COALESCE` كي لا يُنتزع صفٌّ بدأه التطبيق
   if (q.column && COL_OK.test(q.column)) {
     const r: any = await db.execute(sql`
-      UPDATE room_feedback SET ${sql.raw(`"${q.column}"`)} = ${s}
+      UPDATE room_feedback SET ${sql.raw(`"${q.column}"`)} = ${s}, source = COALESCE(source, ${src})
        WHERE id = ${rowId} AND player_id = ${playerId} RETURNING id`);
     return (r.rows || r || []).length > 0;
   }
   const r: any = await db.execute(sql`
     UPDATE room_feedback
-       SET answers = COALESCE(answers, '{}'::jsonb) || ${JSON.stringify({ [q.key]: s })}::jsonb
+       SET answers = COALESCE(answers, '{}'::jsonb) || ${JSON.stringify({ [q.key]: s })}::jsonb,
+           source = COALESCE(source, ${src})
      WHERE id = ${rowId} AND player_id = ${playerId} RETURNING id`);
   return (r.rows || r || []).length > 0;
 }

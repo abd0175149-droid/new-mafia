@@ -241,6 +241,7 @@ export async function submitSessionFeedback(
       ...cols,
       ...(Object.keys(extra).length ? { answers: sql`COALESCE(${roomFeedback.answers}, '{}'::jsonb) || ${JSON.stringify(extra)}::jsonb` } : {}),
       notes: notes?.slice(0, 1000) || null,
+      source: 'app',
       submittedAt: new Date(),
     } as any).where(and(
       eq(roomFeedback.sessionId, sessionId),

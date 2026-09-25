@@ -795,6 +795,13 @@ async function main() {
       await db.execute(sql`ALTER TABLE wa_bot_settings ADD COLUMN IF NOT EXISTS restyle JSONB DEFAULT '{}'::jsonb`);
       await db.execute(sql`ALTER TABLE staff ADD COLUMN IF NOT EXISTS tokens_valid_from TIMESTAMP`);
       await db.execute(sql`ALTER TABLE room_feedback ADD COLUMN IF NOT EXISTS answers JSONB DEFAULT '{}'::jsonb`);
+      await db.execute(sql`ALTER TABLE room_feedback ADD COLUMN IF NOT EXISTS source VARCHAR(8)`);
+      // 🔎 وسمُ الصفوف التاريخيّة مرّةً واحدة بالاستنتاج الذي كان صحيحاً حتّى
+      //    2026-09-25: الواتساب يملأ `overall` وحده، والتطبيق يملأ الأبعاد كلّها.
+      //    الصفوفُ الجديدة تُوسَم عند كتابتها فلا يعود الاستنتاج مستعملاً.
+      await db.execute(sql`
+        UPDATE room_feedback SET source = CASE WHEN venue IS NULL AND gameplay IS NULL THEN 'wa' ELSE 'app' END
+         WHERE source IS NULL AND submitted_at IS NOT NULL`);
       await db.execute(sql`
         CREATE TABLE IF NOT EXISTS survey_questions (
           id SERIAL PRIMARY KEY,
