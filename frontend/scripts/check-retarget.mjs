@@ -57,16 +57,29 @@ for (const [label, file, names] of CHARS) {
   if (tB.some(b => !b)) { console.log(`⚠️ ${label}: عظامٌ ناقصة — ${names.filter((n, i) => !tB[i]).join(', ')}`); continue; }
   const rest = tB.map(b => b.getWorldPosition(new THREE.Vector3()));
   const tRest = tB.map(b => b.getWorldQuaternion(new THREE.Quaternion()));
+  // A(b): أقصرُ دورانٍ يحمل اتّجاهَ عظمة المصدر في راحتها إلى اتّجاه نظيرتها عند الهدف
+  const sPos = sB.map(b => b.getWorldPosition(new THREE.Vector3()));
+  const align = CH.map((_, k) => {
+    const c = k + 1;
+    if (c >= CH.length) return new THREE.Quaternion();
+    const ds = sPos[c].clone().sub(sPos[k]), dt = rest[c].clone().sub(rest[k]);
+    if (ds.lengthSq() < 1e-9 || dt.lengthSq() < 1e-9) return new THREE.Quaternion();
+    return new THREE.Quaternion().setFromUnitVectors(ds.normalize(), dt.normalize());
+  });
 
   /** world: الصيغة المعطوبة (دلتا عالميّة) · rest: صيغةُ إطار الراحة (المعتمدة) */
   const run = (mode) => {
-    let mn = 9, mx = -9;
+    let mn = 9, mx = -9, side = 0, lift = 0, n = 0;
     for (let i = 0; i <= 24; i++) {
       mixer.setTime(clip.duration * i / 24); src.scene.updateMatrixWorld(true);
       const W = sB.map(b => b.getWorldQuaternion(new THREE.Quaternion()));
       const Wt = (k) => mode === 'world'
         ? W[k].clone().multiply(sRest[k].clone().invert()).multiply(tRest[k])
-        : tRest[k].clone().multiply(sRest[k].clone().invert()).multiply(W[k]);
+        : mode === 'rest'
+          ? tRest[k].clone().multiply(sRest[k].clone().invert()).multiply(W[k])
+          // محاذاة: مرجعُ المصدر ليس راحته بل راحته موضوعةً باتّجاه عظام الهدف،
+          // فلا يُحتسب فرقُ T→A ولا يُعتمد على توافق محاور العظام المحلّيّة
+          : W[k].clone().multiply(sRest[k].clone().invert()).multiply(align[k].clone().invert()).multiply(tRest[k]);
       const pos = [rest[0].clone()];
       for (let k = 1; k < CH.length; k++) {
         const d = Wt(k - 1).multiply(tRest[k - 1].clone().invert());
@@ -74,16 +87,24 @@ for (const [label, file, names] of CHARS) {
       }
       const f = pos[CH.length - 1].z - pos[0].z;
       mn = Math.min(mn, f); mx = Math.max(mx, f);
+      // انحرافُ الوضعيّة عن راحة الشخصيّة نفسها: تأرجحٌ واسعٌ لا ينفع إن كانت
+      // الذراع ممدودةً جانباً طوال الوقت (وضعيّة T مسرَّبة)
+      side += Math.abs(pos[CH.length - 1].x - pos[0].x);
+      lift += pos[CH.length - 1].y - pos[0].y;
+      n++;
     }
-    return { mn, mx, range: mx - mn };
+    return { mn, mx, range: mx - mn, side: side / n, lift: lift / n };
   };
 
-  const w = run('world'), r = run('rest');
+  const w = run('world'), r = run('rest'), a = run('align');
   const ok = r.range >= 0.25;
   if (!ok) bad++;
   console.log(`\n${ok ? '✅' : '❌'} ${label}`);
-  console.log(`   الصيغة المعتمدة (إطار الراحة): تأرجح ${r.range.toFixed(3)} م · المدى ${r.mn.toFixed(3)} .. ${r.mx.toFixed(3)}`);
-  console.log(`   الصيغة المعطوبة (دلتا عالميّة): تأرجح ${w.range.toFixed(3)} م · المدى ${w.mn.toFixed(3)} .. ${w.mx.toFixed(3)}`);
+  const restSide = Math.abs(rest[CH.length - 1].x - rest[0].x), restLift = rest[CH.length - 1].y - rest[0].y;
+  console.log(`   راحةُ الشخصيّة:      اليد جانباً ${restSide.toFixed(3)} م · ارتفاعها عن الورك ${restLift.toFixed(3)} م`);
+  console.log(`   إطارُ الراحة:        تأرجح ${r.range.toFixed(3)} · جانباً ${r.side.toFixed(3)} · ارتفاع ${r.lift.toFixed(3)}`);
+  console.log(`   دلتا عالميّة:        تأرجح ${w.range.toFixed(3)} · جانباً ${w.side.toFixed(3)} · ارتفاع ${w.lift.toFixed(3)}`);
+  console.log(`   محاذاةُ الاتّجاهات:   تأرجح ${a.range.toFixed(3)} · جانباً ${a.side.toFixed(3)} · ارتفاع ${a.lift.toFixed(3)}`);
 }
 console.log(`\n📌 للمقارنة: اليد في ملفّ المصدر نفسه تتأرجح 0.462 م`);
 process.exit(bad ? 1 : 0);
