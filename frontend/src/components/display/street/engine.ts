@@ -27,8 +27,11 @@ import { VignetteShader } from 'three/examples/jsm/shaders/VignetteShader.js';
 import { Reflector } from 'three/examples/jsm/objects/Reflector.js';
 import { mergeGeometries, deinterleaveGeometry } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
+import { DRACOLoader } from 'three/examples/jsm/loaders/DRACOLoader.js';
+import { MeshoptDecoder } from 'three/examples/jsm/libs/meshopt_decoder.module.js';
 import { RGBELoader } from 'three/examples/jsm/loaders/RGBELoader.js';
 import * as SkeletonUtils from 'three/examples/jsm/utils/SkeletonUtils.js';
+import { buildBoneMap, coreBoneName } from './bone-map';
 import { ExecutionController } from './execution';
 export type { ExecFigure, ExecVictim, ExecBeat, ExecTeam } from './execution';
 
@@ -140,10 +143,26 @@ function texSkyline() {
 
 /* ───────────────── asset loading (Poly Haven / Sketchfab) ───────────────── */
 const gltfLoader = new GLTFLoader();
+// 🗜️ فكّاكا الضغط: أصولُ Meshy وأمثالها تصل مضغوطةً بـDraco أو meshopt، وبلا
+//    فكّاكٍ مسجَّل يرفضها GLTFLoader بخطأ «Unsupported extension» فتختفي القطعة.
+//    ملفّات Draco من «public/draco/» لا من شبكة توزيعٍ خارجيّة: شاشةُ القاعة قد
+//    تعمل خلف شبكةٍ معزولة، وCDN هناك يعني مشهداً فارغاً بلا سبب ظاهر.
+const dracoLoader = new DRACOLoader();
+dracoLoader.setDecoderPath('/draco/');
+gltfLoader.setDRACOLoader(dracoLoader);
+gltfLoader.setMeshoptDecoder(MeshoptDecoder);
 const texLoader = new THREE.TextureLoader();
 const rgbeLoader = new RGBELoader();
 const cache = new Map<string, Promise<any>>();
-function loadGLTF(url: string) { if (!cache.has(url)) cache.set(url, gltfLoader.loadAsync(url).catch(e => { console.warn('🏙️ 3D asset missing:', url, e?.message || e); return null; })); return cache.get(url)!; }
+function loadGLTF(url: string) {
+  if (!cache.has(url)) cache.set(url, gltfLoader.loadAsync(url).catch(e => {
+    // خطأٌ لا تحذير: أصلٌ مفقودٌ أو مضغوطٌ بامتدادٍ غير مدعوم يُخرج قطعةً من
+    // المشهد بلا أثرٍ آخر، والتحذيرُ يضيع بين تحذيرات المتصفّح.
+    console.error(`🏙️ تعذّر تحميل أصل 3D: ${url.split('/').pop()}\n   المسار: ${url}\n   السبب: ${e?.message || e}\n   افحص الملفّ: node scripts/inspect-character.mjs public${url}`);
+    return null;
+  }));
+  return cache.get(url)!;
+}
 function loadTex(url: string, srgb: boolean, rep: [number, number]) {
   const k = url + rep.join('x'); if (!cache.has(k)) cache.set(k, texLoader.loadAsync(url).then(t => { t.wrapS = t.wrapT = THREE.RepeatWrapping; t.repeat.set(rep[0], rep[1]); t.anisotropy = 8; if (srgb) t.colorSpace = THREE.SRGBColorSpace; return t; }).catch(() => null)); return cache.get(k)!;
 }
@@ -188,14 +207,8 @@ type Preset = { top: THREE.Color; hor: THREE.Color; fog: THREE.Color; fd: number
 /** شخصيّة في الحشد: نسخة هيكليّة بحركاتها وحالتها */
 type Walker = { root: THREE.Object3D; groundY: number; mixer: THREE.AnimationMixer | null; acts: Record<string, THREE.AnimationAction>; cur: string; kind: 'lamp' | 'walk' | 'idle' | 'seat'; side: 1 | -1; z: number; dir: 1 | -1; speed: number; pause: number; night: boolean; day: boolean; gait: { hips: THREE.Object3D[]; knees: THREE.Object3D[]; arms: THREE.Object3D[] } | null };
 
-/** خريطة عظام Advanced Skeleton (Al Capone / Dotty) → Mixamo */
-const AS_TO_MIXAMO: Record<string, string> = {
-  Root_M: 'Hips', Spine1_M: 'Spine', Chest_M: 'Spine2', Neck_M: 'Neck', Head_M: 'Head',
-  Scapula_R: 'RightShoulder', Shoulder_R: 'RightArm', Elbow_R: 'RightForeArm', Wrist_R: 'RightHand', Hip_R: 'RightUpLeg', Knee_R: 'RightLeg', Ankle_R: 'RightFoot', Toes_R: 'RightToeBase',
-  Scapula_L: 'LeftShoulder', Shoulder_L: 'LeftArm', Elbow_L: 'LeftForeArm', Wrist_L: 'LeftHand', Hip_L: 'LeftUpLeg', Knee_L: 'LeftLeg', Ankle_L: 'LeftFoot', Toes_L: 'LeftToeBase',
-  MiddleFinger1_R: 'RightHandMiddle1', MiddleFinger2_R: 'RightHandMiddle2', IndexFinger1_R: 'RightHandIndex1', IndexFinger2_R: 'RightHandIndex2', ThumbFinger1_R: 'RightHandThumb1', ThumbFinger2_R: 'RightHandThumb2',
-  MiddleFinger1_L: 'LeftHandMiddle1', MiddleFinger2_L: 'LeftHandMiddle2', IndexFinger1_L: 'LeftHandIndex1', IndexFinger2_L: 'LeftHandIndex2', ThumbFinger1_L: 'LeftHandThumb1', ThumbFinger2_L: 'LeftHandThumb2',
-};
+/* 🦴 خريطة العظام انتقلت إلى «./bone-map» — صارت تعرّفاً تلقائيّاً يشمل
+   Advanced Skeleton وMixamo وأيّ تسميةٍ شائعة، كي تعمل شخصيّاتٌ جديدة بلا تعديل كود. */
 
 class StreetEngine {
   renderer!: THREE.WebGLRenderer; scene = new THREE.Scene(); camera = new THREE.PerspectiveCamera(50, 16 / 9, .1, 400);
@@ -537,10 +550,18 @@ class StreetEngine {
     const retargetSet = async (src: string, scene: THREE.Object3D): Promise<Record<string, THREE.AnimationClip>> => {
       if (this.retargetCache[src]) return this.retargetCache[src]; const out: Record<string, THREE.AnimationClip> = {}; if (!skeleton) return out;
       const probe = SkeletonUtils.clone(scene); let sk: THREE.SkinnedMesh | null = null; probe.traverse(o => { if (!sk && (o as THREE.SkinnedMesh).isSkinnedMesh) sk = o as THREE.SkinnedMesh; }); if (!sk) return out;
-      try { const names: Record<string, string> = {}; (sk as THREE.SkinnedMesh).skeleton.bones.forEach(b => { const base = b.name.replace(/_\d+$/, ''); if (AS_TO_MIXAMO[base]) names[b.name] = 'mixamorig' + AS_TO_MIXAMO[base]; });
-        for (const k of Object.keys(allClips)) out[k] = await this.retargetLocal(sk as THREE.SkinnedMesh, skeleton, allClips[k], names);
-        console.info('🏙️ retarget', src, Object.keys(out).join(','), 'tracks', Object.values(out).map(c => c.tracks.length).join('/'), 'mapped', Object.keys(names).length);
-      } catch (e) { console.warn('🏙️ retarget failed, procedural gait:', src, String(e)); }
+      try {
+        // أسماءُ عظام المصدر تُقرأ من الهيكل المحمَّل فعلاً، لا تُبنى افتراضاً:
+        // three تحذف `:` من `mixamorig:Hips` عند التحميل، فالبناءُ بالتخمين يخطئ.
+        const srcNames: string[] = []; skeleton.traverse(o => { if ((o as THREE.Bone).isBone) srcNames.push(o.name); });
+        const targetNames = (sk as THREE.SkinnedMesh).skeleton.bones.map(b => b.name);
+        const map = buildBoneMap(targetNames, srcNames, src);
+        // أقلُّ من الحدّ ⇒ لا مقاطع: `rset` فارغةٌ فيشتغل البديل الإجرائيّ أدناه،
+        // بدل mixerٍ يُركَّب على مقاطع بصفر مسارات فتقف الشخصيّة متجمّدة.
+        if (!map.ok) { this.retargetCache[src] = out; return out; }
+        for (const k of Object.keys(allClips)) out[k] = await this.retargetLocal(sk as THREE.SkinnedMesh, skeleton, allClips[k], map.names);
+        console.info('🏙️ retarget', src, Object.keys(out).join(','), 'tracks', Object.values(out).map(c => c.tracks.length).join('/'), 'mapped', map.matched, '/', targetNames.length);
+      } catch (e) { console.error('🏙️ فشلت إعادة التوجيه، البديل الإجرائيّ يعمل:', src, String(e)); }
       this.retargetCache[src] = out; return out;
     };
     for (const sp of specs) {
@@ -552,7 +573,9 @@ class StreetEngine {
         const w: Walker = { root: wrap, groundY: wrap.position.y + .16 /* سطح الرصيف */, mixer: null, acts: {}, cur: '', kind: sp.kinds[i], side: sp.sides[i], z: sp.zs[i], dir: i % 2 ? 1 : -1, speed: .9 + rnd() * .4, pause: 0, night: sp.night[i], day: sp.day[i], gait: null };
         let skinned: THREE.SkinnedMesh | null = null; root.traverse(o => { if (!skinned && (o as THREE.SkinnedMesh).isSkinnedMesh) skinned = o as THREE.SkinnedMesh; });
         if (skinned && sp.kinds[i] !== 'seat' && Object.keys(rset).length) { w.mixer = new THREE.AnimationMixer(root); for (const k of Object.keys(rset)) w.acts[k] = w.mixer.clipAction(rset[k]); }
-        if (!w.mixer && skinned) { const find = (rx: RegExp) => { const out: THREE.Object3D[] = []; (skinned as THREE.SkinnedMesh).skeleton.bones.forEach(b => { if (rx.test(b.name)) out.push(b); }); return out; }; w.gait = { hips: find(/^Hip_[RL]/), knees: find(/^Knee_[RL]/), arms: find(/^Shoulder_[RL]/) }; }
+        // البديلُ الإجرائيّ يبحث بالمعنى (UpLeg/Leg/Arm) لا بتسمية Advanced Skeleton:
+        // شخصيّةٌ بتسميةٍ أخرى كانت تقف جامدةً بلا حركةٍ ولا بديل.
+        if (!w.mixer && skinned) { const find = (suffix: string) => { const out: THREE.Object3D[] = []; (skinned as THREE.SkinnedMesh).skeleton.bones.forEach(b => { const c = coreBoneName(b.name); if (c === 'Left' + suffix || c === 'Right' + suffix) out.push(b); }); return out; }; w.gait = { hips: find('UpLeg'), knees: find('Leg'), arms: find('Arm') }; }
         this.scene.add(wrap); this.walkers.push(w); if (w.kind === 'lamp') this.figLamp = w;
       }
     }
