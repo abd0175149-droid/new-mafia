@@ -82,7 +82,9 @@ export function useLoyalty() {
 // ── مساعدات نصّيّة مشتركة ──
 const AR_D = ['٠', '١', '٢', '٣', '٤', '٥', '٦', '٧', '٨', '٩'];
 export const arNum = (v: string | number) => String(v).replace(/[0-9]/g, c => AR_D[+c]);
-export const AR_MONTHS = ['كانون الثاني', 'شباط', 'آذار', 'نيسان', 'أيّار', 'حزيران', 'تمّوز', 'آب', 'أيلول', 'تشرين الأوّل', 'تشرين الثاني', 'كانون الأوّل'];
+// إعادةُ تصدير: المصدرُ الواحد في `lib/constants` ومستهلكو هذا الهوك لا يتغيّرون
+export { AR_MONTHS } from '@/lib/constants';
+import { AR_MONTHS } from '@/lib/constants';
 export function periodNameAr(period?: string): string {
   if (!period) return '';
   const m = Number(period.split('-')[1]); return AR_MONTHS[m - 1] || period;

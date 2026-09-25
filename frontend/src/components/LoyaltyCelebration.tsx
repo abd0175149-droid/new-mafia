@@ -16,7 +16,7 @@ export interface LoyaltyCelebrant {
 
 const SOCKET_URL = process.env.NEXT_PUBLIC_SOCKET_URL || '';
 const resolveAvatar = (url?: string | null) => !url ? null : url.startsWith('http') ? url : `${SOCKET_URL}${url}`;
-const AR_MONTHS = ['كانون الثاني', 'شباط', 'آذار', 'نيسان', 'أيّار', 'حزيران', 'تمّوز', 'آب', 'أيلول', 'تشرين الأوّل', 'تشرين الثاني', 'كانون الأوّل'];
+import { AR_MONTHS } from '@/lib/constants';
 const monthName = (p: string) => AR_MONTHS[Number((p || '').split('-')[1]) - 1] || p;
 const KIND_LINE: Record<string, string> = {
   free_visit: 'الليلة على النادي 🎟️', free_drink: 'ومشروبه على النادي ☕', chips: 'وتشبسه في خزنته 🪙',

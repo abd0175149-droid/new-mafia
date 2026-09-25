@@ -16,6 +16,7 @@
 // ══════════════════════════════════════════════════════
 
 import { useEffect, useState, useCallback } from 'react';
+import { AR_MONTHS } from '@/lib/constants';
 import { motion, AnimatePresence } from 'framer-motion';
 import { LocationOptgroups } from '@/components/admin/CityBadge';
 
@@ -65,8 +66,7 @@ const ar = (n: number | string) => String(n).replace(/[0-9]/g, d => '٠١٢٣٤�
 function prettyAmman(s: string): string {
   const m = /^(\d{4})-(\d{2})-(\d{2})\s+(\d{2}):(\d{2})$/.exec(s || '');
   if (!m) return s;
-  const months = ['كانون الثاني', 'شباط', 'آذار', 'نيسان', 'أيّار', 'حزيران',
-    'تمّوز', 'آب', 'أيلول', 'تشرين الأوّل', 'تشرين الثاني', 'كانون الأوّل'];
+  const months = AR_MONTHS;
   let h = Number(m[4]);
   const period = h >= 12 ? 'م' : 'ص';
   h = h % 12 || 12;

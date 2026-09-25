@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import CityBadge, { LocationOptgroups } from '@/components/admin/CityBadge';
 import { useActiveSeason } from '@/hooks/useActiveSeason';
+import { AR_MONTHS } from '@/lib/constants';
 
 interface ActivityFormProps {
   locations: any[];
@@ -16,7 +17,6 @@ const API_URL = process.env.NEXT_PUBLIC_API_URL || '';
 function getToken() { return typeof window !== 'undefined' ? localStorage.getItem('token') : null; }
 const EN_MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
 
-const AR_MONTHS = ['يناير', 'فبراير', 'مارس', 'أبريل', 'مايو', 'يونيو', 'يوليو', 'أغسطس', 'سبتمبر', 'أكتوبر', 'نوفمبر', 'ديسمبر'];
 
 
 export default function ActivityForm({ locations, onSubmit, onCancel }: ActivityFormProps) {
