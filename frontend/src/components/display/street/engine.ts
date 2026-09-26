@@ -41,6 +41,8 @@ export type StreetEvent = 'KILL' | 'SAVED' | 'SILENCE' | 'DISABLE' | 'SNIPE';
 export type Quality = 'high' | 'med' | 'low';
 
 const STREET_W = 12, SIDE_W = 3.2, FACE = STREET_W / 2 + SIDE_W;
+/** بابُ النادي على الواجهة اليسرى الأولى (Brownstone_FlatFacade_4): مركزُه وأعلاه — مُقاسان من الرسم الأماميّ */
+const CLUB_DOOR = { z: .25, top: 2.5 };
 /** ممرّا المشاة على الرصيف (مسافةً من الواجهة): جانبُ الشارع للقادم نحو الكاميرا، وجانبُ الواجهة للذاهب */
 const WALK_LANE_CURB = 2.5, WALK_LANE_WALL = 1.85;
 /** أدنى مسافةٍ بين ماشيَين قبل أن يقف الخلفيّ */
@@ -142,8 +144,8 @@ function texCurtain() {
 function texStripes(a: string, b: string) { const c = cv(256, 64), x = c.getContext('2d')!; for (let i = 0; i < 16; i++) { x.fillStyle = i % 2 ? a : b; x.fillRect(i * 16, 0, 16, 64); } const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; t.wrapS = t.wrapT = THREE.RepeatWrapping; t.repeat.set(5, 1); return t; }
 function texSign(text: string) { const c = cv(512, 96), x = c.getContext('2d')!; x.fillStyle = '#17301f'; x.fillRect(0, 0, 512, 96); x.strokeStyle = '#c5a059'; x.lineWidth = 4; x.strokeRect(8, 8, 496, 80); x.font = 'bold 52px Georgia, "Times New Roman", serif'; x.textAlign = 'center'; x.textBaseline = 'middle'; x.fillStyle = '#e2c07a'; x.fillText(text, 256, 50); const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; return t; }
 function texSoft() { const c = cv(64, 64), x = c.getContext('2d')!; const g = x.createRadialGradient(32, 32, 2, 32, 32, 30); g.addColorStop(0, 'rgba(255,255,255,1)'); g.addColorStop(.4, 'rgba(255,255,255,.35)'); g.addColorStop(1, 'rgba(255,255,255,0)'); x.fillStyle = g; x.fillRect(0, 0, 64, 64); return new THREE.CanvasTexture(c); }
-function texNeon(text: string, color: string) {
-  const c = cv(512, 128), x = c.getContext('2d')!; x.font = 'bold 74px "IBM Plex Mono", "Courier New", monospace'; x.textAlign = 'center'; x.textBaseline = 'middle';
+function texNeon(text: string, color: string, px = 74) {
+  const c = cv(512, 128), x = c.getContext('2d')!; x.font = `bold ${px}px "IBM Plex Mono", "Courier New", monospace`; x.textAlign = 'center'; x.textBaseline = 'middle';
   x.shadowColor = color; x.shadowBlur = 26; x.lineWidth = 5; x.strokeStyle = color; x.strokeText(text, 256, 64); x.shadowBlur = 0; x.lineWidth = 2; x.strokeStyle = '#ffffff'; x.strokeText(text, 256, 64);
   const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; return t;
 }
@@ -223,7 +225,7 @@ function debugParam(k: string) { try { return new URLSearchParams(location.searc
 
 /* ───────────────── the engine ───────────────── */
 type Lamp = { g: THREE.Group; pl: THREE.PointLight; sl: THREE.SpotLight | null; cone: THREE.Mesh; bulb: THREE.Mesh; flick: number; on: number };
-type Neon = { mesh: THREE.Mesh; light: THREE.PointLight; base: THREE.Color; broken: boolean; on: boolean; club?: boolean };
+type Neon = { mesh: THREE.Mesh; light: THREE.PointLight; base: THREE.Color; broken: boolean; on: boolean; club?: boolean; /** مضاءٌ في كلّ الأوضاع (لافتتا النادي: يجب أن تُقرآ نهاراً أيضاً) */ always?: boolean };
 type PS = { g: THREE.Group; items: { s: THREE.Sprite; life: number; vx?: number; vz?: number }[] };
 type Shot = { len: number; fov: number; at: (t: number) => [THREE.Vector3, THREE.Vector3] };
 type Preset = { top: THREE.Color; hor: THREE.Color; fog: THREE.Color; fd: number; hemi: number; hemiC: THREE.Color; exp: number; sun: number; lamps: number; rain: number };
@@ -353,7 +355,7 @@ class StreetEngine {
       SNIPE: { len: 6, fov: 42, at: () => [new THREE.Vector3(-3, 1.6, -2), new THREE.Vector3(FACE - .6, 8.5, -11)] },
       DAWN: { len: 9, fov: 34, at: t => [new THREE.Vector3(.5, 1.8, -2 - t * 3), new THREE.Vector3(0, 6, -90)] },
       // walk-in for the app welcome: left sidewalk from deep in the street to the club door, then look up at the sign (9s)
-      WALK: { len: 9, fov: 62, at: t => { const z = -26 + t * 28.4; const bob = Math.sin(t * 9 * Math.PI) * .035; const g = Math.sin(Math.PI * Math.min(1, Math.max(0, (t - .02) / .3))); const u = Math.max(0, (t - .74) / .26), uu = u * u * (3 - 2 * u); const x = -3.2 - uu * 1.2 + Math.sin(t * 4.5 * Math.PI) * .04; const look = new THREE.Vector3(-7.2, 1.7, z + 8).lerp(new THREE.Vector3(-7.9, 6.9, -18), g * .85).lerp(new THREE.Vector3(-8.7, 5.7, 3.3), uu); return [new THREE.Vector3(x, 1.62 + bob, z), look]; } },
+      WALK: { len: 9, fov: 62, at: t => { const z = -26 + t * 28.4; const bob = Math.sin(t * 9 * Math.PI) * .035; const g = Math.sin(Math.PI * Math.min(1, Math.max(0, (t - .02) / .3))); const u = Math.max(0, (t - .74) / .26), uu = u * u * (3 - 2 * u); const x = -3.2 - uu * 1.2 + Math.sin(t * 4.5 * Math.PI) * .04; const look = new THREE.Vector3(-7.2, 1.7, z + 8).lerp(new THREE.Vector3(-7.9, 6.9, -18), g * .85).lerp(new THREE.Vector3(-9.0, 5.4, .5), uu); return [new THREE.Vector3(x, 1.62 + bob, z), look]; } },
     };
   }
   /** المباني الإجرائيّة (احتياط حتى يصل طقم الواجهات) — تُزال كلّها عند تحميل الطقم */
@@ -577,10 +579,13 @@ class StreetEngine {
     // الشرفات: نوافذ الطقم مرسومة لا مجوّفة، ولا مرساة موثوقة لها → لا تُوضع شرفات منفصلة (قاعدة المالك: على الشبابيك فقط)
     if (debugParam('balconies') === '1') this.placeBalconies();
     // نيون فوق بعض الواجهات (قوام مضيء على لوح — تأثير لا شكل هندسيّ)
-    // 🪧 لافتة النادي (قرار المالك 2026-09-12): «MAFIA» ذهبيّ و«CLUB» أحمر النادي، نيون فوق واجهة الدخول قرب بداية الشارع — تُستعمل نفسها في تطبيق اللاعب
-    ([['MAFIA', '#e2c07a', 6.2, 4.2], ['CLUB', '#ff4a4a', 5.1, 3.0]] as [string, string, number, number][]).forEach(([txt, col, y, w]) => { const mat = new THREE.MeshBasicMaterial({ map: texNeon(txt, col), transparent: true, toneMapped: false, color: new THREE.Color(col).multiplyScalar(2.4), side: THREE.DoubleSide, depthWrite: false }); const m = new THREE.Mesh(new THREE.PlaneGeometry(w, w / 4), mat); const wx = this.wallXAt(-1, 3.2, y); m.position.set(wx + .08, y, 3.2); m.rotation.y = Math.PI / 2; this.scene.add(m); const light = new THREE.PointLight(col, 5, 9, 2); light.position.set(wx + .9, y, 3.2); this.scene.add(light); this.neons.push({ mesh: m, light, base: mat.color.clone(), broken: false, on: this.mode === 'night', club: true }); });
-    // blade sign deeper in the street: two faces + logo, visible from most shots
-    this.buildBladeSign(.6); /* على واجهة النادي نفسها (القطعة الأولى يساراً، z ∈ [6, −2]) بجانب النيون */
+    // 🪧 لافتتا النادي (قرار المالك 2026-09-26): كبيرتان وواضحتان في كلّ المشاهد، باللوجو والاسم. الباب مُقاس من
+    //    الرسم الأماميّ (e2e-sound/_club-probe.mjs): مركزُه z≈0.25، عرضُه 1.2م، أعلاه 2.5م، والحزامُ فوقه بين الإفريز
+    //    (3.15) وعتبات الطابق الثاني (5.0) فارغ. ① نيونُ المدخل: لوحٌ أفقيّ فوق الباب مباشرةً في ذلك الحزام.
+    //    ② البانر الجانبيّ (blade) فوق الباب، 4.6م ارتفاعاً. كلاهما `always` (يُقرآن نهاراً) وتُستعمل اللقطة
+    //    نفسها في فيديو ترحيب تطبيق اللاعب (scripts/render-welcome.mjs). نيونُ الجدار القديم بين النوافذ حُذف.
+    this.buildDoorMarquee(CLUB_DOOR.z);
+    this.buildBladeSign(CLUB_DOOR.z + .35);
   }
   /** نيونُ المتاجر: لوحٌ مضيء على جدار المتجر فوق مظلّته */
   private placeNeons(spans: { side: 1 | -1; z: number }[]) {
@@ -588,16 +593,33 @@ class StreetEngine {
     spans.forEach((sp, i) => { const nm = names[i], side = sp.side; const col = neonColors[i]; const mat = new THREE.MeshBasicMaterial({ map: texNeon(nm, col), transparent: true, toneMapped: false, color: new THREE.Color(col).multiplyScalar(2.2), side: THREE.DoubleSide, depthWrite: false }); const m = new THREE.Mesh(new THREE.PlaneGeometry(3.6, .9), mat); const zz = sp.z + 3.2; const wx = this.wallXAt(side, zz, 3.9); m.position.set(wx - side * .08, 3.95 /* فوق المظلّة وتحت صفّ النوافذ الأوّل */, zz); m.rotation.y = side > 0 ? -Math.PI / 2 : Math.PI / 2; this.scene.add(m); const light = new THREE.PointLight(col, 4, 7, 2); light.position.set(wx - side * .8, m.position.y, m.position.z); this.scene.add(light); this.neons.push({ mesh: m, light, base: mat.color.clone(), broken: i === 1, on: this.mode === 'night' }); });
   }
 
-  /** لافتة النادي البارزة: صفيحة معدنيّة عموديّة تخرج من الواجهة، على كلّ وجهٍ شعارٌ مضاء وسطران نيون (MAFIA ذهبيّ / CLUB أحمر النادي) */
-  private buildBladeSign(z: number) {
-    const S = this.scene; const x0 = this.wallXAt(-1, z, 6) + .05, depth = 2.6, yTop = 8.6, yBot = 5.2;
-    const plate = new THREE.Mesh(new THREE.BoxGeometry(depth, yTop - yBot, .14), new THREE.MeshStandardMaterial({ color: 0x0b0b0e, roughness: .6, metalness: .6 })); plate.position.set(x0 + depth / 2, (yTop + yBot) / 2, z); S.add(plate);
-    const arm = new THREE.Mesh(new THREE.BoxGeometry(depth + .3, .1, .1), this.MAT.metal); arm.position.set(x0 + depth / 2, yTop + .05, z); S.add(arm); const arm2 = arm.clone(); arm2.position.y = yBot - .05; S.add(arm2);
+  /** لوحُ نيون المدخل: فوق الباب مباشرةً — لوحٌ داكن بإطارٍ نحاسيّ، اللوجو مضاءً يساراً و«MAFIA / CLUB» نيوناً يميناً، مضاءٌ في كلّ الأوضاع */
+  private buildDoorMarquee(z: number) {
+    const S = this.scene; const W = 2.9, H = 1.5, y = 4.05; const wx = this.wallXAt(-1, z, y) + .06;
+    const plate = new THREE.Mesh(new THREE.BoxGeometry(.12, H, W), new THREE.MeshStandardMaterial({ color: 0x0b0b0e, roughness: .55, metalness: .6 })); plate.position.set(wx + .06, y, z); S.add(plate);
+    const brass = new THREE.MeshStandardMaterial({ color: 0x9a7a34, roughness: .35, metalness: .9 });
+    ([[H + .08, .06, 0, W / 2 + .03], [H + .08, .06, 0, -W / 2 - .03], [.06, W + .08, H / 2 + .03, 0], [.06, W + .08, -H / 2 - .03, 0]] as [number, number, number, number][]).forEach(([h, w, dy, dz]) => { const f = new THREE.Mesh(new THREE.BoxGeometry(.14, h, w), brass); f.position.set(wx + .07, y + dy, z + dz); S.add(f); });
+    const xf = wx + .13; // الوجهُ نحو الشارع (+x): يسارُ الناظر من الشارع هو +z
     const logoTex = texLoader.load('/mafia_logo.png', t => { t.colorSpace = THREE.SRGBColorSpace; });
-    ([-1, 1] as const).forEach(face => { const zf = z + face * .09;
-      const logo = new THREE.Mesh(new THREE.PlaneGeometry(1.5, 1.5), new THREE.MeshBasicMaterial({ map: logoTex, transparent: true, toneMapped: false, color: new THREE.Color(0xffffff).multiplyScalar(1.6), depthWrite: false })); logo.position.set(x0 + depth / 2, yTop - 1.05, zf); logo.rotation.y = face > 0 ? 0 : Math.PI; S.add(logo);
-      ([['MAFIA', '#e2c07a', yTop - 2.25, 2.3], ['CLUB', '#ff4a4a', yTop - 2.95, 1.7]] as [string, string, number, number][]).forEach(([txt, col, y, w]) => { const mat = new THREE.MeshBasicMaterial({ map: texNeon(txt, col), transparent: true, toneMapped: false, color: new THREE.Color(col).multiplyScalar(2.4), depthWrite: false }); const m = new THREE.Mesh(new THREE.PlaneGeometry(w, w / 4), mat); m.position.set(x0 + depth / 2, y, zf); m.rotation.y = face > 0 ? 0 : Math.PI; S.add(m); this.neons.push({ mesh: m, light: new THREE.PointLight(col, 0, 0), base: mat.color.clone(), broken: false, on: this.mode === 'night', club: true }); });
-      const glow = new THREE.PointLight(0xffc48a, 6, 9, 2); glow.position.set(x0 + depth / 2, yTop - 1.8, z + face * 1.2); S.add(glow); this.clubLights.push(glow); });
+    const logo = new THREE.Mesh(new THREE.PlaneGeometry(1.18, 1.18), new THREE.MeshBasicMaterial({ map: logoTex, transparent: true, toneMapped: false, color: new THREE.Color(0xffffff).multiplyScalar(1.7), depthWrite: false })); logo.position.set(xf, y, z + .78); logo.rotation.y = Math.PI / 2; S.add(logo);
+    ([['MAFIA', '#e2c07a', y + .3, 1.6], ['CLUB', '#ff4a4a', y - .32, 1.3]] as [string, string, number, number][]).forEach(([txt, col, yy, w]) => {
+      const mat = new THREE.MeshBasicMaterial({ map: texNeon(txt, col, 108), transparent: true, toneMapped: false, color: new THREE.Color(col).multiplyScalar(2.4), depthWrite: false }); const m = new THREE.Mesh(new THREE.PlaneGeometry(w, w / 4), mat); m.position.set(xf, yy, z - .55); m.rotation.y = Math.PI / 2; S.add(m);
+      const light = new THREE.PointLight(col, 5, 8, 2); light.position.set(wx + 1.0, yy, z - .55); S.add(light);
+      this.neons.push({ mesh: m, light, base: mat.color.clone(), broken: false, on: this.mode === 'night', club: true, always: true }); });
+    const glow = new THREE.PointLight(0xffc48a, 6, 9, 2); glow.position.set(wx + 1.2, y - .3, z); S.add(glow); this.clubLights.push(glow);
+  }
+  /** البانر الجانبيّ للنادي: صفيحة معدنيّة عموديّة 4.6م تخرج من الواجهة فوق الباب، على كلّ وجهٍ اللوجو كبيراً وسطران نيون (MAFIA ذهبيّ / CLUB أحمر النادي) — مضاءٌ في كلّ الأوضاع */
+  private buildBladeSign(z: number) {
+    const S = this.scene; const x0 = this.wallXAt(-1, z, 6) + .05, depth = 2.9, yTop = 9.6, yBot = 5.0;
+    const plate = new THREE.Mesh(new THREE.BoxGeometry(depth, yTop - yBot, .16), new THREE.MeshStandardMaterial({ color: 0x0b0b0e, roughness: .6, metalness: .6 })); plate.position.set(x0 + depth / 2, (yTop + yBot) / 2, z); S.add(plate);
+    const brass = new THREE.MeshStandardMaterial({ color: 0x9a7a34, roughness: .35, metalness: .9 });
+    const arm = new THREE.Mesh(new THREE.BoxGeometry(depth + .3, .12, .12), brass); arm.position.set(x0 + depth / 2, yTop + .06, z); S.add(arm); const arm2 = arm.clone(); arm2.position.y = yBot - .06; S.add(arm2);
+    const edge = new THREE.Mesh(new THREE.BoxGeometry(.12, yTop - yBot + .24, .2), brass); edge.position.set(x0 + depth + .06, (yTop + yBot) / 2, z); S.add(edge);
+    const logoTex = texLoader.load('/mafia_logo.png', t => { t.colorSpace = THREE.SRGBColorSpace; });
+    ([-1, 1] as const).forEach(face => { const zf = z + face * .1;
+      const logo = new THREE.Mesh(new THREE.PlaneGeometry(2.2, 2.2), new THREE.MeshBasicMaterial({ map: logoTex, transparent: true, toneMapped: false, color: new THREE.Color(0xffffff).multiplyScalar(1.7), depthWrite: false })); logo.position.set(x0 + depth / 2, yTop - 1.35, zf); logo.rotation.y = face > 0 ? 0 : Math.PI; S.add(logo);
+      ([['MAFIA', '#e2c07a', yTop - 2.95, 2.7], ['CLUB', '#ff4a4a', yTop - 3.75, 2.2]] as [string, string, number, number][]).forEach(([txt, col, y, w]) => { const mat = new THREE.MeshBasicMaterial({ map: texNeon(txt, col, 108), transparent: true, toneMapped: false, color: new THREE.Color(col).multiplyScalar(2.4), depthWrite: false }); const m = new THREE.Mesh(new THREE.PlaneGeometry(w, w / 4), mat); m.position.set(x0 + depth / 2, y, zf); m.rotation.y = face > 0 ? 0 : Math.PI; S.add(m); this.neons.push({ mesh: m, light: new THREE.PointLight(col, 0, 0), base: mat.color.clone(), broken: false, on: this.mode === 'night', club: true, always: true }); });
+      const glow = new THREE.PointLight(0xffc48a, 6, 9, 2); glow.position.set(x0 + depth / 2, yTop - 2.2, z + face * 1.3); S.add(glow); this.clubLights.push(glow); });
   }
   /** حبلُ غسيلٍ عبر الشارع: قطعٌ مكافئ بين الواجهتين بترخيم 0.6م، تتدلّى منه قطعٌ قماشيّة باهتة. المجموعة مركزُها على الحبل كي يكون التأرجح حول الحبل لا حول أصل العالم */
   private buildClothesline(z: number, y: number) {
@@ -1000,7 +1022,7 @@ class StreetEngine {
     for (let i = 0; i < n; i++) { const t = Math.min(1, i / (n - 1)); const [p, l] = sh.at(t); this._p.lerp(p, .5); this._l.lerp(l, .5); this.camera.position.copy(this._p); this.camera.lookAt(this._l); this.camera.fov += (sh.fov - this.camera.fov) * .3; this.camera.updateProjectionMatrix();
       this.updateCrowd(1 / fps, i / fps); this.laundry.forEach(lm => { lm.m.rotation.x = Math.sin(i / fps * 1.4 + lm.ph) * .04; });
       if (this.rain) { const a = (this.rain.geometry.attributes.position as THREE.BufferAttribute).array as Float32Array, cnt = this.rain.userData.count as number; for (let k = 0; k < cnt; k++) { a[k * 6 + 1] -= 16 / fps; a[k * 6 + 4] -= 16 / fps; if (a[k * 6 + 1] < 0) { a[k * 6 + 1] += 24; a[k * 6 + 4] += 24; } } (this.rain.geometry.attributes.position as THREE.BufferAttribute).needsUpdate = true; this.rain.position.set(this.camera.position.x, 0, this.camera.position.z + 10); }
-      this.lamps.forEach(lp => { lp.pl.intensity = 18 * lp.on; if (lp.sl) lp.sl.intensity = 36 * lp.on; (lp.cone.material as THREE.ShaderMaterial).uniforms.uI.value = .55 * lp.on; lp.cone.visible = lp.on > .01; }); this.neons.forEach(nn => { (nn.mesh.material as THREE.MeshBasicMaterial).color.copy(nn.base).multiplyScalar(nn.on ? 1 : (nn.club ? .3 : .06)); nn.light.intensity = nn.on ? 4 : 0; }); this.clubLights.forEach(l => { l.intensity = mode === 'night' ? 6 : 0; });
+      this.lamps.forEach(lp => { lp.pl.intensity = 18 * lp.on; if (lp.sl) lp.sl.intensity = 36 * lp.on; (lp.cone.material as THREE.ShaderMaterial).uniforms.uI.value = .55 * lp.on; lp.cone.visible = lp.on > .01; }); this.neons.forEach(nn => { const on = nn.on || !!nn.always; (nn.mesh.material as THREE.MeshBasicMaterial).color.copy(nn.base).multiplyScalar(on ? 1 : (nn.club ? .3 : .06)); nn.light.intensity = on ? 4 : 0; }); this.clubLights.forEach(l => { l.intensity = mode === 'night' ? 6 : 2.5; });
       this.renderer.shadowMap.needsUpdate = true; this.composer.render(1 / fps); await onFrame(this.renderer.domElement.toDataURL('image/jpeg', .92), i); }
     this.active = true; this.resize();
   }
@@ -1020,7 +1042,7 @@ class StreetEngine {
     const dim = ev.silence > 0 ? (ev.silence < 2 ? .6 : 1) : 1;
     this.lamps.forEach((l, i) => { let f = 1; if (i === 0) { if (ev.kill > 0) { const k = ev.kill; f = k < 1.2 ? (Math.sin(k * 40) > 0.2 ? 1 : .15) : k < 1.8 ? .6 : 0; } if (ev.saved > 0) f = 1 + Math.min(1.2, ev.saved * 1.5) * Math.max(0, 1 - (ev.saved - 1.5) * .7); }
       const flick = 1 - (i === 2 ? .06 * (.5 + .5 * Math.sin(time * 7.3 + l.flick)) * (.5 + .5 * Math.sin(time * 2.1)) : 0); const I = l.on * f * flick * dim; l.pl.intensity = 18 * I; if (l.sl) l.sl.intensity = 36 * I; (l.bulb.material as THREE.MeshBasicMaterial).color.setRGB(3 * I, 2.3 * I, 1.4 * I, THREE.LinearSRGBColorSpace); (l.cone.material as THREE.ShaderMaterial).uniforms.uI.value = .55 * I; l.cone.visible = I > .01; });
-    this.neons.forEach(n => { let on = n.on && !(ev.silence > 0 && ev.silence < 2.2); if (n.broken && on) { const cyc = time % 9; on = !(cyc > 6.2 && cyc < 6.9 && Math.sin(time * 31) > 0); } (n.mesh.material as THREE.MeshBasicMaterial).color.copy(n.base).multiplyScalar(on ? 1 : (n.club ? .3 : .06)); n.light.intensity = on ? (n.club ? 5 : 4) : 0; }); this.clubLights.forEach(l => { l.intensity = this.lamps[0]?.on ? 6 : 0; });
+    this.neons.forEach(n => { let on = (n.on || !!n.always) && !(ev.silence > 0 && ev.silence < 2.2); if (n.broken && on) { const cyc = time % 9; on = !(cyc > 6.2 && cyc < 6.9 && Math.sin(time * 31) > 0); } (n.mesh.material as THREE.MeshBasicMaterial).color.copy(n.base).multiplyScalar(on ? 1 : (n.club ? .3 : .06)); n.light.intensity = on ? (n.club ? 5 : 4) : 0; }); this.clubLights.forEach(l => { l.intensity = this.lamps[0]?.on ? 6 : 2.5; /* لافتتا النادي مضاءتان نهاراً أيضاً */ });
     if (ev.kill > 0) { ev.kill += dt; this.hatLight.intensity = ev.kill < 7 ? 1.6 : 0; const h = this.hat; if (h.visible && h.position.y > .18) { h.position.y -= dt * (2.5 + (5.4 - h.position.y) * 1.5); h.rotation.x += dt * 4; h.rotation.z += dt * 2; if (h.position.y <= .18) { h.position.y = .18; h.rotation.set(.1, 0, .05); } } if (ev.kill > 8) { ev.kill = 0; this.hatLight.intensity = 0; } }
     if (ev.saved > 0) { ev.saved += dt; this.ember.visible = ev.saved < 2.5 && this.mode === 'night'; if (ev.saved > 6) ev.saved = 0; }
     if (ev.silence > 0) { ev.silence += dt; this.hemi.intensity = this.to.hemi * dim; if (ev.silence > 5) ev.silence = 0; }
