@@ -482,8 +482,9 @@ class StreetEngine {
           //    إن جاءت معكوسةً تُدار 180° ويُعاد الإلصاق. كانت تُركَّب باتّجاهٍ خاطئ (ميلُها إلى الجدار).
           m.updateMatrixWorld(true); const bb = new THREE.Box3().setFromObject(m); const mid = (bb.min.x + bb.max.x) / 2; let wallY = 0, wallN = 0, streetY = 0, streetN = 0; const v = new THREE.Vector3();
           m.traverse(o => { const mesh = o as THREE.Mesh; if (!mesh.isMesh) return; const pos = mesh.geometry.attributes.position; for (let i = 0; i < pos.count; i += 3) { v.fromBufferAttribute(pos, i).applyMatrix4(mesh.matrixWorld); const towardWall = sp.side > 0 ? v.x > mid : v.x < mid; if (towardWall) { wallY += v.y; wallN++; } else { streetY += v.y; streetN++; } } });
-          if (wallN && streetN && wallY / wallN < streetY / streetN) this.attachToWall(m, sp.side, sp.z, 2.9, .04, true);
-          S.add(m); }); });
+          const flipped = !!(wallN && streetN && wallY / wallN < streetY / streetN); if (flipped) this.attachToWall(m, sp.side, sp.z, 2.9, .04, true);
+          m.name = 'awning'; m.userData.flipped = flipped; m.userData.slope = [+(wallY / (wallN || 1)).toFixed(2), +(streetY / (streetN || 1)).toFixed(2)];
+          S.add(m); }); console.info('☂️ مظلّات:', spans.slice(0, 6).map(sp => `${sp.side > 0 ? 'R' : 'L'}${sp.z.toFixed(0)}`).join(' · ')); });
       // فوانيسُ الحائط: عند مدخل النادي (بداية الشارع يساراً) وعلى جانبَي أوّل متجرٍ في كلّ جهة
       const lanternSpots: [1 | -1, number][] = [[-1, 4.6], [-1, 1.8]]; ([-1, 1] as const).forEach(side => { const st = stores.find(p => p.side === side); if (st) lanternSpots.push([side, st.z0 - 1.2], [side, st.z1 + 1.2]); });
       loadGLTF(PH('street_lamp_02')).then(g => { if (!g || this.disposed) return; lanternSpots.forEach(([side, z]) => { const m = this.prep(g.scene.clone(true)); this.fit(m, 1.05, 'y'); this.attachToWall(m, side, z, 3.35); S.add(m); const pl = new THREE.PointLight(0xffb060, 0, 7, 2); pl.position.set(this.wallXAt(side, z) - side * .55, 3.75, z); S.add(pl); this.wallLights.push(pl); }); });
