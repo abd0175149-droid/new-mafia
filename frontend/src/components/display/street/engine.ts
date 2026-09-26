@@ -491,7 +491,7 @@ class StreetEngine {
           m.name = 'awning'; m.userData.flipped = flipped; m.userData.slope = [+wallTop.toFixed(2), +streetTop.toFixed(2)];
           S.add(m); }); console.info('☂️ مظلّات:', spans.slice(0, 6).map(sp => `${sp.side > 0 ? 'R' : 'L'}${sp.z.toFixed(0)}`).join(' · ')); });
       // فوانيسُ الحائط: عند مدخل النادي (بداية الشارع يساراً) وعلى جانبَي أوّل متجرٍ في كلّ جهة
-      const lanternSpots: [1 | -1, number][] = [[-1, 4.6], [-1, 1.8]]; ([-1, 1] as const).forEach(side => { const st = stores.find(p => p.side === side); if (st) lanternSpots.push([side, st.z0 - 1.2], [side, st.z1 + 1.2]); });
+      const lanternSpots: [1 | -1, number][] = [[-1, 4.6], [-1, 2.3]]; /* الثاني أُزيح عن حافّة نيون المدخل (z −1.2..1.7) */ ([-1, 1] as const).forEach(side => { const st = stores.find(p => p.side === side); if (st) lanternSpots.push([side, st.z0 - 1.2], [side, st.z1 + 1.2]); });
       loadGLTF(PH('street_lamp_02')).then(g => { if (!g || this.disposed) return; lanternSpots.forEach(([side, z]) => { const m = this.prep(g.scene.clone(true)); this.fit(m, 1.05, 'y'); this.attachToWall(m, side, z, 3.35); S.add(m); const pl = new THREE.PointLight(0xffb060, 0, 7, 2); pl.position.set(this.wallXAt(side, z) - side * .55, 3.75, z); S.add(pl); this.wallLights.push(pl); }); });
       // طاولةُ المقهى ولوحُ الطباشير أمام أوّل متجرٍ على اليمين (وإلّا لا مقهى)
       { const st = stores.find(p => p.side === 1); if (st) { const zc = (st.z0 + st.z1) / 2; this.place('outdoor_table_chair_set_01', 1.6, 'x', [[FACE - .95, zc + .8, .3]]); this.place('standing_chalkboard_01', .9, 'y', [[FACE - .6, zc - 1.4, -.6]]); } }
