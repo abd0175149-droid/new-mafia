@@ -455,13 +455,14 @@ class StreetEngine {
     // بالجدار (مظلّات، لافتات، فوانيس) يُلصق بالجدار الحقيقيّ للواجهة (wallXAt) لا بخطٍّ افتراضيّ.
     // حُذف: طقمُ أعمدة الكهرباء (يُلقي قطعَه الاحتياطيّة في الهواء)، سلالمُ الحريق المنفصلة (الواجهات
     // تحملها)، الكرتونُ المشرَّط، الأكياسُ البلاستيكيّة، السيّارةُ المغطّاة.
-    this.place('fire_hydrant', .8, 'y', [[FACE - 1.0, -6, 0], [-FACE + 1.0, -22, .4]]);
+    // صنبورُ الإطفاء: أصلُ Poly Haven يحوي نسختين متجاورتين — نُبقي اليسرى وحدها وإلّا ظهر صنبورٌ مزدوج
+    loadGLTF(PH('fire_hydrant')).then(g => { if (!g || this.disposed) return; ([[FACE - 1.0, -6, 0], [-FACE + 1.0, -22, .4]] as [number, number, number][]).forEach(([x, z, r]) => { const m = this.prep(g.scene.clone(true)); m.updateMatrixWorld(true); const all = new THREE.Box3().setFromObject(m); const cx = (all.min.x + all.max.x) / 2; const drop: THREE.Object3D[] = []; m.traverse(o => { if ((o as THREE.Mesh).isMesh) { const c = new THREE.Vector3(); new THREE.Box3().setFromObject(o).getCenter(c); if (c.x > cx) drop.push(o); } }); drop.forEach(o => o.parent?.remove(o)); this.fit(m, .8, 'y'); m.rotation.y = r; this.placeAt(m, x, z, .16); S.add(m); }); });
     this.place('metal_trash_can', .9, 'y', [[-FACE + .9, -16, .3], [FACE - .9, -30, 2.4], [-FACE + 1.0, -44, 1.1], [FACE - .9, -46.5, .9]]);
     // غطاءُ البالوعة كان لوحاً فاتحاً يبدو ورقةً بيضاء من العلو ليلاً: حديدٌ داكن خشن
     loadGLTF(PH('water_manhole_cover')).then(g => { if (!g || this.disposed) return; const m = this.prep(g.scene.clone(true), false); m.traverse(o => { const mm = (o as THREE.Mesh).material as THREE.MeshStandardMaterial | undefined; if (mm && mm.isMeshStandardMaterial) { mm.color.multiplyScalar(.28); mm.roughness = .85; mm.metalness = .35; } }); this.fit(m, .7, 'x'); this.placeAt(m, 2.2, -14, .006); S.add(m); });
     // بضائعُ متجرٍ: صناديق وبراميل على الرصيف ملاصقةً للواجهة
     this.place('wooden_crate_01', .8, 'x', [[FACE - 1.0, -27.5, .2], [FACE - 1.0, -28.4, 1.1], [FACE - .5, -27.9, -.3]]); this.place('wooden_crate_02', 1.15, 'x', [[FACE - .9, -26.3, .1]]);
-    this.place('wooden_barrels_01', 1.4, 'x', [[-FACE + .95, -40.5, .4]]); this.place('painted_wooden_bench', 1.8, 'x', [[-FACE + 1.4, -10, -Math.PI / 2]]); /* ظهرُه إلى الواجهة */
+    this.place('wooden_barrels_01', 1.4, 'x', [[-FACE + .95, -40.5, .4]]); this.place('painted_wooden_bench', 1.8, 'x', [[-FACE + 1.4, -38, -Math.PI / 2]]); /* ظهرُه إلى الواجهة — بعيداً عن جدار الإعدام (z=−12) كي لا يجلس أحدٌ على مترين منه */
     this.place('planter_box_01', 1.0, 'x', [[-FACE + .8, -13.2, Math.PI / 2], [FACE - .8, -21.6, Math.PI / 2], [-FACE + .8, -35, Math.PI / 2]]);
     this.place('wooden_ladder', 3.2, 'y', [[-FACE + .35, -58, Math.PI / 2 + .35]], .16);
     // ديورامة 1930: صناديق وسلّة وصحيفة — كلٌّ على الأرض بـ placeAt (كانت تطفو بأصلها المُزاح)
@@ -799,7 +800,7 @@ class StreetEngine {
     const SLOTS: { role: Walker['kind']; side: 1 | -1; z: number; night: boolean; day: boolean }[] = [
       { role: 'walk', side: 1, z: -20, night: true, day: true }, { role: 'idle', side: -1, z: -50, night: false, day: true },
       { role: 'walk', side: 1, z: -38, night: false, day: true }, { role: 'idle', side: -1, z: -12, night: true, day: true },
-      { role: 'idle', side: 1, z: -7.5, night: true, day: true }, { role: 'seat', side: -1, z: -10, night: true, day: true }, /* على البنش */
+      { role: 'idle', side: 1, z: -7.5, night: true, day: true }, { role: 'seat', side: -1, z: -38, night: true, day: true }, /* على البنش */
     ];
     const cards = drawCrowd(SLOTS.map((_, k) => ({ gender: k % 2 ? 'F' : 'M' })), rnd); console.info('🎴 مشاةُ الشارع:', cards.map(c => c?.id).join(' · '));
     /** قالبُ شخصيّة: يحمّل المخفَّف ويعيد التوجيه (مرّةً) ويسجّله لمشهد الإقصاء؛ ثمّ يُنشئ مشاةَ الشارع الذين ينتظرونه */
@@ -830,7 +831,7 @@ class StreetEngine {
     //    فلا يقف أحدٌ عند المصباح ولا يقف واقفٌ في أيّ ليلٍ بعد ذلك، وتبقى جمرةُ السيجارة
     //    معلّقةً في الهواء عند المصباح بلا صاحب. الدورُ ثابتٌ والنوعُ يُشتقّ منه كلّ مرّة.
     this.walkers.forEach(w => { w.kind = night || w.role === 'seat' ? w.role : 'walk'; w.root.visible = night ? w.night : w.day; if (!w.root.visible) return;
-      // 🪑 الجالس على البنش المطليّ (z=-10 يسار الشارع): مقعدُه على 0.32م، وفي مقطع الجلوس
+      // 🪑 الجالس على البنش المطليّ (z=-38 يسار الشارع): مقعدُه على 0.32م، وفي مقطع الجلوس
       //    الحوضُ على 0.51 والقدم على 0.27 — إنزالُ الجذر 0.19 يضع الحوض على المقعد والقدمين
       //    على الأرض معاً (مُقاس). كان هذا الدور مجسّماً جالساً بلا هيكل؛ صار شخصيّةً بحركة.
       if (w.kind === 'seat') { w.root.position.set(w.side * (FACE - 1.42), w.groundY - .19, w.z); w.root.rotation.y = w.side > 0 ? -Math.PI / 2 : Math.PI / 2; this.playW(w, 'sit'); return; }
