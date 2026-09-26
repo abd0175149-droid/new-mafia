@@ -751,8 +751,9 @@ class StreetEngine {
       let sink = 0; for (const k of [.6, .7, .8, .9, 1]) { const bb = pose(Math.min(n - 1, Math.round((n - 1) * k))); sink = Math.min(sink, bb.min.y - base); }
       let lifted = 0;
       if (sink < -tol) {
-        const sy = hipsBone.parent ? hipsBone.parent.getWorldScale(new THREE.Vector3()).y || 1 : 1; lifted = -sink;
-        for (let i = 0; i < n; i++) { const k = (i / (n - 1) - .55) / .2; if (k <= 0) continue; const e = k >= 1 ? 1 : k * k * (3 - 2 * k); hipsOut[i * 3 + 1] += lifted / sy * e; }
+        // الرفعُ عالميّاً ثمّ يُحوَّل إلى إطار أبي الحوض: Y المحلّيّة ليست الارتفاع (الهيكلُ مُدار +90°X من Blender)
+        lifted = -sink; const d = new THREE.Vector3(0, lifted, 0); if (hipsBone.parent) d.applyMatrix3(new THREE.Matrix3().setFromMatrix4(hipsBone.parent.matrixWorld.clone().invert()));
+        for (let i = 0; i < n; i++) { const k = (i / (n - 1) - .55) / .2; if (k <= 0) continue; const e = k >= 1 ? 1 : k * k * (3 - 2 * k); hipsOut[i * 3] += d.x * e; hipsOut[i * 3 + 1] += d.y * e; hipsOut[i * 3 + 2] += d.z * e; }
       }
       const endBB = pose(n - 1);
       const drop = endBB.min.y - base;                       // سالبٌ = غاص تحت الأرض
