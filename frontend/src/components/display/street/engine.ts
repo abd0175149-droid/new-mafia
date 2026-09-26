@@ -309,7 +309,7 @@ class StreetEngine {
     // الرصيف إسمنتيٌّ مبلَّط (لا حصى — الحصى كان يقرأ كحجارةٍ ضخمة)، وعند الحافّة مزرابٌ مرصوف بالحصى
     // كما في شوارع مانهاتن القديمة، وحجرُ الحافّة غرانيتٌ رماديّ.
     ([-1, 1] as const).forEach(s => { const sw = new THREE.Mesh(new THREE.BoxGeometry(SIDE_W, .16, 220), MAT.slab); sw.position.set(s * (STREET_W / 2 + SIDE_W / 2), .08, -60); sw.receiveShadow = true; S.add(sw); const curb = new THREE.Mesh(new THREE.BoxGeometry(.18, .18, 220), new THREE.MeshStandardMaterial({ color: 0x4a4946, roughness: 1, metalness: 0, envMapIntensity: .12 })); /* غرانيتٌ خشن — كان يلمع بيجاً بانعكاس بيئة الفجر */ curb.position.set(s * (STREET_W / 2 + .09), .09, -60); S.add(curb);
-      const gutter = new THREE.Mesh(new THREE.PlaneGeometry(.75, 220), MAT.cobble); gutter.rotation.x = -Math.PI / 2; gutter.position.set(s * (STREET_W / 2 - .375), .012, -60); gutter.receiveShadow = true; S.add(gutter); });
+      /* بلوكٌ بلجيكيّ داكن كما في مزاريب مانهاتن — نسخةُ الحصى الفاتحة كانت تلمع بيجاً نهاراً */ const gutterMat = MAT.cobble.clone(); gutterMat.color.multiplyScalar(.5); gutterMat.roughness = 1; gutterMat.envMapIntensity = .25; const gutter = new THREE.Mesh(new THREE.PlaneGeometry(.75, 220), gutterMat); gutter.rotation.x = -Math.PI / 2; gutter.position.set(s * (STREET_W / 2 - .375), .012, -60); gutter.receiveShadow = true; S.add(gutter); });
     const railMat = new THREE.MeshStandardMaterial({ color: 0x6a6a70, roughness: .45, metalness: .8 }); [-1.3, 1.3].forEach(x => { const r = new THREE.Mesh(new THREE.BoxGeometry(.09, .03, 220), railMat); r.position.set(x, .02, -60); S.add(r); });
     // سلك الترام (خطوط: أنحف عنصرٍ ممكن)
     { const wires: THREE.Vector3[] = []; [-1.3, 1.3].forEach(x => wires.push(new THREE.Vector3(x, 6.1, 8), new THREE.Vector3(x, 6.1, -100))); for (let z = -4; z > -98; z -= 12) { wires.push(new THREE.Vector3(-FACE, 6.6, z), new THREE.Vector3(FACE, 6.6, z)); [-1.3, 1.3].forEach(x => wires.push(new THREE.Vector3(x, 6.6, z), new THREE.Vector3(x, 6.1, z))); } S.add(new THREE.LineSegments(new THREE.BufferGeometry().setFromPoints(wires), new THREE.LineBasicMaterial({ color: 0x1a1a1a }))); }
@@ -467,8 +467,8 @@ class StreetEngine {
     this.place('wooden_ladder', 3.2, 'y', [[-FACE + .35, -58, Math.PI / 2 + .35]], .16);
     // ديورامة 1930: صناديق وسلّة وصحيفة — كلٌّ على الأرض بـ placeAt (كانت تطفو بأصلها المُزاح)
     loadGLTF(SF('diorama1930')).then(g => { if (!g || this.disposed) return; const pick = (rx: RegExp) => { let hit: THREE.Object3D | null = null; g.scene.traverse((o: THREE.Object3D) => { if (!hit && rx.test(o.name)) hit = o; }); return hit as THREE.Object3D | null; };
-      const put = (o: THREE.Object3D | null, size: number, x: number, z: number, r: number) => { if (!o) return; const m = this.prep(o.clone(true)); this.fit(m, size, 'y'); m.rotation.y = r; this.placeAt(m, x, z, .16); S.add(m); };
-      put(pick(/^crate low_7/), .6, FACE - 1.0, -29.2, .6); put(pick(/^crate low2/), .6, -FACE + 1.1, -41.6, 1.9); put(pick(/^kosz/), .9, FACE - 1.0, -41, .2); put(pick(/^Newspaper/), .3, -FACE + 2.2, -9.2, .4); });
+      const put = (o: THREE.Object3D | null, size: number, x: number, z: number, r: number, axis: 'x' | 'y' | 'z' = 'y') => { if (!o) return; const m = this.prep(o.clone(true)); this.fit(m, size, axis); m.rotation.y = r; this.placeAt(m, x, z, .16); S.add(m); };
+      put(pick(/^crate low_7/), .6, FACE - 1.0, -29.2, .6); put(pick(/^crate low2/), .6, -FACE + 1.1, -41.6, 1.9); put(pick(/^kosz/), .9, FACE - 1.0, -41, .2); /* الصحيفةُ رقيقة: القياسُ على سُمكها (y) كان يكبّرها إلى مترٍ ونصف — تُقاس على عرضها */ put(pick(/^Newspaper/), .5, -FACE + 2.2, -9.2, .4, 'x'); });
     // 🏛️ طقم الواجهات البنّيّة — يستبدل المباني الإجرائيّة كاملةً؛ وما يُلصق بالجدار ينتظره
     track(loadGLTF(SF('brownstone')).then(g => { if (!g || this.disposed) return; this.buildBrownstoneStreet(g.scene); }));
     this.facadeReady.then(() => { if (this.disposed) return;

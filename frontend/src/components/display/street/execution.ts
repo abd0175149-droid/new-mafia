@@ -61,7 +61,7 @@ export class ExecutionController {
 
   /* ── لقطات المشهد (تُدمج في جدول لقطات المحرّك) ── */
   shots(): Record<string, { len: number; fov: number; at: (t: number) => [THREE.Vector3, THREE.Vector3] }> {
-    const C = () => this.condemned?.root.position || new THREE.Vector3(WALL.x + .7, 0, WALL.z); const V = () => this.victim?.root.position || C();
+    const C = () => this.condemned?.root.position || new THREE.Vector3(WALL.x + .25, 0, WALL.z); const V = () => this.victim?.root.position || C();
     const HP = (f: Fig | null) => { const p = new THREE.Vector3(); if (f) f.root.getWorldPosition(p); else p.copy(C()); p.y += 1.62; return p; };
     return {
       EX_WIDE: { len: 90, fov: 44, at: t => [new THREE.Vector3(3.2 - t * 1.2, 6.2 - t * 1.2, -1.5 - t * 1.5), new THREE.Vector3(-4.5, 1.3, -12)] },
@@ -184,9 +184,9 @@ export class ExecutionController {
     let t = this.state === 'armed' ? Math.min(5, Math.max(1.5, remain / 2.0 + .4)) : 3.0;
     if (this.state !== 'armed') { B(0, () => { this.cut('EX_WIDE'); this.emit('gather', null, true); }); }
     primary.forEach(pv => { const t0 = t;
-      B(t0, () => { const f = this.figs.find(x => x.id === pv.id) || null; this.condemned = f; if (f) { this.assertNeutral(f, 'escort'); this.shadowOn(f); f.goal = [WALL.x + .7, WALL.z]; f.face = [WALL.x + 5, WALL.z + .3];
+      B(t0, () => { const f = this.figs.find(x => x.id === pv.id) || null; this.condemned = f; if (f) { this.assertNeutral(f, 'escort'); this.shadowOn(f); /* أقربَ إلى الجدار: مقطعُ السقوط يمدّ الجسدَ 1.9 م إلى الأمام، ومن +0.7 كان الرأس يتدلّى فوق الحافّة في المزراب */ f.goal = [WALL.x + .25, WALL.z]; f.face = [WALL.x + 5, WALL.z + .3];
         // مدّة الاقتياد تتبع المسافة الفعليّة (1.15 م/ث) بين 2.5 و6 ثوانٍ؛ ما بعدها من بِيتات يُزاح بالفرق عن الـ3 ثوانٍ الافتراضيّة
-        const d = Math.hypot(WALL.x + .7 - f.root.position.x, WALL.z - f.root.position.z); const dur = Math.min(6, Math.max(2.5, d / 1.15 + .6)); const shift = dur - 3.0; if (Math.abs(shift) > .05) for (let i = this.bi; i < this.beats.length; i++) this.beats[i].t += shift; }
+        const d = Math.hypot(WALL.x + .25 - f.root.position.x, WALL.z - f.root.position.z); const dur = Math.min(6, Math.max(2.5, d / 1.15 + .6)); const shift = dur - 3.0; if (Math.abs(shift) > .05) for (let i = this.bi; i < this.beats.length; i++) this.beats[i].t += shift; }
         this.cut('EX_ESCORT'); this.emit('escort', pv.id, true); });
       B(t0 + 3.0, () => { this.figs.forEach(f => { if (f !== this.condemned && f.act === 'idle') f.back = .9; }); this.cut('EX_CLOSE'); this.emit('close', pv.id, true); });
       B(t0 + 4.0, () => { this.flashT = 0; this.shake = .45; const f = this.condemned; if (f) { f.goal = null; this.startFall(f); } this.figs.forEach(o => { if (o !== f && o.act === 'idle') o.flinch = .5; }); this.cut('EX_LOW'); this.emit('shot', pv.id, true); });
