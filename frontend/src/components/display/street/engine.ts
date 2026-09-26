@@ -437,8 +437,8 @@ class StreetEngine {
     if (!hits.length) return side * FACE; const first = hits[0].distance; const wall = hits.filter(h => h.distance - first < 2.2).reduce((a, h) => Math.max(a, h.distance), first); return side * wall;
   }
   /** إلصاقُ جسمٍ بجدار الواجهة عند z: وجهُه إلى الشارع، وظهرُه على الجدار الحقيقيّ */
-  attachToWall(m: THREE.Object3D, side: 1 | -1, z: number, y: number, gap = .04, flip = false) {
-    m.rotation.y = (side > 0 ? Math.PI : 0) + (flip ? Math.PI : 0); m.updateMatrixWorld(true); const b = new THREE.Box3().setFromObject(m); const c = new THREE.Vector3(); b.getCenter(c);
+  attachToWall(m: THREE.Object3D, side: 1 | -1, z: number, y: number, gap = .04, flip = false, yaw?: number) {
+    m.rotation.y = (yaw ?? (side > 0 ? Math.PI : 0)) + (flip ? Math.PI : 0); m.updateMatrixWorld(true); const b = new THREE.Box3().setFromObject(m); const c = new THREE.Vector3(); b.getCenter(c);
     const wall = this.wallXAt(side, z); m.position.x += (side > 0 ? wall - gap - b.max.x : wall + gap - b.min.x); m.position.z += z - c.z; m.position.y += y - b.min.y; m.updateMatrixWorld(true); return m;
   }
   private async loadAssets() {
@@ -477,13 +477,16 @@ class StreetEngine {
       const stores = this.facadePieces.filter(p => p.store && p.z0 > -96); const spans = stores.flatMap(p => { const w = p.z0 - p.z1; return (w > 22 ? [{ side: p.side, z: p.z0 - w * .25 }, { side: p.side, z: p.z0 - w * .75 }] : [{ side: p.side, z: (p.z0 + p.z1) / 2 }]).filter(sp => sp.z > -96); }).sort((a, b) => b.z - a.z); /* الأقربُ إلى الكاميرا أوّلاً — والمتاجرُ خلف نهاية الشارع لا تُؤثَّث */
       console.info('🏪 متاجر:', stores.map(p => `${p.name.replace('Brownstone_', '')}@${p.side > 0 ? 'R' : 'L'}${p.z0.toFixed(0)}..${p.z1.toFixed(0)}`).join(' · ') || '— لا شيء');
       loadGLTF(SF('awning')).then(g => { if (!g || this.disposed) return; g.scene.traverse((o: THREE.Object3D) => { const mm = (o as THREE.Mesh).material as THREE.MeshStandardMaterial | undefined; if (mm && mm.isMeshStandardMaterial) { mm.metalness = 0; mm.roughness = .95; mm.envMapIntensity = .2; mm.color.multiplyScalar(.75); } });
-        spans.slice(0, 6).forEach(sp => { const m = this.prep(g.scene.clone(true)); this.fit(m, 2.6, 'x'); this.attachToWall(m, sp.side, sp.z, 2.9);
-          // ☂️ الحافّةُ العالية على الجدار والمنخفضة نحو الشارع: تُقاس من الرؤوس (متوسّط y في نصف الجدار مقابل نصف الشارع)؛
-          //    إن جاءت معكوسةً تُدار 180° ويُعاد الإلصاق. كانت تُركَّب باتّجاهٍ خاطئ (ميلُها إلى الجدار).
-          m.updateMatrixWorld(true); const bb = new THREE.Box3().setFromObject(m); const mid = (bb.min.x + bb.max.x) / 2; let wallY = 0, wallN = 0, streetY = 0, streetN = 0; const v = new THREE.Vector3();
-          m.traverse(o => { const mesh = o as THREE.Mesh; if (!mesh.isMesh) return; const pos = mesh.geometry.attributes.position; for (let i = 0; i < pos.count; i += 3) { v.fromBufferAttribute(pos, i).applyMatrix4(mesh.matrixWorld); const towardWall = sp.side > 0 ? v.x > mid : v.x < mid; if (towardWall) { wallY += v.y; wallN++; } else { streetY += v.y; streetN++; } } });
-          const flipped = !!(wallN && streetN && wallY / wallN < streetY / streetN); if (flipped) this.attachToWall(m, sp.side, sp.z, 2.9, .04, true);
-          m.name = 'awning'; m.userData.flipped = flipped; m.userData.slope = [+(wallY / (wallN || 1)).toFixed(2), +(streetY / (streetN || 1)).toFixed(2)];
+        // ☂️ هندسةُ الأصل مقاسة (scene.lite.glb): عرضُه 3.8 م على x، وعمقُه 2.4 م على z؛ ظهرُه العالي عند −z (قمّة 0.64)
+        //    وجبهتُه المنخفضة عند +z (قمّة 0.06) تتدلّى منها ستارةٌ إلى −0.64. فوجهُ الشارع هو +z: على الجدار الأيسر
+        //    يُدار +90° (‎+z → +x) وعلى الأيمن −90°. كان يُلصق بدوران 0/π فيصير عرضُه عموديّاً على الجدار وميلُه
+        //    بمحاذاة الشارع — «مظلّةٌ مركّبة باتّجاهٍ خاطئ». ثمّ فحصٌ هندسيّ: أعلى الحافّة الجداريّة يجب أن يفوق أعلى
+        //    حافّة الشارع، وإلّا يُقلب 180°.
+        spans.slice(0, 6).forEach(sp => { const m = this.prep(g.scene.clone(true)); this.fit(m, 2.6, 'x'); const yaw = sp.side > 0 ? -Math.PI / 2 : Math.PI / 2; this.attachToWall(m, sp.side, sp.z, 2.9, .04, false, yaw);
+          const topOf = (towardWall: boolean) => { m.updateMatrixWorld(true); const bb = new THREE.Box3().setFromObject(m); const mid = (bb.min.x + bb.max.x) / 2; let top = -Infinity; const v = new THREE.Vector3();
+            m.traverse(o => { const mesh = o as THREE.Mesh; if (!mesh.isMesh) return; const pos = mesh.geometry.attributes.position; for (let i = 0; i < pos.count; i++) { v.fromBufferAttribute(pos, i).applyMatrix4(mesh.matrixWorld); const w = sp.side > 0 ? v.x > mid : v.x < mid; if (w === towardWall) top = Math.max(top, v.y); } }); return top; };
+          const wallTop = topOf(true), streetTop = topOf(false); const flipped = wallTop < streetTop; if (flipped) this.attachToWall(m, sp.side, sp.z, 2.9, .04, true, yaw);
+          m.name = 'awning'; m.userData.flipped = flipped; m.userData.slope = [+wallTop.toFixed(2), +streetTop.toFixed(2)];
           S.add(m); }); console.info('☂️ مظلّات:', spans.slice(0, 6).map(sp => `${sp.side > 0 ? 'R' : 'L'}${sp.z.toFixed(0)}`).join(' · ')); });
       // فوانيسُ الحائط: عند مدخل النادي (بداية الشارع يساراً) وعلى جانبَي أوّل متجرٍ في كلّ جهة
       const lanternSpots: [1 | -1, number][] = [[-1, 4.6], [-1, 1.8]]; ([-1, 1] as const).forEach(side => { const st = stores.find(p => p.side === side); if (st) lanternSpots.push([side, st.z0 - 1.2], [side, st.z1 + 1.2]); });
