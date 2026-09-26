@@ -534,12 +534,14 @@ class StreetEngine {
       // 🧱 الإرساء على **الجدار** لا على أقرب نتوء: درجاتُ المدخل والنوافذ الناتئة تتقدّم الجدارَ حتّى مترين،
       //    وإرساءُ أقرب نتوءٍ على خطّ FACE كان يدفع الجدار الحقيقيّ إلى الخلف فتطفو المظلّاتُ واللافتات أمامه.
       //    الجدارُ = أبعدُ إصابةٍ لأشعّةٍ أفقيّة على ارتفاع 2.6–3.4م (فوق الدرجات، تحت أوّل منصّة حريق).
+      // ① إرساءٌ أوّليّ: أقربُ نتوءٍ على خطّ FACE (فتصير القطعةُ خارج الشارع حتماً قبل القياس)
+      const nearX0 = side > 0 ? b.min.x : b.max.x; w.position.x += side * FACE - nearX0;
       w.position.z += (z - width / 2) - (b.max.z + b.min.z) / 2; w.position.y -= b.min.y; w.updateMatrixWorld(true);
-      { const ray = new THREE.Raycaster(); const ds: number[] = []; for (const yy of [2.6, 3.0, 3.4]) for (let k = 1; k < 8; k++) { const zz = z - width * k / 8; ray.set(new THREE.Vector3(side * (FACE - 6), yy, zz), new THREE.Vector3(side, 0, 0)); ray.far = 30; const hs = ray.intersectObject(w, true); if (hs.length) { const first = hs[0].distance; ds.push(hs.filter(h => h.distance - first < 2.2).reduce((m2, h) => Math.max(m2, h.distance), first)); } }
-        ds.sort((p, q) => p - q); const wallD = ds.length ? ds[Math.floor(ds.length / 2)] : 6; const wallX = side * (FACE - 6 + wallD); /* الجدار الآن */
-        const nearX = side > 0 ? b.min.x : b.max.x; const protrusion = Math.abs(wallX) - Math.abs(nearX); /* عمقُ النتوءات أمام الجدار */
-        // الجدارُ على FACE+0.5؛ وإن تجاوز النتوءُ شريطَ المشي يُدفع المبنى إلى الخلف حتّى يقف النتوء على FACE−1.5
-        const target = Math.max(FACE + .5, FACE - 1.5 + protrusion); w.position.x += side * target - wallX; }
+      // ② قياسُ الجدار بأشعّةٍ من وسط الشارع (x=0، خارج القطعة يقيناً) على 2.6–3.4م: أبعدُ إصابةٍ ضمن مترين من الأولى
+      { const ray = new THREE.Raycaster(); const ds: number[] = []; for (const yy of [2.6, 3.0, 3.4]) for (let k = 1; k < 8; k++) { const zz = z - width * k / 8; ray.set(new THREE.Vector3(0, yy, zz), new THREE.Vector3(side, 0, 0)); ray.far = 40; const hs = ray.intersectObject(w, true); if (hs.length) { const first = hs[0].distance; ds.push(hs.filter(h => h.distance - first < 2.2).reduce((m2, h) => Math.max(m2, h.distance), first)); } }
+        ds.sort((p, q) => p - q); const wallD = ds.length ? ds[Math.floor(ds.length / 2)] : FACE; const protrusion = Math.max(0, wallD - FACE); /* عمقُ النتوءات أمام الجدار */
+        // ③ الجدارُ على FACE+0.5؛ وإن تجاوز النتوءُ شريطَ المشي يُدفع المبنى إلى الخلف حتّى يقف النتوء على FACE−1.5
+        const target = Math.max(FACE + .5, FACE - 1.5 + protrusion); w.position.x += side * (target - wallD); }
       console.info('🏛️ piece', piece.name, 'size', sz.toArray().map(v => +v.toFixed(1)).join('x'), 'front', f.toArray().join(','), 'side', side, 'z', z.toFixed(1));
       group.add(w); z -= width + .25; } });
     // 🛣️ نهاية الشارع تقاطعٌ لا جدارٌ أصمّ: واجهتان تواجهان الكاميرا على جانبَي الفراغ عند z=-106،
