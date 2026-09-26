@@ -432,11 +432,15 @@ class StreetEngine {
     return loadGLTF(sf ? SF(name) : PH(name)).then(g => { if (!g || this.disposed) return; spots.forEach(([x, z, r]) => { const m = this.prep(g.scene.clone(true), shadow); this.fit(m, size, axis); m.rotation.y = r; this.placeAt(m, x, z, y); this.scene.add(m); }); });
   }
   /** الجدارُ الحقيقيّ للواجهة عند z (لا خطّ FACE الافتراضيّ): شعاعٌ من وسط الشارع على ارتفاع الطابق الأوّل */
+  /** مقطعُ الجدار على y=3 لكلّ جانب (z من 10 إلى −110 بخطوة 0.5) — يُلتقط فور بناء الواجهات، ويُستعمل بعد أن ينزع mergeStatic شبكاتِها من المجموعة (كان wallXAt يرتدّ حينها إلى FACE فتطفو الملحقاتُ المتأخّرة نصفَ متر) */
+  private wallProfile: { z0: number; step: number; x: [number[], number[]] } | null = null;
+  private buildWallProfile() { const z0 = 10, step = .5, n = 241; const x: [number[], number[]] = [[], []]; for (let i = 0; i < n; i++) { const z = z0 - i * step; x[0].push(this.wallXAt(-1, z, 3)); x[1].push(this.wallXAt(1, z, 3)); } this.wallProfile = { z0, step, x }; }
   wallXAt(side: 1 | -1, z: number, y = 3.0): number {
     if (!this.facadeGroup) return side * FACE;
     const ray = new THREE.Raycaster(new THREE.Vector3(0, y, z), new THREE.Vector3(side, 0, 0), 0, 40); const hits = ray.intersectObject(this.facadeGroup, true);
     // أبعدُ إصابةٍ ضمن مترين من الأولى هي الجدار؛ الأقربُ منها نتوءات (درجات، شرفات)
-    if (!hits.length) return side * FACE; const first = hits[0].distance; const wall = hits.filter(h => h.distance - first < 2.2).reduce((a, h) => Math.max(a, h.distance), first); return side * wall;
+    if (!hits.length) { const P = this.wallProfile; if (!P) return side * FACE; const i = Math.max(0, Math.min(P.x[0].length - 1, Math.round((P.z0 - z) / P.step))); return P.x[side > 0 ? 1 : 0][i]; }
+    const first = hits[0].distance; const wall = hits.filter(h => h.distance - first < 2.2).reduce((a, h) => Math.max(a, h.distance), first); return side * wall;
   }
   /** إلصاقُ جسمٍ بجدار الواجهة عند z: وجهُه إلى الشارع، وظهرُه على الجدار الحقيقيّ */
   attachToWall(m: THREE.Object3D, side: 1 | -1, z: number, y: number, gap = .04, flip = false, yaw?: number) {
@@ -575,7 +579,9 @@ class StreetEngine {
     // 🛣️ نهاية الشارع تقاطعٌ لا جدارٌ أصمّ: واجهتان تواجهان الكاميرا على جانبَي الفراغ عند z=-106،
     //    والأسفلتُ يستمرّ إلى الضباب وخطّ الأفق (z=-125). كان جداراً واحداً يسدّ الشارع كطريقٍ مسدود.
     ([-1, 1] as const).forEach(side => { const piece = shuffled.find(p => /Lowrise_1$|Harlem_1_B/.test(p.name)) || shuffled[0]; const w = new THREE.Group(); w.add(this.prep(piece.clone(true))); const f = this.frontDir(w); w.rotation.y = Math.atan2(0, 1) - Math.atan2(f.x, f.z); this.fit(w, 15, 'y'); const b = new THREE.Box3().setFromObject(w); const sz = new THREE.Vector3(); b.getSize(sz); const k = Math.max(1, 22 / Math.max(sz.x, 1)); w.scale.x *= k; const b2 = new THREE.Box3().setFromObject(w); const inner = side > 0 ? b2.min.x : b2.max.x; w.position.x += side * (FACE + .3) - inner; w.position.z += -106 - b2.max.z; w.position.y -= b2.min.y; group.add(w); });
-    this.scene.add(group); this.facadeGroup = group; this.facadeResolve?.(); this.scene.remove(this.proc); this.proc.traverse(o => { const m = o as THREE.Mesh; if (m.isMesh) m.geometry.dispose(); });
+    // 🔴 الخطوةُ ③ أزاحت القطعَ بعد آخر updateMatrixWorld، وRaycaster يقرأ matrixWorld المخزَّنة: بلا هذا التحديث
+    //    كانت wallXAt تصيب الجدارَ حيث كان قبل الإزاحة (نيونُ المدخل طفا 19 سم أمام الطوب — كشفته المراجعة 2026-09-26).
+    this.scene.add(group); group.updateMatrixWorld(true); this.facadeGroup = group; this.buildWallProfile(); this.facadeResolve?.(); this.scene.remove(this.proc); this.proc.traverse(o => { const m = o as THREE.Mesh; if (m.isMesh) m.geometry.dispose(); });
     // الشرفات: نوافذ الطقم مرسومة لا مجوّفة، ولا مرساة موثوقة لها → لا تُوضع شرفات منفصلة (قاعدة المالك: على الشبابيك فقط)
     if (debugParam('balconies') === '1') this.placeBalconies();
     // نيون فوق بعض الواجهات (قوام مضيء على لوح — تأثير لا شكل هندسيّ)
@@ -747,7 +753,7 @@ class StreetEngine {
     action.stop(); mixer.uncacheRoot(srcHips);
     const tracks: THREE.KeyframeTrack[] = []; ordered.forEach(b => { if (!offset.has(b)) return; tracks.push(new THREE.QuaternionKeyframeTrack(`${b.name}.quaternion`, times, out.get(b)!)); });
     if (hipsOut && hipsBone) {
-      this.reportGround(target, ordered, out, hipsBone, hipsOut, n, label || clip.name);   // قد يرفع مسار الحوض — قبل بناء المسار
+      this.reportGround(target, ordered, out, hipsBone, hipsOut, n, label || clip.name, planar);   // قد يرفع مسار الحوض — قبل بناء المسار
       tracks.push(new THREE.VectorKeyframeTrack(`${hipsBone.name}.position`, times, hipsOut));
     }
     return new THREE.AnimationClip(clip.name, n / fps, tracks);
@@ -765,7 +771,7 @@ class StreetEngine {
    *  الطول يُرفع مسارُ الحوض بمقدار الغوص، متدرّجاً بين 55% و75% من المقطع (قبل استقرار الحوض
    *  عند ~77%)، فتبقى بدايةُ السقوط كما هي وينتهي الجسدُ ملامساً البلاط لا داخله.
    */
-  private reportGround(target: THREE.SkinnedMesh, ordered: THREE.Bone[], out: Map<THREE.Bone, Float32Array>, hipsBone: THREE.Bone, hipsOut: Float32Array, n: number, label: string) {
+  private reportGround(target: THREE.SkinnedMesh, ordered: THREE.Bone[], out: Map<THREE.Bone, Float32Array>, hipsBone: THREE.Bone, hipsOut: Float32Array, n: number, label: string, lift = true) {
     let top: THREE.Object3D = target; while (top.parent) top = top.parent;
     const savedQ = ordered.map(b => b.quaternion.clone()); const savedP = hipsBone.position.clone();
     const pose = (i: number) => { ordered.forEach(b => { const a = out.get(b)!; b.quaternion.set(a[i * 4], a[i * 4 + 1], a[i * 4 + 2], a[i * 4 + 3]); }); hipsBone.position.set(hipsOut[i * 3], hipsOut[i * 3 + 1], hipsOut[i * 3 + 2]); top.updateMatrixWorld(true); target.computeBoundingBox(); return target.boundingBox!.clone().applyMatrix4(target.matrixWorld); };
@@ -776,7 +782,8 @@ class StreetEngine {
       // أعمقُ غوصٍ في الخُمسَين الأخيرَين (الجسدُ على الأرض) — عيّناتٌ خمس
       let sink = 0; for (const k of [.6, .7, .8, .9, 1]) { const bb = pose(Math.min(n - 1, Math.round((n - 1) * k))); sink = Math.min(sink, bb.min.y - base); }
       let lifted = 0;
-      if (sink < -tol) {
+      // الرفعُ لمقاطع السقوط وحدها: الجلوسُ يدور حلقةً (LoopRepeat) فرفعُ ذيله يُحدث قفزةً عند الالتفاف ويُبطل إزاحة المقعد
+      if (lift && sink < -tol) {
         // الرفعُ عالميّاً ثمّ يُحوَّل إلى إطار أبي الحوض: Y المحلّيّة ليست الارتفاع (الهيكلُ مُدار +90°X من Blender)
         lifted = -sink; const d = new THREE.Vector3(0, lifted, 0); if (hipsBone.parent) d.applyMatrix3(new THREE.Matrix3().setFromMatrix4(hipsBone.parent.matrixWorld.clone().invert()));
         for (let i = 0; i < n; i++) { const k = (i / (n - 1) - .55) / .2; if (k <= 0) continue; const e = k >= 1 ? 1 : k * k * (3 - 2 * k); hipsOut[i * 3] += d.x * e; hipsOut[i * 3 + 1] += d.y * e; hipsOut[i * 3 + 2] += d.z * e; }
@@ -828,7 +835,7 @@ class StreetEngine {
         // أقلُّ من الحدّ ⇒ لا مقاطع: `rset` فارغةٌ فيشتغل البديل الإجرائيّ أدناه،
         // بدل mixerٍ يُركَّب على مقاطع بصفر مسارات فتقف الشخصيّة متجمّدة.
         if (!map.ok) { this.retargetCache[src] = out; return out; }
-        for (const k of Object.keys(allClips)) out[k] = await this.retargetLocal(sk as THREE.SkinnedMesh, skeleton, allClips[k], map.names, GROUNDED_CLIPS.has(k), `${src}/${k}`, FALL_CLIPS.includes(k));
+        for (const k of Object.keys(allClips)) out[k] = await this.retargetLocal(sk as THREE.SkinnedMesh, skeleton, allClips[k], map.names, GROUNDED_CLIPS.has(k), `${src}/${k}`, /* planar للسقوط الفعليّ لا لردّة الفعل: react_death يسبق السقوط فلو حرّك الحوض أفقيّاً لارتدّ عند تداخل المقطعين */ FALL_CLIPS.includes(k) && k !== 'react_death');
         console.info('🏙️ retarget', src, Object.keys(out).join(','), 'tracks', Object.values(out).map(c => c.tracks.length).join('/'), 'mapped', map.matched, '/', targetNames.length, '· محاذاة الاتّجاه ·', Math.round(performance.now() - t0), 'ms');
       } catch (e) { console.error('🏙️ فشلت إعادة التوجيه، البديل الإجرائيّ يعمل:', src, String(e)); }
       this.retargetCache[src] = out; return out;
@@ -1042,7 +1049,7 @@ class StreetEngine {
     const dim = ev.silence > 0 ? (ev.silence < 2 ? .6 : 1) : 1;
     this.lamps.forEach((l, i) => { let f = 1; if (i === 0) { if (ev.kill > 0) { const k = ev.kill; f = k < 1.2 ? (Math.sin(k * 40) > 0.2 ? 1 : .15) : k < 1.8 ? .6 : 0; } if (ev.saved > 0) f = 1 + Math.min(1.2, ev.saved * 1.5) * Math.max(0, 1 - (ev.saved - 1.5) * .7); }
       const flick = 1 - (i === 2 ? .06 * (.5 + .5 * Math.sin(time * 7.3 + l.flick)) * (.5 + .5 * Math.sin(time * 2.1)) : 0); const I = l.on * f * flick * dim; l.pl.intensity = 18 * I; if (l.sl) l.sl.intensity = 36 * I; (l.bulb.material as THREE.MeshBasicMaterial).color.setRGB(3 * I, 2.3 * I, 1.4 * I, THREE.LinearSRGBColorSpace); (l.cone.material as THREE.ShaderMaterial).uniforms.uI.value = .55 * I; l.cone.visible = I > .01; });
-    this.neons.forEach(n => { let on = (n.on || !!n.always) && !(ev.silence > 0 && ev.silence < 2.2); if (n.broken && on) { const cyc = time % 9; on = !(cyc > 6.2 && cyc < 6.9 && Math.sin(time * 31) > 0); } (n.mesh.material as THREE.MeshBasicMaterial).color.copy(n.base).multiplyScalar(on ? 1 : (n.club ? .3 : .06)); n.light.intensity = on ? (n.club ? 5 : 4) : 0; }); this.clubLights.forEach(l => { l.intensity = this.lamps[0]?.on ? 6 : 2.5; /* لافتتا النادي مضاءتان نهاراً أيضاً */ });
+    this.neons.forEach(n => { let on = (n.on || !!n.always) && !(ev.silence > 0 && ev.silence < 2.2); if (n.broken && on) { const cyc = time % 9; on = !(cyc > 6.2 && cyc < 6.9 && Math.sin(time * 31) > 0); } (n.mesh.material as THREE.MeshBasicMaterial).color.copy(n.base).multiplyScalar(on ? 1 : (n.club ? .3 : .06)); n.light.intensity = on ? (n.club ? 5 : 4) : 0; }); { const on = this.lamps[0]?.on ?? 1; this.clubLights.forEach(l => { l.intensity = 2.5 + 3.5 * on; /* لافتتا النادي مضاءتان نهاراً أيضاً؛ تتدرّج مع المصابيح لا تقفز عند الفجر */ }); }
     if (ev.kill > 0) { ev.kill += dt; this.hatLight.intensity = ev.kill < 7 ? 1.6 : 0; const h = this.hat; if (h.visible && h.position.y > .18) { h.position.y -= dt * (2.5 + (5.4 - h.position.y) * 1.5); h.rotation.x += dt * 4; h.rotation.z += dt * 2; if (h.position.y <= .18) { h.position.y = .18; h.rotation.set(.1, 0, .05); } } if (ev.kill > 8) { ev.kill = 0; this.hatLight.intensity = 0; } }
     if (ev.saved > 0) { ev.saved += dt; this.ember.visible = ev.saved < 2.5 && this.mode === 'night'; if (ev.saved > 6) ev.saved = 0; }
     if (ev.silence > 0) { ev.silence += dt; this.hemi.intensity = this.to.hemi * dim; if (ev.silence > 5) ev.silence = 0; }

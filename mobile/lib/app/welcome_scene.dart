@@ -3,7 +3,8 @@
 //    (قرار المالك 2026-09-12): مسجَّلاً كان اللاعب أم لا، فوق كلّ الشاشات، ثمّ تتلاشى.
 //    المقطع مُصيَّر من محرّك شاشة القاعة نفسه (مصدرٌ واحد للحقيقة) ويُشحن مع التطبيق:
 //    assets/video/club-entry.mp4 (H.264 عموديّ 720×1280، ~9 ثوانٍ).
-//    صامت، يُتخطّى بلمسة، وسقفه 9 ثوانٍ إن تعطّل الفيديو.
+//    صامت، يُتخطّى بلمسة. حارسُ تعليقٍ 6 ثوانٍ إن لم يجهز المشغّل، ثمّ السقفُ الفعليّ من مدّة المقطع
+//    نفسِه بعد الجهوزيّة (كان 9 ثوانٍ ثابتةً من لحظة الإنشاء فيأكل بطءُ فكّ الترميز نهايةَ المقطع).
 // ══════════════════════════════════════════════════════
 import 'dart:async';
 import 'package:flutter/material.dart';
@@ -24,12 +25,15 @@ class _WelcomeSceneState extends State<WelcomeScene> with SingleTickerProviderSt
   @override
   void initState() {
     super.initState();
-    _cap = Timer(const Duration(seconds: 9), _finish);
+    _cap = Timer(const Duration(seconds: 6), _finish); // حارسُ التعليق فقط (catchError لا يلتقط تعليقَ initialize)
     final c = VideoPlayerController.asset('assets/video/club-entry.mp4');
     _ctrl = c;
     c.setVolume(0);
     c.initialize().then((_) {
       if (!mounted) return;
+      // السقفُ الحقيقيّ من مدّة المقطع + سماحٌ للتخزين المؤقّت
+      _cap?.cancel();
+      _cap = Timer(c.value.duration + const Duration(milliseconds: 1500), _finish);
       setState(() {});
       c.play();
       c.addListener(() {

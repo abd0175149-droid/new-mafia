@@ -22,7 +22,7 @@ export type ExecTemplate = { scene: THREE.Object3D; h: number; clips: Record<str
 
 type Fig = { id: number; gender: 'M' | 'F'; /** شكلُ الشخصيّة في هذا المشهد — يُخلط من جديد في كلّ مشهد */ charId: string; /** عظامُ السقوط الإجرائيّ (null مع مقطعٍ حقيقيّ) */ bones?: ReturnType<ExecutionController['fallBones']> | null; root: THREE.Group; tilt: THREE.Group; mixer: THREE.AnimationMixer | null; acts: Record<string, THREE.AnimationAction>; cur: string; spot: [number, number]; home: [number, number]; goal: [number, number] | null; face: [number, number] | null; act: 'idle' | 'stagger' | 'fall' | 'dead'; actT: number; flinch: number; back: number; walk: number; fallKey: string | null };
 type Smoke = { ps: { g: THREE.Group; items: { s: THREE.Sprite; life: number; vx?: number; vz?: number }[] }; on: boolean; t: number; origin: THREE.Vector3; light: THREE.PointLight };
-type Beat = { t: number; fn: () => void };
+type Beat = { t: number; fn: () => void; /** أُطلق فعلاً — إعادةُ حساب bi بعد الفرز تعتمد عليه لا على الزمن (بِيتُ gather على t=0 كان يُتخطّى إن جاء fireSecondary مباشرةً بعد fire) */ done?: boolean };
 
 export const TEAM_COLOR: Record<ExecTeam, number> = { CITIZEN: 0x4aa3ff, MAFIA: 0xff3b3b, NEUTRAL: 0xffd23f };
 const FACE = 12 / 2 + 3.2;
@@ -222,7 +222,7 @@ export class ExecutionController {
       t = t0 + 7.1; });
     if (opts?.hold) { const b: any = { t, fn: () => { this.state = 'holding'; this.cut('EX_WIDE'); this.emit('hold', null, false); } }; b.tail = true; this.beats.push(b); }
     else this.pushEnd(t);
-    this.beats.sort((a, b) => a.t - b.t); this.bi = this.beats.findIndex(b => b.t > this.t); if (this.bi < 0) this.bi = this.beats.length; this.state = 'running'; return true;
+    this.beats.sort((a, b) => a.t - b.t); this.bi = this.beats.findIndex(b => !b.done); if (this.bi < 0) this.bi = this.beats.length; this.state = 'running'; return true;
   }
   /** لا ضحيّة ثانية (الموجّه تخطّى) أو انتهى الطور: الحشد يتفرّق */
   end() { if (this.state === 'idle') return; if (this.state === 'running') { this.beats = this.beats.filter(b => !(b as any).tail); this.pushEnd(Math.max(this.t, this.beats.length ? this.beats[this.beats.length - 1].t : this.t) + .5); return; } this.finish(); }
@@ -261,7 +261,7 @@ export class ExecutionController {
   /* ── كلّ إطار ── */
   update(dt: number, time: number) {
     if (this.state === 'idle') return;
-    if (this.state === 'running' || this.state === 'holding' || this.state === 'ending') { if (this.state === 'running') { this.t += dt; while (this.bi < this.beats.length && this.beats[this.bi].t <= this.t) { const b = this.beats[this.bi++]; b.fn(); } } }
+    if (this.state === 'running' || this.state === 'holding' || this.state === 'ending') { if (this.state === 'running') { this.t += dt; while (this.bi < this.beats.length && this.beats[this.bi].t <= this.t) { const b = this.beats[this.bi++]; b.done = true; b.fn(); } } }
     const WX = WALL.x + 5, WZ = WALL.z + .3;
     this.figs.forEach(f => { f.mixer?.update(dt);
       if (f.act === 'idle') {

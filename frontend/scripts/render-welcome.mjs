@@ -24,7 +24,7 @@ await page.exposeFunction('__saveFrame', async (dataUrl, i) => { fs.writeFileSyn
 await page.evaluate(async ({ fps, seconds, w, h }) => { await window.__street.captureSequence('WALK', seconds, fps, w, h, (d, i) => window.__saveFrame(d, i), 'night'); }, { fps: FPS, seconds: SECONDS, w: W, h: H });
 await browser.close();
 const n = fs.readdirSync(FRAMES).length; console.log('frames saved:', n);
-fs.copyFileSync(path.join(FRAMES, 'f0000.jpg'), path.join(OUT, 'club-entry.jpg'));
+// (الملصق يُنسخ بعد نجاح التكويد — لا قبله — كي لا يُشحن ملصقٌ جديد مع مقطعٍ قديم إن سقط Blender)
 
 // Blender: image sequence → H.264 MP4
 const BL = process.env.BLENDER || 'C:/Program Files/Blender Foundation/Blender 4.4/blender.exe';
@@ -44,10 +44,12 @@ sc.render.filepath = r"${OUT.replace(/\\/g, '/')}/club-entry.mp4"
 bpy.ops.render.render(animation=True)
 print('ENCODED')
 `);
-const out = execFileSync(BL, ['-b', '--python', py], { encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 });
-console.log(out.includes('ENCODED') ? 'encoded → public/video/club-entry.mp4' : out.slice(-800));
+const out = execFileSync(BL, ['-b', '--python-exit-code', '1', '--python', py], { encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 }); // استثناءُ بايثون يُسقط التشغيل
+if (!out.includes('ENCODED')) { console.error('Blender encode failed:\n' + out.slice(-800)); process.exit(1); }
+console.log('encoded → public/video/club-entry.mp4');
 const mp4 = fs.readdirSync(OUT).find(f => f.startsWith('club-entry') && f.endsWith('.mp4'));
 if (mp4 && mp4 !== 'club-entry.mp4') fs.renameSync(path.join(OUT, mp4), path.join(OUT, 'club-entry.mp4'));
+fs.copyFileSync(path.join(FRAMES, 'f0000.jpg'), path.join(OUT, 'club-entry.jpg'));
 console.log('size:', (fs.statSync(path.join(OUT, 'club-entry.mp4')).size / 1e6).toFixed(2), 'MB');
 // 📱 نسخةُ فلتر تُحزم داخل الـAPK/IPA (welcome_scene.dart · pubspec assets): تُنسخ هنا كي لا تتباعد النسختان —
 //    ولا تصل المستخدمين إلّا برفع version في mobile/pubspec.yaml وإعادة بناء التطبيق ونشره.

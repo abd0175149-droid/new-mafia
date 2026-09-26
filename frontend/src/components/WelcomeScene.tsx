@@ -9,7 +9,8 @@
 // ══════════════════════════════════════════════════════
 import { useEffect, useRef, useState } from 'react';
 
-const MAX_MS = 9000;
+/** سقفُ إنقاذٍ مطلق (لم يعمل المقطع أصلاً) — أمّا السقفُ الفعليّ فيُضبط من مدّة المقطع عند أوّل إطارٍ حقيقيّ: كان 9000 مس من لحظة التركيب يساوي طولَ المقطع، فأيّ تأخّرٍ في التحميل يقصّ الوصولَ إلى الباب */
+const HARD_MS = 15000, GRACE_MS = 1500;
 /** يُرفع عند كلّ إعادة تصيير للمقطع (scripts/render-welcome.mjs) كي لا يعلق القديم في كاش المتصفّح/الوكيل — 2026-09-26: البيئة الجديدة ولافتتا النادي */
 const VIDEO_V = '20260926';
 export default function WelcomeScene() {
@@ -17,14 +18,16 @@ export default function WelcomeScene() {
   const vid = useRef<HTMLVideoElement>(null);
   useEffect(() => {
     if (typeof window !== 'undefined' && window.matchMedia?.('(prefers-reduced-motion: reduce)').matches) { setPhase('done'); return; }
-    const t = setTimeout(() => setPhase('fade'), MAX_MS); return () => clearTimeout(t);
+    const t = setTimeout(() => setPhase('fade'), HARD_MS); return () => clearTimeout(t);
   }, []);
   useEffect(() => { if (phase === 'fade') { const t = setTimeout(() => setPhase('done'), 700); return () => clearTimeout(t); } }, [phase]);
   useEffect(() => { const v = vid.current; if (!v) return; v.play().catch(() => setPhase('fade')); }, []);
+  const armed = useRef(false);
+  const onPlaying = () => { if (armed.current) return; armed.current = true; const v = vid.current; const d = v && isFinite(v.duration) && v.duration > 0 ? v.duration * 1000 : 9000; setTimeout(() => setPhase('fade'), d + GRACE_MS); };
   if (phase === 'done') return null;
   return (
     <div onClick={() => setPhase('fade')} className="fixed inset-0 z-[400] bg-[#05060c] transition-opacity duration-700" style={{ opacity: phase === 'fade' ? 0 : 1 }} aria-label="مرحباً في نادي المافيا">
-      <video ref={vid} src={`/video/club-entry.mp4?v=${VIDEO_V}`} poster={`/video/club-entry.jpg?v=${VIDEO_V}`} muted playsInline autoPlay preload="auto" onEnded={() => setPhase('fade')} onError={() => setPhase('fade')} className="absolute inset-0 w-full h-full object-cover" />
+      <video ref={vid} src={`/video/club-entry.mp4?v=${VIDEO_V}`} poster={`/video/club-entry.jpg?v=${VIDEO_V}`} muted playsInline autoPlay preload="auto" onPlaying={onPlaying} onEnded={() => setPhase('fade')} onError={() => setPhase('fade')} className="absolute inset-0 w-full h-full object-cover" />
       <div className="absolute inset-x-0 bottom-0 h-1/3 pointer-events-none" style={{ background: 'linear-gradient(180deg, rgba(5,6,12,0), rgba(5,6,12,.85))' }} />
       <div className="absolute inset-x-0 bottom-12 text-center pointer-events-none" dir="rtl">
         <p className="font-mono text-[10px] tracking-[0.45em] text-[#C5A059]/90">MAFIA CLUB · LITTLE ITALY 1931</p>
