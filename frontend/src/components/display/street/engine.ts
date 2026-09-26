@@ -433,13 +433,14 @@ class StreetEngine {
   }
   /** الجدارُ الحقيقيّ للواجهة عند z (لا خطّ FACE الافتراضيّ): شعاعٌ من وسط الشارع على ارتفاع الطابق الأوّل */
   /** مقطعُ الجدار على y=3 لكلّ جانب (z من 10 إلى −110 بخطوة 0.5) — يُلتقط فور بناء الواجهات، ويُستعمل بعد أن ينزع mergeStatic شبكاتِها من المجموعة (كان wallXAt يرتدّ حينها إلى FACE فتطفو الملحقاتُ المتأخّرة نصفَ متر) */
-  private wallProfile: { z0: number; step: number; x: [number[], number[]] } | null = null;
-  private buildWallProfile() { const z0 = 10, step = .5, n = 241; const x: [number[], number[]] = [[], []]; for (let i = 0; i < n; i++) { const z = z0 - i * step; x[0].push(this.wallXAt(-1, z, 3)); x[1].push(this.wallXAt(1, z, 3)); } this.wallProfile = { z0, step, x }; }
+  private wallProfile: { z0: number; step: number; lo: [number[], number[]]; hi: [number[], number[]] } | null = null;
+  /** على ارتفاعين (3 و6 م): إفريزُ الطابق الأرضيّ يبرز ~13 سم فيختلف الجدار عند 3 م عمّا فوقه */
+  private buildWallProfile() { const z0 = 10, step = .5, n = 241; const lo: [number[], number[]] = [[], []], hi: [number[], number[]] = [[], []]; for (let i = 0; i < n; i++) { const z = z0 - i * step; lo[0].push(this.wallXAt(-1, z, 3)); lo[1].push(this.wallXAt(1, z, 3)); hi[0].push(this.wallXAt(-1, z, 6)); hi[1].push(this.wallXAt(1, z, 6)); } this.wallProfile = { z0, step, lo, hi }; }
   wallXAt(side: 1 | -1, z: number, y = 3.0): number {
     if (!this.facadeGroup) return side * FACE;
     const ray = new THREE.Raycaster(new THREE.Vector3(0, y, z), new THREE.Vector3(side, 0, 0), 0, 40); const hits = ray.intersectObject(this.facadeGroup, true);
     // أبعدُ إصابةٍ ضمن مترين من الأولى هي الجدار؛ الأقربُ منها نتوءات (درجات، شرفات)
-    if (!hits.length) { const P = this.wallProfile; if (!P) return side * FACE; const i = Math.max(0, Math.min(P.x[0].length - 1, Math.round((P.z0 - z) / P.step))); return P.x[side > 0 ? 1 : 0][i]; }
+    if (!hits.length) { const P = this.wallProfile; if (!P) return side * FACE; const tab = y < 4.5 ? P.lo : P.hi; const i = Math.max(0, Math.min(tab[0].length - 1, Math.round((P.z0 - z) / P.step))); return tab[side > 0 ? 1 : 0][i]; }
     const first = hits[0].distance; const wall = hits.filter(h => h.distance - first < 2.2).reduce((a, h) => Math.max(a, h.distance), first); return side * wall;
   }
   /** إلصاقُ جسمٍ بجدار الواجهة عند z: وجهُه إلى الشارع، وظهرُه على الجدار الحقيقيّ */
