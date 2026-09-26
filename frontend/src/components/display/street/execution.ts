@@ -11,6 +11,7 @@ import * as THREE from 'three';
 import * as SkeletonUtils from 'three/examples/jsm/utils/SkeletonUtils.js';
 import type { StreetEngine } from './engine';
 import { CHARACTERS, NEUTRAL, charOf, isNeutral, drawCrowd, pickNeutral, type CharacterDef, type Gender } from './characters';
+import { coreBoneName } from './bone-map';
 
 export type ExecTeam = 'MAFIA' | 'CITIZEN' | 'NEUTRAL';
 export type ExecFigure = { id: number; gender: 'M' | 'F' };
@@ -19,7 +20,7 @@ export type ExecBeatName = 'gather' | 'escort' | 'close' | 'shot' | 'fall' | 'sm
 export type ExecBeat = { name: ExecBeatName; victimId: number | null; primary: boolean };
 export type ExecTemplate = { scene: THREE.Object3D; h: number; clips: Record<string, THREE.AnimationClip> };
 
-type Fig = { id: number; gender: 'M' | 'F'; /** شكلُ الشخصيّة في هذا المشهد — يُخلط من جديد في كلّ مشهد */ charId: string; root: THREE.Group; tilt: THREE.Group; mixer: THREE.AnimationMixer | null; acts: Record<string, THREE.AnimationAction>; cur: string; spot: [number, number]; home: [number, number]; goal: [number, number] | null; face: [number, number] | null; act: 'idle' | 'stagger' | 'fall' | 'dead'; actT: number; flinch: number; back: number; walk: number; fallKey: string | null };
+type Fig = { id: number; gender: 'M' | 'F'; /** شكلُ الشخصيّة في هذا المشهد — يُخلط من جديد في كلّ مشهد */ charId: string; /** عظامُ السقوط الإجرائيّ (null مع مقطعٍ حقيقيّ) */ bones?: ReturnType<ExecutionController['fallBones']> | null; root: THREE.Group; tilt: THREE.Group; mixer: THREE.AnimationMixer | null; acts: Record<string, THREE.AnimationAction>; cur: string; spot: [number, number]; home: [number, number]; goal: [number, number] | null; face: [number, number] | null; act: 'idle' | 'stagger' | 'fall' | 'dead'; actT: number; flinch: number; back: number; walk: number; fallKey: string | null };
 type Smoke = { ps: { g: THREE.Group; items: { s: THREE.Sprite; life: number; vx?: number; vz?: number }[] }; on: boolean; t: number; origin: THREE.Vector3; light: THREE.PointLight };
 type Beat = { t: number; fn: () => void };
 
@@ -95,7 +96,7 @@ export class ExecutionController {
   }
   private make(id: number, gender: 'M' | 'F', shadow: boolean, charId: string): Fig | null {
     const tpl = this.tpl.get(charId); if (!tpl) return null; const E = this.E as any;
-    const model = SkeletonUtils.clone(tpl.scene); E.prep(model, shadow, false); E.pinRigidProps(model); model.traverse((o: THREE.Object3D) => { if ((o as THREE.SkinnedMesh).isSkinnedMesh) o.frustumCulled = false; });
+    const model = SkeletonUtils.clone(tpl.scene); E.prep(model, shadow, false); E.tuneCharacterMaterials(model); E.pinRigidProps(model); model.traverse((o: THREE.Object3D) => { if ((o as THREE.SkinnedMesh).isSkinnedMesh) o.frustumCulled = false; });
     const tilt = new THREE.Group(); tilt.add(model); const root = new THREE.Group(); root.add(tilt); E.fit(root, tpl.h, 'y'); root.position.y += .16; { const bs = E.blobShadow(1.3); bs.position.y = (-root.position.y + .17) / root.scale.x; bs.scale.setScalar(1 / root.scale.x); root.add(bs); }
     const f: Fig = { id, gender, charId, root, tilt, mixer: null, acts: {}, cur: '', spot: [0, 0], home: [0, 0], goal: null, face: null, act: 'idle', actT: 0, flinch: 0, back: 0, walk: 0, fallKey: null };
     if (Object.keys(tpl.clips).length) { f.mixer = new THREE.AnimationMixer(model); for (const k of Object.keys(tpl.clips)) f.acts[k] = f.mixer.clipAction(tpl.clips[k]); }
@@ -144,7 +145,7 @@ export class ExecutionController {
         const wanted = cardOf.get(a.id)?.id ?? null;
         const charId = wanted ? this.resolveChar(wanted, a.gender, victims.has(a.id)) : null;
         if (!charId) { if (victims.has(a.id)) console.error(`⚖️ لا محايدَ محمَّلاً للضحيّة #${a.id} — تُترك بلا مجسّم`); return; }
-        const nf = this.make(a.id, a.gender, false, charId); /* الحشد بلا ظلال: المحكوم والضحيّة وحدهما يُظلّان */ if (!nf) return; f = nf; this.figs.push(f); const side = i % 2 ? 1 : -1; f.home = [side * (FACE - 2.2), -26 + rnd() * 20]; f.root.position.set(f.home[0], f.root.position.y, f.home[1]); f.root.rotation.y = rnd() * 6.28; }
+        const nf = this.make(a.id, a.gender, false, charId); /* الحشد بلا ظلال: المحكوم والضحيّة وحدهما يُظلّان */ if (!nf) return; f = nf; this.figs.push(f); /* 🚗 كان نصفُ الحشد يأتي من الرصيف الأيمن فيعبر الشارع قاطعاً السيّارة المركونة (x=4.9). الآن يتجمّع من نصف الشارع الأيسر ورصيفه (بين القضبان والحافّة) حيث لا شيء يعترضه */ f.home = [-4.6 + rnd() * 3.2, -30 + rnd() * 14]; f.root.position.set(f.home[0], f.root.position.y, f.home[1]); f.root.rotation.y = rnd() * 6.28; }
       if (f.act === 'dead') return; f.spot = this.spotOf(k++, alive.length); if (instant) { f.root.position.set(f.spot[0], f.root.position.y, f.spot[1]); f.goal = null; f.face = [WALL.x, WALL.z]; this.play(f, 'idle'); } else { f.goal = f.spot; f.face = null; } });
   }
   private ensureFx() {
@@ -232,9 +233,18 @@ export class ExecutionController {
     this.endTimer = setTimeout(() => { this.clearCrowd(); this.smokes.forEach(s => { s.on = false; s.ps.g.visible = false; s.light.intensity = 0; s.ps.items.forEach(it => { (it.s.material as THREE.SpriteMaterial).opacity = 0; }); }); this.state = 'idle'; this.setOn(false); this.endTimer = null; }, 9000);
   }
   private shadowOn(f: Fig) { f.root.traverse(o => { if ((o as THREE.Mesh).isMesh) (o as THREE.Mesh).castShadow = true; }); }
+  /** عظامٌ للسقوط الإجرائيّ بأسمائها المعياريّة، مع دورانها لحظةَ بدء السقوط */
+  private fallBones(f: Fig) {
+    let sk: THREE.SkinnedMesh | null = null; f.root.traverse(o => { if (!sk && (o as THREE.SkinnedMesh).isSkinnedMesh) sk = o as THREE.SkinnedMesh; }); if (!sk) return null;
+    const by = (core: string) => (sk as THREE.SkinnedMesh).skeleton.bones.find(b => coreBoneName(b.name) === core) || null;
+    const pick = (core: string) => { const b = by(core); return b ? { b, q0: b.quaternion.clone() } : null; };
+    return { upL: pick('LeftUpLeg'), upR: pick('RightUpLeg'), legL: pick('LeftLeg'), legR: pick('RightLeg'), spine: pick('Spine1'), head: pick('Head') };
+  }
   private startFall(f: Fig) {
     this.assertNeutral(f, 'fall');
     f.act = 'fall'; f.actT = 0;
+    // بلا مقطعٍ حقيقيّ: نوقف الـmixer ونحرّك العظام يدويّاً (الـmixer كان سيكتب فوق دوراننا كلَّ إطار)
+    f.bones = null; if (!FALL_KEYS.some(k => f.acts[k])) { f.mixer?.stopAllAction(); f.bones = this.fallBones(f); }
     // 🎬 تنويعٌ بين المقاطع الموجودة فقط: ملفٌّ واحدٌ يكفي، والثلاثة تمنع تكرار
     //    المشهد نفسه حين يسقط أكثر من واحدٍ في الليلة.
     const avail = FALL_KEYS.filter(k => f.acts[k]);
@@ -264,7 +274,16 @@ export class ExecutionController {
       }
       else if (f.act === 'fall') {
         f.actT += dt;
-        if (!f.fallKey) { const k = Math.min(1, f.actT / 1.1), e = k * k * (3 - 2 * k); f.tilt.rotation.x = Math.PI / 2 * e; f.tilt.position.y = e * .12; /* يسقط إلى الأمام نحو الحشد لا إلى الخلف داخل الواجهة */ }
+        if (!f.fallKey) {
+          // 🎬 سقوطٌ إجرائيّ على مرحلتين (حتّى تصل مقاطع Mixamo): ① 0–0.45ث تنهار الركبتان ويهبط الحوض
+          //    وينحني الجذع (الفخذ +X إلى الأمام، الساق −X إلى الخلف — محاورُ Mixamo مُقاسة)، ② 0.3–1.2ث
+          //    يهوي الجسدُ إلى الأمام حول القدمين حتّى يستلقي. كان لوحاً خشبيّاً يميل 90° بلا انثناء.
+          const sm = (k: number) => { k = Math.min(1, Math.max(0, k)); return k * k * (3 - 2 * k); };
+          const e1 = sm(f.actT / .45), e2 = sm((f.actT - .3) / .9);
+          const B = f.bones; const rot = (p: { b: THREE.Bone; q0: THREE.Quaternion } | null, ang: number) => { if (p) p.b.quaternion.copy(p.q0).multiply(new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1, 0, 0), ang)); };
+          if (B) { rot(B.upL, 1.15 * e1); rot(B.upR, 1.05 * e1); rot(B.legL, -2.1 * e1); rot(B.legR, -1.9 * e1); rot(B.spine, .45 * e1 + .3 * e2); rot(B.head, .25 * e1); }
+          f.tilt.rotation.x = Math.PI / 2 * e2; f.tilt.position.y = -.55 * e1 * (1 - e2) + .1 * e2; /* يسقط إلى الأمام نحو الحشد لا إلى الخلف داخل الواجهة */
+        }
         // الحالةُ تتبع طولَ المقطع لا رقماً ثابتاً — والمقطعُ مثبَّتٌ على آخر إطار
         if (f.actT > Math.max(1.3, this.clipLen(f, f.fallKey, 1.3))) f.act = 'dead';
       }
