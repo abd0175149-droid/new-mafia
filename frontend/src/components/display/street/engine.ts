@@ -473,7 +473,7 @@ class StreetEngine {
     this.facadeReady.then(() => { if (this.disposed) return;
       // 🏪 المتاجر = قطعُ الطقم ذاتُ الواجهات التجاريّة (Lowrise_1 · FlatFacade_6_B · 9_B). عليها وحدها: مظلّات،
       //    نيون، فوانيسُ حائط، طاولةُ مقهى ولوحُ طباشير. البراونستون السكنيّ بدرجاته يبقى بلا مظلّات (كانت تطفو أمامه).
-      const stores = this.facadePieces.filter(p => p.store); const spans = stores.flatMap(p => { const w = p.z0 - p.z1; return w > 22 ? [{ side: p.side, z: p.z0 - w * .25 }, { side: p.side, z: p.z0 - w * .75 }] : [{ side: p.side, z: (p.z0 + p.z1) / 2 }]; });
+      const stores = this.facadePieces.filter(p => p.store && p.z0 > -96); const spans = stores.flatMap(p => { const w = p.z0 - p.z1; return (w > 22 ? [{ side: p.side, z: p.z0 - w * .25 }, { side: p.side, z: p.z0 - w * .75 }] : [{ side: p.side, z: (p.z0 + p.z1) / 2 }]).filter(sp => sp.z > -96); }).sort((a, b) => b.z - a.z); /* الأقربُ إلى الكاميرا أوّلاً — والمتاجرُ خلف نهاية الشارع لا تُؤثَّث */
       console.info('🏪 متاجر:', stores.map(p => `${p.name.replace('Brownstone_', '')}@${p.side > 0 ? 'R' : 'L'}${p.z0.toFixed(0)}..${p.z1.toFixed(0)}`).join(' · ') || '— لا شيء');
       loadGLTF(SF('awning')).then(g => { if (!g || this.disposed) return; g.scene.traverse((o: THREE.Object3D) => { const mm = (o as THREE.Mesh).material as THREE.MeshStandardMaterial | undefined; if (mm && mm.isMeshStandardMaterial) { mm.metalness = 0; mm.roughness = .95; mm.envMapIntensity = .2; mm.color.multiplyScalar(.75); } });
         spans.slice(0, 6).forEach(sp => { const m = this.prep(g.scene.clone(true)); this.fit(m, 2.6, 'x'); this.attachToWall(m, sp.side, sp.z, 2.9); S.add(m); }); });
@@ -534,12 +534,17 @@ class StreetEngine {
     //    طوبٌ أحمر/بنّيّ + قطعةُ حجرٍ فاتحٍ واحدة للتنويع. الثمنُ تكرارٌ أكثر على طول الشارع.
     const rootNode = src.getObjectByName('RootNode') || src; const pieces: THREE.Object3D[] = rootNode.children.filter(o => /^Brownstone_(Classic_1|FlatFacade_4|FlatFacade_6_B|FlatFacade_9_B|Harlem_1_B|Lowrise_1)$/.test(o.name));
     if (!pieces.length) return; seed = 4242; const shuffled = pieces.slice().sort(() => rnd() - .5);
+    // 🎬 ترتيبٌ مقصود لا عشوائيّ (كان الجانبان يتكرّران بالترتيب نفسه كمرآة): يساراً واجهةُ النادي المسطّحة
+    //    ثمّ **متجرٌ مسطّح** يقع عليه جدارُ الإعدام (z=−12) — لا درجاتُ Classic_1 العميقة — ثمّ البيوت؛
+    //    ويميناً البيوتُ أوّلاً ثمّ المتاجر، فتتقابل واجهةٌ سكنيّة مع تجاريّة عبر الشارع.
+    const byName = (n: string) => pieces.find(p => p.name === 'Brownstone_' + n);
+    const ORDER: Record<1 | -1, string[]> = { [-1]: ['FlatFacade_4', 'FlatFacade_6_B', 'Classic_1', 'Harlem_1_B', 'Lowrise_1', 'FlatFacade_9_B'], [1]: ['Classic_1', 'FlatFacade_4', 'Lowrise_1', 'Harlem_1_B', 'FlatFacade_6_B', 'FlatFacade_9_B'] };
     const group = new THREE.Group(); let idx = 0;
-    ([-1, 1] as const).forEach(side => { let z = 6; let guard = 0; while (z > -100 && guard++ < 60) { const piece = shuffled[idx++ % shuffled.length]; const w = new THREE.Group(); const m = this.prep(piece.clone(true)); w.add(m);
+    ([-1, 1] as const).forEach(side => { let z = 6; let guard = 0; const order = ORDER[side].map(byName).filter(Boolean) as THREE.Object3D[]; idx = 0; while (z > -100 && guard++ < 60) { const piece = order.length ? order[idx++ % order.length] : shuffled[idx++ % shuffled.length]; const w = new THREE.Group(); const m = this.prep(piece.clone(true)); w.add(m);
       // 1) الوجه الأماميّ (بالمساحة) يُدار ليواجه الشارع: يسار الشارع يواجه +x، يمينه −x
       const f = this.frontDir(w); const want = new THREE.Vector3(-side, 0, 0); const ang = Math.atan2(want.x, want.z) - Math.atan2(f.x, f.z); w.rotation.y = ang * this.frontSign;
       // 2) مقياسٌ موحّد بالارتفاع، ثمّ الإرساء على خطّ الواجهة والأرض
-      const h = 13 + rnd() * 6; this.fit(w, h, 'y'); const b = new THREE.Box3().setFromObject(w); const sz = new THREE.Vector3(); b.getSize(sz); const width = sz.z; if (!isFinite(width) || width < 2 || width > 42) { console.warn('🏛️ piece skipped', piece.name, sz.toArray().map(v => +v.toFixed(1))); continue; }
+      const h = 13 + rnd() * 6; this.fit(w, h, 'y'); const b = new THREE.Box3().setFromObject(w); const sz = new THREE.Vector3(); b.getSize(sz); const width = sz.z; if (!isFinite(width) || width < 2 || width > 46) { console.warn('🏛️ piece skipped', piece.name, sz.toArray().map(v => +v.toFixed(1))); continue; }
       // 🧱 الإرساء على **الجدار** لا على أقرب نتوء: درجاتُ المدخل والنوافذ الناتئة تتقدّم الجدارَ حتّى مترين،
       //    وإرساءُ أقرب نتوءٍ على خطّ FACE كان يدفع الجدار الحقيقيّ إلى الخلف فتطفو المظلّاتُ واللافتات أمامه.
       //    الجدارُ = أبعدُ إصابةٍ لأشعّةٍ أفقيّة على ارتفاع 2.6–3.4م (فوق الدرجات، تحت أوّل منصّة حريق).
@@ -564,7 +569,7 @@ class StreetEngine {
     // 🪧 لافتة النادي (قرار المالك 2026-09-12): «MAFIA» ذهبيّ و«CLUB» أحمر النادي، نيون فوق واجهة الدخول قرب بداية الشارع — تُستعمل نفسها في تطبيق اللاعب
     ([['MAFIA', '#e2c07a', 6.2, 4.2], ['CLUB', '#ff4a4a', 5.1, 3.0]] as [string, string, number, number][]).forEach(([txt, col, y, w]) => { const mat = new THREE.MeshBasicMaterial({ map: texNeon(txt, col), transparent: true, toneMapped: false, color: new THREE.Color(col).multiplyScalar(2.4), side: THREE.DoubleSide, depthWrite: false }); const m = new THREE.Mesh(new THREE.PlaneGeometry(w, w / 4), mat); const wx = this.wallXAt(-1, 3.2, y); m.position.set(wx + .08, y, 3.2); m.rotation.y = Math.PI / 2; this.scene.add(m); const light = new THREE.PointLight(col, 5, 9, 2); light.position.set(wx + .9, y, 3.2); this.scene.add(light); this.neons.push({ mesh: m, light, base: mat.color.clone(), broken: false, on: this.mode === 'night', club: true }); });
     // blade sign deeper in the street: two faces + logo, visible from most shots
-    this.buildBladeSign(-3); /* عند المدخل (النيون على z=+3.2) لا على بُعد 21م — لافتتان لمدخلٍ واحد */
+    this.buildBladeSign(.6); /* على واجهة النادي نفسها (القطعة الأولى يساراً، z ∈ [6, −2]) بجانب النيون */
   }
   /** نيونُ المتاجر: لوحٌ مضيء على جدار المتجر فوق مظلّته */
   private placeNeons(spans: { side: 1 | -1; z: number }[]) {
