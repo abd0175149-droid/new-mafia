@@ -721,8 +721,8 @@ class StreetEngine {
     action.stop(); mixer.uncacheRoot(srcHips);
     const tracks: THREE.KeyframeTrack[] = []; ordered.forEach(b => { if (!offset.has(b)) return; tracks.push(new THREE.QuaternionKeyframeTrack(`${b.name}.quaternion`, times, out.get(b)!)); });
     if (hipsOut && hipsBone) {
+      this.reportGround(target, ordered, out, hipsBone, hipsOut, n, label || clip.name);   // قد يرفع مسار الحوض — قبل بناء المسار
       tracks.push(new THREE.VectorKeyframeTrack(`${hipsBone.name}.position`, times, hipsOut));
-      this.reportGround(target, ordered, out, hipsBone, hipsOut, n, label || clip.name);
     }
     return new THREE.AnimationClip(clip.name, n / fps, tracks);
   }
@@ -732,25 +732,35 @@ class StreetEngine {
    * (`computeBoundingBox` يطبّق العظام)، ثمّ نعيد وضعيّة الراحة كما كانت —
    * الهدفُ نفسه يُعاد استعماله للمقطع التالي، وتركُه مقلوباً يفسد ما بعده.
    */
+  /**
+   * 🛬 تثبيتُ الجسد على الأرض في مقاطع السقوط/الجلوس — قياسٌ ثمّ تصحيح:
+   *  يُقاس أدنى نقطةٍ في الشبكة الجلديّة (لا العظام: الحوضُ في مصدر Mixamo ينتهي على 12 سم والجسدُ
+   *  المجسَّم أسمك، فيغوص 7–14 سم بحسب الشخصيّة) عند 60–100% من المقطع. إن غاص أكثر من 3% من
+   *  الطول يُرفع مسارُ الحوض بمقدار الغوص، متدرّجاً بين 55% و75% من المقطع (قبل استقرار الحوض
+   *  عند ~77%)، فتبقى بدايةُ السقوط كما هي وينتهي الجسدُ ملامساً البلاط لا داخله.
+   */
   private reportGround(target: THREE.SkinnedMesh, ordered: THREE.Bone[], out: Map<THREE.Bone, Float32Array>, hipsBone: THREE.Bone, hipsOut: Float32Array, n: number, label: string) {
     let top: THREE.Object3D = target; while (top.parent) top = top.parent;
     const savedQ = ordered.map(b => b.quaternion.clone()); const savedP = hipsBone.position.clone();
+    const pose = (i: number) => { ordered.forEach(b => { const a = out.get(b)!; b.quaternion.set(a[i * 4], a[i * 4 + 1], a[i * 4 + 2], a[i * 4 + 3]); }); hipsBone.position.set(hipsOut[i * 3], hipsOut[i * 3 + 1], hipsOut[i * 3 + 2]); top.updateMatrixWorld(true); target.computeBoundingBox(); return target.boundingBox!.clone().applyMatrix4(target.matrixWorld); };
     try {
       top.updateMatrixWorld(true); target.computeBoundingBox();
       const restBB = target.boundingBox!.clone().applyMatrix4(target.matrixWorld);
-      const base = restBB.min.y, h = restBB.max.y - restBB.min.y;
-      const i = n - 1;
-      ordered.forEach(b => { const a = out.get(b)!; b.quaternion.set(a[i * 4], a[i * 4 + 1], a[i * 4 + 2], a[i * 4 + 3]); });
-      hipsBone.position.set(hipsOut[i * 3], hipsOut[i * 3 + 1], hipsOut[i * 3 + 2]);
-      top.updateMatrixWorld(true); target.computeBoundingBox();
-      const endBB = target.boundingBox!.clone().applyMatrix4(target.matrixWorld);
+      const base = restBB.min.y, h = restBB.max.y - restBB.min.y; const tol = h * 0.03;
+      // أعمقُ غوصٍ في الخُمسَين الأخيرَين (الجسدُ على الأرض) — عيّناتٌ خمس
+      let sink = 0; for (const k of [.6, .7, .8, .9, 1]) { const bb = pose(Math.min(n - 1, Math.round((n - 1) * k))); sink = Math.min(sink, bb.min.y - base); }
+      let lifted = 0;
+      if (sink < -tol) {
+        const sy = hipsBone.parent ? hipsBone.parent.getWorldScale(new THREE.Vector3()).y || 1 : 1; lifted = -sink;
+        for (let i = 0; i < n; i++) { const k = (i / (n - 1) - .55) / .2; if (k <= 0) continue; const e = k >= 1 ? 1 : k * k * (3 - 2 * k); hipsOut[i * 3 + 1] += lifted / sy * e; }
+      }
+      const endBB = pose(n - 1);
       const drop = endBB.min.y - base;                       // سالبٌ = غاص تحت الأرض
       const lie = (endBB.max.y - endBB.min.y) / (h || 1);     // نسبةُ الارتفاع الباقي: ممدّدٌ ⇒ صغيرة
-      const tol = h * 0.03;
       const ok = Math.abs(drop) <= tol;
       console[ok ? 'info' : 'error'](
         `🎬 «${label}» آخر إطار: أخفضُ نقطةٍ ${drop >= 0 ? '+' : ''}${drop.toFixed(3)} م عن أرض الراحة ` +
-        `(المسموح ±${tol.toFixed(3)}) · الارتفاع الباقي ${(lie * 100).toFixed(0)}% من الوقوف ${ok ? '✅' : '❌ اضبط المقطع'}`,
+        `(المسموح ±${tol.toFixed(3)})${lifted ? ` · رُفع الحوض ${lifted.toFixed(3)} م` : ''} · الارتفاع الباقي ${(lie * 100).toFixed(0)}% من الوقوف ${ok ? '✅' : '❌ اضبط المقطع'}`,
       );
     } catch (e) { console.warn('🎬 تعذّر قياس استقرار السقوط:', label, String(e)); }
     finally {
