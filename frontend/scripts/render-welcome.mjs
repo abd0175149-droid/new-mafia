@@ -49,3 +49,9 @@ console.log(out.includes('ENCODED') ? 'encoded → public/video/club-entry.mp4' 
 const mp4 = fs.readdirSync(OUT).find(f => f.startsWith('club-entry') && f.endsWith('.mp4'));
 if (mp4 && mp4 !== 'club-entry.mp4') fs.renameSync(path.join(OUT, mp4), path.join(OUT, 'club-entry.mp4'));
 console.log('size:', (fs.statSync(path.join(OUT, 'club-entry.mp4')).size / 1e6).toFixed(2), 'MB');
+// 📱 نسخةُ فلتر تُحزم داخل الـAPK/IPA (welcome_scene.dart · pubspec assets): تُنسخ هنا كي لا تتباعد النسختان —
+//    ولا تصل المستخدمين إلّا برفع version في mobile/pubspec.yaml وإعادة بناء التطبيق ونشره.
+const MOBILE = path.resolve('../mobile/assets/video/club-entry.mp4');
+if (fs.existsSync(path.dirname(MOBILE))) { fs.copyFileSync(path.join(OUT, 'club-entry.mp4'), MOBILE); console.log('copied → mobile/assets/video/club-entry.mp4 — ارفع version في mobile/pubspec.yaml وأعد بناء التطبيق'); }
+// 🌐 الويب: ارفع VIDEO_V في src/components/WelcomeScene.tsx كي لا يعلق المقطع القديم في كاش المتصفّح
+console.log('ثمّ ارفع VIDEO_V في src/components/WelcomeScene.tsx');
