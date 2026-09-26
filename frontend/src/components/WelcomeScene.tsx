@@ -10,6 +10,8 @@
 import { useEffect, useRef, useState } from 'react';
 
 const MAX_MS = 9000;
+/** يُرفع عند كلّ إعادة تصيير للمقطع (scripts/render-welcome.mjs) كي لا يعلق القديم في كاش المتصفّح/الوكيل — 2026-09-26: البيئة الجديدة ولافتتا النادي */
+const VIDEO_V = '20260926';
 export default function WelcomeScene() {
   const [phase, setPhase] = useState<'show' | 'fade' | 'done'>('show');
   const vid = useRef<HTMLVideoElement>(null);
@@ -22,7 +24,7 @@ export default function WelcomeScene() {
   if (phase === 'done') return null;
   return (
     <div onClick={() => setPhase('fade')} className="fixed inset-0 z-[400] bg-[#05060c] transition-opacity duration-700" style={{ opacity: phase === 'fade' ? 0 : 1 }} aria-label="مرحباً في نادي المافيا">
-      <video ref={vid} src="/video/club-entry.mp4" poster="/video/club-entry.jpg" muted playsInline autoPlay preload="auto" onEnded={() => setPhase('fade')} onError={() => setPhase('fade')} className="absolute inset-0 w-full h-full object-cover" />
+      <video ref={vid} src={`/video/club-entry.mp4?v=${VIDEO_V}`} poster={`/video/club-entry.jpg?v=${VIDEO_V}`} muted playsInline autoPlay preload="auto" onEnded={() => setPhase('fade')} onError={() => setPhase('fade')} className="absolute inset-0 w-full h-full object-cover" />
       <div className="absolute inset-x-0 bottom-0 h-1/3 pointer-events-none" style={{ background: 'linear-gradient(180deg, rgba(5,6,12,0), rgba(5,6,12,.85))' }} />
       <div className="absolute inset-x-0 bottom-12 text-center pointer-events-none" dir="rtl">
         <p className="font-mono text-[10px] tracking-[0.45em] text-[#C5A059]/90">MAFIA CLUB · LITTLE ITALY 1931</p>
