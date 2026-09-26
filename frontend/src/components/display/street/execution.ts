@@ -250,6 +250,10 @@ export class ExecutionController {
     const avail = FALL_KEYS.filter(k => f.acts[k]);
     f.fallKey = avail.length ? avail[Math.floor(rnd() * avail.length)] : null;
     if (f.fallKey) this.play(f, f.fallKey, true);
+    // ⏱️ البِيتاتُ التالية (دخان، قلب، رماديّ، تعليق) ضُبطت على سقوطٍ إجرائيّ 1.3 ث. مقطعُ Mixamo الحقيقيّ
+    //    (ردّة فعل ثمّ انهيار ثمّ سكون) 3.7 ث: يُزاح ما بقي بحيث يبدأ الدخانُ قبل نهاية المقطع بنصف ثانية —
+    //    الحوضُ يستقرّ عند ~77% منه والساقان تستقرّان في آخره. بلا هذا كان الدخانُ يسبق وصولَ الجسد للأرض.
+    const extra = Math.max(0, this.clipLen(f, f.fallKey, 1.3) - .5 - 1.3); if (extra > .05) for (let i = this.bi; i < this.beats.length; i++) this.beats[i].t += extra;
   }
   /** طولُ مقطعٍ إن وُجد، وإلّا الافتراضيّ */
   private clipLen(f: Fig, k: string | null, fallback: number) { return k && f.acts[k] ? f.acts[k].getClip().duration : fallback; }
@@ -267,9 +271,10 @@ export class ExecutionController {
         if (f.back > 0) { f.back -= dt; const dx = f.root.position.x - WX, dz = f.root.position.z - WZ, d = Math.hypot(dx, dz) || 1; f.root.position.x += dx / d * dt * .5; f.root.position.z += dz / d * dt * .5; }
       } else if (f.act === 'stagger') {
         f.actT += dt;
-        const dur = this.clipLen(f, f.acts.react_death ? 'react_death' : null, STAGGER_FALLBACK);
+        // مقطعُ السقوط الحقيقيّ يحمل ردّةَ فعله (Standing React Death): لا ترنّحٌ إجرائيّ فوقه إن غاب react_death
+        const dur = f.acts.react_death ? this.clipLen(f, 'react_death', STAGGER_FALLBACK) : (FALL_KEYS.some(k => f.acts[k]) ? 0 : STAGGER_FALLBACK);
         // بلا مقطعِ ارتدادٍ يبقى الميلُ الإجرائيّ؛ ومعه لا نضيف ميلاً فوق الحركة
-        if (!f.acts.react_death) f.tilt.rotation.z = Math.sin(Math.min(1, f.actT / dur) * Math.PI) * .35;
+        if (!f.acts.react_death && dur > 0) f.tilt.rotation.z = Math.sin(Math.min(1, f.actT / dur) * Math.PI) * .35;
         if (f.actT >= dur) { f.tilt.rotation.z = 0; this.startFall(f); }
       }
       else if (f.act === 'fall') {

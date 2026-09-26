@@ -51,3 +51,4 @@
 - tex/plastered_wall_04_* — "plastered_wall_04" — Poly Haven — CC0 — https://polyhaven.com/a/plastered_wall_04
 - tex/red_brick_03_* — "red_brick_03" — Poly Haven — CC0 — https://polyhaven.com/a/red_brick_03
 - tex/wood_planks_grey_* — "wood_planks_grey" — Poly Haven — CC0 — https://polyhaven.com/a/wood_planks_grey
+- anim/*.glb — حركاتُ الهيكل (walking · neutral_idle · smoking · sitting · fall = «Standing React Death Forward») — Adobe Mixamo، رخصةُ Mixamo (استخدامٌ في المشاريع، لا إعادةَ توزيعٍ كحركاتٍ خام) — ليس CC — https://www.mixamo.com/

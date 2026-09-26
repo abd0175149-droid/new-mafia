@@ -62,28 +62,32 @@ for (const f of targets) {
   const g = await load(f);
   const clip = g.animations?.[0];
   if (!clip) { console.log(`❌ ${f} — لا مقطعَ حركةٍ داخله`); bad++; continue; }
-  g.scene.updateMatrixWorld(true);
-  const hips = find(g.scene, /Hips$/);
-  if (!hips) { console.log(`❌ ${f} — لا عظمةَ حوضٍ باسم mixamorig`); bad++; continue; }
-  const restY = hips.getWorldPosition(new THREE.Vector3()).y;
-  const mixer = new THREE.AnimationMixer(g.scene);
-  mixer.clipAction(clip).play();
+  // 🔴 يُشغَّل المقطعُ على هيكل neutral_idle لا على هيكله الخاصّ — كما يفعل المحرّك (retargetLocal يشغّله
+  //    على srcHips). بعضُ تنزيلات Mixamo تحمل حوضَ راحةٍ عند الأصل، فقياسُ الفرق عن راحتها الخاصّة يُضاعف الارتفاع.
+  if (!clip.tracks.some(t => /Hips\.position$/.test(t.name))) { console.log(`❌ ${f} — لا مسارَ موقعٍ لعظمة الحوض`); bad++; continue; }
+  const hips = sHipsRef; const restY = sHipYRef;
+  const mixer = new THREE.AnimationMixer(ref.scene);
+  const action = mixer.clipAction(clip); action.setLoop(THREE.LoopOnce); action.clampWhenFinished = true; action.play();
+  const bonesRef = []; ref.scene.traverse(o => { if (o.isBone && /^mixamorig/.test(o.name) && !/Backpack/.test(o.name)) bonesRef.push(o); }); // عظامُ Mixamo وحدها — هيكلُ المرجع يحمل عظمةَ حقيبةٍ (mixamorigBackpack) لا يحرّكها المقطع
+  const headRef = find(ref.scene, /Head$/);
 
   const N = 60, ys = [];
-  let travel = 0, prev = null;
+  let travel = 0, prev = null, lowestEnd = 0, lowestName = '', headEnd = 0, p0 = null, pEnd = null;
   for (let i = 0; i <= N; i++) {
     mixer.setTime(clip.duration * i / N);
-    g.scene.updateMatrixWorld(true);
+    ref.scene.updateMatrixWorld(true);
     const p = hips.getWorldPosition(new THREE.Vector3());
     ys.push((p.y - restY) * scale);
     if (prev) travel += Math.hypot(p.x - prev.x, p.z - prev.z) * scale;
-    prev = p;
+    prev = p; if (i === 0) p0 = p.clone(); pEnd = p;
+    if (i === N) { let loB = null; for (const b of bonesRef) { const y = b.getWorldPosition(new THREE.Vector3()).y; if (!loB || y < loB.y) loB = { y, name: b.name }; } lowestEnd = loB.y * scale; lowestName = loB.name.replace(/^mixamorig:?/, ''); headEnd = headRef ? headRef.getWorldPosition(new THREE.Vector3()).y * scale : 0; }
   }
+  action.stop(); mixer.uncacheRoot(ref.scene);
   const endHip = cHipY + ys[ys.length - 1];
   const minHip = cHipY + Math.min(...ys);
   const name = f.split(/[\\/]/).pop();
   const isReact = /react_death/.test(name);
-  const lo = isReact ? 0.5 : 0.9, hi = isReact ? 0.9 : 1.6;
+  const lo = isReact ? 0.5 : 0.9, hi = isReact ? 0.9 : 4.0;
 
   const okLen = clip.duration >= lo && clip.duration <= hi;
   // ممدّدٌ على الأرض: الحوض بين 8% و25% من الطول. واقفاً يكون ~53%.
@@ -96,8 +100,10 @@ for (const f of targets) {
   console.log(`   الطول ${clip.duration.toFixed(2)} ث ${okLen ? '' : `⚠️ خارج ${lo}–${hi}`}`);
   console.log(`   الحوض: يبدأ ${(cHipY + ys[0]).toFixed(2)} م ← ينتهي ${endHip.toFixed(2)} م (${(ratio * 100).toFixed(0)}% من الطول)` +
     (okEnd ? '' : isReact ? '  ⚠️ مقطعُ الارتداد يجب أن ينتهي واقفاً' : '  ⚠️ لا يبدو ممدّداً على الأرض'));
-  console.log(`   أخفضُ ارتفاعٍ للحوض ${minHip.toFixed(2)} م${okFloor ? '' : '  ⚠️ يغوص تحت البلاط'}`);
-  console.log(`   إزاحةٌ أفقيّة ${travel.toFixed(2)} م — ${travel < 0.15 ? 'In Place فعليّاً ✅' : '⚠️ ستُحذف، فقد تنزلق القدمان'}`);
+  console.log(`   أخفضُ ارتفاعٍ للحوض ${minHip.toFixed(2)} م${okFloor ? '' : '  ⚠️ يغوص تحت البلاط'} · آخرُ إطار: أخفضُ عظمة ${lowestName} ${lowestEnd.toFixed(2)} م، الرأس ${headEnd.toFixed(2)} م`);
+  // المحرّك يحفظ X/Z للسقوط (planar): تقدُّمٌ إلى الأمام (+Z في Mixamo) طبيعيّ؛ الانحرافُ الجانبيّ فوق 30 سم مريب
+  const fwd = (pEnd.z - p0.z) * scale, side = Math.abs(pEnd.x - p0.x) * scale;
+  console.log(`   الحوض أفقيّاً: يتقدّم ${fwd.toFixed(2)} م، ينحرف جانبيّاً ${side.toFixed(2)} م (مسارٌ إجماليّ ${travel.toFixed(2)} م) — ${side > 0.3 ? '⚠️ انحرافٌ جانبيّ كبير' : fwd < 0 ? 'يسقط إلى الخلف' : 'يسقط إلى الأمام ✅'}`);
   console.log(`   مسارات: ${clip.tracks.length}`);
 }
 console.log(`\n${bad ? '❌ راجع ما سبق' : '✅ كلّ المقاطع صالحة'} — والمحرّك يطبع تحقّقاً آخر عند التحميل (🎬 «…» آخر إطار).\n`);

@@ -308,7 +308,7 @@ class StreetEngine {
     const asphaltMat = this.std(M.asphalt, { transparent: true, alphaMap: puddleMask(), roughness: .35, metalness: .05, color: 0xbbbbbb }); MAT.asphalt = asphaltMat; const asphalt = new THREE.Mesh(new THREE.PlaneGeometry(STREET_W + .2, 220), asphaltMat); asphalt.rotation.x = -Math.PI / 2; asphalt.position.set(0, .005, -60); asphalt.receiveShadow = true; S.add(asphalt);
     // الرصيف إسمنتيٌّ مبلَّط (لا حصى — الحصى كان يقرأ كحجارةٍ ضخمة)، وعند الحافّة مزرابٌ مرصوف بالحصى
     // كما في شوارع مانهاتن القديمة، وحجرُ الحافّة غرانيتٌ رماديّ.
-    ([-1, 1] as const).forEach(s => { const sw = new THREE.Mesh(new THREE.BoxGeometry(SIDE_W, .16, 220), MAT.slab); sw.position.set(s * (STREET_W / 2 + SIDE_W / 2), .08, -60); sw.receiveShadow = true; S.add(sw); const curb = new THREE.Mesh(new THREE.BoxGeometry(.18, .18, 220), new THREE.MeshStandardMaterial({ color: 0x6b6a66, roughness: .8 })); curb.position.set(s * (STREET_W / 2 + .09), .09, -60); S.add(curb);
+    ([-1, 1] as const).forEach(s => { const sw = new THREE.Mesh(new THREE.BoxGeometry(SIDE_W, .16, 220), MAT.slab); sw.position.set(s * (STREET_W / 2 + SIDE_W / 2), .08, -60); sw.receiveShadow = true; S.add(sw); const curb = new THREE.Mesh(new THREE.BoxGeometry(.18, .18, 220), new THREE.MeshStandardMaterial({ color: 0x4a4946, roughness: 1, metalness: 0, envMapIntensity: .12 })); /* غرانيتٌ خشن — كان يلمع بيجاً بانعكاس بيئة الفجر */ curb.position.set(s * (STREET_W / 2 + .09), .09, -60); S.add(curb);
       const gutter = new THREE.Mesh(new THREE.PlaneGeometry(.75, 220), MAT.cobble); gutter.rotation.x = -Math.PI / 2; gutter.position.set(s * (STREET_W / 2 - .375), .012, -60); gutter.receiveShadow = true; S.add(gutter); });
     const railMat = new THREE.MeshStandardMaterial({ color: 0x6a6a70, roughness: .45, metalness: .8 }); [-1.3, 1.3].forEach(x => { const r = new THREE.Mesh(new THREE.BoxGeometry(.09, .03, 220), railMat); r.position.set(x, .02, -60); S.add(r); });
     // سلك الترام (خطوط: أنحف عنصرٍ ممكن)
@@ -437,8 +437,8 @@ class StreetEngine {
     if (!hits.length) return side * FACE; const first = hits[0].distance; const wall = hits.filter(h => h.distance - first < 2.2).reduce((a, h) => Math.max(a, h.distance), first); return side * wall;
   }
   /** إلصاقُ جسمٍ بجدار الواجهة عند z: وجهُه إلى الشارع، وظهرُه على الجدار الحقيقيّ */
-  attachToWall(m: THREE.Object3D, side: 1 | -1, z: number, y: number, gap = .04) {
-    m.rotation.y = side > 0 ? Math.PI : 0; m.updateMatrixWorld(true); const b = new THREE.Box3().setFromObject(m); const c = new THREE.Vector3(); b.getCenter(c);
+  attachToWall(m: THREE.Object3D, side: 1 | -1, z: number, y: number, gap = .04, flip = false) {
+    m.rotation.y = (side > 0 ? Math.PI : 0) + (flip ? Math.PI : 0); m.updateMatrixWorld(true); const b = new THREE.Box3().setFromObject(m); const c = new THREE.Vector3(); b.getCenter(c);
     const wall = this.wallXAt(side, z); m.position.x += (side > 0 ? wall - gap - b.max.x : wall + gap - b.min.x); m.position.z += z - c.z; m.position.y += y - b.min.y; m.updateMatrixWorld(true); return m;
   }
   private async loadAssets() {
@@ -462,7 +462,7 @@ class StreetEngine {
     loadGLTF(PH('water_manhole_cover')).then(g => { if (!g || this.disposed) return; const m = this.prep(g.scene.clone(true), false); m.traverse(o => { const mm = (o as THREE.Mesh).material as THREE.MeshStandardMaterial | undefined; if (mm && mm.isMeshStandardMaterial) { mm.color.multiplyScalar(.28); mm.roughness = .85; mm.metalness = .35; } }); this.fit(m, .7, 'x'); this.placeAt(m, 2.2, -14, .006); S.add(m); });
     // بضائعُ متجرٍ: صناديق وبراميل على الرصيف ملاصقةً للواجهة
     this.place('wooden_crate_01', .8, 'x', [[FACE - 1.0, -27.5, .2], [FACE - 1.0, -28.4, 1.1], [FACE - .5, -27.9, -.3]]); this.place('wooden_crate_02', 1.15, 'x', [[FACE - .9, -26.3, .1]]);
-    this.place('wooden_barrels_01', 1.4, 'x', [[-FACE + .95, -40.5, .4]]); this.place('painted_wooden_bench', 1.8, 'x', [[-FACE + 1.4, -38, -Math.PI / 2]]); /* ظهرُه إلى الواجهة — بعيداً عن جدار الإعدام (z=−12) كي لا يجلس أحدٌ على مترين منه */
+    this.place('wooden_barrels_01', 1.4, 'x', [[-FACE + .95, -40.5, .4]]); /* البنش المطليّ حُذف: أصلُه صندوقيّ بظهرٍ عالٍ يبدو خزانةً يجلس المرء داخلها. الجالس على صندوقٍ خشبيّ أمام المتجر (z=−38) */ this.place('wooden_crate_01', .8, 'x', [[-FACE + 1.42, -38, Math.PI / 2 + .1]]);
     this.place('planter_box_01', 1.0, 'x', [[-FACE + .8, -13.2, Math.PI / 2], [FACE - .8, -21.6, Math.PI / 2], [-FACE + .8, -35, Math.PI / 2]]);
     this.place('wooden_ladder', 3.2, 'y', [[-FACE + .35, -58, Math.PI / 2 + .35]], .16);
     // ديورامة 1930: صناديق وسلّة وصحيفة — كلٌّ على الأرض بـ placeAt (كانت تطفو بأصلها المُزاح)
@@ -477,7 +477,13 @@ class StreetEngine {
       const stores = this.facadePieces.filter(p => p.store && p.z0 > -96); const spans = stores.flatMap(p => { const w = p.z0 - p.z1; return (w > 22 ? [{ side: p.side, z: p.z0 - w * .25 }, { side: p.side, z: p.z0 - w * .75 }] : [{ side: p.side, z: (p.z0 + p.z1) / 2 }]).filter(sp => sp.z > -96); }).sort((a, b) => b.z - a.z); /* الأقربُ إلى الكاميرا أوّلاً — والمتاجرُ خلف نهاية الشارع لا تُؤثَّث */
       console.info('🏪 متاجر:', stores.map(p => `${p.name.replace('Brownstone_', '')}@${p.side > 0 ? 'R' : 'L'}${p.z0.toFixed(0)}..${p.z1.toFixed(0)}`).join(' · ') || '— لا شيء');
       loadGLTF(SF('awning')).then(g => { if (!g || this.disposed) return; g.scene.traverse((o: THREE.Object3D) => { const mm = (o as THREE.Mesh).material as THREE.MeshStandardMaterial | undefined; if (mm && mm.isMeshStandardMaterial) { mm.metalness = 0; mm.roughness = .95; mm.envMapIntensity = .2; mm.color.multiplyScalar(.75); } });
-        spans.slice(0, 6).forEach(sp => { const m = this.prep(g.scene.clone(true)); this.fit(m, 2.6, 'x'); this.attachToWall(m, sp.side, sp.z, 2.9); S.add(m); }); });
+        spans.slice(0, 6).forEach(sp => { const m = this.prep(g.scene.clone(true)); this.fit(m, 2.6, 'x'); this.attachToWall(m, sp.side, sp.z, 2.9);
+          // ☂️ الحافّةُ العالية على الجدار والمنخفضة نحو الشارع: تُقاس من الرؤوس (متوسّط y في نصف الجدار مقابل نصف الشارع)؛
+          //    إن جاءت معكوسةً تُدار 180° ويُعاد الإلصاق. كانت تُركَّب باتّجاهٍ خاطئ (ميلُها إلى الجدار).
+          m.updateMatrixWorld(true); const bb = new THREE.Box3().setFromObject(m); const mid = (bb.min.x + bb.max.x) / 2; let wallY = 0, wallN = 0, streetY = 0, streetN = 0; const v = new THREE.Vector3();
+          m.traverse(o => { const mesh = o as THREE.Mesh; if (!mesh.isMesh) return; const pos = mesh.geometry.attributes.position; for (let i = 0; i < pos.count; i += 3) { v.fromBufferAttribute(pos, i).applyMatrix4(mesh.matrixWorld); const towardWall = sp.side > 0 ? v.x > mid : v.x < mid; if (towardWall) { wallY += v.y; wallN++; } else { streetY += v.y; streetN++; } } });
+          if (wallN && streetN && wallY / wallN < streetY / streetN) this.attachToWall(m, sp.side, sp.z, 2.9, .04, true);
+          S.add(m); }); });
       // فوانيسُ الحائط: عند مدخل النادي (بداية الشارع يساراً) وعلى جانبَي أوّل متجرٍ في كلّ جهة
       const lanternSpots: [1 | -1, number][] = [[-1, 4.6], [-1, 1.8]]; ([-1, 1] as const).forEach(side => { const st = stores.find(p => p.side === side); if (st) lanternSpots.push([side, st.z0 - 1.2], [side, st.z1 + 1.2]); });
       loadGLTF(PH('street_lamp_02')).then(g => { if (!g || this.disposed) return; lanternSpots.forEach(([side, z]) => { const m = this.prep(g.scene.clone(true)); this.fit(m, 1.05, 'y'); this.attachToWall(m, side, z, 3.35); S.add(m); const pl = new THREE.PointLight(0xffb060, 0, 7, 2); pl.position.set(this.wallXAt(side, z) - side * .55, 3.75, z); S.add(pl); this.wallLights.push(pl); }); });
@@ -636,7 +642,14 @@ class StreetEngine {
    * لا تُلمس مصفوفات الربط ولا يُستدعى pose() (SkeletonUtils.retarget كان يُفسد الجلد).
    */
   /** يُنفَّذ على دفعات (30 إطاراً ثمّ يُفسح للمتصفّح): كان يجمّد اللوبي ~22 ثانية لثلاثة موديلات × أربعة مقاطع */
-  async retargetLocal(target: THREE.SkinnedMesh, srcHips: THREE.Bone, clip: THREE.AnimationClip, names: Record<string, string>, grounded = false, label = ''): Promise<THREE.AnimationClip> {
+  /**
+   * @param grounded يُحفظ ارتفاعُ الحوض (Y) — الجلوس والسقوط.
+   * @param planar   يُحفظ تقدّمُ الحوض أفقيّاً (X/Z) أيضاً نسبةً إلى أوّل إطار — السقوطُ وحده. مقاطعُ الموت من
+   *                 Mixamo ليست In Place: الجسدُ يهوي إلى الأمام والقدمان ثابتتان، فالحوضُ يتقدّم ~1.3 م.
+   *                 بحذف X/Z كان الحوضُ يبقى فوق موضع الوقوف فتنزلق القدمان إلى الخلف متراً وثلث خلال السقوط.
+   *                 يُطبَّق في فضاء الشخصيّة المحلّيّ فيتبع اتّجاهَ وقوفها (root.rotation.y).
+   */
+  async retargetLocal(target: THREE.SkinnedMesh, srcHips: THREE.Bone, clip: THREE.AnimationClip, names: Record<string, string>, grounded = false, label = '', planar = false): Promise<THREE.AnimationClip> {
     // المقاطعُ الطويلة (idle 8.8ث · smoke 17.9ث · sit 9.6ث) على 15 إطاراً/ث: نصفُ كلفة إعادة التوجيه،
     // والفرقُ لا يُرى (slerp بين المفاتيح). المشي القصير يبقى على 30.
     const fps = clip.duration > 4 ? 15 : 30, n = Math.max(2, Math.round(clip.duration * fps)); const times = new Float32Array(n); for (let i = 0; i < n; i++) times[i] = i / fps;
@@ -675,7 +688,7 @@ class StreetEngine {
     //    تعيش في إطارٍ مُدار (‎+90°X من Blender) فـY المحلّيّة ليست الارتفاع.
     let hipsBone: THREE.Bone | null = null, srcHipsBone: THREE.Bone | null = null;
     let hipsOut: Float32Array | null = null, hipsScale = 1, srcRestY = 0;
-    const hipsRestWorld = new THREE.Vector3(), hipsParentInv = new THREE.Matrix4();
+    const hipsRestWorld = new THREE.Vector3(), hipsParentInv = new THREE.Matrix4(), srcXZ0 = new THREE.Vector2();
     if (grounded) {
       hipsBone = ordered.find(b => names[b.name] && coreBoneName(b.name) === 'Hips') || null;
       const sn = hipsBone ? names[hipsBone.name] : null;
@@ -698,7 +711,9 @@ class StreetEngine {
     for (let i = 0; i < n; i++) {
       if (i % 30 === 29) await new Promise(r => setTimeout(r, 0));
       mixer.setTime(i / fps); srcHips.updateMatrixWorld(true); const worldNow = new Map<THREE.Bone, THREE.Quaternion>();
-      if (hipsOut && srcHipsBone) { const w = hipsRestWorld.clone(); w.y += (srcHipsBone.getWorldPosition(new THREE.Vector3()).y - srcRestY) * hipsScale; w.applyMatrix4(hipsParentInv); hipsOut[i * 3] = w.x; hipsOut[i * 3 + 1] = w.y; hipsOut[i * 3 + 2] = w.z; }
+      if (hipsOut && srcHipsBone) { const w = hipsRestWorld.clone(); const sp = srcHipsBone.getWorldPosition(new THREE.Vector3()); if (i === 0) srcXZ0.set(sp.x, sp.z);
+        w.y += (sp.y - srcRestY) * hipsScale; if (planar) { w.x += (sp.x - srcXZ0.x) * hipsScale; w.z += (sp.z - srcXZ0.y) * hipsScale; }
+        w.applyMatrix4(hipsParentInv); hipsOut[i * 3] = w.x; hipsOut[i * 3 + 1] = w.y; hipsOut[i * 3 + 2] = w.z; }
       for (const b of ordered) { const pw = parentWorldOf(b, worldNow); const sn = names[b.name]; let local: THREE.Quaternion;
         if (sn && srcByName.has(sn)) { srcByName.get(sn)!.getWorldQuaternion(qs); q.copy(qs).multiply(offset.get(b)!); local = pw.clone().invert().multiply(q); } else local = restLocal.get(b)!.clone();
         worldNow.set(b, pw.clone().multiply(local)); const arr = out.get(b)!; arr[i * 4] = local.x; arr[i * 4 + 1] = local.y; arr[i * 4 + 2] = local.z; arr[i * 4 + 3] = local.w; }
@@ -776,7 +791,7 @@ class StreetEngine {
         // أقلُّ من الحدّ ⇒ لا مقاطع: `rset` فارغةٌ فيشتغل البديل الإجرائيّ أدناه،
         // بدل mixerٍ يُركَّب على مقاطع بصفر مسارات فتقف الشخصيّة متجمّدة.
         if (!map.ok) { this.retargetCache[src] = out; return out; }
-        for (const k of Object.keys(allClips)) out[k] = await this.retargetLocal(sk as THREE.SkinnedMesh, skeleton, allClips[k], map.names, GROUNDED_CLIPS.has(k), `${src}/${k}`);
+        for (const k of Object.keys(allClips)) out[k] = await this.retargetLocal(sk as THREE.SkinnedMesh, skeleton, allClips[k], map.names, GROUNDED_CLIPS.has(k), `${src}/${k}`, FALL_CLIPS.includes(k));
         console.info('🏙️ retarget', src, Object.keys(out).join(','), 'tracks', Object.values(out).map(c => c.tracks.length).join('/'), 'mapped', map.matched, '/', targetNames.length, '· محاذاة الاتّجاه ·', Math.round(performance.now() - t0), 'ms');
       } catch (e) { console.error('🏙️ فشلت إعادة التوجيه، البديل الإجرائيّ يعمل:', src, String(e)); }
       this.retargetCache[src] = out; return out;
@@ -831,10 +846,10 @@ class StreetEngine {
     //    فلا يقف أحدٌ عند المصباح ولا يقف واقفٌ في أيّ ليلٍ بعد ذلك، وتبقى جمرةُ السيجارة
     //    معلّقةً في الهواء عند المصباح بلا صاحب. الدورُ ثابتٌ والنوعُ يُشتقّ منه كلّ مرّة.
     this.walkers.forEach(w => { w.kind = night || w.role === 'seat' ? w.role : 'walk'; w.root.visible = night ? w.night : w.day; if (!w.root.visible) return;
-      // 🪑 الجالس على البنش المطليّ (z=-38 يسار الشارع): مقعدُه على 0.32م، وفي مقطع الجلوس
-      //    الحوضُ على 0.51 والقدم على 0.27 — إنزالُ الجذر 0.19 يضع الحوض على المقعد والقدمين
-      //    على الأرض معاً (مُقاس). كان هذا الدور مجسّماً جالساً بلا هيكل؛ صار شخصيّةً بحركة.
-      if (w.kind === 'seat') { w.root.position.set(w.side * (FACE - 1.42), w.groundY - .19, w.z); w.root.rotation.y = w.side > 0 ? -Math.PI / 2 : Math.PI / 2; this.playW(w, 'sit'); return; }
+      // 🪑 الجالس على صندوقٍ خشبيّ (z=-38 يسار الشارع): سطحُه على 0.34م، وفي مقطع الجلوس
+      //    الحوضُ على 0.51 والقدم على 0.27 — إنزالُ الجذر 0.17 يضع الحوض على الصندوق والقدمين
+      //    على الأرض معاً (مُقاس). كان بنشاً مطليّاً يبدو خزانةً من زاوية الكاميرا.
+      if (w.kind === 'seat') { w.root.position.set(w.side * (FACE - 1.42), w.groundY - .17, w.z); w.root.rotation.y = w.side > 0 ? -Math.PI / 2 : Math.PI / 2; this.playW(w, 'sit'); return; }
       if (w.kind === 'lamp' && night) { w.root.position.set(-FACE + 1.9, w.groundY, w.z); w.root.rotation.y = .6; this.playW(w, 'smoke'); return; }
       if (w.kind === 'idle' && night) { w.root.position.set(w.side * (FACE - 1.1), w.groundY, w.z); w.root.rotation.y = w.side > 0 ? Math.PI / 2 : -Math.PI / 2; this.playW(w, 'idle'); return; }
       w.root.position.set(w.side * (FACE - 2.2) /* ممرّ المشي وسط الرصيف: بعيدٌ عن أعمدة الرصيف (حافّة الرصيف) وأرجل المظلّات (عند الواجهة) */, w.groundY, w.z); w.root.rotation.y = w.dir > 0 ? 0 : Math.PI; this.playW(w, 'walk'); });
