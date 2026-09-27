@@ -24,6 +24,22 @@ const FILTERS: Array<{ key: Filter; label: string }> = [
   { key: 'not_booked_activity', label: 'لم يحجزوا بعد في فعاليّة' },
 ];
 const STATUS_AR: Record<string, string> = { running: 'جارٍ', done: 'اكتمل', stopped: 'أُوقف' };
+const API_URL = process.env.NEXT_PUBLIC_API_URL || '';   // `/uploads` من الخادم؛ البادئة للتطوير (النشر يتركها فارغةً ويحوّل next.config)
+
+// ══════════════════════════════════════════════════════
+// ✂️ حدود النصّ — كلّها مرآةٌ لما يفرضه الخادم، لا اجتهادَ هنا
+// ══════════════════════════════════════════════════════
+const BODY_MAX = 900;                                    // حدّ النصّ (whatsapp-broadcast.service)
+const CAPTION_MAX = 1024;                                // حدّ واتساب لتعليق الصورة (WA_CAPTION_MAX)
+const OPTOUT_FOOTER = '\n\n— لإيقاف هذه الرسائل أرسل: إيقاف';   // نصّاً بنصّ كما في الخادم
+const VAR_SLACK = 60;                                    // هامشُ الخادم لتوسّع المتغيّرات عند الإرسال
+// 🖼️ الخادم يسجّل صورةَ البثّ سطراً أوّلَ في نصّه المحفوظ (`🖼️ /uploads/...`)؛ نفصله كي
+//    لا يظهر مسارُ ملفٍّ في السجلّ مكانَ الرسالة.
+const bodyOf = (raw: any) => {
+  const t = String(raw || '');
+  const m = /^🖼️ \/uploads\/wa-out\/[\w.-]+\n?/.exec(t);
+  return m ? `🖼️ ${t.slice(m[0].length)}` : t;
+};
 
 const ACT_VARS = /\{(الفعالية|المكان|الموقع|الموعد)\}/;
 function fill(body: string, t: { name: string; rank: string; activity?: string; venue?: string; place?: string; when?: string }) {
@@ -55,6 +71,22 @@ export default function BroadcastTab({ apiFetch }: { apiFetch: Fetcher }) {
   const [excluded, setExcluded] = useState<Set<number>>(new Set());
   const [body, setBody] = useState('');
   const bodyRef = useRef<HTMLTextAreaElement>(null);
+  const [footer, setFooter] = useState(true);
+  // 🖼️ صورةٌ اختياريّة للبثّ: تُرفع هنا مرّةً فتصير رابطاً، ويرفعها الخادم لميتا مرّةً
+  //    واحدة ويُعيد استعمال معرّفها لكلّ مستلم.
+  const [img, setImg] = useState<{ url: string; bytes: number } | null>(null);
+  const [imgBusy, setImgBusy] = useState(false);
+  const imgRef = useRef<HTMLInputElement>(null);
+
+  // ══════════════════════════════════════════════════════
+  // ✂️ الحدّ الفعليّ للنصّ: ٩٠٠ عادةً، وحدُّ التعليق مع صورة
+  // ══════════════════════════════════════════════════════
+  // مع صورةٍ لا يُرسَل النصُّ رسالةً، بل **تعليقاً** عليها — فيحكمه حدُّ واتساب للتعليق
+  // (١٠٢٤) ناقصاً الذيلَ وهامشَ توسّع المتغيّرات، وهو ما يحسبه الخادم قبل أن يرفع شيئاً.
+  // 🔴 وحدُّ النصّ (٩٠٠) يبقى قائماً فوقه، فالفعليُّ **أصغرُهما**: لا ترفعه إلى ٩٦٤ ظنّاً
+  //    أنّ الصورة تُفرِج — يمرّ من هنا ويرجع ٤٠٠ من الخادم.
+  const capBudget = CAPTION_MAX - (footer ? OPTOUT_FOOTER.length : 0) - VAR_SLACK;
+  const bodyMax = img ? Math.min(BODY_MAX, capBudget) : BODY_MAX;
 
   // ══════════════════════════════════════════════════════
   // 🏷️ إدراج متغيّرٍ عند المؤشّر
@@ -71,7 +103,7 @@ export default function BroadcastTab({ apiFetch }: { apiFetch: Fetcher }) {
     const start = el.selectionStart ?? body.length;
     const end = el.selectionEnd ?? start;
     const next = body.slice(0, start) + v + body.slice(end);
-    if (next.length > 900) return;             // الحدّ نفسه الذي يفرضه الحقل
+    if (next.length > bodyMax) return;         // الحدّ نفسه الذي يفرضه الحقل
     setBody(next);
     requestAnimationFrame(() => {
       el.focus();
@@ -79,7 +111,6 @@ export default function BroadcastTab({ apiFetch }: { apiFetch: Fetcher }) {
       el.setSelectionRange(at, at);
     });
   };
-  const [footer, setFooter] = useState(true);
   const [loading, setLoading] = useState(true);
   const [sending, setSending] = useState(false);
   const [err, setErr] = useState<string | null>(null);
@@ -118,6 +149,24 @@ export default function BroadcastTab({ apiFetch }: { apiFetch: Fetcher }) {
     setTplId(null); loadTpls();
   };
 
+  // ══════════════════════════════════════════════════════
+  // 🖼️ رفعُ صورة البثّ
+  // ══════════════════════════════════════════════════════
+  // الرفعُ لا يرسل شيئاً — يُنتج رابطاً فقط؛ والخادم يضغطه ويجرّده من EXIF ويعيد
+  // حجمه النّهائيّ. وتفريغُ `value` بعد كلّ محاولة كي يُقبل اختيارُ الملفّ نفسه ثانيةً.
+  const pickImg = async (f: File | null | undefined) => {
+    if (!f) return;
+    setImgBusy(true);
+    try {
+      const fd = new FormData();
+      fd.append('image', f);
+      const d = await apiFetch('/api/whatsapp/media/upload', { method: 'POST', body: fd });
+      setImg({ url: String(d.url), bytes: Number(d.bytes) || 0 });
+    } catch (e: any) { swalToast(e.message || 'تعذّر رفع الصورة', 'error'); }
+    setImgBusy(false);
+    if (imgRef.current) imgRef.current.value = '';
+  };
+
   const load = useCallback(async () => {
     try {
       const qs = `filter=${filter}${(filter === 'activity' || filter === 'not_booked_activity') && activityId ? `&activityId=${activityId}` : ''}`;
@@ -154,19 +203,19 @@ export default function BroadcastTab({ apiFetch }: { apiFetch: Fetcher }) {
     : status?.running ? 'هناك بثّ جارٍ الآن'
     : status?.nextAllowedAt && !coversRecent ? `بثّ واحد كلّ ١٢ ساعة — المتاح ${fmt(status.nextAllowedAt)}. أو استثنِ مستلمي البثّ السابق لترسل للباقي الآن`
     : null;
-  const canSend = !blockedReason && !sending && !missingActivity && targets.length > 0 && body.trim().length >= 5 && body.length <= 900;
+  const canSend = !blockedReason && !sending && !imgBusy && !missingActivity && targets.length > 0 && body.trim().length >= 5 && body.length <= bodyMax;
 
   const send = async () => {
     const ok = await swalConfirm(
-      `ستُرسَل هذه الرسالة إلى ${targets.length} شخصاً نافذتهم مفتوحة الآن.\nلا يمكن التراجع عمّا أُرسل.`,
+      `ستُرسَل ${img ? 'هذه الصورة بتعليقها' : 'هذه الرسالة'} إلى ${targets.length} شخصاً نافذتهم مفتوحة الآن.\nلا يمكن التراجع عمّا أُرسل.`,
       { title: 'تأكيد البثّ', confirmText: `أرسل إلى ${targets.length}`, icon: 'warning' },
     );
     if (!ok) return;
     setSending(true);
     try {
-      const r = await apiFetch('/api/whatsapp/open-window-broadcast', { method: 'POST', body: JSON.stringify({ body, filter, activityId, templateId: currentTpl && !tplDirty ? currentTpl.id : null, excludeBroadcastIds: exB, excludeIds: Array.from(excluded), appendOptout: footer }) });
+      const r = await apiFetch('/api/whatsapp/open-window-broadcast', { method: 'POST', body: JSON.stringify({ body, filter, activityId, templateId: currentTpl && !tplDirty ? currentTpl.id : null, excludeBroadcastIds: exB, excludeIds: Array.from(excluded), appendOptout: footer, imageUrl: img?.url || null }) });
       swalToast(`بدأ البثّ إلى ${r.total}`, 'success');
-      setBody(''); setTplId(null); setExcluded(new Set()); setExB([]);
+      setBody(''); setTplId(null); setExcluded(new Set()); setExB([]); setImg(null);
       await load(); loadTpls();
     } catch (e: any) { swalToast(e.message || 'تعذّر بدء البثّ', 'error'); }
     setSending(false);
@@ -186,7 +235,7 @@ export default function BroadcastTab({ apiFetch }: { apiFetch: Fetcher }) {
         {/* ── الكتابة ── */}
         <div className="space-y-4 min-w-0">
           <div className="rounded-2xl border border-amber-500/20 bg-amber-500/5 p-4 text-[13px] leading-relaxed text-amber-100/90">
-            <b className="text-amber-400">ما يفعله هذا التبويب:</b> يرسل رسالة نصّيّة واحدة لمن راسلونا خلال آخر 24 ساعة فقط — هؤلاء وحدهم تسمح ميتا بمراسلتهم مجّاناً وبلا قالب.
+            <b className="text-amber-400">ما يفعله هذا التبويب:</b> يرسل رسالةً واحدة (نصّاً أو صورةً بتعليق) لمن راسلونا خلال آخر 24 ساعة فقط — هؤلاء وحدهم تسمح ميتا بمراسلتهم مجّاناً وبلا قالب.
             لا يصل لمن أُغلقت نافذته، ولا لمن كتب «إيقاف». السقف: {status?.maxTargets ?? 300} مستلم للبثّ الواحد.
           </div>
 
@@ -224,10 +273,10 @@ export default function BroadcastTab({ apiFetch }: { apiFetch: Fetcher }) {
                   {history.filter(h => h.sentCount > 0).slice(0, 6).map(h => {
                     const on = exB.includes(h.id);
                     return (
-                      <button key={h.id} onClick={() => { setExB(p => on ? p.filter(x => x !== h.id) : [...p, h.id]); setExcluded(new Set()); }} title={h.body}
+                      <button key={h.id} onClick={() => { setExB(p => on ? p.filter(x => x !== h.id) : [...p, h.id]); setExcluded(new Set()); }} title={bodyOf(h.body)}
                         className={`px-2.5 py-1.5 rounded-xl text-[11px] border max-w-full text-right ${on ? 'bg-rose-500/10 text-rose-200 border-rose-500/40' : 'border-gray-800 text-gray-400 hover:text-white'}`}>
                         {on ? '⊘ ' : ''}#{h.id} · {fmt(h.createdAt)} · {h.sentCount} مستلماً
-                        <span className="block text-[10.5px] opacity-70 truncate max-w-[240px]">{String(h.body || '').split('\n')[0]}</span>
+                        <span className="block text-[10.5px] opacity-70 truncate max-w-[240px]">{bodyOf(h.body).split('\n')[0]}</span>
                       </button>
                     );
                   })}
@@ -247,7 +296,7 @@ export default function BroadcastTab({ apiFetch }: { apiFetch: Fetcher }) {
             </div>
 
             <div>
-              <textarea ref={bodyRef} value={body} onChange={e => setBody(e.target.value)} rows={7} maxLength={900} dir="rtl"
+              <textarea ref={bodyRef} value={body} onChange={e => setBody(e.target.value)} rows={7} maxLength={bodyMax} dir="rtl"
                 placeholder={'مثال:\nمسا الخير {الاسم} 🎭\nبكرا الخميس لعبة الساعة 7 بمزاج أفندينا — بقي مقاعد قليلة. احجز من هون بكلمة «احجز».'}
                 className="w-full bg-gray-950 border border-gray-800 rounded-xl px-3 py-2.5 text-sm text-white leading-relaxed focus:border-amber-500/50 outline-none" />
               <div className="flex flex-wrap items-center gap-1.5 mt-1.5">
@@ -255,9 +304,32 @@ export default function BroadcastTab({ apiFetch }: { apiFetch: Fetcher }) {
                   <button key={v} type="button" onMouseDown={e => e.preventDefault()} onClick={() => insertVar(v)}
                     className="px-2 py-1 rounded-lg text-[11px] bg-gray-800 text-gray-300 hover:text-white" dir="rtl">{v}</button>
                 ))}
-                <span className={`mr-auto text-[11px] tabular-nums ${body.length > 850 ? 'text-rose-400' : 'text-gray-500'}`}>{body.length} / 900</span>
+                <span className={`mr-auto text-[11px] tabular-nums ${body.length > bodyMax - 50 ? 'text-rose-400' : 'text-gray-500'}`}>
+                  {body.length} / {bodyMax}
+                  {img && <span className="text-amber-400/70"> · تعليق {body.length + (footer ? OPTOUT_FOOTER.length : 0)} / {CAPTION_MAX}</span>}
+                </span>
               </div>
               <p className="text-[11px] text-gray-500 mt-1">{'{الرتبة}'} تبقى فارغة للزائر غير المسجّل — لا تبنِ الجملة عليها. {'{المكان}'} اسم الكافيه وحده، و{'{الموقع}'} الاسم والمنطقة والمدينة معاً («مزاج افندينا — الشميساني، عمّان») — وهو الأنسب لمن لم يزُرنا قطّ. {'{الفعالية}'} و{'{المكان}'} و{'{الموقع}'} و{'{الموعد}'} تتبع الفعاليّة المختارة. الروابط الخارجيّة مرفوضة (روابط النادي فقط).</p>
+            </div>
+
+            {/* ── صورةٌ اختياريّة: رفعةٌ واحدة لميتا يُعاد استعمالها لكلّ مستلم ── */}
+            <div className="flex flex-wrap items-center gap-2">
+              <input ref={imgRef} type="file" accept="image/jpeg,image/png" className="hidden"
+                onChange={e => pickImg(e.target.files?.[0])} />
+              {img ? (
+                <span className="flex items-center gap-2 py-1 pr-2 pl-1 rounded-xl border border-amber-500/30 bg-amber-500/5">
+                  <img src={`${API_URL}${img.url}`} alt="" className="w-10 h-10 rounded-lg object-cover" />
+                  <span className="text-[11px] text-amber-100/90 tabular-nums">{Math.round(img.bytes / 1024)} ك.ب</span>
+                  <button type="button" onClick={() => setImg(null)} title="أزل الصورة"
+                    className="w-6 h-6 rounded-lg text-sm font-bold text-rose-300/80 hover:text-rose-300 hover:bg-rose-500/10">×</button>
+                </span>
+              ) : (
+                <button type="button" disabled={imgBusy} onClick={() => imgRef.current?.click()}
+                  className="px-3 py-2 rounded-xl text-xs font-bold border border-gray-800 text-gray-300 hover:text-white hover:border-amber-500/40 disabled:opacity-40">
+                  {imgBusy ? '⏳ جاري الرفع…' : '🖼️ أضف صورة'}
+                </button>
+              )}
+              <p className="text-[11px] text-gray-500 flex-1 min-w-[220px]">تُرفع الصورة لواتساب <b className="text-gray-400">مرّةً واحدة</b> ويُعاد استعمالها لكلّ مستلم، والنّصّ يصير تعليقَها — رسالةٌ واحدة لا رسالتان. JPG أو PNG فقط.</p>
             </div>
 
             <label className="flex items-center gap-2 text-xs text-gray-300 cursor-pointer">
@@ -269,7 +341,8 @@ export default function BroadcastTab({ apiFetch }: { apiFetch: Fetcher }) {
               <div>
                 <div className="text-[11px] text-gray-500 mb-1">معاينة كما تصل إلى {sample.name}:</div>
                 <div className="max-w-md rounded-2xl rounded-tr-sm px-3 py-2 text-sm text-white whitespace-pre-wrap leading-relaxed" style={{ background: '#005c4b' }}>
-                  {fill(body, { ...sample, activity: act?.name, venue: act?.venue, place: (act as any)?.place, when: act?.when })}{footer ? '\n\n— لإيقاف هذه الرسائل أرسل: إيقاف' : ''}
+                  {img && <img src={`${API_URL}${img.url}`} alt="" className="block w-full max-h-52 object-cover rounded-xl mb-1.5" />}
+                  {fill(body, { ...sample, activity: act?.name, venue: act?.venue, place: (act as any)?.place, when: act?.when })}{footer ? OPTOUT_FOOTER : ''}
                 </div>
               </div>
             )}
@@ -297,7 +370,7 @@ export default function BroadcastTab({ apiFetch }: { apiFetch: Fetcher }) {
                       <span className={`px-1.5 py-0.5 rounded ${h.status === 'done' ? 'bg-emerald-500/10 text-emerald-300' : h.status === 'running' ? 'bg-amber-500/10 text-amber-300' : 'bg-rose-500/10 text-rose-300'}`}>{STATUS_AR[h.status] || h.status}</span>
                       <span className="tabular-nums mr-auto">✓ {h.sentCount}/{h.totalTargets}{h.skippedCount ? ` · تخطّي ${h.skippedCount}` : ''}{h.failedCount ? ` · فشل ${h.failedCount}` : ''}</span>
                     </div>
-                    <p className="text-gray-300 mt-1 whitespace-pre-wrap line-clamp-3">{h.body}</p>
+                    <p className="text-gray-300 mt-1 whitespace-pre-wrap line-clamp-3">{bodyOf(h.body)}</p>
                   </div>
                 ))}
               </div>

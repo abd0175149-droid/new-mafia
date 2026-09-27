@@ -9,6 +9,9 @@
 
 import { Router, type Request, type Response, type NextFunction } from 'express';
 import crypto from 'crypto';
+import fs from 'fs';
+import path from 'path';
+import multer from 'multer';
 import { eq, desc, and, lt, sql, or, ilike, isNull, inArray } from 'drizzle-orm';
 import { getDB } from '../config/db.js';
 import { env } from '../config/env.js';
@@ -107,7 +110,21 @@ router.post('/webhook', (req: Request, res: Response) => {
 router.post('/send', botOrAdmin, async (req: Request, res: Response) => {
   try {
     const caller = (req as any).waCaller as 'bot' | 'staff';
-    const { conversationId, phone, text, interactive, raw, approved } = req.body || {};
+    const { conversationId, phone, text, interactive, raw, approved, imageUrl } = req.body || {};
+    // 🖼️ صورةٌ صادرة: رابطُنا نحن فقط. قبولُ رابطٍ خارجيّ يجعل رقمَنا وكيلَ تحميلٍ للغير
+    //    (SSRF وإساءةٌ باسمنا)، فيُشترط أن يكون من `/uploads/wa-out/` الذي كتبناه في الرفع.
+    let image: { link: string; caption?: string } | undefined;
+    if (imageUrl) {
+      const rel = String(imageUrl);
+      if (!/^\/uploads\/wa-out\/[\w.-]+$/.test(rel)) {
+        return res.status(400).json({ error: 'رابط صورة غير مقبول — ارفع الصورة أوّلاً', code: 'BAD_IMAGE' });
+      }
+      if (!env.PUBLIC_URL) {
+        // ميتا تسحب الصورة بالرابط؛ رابطٌ نسبيّ لا يعني لها شيئاً (نفس درس fcm.service)
+        return res.status(500).json({ error: 'PUBLIC_URL غير مضبوط — لا يمكن إرسال صور', code: 'NO_PUBLIC_URL' });
+      }
+      image = { link: `${env.PUBLIC_URL}${rel}` };
+    }
     const convId = conversationId ? parseInt(conversationId) : undefined;
     const staffId = caller === 'staff' ? (req as any).user?.id : undefined;
     const staffName = caller === 'staff' ? (req as any).user?.displayName : undefined;
@@ -121,7 +138,7 @@ router.post('/send', botOrAdmin, async (req: Request, res: Response) => {
     // ورموز التحقّق حيث الحرفُ الواحد مقدَّس.
     let finalText: string = typeof text === 'string' ? text : '';
     const meta: Record<string, any> = {};
-    if (caller === 'staff' && finalText.trim() && !interactive && convId) {
+    if (caller === 'staff' && finalText.trim() && !interactive && convId) {   // يشمل تعليقَ الصورة: صوتٌ واحد مهما تعدّد الكاتب
       const { getBotSettings } = await import('../services/whatsapp-bot.service.js');
       const settings: any = await getBotSettings().catch(() => null);
       const rs = await import('../services/wa-restyle.service.js');
@@ -163,7 +180,9 @@ router.post('/send', botOrAdmin, async (req: Request, res: Response) => {
     const result = await sendMessage({
       conversationId: convId,
       phone,
-      text: finalText,
+      // مع صورة: النصّ (بعد الصياغة والتوقيع) يصير تعليقَها — رسالةٌ واحدة لا رسالتان
+      text: image ? '' : finalText,
+      image: image ? { ...image, caption: finalText } : undefined,
       interactive,
       source: caller === 'bot' ? 'bot' : 'staff',
       staffId,
@@ -524,7 +543,7 @@ router.post('/open-window-broadcast', authenticate, adminOnly, async (req: Reque
   try {
     const B = await import('../services/whatsapp-broadcast.service.js');
     const u: any = (req as any).user;
-    const r = await B.startBroadcast({ body: req.body?.body, filter: req.body?.filter || 'all', activityId: req.body?.activityId ?? null, excludeIds: Array.isArray(req.body?.excludeIds) ? req.body.excludeIds : [], templateId: req.body?.templateId ? Number(req.body.templateId) : null, excludeBroadcastIds: Array.isArray(req.body?.excludeBroadcastIds) ? req.body.excludeBroadcastIds.map(Number) : [], appendOptout: req.body?.appendOptout !== false, createdBy: u?.displayName || u?.username || '' });
+    const r = await B.startBroadcast({ body: req.body?.body, imageUrl: req.body?.imageUrl ?? null, filter: req.body?.filter || 'all', activityId: req.body?.activityId ?? null, excludeIds: Array.isArray(req.body?.excludeIds) ? req.body.excludeIds : [], templateId: req.body?.templateId ? Number(req.body.templateId) : null, excludeBroadcastIds: Array.isArray(req.body?.excludeBroadcastIds) ? req.body.excludeBroadcastIds.map(Number) : [], appendOptout: req.body?.appendOptout !== false, createdBy: u?.displayName || u?.username || '' });
     if (!r.ok) return res.status(400).json({ error: r.error });
     try { const { logStaffAction } = await import('../services/staff-action-log.service.js'); void logStaffAction({ staffId: u?.id, staffUsername: u?.username, staffRole: u?.role, source: 'rest', action: 'rest:wa-broadcast', category: 'WHATSAPP_ADMIN', labelAr: 'بثّ واتساب للنوافذ المفتوحة', details: { broadcastId: r.id, targets: r.total, filter: req.body?.filter || 'all', body: String(req.body?.body || '').slice(0, 200) } }); } catch { /* غير حاجب */ }
     res.json({ success: true, id: r.id, total: r.total });
@@ -577,6 +596,83 @@ router.get('/bot/usage', authenticate, adminOnly, async (_req: Request, res: Res
 // ══════════════════════════════════════════════════════
 // المفتاح هو **معرّف الرسالة** لا معرّف الوسيط: كي لا يصير المسار وكيلاً مفتوحاً
 // يجلب أيّ ملفٍّ من Graph بتوكننا. لا يُخدَم إلّا ما وصلنا فعلاً وخُزّن عندنا.
+// ══════════════════════════════════════════════════════
+// 🖼️ رفعُ صورةٍ صادرة (محادثةٌ أو بثّ)
+// ══════════════════════════════════════════════════════
+// الرفعُ لا يرسل شيئاً — يُنتج رابطاً فقط. الإرسالُ يبقى في `sendMessage` وحدها كي
+// تبقى `isFreeWindowOpen` البوّابةَ الوحيدة للصادر، فلا يُفتح بابٌ خلفيّ.
+//
+// 🔒 تحصينٌ لا يرثه من مسارات الرفع الأخرى: الامتدادُ يُشتقّ من **النوع المُتحقَّق منه**
+//    لا من اسم الملفّ الذي يرسله العميل. المسارات القديمة (fnb.routes.ts:240 وغيرها)
+//    تأخذ `path.extname(originalname)` بينما تفحص `mimetype` وحده — و`express.static`
+//    يحدّد نوعَ الاستجابة بالامتداد، والتطبيق بلا CSP، فاسمُ `x.html` بنوعٍ معلَنٍ
+//    `image/png` يُخدَم صفحةً من أصلِ التطبيق نفسه.
+//
+// ⚠️ الملفّ يقع تحت `uploads/` المخدوم عامّاً بلا مصادقة — وهذا مقصود: ميتا تسحبه
+//    بالرابط. لذلك: لا يُرسَل بهذه الطريقة ما يخصّ شخصاً (فاتورة، بطاقة لاعب).
+const WA_OUT_DIR = path.resolve(process.cwd(), 'uploads/wa-out');
+if (!fs.existsSync(WA_OUT_DIR)) fs.mkdirSync(WA_OUT_DIR, { recursive: true });
+/** حدّ ميتا للصورة الواحدة ٥ م.ب — نقبل ٨ ونضغط تحت الحدّ، فالرفض يأتي منّا لا منها */
+const WA_IMG_MAX_BYTES = 8 * 1024 * 1024;
+const WA_MIME_EXT: Record<string, string> = { 'image/jpeg': 'jpg', 'image/jpg': 'jpg', 'image/png': 'png' };
+
+const waImageUpload = multer({
+  storage: multer.diskStorage({
+    destination: (_req, _file, cb) => cb(null, WA_OUT_DIR),
+    // الامتدادُ من النوع لا من الاسم؛ والاسمُ عشوائيٌّ غير قابل للتخمين (الرابط عامّ)
+    filename: (_req, file, cb) => cb(null, `w${Date.now()}-${crypto.randomBytes(8).toString('hex')}.${WA_MIME_EXT[file.mimetype] || 'jpg'}`),
+  }),
+  limits: { fileSize: WA_IMG_MAX_BYTES, files: 1 },
+  fileFilter: (_req, file, cb) => {
+    // واتساب لا يقبل WEBP في رسالة صورة (هي للملصقات) — الرفضُ هنا أوضح من رفض ميتا
+    if (WA_MIME_EXT[file.mimetype]) cb(null, true);
+    else cb(new Error(`صيغة غير مدعومة: ${file.mimetype} — واتساب يقبل JPG أو PNG فقط في رسالة الصورة`));
+  },
+});
+
+router.post('/media/upload', authenticate, adminOnly, (req: Request, res: Response) => {
+  waImageUpload.single('image')(req, res, async (err: any) => {
+    if (err) {
+      const msg = err?.code === 'LIMIT_FILE_SIZE' ? 'الصورة أكبر من ٨ م.ب' : (err?.message || 'فشل رفع الصورة');
+      return res.status(400).json({ error: msg });
+    }
+    const f = (req as any).file;
+    if (!f) return res.status(400).json({ error: 'لا يوجد ملف' });
+    const full = path.join(WA_OUT_DIR, f.filename);
+    try {
+      // ── الضغط: يضمن دخولَ حدّ ميتا (٥ م.ب)، ويحذف EXIF (فيه موقعُ التصوير) ──
+      //    ويحوّل PNG إلى JPEG فينزل الحجم كثيراً. الفشلُ لا يُسقط الرفع: الأصل يكفي إن كان تحت الحدّ.
+      const sharp = (await import('sharp')).default;
+      const meta = await sharp(full).metadata();
+      const tmp = path.join(WA_OUT_DIR, `t-${f.filename}.jpg`);
+      await sharp(full).rotate().resize({ width: 1600, height: 1600, fit: 'inside', withoutEnlargement: true })
+        .jpeg({ quality: 82, mozjpeg: true }).toFile(tmp);
+      const outName = f.filename.replace(/\.[^.]+$/, '') + '.jpg';
+      const outFull = path.join(WA_OUT_DIR, outName);
+      await fs.promises.rename(tmp, outFull);
+      if (outFull !== full) await fs.promises.unlink(full).catch(() => {});
+      const st = await fs.promises.stat(outFull);
+      const out = await sharp(outFull).metadata();
+      return res.json({
+        success: true,
+        url: `/uploads/wa-out/${outName}`,
+        bytes: st.size,
+        width: out.width || null,
+        height: out.height || null,
+        original: { bytes: f.size, width: meta.width || null, height: meta.height || null },
+      });
+    } catch (e: any) {
+      console.warn('🖼️ تعذّر ضغط صورة واتساب — تُستعمل كما هي:', e?.message);
+      const st = await fs.promises.stat(full).catch(() => null);
+      if (st && st.size > 5 * 1024 * 1024) {
+        await fs.promises.unlink(full).catch(() => {});
+        return res.status(400).json({ error: 'الصورة أكبر من ٥ م.ب وتعذّر ضغطها — صغّرها قبل الرفع' });
+      }
+      return res.json({ success: true, url: `/uploads/wa-out/${f.filename}`, bytes: st?.size || f.size, width: null, height: null });
+    }
+  });
+});
+
 router.get('/messages/:id/media', authenticate, adminOnly, async (req: Request, res: Response) => {
   try {
     const db = getDB();

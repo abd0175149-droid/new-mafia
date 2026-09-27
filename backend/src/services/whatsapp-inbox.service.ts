@@ -20,6 +20,8 @@ import { normalizeLocalPhone, toWaPhone, samePhone, normalizeAnyPhone } from '..
 import { sendPushToPlayers } from './fcm.service.js';
 
 const GRAPH_BASE = 'https://graph.facebook.com/v20.0';
+/** حدّ ميتا لتعليق الصورة (حرفاً) — يُتحقّق منه عند المعاينة وعند الإرسال */
+export const WA_CAPTION_MAX = 1024;
 
 // نافذة الرد الحر (رسائل service المجانية) — 24 ساعة من آخر رسالة واردة
 const FREE_REPLY_WINDOW_MS = 24 * 60 * 60 * 1000;
@@ -37,6 +39,39 @@ function emitInbox(event: string, payload: any) {
     const io = (global as any).io;
     if (io) io.to('wa:inbox').emit(event, payload);
   } catch { /* البث ليس حرجاً */ }
+}
+
+// ══════════════════════════════════════════════════════
+// 🖼️ رفعُ صورةٍ إلى مكتبة وسائط ميتا
+// ══════════════════════════════════════════════════════
+// طريقتان لإرسال صورة: رابطٌ عامّ تسحبه ميتا من خادمنا، أو معرّفٌ نرفعه مسبقاً.
+// الرابط أبسط للرسالة الواحدة؛ أمّا البثّ فميتا تسحب الرابط **مرّةً لكلّ مستلم**
+// (بثٌّ لـ300 نافذة بصورة 2 م.ب = 600 م.ب تخرج من اللابتوب) — فيُرفع مرّةً ويُعاد
+// استعمالُ المعرّف. المعرّف صالحٌ ~30 يوماً عند ميتا.
+// لا تمرّ هذه الدالّة بـ`callWaApi` لأنّ ذاك يرسل JSON وهذه تحتاج multipart.
+export async function uploadWaMedia(filePath: string, mime: string): Promise<string> {
+  if (!waEnabled()) throw new Error('إرسال واتساب غير مفعّل');
+  const fs = await import('node:fs');
+  const buf = await fs.promises.readFile(filePath);
+  const form = new FormData();
+  form.append('messaging_product', 'whatsapp');
+  form.append('type', mime);
+  form.append('file', new Blob([new Uint8Array(buf)], { type: mime }), filePath.split(/[\\/]/).pop() || 'image.jpg');
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), 60000);   // الرفع أبطأ من رسالة نصّ
+  try {
+    const res = await fetch(`${GRAPH_BASE}/${env.WA_PHONE_NUMBER_ID}/media`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${env.WA_TOKEN}` },   // لا Content-Type — fetch يضبط الحدّ الفاصل
+      body: form,
+      signal: ctrl.signal,
+    });
+    const data: any = await res.json().catch(() => ({}));
+    if (!res.ok || !data?.id) throw new Error(data?.error?.message || `فشل رفع الصورة لميتا (HTTP ${res.status})`);
+    return String(data.id);
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 // ── استدعاء Cloud API ────────────────────────────────
@@ -687,6 +722,10 @@ export interface SendMessageInput {
   text?: string;                        // رسالة نصية
   interactive?: any;                    // كائن interactive جاهز (قوائم/أزرار — للبوت)
   location?: { latitude: number; longitude: number; name?: string; address?: string };  // 📍 رسالة موقع
+  /** 🖼️ صورة مع تعليق — رسالةٌ واحدة لا رسالتان. `link` رابطٌ عامّ على خادمنا (يُبنى في
+   *  الخادم من ملفٍّ رفعناه، لا من نصٍّ يكتبه المستخدم)، أو `mediaId` من `uploadWaMedia`.
+   *  التعليق يُقصّ عند 1024 حرفاً (حدّ ميتا). */
+  image?: { link?: string; mediaId?: string; caption?: string };
   source: 'staff' | 'bot' | 'system' | 'broadcast';
   staffId?: number;
   staffName?: string;
@@ -718,8 +757,11 @@ export async function sendMessage(input: SendMessageInput) {
 
   const hasInteractive = !!input.interactive;
   const hasLocation = !!input.location;
+  const hasImage = !!(input.image && (input.image.link || input.image.mediaId));
   const text = (input.text || '').trim();
-  if (!hasInteractive && !hasLocation && !text) throw new Error('لا يوجد محتوى للإرسال');
+  if (!hasInteractive && !hasLocation && !hasImage && !text) throw new Error('لا يوجد محتوى للإرسال');
+  // 🖼️ التعليق يُقصّ هنا لا عند ميتا: رفضُها يأتي بعد أن يكون الصفّ قد كُتب في بثٍّ نصفِ منفَّذ
+  const caption = hasImage ? (input.image!.caption || '').slice(0, WA_CAPTION_MAX) : '';
 
   // ══════════════════════════════════════════════════════
   // 🔒 قيد الموافقة — البوّابة الوحيدة للصادر
@@ -742,6 +784,13 @@ export async function sendMessage(input: SendMessageInput) {
     ? { messaging_product: 'whatsapp', to: conv.waPhone, type: 'interactive', interactive: input.interactive }
     : hasLocation
     ? { messaging_product: 'whatsapp', to: conv.waPhone, type: 'location', location: input.location }
+    : hasImage
+    ? {
+        messaging_product: 'whatsapp', to: conv.waPhone, type: 'image',
+        image: input.image!.mediaId
+          ? { id: input.image!.mediaId, ...(caption ? { caption } : {}) }
+          : { link: input.image!.link, ...(caption ? { caption } : {}) },
+      }
     : { messaging_product: 'whatsapp', to: conv.waPhone, type: 'text', text: { body: text } };
 
   const apiRes = await callWaApi(`${env.WA_PHONE_NUMBER_ID}/messages`, apiBody);
@@ -751,6 +800,7 @@ export async function sendMessage(input: SendMessageInput) {
   const preview = hasInteractive
     ? (input.interactive?.body?.text || '📋 رسالة تفاعلية')
     : hasLocation ? `📍 ${input.location?.name || 'موقع'}`
+    : hasImage ? (caption || '📷 صورة')
     : text;
 
   const [saved] = await db
@@ -760,7 +810,7 @@ export async function sendMessage(input: SendMessageInput) {
       wamid,
       direction: 'out',
       source: input.source,
-      msgType: hasInteractive ? 'interactive' : hasLocation ? 'location' : 'text',
+      msgType: hasInteractive ? 'interactive' : hasLocation ? 'location' : hasImage ? 'image' : 'text',
       body: preview,
       payload: input.meta ? { ...apiBody, ...input.meta } : apiBody,
       status: 'sent',

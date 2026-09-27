@@ -12,9 +12,11 @@
 //   • كلّ بثّ يُسجَّل في wa_broadcasts وفي سجلّ عمليّات الموظّفين.
 
 import { sql, eq, desc } from 'drizzle-orm';
+import fsSync from 'fs';
+import pathMod from 'path';
 import { getDB } from '../config/db.js';
 import { waBroadcasts, waMessageTemplates } from '../schemas/admin.schema.js';
-import { sendMessage, sendingSuspendedReason } from './whatsapp-inbox.service.js';
+import { sendMessage, sendingSuspendedReason, uploadWaMedia, WA_CAPTION_MAX } from './whatsapp-inbox.service.js';
 import { isTestActivity, notTestActivitySql, notTestLocationSql } from './test-location.util.js';
 
 const rowsOf = (r: any): any[] => r?.rows ?? (Array.isArray(r) ? r : []);
@@ -99,7 +101,7 @@ export async function broadcastStatus() {
   return { running, suspended: sendingSuspendedReason(), nextAllowedAt: null, maxTargets: BROADCAST_MAX_TARGETS };
 }
 
-export async function startBroadcast(input: AudienceQuery & { body: string; createdBy: string; appendOptout?: boolean; templateId?: number | null }): Promise<{ ok: boolean; error?: string; id?: number; total?: number }> {
+export async function startBroadcast(input: AudienceQuery & { body: string; createdBy: string; appendOptout?: boolean; templateId?: number | null; imageUrl?: string | null }): Promise<{ ok: boolean; error?: string; id?: number; total?: number }> {
   const db = getDB(); if (!db) return { ok: false, error: 'DB unavailable' };
   // 🧪 موقع اختبار: لا بثّ عن فعاليّةٍ هناك — للعميل والأدمن سواء
   if (input.activityId && await isTestActivity(db, input.activityId)) return { ok: false, error: 'فعاليّة في موقع اختبار — لا بثّ عنها' };
@@ -107,6 +109,12 @@ export async function startBroadcast(input: AudienceQuery & { body: string; crea
   if (body.length < 5) return { ok: false, error: 'اكتب نصّ الرسالة (٥ أحرف على الأقلّ)' };
   if (body.length > 900) return { ok: false, error: 'النصّ طويل — الحدّ ٩٠٠ حرف' };
   // (قيدُ الروابط الخارجيّة أُلغي نهائيّاً بقرار المالك 2026-09-26: كان يمنع حتّى رابط قناة الواتساب. أيُّ رابطٍ يُرسل.)
+  // 🖼️ صورةُ البثّ: رابطُنا نحن فقط (نفس قيد `/send` — لا نكون وكيلَ تحميلٍ لأحد)
+  const imgRel = String(input.imageUrl || '').trim();
+  if (imgRel) {
+    if (!/^\/uploads\/wa-out\/[\w.-]+$/.test(imgRel)) return { ok: false, error: 'رابط صورة غير مقبول — ارفع الصورة أوّلاً' };
+    if (!fsSync.existsSync(pathMod.resolve(process.cwd(), '.' + imgRel))) return { ok: false, error: 'ملفّ الصورة غير موجود على الخادم' };
+  }
   const blocked = sendingSuspendedReason(); if (blocked) return { ok: false, error: `الإرسال مقفل: ${blocked}` };
   if (running) return { ok: false, error: 'هناك بثّ جارٍ الآن' };
   // (حظر الـ12 ساعة بين البثوث أُلغي بقرار المالك 2026-09-20. الحماية من التكرار صارت بيده: خيار «استثنِ من وصلهم بثّ سابق».)
@@ -127,10 +135,28 @@ export async function startBroadcast(input: AudienceQuery & { body: string; crea
     if (/\{(المكان|الموقع)\}/.test(body) && !venueName) return { ok: false, error: 'الفعاليّة بلا مكان محدَّد — احذف {المكان} و{الموقع} من النصّ' };
     if (!activityName) return { ok: false, error: 'الفعاليّة غير موجودة' };
   }
+  // 🖼️ حدُّ تعليق الصورة يُقاس على النصّ **بعد** حلّ متغيّرات الفعاليّة (اسمُ فعاليّةٍ طويل قد
+  //    يضيف عشرات الأحرف)، مع هامشٍ لمتغيّرات المستلم (الاسم واللقب). يُقاس هنا لا عند ميتا:
+  //    رفضُها يأتي وسطَ بثٍّ نصفِ منفَّذ. وسقفُ `sendMessage` يبقى شبكةَ أمانٍ أخيرة تقصّ لا تُسقط.
+  if (imgRel) {
+    const resolved = fillVars(body, { name: 'م'.repeat(28), rank: 'م'.repeat(12), activity: activityName, venue: venueName, place: placeText, when: whenText });
+    const longest = resolved.length + (input.appendOptout !== false ? OPTOUT_FOOTER.length : 0);
+    if (longest > WA_CAPTION_MAX) return { ok: false, error: `النصّ مع الصورة أطول من ${WA_CAPTION_MAX} حرفاً بعد حلّ المتغيّرات (حدّ تعليق الصورة) — اختصره ${longest - WA_CAPTION_MAX} حرفاً` };
+  }
   const aud = await previewAudience(input);
   if (!aud.total) return { ok: false, error: 'لا مستلمين بنافذة مفتوحة يطابقون الفلتر' };
   const targets = aud.rows;
-  const [row] = await db.insert(waBroadcasts).values({ body, templateId: input.templateId || null, totalTargets: targets.length, status: 'running', createdBy: input.createdBy } as any).returning();
+  // 🖼️ رفعةٌ **واحدة** لميتا يُعاد استعمالُ معرّفها لكلّ مستلم. بالرابط كانت ميتا تسحب
+  //    الصورة من اللابتوب مرّةً لكلّ مستلم (٣٠٠ مستلم × ٢ م.ب = ٦٠٠ م.ب خروجاً). المعرّف صالحٌ ~٣٠ يوماً.
+  let mediaId = '';
+  if (imgRel) {
+    try {
+      mediaId = await uploadWaMedia(pathMod.resolve(process.cwd(), '.' + imgRel), imgRel.endsWith('.png') ? 'image/png' : 'image/jpeg');
+    } catch (e: any) {
+      return { ok: false, error: `تعذّر رفع الصورة لواتساب: ${e?.message || 'خطأ'}` };
+    }
+  }
+  const [row] = await db.insert(waBroadcasts).values({ body: imgRel ? `🖼️ ${imgRel}\n${body}` : body, templateId: input.templateId || null, totalTargets: targets.length, status: 'running', createdBy: input.createdBy } as any).returning();
   if (input.templateId) await db.update(waMessageTemplates).set({ usedCount: sql`COALESCE(${waMessageTemplates.usedCount}, 0) + 1` } as any).where(eq(waMessageTemplates.id, Number(input.templateId))).catch(() => {});
   running = row.id;
   const withFooter = input.appendOptout !== false;
@@ -141,7 +167,10 @@ export async function startBroadcast(input: AudienceQuery & { body: string; crea
       if (stopFlags.has(row.id)) { status = 'stopped'; break; }
       if (sendingSuspendedReason()) { status = 'stopped'; break; }           // إنذار صحّة الحساب أثناء البثّ
       try {
-        await sendMessage({ conversationId: t.id, text: fillVars(body, { ...t, activity: activityName, venue: venueName, place: placeText, when: whenText }) + (withFooter ? OPTOUT_FOOTER : ''), source: 'broadcast' as any });
+        const msgText = fillVars(body, { ...t, activity: activityName, venue: venueName, place: placeText, when: whenText }) + (withFooter ? OPTOUT_FOOTER : '');
+        await sendMessage(mediaId
+          ? { conversationId: t.id, image: { mediaId, caption: msgText }, source: 'broadcast' as any }
+          : { conversationId: t.id, text: msgText, source: 'broadcast' as any });
         sent++; streak = 0;
         await db.execute(sql`INSERT INTO wa_broadcast_recipients (broadcast_id, conversation_id) VALUES (${row.id}, ${t.id}) ON CONFLICT DO NOTHING`).catch(() => {});
       } catch (e: any) {

@@ -19,6 +19,8 @@ import HealthBar from './HealthBar';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || '';
 const MUTE_KEY = 'wa_inbox_muted';
+/** حدّ تعليق الصورة في واتساب — الخادم يقصّ عنده، فنُظهره قبل أن يقصّ */
+const WA_CAPTION_MAX = 1024;
 
 function getToken() { return typeof window !== 'undefined' ? localStorage.getItem('token') : null; }
 function getUser() { try { return JSON.parse(localStorage.getItem('user') || '{}'); } catch { return {}; } }
@@ -215,6 +217,11 @@ export default function WhatsAppInboxPage() {
   // ✨ الصياغة: مفعّلةٌ افتراضيّاً، وتُطفأ لرسالةٍ بعينها حين يكون الحرف مقدَّساً
   const [styleOn, setStyleOn] = useState(true);
   const [review, setReview] = useState<{ original: string; styled: string; reason: string } | null>(null);
+  // 🖼️ صورةٌ مرحَّلة: تُرفع فور اختيارها لا عند الإرسال — فيرى الموظّف ما سيصل العميل
+  //    فعلاً بعد ضغط الخادم، وما يكتبه يصير تعليقها: رسالةٌ واحدة لا رسالتان.
+  const [img, setImg] = useState<{ url: string; bytes: number; width?: number | null; height?: number | null } | null>(null);
+  const [imgBusy, setImgBusy] = useState(false);
+  const [imgErr, setImgErr] = useState<string | null>(null);
   const [muted, setMuted] = useState(false);
   const [mobilePane, setMobilePane] = useState<'list' | 'chat' | 'info'>('list');
   // مستويان بدل خمسة تبويباتٍ متساوية: الوارد عملٌ يوميّ، والإدارة ضبطٌ وتحليل
@@ -229,6 +236,7 @@ export default function WhatsAppInboxPage() {
   const [, forceTick] = useState(0); // لتحديث عدّادات النافذة/الإيقاف المؤقت دورياً
 
   const threadRef = useRef<HTMLDivElement>(null);
+  const fileRef = useRef<HTMLInputElement>(null);   // حقلُ الملفّ المخفيّ — الزرّ 🖼️ هو الواجهة
   const selIdRef = useRef<number | null>(null);
   selIdRef.current = selId;
   const mutedRef = useRef(false);
@@ -256,6 +264,7 @@ export default function WhatsAppInboxPage() {
     setMobilePane('chat');
     setLoadingMsgs(true);
     setCtx(null);
+    setImg(null); setImgErr(null);   // صورةُ محادثةٍ لا تُهاجر لغيرها
     setShowLink(false);
     try {
       const data = await apiFetch(`/api/whatsapp/conversations/${id}/messages?limit=50`);
@@ -462,17 +471,43 @@ export default function WhatsAppInboxPage() {
     }
   }, [draft, selId, sending]);
 
+  // ── 🖼️ رفع الصورة ──
+  /** الرفعُ لحظةَ الاختيار: الخادم يدوّرها بـEXIF ويضغطها JPEG ويمحو بيانات التصوير
+   *  ويردّ الحجم النهائيّ — فالشريط يقول ما سيصل العميل لا ما اختاره الموظّف. */
+  const pickImage = useCallback(async (file: File | null | undefined) => {
+    if (!file) return;
+    setImgErr(null);
+    setImgBusy(true);
+    try {
+      const fd = new FormData();
+      fd.append('image', file);
+      const r = await apiFetch('/api/whatsapp/media/upload', { method: 'POST', body: fd });
+      setImg({ url: r.url, bytes: r.bytes, width: r.width, height: r.height });
+    } catch (e: any) {
+      setImg(null);
+      setImgErr(e.message || 'فشل رفع الصورة');   // رسالة الخادم عربيّةٌ أصلاً (النوع/الحجم)
+    } finally {
+      setImgBusy(false);
+    }
+  }, []);
+
   // ── الإرسال ──
   /** الإرسال الفعليّ — `opts.raw` يتخطّى الصياغة (تعطيلٌ يدويّ أو اختيارٌ بعد المراجعة) */
   const doSend = useCallback(async (text: string, opts?: { raw?: boolean; approved?: 'mine' | 'styled' }) => {
-    if (!text || !selId || sending) return;
+    // صورةٌ بلا تعليق رسالةٌ مكتملة — فشرطُ النصّ يسقط حين تكون هناك صورة
+    // و`imgBusy` يقفل الطريق الموازي: زرّ الإرسال معطّلٌ أثناء الرفع، لكنّ Enter وبطاقة
+    // المراجعة تناديان من هنا مباشرةً — فكان التعليق يُرسل نصّاً وحده وتُفقد الصورة.
+    if ((!text && !img) || imgBusy || !selId || sending) return;
     setSending(true);
     try {
       const res = await apiFetch('/api/whatsapp/send', {
         method: 'POST',
-        body: JSON.stringify({ conversationId: selId, text, raw: !!opts?.raw, approved: opts?.approved }),
+        // مع `imageUrl` يصير `text` تعليقَ الصورة في الخادم — ويمرّ بالصياغة كأيّ ردٍّ
+        body: JSON.stringify({ conversationId: selId, text, raw: !!opts?.raw, approved: opts?.approved, imageUrl: img?.url }),
       });
       setDraft('');
+      setImg(null);
+      setImgErr(null);
       setReview(null);
       if (res.message) setMessages(prev => (prev.some(m => m.id === res.message.id) ? prev : [...prev, res.message]));
       if (res.conversation) {
@@ -488,14 +523,14 @@ export default function WhatsAppInboxPage() {
     } finally {
       setSending(false);
     }
-  }, [selId, sending, scrollBottom]);
+  }, [selId, sending, scrollBottom, img, imgBusy]);
 
   const send = useCallback(() => {
     const text = draft.trim();
-    if (!text || !selId || sending) return;
+    if ((!text && !img) || !selId || sending) return;
     if (asCustomer) return injectAsCustomer();
     return doSend(text, { raw: !styleOn });
-  }, [draft, selId, sending, asCustomer, injectAsCustomer, doSend, styleOn]);
+  }, [draft, selId, sending, asCustomer, injectAsCustomer, doSend, styleOn, img]);
 
   // ── مفتاح البوت ──
   const toggleBot = useCallback(async () => {
@@ -596,6 +631,7 @@ export default function WhatsAppInboxPage() {
   const paused = conv?.botPausedUntil && new Date(conv.botPausedUntil).getTime() > Date.now();
   const botActive = conv?.botEnabled && !paused;
   const winH = conv ? windowHoursLeft(conv.lastInboundAt) : 0;
+  const capOver = img ? draft.trim().length - WA_CAPTION_MAX : 0;   // الزائدُ عن حدّ التعليق
   const totalUnread = convs.reduce((s, c) => s + (c.unreadCount || 0), 0);
 
   // تجميع الرسائل بفواصل الأيام — صفوف الرياكشن لا تُعرض كفقاعات (تظهر شارةً على رسالتها)
@@ -942,6 +978,10 @@ export default function WhatsAppInboxPage() {
                           <AudioBubble m={g.m} />
                         ) : ['image', 'sticker'].includes(g.m.msgType) && g.m.direction === 'in' ? (
                           <ImageBubble m={g.m} onOpen={setLightbox} />
+                        ) : g.m.msgType === 'image' && g.m.direction === 'out' && g.m.payload?.image?.link ? (
+                          // صورةٌ أرسلناها نحن — رابطُنا في الحمولة يكفي، ولا وكيل. صفُّ البثّ
+                          // يحمل `payload.image.id` بلا رابط فيسقط لعرض النصّ أدناه.
+                          <OutImageBubble m={g.m} onOpen={setLightbox} />
                         ) : ['video', 'document'].includes(g.m.msgType) && g.m.direction === 'in' ? (
                           <FileBubble m={g.m} />
                         ) : (
@@ -1021,18 +1061,78 @@ export default function WhatsAppInboxPage() {
                         </div>
                       </div>
                     )}
+                    {/* 🖼️ الصورة المرحَّلة — مرفوعةٌ فعلاً، وما يُكتب أدناه تعليقُها */}
+                    {(img || imgBusy || imgErr) && (
+                      <div className="mb-2 flex items-center gap-2.5 rounded-xl border border-gray-800 bg-gray-950/70 px-2.5 py-2">
+                        {imgBusy ? (
+                          <div className="w-[52px] h-[52px] rounded-lg bg-gray-800/60 border border-gray-700/50 animate-pulse shrink-0" />
+                        ) : img ? (
+                          // eslint-disable-next-line @next/next/no-img-element
+                          <img
+                            src={`${API_URL}${img.url}`}
+                            alt=""
+                            onClick={() => setLightbox(`${API_URL}${img.url}`)}
+                            className="w-[52px] h-[52px] rounded-lg border border-gray-700/60 object-cover cursor-zoom-in shrink-0"
+                          />
+                        ) : null}
+                        <div className="flex-1 min-w-0 text-[11px] leading-relaxed">
+                          {imgBusy ? (
+                            <span className="text-gray-400">⏳ تُرفع وتُضغط…</span>
+                          ) : imgErr ? (
+                            <span className="text-rose-400">⚠️ {imgErr}</span>
+                          ) : img ? (
+                            <>
+                              <div className="text-emerald-300 font-bold">
+                                🖼️ صورة جاهزة · {Math.round(img.bytes / 1024)} ك.ب{img.width ? ` · ${img.width}×${img.height}` : ''}
+                              </div>
+                              <div className={capOver > 0 ? 'text-rose-400' : 'text-gray-500'}>
+                                {capOver > 0
+                                  ? `التعليق أطول من ${WA_CAPTION_MAX} حرفاً بـ${capOver} — سيُقصّ`
+                                  : 'ما تكتبه أدناه يصير تعليقها — رسالةٌ واحدة'}
+                              </div>
+                            </>
+                          ) : null}
+                        </div>
+                        {!imgBusy && (
+                          <button
+                            onClick={() => { setImg(null); setImgErr(null); }}
+                            title="إزالة الصورة"
+                            className="text-gray-500 hover:text-rose-400 text-sm px-1.5 shrink-0"
+                          >✕</button>
+                        )}
+                      </div>
+                    )}
                     <div className="flex gap-2 items-center">
-                      <span
-                        className="text-gray-600 text-xs border border-dashed border-gray-700 rounded-xl px-3 py-2.5 cursor-not-allowed select-none"
-                        title="القوالب تُفعَّل مع مرحلة الحملات"
-                      >📋</span>
+                      {/* 🖼️ إرفاق صورة — ترفع فوراً، ثمّ تصل رسالةً واحدة مع تعليقها */}
+                      {!asCustomer && (
+                        <>
+                          <input
+                            ref={fileRef}
+                            type="file"
+                            accept="image/jpeg,image/png"
+                            className="hidden"
+                            tabIndex={-1}
+                            onChange={e => { const f = e.target.files?.[0]; e.target.value = ''; pickImage(f); }}
+                          />
+                          <button
+                            onClick={() => fileRef.current?.click()}
+                            disabled={imgBusy || sending}
+                            title="إرفاق صورة (JPG أو PNG) — واتساب لا يقبل WEBP في رسالة الصورة"
+                            className={`text-xs rounded-xl px-3 py-2.5 border transition-colors shrink-0 disabled:opacity-50 ${
+                              img ? 'bg-emerald-500/15 text-emerald-300 border-emerald-500/50' : 'text-gray-500 border-gray-800 hover:text-white'}`}
+                          >{imgBusy ? '⏳' : '🖼️'}</button>
+                        </>
+                      )}
                       {/* 🎭 وضع «بلسان العميل»: نصّك لا يصل العميل — يصله ردّ الدون عليه */}
                       <button
                         onClick={() => setAsCustomer(v => !v)}
-                        title={asCustomer
+                        disabled={!!img || imgBusy}
+                        title={img || imgBusy
+                          ? 'أزل الصورة أوّلاً — وضع «بلسان العميل» نصٌّ فقط'
+                          : asCustomer
                           ? 'وضع الحقن: ما تكتبه يصل الدون كأنه من العميل، فيردّ هو على العميل'
                           : 'تحويل لوضع «بلسان العميل» — يجعل الدون يردّ بدلاً منك'}
-                        className={`text-xs rounded-xl px-3 py-2.5 border transition-colors shrink-0 ${
+                        className={`text-xs rounded-xl px-3 py-2.5 border transition-colors shrink-0 disabled:opacity-40 disabled:cursor-not-allowed ${
                           asCustomer ? 'bg-violet-500/15 text-violet-300 border-violet-500/50' : 'text-gray-500 border-gray-800 hover:text-white'}`}
                       >🎭</button>
                       {/* ✨ إطفاءُ الصياغة لهذه الرسالة — للروابط وأرقام الحوالات ورموز التحقّق */}
@@ -1050,14 +1150,14 @@ export default function WhatsAppInboxPage() {
                         value={draft}
                         onChange={e => setDraft(e.target.value)}
                         onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); } }}
-                        placeholder={asCustomer ? 'اكتب بلسان العميل — الدون هو من سيردّ عليه…' : 'اكتب رداً كموظف…'}
+                        placeholder={asCustomer ? 'اكتب بلسان العميل — الدون هو من سيردّ عليه…' : img ? 'تعليق الصورة (اختياريّ)…' : 'اكتب رداً كموظف…'}
                         className={`flex-1 bg-gray-950 border rounded-xl px-4 py-2.5 text-sm text-white placeholder-gray-600 outline-none ${
                           asCustomer ? 'border-violet-500/50 focus:border-violet-400' : 'border-gray-800 focus:border-amber-500'}`}
                         disabled={sending}
                       />
                       <button
                         onClick={send}
-                        disabled={sending || !draft.trim()}
+                        disabled={sending || imgBusy || (!draft.trim() && !img)}
                         className={`disabled:opacity-40 disabled:cursor-not-allowed text-gray-950 font-bold rounded-xl px-5 py-2.5 text-sm transition-colors ${
                           asCustomer ? 'bg-violet-400 hover:bg-violet-300' : 'bg-emerald-500 hover:bg-emerald-400'}`}
                       >
@@ -1529,6 +1629,37 @@ function ImageBubble({ m, onOpen }: { m: any; onOpen: (url: string) => void }) {
       <div className="text-[10px] text-gray-500 mt-1">
         {m.msgType === 'sticker' ? '🩵 ملصق' : '📷 صورة'} · الدون لا يقرأ الصور
       </div>
+    </div>
+  );
+}
+
+// ══════════════════════════════════════════════════════
+// 🖼️ فقاعة الصورة الصادرة — من رابطنا مباشرةً
+// ══════════════════════════════════════════════════════
+// لا حاجة لوكيل `/messages/:id/media` هنا: `payload.image.link` هو الرابط المطلق
+// الذي سحبت ميتا الصورةَ منه، مخدومٌ عامّاً من `/uploads/` — فيُستعمل كما هو بلا
+// بادئة API_URL (هو مطلقٌ أصلاً بـPUBLIC_URL).
+function OutImageBubble({ m, onOpen }: { m: any; onOpen: (url: string) => void }) {
+  const link: string = m.payload?.image?.link || '';
+  const [err, setErr] = useState(false);
+  const caption = m.body && m.body !== '📷 صورة' ? m.body : '';
+  return (
+    <div className="min-w-[160px]">
+      {err ? (
+        <div className="text-[11.5px] text-rose-400 border border-rose-500/30 bg-rose-500/5 rounded-lg px-2.5 py-2">
+          ⚠️ تعذّر عرض الصورة — وصلت العميل كما في السجل
+        </div>
+      ) : (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img
+          src={link}
+          alt=""
+          onError={() => setErr(true)}
+          onClick={() => onOpen(link)}
+          className="rounded-xl border border-emerald-900/70 cursor-zoom-in max-w-[210px] max-h-[260px]"
+        />
+      )}
+      {caption && <div className="mt-1.5 whitespace-pre-wrap break-words">{caption}</div>}
     </div>
   );
 }
