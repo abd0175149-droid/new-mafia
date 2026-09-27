@@ -71,7 +71,7 @@ export async function countBookedPeopleBatch(activityIds: number[]): Promise<Map
       activityId: reservations.activityId,
       total: sql<number>`COALESCE(SUM(
         (CASE WHEN ${reservations.appConfirmed} THEN 0 ELSE 1 END)
-        + GREATEST(COALESCE(${reservations.peopleCount}, 1) - 1 - (SELECT COUNT(*) FROM booking_group_members m JOIN booking_groups g ON g.id = m.group_id JOIN bookings b ON b.id = m.booking_id AND b.deleted_at IS NULL WHERE g.reservation_id = ${reservations.id} AND g.status <> 'void' AND m.status IN ('booked','joined')), 0)
+        + GREATEST(COALESCE(${reservations.peopleCount}, 1) - 1 - (SELECT COUNT(*) FROM booking_group_members m JOIN booking_groups g ON g.id = m.group_id JOIN bookings b ON b.id = m.booking_id AND b.deleted_at IS NULL WHERE g.reservation_id = "reservations"."id" AND g.status <> 'void' AND m.status IN ('booked','joined')), 0)
       ), 0)::int`,
     })
     .from(reservations)

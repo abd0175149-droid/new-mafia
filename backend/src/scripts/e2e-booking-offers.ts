@@ -119,7 +119,8 @@ async function main() {
   const lineOmar = plan.card.split('\n').find((l: string) => l.startsWith('• عمر ✓'));
   const lineFadi = plan.card.split('\n').find((l: string) => l.startsWith('• فادي ✓'));
   ok('🔒 صاحب الحساب والجديد يظهران بالعلامة نفسها (لا تعداد للحسابات)', !!lineOmar && !!lineFadi && lineOmar.replace('عمر', 'X') === lineFadi.replace('فادي', 'X'), `${lineOmar} | ${lineFadi}`);
-  ok('🔒 البطاقة لا تحمل اسم الحساب ولا كلمة «حساب»', !plan.card.includes(TAG) && !/حساب/.test(plan.card));
+  // الجملة العامّة عن «من ما عنده حساب» واحدةٌ للجميع فلا تكشف شيئاً؛ الممنوع اسمُ الحساب المسجّل
+  ok('🔒 البطاقة بالأسماء التي كتبها صاحب الحجز لا بأسماء الحسابات', !plan.card.includes('عمر ' + TAG) && !plan.card.includes('خالد ' + TAG));
 
   // ══════════ ٣. التثبيت ══════════
   section('٣. التثبيت');
