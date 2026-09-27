@@ -114,6 +114,33 @@ export async function buildAffinityPairs(params: {
     } catch (e: any) {
       console.warn('⚠️ affinity: group-booking signal skipped:', e.message);
     }
+
+    // ── 2️⃣′ مجموعاتُ عروض الحجز («جيب صحابك») — أوّلُ مرافقين بهويّة: صاحبُ المجموعة
+    //    سجّل اسم كلّ صديقٍ ورقمه، فهم مجموعةٌ واحدة بيقين (نفسُ وزن الحجز الجماعيّ) ──
+    try {
+      const res = await db.execute(sql`
+        SELECT g.id AS gid, g.owner_phone AS phone, g.owner_player_id AS player_id FROM booking_groups g
+         WHERE g.activity_id = ${activityId} AND g.status <> 'void'
+        UNION ALL
+        SELECT m.group_id, m.phone, m.player_id FROM booking_group_members m JOIN booking_groups g ON g.id = m.group_id
+         WHERE g.activity_id = ${activityId} AND g.status <> 'void' AND m.status IN ('booked','pending','joined')
+      `);
+      const byGroup = new Map<number, Array<{ phone: string; playerId: number | null }>>();
+      for (const r of rowsOf(res)) {
+        const arr = byGroup.get(Number(r.gid)) || [];
+        arr.push({ phone: normalizeSeatPhone(r.phone), playerId: r.player_id ? Number(r.player_id) : null });
+        byGroup.set(Number(r.gid), arr);
+      }
+      for (const ids of byGroup.values()) {
+        const members = people.filter(p => ids.some(x =>
+          (x.playerId && p.playerId && Number(p.playerId) === x.playerId) || (x.phone && x.phone === normalizeSeatPhone(p.phone))));
+        for (let i = 0; i < members.length; i++)
+          for (let j = i + 1; j < members.length; j++)
+            put(map, personKey(members[i]), personKey(members[j]), AFFINITY_WEIGHTS.GROUP_BOOKING);
+      }
+    } catch (e: any) {
+      console.warn('⚠️ affinity: offer-group signal skipped:', e.message);
+    }
   }
 
   if (idList.length >= 2) {

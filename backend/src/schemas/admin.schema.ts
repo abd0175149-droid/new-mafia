@@ -168,6 +168,9 @@ export const bookings = pgTable('bookings', {
   checkedIn: boolean('checked_in').default(false),
   // 🎟️ زيارة مجّانيّة من بطاقة الولاء — يربط الحجز بمكافأته (إلغاء الحجز يعيدها)
   loyaltyRewardId: integer('loyalty_reward_id'),
+  // 👥 عضويّةُ مجموعة عرض الحجز (booking_groups) — والمجّانيّ بالعرض يحمل سببه كما يحمل الولاءُ loyalty_reward_id
+  groupId: integer('group_id'),
+  offerFree: boolean('offer_free').default(false),
   createdAt: timestamp('created_at').defaultNow().notNull(),
   deletedAt: timestamp('deleted_at'),
 });
@@ -425,6 +428,8 @@ export const waConversations = pgTable('wa_conversations', {
   followupLastAt: timestamp('followup_last_at'),
   followupStoppedAt: timestamp('followup_stopped_at'),
   followupStopReason: varchar('followup_stop_reason', { length: 40 }).default(''),
+  // 🎟️ عروضُ الحجز التي أُعلنت لهذه المحادثة { offerId: ISO } — فرضُ «مرّةً واحدة» بالشيفرة لا بالموجّه
+  offersAnnounced: jsonb('offers_announced').default({}),
   status: varchar('status', { length: 20 }).default('open').notNull(), // open | closed
   createdAt: timestamp('created_at').defaultNow().notNull(),
   updatedAt: timestamp('updated_at').defaultNow().notNull(),
@@ -703,4 +708,73 @@ export const presenceChecks = pgTable('presence_checks', {
   isMocked: boolean('is_mocked').default(false),
   enforced: boolean('enforced').default(true),          // false = وضع القياس (لا منع)
   createdAt: timestamp('created_at').defaultNow().notNull(),
+});
+
+// ══════════════════════════════════════════════════════
+// 🎟️ عروض الحجز الجماعيّ — «جيب صحابك» (2026-09-28)
+// ══════════════════════════════════════════════════════
+// عرضٌ = «كلّ N يدفع منهم K» على فعاليّاتٍ محدَّدة، في نافذة حجز، بمهلةٍ قبل الفعاليّة.
+// المجموعةُ = مطالبةٌ بالعرض + هويّةُ كلّ عضو (اسمٌ ورقم يرسلهما صاحب الحجز للدون):
+//   • صديقٌ له حساب ⟵ حجزٌ مستقلّ باسمه مربوطٌ بالمجموعة (وسم GROUP_BOOKING_TAG)
+//   • صديقٌ جديد ⟵ عضوٌ معلَّق يُربط لحظة حجزه من التطبيق بنفس الرقم
+// الحسمُ عند الباب على الحاضرين الدافعين بشروط اللقطة المحفوظة (terms) لا بما في لوحة العروض الآن.
+export const bookingOffers = pgTable('booking_offers', {
+  id: serial('id').primaryKey(),
+  name: varchar('name', { length: 120 }).notNull(),
+  status: varchar('status', { length: 12 }).default('draft').notNull(),   // draft | live | paused (المجدول والمنتهي يُشتقّان من الوقت)
+  groupSize: integer('group_size').notNull(),                            // N
+  payFor: integer('pay_for').notNull(),                                  // K
+  repeat: boolean('repeat').default(true).notNull(),                     // يتكرّر مع كلّ N
+  bookFrom: timestamp('book_from').notNull(),                            // نافذةُ الحجز/الترقية
+  bookUntil: timestamp('book_until').notNull(),
+  leadHours: integer('lead_hours').default(0).notNull(),                 // الحجز قبل الفعاليّة بـX ساعة على الأقلّ
+  activityIds: jsonb('activity_ids').default([]).notNull(),
+  maxGroups: integer('max_groups').default(0).notNull(),                 // 0 = بلا سقف
+  perCustomer: integer('per_customer').default(1).notNull(),
+  priorityHours: integer('priority_hours').default(24).notNull(),        // حصّةُ الحاجزين مسبقاً بعد الإبلاغ
+  announce: boolean('announce').default(true).notNull(),
+  announceText: text('announce_text').default(''),
+  notifyExisting: boolean('notify_existing').default(true).notNull(),
+  notifiedAt: timestamp('notified_at'),
+  createdBy: varchar('created_by', { length: 100 }).default(''),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+  updatedAt: timestamp('updated_at').defaultNow().notNull(),
+  deletedAt: timestamp('deleted_at'),
+});
+
+export const bookingGroups = pgTable('booking_groups', {
+  id: serial('id').primaryKey(),
+  activityId: integer('activity_id').notNull(),
+  reservationId: integer('reservation_id'),                 // حجزُ صاحب المجموعة في المتابعة
+  ownerPhone: varchar('owner_phone', { length: 20 }).notNull(),
+  ownerPlayerId: integer('owner_player_id'),
+  ownerName: varchar('owner_name', { length: 150 }).default(''),
+  conversationId: integer('conversation_id'),
+  offerId: integer('offer_id'),
+  terms: jsonb('terms').default({}).notNull(),             // لقطةُ الشروط والسعر لحظة المطالبة
+  declaredPeople: integer('declared_people').notNull(),    // حجمُ المجموعة المعلَن (الطيُّ يمحو people_count فيُحفظ هنا)
+  promisedFree: integer('promised_free').default(0).notNull(),
+  source: varchar('source', { length: 12 }).default('bot').notNull(),   // bot | upgrade | door
+  priority: boolean('priority').default(false).notNull(),               // استهلك حصّةً محجوزة للحاجزين مسبقاً
+  status: varchar('status', { length: 12 }).default('claimed').notNull(), // claimed | settled | void
+  settledFree: integer('settled_free'),
+  settledAt: timestamp('settled_at'),
+  settledBy: varchar('settled_by', { length: 100 }),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+  updatedAt: timestamp('updated_at').defaultNow().notNull(),
+});
+
+export const bookingGroupMembers = pgTable('booking_group_members', {
+  id: serial('id').primaryKey(),
+  groupId: integer('group_id').notNull(),
+  activityId: integer('activity_id').notNull(),
+  name: varchar('name', { length: 100 }).notNull(),         // كما كتبه صاحب المجموعة — لا اسمُ الحساب
+  phone: varchar('phone', { length: 20 }),                  // مطبَّع (07XXXXXXXX)؛ يُمحى بالاحتفاظ
+  playerId: integer('player_id'),
+  bookingId: integer('booking_id'),
+  status: varchar('status', { length: 12 }).default('pending').notNull(), // booked | pending | joined | declined | removed
+  inviteToken: varchar('invite_token', { length: 48 }),
+  acceptedAt: timestamp('accepted_at'),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+  updatedAt: timestamp('updated_at').defaultNow().notNull(),
 });

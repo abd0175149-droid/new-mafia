@@ -478,8 +478,18 @@ export async function execExtTool(name: string, args: any, ctx: Ctx, h: ExtHelpe
         .where(and(eq(reservations.activityId, actId), isNull(reservations.deletedAt), notTestActivity, sql`(${reservations.phone} = ${conv.phone} ${conv.playerId ? sql`OR ${reservations.playerId} = ${conv.playerId}` : sql``})`)).limit(1);
       if (!r) return { found: false, note: 'لا حجز له في هذه الفعاليّة — اعرض حجزاً جديداً' };
       if (Number(r.people) === n) return { same: true, note: 'العدد هو نفسه — لا تغيير' };
-      await show(confirmButtons(`✏️ تعديل حجزك في «${r.name}» (${h.fmtJo(r.date)})\nمن ${r.people} إلى ${n} أشخاص — أثبّت التعديل؟`, `chgp:${r.id}:${n}`, 'ثبّت التعديل ✓', 'chg_keep'), `تعديل العدد ${r.people}→${n}`);
-      return { sent: true, note: 'أُرسلت أزرار التأكيد — التنفيذ آليّ بعد ضغطه.' };
+      // 🎟️ العددُ الجديد يستحقّ عرضاً؟ العرضُ يُثبَّت بأسماء الأصحاب وأرقامهم لا بزرّ العدد
+      let offerLine = ''; let groupOffer: any;
+      try {
+        const { evaluateForCustomer } = await import('./booking-offers.service.js');
+        const ev = await evaluateForCustomer({ activityId: actId, people: n, phone: conv.phone, playerId: conv.playerId ?? null });
+        if (ev.best) {
+          groupOffer = { name: ev.best.name, free: ev.best.free, pay: ev.best.pay, priority: ev.best.priority };
+          offerLine = `\n🎁 على ${n} في عرض «${ev.best.name}» (${ev.best.free === 1 ? 'واحد' : ev.best.free} ببلاش)${ev.best.priority ? ' ومحفوظلك كحاجز من قبل' : ''} — لتاخده ابعتلي اسم ورقم كل واحد من أصحابك بدل هالزرّ.`;
+        }
+      } catch { /* بلا عرض */ }
+      await show(confirmButtons(`✏️ تعديل حجزك في «${r.name}» (${h.fmtJo(r.date)})\nمن ${r.people} إلى ${n} أشخاص${offerLine}\n\nأثبّت التعديل؟`, `chgp:${r.id}:${n}`, 'ثبّت التعديل ✓', 'chg_keep'), `تعديل العدد ${r.people}→${n}`);
+      return { sent: true, ...(groupOffer ? { groupOffer, groupOfferHowTo: 'للعرض: اطلب اسم ورقم كلّ صديق ثمّ set_group_members — التعديلُ العاديّ لا يثبّت العرض.' } : {}), note: 'أُرسلت أزرار التأكيد — التنفيذ آليّ بعد ضغطه.' };
     }
 
     case 'get_tonight_schedule': {

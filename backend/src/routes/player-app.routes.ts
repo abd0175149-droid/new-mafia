@@ -239,6 +239,8 @@ router.delete('/book/:activityId', authenticatePlayer, async (req: Request, res:
     }
 
     await db.update(bookings).set({ deletedAt: new Date() } as any).where(eq(bookings.id, bk.id));
+    // 👥 عضوٌ في مجموعة عرض ألغى ⟵ يخرج منها وتصغر ويُبلَّغ صاحبها
+    import('../services/booking-offers.service.js').then(m => m.onBookingDeleted(bk.id)).catch(() => {});
     // 🎟️ زيارة مجّانيّة كانت مطبَّقة على هذا الحجز → تعود متاحة
     if ((bk as any).loyaltyRewardId) {
       try { const { releaseFreeVisit } = await import('../services/loyalty.service.js'); await releaseFreeVisit(bk.id); } catch { /* غير حاجب */ }
@@ -319,6 +321,12 @@ router.post('/book', authenticatePlayer, requireConsent, async (req: Request, re
       .limit(1);
 
     if (existingBooking.length > 0) {
+      // 👥 حجزٌ أنشأه صاحبٌ له ضمن مجموعة عرض ⟵ حجزُه من التطبيق = تأكيدُه بنفسه، لا «محجوز مسبقاً»
+      try {
+        const { acceptByAppBooking } = await import('../services/booking-offers.service.js');
+        const acc = await acceptByAppBooking({ playerId: player.playerId ?? null, phone: player.phone, activityId });
+        if (acc) return res.status(201).json({ success: true, booking: acc, loyalty: null, groupAccepted: true });
+      } catch (e: any) { console.warn('⚠️ group accept on app booking:', e?.message); }
       return res.status(409).json({ error: 'محجوز مسبقاً لهذا النشاط' });
     }
 
@@ -349,6 +357,12 @@ router.post('/book', authenticatePlayer, requireConsent, async (req: Request, re
       createdBy: 'player-app',
       offerItems: offerId === null ? [] : [offerId],
     } as any).returning();
+
+    // 👥 صاحبٌ سجّله برقمه في مجموعة عرض قبل أن يكون له حساب ⟵ يُربط بها تلقائيّاً
+    try {
+      const { linkOnAppBooking } = await import('../services/booking-offers.service.js');
+      await linkOnAppBooking({ playerId: player.playerId ?? null, phone: player.phone, activityId, bookingId: result[0].id });
+    } catch (e: any) { console.warn('⚠️ group link on app booking:', e?.message); }
 
     // 📋 حجز المتابعة: حجز اللاعب بنفسه من التطبيق = تثبيتٌ تلقائيّ (أقوى تأكيدٍ من ردّ الواتساب).
     // إن وُجد حجزٌ مُدخَل مسبقاً (يدويّاً) → يُوسم ويُثبَّت ويُربط بحسابه. وإن لم يوجد → يُنشأ

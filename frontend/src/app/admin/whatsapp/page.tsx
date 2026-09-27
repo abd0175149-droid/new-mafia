@@ -15,6 +15,7 @@ import BookingForm from '../components/BookingForm';
 import BroadcastTab from './BroadcastTab';
 import PerformanceTab from './PerformanceTab';
 import RewardsTab from './RewardsTab';
+import BookingOffersTab from './BookingOffersTab';
 import HealthBar from './HealthBar';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || '';
@@ -226,7 +227,7 @@ export default function WhatsAppInboxPage() {
   const [mobilePane, setMobilePane] = useState<'list' | 'chat' | 'info'>('list');
   // مستويان بدل خمسة تبويباتٍ متساوية: الوارد عملٌ يوميّ، والإدارة ضبطٌ وتحليل
   const [mainTab, setMainTab] = useState<'chat' | 'admin'>('chat');
-  const [adminSec, setAdminSec] = useState<'don' | 'know' | 'perf' | 'cast' | 'offers'>('don');
+  const [adminSec, setAdminSec] = useState<'don' | 'know' | 'perf' | 'cast' | 'offers' | 'bookoffers'>('don');
   const [noteDraft, setNoteDraft] = useState('');
   const [showLink, setShowLink] = useState(false);
   const [linkQ, setLinkQ] = useState('');
@@ -419,8 +420,8 @@ export default function WhatsAppInboxPage() {
         setMainTab('chat');
         openConv(id);
       } else if (tab) {
-        const SEC: Record<string, 'don' | 'know' | 'perf' | 'cast' | 'offers'> = {
-          rewards: 'offers', offers: 'offers', broadcast: 'cast', cast: 'cast',
+        const SEC: Record<string, 'don' | 'know' | 'perf' | 'cast' | 'offers' | 'bookoffers'> = {
+          rewards: 'offers', offers: 'offers', bookoffers: 'bookoffers', 'booking-offers': 'bookoffers', broadcast: 'cast', cast: 'cast',
           quality: 'perf', perf: 'perf', bot: 'don', don: 'don', know: 'know',
         };
         if (SEC[tab]) { setMainTab('admin'); setAdminSec(SEC[tab]); }
@@ -700,7 +701,8 @@ export default function WhatsAppInboxPage() {
               ['perf', '📈 الأداء والكلفة'],
               ['sep', 'الوصول للناس'],
               ['cast', '📢 البثّ'],
-              ['offers', '🎁 العروض'],
+              ['bookoffers', '🎟️ عروض الحجز'],
+              ['offers', '🎁 نقاط الحديث'],
             ] as const).map(([k, l], i) => k === 'sep' ? (
               <div key={'s' + i} className="hidden md:block text-[9.5px] font-bold text-gray-600 px-2.5 pt-2.5 pb-1">{l}</div>
             ) : (
@@ -726,6 +728,7 @@ export default function WhatsAppInboxPage() {
             )}
             {adminSec === 'cast' && <BroadcastTab apiFetch={apiFetch} />}
             {adminSec === 'offers' && <RewardsTab apiFetch={apiFetch} />}
+            {adminSec === 'bookoffers' && <BookingOffersTab apiFetch={apiFetch} />}
           </div>
         </div>
       )}
@@ -1460,7 +1463,7 @@ const TOOL_CATS: Array<{ key: string; label: string; tools: string[] }> = [
 
 const TOOL_LABELS: Record<string, string> = {
   activities: 'عرض الفعاليات (قائمة تفاعلية)',
-  reservation: 'إنشاء حجز مؤكد (بأزرار تأكيد)',
+  reservation: 'إنشاء حجز مؤكد (بأزرار تأكيد) + مجموعات عروض الحجز',
   myBookings: '«شو حجوزاتي؟»',
   notes: 'الملاحظات الدائمة (الذاكرة)',
   handoff: 'التحويل للإدارة',

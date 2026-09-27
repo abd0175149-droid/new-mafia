@@ -12,6 +12,10 @@
 
 import { eq, and, desc, asc, gte, sql, isNull, or, inArray } from 'drizzle-orm';
 import { notTestActivity, isTestActivity, testActivityIds, TEST_ACTIVITY_RESULT } from './test-location.util.js';
+import {
+  planGroup, commitGroup, evaluateForCustomer, ruleText, offerBadgesFor, offerFactsLines, announcementFor, markAnnounced,
+  loadActivity as loadOfferActivity, inviteInfo, acceptInvite, declineInvite, onReservationDeleted,
+} from './booking-offers.service.js';
 import crypto from 'crypto';
 import bcrypt from 'bcryptjs';
 import { getDB } from '../config/db.js';
@@ -828,6 +832,19 @@ function buildToolDeclarations(toolsConfig: any, opts?: { adminOnlyTools?: strin
         required: ['activity_id', 'people_count', 'summary'],
       },
     });
+    // 🎟️ عروض الحجز الجماعيّ: العميل يرسل اسم ورقم كلّ صديق ⟵ بطاقةُ تأكيدٍ حتميّة، والحجزُ بضغطته
+    decls.push({
+      name: 'set_group_members',
+      description: 'حجز مجموعة لعرض «جيب صحابك»: حين يعطيك العميل اسم ورقم كلّ صديق. ترسل بطاقة تأكيد حتميّة بالأسماء والتكلفة، والحجز يُنشأ بضغطة العميل. لا تقل أبداً إن كان لرقمٍ حساب.',
+      parameters: {
+        type: 'OBJECT',
+        properties: {
+          activity_id: { type: 'NUMBER', description: 'معرّف الفعاليّة' },
+          members: { type: 'ARRAY', description: 'أصدقاؤه دون العميل نفسه', items: { type: 'OBJECT', properties: { name: { type: 'STRING' }, phone: { type: 'STRING' } }, required: ['name', 'phone'] } },
+        },
+        required: ['activity_id', 'members'],
+      },
+    });
     decls.push({
       name: 'create_reservation',
       description: 'إنشاء حجز مؤكد **باسم صاحب هذه المحادثة نفسه** في متابعة الحجوزات. تُستدعى حصراً بعد أن يضغط العميل زر التأكيد (يصلك اختيار يبدأ بـ res_confirm يحمل المعرف والعدد). ⛔ لا تُستعمل أبداً لحجز شخصٍ آخر ولو طلب الأدمن ذلك — لذلك admin_add_booking برقم الشخص.',
@@ -1259,6 +1276,55 @@ async function resolveBotCity(db: any, playerId: number | null | undefined, city
   return { cityId: hit?.id ?? null, cityName: hit?.name ?? null, cities: list };
 }
 
+// 🎟️ أزرار مجموعات العرض — مساراتٌ حتميّة بلا نموذج
+//    grp_ok:<act>   تثبيتُ المجموعة من بطاقة set_group_members (يُعاد الفحص كاملاً لحظة الضغط)
+//    grp_add:<act>  «أضيف أصحابي» من إبلاغ الحاجزين ⟵ طلبُ الأسماء والأرقام
+//    grpm_ok|no:<token>  صديقٌ له حساب يؤكّد أو يرفض من واتساب
+const ANNOUNCE_BLOCKERS = /^(ask_confirmation|create_reservation|set_group_members|request_change_people|request_cancellation|cancel_|handoff_to_human|start_registration|confirm_account_link|reset_password|password_|admin_|🛡️)/;
+async function handleOfferButton(conv: any, btnId: string): Promise<boolean> {
+  const say = (text: string) => sendMessage({ conversationId: conv.id, text, source: 'bot' }).catch(() => {});
+  let m = /^grp_ok:(\d+)$/.exec(btnId);
+  if (m) {
+    const { getAux, deleteAux } = await import('../config/redis.js');
+    const p = await getAux(`grp:${conv.id}`); await deleteAux(`grp:${conv.id}`).catch(() => {});
+    if (!p || p.expiresAt < Date.now() || Number(p.activityId) !== Number(m[1])) { await say('انتهت صلاحيّة الطلب (10 دقائق) — ابعتلي الأسماء والأرقام كمان مرّة 🙏'); return true; }
+    const r = await commitGroup({
+      conv, activityId: Number(m[1]), members: p.members, botTag: `🤖 ${BOT_RESERVATION_TAG}`, contactMethod: BOT_RESERVATION_TAG,
+      h: { sendMessage, mirrorReservation: mirrorBotReservationToBookings as any, notifyAdmins },
+    });
+    await say(r.text);
+    const { deleteAux: del } = await import('../config/redis.js'); await del(`grp-ctx:${conv.id}`).catch(() => {});
+    return true;
+  }
+  if (btnId === 'grp_cancel') { await say('تمام، ما ثبّتت شي 👍 إذا بدك تعدّل الأسماء أو الأرقام ابعتلي ياهم.'); return true; }
+  m = /^grp_add:(\d+)$/.exec(btnId);
+  if (m) {
+    const { setAux } = await import('../config/redis.js');
+    await setAux(`grp-ctx:${conv.id}`, { activityId: Number(m[1]), expiresAt: Date.now() + 60 * 60e3 });
+    const act = await loadOfferActivity(Number(m[1]));
+    await say(`تمام 👌 ابعتلي اسم ورقم كل واحد من أصحابك${act ? ` لـ«${act.name}»` : ''} — كل واحد بسطر، مثلاً:\nعمر 0791234567\nفادي 0781234567`);
+    return true;
+  }
+  if (btnId === 'grp_no') { await say('تمام 👍 حجزك زي ما هو.'); return true; }
+  m = /^grpm_(ok|no):([a-f0-9]{24,48})$/.exec(btnId);
+  if (m) {
+    const info = await inviteInfo(m[2]);
+    // 🔒 الدعوة لصاحب رقمها فقط — زرٌّ من محادثةٍ أخرى لا يؤكّد ولا يحذف حجز غيره
+    const own: any = await getDB()?.execute(sql`SELECT phone FROM booking_group_members WHERE invite_token = ${m[2]} LIMIT 1`);
+    const ownPhone = ((own?.rows ?? own) || [])[0]?.phone;
+    if (!info || !ownPhone || ownPhone !== conv.phone) { await say('ما لقيت الدعوة 🙏'); return true; }
+    if (m[1] === 'ok') {
+      const r = await acceptInvite(m[2]);
+      await say(r.ok ? `تمام ✓ ثبّتت إنك جاي مع ${info.ownerFirstName || 'صاحبك'} على «${info.activity?.name || ''}» 🎭` : 'ما قدرت أثبّت 🙏 ممكن الحجز انلغى.');
+    } else {
+      await declineInvite(m[2]);
+      await say('تمام 👍 شلتك من المجموعة، وما في حجز باسمك.');
+    }
+    return true;
+  }
+  return false;
+}
+
 function extHelpers(): ExtHelpers {
   return { sendMessage, isAdminConversation, notifyAdmins, fmtJo, seatAvailability, mirrorReservation: mirrorBotReservationToBookings as any };
 }
@@ -1284,11 +1350,14 @@ async function execTool(name: string, args: any, ctx: ToolCtx): Promise<any> {
     case 'get_available_activities': {
       const acts = await fetchUpcomingActivities(db);
       if (acts.length === 0) return { activities: [], note: 'لا فعاليات قادمة متاحة حالياً — انصح العميل بمتابعة الإعلانات' };
+      // 🎟️ وسمُ «🎁 ٤+١» على كلّ فعاليّةٍ عليها عرضٌ فعّال
+      const offerBadges = await offerBadgesFor(acts.map((a: any) => Number(a.id))).catch(() => new Map());
+      for (const a of acts as any[]) { const b = offerBadges.get(Number(a.id)); if (b) a.groupOffer = { name: b.name, rule: b.rule }; }
       // إرسال قائمة تفاعلية للعميل تلقائياً
       const rows = acts.slice(0, 10).map(a => ({
         id: `act:${a.id}`,
         title: a.name.slice(0, 24),
-        description: `${a.dateText}${a.location ? ' · ' + a.location : ''}${a.city ? ' · ' + a.city : ''}${a.availability === 'مكتملة' ? ' · ⛔ مكتملة' : a.availability === 'شارفت تكتمل' ? ' · ⏳ شارفت تكتمل' : ''}`.slice(0, 72),
+        description: `${(a as any).groupOffer ? offerBadges.get(Number(a.id))!.tag + ' · ' : ''}${a.dateText}${a.location ? ' · ' + a.location : ''}${a.city ? ' · ' + a.city : ''}${a.availability === 'مكتملة' ? ' · ⛔ مكتملة' : a.availability === 'شارفت تكتمل' ? ' · ⏳ شارفت تكتمل' : ''}`.slice(0, 72),
       }));
       const interactive = {
         type: 'list',
@@ -1314,22 +1383,18 @@ async function execTool(name: string, args: any, ctx: ToolCtx): Promise<any> {
       if (await isTestActivity(db, activityId)) return TEST_ACTIVITY_RESULT;
       const people = Math.max(1, parseInt(args.people_count) || 1);
       const [act] = await db
-        .select({ id: activities.id, name: activities.name, date: activities.date, basePrice: activities.basePrice, enabledOfferIds: activities.enabledOfferIds, locOffers: locations.offers })
+        .select({ id: activities.id, name: activities.name, date: activities.date, basePrice: activities.basePrice })
         .from(activities)
-        .leftJoin(locations, eq(activities.locationId, locations.id))
         .where(eq(activities.id, activityId)).limit(1);
       if (!act) return { error: 'الفعالية غير موجودة — أعد عرض الفعاليات' };
       const unit = Number(act.basePrice || 0);
       const total = Math.round(unit * people * 100) / 100;
-      const allOffers: any[] = Array.isArray(act.locOffers) ? (act.locOffers as any[]) : [];
-      const enabledIdx: number[] = Array.isArray(act.enabledOfferIds) ? (act.enabledOfferIds as any[]) : [];
-      const offers = (enabledIdx.length ? allOffers.filter((_: any, idx: number) => enabledIdx.includes(idx)) : allOffers)
-        .map((o: any) => ({
-          title: o?.title || o?.name || o?.label || '',
-          price: o?.price ?? o?.amount ?? null,
-          details: o?.description || o?.details || '',
-        }))
-        .filter((o: any) => o.title || o.price != null);
+      // 🎟️ عروض الحجز الجماعيّ — المحرّك الواحد (booking-offers.service). حلّ محلّ باقات
+      //    locations.offers المجمَّدة منذ توحيد المنيو (فارغة في كلّ الأماكن).
+      const ev = await evaluateForCustomer({ activityId, people, phone: conv.phone, playerId: conv.playerId ?? null }).catch(() => null);
+      const bestO = ev?.best || null, nudgeO = ev?.nudge || null;
+      const blockedO = (ev?.evals || []).filter(e => e.state === 'live' && !e.ok)
+        .map(e => ({ name: e.name, reason: e.reasons.find(r => r.customer)?.text })).filter(x => x.reason);
       let freeAccount = false;
       if (conv.playerId) {
         const [p] = await db.select({ isFreeAccount: players.isFreeAccount }).from(players).where(eq(players.id, conv.playerId)).limit(1);
@@ -1343,10 +1408,20 @@ async function execTool(name: string, args: any, ctx: ToolCtx): Promise<any> {
         totalJOD: total,
         currency: 'دينار أردني (د.أ)',
         freeAccount,
-        offers: offers.length ? offers : undefined,
+        groupOffer: bestO ? {
+          id: bestO.offerId, name: bestO.name, rule: ruleText(bestO.terms), free: bestO.free, pay: bestO.pay,
+          totalJOD: Math.round(bestO.pay * unit * 100) / 100, savingsJOD: Math.round(bestO.free * unit * 100) / 100,
+          ...(bestO.grandfathered ? { existingBookerPriority: true } : {}),
+        } : undefined,
+        groupOfferNudge: nudgeO?.nudge ? {
+          name: nudgeO.name, addPeople: nudgeO.nudge.need, thenPeople: nudgeO.nudge.people, thenFree: nudgeO.nudge.free,
+          thenTotalJOD: Math.round((nudgeO.nudge.people - nudgeO.nudge.free) * unit * 100) / 100,
+        } : undefined,
+        groupOfferNotApplicable: blockedO.length && !bestO ? blockedO : undefined,
+        groupOfferHowTo: (bestO || nudgeO) ? 'اشرح العرض بأرقامه وشجّعه يجيب أصحابه. لتثبيته: اطلب اسم ورقم كلّ صديق ثمّ set_group_members (لا ask_confirmation). العرض على الحضور الفعليّ.' : undefined,
         note: unit === 0
           ? 'السعر غير مسجّل بالنظام لهذه الفعالية — لا تخترع رقماً: قل إن السعر يُؤكَّد بالمكان أو اعرض التحويل للإدارة'
-          : `اذكر بدقة وبلا أي حساب يدوي: سعر الشخص ${unit} د.أ${people > 1 ? ` والإجمالي لـ${people} أشخاص ${total} د.أ` : ''} — الدفع بالمكان عند الحضور${freeAccount ? '. حسابه مجاني 🎉: حجزه الشخصي بلا رسوم' : ''}${offers.length ? '. توجد عروض مفعّلة — اعرضها عليه إن ناسبته' : ''}.`,
+          : `اذكر بدقة وبلا أي حساب يدوي: سعر الشخص ${unit} د.أ${people > 1 ? ` والإجمالي لـ${people} أشخاص ${total} د.أ` : ''} — الدفع بالمكان عند الحضور${freeAccount ? '. حسابه مجاني 🎉: حجزه الشخصي بلا رسوم ولا يُحسب ضمن عدد عرض المجموعة' : ''}${bestO ? `. 🎁 ينطبق عرض «${bestO.name}»: يدفع ${bestO.pay} من ${people} (${Math.round(bestO.pay * unit * 100) / 100} د.أ بدل ${total})` : nudgeO?.nudge ? `. 🎁 لو زاد ${nudgeO.nudge.need} صار ${nudgeO.nudge.people} وأخذ عرض «${nudgeO.name}»` : ''}.`,
       };
     }
 
@@ -1438,9 +1513,15 @@ async function execTool(name: string, args: any, ctx: ToolCtx): Promise<any> {
       const costLine = unitP > 0
         ? `\n💰 التكلفة: ${people > 1 ? `${people} × ${unitP} = ${Math.round(unitP * people * 100) / 100}` : unitP} د.أ — الدفع بالمكان`
         : '';
+      // 🎟️ العددُ يستحقّ عرضاً؟ العرضُ يحتاج أسماء وأرقام الأصحاب — لا يُثبَّت بزرّ الحجز العاديّ
+      let offerLine = '';
+      try {
+        const evc = await evaluateForCustomer({ activityId, people, phone: conv.phone, playerId: conv.playerId ?? null });
+        if (evc.best) offerLine = `\n🎁 على هالعدد في عرض «${evc.best.name}» (${evc.best.free === 1 ? 'واحد' : evc.best.free} ببلاش) — لتاخده ابعتلي اسم ورقم كل واحد من أصحابك بدل هالتأكيد.`;
+      } catch { /* بلا عرض */ }
       const interactive = {
         type: 'button',
-        body: { text: `📋 تأكيد الحجز:\n${args.summary || ''}${costLine}\n\nهل أثبّت الحجز؟` },
+        body: { text: `📋 تأكيد الحجز:\n${args.summary || ''}${costLine}${offerLine}\n\nهل أثبّت الحجز؟` },
         action: {
           buttons: [
             { type: 'reply', reply: { id: `res_confirm:${activityId}:${people}`, title: 'تأكيد الحجز ✓' } },
@@ -1454,6 +1535,38 @@ async function execTool(name: string, args: any, ctx: ToolCtx): Promise<any> {
         await sendMessage({ conversationId: conv.id, interactive, source: 'bot' });
       }
       return { sent: true, note: 'أُرسلت أزرار التأكيد للعميل — لا تنشئ الحجز الآن. اكتب جملة قصيرة جداً أو لا شيء، وانتظر رده.' };
+    }
+
+    case 'set_group_members': {
+      const activityId = parseInt(args.activity_id);
+      if (await isTestActivity(db, activityId)) return TEST_ACTIVITY_RESULT;
+      const list = Array.isArray(args.members) ? args.members : [];
+      if (!list.length) return { error: 'ما في أسماء وأرقام — اطلب من العميل اسم ورقم كلّ صديق، كلّ واحد بسطر' };
+      const plan = await planGroup({ activityId, ownerPhone: conv.phone, ownerPlayerId: conv.playerId ?? null, ownerName: conv.displayName || conv.phone, members: list });
+      if ('error' in plan) return { error: plan.error };
+      const okN = plan.members.filter(m => m.ok).length;
+      if (okN) {
+        const interactive = { type: 'button', body: { text: plan.card.slice(0, 1024) }, action: { buttons: [
+          { type: 'reply', reply: { id: `grp_ok:${activityId}`, title: 'تأكيد المجموعة ✓' } },
+          { type: 'reply', reply: { id: 'grp_cancel', title: 'إلغاء' } },
+        ] } };
+        if (dryRun) ctx.interactives.push({ kind: 'buttons', preview: plan.card });
+        else {
+          // الحمولةُ الخامّ تُحفظ ١٠ دقائق؛ التثبيت يعيد الفحص كاملاً لحظة الضغط (سباق السقف والأرقام)
+          const { setAux } = await import('../config/redis.js');
+          await setAux(`grp:${conv.id}`, { activityId, members: list.slice(0, 11), expiresAt: Date.now() + 10 * 60e3 });
+          await sendMessage({ conversationId: conv.id, interactive, source: 'bot' });
+        }
+      } else if (dryRun) ctx.interactives.push({ kind: 'text', preview: plan.card });
+      else await sendMessage({ conversationId: conv.id, text: plan.card, source: 'bot' });
+      // 🔒 ما يعود للنموذج لا يكشف إن كان لرقمٍ حساب (قاعدة: ردٌّ واحد للحالتين)
+      return {
+        sent: true,
+        members: plan.members.map(m => ({ name: m.name, ok: m.ok, ...(m.ok ? {} : { reason: m.reason }) })),
+        groupSize: plan.people,
+        offer: plan.best ? { name: plan.best.name, free: plan.best.free, pay: plan.best.pay } : null,
+        note: okN ? 'أُرسلت بطاقة التأكيد بالأسماء والتكلفة — لا تكرّر تفاصيلها، اكتب جملة قصيرة أو لا شيء وانتظر ضغطته. لا تذكر أبداً إن كان لأيّ رقم حساب.' : 'كلّ الأرقام مرفوضة — البطاقة وضّحت السبب لكلّ رقم؛ اطلب تصحيحها.',
+      };
     }
 
     case 'create_reservation': {
@@ -2717,6 +2830,8 @@ async function buildLiveFacts(db: any): Promise<string> {
     const line = await liveEventFactLine();
     if (line) lines.push(line);
   } catch { /* بلا عروض */ }
+  // 🎟️ عروض الحجز الجماعيّ الفعّالة — ليجيب النموذج عن الأسئلة (الإعلانُ نفسه تُلحقه الشيفرة)
+  try { lines.push(...(await offerFactsLines())); } catch { /* بلا عروض */ }
   const text = lines.join('\n');
   liveFactsCache = { text, at: Date.now() };
   return text;
@@ -2782,6 +2897,11 @@ async function buildCustomerCard(db: any, conv: any): Promise<string> {
     const line = await customerCardLine(conv.id, conv.playerId ?? null);
     if (line) lines.push(line);
   } catch { /* بلا عروض */ }
+  try {
+    const { getAux } = await import('../config/redis.js');
+    const g = await getAux(`grp-ctx:${conv.id}`);
+    if (g && g.expiresAt > Date.now()) lines.push(`👥 ضغط «أضيف أصحابي» — ينتظر الدون أسماء وأرقام أصحابه لمجموعة على activity ${g.activityId}؛ حين يرسلها استدعِ set_group_members.`);
+  } catch { /* غير حرج */ }
   const notes = await db.select().from(waCustomerNotes)
     .where(eq(waCustomerNotes.phone, conv.phone))
     .orderBy(desc(waCustomerNotes.createdAt)).limit(6);
@@ -3000,6 +3120,7 @@ async function processConversation(convId: number) {
         const { handleCityButton } = await import('./wa-reward.service.js');
         if (await handleCityButton(conv, btnId)) return;
       }
+      if (btnId && await handleOfferButton(conv, btnId)) return;   // 🎟️ مجموعاتُ العرض — حتميّة
       if (btnId && await handleExtButton(conv, btnId, extHelpers())) return;
       if (btnId === 'res_cancel') {
         await sendMessage({ conversationId: convId, text: 'تمام، ألغيت العملية 👍 إذا حابب تشوف الفعاليات بأي وقت أنا جاهز.', source: 'bot' });
@@ -3346,7 +3467,17 @@ ${rows.length} حجزاً × ${unit2} د.أ = *${total2} د.أ*
         if (await isAdminConversation(conv)) flags.admin = true;
         recordBotUsage(convId, 'live', settings.model || '', usage, { replyMs: Math.max(0, Date.now() - new Date(lastMsg.createdAt).getTime()), tools: names.filter(n => !n.startsWith('🛡️')), flags }).catch(() => {});
       }
-      const finalOut = enforceLinks(enforceAddress((text || '').trim(), addressTitle));
+      let finalOut = enforceLinks(enforceAddress((text || '').trim(), addressTitle));
+      // 🎟️ إعلانُ عروض الحجز: مرّةً واحدة لكلّ محادثة لكلّ عرض، **تُلحقه الشيفرة حرفيّاً** من لوحة
+      //    العروض — لا يُترك للنموذج أن يتذكّر أو يعيد صياغة الشروط. لا يُلحق بردٍّ يحمل تأكيداً أو
+      //    إجراءً (أزرار حجز، إلغاء، تحويل)، ولا في محادثات الأدمن، ولا في المتابعات الآليّة.
+      try {
+        if (finalOut && !(await isAdminConversation(conv)) && !toolTrace.some(t => ANNOUNCE_BLOCKERS.test(t.name))) {
+          const explained = toolTrace.filter(t => t.name === 'get_booking_cost' && t.result?.groupOffer?.id).map(t => Number(t.result.groupOffer.id));
+          const ann = await announcementFor(conv, explained);
+          if (ann) { finalOut = `${finalOut}\n\n${ann.text}`; await markAnnounced(conv.id, ann.offerIds); }
+        }
+      } catch (e: any) { console.warn('⚠️ offer announce:', e?.message); }
       if (finalOut) {
         await sendMessage({ conversationId: convId, text: finalOut, source: 'bot' });
       }
@@ -3523,6 +3654,7 @@ async function performCancellation(convId: number, reservationId: number) {
 
   // ≥3 ساعات — إلغاء تلقائي (حذف ناعم كما يفعل النظام)
   await db.update(reservations).set({ deletedAt: new Date() } as any).where(eq(reservations.id, r.id));
+  void onReservationDeleted(r.id);   // 🎟️ مجموعةُ عرضٍ على هذا الحجز تبطل، وحجوزاتُ أصحابه تبقى مستقلّة
   // إلغاء فعلي من كل القنوات: إن كان الحجز مربوطاً بحجز تطبيق (مرآة أو مترقٍّ)
   // يُلغى حجز التطبيق أيضاً — وإلا بقي العميل محسوباً بالمقاعد وحاجزاً بالتطبيق
   if (r.appConfirmed || r.createdBy === 'player-app') {

@@ -7,6 +7,7 @@ import dynamic from 'next/dynamic';
 import DriveFolderBrowser from '../../components/DriveFolderBrowser';
 import EditActivityForm from '../../components/EditActivityForm';
 import BookingBonusSection from '../../components/BookingBonusSection';
+import OfferGroupsSection from '../../components/OfferGroupsSection';
 import ScheduleEditor from '../../components/ScheduleEditor';
 import WhatsAppButton from '@/components/WhatsAppButton';
 import SeatMap2D from '@/components/SeatMap2D';
@@ -1721,6 +1722,12 @@ export default function ActivityDetailPage() {
       {/* ══ 🎁 مكافأة الحجز المبكر — تحت قائمة الحجوزات مباشرةً لأنّها سكّانها ══ */}
       {/* ══ 🗓️ برنامج الليلة — يُطبع في كشف الحضور ══ */}
       <ScheduleEditor activityId={activity.id} activityDate={activity.date} initial={activity.gameSchedule || []} />
+
+      {/* ══ 🎟️ مجموعات عروض الحجز — الحسمُ عند الباب على الحضور الفعليّ ══ */}
+      <OfferGroupsSection
+        activityId={activity.id}
+        onChanged={() => { apiFetch(`/api/bookings?activityId=${activity.id}`).then(setBookings).catch(() => {}); }}
+      />
 
       <BookingBonusSection
         activityId={activity.id}

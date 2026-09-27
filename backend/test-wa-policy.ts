@@ -58,7 +58,11 @@ check(importers.length === 0, 'لا ملفّ يستورد محرّك الحمل�
 console.log('\n٢) «The file-upload path that turned a spreadsheet into a send list has been removed»:');
 const waRoutes = path.join(SRC, 'routes', 'whatsapp-inbox.routes.ts');
 const routesCode = code(waRoutes);
-check(!/multer/.test(routesCode), 'لا multer في مسارات واتساب');
+// الرفعُ الوحيد المسموح منذ 2026-09-28: صورةٌ لرسالة الصورة (JPG/PNG بقائمةٍ بيضاء) — لا جداول ولا قوائم أرقام
+const multerBlocks = routesCode.split('multer({').slice(1).map((b) => b.slice(0, 900));
+const mimeMap = (routesCode.match(/const WA_MIME_EXT[^;]*;/) || [''])[0];
+check(multerBlocks.length <= 1 && multerBlocks.every((b) => /fileFilter/.test(b) && /WA_MIME_EXT\[file\.mimetype\]/.test(b))
+  && !!mimeMap && !/csv|sheet|excel|xls|text\//i.test(mimeMap), 'الرفعُ الوحيد في مسارات واتساب صورٌ بقائمةٍ بيضاء (لا جداول ولا ملفّات أرقام)');
 check(!/upload-numbers|parseNumbersFile|preview-uploaded/.test(routesCode), 'لا مسار رفع أرقام');
 const parsers = files.filter((f) => /parseNumbersFile/.test(code(f)));
 check(parsers.length === 0, 'لا محلّل ملفّات أرقام في أي مكان',

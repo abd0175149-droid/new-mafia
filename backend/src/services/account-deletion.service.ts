@@ -157,6 +157,13 @@ export async function anonymizePlayer(playerId: number): Promise<void> {
     }
   } catch { /* ملفٌّ مفقود لا يوقف التجهيل */ }
 
+  // 1′) مجموعاتُ عروض الحجز — اسمُه ورقمُه صاحباً لمجموعة أو صديقاً مُسجَّلاً فيها
+  //     (بحسابه أو برقمه قبل أن يُمحى في الخطوة التالية)
+  await db.execute(sql`UPDATE booking_group_members SET name = ${TOMB}, phone = NULL, invite_token = NULL
+    WHERE player_id = ${id} OR phone = (SELECT phone FROM players WHERE id = ${id})`).catch(() => {});
+  await db.execute(sql`UPDATE booking_groups SET owner_name = ${TOMB}, owner_phone = ${'deleted:' + id}
+    WHERE owner_player_id = ${id} OR owner_phone = (SELECT phone FROM players WHERE id = ${id})`).catch(() => {});
+
   // 2) الحساب نفسه — الهاتف يُستبدل بمفتاحٍ فريدٍ لا يدلّ (العمود UNIQUE)
   await db.execute(sql`
     UPDATE players SET

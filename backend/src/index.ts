@@ -52,6 +52,7 @@ import anticheatRoutes from './routes/anticheat.routes.js';
 import whatsappRoutes from './routes/whatsapp.routes.js';
 import whatsappInboxRoutes from './routes/whatsapp-inbox.routes.js';
 import waRewardRoutes from './routes/wa-reward.routes.js';
+import bookingOfferRoutes from './routes/booking-offers.routes.js';
 import seatingRoutes from './routes/seating.routes.js';
 import seatTemplatesRoutes from './routes/seat-templates.routes.js';
 import reservationsRoutes from './routes/reservations.routes.js';
@@ -210,6 +211,7 @@ app.use('/api/admin/consents', adminConsentsRoutes); // ⚖️ سجلّ المو
 app.use('/api/whatsapp', whatsappRoutes);
 app.use('/api/whatsapp', whatsappInboxRoutes);  // 💬 مركز المحادثات: webhook + send + inbox
 app.use('/api/whatsapp', waRewardRoutes);       // 🎁 عروض الحديث مع البوت (نقاط هديّة)
+app.use('/api/booking-offers', bookingOfferRoutes); // 🎟️ عروض الحجز الجماعيّ («جيب صحابك»)
 app.use('/api/seating', seatingRoutes);
 app.use('/api/seat-templates', seatTemplatesRoutes);
 app.use('/api/reservations', reservationsRoutes);
@@ -874,6 +876,39 @@ async function main() {
       await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_wa_reward_claims_state ON wa_reward_claims (state, expires_at)`);
       // عرضٌ واحد يعمل في اللحظة الواحدة — وإلّا فمطالبتان لنفس المحادثة
       await db.execute(sql`CREATE UNIQUE INDEX IF NOT EXISTS uq_wa_reward_one_running ON wa_reward_events ((status)) WHERE status = 'running'`);
+      // ── 🎟️ عروض الحجز الجماعيّ «جيب صحابك» (booking-offers.service) ──
+      await db.execute(sql`CREATE TABLE IF NOT EXISTS booking_offers (
+        id SERIAL PRIMARY KEY, name VARCHAR(120) NOT NULL, status VARCHAR(12) DEFAULT 'draft' NOT NULL,
+        group_size INTEGER NOT NULL, pay_for INTEGER NOT NULL, repeat BOOLEAN DEFAULT true NOT NULL,
+        book_from TIMESTAMP NOT NULL, book_until TIMESTAMP NOT NULL, lead_hours INTEGER DEFAULT 0 NOT NULL,
+        activity_ids JSONB DEFAULT '[]'::jsonb NOT NULL, max_groups INTEGER DEFAULT 0 NOT NULL, per_customer INTEGER DEFAULT 1 NOT NULL,
+        priority_hours INTEGER DEFAULT 24 NOT NULL, announce BOOLEAN DEFAULT true NOT NULL, announce_text TEXT DEFAULT '',
+        notify_existing BOOLEAN DEFAULT true NOT NULL, notified_at TIMESTAMP, created_by VARCHAR(100) DEFAULT '',
+        created_at TIMESTAMP DEFAULT NOW() NOT NULL, updated_at TIMESTAMP DEFAULT NOW() NOT NULL, deleted_at TIMESTAMP)`);
+      await db.execute(sql`CREATE TABLE IF NOT EXISTS booking_groups (
+        id SERIAL PRIMARY KEY, activity_id INTEGER NOT NULL REFERENCES activities(id) ON DELETE CASCADE,
+        reservation_id INTEGER REFERENCES reservations(id) ON DELETE SET NULL, owner_phone VARCHAR(20) NOT NULL,
+        owner_player_id INTEGER, owner_name VARCHAR(150) DEFAULT '', conversation_id INTEGER,
+        offer_id INTEGER REFERENCES booking_offers(id) ON DELETE SET NULL, terms JSONB DEFAULT '{}'::jsonb NOT NULL,
+        declared_people INTEGER NOT NULL, promised_free INTEGER DEFAULT 0 NOT NULL, source VARCHAR(12) DEFAULT 'bot' NOT NULL,
+        priority BOOLEAN DEFAULT false NOT NULL, status VARCHAR(12) DEFAULT 'claimed' NOT NULL,
+        settled_free INTEGER, settled_at TIMESTAMP, settled_by VARCHAR(100),
+        created_at TIMESTAMP DEFAULT NOW() NOT NULL, updated_at TIMESTAMP DEFAULT NOW() NOT NULL)`);
+      // مجموعةٌ فعّالة واحدة لصاحب الحجز في الفعاليّة — الترقيةُ تعدّلها لا تُنشئ ثانية
+      await db.execute(sql`CREATE UNIQUE INDEX IF NOT EXISTS uq_booking_group_owner ON booking_groups (activity_id, owner_phone) WHERE status <> 'void'`);
+      await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_booking_groups_res ON booking_groups (reservation_id)`);
+      await db.execute(sql`CREATE TABLE IF NOT EXISTS booking_group_members (
+        id SERIAL PRIMARY KEY, group_id INTEGER NOT NULL REFERENCES booking_groups(id) ON DELETE CASCADE,
+        activity_id INTEGER NOT NULL, name VARCHAR(100) NOT NULL, phone VARCHAR(20), player_id INTEGER, booking_id INTEGER,
+        status VARCHAR(12) DEFAULT 'pending' NOT NULL, invite_token VARCHAR(48), accepted_at TIMESTAMP,
+        created_at TIMESTAMP DEFAULT NOW() NOT NULL, updated_at TIMESTAMP DEFAULT NOW() NOT NULL)`);
+      // الشخصُ في مجموعةٍ فعّالة واحدة للفعاليّة — الأسبق يثبت
+      await db.execute(sql`CREATE UNIQUE INDEX IF NOT EXISTS uq_bgm_phone_activity ON booking_group_members (activity_id, phone) WHERE phone IS NOT NULL AND status IN ('booked','pending','joined')`);
+      await db.execute(sql`CREATE UNIQUE INDEX IF NOT EXISTS uq_bgm_token ON booking_group_members (invite_token) WHERE invite_token IS NOT NULL`);
+      await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_bgm_group ON booking_group_members (group_id)`);
+      await db.execute(sql`ALTER TABLE bookings ADD COLUMN IF NOT EXISTS group_id INTEGER`);
+      await db.execute(sql`ALTER TABLE bookings ADD COLUMN IF NOT EXISTS offer_free BOOLEAN DEFAULT false`);
+      await db.execute(sql`ALTER TABLE wa_conversations ADD COLUMN IF NOT EXISTS offers_announced JSONB DEFAULT '{}'::jsonb`);
       await db.execute(sql`CREATE TABLE IF NOT EXISTS analytics_cache (key VARCHAR(40) PRIMARY KEY, payload JSONB NOT NULL, refreshed_at TIMESTAMP DEFAULT NOW() NOT NULL)`);
       await db.execute(sql`CREATE TABLE IF NOT EXISTS analytics_config (key VARCHAR(40) PRIMARY KEY, value JSONB NOT NULL, updated_at TIMESTAMP DEFAULT NOW() NOT NULL)`);
       // ── 🍽️ نظام طلبات المنيو والفواتير (F&B) ──
@@ -2284,6 +2319,7 @@ async function main() {
   //    المسحُ عند الإقلاع ليس ترفاً: سقوطُ الخادم بين إدراج الدفتر والمصالحة
   //    يترك نقاطاً مُنحت ولا يراها صاحبها — وهذا ما يُعيد إظهارها.
   try { const { startRewardScheduler } = await import('./services/wa-reward.service.js'); startRewardScheduler(); } catch (e: any) { console.warn('⚠️ WA reward scheduler init:', e.message); }
+  try { const { startBookingOfferJobs } = await import('./services/booking-offers.service.js'); startBookingOfferJobs(); } catch (e: any) { console.warn('⚠️ booking offers jobs init:', e.message); }
   // ── ⏱️ متابعةُ من راسلنا ولم يحجز — ماسحٌ يقرأ القاعدة، فلا تُضيّع إعادةُ التشغيل متابعةً ولا تُكرّرها ──
   try { const { startFollowupScheduler } = await import('./services/wa-followup.service.js'); startFollowupScheduler(); } catch (e: any) { console.warn('⚠️ WA follow-up scheduler init:', e.message); }
   // ── 🎟️ مجدول بطاقة الولاء — انتهاء المكافآت، الاختيار التلقائيّ، التذكيرات ──

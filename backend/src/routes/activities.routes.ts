@@ -533,7 +533,11 @@ router.post('/:id/auto-book', authenticate, async (req: Request, res: Response) 
       };
     });
 
-    await db.insert(bookings).values(newBookings);
+    const inserted = await db.insert(bookings).values(newBookings).returning({ id: bookings.id, phone: bookings.phone, playerId: bookings.playerId });
+    // 👥 من سجّله صاحبُه في مجموعة عرض ودخل الغرفة ⟵ يُربط بها (الحضور الفعليّ هو أساس العرض)
+    import('../services/booking-offers.service.js').then(async ({ linkOnAppBooking }) => {
+      for (const b of inserted) if (b.phone) await linkOnAppBooking({ playerId: b.playerId ?? null, phone: b.phone, activityId, bookingId: b.id }).catch(() => {});
+    }).catch(() => {});
 
     console.log(`✅ Auto-booked ${newBookings.length} players for Activity #${activityId}`);
     res.json({ success: true, message: `تم تسجيل ${newBookings.length} حجز بنجاح` });

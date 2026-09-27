@@ -91,6 +91,15 @@ router.post('/', authenticate, async (req: Request, res: Response) => {
 
   const booking = result[0];
 
+  // 👥 صديقٌ سجّله صاحبُه برقمه في مجموعة عرض (بلا حساب) وأدخله الموظّف ⟵ يُربط بالمجموعة
+  if (phone) {
+    import('../utils/phone.util.js').then(async ({ normalizeLocalPhone }) => {
+      const ph = normalizeLocalPhone(phone); if (!ph) return;
+      const { linkOnAppBooking } = await import('../services/booking-offers.service.js');
+      await linkOnAppBooking({ playerId: booking.playerId ?? null, phone: ph, activityId: Number(activityId), bookingId: booking.id });
+    }).catch(() => {});
+  }
+
   // Notify admins
   const admins = await db.select({ id: staff.id }).from(staff).where(eq(staff.role, 'admin'));
   for (const admin of admins) {
@@ -204,6 +213,8 @@ router.delete('/:id', authenticate, async (req: Request, res: Response) => {
   if (existing.length === 0) return res.status(404).json({ error: 'الحجز غير موجود' });
 
   await db.update(bookings).set({ deletedAt: new Date() } as any).where(eq(bookings.id, id));
+  // 👥 عضوٌ في مجموعة عرض ⟵ يخرج منها وتصغر ويُبلَّغ صاحبها
+  import('../services/booking-offers.service.js').then(m => m.onBookingDeleted(id)).catch(() => {});
 
   // 🔗 مرآة المتابعة — بدونها يبقى الطرفان يقولان قولين مختلفين:
   //    صفُّ المتابعة يظلّ «مثبَّتاً» و`app_confirmed=true`، ومعناه «لصاحبه صفُّ حجز»

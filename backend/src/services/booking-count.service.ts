@@ -17,6 +17,13 @@
 //      المحجوزون = مجموع bookings.count
 //                + Σ على المتابعة: appConfirmed ? (people−1) : people
 //
+//    👥 ومنذ عروض الحجز الجماعيّ (2026-09-28) صار للمرافقين هويّة: من سُجِّل اسمُه ورقمُه
+//    وصار له صفُّ حجزٍ مرتبطٌ بالمجموعة (booking_group_members) يُعدّ من صفّه، فيُطرح من
+//    رقم المتابعة المجهول — وإلّا عُدّ الصديقُ مرّتين (خلل «٩ لخمسة» الذي عالجه الطيّ):
+//      المحجوزون = Σ bookings.count
+//                + Σ المتابعة: (appConfirmed ? 0 : 1) + max(people − 1 − المرتبطون, 0)
+//    وتساوي الصيغةَ الأولى تماماً حين لا مرتبطين.
+//
 //    ومعناها: صفُّ الحجز يحمل **صاحبه وحده** (اتّفاقيّة العدّ في
 //    reservation-booking.service)، فمتى وُجد صفُّ حجزٍ لصاحب المتابعة — وهذا
 //    ما يعنيه `appConfirmed` — احتُسب من هناك ولم يبقَ من صفّ المتابعة إلّا
@@ -63,8 +70,8 @@ export async function countBookedPeopleBatch(activityIds: number[]): Promise<Map
     .select({
       activityId: reservations.activityId,
       total: sql<number>`COALESCE(SUM(
-        CASE WHEN ${reservations.appConfirmed} THEN GREATEST(COALESCE(${reservations.peopleCount}, 1) - 1, 0)
-             ELSE COALESCE(${reservations.peopleCount}, 1) END
+        (CASE WHEN ${reservations.appConfirmed} THEN 0 ELSE 1 END)
+        + GREATEST(COALESCE(${reservations.peopleCount}, 1) - 1 - (SELECT COUNT(*) FROM booking_group_members m JOIN booking_groups g ON g.id = m.group_id JOIN bookings b ON b.id = m.booking_id AND b.deleted_at IS NULL WHERE g.reservation_id = ${reservations.id} AND g.status <> 'void' AND m.status IN ('booked','joined')), 0)
       ), 0)::int`,
     })
     .from(reservations)

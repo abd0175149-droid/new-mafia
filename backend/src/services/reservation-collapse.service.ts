@@ -61,7 +61,8 @@ export async function collapseGroupOnRoomJoin(
     const res = await db.execute(sql`
       UPDATE reservations SET
         people_count = 1,
-        companions_collapsed = GREATEST(COALESCE(people_count, 1) - 1, 0),
+        -- 👥 المرافقون المعرَّفون (أعضاءُ مجموعة عرضٍ لهم صفوف حجز) لم يكونوا مجهولين أصلاً — لا يُطوَون
+        companions_collapsed = GREATEST(COALESCE(people_count, 1) - 1 - (SELECT COUNT(*) FROM booking_group_members m JOIN booking_groups g ON g.id = m.group_id WHERE g.reservation_id = reservations.id AND g.status <> 'void' AND m.status IN ('booked','joined')), 0),
         companions_collapsed_at = NOW(),
         notes = COALESCE(notes, '') ||
           ' · 🪑 كان حاجزاً لـ' || COALESCE(people_count, 1)::text ||
@@ -105,7 +106,7 @@ export async function collapseRemainingForActivity(activityId: number | null | u
     const res = await db.execute(sql`
       UPDATE reservations SET
         people_count = 1,
-        companions_collapsed = GREATEST(COALESCE(people_count, 1) - 1, 0),
+        companions_collapsed = GREATEST(COALESCE(people_count, 1) - 1 - (SELECT COUNT(*) FROM booking_group_members m JOIN booking_groups g ON g.id = m.group_id WHERE g.reservation_id = reservations.id AND g.status <> 'void' AND m.status IN ('booked','joined')), 0),
         companions_collapsed_at = NOW(),
         notes = COALESCE(notes, '') ||
           ' · 🏁 كان حاجزاً لـ' || COALESCE(people_count, 1)::text ||

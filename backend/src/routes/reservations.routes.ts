@@ -260,6 +260,8 @@ router.delete('/:id', authenticate, async (req: Request, res: Response) => {
   }
 
   await db.update(reservations).set({ deletedAt: new Date() } as any).where(eq(reservations.id, id));
+  // 👥 مجموعةُ عرضٍ على هذا الحجز تبطل، وحجوزاتُ أصحابه تبقى مستقلّة
+  import('../services/booking-offers.service.js').then(m => m.onReservationDeleted(id)).catch(() => {});
   res.json({ success: true, bookingRemoved: bookingSync });
 });
 
