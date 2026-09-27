@@ -259,16 +259,18 @@ async function reservedCount(o: OfferLike, activityIds: number[], now: number): 
   return (await existingBookers(o, activityIds)).filter(b => !b.inGroup).length;
 }
 
-export interface ActivityInfo { id: number; name: string; date: Date; price: number; locationName: string; cityId: number | null; isTest: boolean }
+/** `isTest` تشمل كلّ ما لا يُحجز: موقع اختبار، أو فعاليّة ملغاة/منتهية الحالة (لا عروض عليها) */
+export interface ActivityInfo { id: number; name: string; date: Date; price: number; locationName: string; cityId: number | null; isTest: boolean; status: string }
 export async function loadActivity(activityId: number): Promise<ActivityInfo | null> {
   const db = getDB(); if (!db) return null;
   const [a] = await db.select({
     id: activities.id, name: activities.name, date: activities.date, price: activities.basePrice,
-    locationName: locations.name, cityId: locations.cityId, isTest: locations.isTestLocation,
+    locationName: locations.name, cityId: locations.cityId, isTest: locations.isTestLocation, status: activities.status,
   }).from(activities).leftJoin(locations, eq(activities.locationId, locations.id))
     .where(and(eq(activities.id, activityId), isNull(activities.deletedAt))).limit(1);
   if (!a) return null;
-  return { id: a.id, name: a.name, date: a.date as any, price: Number(a.price || 0), locationName: a.locationName || '', cityId: a.cityId ?? null, isTest: !!a.isTest };
+  const status = String(a.status || 'planned');
+  return { id: a.id, name: a.name, date: a.date as any, price: Number(a.price || 0), locationName: a.locationName || '', cityId: a.cityId ?? null, isTest: !!a.isTest || !['planned', 'active'].includes(status), status };
 }
 
 /** أقدمُ طابعٍ لحجز هذا الرقم/اللاعب على الفعاليّة (bookings أو reservations) — null إن لم يحجز */
@@ -1032,7 +1034,7 @@ export async function validateOffer(i: OfferInput): Promise<string | null> {
   if (!isFinite(f) || !isFinite(u) || u <= f) return 'آخر موعدٍ للحجز يجب أن يكون بعد بدايته';
   const ids = (i.activityIds || []).map(Number).filter(Number.isFinite);
   if (!ids.length) return 'اختر فعاليّةً واحدة على الأقلّ';
-  for (const id of ids) { const a = await loadActivity(id); if (!a) return `الفعاليّة ${id} غير موجودة`; if (a.isTest) return `«${a.name}» في موقع اختبار — لا عروض عليها`; }
+  for (const id of ids) { const a = await loadActivity(id); if (!a) return `الفعاليّة ${id} غير موجودة`; if (a.status === 'cancelled') return `«${a.name}» ملغاة — لا عروض عليها`; if (a.isTest && a.status !== 'completed') return `«${a.name}» في موقع اختبار — لا عروض عليها`; }
   const lead = Number(i.leadHours), cap = Number(i.maxGroups), per = Number(i.perCustomer), prio = Number(i.priorityHours);
   if (!(lead >= 0 && lead <= 168)) return 'المهلة بين ٠ و١٦٨ ساعة';
   if (!(cap >= 0 && cap <= 500)) return 'السقف بين ٠ و٥٠٠';

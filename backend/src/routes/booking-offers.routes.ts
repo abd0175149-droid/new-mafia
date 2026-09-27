@@ -80,7 +80,7 @@ router.get('/', authenticate, adminOnly, async (_req: Request, res: Response) =>
     const up: any = await db.execute(sql`
       SELECT a.id, a.name, a.date, a.base_price AS price, l.name AS location
         FROM activities a LEFT JOIN locations l ON l.id = a.location_id
-       WHERE a.date > NOW() - INTERVAL '6 hours'
+       WHERE a.date > NOW() - INTERVAL '6 hours' AND a.deleted_at IS NULL AND a.status IN ('planned', 'active')
          AND COALESCE(l.is_test_location, false) = false
        ORDER BY a.date LIMIT 80`);
     const upcoming = ((up?.rows ?? up) || []).map((a: any) => ({ id: Number(a.id), name: a.name, date: a.date, price: Number(a.price || 0), location: a.location || '' }));

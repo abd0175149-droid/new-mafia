@@ -1115,7 +1115,7 @@ interface ToolCtx {
 //   bookings.count + (appConfirmed ? people-1 : people)
 // فبدون الوسم يُحسب صاحب الحجز مرّتين (مرّة بالمرآة ومرّة بالمتابعة).
 // نفس الوسم يجعل الإلغاء المتتالي ونقل الحجز يلتقطان المرآة تلقائياً.
-async function mirrorBotReservationToBookings(
+export async function mirrorBotReservationToBookings(
   db: any,
   res: { id: number; activityId: number; playerId: number | null; phone: string; contactName?: string | null },
   createdByTag: string,
