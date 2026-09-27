@@ -15,6 +15,7 @@ import { sql, eq, desc } from 'drizzle-orm';
 import { getDB } from '../config/db.js';
 import { waBroadcasts, waMessageTemplates } from '../schemas/admin.schema.js';
 import { sendMessage, sendingSuspendedReason } from './whatsapp-inbox.service.js';
+import { isTestActivity, notTestActivitySql, notTestLocationSql } from './test-location.util.js';
 
 const rowsOf = (r: any): any[] => r?.rows ?? (Array.isArray(r) ? r : []);
 export const BROADCAST_MAX_TARGETS = 300;
@@ -31,10 +32,13 @@ let running: number | null = null;
 
 export async function previewAudience(q: AudienceQuery) {
   const db = getDB(); if (!db) return { total: 0, rows: [] as any[] };
+  // 🧪 موقع اختبار: فعاليّةٌ هناك بلا جمهور — لا معاينة ولا بثّ
+  if (q.activityId && await isTestActivity(db, q.activityId)) return { total: 0, rows: [] as any[], capped: false };
   const f = q.filter || 'all';
   const extra = f === 'players' ? sql`AND c.player_id IS NOT NULL`
     : f === 'visitors' ? sql`AND c.player_id IS NULL`
-    : f === 'booked_upcoming' ? sql`AND (EXISTS (SELECT 1 FROM reservations r JOIN activities a ON a.id = r.activity_id WHERE r.deleted_at IS NULL AND a.date > NOW() AND (r.phone = c.phone OR (c.player_id IS NOT NULL AND r.player_id = c.player_id))) OR EXISTS (SELECT 1 FROM bookings b JOIN activities a ON a.id = b.activity_id WHERE b.deleted_at IS NULL AND a.date > NOW() AND (b.phone = c.phone OR (c.player_id IS NOT NULL AND b.player_id = c.player_id))))`
+    // 🧪 موقع اختبار: حجزٌ هناك لا يُدخل صاحبه في «حجز قادم»
+    : f === 'booked_upcoming' ? sql`AND (EXISTS (SELECT 1 FROM reservations r JOIN activities a ON a.id = r.activity_id WHERE r.deleted_at IS NULL AND a.date > NOW() AND ${sql.raw(notTestActivitySql('a'))} AND (r.phone = c.phone OR (c.player_id IS NOT NULL AND r.player_id = c.player_id))) OR EXISTS (SELECT 1 FROM bookings b JOIN activities a ON a.id = b.activity_id WHERE b.deleted_at IS NULL AND a.date > NOW() AND ${sql.raw(notTestActivitySql('a'))} AND (b.phone = c.phone OR (c.player_id IS NOT NULL AND b.player_id = c.player_id))))`
     : f === 'activity' && q.activityId ? sql`AND (EXISTS (SELECT 1 FROM reservations r WHERE r.deleted_at IS NULL AND r.activity_id = ${Number(q.activityId)} AND (r.phone = c.phone OR (c.player_id IS NOT NULL AND r.player_id = c.player_id))) OR EXISTS (SELECT 1 FROM bookings b WHERE b.deleted_at IS NULL AND b.activity_id = ${Number(q.activityId)} AND (b.phone = c.phone OR (c.player_id IS NOT NULL AND b.player_id = c.player_id))))`
     // من نافذته مفتوحة ولم يحجز بعد في فعاليّة بعينها — لا في الحجوزات ولا في حجوزات التطبيق، بالرقم أو بحساب اللاعب
     : f === 'not_booked_activity' && q.activityId ? sql`AND NOT EXISTS (SELECT 1 FROM reservations r WHERE r.deleted_at IS NULL AND r.activity_id = ${Number(q.activityId)} AND COALESCE(r.status, '') <> 'cancelled' AND (r.phone = c.phone OR (c.player_id IS NOT NULL AND r.player_id = c.player_id))) AND NOT EXISTS (SELECT 1 FROM bookings b WHERE b.deleted_at IS NULL AND b.activity_id = ${Number(q.activityId)} AND (b.phone = c.phone OR (c.player_id IS NOT NULL AND b.player_id = c.player_id)))`
@@ -97,6 +101,8 @@ export async function broadcastStatus() {
 
 export async function startBroadcast(input: AudienceQuery & { body: string; createdBy: string; appendOptout?: boolean; templateId?: number | null }): Promise<{ ok: boolean; error?: string; id?: number; total?: number }> {
   const db = getDB(); if (!db) return { ok: false, error: 'DB unavailable' };
+  // 🧪 موقع اختبار: لا بثّ عن فعاليّةٍ هناك — للعميل والأدمن سواء
+  if (input.activityId && await isTestActivity(db, input.activityId)) return { ok: false, error: 'فعاليّة في موقع اختبار — لا بثّ عنها' };
   const body = String(input.body || '').trim();
   if (body.length < 5) return { ok: false, error: 'اكتب نصّ الرسالة (٥ أحرف على الأقلّ)' };
   if (body.length > 900) return { ok: false, error: 'النصّ طويل — الحدّ ٩٠٠ حرف' };
@@ -170,7 +176,9 @@ export async function upcomingActivities() {
       FROM activities a
       LEFT JOIN locations l ON l.id = a.location_id
       LEFT JOIN cities c ON c.id = l.city_id
-     WHERE a.deleted_at IS NULL AND a.date > NOW() - INTERVAL '6 hours' ORDER BY a.date LIMIT 12`);
+     WHERE a.deleted_at IS NULL AND a.date > NOW() - INTERVAL '6 hours'
+       AND ${sql.raw(notTestLocationSql('l'))} -- 🧪 موقع اختبار لا يُعرض في قائمة البثّ
+     ORDER BY a.date LIMIT 12`);
   return rowsOf(r).map((x: any) => ({
     id: Number(x.id), name: x.name, date: x.date,
     venue: x.venue || '', place: formatPlace(x.venue, x.region, x.city), when: fmtWhen(x.date),

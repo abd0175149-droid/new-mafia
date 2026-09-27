@@ -21,6 +21,7 @@ import { env } from '../config/env.js';
 import { players, playerNotes } from '../schemas/player.schema.js';
 import { activities, reservations, locations, staff, waConversations, waMessages } from '../schemas/admin.schema.js';
 import { logStaffAction } from './staff-action-log.service.js';
+import { notTestActivity, notTestActivitySql, notTestLocationSql, isTestActivity, TEST_ACTIVITY_RESULT } from './test-location.util.js';
 
 const rowsOf = (r: any): any[] => r?.rows ?? (Array.isArray(r) ? r : []);
 const GRAPH = 'https://graph.facebook.com/v20.0';
@@ -375,12 +376,13 @@ async function loopback(conv: any, method: string, path: string, body?: any): Pr
 async function liveRoomOf(db: any, activityId?: number): Promise<{ state: any; activityId: number; activityName: string } | { error: string }> {
   let actId = Number(activityId);
   if (!Number.isFinite(actId) || actId <= 0) {
+    // 🧪 موقع اختبار: غرفه لا تُعدّ «غرفةً مفتوحة» — لا للعميل ولا للأدمن
     const r: any = await db.execute(sql`SELECT s.activity_id FROM sessions s JOIN activities a ON a.id = s.activity_id
-      WHERE s.is_active = true AND s.deleted_at IS NULL AND a.deleted_at IS NULL AND a.date > NOW() - INTERVAL '18 hours' ORDER BY s.created_at DESC LIMIT 1`);
+      WHERE s.is_active = true AND s.deleted_at IS NULL AND a.deleted_at IS NULL AND a.date > NOW() - INTERVAL '18 hours' AND ${sql.raw(notTestActivitySql('a'))} ORDER BY s.created_at DESC LIMIT 1`);
     actId = Number(rowsOf(r)[0]?.activity_id);
     if (!Number.isFinite(actId)) return { error: 'لا غرفة مفتوحة لأيّ فعاليّة الآن' };
-  }
-  const rooms: any = await db.execute(sql`SELECT s.session_code, a.name FROM sessions s JOIN activities a ON a.id = s.activity_id WHERE s.activity_id = ${actId} AND s.is_active = true AND s.deleted_at IS NULL ORDER BY s.created_at`);
+  } else if (await isTestActivity(db, actId)) return TEST_ACTIVITY_RESULT;   // 🧪 موقع اختبار بالمعرّف الصريح
+  const rooms: any = await db.execute(sql`SELECT s.session_code, a.name FROM sessions s JOIN activities a ON a.id = s.activity_id WHERE s.activity_id = ${actId} AND s.is_active = true AND s.deleted_at IS NULL AND ${sql.raw(notTestActivitySql('a'))} ORDER BY s.created_at`);
   const { getRoomByCode } = await import('../game/state.js');
   for (const r of rowsOf(rooms)) {
     const st = await getRoomByCode(r.session_code).catch(() => null);
@@ -421,11 +423,14 @@ export async function execExtTool(name: string, args: any, ctx: Ctx, h: ExtHelpe
 
     case 'get_my_invoice': {
       if (!conv.playerId) return { registered: false, note: 'الفاتورة مربوطة بحساب لاعب — المحادثة غير مربوطة' };
+      // 🧪 موقع اختبار: لا فاتورة من طلباته ولا من حجوزاته
       const r: any = await db.execute(sql`
         SELECT o.activity_id, o.location_id FROM orders o WHERE o.player_id = ${conv.playerId} AND o.status <> 'cancelled' AND o.created_at > NOW() - INTERVAL '36 hours'
+           AND o.location_id NOT IN (SELECT id FROM locations WHERE is_test_location IS TRUE)
         UNION ALL
         SELECT a.id, a.location_id FROM bookings b JOIN activities a ON a.id = b.activity_id
          WHERE b.player_id = ${conv.playerId} AND b.deleted_at IS NULL AND a.date > NOW() - INTERVAL '36 hours' AND a.date < NOW() + INTERVAL '6 hours'
+           AND ${sql.raw(notTestActivitySql('a'))}
         LIMIT 1
       `);
       const hit = rowsOf(r)[0];
@@ -467,9 +472,10 @@ export async function execExtTool(name: string, args: any, ctx: Ctx, h: ExtHelpe
     case 'request_change_people': {
       const actId = parseInt(args.activity_id); const n = Math.trunc(Number(args.new_count));
       if (!Number.isFinite(actId) || !(n >= 1 && n <= 12)) return { error: 'معرّف الفعاليّة والعدد (1–12) مطلوبان' };
+      // 🧪 موقع اختبار: حجزٌ هناك لا يُعدَّل من الواتساب
       const [r] = await db.select({ id: reservations.id, people: reservations.peopleCount, status: reservations.status, name: activities.name, date: activities.date })
         .from(reservations).innerJoin(activities, eq(reservations.activityId, activities.id))
-        .where(and(eq(reservations.activityId, actId), isNull(reservations.deletedAt), sql`(${reservations.phone} = ${conv.phone} ${conv.playerId ? sql`OR ${reservations.playerId} = ${conv.playerId}` : sql``})`)).limit(1);
+        .where(and(eq(reservations.activityId, actId), isNull(reservations.deletedAt), notTestActivity, sql`(${reservations.phone} = ${conv.phone} ${conv.playerId ? sql`OR ${reservations.playerId} = ${conv.playerId}` : sql``})`)).limit(1);
       if (!r) return { found: false, note: 'لا حجز له في هذه الفعاليّة — اعرض حجزاً جديداً' };
       if (Number(r.people) === n) return { same: true, note: 'العدد هو نفسه — لا تغيير' };
       await show(confirmButtons(`✏️ تعديل حجزك في «${r.name}» (${h.fmtJo(r.date)})\nمن ${r.people} إلى ${n} أشخاص — أثبّت التعديل؟`, `chgp:${r.id}:${n}`, 'ثبّت التعديل ✓', 'chg_keep'), `تعديل العدد ${r.people}→${n}`);
@@ -479,20 +485,23 @@ export async function execExtTool(name: string, args: any, ctx: Ctx, h: ExtHelpe
     case 'get_tonight_schedule': {
       let actId = parseInt(args.activity_id);
       if (!Number.isFinite(actId)) {
+        // 🧪 موقع اختبار: لا يُلتقط حجزه ولا يُقترح بديلاً
         const r: any = await db.execute(sql`
           SELECT a.id FROM reservations r JOIN activities a ON a.id = r.activity_id
            WHERE r.deleted_at IS NULL AND a.deleted_at IS NULL AND a.date > NOW() - INTERVAL '6 hours'
+             AND ${sql.raw(notTestActivitySql('a'))}
              AND (r.phone = ${conv.phone} ${conv.playerId ? sql`OR r.player_id = ${conv.playerId}` : sql``})
            ORDER BY a.date ASC LIMIT 1`);
         actId = Number(rowsOf(r)[0]?.id);
         if (!Number.isFinite(actId)) {
-          const n: any = await db.execute(sql`SELECT id FROM activities WHERE deleted_at IS NULL AND status IN ('planned','active') AND date > NOW() - INTERVAL '6 hours' ORDER BY date ASC LIMIT 1`);
+          const n: any = await db.execute(sql`SELECT id FROM activities WHERE deleted_at IS NULL AND status IN ('planned','active') AND date > NOW() - INTERVAL '6 hours' AND ${sql.raw(notTestActivitySql('activities'))} ORDER BY date ASC LIMIT 1`);
           actId = Number(rowsOf(n)[0]?.id);
         }
       }
       if (!Number.isFinite(actId)) return { found: false, note: 'لا فعاليّة قادمة' };
-      const [a] = await db.select({ name: activities.name, date: activities.date, sch: activities.gameSchedule }).from(activities).where(eq(activities.id, actId)).limit(1);
-      if (!a) return { found: false };
+      // 🧪 موقع اختبار بالمعرّف الصريح ⇒ كأنّها غير موجودة
+      const [a] = await db.select({ name: activities.name, date: activities.date, sch: activities.gameSchedule }).from(activities).where(and(eq(activities.id, actId), notTestActivity)).limit(1);
+      if (!a) return { found: false, note: 'لا فعاليّة بهذا المعرّف' };
       const items: any[] = Array.isArray(a.sch) ? a.sch as any[] : [];
       if (!items.length) return { found: true, activity: a.name, dateText: h.fmtJo(a.date), schedule: [], note: 'لا جدول مكتوب لهذه الفعاليّة — اذكر موعد البدء فقط' };
       return { found: true, activity: a.name, dateText: h.fmtJo(a.date), schedule: items.map(x => ({ what: x.label, kind: x.kind === 'break' ? 'استراحة' : 'لعبة', from: x.start, to: x.end })), note: 'الجدول تقديريّ وقد ينزاح حسب مجريات اللعب — قلها دائماً. المتأخّر ينضمّ للّعبة التالية.' };
@@ -657,6 +666,7 @@ export async function execExtTool(name: string, args: any, ctx: Ctx, h: ExtHelpe
       const f = await playerByPhone(db, args.phone); if ('error' in f) return { error: f.error, candidates: (f as any).candidates };
       const actId = parseInt(args.activity_id); const reason = String(args.reason || '').trim();
       if (reason.length < 3) return { error: 'السبب مطلوب (3 أحرف فأكثر)' };
+      if (await isTestActivity(db, actId)) return TEST_ACTIVITY_RESULT;   // 🧪 موقع اختبار: لا ختم عليه من الواتساب
       const [a] = await db.select({ name: activities.name, date: activities.date }).from(activities).where(eq(activities.id, actId)).limit(1);
       if (!a) return { error: 'الفعاليّة غير موجودة' };
       if (dryRun) { ctx.interactives.push({ kind: 'buttons', preview: `ختم يدويّ: ${f.pl!.name}` }); return { pendingConfirm: true, dryRun: true }; }
@@ -696,6 +706,7 @@ export async function execExtTool(name: string, args: any, ctx: Ctx, h: ExtHelpe
       const locId = parseInt(args.location_id);
       const [loc] = await db.select({ id: locations.id, name: locations.name, isTest: locations.isTestLocation }).from(locations).where(and(eq(locations.id, locId), isNull(locations.deletedAt))).limit(1);
       if (!loc) return { error: 'المكان غير موجود — استخدم get_locations' };
+      if (loc.isTest) return { error: 'مكان اختبار — أنشئ فعاليّات الاختبار من الداشبورد لا عبر الواتساب' };   // 🧪 موقع اختبار
       const date = String(args.date || '').trim(); const time = /^\d{1,2}:\d{2}$/.test(String(args.time || '')) ? String(args.time).padStart(5, '0') : '19:00';
       if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return { error: 'التاريخ بصيغة YYYY-MM-DD' };
       const when = new Date(`${date}T${time}:00+03:00`);
@@ -736,10 +747,11 @@ export async function execExtTool(name: string, args: any, ctx: Ctx, h: ExtHelpe
         return { activities: x.activities, visits: x.visits, uniquePlayers: x.unique_players, bookings: x.bookings, gameRevenueJOD: Number(x.game_revenue || 0), unpaidBookings: x.unpaid_bookings, newPlayers: x.new_players };
       };
       const cur = await one(from, end); const prev = await one(prevFrom, from);
+      // 🧪 موقع اختبار: زياراته لا تدخل «الأكثر حضوراً» (كما acts أعلاه)
       const top: any = await db.execute(sql`
         SELECT p.name, COUNT(DISTINCT s.activity_id)::int AS visits FROM match_players mp JOIN matches m ON m.id = mp.match_id JOIN sessions s ON s.id = m.session_id
-          JOIN activities a ON a.id = s.activity_id JOIN players p ON p.id = mp.player_id
-         WHERE m.deleted_at IS NULL AND a.date >= ${from} AND a.date < ${end} GROUP BY p.id, p.name ORDER BY visits DESC LIMIT 5`);
+          JOIN activities a ON a.id = s.activity_id JOIN players p ON p.id = mp.player_id LEFT JOIN locations l ON l.id = a.location_id
+         WHERE m.deleted_at IS NULL AND a.date >= ${from} AND a.date < ${end} AND ${sql.raw(notTestLocationSql('l'))} GROUP BY p.id, p.name ORDER BY visits DESC LIMIT 5`);
       return { range, from: h.fmtJo(from, false), to: h.fmtJo(new Date(end.getTime() - 1), false), current: cur, previousSamePeriod: prev, topAttendees: rowsOf(top), note: 'اعرض الأرقام مع اتّجاهها مقابل الفترة السابقة (ارتفاع/انخفاض). إيراد رسوم اللعب = المحصَّل فعليّاً من الحجوزات فقط (لا يشمل المنيو ولا التشبس). التقارير التفصيليّة من الداشبورد.' };
     }
 
@@ -904,9 +916,10 @@ export async function handleExtButton(conv: any, btnId: string, h: ExtHelpers): 
   m = /^chgp:(\d+):(\d+)$/.exec(btnId);
   if (m) {
     const resId = parseInt(m[1]); const n = parseInt(m[2]);
+    // 🧪 موقع اختبار: زرٌّ قديم على حجزٍ هناك لا يُنفَّذ
     const [r] = await db.select({ id: reservations.id, people: reservations.peopleCount, actId: reservations.activityId, status: reservations.status, name: activities.name, date: activities.date })
       .from(reservations).innerJoin(activities, eq(reservations.activityId, activities.id))
-      .where(and(eq(reservations.id, resId), isNull(reservations.deletedAt), sql`(${reservations.phone} = ${conv.phone} ${conv.playerId ? sql`OR ${reservations.playerId} = ${conv.playerId}` : sql``})`)).limit(1);
+      .where(and(eq(reservations.id, resId), isNull(reservations.deletedAt), notTestActivity, sql`(${reservations.phone} = ${conv.phone} ${conv.playerId ? sql`OR ${reservations.playerId} = ${conv.playerId}` : sql``})`)).limit(1);
     if (!r) { await say('ما لقيت الحجز (يمكن أُلغي) 🙏'); return true; }
     const who = conv.displayName || conv.phone;
     if (new Date(r.date).getTime() - Date.now() < CHANGE_CUTOFF_MS) {
@@ -960,7 +973,10 @@ export async function handleExtButton(conv: any, btnId: string, h: ExtHelpers): 
   m = /^wl_take:(\d+)$/.exec(btnId);
   if (m) {
     const resId = parseInt(m[1]);
-    const [r] = await db.select().from(reservations).where(and(eq(reservations.id, resId), isNull(reservations.deletedAt), sql`(${reservations.phone} = ${conv.phone} ${conv.playerId ? sql`OR ${reservations.playerId} = ${conv.playerId}` : sql``})`)).limit(1);
+    // 🧪 موقع اختبار: لا تثبيت من قائمة انتظار فعاليّةٍ هناك (بلا JOIN كي تبقى صفوف reservations كما هي)
+    const [r] = await db.select().from(reservations).where(and(eq(reservations.id, resId), isNull(reservations.deletedAt),
+      sql`${reservations.activityId} NOT IN (SELECT a.id FROM activities a JOIN locations l ON l.id = a.location_id WHERE l.is_test_location IS TRUE)`,
+      sql`(${reservations.phone} = ${conv.phone} ${conv.playerId ? sql`OR ${reservations.playerId} = ${conv.playerId}` : sql``})`)).limit(1);
     if (!r) { await say('ما لقيت حجز الانتظار 🙏'); return true; }
     if (r.status !== 'waitlist') { await say('حجزك مثبَّت أصلاً ✅', 'bot'); return true; }
     const av = await h.seatAvailability(db, Number(r.activityId));
@@ -1121,12 +1137,14 @@ export async function handleExtButton(conv: any, btnId: string, h: ExtHelpers): 
 export async function offerFreedSeat(activityId: number, h: ExtHelpers): Promise<boolean> {
   try {
     const db = getDB(); if (!db) return false;
+    if (await isTestActivity(db, activityId)) return false;   // 🧪 موقع اختبار: لا عرض مقعدٍ متوفّر
     const av = await h.seatAvailability(db, activityId);
     if (av.remaining <= 0) return false;
     const r: any = await db.execute(sql`
       SELECT r.id, r.people_count, c.id AS conv_id, a.name, a.date
         FROM reservations r JOIN activities a ON a.id = r.activity_id JOIN wa_conversations c ON c.phone = r.phone
        WHERE r.activity_id = ${activityId} AND r.deleted_at IS NULL AND r.status = 'waitlist' AND a.date > NOW()
+         AND ${sql.raw(notTestActivitySql('a'))}
          AND c.last_inbound_at > NOW() - INTERVAL '23 hours 50 minutes' AND r.people_count <= ${av.remaining}
        ORDER BY r.created_at ASC LIMIT 1`);
     const x = rowsOf(r)[0]; if (!x) return false;
@@ -1215,6 +1233,8 @@ async function surveyTick() {
      WHERE f.submitted_at IS NULL
        AND f.created_at < NOW() - (${cfg.delayMin} || ' minutes')::interval
        AND f.created_at > NOW() - (${cfg.validHours} || ' hours')::interval
+       -- 🧪 موقع اختبار: لا استبيان على أمسيةٍ هناك (f.location_id يُلتقط عند إغلاق الغرفة)
+       AND (f.location_id IS NULL OR f.location_id NOT IN (SELECT id FROM locations WHERE is_test_location IS TRUE))
        AND c.bot_enabled = true AND c.last_inbound_at > NOW() - INTERVAL '23 hours 30 minutes'
      ORDER BY f.created_at DESC LIMIT 40`);
   const { getAux, setAux } = await import('../config/redis.js');

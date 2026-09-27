@@ -60,6 +60,7 @@ export async function runReminderScan(): Promise<void> {
       isNull(activities.deletedAt),
       gt(activities.date, new Date(now)),   // اللعبة لم تبدأ بعد
       lte(activities.date, horizon),        // وخلال ≤60 دقيقة
+      sql`COALESCE(${locations.isTestLocation}, false) = false`, // 🧪 موقع اختبار ⟵ لا تذكير
     ));
 
   if (!rows.length) return;

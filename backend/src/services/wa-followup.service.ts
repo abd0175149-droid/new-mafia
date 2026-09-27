@@ -20,6 +20,7 @@
 import { sql } from 'drizzle-orm';
 import { getDB } from '../config/db.js';
 import { env } from '../config/env.js';
+import { notTestActivitySql } from './test-location.util.js';
 
 export interface FollowupConfig {
   enabled: boolean;
@@ -186,14 +187,17 @@ export async function followupTick(): Promise<void> {
            AND c.last_message_at < NOW() - (${firstMin} * INTERVAL '1 minute'))
        )
        -- ثبّت حجزاً قادماً؟ متابعةٌ لمن حجز إزعاجٌ صرف
+       -- 🧪 موقع اختبار: حجزٌ هناك لا يُحسب حجزاً
        AND NOT EXISTS (
          SELECT 1 FROM reservations r JOIN activities a ON a.id = r.activity_id
           WHERE r.deleted_at IS NULL AND a.deleted_at IS NULL AND a.date >= NOW()
+            AND ${sql.raw(notTestActivitySql('a'))}
             AND (r.phone = c.phone OR (c.player_id IS NOT NULL AND r.player_id = c.player_id))
        )
        AND NOT EXISTS (
          SELECT 1 FROM bookings b JOIN activities a2 ON a2.id = b.activity_id
           WHERE b.deleted_at IS NULL AND a2.deleted_at IS NULL AND a2.date >= NOW()
+            AND ${sql.raw(notTestActivitySql('a2'))}
             AND (b.phone = c.phone OR (c.player_id IS NOT NULL AND b.player_id = c.player_id))
        )
        AND NOT EXISTS (SELECT 1 FROM wa_optouts o WHERE o.phone = c.phone)

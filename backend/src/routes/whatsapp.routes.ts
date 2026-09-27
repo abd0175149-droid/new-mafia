@@ -44,6 +44,8 @@ router.get('/activity-players/:activityId', authenticate, async (req: Request, r
         .limit(1);
       location = loc || null;
     }
+    // 🧪 موقع اختبار ⟵ لا يُرى عبر واتساب
+    if (location?.isTestLocation) return res.status(404).json({ error: 'فعاليّة في موقع اختبار' });
 
     // 3. جلب الغرف المرتبطة
     let rooms: any[] = [];

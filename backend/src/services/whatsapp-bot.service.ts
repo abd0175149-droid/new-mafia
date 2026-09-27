@@ -11,6 +11,7 @@
 //   • مدة إيقاف البوت بعد رد بشري قابلة للتعديل (افتراضي 30 دقيقة)
 
 import { eq, and, desc, asc, gte, sql, isNull, or, inArray } from 'drizzle-orm';
+import { notTestActivity, isTestActivity, testActivityIds, TEST_ACTIVITY_RESULT } from './test-location.util.js';
 import crypto from 'crypto';
 import bcrypt from 'bcryptjs';
 import { getDB } from '../config/db.js';
@@ -207,17 +208,22 @@ function isRealLiveState(st: any): boolean {
   if (String(st.config?.gameName || '').includes('Auto Seeded')) return false;
   return true;
 }
+// 🧪 غرفُ فعاليّات مواقع الاختبار لا يراها البوت (للعميل والأدمن): كانت تظهر «لعبةً جاريةً في النادي»
+async function liveStatesNoTest(): Promise<any[]> {
+  const { getAllGameStates } = await import('../config/redis.js');
+  const states = (await getAllGameStates()).filter(isRealLiveState);
+  let test = new Set<number>(); try { test = await testActivityIds(getDB()); } catch { /* بلا قاعدة ⟵ لا استبعاد */ }
+  return states.filter((st: any) => !(st.activityId && test.has(Number(st.activityId))));
+}
 
 // 🎮 إيجاد الغرفة الحية للسائل — بهوية رقم المحادثة حصراً (playerId أو الهاتف)
 // عند تعدد الغرف المطابقة: الأفضلية للعبة البادئة فعلاً (كروت معتمدة) ثم الأحدث
 async function findMyLiveRoom(conv: any): Promise<{ state: any; me: any } | null> {
   try {
-    const { getAllGameStates } = await import('../config/redis.js');
     const { samePhone } = await import('../utils/phone.util.js');
-    const states = await getAllGameStates();
+    const states = await liveStatesNoTest();
     const matches: { state: any; me: any }[] = [];
     for (const st of states) {
-      if (!isRealLiveState(st)) continue;
       const me = st.players.find((pl: any) => !pl.frozen && (
         (conv.playerId && pl.playerId === conv.playerId) ||
         (pl.phone && samePhone(pl.phone, conv.phone))
@@ -265,9 +271,8 @@ async function findMyBookedRooms(conv: any): Promise<{ state: any; activityName:
     for (const b of bkRows) if (b.a) activityIds.add(b.a);
     if (!activityIds.size) return [];
 
-    const { getAllGameStates } = await import('../config/redis.js');
-    const states = (await getAllGameStates())
-      .filter((st: any) => isRealLiveState(st) && st.activityId && activityIds.has(st.activityId));
+    const states = (await liveStatesNoTest())
+      .filter((st: any) => st.activityId && activityIds.has(st.activityId));
     states.sort((a: any, b: any) =>
       (b.rolesConfirmed ? 1 : 0) - (a.rolesConfirmed ? 1 : 0) ||
       String(b.createdAt || '').localeCompare(String(a.createdAt || '')));
@@ -303,8 +308,7 @@ async function resolveGameRoom(conv: any): Promise<{ state: any; me: any | null;
 // الصادقة عندما لا نجد للسائل مقعداً ولا حجزاً: لا نقول أبداً «لم تبدأ» عن لعبة جارية
 async function clubLiveGame(): Promise<{ gameName: string; started: boolean; phase: string; round: number } | null> {
   try {
-    const { getAllGameStates } = await import('../config/redis.js');
-    const states = (await getAllGameStates()).filter(isRealLiveState);
+    const states = await liveStatesNoTest();
     if (!states.length) return null;
     states.sort((a, b) =>
       (b.rolesConfirmed ? 1 : 0) - (a.rolesConfirmed ? 1 : 0) ||
@@ -324,8 +328,7 @@ async function clubLiveGame(): Promise<{ gameName: string; started: boolean; pha
 // 🎮 اللعبة الحيّة للأدمن — أحدث غرفة حقيقيّة (البادئة كروتها أولاً ثم الأحدث). للأدوات الإداريّة (قراءة/تعديل).
 async function findAdminLiveGame(): Promise<any | null> {
   try {
-    const { getAllGameStates } = await import('../config/redis.js');
-    const states = (await getAllGameStates()).filter(isRealLiveState);
+    const states = await liveStatesNoTest();
     if (!states.length) return null;
     states.sort((a, b) => (b.rolesConfirmed ? 1 : 0) - (a.rolesConfirmed ? 1 : 0) || String(b.createdAt || '').localeCompare(String(a.createdAt || '')));
     return states[0];
@@ -1139,6 +1142,9 @@ async function mirrorBotReservationToBookings(
 //   المحجوز = مقاعد التطبيق + مقاعد المتابعة غير المؤكدة تطبيقياً
 //            + «الضيوف الزائدون» بالمؤكدة تطبيقياً (صاحبها محسوب بالتطبيق count=1)
 // قائمة الانتظار لا تُحسب من المقاعد إطلاقاً.
+// 🧪 مواقعُ الاختبار (قرار المالك 2026-09-27 — البوت عرض فعاليّة «Test Location» على العملاء): أيّ فعاليّةٍ في موقعٍ
+//    موسومٍ is_test_location لا يراها البوت في القوائم ولا يقبلها بالمعرّف في أيّ أداة — للعميل والأدمن سواء.
+//    تطبيقُ اللاعب يخفيها للحسابات العاديّة (player-app.routes) والتقارير تستثنيها (reports/helpers notTestActivity).
 async function seatAvailability(db: any, activityId: number): Promise<{ total: number; booked: number; remaining: number }> {
   const { resolveRoomCapacity } = await import('./capacity.service.js');
   const total = await resolveRoomCapacity(activityId);
@@ -1192,7 +1198,7 @@ async function fetchUpcomingActivities(db: any) {
     })
     .from(activities)
     .leftJoin(locations, eq(activities.locationId, locations.id))
-    .where(and(inArray(activities.status, ['planned', 'active'] as any), gte(activities.date, now as any)))
+    .where(and(inArray(activities.status, ['planned', 'active'] as any), gte(activities.date, now as any), notTestActivity))
     .orderBy(asc(activities.date))
     .limit(8);
   // 🏙️ اسم المدينة لكلّ فعاليّة — العميل في الزرقاء يريد ليالي الزرقاء
@@ -1305,6 +1311,7 @@ async function execTool(name: string, args: any, ctx: ToolCtx): Promise<any> {
       // 💰 التكلفة من النظام حصراً (قرار المالك): سعر الفعالية + العروض المفعّلة
       // (عروض الموقع مفلترة بمؤشرات enabledOfferIds — نفس منطق تطبيق اللاعب)
       const activityId = parseInt(args.activity_id);
+      if (await isTestActivity(db, activityId)) return TEST_ACTIVITY_RESULT;
       const people = Math.max(1, parseInt(args.people_count) || 1);
       const [act] = await db
         .select({ id: activities.id, name: activities.name, date: activities.date, basePrice: activities.basePrice, enabledOfferIds: activities.enabledOfferIds, locOffers: locations.offers })
@@ -1347,6 +1354,7 @@ async function execTool(name: string, args: any, ctx: ToolCtx): Promise<any> {
       // 🪑 فحص التوفر الحقيقي (سعة رسمية − محجوز فعلياً) — قرار المالك:
       // كافٍ ⟵ بلا أرقام · غير كافٍ ⟵ يُكشف المتبقي بصراحة + خيارات
       const activityId = parseInt(args.activity_id);
+      if (await isTestActivity(db, activityId)) return TEST_ACTIVITY_RESULT;
       const people = Math.max(1, parseInt(args.people_count) || 1);
       const [act] = await db.select({ id: activities.id, name: activities.name })
         .from(activities).where(eq(activities.id, activityId)).limit(1);
@@ -1413,6 +1421,7 @@ async function execTool(name: string, args: any, ctx: ToolCtx): Promise<any> {
 
     case 'ask_confirmation': {
       const activityId = parseInt(args.activity_id);
+      if (await isTestActivity(db, activityId)) return TEST_ACTIVITY_RESULT;
       const people = Math.max(1, parseInt(args.people_count) || 1);
       // 🚫 مانع التكرار: محجوز أصلاً بأي قناة ⟵ لا أزرار ولا حجز جديد
       const dup = await existingBookingFor(db, conv, activityId);
@@ -1449,6 +1458,7 @@ async function execTool(name: string, args: any, ctx: ToolCtx): Promise<any> {
 
     case 'create_reservation': {
       const activityId = parseInt(args.activity_id);
+      if (await isTestActivity(db, activityId)) return TEST_ACTIVITY_RESULT;
       let people = Math.max(1, parseInt(args.people_count) || 1);
       if (!dryRun) { // العدد المعتمد هو ما ضغط عليه العميل، لا ما يمرّره النموذج
         const mmP = /^res_confirm:(\d+):(\d+)$/.exec((await lastInboundButtonId(db, conv.id)) || '');
@@ -1567,6 +1577,7 @@ async function execTool(name: string, args: any, ctx: ToolCtx): Promise<any> {
         .where(and(
           or(eq(reservations.phone, conv.phone), conv.playerId ? eq(reservations.playerId, conv.playerId) : sql`false`),
           isNull(reservations.deletedAt),
+          notTestActivity,
         ))
         .orderBy(desc(reservations.createdAt))
         .limit(5);
@@ -1577,7 +1588,7 @@ async function execTool(name: string, args: any, ctx: ToolCtx): Promise<any> {
         .select({ id: bookings.id, count: bookings.count, isPaid: bookings.isPaid, isFree: bookings.isFree, activityName: activities.name, activityDate: activities.date })
         .from(bookings)
         .leftJoin(activities, eq(bookings.activityId, activities.id))
-        .where(and(bkConds, isNull(bookings.deletedAt)))
+        .where(and(bkConds, isNull(bookings.deletedAt), notTestActivity))
         .orderBy(desc(bookings.createdAt))
         .limit(5);
       // عرض موحّد بلا تكرار: المرايا (player-app) تُعرض من جهة التطبيق فقط،
@@ -1754,7 +1765,7 @@ async function execTool(name: string, args: any, ctx: ToolCtx): Promise<any> {
       const [loc] = await db
         .select({ id: locations.id, name: locations.name, mapUrl: locations.mapUrl, lat: locations.latitude, lng: locations.longitude, region: locations.region })
         .from(locations)
-        .where(and(eq(locations.id, locId), eq(locations.isActive, true), isNull(locations.deletedAt)))
+        .where(and(eq(locations.id, locId), eq(locations.isActive, true), eq(locations.isTestLocation, false), isNull(locations.deletedAt)))
         .limit(1);
       if (!loc) return { error: 'المكان غير موجود أو غير فعال — أعد جلب الأماكن' };
       // 📍 إحداثيّات محفوظة ⟵ رسالة موقع تُفتح في الخرائط بلمسة (أوضح من رابط)
@@ -1984,6 +1995,7 @@ async function execTool(name: string, args: any, ctx: ToolCtx): Promise<any> {
           or(eq(reservations.phone, conv.phone), conv.playerId ? eq(reservations.playerId, conv.playerId) : sql`false`),
           isNull(reservations.deletedAt),
           gte(activities.date, new Date() as any),
+          notTestActivity,
         ))
         .orderBy(asc(activities.date))
         .limit(5);
@@ -2281,7 +2293,7 @@ async function execTool(name: string, args: any, ctx: ToolCtx): Promise<any> {
         const words = q.split(/\s+/).filter((w) => w.length >= 2).slice(0, 6);
         const conds = words.length ? words.map((w) => ilike(activities.name, `%${w}%`)) : [ilike(activities.name, `%${q}%`)];
         const found = await db.select({ id: activities.id, name: activities.name, date: activities.date })
-          .from(activities).where(and(...conds, isNull(activities.deletedAt)))
+          .from(activities).where(and(...conds, isNull(activities.deletedAt), notTestActivity))
           .orderBy(desc(activities.date)).limit(6);
         if (found.length === 1) actId = found[0].id;
         else if (found.length > 1) return { needActivity: true, activities: found.map((a) => ({ id: a.id, name: a.name, dateText: fmtJo(a.date, false) })), note: 'عدّة فعاليّات مطابقة — اطلب من الأدمن اختيار المعرّف.' };
@@ -2289,9 +2301,10 @@ async function execTool(name: string, args: any, ctx: ToolCtx): Promise<any> {
       }
       if (!actId) {
         const recent = await db.select({ id: activities.id, name: activities.name, date: activities.date })
-          .from(activities).where(isNull(activities.deletedAt)).orderBy(desc(activities.date)).limit(8);
+          .from(activities).where(and(isNull(activities.deletedAt), notTestActivity)).orderBy(desc(activities.date)).limit(8);
         return { needActivity: true, activities: recent.map((a) => ({ id: a.id, name: a.name, dateText: fmtJo(a.date, false) })), note: 'ما لقيت مطابقة دقيقة بالاسم — حدّد الفعاليّة بالمعرّف أو اختر من الأخيرة.' };
       }
+      if (await isTestActivity(db, actId)) return TEST_ACTIVITY_RESULT;
       const [act] = await db.select({ id: activities.id, name: activities.name, date: activities.date, basePrice: activities.basePrice })
         .from(activities).where(eq(activities.id, actId)).limit(1);
       if (!act) return { error: 'الفعاليّة غير موجودة' };
@@ -2332,6 +2345,7 @@ async function execTool(name: string, args: any, ctx: ToolCtx): Promise<any> {
         return { error: 'رقم هاتف الشخص مطلوب — اطلبه من الأدمن («عطيني رقمه وبحجزله»). بلا رقم لا يُربط الحجز ببطاقة اللاعب ولا تُحتسب له نقاطه.' };
       }
 
+      if (await isTestActivity(db, actId)) return TEST_ACTIVITY_RESULT;
       const [act] = await db.select({ name: activities.name, date: activities.date })
         .from(activities).where(eq(activities.id, actId)).limit(1);
       if (!act) return { error: 'الفعاليّة غير موجودة' };
@@ -2392,6 +2406,7 @@ async function execTool(name: string, args: any, ctx: ToolCtx): Promise<any> {
       const phone = normalizeLocalPhone(String(args.phone || ''));
       if (!phone) return { error: 'رقم الهاتف غير صالح — لازم موبايل أردني (07XXXXXXXX)' };
 
+      if (await isTestActivity(db, toId)) return TEST_ACTIVITY_RESULT;
       const [toAct] = await db.select({ name: activities.name, date: activities.date })
         .from(activities).where(eq(activities.id, toId)).limit(1);
       if (!toAct) return { error: 'الفعاليّة المنقول إليها غير موجودة' };
@@ -2451,6 +2466,7 @@ async function execTool(name: string, args: any, ctx: ToolCtx): Promise<any> {
 
     case 'admin_set_player_free': {
       const actId = Number(args.activity_id);
+      if (await isTestActivity(db, actId)) return TEST_ACTIVITY_RESULT;
       const [act] = await db.select({ name: activities.name }).from(activities).where(eq(activities.id, actId)).limit(1);
       if (!act) return { error: 'الفعاليّة غير موجودة' };
       const { samePhone } = await import('../utils/phone.util.js');
@@ -2475,6 +2491,7 @@ async function execTool(name: string, args: any, ctx: ToolCtx): Promise<any> {
 
     case 'admin_mark_activity_paid': {
       const actId = Number(args.activity_id);
+      if (await isTestActivity(db, actId)) return TEST_ACTIVITY_RESULT;
       const [act] = await db.select({ name: activities.name, basePrice: activities.basePrice })
         .from(activities).where(eq(activities.id, actId)).limit(1);
       if (!act) return { error: 'الفعاليّة غير موجودة' };
@@ -3023,6 +3040,7 @@ async function processConversation(convId: number) {
         }
         const actId = parseInt(admRcvMatch[1]);
         const staffId = parseInt(admRcvMatch[2]);
+        if (await isTestActivity(db, actId)) { await sendMessage({ conversationId: convId, text: 'هذه الفعاليّة في موقع اختبار — غير متاحة عبر الواتساب 🧪', source: 'system' }); return; }
         const { staff } = await import('../schemas/admin.schema.js');
         const [who] = await db.select({ username: staff.username, displayName: staff.displayName })
           .from(staff).where(eq(staff.id, staffId)).limit(1);
@@ -3066,6 +3084,7 @@ ${rows.length} حجزاً × ${unit2} د.أ = *${total2} د.أ*
           await sendMessage({ conversationId: convId, text: 'هذا الإجراء متاح للأدمن فقط 🔒', source: 'system' });
           return;
         }
+        if (adminPaidMatch && await isTestActivity(db, parseInt(adminPaidMatch[1]))) { await sendMessage({ conversationId: convId, text: 'هذه الفعاليّة في موقع اختبار — غير متاحة عبر الواتساب 🧪', source: 'system' }); return; }
         if (adminFreeMatch) {
           const [b] = await db.update(bookings)
             .set({ isFree: true, isPaid: true, paidAmount: '0' } as any)
@@ -3475,6 +3494,7 @@ async function performCancellation(convId: number, reservationId: number) {
       eq(reservations.id, reservationId),
       or(eq(reservations.phone, conv.phone), conv.playerId ? eq(reservations.playerId, conv.playerId) : sql`false`),
       isNull(reservations.deletedAt),
+      notTestActivity,
     ))
     .limit(1);
 
