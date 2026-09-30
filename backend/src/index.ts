@@ -949,6 +949,10 @@ async function main() {
       await db.execute(sql`CREATE TABLE IF NOT EXISTS carddav_devices (
         id SERIAL PRIMARY KEY, label VARCHAR(80) NOT NULL, username VARCHAR(20) NOT NULL UNIQUE, password_hash TEXT NOT NULL,
         created_by VARCHAR(100) DEFAULT '', created_at TIMESTAMP DEFAULT NOW() NOT NULL, last_seen_at TIMESTAMP, last_ip VARCHAR(64), revoked_at TIMESTAMP)`);
+      // رابط ملفّ الإعداد لمرّة: الرمز مُجزَّأ، وكلمة السرّ مُعمّاة حتّى أوّل استعمالٍ أو ٣٠ دقيقة
+      await db.execute(sql`ALTER TABLE carddav_devices ADD COLUMN IF NOT EXISTS setup_token_hash VARCHAR(64)`);
+      await db.execute(sql`ALTER TABLE carddav_devices ADD COLUMN IF NOT EXISTS setup_secret TEXT`);
+      await db.execute(sql`ALTER TABLE carddav_devices ADD COLUMN IF NOT EXISTS setup_expires_at TIMESTAMP`);
       await db.execute(sql`CREATE TABLE IF NOT EXISTS analytics_cache (key VARCHAR(40) PRIMARY KEY, payload JSONB NOT NULL, refreshed_at TIMESTAMP DEFAULT NOW() NOT NULL)`);
       await db.execute(sql`CREATE TABLE IF NOT EXISTS analytics_config (key VARCHAR(40) PRIMARY KEY, value JSONB NOT NULL, updated_at TIMESTAMP DEFAULT NOW() NOT NULL)`);
       // ── 🍽️ نظام طلبات المنيو والفواتير (F&B) ──

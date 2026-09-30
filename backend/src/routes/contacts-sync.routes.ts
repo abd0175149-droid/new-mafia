@@ -26,9 +26,9 @@ async function audit(req: Request, action: string, labelAr: string, details: any
 }
 
 // ── ملفّ الإعداد (عامّ: الرمز لمرّةٍ واحدة هو الصلاحيّة) ──
-router.get('/setup/:token', (req: Request, res: Response) => {
+router.get('/setup/:token', async (req: Request, res: Response) => {
   if (!/^[a-f0-9]{48}$/.test(req.params.token)) return res.status(404).send('الرابط غير صالح');
-  const s = takeSetup(req.params.token);
+  const s = await takeSetup(req.params.token);
   if (!s) return res.status(410).set('Content-Type', 'text/plain; charset=utf-8').send('انتهت صلاحيّة رابط الإعداد أو استُعمل — أنشئ جهازاً جديداً من الداشبورد.');
   res.status(200)
     .set('Content-Type', 'application/x-apple-aspen-config')

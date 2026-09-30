@@ -343,24 +343,45 @@ export async function cardStats(): Promise<any> {
 // ══════════════════════════════════════════════════════
 // 📱 الأجهزة (اسم مستخدم + كلمة سرّ لكلّ هاتف)
 // ══════════════════════════════════════════════════════
-const setupTokens = new Map<string, { deviceId: number; username: string; password: string; exp: number }>();
+// رابط الإعداد في القاعدة (لا في الذاكرة: نشرٌ أو إعادة تشغيلٍ بين الإنشاء والفتح كانت تُبطله).
+// كلمة السرّ لازمةٌ داخل ملفّ الإعداد، فتُحفظ **مُعمّاةً** (AES-256-GCM) حتّى أوّل استعمالٍ أو ٣٠
+// دقيقة ثمّ تُمحى؛ الرمز نفسه لا يُحفظ إلّا مُجزَّأ (sha256).
+const setupKey = () => crypto.createHash('sha256').update(String(env.JWT_SECRET) + '|carddav-setup').digest();
+function seal(plain: string): string {
+  const iv = crypto.randomBytes(12); const c = crypto.createCipheriv('aes-256-gcm', setupKey(), iv);
+  const enc = Buffer.concat([c.update(plain, 'utf8'), c.final()]);
+  return [iv, c.getAuthTag(), enc].map(b => b.toString('base64url')).join('.');
+}
+function unseal(box: string): string | null {
+  try {
+    const [iv, tag, enc] = box.split('.').map(s => Buffer.from(s, 'base64url'));
+    const d = crypto.createDecipheriv('aes-256-gcm', setupKey(), iv); d.setAuthTag(tag);
+    return Buffer.concat([d.update(enc), d.final()]).toString('utf8');
+  } catch { return null; }
+}
+const tokenHash = (t: string) => crypto.createHash('sha256').update(t).digest('hex');
 export async function createDevice(label: string, by: string): Promise<{ id: number; username: string; password: string; setupToken: string }> {
   const db = getDB(); if (!db) throw new Error('DB unavailable');
   const username = 'mc-' + crypto.randomBytes(4).toString('hex');
   const password = crypto.randomBytes(18).toString('base64url');   // ١٤٤ بتّاً — لا تخمين
   const hash = await bcrypt.hash(password, 10);
-  const r: any = await db.execute(sql`INSERT INTO carddav_devices (label, username, password_hash, created_by) VALUES (${label.slice(0, 80) || 'جهاز'}, ${username}, ${hash}, ${by}) RETURNING id`);
-  const id = Number(rowsOf(r)[0].id);
   const setupToken = crypto.randomBytes(24).toString('hex');
-  setupTokens.set(setupToken, { deviceId: id, username, password, exp: Date.now() + 30 * 60e3 });
-  return { id, username, password, setupToken };
+  const r: any = await db.execute(sql`
+    INSERT INTO carddav_devices (label, username, password_hash, created_by, setup_token_hash, setup_secret, setup_expires_at)
+    VALUES (${label.slice(0, 80) || 'جهاز'}, ${username}, ${hash}, ${by}, ${tokenHash(setupToken)}, ${seal(password)}, ${new Date(Date.now() + 30 * 60e3)}) RETURNING id`);
+  return { id: Number(rowsOf(r)[0].id), username, password, setupToken };
 }
-/** رابط ملفّ الإعداد: صالحٌ ٣٠ دقيقة ولمرّةٍ واحدة (كلمة السرّ لا تُحفظ إلّا مُعمّاة) */
-export function takeSetup(token: string): { username: string; password: string } | null {
-  const s = setupTokens.get(token); if (!s) return null;
-  setupTokens.delete(token);
-  if (s.exp < Date.now()) return null;
-  return { username: s.username, password: s.password };
+/** رابط ملفّ الإعداد: صالحٌ ٣٠ دقيقة ولمرّةٍ واحدة — يُمحى السرّ المعمّى فور الاستعمال */
+export async function takeSetup(token: string): Promise<{ username: string; password: string } | null> {
+  const db = getDB(); if (!db) return null;
+  const r: any = await db.execute(sql`
+    UPDATE carddav_devices SET setup_token_hash = NULL, setup_secret = NULL, setup_expires_at = NULL
+     WHERE setup_token_hash = ${tokenHash(token)} AND revoked_at IS NULL
+     RETURNING username, setup_secret, setup_expires_at`);
+  const row = rowsOf(r)[0]; if (!row) return null;
+  if (!row.setup_expires_at || new Date(row.setup_expires_at).getTime() < Date.now()) return null;
+  const password = unseal(String(row.setup_secret || ''));
+  return password ? { username: String(row.username), password } : null;
 }
 export async function listDevices(): Promise<any[]> {
   const db = getDB(); if (!db) return [];
@@ -382,9 +403,14 @@ export async function authDevice(header: string | undefined): Promise<{ id: numb
   const username = dec.slice(0, i), password = dec.slice(i + 1);
   if (!/^mc-[a-f0-9]{8}$/.test(username)) return null;
   const ck = username + ':' + crypto.createHash('sha256').update(password).digest('hex');
-  const hit = authCache.get(ck);
-  if (hit && hit.exp > Date.now()) return { id: hit.id, username };
   const db = getDB(); if (!db) return null;
+  const hit = authCache.get(ck);
+  if (hit && hit.exp > Date.now()) {
+    // الإلغاء يسري فوراً: bcrypt مخزَّن، أمّا حالة الجهاز فتُقرأ كلّ طلب (مفتاحٌ أساسيّ — رخيص)
+    const alive: any = await db.execute(sql`SELECT 1 FROM carddav_devices WHERE id = ${hit.id} AND revoked_at IS NULL`);
+    if (rowsOf(alive).length) return { id: hit.id, username };
+    authCache.delete(ck); return null;
+  }
   const r: any = await db.execute(sql`SELECT id, password_hash FROM carddav_devices WHERE username = ${username} AND revoked_at IS NULL`);
   const row = rowsOf(r)[0]; if (!row) return null;
   if (!(await bcrypt.compare(password, String(row.password_hash)))) return null;
