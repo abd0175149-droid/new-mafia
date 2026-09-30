@@ -73,6 +73,8 @@ async function main() {
     const mg = await dav(LOCAL, 'REPORT', '/api/carddav/addressbooks/mc/', `<?xml version="1.0" encoding="UTF-8"?><B:addressbook-multiget xmlns:B="urn:ietf:params:xml:ns:carddav"><A:prop xmlns:A="DAV:"><A:getetag/><B:address-data/></A:prop>${s0.hrefs.slice(0, 3).map(h => `<A:href xmlns:A="DAV:">${h}</A:href>`).join('')}</B:addressbook-multiget>`, '1');
     const mgt = await mg.text();
     ok('multiget ⟵ ٣ بطاقات vCard باسم MC', mg.status === 207 && (mgt.match(/BEGIN:VCARD/g) || []).length === 3 && /FN:MC /.test(mgt), mgt.slice(0, 400));
+    // 🔴 الآيفون أسقط الملاحظات المطويّة (2026-10-01): CRLF محفوظ بـ&#13; ولا سطرَ استمرار
+    ok('address-data: CRLF محفوظ (&#13;) وبلا طيّ', /BEGIN:VCARD&#13;\nVERSION:3\.0&#13;\n/.test(mgt) && !/&#13;\n[ \t]/.test(mgt) && (mgt.match(/NOTE:/g) || []).length === 3, mgt.slice(0, 400));
     const g = await dav(LOCAL, 'GET', s0.hrefs[0]);
     const gt = await g.text(); const et = g.headers.get('etag') || '';
     ok('GET بطاقة ⟵ text/vcard مع ETag', g.status === 200 && /text\/vcard/.test(g.headers.get('content-type') || '') && gt.startsWith('BEGIN:VCARD') && !!et);

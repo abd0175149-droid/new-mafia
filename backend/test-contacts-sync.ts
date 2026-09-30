@@ -2,7 +2,7 @@
 // 🧪 دفتر أرقام MC — vCard وCardDAV بلا قاعدة
 // التشغيل: npx tsx test-contacts-sync.ts
 // ══════════════════════════════════════════════════════
-import { vEsc, foldLine, buildVCard, intlPhone, uidFor, dateAr, type Contact } from './src/services/contacts-sync.service.js';
+import { vEsc, buildVCard, intlPhone, uidFor, dateAr, type Contact } from './src/services/contacts-sync.service.js';
 import { parseRequestedProps, rootElement, hrefsIn, syncTokenIn } from './src/routes/carddav.routes.js';
 
 let pass = 0, fail = 0;
@@ -19,13 +19,12 @@ check(intlPhone('0000') === null && intlPhone('') === null && intlPhone('deleted
 
 sec('٢. vCard');
 check(vEsc('أ,ب;ج\\د\nهـ') === 'أ\\,ب\\;ج\\\\د\\nهـ', 'هروب , ; \\ والسطر');
-const long = 'NOTE:' + '🎭 مافيا كلوب · لاعب منذ ١٢ نيسان ٢٠٢٦\\n📍 عمّان · 🎖️ مُخبر · مستوى ١٤\\n🎮 ٢٣ لعبة في ٩ ليالٍ · آخر زيارة ٢٧ أيلول (مزاج افندينا)';
-const folded = foldLine(long);
-const parts = folded.split('\r\n');
-check(parts.every(p => Buffer.byteLength(p, 'utf8') <= 75), 'كلّ سطرٍ ≤ ٧٥ بايتاً', parts.map(p => Buffer.byteLength(p)));
-check(parts.slice(1).every(p => p.startsWith(' ')), 'الأسطر التالية تبدأ بمسافة');
-check(parts.map((p, i) => i ? p.slice(1) : p).join('') === long, 'فكّ الطيّ يعيد النصّ حرفيّاً (لا حرفَ مقطوع)');
-check(!folded.includes('�'), 'لا حرف تالف');
+const longNote = ['🎭 مافيا كلوب · لاعب منذ ١٢ نيسان ٢٠٢٦', '📍 عمّان · 🎖️ مُخبر · مستوى ١٤', '🎮 ٢٣ لعبة في ٩ ليالٍ · آخر زيارة ٢٧ أيلول (مزاج افندينا)'];
+const vl = buildVCard({ uid: uidFor('0791234560'), phoneKey: '0791234560', intl: '+962791234560', name: 'MC وَقُل الْحَقُّ مِنْ رَبِّكُم فَمَنْ شَاءَ فَلْيُؤْمِن وَمَنْ شَاءَ', note: longNote, bday: null, url: null, source: 'player', playerId: 1, played: true, fixedPhone: false }, { prefix: 'MC' });
+// 🔴 الآيفون أسقط كلّ ملاحظةٍ مطويّة (2026-10-01) — لا سطرَ استمرار في أيّ بطاقة
+check(!/\r\n[ \t]/.test(vl), 'بلا طيّ: لا سطرَ يبدأ بمسافة');
+check(vl.includes(`NOTE:${longNote.map(vEsc).join('\\n')}\r\n`), 'الملاحظة الطويلة كاملةً في سطرٍ واحد');
+check(!vl.includes('�'), 'لا حرف تالف');
 const C: Contact = { uid: uidFor('0791234567'), phoneKey: '0791234567', intl: '+962791234567', name: 'MC خالد, أحمد', note: ['🎭 سطر أوّل', 'سطر; ثانٍ'], bday: '1998-03-14', url: 'https://club-mafia.grade.sbs/admin/players/7', source: 'player', playerId: 7, played: true, fixedPhone: false };
 const v = buildVCard(C, { prefix: 'MC' });
 check(v.startsWith('BEGIN:VCARD\r\nVERSION:3.0\r\n') && v.endsWith('END:VCARD\r\n'), 'بداية ونهاية بـCRLF');
@@ -33,7 +32,7 @@ check(!/[^\r]\n/.test(v), 'لا LF منفرد');
 check(v.includes(`UID:${C.uid}`) && /^mc-[a-f0-9]{24}$/.test(C.uid), 'UID ثابت الصيغة');
 check(v.includes('FN:MC خالد\\, أحمد') && v.includes('N:;MC خالد\\, أحمد;;;'), 'الاسم مهرَّب');
 check(v.includes('TEL;TYPE=CELL,VOICE:+962791234567'), 'الرقم الدوليّ');
-check(v.replace(/\r\n /g, '').includes('NOTE:🎭 سطر أوّل\\nسطر\\; ثانٍ'), 'الملاحظة بأسطرها');
+check(v.includes('NOTE:🎭 سطر أوّل\\nسطر\\; ثانٍ\r\n'), 'الملاحظة بأسطرها');
 check(v.includes('BDAY:1998-03-14') && v.includes('ORG:Mafia Club') && v.includes('CATEGORIES:MC'), 'الميلاد والشركة والتصنيف');
 check(uidFor('0791234567') === uidFor('0791234567') && uidFor('0791234567') !== uidFor('0791234568'), 'UID بالرقم: ثابتٌ ومميِّز');
 check(dateAr('2026-09-27T16:30:00Z') === '٢٧ أيلول ٢٠٢٦', 'التاريخ بتوقيت عمّان', dateAr('2026-09-27T16:30:00Z'));

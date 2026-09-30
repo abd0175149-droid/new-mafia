@@ -151,7 +151,8 @@ function cardProps(etag: string, vcard?: string): Props {
     [k(NS_D, 'resourcetype'), ''],
     [k(NS_D, 'current-user-privilege-set'), READ_PRIVS],
   ]);
-  if (vcard !== undefined) p.set(k(NS_CARD, 'address-data'), xe(vcard));
+  // CR يُرمَّز &#13;: قارئ XML يحوّل CRLF الخامَ إلى LF فتصل البطاقة بغير نهايات أسطرها
+  if (vcard !== undefined) p.set(k(NS_CARD, 'address-data'), xe(vcard).replace(/\r/g, '&#13;'));
   return p;
 }
 const wantsData = (req: QName[] | null) => !!req?.some(q => q.local === 'address-data');

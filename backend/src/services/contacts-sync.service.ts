@@ -111,17 +111,6 @@ export function intlPhone(raw: string | null | undefined): { intl: string; local
 export function vEsc(s: string): string {
   return String(s ?? '').replace(/\\/g, '\\\\').replace(/,/g, '\\,').replace(/;/g, '\\;').replace(/\r?\n/g, '\\n');
 }
-/** طيّ السطر عند ٧٥ بايتاً دون قطع حرفٍ متعدّد البايتات (العربيّة والإيموجي) */
-export function foldLine(line: string): string {
-  const out: string[] = []; let cur = ''; let bytes = 0; let limit = 75;
-  for (const ch of Array.from(line)) {
-    const b = Buffer.byteLength(ch, 'utf8');
-    if (bytes + b > limit) { out.push(cur); cur = ' ' + ch; bytes = 1 + b; limit = 75; }
-    else { cur += ch; bytes += b; }
-  }
-  out.push(cur);
-  return out.join('\r\n');
-}
 export interface Contact {
   uid: string; phoneKey: string; intl: string; name: string; note: string[]; bday: string | null; url: string | null;
   source: 'player' | 'wa' | 'res' | 'campaign'; playerId: number | null; played: boolean; fixedPhone: boolean;
@@ -136,7 +125,10 @@ export function buildVCard(c: Contact, cfg: Pick<ContactsConfig, 'prefix'>): str
   if (c.note.length) lines.push(`NOTE:${c.note.map(vEsc).join('\\n')}`);
   if (c.url) lines.push(`URL:${c.url}`);
   lines.push('END:VCARD');
-  return lines.map(foldLine).join('\r\n') + '\r\n';
+  // 🔴 بلا طيّ أسطر: كانت كلّ الملاحظات (٩٤٨/٩٤٨ — العربيّة تتجاوز ٧٥ بايتاً دائماً) مطويّة،
+  //    والآيفون أظهر الأسماء وأسقط الملاحظات كلّها (2026-10-01). الطيّ «ينبغي» لا «يجب»،
+  //    والسطر الطويل يقبله كلّ قارئ — وما لا يُطوى لا يُفكّ خطأً.
+  return lines.join('\r\n') + '\r\n';
 }
 export function uidFor(phoneKey: string): string {
   // ملحٌ ثابت: لو رُبط بسرّ الـJWT لأعاد تدويرُه إنشاءَ كلّ جهات الاتصال على الهواتف
