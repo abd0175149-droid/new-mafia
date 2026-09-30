@@ -388,6 +388,9 @@ export async function checkMembers(activityId: number, ownerPhone: string, list:
 export interface GroupPlan {
   activity: ActivityInfo; members: MemberCheck[]; okCount: number; people: number; declared: number;
   best: OfferEval | null; nudge: OfferEval | null; blocked: OfferEval[]; existingPeople: number | null; card: string;
+  /** 💸 سعر الدون المبكّر لصاحب المجموعة الآن، وهل هو الأرخص (لا جمع — early-price.service) */
+  early: { promoId: number; price: number; base: number; name: string; deadline: number } | null;
+  useEarly: boolean; earlyStrike: boolean;
 }
 export async function planGroup(p: { activityId: number; ownerPhone: string; ownerPlayerId?: number | null; ownerName: string; members: MemberInput[]; now?: number }): Promise<GroupPlan | { error: string }> {
   const act = await loadActivity(p.activityId);
@@ -416,10 +419,22 @@ export async function planGroup(p: { activityId: number; ownerPhone: string; own
   const best = ev.best;
   const blocked = ev.evals.filter(e => e.state === 'live' && !e.ok && e.reasons.some(r => r.customer));
   const full = people * act.price;
+  // 💸 سعر الدون المبكّر للحجز عبر الدون الآن — لا جمع مع عرض المجموعة: الأرخص للعميل (قرار المالك)
+  let early: GroupPlan['early'] = null; let earlyStrike = false;
+  try {
+    const { earlyQuote } = await import('./early-price.service.js');
+    const q = await earlyQuote({ activityId: p.activityId, phone: p.ownerPhone, playerId: p.ownerPlayerId ?? null, channel: 'bot', now: p.now });
+    if (q.best) early = { promoId: q.best.promoId, price: q.best.price, base: q.best.base, name: q.best.name, deadline: q.best.deadline };
+    earlyStrike = !!q.strikeBlocked;
+  } catch { /* بلا سعر مبكّر */ }
+  const useEarly = !!early && (!best || early.price * people < best.pay * act.price);
   const L: string[] = [`👥 حجز مجموعة — «${act.name}» (${fmtWhen(act.date)})`, `• أنت (${p.ownerName})`];
   if (prior) L.push(`• ${prior === 1 ? 'صديق مسجّل سابقاً' : `${prior} أصدقاء مسجّلون سابقاً`} ✓`);
   for (const m of members) L.push(!m.ok ? `• ${m.name} — ⚠️ ${m.reason}` : m.alreadyInGroup ? `• ${m.name} ✓ (مسجّل)` : `• ${m.name} ✓`);
-  if (best) {
+  if (useEarly && early) {
+    L.push(`💰 ${people} × ${early.price} = ${Math.round(people * early.price * 100) / 100} د.أ (سعر الدون المبكّر بدل ${act.price}${best ? `، أرخص من عرض «${best.name}»` : ''}) — الدفع بالمكان`);
+    if (p.ownerPlayerId) L.push('ℹ️ بالسعر المبكّر ما بتنحسب هالزيارة ختم ولاء.');
+  } else if (best) {
     L.push(`💰 ${people} × ${act.price} = ${full} − ${best.free * act.price} (عرض «${best.name}») = ${best.pay * act.price} د.أ — الدفع بالمكان`);
     L.push(`🎁 العرض على الحضور الفعليّ: لازم تكونوا ${blocksFor(best.terms, people) * best.terms.N} على الباب.`);
     if (best.grandfathered) L.push('⭐ حجزك قبل بداية العرض — بتستفيد منه لأنك حاجز من قبل.');
@@ -431,7 +446,8 @@ export async function planGroup(p: { activityId: number; ownerPhone: string; own
   }
   if (okCount) L.push('📱 أصحابك بيوصلهم إشعار يأكّدوا فيه، واللي ما عنده حساب بيرتبط لحالو أوّل ما يحجز من التطبيق بنفس الرقم.');
   L.push('', okCount ? 'أثبّت المجموعة؟' : 'ما في رقم صالح — صحّحلي الأرقام وابعتها كمان مرّة.');
-  return { activity: act, members, okCount, people, declared, best, nudge: ev.nudge, blocked, existingPeople: bk?.people ?? null, card: L.join('\n') };
+  if (!early && earlyStrike) L.splice(L.length - 1, 0, 'ℹ️ السعر المبكّر مش متاح بهالحجز لأنّك ما حضرت حجزك الأخير — بيرجعلك بالحجز اللي بعده.');
+  return { activity: act, members, okCount, people, declared, best, nudge: ev.nudge, blocked, existingPeople: bk?.people ?? null, card: L.join('\n'), early, useEarly, earlyStrike };
 }
 
 // ══════════════════════════════════════════════════════
@@ -458,7 +474,8 @@ export async function commitGroup(p: {
 
   const result = await db.transaction(async (tx: any) => {
     // 🔒 السقف يُفحص من جديد داخل المعاملة وعلى قفل صفّ العرض — قد يكتمل بين البطاقة والضغطة
-    let offerId: number | null = best?.offerId ?? null;
+    // 💸 السعر المبكّر أرخص ⟵ لا يُطالَب بعرض المجموعة (لا جمع)؛ المجموعة تُسجَّل هويّةً فقط
+    let offerId: number | null = plan.useEarly ? null : (best?.offerId ?? null);
     if (offerId) {
       await tx.execute(sql`SELECT id FROM booking_offers WHERE id = ${offerId} FOR UPDATE`);
       const [o] = await tx.select().from(bookingOffers).where(eq(bookingOffers.id, offerId)).limit(1);
@@ -554,14 +571,29 @@ export async function commitGroup(p: {
                             AND (phone = ${p.conv.phone} ${p.conv.playerId ? sql`OR player_id = ${p.conv.playerId}` : sql``})`);
   } catch (e: any) { console.warn('⚠️ group owner mirror:', e?.message); }
 
+  // ④′ 💸 السعر المبكّر: يُقفل على كلّ مقاعد صاحب المجموعة وصفوف أصحابه — أو يُستهلك غيابٌ حجبه
+  let earlyLine = '';
+  try {
+    const E = await import('./early-price.service.js');
+    if (plan.useEarly && plan.early) {
+      await E.lockReservationSeats(result.resId, plan.early.promoId, plan.early.price, plan.people);
+      await db.execute(sql`UPDATE bookings SET unit_price = ${String(plan.early.price)}, price_promo_id = ${plan.early.promoId}
+                            WHERE group_id = ${result.groupId} AND deleted_at IS NULL AND COALESCE(is_paid, false) = false`);
+      earlyLine = `💸 سعر الدون المبكّر محفوظ: ${plan.early.price} د.أ للشخص (${jod(plan.people * plan.early.price)} بدل ${jod(plan.people * plan.early.base)}).${p.conv.playerId ? '\nℹ️ بالسعر المبكّر ما بتنحسب هالزيارة ختم ولاء.' : ''}`;
+    } else if (plan.earlyStrike && result.isNew) {
+      await E.consumeOneStrike(result.resId, p.conv.phone, p.conv.playerId ?? null);
+    }
+  } catch (e: any) { console.warn('⚠️ group early price:', e?.message); }
+
   // ⑤ دعواتُ أصحاب الحسابات: إشعارٌ بـ«تمام · مش أنا» — ورسالةُ واتساب إن كانت نافذته مفتوحة
   for (const inv of result.invites) void inviteMember(inv.playerId, inv.token, ownerName, act, p.h);
 
   const L: string[] = [`تمّ ✓ ثبّتت مجموعتك على «${act.name}» — ${fmtWhen(act.date)}.`];
-  if (result.offerId && best) {
+  if (earlyLine) L.push(earlyLine);
+  else if (result.offerId && best) {
     L.push(`🎁 عرض «${best.name}» محفوظ باسمك: ${best.pay} بتدفعوا و${best.free === 1 ? 'واحد' : best.free} ببلاش (${jod(best.pay * act.price)} بدل ${jod(plan.people * act.price)}).`);
     L.push('العرض بيتحسب على الحضور الفعليّ عند الباب.');
-  } else if (best && !result.offerId) {
+  } else if (best && !result.offerId && !plan.useEarly) {
     L.push('⚠️ العرض اكتمل للتوّ قبل التثبيت — مجموعتك مسجّلة بالسعر العاديّ.');
   }
   L.push('📱 أصحابك بيوصلهم إشعار يأكّدوا فيه، واللي ما عنده حساب بيرتبط لحالو أوّل ما يحجز من التطبيق بنفس الرقم.');

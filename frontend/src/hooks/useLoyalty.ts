@@ -8,7 +8,7 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 
-export type LoyaltyVerdict = 'stamped' | 'late' | 'channel' | 'no_booking' | 'voided' | 'no_show' | 'location';
+export type LoyaltyVerdict = 'stamped' | 'late' | 'channel' | 'no_booking' | 'voided' | 'no_show' | 'location' | 'promo';
 export interface LoyaltyVisit {
   activityId: number; activityName: string; date: string; locationName: string | null;
   played: boolean; verdict: LoyaltyVerdict; leadHours: number | null; bookingCreatedBy: string | null; stampNo: number | null; stampId: number | null;
@@ -120,6 +120,7 @@ export function verdictLabel(v: LoyaltyVisit): { text: string; tone: 'ok' | 'bad
     case 'stamped': return { text: `✦ ختم ${arNum(v.stampNo ?? '')}`, tone: 'ok', why: v.leadHours != null ? `حجزت قبل ${fmtLeadAr(v.leadHours)} · لعبت` : 'لعبت' };
     case 'late': return { text: 'بلا ختم', tone: 'bad', why: v.leadHours != null && v.leadHours < 0 ? 'حجزت بعد بدء الفعاليّة' : `حجزت قبل ${fmtLeadAr(v.leadHours ?? 0)} فقط` };
     case 'channel': return { text: 'بلا ختم', tone: 'bad', why: 'الحجز لم يكن من التطبيق ولا عبر الدون على واتساب' };
+    case 'promo': return { text: '💸 سعر مبكّر', tone: 'muted', why: 'حجزت عبر الدون بكّير فدخلت بسعرٍ أقلّ — والزيارة بالسعر المبكّر لا تُحتسب ختماً' };
     case 'no_booking': return { text: 'بلا ختم', tone: 'bad', why: 'لعبت بلا حجز من التطبيق' };
     case 'no_show': return { text: 'لم تلعب', tone: 'warn', why: 'حجزت ولم تلعب مباراة' };
     case 'voided': return { text: 'ختم ملغى', tone: 'muted', why: 'أُلغي من الإدارة' };

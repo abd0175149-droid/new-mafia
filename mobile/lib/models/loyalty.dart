@@ -166,6 +166,7 @@ class LoyaltyVisit {
         'no_show' => 'حجزت ولم تلعب',
         'voided' => 'ختم ملغى',
         'location' => 'خارج البرنامج',
+        'promo' => '💸 سعر مبكّر',
         _ => verdict,
       };
 
@@ -192,6 +193,8 @@ class LoyaltyVisit {
         return 'ختم ملغى';
       case 'location':
         return 'مكان خارج البرنامج';
+      case 'promo':
+        return 'حجزت عبر الدون بكّير ودخلت بسعر أقلّ — بلا ختم';
     }
     return '';
   }

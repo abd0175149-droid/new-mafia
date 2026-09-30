@@ -145,6 +145,8 @@ export const activities = pgTable('activities', {
   receivedBy: varchar('received_by', { length: 100 }).default(''),
   createdAt: timestamp('created_at').defaultNow().notNull(),
   deletedAt: timestamp('deleted_at'),
+  // 🚫 متى حُكم على غياب حاجزيها (early-price.service) — مرّةً واحدة
+  noShowJudgedAt: timestamp('no_show_judged_at'),
 });
 
 // ── Bookings (الحجوزات) ─────────────────────────────
@@ -171,6 +173,9 @@ export const bookings = pgTable('bookings', {
   // 👥 عضويّةُ مجموعة عرض الحجز (booking_groups) — والمجّانيّ بالعرض يحمل سببه كما يحمل الولاءُ loyalty_reward_id
   groupId: integer('group_id'),
   offerFree: boolean('offer_free').default(false),
+  // 💸 سعر الدون المبكّر — السعر المقفول لحظة الحجز (فارغ = سعر الفعاليّة). اقرأه عبر entryPriceSql
+  unitPrice: decimal('unit_price', { precision: 10, scale: 2 }),
+  pricePromoId: integer('price_promo_id'),
   createdAt: timestamp('created_at').defaultNow().notNull(),
   deletedAt: timestamp('deleted_at'),
 });
@@ -629,6 +634,10 @@ export const reservations = pgTable('reservations', {
   // (تذكيرُ البوت الآليّ قبل ساعة). التمييزُ مقصود: أحدهما فعلُ إنسانٍ والآخر فعلُ نظام.
   waSentAt: timestamp('wa_sent_at'),
   waSentBy: varchar('wa_sent_by', { length: 100 }).default(''),
+  // 💸 سعر الدون المبكّر: السعر المقفول لحظة الحجز لأوّل promo_seats مقعداً (والباقي بسعر الفعاليّة)
+  unitPrice: decimal('unit_price', { precision: 10, scale: 2 }),
+  pricePromoId: integer('price_promo_id'),
+  promoSeats: integer('promo_seats'),
   createdAt: timestamp('created_at').defaultNow().notNull(),
   updatedAt: timestamp('updated_at').defaultNow().notNull(),
   deletedAt: timestamp('deleted_at'),
@@ -777,4 +786,43 @@ export const bookingGroupMembers = pgTable('booking_group_members', {
   acceptedAt: timestamp('accepted_at'),
   createdAt: timestamp('created_at').defaultNow().notNull(),
   updatedAt: timestamp('updated_at').defaultNow().notNull(),
+});
+
+// ══════════════════════════════════════════════════════
+// 💸 سعر الدون المبكّر — early-price.service.ts
+// ══════════════════════════════════════════════════════
+export const earlyPricePromos = pgTable('early_price_promos', {
+  id: serial('id').primaryKey(),
+  name: varchar('name', { length: 120 }).notNull(),
+  status: varchar('status', { length: 12 }).default('draft').notNull(),   // draft | live | paused
+  mode: varchar('mode', { length: 8 }).default('fixed').notNull(),        // fixed = سعرٌ ثابت · off = خصمُ مبلغ
+  value: decimal('value', { precision: 10, scale: 2 }).notNull(),
+  leadHours: integer('lead_hours').default(24).notNull(),
+  actFrom: timestamp('act_from').notNull(),                               // الفترة تحكم موعد الفعاليّة
+  actUntil: timestamp('act_until').notNull(),
+  scope: varchar('scope', { length: 8 }).default('all').notNull(),        // all | cities | acts
+  cityIds: jsonb('city_ids').default([]),
+  activityIds: jsonb('activity_ids').default([]),
+  excludeIds: jsonb('exclude_ids').default([]),
+  announce: boolean('announce').default(true),
+  announceText: text('announce_text').default(''),
+  activatedAt: timestamp('activated_at'),                                 // أوّل تفعيل — لا غياب يُحكم قبله
+  createdBy: varchar('created_by', { length: 100 }).default(''),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+  updatedAt: timestamp('updated_at').defaultNow().notNull(),
+  deletedAt: timestamp('deleted_at'),
+});
+export const noShowStrikes = pgTable('no_show_strikes', {
+  id: serial('id').primaryKey(),
+  playerId: integer('player_id'),
+  phone: varchar('phone', { length: 20 }),
+  activityId: integer('activity_id'),
+  reservationId: integer('reservation_id'),
+  kind: varchar('kind', { length: 16 }).default('no_show').notNull(),     // no_show | late_cancel
+  status: varchar('status', { length: 12 }).default('active').notNull(),  // active | consumed | waived
+  consumedByReservationId: integer('consumed_by_reservation_id'),
+  consumedAt: timestamp('consumed_at'),
+  waivedBy: varchar('waived_by', { length: 100 }),
+  waivedAt: timestamp('waived_at'),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
 });

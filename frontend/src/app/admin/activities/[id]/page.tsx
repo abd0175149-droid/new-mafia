@@ -8,6 +8,7 @@ import DriveFolderBrowser from '../../components/DriveFolderBrowser';
 import EditActivityForm from '../../components/EditActivityForm';
 import BookingBonusSection from '../../components/BookingBonusSection';
 import OfferGroupsSection from '../../components/OfferGroupsSection';
+import NoShowSection from '../../components/NoShowSection';
 import ScheduleEditor from '../../components/ScheduleEditor';
 import WhatsAppButton from '@/components/WhatsAppButton';
 import SeatMap2D from '@/components/SeatMap2D';
@@ -1162,6 +1163,9 @@ export default function ActivityDetailPage() {
   const paidAttendees = actBookings.filter((b: any) => b.isPaid && !b.isFree).reduce((s: number, b: any) => s + (b.count || 1), 0);
   const freeAttendees = actBookings.filter((b: any) => b.isFree).reduce((s: number, b: any) => s + (b.count || 1), 0);
   const unpaidAttendees = actBookings.filter((b: any) => !b.isPaid && !b.isFree).reduce((s: number, b: any) => s + (b.count || 1), 0);
+  // 💸 المتوقّع بسعر كلّ حجز (المقفول بسعر الدون المبكّر وإلّا سعر الفعاليّة)
+  const unpaidExpected = actBookings.filter((b: any) => !b.isPaid && !b.isFree)
+    .reduce((s: number, b: any) => s + Number(b.unitPrice ?? activity?.basePrice ?? 0) * (b.count || 1), 0);
 
   const status = STATUS_MAP[activity.status] || STATUS_MAP.planned;
 
@@ -1185,7 +1189,7 @@ export default function ActivityDetailPage() {
       if (booking.offerItems?.length > 0) {
         totalSuggested += booking.offerItems.reduce((s: number, item: any) => s + ((item.unitPrice || item.price || 0) * (item.quantity || 0)), 0);
       } else {
-        totalSuggested += (Number(activity?.basePrice || 0)) * (booking.count || 1);
+        totalSuggested += (Number(booking.unitPrice ?? activity?.basePrice ?? 0)) * (booking.count || 1);   // 💸 السعر المقفول وإلّا سعر الفعاليّة
       }
     });
 
@@ -1205,7 +1209,7 @@ export default function ActivityDetailPage() {
       if (b.offerItems?.length > 0) {
         expected = b.offerItems.reduce((s: number, item: any) => s + ((item.unitPrice || item.price || 0) * (item.quantity || 0)), 0);
       } else {
-        expected = (Number(activity?.basePrice || 0)) * (b.count || 1);
+        expected = (Number(b.unitPrice ?? activity?.basePrice ?? 0)) * (b.count || 1);
       }
       return expected;
     });
@@ -1247,6 +1251,16 @@ export default function ActivityDetailPage() {
     } finally {
       setPaySubmitting(false);
     }
+  }
+
+  // 💸 تطبيق سعر الدون المبكّر أو إزالته يدويّاً (أدمن — يُسجَّل في سجلّ الموظّفين)
+  async function toggleEarly(b: any) {
+    const on = b.unitPrice == null;
+    if (!(await swalConfirm(on ? `تطبيق سعر الدون المبكّر يدويّاً على حجز ${b.name}؟` : `إزالة سعر الدون المبكّر عن حجز ${b.name}؟ يعود لسعر الفعاليّة.`, { icon: 'question' }))) return;
+    try {
+      await apiFetch(`/api/early-price/booking/${b.id}`, { method: 'POST', body: JSON.stringify({ on }) });
+      setBookings(await apiFetch(`/api/bookings?activityId=${activityId}`));
+    } catch (e: any) { alert(`❌ ${e.message}`); }
   }
 
   async function handleUnpay(bookingId: number) {
@@ -1615,6 +1629,9 @@ export default function ActivityDetailPage() {
                                 {Number(b.paidAmount || 0)} {CURRENCY}
                               </span>
                             )}
+                            {b.unitPrice != null && !b.isFree && (
+                              <span className="block text-[10px] text-amber-300 font-bold" title="سعر الدون المبكّر المقفول لهذا الحجز">💸 {Number(b.unitPrice)} {CURRENCY}</span>
+                            )}
                           </td>
                           <td className="px-3 py-2.5 text-gray-400 text-xs">{b.receivedBy || '—'}</td>
                           <td className="px-3 py-2.5 text-xs whitespace-nowrap" title={b.createdAt ? new Date(b.createdAt).toLocaleString('ar-JO', { dateStyle: 'medium', timeStyle: 'medium' }) : undefined}>
@@ -1634,6 +1651,15 @@ export default function ActivityDetailPage() {
                                   title="تأكيد الدفع"
                                 >
                                   💰 تأكيد دفع
+                                </button>
+                              )}
+                              {getUser()?.role === 'admin' && !b.isPaid && !b.isFree && (
+                                <button
+                                  onClick={() => toggleEarly(b)}
+                                  className={`text-[10px] px-2 py-1 rounded-lg transition ${b.unitPrice != null ? 'text-amber-300 hover:bg-amber-500/10' : 'text-gray-500 hover:text-amber-300 hover:bg-amber-500/10'}`}
+                                  title={b.unitPrice != null ? 'إزالة سعر الدون المبكّر' : 'تطبيق سعر الدون المبكّر يدويّاً'}
+                                >
+                                  {b.unitPrice != null ? '💸✕' : '💸'}
                                 </button>
                               )}
                               {b.isPaid && !b.isFree && !isAccountant && (
@@ -1705,7 +1731,7 @@ export default function ActivityDetailPage() {
                   <span>👥 <strong className="text-white">{totalAttendees}</strong> حضور</span>
                   <span>💳 <strong className="text-emerald-400">{revenue.toLocaleString()} {CURRENCY}</strong> محصّل</span>
                   {unpaidAttendees > 0 && (
-                    <span className="text-amber-400">⚠️ <strong>{(Number(activity.basePrice || 0) * unpaidAttendees).toLocaleString()} {CURRENCY}</strong> متوقع تحصيله</span>
+                    <span className="text-amber-400">⚠️ <strong>{(Math.round(unpaidExpected * 100) / 100).toLocaleString()} {CURRENCY}</strong> متوقع تحصيله</span>
                   )}
                 </div>
               </>
@@ -1724,6 +1750,12 @@ export default function ActivityDetailPage() {
       <ScheduleEditor activityId={activity.id} activityDate={activity.date} initial={activity.gameSchedule || []} />
 
       {/* ══ 🎟️ مجموعات عروض الحجز — الحسمُ عند الباب على الحضور الفعليّ ══ */}
+      {/* ══ 🚫 الغياب — يثبت فور نهاية الفعاليّة، و«حضر» يصحّحه ══ */}
+      <NoShowSection
+        activityId={activity.id}
+        onChanged={() => { apiFetch(`/api/bookings?activityId=${activity.id}`).then(setBookings).catch(() => {}); }}
+      />
+
       <OfferGroupsSection
         activityId={activity.id}
         onChanged={() => { apiFetch(`/api/bookings?activityId=${activity.id}`).then(setBookings).catch(() => {}); }}

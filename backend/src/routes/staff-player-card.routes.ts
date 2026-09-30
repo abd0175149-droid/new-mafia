@@ -16,6 +16,7 @@
 // ══════════════════════════════════════════════════════
 
 import { Router, Request, Response } from 'express';
+import { entryPriceSql } from '../services/early-price.service.js';
 import { sql } from 'drizzle-orm';
 import { getDB } from '../config/db.js';
 import { authenticate, authorize } from '../middleware/auth.js';
@@ -163,7 +164,7 @@ router.get(
       //    من `activities.base_price`. والبدايةُ ١/٩ قرارُ المالك: ٣٧٥ د.أ على
       //    ١٢٦ حجزاً بدل ١٦٩٩ على ٧٨٣ — لا مطالبةَ بأثرٍ رجعيّ.
       const debt = one(await db.execute(sql`
-        SELECT COALESCE(SUM(COALESCE(a.base_price, '0')::numeric), 0)::float AS amount,
+        SELECT COALESCE(SUM(COALESCE(${sql.raw(entryPriceSql('b', 'a'))}, 0)::numeric), 0)::float AS amount,   -- 💸 سعر الحجز المقفول وإلّا سعر الفعاليّة
                count(*)::int AS bookings
         FROM bookings b JOIN activities a ON a.id = b.activity_id
         WHERE b.player_id = ${playerId}
@@ -382,9 +383,9 @@ async function buildSection(db: any, key: string, id: number, p: Row, isAdmin: b
       //    في نظامٍ لم يكن يُعلَّم فيه الدفعُ أصلاً، فالمطالبةُ به ظلم.
       const debt = one(await db.execute(sql`
         SELECT
-          COALESCE(SUM(a.base_price::numeric) FILTER (WHERE a.date >= ${DEBT_SINCE}::date), 0)::float AS live,
+          COALESCE(SUM((${sql.raw(entryPriceSql('b', 'a'))})::numeric) FILTER (WHERE a.date >= ${DEBT_SINCE}::date), 0)::float AS live,
           count(*) FILTER (WHERE a.date >= ${DEBT_SINCE}::date)::int AS live_n,
-          COALESCE(SUM(a.base_price::numeric) FILTER (WHERE a.date < ${DEBT_SINCE}::date), 0)::float AS arch,
+          COALESCE(SUM((${sql.raw(entryPriceSql('b', 'a'))})::numeric) FILTER (WHERE a.date < ${DEBT_SINCE}::date), 0)::float AS arch,
           count(*) FILTER (WHERE a.date < ${DEBT_SINCE}::date)::int AS arch_n
         FROM bookings b JOIN activities a ON a.id = b.activity_id
         WHERE b.player_id = ${id} AND b.is_paid = false

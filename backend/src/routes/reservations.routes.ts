@@ -185,6 +185,14 @@ router.put('/:id', authenticate, async (req: Request, res: Response) => {
   const result = await db.update(reservations).set(updates).where(eq(reservations.id, id)).returning();
   const row = result[0];
 
+  // 💸🚫 «حضر» من الموظّف يلغي غيابه ويعيد السعر المبكّر إلى الحجز الذي استهلكه (إن لم يُدفع)،
+  //      وتعديل العدد يعيد تقييم المقاعد المبكّرة
+  try {
+    const E = await import('../services/early-price.service.js');
+    if (attended === true && existing[0].attended !== true) await E.waiveStrikes({ reservationId: id }, req.user?.displayName || req.user?.username || 'موظّف');
+    if (peopleCount !== undefined && Number(peopleCount) !== Number(existing[0].peopleCount) && existing[0].pricePromoId != null) await E.onPeopleChanged(id, Number(peopleCount));
+  } catch (e: any) { console.warn('⚠️ early-price reservation update:', e?.message); }
+
   // 🔗 التثبيت يُنشئ حجزاً فعليّاً في الفعاليّة — وإلّا بقي وسماً بلا أثر:
   // اللاعب يُخبَر أنّ حجزه مؤكَّد ثمّ لا يجده في تطبيقه ولا في قائمة الفعاليّة.
   // «مثبّت» يشمل paid_all القديمة (تُعامَل كمثبّت في كلّ النظام).
@@ -262,6 +270,8 @@ router.delete('/:id', authenticate, async (req: Request, res: Response) => {
   await db.update(reservations).set({ deletedAt: new Date() } as any).where(eq(reservations.id, id));
   // 👥 مجموعةُ عرضٍ على هذا الحجز تبطل، وحجوزاتُ أصحابه تبقى مستقلّة
   import('../services/booking-offers.service.js').then(m => m.onReservationDeleted(id)).catch(() => {});
+  // 💸 حذفُ الموظّف ليس إلغاءً متأخّراً من العميل — لكن غيابٌ استهلكه هذا الحجز يعود قائماً
+  import('../services/early-price.service.js').then(m => m.onReservationCancelled(id, { byCustomer: false })).catch(() => {});
   res.json({ success: true, bookingRemoved: bookingSync });
 });
 

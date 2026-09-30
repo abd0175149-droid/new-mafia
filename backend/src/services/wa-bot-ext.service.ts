@@ -639,6 +639,7 @@ export async function execExtTool(name: string, args: any, ctx: Ctx, h: ExtHelpe
          WHERE a.deleted_at IS NULL AND a.date >= ${start} AND a.date < ${end} AND COALESCE(l.is_test_location,false) = false ORDER BY a.date`);
       const out: any[] = [];
       let lc: any = null; try { const L = await import('./loyalty.service.js'); const c = await L.getLoyaltyConfig(); lc = c.enabled ? c : null; } catch { /* بلا ولاء */ }
+      const { entryPriceSql } = await import('./early-price.service.js');
       for (const a of rowsOf(acts)) {
         const r: any = await db.execute(sql`
           SELECT (SELECT COUNT(*)::int FROM reservations r WHERE r.activity_id = ${a.id} AND r.deleted_at IS NULL AND r.status <> 'waitlist') AS res_rows,
@@ -650,6 +651,7 @@ export async function execExtTool(name: string, args: any, ctx: Ctx, h: ExtHelpe
                  (SELECT COUNT(*)::int FROM bookings b WHERE b.activity_id = ${a.id} AND b.deleted_at IS NULL AND b.is_paid AND NOT b.is_free) AS paid,
                  (SELECT COUNT(*)::int FROM bookings b WHERE b.activity_id = ${a.id} AND b.deleted_at IS NULL AND NOT b.is_paid AND NOT b.is_free) AS unpaid,
                  (SELECT COALESCE(SUM(paid_amount),0) FROM bookings b WHERE b.activity_id = ${a.id} AND b.deleted_at IS NULL) AS collected,
+                 (SELECT COALESCE(SUM(${sql.raw(entryPriceSql('b', 'a2'))}),0) FROM bookings b JOIN activities a2 ON a2.id = b.activity_id WHERE b.activity_id = ${a.id} AND b.deleted_at IS NULL AND NOT b.is_paid AND NOT b.is_free) AS expected_unpaid,
                  (SELECT COUNT(*)::int FROM matches m JOIN sessions s ON s.id = m.session_id WHERE s.activity_id = ${a.id} AND m.deleted_at IS NULL) AS matches,
                  (SELECT COUNT(DISTINCT mp.player_id)::int FROM match_players mp JOIN matches m ON m.id = mp.match_id JOIN sessions s ON s.id = m.session_id WHERE s.activity_id = ${a.id} AND m.deleted_at IS NULL) AS played,
                  (SELECT COUNT(*)::int FROM orders o WHERE o.activity_id = ${a.id} AND o.status IN ('new','preparing')) AS open_orders,
@@ -661,7 +663,7 @@ export async function execExtTool(name: string, args: any, ctx: Ctx, h: ExtHelpe
         out.push({
           id: a.id, name: a.name, location: a.loc, startsAt: h.fmtJo(a.date), capacity: a.max_capacity, pricePerPerson: a.base_price,
           reservations: { rows: x.res_rows, people: x.res_people, waitlist: x.waitlist, markedAttended: x.attended },
-          bookings: { total: x.bookings, paid: x.paid, unpaid: x.unpaid, free: x.free, collectedJOD: Number(x.collected || 0), expectedFromUnpaidJOD: Math.round(Number(x.unpaid || 0) * Number(a.base_price || 0) * 100) / 100 },
+          bookings: { total: x.bookings, paid: x.paid, unpaid: x.unpaid, free: x.free, collectedJOD: Number(x.collected || 0), expectedFromUnpaidJOD: Math.round(Number(x.expected_unpaid || 0) * 100) / 100 },
           play: { matchesFinished: x.matches, playersPlayed: x.played },
           menu: { openOrders: x.open_orders, oldestOpenOrderMinutes: x.oldest_order_min != null ? Math.round(Number(x.oldest_order_min)) : null },
           loyalty: lc ? { earlyAppBookings: x.early_bookings, stampsGranted: x.stamps } : 'متوقّفة',
@@ -945,7 +947,19 @@ export async function handleExtButton(conv: any, btnId: string, h: ExtHelpers): 
       if (av.remaining < delta) { await say(`ما في متّسع للزيادة 🙏 المتبقّي ${av.remaining} مقعد بس. بتحب أحوّلك للإدارة؟`, 'bot'); return true; }
     }
     await db.update(reservations).set({ peopleCount: n, notes: sql`COALESCE(${reservations.notes}, '') || ${` · ✏️ عُدّل العدد ${r.people}→${n} عبر البوت`}`, updatedAt: new Date() } as any).where(eq(reservations.id, r.id));
-    await say(`تمّ ✅ حجزك في «${r.name}» صار لـ${n} أشخاص — ${h.fmtJo(r.date)}.`, 'bot');
+    // 💸 المقاعد المضافة تُقيَّم لحظة التعديل: قبل موعد السعر المبكّر بسعره، وبعده بالسعر العاديّ
+    let priceLine = '';
+    try {
+      const E = await import('./early-price.service.js');
+      await E.onPeopleChanged(r.id, n);
+      const [x] = await db.select({ unitPrice: reservations.unitPrice, promoSeats: reservations.promoSeats, base: activities.basePrice })
+        .from(reservations).innerJoin(activities, eq(reservations.activityId, activities.id)).where(eq(reservations.id, r.id)).limit(1);
+      if (x?.unitPrice != null) {
+        const s = Math.min(n, Number(x.promoSeats ?? n));
+        priceLine = `\n💰 ${s === n ? `${n} × ${Number(x.unitPrice)} (سعر الدون المبكّر)` : `${s} × ${Number(x.unitPrice)} (سعر مبكّر) + ${n - s} × ${Number(x.base)}`} = ${E.reservationTotal(n, Number(x.base || 0), { unitPrice: Number(x.unitPrice), promoSeats: x.promoSeats })} د.أ`;
+      }
+    } catch { /* بلا سعر مبكّر */ }
+    await say(`تمّ ✅ حجزك في «${r.name}» صار لـ${n} أشخاص — ${h.fmtJo(r.date)}.${priceLine}`, 'bot');
     h.notifyAdmins('✏️ تعديل عدد عبر البوت', `${who} — ${r.name}: ${r.people} → ${n}`, { conversationId: conv.id, url: '/admin/reservations' }).catch(() => {});
     return true;
   }

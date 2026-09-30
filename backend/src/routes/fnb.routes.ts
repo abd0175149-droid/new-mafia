@@ -975,6 +975,9 @@ venueRouter.get('/invoices/candidates', authenticate, requireVenuePermission('in
           .from(bookings).where(inArray(bookings.id, bookingIds))
       : [];
     const bkById = new Map(bks.map(b => [b.id, b]));
+    // 💸 السعر المقفول لكلّ حجز (سعر الدون المبكّر) — رسوم اللعبة تتبعه
+    let lockedFee = new Map<number, { price: number; promoId: number | null }>();
+    try { const { lockedPricesFor } = await import('../services/early-price.service.js'); lockedFee = await lockedPricesFor(bookingIds as number[]); } catch { /* سعر الفعاليّة */ }
     const invs = await db.select({
       playerId: orderInvoices.playerId, invoiceNo: orderInvoices.invoiceNo, printedAt: orderInvoices.printedAt,
       isPaid: orderInvoices.isPaid, paidAt: orderInvoices.paidAt, gameFeeAmount: orderInvoices.gameFeeAmount,
@@ -1005,7 +1008,7 @@ venueRouter.get('/invoices/candidates', authenticate, requireVenuePermission('in
       candidates: rows.map(r => {
         const bk = bkById.get(Number(r.bookingId));
         const gameFee = act.addGameFee === true && bk && bk.isPaid !== true && bk.isFree !== true
-          ? parseFloat(act.basePrice || '0') : 0;
+          ? (lockedFee.get(Number(r.bookingId))?.price ?? parseFloat(act.basePrice || '0')) : 0;
         const ordersTotal = parseFloat(r.ordersTotal || '0');
         const inv = invByPlayer.get(r.playerId);
         // فاتورةٌ محصَّلة تُجمَّد على لقطتها (رسوماً وتكملةً وماءً) — الحيّ يُحسب للبقيّة

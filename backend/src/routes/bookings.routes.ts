@@ -47,6 +47,14 @@ router.get('/', authenticate, async (req: Request, res: Response) => {
   }
 
   const rows = await query;
+  // 💸 السعر المقفول لكلّ صفّ (مباشرٌ أو موروثٌ من المتابعة) — نافذة الدفع تقرؤه بدل سعر الفعاليّة
+  if (rows.length && rows.length <= 5000) {
+    try {
+      const { lockedPricesFor } = await import('../services/early-price.service.js');
+      const lp = await lockedPricesFor(rows.map((r: any) => r.id));
+      return res.json(rows.map((r: any) => { const l = lp.get(r.id); return { ...r, unitPrice: l ? l.price : null, pricePromoId: l ? l.promoId : null }; }));
+    } catch (e: any) { console.warn('⚠️ bookings locked prices:', e?.message); }
+  }
   res.json(rows);
 });
 

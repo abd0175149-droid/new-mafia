@@ -16,6 +16,10 @@ import {
   planGroup, commitGroup, evaluateForCustomer, ruleText, offerBadgesFor, offerFactsLines, announcementFor, markAnnounced,
   loadActivity as loadOfferActivity, inviteInfo, acceptInvite, declineInvite, onReservationDeleted,
 } from './booking-offers.service.js';
+import {
+  earlyQuote, earlyBadgesFor, applyOnNewReservation, onReservationMoved, onReservationCancelled,
+  earlyFactsLines, earlyAnnouncementFor, markEarlyAnnounced, activeStrikes, reservationTotal,
+} from './early-price.service.js';
 import crypto from 'crypto';
 import bcrypt from 'bcryptjs';
 import { getDB } from '../config/db.js';
@@ -1229,17 +1233,23 @@ async function fetchUpcomingActivities(db: any) {
   try { loyaltyFns = await import('./loyalty.service.js'); const c = await loyaltyFns.getLoyaltyConfig(); loyaltyCfg = c.enabled ? c : null; } catch { /* بلا ولاء */ }
   // حالة التوفر بلا أرقام صريحة (قرار المالك: الأعداد تُكشف فقط عند النقص وعبر أداة الفحص)
   const out: any[] = [];
+  // 💸 سعر الدون المبكّر المفتوح الآن لكلّ فعاليّة (المحرّك الواحد: early-price.service)
+  const earlyBadges = await earlyBadgesFor(rows.map((a: any) => Number(a.id))).catch(() => new Map());
   for (const a of rows) {
     const av = await seatAvailability(db, a.id);
+    const eb: any = earlyBadges.get(Number(a.id));
     let loyaltyStamp: string | undefined;
     if (loyaltyCfg && loyaltyFns.isLocationEnabled(loyaltyCfg, a.locationId)) {
       const cut: Date = loyaltyFns.cutoffFor(loyaltyCfg, a.date);
       loyaltyStamp = cut.getTime() > Date.now()
         ? (loyaltyCfg.channel !== 'app' ? `الحجز (من التطبيق أو عبرك لحساب مسجَّل) قبل ${fmtJo(cut)} يُحتسب ختماً` : `الحجز من التطبيق قبل ${fmtJo(cut)} يُحتسب ختماً`)
         : 'فات موعد الختم لهذه الفعاليّة (الحجز ما زال ممكناً بلا ختم)';
+      // 💸 السعر المبكّر يسبق الختم زمنيّاً: من يأخذه لا يُختم (قرار المالك)
+      if (eb && cut.getTime() > Date.now()) loyaltyStamp = `الحجز عبرك قبل ${fmtJo(new Date(eb.deadline))} = سعر الدون المبكّر ${eb.price} د.أ بلا ختم؛ بعده وقبل ${fmtJo(cut)} (من التطبيق أو عبرك لحساب مسجَّل) = ${eb.base} د.أ مع ختم`;
     }
     out.push({
       ...(loyaltyStamp ? { loyaltyStamp } : {}),
+      ...(eb ? { earlyPrice: { priceJOD: eb.price, insteadOfJOD: eb.base, bookBefore: fmtJo(new Date(eb.deadline)) } } : {}),
       id: a.id,
       name: a.name,
       date: a.date,
@@ -1357,7 +1367,7 @@ async function execTool(name: string, args: any, ctx: ToolCtx): Promise<any> {
       const rows = acts.slice(0, 10).map(a => ({
         id: `act:${a.id}`,
         title: a.name.slice(0, 24),
-        description: `${(a as any).groupOffer ? offerBadges.get(Number(a.id))!.tag + ' · ' : ''}${a.dateText}${a.location ? ' · ' + a.location : ''}${a.city ? ' · ' + a.city : ''}${a.availability === 'مكتملة' ? ' · ⛔ مكتملة' : a.availability === 'شارفت تكتمل' ? ' · ⏳ شارفت تكتمل' : ''}`.slice(0, 72),
+        description: `${(a as any).earlyPrice ? '💸 ' + (a as any).earlyPrice.priceJOD + ' د.أ مبكّراً · ' : ''}${(a as any).groupOffer ? offerBadges.get(Number(a.id))!.tag + ' · ' : ''}${a.dateText}${a.location ? ' · ' + a.location : ''}${a.city ? ' · ' + a.city : ''}${a.availability === 'مكتملة' ? ' · ⛔ مكتملة' : a.availability === 'شارفت تكتمل' ? ' · ⏳ شارفت تكتمل' : ''}`.slice(0, 72),
       }));
       const interactive = {
         type: 'list',
@@ -1400,6 +1410,21 @@ async function execTool(name: string, args: any, ctx: ToolCtx): Promise<any> {
         const [p] = await db.select({ isFreeAccount: players.isFreeAccount }).from(players).where(eq(players.id, conv.playerId)).limit(1);
         freeAccount = !!p?.isFreeAccount;
       }
+      // 💸 سعر الدون المبكّر للحجز عبرك الآن — لا جمع مع عرض المجموعة: الأرخص للعميل
+      const eqt = await earlyQuote({ activityId, phone: conv.phone, playerId: conv.playerId ?? null, channel: 'bot' }).catch(() => null);
+      const early = eqt?.best || null;
+      const earlyTotal = early ? Math.round(early.price * people * 100) / 100 : null;
+      const groupTotal = bestO ? Math.round(bestO.pay * unit * 100) / 100 : null;
+      const earlyWins = !!early && (groupTotal == null || (earlyTotal as number) < groupTotal);
+      const penalty = !early && eqt?.strikeBlocked && eqt?.strike ? eqt.strike : null;
+      const earlyLate = !early && !penalty && eqt?.nearest?.reasons.some(r => r.code === 'lead');
+      const earlyNote = early
+        ? (earlyWins
+          ? ` 💸 بالحجز عبرك الآن: ${early.price} د.أ للشخص بدل ${unit} (سعر الدون المبكّر، حتّى ${fmtJo(new Date(early.deadline))})${people > 1 ? ` — الإجماليّ ${earlyTotal} د.أ لكلّ الـ${people}` : ''}${conv.playerId ? '. قل له بوضوح إنّ الزيارة بالسعر المبكّر لا تُحتسب ختم ولاء' : ''}.${bestO ? ' وهو أرخص من عرض المجموعة فلا تعرض المجموعة.' : ''}`
+          : ` 💸 السعر المبكّر ${early.price} د.أ متاح، لكنّ عرض المجموعة أرخص لهذا العدد — اعرض عرض المجموعة (لا يُجمعان).`)
+        : penalty
+          ? ` ⛔ السعر المبكّر غير متاح له في هذا الحجز لأنّه لم يحضر «${penalty.activityName}» (${penalty.kind === 'late_cancel' ? 'إلغاء متأخّر' : 'غياب'}) — السعر العاديّ، ويعود العرض في الحجز الذي بعده. إن قال إنّه حضر فعلاً: handoff_to_human بسبب «اعتراض على غياب».`
+          : earlyLate ? ' (فات موعد السعر المبكّر لهذه الفعاليّة.)' : '';
       return {
         activity: act.name,
         dateText: fmtJo(act.date),
@@ -1418,10 +1443,13 @@ async function execTool(name: string, args: any, ctx: ToolCtx): Promise<any> {
           thenTotalJOD: Math.round((nudgeO.nudge.people - nudgeO.nudge.free) * unit * 100) / 100,
         } : undefined,
         groupOfferNotApplicable: blockedO.length && !bestO ? blockedO : undefined,
+        earlyPrice: early ? { name: early.name, priceJOD: early.price, insteadOfJOD: early.base, totalJOD: earlyTotal, bookBefore: fmtJo(new Date(early.deadline)), noLoyaltyStamp: !!conv.playerId, ...(bestO ? { cheaperThanGroupOffer: earlyWins } : {}) } : undefined,
+        earlyPricePenalty: penalty ? { missedActivity: penalty.activityName, kind: penalty.kind === 'late_cancel' ? 'إلغاء متأخّر' : 'غياب' } : undefined,
         groupOfferHowTo: (bestO || nudgeO) ? 'اشرح العرض بأرقامه وشجّعه يجيب أصحابه. لتثبيته: اطلب اسم ورقم كلّ صديق ثمّ set_group_members (لا ask_confirmation). العرض على الحضور الفعليّ.' : undefined,
         note: unit === 0
           ? 'السعر غير مسجّل بالنظام لهذه الفعالية — لا تخترع رقماً: قل إن السعر يُؤكَّد بالمكان أو اعرض التحويل للإدارة'
-          : `اذكر بدقة وبلا أي حساب يدوي: سعر الشخص ${unit} د.أ${people > 1 ? ` والإجمالي لـ${people} أشخاص ${total} د.أ` : ''} — الدفع بالمكان عند الحضور${freeAccount ? '. حسابه مجاني 🎉: حجزه الشخصي بلا رسوم ولا يُحسب ضمن عدد عرض المجموعة' : ''}${bestO ? `. 🎁 ينطبق عرض «${bestO.name}»: يدفع ${bestO.pay} من ${people} (${Math.round(bestO.pay * unit * 100) / 100} د.أ بدل ${total})` : nudgeO?.nudge ? `. 🎁 لو زاد ${nudgeO.nudge.need} صار ${nudgeO.nudge.people} وأخذ عرض «${nudgeO.name}»` : ''}.`,
+          : early && earlyWins ? `اذكر بدقة وبلا أي حساب يدوي:${earlyNote} الدفع بالمكان عند الحضور. الحجز بنفس الطريقة (ask_confirmation) والسعر يُقفل لحظة ضغطه التأكيد.`
+          : `اذكر بدقة وبلا أي حساب يدوي: سعر الشخص ${unit} د.أ${people > 1 ? ` والإجمالي لـ${people} أشخاص ${total} د.أ` : ''} — الدفع بالمكان عند الحضور${freeAccount ? '. حسابه مجاني 🎉: حجزه الشخصي بلا رسوم ولا يُحسب ضمن عدد عرض المجموعة' : ''}${bestO ? `. 🎁 ينطبق عرض «${bestO.name}»: يدفع ${bestO.pay} من ${people} (${Math.round(bestO.pay * unit * 100) / 100} د.أ بدل ${total})` : nudgeO?.nudge ? `. 🎁 لو زاد ${nudgeO.nudge.need} صار ${nudgeO.nudge.people} وأخذ عرض «${nudgeO.name}»` : ''}.${earlyNote}`,
       };
     }
 
@@ -1510,15 +1538,25 @@ async function execTool(name: string, args: any, ctx: ToolCtx): Promise<any> {
       // 💰 سطر التكلفة حتمي من النظام (قرار المالك: تُذكر دائماً عند التثبيت)
       const [actPrice] = await db.select({ basePrice: activities.basePrice }).from(activities).where(eq(activities.id, activityId)).limit(1);
       const unitP = Number(actPrice?.basePrice || 0);
-      const costLine = unitP > 0
-        ? `\n💰 التكلفة: ${people > 1 ? `${people} × ${unitP} = ${Math.round(unitP * people * 100) / 100}` : unitP} د.أ — الدفع بالمكان`
-        : '';
+      // 💸 سعر الدون المبكّر لهذا الحجز لو ثبّت الآن (يُقفل فعليّاً لحظة ضغطه التأكيد)
+      const eqc = await earlyQuote({ activityId, phone: conv.phone, playerId: conv.playerId ?? null, channel: 'bot' }).catch(() => null);
+      const ec = eqc?.best || null;
       // 🎟️ العددُ يستحقّ عرضاً؟ العرضُ يحتاج أسماء وأرقام الأصحاب — لا يُثبَّت بزرّ الحجز العاديّ
-      let offerLine = '';
+      let offerLine = ''; let groupPay: number | null = null;
       try {
         const evc = await evaluateForCustomer({ activityId, people, phone: conv.phone, playerId: conv.playerId ?? null });
-        if (evc.best) offerLine = `\n🎁 على هالعدد في عرض «${evc.best.name}» (${evc.best.free === 1 ? 'واحد' : evc.best.free} ببلاش) — لتاخده ابعتلي اسم ورقم كل واحد من أصحابك بدل هالتأكيد.`;
+        if (evc.best) {
+          groupPay = evc.best.pay * unitP;
+          if (!ec || groupPay <= ec.price * people) offerLine = `\n🎁 على هالعدد في عرض «${evc.best.name}» (${evc.best.free === 1 ? 'واحد' : evc.best.free} ببلاش) — لتاخده ابعتلي اسم ورقم كل واحد من أصحابك بدل هالتأكيد.`;
+        }
       } catch { /* بلا عرض */ }
+      const useEarly = !!ec && (groupPay == null || ec.price * people < groupPay);
+      const pU = useEarly ? ec!.price : unitP;
+      const costLine = unitP > 0
+        ? `\n💰 التكلفة: ${people > 1 ? `${people} × ${pU} = ${Math.round(pU * people * 100) / 100}` : pU} د.أ${useEarly ? ` (سعر الدون المبكّر بدل ${unitP})` : ''} — الدفع بالمكان`
+          + (useEarly && conv.playerId ? '\nℹ️ بالسعر المبكّر ما بتنحسب هالزيارة ختم ولاء.' : '')
+          + (!ec && eqc?.strikeBlocked && eqc?.strike ? `\nℹ️ السعر المبكّر مش متاح بهالحجز لأنّك ما حضرت «${eqc.strike.activityName}» — بيرجعلك بالحجز اللي بعده.` : '')
+        : '';
       const interactive = {
         type: 'button',
         body: { text: `📋 تأكيد الحجز:\n${args.summary || ''}${costLine}${offerLine}\n\nهل أثبّت الحجز؟` },
@@ -1580,8 +1618,8 @@ async function execTool(name: string, args: any, ctx: ToolCtx): Promise<any> {
       const [act] = await db.select({ id: activities.id, name: activities.name, date: activities.date, basePrice: activities.basePrice })
         .from(activities).where(eq(activities.id, activityId)).limit(1);
       if (!act) return { error: 'الفعالية غير موجودة — أعد عرض الفعاليات' };
-      const unitCost = Number(act.basePrice || 0);
-      const totalCost = Math.round(unitCost * people * 100) / 100;
+      let unitCost = Number(act.basePrice || 0);
+      let totalCost = Math.round(unitCost * people * 100) / 100;
       if (dryRun) {
         return { success: true, dryRun: true, reservation: { activity: act.name, people }, note: '(ساحة اختبار — لم يُسجّل حجز حقيقي)' };
       }
@@ -1623,6 +1661,12 @@ async function execTool(name: string, args: any, ctx: ToolCtx): Promise<any> {
         await mirrorBotReservationToBookings(db, saved as any, `🤖 ${BOT_RESERVATION_TAG}`).catch((e: any) =>
           console.warn('⚠️ bot booking mirror:', e?.message));
       }
+      // 💸 سعر الدون المبكّر يُقفل لحظة الحجز (وقائمة الانتظار أيضاً) — أو يُستهلك غيابٌ سابق
+      const ep = await applyOnNewReservation(saved.id);
+      if (ep.applied) { unitCost = ep.price!; totalCost = Math.round(ep.price! * people * 100) / 100; }
+      const epNote = ep.applied
+        ? ` 💸 السعر المقفول: ${ep.price} د.أ للشخص بدل ${ep.base} (سعر الدون المبكّر)${conv.playerId ? ' — ذكّره أنّ هذه الزيارة لا تُحتسب ختم ولاء' : ''}.`
+        : ep.penalized ? ` ⛔ الحجز بالسعر العاديّ لأنّه لم يحضر «${ep.penalized.activityName}» — قل له ذلك بلطف، والعرض يعود في حجزه التالي.` : '';
       if (isWaitlist) {
         // قائمة الانتظار تحتاج متابعة بشرية — علامة ⚠️ على المحادثة + إشعارات
         await db.update(waConversations).set({ needsAttention: true, updatedAt: new Date() } as any).where(eq(waConversations.id, conv.id));
@@ -1640,7 +1684,7 @@ async function execTool(name: string, args: any, ctx: ToolCtx): Promise<any> {
           success: true,
           waitlist: true,
           reservation: { id: saved.id, activity: act.name, dateText: fmtJo(act.date), people, unitPriceJOD: unitCost, totalJOD: totalCost },
-          note: `سُجّل الحجز في «قائمة الانتظار» لأن المقاعد المتبقية لا تكفي العدد — أخبر العميل بوضوح: حجزك مسجّل بقائمة الانتظار والإدارة ستتواصل معك لتأكيده. لا تقل إنه مؤكد.${totalCost > 0 ? ` واذكر التكلفة عند التأكيد: ${totalCost} د.أ (${people} × ${unitCost}) — الدفع بالمكان.` : ''}`,
+          note: `سُجّل الحجز في «قائمة الانتظار» لأن المقاعد المتبقية لا تكفي العدد — أخبر العميل بوضوح: حجزك مسجّل بقائمة الانتظار والإدارة ستتواصل معك لتأكيده. لا تقل إنه مؤكد.${totalCost > 0 ? ` واذكر التكلفة عند التأكيد: ${totalCost} د.أ (${people} × ${unitCost}) — الدفع بالمكان.` : ''}${epNote}`,
         };
       }
       // إشعار الإدارة فوراً
@@ -1674,7 +1718,7 @@ async function execTool(name: string, args: any, ctx: ToolCtx): Promise<any> {
       return {
         success: true,
         reservation: { id: saved.id, activity: act.name, dateText: fmtJo(act.date), people, unitPriceJOD: unitCost, totalJOD: totalCost },
-        note: `الحجز مؤكد ومسجّل — أبلغ العميل بالتفاصيل${totalCost > 0 ? ` واذكر التكلفة إلزامياً: ${totalCost} د.أ${people > 1 ? ` (${people} × ${unitCost})` : ''}` : ''} وذكّره أن الدفع في المكان.${within24 ? ' (أُرسل للعميل عرض تذكير قبل اللعبة بساعة عبر أزرار — لا داعي لذكره نصّاً).' : ''}`,
+        note: `الحجز مؤكد ومسجّل — أبلغ العميل بالتفاصيل${totalCost > 0 ? ` واذكر التكلفة إلزامياً: ${totalCost} د.أ${people > 1 ? ` (${people} × ${unitCost})` : ''}` : ''} وذكّره أن الدفع في المكان.${epNote}${within24 ? ' (أُرسل للعميل عرض تذكير قبل اللعبة بساعة عبر أزرار — لا داعي لذكره نصّاً).' : ''}`,
       };
     }
 
@@ -1684,6 +1728,7 @@ async function execTool(name: string, args: any, ctx: ToolCtx): Promise<any> {
           id: reservations.id, peopleCount: reservations.peopleCount, status: reservations.status,
           createdBy: reservations.createdBy, appConfirmed: reservations.appConfirmed,
           createdAt: reservations.createdAt, activityName: activities.name, activityDate: activities.date,
+          unitPrice: reservations.unitPrice, promoSeats: reservations.promoSeats, basePrice: activities.basePrice,
         })
         .from(reservations)
         .leftJoin(activities, eq(reservations.activityId, activities.id))
@@ -1710,7 +1755,8 @@ async function execTool(name: string, args: any, ctx: ToolCtx): Promise<any> {
       const appConfirmedActs = new Set(shownRes.filter((r: any) => r.appConfirmed).map((r: any) => r.activityName));
       const shownBk = bkList.filter((b: any) => !appConfirmedActs.has(b.activityName));
       return {
-        reservations: shownRes.map((r: any) => ({ activity: r.activityName, dateText: fmtJo(r.activityDate), people: r.peopleCount, status: r.status === 'confirmed' ? 'مؤكد' : r.status === 'waitlist' ? 'قائمة انتظار ⏳ — الإدارة ستتواصل للتأكيد' : 'قيد المتابعة' })),
+        reservations: shownRes.map((r: any) => ({ activity: r.activityName, dateText: fmtJo(r.activityDate), people: r.peopleCount, status: r.status === 'confirmed' ? 'مؤكد' : r.status === 'waitlist' ? 'قائمة انتظار ⏳ — الإدارة ستتواصل للتأكيد' : 'قيد المتابعة',
+          ...(r.unitPrice != null ? { earlyPrice: `💸 ${Number(r.unitPrice)} د.أ للشخص (سعر الدون المبكّر)`, totalJOD: reservationTotal(Number(r.peopleCount || 1), Number(r.basePrice || 0), { unitPrice: Number(r.unitPrice), promoSeats: r.promoSeats }) } : {}) })),
         appBookings: shownBk.map((b: any) => ({ activity: b.activityName, dateText: fmtJo(b.activityDate), people: b.count, paid: b.isFree ? 'مجاني' : b.isPaid ? 'مدفوع' : 'غير مدفوع' })),
         note: 'القائمتان بلا تكرار — الحجز الواحد يظهر مرة واحدة فقط أياً كانت قناته.',
       };
@@ -2033,6 +2079,7 @@ async function execTool(name: string, args: any, ctx: ToolCtx): Promise<any> {
       if (!me?.enabled) return { enabled: false, note: 'بطاقة الولاء غير متاحة حاليّاً — أخبره بذلك بلا تفاصيل ولا وعود.' };
       const VERDICT: Record<string, string> = {
         stamped: 'خُتمت', late: 'بلا ختم — الحجز كان متأخّراً', channel: 'بلا ختم — الحجز لم يكن من التطبيق', no_booking: 'بلا ختم — لعب بلا حجز من التطبيق',
+        promo: 'بلا ختم — أخذ سعر الدون المبكّر بدلاً منه',
         no_show: 'حجز ولم يلعب', voided: 'ختم ملغى من الإدارة', location: 'مكان خارج البرنامج',
       };
       const KIND: Record<string, string> = { free_visit: 'زيارة مجّانيّة', free_drink: 'مشروب مجّاني', chips: 'تشبس' };
@@ -2832,6 +2879,7 @@ async function buildLiveFacts(db: any): Promise<string> {
   } catch { /* بلا عروض */ }
   // 🎟️ عروض الحجز الجماعيّ الفعّالة — ليجيب النموذج عن الأسئلة (الإعلانُ نفسه تُلحقه الشيفرة)
   try { lines.push(...(await offerFactsLines())); } catch { /* بلا عروض */ }
+  try { lines.push(...(await earlyFactsLines())); } catch { /* بلا سعر مبكّر */ }
   const text = lines.join('\n');
   liveFactsCache = { text, at: Date.now() };
   return text;
@@ -2901,6 +2949,10 @@ async function buildCustomerCard(db: any, conv: any): Promise<string> {
     const { getAux } = await import('../config/redis.js');
     const g = await getAux(`grp-ctx:${conv.id}`);
     if (g && g.expiresAt > Date.now()) lines.push(`👥 ضغط «أضيف أصحابي» — ينتظر الدون أسماء وأرقام أصحابه لمجموعة على activity ${g.activityId}؛ حين يرسلها استدعِ set_group_members.`);
+  } catch { /* غير حرج */ }
+  try {
+    const st = await activeStrikes(conv.phone, conv.playerId ?? null);
+    if (st.length) lines.push(`⛔ عليه ${st.length === 1 ? 'غياب' : `${st.length} غيابات`} لم يُستهلك (آخرها «${st[st.length - 1].activity_name || ''}») — حجزه القادم عبرك بالسعر العاديّ لا المبكّر. إن قال إنّه حضر: handoff_to_human بسبب «اعتراض على غياب».`);
   } catch { /* غير حرج */ }
   const notes = await db.select().from(waCustomerNotes)
     .where(eq(waCustomerNotes.phone, conv.phone))
@@ -3335,13 +3387,17 @@ ${rows.length} حجزاً × ${unit2} د.أ = *${total2} د.أ*
         // 🪞 نفس قاعدة المرآة: المربوط بحساب يظهر في تفاصيل النشاط، وغير المربوط لا
         const mirrored = await mirrorBotReservationToBookings(db, savedRes as any, `🔒 أدمن عبر ${BOT_RESERVATION_TAG}`)
           .catch((e: any) => { console.warn('⚠️ admin booking mirror:', e?.message); return false; });
+        // 💸 يأخذ سعر الدون المبكّر كأنّه حجز بنفسه (قرار المالك) — أو يُستهلك غيابٌ سابق
+        const epA = await applyOnNewReservation(savedRes.id);
+        const epLine = epA.applied ? `\n💸 بسعر الدون المبكّر: ${epA.price} د.أ للشخص بدل ${epA.base}${pl?.id ? ' (بلا ختم ولاء على هالزيارة)' : ''}.`
+          : epA.penalized ? `\n⛔ بالسعر العاديّ — عليه غياب سابق عن «${epA.penalized.activityName}».` : '';
         const over = av.remaining < p.people ? `\n⚠️ الحجز تجاوز السعة (كان المتبقي ${av.remaining}).` : '';
         const mirrorLine = pl?.id
           ? (mirrored
             ? `\n🔗 مربوط ببطاقة «${pl.name}» — بتنحسبله نقاطه وبيظهر بتفاصيل النشاط.`
             : `\n🔗 مربوط ببطاقة «${pl.name}» — وله صفّ بتفاصيل النشاط أصلاً.`)
           : '\n📄 الرقم مش مربوط بحساب لاعب — انحجز كضيف (بيظهر بمتابعة الحجوزات فقط).';
-        await sendMessage({ conversationId: convId, text: `تمّ ✅ انحجز «${pl?.name || p.name}» (${p.phone}) — ${p.people} أشخاص في «${act?.name || ''}» ${act ? `(${fmtJo(act.date)})` : ''}.${over}${mirrorLine}`, source: 'system' });
+        await sendMessage({ conversationId: convId, text: `تمّ ✅ انحجز «${pl?.name || p.name}» (${p.phone}) — ${p.people} أشخاص في «${act?.name || ''}» ${act ? `(${fmtJo(act.date)})` : ''}.${over}${mirrorLine}${epLine}`, source: 'system' });
         console.log(`🔒 WA bot ADMIN add-booking act=${p.actId} phone=${p.phone} people=${p.people} by conv ${convId}`);
         void auditBot(conv, 'wa:booking-add', { phone: p.phone, people: p.people, overCapacity: av.remaining < p.people }, { activityId: p.actId, targetName: p.name });
         return;
@@ -3387,6 +3443,7 @@ ${rows.length} حجزاً × ${unit2} د.أ = *${total2} د.أ*
           )).returning({ id: bookings.id });
           movedMirror = upd.length;
         }
+        await onReservationMoved(res.id);   // 💸 السعر المبكّر يُعاد تقييمه على الفعاليّة الجديدة لحظة النقل
         const mirrorNote = movedMirror ? `\n(نُقل معه ${movedMirror} حجز تطبيق)` : '';
         await sendMessage({ conversationId: convId, text: `تمّ ✅ نُقل حجز ${p.phone} (${res.peopleCount} أشخاص) من «${fromAct?.name || ''}» إلى «${toAct?.name || ''}» ${toAct ? `(${fmtJo(toAct.date)})` : ''}.${mirrorNote}`, source: 'system' });
         console.log(`🔒 WA bot ADMIN move-booking res=${res.id} ${p.fromId}→${p.toId} by conv ${convId}`);
@@ -3476,6 +3533,13 @@ ${rows.length} حجزاً × ${unit2} د.أ = *${total2} د.أ*
           const explained = toolTrace.filter(t => t.name === 'get_booking_cost' && t.result?.groupOffer?.id).map(t => Number(t.result.groupOffer.id));
           const ann = await announcementFor(conv, explained);
           if (ann) { finalOut = `${finalOut}\n\n${ann.text}`; await markAnnounced(conv.id, ann.offerIds); }
+          // 💸 سعر الدون المبكّر — مرّةً لكلّ محادثة؛ إن شرحه الردّ نفسه (get_booking_cost) يُعلَّم ولا يُكرَّر
+          const eann = await earlyAnnouncementFor(conv);
+          if (eann) {
+            const explainedEarly = toolTrace.some(t => t.name === 'get_booking_cost' && t.result?.earlyPrice);
+            if (!explainedEarly) finalOut = `${finalOut}\n\n${eann.text}`;
+            await markEarlyAnnounced(conv.id, eann.keys);
+          }
         }
       } catch (e: any) { console.warn('⚠️ offer announce:', e?.message); }
       if (finalOut) {
@@ -3655,6 +3719,7 @@ async function performCancellation(convId: number, reservationId: number) {
   // ≥3 ساعات — إلغاء تلقائي (حذف ناعم كما يفعل النظام)
   await db.update(reservations).set({ deletedAt: new Date() } as any).where(eq(reservations.id, r.id));
   void onReservationDeleted(r.id);   // 🎟️ مجموعةُ عرضٍ على هذا الحجز تبطل، وحجوزاتُ أصحابه تبقى مستقلّة
+  void onReservationCancelled(r.id, { byCustomer: true });   // 💸 إلغاءٌ في آخر ٦ ساعات = غياب؛ وغيابٌ استهلكه يعود قائماً
   // إلغاء فعلي من كل القنوات: إن كان الحجز مربوطاً بحجز تطبيق (مرآة أو مترقٍّ)
   // يُلغى حجز التطبيق أيضاً — وإلا بقي العميل محسوباً بالمقاعد وحاجزاً بالتطبيق
   if (r.appConfirmed || r.createdBy === 'player-app') {

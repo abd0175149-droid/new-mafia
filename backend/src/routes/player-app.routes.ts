@@ -241,6 +241,15 @@ router.delete('/book/:activityId', authenticatePlayer, async (req: Request, res:
     await db.update(bookings).set({ deletedAt: new Date() } as any).where(eq(bookings.id, bk.id));
     // 👥 عضوٌ في مجموعة عرض ألغى ⟵ يخرج منها وتصغر ويُبلَّغ صاحبها
     import('../services/booking-offers.service.js').then(m => m.onBookingDeleted(bk.id)).catch(() => {});
+    // 💸 إلغاء اللاعب بنفسه: في آخر ٦ ساعات = غياب، وغيابٌ استهلكه حجزُه يعود قائماً (قبل إرجاع المتابعة «غير مثبّت»)
+    try {
+      const rs = await db.select({ id: reservations.id }).from(reservations).where(and(
+        eq(reservations.activityId, activityId), isNull(reservations.deletedAt),
+        or(eq(reservations.playerId, player.playerId), player.phone ? eq(reservations.phone, player.phone) : sql`false`),
+      ));
+      const { onReservationCancelled } = await import('../services/early-price.service.js');
+      for (const r of rs) await onReservationCancelled(r.id, { byCustomer: true });
+    } catch (e: any) { console.warn('⚠️ early-price app cancel:', e?.message); }
     // 🎟️ زيارة مجّانيّة كانت مطبَّقة على هذا الحجز → تعود متاحة
     if ((bk as any).loyaltyRewardId) {
       try { const { releaseFreeVisit } = await import('../services/loyalty.service.js'); await releaseFreeVisit(bk.id); } catch { /* غير حاجب */ }

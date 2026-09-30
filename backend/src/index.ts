@@ -53,6 +53,7 @@ import whatsappRoutes from './routes/whatsapp.routes.js';
 import whatsappInboxRoutes from './routes/whatsapp-inbox.routes.js';
 import waRewardRoutes from './routes/wa-reward.routes.js';
 import bookingOfferRoutes from './routes/booking-offers.routes.js';
+import earlyPriceRoutes from './routes/early-price.routes.js';
 import seatingRoutes from './routes/seating.routes.js';
 import seatTemplatesRoutes from './routes/seat-templates.routes.js';
 import reservationsRoutes from './routes/reservations.routes.js';
@@ -212,6 +213,7 @@ app.use('/api/whatsapp', whatsappRoutes);
 app.use('/api/whatsapp', whatsappInboxRoutes);  // 💬 مركز المحادثات: webhook + send + inbox
 app.use('/api/whatsapp', waRewardRoutes);       // 🎁 عروض الحديث مع البوت (نقاط هديّة)
 app.use('/api/booking-offers', bookingOfferRoutes); // 🎟️ عروض الحجز الجماعيّ («جيب صحابك»)
+app.use('/api/early-price', earlyPriceRoutes);        // 💸 سعر الدون المبكّر + الغياب
 app.use('/api/seating', seatingRoutes);
 app.use('/api/seat-templates', seatTemplatesRoutes);
 app.use('/api/reservations', reservationsRoutes);
@@ -909,6 +911,28 @@ async function main() {
       await db.execute(sql`ALTER TABLE bookings ADD COLUMN IF NOT EXISTS group_id INTEGER`);
       await db.execute(sql`ALTER TABLE bookings ADD COLUMN IF NOT EXISTS offer_free BOOLEAN DEFAULT false`);
       await db.execute(sql`ALTER TABLE wa_conversations ADD COLUMN IF NOT EXISTS offers_announced JSONB DEFAULT '{}'::jsonb`);
+      // ── 💸 سعر الدون المبكّر (early-price.service) ──
+      await db.execute(sql`CREATE TABLE IF NOT EXISTS early_price_promos (
+        id SERIAL PRIMARY KEY, name VARCHAR(120) NOT NULL, status VARCHAR(12) DEFAULT 'draft' NOT NULL,
+        mode VARCHAR(8) DEFAULT 'fixed' NOT NULL, value NUMERIC(10,2) NOT NULL, lead_hours INTEGER DEFAULT 24 NOT NULL,
+        act_from TIMESTAMP NOT NULL, act_until TIMESTAMP NOT NULL, scope VARCHAR(8) DEFAULT 'all' NOT NULL,
+        city_ids JSONB DEFAULT '[]'::jsonb, activity_ids JSONB DEFAULT '[]'::jsonb, exclude_ids JSONB DEFAULT '[]'::jsonb,
+        announce BOOLEAN DEFAULT true, announce_text TEXT DEFAULT '', activated_at TIMESTAMP, created_by VARCHAR(100) DEFAULT '',
+        created_at TIMESTAMP DEFAULT NOW() NOT NULL, updated_at TIMESTAMP DEFAULT NOW() NOT NULL, deleted_at TIMESTAMP)`);
+      await db.execute(sql`CREATE TABLE IF NOT EXISTS no_show_strikes (
+        id SERIAL PRIMARY KEY, player_id INTEGER, phone VARCHAR(20), activity_id INTEGER, reservation_id INTEGER,
+        kind VARCHAR(16) DEFAULT 'no_show' NOT NULL, status VARCHAR(12) DEFAULT 'active' NOT NULL,
+        consumed_by_reservation_id INTEGER, consumed_at TIMESTAMP, waived_by VARCHAR(100), waived_at TIMESTAMP,
+        created_at TIMESTAMP DEFAULT NOW() NOT NULL)`);
+      // حجزٌ واحد = غيابٌ واحد على الأكثر (غيابٌ أو إلغاءٌ متأخّر)
+      await db.execute(sql`CREATE UNIQUE INDEX IF NOT EXISTS uq_nss_reservation ON no_show_strikes (reservation_id) WHERE reservation_id IS NOT NULL`);
+      await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_nss_active ON no_show_strikes (status, player_id, phone)`);
+      await db.execute(sql`ALTER TABLE reservations ADD COLUMN IF NOT EXISTS unit_price NUMERIC(10,2)`);
+      await db.execute(sql`ALTER TABLE reservations ADD COLUMN IF NOT EXISTS price_promo_id INTEGER`);
+      await db.execute(sql`ALTER TABLE reservations ADD COLUMN IF NOT EXISTS promo_seats INTEGER`);
+      await db.execute(sql`ALTER TABLE bookings ADD COLUMN IF NOT EXISTS unit_price NUMERIC(10,2)`);
+      await db.execute(sql`ALTER TABLE bookings ADD COLUMN IF NOT EXISTS price_promo_id INTEGER`);
+      await db.execute(sql`ALTER TABLE activities ADD COLUMN IF NOT EXISTS no_show_judged_at TIMESTAMP`);
       await db.execute(sql`CREATE TABLE IF NOT EXISTS analytics_cache (key VARCHAR(40) PRIMARY KEY, payload JSONB NOT NULL, refreshed_at TIMESTAMP DEFAULT NOW() NOT NULL)`);
       await db.execute(sql`CREATE TABLE IF NOT EXISTS analytics_config (key VARCHAR(40) PRIMARY KEY, value JSONB NOT NULL, updated_at TIMESTAMP DEFAULT NOW() NOT NULL)`);
       // ── 🍽️ نظام طلبات المنيو والفواتير (F&B) ──
@@ -2320,6 +2344,7 @@ async function main() {
   //    يترك نقاطاً مُنحت ولا يراها صاحبها — وهذا ما يُعيد إظهارها.
   try { const { startRewardScheduler } = await import('./services/wa-reward.service.js'); startRewardScheduler(); } catch (e: any) { console.warn('⚠️ WA reward scheduler init:', e.message); }
   try { const { startBookingOfferJobs } = await import('./services/booking-offers.service.js'); startBookingOfferJobs(); } catch (e: any) { console.warn('⚠️ booking offers jobs init:', e.message); }
+  try { const { startEarlyPriceJobs } = await import('./services/early-price.service.js'); startEarlyPriceJobs(); } catch (e: any) { console.warn('⚠️ early price jobs init:', e.message); }
   // ── ⏱️ متابعةُ من راسلنا ولم يحجز — ماسحٌ يقرأ القاعدة، فلا تُضيّع إعادةُ التشغيل متابعةً ولا تُكرّرها ──
   try { const { startFollowupScheduler } = await import('./services/wa-followup.service.js'); startFollowupScheduler(); } catch (e: any) { console.warn('⚠️ WA follow-up scheduler init:', e.message); }
   // ── 🎟️ مجدول بطاقة الولاء — انتهاء المكافآت، الاختيار التلقائيّ، التذكيرات ──

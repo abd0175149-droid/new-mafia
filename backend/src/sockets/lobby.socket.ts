@@ -1585,6 +1585,10 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
                       ))
                       .limit(1);
 
+                    // 💸 سعرُ حجزه المقفول (سعر الدون المبكّر) إن وُجد — وإلّا سعر الفعاليّة
+                    if (playerBooking?.id) {
+                      try { const { entryPriceForBooking } = await import('../services/early-price.service.js'); const ep = await entryPriceForBooking(playerBooking.id); if (ep != null) expectedPrice = ep; } catch { /* سعر الفعاليّة */ }
+                    }
                     if (playerBooking?.offerItems && (playerBooking.offerItems as any[]).length > 0) {
                       // اللاعب اختار عرض → نجلب سعره
                       const [actFull] = await db.select({

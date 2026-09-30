@@ -250,7 +250,7 @@ export default function BookingsPage() {
       if (booking.offerItems?.length > 0) {
         totalSuggested += booking.offerItems.reduce((s: number, item: any) => s + ((item.unitPrice || item.price || 0) * (item.quantity || 0)), 0);
       } else {
-        totalSuggested += (Number(act?.basePrice || 0)) * (booking.count || 1);
+        totalSuggested += (Number(booking.unitPrice ?? act?.basePrice ?? 0)) * (booking.count || 1);   // 💸 السعر المقفول
       }
     });
 
@@ -271,7 +271,7 @@ export default function BookingsPage() {
       if (b.offerItems?.length > 0) {
         expected = b.offerItems.reduce((s: number, item: any) => s + ((item.unitPrice || item.price || 0) * (item.quantity || 0)), 0);
       } else {
-        expected = (Number(act?.basePrice || 0)) * (b.count || 1);
+        expected = (Number(b.unitPrice ?? act?.basePrice ?? 0)) * (b.count || 1);
       }
       return expected;
     });

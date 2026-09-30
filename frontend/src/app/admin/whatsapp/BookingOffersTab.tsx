@@ -10,6 +10,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { swalConfirm, swalAlert } from '@/lib/swal';
+import EarlyPriceSection from './EarlyPriceSection';
 
 type Fetcher = (path: string, opts?: RequestInit) => Promise<any>;
 
@@ -207,6 +208,9 @@ export default function BookingOffersTab({ apiFetch }: { apiFetch: Fetcher }) {
 
   return (
     <div className="flex flex-col gap-3" dir="rtl">
+      {/* ═══ 💸 سعر الدون المبكّر ═══ */}
+      <EarlyPriceSection apiFetch={apiFetch} />
+
       {/* ═══ الرأس ═══ */}
       <section className="rounded-2xl border border-gray-800 bg-gray-900/60 p-4">
         <div className="flex items-start justify-between gap-3 flex-wrap">

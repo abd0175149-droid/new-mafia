@@ -208,7 +208,10 @@ export async function buildInvoiceData(
       .from(bookings).where(eq(bookings.id, bookingId)).limit(1);
     if (bk && bk.isPaid !== true && bk.isFree !== true) {
       gameFeeApplied = true;
-      gameFeeAmount = parseFloat(act.basePrice || '0');
+      // 💸 سعر الحجز المقفول (سعر الدون المبكّر) وإلّا سعر الفعاليّة
+      let ep: number | null = null;
+      try { const { entryPriceForBooking } = await import('./early-price.service.js'); ep = await entryPriceForBooking(bookingId); } catch { /* سعر الفعاليّة */ }
+      gameFeeAmount = ep != null ? ep : parseFloat(act.basePrice || '0');
     }
   }
 

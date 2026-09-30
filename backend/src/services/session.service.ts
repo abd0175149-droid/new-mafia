@@ -325,6 +325,8 @@ export async function endActivityRoom(
   // 3) إغلاق الجلسة + إكمال النشاط
   const closed = await closeSession(sessionId);
   if (activityId) await completeActivity(activityId).catch(() => false);
+  // 🚫 الغياب يُحكم فور نهاية الفعاليّة (قرار المالك) — حين تُغلق آخر غرفةٍ لها
+  if (activityId) { try { const { judgeNoShows } = await import('./early-price.service.js'); void judgeNoShows(activityId); } catch { /* غير حاجب */ } }
 
   // 4) استبيانات التقييم لكل المشاركين + إشعار (من DB — يعمل دائماً)
   // 🏁 الطيُّ الختاميّ لمجموعات المتابعة: من لم يدخل صاحبُ مجموعته الغرفة يبقى عدده

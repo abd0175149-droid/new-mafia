@@ -262,15 +262,18 @@ async function notify(playerId: number, type: string, title: string, body: strin
 // 🧮 تقييم الزيارة
 // ══════════════════════════════════════════════════════
 
-export type VisitVerdict = 'stamped' | 'late' | 'channel' | 'no_booking' | 'voided' | 'no_show' | 'location' | 'test';
+/** 'promo' = أخذ «سعر الدون المبكّر» على هذه الزيارة بدل الختم (قرار المالك 2026-09-30) */
+export type VisitVerdict = 'stamped' | 'late' | 'channel' | 'no_booking' | 'voided' | 'no_show' | 'location' | 'test' | 'promo';
 
-interface BookingLead { bookingId: number; createdAt: Date; createdBy: string; leadHours: number; isApp: boolean; isBot: boolean }
-/** وسم مرآة حجز البوت في bookings — اللاعب حجز بنفسه عبر «الدون» (لا يشمل «🔒 أدمن عبر بوت واتساب») */
+interface BookingLead { bookingId: number; createdAt: Date; createdBy: string; leadHours: number; isApp: boolean; isBot: boolean; earlyPrice: boolean }
+/** وسم مرآة حجز البوت في bookings — اللاعب حجز بنفسه عبر «الدون» */
 export const BOT_BOOKING_TAG = '🤖 بوت واتساب';
+/** ما يسجّله الأدمن للّاعب عبر البوت — يُحتسب كحجزه بنفسه (قرار المالك 2026-09-30، ينقض 2026-09-19) */
+export const BOT_ADMIN_BOOKING_TAG = '🔒 أدمن عبر بوت واتساب';
 export function channelAccepts(cfg: LoyaltyConfig, createdBy: string | null | undefined): boolean {
   if (cfg.channel === 'any') return true;
   if (createdBy === 'player-app') return true;
-  return cfg.channel === 'app_bot' && createdBy === BOT_BOOKING_TAG;
+  return cfg.channel === 'app_bot' && (createdBy === BOT_BOOKING_TAG || createdBy === BOT_ADMIN_BOOKING_TAG);
 }
 
 /** حجز اللاعب في فعاليّة (غير محذوف) بحسابه أو هاتفه — الأقدم إنشاءً */
@@ -281,16 +284,20 @@ export async function bookingFor(activityId: number, playerId: number, phone?: s
       FROM bookings b JOIN activities a ON a.id = b.activity_id
      WHERE b.activity_id = ${activityId} AND b.deleted_at IS NULL
        AND (b.player_id = ${playerId} ${phone ? sql`OR b.phone = ${phone}` : sql``})
-     ORDER BY (b.created_by IN ('player-app', ${BOT_BOOKING_TAG})) DESC, b.created_at ASC LIMIT 1
+     ORDER BY (b.created_by IN ('player-app', ${BOT_BOOKING_TAG}, ${BOT_ADMIN_BOOKING_TAG})) DESC, b.created_at ASC LIMIT 1
   `);
   const row = rowsOf(r)[0];
   if (!row) return null;
   const lead = (new Date(row.date).getTime() - new Date(row.created_at).getTime()) / 3600e3;
-  return { bookingId: Number(row.id), createdAt: new Date(row.created_at), createdBy: String(row.created_by || ''), leadHours: Math.round(lead * 10) / 10, isApp: row.created_by === 'player-app', isBot: row.created_by === BOT_BOOKING_TAG };
+  // 💸 أخذ السعر المبكّر في هذه الفعاليّة (على الشخص لا على صفٍّ بعينه) ⟵ لا ختم
+  let earlyPrice = false;
+  try { const { hasEarlyPriceIn } = await import('./early-price.service.js'); earlyPrice = await hasEarlyPriceIn(activityId, playerId, phone ?? null); } catch { /* بلا عرض */ }
+  return { bookingId: Number(row.id), createdAt: new Date(row.created_at), createdBy: String(row.created_by || ''), leadHours: Math.round(lead * 10) / 10, isApp: row.created_by === 'player-app', isBot: row.created_by === BOT_BOOKING_TAG || row.created_by === BOT_ADMIN_BOOKING_TAG, earlyPrice };
 }
 
 export function judgeBooking(cfg: LoyaltyConfig, bk: BookingLead | null): { ok: boolean; verdict: VisitVerdict; leadHours: number | null } {
   if (!bk) return { ok: false, verdict: 'no_booking', leadHours: null };
+  if (bk.earlyPrice) return { ok: false, verdict: 'promo', leadHours: bk.leadHours };
   if (!channelAccepts(cfg, bk.createdBy)) return { ok: false, verdict: 'channel', leadHours: bk.leadHours };
   if (bk.leadHours < cfg.minLeadHours) return { ok: false, verdict: 'late', leadHours: bk.leadHours };
   return { ok: true, verdict: 'stamped', leadHours: bk.leadHours };
@@ -332,11 +339,14 @@ export async function grantStampsForMatch(opts: {
       const j = judgeBooking(cfg, bk);
       if (!j.ok) {
         if (cfg.reminders.missed.enabled) {
-          const why = j.verdict === 'late'
+          const why = j.verdict === 'promo' ? 'أخذت فيها سعر الدون المبكّر بدل الختم'
+            : j.verdict === 'late'
             ? `حجزت ${bk!.leadHours < 0 ? 'بعد بدء الفعاليّة' : `قبل ${fmtH(bk!.leadHours)} فقط`}`
             : j.verdict === 'channel' ? 'حجزك لم يكن من التطبيق ولا عبر الدون' : 'لم تحجز مسبقاً من التطبيق أو عبر الدون';
           const cut = cutoffFor(cfg, act.date);
-          void notify(p.id, 'loyalty_missed', 'زيارة بلا ختم', `لعبت في ${act.name} لكن ${why}. المرّة الجاية احجز قبل ${fmtTimeJo(cut)} لتكسب الختم.`, `missed:${act.id}`, { activityId: String(act.id) });
+          void notify(p.id, 'loyalty_missed', 'زيارة بلا ختم', j.verdict === 'promo'
+            ? `لعبت في ${act.name} و${why} — الحجز من التطبيق أو عبر الدون بعد موعد السعر المبكّر وقبل ${fmtTimeJo(cut)} بيكسبك ختم.`
+            : `لعبت في ${act.name} لكن ${why}. المرّة الجاية احجز قبل ${fmtTimeJo(cut)} لتكسب الختم.`, `missed:${act.id}`, { activityId: String(act.id) });
         }
         continue;
       }
@@ -577,11 +587,15 @@ export async function visitsInPeriod(playerId: number, period: string, cfg?: Loy
     ), booked AS (
       SELECT DISTINCT ON (b.activity_id) b.activity_id, b.created_at, b.created_by
         FROM bookings b WHERE b.deleted_at IS NULL AND (b.player_id = ${playerId} ${phone ? sql`OR b.phone = ${phone}` : sql``})
-       ORDER BY b.activity_id, (b.created_by IN ('player-app', ${BOT_BOOKING_TAG})) DESC, b.created_at ASC
+       ORDER BY b.activity_id, (b.created_by IN ('player-app', ${BOT_BOOKING_TAG}, ${BOT_ADMIN_BOOKING_TAG})) DESC, b.created_at ASC
     )
     SELECT a.id, a.name, a.date, a.location_id, l.name AS location_name, l.is_test_location,
            (pl.activity_id IS NOT NULL) AS played, bk.created_at AS booked_at, bk.created_by,
-           st.id AS stamp_id, st.voided_at, st.lead_hours AS stamp_lead
+           st.id AS stamp_id, st.voided_at, st.lead_hours AS stamp_lead,
+           (EXISTS (SELECT 1 FROM bookings b2 WHERE b2.activity_id = a.id AND b2.deleted_at IS NULL AND b2.price_promo_id IS NOT NULL
+                     AND (b2.player_id = ${playerId} ${phone ? sql`OR b2.phone = ${phone}` : sql``}))
+            OR EXISTS (SELECT 1 FROM reservations r2 WHERE r2.activity_id = a.id AND r2.deleted_at IS NULL AND r2.price_promo_id IS NOT NULL
+                     AND (r2.player_id = ${playerId} ${phone ? sql`OR r2.phone = ${phone}` : sql``}))) AS early
       FROM activities a
       LEFT JOIN locations l ON l.id = a.location_id
       LEFT JOIN played pl ON pl.activity_id = a.id
@@ -601,6 +615,7 @@ export async function visitsInPeriod(playerId: number, period: string, cfg?: Loy
     if (row.stamp_id && !row.voided_at) verdict = 'stamped';
     else if (row.stamp_id && row.voided_at) verdict = 'voided';
     else if (!isLocationEnabled(cfg, row.location_id) || row.is_test_location) verdict = 'location';
+    else if (row.early && (played || date.getTime() >= Date.now())) verdict = 'promo';   // 💸 السعر المبكّر بدل الختم
     else if (!played) verdict = date.getTime() < Date.now() ? 'no_show' : 'no_booking';
     else if (!row.booked_at) verdict = 'no_booking';
     else if (!channelAccepts(cfg, row.created_by)) verdict = 'channel';
