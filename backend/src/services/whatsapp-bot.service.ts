@@ -349,6 +349,8 @@ const SOCIAL_LINKS = {
   instagramMain: 'https://www.instagram.com/mafia_club_jo/',
   instagramBackup: 'https://www.instagram.com/mafia_club_jo1/',
   website: 'https://club-mafia.grade.sbs/player/login',
+  // 📣 قناة الواتساب الرسميّة — القروب العامّ أُلغي (2026-09-30)
+  whatsappChannel: 'https://whatsapp.com/channel/0029VbDvCna8F2p6cjMpJW3d',
 };
 
 // حد الإلغاء الذاتي: 3 ساعات قبل موعد الفعالية (قرار المالك)
@@ -921,10 +923,10 @@ function buildToolDeclarations(toolsConfig: any, opts?: { adminOnlyTools?: strin
   });
   if (t.social !== false) decls.push({
     name: 'send_social_links',
-    description: 'إرسال بطاقة صفحاتنا الرسمية (إنستجرام / الموقع وتطبيق اللاعب) — عندما يطلب العميل صفحة الإنستا أو رابط الموقع أو حساباتنا. البطاقة تُرسل تلقائياً بالروابط الصحيحة؛ اكتب بعدها جملة قصيرة فقط ولا تكتب أي رابط بنفسك أبداً.',
+    description: 'إرسال بطاقة صفحاتنا الرسمية (قناة الواتساب / إنستجرام / الموقع وتطبيق اللاعب) — عندما يطلب العميل صفحة الإنستا أو رابط الموقع أو حساباتنا، أو يسأل عن قروب/مجموعة/قناة الواتساب (القروب القديم أُلغي: القناة بديله). البطاقة تُرسل تلقائياً بالروابط الصحيحة؛ اكتب بعدها جملة قصيرة فقط ولا تكتب أي رابط بنفسك أبداً.',
     parameters: {
       type: 'OBJECT',
-      properties: { which: { type: 'STRING', description: 'ماذا يرسل: all (الافتراضي — كل الصفحات) أو instagram أو website' } },
+      properties: { which: { type: 'STRING', description: 'ماذا يرسل: all (الافتراضي — كل الصفحات) أو whatsapp (قناة الواتساب) أو instagram أو website' } },
       required: [],
     },
   });
@@ -2055,6 +2057,9 @@ async function execTool(name: string, args: any, ctx: ToolCtx): Promise<any> {
       // 🔗 الروابط تُرسل من الكود حرفياً — النموذج ممنوع من كتابتها
       const which = String(args.which || 'all');
       const parts: string[] = [];
+      if (which === 'all' || which === 'whatsapp') {
+        parts.push(`📣 قناتنا على واتساب — الأخبار والفعاليّات والعروض أوّلاً بأوّل:\n${SOCIAL_LINKS.whatsappChannel}`);
+      }
       if (which === 'all' || which === 'instagram') {
         parts.push(`📸 إنستجرام:\n${SOCIAL_LINKS.instagramMain}`);
         parts.push(`📸 الصفحة الاحتياطية:\n${SOCIAL_LINKS.instagramBackup}`);
@@ -2062,7 +2067,7 @@ async function execTool(name: string, args: any, ctx: ToolCtx): Promise<any> {
       if (which === 'all' || which === 'website') {
         parts.push(`🌐 موقعنا وتطبيق اللاعب:\n${SOCIAL_LINKS.website}`);
       }
-      if (!parts.length) return { error: 'قيمة which غير معروفة — استخدم all أو instagram أو website' };
+      if (!parts.length) return { error: 'قيمة which غير معروفة — استخدم all أو whatsapp أو instagram أو website' };
       const card = `🎭 *نادي المافيا — صفحاتنا الرسمية*\n\n${parts.join('\n\n')}`;
       if (dryRun) {
         ctx.interactives.push({ kind: 'text', preview: card });
@@ -2878,6 +2883,8 @@ async function buildLiveFacts(db: any): Promise<string> {
     if (line) lines.push(line);
   } catch { /* بلا عروض */ }
   // 🎟️ عروض الحجز الجماعيّ الفعّالة — ليجيب النموذج عن الأسئلة (الإعلانُ نفسه تُلحقه الشيفرة)
+  // 📣 القروب العامّ أُلغي — من يسأل عن قروب أو مجموعة يُوجَّه للقناة
+  lines.push('- 📣 قناة واتساب الرسميّة للنادي بديلُ القروب القديم (أُلغي): لمن يسأل عن قروب/مجموعة/قناة أرسل send_social_links بـwhich=whatsapp — لا تكتب الرابط بنفسك.');
   try { lines.push(...(await offerFactsLines())); } catch { /* بلا عروض */ }
   try { lines.push(...(await earlyFactsLines())); } catch { /* بلا سعر مبكّر */ }
   const text = lines.join('\n');
@@ -2898,7 +2905,8 @@ export async function addressTitleFor(db: any, conv: any): Promise<string> {
 /** يستبدل أيّ لقب رتبة خاطئ باللقب الصحيح (أو يحذفه إن لم يكن للعميل لقب) */
 // 🔗 حارس الروابط: النموذج اخترع مرّةً «https://mafiaclub.jo» (نطاق لا نملكه) بدل استدعاء أداة الروابط.
 //    أيّ رابط خارج نطاقاتنا وصفحاتنا المعروفة يُستبدل برابط واجهة اللاعب — لا نرسل عميلاً إلى نطاق غريب أبداً.
-const OWN_LINK_RE = /^https?:\/\/(club-mafia\.grade\.sbs|mafia-club\.masaros\.net|(www\.)?instagram\.com\/mafia_club_jo|wa\.me\/|api\.whatsapp\.com\/|maps\.app\.goo\.gl\/|(www\.)?google\.[a-z.]+\/maps|maps\.google\.)/i;
+// 📣 قناتنا على واتساب بعينها فقط — أيّ قناةٍ أو مجموعةٍ أخرى (ومنها القروب الملغى) تُستبدل
+const OWN_LINK_RE = /^https?:\/\/(club-mafia\.grade\.sbs|mafia-club\.masaros\.net|(www\.)?instagram\.com\/mafia_club_jo|wa\.me\/|api\.whatsapp\.com\/|(www\.)?whatsapp\.com\/channel\/0029VbDvCna8F2p6cjMpJW3d|maps\.app\.goo\.gl\/|(www\.)?google\.[a-z.]+\/maps|maps\.google\.)/i;
 export function enforceLinks(text: string): string {
   return String(text || '').replace(/https?:\/\/[^\s)«»"'<>]+/gi, (u) => (OWN_LINK_RE.test(u) ? u : SOCIAL_LINKS.website));
 }

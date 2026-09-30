@@ -25,8 +25,9 @@ function validate(b: any): string | null {
   const url = String(b?.url ?? '').trim();
   // 🔴 رابطُ دعوةٍ لا أيَّ رابط: رابطُ محادثةٍ فرديّة (wa.me) يُفتح ولا يضمّ
   //    أحداً إلى شيء، والخطأُ لا يُكتشف إلّا بشكوى لاعب.
-  if (!/^https:\/\/chat\.whatsapp\.com\/[A-Za-z0-9]{6,}/.test(url)) {
-    return 'الرابط يجب أن يكون رابطَ دعوةِ مجموعة (chat.whatsapp.com/…)';
+  //    📣 ومنذ 2026-09-30 تُقبل قناةُ واتساب (whatsapp.com/channel/…) — الافتراضيّةُ صارت القناة.
+  if (!/^https:\/\/chat\.whatsapp\.com\/[A-Za-z0-9]{6,}/.test(url) && !/^https:\/\/(www\.)?whatsapp\.com\/channel\/[A-Za-z0-9]{10,}/.test(url)) {
+    return 'الرابط يجب أن يكون رابطَ قناة (whatsapp.com/channel/…) أو دعوةِ مجموعة (chat.whatsapp.com/…)';
   }
   if (!GENDERS.includes(String(b?.gender ?? 'ANY'))) return 'الجنس غير صالح';
 

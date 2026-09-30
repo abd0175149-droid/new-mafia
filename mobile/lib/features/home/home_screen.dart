@@ -1041,7 +1041,8 @@ const _kWhatsappBot = 'https://wa.me/962781495972';
 const _kSnapchat = 'https://www.snapchat.com/add/mafia_club26';
 // 🔴 المجموعةُ العامّة احتياطاً فقط: الخادمُ يقرّر أيَّ مجموعةٍ حسب مدينة
 //    اللاعب وجنسه، وهذه قيمةُ ما قبل وصول الردّ أو عند تعذّره.
-const _kWhatsappGroupFallback = 'https://chat.whatsapp.com/Bz1ipm8YxR31u5OEUOxeJZ';
+// 📣 منذ 2026-09-30: القروب العامّ أُلغي — الزرّ يفتح قناة الواتساب (الخادم يعيدها للجميع)
+const _kWhatsappGroupFallback = 'https://whatsapp.com/channel/0029VbDvCna8F2p6cjMpJW3d';
 
 // 🔴 حالةٌ لا ثابت: الرابطُ يُسأل عنه الخادمُ مرّةً عند بناء القسم، ومعه
 //    موقعُ اللاعب الحاضر أصلاً (الموقعُ شرطُ تشغيل التطبيق). ولا يُحبس الزرُّ
@@ -1109,8 +1110,8 @@ class _SocialSectionState extends State<_SocialSection> {
           const SizedBox(height: 8),
           _SocialWide(
             emoji: '💬',
-            title: 'مجموعة الواتساب',
-            sub: 'مواعيد الجلسات وأخبار النادي أوّلاً بأوّل',
+            title: 'قناة الواتساب',
+            sub: 'تابع القناة: مواعيد الجلسات وأخبار النادي والعروض أوّلاً بأوّل',
             tint: const Color(0xFF25D366),
             url: _waGroup,
           ),

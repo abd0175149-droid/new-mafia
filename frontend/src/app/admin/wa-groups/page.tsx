@@ -107,9 +107,9 @@ export default function WaGroupsPage() {
       <div>
         <h1 className="text-2xl font-black text-white">مجموعات الواتساب</h1>
         <p className="text-[13px] text-gray-500 mt-1 leading-relaxed">
-          زرُّ «مجموعة الواتساب» في تطبيق اللاعب يفتح المجموعةَ التي تطابق موقعَه وجنسَه.
-          والمنطقةُ دائرةٌ حول نقطة — <b className="text-gray-400">الأصغرُ نصفَ قطرٍ يفوز</b> عند التداخل،
-          ومجموعةُ الجنس المحدَّد تسبق «الجميع».
+          <b className="text-emerald-300">منذ ٣٠ أيلول:</b> القروب العامّ أُلغي، وزرُّ الانضمام في تطبيق اللاعب يفتح
+          <b className="text-gray-300"> القاعدةَ الافتراضيّة (قناة الواتساب) للجميع</b> — عدّل رابط القناة منها. قواعدُ المناطق أدناه
+          محفوظةٌ ولا تُستعمل للزرّ.
         </p>
       </div>
 
@@ -187,7 +187,7 @@ export default function WaGroupsPage() {
 
             <Field label="رابط الدعوة">
               <In value={edit.url} onChange={v => setEdit(s => s && ({ ...s, url: v }))}
-                placeholder="https://chat.whatsapp.com/…" dir="ltr" />
+                placeholder="https://whatsapp.com/channel/…" dir="ltr" />
             </Field>
 
             <Field label="لمن">

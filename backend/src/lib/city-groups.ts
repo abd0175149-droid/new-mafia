@@ -15,8 +15,13 @@
 import { sql } from 'drizzle-orm';
 import { getDB } from '../config/db.js';
 
+/**
+ * 📣 قناة واتساب الرسميّة (قرار المالك 2026-09-30): القروبُ العامّ أُلغي، وكلُّ دعوةٍ للانضمام
+ * — زرّ الرئيسيّة، تنبيهُ أوّل دخول، رسالةُ التسجيل عبر الدون — تذهب إلى القناة.
+ */
+export const WA_CHANNEL_URL = 'https://whatsapp.com/channel/0029VbDvCna8F2p6cjMpJW3d';
 /** يُستعمل حين لا جدولَ ولا قاعدةً افتراضيّةً — آخرُ خطّ دفاع */
-export const GROUP_HARD_FALLBACK = 'https://chat.whatsapp.com/Bz1ipm8YxR31u5OEUOxeJZ';
+export const GROUP_HARD_FALLBACK = WA_CHANNEL_URL;
 
 export interface WaGroupRule {
   id: number;

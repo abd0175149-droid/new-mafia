@@ -145,14 +145,14 @@ router.get('/whatsapp-group', authenticatePlayer, async (req: Request, res: Resp
     const db = getDB();
     if (!db) throw new Error('DB unavailable');
 
-    const { resolveGroup } = await import('../lib/city-groups.js');
-    // 🔴 الجنسُ من **الحساب** لا من الطلب: قيمةٌ يرسلها العميلُ تُزوَّر بنقرة،
-    //    ومجموعةُ الإناث ليست تفصيلاً تجميليّاً.
-    const [p] = await db.select({ gender: players.gender })
-      .from(players).where(eq(players.id, acc.playerId)).limit(1);
-
-    const r = await resolveGroup(req.query.lat, req.query.lng, p?.gender);
-    return res.json({ success: true, ...r });
+    void acc;
+    // 📣 منذ 2026-09-30 (قرار المالك): القروب العامّ أُلغي، والزرّ يفتح **قناة الواتساب للجميع** —
+    //    القاعدةُ الافتراضيّة في wa_groups (يُعدَّل رابطها من لوحة «مجموعات الواتساب»)، وقواعدُ
+    //    المناطق لا تُستعمل للزرّ. رابطُ مجموعة (chat.whatsapp.com) في الافتراضيّة لا يُعاد أبداً.
+    const { loadRules, WA_CHANNEL_URL } = await import('../lib/city-groups.js');
+    const def = (await loadRules()).find(r => r.isActive && r.isDefault);
+    const url = def?.url && !/chat\.whatsapp\.com/i.test(def.url) ? def.url : WA_CHANNEL_URL;
+    return res.json({ success: true, url, groupName: def?.name || 'قناة مافيا كلوب', matchedById: def?.id ?? null, kind: 'channel' });
   } catch (err: any) {
     console.error('❌ whatsapp-group error:', err.message);
     // 🔴 لا يفشل الزرُّ أبداً: زرٌّ لا يعمل أسوأُ من زرٍّ يفتح المجموعةَ الأعمّ.

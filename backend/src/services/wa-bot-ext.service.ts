@@ -27,6 +27,8 @@ const rowsOf = (r: any): any[] => r?.rows ?? (Array.isArray(r) ? r : []);
 const GRAPH = 'https://graph.facebook.com/v20.0';
 const GEMINI = 'https://generativelanguage.googleapis.com/v1beta';
 const APP_LOGIN_URL = 'https://club-mafia.grade.sbs/player/login';
+// 📣 قناة الواتساب الرسميّة (القروب العامّ أُلغي 2026-09-30) — تُرسل مع ترحيب الحساب الجديد
+const WA_CHANNEL_LINK = 'https://whatsapp.com/channel/0029VbDvCna8F2p6cjMpJW3d';
 const CHANGE_CUTOFF_MS = 3 * 3600e3;
 const AUX_TTL_MS = 10 * 60e3;
 
@@ -978,7 +980,7 @@ export async function handleExtButton(conv: any, btnId: string, h: ExtHelpers): 
     } as any).returning({ id: players.id, name: players.name });
     if (!pl) { await say('صار خلل بإنشاء الحساب 🙏 حوّلتك للإدارة.'); return true; }
     await db.update(waConversations).set({ playerId: pl.id, displayName: pl.name, updatedAt: new Date() } as any).where(eq(waConversations.id, conv.id));
-    await say(`أهلاً فيك بالعيلة 🎭 حسابك جاهز ✅\n\n📱 رقم الدخول: ${p.phone}\n🔐 كلمة السرّ المؤقّتة: ${pwd}\n\nادخل من هون:\n${APP_LOGIN_URL}\n\nعند أوّل دخول رح يطلب منك التطبيق الموافقة على سياسة الخصوصيّة وشروط الاستخدام، وتغيير كلمة السرّ. ومعك 200 نقطة خبرة هديّة ترحيب 🎁`);
+    await say(`أهلاً فيك بالعيلة 🎭 حسابك جاهز ✅\n\n📱 رقم الدخول: ${p.phone}\n🔐 كلمة السرّ المؤقّتة: ${pwd}\n\nادخل من هون:\n${APP_LOGIN_URL}\n\nعند أوّل دخول رح يطلب منك التطبيق الموافقة على سياسة الخصوصيّة وشروط الاستخدام، وتغيير كلمة السرّ. ومعك 200 نقطة خبرة هديّة ترحيب 🎁\n\n📣 وتابع قناتنا على واتساب لأخبار الجلسات والفعاليّات والعروض أوّلاً بأوّل:\n${WA_CHANNEL_LINK}`);
     h.notifyAdmins('🆕 لاعب جديد سجّل من واتساب', `${pl.name} — ${p.phone}`, { conversationId: conv.id, url: `/admin/players/${pl.id}` }).catch(() => {});
     void alertAdminsWA(`reg:${pl.id}`, `لاعب جديد سجّل حسابه من الواتساب: ${pl.name} (${p.phone}).`, { exceptConvId: conv.id });
     try { const io = (global as any).io; if (io) io.to('wa:inbox').emit('wa:conversation:update', { id: conv.id, playerId: pl.id }); } catch { /* غير حرج */ }

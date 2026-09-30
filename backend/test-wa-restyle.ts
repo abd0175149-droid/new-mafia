@@ -103,7 +103,8 @@ check(/'restyle'\]/.test(bot) || /, 'restyle'/.test(bot),
   'restyle في قائمة الحفظ المسموحة');
 check(/mergeRestyle/.test(bot), 'الإعدادات تُنقّح في الخادم لا في الواجهة');
 check(/ADD COLUMN IF NOT EXISTS restyle/.test(boot), 'العمود يُنشأ عند الإقلاع');
-check(/meta\?:\s*Record<string, any>/.test(inbox) && /input\.meta \? \{ \.\.\.apiBody, \.\.\.input\.meta \}/.test(inbox),
+// storedBody = جسم الطلب (+ رابط صورة البثّ للعرض منذ 2026-09-30) — والدمج مع meta كما هو
+check(/meta\?:\s*Record<string, any>/.test(inbox) && /input\.meta \? \{ \.\.\.storedBody, \.\.\.input\.meta \}/.test(inbox),
   'اسم الموظّف ونصّه الأصليّ يُحفظان مع الرسالة — كان الاسم يُمرَّر ولا يُخزَّن');
 
 // ══════════════════════════════════════════════════════

@@ -15,7 +15,7 @@ const _links = {
   'إنستغرام': 'https://www.instagram.com/mafia_club_jo/',
   'محادثة إنستغرام': 'https://ig.me/m/mafia_club_jo',
   'سناب شات': 'https://www.snapchat.com/add/mafia_club26',
-  'مجموعة واتساب': 'https://chat.whatsapp.com/Bz1ipm8YxR31u5OEUOxeJZ',
+  'قناة واتساب': 'https://whatsapp.com/channel/0029VbDvCna8F2p6cjMpJW3d',
 };
 
 void main() {

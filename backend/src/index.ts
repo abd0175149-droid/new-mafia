@@ -939,6 +939,11 @@ async function main() {
       await db.execute(sql`ALTER TABLE bookings ADD COLUMN IF NOT EXISTS unit_price NUMERIC(10,2)`);
       await db.execute(sql`ALTER TABLE bookings ADD COLUMN IF NOT EXISTS price_promo_id INTEGER`);
       await db.execute(sql`ALTER TABLE activities ADD COLUMN IF NOT EXISTS no_show_judged_at TIMESTAMP`);
+      // 📣 القروب العامّ أُلغي (2026-09-30): الافتراضيّة في wa_groups تصير قناة الواتساب — آمنٌ للتكرار
+      await db.execute(sql`UPDATE wa_groups SET url = 'https://whatsapp.com/channel/0029VbDvCna8F2p6cjMpJW3d', name = 'قناة مافيا كلوب', updated_at = NOW()
+        WHERE is_default = true AND url LIKE '%Bz1ipm8YxR31u5OEUOxeJZ%'`).catch(async () => {
+          await db.execute(sql`UPDATE wa_groups SET url = 'https://whatsapp.com/channel/0029VbDvCna8F2p6cjMpJW3d', name = 'قناة مافيا كلوب' WHERE is_default = true AND url LIKE '%Bz1ipm8YxR31u5OEUOxeJZ%'`).catch(() => {});
+        });
       // ── 📇 دفتر أرقام MC: مزامنة CardDAV (contacts-sync.service) ──
       await db.execute(sql`CREATE TABLE IF NOT EXISTS contacts_sync_config (key VARCHAR(40) PRIMARY KEY, value JSONB NOT NULL, updated_at TIMESTAMP DEFAULT NOW() NOT NULL)`);
       await db.execute(sql`CREATE SEQUENCE IF NOT EXISTS carddav_version_seq`);
@@ -993,7 +998,7 @@ async function main() {
       await db.execute(sql`
         INSERT INTO wa_groups (name, latitude, longitude, radius_km, gender, url, is_default)
         SELECT * FROM (VALUES
-          ('المجموعة العامّة', NULL::double precision, NULL::double precision, NULL::double precision, 'ANY', 'https://chat.whatsapp.com/Bz1ipm8YxR31u5OEUOxeJZ', true),
+          ('قناة مافيا كلوب', NULL::double precision, NULL::double precision, NULL::double precision, 'ANY', 'https://whatsapp.com/channel/0029VbDvCna8F2p6cjMpJW3d', true),
           ('الزرقاء — ذكور', 32.0728, 36.0880, 20, 'MALE', 'https://chat.whatsapp.com/I4WdkfLH16125VWkFa6AlZ?s=cl&p=i&mlu=4&ilr=4', false),
           ('الزرقاء — إناث', 32.0728, 36.0880, 20, 'FEMALE', 'https://chat.whatsapp.com/JMTnVWMsPie3Bny0kits0C?s=cl&p=i&mlu=4&ilr=4', false)
         ) AS v(name, latitude, longitude, radius_km, gender, url, is_default)
