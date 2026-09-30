@@ -82,7 +82,7 @@ async function main() {
     const pO = await mkP(PH.O, 'خالد'), pF = await mkP(PH.F, 'فرح', true), pS = await mkP(PH.S, 'سامي');
     await q(sql`INSERT INTO wa_conversations (phone, wa_phone, display_name, player_id) VALUES (${PH.O}, ${'962' + PH.O.slice(1)}, ${'خالد ' + TAG}, ${pO.id})`);   // نافذةٌ مغلقة
     // جلسةٌ منتهية بمباراة لـ A0 (فعاليّةٌ «جرت»)
-    const [ses] = await q(sql`INSERT INTO sessions (session_name, session_code, activity_id, is_active, status) VALUES (${TAG}, ${'E2E' + String(now).slice(-5)}, ${A0}, false, 'closed') RETURNING id`);
+    const [ses] = await q(sql`INSERT INTO sessions (session_name, session_code, activity_id, is_active, status) VALUES (${TAG}, ${'E' + String(now).slice(-5)}, ${A0}, false, 'closed') RETURNING id`);
     await q(sql`INSERT INTO matches (session_id, room_id, room_code, game_name, player_count) VALUES (${ses.id}, ${'e2e-room-' + now}, 'E2E', ${TAG}, 6)`);
     await q(sql`INSERT INTO session_players (session_id, physical_id, player_name, phone) VALUES (${ses.id}, 1, 'خالد', ${PH.O})`);
     const [promo] = await q(sql`INSERT INTO early_price_promos (name, status, mode, value, lead_hours, act_from, act_until, scope, activity_ids, announce, created_by)

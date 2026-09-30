@@ -426,7 +426,7 @@ export async function judgeNoShows(activityId: number, opts?: { force?: boolean 
       const ins: any = await db.execute(sql`
         INSERT INTO no_show_strikes (player_id, phone, activity_id, reservation_id, kind, status)
         VALUES (${c.player_id ?? null}, ${ph}, ${activityId}, ${c.id}, 'no_show', 'active')
-        ON CONFLICT (reservation_id) DO NOTHING RETURNING id`);
+        ON CONFLICT (reservation_id) WHERE reservation_id IS NOT NULL DO NOTHING RETURNING id`);
       if (!rowsOf(ins).length) continue;
       n++;
       await db.execute(sql`UPDATE reservations SET attended = FALSE WHERE id = ${c.id} AND attended IS NULL`);
@@ -460,7 +460,7 @@ export async function onReservationCancelled(resId: number, opts: { byCustomer: 
     const ins: any = await db.execute(sql`
       INSERT INTO no_show_strikes (player_id, phone, activity_id, reservation_id, kind, status)
       VALUES (${x.player_id ?? null}, ${ph}, (SELECT activity_id FROM reservations WHERE id = ${resId}), ${resId}, 'late_cancel', 'active')
-      ON CONFLICT (reservation_id) DO NOTHING RETURNING id`);
+      ON CONFLICT (reservation_id) WHERE reservation_id IS NOT NULL DO NOTHING RETURNING id`);
     if (rowsOf(ins).length) void notifyStrike({ playerId: x.player_id ?? null, phone: ph, activityName: String(x.name), kind: 'late_cancel' });
   } catch (e: any) { console.warn('⚠️ early onReservationCancelled:', e?.message); }
 }
