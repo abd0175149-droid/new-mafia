@@ -983,7 +983,7 @@ export default function WhatsAppInboxPage() {
                           <ImageBubble m={g.m} onOpen={setLightbox} />
                         ) : g.m.msgType === 'image' && g.m.direction === 'out' && g.m.payload?.image?.link ? (
                           // صورةٌ أرسلناها نحن — رابطُنا في الحمولة يكفي، ولا وكيل. صفُّ البثّ
-                          // يحمل `payload.image.id` بلا رابط فيسقط لعرض النصّ أدناه.
+                          // يُرسَل بمعرّف ميتا ويُحفظ معه رابطنا للعرض (منذ 2026-09-30).
                           <OutImageBubble m={g.m} onOpen={setLightbox} />
                         ) : ['video', 'document'].includes(g.m.msgType) && g.m.direction === 'in' ? (
                           <FileBubble m={g.m} />

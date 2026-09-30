@@ -724,6 +724,7 @@ export interface SendMessageInput {
   location?: { latitude: number; longitude: number; name?: string; address?: string };  // 📍 رسالة موقع
   /** 🖼️ صورة مع تعليق — رسالةٌ واحدة لا رسالتان. `link` رابطٌ عامّ على خادمنا (يُبنى في
    *  الخادم من ملفٍّ رفعناه، لا من نصٍّ يكتبه المستخدم)، أو `mediaId` من `uploadWaMedia`.
+   *  إن جاء الاثنان (البثّ): يُرسَل بالمعرّف، ويُحفظ الرابط في السجلّ ليعرض الانبوكس الصورة.
    *  التعليق يُقصّ عند 1024 حرفاً (حدّ ميتا). */
   image?: { link?: string; mediaId?: string; caption?: string };
   source: 'staff' | 'bot' | 'system' | 'broadcast';
@@ -795,6 +796,11 @@ export async function sendMessage(input: SendMessageInput) {
 
   const apiRes = await callWaApi(`${env.WA_PHONE_NUMBER_ID}/messages`, apiBody);
   const wamid = apiRes?.messages?.[0]?.id || null;
+  // 🖼️ صورةٌ أُرسلت بمعرّف ميتا (البثّ): المعرّف لا يُعرض في الانبوكس — نحفظ معه رابطنا العامّ
+  //    للعرض فقط (لا يُرسل لميتا). بدونه كانت رسائل البثّ تظهر نصّاً بلا صورة.
+  const storedBody = hasImage && input.image!.mediaId && input.image!.link
+    ? { ...apiBody, image: { ...apiBody.image, link: input.image!.link } }
+    : apiBody;
 
   // ── التخزين ──
   const preview = hasInteractive
@@ -812,7 +818,7 @@ export async function sendMessage(input: SendMessageInput) {
       source: input.source,
       msgType: hasInteractive ? 'interactive' : hasLocation ? 'location' : hasImage ? 'image' : 'text',
       body: preview,
-      payload: input.meta ? { ...apiBody, ...input.meta } : apiBody,
+      payload: input.meta ? { ...storedBody, ...input.meta } : storedBody,
       status: 'sent',
       staffId: input.staffId || null,
     } as any)

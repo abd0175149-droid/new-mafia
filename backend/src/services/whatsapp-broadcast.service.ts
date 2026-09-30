@@ -15,6 +15,7 @@ import { sql, eq, desc } from 'drizzle-orm';
 import fsSync from 'fs';
 import pathMod from 'path';
 import { getDB } from '../config/db.js';
+import { env } from '../config/env.js';
 import { waBroadcasts, waMessageTemplates } from '../schemas/admin.schema.js';
 import { sendMessage, sendingSuspendedReason, uploadWaMedia, WA_CAPTION_MAX } from './whatsapp-inbox.service.js';
 import { isTestActivity, notTestActivitySql, notTestLocationSql } from './test-location.util.js';
@@ -169,7 +170,8 @@ export async function startBroadcast(input: AudienceQuery & { body: string; crea
       try {
         const msgText = fillVars(body, { ...t, activity: activityName, venue: venueName, place: placeText, when: whenText }) + (withFooter ? OPTOUT_FOOTER : '');
         await sendMessage(mediaId
-          ? { conversationId: t.id, image: { mediaId, caption: msgText }, source: 'broadcast' as any }
+          // يُرسَل بالمعرّف (رفعةٌ واحدة)، والرابط يُحفظ في السجلّ ليعرض الانبوكس الصورة
+          ? { conversationId: t.id, image: { mediaId, ...(env.PUBLIC_URL ? { link: `${env.PUBLIC_URL}${imgRel}` } : {}), caption: msgText }, source: 'broadcast' as any }
           : { conversationId: t.id, text: msgText, source: 'broadcast' as any });
         sent++; streak = 0;
         await db.execute(sql`INSERT INTO wa_broadcast_recipients (broadcast_id, conversation_id) VALUES (${row.id}, ${t.id}) ON CONFLICT DO NOTHING`).catch(() => {});

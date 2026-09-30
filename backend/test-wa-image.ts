@@ -118,7 +118,8 @@ console.log('\n٥. رفعةٌ واحدة للبثّ');
 
   const loopBody = bcast.slice(loopStart, bcast.indexOf('await new Promise(r => setTimeout(r, PACE_MS', loopStart));
   check(!/uploadWaMedia/.test(loopBody), 'لا رفعَ داخل الحلقة');
-  check(/image: \{ mediaId, caption: msgText \}/.test(loopBody), 'كلُّ مستلمٍ يأخذ المعرّفَ نفسه مع تعليقه');
+  check(/image: \{ mediaId, .*caption: msgText \}/.test(loopBody), 'كلُّ مستلمٍ يأخذ المعرّفَ نفسه مع تعليقه');
+  check(/link: `\$\{env\.PUBLIC_URL\}\$\{imgRel\}`/.test(loopBody), 'ومعه رابطُنا للعرض في الانبوكس');
 }
 
 // ── ٦. قيودُ البثّ لم تُمسّ ─────────────────────────────
@@ -136,9 +137,12 @@ console.log('\n٧. الصفُّ المحفوظ');
 {
   check(/hasImage \? 'image'/.test(inbox), "msgType = 'image' للصورة الصادرة");
   check(/hasImage \? \(caption \|\| '📷 صورة'\)/.test(inbox), 'المعاينةُ التعليقُ أو «📷 صورة»');
-  // payload = apiBody، وفيه image.link أو image.id
-  check(/payload: input\.meta \? \{ \.\.\.apiBody, \.\.\.input\.meta \} : apiBody/.test(inbox),
-    'payload هو جسمُ الطلب نفسه (فيه image.link للمحادثة أو image.id للبثّ)');
+  // payload = جسمُ الطلب، ويُضاف له رابطُنا حين أُرسلت الصورة بالمعرّف (البثّ) — للعرض فقط
+  check(/payload: input\.meta \? \{ \.\.\.storedBody, \.\.\.input\.meta \} : storedBody/.test(inbox)
+    && /storedBody = hasImage && input\.image!\.mediaId && input\.image!\.link\s*\? \{ \.\.\.apiBody, image: \{ \.\.\.apiBody\.image, link: input\.image!\.link \} \}\s*: apiBody/.test(inbox),
+    'السجلّ = جسمُ الطلب، وصورةُ البثّ تحمل رابطنا للعرض');
+  check(/callWaApi\(`\$\{env\.WA_PHONE_NUMBER_ID\}\/messages`, apiBody\)/.test(inbox) && /\? \{ id: input\.image!\.mediaId/.test(inbox),
+    'ميتا تأخذ المعرّف وحده (الرابط لا يُرسل)');
 }
 
 // ── ٨. الرفعُ لميتا بـmultipart لا JSON ──────────────────
