@@ -54,6 +54,8 @@ import whatsappInboxRoutes from './routes/whatsapp-inbox.routes.js';
 import waRewardRoutes from './routes/wa-reward.routes.js';
 import bookingOfferRoutes from './routes/booking-offers.routes.js';
 import earlyPriceRoutes from './routes/early-price.routes.js';
+import carddavRoutes from './routes/carddav.routes.js';
+import contactsSyncRoutes from './routes/contacts-sync.routes.js';
 import seatingRoutes from './routes/seating.routes.js';
 import seatTemplatesRoutes from './routes/seat-templates.routes.js';
 import reservationsRoutes from './routes/reservations.routes.js';
@@ -144,6 +146,9 @@ io.use((socket, next) => {
 });
 
 // ── Middleware ───────────────────────────────────────
+// 📇 CardDAV لجهات اتصال الآيفون — قبل CORS عمداً: وسيطه يجيب كلّ OPTIONS بنفسه فيضيع رأس DAV
+app.all(['/.well-known/carddav', '/.well-known/carddav/'], (_req, res) => { res.redirect(301, '/api/carddav/'); });
+app.use('/api/carddav', carddavRoutes);
 app.use(cors({
   origin: env.FRONTEND_URL ? env.FRONTEND_URL.split(',') : '*',
   credentials: true,
@@ -214,6 +219,7 @@ app.use('/api/whatsapp', whatsappInboxRoutes);  // 💬 مركز المحادث�
 app.use('/api/whatsapp', waRewardRoutes);       // 🎁 عروض الحديث مع البوت (نقاط هديّة)
 app.use('/api/booking-offers', bookingOfferRoutes); // 🎟️ عروض الحجز الجماعيّ («جيب صحابك»)
 app.use('/api/early-price', earlyPriceRoutes);        // 💸 سعر الدون المبكّر + الغياب
+app.use('/api/contacts-sync', contactsSyncRoutes);    // 📇 دفتر أرقام MC — إعدادات وأجهزة المزامنة
 app.use('/api/seating', seatingRoutes);
 app.use('/api/seat-templates', seatTemplatesRoutes);
 app.use('/api/reservations', reservationsRoutes);
@@ -933,6 +939,16 @@ async function main() {
       await db.execute(sql`ALTER TABLE bookings ADD COLUMN IF NOT EXISTS unit_price NUMERIC(10,2)`);
       await db.execute(sql`ALTER TABLE bookings ADD COLUMN IF NOT EXISTS price_promo_id INTEGER`);
       await db.execute(sql`ALTER TABLE activities ADD COLUMN IF NOT EXISTS no_show_judged_at TIMESTAMP`);
+      // ── 📇 دفتر أرقام MC: مزامنة CardDAV (contacts-sync.service) ──
+      await db.execute(sql`CREATE TABLE IF NOT EXISTS contacts_sync_config (key VARCHAR(40) PRIMARY KEY, value JSONB NOT NULL, updated_at TIMESTAMP DEFAULT NOW() NOT NULL)`);
+      await db.execute(sql`CREATE SEQUENCE IF NOT EXISTS carddav_version_seq`);
+      await db.execute(sql`CREATE TABLE IF NOT EXISTS carddav_cards (
+        uid VARCHAR(40) PRIMARY KEY, etag VARCHAR(40) NOT NULL, vcard TEXT NOT NULL DEFAULT '', source VARCHAR(12),
+        version BIGINT NOT NULL, deleted BOOLEAN DEFAULT false NOT NULL, updated_at TIMESTAMP DEFAULT NOW() NOT NULL)`);
+      await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_carddav_cards_version ON carddav_cards (version)`);
+      await db.execute(sql`CREATE TABLE IF NOT EXISTS carddav_devices (
+        id SERIAL PRIMARY KEY, label VARCHAR(80) NOT NULL, username VARCHAR(20) NOT NULL UNIQUE, password_hash TEXT NOT NULL,
+        created_by VARCHAR(100) DEFAULT '', created_at TIMESTAMP DEFAULT NOW() NOT NULL, last_seen_at TIMESTAMP, last_ip VARCHAR(64), revoked_at TIMESTAMP)`);
       await db.execute(sql`CREATE TABLE IF NOT EXISTS analytics_cache (key VARCHAR(40) PRIMARY KEY, payload JSONB NOT NULL, refreshed_at TIMESTAMP DEFAULT NOW() NOT NULL)`);
       await db.execute(sql`CREATE TABLE IF NOT EXISTS analytics_config (key VARCHAR(40) PRIMARY KEY, value JSONB NOT NULL, updated_at TIMESTAMP DEFAULT NOW() NOT NULL)`);
       // ── 🍽️ نظام طلبات المنيو والفواتير (F&B) ──

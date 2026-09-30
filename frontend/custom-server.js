@@ -83,7 +83,8 @@ app.prepare().then(() => {
     if (
       pathname.startsWith('/api/') ||
       pathname.startsWith('/socket.io/') ||
-      pathname.startsWith('/uploads/')
+      pathname.startsWith('/uploads/') ||
+      pathname.startsWith('/.well-known/carddav')   // 📇 اكتشاف CardDAV (جهات اتصال الآيفون)
     ) {
       return proxyRequest(req, res);
     }
