@@ -374,10 +374,14 @@ export async function createDevice(label: string, by: string): Promise<{ id: num
 /** رابط ملفّ الإعداد: صالحٌ ٣٠ دقيقة ولمرّةٍ واحدة — يُمحى السرّ المعمّى فور الاستعمال */
 export async function takeSetup(token: string): Promise<{ username: string; password: string } | null> {
   const db = getDB(); if (!db) return null;
+  // RETURNING يعيد القيم **بعد** التحديث (أي الفارغة) — فالقديمة تُقرأ من CTE في الجملة الذرّيّة نفسها
   const r: any = await db.execute(sql`
-    UPDATE carddav_devices SET setup_token_hash = NULL, setup_secret = NULL, setup_expires_at = NULL
-     WHERE setup_token_hash = ${tokenHash(token)} AND revoked_at IS NULL
-     RETURNING username, setup_secret, setup_expires_at`);
+    WITH old AS (
+      SELECT id, username, setup_secret, setup_expires_at FROM carddav_devices
+       WHERE setup_token_hash = ${tokenHash(token)} AND revoked_at IS NULL FOR UPDATE)
+    UPDATE carddav_devices d SET setup_token_hash = NULL, setup_secret = NULL, setup_expires_at = NULL
+      FROM old WHERE d.id = old.id
+    RETURNING old.username, old.setup_secret, old.setup_expires_at`);
   const row = rowsOf(r)[0]; if (!row) return null;
   if (!row.setup_expires_at || new Date(row.setup_expires_at).getTime() < Date.now()) return null;
   const password = unseal(String(row.setup_secret || ''));
