@@ -31,6 +31,7 @@ import { players } from '../schemas/player.schema.js';
 import { ROLE_NAMES_AR } from '../game/roles.js';
 import { sendMessage, isBotActive, isFreeWindowOpen, notifyAdmins } from './whatsapp-inbox.service.js';
 import { claimsHandoff } from './wa-handoff-guard.js';
+import { withGeminiResilience } from './gemini-resilience.js';
 import { emitStateSanitized } from '../sockets/broadcast.util.js';
 import { sendPushToStaffByPermission, sendPushToPlayers } from './fcm.service.js';
 import { EXT_TOOLS_DEFAULTS, EXT_ALWAYS_ADMIN_ONLY, extToolDeclarations, execExtTool, handleExtButton, transcribePendingAudio, alertAdminsWA, auditBot, offerFreedSeat, captureSurveyNote, type ExtHelpers } from './wa-bot-ext.service.js';
@@ -676,9 +677,9 @@ export async function testGeminiKey(apiKeyInput?: string) {
 // استدعاء Gemini
 // ══════════════════════════════════════════════════════
 
-async function geminiGenerate(settings: any, systemText: string, contents: any[], toolDecls: any[]) {
+async function geminiCallOnce(settings: any, model: string, timeoutMs: number, systemText: string, contents: any[], toolDecls: any[]) {
   const ctrl = new AbortController();
-  const timer = setTimeout(() => ctrl.abort(), 25000);
+  const timer = setTimeout(() => ctrl.abort(), timeoutMs);
   try {
     const body: any = {
       system_instruction: { parts: [{ text: systemText }] },
@@ -686,20 +687,34 @@ async function geminiGenerate(settings: any, systemText: string, contents: any[]
       generationConfig: { temperature: 0.6, maxOutputTokens: 1024 },
     };
     if (toolDecls.length > 0) body.tools = [{ function_declarations: toolDecls }];
-    const res = await fetch(`${GEMINI_BASE}/models/${settings.model}:generateContent?key=${encodeURIComponent(settings.geminiApiKey)}`, {
+    const res = await fetch(`${GEMINI_BASE}/models/${model}:generateContent?key=${encodeURIComponent(settings.geminiApiKey)}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
       signal: ctrl.signal,
     });
     const data: any = await res.json().catch(() => ({}));
-    if (!res.ok) throw new Error(data?.error?.message || `Gemini HTTP ${res.status}`);
+    if (!res.ok) { const e: any = new Error(data?.error?.message || `Gemini HTTP ${res.status}`); e.status = res.status; throw e; }
     const parts = data?.candidates?.[0]?.content?.parts || [];
     // 📊 usageMetadata: أعداد التوكنز الفعلية لهذا النداء (أساس التكلفة الحقيقية)
     return { parts, usage: data?.usageMetadata || {} };
   } finally {
     clearTimeout(timer);
   }
+}
+
+/**
+ * 🔁 نداءٌ صامد: الرفض العابر يُعاد، وفي أوّل نداءٍ من الدور يُجرَّب النموذج الاحتياطيّ
+ * (gemini-resilience.ts). `allowFallback` فقط ما دام السجلّ بلا أجزاء أدوات — تواقيعها تخصّ نموذجها.
+ */
+async function geminiGenerate(settings: any, systemText: string, contents: any[], toolDecls: any[]) {
+  const allowFallback = !contents.some((c: any) => (c.parts || []).some((p: any) => p.functionCall || p.functionResponse));
+  const { result, model, attempts } = await withGeminiResilience({
+    primary: settings.model, allowFallback,
+    call: (m, timeoutMs) => geminiCallOnce(settings, m, timeoutMs, systemText, contents, toolDecls),
+  });
+  if (attempts > 1) console.warn(`🔁 Gemini: نجح في المحاولة ${attempts} على ${model}`);
+  return { ...result, model, attempts };
 }
 
 // 📊 تسجيل استهلاك ردّ كامل (مجموع نداءات جولة الأدوات) — fire & forget
@@ -3000,6 +3015,9 @@ async function buildCustomerCard(db: any, conv: any): Promise<string> {
 }
 
 function msgToHistoryText(m: any): string {
+  // «ثواني وبرجعلك» عند الرفض العابر: إشعارٌ للعميل لا جزءٌ من الحديث — ولو دخل السجلّ لانتهى بدور
+  // model فلم تجد إعادةُ المحاولة دورَ user تجيبه
+  if (m.payload?.transientHold) return '';
   let body = m.body || '';
   // ضغطات القوائم والأزرار: نلحق المعرّف حتى يفهم النموذج الاختيار بدقة
   try {
@@ -3072,7 +3090,7 @@ export async function runAgent(opts: {
   liveFacts?: string;
   dryRun: boolean;
   asAdmin?: boolean;         // ساحة الاختبار فقط
-}): Promise<{ text: string; toolTrace: Array<{ name: string; args: any; result: any }>; interactives: any[]; usage: { calls: number; promptTokens: number; candidatesTokens: number; thoughtsTokens: number; totalTokens: number; cachedTokens: number } }> {
+}): Promise<{ text: string; toolTrace: Array<{ name: string; args: any; result: any }>; interactives: any[]; usage: { calls: number; promptTokens: number; candidatesTokens: number; thoughtsTokens: number; totalTokens: number; cachedTokens: number }; resilience: { retries: number; fallbackModel: string | null } }> {
   const { settings, conv, dryRun } = opts;
   // 🔒 بوّابة أدوات «الأدمن فقط»: الساحة (dryRun) تُعامَل كأدمن لتُظهر كل الأدوات للاختبار.
   const isAdminConv = dryRun ? !!opts.asAdmin : await isAdminConversation(conv);
@@ -3096,9 +3114,19 @@ export async function runAgent(opts: {
   let leakRetried = false;
   // 📊 تجميع التوكنز الفعلية عبر كل نداءات هذا الرد (كل نداء يُفوتر سياقه كاملاً)
   const usageAcc = { calls: 0, promptTokens: 0, candidatesTokens: 0, thoughtsTokens: 0, totalTokens: 0, cachedTokens: 0 };
+  const resilience = { retries: 0, fallbackModel: null as string | null };
 
   for (let loop = 0; loop <= (settings.maxToolLoops || 4); loop++) {
-    const { parts, usage } = await geminiGenerate(settings, systemText, contents, toolDecls);
+    let gen: Awaited<ReturnType<typeof geminiGenerate>>;
+    try { gen = await geminiGenerate(settings, systemText, contents, toolDecls); }
+    catch (e: any) {
+      // كم أداةً نُفِّذت قبل الفشل؟ — إعادة الدور كلّه آمنةٌ فقط إن لم يقع شيء بعد (لا حجزٌ ولا بطاقة)
+      e.toolsRan = toolTrace.filter(t => !t.name.startsWith('🛡️')).length;
+      throw e;
+    }
+    const { parts, usage } = gen;
+    if (gen.attempts > 1) resilience.retries += gen.attempts - 1;
+    if (gen.model !== settings.model) resilience.fallbackModel = gen.model;
     usageAcc.calls++;
     usageAcc.promptTokens += Number(usage?.promptTokenCount || 0);
     usageAcc.candidatesTokens += Number(usage?.candidatesTokenCount || 0);
@@ -3155,7 +3183,7 @@ export async function runAgent(opts: {
       : 'تحت أمرك 🎭 احكيلي شو حابب بالضبط وبخدمك فوراً.';
   }
 
-  return { text: finalText, toolTrace, interactives: ctx.interactives, usage: usageAcc };
+  return { text: finalText, toolTrace, interactives: ctx.interactives, usage: usageAcc, resilience };
 }
 
 // ══════════════════════════════════════════════════════
@@ -3163,6 +3191,12 @@ export async function runAgent(opts: {
 // ══════════════════════════════════════════════════════
 
 // دمج الرسائل المتتالية: مؤقّت لكل محادثة + قفل معالجة
+// ⏳ الرفض العابر بعد استنفاد المحاولات: «ثواني وبرجعلك» ثمّ إعادةٌ آليّة مرّةً واحدة.
+//    الخريطة تذكر متى أُجِّلت المحادثة — فشلٌ ثانٍ خلال النافذة يذهب للمسار القديم (تحويل).
+const transientHoldAt = new Map<number, number>();
+const TRANSIENT_RETRY_MS = 60_000;
+const TRANSIENT_HOLD_WINDOW_MS = 10 * 60_000;
+const TRANSIENT_HOLD_MESSAGE = 'لحظة صغيرة 🙏 عندي ضغط هلأ — ثواني وبرجعلك بالرد.';
 const debounceTimers = new Map<number, ReturnType<typeof setTimeout>>();
 const processing = new Set<number>();
 const rerunAfter = new Set<number>();
@@ -3191,9 +3225,9 @@ async function processConversation(convId: number) {
     if (!isBotActive(conv)) return;              // مطفأ أو موقوف مؤقتاً أو محوّل
     if (!isFreeWindowOpen(conv)) return;         // خارج نافذة الرد المجانية
 
-    // آخر رسالة يجب أن تكون من العميل (وإلا لا داعي للرد)
+    // آخر رسالة يجب أن تكون من العميل (وإلا لا داعي للرد) — «ثواني وبرجعلك» لا تُعدّ
     const [lastMsg] = await db.select().from(waMessages)
-      .where(eq(waMessages.conversationId, convId))
+      .where(and(eq(waMessages.conversationId, convId), sql`COALESCE(${waMessages.payload}->>'transientHold', '') <> 'true'`))
       .orderBy(desc(waMessages.id)).limit(1);
     if (!lastMsg || lastMsg.direction !== 'in') return;
     // ضغطات الأزرار والقوائم الحساسة/البسيطة — مسارات حتمية بدون نموذج
@@ -3546,7 +3580,9 @@ ${rows.length} حجزاً × ${unit2} د.أ = *${total2} د.أ*
     const liveFacts = await buildLiveFacts(db).catch(() => '');
 
     try {
-      const { text, usage, toolTrace } = await runAgent({ settings, conv, history, customerCard, liveFacts, dryRun: false });
+      const { text, usage, toolTrace, resilience } = await runAgent({ settings, conv, history, customerCard, liveFacts, dryRun: false });
+      const wasHeld = transientHoldAt.has(convId);
+      transientHoldAt.delete(convId);
       try { await guardHandoffPromise(conv, text || '', toolTrace, String(lastMsg.body || '')); } catch (e: any) { console.warn('⚠️ handoff-guard:', e?.message); }
       // 📈 قياس الجودة: زمن الردّ من وصول رسالة العميل، الأدوات، وأعلام (سؤال بلا جواب / تحويل / تسريب / صوت)
       {
@@ -3556,6 +3592,10 @@ ${rows.length} حجزاً × ${unit2} د.أ = *${total2} د.أ*
         if (/ما عندي معلومة|ما عندي معلومه|مش متأكد|ما بعرف بالضبط|لا أملك معلومة/.test(text || '')) { flags.unknown = true; flags.question = q; }
         const ho = toolTrace.find(t => t.name === 'handoff_to_human'); if (ho) { flags.handoff = String(ho.args?.reason || '').slice(0, 160); flags.question = q; if (ho.args?.auto) flags.handoffGuard = true; }
         if (names.includes('🛡️ leak-guard')) flags.leak = true;
+        // 🔁 صمود جوجل: محاولاتٌ إضافيّة / نموذجٌ احتياطيّ / إعادةٌ بعد «ثواني وبرجعلك»
+        if (resilience.retries) flags.retries = resilience.retries;
+        if (resilience.fallbackModel) flags.fallback = resilience.fallbackModel;
+        if (wasHeld) flags.recovered = true;
         if (lastMsg.msgType === 'audio') flags.audio = /\[غير واضح\]|تعذّر فتح/.test(String(lastMsg.body || '')) ? 'unclear' : 'ok';
         if (await isAdminConversation(conv)) flags.admin = true;
         recordBotUsage(convId, 'live', settings.model || '', usage, { replyMs: Math.max(0, Date.now() - new Date(lastMsg.createdAt).getTime()), tools: names.filter(n => !n.startsWith('🛡️')), flags }).catch(() => {});
@@ -3583,7 +3623,20 @@ ${rows.length} حجزاً × ${unit2} د.أ = *${total2} د.أ*
       }
     } catch (err: any) {
       console.error('❌ WA bot engine:', err.message);
-      recordBotUsage(convId, 'live', settings.model || '', { calls: 0, promptTokens: 0, candidatesTokens: 0, thoughtsTokens: 0, totalTokens: 0 }, { replyMs: Math.max(0, Date.now() - new Date(lastMsg.createdAt).getTime()), tools: [], flags: { fail: String(err?.message || '').slice(0, 160), question: String(lastMsg.body || '').slice(0, 200) } }).catch(() => {});
+      // ⏳ رفضٌ عابر استنفد المحاولات، ولم تُنفَّذ أداة بعد، وليس إعادةً لتأجيلٍ سابق ⟵ «ثواني وبرجعلك»
+      //    وإعادة الدور كلّه بعد دقيقة — بلا تحويلٍ ولا إيقافٍ ولا تنبيه. فإن فشلت الإعادة أيضاً
+      //    فالمسار القديم أدناه (اعتذار + تحويل). شرط «لا أداة» لأنّ الإعادة تعيد تنفيذ الدور.
+      const prevHold = transientHoldAt.get(convId);
+      const hold = !!err?.transient && !err?.toolsRan && !(prevHold && Date.now() - prevHold < TRANSIENT_HOLD_WINDOW_MS);
+      recordBotUsage(convId, 'live', settings.model || '', { calls: 0, promptTokens: 0, candidatesTokens: 0, thoughtsTokens: 0, totalTokens: 0 }, { replyMs: Math.max(0, Date.now() - new Date(lastMsg.createdAt).getTime()), tools: [], flags: { fail: String(err?.message || '').slice(0, 160), question: String(lastMsg.body || '').slice(0, 200), ...(err?.transient ? { transient: true } : {}), ...(hold ? { hold: true } : {}) } }).catch(() => {});
+      if (hold) {
+        transientHoldAt.set(convId, Date.now());
+        try { await sendMessage({ conversationId: convId, text: TRANSIENT_HOLD_MESSAGE, source: 'system', meta: { transientHold: true } }); } catch { /* تجاهل */ }
+        setTimeout(() => handleBotIncoming(convId), TRANSIENT_RETRY_MS);
+        console.warn(`⏳ WA bot: conv ${convId} — رفضٌ عابر، إعادةٌ آليّة بعد ${TRANSIENT_RETRY_MS / 1000}ث`);
+        return;
+      }
+      transientHoldAt.delete(convId);
       // الفشل الآمن: اعتذار + تحويل حسب الإعدادات
       const failMsg = settings.failMessage || DEFAULT_FAIL_MESSAGE;
       try { await sendMessage({ conversationId: convId, text: failMsg, source: 'system' }); } catch { /* تجاهل */ }

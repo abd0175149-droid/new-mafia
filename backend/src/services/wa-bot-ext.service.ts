@@ -547,6 +547,16 @@ export async function execExtTool(name: string, args: any, ctx: Ctx, h: ExtHelpe
       const age = /^\d{4}-\d{2}-\d{2}$/.test(dob) ? ageFromDob(dob) : null;
       if (age == null || age > 100) return { error: 'تاريخ الميلاد غير صالح — اطلبه بصيغة يوم/شهر/سنة وحوّله إلى YYYY-MM-DD' };
       if (age < 8) return { error: 'الحدّ الأدنى للعمر ثماني سنوات' };
+      // 🎂 التاريخ من فم العميل لا من خيال النموذج (ليث #529: 1995-01-01 لم يكتبه قطّ)
+      if (!dryRun) {
+        const { dobInCustomerText } = await import('./wa-dob-evidence.js');
+        const inbound = await db.select({ body: waMessages.body }).from(waMessages)
+          .where(and(eq(waMessages.conversationId, conv.id), eq(waMessages.direction, 'in')))
+          .orderBy(desc(waMessages.id)).limit(12);
+        if (!dobInCustomerText(dob, inbound.map(r => String(r.body || '')))) {
+          return { error: 'تاريخ الميلاد هذا لم يكتبه العميل في المحادثة — لا تفترضه ولا تخمّنه ولا ترسل ملخّصاً. اسأله: «شو تاريخ ميلادك؟ (يوم/شهر/سنة بالأرقام)» ثمّ أعد الاستدعاء بما كتبه هو.' };
+        }
+      }
       if (dryRun) { ctx.interactives.push({ kind: 'buttons', preview: `تأكيد إنشاء حساب: ${nameIn}` }); return { pendingConfirm: true, dryRun: true }; }
       await stash(`wa-reg:${conv.id}`, { name: nameIn, gender: g, dob, phone: ph });
       await h.sendMessage({ conversationId: conv.id, source: 'bot', interactive: confirmButtons(
