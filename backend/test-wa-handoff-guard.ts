@@ -68,7 +68,8 @@ check(/async function performHandoff\(/.test(bot), 'التحويل دالّةٌ 
 check((bot.match(/await guardHandoffPromise\(/g) || []).length === 2, 'الحارس على مسار الردّ وعلى المتابعة الآليّة');
 check(/if \(toolTrace\.some\(t => t\.name === 'handoff_to_human'\)\) return;/.test(bot), 'لا يُحوَّل مرّتين: الحارس فقط حين لم تُستدعَ الأداة');
 check(/booking = toolTrace\.some\(t => t\.name === 'create_reservation'\)/.test(bot), 'دورٌ ثبّت حجزاً لا تُعدّ فيه «وصل طلبك للإدارة» وعداً');
-check(/if \(await isAdminConversation\(conv\)\) return;\s*const reason = `البوت وعد/.test(bot), 'محادثات الأدمن خارج الحارس');
+check(/if \(await isAdminConversation\(conv\)\) return;/.test(bot.slice(bot.indexOf('async function guardHandoffPromise'))), 'محادثات الأدمن خارج الحارس');
+check(/if \(fresh\?\.needsAttention\) return;/.test(bot), 'محادثةٌ «بحاجة تدخّل» سلفاً (إلغاءٌ متأخّر مثلاً) لا تُنبَّه مرّتين');
 check(/handoffGuard/.test(bot), 'التحويل الآليّ موسومٌ في قياس الجودة');
 check(/لا تكتب للعميل أنّك حوّلته/.test(bot), 'وصف الأداة نفسه يمنع الوعد بلا استدعاء (الموجّه في القاعدة قابلٌ للتعديل، الوصف لا)');
 

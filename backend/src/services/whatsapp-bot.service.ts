@@ -1379,6 +1379,10 @@ async function guardHandoffPromise(conv: any, text: string, toolTrace: Array<{ n
   const booking = toolTrace.some(t => t.name === 'create_reservation');
   if (!claimsHandoff(text, { booking })) return;
   if (await isAdminConversation(conv)) return;
+  // محادثةٌ بشارة «بحاجة تدخّل» سلفاً (تحويلٌ من مسارٍ آخر: إلغاءٌ متأخّر، حدّ المعدّل…) — الوعد صادق، لا تنبيهَ ثانٍ
+  const db = getDB(); if (!db) return;
+  const [fresh] = await db.select({ needsAttention: waConversations.needsAttention }).from(waConversations).where(eq(waConversations.id, conv.id)).limit(1);
+  if (fresh?.needsAttention) return;
   const reason = `البوت وعد العميل بالتحويل ولم يحوّله — آخر رسالة منه: «${String(lastBody || '').replace(/\s+/g, ' ').slice(0, 120)}»`;
   await performHandoff(conv, reason);
   toolTrace.push({ name: 'handoff_to_human', args: { reason, auto: true }, result: { done: true, guard: true } });
