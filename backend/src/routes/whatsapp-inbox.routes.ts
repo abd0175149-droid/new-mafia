@@ -425,6 +425,25 @@ router.post('/conversations/:id/bot-toggle', authenticate, adminOnly, async (req
     const convId = parseInt(req.params.id);
     const enabled = !!req.body?.enabled;
 
+    // 🔴 تفعيلُ البوت يمسح شارة «بحاجة تدخّل» — وكان يمسحها بصمت: عاصم #442 حُوِّل للإدارة
+    //    (2026-09-27)، ثمّ فُعِّل البوت على محادثته بلا ردّ فاختفت من قائمة المتابعة ولم يكلّمه أحد.
+    //    فالآن: محادثةٌ تنتظر ردّاً بشريّاً لا يُفعَّل بوتها إلّا بتأكيدٍ صريح يرى فيه الموظّف السبب.
+    const [cur] = await db.select({ needsAttention: waConversations.needsAttention, displayName: waConversations.displayName, phone: waConversations.phone })
+      .from(waConversations).where(eq(waConversations.id, convId)).limit(1);
+    if (!cur) return res.status(404).json({ error: 'المحادثة غير موجودة' });
+    const pendingAttention = enabled && cur.needsAttention === true;
+    if (pendingAttention && req.body?.force !== true) {
+      const lastHo: any = await db.execute(sql`
+        SELECT flags->>'handoff' AS reason, created_at FROM wa_bot_usage
+        WHERE conversation_id = ${convId} AND flags ? 'handoff' ORDER BY id DESC LIMIT 1`);
+      const ho = (lastHo?.rows ?? lastHo ?? [])[0];
+      return res.status(409).json({
+        code: 'PENDING_ATTENTION',
+        error: 'هذه المحادثة بانتظار ردّ من الإدارة ولم يردّ عليها أحد بعد',
+        reason: ho?.reason || null, since: ho?.created_at || null,
+      });
+    }
+
     const patch: any = {
       botEnabled: enabled,
       botPausedUntil: null, // التفعيل/الإيقاف الصريح يلغي أي إيقاف مؤقت
@@ -437,6 +456,19 @@ router.post('/conversations/:id/bot-toggle', authenticate, adminOnly, async (req
       .where(eq(waConversations.id, convId))
       .returning();
     if (!updated) return res.status(404).json({ error: 'المحادثة غير موجودة' });
+
+    // كلّ ضغطةٍ تُسجَّل باسم صاحبها — مسحُ الشارة خصوصاً
+    try {
+      const { logStaffAction } = await import('../services/staff-action-log.service.js');
+      const u = (req as any).user;
+      void logStaffAction({
+        staffId: u?.id, staffUsername: u?.username, staffRole: u?.role, source: 'rest', action: 'rest:wa-bot-toggle',
+        category: 'WHATSAPP_ADMIN',
+        labelAr: enabled ? (pendingAttention ? 'تفعيل البوت ومسح شارة «بحاجة تدخّل» (مؤكَّد)' : 'تفعيل البوت لمحادثة') : 'إيقاف البوت لمحادثة',
+        targetName: cur.displayName || cur.phone,
+        details: { conversationId: convId, phone: cur.phone, enabled, clearedAttention: pendingAttention },
+      });
+    } catch { /* غير حاجب */ }
 
     res.json({ success: true, conversation: { ...updated, botActive: isBotActive(updated), windowOpen: isFreeWindowOpen(updated) } });
   } catch (err: any) {

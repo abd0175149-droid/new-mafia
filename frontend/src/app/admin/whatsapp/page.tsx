@@ -548,11 +548,24 @@ export default function WhatsAppInboxPage() {
       },
     );
     if (!ok) return;
+    const send = (force: boolean) => apiFetch(`/api/whatsapp/conversations/${conv.id}/bot-toggle`, {
+      method: 'POST',
+      body: JSON.stringify({ enabled: enabling, ...(force ? { force: true } : {}) }),
+    });
     try {
-      const res = await apiFetch(`/api/whatsapp/conversations/${conv.id}/bot-toggle`, {
-        method: 'POST',
-        body: JSON.stringify({ enabled: enabling }),
-      });
+      let res: any;
+      try { res = await send(false); }
+      catch (e: any) {
+        // 🔴 محادثةٌ بانتظار ردّ بشريّ: التفعيل يمسح شارة «بحاجة تدخّل» فتختفي من المتابعة — تأكيدٌ ثانٍ بالسبب
+        if (e.code !== 'PENDING_ATTENTION') throw e;
+        const why = e.body?.reason ? `\n\nسبب التحويل: «${e.body.reason}»` : '';
+        const sure = await swalConfirm(
+          `هذا العميل طلب الإدارة ولم يردّ عليه أحد بعد.${why}\n\nتفعيل البوت سيمسح شارة «بحاجة تدخّل» وتختفي المحادثة من قائمة المتابعة. الأفضل أن تردّ عليه أوّلاً.`,
+          { title: '⚠️ بانتظار ردّ من الإدارة', danger: true, confirmText: 'فعّل رغم ذلك' },
+        );
+        if (!sure) return;
+        res = await send(true);
+      }
       setConv((prev: any) => ({ ...prev, ...res.conversation }));
       setConvs(prev => prev.map(c => (c.id === conv.id ? { ...c, ...res.conversation } : c)));
       swalToast(enabling ? 'تم تفعيل البوت ✅' : 'تم إيقاف البوت نهائياً لهذه المحادثة', enabling ? 'success' : 'info');

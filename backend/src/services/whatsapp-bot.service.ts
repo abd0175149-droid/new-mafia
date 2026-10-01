@@ -30,6 +30,7 @@ import {
 import { players } from '../schemas/player.schema.js';
 import { ROLE_NAMES_AR } from '../game/roles.js';
 import { sendMessage, isBotActive, isFreeWindowOpen, notifyAdmins } from './whatsapp-inbox.service.js';
+import { claimsHandoff } from './wa-handoff-guard.js';
 import { emitStateSanitized } from '../sockets/broadcast.util.js';
 import { sendPushToStaffByPermission, sendPushToPlayers } from './fcm.service.js';
 import { EXT_TOOLS_DEFAULTS, EXT_ALWAYS_ADMIN_ONLY, extToolDeclarations, execExtTool, handleExtButton, transcribePendingAudio, alertAdminsWA, auditBot, offerFreedSeat, captureSurveyNote, type ExtHelpers } from './wa-bot-ext.service.js';
@@ -881,7 +882,7 @@ function buildToolDeclarations(toolsConfig: any, opts?: { adminOnlyTools?: strin
   });
   if (t.handoff) decls.push({
     name: 'handoff_to_human',
-    description: 'تحويل المحادثة للإدارة البشرية: عند طلب صريح، شكوى/غضب، أو سؤال لا تعرف إجابته الأكيدة. بعدها ستتوقف عن الرد في هذه المحادثة.',
+    description: 'تحويل المحادثة للإدارة البشرية: عند طلب صريح، شكوى/غضب، أو سؤال لا تعرف إجابته الأكيدة. بعدها ستتوقف عن الرد في هذه المحادثة. 🔴 لا تكتب للعميل أنّك حوّلته أو أنّ الإدارة وصلها طلبه أو ستتواصل معه إلّا في ردٍّ استدعيت فيه هذه الأداة فعلاً — الوعد بلا استدعاء لا يصل أحداً. وإن سأل «ما حدا حكاني» فاستدعِها من جديد.',
     parameters: {
       type: 'OBJECT',
       properties: { reason: { type: 'STRING', description: 'سبب التحويل باختصار' } },
@@ -1349,6 +1350,41 @@ async function lastInboundButtonId(db: any, convId: number): Promise<string | nu
   return p?.interactive?.button_reply?.id || p?.interactive?.list_reply?.id || null;
 }
 
+/** تحويل المحادثة للإدارة: إيقاف البوت + شارة «بحاجة تدخّل» + تنبيه الأدمن (واتساب/إشعار/دفع). أداةُ النموذج وحارسُ الوعد يمرّان من هنا */
+async function performHandoff(conv: any, reasonRaw: string): Promise<void> {
+  const db = getDB(); if (!db) return;
+  await db.update(waConversations).set({
+    botEnabled: false,
+    needsAttention: true,
+    updatedAt: new Date(),
+  } as any).where(eq(waConversations.id, conv.id));
+  const who = conv.displayName || conv.phone;
+  const reason = String(reasonRaw || '').slice(0, 200);
+  void alertAdminsWA(`handoff:${conv.id}:${Math.floor(Date.now() / 3600e3)}`, `عميل بحاجة تدخّل بشريّ: ${who} — ${reason}`, { exceptConvId: conv.id });
+  notifyAdmins('⚠️ عميل بحاجة تدخل بشري', `${who}: ${reason}`, { conversationId: conv.id, url: `/admin/whatsapp?conv=${conv.id}`, tag: `wa-conv-${conv.id}` }).catch(() => {});
+  sendPushToStaffByPermission('bookings', '⚠️ واتساب: تحويل من البوت', `${who} — ${reason}`, 'whatsapp', { route: '/admin/whatsapp' }).catch(() => {});
+  try {
+    const io = (global as any).io;
+    if (io) io.to('wa:inbox').emit('wa:conversation:update', { id: conv.id, needsAttention: true, botEnabled: false });
+  } catch { /* غير حرج */ }
+}
+
+/**
+ * 🛡️ حارس الوعد: ردٌّ يقول «حوّلتك للإدارة» ولم يستدعِ handoff_to_human ⟵ نُحوِّل نحن.
+ * (عاصم #442، 2026-09-29: ثلاث وعودٍ لم يصل منها شيء.) لا يمسّ محادثات الأدمن —
+ * الأدمن هو الإدارة. يُلحق بـtoolTrace أداةَ تحويلٍ موسومة auto فيسجّلها قياس الجودة.
+ */
+async function guardHandoffPromise(conv: any, text: string, toolTrace: Array<{ name: string; args: any; result: any }>, lastBody: string): Promise<void> {
+  if (toolTrace.some(t => t.name === 'handoff_to_human')) return;
+  const booking = toolTrace.some(t => t.name === 'create_reservation');
+  if (!claimsHandoff(text, { booking })) return;
+  if (await isAdminConversation(conv)) return;
+  const reason = `البوت وعد العميل بالتحويل ولم يحوّله — آخر رسالة منه: «${String(lastBody || '').replace(/\s+/g, ' ').slice(0, 120)}»`;
+  await performHandoff(conv, reason);
+  toolTrace.push({ name: 'handoff_to_human', args: { reason, auto: true }, result: { done: true, guard: true } });
+  console.log(`🛡️ WA handoff-guard: conv ${conv.id} — وعدٌ بلا تحويل، حُوِّل آليّاً`);
+}
+
 async function execTool(name: string, args: any, ctx: ToolCtx): Promise<any> {
   const db = getDB();
   if (!db) return { error: 'DB unavailable' };
@@ -1774,20 +1810,7 @@ async function execTool(name: string, args: any, ctx: ToolCtx): Promise<any> {
 
     case 'handoff_to_human': {
       if (dryRun) return { done: true, dryRun: true, note: '(ساحة اختبار — لم يتم تحويل فعلي)' };
-      await db.update(waConversations).set({
-        botEnabled: false,
-        needsAttention: true,
-        updatedAt: new Date(),
-      } as any).where(eq(waConversations.id, conv.id));
-      const who = conv.displayName || conv.phone;
-      const reason = String(args.reason || '').slice(0, 200);
-      void alertAdminsWA(`handoff:${conv.id}:${Math.floor(Date.now() / 3600e3)}`, `عميل بحاجة تدخّل بشريّ: ${who} — ${reason}`, { exceptConvId: conv.id });
-      notifyAdmins('⚠️ عميل بحاجة تدخل بشري', `${who}: ${reason}`, { conversationId: conv.id, url: `/admin/whatsapp?conv=${conv.id}`, tag: `wa-conv-${conv.id}` }).catch(() => {});
-      sendPushToStaffByPermission('bookings', '⚠️ واتساب: تحويل من البوت', `${who} — ${reason}`, 'whatsapp', { route: '/admin/whatsapp' }).catch(() => {});
-      try {
-        const io = (global as any).io;
-        if (io) io.to('wa:inbox').emit('wa:conversation:update', { id: conv.id, needsAttention: true, botEnabled: false });
-      } catch { /* غير حرج */ }
+      await performHandoff(conv, String(args.reason || ''));
       return { done: true, note: 'تم التحويل — اكتب للعميل رسالة قصيرة مهذبة تخبره أن الإدارة ستتواصل معه.' };
     }
 
@@ -3520,13 +3543,14 @@ ${rows.length} حجزاً × ${unit2} د.أ = *${total2} د.أ*
 
     try {
       const { text, usage, toolTrace } = await runAgent({ settings, conv, history, customerCard, liveFacts, dryRun: false });
+      try { await guardHandoffPromise(conv, text || '', toolTrace, String(lastMsg.body || '')); } catch (e: any) { console.warn('⚠️ handoff-guard:', e?.message); }
       // 📈 قياس الجودة: زمن الردّ من وصول رسالة العميل، الأدوات، وأعلام (سؤال بلا جواب / تحويل / تسريب / صوت)
       {
         const names = toolTrace.map(t => t.name);
         const flags: Record<string, any> = {};
         const q = String(lastMsg.body || '').slice(0, 200);
         if (/ما عندي معلومة|ما عندي معلومه|مش متأكد|ما بعرف بالضبط|لا أملك معلومة/.test(text || '')) { flags.unknown = true; flags.question = q; }
-        const ho = toolTrace.find(t => t.name === 'handoff_to_human'); if (ho) { flags.handoff = String(ho.args?.reason || '').slice(0, 160); flags.question = q; }
+        const ho = toolTrace.find(t => t.name === 'handoff_to_human'); if (ho) { flags.handoff = String(ho.args?.reason || '').slice(0, 160); flags.question = q; if (ho.args?.auto) flags.handoffGuard = true; }
         if (names.includes('🛡️ leak-guard')) flags.leak = true;
         if (lastMsg.msgType === 'audio') flags.audio = /\[غير واضح\]|تعذّر فتح/.test(String(lastMsg.body || '')) ? 'unclear' : 'ok';
         if (await isAdminConversation(conv)) flags.admin = true;
@@ -3605,11 +3629,13 @@ export async function runFollowUp(convId: number, stage: 1 | 2, instruction: str
 
   try {
     const { text, usage, toolTrace } = await runAgent({ settings, conv, history, customerCard, liveFacts, dryRun: false });
+    try { await guardHandoffPromise(conv, text || '', toolTrace, '(متابعة آليّة)'); } catch (e: any) { console.warn('⚠️ handoff-guard:', e?.message); }
     const names = toolTrace.map(t => t.name);
+    const ho = toolTrace.find(t => t.name === 'handoff_to_human');
     recordBotUsage(convId, 'live', settings.model || '', usage, {
       replyMs: Date.now() - startedAt,
       tools: names.filter(n => !n.startsWith('🛡️')),
-      flags: { followup: stage },
+      flags: { followup: stage, ...(ho ? { handoff: String(ho.args?.reason || '').slice(0, 160), ...(ho.args?.auto ? { handoffGuard: true } : {}) } : {}) },
     }).catch(() => {});
     const finalOut = enforceLinks(enforceAddress((text || '').trim(), addressTitle));
     if (!finalOut) return { sent: false, reason: 'empty-reply' };
