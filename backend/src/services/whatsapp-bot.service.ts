@@ -1196,6 +1196,28 @@ async function seatAvailability(db: any, activityId: number): Promise<{ total: n
 
 // 🚫 مانع تكرار الحجوزات: حجز واحد لكل عميل بالفعالية عبر كل القنوات
 // (تطبيق / بوت / يدوي / قائمة انتظار) — بمطابقة الهاتف أو حساب اللاعب
+/**
+ * 🚫 هل الفعاليّة قابلةٌ للحجز الآن؟ — المعيار نفسه الذي تعرض به القائمة (fetchUpcomingActivities):
+ * planned/active، غير محذوفة، ولم تبدأ قبل أكثر من ٦ ساعات (المتأخّرون يلحقون).
+ * 🔴 قوائم واتساب التفاعليّة تبقى قابلةً للضغط إلى الأبد: علي #520 ضغط صباح 2026-10-02 فعاليّةَ
+ *    الزرقاء من قائمة الأمس — مُلغاةً ومنتهية — فأرسل البوت بطاقة تأكيد، ولو ضغطها لانحجز. الأدوات
+ *    كانت تفحص موقع الاختبار والتكرار وضغطة الزرّ، لا الحالة ولا التاريخ.
+ * يُرجع null إن كانت قابلة، وإلّا نتيجةَ أداةٍ يفهمها النموذج.
+ */
+const BOOKABLE_GRACE_MS = 6 * 3600e3;
+export async function notBookable(db: any, activityId: number): Promise<any | null> {
+  const [a] = await db.select({ name: activities.name, date: activities.date, status: activities.status, deletedAt: activities.deletedAt })
+    .from(activities).where(eq(activities.id, activityId)).limit(1);
+  if (!a || a.deletedAt) return { notBookable: true, error: 'الفعالية غير موجودة — لا حجز. اعرض الفعاليات القادمة (get_available_activities).' };
+  if (a.status === 'cancelled') {
+    return { notBookable: true, cancelled: true, error: `فعاليّة «${a.name}» (${fmtJo(a.date)}) مُلغاة — لا حجز ولا تأكيد ولا تكلفة. اعتذر للعميل باختصار أنّها أُلغيت واعرض الفعاليات القادمة (get_available_activities).` };
+  }
+  if (!['planned', 'active'].includes(String(a.status)) || new Date(a.date as any).getTime() < Date.now() - BOOKABLE_GRACE_MS) {
+    return { notBookable: true, ended: true, error: `فعاليّة «${a.name}» كانت ${fmtJo(a.date)} وانتهت — لا حجز. قل للعميل إنّ موعدها فات (القائمة التي ضغط منها قديمة) واعرض الفعاليات القادمة (get_available_activities).` };
+  }
+  return null;
+}
+
 async function existingBookingFor(db: any, conv: any, activityId: number): Promise<{ source: string; people: number; status: string } | null> {
   const [resRow] = await db
     .select({ people: reservations.peopleCount, status: reservations.status, createdBy: reservations.createdBy })
@@ -1237,7 +1259,7 @@ async function fetchUpcomingActivities(db: any) {
     })
     .from(activities)
     .leftJoin(locations, eq(activities.locationId, locations.id))
-    .where(and(inArray(activities.status, ['planned', 'active'] as any), gte(activities.date, now as any), notTestActivity))
+    .where(and(inArray(activities.status, ['planned', 'active'] as any), gte(activities.date, now as any), isNull(activities.deletedAt), notTestActivity))
     .orderBy(asc(activities.date))
     .limit(8);
   // 🏙️ اسم المدينة لكلّ فعاليّة — العميل في الزرقاء يريد ليالي الزرقاء
@@ -1448,6 +1470,7 @@ async function execTool(name: string, args: any, ctx: ToolCtx): Promise<any> {
       // (عروض الموقع مفلترة بمؤشرات enabledOfferIds — نفس منطق تطبيق اللاعب)
       const activityId = parseInt(args.activity_id);
       if (await isTestActivity(db, activityId)) return TEST_ACTIVITY_RESULT;
+      { const nb = await notBookable(db, activityId); if (nb) return nb; }
       const people = Math.max(1, parseInt(args.people_count) || 1);
       const [act] = await db
         .select({ id: activities.id, name: activities.name, date: activities.date, basePrice: activities.basePrice })
@@ -1515,6 +1538,7 @@ async function execTool(name: string, args: any, ctx: ToolCtx): Promise<any> {
       // كافٍ ⟵ بلا أرقام · غير كافٍ ⟵ يُكشف المتبقي بصراحة + خيارات
       const activityId = parseInt(args.activity_id);
       if (await isTestActivity(db, activityId)) return TEST_ACTIVITY_RESULT;
+      { const nb = await notBookable(db, activityId); if (nb) return nb; }
       const people = Math.max(1, parseInt(args.people_count) || 1);
       const [act] = await db.select({ id: activities.id, name: activities.name })
         .from(activities).where(eq(activities.id, activityId)).limit(1);
@@ -1582,6 +1606,7 @@ async function execTool(name: string, args: any, ctx: ToolCtx): Promise<any> {
     case 'ask_confirmation': {
       const activityId = parseInt(args.activity_id);
       if (await isTestActivity(db, activityId)) return TEST_ACTIVITY_RESULT;
+      { const nb = await notBookable(db, activityId); if (nb) return nb; }
       const people = Math.max(1, parseInt(args.people_count) || 1);
       // 🚫 مانع التكرار: محجوز أصلاً بأي قناة ⟵ لا أزرار ولا حجز جديد
       const dup = await existingBookingFor(db, conv, activityId);
@@ -1635,6 +1660,7 @@ async function execTool(name: string, args: any, ctx: ToolCtx): Promise<any> {
     case 'set_group_members': {
       const activityId = parseInt(args.activity_id);
       if (await isTestActivity(db, activityId)) return TEST_ACTIVITY_RESULT;
+      { const nb = await notBookable(db, activityId); if (nb) return nb; }
       const list = Array.isArray(args.members) ? args.members : [];
       if (!list.length) return { error: 'ما في أسماء وأرقام — اطلب من العميل اسم ورقم كلّ صديق، كلّ واحد بسطر' };
       const plan = await planGroup({ activityId, ownerPhone: conv.phone, ownerPlayerId: conv.playerId ?? null, ownerName: conv.displayName || conv.phone, members: list });
@@ -1667,6 +1693,7 @@ async function execTool(name: string, args: any, ctx: ToolCtx): Promise<any> {
     case 'create_reservation': {
       const activityId = parseInt(args.activity_id);
       if (await isTestActivity(db, activityId)) return TEST_ACTIVITY_RESULT;
+      { const nb = await notBookable(db, activityId); if (nb) return nb; }
       let people = Math.max(1, parseInt(args.people_count) || 1);
       if (!dryRun) { // العدد المعتمد هو ما ضغط عليه العميل، لا ما يمرّره النموذج
         const mmP = /^res_confirm:(\d+):(\d+)$/.exec((await lastInboundButtonId(db, conv.id)) || '');
@@ -2544,6 +2571,7 @@ async function execTool(name: string, args: any, ctx: ToolCtx): Promise<any> {
     // 🔒 إضافة حجز نيابةً عن لاعب — الحمولة في aux لأن الاسم لا يُحشر في معرّف زر
     case 'admin_add_booking': {
       const actId = Number(args.activity_id);
+      if (actId) { const nb = await notBookable(db, actId); if (nb) return nb; }
       const people = Math.max(1, parseInt(args.people_count) || 1);
       const typedName = String(args.name || '').trim();
       const { normalizeLocalPhone } = await import('../utils/phone.util.js');
@@ -2609,6 +2637,7 @@ async function execTool(name: string, args: any, ctx: ToolCtx): Promise<any> {
     // 🔒 نقل حجز بين فعاليّتين — ينقل معه مرآة حجز التطبيق وإلا انكسر عدّ المقاعد
     case 'admin_move_booking': {
       const toId = Number(args.to_activity_id);
+      if (toId) { const nb = await notBookable(db, toId); if (nb) return nb; }   // الوجهة وحدها — النقل من فعاليّةٍ ملغاة هو المقصود أحياناً
       const { normalizeLocalPhone } = await import('../utils/phone.util.js');
       const phone = normalizeLocalPhone(String(args.phone || ''));
       if (!phone) return { error: 'رقم الهاتف غير صالح — لازم موبايل أردني (07XXXXXXXX)' };
