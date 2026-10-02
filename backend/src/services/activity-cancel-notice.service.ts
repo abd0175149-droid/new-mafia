@@ -133,7 +133,8 @@ export async function runCancelNotice(activityId: number, opts: { by: string; te
     const act = await activityInfo(activityId);
     if (!act) return { ok: false, skipped: 'not_found' };
     const beforeStart = Date.now() < act.date.getTime();
-    const skipped = act.isTest ? 'test_location' : !beforeStart ? 'after_start' : null;
+    // «بعد الموعد» أوّلاً: لا شيء يُفعل بعد بدء الفعاليّة، أيّاً كان مكانها
+    const skipped = !beforeStart ? 'after_start' : act.isTest ? 'test_location' : null;
     const tpl = String(opts.text || '').trim() || CANCEL_NOTICE_DEFAULT;
     await db.execute(sql`
       INSERT INTO activity_cancel_notices (activity_id, created_by, text, before_start, skipped_reason, last_run_at)
