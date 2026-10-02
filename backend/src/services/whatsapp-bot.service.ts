@@ -2539,9 +2539,10 @@ async function execTool(name: string, args: any, ctx: ToolCtx): Promise<any> {
         return { needActivity: true, activities: recent.map((a) => ({ id: a.id, name: a.name, dateText: fmtJo(a.date, false) })), note: 'ما لقيت مطابقة دقيقة بالاسم — حدّد الفعاليّة بالمعرّف أو اختر من الأخيرة.' };
       }
       if (await isTestActivity(db, actId)) return TEST_ACTIVITY_RESULT;
-      const [act] = await db.select({ id: activities.id, name: activities.name, date: activities.date, basePrice: activities.basePrice })
+      const [act] = await db.select({ id: activities.id, name: activities.name, date: activities.date, basePrice: activities.basePrice, status: activities.status })
         .from(activities).where(eq(activities.id, actId)).limit(1);
       if (!act) return { error: 'الفعاليّة غير موجودة' };
+      const cancelledAct = act.status === 'cancelled';   // 🚫 ملغاة: غير المدفوعين ليسوا ذمّة ولا «متوقَّعاً»
       const bks = await db.select({ name: bookings.name, phone: bookings.phone, count: bookings.count, isFree: bookings.isFree, isPaid: bookings.isPaid, paidAmount: bookings.paidAmount })
         .from(bookings).where(and(eq(bookings.activityId, actId), isNull(bookings.deletedAt)));
       const ppl = (b: any) => Number(b.count || 1);
@@ -2551,9 +2552,9 @@ async function execTool(name: string, args: any, ctx: ToolCtx): Promise<any> {
       //    بلا هذا الرقم كان التقرير يقول «الإيراد صفر» لليلةٍ امتلأ صندوقُها
       //    ولم يُسجَّل تحصيلُها — وهو ما وقع فعلاً في آب ٢٠٢٦ سبعةَ عشر يوماً.
       const unit = Number(act.basePrice || 0);
-      const expected = Math.round(unpaidB.reduce((s, b) => s + ppl(b) * unit, 0) * 100) / 100;
+      const expected = cancelledAct ? 0 : Math.round(unpaidB.reduce((s, b) => s + ppl(b) * unit, 0) * 100) / 100;
       const out: any = {
-        activity: act.name, activityId: act.id, dateText: fmtJo(act.date),
+        activity: act.name, activityId: act.id, dateText: fmtJo(act.date), ...(cancelledAct ? { status: 'ملغاة' } : {}),
         players: bks.length, people: bks.reduce((s, b) => s + ppl(b), 0),
         free: freeB.length, freePeople: freeB.reduce((s, b) => s + ppl(b), 0),
         paid: paidB.length, unpaid: unpaidB.length,
@@ -2562,6 +2563,7 @@ async function execTool(name: string, args: any, ctx: ToolCtx): Promise<any> {
         note: `تقرير «${act.name}»: ${bks.length} حجز (${bks.reduce((s, b) => s + ppl(b), 0)} شخص) — مجانيّون ${freeB.length}، مدفوع ${paidB.length}، غير مدفوع ${unpaidB.length}. `
           + `المسجَّل ${revenue} د.أ${expected > 0 ? `، والمتوقَّع من غير المدفوعين ${expected} د.أ (${unpaidB.length} × ${unit}) فيصير المجموع ${Math.round((revenue + expected) * 100) / 100} د.أ` : ''}. `
           + (expected > 0 ? 'اذكر المتوقَّع صراحةً واعرض أن تثبّت التحصيل عبر admin_mark_activity_paid. ' : '')
+          + (cancelledAct ? '⚠️ الفعاليّة مُلغاة: قل ذلك أوّلاً، وغير المدفوعين فيها ليسوا ذمماً — لا تعرض تحصيلاً. ' : '')
           + 'اعرضها منظّمة بنقاط قصيرة.',
       };
       if (args.include_names) out.names = bks.map((b) => ({ name: b.name, phone: b.phone, count: ppl(b), status: b.isFree ? 'مجانيّ' : b.isPaid ? 'مدفوع' : 'غير مدفوع' }));

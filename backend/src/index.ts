@@ -958,6 +958,15 @@ async function main() {
       await db.execute(sql`ALTER TABLE carddav_devices ADD COLUMN IF NOT EXISTS setup_token_hash VARCHAR(64)`);
       await db.execute(sql`ALTER TABLE carddav_devices ADD COLUMN IF NOT EXISTS setup_secret TEXT`);
       await db.execute(sql`ALTER TABLE carddav_devices ADD COLUMN IF NOT EXISTS setup_expires_at TIMESTAMP`);
+      // ── 📣 إشعار إلغاء الفعاليّة (activity-cancel-notice.service) — إشعارٌ لكلّ فعاليّة + مستلمٌ لكلّ رقم ──
+      await db.execute(sql`CREATE TABLE IF NOT EXISTS activity_cancel_notices (
+        id SERIAL PRIMARY KEY, activity_id INTEGER NOT NULL UNIQUE, created_at TIMESTAMP DEFAULT NOW() NOT NULL, created_by VARCHAR(100) DEFAULT '',
+        text TEXT NOT NULL DEFAULT '', before_start BOOLEAN DEFAULT true NOT NULL, skipped_reason VARCHAR(30), runs INTEGER DEFAULT 1 NOT NULL, last_run_at TIMESTAMP)`);
+      await db.execute(sql`CREATE TABLE IF NOT EXISTS activity_cancel_recipients (
+        id SERIAL PRIMARY KEY, activity_id INTEGER NOT NULL, phone VARCHAR(20) NOT NULL, name VARCHAR(150) DEFAULT '', player_id INTEGER,
+        source VARCHAR(12), people INTEGER DEFAULT 1, conversation_id INTEGER, window_open BOOLEAN DEFAULT false, opted_out BOOLEAN DEFAULT false,
+        outcome VARCHAR(20) NOT NULL, error TEXT, wa_message_id INTEGER, sent_at TIMESTAMP, created_at TIMESTAMP DEFAULT NOW() NOT NULL,
+        UNIQUE (activity_id, phone))`);
       await db.execute(sql`CREATE TABLE IF NOT EXISTS analytics_cache (key VARCHAR(40) PRIMARY KEY, payload JSONB NOT NULL, refreshed_at TIMESTAMP DEFAULT NOW() NOT NULL)`);
       await db.execute(sql`CREATE TABLE IF NOT EXISTS analytics_config (key VARCHAR(40) PRIMARY KEY, value JSONB NOT NULL, updated_at TIMESTAMP DEFAULT NOW() NOT NULL)`);
       // ── 🍽️ نظام طلبات المنيو والفواتير (F&B) ──

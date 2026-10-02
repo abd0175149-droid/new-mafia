@@ -58,6 +58,7 @@ export async function runReminderScan(): Promise<void> {
       isNull(reservations.deletedAt),
       sql`${reservations.status} <> 'waitlist'`,
       isNull(activities.deletedAt),
+      sql`${activities.status} <> 'cancelled'`,   // 🚫 لا «لعبتك بعد ساعة» لفعاليّةٍ ملغاة (وصل حاجزَ الزرقاء ٢٦٤، 2026-10-01)
       gt(activities.date, new Date(now)),   // اللعبة لم تبدأ بعد
       lte(activities.date, horizon),        // وخلال ≤60 دقيقة
       sql`COALESCE(${locations.isTestLocation}, false) = false`, // 🧪 موقع اختبار ⟵ لا تذكير

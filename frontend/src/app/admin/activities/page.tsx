@@ -11,6 +11,7 @@ import WeekGamesModal from '../components/WeekGamesModal';
 import { useAdminScope } from '../scope-context';
 import { CitySegment } from '@/components/admin/CityBadge';
 import { withCity } from '@/hooks/useCities';
+import { confirmActivityCancel, toastCancelStarted } from '@/lib/cancel-notice';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || '';
 
@@ -218,13 +219,19 @@ export default function ActivitiesPage() {
   }
 
   async function handleEditActivity(id: number, data: any) {
-    await apiFetch(`/api/activities/${id}`, { method: 'PUT', body: JSON.stringify(data) });
+    // 📣 التحويل إلى «ملغاة» يراسل الحاجزين آليّاً — معاينةٌ وتأكيدٌ قبل الحفظ
+    const before = activities.find((a: any) => a.id === id);
+    if (data?.status === 'cancelled' && before?.status !== 'cancelled' && !(await confirmActivityCancel(id, (p) => apiFetch(p)))) return;
+    const r = await apiFetch(`/api/activities/${id}`, { method: 'PUT', body: JSON.stringify(data) });
+    toastCancelStarted(r);
     setShowEditForm(null);
     await fetchAll();
   }
 
   async function handleStatusChange(id: number, newStatus: string) {
-    await apiFetch(`/api/activities/${id}`, { method: 'PUT', body: JSON.stringify({ status: newStatus }) });
+    if (newStatus === 'cancelled' && !(await confirmActivityCancel(id, (p) => apiFetch(p)))) { await fetchAll(); return; }
+    const r = await apiFetch(`/api/activities/${id}`, { method: 'PUT', body: JSON.stringify({ status: newStatus }) });
+    toastCancelStarted(r);
     await fetchAll();
   }
 

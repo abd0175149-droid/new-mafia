@@ -1393,10 +1393,61 @@ router.put('/:id', authenticate, async (req: Request, res: Response) => {
     return res.status(400).json({ error: 'لا توجد بيانات للتحديث' });
   }
 
+  // 📣 تحوّلٌ إلى «ملغاة» ⟵ إشعار الحاجزين آليّاً (قبل الموعد فقط) — activity-cancel-notice.service
+  let prevStatus: string | null = null;
+  if (updates.status === 'cancelled') {
+    const [cur] = await db.select({ s: activities.status }).from(activities).where(eq(activities.id, id)).limit(1);
+    prevStatus = cur?.s ?? null;
+  }
+
   const result = await db.update(activities).set(updates).where(eq(activities.id, id)).returning();
   if (result.length === 0) return res.status(404).json({ error: 'النشاط غير موجود' });
 
-  res.json(result[0]);
+  let cancelNotice: any = undefined;
+  if (updates.status === 'cancelled' && prevStatus && prevStatus !== 'cancelled') {
+    const by = req.user?.username || '';
+    const text = typeof req.body?.cancelMessage === 'string' ? req.body.cancelMessage.slice(0, 900) : null;
+    import('../services/activity-cancel-notice.service.js')
+      .then(m => m.runCancelNotice(id, { by, text }))
+      .catch((e: any) => console.warn('⚠️ cancel-notice:', e?.message));
+    cancelNotice = { started: true, beforeStart: Date.now() < new Date(result[0].date as any).getTime() };
+    try {
+      const { logStaffAction } = await import('../services/staff-action-log.service.js');
+      void logStaffAction({
+        staffId: req.user?.id, staffUsername: req.user?.username, staffRole: req.user?.role, source: 'rest', action: 'rest:activity-cancel',
+        category: 'ACTIVITY', labelAr: 'إلغاء فعاليّة (وإشعار الحاجزين)', targetName: String(result[0].name || ''),
+        details: { activityId: id, from: prevStatus, beforeStart: cancelNotice.beforeStart },
+      });
+    } catch { /* غير حاجب */ }
+  }
+
+  res.json(cancelNotice ? { ...result[0], cancelNotice } : result[0]);
+});
+
+// ── 📣 إشعار الإلغاء: معاينة قبل الإلغاء · تقرير بعده · إعادة الإرسال لمن انفتحت نافذته ──
+router.get('/:id/cancel-notice/preview', authenticate, async (req: Request, res: Response) => {
+  try {
+    const { previewCancelNotice } = await import('../services/activity-cancel-notice.service.js');
+    const p = await previewCancelNotice(parseInt(req.params.id));
+    if (!p) return res.status(404).json({ error: 'النشاط غير موجود' });
+    res.json({ success: true, ...p });
+  } catch (err: any) { res.status(500).json({ error: err.message }); }
+});
+router.get('/:id/cancel-notice', authenticate, async (req: Request, res: Response) => {
+  try {
+    const { getCancelReport } = await import('../services/activity-cancel-notice.service.js');
+    const r = await getCancelReport(parseInt(req.params.id));
+    res.json({ success: true, report: r });
+  } catch (err: any) { res.status(500).json({ error: err.message }); }
+});
+router.post('/:id/cancel-notice/resend', authenticate, async (req: Request, res: Response) => {
+  if (req.user?.role === 'accountant' || req.user?.role === 'location_owner') return res.status(403).json({ error: 'ليس لديك صلاحية' });
+  try {
+    const { resendCancelNotice } = await import('../services/activity-cancel-notice.service.js');
+    const r = await resendCancelNotice(parseInt(req.params.id));
+    if (!r.ok) return res.status(409).json({ error: r.error || 'تعذّر الإرسال' });
+    res.json({ success: true, ...r });
+  } catch (err: any) { res.status(500).json({ error: err.message }); }
 });
 
 // DELETE /api/activities/:id

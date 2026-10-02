@@ -170,6 +170,7 @@ router.get(
         WHERE b.player_id = ${playerId}
           AND b.is_paid = false AND COALESCE(b.is_free, false) = false
           AND b.deleted_at IS NULL AND a.date >= ${DEBT_SINCE}::date
+          AND a.status <> 'cancelled'   -- 🚫 فعاليّةٌ ألغيت لم تُلعب — لا دَين (٣٧ حجزاً على ٥ فعاليّات كانت تظهر ديوناً، 2026-10-02)
       `));
 
       // ── حجزُ الليلة أو القادم ──
@@ -390,6 +391,7 @@ async function buildSection(db: any, key: string, id: number, p: Row, isAdmin: b
         FROM bookings b JOIN activities a ON a.id = b.activity_id
         WHERE b.player_id = ${id} AND b.is_paid = false
           AND COALESCE(b.is_free, false) = false AND b.deleted_at IS NULL
+          AND a.status <> 'cancelled'   -- 🚫 الملغاة ليست دَيناً
       `));
       const paid = one(await db.execute(sql`
         SELECT

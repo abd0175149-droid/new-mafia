@@ -3,7 +3,7 @@
 // كل حجز غير مدفوع وغير مجاني ضمن الفترة (أساس تاريخ النشاط).
 // ══════════════════════════════════════════════════════
 
-import { and, eq, isNull, gte, lte, sql, desc } from 'drizzle-orm';
+import { and, eq, ne, isNull, gte, lte, sql, desc } from 'drizzle-orm';
 import type { ReportDefinition, ReportDocument } from '../types.js';
 import { bookings, activities, locations } from '../../schemas/admin.schema.js';
 import { num, rangeDates, rangeLabel, notTestActivity } from '../helpers.js';
@@ -33,6 +33,7 @@ export const receivablesReport: ReportDefinition = {
       .leftJoin(locations, eq(activities.locationId, locations.id))
       .where(and(
         eq(bookings.isPaid, false), eq(bookings.isFree, false),
+        ne(activities.status, 'cancelled'),   // 🚫 حجزٌ على فعاليّةٍ ملغاة ليس ذمّة
         isNull(bookings.deletedAt), isNull(activities.deletedAt),
         gte(activities.date, from), lte(activities.date, to),
         actId ? eq(activities.id, actId) : undefined,

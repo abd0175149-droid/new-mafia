@@ -647,7 +647,7 @@ export async function execExtTool(name: string, args: any, ctx: Ctx, h: ExtHelpe
       const g = await adminGate(); if (g) return g;
       const { start, end } = jordanDayBounds();
       const acts: any = await db.execute(sql`
-        SELECT a.id, a.name, a.date, a.base_price, a.max_capacity, l.name AS loc FROM activities a LEFT JOIN locations l ON l.id = a.location_id
+        SELECT a.id, a.name, a.date, a.status, a.base_price, a.max_capacity, l.name AS loc FROM activities a LEFT JOIN locations l ON l.id = a.location_id
          WHERE a.deleted_at IS NULL AND a.date >= ${start} AND a.date < ${end} AND COALESCE(l.is_test_location,false) = false ORDER BY a.date`);
       const out: any[] = [];
       let lc: any = null; try { const L = await import('./loyalty.service.js'); const c = await L.getLoyaltyConfig(); lc = c.enabled ? c : null; } catch { /* بلا ولاء */ }
@@ -673,9 +673,9 @@ export async function execExtTool(name: string, args: any, ctx: Ctx, h: ExtHelpe
                  (SELECT COUNT(*)::int FROM loyalty_stamps st WHERE st.activity_id = ${a.id} AND st.voided_at IS NULL) AS stamps`);
         const x = rowsOf(r)[0] || {};
         out.push({
-          id: a.id, name: a.name, location: a.loc, startsAt: h.fmtJo(a.date), capacity: a.max_capacity, pricePerPerson: a.base_price,
+          id: a.id, name: a.name, location: a.loc, startsAt: h.fmtJo(a.date), ...(a.status === 'cancelled' ? { status: 'ملغاة — حجوزاتها ليست ذمماً' } : {}), capacity: a.max_capacity, pricePerPerson: a.base_price,
           reservations: { rows: x.res_rows, people: x.res_people, waitlist: x.waitlist, markedAttended: x.attended },
-          bookings: { total: x.bookings, paid: x.paid, unpaid: x.unpaid, free: x.free, collectedJOD: Number(x.collected || 0), expectedFromUnpaidJOD: Math.round(Number(x.expected_unpaid || 0) * 100) / 100 },
+          bookings: { total: x.bookings, paid: x.paid, unpaid: a.status === 'cancelled' ? 0 : x.unpaid, free: x.free, collectedJOD: Number(x.collected || 0), expectedFromUnpaidJOD: a.status === 'cancelled' ? 0 : Math.round(Number(x.expected_unpaid || 0) * 100) / 100 },
           play: { matchesFinished: x.matches, playersPlayed: x.played },
           menu: { openOrders: x.open_orders, oldestOpenOrderMinutes: x.oldest_order_min != null ? Math.round(Number(x.oldest_order_min)) : null },
           loyalty: lc ? { earlyAppBookings: x.early_bookings, stampsGranted: x.stamps } : 'متوقّفة',
@@ -765,7 +765,7 @@ export async function execExtTool(name: string, args: any, ctx: Ctx, h: ExtHelpe
                  (SELECT COUNT(DISTINCT mp.player_id)::int FROM match_players mp JOIN matches m ON m.id = mp.match_id JOIN sessions s ON s.id = m.session_id WHERE m.deleted_at IS NULL AND s.activity_id IN (SELECT id FROM acts)) AS unique_players,
                  (SELECT COUNT(*)::int FROM bookings b WHERE b.deleted_at IS NULL AND b.activity_id IN (SELECT id FROM acts)) AS bookings,
                  (SELECT COALESCE(SUM(b.paid_amount),0) FROM bookings b WHERE b.deleted_at IS NULL AND b.activity_id IN (SELECT id FROM acts)) AS game_revenue,
-                 (SELECT COUNT(*)::int FROM bookings b WHERE b.deleted_at IS NULL AND NOT b.is_paid AND NOT b.is_free AND b.activity_id IN (SELECT id FROM acts)) AS unpaid_bookings,
+                 (SELECT COUNT(*)::int FROM bookings b JOIN activities ax ON ax.id = b.activity_id WHERE b.deleted_at IS NULL AND NOT b.is_paid AND NOT b.is_free AND ax.status <> 'cancelled' AND b.activity_id IN (SELECT id FROM acts)) AS unpaid_bookings,
                  (SELECT COUNT(*)::int FROM players p WHERE p.created_at >= ${a} AND p.created_at < ${b} AND p.deleted_at IS NULL) AS new_players`);
         const x = rowsOf(r)[0] || {};
         return { activities: x.activities, visits: x.visits, uniquePlayers: x.unique_players, bookings: x.bookings, gameRevenueJOD: Number(x.game_revenue || 0), unpaidBookings: x.unpaid_bookings, newPlayers: x.new_players };

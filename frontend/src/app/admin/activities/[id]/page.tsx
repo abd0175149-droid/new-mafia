@@ -9,6 +9,8 @@ import EditActivityForm from '../../components/EditActivityForm';
 import BookingBonusSection from '../../components/BookingBonusSection';
 import OfferGroupsSection from '../../components/OfferGroupsSection';
 import NoShowSection from '../../components/NoShowSection';
+import CancelNoticeSection from '../../components/CancelNoticeSection';
+import { confirmActivityCancel, toastCancelStarted } from '@/lib/cancel-notice';
 import ScheduleEditor from '../../components/ScheduleEditor';
 import WhatsAppButton from '@/components/WhatsAppButton';
 import SeatMap2D from '@/components/SeatMap2D';
@@ -1071,6 +1073,7 @@ export default function ActivityDetailPage() {
   const isAccountant = user.role === 'accountant';
 
   const [activity, setActivity] = useState<any>(null);
+  const [cancelTick, setCancelTick] = useState(0);   // 📣 يعيد تحميل تقرير الإلغاء بعد الإلغاء من هنا
   const [bookings, setBookings] = useState<any[]>([]);
   // 👥 مجموعات القائمة: لاعبون جدد (بلا حساب) + مرافقو اللاعبين — تُشتقّ من المتابعة
   const [rosterGroups, setRosterGroups] = useState<{ newcomers: any; companions: any } | null>(null);
@@ -1177,9 +1180,13 @@ export default function ActivityDetailPage() {
   }
 
   async function handleEditActivity(id: number, data: any) {
+    // 📣 التحويل إلى «ملغاة» يراسل الحاجزين آليّاً — معاينةٌ وتأكيدٌ قبل الحفظ
+    const cancelling = data?.status === 'cancelled' && activity?.status !== 'cancelled';
+    if (cancelling && !(await confirmActivityCancel(id, (p) => apiFetch(p)))) return;
     const updated = await apiFetch(`/api/activities/${id}`, { method: 'PUT', body: JSON.stringify(data) });
     setActivity(updated);
     setShowEditForm(false);
+    if (cancelling) { toastCancelStarted(updated); setTimeout(() => setCancelTick(t => t + 1), 1500); }
   }
 
   // ── Payment handlers ──
@@ -1380,6 +1387,9 @@ export default function ActivityDetailPage() {
           onCancel={() => setShowEditForm(false)}
         />
       )}
+
+      {/* ══ 📣 إشعار الإلغاء — من وصلته رسالة الإلغاء ومن لا ══ */}
+      {activity.status === 'cancelled' && <CancelNoticeSection key={cancelTick} activityId={activity.id} />}
 
       {/* ══ إعدادات الجلوس الذكي ══ */}
       <SeatingConstraintsPanel activityId={activity.id} />
