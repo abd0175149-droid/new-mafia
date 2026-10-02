@@ -584,6 +584,15 @@ router.post('/open-window-broadcast', authenticate, adminOnly, async (req: Reque
 router.post('/open-window-broadcast/:id/stop', authenticate, adminOnly, async (req: Request, res: Response) => {
   const B = await import('../services/whatsapp-broadcast.service.js'); B.stopBroadcast(parseInt(req.params.id)); res.json({ success: true });
 });
+// 👁 تقرير القراءة لبثٍّ واحد — قرأها / وصلت ولم تُقرأ / لم تصل / رفضها واتساب
+router.get('/open-window-broadcast/:id/report', authenticate, adminOnly, async (req: Request, res: Response) => {
+  try {
+    const B = await import('../services/whatsapp-broadcast.service.js');
+    const r = await B.broadcastReadReport(parseInt(req.params.id));
+    if (!r) return res.status(404).json({ error: 'البثّ غير موجود' });
+    res.json({ success: true, ...r });
+  } catch (err: any) { res.status(500).json({ error: err.message }); }
+});
 
 // 🩺 صحّة واتساب عند ميتا (آخر فحص للمراقب؛ ?force=1 يفحص الآن)
 router.get('/health', authenticate, adminOnly, async (req: Request, res: Response) => {

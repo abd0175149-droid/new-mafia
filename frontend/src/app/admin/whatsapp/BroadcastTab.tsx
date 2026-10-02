@@ -61,7 +61,56 @@ function hoursLeft(iso: string) {
 }
 const fmt = (iso: string) => new Date(iso).toLocaleString('ar-JO', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Amman' });
 
+// ══════════════════════════════════════════════════════
+// 👁 من قرأ البثّ؟ — قرأها / وصلت ولم تُقرأ / لم تصل / رفضها واتساب
+// ══════════════════════════════════════════════════════
+const READ_GROUPS: Array<{ key: string; label: string; cls: string; hint?: string }> = [
+  { key: 'read', label: '👁 قرأها', cls: 'text-sky-300' },
+  { key: 'delivered', label: '✓✓ وصلت ولم تُقرأ', cls: 'text-gray-300', hint: 'تشمل من أطفأ «إيصالات القراءة» — واتساب لا يخبرنا بقراءته أصلاً' },
+  { key: 'notDelivered', label: '✓ لم تصل بعد', cls: 'text-amber-300', hint: 'هاتفه مطفأ أو بلا إنترنت منذ الإرسال' },
+  { key: 'failed', label: '✗ رفضها واتساب', cls: 'text-rose-300' },
+];
+function hm(iso: string | null) {
+  if (!iso) return '';
+  return new Date(iso).toLocaleString('ar-EG', { timeZone: 'Asia/Amman', day: 'numeric', month: 'numeric', hour: 'numeric', minute: '2-digit' });
+}
+function ReadReport({ id, apiFetch }: { id: number; apiFetch: Fetcher }) {
+  const [rep, setRep] = useState<any>(null);
+  const [err, setErr] = useState('');
+  useEffect(() => {
+    let alive = true;
+    apiFetch(`/api/whatsapp/open-window-broadcast/${id}/report`).then((d: any) => { if (alive) setRep(d); }).catch((e: any) => { if (alive) setErr(e?.message || 'تعذّر التحميل'); });
+    return () => { alive = false; };
+  }, [id, apiFetch]);
+  if (err) return <p className="mt-2 text-rose-300">{err}</p>;
+  if (!rep) return <p className="mt-2 text-gray-500">⏳ جارٍ التحميل…</p>;
+  return (
+    <div className="mt-2 rounded-xl border border-gray-800 bg-gray-950/40 p-2.5 space-y-2.5">
+      {READ_GROUPS.map(g => {
+        const list = rep.recipients.filter((r: any) => r.group === g.key);
+        if (!list.length) return null;
+        return (
+          <div key={g.key}>
+            <div className={`font-bold ${g.cls}`}>{g.label} · {list.length}</div>
+            {g.hint && <div className="text-[10.5px] text-gray-500 mb-1">{g.hint}</div>}
+            <div className="flex flex-wrap gap-1.5 mt-1">
+              {list.map((r: any) => (
+                <a key={r.conversationId} href={`/admin/whatsapp?conv=${r.conversationId}`} target="_blank" rel="noreferrer"
+                  title={`${r.phone}${r.deliveredAt ? ` · وصلت ${hm(r.deliveredAt)}` : ''}${r.readAt ? ` · قُرئت ${hm(r.readAt)}` : ''}`}
+                  className="px-2 py-1 rounded-lg border border-gray-800 bg-gray-900/70 text-gray-200 hover:border-gray-600">
+                  {r.name}{r.readAt && <span className="text-[10px] text-sky-400/80 mr-1">{hm(r.readAt)}</span>}
+                </a>
+              ))}
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 export default function BroadcastTab({ apiFetch }: { apiFetch: Fetcher }) {
+  const [openReport, setOpenReport] = useState<number | null>(null);   // 👁 تقرير القراءة المفتوح
   const [filter, setFilter] = useState<Filter>('all');
   const [activityId, setActivityId] = useState<number | null>(null);
   const [rows, setRows] = useState<Target[]>([]);
@@ -371,6 +420,20 @@ export default function BroadcastTab({ apiFetch }: { apiFetch: Fetcher }) {
                       <span className="tabular-nums mr-auto">✓ {h.sentCount}/{h.totalTargets}{h.skippedCount ? ` · تخطّي ${h.skippedCount}` : ''}{h.failedCount ? ` · فشل ${h.failedCount}` : ''}</span>
                     </div>
                     <p className="text-gray-300 mt-1 whitespace-pre-wrap line-clamp-3">{bodyOf(h.body)}</p>
+                    {/* 👁 القراءة — من حالات واتساب (webhook) */}
+                    {h.readStats && h.readStats.recipients > 0 && (
+                      <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 tabular-nums">
+                        <span className="text-sky-300">👁 قرأها {h.readStats.read}</span>
+                        <span className="text-gray-400">✓✓ وصلت ولم تُقرأ {h.readStats.delivered}</span>
+                        {h.readStats.notDelivered > 0 && <span className="text-amber-300">✓ لم تصل {h.readStats.notDelivered}</span>}
+                        {h.readStats.failed > 0 && <span className="text-rose-300">✗ رفضها واتساب {h.readStats.failed}</span>}
+                        <button onClick={() => setOpenReport(openReport === h.id ? null : h.id)}
+                          className="mr-auto px-2 py-0.5 rounded-lg border border-gray-700 text-gray-300 hover:bg-gray-800">
+                          {openReport === h.id ? 'إخفاء' : 'من قرأ؟'}
+                        </button>
+                      </div>
+                    )}
+                    {openReport === h.id && <ReadReport id={h.id} apiFetch={apiFetch} />}
                   </div>
                 ))}
               </div>

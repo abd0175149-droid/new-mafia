@@ -169,12 +169,13 @@ export async function startBroadcast(input: AudienceQuery & { body: string; crea
       if (sendingSuspendedReason()) { status = 'stopped'; break; }           // إنذار صحّة الحساب أثناء البثّ
       try {
         const msgText = fillVars(body, { ...t, activity: activityName, venue: venueName, place: placeText, when: whenText }) + (withFooter ? OPTOUT_FOOTER : '');
-        await sendMessage(mediaId
+        const sentRes: any = await sendMessage(mediaId
           // يُرسَل بالمعرّف (رفعةٌ واحدة)، والرابط يُحفظ في السجلّ ليعرض الانبوكس الصورة
           ? { conversationId: t.id, image: { mediaId, ...(env.PUBLIC_URL ? { link: `${env.PUBLIC_URL}${imgRel}` } : {}), caption: msgText }, source: 'broadcast' as any }
           : { conversationId: t.id, text: msgText, source: 'broadcast' as any });
         sent++; streak = 0;
-        await db.execute(sql`INSERT INTO wa_broadcast_recipients (broadcast_id, conversation_id) VALUES (${row.id}, ${t.id}) ON CONFLICT DO NOTHING`).catch(() => {});
+        // 👁 معرّف الرسالة يربط المستلم بحالتها (وصلت/قُرئت) — تقرير القراءة لكلّ بثّ
+        await db.execute(sql`INSERT INTO wa_broadcast_recipients (broadcast_id, conversation_id, wa_message_id) VALUES (${row.id}, ${t.id}, ${sentRes?.message?.id ?? null}) ON CONFLICT DO NOTHING`).catch(() => {});
       } catch (e: any) {
         if (e?.code === 'WINDOW_EXPIRED') { skipped++; }                     // النافذة أُغلقت بين المعاينة والإرسال
         else if (e?.code === 'SENDING_SUSPENDED') { status = 'stopped'; break; }
@@ -218,7 +219,74 @@ export async function upcomingActivities() {
 
 export function stopBroadcast(id: number) { stopFlags.add(Number(id)); return true; }
 
+// ══════════════════════════════════════════════════════
+// 👁 تقرير القراءة لكلّ بثّ — قرأها / وصلت ولم تُقرأ / لم تصل / رفضها واتساب
+// ══════════════════════════════════════════════════════
+// الحالة تأتي من واتساب (webhook statuses ⟵ wa_messages.status). المستلم يُربط برسالته
+// بمعرّفها (منذ 2026-10-02)، وما قبل ذلك بأقرب رسالة بثٍّ في محادثته حول وقت الإرسال
+// (±٢ دقيقة) — طابقت ١٠٠٪ في آخر خمسة بثوث.
+// ⚠️ «وصلت ولم تُقرأ» تشمل من أطفأ إيصالات القراءة: واتساب لا يُبلغ بقراءته أصلاً.
+const RECIPIENT_MSG = sql`LEFT JOIN LATERAL (
+    SELECT m.id, m.status, m.payload FROM wa_messages m
+     WHERE (r.wa_message_id IS NOT NULL AND m.id = r.wa_message_id)
+        OR (r.wa_message_id IS NULL AND m.conversation_id = r.conversation_id AND m.direction = 'out' AND m.source = 'broadcast'
+            AND m.created_at BETWEEN r.sent_at - interval '2 minutes' AND r.sent_at + interval '2 minutes')
+     ORDER BY (m.id = r.wa_message_id) DESC NULLS LAST, abs(extract(epoch from m.created_at - r.sent_at)) LIMIT 1) m ON true`;
+
 export async function listBroadcasts(limit = 20) {
   const db = getDB(); if (!db) return [];
-  return db.select().from(waBroadcasts).orderBy(desc(waBroadcasts.id)).limit(limit);
+  const list = await db.select().from(waBroadcasts).orderBy(desc(waBroadcasts.id)).limit(limit);
+  if (!list.length) return list;
+  const ids = list.map((b: any) => Number(b.id));
+  const stats = rowsOf(await db.execute(sql`
+    SELECT r.broadcast_id AS id, COUNT(*)::int AS recipients,
+           COUNT(*) FILTER (WHERE m.status = 'read')::int AS read,
+           COUNT(*) FILTER (WHERE m.status = 'delivered')::int AS delivered,
+           COUNT(*) FILTER (WHERE m.status = 'failed')::int AS failed,
+           COUNT(*) FILTER (WHERE m.id IS NULL OR m.status NOT IN ('read', 'delivered', 'failed'))::int AS not_delivered
+      FROM wa_broadcast_recipients r ${RECIPIENT_MSG}
+     WHERE r.broadcast_id IN (${sql.join(ids.map(i => sql`${i}`), sql`, `)})
+     GROUP BY r.broadcast_id`));
+  const by = new Map(stats.map((s: any) => [Number(s.id), s]));
+  return list.map((b: any) => {
+    const s: any = by.get(Number(b.id));
+    return { ...b, readStats: s ? { recipients: s.recipients, read: s.read, delivered: s.delivered, notDelivered: s.not_delivered, failed: s.failed } : null };
+  });
+}
+
+/** تفصيل بثٍّ واحد: كلّ مستلم وحالة رسالته ووقت وصولها وقراءتها */
+export async function broadcastReadReport(id: number) {
+  const db = getDB(); if (!db) return null;
+  const [b] = await db.select().from(waBroadcasts).where(eq(waBroadcasts.id, id)).limit(1);
+  if (!b) return null;
+  const rows = rowsOf(await db.execute(sql`
+    SELECT r.conversation_id, r.sent_at, c.display_name, c.phone, p.name AS player_name, m.status, m.payload
+      FROM wa_broadcast_recipients r
+      JOIN wa_conversations c ON c.id = r.conversation_id
+      LEFT JOIN players p ON p.id = c.player_id
+      ${RECIPIENT_MSG}
+     WHERE r.broadcast_id = ${id}
+     ORDER BY r.sent_at`));
+  const atOf = (pl: any, st: string) => {
+    const h = Array.isArray(pl?.statusHistory) ? pl.statusHistory : [];
+    const e = h.find((x: any) => x?.status === st);
+    return e?.at || null;
+  };
+  const group = (st: string | null) => st === 'read' ? 'read' : st === 'delivered' ? 'delivered' : st === 'failed' ? 'failed' : 'notDelivered';
+  const recipients = rows.map((r: any) => ({
+    conversationId: Number(r.conversation_id),
+    name: String(r.player_name || r.display_name || '').trim() || r.phone,
+    phone: r.phone,
+    status: r.status || null,
+    group: group(r.status || null),
+    sentAt: r.sent_at,
+    deliveredAt: atOf(r.payload, 'delivered'),
+    readAt: atOf(r.payload, 'read'),
+  }));
+  const count = (g: string) => recipients.filter(x => x.group === g).length;
+  return {
+    broadcast: { id: Number(b.id), createdAt: (b as any).createdAt, createdBy: (b as any).createdBy, sentCount: (b as any).sentCount },
+    totals: { recipients: recipients.length, read: count('read'), delivered: count('delivered'), notDelivered: count('notDelivered'), failed: count('failed') },
+    recipients,
+  };
 }

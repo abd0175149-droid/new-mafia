@@ -1689,6 +1689,8 @@ async function main() {
           PRIMARY KEY (broadcast_id, conversation_id)
         )
       `).catch(() => {});
+      // 👁 معرّف رسالة البثّ لكلّ مستلم — تقرير القراءة (قرأها/وصلت/لم تصل) دون مطابقةٍ بالوقت
+      await db.execute(sql`ALTER TABLE wa_broadcast_recipients ADD COLUMN IF NOT EXISTS wa_message_id INTEGER`).catch(() => {});
       // 📋 مرآة قوالب ميتا (استوديو القوالب)
       await db.execute(sql`
         CREATE TABLE IF NOT EXISTS wa_templates (
