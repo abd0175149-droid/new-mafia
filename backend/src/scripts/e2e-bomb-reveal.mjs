@@ -144,9 +144,10 @@ try {
 
   const gsA = (await rpc(pA, 'game:get-state', { roomId }))?.state;
   const seen = (seat) => (gsA?.players || []).find(p => p.physicalId === seat);
-  ok('🔒 روستر الهاتف: الضحيّتان حيّتان بلا دور', victims.every(v => seen(v)?.isAlive !== false && seen(v)?.role == null),
+  // دورُ الهاتف نفسِه يصله دائماً — «بلا دور» لغيره من الضحايا
+  ok('🔒 روستر الهاتف: الضحيّتان حيّتان بلا دور', victims.every(v => seen(v)?.isAlive !== false && (v === seatA || seen(v)?.role == null)),
     JSON.stringify(victims.map(v => seen(v))));
-  ok('🔒 روستر الهاتف: الشيخ قبل كشفه بلا دور', seen(gf)?.role == null, JSON.stringify(seen(gf)));
+  ok('🔒 روستر الهاتف: الشيخ قبل كشفه بلا دور', gf === seatA || seen(gf)?.role == null, JSON.stringify(seen(gf)));
   const myPre = await rpc(pA, 'room:get-my-state', { roomId, phone: PH_A });
   ok('🔒 get-my-state: العدّاد لم يتغيّر', key(myPre?.teamCounts) === key(preC), `${key(myPre?.teamCounts)} vs ${key(preC)}`);
   ok('🔒 get-my-state: الضحيّتان حيّتان في rosterInfo', victims.every(v => (myPre?.rosterInfo || []).find(p => p.physicalId === v)?.isAlive !== false));
