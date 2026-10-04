@@ -63,6 +63,7 @@ const STATE_PUBLIC_KEYS = [
   'cityName', 'seasonName', 'discussionState', 'votingState', 'withdrawalState', 'confrontation',
   'confrontationCount', 'confrontationRound', 'gameTimer', 'eliminationRevealed',
   'dealRegisteredRound', 'confrontationsUsed', 'mayorShield', 'luckyDrawHistory', 'createdAt',
+  'nextGameAt', 'seatLayout',
 ] as const;
 
 const PRE_GAME_PHASES = new Set(['LOBBY', 'ROLE_GENERATION', 'ROLE_BINDING']);

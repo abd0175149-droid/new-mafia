@@ -39,6 +39,9 @@ const ok = (n, c, d = '') => {
   else { fail++; failures.push(n + (d ? ` — ${d}` : '')); console.log(`  ❌ ${n}${d ? ' — ' + d : ''}`); }
 };
 const sleep = (ms) => new Promise(r => setTimeout(r, ms));
+// أرقامٌ جديدة لكلّ تشغيل — إعادةُ الأرقام نفسها تصطدم ببقايا تشغيلٍ سابق (غرفة قديمة لصاحب الهاتف)
+const RUN = String(Date.now()).slice(-5);
+const PH_A = `07931${RUN}`, PH_B = `07932${RUN}`;
 const rpc = (s, ev, payload) => new Promise((res, rej) => {
   const t = setTimeout(() => rej(new Error(`timeout ${ev}`)), 20000);
   s.emit(ev, payload, (r) => { clearTimeout(t); res(r); });
@@ -71,13 +74,13 @@ try {
   ok('أُنشئت الغرفة', !!roomId, JSON.stringify(created).slice(0, 100));
   leader.emit('room:rejoin-leader', { roomId });
   for (let i = 1; i <= 6; i++) {
-    const r = await rpc(leader, 'room:force-add-player', { roomId, physicalId: i, name: `ضيف${i}`, phone: `079300000${i}`, dob: '1995-01-01', gender: 'MALE' });
+    const r = await rpc(leader, 'room:force-add-player', { roomId, physicalId: i, name: `ضيف${i}`, phone: `07930${RUN}`.slice(0, 9) + i, dob: '1995-01-01', gender: 'MALE' });
     if (!r?.success) throw new Error(`force-add ${i}: ${r?.error}`);
   }
   const pA = await connect({}); sockets.push(pA);
   const pB = await connect({}); sockets.push(pB);
-  const jA = await rpc(pA, 'room:auto-join', { roomId, name: 'هاتف-أ', gender: 'MALE', phone: '0793100001' });
-  const jB = await rpc(pB, 'room:auto-join', { roomId, name: 'هاتف-ب', gender: 'MALE', phone: '0793100002' });
+  const jA = await rpc(pA, 'room:auto-join', { roomId, name: 'هاتف-أ', gender: 'MALE', phone: PH_A });
+  const jB = await rpc(pB, 'room:auto-join', { roomId, name: 'هاتف-ب', gender: 'MALE', phone: PH_B });
   ok('انضمّ الهاتف أ', jA?.success === true, jA?.error);
   ok('انضمّ الهاتف ب', jB?.success === true, jB?.error);
   const seatA = Number(jA?.assignedSeat ?? jA?.physicalId);
@@ -142,22 +145,30 @@ try {
   const othersA = (gsA?.state?.players || []).filter(p => p.isAlive !== false && p.physicalId !== seatA);
   ok('🔒 …بلا أدوار غيره', othersA.length > 0 && othersA.every(p => p.role == null));
   ok('🔒 …بلا رمز شاشة العرض', gsA?.state?.config?.displayPin === undefined);
-  const myA = await rpc(pA, 'room:get-my-state', { roomId, phone: '0793100001' });
+  const myA = await rpc(pA, 'room:get-my-state', { roomId, phone: PH_A });
   ok('room:get-my-state للضيف بهاتفه ينجح', myA?.success === true, myA?.error);
   const rB = await rpc(pB, 'room:get-my-role', { roomId, physicalId: seatA });
   const realB = L?.players?.find(p => p.physicalId === seatB)?.role;
   ok('room:get-my-role بمقعد غيره ⇒ دورُه هو لا دورُ ذاك', rB?.role === realB, `${rB?.role} vs ${realB}`);
 
-  // إعادة اتّصال ب ⇒ state-sync للغرفة — أ يستلم إسقاطاً لا الحالة الخام
+  // عودةُ ب بهاتفه (ضيف) تنجح
+  const rj = await rpc(pB, 'room:rejoin-player', { roomId, physicalId: seatB, phone: PH_B });
+  ok('عودة الضيف بهاتفه تنجح', rj?.success === true, rj?.error);
+
+  // إجراءُ موجّهٍ يبثّ game:state-sync للغرفة — أ يستلم إسقاطاً لا الحالة الخام
   const before = got.A.length;
-  await rpc(pB, 'room:rejoin-player', { roomId, physicalId: seatB, phone: '0793100002' });
+  const at = Date.now() + 15 * 60 * 1000;
+  const cm = await rpc(leader, 'room:set-next-game-at', { roomId, at });
+  ok('إجراء الموجّه نجح', cm?.success === true, cm?.error);
   await sleep(800);
   const sync = got.A.slice(before).at(-1);
   if (sync) {
     const o = (sync.players || []).filter(p => p.isAlive !== false && p.physicalId !== seatA);
-    ok('🔒 بثّ state-sync بعد العودة: بلا أدوار غيره', o.length > 0 && o.every(p => p.role == null));
+    ok('🔒 بثّ state-sync: بلا أدوار غيره', o.length > 0 && o.every(p => p.role == null));
+    ok('🔒 بثّ state-sync: بلا رمز شاشة العرض', sync?.config?.displayPin === undefined);
+    ok('بثّ state-sync: موعدُ اللعبة القادمة وصل (حقلٌ علنيّ)', sync?.nextGameAt === at, `${sync?.nextGameAt}`);
   } else {
-    ok('وصل بثّ state-sync بعد العودة', false, 'لم يصل');
+    ok('وصل بثّ state-sync', false, 'لم يصل');
   }
 
   ok('🔒 المتطفّل لم يستلم شيئاً من بثّ الغرفة', spyGot.length === 0, spyGot.join(','));

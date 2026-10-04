@@ -4,6 +4,7 @@
 // تشغيل: JWT_SECRET=test npx tsx src/scripts/test-seat-claim.ts   (نقي — بلا قاعدة ولا Redis)
 // ══════════════════════════════════════════════════════
 
+export {};
 process.env.JWT_SECRET = process.env.JWT_SECRET || 'test-secret-for-seat-claim';
 const { resolveSeatClaim } = await import('../sockets/seat-claim.js');
 const { generatePlayerToken } = await import('../middleware/player-auth.middleware.js') as any;
