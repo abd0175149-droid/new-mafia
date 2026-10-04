@@ -39,6 +39,7 @@ import {
   rebuildVotingForMayorRevote,
   mayorRevealPayload,
 } from '../game/mayor-engine.js';
+import { publicTeamCounts } from '../game/public-counts.js';
 
 export function registerDayEvents(io: Server, socket: Socket) {
 
@@ -89,7 +90,7 @@ export function registerDayEvents(io: Server, socket: Socket) {
       io.to(data.roomId).emit('day:voting-started', {
         candidates: state.votingState.candidates,
         hiddenPlayers: state.votingState.hiddenPlayersFromVoting,
-        teamCounts: getTeamCounts(state.players),
+        teamCounts: publicTeamCounts(state),
         playersInfo,
         playerVotes: state.votingState.playerVotes,
         durationSeconds: state.votingState.durationSeconds || null,
@@ -851,7 +852,7 @@ export function registerDayEvents(io: Server, socket: Socket) {
           io.to(data.roomId).emit('day:voting-started', {
             candidates: newState.votingState.candidates,
             hiddenPlayers: newState.votingState.hiddenPlayersFromVoting,
-            teamCounts: getTeamCounts(newState.players),
+            teamCounts: publicTeamCounts(newState),
             playerVotes: {},
             leaderProxyVotes: {},
             durationSeconds: newState.votingState.durationSeconds || null,
@@ -961,7 +962,7 @@ export function registerDayEvents(io: Server, socket: Socket) {
         io.to(data.roomId).emit('day:voting-started', {
           candidates: state.votingState.candidates,
           hiddenPlayers: state.votingState.hiddenPlayersFromVoting,
-          teamCounts: getTeamCounts(state.players),
+          teamCounts: publicTeamCounts(state),
           playersInfo: state.players.filter((p: any) => p.isAlive).map((p: any) => ({
             physicalId: p.physicalId, name: p.name, avatarUrl: p.avatarUrl || null,
           })),
@@ -1096,7 +1097,9 @@ export function registerDayEvents(io: Server, socket: Socket) {
         pendingSecondary,
         type: pr.type || result.type,
         pendingWinner,
-        teamCounts: currentState ? getTeamCounts(currentState.players) : undefined,
+        // 👁️ العدّادُ كما يصير بعد هذا الكشف (العلمُ يُحفظ بعد البثّ)، والمقاعدُ التي تُقلب بطاقاتُها
+        teamCounts: currentState ? publicTeamCounts(currentState, { revealElimination: true }) : undefined,
+        revealSeats: eliminatedIds,
         confrontationNotes: currentState ? confrontationNotes(currentState, eliminatedIds) : {},   // 🗳️ «وُوجه وخسر النبض»
       });
       // 💣 نتيجةُ القنبلة المحبوسة (قرار المالك 2026-09-13): تُبثّ الآن، بعد الكشف لا قبله — للجميع عدا الموجّه (وصلته لحظة القرار)
@@ -1104,6 +1107,9 @@ export function registerDayEvents(io: Server, socket: Socket) {
         currentState.eliminationRevealed = true;
         if (currentState.heldBombResult) {
           const held = currentState.heldBombResult; currentState.heldBombResult = null;
+          // 🔴 عدّادُ النتيجة المحبوسة حُسب لحظةَ قرار القنبلة والشيخُ ما زال محجوباً — يُعاد الآن
+          held.teamCounts = publicTeamCounts(currentState);
+          held.revealSeats = held.bombEliminated || [];
           for (const s of await io.in(data.roomId).fetchSockets()) if (s.data.role !== 'leader') s.emit('day:bomb-result', held);
           io.to(spectatorRoom(data.roomId)).emit('day:bomb-result', held);
         }
@@ -1294,8 +1300,9 @@ export function registerDayEvents(io: Server, socket: Socket) {
         bombRevealedRoles,
         bombRR: totalBombRR,
         winResult,
-        teamCounts: getTeamCounts(state.players),
-      };
+        teamCounts: publicTeamCounts(state),
+        revealSeats: bombEliminated,
+      } as any;
       if (state.eliminationRevealed === false) {
         state.heldBombResult = bombPayload;
         await setGameState(data.roomId, state);
@@ -1401,7 +1408,8 @@ export function registerDayEvents(io: Server, socket: Socket) {
         revealedRole: target?.role || 'UNKNOWN',
         pairNames: (event.extra as any)?.pairNames || [],
         winResult,
-        teamCounts: getTeamCounts(state.players),
+        teamCounts: publicTeamCounts(state),
+        revealSeats: [data.targetPhysicalId],
       });
       console.log(`🜂 Ash curse executed: #${data.targetPhysicalId} taken by Phoenix #${pending.phoenixPhysicalId}`);
       callback({ success: true, winResult });
@@ -1446,7 +1454,7 @@ export function registerDayEvents(io: Server, socket: Socket) {
       if (data.action === TieBreakerAction.CANCEL) {
         // إلغاء التصويت → العودة لمرحلة النقاش
         await setPhase(data.roomId, Phase.DAY_DISCUSSION);
-        await emitPhaseChangedSanitized(io, data.roomId, { phase: Phase.DAY_DISCUSSION, teamCounts: getTeamCounts(state.players), state });
+        await emitPhaseChangedSanitized(io, data.roomId, { phase: Phase.DAY_DISCUSSION, teamCounts: publicTeamCounts(state), state });
         io.to(data.roomId).emit('day:cancelled');
       } else if (data.action === TieBreakerAction.ELIMINATE_ALL) {
         // handleTieBreaker أقصى اللاعبين بالفعل (isAlive = false)
@@ -1635,7 +1643,7 @@ export function registerDayEvents(io: Server, socket: Socket) {
         }
         await setPhase(data.roomId, Phase.DAY_VOTING);
         // بث تغيير المرحلة أيضاً ليتم تحديث جميع العملاء
-        io.to(data.roomId).emit('game:phase-changed', { phase: Phase.DAY_VOTING, teamCounts: getTeamCounts(state.players) });
+        io.to(data.roomId).emit('game:phase-changed', { phase: Phase.DAY_VOTING, teamCounts: publicTeamCounts(state) });
         io.to(data.roomId).emit('day:voting-started', {
           candidates: state.votingState.candidates,
           hiddenPlayers: state.votingState.hiddenPlayersFromVoting,
@@ -1994,7 +2002,7 @@ export function registerDayEvents(io: Server, socket: Socket) {
       await setGameState(data.roomId, state);
 
       // بث الإقصاء للجميع — مع المرحلة الحالية + عداد الفريقين
-      const teamCounts = getTeamCounts(state.players);
+      const teamCounts = publicTeamCounts(state);
 
       io.to(data.roomId).emit('admin:player-eliminated', {
         physicalId: data.physicalId,

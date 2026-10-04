@@ -25,6 +25,7 @@ import { LoyaltyCelebration, type LoyaltyCelebrant } from '@/components/LoyaltyC
 //    وفكُّ القفل واستئنافُ الفراش عند اللمسة. لا نداءَ صوتٍ محلّيّ — أيُّ نداءٍ يُضاف
 //    هنا يعود بصمتٍ عند أوّل سطرٍ ويُضلّل من يقرأ.
 import { loadSoundMap, reloadSoundMap, applyRemoteSound, setLocalPlayback, primeAudio, retryAmbient, heardLevel } from '@/lib/soundManager';
+import { bindCountGate, holdTeamCounts, cancelHeldCounts } from '@/lib/countGate';
 
 // مؤثرات صوتية — يستخدم soundManager المركزي
 // (الأصوات الافتراضية محفوظة في soundManager.ts كـ fallback)
@@ -180,6 +181,9 @@ function DisplayPageContent() {
   const [gameTimerData, setGameTimerData] = useState<{ totalSeconds: number; startedAt: number; expired: boolean } | null>(null);
   const [gameTimerRemaining, setGameTimerRemaining] = useState<number>(0);
   const searchParams = useSearchParams();
+
+  // 👁️ بوّابةُ العدّاد: الكشفُ يُحبس حتّى تُقلب بطاقتُه (lib/countGate)
+  useEffect(() => bindCountGate(setTeamCounts), []);
 
   // ══════════════════════════════════════════════════
   // 🔄 Auto-Login via Query Parameters OR Session Restore
@@ -476,8 +480,9 @@ function DisplayPageContent() {
       }
       // 🔊 لا صوتَ هنا: خلفيّةُ الطور ونغمةُ افتتاحه تُعزفان عند الموجّه وتصلان مرآةً.
 
-      // ✅ تحديث أعداد الفرق (يأتي مع الحدث مباشرة)
-      if (data.teamCounts) setTeamCounts(data.teamCounts);
+      // ✅ تحديث أعداد الفرق (يأتي مع الحدث مباشرة) — عدّادٌ علنيّ من الخادم لا يسبق أيَّ كشف،
+      //    وتغيّرُ الطور يعني أنّ الموجّه انتقل: يُلغي أيَّ حبسٍ معلّق
+      if (data.teamCounts) { cancelHeldCounts(); setTeamCounts(data.teamCounts); }
 
       // ✅ أولاً: استخدام الحالة المرفقة مع الحدث (أسرع + أوثق)
       if (data.state?.players) {
@@ -578,6 +583,8 @@ function DisplayPageContent() {
       const key = data?.eventKey ?? `${data?.type}:${data?.targetPhysicalId ?? ''}`;
       setMorningEvents(prev => { const i = prev.findIndex(e => (e?.eventKey ?? `${e?.type}:${e?.targetPhysicalId ?? ''}`) === key); if (i < 0) return [...prev, data]; const next = prev.slice(); next[i] = data; return next; });
       animTimerRef.current = setTimeout(() => setAnimation(null), 10000);
+      // 👁️ عدّادُ ما بعد هذا الحدث — يُطبَّق لحظةَ قلب بطاقة الميّت في المشهد لا قبلها
+      holdTeamCounts(data?.teamCounts, data?.revealSeats, 7000);
     };
 
     const onNightStarted = () => {
@@ -698,8 +705,10 @@ function DisplayPageContent() {
     });
 
     // ── أحداث الإقصاء بالتصويت — تحديث عداد الفرق ──
-    const onDayTeamUpdate = (data: any) => {
-      if (data.teamCounts) setTeamCounts(data.teamCounts);
+    // 👁️ العدّادُ مع قلب البطاقة لا قبله: الكشفُ يحمل العدّادَ الجديد ومقاعدَ بطاقاته،
+    //    والبوّابةُ تطبّقه حين يُبلغ المشهدُ (ثلاثيُّ الأبعاد أو البطاقات) بقلبها
+    const onEliminationRevealed = (data: any) => {
+      holdTeamCounts(data.teamCounts, data.revealSeats ?? data.eliminated, 20000);
       // بعد كشف الهوية: تحديث isAlive للاعبين المقصيين
       if (data.eliminated && Array.isArray(data.eliminated)) {
         setPlayers(prev => prev.map((p: any) =>
@@ -707,9 +716,16 @@ function DisplayPageContent() {
         ));
       }
     };
+    const onVotingStartedCounts = (data: any) => {
+      if (data.teamCounts) { cancelHeldCounts(); setTeamCounts(data.teamCounts); }
+    };
+    // 💣🜂 ضحايا القنبلة والرماد — كشفٌ ثانٍ بعد الإقصاء، يُحبس عدّادُه خلفه بالترتيب
+    const onSecondaryResult = (data: any) => holdTeamCounts(data?.teamCounts, data?.revealSeats, 20000);
     // ⚠️ لا نسمع على elimination-pending لأن teamCounts تكشف الهوية قبل العرض
-    socket.on('day:elimination-revealed', onDayTeamUpdate);
-    socket.on('day:voting-started', onDayTeamUpdate);
+    socket.on('day:elimination-revealed', onEliminationRevealed);
+    socket.on('day:voting-started', onVotingStartedCounts);
+    socket.on('day:bomb-result', onSecondaryResult);
+    socket.on('day:ash-curse-result', onSecondaryResult);
 
     // 🔊 إيقاف صوت التصويت فوراً عند استلام أحداث ما بعد التصويت
     // (احتياط إضافي — game:phase-changed قد يتأخر أو يأتي بعد هذه الأحداث)
@@ -889,6 +905,10 @@ function DisplayPageContent() {
       socket.off('display:hint', onHint);
       socket.off('display:morning-manifest', onMorningManifest);
       socket.off('display:morning-event', onMorningEvent);
+      socket.off('day:elimination-revealed', onEliminationRevealed);
+      socket.off('day:voting-started', onVotingStartedCounts);
+      socket.off('day:bomb-result', onSecondaryResult);
+      socket.off('day:ash-curse-result', onSecondaryResult);
       socket.off('display:night-started', onNightStarted);
       socket.off('game:over', onGameOver);
       socket.off('room:config-updated', onConfigUpdated);

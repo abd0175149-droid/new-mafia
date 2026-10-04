@@ -39,6 +39,7 @@ import { eq, sql, and } from 'drizzle-orm';
 import { emitStateSanitized, emitPhaseChangedSanitized, emitTrustedOnly, spectatorRoom, stripSecrets, publicJustification, publicPendingResolution } from './broadcast.util.js';
 import { buildAffinityPairs, loadPairRules, mergeRulesIntoAffinity, mergeGlobalBlockedPairs, upsertPairRule } from '../services/seat-affinity.service.js';
 import { personKey, pairKey } from '../game/seating/types.js';
+import { publicTeamCounts } from '../game/public-counts.js';
 
 
 export const activeRooms: Map<string, {
@@ -4414,7 +4415,7 @@ async function readSeatLayoutOnly(activityId: any): Promise<any> {
       // شاشة القاعة تتابع `isAlive` بأحداثٍ بعينها لا بالحالة الكاملة
       io.to(data.roomId).emit('admin:player-restored', {
         physicalId: data.targetPhysicalId,
-        teamCounts: getTeamCounts(state.players),
+        teamCounts: publicTeamCounts(state),
       });
       await emitStateSanitized(io, data.roomId, 'game:state-updated', state);
 
@@ -5210,7 +5211,7 @@ async function readSeatLayoutOnly(activityId: any): Promise<any> {
             phase: state.phase,
             round: state.round,
             gameName: state.config.gameName,
-            teamCounts: state.rolesConfirmed ? getTeamCounts(state.players as any) : null,
+            teamCounts: state.rolesConfirmed ? publicTeamCounts(state) : null,
             maxPlayers: state.config.maxPlayers,
             discussionState: state.discussionState || null,
             rosterInfo: state.players.map((p: any) => ({
@@ -5265,7 +5266,7 @@ async function readSeatLayoutOnly(activityId: any): Promise<any> {
         // 🎭 أعداد الفرق — معلومةٌ عامّة (على شاشة القاعة أمام الجميع).
         //    تُرسَل هنا لا في حدث المرحلة وحده: من أعاد التحميل أو دخل متأخّراً
         //    كان يبقى بلا أرقام حتّى تتغيّر المرحلة — نفس درس شاشة الليل.
-        teamCounts: state.rolesConfirmed ? getTeamCounts(state.players as any) : null,
+        teamCounts: state.rolesConfirmed ? publicTeamCounts(state) : null,
         isRemote: !!state.config?.isRemote, // 🌐 ليعرف اللاعب أنه في غرفة بعيدة → يعرض طاولة الطور
         allowPlayerInvites: !!state.config?.allowPlayerInvites, // 📨 يسمح للاعب برؤية زرّ إرسال الدعوة
         rolesConfirmed: state.rolesConfirmed || false,
@@ -5474,7 +5475,7 @@ async function readSeatLayoutOnly(activityId: any): Promise<any> {
       await emitPhaseChangedSanitized(io, data.roomId, {
         phase: Phase.DAY_DISCUSSION,
         state,
-        teamCounts: getTeamCounts(state.players),
+        teamCounts: publicTeamCounts(state),
       });
 
       // 🌙 بدءُ مباراةٍ وانتهاؤها لحظتان يُنتظران — تُرسلان فوراً بلا كبح.
@@ -5487,7 +5488,7 @@ async function readSeatLayoutOnly(activityId: any): Promise<any> {
         round: 1,
         phase: Phase.DAY_DISCUSSION,
         playerCount: state.players.length,
-        teamCounts: getTeamCounts(state.players),
+        teamCounts: publicTeamCounts(state),
         gameTimer: state.gameTimer,
       });
 

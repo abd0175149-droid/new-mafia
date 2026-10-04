@@ -4,13 +4,22 @@ import { useEffect, useRef } from 'react';
 import { motion } from 'framer-motion';
 import MafiaCard from '@/components/MafiaCard';
 import { useEffect as useEffectR, useState as useStateR } from 'react';
+import { teamCardRevealed } from '@/lib/countGate';
 
 // 🃏 كرتُ من خرج من اللعبة: يظهر بوجهه العلنيّ (الرقم والاسم) ثمّ يُقلب إلى دوره — كما في الإقصاء النهاريّ.
 //    (قرار المالك 2026-09-12). من لم يخرج (تعطيلٌ مثلاً) لا يمرّ من هنا: يُعرض دوره بلا هويّة.
+export const DEAD_CARD_FLIP_AT_MS = 1800;
+export const DEAD_CARD_FLIP_MS = 900;
 function DeadRevealCard(props: any) {
   const [flipped, setFlipped] = useStateR(false);
-  useEffectR(() => { const t = setTimeout(() => setFlipped(true), 1800); return () => clearTimeout(t); }, []);
-  return <MafiaCard {...props} isFlipped={flipped} flipDurationMs={900} />;
+  useEffectR(() => {
+    const t = setTimeout(() => setFlipped(true), DEAD_CARD_FLIP_AT_MS);
+    // 👁️ الدورُ ظاهرٌ الآن — عدّادُ الفرق يتغيّر هنا لا قبله (lib/countGate)
+    const r = setTimeout(() => teamCardRevealed(props.playerNumber), DEAD_CARD_FLIP_AT_MS + DEAD_CARD_FLIP_MS);
+    return () => { clearTimeout(t); clearTimeout(r); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  return <MafiaCard {...props} isFlipped={flipped} flipDurationMs={DEAD_CARD_FLIP_MS} />;
 }
 import { Role, ROLE_NAMES, ROLE_ICONS } from '@/lib/constants';
 

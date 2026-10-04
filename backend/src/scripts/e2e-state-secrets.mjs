@@ -172,6 +172,54 @@ try {
   }
 
   ok('🔒 المتطفّل لم يستلم شيئاً من بثّ الغرفة', spyGot.length === 0, spyGot.join(','));
+
+  // ══ ٥) عدّادُ الفرق لا يسبق كشفَ البطاقة (2026-10-04) ══
+  console.log('\n━━━ ٥) العدّاد قبل الكشف وبعده ━━━');
+  const key = (c) => c ? `${c.citizenAlive}/${c.mafiaAlive}/${c.neutralAlive ?? 0}` : 'null';
+  const startCounts = (await rpc(leader, 'game:get-state', { roomId })).state;
+  const roleOf = (seat) => (startCounts?.players || []).find(p => p.physicalId === seat)?.role;
+  const phaseCounts = { leader: [], A: [] };
+  const revealed = { A: null, leader: null };
+  leader.on('game:phase-changed', d => d?.teamCounts && phaseCounts.leader.push({ phase: d.phase, c: d.teamCounts }));
+  pA.on('game:phase-changed', d => d?.teamCounts && phaseCounts.A.push({ phase: d.phase, c: d.teamCounts }));
+  pA.on('day:elimination-revealed', d => { revealed.A = d; });
+  leader.on('day:elimination-revealed', d => { revealed.leader = d; });
+
+  const sv = await rpc(leader, 'day:start-voting', { roomId });
+  ok('بدأ التصويت', sv?.success === true, sv?.error);
+  await sleep(300);
+  const vs = (await rpc(leader, 'game:get-state', { roomId })).state;
+  const victim = 1;
+  const idxV = (vs?.votingState?.candidates || []).findIndex(c => c.type === 'PLAYER' && c.targetPhysicalId === victim);
+  const voters = (vs?.players || []).filter(p => p.isAlive !== false).map(p => p.physicalId);
+  for (const v of voters) await rpc(leader, 'day:cast-vote', { roomId, candidateIndex: idxV, delta: 1, voterPhysicalId: v });
+  const preC = phaseCounts.A.filter(x => x.phase === 'DAY_VOTING').at(-1)?.c;
+  ok('عدّادُ بداية التصويت وصل الهاتف', !!preC, JSON.stringify(phaseCounts.A.map(x => x.phase)));
+  const mark = { A: phaseCounts.A.length, L: phaseCounts.leader.length };
+  const rs = await rpc(leader, 'day:resolve', { roomId });
+  ok('فُرزت الأصوات', rs?.success === true, rs?.error);
+  const ex = await rpc(leader, 'day:execute-elimination', { roomId, skipWithdrawal: true });
+  ok('نُفّذ الإقصاء (بانتظار الكشف)', ex?.success === true, ex?.error);
+  await sleep(800);
+  const changedA = phaseCounts.A.slice(mark.A).filter(x => key(x.c) !== key(preC));
+  const changedL = phaseCounts.leader.slice(mark.L).filter(x => key(x.c) !== key(preC));
+  ok('🔒 قبل الكشف: لا رسالةَ غيّرت عدّادَ الهاتف', changedA.length === 0, JSON.stringify(changedA));
+  ok('🔒 قبل الكشف: لا رسالةَ غيّرت عدّادَ الشاشة/الموجّه', changedL.length === 0, JSON.stringify(changedL));
+  const myStatePre = await rpc(pA, 'room:get-my-state', { roomId, phone: PH_A });
+  ok('🔒 قبل الكشف: get-my-state بالعدّاد القديم', key(myStatePre?.teamCounts) === key(preC), `${key(myStatePre?.teamCounts)} vs ${key(preC)}`);
+
+  const tr = await rpc(leader, 'day:trigger-reveal', { roomId, result: {} });
+  ok('كُشفت الأدوار', tr?.success === true, tr?.error);
+  await sleep(800);
+  const r = revealed.A;
+  ok('حدثُ الكشف وصل الهاتف', !!r);
+  const postC = r?.teamCounts;
+  const vr = roleOf(victim);
+  const team = ['GODFATHER', 'SILENCER', 'CHAMELEON', 'WITCH', 'OLDER_BROTHER', 'MAFIA_REGULAR'].includes(vr) ? 'mafiaAlive'
+    : ['JESTER', 'ASSASSIN'].includes(vr) ? 'neutralAlive' : 'citizenAlive';
+  ok(`مع الكشف: نقص فريقُ المُقصى (${vr}) بواحد`, !!preC && !!postC && (preC[team] ?? 0) - (postC[team] ?? 0) === 1,
+    `${key(preC)} → ${key(postC)}`);
+  ok('الكشفُ يحمل مقاعدَ البطاقات', Array.isArray(r?.revealSeats) && r.revealSeats.includes(victim), JSON.stringify(r?.revealSeats));
 } catch (e) {
   ok('لا استثناء', false, e?.message || String(e));
 } finally {

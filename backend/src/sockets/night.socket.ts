@@ -26,6 +26,7 @@ import { clearRevealGrace } from '../game/reveal-grace.js';
 import { markRoomAsFinished } from './lobby.socket.js';
 import { closeSession } from '../services/session.service.js';
 import { emitStateSanitized, emitPhaseChangedSanitized, emitLeaderOnly, emitMorningRecapSanitized, emitTrustedOnly } from './broadcast.util.js';
+import { publicTeamCounts, seatsRevealedBy } from '../game/public-counts.js';
 
 // ── ترتيب الطابور الإجباري (حسب الإجراء وليس الدور) ──
 // الخانة 0: اغتيال (وراثة: شيخ → حرباية → قص → مافيا عادي)
@@ -187,7 +188,7 @@ async function resolveAutoNight(io: Server, roomId: string) {
   const stateAfter = await getGameState(roomId);
   io.to(roomId).emit('game:phase-changed', {
     phase: Phase.MORNING_RECAP,
-    teamCounts: stateAfter ? getTeamCounts(stateAfter.players) : undefined,
+    teamCounts: stateAfter ? publicTeamCounts(stateAfter) : undefined,
   });
 
   // 🤡 فوز المهرج — اللعبة تنتهي فوراً (لا pendingWinner)
@@ -590,7 +591,7 @@ export function registerNightEvents(io: Server, socket: Socket) {
         state.round += 1;
         await setGameState(data.roomId, state);
 
-        io.to(data.roomId).emit('game:phase-changed', { phase: Phase.NIGHT, teamCounts: getTeamCounts(state.players) });
+        io.to(data.roomId).emit('game:phase-changed', { phase: Phase.NIGHT, teamCounts: publicTeamCounts(state) });
         io.to(data.roomId).emit('display:night-started');
 
         // إعلام الليدر لبداية الليل
@@ -662,7 +663,7 @@ export function registerNightEvents(io: Server, socket: Socket) {
 
       await setPhase(data.roomId, Phase.NIGHT);
       state.phase = Phase.NIGHT;
-      io.to(data.roomId).emit('game:phase-changed', { phase: Phase.NIGHT, teamCounts: getTeamCounts(state.players) });
+      io.to(data.roomId).emit('game:phase-changed', { phase: Phase.NIGHT, teamCounts: publicTeamCounts(state) });
       io.to(data.roomId).emit('display:night-started');
 
       // 🧩 Feature Flag: المحرك الديناميكي أو القديم
@@ -811,7 +812,7 @@ export function registerNightEvents(io: Server, socket: Socket) {
       // الآن ننتقل رسمياً لمرحلة الليل
       await setPhase(data.roomId, Phase.NIGHT);
       state.phase = Phase.NIGHT; // ← تحديث محلي لمنع الكتابة الفوقية
-      io.to(data.roomId).emit('game:phase-changed', { phase: Phase.NIGHT, teamCounts: getTeamCounts(state.players) });
+      io.to(data.roomId).emit('game:phase-changed', { phase: Phase.NIGHT, teamCounts: publicTeamCounts(state) });
       io.to(data.roomId).emit('display:night-started');
 
       await setGameState(data.roomId, state);
@@ -1272,7 +1273,7 @@ export function registerNightEvents(io: Server, socket: Socket) {
         await setPhase(data.roomId, Phase.MORNING_RECAP);
         io.to(data.roomId).emit('game:phase-changed', {
           phase: Phase.MORNING_RECAP,
-          teamCounts: getTeamCounts(state.players),
+          teamCounts: publicTeamCounts(state),
         });
 
         // 🏙️ للشاشة: أنواع أحداث الصباح فقط (بلا أسماء ولا أهداف) كي تُجهَّز الأدوات والبطاقات قبل عرضها
@@ -1316,7 +1317,7 @@ export function registerNightEvents(io: Server, socket: Socket) {
       const stateAfterResolve = await getGameState(data.roomId);
       io.to(data.roomId).emit('game:phase-changed', {
         phase: Phase.MORNING_RECAP,
-        teamCounts: stateAfterResolve ? getTeamCounts(stateAfterResolve.players) : undefined,
+        teamCounts: stateAfterResolve ? publicTeamCounts(stateAfterResolve) : undefined,
       });
 
       // 🔪 فحص فوز السفّاح أو المهرج أو الفوز العادي
@@ -1409,6 +1410,9 @@ export function registerNightEvents(io: Server, socket: Socket) {
         extra: event.extra,
         // 🔑 مفتاح الحدث: إعادةُ العرض من الموجّه تُعيد تشغيل المشهد على الشاشة ولا تُضيف سطراً جديداً (قرار المالك 2026-09-12)
         eventKey: `${state.round}:${data.eventIndex}:${event.type}:${event.targetPhysicalId ?? ''}`,
+        // 👁️ العدّادُ بعد هذا الكشف، ومقاعدُ البطاقات التي يكشفها — الشاشةُ تطبّقه عند قلبها لا قبله
+        teamCounts: publicTeamCounts(state),
+        revealSeats: seatsRevealedBy(state, event),
       });
 
       callback({ success: true });
@@ -1516,6 +1520,9 @@ export function registerNightEvents(io: Server, socket: Socket) {
       // تصفير حالة النقاش والتصويت من الجولة السابقة
       const state = await getGameState(data.roomId);
       if (state) {
+        // 👁️ انتهى الصباح: كلُّ حدثٍ صار علنيّاً — ما لم يعرضه الموجّه أعلنه بلسانه. وإلّا
+        //    بقي العدّادُ والدورُ محجوبَين طوال النهار عن ميّتٍ يراه الجميع ميّتاً.
+        for (const ev of state.morningEvents || []) ev.revealed = true;
         state.discussionState = null;
         state.votingState = {
           totalVotesCast: 0,
@@ -1583,7 +1590,7 @@ export function registerNightEvents(io: Server, socket: Socket) {
       const updatedState = await getGameState(data.roomId);
       await emitPhaseChangedSanitized(io, data.roomId, {
         phase: Phase.DAY_DISCUSSION,
-        teamCounts: getTeamCounts(updatedState!.players),
+        teamCounts: publicTeamCounts(updatedState!),
         state: updatedState,
       });
 
@@ -1672,6 +1679,8 @@ export function registerNightEvents(io: Server, socket: Socket) {
           targetRole: target.role,
           targetIsMafia,
         },
+        teamCounts: publicTeamCounts(state),
+        revealSeats: [target.physicalId],
       });
 
       callback({
@@ -1680,7 +1689,7 @@ export function registerNightEvents(io: Server, socket: Socket) {
         targetRole: target.role,
         targetIsMafia,
         pendingWinner,
-        teamCounts: getTeamCounts(state.players),
+        teamCounts: publicTeamCounts(state),
       });
     } catch (err: any) {
       callback({ success: false, error: err.message });
@@ -1711,7 +1720,7 @@ export function registerNightEvents(io: Server, socket: Socket) {
       const updatedState = await getGameState(data.roomId);
       await emitPhaseChangedSanitized(io, data.roomId, {
         phase: Phase.DAY_DISCUSSION,
-        teamCounts: getTeamCounts(updatedState!.players),
+        teamCounts: publicTeamCounts(updatedState!),
         state: updatedState,
       });
 
@@ -2097,7 +2106,7 @@ export function registerNightEvents(io: Server, socket: Socket) {
       state.playerNightActions = { submitted: {} };
       await setGameState(data.roomId, state);
 
-      io.to(data.roomId).emit('game:phase-changed', { phase: Phase.NIGHT, teamCounts: getTeamCounts(state.players) });
+      io.to(data.roomId).emit('game:phase-changed', { phase: Phase.NIGHT, teamCounts: publicTeamCounts(state) });
       io.to(data.roomId).emit('display:night-started');
 
       const alivePlayers = state.players.filter((p: any) => p.isAlive);

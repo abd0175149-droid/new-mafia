@@ -18,6 +18,7 @@
 // ══════════════════════════════════════════════════════
 
 import { getTeamCounts } from '../game/roles.js';
+import { publicTeamCounts } from '../game/public-counts.js';
 
 export interface PulseTimer { totalSeconds: number; startedAt: number; expired: boolean }
 export interface PulseCounts { mafiaAlive: number; citizenAlive: number; neutralAlive: number }
@@ -51,7 +52,7 @@ export function projectActivityPulse(
   let teamCounts: PulseCounts | null = null;
   let teamTotals: PulseCounts | null = null;
   if (rolesConfirmed && !isRemote) {
-    const c = getTeamCounts(players as any);
+    const c = publicTeamCounts(state);
     teamCounts = { mafiaAlive: c.mafiaAlive, citizenAlive: c.citizenAlive, neutralAlive: c.neutralAlive };
     teamTotals = { mafiaAlive: c.mafiaTotal, citizenAlive: c.citizenTotal, neutralAlive: c.neutralTotal };
   }

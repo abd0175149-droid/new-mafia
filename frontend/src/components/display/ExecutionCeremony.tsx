@@ -13,6 +13,7 @@ import MafiaCard from '@/components/MafiaCard';
 import { useGameConfig } from '@/hooks/useGameConfig';
 import { isMafiaRole, isNeutralRole, type Role } from '@/lib/constants';
 import { playEliminationSound, playCeremonySound } from '@/lib/soundManager';
+import { teamCardRevealed } from '@/lib/countGate';
 import { getStreetEngine, type ExecBeat, type ExecTeam, type ExecFigure, type ExecVictim } from '@/components/display/street/engine';
 
 export type ExecEntry = { physicalId: number; role: string; cause?: string; key?: string };
@@ -66,7 +67,7 @@ export default function ExecutionCeremony({ players, primary, secondary, holdFor
       const id = b.victimId; const set = (st: Stage) => { if (id == null) return; setStages(prev => ({ ...prev, [id]: st })); setOrder(prev => prev.includes(id) ? prev : [...prev, id]); };
       if (b.name === 'close' || b.name === 'pan') { set('face-down'); playCeremonySound('drumroll'); }
       if (b.name === 'shot') playGunshot();
-      if (b.name === 'flip' || b.name === 'victim-flip') { set('flipping'); const e = entries.find(x => x.physicalId === id); if (e) playEliminationSound(e.role); setTimeout(() => setStages(prev => (prev[id!] === 'flipping' ? { ...prev, [id!]: 'revealed' } : prev)), 900); }
+      if (b.name === 'flip' || b.name === 'victim-flip') { set('flipping'); const e = entries.find(x => x.physicalId === id); if (e) playEliminationSound(e.role); setTimeout(() => { setStages(prev => (prev[id!] === 'flipping' ? { ...prev, [id!]: 'revealed' } : prev)); teamCardRevealed(id); }, 900); }
       if (b.name === 'gray' || b.name === 'victim-gray') { set('grayed'); playCeremonySound('impact'); }
       if (b.name === 'end') onDone?.();
     };

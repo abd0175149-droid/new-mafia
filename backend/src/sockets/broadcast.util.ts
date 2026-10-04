@@ -13,6 +13,7 @@
 
 import type { Server } from 'socket.io';
 import { notifyPulseForRoom } from './activity-pulse.socket.js';
+import { unrevealedDeadSeats } from '../game/public-counts.js';
 
 // إزالة كل ما يكشف الأدوار أو نيّات الليل من نسخة اللاعب
 // ⚰️ دور الميت يُكشف: أُعلن للجميع لحظة الإقصاء/الصباح أصلاً — إبقاؤه في الروستر
@@ -68,23 +69,7 @@ const STATE_PUBLIC_KEYS = [
 
 const PRE_GAME_PHASES = new Set(['LOBBY', 'ROLE_GENERATION', 'ROLE_BINDING']);
 
-/** المقاعدُ الميّتة التي لم يُكشف دورُها بعد — موتُها في الحالة يسبق إعلانَه. */
-function unrevealedDeadSeats(state: any): Set<number> {
-  const out = new Set<number>();
-  // إقصاءُ النهار: يُعلَّم الميّتُ قبل «كشف الأدوار»
-  if (state.phase === 'DAY_ELIMINATION' && !state.eliminationRevealed) {
-    for (const id of state.pendingResolution?.eliminated || []) out.add(Number(id));
-  }
-  for (const id of state.heldBombResult?.bombEliminated || []) out.add(Number(id));
-  // الليل: كلُّ حدثٍ لم يعرضه الموجّه بعد
-  for (const ev of state.morningEvents || []) {
-    if (ev?.revealed) continue;
-    if (ev?.targetPhysicalId != null) out.add(Number(ev.targetPhysicalId));
-    const sniper = ev?.extra?.sniperPhysicalId;
-    if (sniper != null) out.add(Number(sniper));
-  }
-  return out;
-}
+// المقاعدُ الميّتة غيرُ المكشوفة — مصدرٌ واحد مع عدّاد الفرق العلنيّ (game/public-counts)
 
 const stripRole = (o: any) => {
   if (!o || typeof o !== 'object') return o;

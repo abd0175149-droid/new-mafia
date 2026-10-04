@@ -11,6 +11,7 @@
 // ══════════════════════════════════════════════════════
 
 import { isMafiaRole, getTeamCounts } from '../game/roles.js';
+import { publicTeamCounts } from '../game/public-counts.js';
 
 export function projectDisplayState(state: any) {
   if (!state) return null;
@@ -35,7 +36,7 @@ export function projectDisplayState(state: any) {
     discussionState: state.discussionState || null,
     // 🔴 من المصدر الموحّد لا بحسابٍ مكرّر: النسخة المحلّيّة كانت تعدّ
     //    المحايد مواطناً — وهي ثالثة ثلاث نسخٍ من الخطأ نفسه.
-    teamCounts: getTeamCounts(state.players as any),
+    teamCounts: publicTeamCounts(state),
     gameTimer: state.gameTimer || null,
 
     // ── 🗺️ ما تحتاجه خريطة المقاعد على الشاشة (D1) ──

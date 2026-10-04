@@ -16,6 +16,7 @@ import ExecutionCeremony, { executionSceneAvailable, type ExecEntry } from '@/co
 import { getStreetEngine } from '@/components/display/street/engine';
 import { useGameConfig } from '@/hooks/useGameConfig';
 import { candidateCounts, withdrawalNumbers, voterWeight } from '@/lib/voteCounts';
+import { teamCardRevealed } from '@/lib/countGate';
 const SOCKET_URL_FOR_CARDS = process.env.NEXT_PUBLIC_SOCKET_URL || '';
 
 // 🔊 لا نداءَ صوتٍ محلّيٍّ في هذه الشاشة — الموجّه هو المصدر (setLocalPlayback(false)).
@@ -1438,6 +1439,7 @@ function RevealCeremony({ players, revealedRoles, revealType, notes }: {
           soundPlayedRef.current.add(`reveal-${i}`);
         }
         setRevealStages(prev => ({ ...prev, [roleInfo.physicalId]: 'revealed' }));
+        teamCardRevealed(roleInfo.physicalId);   // 👁️ العدّادُ مع ظهور الدور
       }, baseDelay + 3200));
 
       // المرحلة 4: تحول للرمادي + أيقونة الفريق
@@ -1660,7 +1662,7 @@ function AshCeremony({ players, ashData }: {
   useEffect(() => {
     const timers: NodeJS.Timeout[] = [];
     timers.push(setTimeout(() => { playDrumroll(); setStage('revealing'); }, 2600));
-    timers.push(setTimeout(() => { playEliminationSound(ashData.revealedRole); }, 4200));
+    timers.push(setTimeout(() => { playEliminationSound(ashData.revealedRole); teamCardRevealed(ashData.targetPhysicalId); }, 4200));
     timers.push(setTimeout(() => { playImpactBoom(); setStage('done'); }, 5400));
     return () => timers.forEach(clearTimeout);
   }, [ashData]);
@@ -1772,6 +1774,7 @@ function BombCeremony({ players, bombData }: {
       timers.push(setTimeout(() => {
         playEliminationSound(roleInfo.role);
         setRevealStages(prev => ({ ...prev, [roleInfo.physicalId]: 'revealed' }));
+        teamCardRevealed(roleInfo.physicalId);   // 👁️ العدّادُ مع ظهور الدور
       }, baseDelay + 3200));
 
       timers.push(setTimeout(() => {
