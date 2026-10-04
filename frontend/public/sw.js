@@ -164,6 +164,8 @@ function resolveNotificationUrl(type, data) {
     case 'game_ended':
       return '/player/home';
     case 'rank_bonus':
+    case 'rank_up':
+    case 'rank_down':
       return '/player/rank';
     case 'loyalty_stamp': case 'loyalty_reward': case 'loyalty_missed': case 'loyalty_reset': case 'loyalty_expiring':
       return data.url || '/player/loyalty';

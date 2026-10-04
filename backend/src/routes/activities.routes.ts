@@ -694,6 +694,42 @@ function parseBonusParams(src: any): { kind: 'RR' | 'XP'; amount: number; cutoff
   return { kind: kind as 'RR' | 'XP', amount, cutoffAt, basis };
 }
 
+// ── 📉 خصم الغياب: حالة الفعاليّة + إعفاؤها (مناسبةٌ خاصّة لا تُعدّ غياباً) ──
+router.get('/:id/absence', authenticate, authorize('admin', 'manager'), async (req: Request, res: Response) => {
+  const activityId = parseInt(req.params.id);
+  if (!Number.isFinite(activityId)) return res.status(400).json({ error: 'معرّف غير صالح' });
+  const db = getDB(); if (!db) return res.status(503).json({ error: 'DB unavailable' });
+  try {
+    const rowsOf = (r: any): any[] => r?.rows ?? (Array.isArray(r) ? r : []);
+    const a = rowsOf(await db.execute(sql`SELECT COALESCE(absence_exempt, false) AS exempt, absence_judged_at FROM activities WHERE id = ${activityId}`))[0];
+    if (!a) return res.status(404).json({ error: 'الفعاليّة غير موجودة' });
+    const d = rowsOf(await db.execute(sql`
+      SELECT rb.player_id, p.name, -rb.rr AS taken FROM rank_bonuses rb LEFT JOIN players p ON p.id = rb.player_id
+       WHERE rb.activity_id = ${activityId} AND rb.reason LIKE 'absence:%' ORDER BY -rb.rr DESC, p.name`));
+    res.json({
+      exempt: !!a.exempt, judgedAt: a.absence_judged_at,
+      players: d.map((x: any) => ({ playerId: Number(x.player_id), name: x.name || `#${x.player_id}`, taken: Number(x.taken) || 0 })),
+    });
+  } catch (err: any) { res.status(500).json({ error: err.message }); }
+});
+
+router.patch('/:id/absence-exempt', authenticate, authorize('admin', 'manager'), async (req: Request, res: Response) => {
+  const activityId = parseInt(req.params.id);
+  if (!Number.isFinite(activityId)) return res.status(400).json({ error: 'معرّف غير صالح' });
+  const db = getDB(); if (!db) return res.status(503).json({ error: 'DB unavailable' });
+  try {
+    const rowsOf = (r: any): any[] => r?.rows ?? (Array.isArray(r) ? r : []);
+    // بعد الخصم لا يُغيَّر: الخصمُ كُتب وأُشعر به اللاعبون — التراجعُ قرارٌ آخر
+    const a = rowsOf(await db.execute(sql`SELECT
+      EXISTS (SELECT 1 FROM rank_bonuses WHERE activity_id = ${activityId} AND reason LIKE 'absence:%' AND rr < 0) AS deducted
+      FROM activities WHERE id = ${activityId}`))[0];
+    if (!a) return res.status(404).json({ error: 'الفعاليّة غير موجودة' });
+    if (a.deducted) return res.status(409).json({ error: 'خُصم الغياب عن هذه الفعاليّة فعلاً — لا يمكن إعفاؤها الآن' });
+    await db.execute(sql`UPDATE activities SET absence_exempt = ${req.body?.exempt === true} WHERE id = ${activityId}`);
+    res.json({ success: true, exempt: req.body?.exempt === true });
+  } catch (err: any) { res.status(500).json({ error: err.message }); }
+});
+
 // ── GET /api/activities/:id/booking-bonus/preview ──
 router.get('/:id/booking-bonus/preview', authenticate, authorize('admin', 'manager'), async (req: Request, res: Response) => {
   const activityId = parseInt(req.params.id);

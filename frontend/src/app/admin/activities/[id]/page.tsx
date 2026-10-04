@@ -7,6 +7,7 @@ import dynamic from 'next/dynamic';
 import DriveFolderBrowser from '../../components/DriveFolderBrowser';
 import EditActivityForm from '../../components/EditActivityForm';
 import BookingBonusSection from '../../components/BookingBonusSection';
+import AbsenceSection from '../../components/AbsenceSection';
 import OfferGroupsSection from '../../components/OfferGroupsSection';
 import NoShowSection from '../../components/NoShowSection';
 import CancelNoticeSection from '../../components/CancelNoticeSection';
@@ -1770,6 +1771,8 @@ export default function ActivityDetailPage() {
         activityId={activity.id}
         onChanged={() => { apiFetch(`/api/bookings?activityId=${activity.id}`).then(setBookings).catch(() => {}); }}
       />
+
+      <AbsenceSection activityId={activity.id} />
 
       <BookingBonusSection
         activityId={activity.id}

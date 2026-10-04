@@ -172,6 +172,48 @@ export async function reconcileSeasonProgression(
 
   // 4) إعادة اللعب في الذاكرة لكل (لاعب، مدينة) بالترتيب الزمني
   const accs = new Map<string, PlayerAcc>();
+
+  // 🎁 سطورُ الدفتر (rank_bonuses) تُطبَّق **في زمنها** بين المباريات (2026-10-04) — كانت كلّها بعد
+  //    آخر مباراة، فخصمٌ أُخذ من لاعبٍ منخفض يعود فيأكل مكاسبه اللاحقة إن لامس القاعَ بعده (دَينٌ خفيّ).
+  //    موضعُ السطر = apply_after_match_id: أكبرُ معرّف مباراةٍ لحظةَ كتابته (يملؤه مُشغِّلٌ في القاعدة)،
+  //    فسطرٌ يُكتب الآن يقع بعد كلّ ما جرى ويسبق كلَّ ما سيجري — وهذا معنى «لا دَين».
+  //    السطورُ القديمة ثُبّتت مرّةً واحدة على لحظة الترحيل فلم يتغيّر ترتيبُ أحد؛ وسطرٌ بلا موضع
+  //    (قاعدةٌ لم تُرحَّل بعد) يبقى بعد كلّ المباريات كما كان.
+  type LedgerRow = { id: number; anchor: number; xp: number; rr: number };
+  const ledger = new Map<string, LedgerRow[]>();
+  let bonusApplied = 0, bonusNoCity = 0;
+  try {
+    const bres: any = await db.execute(sql`
+      SELECT rb.id, rb.player_id, rb.rr, COALESCE(rb.xp, 0) AS xp, rb.city_id,
+             COALESCE(rb.apply_after_match_id, 2147483647) AS anchor
+        FROM rank_bonuses rb WHERE rb.season_id = ${targetSeasonId} ORDER BY rb.id ASC`);
+    const blist: any[] = bres?.rows ?? (Array.isArray(bres) ? bres : []);
+    for (const b of blist) {
+      const pid = Number(b.player_id);
+      if (!pid || (onlyPlayerIds && !onlyPlayerIds.has(pid))) continue;
+      const cityId = targetIsRegular ? (b.city_id != null ? Number(b.city_id) : null) : null;
+      if (targetIsRegular && cityId == null) { bonusNoCity++; continue; } // مكافأةٌ بلا مدينة لا تُنسب لترتيبٍ عشوائيّ
+      const k = accKey(pid, cityId);
+      if (!ledger.has(k)) ledger.set(k, []);
+      ledger.get(k)!.push({ id: Number(b.id), anchor: Number(b.anchor) || 0, xp: Number(b.xp) || 0, rr: Number(b.rr) || 0 });
+    }
+    for (const list of ledger.values()) list.sort((a, b) => (a.anchor - b.anchor) || (a.id - b.id));
+  } catch (e: any) {
+    // 🔴 لا نكمل بلا الدفتر: مصالحةٌ تُكتب بلا سطوره تمحو كلَّ مكافأةٍ وخصمٍ من الرتب بصمت
+    log(`❌ rank_bonuses unreadable — aborting reconcile: ${e?.message || e}`);
+    throw e;
+  }
+  /** يطبّق سطورَ دفتر (لاعب، مدينة) التي سبقت المباراة `beforeMatchId` (أو كلَّ الباقي) */
+  const flushLedger = (k: string, acc: PlayerAcc, beforeMatchId: number) => {
+    const list = ledger.get(k); if (!list) return;
+    while (list.length && list[0].anchor < beforeMatchId) {
+      const b = list.shift()!;
+      applyXPInMemory(acc, b.xp);
+      applyRRInMemory(acc, b.rr);
+      bonusApplied++;
+    }
+  };
+
   let noPlayerId = 0;
   let dupSkipped = 0;
   const seen = new Set<string>(); // (matchId:playerId) — إزالة الصفوف المكرّرة من finalize مزدوج تاريخي
@@ -184,6 +226,7 @@ export async function reconcileSeasonProgression(
     const k = accKey(r.playerId, cityId);
     let acc = accs.get(k);
     if (!acc) { acc = newAcc(r.playerId, cityId, r.playerName); accs.set(k, acc); }
+    flushLedger(k, acc, r.matchId);   // ما كُتب في الدفتر قبل هذه المباراة يسبقها
 
     // القيم المخزّنة xpEarned/rrChange دقيقة 100% لكل الأدوار (تطابق الاحتساب الحيّ).
     const isNeutral = r.role === 'JESTER' || r.role === 'ASSASSIN';
@@ -219,26 +262,15 @@ export async function reconcileSeasonProgression(
     acc.successfulDeals += r.dealSuccess ? 1 : 0;
   }
 
-  // 4.5) 🎁 مكافآت التقدّم اليدويّة (rank_bonuses) — ضمن الموسم المستهدف **وبمدينتها**، فلا تمحوها إعادة الاحتساب.
-  try {
-    const bres: any = await db.execute(sql`SELECT player_id, rr, COALESCE(xp, 0) AS xp, city_id FROM rank_bonuses WHERE season_id = ${targetSeasonId} ORDER BY id ASC`);
-    const blist: any[] = bres?.rows ?? (Array.isArray(bres) ? bres : []);
-    let bonusApplied = 0, bonusNoCity = 0;
-    for (const b of blist) {
-      const pid = Number(b.player_id);
-      if (!pid || (onlyPlayerIds && !onlyPlayerIds.has(pid))) continue;
-      const cityId = targetIsRegular ? (b.city_id != null ? Number(b.city_id) : null) : null;
-      if (targetIsRegular && cityId == null) { bonusNoCity++; continue; } // مكافأةٌ بلا مدينة لا تُنسب لترتيبٍ عشوائيّ
-      const k = accKey(pid, cityId);
-      let acc = accs.get(k);
-      if (!acc) { acc = newAcc(pid, cityId, `#${pid}`); accs.set(k, acc); }
-      applyXPInMemory(acc, Number(b.xp) || 0);
-      applyRRInMemory(acc, Number(b.rr) || 0);
-      bonusApplied++;
-    }
-    if (bonusApplied) log(`🎁 Applied ${bonusApplied} manual progression bonuses (rank_bonuses: RR+XP)`);
-    if (bonusNoCity) log(`⚠️ ${bonusNoCity} rank_bonuses rows have no city_id — NOT applied (regular season needs a city)`);
-  } catch { /* الجدول غير موجود بعد — لا مكافآت */ }
+  // 4.5) 🎁 ما بقي في الدفتر بعد آخر مباراة (ومَن لا مباراة له في مدينته) — ضمن الموسم المستهدف **وبمدينتها**
+  for (const [k, list] of ledger) {
+    if (!list.length) continue;
+    let acc = accs.get(k);
+    if (!acc) { const [pid, c] = k.split(':').map(Number); acc = newAcc(pid, c || null, `#${pid}`); accs.set(k, acc); }
+    flushLedger(k, acc, Number.MAX_SAFE_INTEGER);
+  }
+  if (bonusApplied) log(`🎁 Applied ${bonusApplied} ledger rows in time order (rank_bonuses: RR+XP)`);
+  if (bonusNoCity) log(`⚠️ ${bonusNoCity} rank_bonuses rows have no city_id — NOT applied (regular season needs a city)`);
 
   const playerIdsComputed = new Set([...accs.values()].map(a => a.playerId));
   const perCity: Record<string, { players: number; rows: number }> = {};

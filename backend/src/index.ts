@@ -739,6 +739,30 @@ async function main() {
         RAISE WARNING 'rank_bonuses unique index skipped: %', SQLERRM;
       END $$`);
       await db.execute(sql`CREATE INDEX IF NOT EXISTS rank_bonuses_activity_idx ON rank_bonuses (activity_id)`);
+      // 📉 موضعُ سطر الدفتر بين المباريات (خصم الغياب 2026-10-04): المصالحة تطبّق كلَّ سطرٍ في زمنه
+      //    لا بعد كلّ المباريات — وإلّا عاد خصمٌ أُخذ من لاعبٍ منخفضٍ يأكل مكاسبه اللاحقة (دَين).
+      //    مُشغِّلٌ يملؤه لكلّ سطرٍ جديد من أيّ مسار؛ والقديمةُ تُثبَّت مرّةً على لحظة الترحيل
+      //    (= بعد كلّ ما جرى) فلا يتغيّر ترتيبُ أحدٍ اليوم.
+      try {
+        await db.execute(sql`ALTER TABLE rank_bonuses ADD COLUMN IF NOT EXISTS apply_after_match_id INTEGER`);
+        await db.execute(sql`CREATE TABLE IF NOT EXISTS one_time_migrations (key VARCHAR(100) PRIMARY KEY, ran_at TIMESTAMP DEFAULT NOW() NOT NULL)`);
+        await db.execute(sql`WITH claim AS (
+            INSERT INTO one_time_migrations (key) VALUES ('rank-ledger-anchor-2026-10-04') ON CONFLICT DO NOTHING RETURNING key)
+          UPDATE rank_bonuses SET apply_after_match_id = COALESCE((SELECT max(id) FROM matches), 0)
+           WHERE apply_after_match_id IS NULL AND EXISTS (SELECT 1 FROM claim)`);
+        await db.execute(sql`CREATE OR REPLACE FUNCTION rank_bonuses_anchor() RETURNS trigger AS $fn$
+          BEGIN
+            IF NEW.apply_after_match_id IS NULL THEN
+              NEW.apply_after_match_id := COALESCE((SELECT max(id) FROM matches), 0);
+            END IF;
+            RETURN NEW;
+          END $fn$ LANGUAGE plpgsql`);
+        await db.execute(sql`DO $$ BEGIN
+          IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgname = 'rank_bonuses_anchor_trg') THEN
+            CREATE TRIGGER rank_bonuses_anchor_trg BEFORE INSERT ON rank_bonuses FOR EACH ROW EXECUTE FUNCTION rank_bonuses_anchor();
+          END IF;
+        END $$`);
+      } catch (e: any) { console.warn('⚠️ rank ledger anchor migration:', e?.message || e); }
       // ── 🤖 بوت الواتساب: توكنز الكاش + أعلام تشغيل دائمة (قفل الإرسال يصمد عبر إعادة التشغيل) ──
       await db.execute(sql`ALTER TABLE wa_bot_usage ADD COLUMN IF NOT EXISTS cached_tokens INTEGER DEFAULT 0`).catch(() => {});
       await db.execute(sql`ALTER TABLE wa_bot_usage ADD COLUMN IF NOT EXISTS reply_ms INTEGER`).catch(() => {});
@@ -939,6 +963,18 @@ async function main() {
       await db.execute(sql`ALTER TABLE bookings ADD COLUMN IF NOT EXISTS unit_price NUMERIC(10,2)`);
       await db.execute(sql`ALTER TABLE bookings ADD COLUMN IF NOT EXISTS price_promo_id INTEGER`);
       await db.execute(sql`ALTER TABLE activities ADD COLUMN IF NOT EXISTS no_show_judged_at TIMESTAMP`);
+      // 📉 خصم الغياب: إعفاءُ فعاليّة (مناسبةٌ خاصّة) + وسمُ الحكم مرّةً واحدة
+      await db.execute(sql`ALTER TABLE activities ADD COLUMN IF NOT EXISTS absence_exempt BOOLEAN NOT NULL DEFAULT false`);
+      await db.execute(sql`ALTER TABLE activities ADD COLUMN IF NOT EXISTS absence_judged_at TIMESTAMP`);
+      // ما انتهى قبل هذه الميزة يحكمه الخصمُ الرجعيّ (scripts/apply-absence-retro.ts) لا المجدول —
+      // وإلّا حكم المجدولُ آخرَ أربعة أيّام منفردةً قبله وتضاعفت الإشعارات. ما زال يلعب يبقى للحكم عند نهايته.
+      await db.execute(sql`CREATE TABLE IF NOT EXISTS one_time_migrations (key VARCHAR(100) PRIMARY KEY, ran_at TIMESTAMP DEFAULT NOW() NOT NULL)`);
+      await db.execute(sql`WITH claim AS (
+          INSERT INTO one_time_migrations (key) VALUES ('absence-judged-backfill-2026-10-04') ON CONFLICT DO NOTHING RETURNING key)
+        UPDATE activities a SET absence_judged_at = NOW()
+         WHERE a.absence_judged_at IS NULL AND a.date < NOW() AND EXISTS (SELECT 1 FROM claim)
+           AND (a.status IN ('completed', 'cancelled') OR a.date < NOW() - INTERVAL '8 hours')
+           AND NOT EXISTS (SELECT 1 FROM sessions s WHERE s.activity_id = a.id AND s.deleted_at IS NULL AND s.is_active = TRUE)`);
       // 📣 القروب العامّ أُلغي (2026-09-30): الافتراضيّة في wa_groups تصير قناة الواتساب — آمنٌ للتكرار
       await db.execute(sql`UPDATE wa_groups SET url = 'https://whatsapp.com/channel/0029VbDvCna8F2p6cjMpJW3d', name = 'قناة مافيا كلوب', updated_at = NOW()
         WHERE is_default = true AND url LIKE '%Bz1ipm8YxR31u5OEUOxeJZ%'`).catch(async () => {
@@ -2381,6 +2417,7 @@ async function main() {
   try { const { startRewardScheduler } = await import('./services/wa-reward.service.js'); startRewardScheduler(); } catch (e: any) { console.warn('⚠️ WA reward scheduler init:', e.message); }
   try { const { startBookingOfferJobs } = await import('./services/booking-offers.service.js'); startBookingOfferJobs(); } catch (e: any) { console.warn('⚠️ booking offers jobs init:', e.message); }
   try { const { startEarlyPriceJobs } = await import('./services/early-price.service.js'); startEarlyPriceJobs(); } catch (e: any) { console.warn('⚠️ early price jobs init:', e.message); }
+  try { const { startAbsenceJobs } = await import('./services/absence-penalty.service.js'); startAbsenceJobs(); } catch (e: any) { console.warn('⚠️ absence jobs init:', e.message); }
   // ── ⏱️ متابعةُ من راسلنا ولم يحجز — ماسحٌ يقرأ القاعدة، فلا تُضيّع إعادةُ التشغيل متابعةً ولا تُكرّرها ──
   try { const { startFollowupScheduler } = await import('./services/wa-followup.service.js'); startFollowupScheduler(); } catch (e: any) { console.warn('⚠️ WA follow-up scheduler init:', e.message); }
   // ── 🎟️ مجدول بطاقة الولاء — انتهاء المكافآت، الاختيار التلقائيّ، التذكيرات ──

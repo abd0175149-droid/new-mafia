@@ -389,6 +389,9 @@ export async function endActivityRoom(
     }
   } catch (e: any) { console.warn('⚠️ endActivityRoom rank reconcile failed:', e?.message || e); }
 
+  // 8) 📉 خصم الغياب — بعد المصالحة (يُحسب من ترتيبٍ محدَّث)، ولا يعمل إلّا حين تُغلق آخر غرفة للفعاليّة
+  if (activityId) { try { const { judgeAbsences } = await import('./absence-penalty.service.js'); void judgeAbsences(activityId); } catch { /* غير حاجب */ } }
+
   console.log(`🔒 endActivityRoom: session #${sessionId} (room ${roomId || 'n/a'}) ended — closed=${closed}, feedback=${feedbackCount}`);
   return { closed, roomId, feedbackCount };
 }
