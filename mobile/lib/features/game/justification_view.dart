@@ -12,7 +12,7 @@ import 'game_session_controller.dart';
 // ⚖️ التبرير وسحب الصوت — §4.3 في الملفّ ٢٥
 // ══════════════════════════════════════════════════════
 // المتّهم يدافع عن نفسه، ومن صوّت عليه يستطيع سحب صوته بعد أن يسمعه.
-// إن سحب أكثر من النصف أُعيد الاقتراع — فالسحب ليس تراجعاً شخصياً بل
+// إن سُحب نصفُ الأصوات أو أكثر (بالوزن — العمدة المكشوف ×N) أُعيد الاقتراع — فالسحب ليس تراجعاً شخصياً بل
 // آليّة نقضٍ جماعية.
 
 const _gold = Color(0xFFC5A059);
@@ -192,12 +192,16 @@ class _WithdrawCard extends StatelessWidget {
             style: ar(15,
                 color: const Color(0xFF93C5FD), weight: FontWeight.bold)),
         const SizedBox(height: 6),
-        Text('هل تريد سحب صوتك؟ إذا سحب أكثر من النصف تُعاد عملية التصويت',
+        // 🎩 النصابُ بالأصوات لا بالرؤوس: صوتُ العمدة المكشوف يُسحب بوزنه
+        Text(
+            c.myWithdrawWeight > 1
+                ? 'هل تريد سحب صوتك؟ إذا سُحب نصفُ الأصوات أو أكثر تُعاد عملية التصويت — صوتك يُسحب ×${c.myWithdrawWeight}'
+                : 'هل تريد سحب صوتك؟ إذا سُحب نصفُ الأصوات أو أكثر تُعاد عملية التصويت',
             textAlign: TextAlign.center,
             style: ar(12, color: const Color(0xFF888888), height: 1.6)),
         const SizedBox(height: 10),
-        Text('${c.withdrawal.count}/${c.withdrawalNeeded} سحبوا أصواتهم',
-            style: mono(13, color: const Color(0xFFBBBBBB))),
+        Text('${c.withdrawal.count}/${c.withdrawalNeeded} من الأصوات المطلوبة سُحبت',
+            style: ar(13, color: const Color(0xFFBBBBBB))),
         const SizedBox(height: 12),
         if (done)
           Container(

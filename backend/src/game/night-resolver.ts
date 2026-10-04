@@ -549,6 +549,9 @@ export async function resetNightActions(roomId: string): Promise<GameState> {
   // تصفير حالة تفعيل الممرضة
   state.nurseActivated = false;
 
+  // 🛡️ درعُ العمدة لنهاره وحده — الليلُ يُنهيه
+  state.mayorShield = null;
+
   state.nightActions.witchTarget = null;
 
   await setGameState(roomId, state);

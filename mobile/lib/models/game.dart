@@ -267,6 +267,7 @@ class VoteCandidate {
     this.id,
     this.name = '',
     this.votes = 0,
+    this.voters,
     this.type,
     this.initiatorPhysicalId,
     this.avatarUrl,
@@ -275,7 +276,12 @@ class VoteCandidate {
   final int targetPhysicalId;
   final String? id;
   final String name;
+
+  /// أصواتٌ **موزونة** — صوتُ العمدة المكشوف بوزنه (×2 افتراضيّاً).
   final int votes;
+
+  /// عددُ **الأشخاص** الذين صوّتوا — من الخادم، و`null` من خادمٍ قديم لا يرسله.
+  final int? voters;
 
   /// `DEAL` = صفقة إعدامٍ بين مبادرٍ وهدف. التمييز الوحيد المستعمل
   /// في العرض هو هذه القيمة نفسها.
@@ -290,6 +296,7 @@ class VoteCandidate {
         id: j['id'] == null ? null : '${j['id']}',
         name: _s(j['name']),
         votes: _i(j['votes']),
+        voters: j['voters'] == null ? null : _i(j['voters']),
         type: j['type'] as String?,
         initiatorPhysicalId: j['initiatorPhysicalId'] == null
             ? null
@@ -864,6 +871,9 @@ class JustificationData {
     this.topVotes = 0,
     this.votersForAccused = const [],
     this.timerFinished = false,
+    this.voterWeights = const {},
+    this.withdrawalTotal,
+    this.withdrawalNeeded,
   });
 
   final List<AccusedPlayer> accused;
@@ -874,13 +884,33 @@ class JustificationData {
   final List<int> votersForAccused;
   final bool timerFinished;
 
+  /// 🎩 {مقعد: وزن} لمن يزيد وزنُ صوته على 1 (العمدة المكشوف).
+  final Map<int, int> voterWeights;
+
+  /// مجموعُ الأصوات **الموزونة** على المتّهمين، والمطلوبُ سحبُه (نصفُها أو أكثر) —
+  /// من الخادم. `null` من خادمٍ قديم.
+  final int? withdrawalTotal, withdrawalNeeded;
+
   bool didIVote(int myPhysicalId) => votersForAccused.contains(myPhysicalId);
+
+  /// وزنُ صوت مقعدٍ (1 ما لم يكن العمدةَ المكشوف).
+  int weightOf(int physicalId) => voterWeights[physicalId] ?? 1;
+
+  /// مجموعُ الأصوات بالأوزان — من الخادم، وإلّا من القائمة نفسها.
+  int get weightedTotal =>
+      withdrawalTotal ?? votersForAccused.fold(0, (s, id) => s + weightOf(id));
+
+  /// المطلوبُ سحبُه — نصفُ **الأصوات** أو أكثر، لا نصفُ المصوّتين.
+  int get weightedNeeded => withdrawalNeeded ?? (weightedTotal + 1) ~/ 2;
 
   JustificationData copyWith({bool? timerFinished}) => JustificationData(
         accused: accused,
         topVotes: topVotes,
         votersForAccused: votersForAccused,
         timerFinished: timerFinished ?? this.timerFinished,
+        voterWeights: voterWeights,
+        withdrawalTotal: withdrawalTotal,
+        withdrawalNeeded: withdrawalNeeded,
       );
 
   static JustificationData? fromJson(Object? v) {
@@ -895,7 +925,22 @@ class JustificationData {
           .whereType<num>()
           .map((e) => e.toInt())
           .toList(growable: false),
+      voterWeights: _weights(v['voterWeights']),
+      withdrawalTotal:
+          v['withdrawalTotal'] == null ? null : _i(v['withdrawalTotal']),
+      withdrawalNeeded:
+          v['withdrawalNeeded'] == null ? null : _i(v['withdrawalNeeded']),
     );
+  }
+
+  static Map<int, int> _weights(Object? v) {
+    if (v is! Map) return const {};
+    final out = <int, int>{};
+    v.forEach((k, w) {
+      final id = int.tryParse('$k');
+      if (id != null && w is num && w.toInt() > 1) out[id] = w.toInt();
+    });
+    return out;
   }
 }
 
@@ -904,11 +949,14 @@ class WithdrawalState {
     this.active = false,
     this.count = 0,
     this.needed = 0,
+    this.total = 0,
     this.withdrawn = const [],
   });
 
   final bool active;
-  final int count, needed;
+
+  /// كلُّها **أصوات** موزونة من الخادم (العمدة المكشوف يُسحب بوزنه) — لا رؤوس.
+  final int count, needed, total;
   final List<int> withdrawn;
 
   bool didIWithdraw(int myPhysicalId) => withdrawn.contains(myPhysicalId);
@@ -919,6 +967,7 @@ class WithdrawalState {
       active: active,
       count: _i(v['count']),
       needed: _i(v['needed']),
+      total: _i(v['total']),
       withdrawn: (v['withdrawn'] as List? ?? const [])
           .whereType<num>()
           .map((e) => e.toInt())

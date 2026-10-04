@@ -274,11 +274,23 @@ export async function resolveNightDynamic(
             cancelledActions.add(actionKey(actionA));
             const targetA = state.players.find(p => p.physicalId === actionA.targetPhysicalId);
             if (targetA) {
+              // 🛡️ مَن أُبطل فعلُه ومَن أبطله — بالشكل الذي يكتبه المحرّك القديم
+              //    (`blockedAbility` + الحامي فاعلاً). بلاهما يتساوى في الملخّص اغتيالٌ
+              //    محبَط وقنصٌ محبَط على المقعد نفسه.
+              const protector = state.players.find(p => p.physicalId === actionB.performerPhysicalId);
+              const attacker = state.players.find(p => p.physicalId === actionA.performerPhysicalId);
               events.push({
                 type: rule.resultEvent as any,
                 targetPhysicalId: targetA.physicalId,
                 targetName: targetA.name,
+                performerPhysicalId: protector?.physicalId,
+                performerName: protector?.name,
                 revealed: false,
+                extra: {
+                  blockedAbility: actionA.abilityId,
+                  attackerPhysicalId: attacker?.physicalId,
+                  attackerName: attacker?.name,
+                },
               });
             }
             break;

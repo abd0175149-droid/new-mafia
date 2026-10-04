@@ -46,6 +46,7 @@ const ROLES_RAW = [
 const INTERACTIONS_RAW = [
   { id: 5, ability_a: 'KILL', ability_b: 'PROTECT', condition: 'SAME_TARGET', resolution: 'B_CANCELS_A', result_event: 'ASSASSINATION_BLOCKED', priority: 1 },
   { id: 6, ability_a: 'ASSASSINATE', ability_b: 'PROTECT', condition: 'SAME_TARGET', resolution: 'B_CANCELS_A', result_event: 'ASSASSIN_BLOCKED', priority: 2 },
+  { id: 7, ability_a: 'SNIPE', ability_b: 'PROTECT', condition: 'SAME_TARGET', resolution: 'B_CANCELS_A', result_event: 'ASSASSINATION_BLOCKED', priority: 3 },
 ];
 const camelize = (o: any): any => {
   const out: any = {};
@@ -168,6 +169,21 @@ async function main() {
     check('ولا SNIPE_MAFIA', !evType(ev, 'SNIPE_MAFIA'));
     check('حدثُ الاحتراق وحده', evAll(ev, 'PHOENIX_BURN').length === 1);
     check('وحدثُ نهوضٍ واحد', evAll(ev, 'PHOENIX_REBIRTH').length === 1);
+  }
+
+  section('5ب) قنصُ عنقاءٍ محميّ — الحمايةُ تُبطل القنص قبل أن يبلغه');
+  {
+    // 🔴 كانت الحمايةُ في المحرّك الديناميكيّ لا تُبطل القنص، فيحترق القنّاص ويُستهلك رصيد
+    //    رغم الحماية — والقديمُ يمنعه. قاعدةُ SNIPE+PROTECT (2026-10-04) وحّدتهما.
+    const s = mkState([P(GF, Role.GODFATHER), P(DOC, Role.DOCTOR), P(SNP, Role.SNIPER), P(PHX, Role.PHOENIX)]);
+    const ev = await resolveNightDynamic(s, bag([
+      { by: SNP, ab: 'SNIPE', t: PHX }, { by: DOC, ab: 'PROTECT', t: PHX },
+    ]) as any);
+    check('العنقاء حيّ', alive(s, PHX) === true);
+    check('القنّاص لم يحترق', alive(s, SNP) === true);
+    check('لا احتراق', !evType(ev, 'PHOENIX_BURN'));
+    check('ولا نهوض', !evType(ev, 'PHOENIX_REBIRTH'));
+    check('ولا رصيدَ استُهلك', s.phoenixState.rebirthsLeft === 1);
   }
 
   section('6) السفّاح — يحترق ولا يُحتسب عقدُه');

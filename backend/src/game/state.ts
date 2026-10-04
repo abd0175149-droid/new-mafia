@@ -91,7 +91,8 @@ export enum CandidateType {
 export interface PlayerCandidate {
   type: CandidateType.PLAYER;
   targetPhysicalId: number;
-  votes: number;
+  votes: number;      // 🗳️ أصوات **موزونة** — صوتُ العمدة المكشوف بوزنه
+  voters?: number;    // 👥 عددُ **الأشخاص** الذين صوّتوا — يُعرض بجانب الأصوات حين يختلفان
 }
 
 export interface Deal {
@@ -146,7 +147,8 @@ export interface DealCandidate {
   id: string;
   initiatorPhysicalId: number;
   targetPhysicalId: number;
-  votes: number;
+  votes: number;      // 🗳️ أصوات موزونة
+  voters?: number;    // 👥 عدد الأشخاص
 }
 
 export enum SpeakerStatus {
@@ -464,6 +466,10 @@ export interface GameState {
   twinState?: TwinState | null;
   // 🎩 حالة العمدة (فيتو الإعدام مرّة واحدة + صوت ×2 بعد الكشف)
   mayorState?: import('./mayor-engine.js').MayorState | null;
+  // 🎩 مَن أنقذه فيتو العمدة بإعادة التصويت — لا يُرشَّح في تصويت ذلك النهار كلِّه
+  //    (إعادة العمدة نفسها، وكسرُ تعادلها، وإعادةُ السحب). `round` يحصره في نهاره؛
+  //    ويُصفَّر عند بدء الليل وعند لعبةٍ جديدة. `physicalId` يُرقَّم بنقل المقاعد تلقائيّاً.
+  mayorShield?: { physicalId: number; round: number } | null;
   // 🎁 سحب «اختيار رابح» — توزيع هدايا الفعالية (منفصل تماماً عن منطق اللعبة/الرانك)
   luckyDraw?: LuckyDrawState | null;
   // 🎁 سجلّ الرابحين خلال حياة الغرفة (physicalIds) — لاستبعادهم اختيارياً من السحوبات التالية.

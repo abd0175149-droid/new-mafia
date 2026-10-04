@@ -13,6 +13,49 @@ import { armAshCurse } from './phoenix-engine.js';
 import { checkNeutralVoteWin, type NeutralResult } from './dynamic-win-checker.js';
 import { processTwinBond, applySuicide, applyTransform } from './twin-engine.js';
 
+// ── 🎩 درعُ العمدة ──────────────────────────────
+
+/** مقعدُ مَن أنقذه فيتو العمدة إن كان الدرعُ نافذاً في هذا النهار، وإلّا null. */
+export function activeMayorShield(state: GameState): number | null {
+  const s = state.mayorShield;
+  return s && s.round === (state.round || 0) ? s.physicalId : null;
+}
+
+/**
+ * مرشّحو التصويت — مصدرٌ واحدٌ لكلّ بناءٍ كامل (بداية التصويت، إلغاء الحصر، إعادة السحب،
+ * إعادة العمدة): كرتُ صفقةٍ لكلّ صفقة، وكرتٌ لكلّ حيٍّ ليس هدفَ صفقة.
+ *
+ * 🔴 مَن أنقذه العمدة لا يُرشَّح في بقيّة تصويت ذلك النهار، لا بكرته ولا بصفقةٍ عليه.
+ *    كانت كلُّ دالّةٍ تبني قائمتها بنفسها، فلو حُرس مسارٌ واحد لعاد المُنقَذ مرشّحاً
+ *    من «إلغاء الحصر» أو من إعادةٍ بعد السحب.
+ */
+export function buildVotingCandidates(state: GameState): { candidates: Candidate[]; hidden: number[] } {
+  const shielded = activeMayorShield(state);
+  const deals = (state.votingState.deals || []).filter(d => d.targetPhysicalId !== shielded);
+  const dealTargets = deals.map(d => d.targetPhysicalId);
+
+  const dealCandidates: Candidate[] = deals.map(d => ({
+    type: CandidateType.DEAL as const,
+    id: d.id,
+    initiatorPhysicalId: d.initiatorPhysicalId,
+    targetPhysicalId: d.targetPhysicalId,
+    votes: 0,
+    voters: 0,
+  }));
+
+  // المسكت يظهر كمرشح (يمكن التصويت ضده) ويمكنه التصويت — فقط لا يتكلم في النقاش والتبرير
+  const playerCandidates: Candidate[] = getAlivePlayers(state)
+    .filter(p => !p.penaltyKicked && !dealTargets.includes(p.physicalId) && p.physicalId !== shielded)
+    .map(p => ({
+      type: CandidateType.PLAYER as const,
+      targetPhysicalId: p.physicalId,
+      votes: 0,
+      voters: 0,
+    }));
+
+  return { candidates: [...dealCandidates, ...playerCandidates], hidden: dealTargets };
+}
+
 // ── تهيئة ساحة التصويت ──────────────────────────
 
 /**
@@ -23,31 +66,7 @@ export async function initVoting(roomId: string): Promise<GameState> {
   const state = await getGameState(roomId);
   if (!state) throw new Error(`Room ${roomId} not found`);
 
-  const alive = getAlivePlayers(state);
-
-  // استخراج أهداف الاتفاقيات لإخفاء كروتهم العادية
-  const dealTargets = state.votingState.deals.map(d => d.targetPhysicalId);
-
-  // تحويل الاتفاقيات المُجهزة إلى مرشحين للتصويت
-  const dealCandidates: Candidate[] = state.votingState.deals.map(d => ({
-    type: CandidateType.DEAL as const,
-    id: d.id,
-    initiatorPhysicalId: d.initiatorPhysicalId,
-    targetPhysicalId: d.targetPhysicalId,
-    votes: 0,
-  }));
-
-  // إنشاء كارت عادي لكل لاعب حي غير مستهدف باتفاقية
-  // المسكت يظهر كمرشح (يمكن التصويت ضده) ويمكنه التصويت — فقط لا يتكلم في النقاش والتبرير
-  const playerCandidates: Candidate[] = alive
-    .filter(p => !dealTargets.includes(p.physicalId))
-    .map(p => ({
-      type: CandidateType.PLAYER as const,
-      targetPhysicalId: p.physicalId,
-      votes: 0,
-    }));
-
-  const allCandidates = [...dealCandidates, ...playerCandidates];
+  const { candidates: allCandidates, hidden } = buildVotingCandidates(state);
 
   const oldDuration = state.votingState?.durationSeconds;
 
@@ -55,7 +74,7 @@ export async function initVoting(roomId: string): Promise<GameState> {
     totalVotesCast: 0,
     deals: state.votingState.deals, // نحتفظ بها لغايات المرجعية
     candidates: allCandidates,
-    hiddenPlayersFromVoting: dealTargets,
+    hiddenPlayersFromVoting: hidden,
     tieBreakerLevel: 0,
     playerVotes: {},
     leaderProxyVotes: {},
@@ -109,6 +128,7 @@ export async function castVote(
   }
 
   candidate.votes += delta * weight;
+  candidate.voters = Math.max(0, (candidate.voters || 0) + delta);
   state.votingState.totalVotesCast += delta;
 
   await setGameState(roomId, state);
@@ -128,28 +148,10 @@ export async function unNarrowVoting(roomId: string): Promise<GameState> {
     throw new Error('Voting is not in tiebreaker mode');
   }
 
-  const alive = getAlivePlayers(state);
-  const dealTargets = state.votingState.deals?.map((d: any) => d.targetPhysicalId) || [];
-
-  // إعادة بناء المرشحين من الاتفاقيات
-  const dealCandidates: Candidate[] = (state.votingState.deals || []).map((d: any) => ({
-    type: CandidateType.DEAL as const,
-    id: d.id,
-    initiatorPhysicalId: d.initiatorPhysicalId,
-    targetPhysicalId: d.targetPhysicalId,
-    votes: 0,
-  }));
-
-  // إعادة بناء مرشحين عاديين (أحياء، غير مستهدفين باتفاقية)
-  const playerCandidates: Candidate[] = alive
-    .filter(p => !dealTargets.includes(p.physicalId))
-    .map(p => ({
-      type: CandidateType.PLAYER as const,
-      targetPhysicalId: p.physicalId,
-      votes: 0,
-    }));
-
-  state.votingState.candidates = [...dealCandidates, ...playerCandidates];
+  // إعادة البناء من المصدر الواحد — فلا يعود مَن أنقذه العمدة مرشّحاً
+  const { candidates, hidden } = buildVotingCandidates(state);
+  state.votingState.candidates = candidates;
+  state.votingState.hiddenPlayersFromVoting = hidden;
   state.votingState.totalVotesCast = 0;
   state.votingState.tieBreakerLevel = 0;
   state.votingState.playerVotes = {};
@@ -490,7 +492,7 @@ export async function handleTieBreaker(
     case TieBreakerAction.REVOTE:
       // تصفير العدادات وإعادة الجولة لنفس الكروت
       state.votingState.totalVotesCast = 0;
-      state.votingState.candidates.forEach(c => { c.votes = 0; });
+      state.votingState.candidates.forEach(c => { c.votes = 0; c.voters = 0; });
       state.votingState.tieBreakerLevel = 1;
       state.votingState.playerVotes = {};
       state.votingState.leaderProxyVotes = {};
@@ -503,7 +505,11 @@ export async function handleTieBreaker(
     case TieBreakerAction.NARROW:
       // إخفاء الكل وإبقاء المتعادلين فقط
       if (tiedCandidates) {
-        state.votingState.candidates = tiedCandidates.map(c => ({ ...c, votes: 0 }));
+        // 🔴 حقولُ المرشّح وحدها: العميل يرسل كائنات `justificationData.accused` وفيها
+        //    `role` و`name` — وكانت تُحفظ كما هي وتُبثّ في day:voting-started لكلّ هاتف.
+        state.votingState.candidates = tiedCandidates.map((c: any) => (c.type === CandidateType.DEAL
+          ? { type: CandidateType.DEAL, id: c.id, initiatorPhysicalId: c.initiatorPhysicalId, targetPhysicalId: c.targetPhysicalId, votes: 0, voters: 0 }
+          : { type: CandidateType.PLAYER, targetPhysicalId: c.targetPhysicalId, votes: 0, voters: 0 }) as Candidate);
         state.votingState.totalVotesCast = 0;
         state.votingState.tieBreakerLevel = 2;
         state.votingState.playerVotes = {};

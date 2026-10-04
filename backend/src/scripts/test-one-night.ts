@@ -42,6 +42,7 @@ const ROLES_RAW = [
 const INTERACTIONS_RAW = [
   { id: 5, ability_a: 'KILL', ability_b: 'PROTECT', condition: 'SAME_TARGET', resolution: 'B_CANCELS_A', result_event: 'ASSASSINATION_BLOCKED', priority: 1 },
   { id: 6, ability_a: 'ASSASSINATE', ability_b: 'PROTECT', condition: 'SAME_TARGET', resolution: 'B_CANCELS_A', result_event: 'ASSASSIN_BLOCKED', priority: 2 },
+  { id: 7, ability_a: 'SNIPE', ability_b: 'PROTECT', condition: 'SAME_TARGET', resolution: 'B_CANCELS_A', result_event: 'ASSASSINATION_BLOCKED', priority: 3 },
 ];
 const camelize = (o: any): any => {
   const out: any = {};
@@ -271,6 +272,64 @@ async function main() {
     check('بلا ليلةٍ جارية لا استعادة', (await oneNightResumeFor(s2, 1)) === null);
   }
 
+
+  section('12) الحمايةُ تُبطل القنص (قرار المالك 2026-10-04)');
+  {
+    // مواطنٌ محميٌّ يُقنص — لا يموت هو ولا القنّاص، كما في الليل الآليّ
+    const s = mkState([P(1, Role.GODFATHER), P(7, Role.DOCTOR), P(8, Role.SNIPER), P(12, Role.CITIZEN), P(13, Role.CITIZEN)]);
+    const ev = await resolveNightDynamic(s, bag([
+      { by: 8, ab: 'SNIPE', t: 12 }, { by: 7, ab: 'PROTECT', t: 12 },
+    ]) as any);
+    check('الهدفُ المحميّ حيّ', alive(s, 12) === true);
+    check('والقنّاصُ حيّ — لا ارتداد', alive(s, 8) === true);
+    check('لا SNIPE_CITIZEN', !evType(ev, 'SNIPE_CITIZEN'));
+    const blk = evType(ev, 'ASSASSINATION_BLOCKED');
+    check('حدثُ إبطالٍ على الهدف', blk?.targetPhysicalId === 12);
+    check('يحمل القدرةَ المُبطَلة', blk?.extra?.blockedAbility === 'SNIPE');
+    check('والحامي فاعلاً', blk?.performerPhysicalId === 7);
+  }
+  {
+    // مافيويٌّ محميٌّ يُقنص — الحمايةُ تُنقذه أيضاً
+    const s = mkState([P(1, Role.GODFATHER), P(7, Role.DOCTOR), P(8, Role.SNIPER), P(12, Role.CITIZEN)]);
+    await resolveNightDynamic(s, bag([{ by: 8, ab: 'SNIPE', t: 1 }, { by: 7, ab: 'PROTECT', t: 1 }]) as any);
+    check('الشيخُ المحميّ نجا من القنص', alive(s, 1) === true);
+  }
+  {
+    // الطبيبُ يحمي نفسَه من القنص
+    const s = mkState([P(1, Role.GODFATHER), P(7, Role.DOCTOR), P(8, Role.SNIPER), P(12, Role.CITIZEN)]);
+    await resolveNightDynamic(s, bag([{ by: 8, ab: 'SNIPE', t: 7 }, { by: 7, ab: 'PROTECT', t: 7 }]) as any);
+    check('الطبيبُ الحامي نفسَه نجا', alive(s, 7) === true && alive(s, 8) === true);
+  }
+  {
+    // حمايةٌ على غير الهدف لا تُبطل شيئاً
+    const s = mkState([P(1, Role.GODFATHER), P(7, Role.DOCTOR), P(8, Role.SNIPER), P(12, Role.CITIZEN), P(13, Role.CITIZEN)]);
+    await resolveNightDynamic(s, bag([{ by: 8, ab: 'SNIPE', t: 12 }, { by: 7, ab: 'PROTECT', t: 13 }]) as any);
+    check('حمايةُ مقعدٍ آخر لا تُنقذ', alive(s, 12) === false && alive(s, 8) === false);
+  }
+  {
+    // الطبيبُ المعطَّل بالساحرة لا يحمي من القنص
+    const s = mkState([P(1, Role.GODFATHER), P(4, Role.WITCH), P(7, Role.DOCTOR), P(8, Role.SNIPER), P(12, Role.CITIZEN), P(13, Role.CITIZEN)]);
+    await resolveNightDynamic(s, bag([
+      { by: 4, ab: 'DISABLE_ABILITY', t: 7 }, { by: 8, ab: 'SNIPE', t: 1 }, { by: 7, ab: 'PROTECT', t: 1 },
+    ]) as any);
+    check('حمايةٌ معطَّلة لا تُبطل القنص', alive(s, 1) === false);
+  }
+  {
+    // الممرّضةُ المفعّلة تُبطل القنص كالطبيب
+    const s = mkState([P(1, Role.GODFATHER), P(7, Role.DOCTOR, false), P(9, Role.NURSE), P(8, Role.SNIPER), P(12, Role.CITIZEN)], { nurseActivated: true });
+    await resolveNightDynamic(s, bag([{ by: 8, ab: 'SNIPE', t: 12 }, { by: 9, ab: 'PROTECT', t: 12 }]) as any);
+    check('الممرّضةُ تُنقذ من القنص', alive(s, 12) === true && alive(s, 8) === true);
+  }
+  {
+    // اغتيالٌ وقنصٌ على محميٍّ واحد — يُبطَلان معاً، وحدثان بقدرتين
+    const s = mkState([P(1, Role.GODFATHER), P(7, Role.DOCTOR), P(8, Role.SNIPER), P(12, Role.CITIZEN), P(13, Role.CITIZEN)]);
+    const ev = await resolveNightDynamic(s, bag([
+      { by: 1, ab: 'KILL', t: 12 }, { by: 8, ab: 'SNIPE', t: 12 }, { by: 7, ab: 'PROTECT', t: 12 },
+    ]) as any);
+    check('ينجو من الضربتين', alive(s, 12) === true && alive(s, 8) === true);
+    const kinds = ev.filter((e: any) => e.type === 'ASSASSINATION_BLOCKED').map((e: any) => e.extra?.blockedAbility).sort().join(',');
+    check('حدثا إبطال: KILL وSNIPE', kinds === 'KILL,SNIPE', kinds);
+  }
 
   console.log('\n══════════════════════════════════════');
   console.log(`النتيجة: ${pass} نجح / ${fail} فشل  (المجموع ${pass + fail})`);

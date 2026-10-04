@@ -4,6 +4,7 @@ import { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { ROLE_NAMES, MAFIA_ROLES } from '@/lib/constants';
 import PlayerConfrontation from './PlayerConfrontation';
+import { withdrawalNumbers, voterWeight } from '@/lib/voteCounts';
 
 interface PlayerPhaseViewProps {
   gamePhase: string | null;
@@ -970,10 +971,12 @@ export default function PlayerPhaseView({
     const topVotes = justificationData?.topVotes || 0;
     // هل أنا صوّتت على أحد المتهمين؟ (نستخدم votersForAccused من الباك مباشرة مع حماية من تباين الأنواع)
     const iVotedForAccused = justificationData?.votersForAccused?.some((id: any) => String(id) === String(myId)) || false;
-    // حساب العداد الفعلي — من الباك إن وُجد، وإلا من votersForAccused
-    const totalVoters = justificationData?.votersForAccused?.length || 0;
-    const effectiveNeeded = withdrawalNeeded || Math.ceil(totalVoters / 2);
-    const effectiveCount = withdrawalCount;
+    // 🎩 العدّاد بالأصوات لا بالرؤوس — الخادمُ يحسب المجموعَ والنصفَ بوزن العمدة؛
+    //    كان المطلوبُ يُحسب من عدد المصوّتين قبل أوّل سحب (lib/voteCounts)
+    const wn = withdrawalNumbers({ count: withdrawalCount, needed: withdrawalNeeded || undefined }, justificationData);
+    const effectiveNeeded = wn.needed;
+    const effectiveCount = wn.count;
+    const myWeight = voterWeight(justificationData, Number(myId));
 
     return (
       <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="py-4">
@@ -1030,14 +1033,21 @@ export default function PlayerPhaseView({
                 return (
                   <div className="mt-3 pt-3 border-t border-red-500/15">
                     <p className="text-[10.5px] text-red-300/70 mb-2 font-bold">
-                      صوّت عليه {voters.length} — بالأسماء
+                      {(() => {
+                        const v = voters.reduce((sum: number, id: any) => sum + voterWeight(justificationData, Number(id)), 0);
+                        return v !== voters.length
+                          ? `صوّت عليه ${voters.length} لاعب (${v} صوت) — بالأسماء`
+                          : `صوّت عليه ${voters.length} — بالأسماء`;
+                      })()}
                     </p>
                     <div className="flex flex-wrap gap-1.5 justify-center">
                       {voters.map(vid => {
                         const vp = votingPlayersInfo.find((p: any) => p.physicalId === vid);
                         const gone = withdrawnIds.some((w: any) => String(w) === String(vid));
                         const mine = String(vid) === String(myId);
-                        const proxy = !!proxies[vid];
+                        // 🔴 `!== undefined` لا `!!` — وكالةٌ على المرشّح ذي الفهرس 0 كانت تُخفى
+                        const proxy = proxies[vid] !== undefined;
+                        const w = voterWeight(justificationData, Number(vid));
                         return (
                           <span key={vid}
                             className={`inline-flex items-center gap-1.5 rounded-full border text-[11.5px] font-bold px-2.5 py-1 ${
@@ -1051,6 +1061,7 @@ export default function PlayerPhaseView({
                               gone ? 'bg-white/5 text-[#666]' : mine ? 'bg-[#C5A059] text-black' : 'bg-red-500/70 text-white'
                             }`}>{vid}</b>
                             <span className="max-w-[7.5rem] truncate">{vp?.name || `#${vid}`}</span>
+                            {w > 1 && <span className="text-[9px] text-amber-300">🎩×{w}</span>}
                             {mine && !gone && <span className="text-[9px] opacity-80">أنت</span>}
                             {proxy && !gone && <span className="text-[9px] opacity-70">وكالة</span>}
                             {gone && <span className="text-[9px]">سحب</span>}
@@ -1081,8 +1092,8 @@ export default function PlayerPhaseView({
         {(withdrawalActive || justTimer === 0 || justificationData?.timerFinished) && iVotedForAccused && !isPlayerDead && (
           <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="mx-2 mt-4 bg-gradient-to-br from-blue-500/15 to-blue-900/10 border border-blue-500/30 rounded-2xl p-4 text-center">
             <p className="text-blue-300 text-sm mb-2 font-bold">أنت صوّتت على هذا اللاعب</p>
-            <p className="text-[#888] text-xs mb-3">هل تريد سحب صوتك؟ إذا سحب أكثر من النصف تُعاد عملية التصويت</p>
-            <p className="text-[#9a9a9a] text-xs mb-3 font-mono">{effectiveCount}/{effectiveNeeded} سحبوا أصواتهم</p>
+            <p className="text-[#888] text-xs mb-3">هل تريد سحب صوتك؟ إذا سُحب نصفُ الأصوات أو أكثر تُعاد عملية التصويت{myWeight > 1 ? ` — صوتك يُسحب ×${myWeight}` : ''}</p>
+            <p className="text-[#9a9a9a] text-xs mb-3 font-mono">{effectiveCount}/{effectiveNeeded} من الأصوات المطلوبة سُحبت</p>
             {!hasWithdrawn ? (
               <button onClick={handleWithdraw} className="bg-blue-500/20 border border-blue-500/40 text-blue-300 font-bold py-3 px-8 rounded-xl hover:bg-blue-500/30 transition-all text-base">
                 🗳️ سحب صوتي

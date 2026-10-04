@@ -43,6 +43,7 @@ const ROLES_RAW = [
 const INTERACTIONS_RAW = [
   { id: 5, ability_a: 'KILL', ability_b: 'PROTECT', condition: 'SAME_TARGET', resolution: 'B_CANCELS_A', result_event: 'ASSASSINATION_BLOCKED', priority: 1 },
   { id: 6, ability_a: 'ASSASSINATE', ability_b: 'PROTECT', condition: 'SAME_TARGET', resolution: 'B_CANCELS_A', result_event: 'ASSASSIN_BLOCKED', priority: 2 },
+  { id: 7, ability_a: 'SNIPE', ability_b: 'PROTECT', condition: 'SAME_TARGET', resolution: 'B_CANCELS_A', result_event: 'ASSASSINATION_BLOCKED', priority: 3 },
 ];
 
 const camelize = (o: any): any => {
@@ -276,19 +277,31 @@ async function main() {
     check('شيخ المافيا خرج', alive(s, 1) === false);
   }
 
-  section('13) الحمايةُ لا تُنقذ من القنص ⇒ الثأر يقع');
+  section('13) الحمايةُ تُنقذ من القنص أيضاً ⇒ لا موتَ فلا ثأر');
   {
-    // 🔴 حدٌّ دقيق: الحمايةُ تُبطل الاغتيال وحدَه (قاعدةُ تفاعل KILL+PROTECT)،
-    //    والقنصُ يقتل مباشرةً. فشريفٌ محميٌّ يقنصه القنّاص يموت — والثأر يقع.
+    // 🔴 تغيّر 2026-10-04: قاعدةُ SNIPE+PROTECT تجعل الحمايةَ تُبطل القنصَ كالاغتيال
+    //    (كان الليلُ الآليّ وحده يفعل). شريفٌ محميٌّ يقنصه القنّاص ينجو — والثأرُ
+    //    معلَّقٌ بموته، فلا يقع. وغيرُ المحميّ يموت ويقع الثأر كما كان.
     const s = mkState([P(1, Role.GODFATHER), P(2, Role.SHERIFF), P(8, Role.DOCTOR), P(9, Role.SNIPER)]);
     const ev = await resolveNightDynamic(s, night([
       { ab: 'PROTECT', by: 8, t: 2 },
       { ab: 'INVESTIGATE', by: 2, t: 1 },
       { ab: 'SNIPE', by: 9, t: 2 },
     ]));
-    check('الشريف مات رغم الحماية (قنص)', alive(s, 2) === false);
-    check('الثأر وقع', !!evType(ev, 'SHERIFF_REVENGE'));
-    check('شيخ المافيا خرج', alive(s, 1) === false);
+    check('الشريف المحميّ نجا من القنص', alive(s, 2) === true);
+    check('والقنّاصُ لم يرتدّ عليه شيء', alive(s, 9) === true);
+    check('لا ثأر — الشريفُ حيّ', !evType(ev, 'SHERIFF_REVENGE'));
+    check('شيخ المافيا باقٍ', alive(s, 1) === true);
+
+    const s2 = mkState([P(1, Role.GODFATHER), P(2, Role.SHERIFF), P(8, Role.DOCTOR), P(9, Role.SNIPER)]);
+    const ev2 = await resolveNightDynamic(s2, night([
+      { ab: 'PROTECT', by: 8, t: 9 },
+      { ab: 'INVESTIGATE', by: 2, t: 1 },
+      { ab: 'SNIPE', by: 9, t: 2 },
+    ]));
+    check('غيرُ المحميّ: الشريف مات بالقنص', alive(s2, 2) === false);
+    check('غيرُ المحميّ: الثأر وقع', !!evType(ev2, 'SHERIFF_REVENGE'));
+    check('غيرُ المحميّ: شيخ المافيا خرج', alive(s2, 1) === false);
   }
 
   section('14) حمايةُ الهدف المافيويّ لا تمنع الثأر');

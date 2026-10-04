@@ -1217,6 +1217,11 @@ export default function PlayerFlow({ initialRoomCode = '', inviteFlag = false, i
         
         if (res.success && res.phase) {
           setGamePhase(res.phase);
+          // 🎩 العمدة المكشوف — شارة ×N تعيش بعد إعادة التحميل (كانت تأتي من حدث الكشف وحده)
+          if (res.mayorPublic?.physicalId != null) {
+            setMayorRevealedId(res.mayorPublic.physicalId);
+            if (res.mayorPublic.voteWeight) setMayorWeight(res.mayorPublic.voteWeight);
+          }
           
           if (res.votingState && res.phase === 'DAY_VOTING') {
             console.log(`🛡️ Restoring voting state: ${res.votingState.candidates?.length} candidates`);
@@ -3394,14 +3399,15 @@ export default function PlayerFlow({ initialRoomCode = '', inviteFlag = false, i
                   {/* شريط التقدم */}
                   <div className="mb-5 px-2">
                     <div className="flex justify-between text-[10px] text-[#808080] font-mono mb-1">
-                      <span>{totalVotesCast} صوت</span>
+                      <span>صوّت {totalVotesCast}</span>
                       <span>{votingCandidates.reduce((max: number, c: any) => Math.max(max, c.votes || 0), 0)} أعلى</span>
                     </div>
                     <div className="h-1.5 bg-[#1a1a1a] rounded-full overflow-hidden">
                       <motion.div
                         className="h-full rounded-full"
                         style={{ background: 'linear-gradient(90deg, #C5A059, #E8C97A)' }}
-                        animate={{ width: `${Math.min(100, (totalVotesCast / Math.max(1, votingCandidates.length)) * 100)}%` }}
+                        // 🔴 المقام عددُ المصوّتين لا عددُ المرشّحين — في جولةٍ محصورة بين اثنين امتلأ الشريطُ بصوتين
+                        animate={{ width: `${Math.min(100, (totalVotesCast / Math.max(1, votingPlayersInfo.length || votingCandidates.length)) * 100)}%` }}
                         transition={{ duration: 0.5 }}
                       />
                     </div>
@@ -3500,10 +3506,13 @@ export default function PlayerFlow({ initialRoomCode = '', inviteFlag = false, i
                             </div>
                           </div>
 
-                          {/* عداد الأصوات */}
+                          {/* عداد الأصوات — وعددُ الأشخاص بجانبه حين يختلفان (صوتُ العمدة بوزنه) */}
                           <div className="mt-1.5 flex items-center gap-1 bg-black/30 rounded-full px-2.5 py-0.5 w-fit mx-auto">
                             <span className="text-sm font-black text-[#C5A059]">{candidate.votes || 0}</span>
                             <span className="text-[10px] text-[#808080]">صوت</span>
+                            {votersForThisCandidate.length !== (candidate.votes || 0) && votersForThisCandidate.length > 0 && (
+                              <span className="text-[10px] text-[#808080]">· {votersForThisCandidate.length} لاعب</span>
+                            )}
                           </div>
 
                           {/* أسماء المصوتين */}
@@ -3515,6 +3524,10 @@ export default function PlayerFlow({ initialRoomCode = '', inviteFlag = false, i
                                   <span key={vId} className="text-[10px] font-mono bg-[#8A0303]/20 border border-[#8A0303]/40 text-white px-1.5 py-0.5 rounded-full flex items-center gap-1">
                                     <span className="font-black text-[#ff4444]">{vId}</span>
                                     <span className="truncate max-w-[50px] text-gray-300">{vName}</span>
+                                    {/* 🎩 العمدة المكشوف: شريحةٌ واحدة بصوتين — بلا الشارة لا يتّفق العدُّ مع الشرائح */}
+                                    {vId === mayorRevealedId && mayorWeight > 1 && (
+                                      <span className="font-black text-amber-300">×{mayorWeight}</span>
+                                    )}
                                   </span>
                                 );
                               })}
@@ -3850,7 +3863,7 @@ export default function PlayerFlow({ initialRoomCode = '', inviteFlag = false, i
                   {/* شريط التقدم */}
                   <div className="mb-5">
                     <div className="flex justify-between text-[10px] font-mono text-[#9a9a9a] mb-1">
-                      <span>VOTES: {totalVotesCast}</span>
+                      <span>صوّتوا: {totalVotesCast}</span>
                       <span>{votingComplete ? '✅ COMPLETE' : '⏳ IN PROGRESS'}</span>
                     </div>
                     <div className="h-1.5 bg-[#1a1a1a] rounded-full overflow-hidden">
@@ -3858,7 +3871,7 @@ export default function PlayerFlow({ initialRoomCode = '', inviteFlag = false, i
                         className="h-full rounded-full"
                         style={{ background: 'linear-gradient(90deg, #C5A059, #D4AF37)' }}
                         initial={{ width: '0%' }}
-                        animate={{ width: `${votingPlayersInfo.length > 0 ? (totalVotesCast / votingPlayersInfo.length) * 100 : 0}%` }}
+                        animate={{ width: `${votingPlayersInfo.length > 0 ? Math.min(100, (totalVotesCast / votingPlayersInfo.length) * 100) : 0}%` }}
                         transition={{ duration: 0.5 }}
                       />
                     </div>
@@ -3947,10 +3960,13 @@ export default function PlayerFlow({ initialRoomCode = '', inviteFlag = false, i
                             </div>
                           </div>
 
-                          {/* عداد الأصوات */}
+                          {/* عداد الأصوات — وعددُ الأشخاص بجانبه حين يختلفان (صوتُ العمدة بوزنه) */}
                           <div className="mt-1.5 flex items-center gap-1 bg-black/30 rounded-full px-2.5 py-0.5 w-fit mx-auto">
                             <span className="text-sm font-black text-[#C5A059]">{candidate.votes || 0}</span>
                             <span className="text-[10px] text-[#808080]">صوت</span>
+                            {votersForThisCandidate.length !== (candidate.votes || 0) && votersForThisCandidate.length > 0 && (
+                              <span className="text-[10px] text-[#808080]">· {votersForThisCandidate.length} لاعب</span>
+                            )}
                           </div>
 
                           {/* أسماء المصوتين */}
@@ -3962,6 +3978,10 @@ export default function PlayerFlow({ initialRoomCode = '', inviteFlag = false, i
                                   <span key={vId} className="text-[10px] font-mono bg-[#8A0303]/20 border border-[#8A0303]/40 text-white px-1.5 py-0.5 rounded-full flex items-center gap-1">
                                     <span className="font-black text-[#ff4444]">{vId}</span>
                                     <span className="truncate max-w-[50px] text-gray-300">{vName}</span>
+                                    {/* 🎩 العمدة المكشوف: شريحةٌ واحدة بصوتين — بلا الشارة لا يتّفق العدُّ مع الشرائح */}
+                                    {vId === mayorRevealedId && mayorWeight > 1 && (
+                                      <span className="font-black text-amber-300">×{mayorWeight}</span>
+                                    )}
                                   </span>
                                 );
                               })}

@@ -92,11 +92,10 @@ void main() {
   });
 
   group('النِّصاب', () {
-    /// نظير `withdrawalNeeded`: ما يرسله الخادم، وإلّا نصف المصوّتين
-    /// مجبوراً لأعلى.
-    int needed(WithdrawalState w, JustificationData? j) => w.needed > 0
-        ? w.needed
-        : ((j?.votersForAccused.length ?? 0) + 1) ~/ 2;
+    /// نظير `withdrawalNeeded`: ما يرسله الخادم، وإلّا نصفُ **الأصوات الموزونة**
+    /// مجبوراً لأعلى (العمدة المكشوف بوزنه — لا نصفُ عدد المصوّتين).
+    int needed(WithdrawalState w, JustificationData? j) =>
+        w.needed > 0 ? w.needed : (j?.weightedNeeded ?? 0);
 
     final j4 = JustificationData.fromJson(const {
       'votersForAccused': [1, 2, 3, 4]
@@ -116,6 +115,45 @@ void main() {
 
     test('بلا مصوّتين لا يقسم على صفر', () {
       expect(needed(const WithdrawalState(), null), 0);
+    });
+
+    test('🎩 بالأصوات لا بالرؤوس: العمدة ×2 بين أربعة مصوّتين ⇐ المجموع 5 والمطلوب 3', () {
+      final jm = JustificationData.fromJson(const {
+        'votersForAccused': [1, 2, 3, 4],
+        'voterWeights': {'4': 2},
+      })!;
+      expect(jm.weightOf(4), 2);
+      expect(jm.weightOf(1), 1);
+      expect(jm.weightedTotal, 5);
+      expect(needed(const WithdrawalState(), jm), 3);
+    });
+
+    test('ما يحسبه الخادم للتبرير يفوز على الحساب المحلّيّ', () {
+      final js = JustificationData.fromJson(const {
+        'votersForAccused': [1, 2],
+        'withdrawalTotal': 6,
+        'withdrawalNeeded': 3,
+      })!;
+      expect(js.weightedTotal, 6);
+      expect(needed(const WithdrawalState(), js), 3);
+    });
+
+    test('وزنٌ 1 لا يُخزَّن، ومفتاحٌ غير رقميّ يُهمل', () {
+      final jw = JustificationData.fromJson(const {
+        'votersForAccused': [1],
+        'voterWeights': {'1': 1, 'x': 3},
+      })!;
+      expect(jw.voterWeights, isEmpty);
+    });
+
+    test('WithdrawalState يقرأ المجموع من الخادم', () {
+      final w = WithdrawalState.fromJson(const {'count': 2, 'needed': 3, 'total': 5});
+      expect(w.total, 5);
+    });
+
+    test('👥 VoteCandidate يقرأ عدد الأشخاص، وغيابُه null', () {
+      expect(VoteCandidate.fromJson(const {'targetPhysicalId': 3, 'votes': 3, 'voters': 2}).voters, 2);
+      expect(VoteCandidate.fromJson(const {'targetPhysicalId': 3, 'votes': 3}).voters, isNull);
     });
 
     test('من سحب يُعرَف من القائمة', () {

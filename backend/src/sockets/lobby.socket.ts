@@ -28,7 +28,7 @@ import { publicConfrontations } from '../game/confrontation-engine.js';
 import { resolveRoomCapacity, clampCapacity } from '../services/capacity.service.js';
 import { startGameTimer, clearGameTimer, getRemainingSeconds, restoreGameTimer } from '../game/game-timer.js';
 import { initTwinState, getSiblingInfoFor } from '../game/twin-engine.js';
-import { initMayorState } from '../game/mayor-engine.js';
+import { initMayorState, mayorVoteWeight } from '../game/mayor-engine.js';
 import { initPhoenixState } from '../game/phoenix-engine.js';
 import { oneNightResumeFor } from './night-one.socket.js';
 import { getProgressionConfig } from '../routes/progression-settings.routes.js';
@@ -5285,6 +5285,11 @@ async function readSeatLayoutOnly(activityId: any): Promise<any> {
         justificationData: state.phase === 'DAY_JUSTIFICATION' ? state.justificationData || null : null,
         // حالة سحب الأصوات
         withdrawalState: state.phase === 'DAY_JUSTIFICATION' ? (state.withdrawalState || null) : null,
+        // 🎩 العمدة المكشوف (علنيّ بعد الكشف) — بلاه تختفي شارة ×N بعد إعادة التحميل.
+        //    الوزنُ الفعليّ الآن (تجميدُ الساحرة يجعله 1) لا المضبوطُ في الإعدادات.
+        mayorPublic: state.mayorState?.revealed
+          ? { physicalId: state.mayorState.mayorPhysicalId, voteWeight: mayorVoteWeight(state, state.mayorState.mayorPhysicalId) }
+          : null,
         // حالة النقاش
         discussionState: state.phase === 'DAY_DISCUSSION' ? { ...(state.discussionState || {}), deals: state.votingState?.deals || [], dealLockedPlayers: dealLockedList(state) } : null,
         // ── بيانات مرحلة الليل (لاستعادة شاشة الإجراء عند refresh) ──
@@ -6200,6 +6205,7 @@ async function readSeatLayoutOnly(activityId: any): Promise<any> {
     // 👥 تصفير رابطة التوأمين — مهم عند إعادة استخدام نفس الغرفة للعبة جديدة، وإلا بقيت حالة
     // اللعبة السابقة (مقاعد/أعلام قديمة) فلا يُعاد التهيئة ولا يتحوّل التوأم ولا تظهر بطاقة التعارف.
     state.twinState = null;
+    state.mayorShield = null; // 🛡️ درعُ عمدة اللعبة السابقة — الجولة تبدأ من 1 فيطابق رقمَها
     state.luckyDraw = null;   // 🎁 تصفير سحب الهدايا عند لعبة جديدة
     state.dealRegisteredRound = {};  // 🤝 تصفير قفل الاتفاقيات عند لعبة جديدة
     state.confrontations = [];       // ⚔️ مواجهات النهار — تُصفَّر مع رصيد كلّ لاعب (قرار المالك: الحدّ لكلّ لعبة)

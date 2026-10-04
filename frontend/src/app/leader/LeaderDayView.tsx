@@ -9,6 +9,7 @@ import { getSocket } from '@/lib/socket';
 import { swalConfirm, swalToast, swalAlert } from '@/lib/swal';
 import { useSeatMove } from './SeatMove';
 import LeaderConfrontationPanel from './LeaderConfrontationPanel';
+import { candidateCounts, withdrawalNumbers, voterWeight } from '@/lib/voteCounts';
 
 // تسمية دور اللاعب بالعربية + لون الفريق (للعرض في لوحة العقوبات)
 function roleLabel(role: string | null | undefined): { text: string; icon: string; mafia: boolean } | null {
@@ -134,14 +135,22 @@ function VotingCard({
         </div>
       )}
 
-      {/* Vote Count Badge */}
+      {/* Vote Count Badge — أصواتٌ موزونة، وتحتها عددُ الأشخاص حين يختلفان (صوتُ العمدة بينها) */}
       <div className={`absolute -top-2 -left-2 z-20 w-8 h-8 rounded-full flex items-center justify-center font-mono font-black text-sm shadow-lg ${
         candidate.votes > 0
           ? 'bg-[#C5A059] text-black border-2 border-[#C5A059]/80'
           : 'bg-[#1a1a1a] text-[#555] border border-[#333]'
-      }`}>
+      }`} title="أصوات">
         {candidate.votes}
       </div>
+      {(() => {
+        const cc = candidateCounts(candidate);
+        return cc.differs && cc.voters > 0 ? (
+          <div className="absolute top-6 -left-2 z-20 px-1.5 rounded-full bg-black/80 border border-[#C5A059]/50 text-[#C5A059] text-[9px] font-bold leading-4 whitespace-nowrap" title="عدد الأشخاص">
+            👤{cc.voters}
+          </div>
+        ) : null;
+      })()}
 
       {/* Penalty dots indicator */}
       {penalties > 0 && (
@@ -615,6 +624,12 @@ export default function LeaderDayView({ gameState, emit, setError }: LeaderDayVi
   useEffect(() => {
     setSelectedVoter(null);
   }, [gameState.phase]);
+
+  // 🔁 العدّادُ المحلّيّ يتبع عدّادَ الخادم كلّما تغيّر — كان لا يُصفَّر عند «إلغاء الحصر» ولا عند
+  //    إعادةٍ يقرّرها العمدة من هاتفه، فيبقى مرتفعاً من الجولة السابقة ويمنع وكالاتٍ صحيحة.
+  useEffect(() => {
+    localVoteTotalRef.current = gameState.votingState?.totalVotesCast ?? 0;
+  }, [gameState.votingState?.totalVotesCast, gameState.votingState?.candidates]);
 
   const handleVote = async (candidateIndex: number, delta: 1 | -1, proxyVoterId?: number) => {
     // تحديد voterPhysicalId: من المعامل المباشر أو من selectedVoter
@@ -1189,11 +1204,13 @@ export default function LeaderDayView({ gameState, emit, setError }: LeaderDayVi
     }
 
     // مرحلة القرار (بعد انتهاء كل التبريرات)
+    // 🎩 بالأصوات لا بالرؤوس — الخادمُ يحسب المجموعَ والنصفَ بوزن العمدة (lib/voteCounts)
     const ws = gameState.withdrawalState;
-    const votersTotal = gameState.justificationData?.votersForAccused?.length || 0;
-    const wsCount = ws?.count || 0;
-    const wsNeeded = ws?.needed || Math.ceil(votersTotal / 2);
-    const canRevoteByWithdrawal = wsCount >= wsNeeded;
+    const wn = withdrawalNumbers(ws, gameState.justificationData);
+    const votersTotal = wn.voters;
+    const wsCount = wn.count;
+    const wsNeeded = wn.needed;
+    const canRevoteByWithdrawal = wn.reached;
 
     return renderContent(
       <div className="p-6">
@@ -1264,17 +1281,19 @@ export default function LeaderDayView({ gameState, emit, setError }: LeaderDayVi
               <div className="flex items-center justify-center gap-4 mb-2">
                 <div className="text-center">
                   <p className="text-3xl font-black text-white font-mono">{wsCount}</p>
-                  <p className="text-[#666] text-[10px] font-mono">WITHDREW</p>
+                  <p className="text-[#666] text-[10px]">أصوات سُحبت</p>
+                  <p className="text-[#555] text-[9px]">{wn.withdrawnPeople} لاعب</p>
                 </div>
                 <div className="text-[#555] text-2xl">/</div>
                 <div className="text-center">
                   <p className="text-3xl font-black text-[#C5A059] font-mono">{wsNeeded}</p>
-                  <p className="text-[#666] text-[10px] font-mono">NEEDED</p>
+                  <p className="text-[#666] text-[10px]">المطلوب</p>
                 </div>
                 <div className="text-[#555] text-2xl">من</div>
                 <div className="text-center">
-                  <p className="text-3xl font-black text-[#808080] font-mono">{votersTotal}</p>
-                  <p className="text-[#666] text-[10px] font-mono">TOTAL VOTERS</p>
+                  <p className="text-3xl font-black text-[#808080] font-mono">{wn.total}</p>
+                  <p className="text-[#666] text-[10px]">مجموع الأصوات</p>
+                  <p className="text-[#555] text-[9px]">{votersTotal} لاعب</p>
                 </div>
               </div>
               {/* Progress bar */}
@@ -1285,7 +1304,7 @@ export default function LeaderDayView({ gameState, emit, setError }: LeaderDayVi
                 />
               </div>
               <p className="text-[#555] text-[10px] font-mono mt-2">
-                {canRevoteByWithdrawal ? '✅ تم بلوغ النصاب' : `⏳ ${wsNeeded - wsCount} سحب إضافي للنصاب`}
+                {canRevoteByWithdrawal ? '✅ تم بلوغ النصاب — تُعاد عملية التصويت' : `⏳ ${wsNeeded - wsCount} صوت إضافي للنصاب (نصف الأصوات أو أكثر)`}
               </p>
             </div>
           </div>
@@ -1314,6 +1333,9 @@ export default function LeaderDayView({ gameState, emit, setError }: LeaderDayVi
                       <div className="flex items-center gap-2">
                         <span className="text-white font-mono font-bold text-sm">#{voterId}</span>
                         <span className="text-[#808080] text-xs">{voterPlayer?.name}</span>
+                        {voterWeight(gameState.justificationData, parseInt(voterId)) > 1 && (
+                          <span className="text-[10px] font-bold text-amber-300">🎩×{voterWeight(gameState.justificationData, parseInt(voterId))}</span>
+                        )}
                         <span className="text-[#555] text-[10px]">→</span>
                         <span className={`text-xs font-mono ${votedForAccused ? 'text-red-400' : 'text-[#666]'}`}>
                           #{candidate?.targetPhysicalId} {votedForAccused && '(المتهم)'}
@@ -2151,10 +2173,17 @@ export default function LeaderDayView({ gameState, emit, setError }: LeaderDayVi
               }`}>{votingLabel}</span>
             )}
             <div className="text-right">
-              <p className="text-[8px] font-mono text-[#555] uppercase tracking-widest">VOTES</p>
+              <p className="text-[9px] text-[#555]">صوّتوا</p>
               <p className={`text-lg font-black font-mono leading-none ${isComplete ? 'text-[#C5A059]' : 'text-white'}`}>
                 {totalVotes}<span className="text-xs text-[#555]">/{votingAliveCount}</span>
               </p>
+              {/* 🎩 مجموعُ الأصوات الموزونة حين يزيد على عدد المصوّتين (صوتُ العمدة بوزنه) */}
+              {(() => {
+                const weighted = candidates.reduce((sum: number, c: any) => sum + (Number(c.votes) || 0), 0);
+                return weighted !== totalVotes ? (
+                  <p className="text-[9px] text-[#C5A059] mt-0.5">{weighted} صوت</p>
+                ) : null;
+              })()}
             </div>
           </div>
         </div>

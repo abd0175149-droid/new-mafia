@@ -15,6 +15,7 @@ import { useDisplayViewport, computeCardGrid, CardZoom, GridRows, totalZoomOf } 
 import ExecutionCeremony, { executionSceneAvailable, type ExecEntry } from '@/components/display/ExecutionCeremony';
 import { getStreetEngine } from '@/components/display/street/engine';
 import { useGameConfig } from '@/hooks/useGameConfig';
+import { candidateCounts, withdrawalNumbers, voterWeight } from '@/lib/voteCounts';
 const SOCKET_URL_FOR_CARDS = process.env.NEXT_PUBLIC_SOCKET_URL || '';
 
 // 🔊 لا نداءَ صوتٍ محلّيٍّ في هذه الشاشة — الموجّه هو المصدر (setLocalPlayback(false)).
@@ -859,12 +860,19 @@ export default function DisplayDayView({ roomId, players, initialDiscussionState
 
                 {/* يمين: عداد الأصوات */}
                 <div className="flex flex-col items-center">
-                  <span className="text-[8px] font-mono text-[#808080] uppercase tracking-widest mb-1">VOTES</span>
+                  <span className="text-[10px] text-[#808080] mb-1">صوّتوا</span>
                   <div className="flex items-baseline gap-1">
                     <span className="text-3xl font-mono font-black text-[#C5A059]">{totalVotesCast}</span>
                     <span className="text-lg font-mono text-[#808080]">/</span>
                     <span className="text-lg font-mono text-white">{aliveCount}</span>
                   </div>
+                  {/* 🎩 مجموعُ الأصوات حين يزيد على عدد المصوّتين (صوتُ العمدة بوزنه) */}
+                  {(() => {
+                    const weighted = sortedCandidates.reduce((sum: number, c: any) => sum + (Number(c.votes) || 0), 0);
+                    return weighted !== totalVotesCast ? (
+                      <span className="text-xs text-[#C5A059] mt-0.5">{weighted} صوت</span>
+                    ) : null;
+                  })()}
                   {totalVotesCast >= aliveCount && (
                     <span className="text-[8px] font-mono text-[#44ff44] tracking-widest uppercase mt-1 animate-pulse">COMPLETE ✓</span>
                   )}
@@ -940,6 +948,13 @@ export default function DisplayDayView({ roomId, players, initialDiscussionState
                         }}
                       />
                     </div>
+                    {/* 👥 الأشخاص حين يختلفون عن الأصوات — العمدةُ صوتٌ بوزنه وشخصٌ واحد */}
+                    {(() => {
+                      const cc = candidateCounts(candidate);
+                      return cc.differs && cc.voters > 0 ? (
+                        <span className="text-sm font-bold text-[#C5A059]" dir="rtl">{cc.votes} صوت · {cc.voters} لاعب</span>
+                      ) : null;
+                    })()}
                   </motion.div>
                 );
               }} />
@@ -1156,7 +1171,11 @@ export default function DisplayDayView({ roomId, players, initialDiscussionState
                             <div className="flex items-center justify-center gap-2 mb-2.5">
                               <span className="h-px flex-1" style={{ background: `${hue}33` }} />
                               <span className="font-mono tracking-widest" style={{ color: hue, fontSize: 'clamp(13px, 1vw, 20px)' }}>
-                                {all.length} صوت
+                                {(() => {
+                                  // 🎩 الأصواتُ بوزنها، والأشخاصُ بجانبها حين يختلفان (كان يعدّ الرؤوس ويسمّيها أصواتاً)
+                                  const allVotes = all.reduce((sum: number, id: number) => sum + voterWeight(justificationData, id), 0);
+                                  return allVotes !== all.length ? `${allVotes} صوت · ${all.length} لاعب` : `${allVotes} صوت`;
+                                })()}
                               </span>
                               <span className="h-px flex-1" style={{ background: `${hue}33` }} />
                             </div>
@@ -1165,7 +1184,9 @@ export default function DisplayDayView({ roomId, players, initialDiscussionState
                               {shown.map((voterId, vi) => {
                                 const voterPlayer = players.find((p: any) => p.physicalId === voterId);
                                 const hasWithdrawn = withdrawalState?.withdrawn?.includes(voterId) || false;
-                                const isProxy = !!(justificationData.leaderProxyVotes || {})[voterId];
+                                // 🔴 `!== undefined` لا `!!` — صوتٌ بالوكالة على المرشّح ذي الفهرس 0 كان يُخفى
+                                const isProxy = (justificationData.leaderProxyVotes || {})[voterId] !== undefined;
+                                const vWeight = voterWeight(justificationData, voterId);
                                 return (
                                   <motion.div
                                     key={voterId}
@@ -1194,6 +1215,11 @@ export default function DisplayDayView({ roomId, players, initialDiscussionState
                                       style={{ fontSize: CHIP.name, color: hasWithdrawn ? '#555' : '#FFF' }}>
                                       {voterPlayer?.name || `#${voterId}`}
                                     </span>
+                                    {/* 🎩 العمدة المكشوف: صوتُه بوزنه */}
+                                    {vWeight > 1 && (
+                                      <span className="shrink-0 text-[10px] font-bold px-1.5 py-0.5 rounded"
+                                        style={{ background: '#00000055', color: hasWithdrawn ? '#555' : '#E8C877' }}>🎩×{vWeight}</span>
+                                    )}
                                     {/* 🎙️ صوتٌ سجّله الليدر بالوكالة — لا يُنسَب لصاحبه ظلماً */}
                                     {isProxy && !hasWithdrawn && (
                                       <span className="shrink-0 text-[9px] font-mono px-1.5 py-0.5 rounded"
@@ -1242,15 +1268,16 @@ export default function DisplayDayView({ roomId, players, initialDiscussionState
                   <div className="flex items-center gap-2">
                     <div className="w-3 h-3 rounded-full bg-[#8A0303]" />
                     <span className="text-[#808080] text-xs font-mono">
-                      إجمالي الأصوات: <span className="text-white font-bold">{justificationData.votersForAccused.length - (withdrawalState?.count || 0)}</span>
+                      {/* 🔴 كان يطرح أصواتاً موزونة من عدد رؤوس — العمدةُ يسحب صوتين فينقص المجموعُ اثنين من رأسٍ واحد */}
+                      الأصوات الباقية: <span className="text-white font-bold">{Math.max(0, withdrawalNumbers(withdrawalState, justificationData).total - withdrawalNumbers(withdrawalState, justificationData).count)}</span>
                     </span>
                   </div>
                   <div className="w-[1px] h-4 bg-[#2a2a2a]" />
                   <div className="flex items-center gap-2">
                     <div className="w-3 h-3 rounded-full bg-[#555]" />
                     <span className="text-[#808080] text-xs font-mono">
-                      سحب: <span className="text-white font-bold">{withdrawalState?.count || 0}</span>
-                      <span className="text-[#555]">/{withdrawalState?.needed || Math.ceil(justificationData.votersForAccused.length / 2)}</span>
+                      أصوات مسحوبة: <span className="text-white font-bold">{withdrawalNumbers(withdrawalState, justificationData).count}</span>
+                      <span className="text-[#555]">/{withdrawalNumbers(withdrawalState, justificationData).needed}</span>
                     </span>
                   </div>
                 </div>

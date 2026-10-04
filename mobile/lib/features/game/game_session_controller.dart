@@ -405,10 +405,20 @@ class GameSessionController extends ChangeNotifier with WidgetsBindingObserver {
     return _withdrawal.active || _justTimer == 0 || j.timerFinished;
   }
 
-  /// النِّصاب: ما يرسله الخادم، وإلّا نصف المصوّتين مجبوراً لأعلى.
+  /// النِّصاب بالأصوات لا بالرؤوس: ما يرسله الخادم، وإلّا نصفُ **الأصوات الموزونة**
+  /// (العمدة المكشوف بوزنه) مجبوراً لأعلى. كان نصفَ عدد المصوّتين — فيعرض «٢»
+  /// والخادمُ يطلب ٣ حين يكون العمدةُ بينهم.
   int get withdrawalNeeded => _withdrawal.needed > 0
       ? _withdrawal.needed
-      : ((_justification?.votersForAccused.length ?? 0) + 1) ~/ 2;
+      : (_justification?.weightedNeeded ?? 0);
+
+  /// مجموعُ الأصوات (الموزونة) على المتّهمين.
+  int get withdrawalTotal => _withdrawal.total > 0
+      ? _withdrawal.total
+      : (_justification?.weightedTotal ?? 0);
+
+  /// وزنُ صوتي في السحب (×N إن كنتُ العمدةَ المكشوف).
+  int get myWithdrawWeight => _justification?.weightOf(_physicalId) ?? 1;
 
   // ══════════════════════════════════════════════════════
   // 🎩 العمدة — §4.7 في الملفّ ٢٥
@@ -946,6 +956,7 @@ class GameSessionController extends ChangeNotifier with WidgetsBindingObserver {
       _assignedRole = null;
       _gameOverData = null; _gameOver = null;
       _mayorRevealedId = null;
+      _mayorWeight = 2; // وزنُ عمدةِ لعبةٍ سابقة لا يُورَث
       _mayorBanner = null;
       _justification = null;
       _withdrawal = const WithdrawalState();
@@ -1517,6 +1528,18 @@ class GameSessionController extends ChangeNotifier with WidgetsBindingObserver {
           active: _withdrawal.active);
     }
 
+    // 🎩 العمدة المكشوف — شارة ×N تعيش بعد إعادة الاتصال (كانت من حدث الكشف وحده)
+    final mp = res['mayorPublic'];
+    if (mp is Map && mp['physicalId'] != null) {
+      final id = _asInt(mp['physicalId']);
+      final w = _asInt(mp['voteWeight']);
+      if (_mayorRevealedId != id || (w > 0 && _mayorWeight != w)) {
+        _mayorRevealedId = id;
+        if (w > 0) _mayorWeight = w;
+        changed = true;
+      }
+    }
+
     _phaseData = {
       for (final k in const [
         'justificationData', 'withdrawalState', 'discussionState',
@@ -1711,12 +1734,14 @@ class GameSessionController extends ChangeNotifier with WidgetsBindingObserver {
       if (res?['success'] != true) return false;
       _withdrawal = WithdrawalState(
         active: _withdrawal.active,
+        // 🎩 صوتي يُسحب بوزنه — كان +1 فيسحب العمدةُ صوتاً من صوتيه حتّى يصل التحديث
         count: _asInt(res!['count']) > 0
             ? _asInt(res['count'])
-            : _withdrawal.count + 1,
+            : _withdrawal.count + myWithdrawWeight,
         needed: _asInt(res['needed']) > 0
             ? _asInt(res['needed'])
             : _withdrawal.needed,
+        total: _withdrawal.total,
         withdrawn: {..._withdrawal.withdrawn, _physicalId}.toList(),
       );
       return true;
@@ -1838,6 +1863,7 @@ class GameSessionController extends ChangeNotifier with WidgetsBindingObserver {
     _nightStepRoleName = '';
     _closeMayorPrompt();
     _mayorRevealedId = null;
+    _mayorWeight = 2; // وزنُ عمدةِ لعبةٍ سابقة لا يُورَث
     _mayorBannerTimer?.cancel();
     _mayorBanner = null;
     _seatsRemapTicket++;
@@ -2214,22 +2240,24 @@ class GameSessionController extends ChangeNotifier with WidgetsBindingObserver {
       notifyListeners();
     });
 
+    // ── التبرير ──
+    // 🔴 معالجٌ واحد لا اثنان: `_on` يحفظ معالجاً واحداً لكلّ حدث، فالتسجيلُ الثاني كان
+    //    يحلّ محلّ الأوّل في الخريطة ويُبقيه معلَّقاً على المقبس — فلا يُنزَع عند الإغلاق.
     _on('day:justification-started', (d) {
-      _setPhase(GamePhase.dayJustification, fromSocket: true);
       if (d is Map && d['playerVotes'] != null && _voting != null) {
         _voting = VotingState.fromJson({
           'candidates': [
             for (final c in _voting!.candidates)
-              {'targetPhysicalId': c.targetPhysicalId, 'name': c.name, 'votes': c.votes}
+              {
+                'targetPhysicalId': c.targetPhysicalId,
+                'name': c.name,
+                'votes': c.votes,
+                if (c.voters != null) 'voters': c.voters,
+              }
           ],
           'playerVotes': d['playerVotes'],
         });
       }
-      notifyListeners();
-    });
-
-    // ── التبرير ──
-    _on('day:justification-started', (d) {
       _justification = JustificationData.fromJson(d);
       _withdrawal = const WithdrawalState();
       _justTicker?.cancel();
@@ -2269,6 +2297,7 @@ class GameSessionController extends ChangeNotifier with WidgetsBindingObserver {
       _withdrawal = WithdrawalState(
         active: true,
         needed: d is Map ? _asInt(d['needed']) : 0,
+        total: d is Map ? _asInt(d['total']) : 0,
       );
       notifyListeners();
     });
@@ -2282,6 +2311,7 @@ class GameSessionController extends ChangeNotifier with WidgetsBindingObserver {
       _withdrawal = WithdrawalState(
         count: _withdrawal.count,
         needed: _withdrawal.needed,
+        total: _withdrawal.total,
         withdrawn: _withdrawal.withdrawn,
       );
       notifyListeners();
@@ -2891,6 +2921,7 @@ class GameSessionController extends ChangeNotifier with WidgetsBindingObserver {
     _mayorPrompt = null;
     _mayorBanner = null;
     _mayorRevealedId = null;
+    _mayorWeight = 2; // وزنُ عمدةِ لعبةٍ سابقة لا يُورَث
     _deals = const [];
     _dealLocked = const [];
     _round = 1;

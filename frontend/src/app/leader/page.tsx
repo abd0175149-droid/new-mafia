@@ -1045,10 +1045,13 @@ export default function LeaderPage() {
             tieBreakerLevel: data.tieBreakerLevel || 0,
             playerVotes: data.playerVotes || {},
             leaderProxyVotes: {}, // تصفير أصوات الوكالة عند إعادة التصويت
+            // 🎩 علمُ «بأمر العمدة» من الحمولة نفسها — كان يُورَث من الجولة السابقة بالنشر
+            mayorRevote: !!data.mayorRevote,
           } as VotingState,
           // تنظيف بيانات التبرير عند إعادة التصويت (Revote)
           justificationData: undefined,
           pendingResolution: undefined,
+          withdrawalState: undefined,   // سحبُ الجولة السابقة لا يعيش في جولةٍ جديدة
         };
       });
     });
@@ -1484,6 +1487,8 @@ export default function LeaderPage() {
             count: data.count,
             needed: data.needed,
             total: data.total,
+            // 🔴 كانت تُسقَط: بلاها لا يعرف الموجّه مَن سحب، فيبقى زرّ «سحب» قائماً ويُرفض بصمت
+            withdrawn: Array.isArray(data.withdrawn) ? data.withdrawn : (prev as any).withdrawalState?.withdrawn,
           },
         } as any;
       });

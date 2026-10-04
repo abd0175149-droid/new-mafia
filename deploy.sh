@@ -489,6 +489,19 @@ ALTER TABLE match_players ADD COLUMN IF NOT EXISTS confrontation_outcome VARCHAR
 ALTER TABLE match_players ADD COLUMN IF NOT EXISTS pulse_wins INTEGER DEFAULT 0;
 ALTER TABLE match_players ADD COLUMN IF NOT EXISTS pulse_vindicated BOOLEAN DEFAULT false;
 ALTER TABLE match_players ADD COLUMN IF NOT EXISTS pulse_correct_votes INTEGER DEFAULT 0;
+
+-- 🎯 الحماية تُبطل القنص في ليل القاعة والليلة الواحدة أيضاً (2026-10-04) — كان الليلُ الآليّ وحده
+--    يمنعه. مرّةً واحدةً بمفتاحٍ في one_time_migrations: لو حُذفت القاعدة من لوحة الإدارة لاحقاً
+--    فلا تعيدها النشرةُ التالية.
+CREATE TABLE IF NOT EXISTS one_time_migrations (key VARCHAR(100) PRIMARY KEY, ran_at TIMESTAMP DEFAULT NOW() NOT NULL);
+WITH claim AS (
+  INSERT INTO one_time_migrations (key) VALUES ('snipe-protect-rule-2026-10-04')
+  ON CONFLICT DO NOTHING RETURNING key
+)
+INSERT INTO interaction_rules (ability_a, ability_b, condition, resolution, result_event, priority)
+SELECT 'SNIPE', 'PROTECT', 'SAME_TARGET'::interaction_condition, 'B_CANCELS_A'::interaction_resolution, 'ASSASSINATION_BLOCKED', 3
+FROM claim
+WHERE NOT EXISTS (SELECT 1 FROM interaction_rules WHERE ability_a = 'SNIPE' AND ability_b = 'PROTECT');
 SQL
 then
   say "   ✅ الترحيل تمّ"

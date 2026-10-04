@@ -94,6 +94,9 @@ class _VotingBallotState extends State<VotingBallot> {
             isSelf: v.candidates[i].targetPhysicalId == c.physicalId,
             disabled: c.isPlayerDead,
             voters: _votersOf(v, i),
+            // 🎩 العمدة المكشوف: شريحتُه تحمل ×N كي يتّفق عددُ الشرائح مع رقم الأصوات
+            mayorId: c.mayorRevealedId,
+            mayorWeight: c.mayorWeight,
             initiatorName: _nameOf(v, v.candidates[i].initiatorPhysicalId),
             // 🟢🟡🔴 من المفكرة المحلّية — لا يراه أحدٌ سواك
             suspicion: c.suspicionEmoji(v.candidates[i].targetPhysicalId),
@@ -151,12 +154,16 @@ class _VotingBallotState extends State<VotingBallot> {
 
   Widget _progress(VotingState v) {
     final maxVotes = v.candidates.fold<int>(0, (m, e) => e.votes > m ? e.votes : m);
-    final denom = v.candidates.isEmpty ? 1 : v.candidates.length;
+    // 🔴 المقامُ عددُ المصوّتين (الأحياء) لا عددُ المرشّحين — في جولةٍ محصورة بين اثنين
+    //    كان الشريطُ يمتلئ بصوتين. و`totalVotesCast` عددُ أشخاصٍ لا أصوات.
+    final denom = v.playersInfo.isNotEmpty
+        ? v.playersInfo.length
+        : (v.candidates.isEmpty ? 1 : v.candidates.length);
     final frac = (v.totalVotesCast / denom).clamp(0.0, 1.0);
 
     return Column(children: [
       Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
-        Text('${v.totalVotesCast} صوت',
+        Text('صوّت ${v.totalVotesCast}',
             style: mono(10, color: const Color(0xFF808080))),
         Text('$maxVotes أعلى', style: mono(10, color: const Color(0xFF808080))),
       ]),
@@ -224,6 +231,8 @@ class CandidateCard extends StatelessWidget {
     this.voters = const [],
     this.initiatorName,
     this.suspicion,
+    this.mayorId,
+    this.mayorWeight = 1,
   });
 
   final VoteCandidate candidate;
@@ -232,6 +241,13 @@ class CandidateCard extends StatelessWidget {
   final VoidCallback onTap;
   final List<(int, String)> voters;
   final String? initiatorName;
+
+  /// مقعدُ العمدة المكشوف ووزنُ صوته — `null` ما لم يُكشف.
+  final int? mayorId;
+  final int mayorWeight;
+
+  /// عددُ الأشخاص: من الخادم، وإلّا من الشرائح نفسها.
+  int get _people => candidate.voters ?? voters.length;
 
   /// 🟢/🟡/🔴 من المفكرة — يصل مع الملفّ ٢٦.
   final String? suspicion;
@@ -315,6 +331,12 @@ class CandidateCard extends StatelessWidget {
                 style: ar(14, color: _gold, weight: FontWeight.w900)),
             const SizedBox(width: 4),
             Text('صوت', style: ar(10, color: const Color(0xFF808080))),
+            // 👥 عددُ الأشخاص حين يختلف عن الأصوات (صوتُ العمدة بوزنه)
+            if (_people > 0 && _people != candidate.votes) ...[
+              const SizedBox(width: 4),
+              Text('· $_people لاعب',
+                  style: ar(10, color: const Color(0xFF808080))),
+            ],
           ]),
         ),
         if (voters.isNotEmpty) ...[
@@ -453,6 +475,12 @@ class CandidateCard extends StatelessWidget {
                   overflow: TextOverflow.ellipsis,
                   style: ar(11, color: const Color(0xFFD1D5DB))),
             ),
+          ],
+          if (pid == mayorId && mayorWeight > 1) ...[
+            const SizedBox(width: 4),
+            Text('×$mayorWeight',
+                style: mono(11,
+                    color: const Color(0xFFFCD34D), weight: FontWeight.w900)),
           ],
         ]),
       );

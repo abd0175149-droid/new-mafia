@@ -159,13 +159,15 @@ export function registerDayEvents(io: Server, socket: Socket) {
         const oldCandidate = state.votingState.candidates[previousVote];
         if (oldCandidate && oldCandidate.votes > 0) {
           oldCandidate.votes = Math.max(0, oldCandidate.votes - voteWeight);
+          oldCandidate.voters = Math.max(0, (oldCandidate.voters || 0) - 1);
           state.votingState.totalVotesCast -= 1;
         }
         console.log(`🔄 Player #${data.physicalId} changing vote: candidate[${previousVote}] → candidate[${data.candidateIndex}]`);
       }
 
-      // تسجيل الصوت الجديد
+      // تسجيل الصوت الجديد — الأصوات بالوزن، والأشخاص بواحد
       candidate.votes += voteWeight;
+      candidate.voters = (candidate.voters || 0) + 1;
       state.votingState.totalVotesCast += 1;
       state.votingState.playerVotes[data.physicalId] = data.candidateIndex;
 
@@ -228,6 +230,7 @@ export function registerDayEvents(io: Server, socket: Socket) {
           const candidate = state.votingState.candidates[selfCandidateIndex];
           // 🎩 وزن العمدة المكشوف يسري حتى على التصويت التلقائيّ (اتساق العدّ)
           candidate.votes += mayorVoteWeight(state, player.physicalId);
+          candidate.voters = (candidate.voters || 0) + 1;
           state.votingState.totalVotesCast += 1;
           state.votingState.playerVotes[player.physicalId] = selfCandidateIndex;
           autoVotedCount++;
@@ -500,6 +503,19 @@ export function registerDayEvents(io: Server, socket: Socket) {
         }
       }
 
+      // 🎩 السحبُ يُقاس **بالأصوات** لا بالرؤوس: صوتُ العمدة المكشوف دخل عدّادَ المتّهم بوزنه،
+      //    فالمجموعُ والنصفُ المطلوب يُحسبان هنا مرّةً ويصلان كلَّ الشاشات. كانت كلُّ شاشةٍ
+      //    تحسبهما من عدد المصوّتين (votersForAccused.length) قبل أوّل سحب، فتعرض «المطلوب
+      //    ٢» والخادمُ يطلب ٣ — والسحبُ لا يبدأ رسميّاً لأنّ الموجّه يمرّر skipWithdrawal.
+      const voterWeights: Record<number, number> = {};
+      let withdrawalTotal = 0;
+      for (const vid of votersForAccused) {
+        const w = mayorVoteWeight(state, vid);
+        withdrawalTotal += w;
+        if (w > 1) voterWeights[vid] = w;
+      }
+      const withdrawalNeeded = Math.ceil(withdrawalTotal / 2); // نصف الأصوات أو أكثر
+
       const justificationData = {
         resultType: sortResult.type,
         accused: accusedPlayers,
@@ -509,6 +525,9 @@ export function registerDayEvents(io: Server, socket: Socket) {
         maxJustifications: maxJust,
         candidates: state.votingState?.candidates || [],
         votersForAccused, // قائمة physicalIds للمصوتين على المتهمين
+        voterWeights,     // 🎩 {مقعد: وزن} لمن يزيد وزنُه على 1 — شارة ×N على شريحته
+        withdrawalTotal,  // مجموعُ الأصوات (الموزونة) على المتّهمين
+        withdrawalNeeded, // الأصواتُ المطلوب سحبُها لإعادة التصويت
         playerVotes: state.votingState?.playerVotes || {}, // الأصوات
         leaderProxyVotes: state.votingState?.leaderProxyVotes || {}, // أصوات الليدر بالوكالة
       };
@@ -910,8 +929,9 @@ export function registerDayEvents(io: Server, socket: Socket) {
       clearRevealGrace(data.roomId);
 
       if (decision === 'REVOTE') {
-        // إعادة تصويت كاملة على كلّ الأحياء (قرار المالك المعدَّل — لا حصر بالأعلى اثنين)
-        rebuildVotingForMayorRevote(state);
+        // إعادة تصويت كاملة على كلّ الأحياء عدا مَن أنقذه العمدة (درعٌ لبقيّة تصويت هذا النهار)
+        const savedPhysicalId = (window.winner as any).targetPhysicalId ?? null;
+        rebuildVotingForMayorRevote(state, savedPhysicalId);
         state.phase = Phase.DAY_VOTING;
         await setGameState(data.roomId, state);
         await setPhase(data.roomId, Phase.DAY_VOTING);
@@ -931,10 +951,11 @@ export function registerDayEvents(io: Server, socket: Socket) {
           durationSeconds: state.votingState.durationSeconds || null,
           mayorRevote: true,                    // 🎩 شارة «بأمر العمدة» في الواجهات
           mayorPhysicalId: ms.mayorPhysicalId,  // للشارة ⚖️×2
+          mayorSavedPhysicalId: savedPhysicalId, // 🛡️ مَن أنقذه — غائبٌ عن المرشّحين في هذه الجولة
         });
         // مزامنة كاملة — واجهة الليدر تعتمدها لإغلاق النافذة وعرض جولة العمدة (قرار الهاتف خاصّة)
         await emitStateSanitized(io, data.roomId, 'game:state-sync', state);
-        console.log(`🎩 Mayor REVOTE in room ${data.roomId} — fresh vote on all alive players`);
+        console.log(`🎩 Mayor REVOTE in room ${data.roomId} — fresh vote on all alive players except #${savedPhysicalId}`);
         return callback({ success: true, decision });
       }
 

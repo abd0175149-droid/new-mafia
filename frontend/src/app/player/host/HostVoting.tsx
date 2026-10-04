@@ -10,6 +10,7 @@ import { useState, useEffect } from 'react';
 import { MAFIA_ROLES } from '@/lib/constants';
 import PhaseHeader from '@/components/PhaseHeader';
 import PhaseLoading from '@/components/PhaseLoading';
+import { candidateCounts } from '@/lib/voteCounts';
 
 interface Props {
   gameState: any;
@@ -81,7 +82,11 @@ export default function HostVoting({ gameState, emit, setError }: Props) {
             <button key={i} onClick={() => addVote(i)} disabled={selectedVoter == null || busy}
               className={`relative rounded-2xl border bg-gradient-to-b from-[#121013] to-[#0a090a] p-2 pt-4 text-center transition-all ${selectedVoter != null ? 'border-sky-600/50 active:scale-95' : 'border-[#2a2a2a] opacity-80'} disabled:active:scale-100`}>
               {c.votes > 0 && (
-                <span className="absolute -top-2.5 -left-2 min-w-[24px] h-6 px-1 rounded-full bg-[#b0362f] text-white font-mono font-extrabold text-xs flex items-center justify-center shadow-[0_4px_10px_-3px_#b0362f]">{c.votes}</span>
+                <span className="absolute -top-2.5 -left-2 min-w-[24px] h-6 px-1 rounded-full bg-[#b0362f] text-white font-mono font-extrabold text-xs flex items-center justify-center shadow-[0_4px_10px_-3px_#b0362f]" title="أصوات">{c.votes}</span>
+              )}
+              {/* 👥 الأشخاص حين يختلفون عن الأصوات (صوتُ العمدة بوزنه) */}
+              {candidateCounts(c).differs && candidateCounts(c).voters > 0 && (
+                <span className="absolute top-3.5 -left-2 px-1 rounded-full bg-black/80 border border-[#C5A059]/50 text-[#C5A059] text-[9px] font-bold leading-4" title="عدد الأشخاص">👤{candidateCounts(c).voters}</span>
               )}
               <div className="w-10 h-10 rounded-full mx-auto mb-1 bg-gradient-to-b from-[#241f19] to-[#131110] border border-[#2a2a2a] flex items-center justify-center text-lg overflow-hidden">
                 {target?.avatarUrl ? <img src={target.avatarUrl} alt="" className="w-full h-full object-cover" /> : g}

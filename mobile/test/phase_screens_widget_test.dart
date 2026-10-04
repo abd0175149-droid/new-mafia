@@ -167,7 +167,7 @@ void main() {
           withdrawal: const WithdrawalState(active: true, count: 1, needed: 2));
       await t.pumpWidget(_wrap(JustificationBody(controller: c)));
       expect(find.text('أنت صوّت على هذا اللاعب'), findsOneWidget);
-      expect(find.text('1/2 سحبوا أصواتهم'), findsOneWidget);
+      expect(find.text('1/2 من الأصوات المطلوبة سُحبت'), findsOneWidget);
       expect(find.text('🗳️ سحب صوتي'), findsOneWidget);
     });
 

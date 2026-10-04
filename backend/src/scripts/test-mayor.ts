@@ -12,6 +12,7 @@ import { Phase, CandidateType } from '../game/state.js';
 import { setGameState, getGameState } from '../config/redis.js';
 import {
   castVote, getVoteResult, resolveVoting, isVotingComplete,
+  initVoting, unNarrowVoting, handleTieBreaker, TieBreakerAction, activeMayorShield,
 } from '../game/vote-engine.js';
 import {
   initMayorState, isMayorEligible, mayorVoteWeight,
@@ -200,12 +201,14 @@ async function run() {
     check('لقطة النافذة تحمل الفائز الصحيح', (win.winner as any).targetPhysicalId === 3 && win.topVotes === 5);
 
     applyMayorVeto(cur, 'REVOTE');
-    rebuildVotingForMayorRevote(cur);
+    rebuildVotingForMayorRevote(cur, (win.winner as any).targetPhysicalId);
     await setGameState('m4', cur);
 
-    check('إعادة كاملة: كلّ الأحياء مرشّحون بأصوات صفر (قرار المالك المعدَّل)',
-      cur.votingState.candidates.length === cur.players.filter((p: any) => p.isAlive).length &&
-      cur.votingState.candidates.every((c: any) => c.votes === 0));
+    check('إعادة كاملة: كلّ الأحياء مرشّحون عدا المُنقَذ، بأصوات صفر',
+      cur.votingState.candidates.length === cur.players.filter((p: any) => p.isAlive).length - 1 &&
+      cur.votingState.candidates.every((c: any) => c.votes === 0 && c.voters === 0));
+    check('🛡️ الشريف المُنقَذ ليس مرشّحاً في الإعادة', idx(cur, 3) === -1);
+    check('🛡️ الدرعُ محفوظ لهذا النهار', activeMayorShield(cur) === 3 && cur.mayorShield.round === cur.round);
     check('بلا تضييق (tieBreakerLevel=0) + علم mayorRevote', cur.votingState.tieBreakerLevel === 0 && cur.votingState.mayorRevote === true);
     check('playerVotes صُفّرت', Object.keys(cur.votingState.playerVotes).length === 0);
     check('الشريف لم يُقتل (لا resolveVoting)', cur.players.find((p: any) => p.physicalId === 3).isAlive === true);
@@ -267,9 +270,12 @@ async function run() {
     const cur = await getGameState('m7');
     openMayorWindow(cur, sort.topCandidates[0], sort.topVotes);
     applyMayorVeto(cur, 'REVOTE');
-    rebuildVotingForMayorRevote(cur);
-    check('قرار ④: الصفقة تبقى مرشّحاً في الإعادة الكاملة', cur.votingState.candidates.some((c: any) => c.type === 'DEAL'));
-    check('هدف الصفقة مخفيّ من مرشّحي اللاعبين', cur.votingState.hiddenPlayersFromVoting.includes(1) && !cur.votingState.candidates.some((c: any) => c.type === 'PLAYER' && c.targetPhysicalId === 1));
+    rebuildVotingForMayorRevote(cur, (sort.topCandidates[0] as any).targetPhysicalId);
+    // 🛡️ قرار 2026-10-04 يعلو قرار ④ في هذا الموضع: الصفقةُ على المُنقَذ تسقط من الإعادة،
+    //    وإلّا أعدمه التصويتُ عليها وهو محميّ. الطرفان ينجوان كما كان.
+    check('🛡️ الصفقةُ على المُنقَذ ليست مرشّحاً في الإعادة', !cur.votingState.candidates.some((c: any) => c.type === 'DEAL'));
+    check('🛡️ صاحبُ الصفقة مرشّحٌ عاديّ', idx(cur, 6) >= 0);
+    check('🛡️ هدفُ الصفقة المُنقَذ بلا أيّ كرت (لا لاعب ولا صفقة)', !cur.votingState.candidates.some((c: any) => c.targetPhysicalId === 1));
     check('طرفا الصفقة أحياء (أُلغي موتهما)', cur.players.find((p: any) => p.physicalId === 1).isAlive && cur.players.find((p: any) => p.physicalId === 6).isAlive);
   }
 
@@ -325,6 +331,80 @@ async function run() {
     for (const pid of [4, 5, 7]) await playerVote('m10', pid, idx(s, 8));
     const sort = await getVoteResult('m10');
     check('الفرز يعيد TIE (حارس السوكيت لن يفتح النافذة)', sort.type === 'TIE' && sort.topCandidates.length === 2);
+  }
+
+  // ════════ ١٢) درعُ العمدة — لا يُرشَّح المُنقَذ في بقيّة تصويت نهاره ════════
+  section('١٢) درعُ العمدة — كسرُ التعادل وإعادةُ السحب والنهارُ التالي');
+  {
+    const players = makePlayers();
+    const dealCandidate = { type: CandidateType.DEAL, id: 'd2', initiatorPhysicalId: 8, targetPhysicalId: 2, votes: 0 };
+    const rest = players.filter(p => p.isAlive && p.physicalId !== 2).map(p => ({ type: CandidateType.PLAYER, targetPhysicalId: p.physicalId, votes: 0 }));
+    const s = await mkRoom('m12', { players, candidates: [dealCandidate, ...rest] as any, deals: [{ id: 'd2', initiatorPhysicalId: 8, targetPhysicalId: 2 }] });
+    for (const pid of [1, 2, 5, 6, 7]) await playerVote('m12', pid, idx(s, 3));
+    const sort = await getVoteResult('m12');
+    const cur = await getGameState('m12');
+    openMayorWindow(cur, sort.topCandidates[0], sort.topVotes);
+    applyMayorVeto(cur, 'REVOTE');
+    rebuildVotingForMayorRevote(cur, 3);
+    await setGameState('m12', cur);
+    check('الصفقةُ على غير المُنقَذ تبقى مرشّحاً', cur.votingState.candidates.some((c: any) => c.type === 'DEAL' && c.targetPhysicalId === 2));
+    check('المُنقَذ (#3) غائبٌ عن الإعادة', idx(cur, 3) === -1);
+
+    // تعادلٌ في الإعادة ⇐ إعادةٌ على الكروت نفسها: يبقى غائباً
+    await handleTieBreaker('m12', TieBreakerAction.REVOTE);
+    check('🔁 إعادةُ التعادل: ما زال غائباً', idx(await getGameState('m12'), 3) === -1);
+
+    // حصرٌ ثمّ «إلغاء الحصر» — كانت تعيد بناء القائمة من كلّ الأحياء
+    const narrowed = await getGameState('m12');
+    await handleTieBreaker('m12', TieBreakerAction.NARROW, narrowed.votingState.candidates.filter((c: any) => [6, 7].includes(c.targetPhysicalId)));
+    const un = await unNarrowVoting('m12');
+    check('↩️ إلغاء الحصر: ما زال غائباً', idx(un, 3) === -1);
+    check('↩️ والصفقةُ الأخرى عادت', un.votingState.candidates.some((c: any) => c.type === 'DEAL'));
+    check('↩️ الأشخاصُ صُفّروا', un.votingState.candidates.every((c: any) => (c.voters || 0) === 0));
+
+    // سحبُ النصف ⇐ initVoting جديد في النهار نفسه
+    const again = await initVoting('m12');
+    check('🗳️ إعادةُ السحب في النهار نفسه: ما زال غائباً', idx(again, 3) === -1);
+    check('🗳️ ومخفيٌّ من الكروت', !again.votingState.candidates.some((c: any) => c.targetPhysicalId === 3));
+
+    // النهارُ التالي ⇐ يعود مرشّحاً
+    const next = await getGameState('m12');
+    next.round = (next.round || 0) + 1;
+    await setGameState('m12', next);
+    const tomorrow = await initVoting('m12');
+    check('🌅 النهار التالي: يعود مرشّحاً عاديّاً', idx(tomorrow, 3) >= 0 && activeMayorShield(tomorrow) === null);
+  }
+  {
+    // الصفقةُ على المُنقَذ تسقط، والدرعُ يمنع إعادتها بعد السحب
+    const players = makePlayers();
+    const dealCandidate = { type: CandidateType.DEAL, id: 'd3', initiatorPhysicalId: 6, targetPhysicalId: 1, votes: 0 };
+    const rest = players.filter(p => p.isAlive && p.physicalId !== 1).map(p => ({ type: CandidateType.PLAYER, targetPhysicalId: p.physicalId, votes: 0 }));
+    await mkRoom('m12b', { players, candidates: [dealCandidate, ...rest] as any, deals: [{ id: 'd3', initiatorPhysicalId: 6, targetPhysicalId: 1 }] });
+    for (const pid of [3, 4, 5, 6, 7]) await playerVote('m12b', pid, 0);
+    const sort = await getVoteResult('m12b');
+    const cur = await getGameState('m12b');
+    openMayorWindow(cur, sort.topCandidates[0], sort.topVotes);
+    applyMayorVeto(cur, 'REVOTE');
+    rebuildVotingForMayorRevote(cur, 1);
+    await setGameState('m12b', cur);
+    const again = await initVoting('m12b');
+    check('🤝 بعد السحب: لا صفقةَ على المُنقَذ ولا كرتَ له', !again.votingState.candidates.some((c: any) => c.targetPhysicalId === 1));
+  }
+  {
+    // 👥 عدّاد الأشخاص بجانب الأصوات: العمدة المكشوف صوتان وشخصٌ واحد
+    const s = await mkRoom('m12c');
+    const cur = await getGameState('m12c');
+    cur.mayorState.revealed = true;
+    await setGameState('m12c', cur);
+    await castVote('m12c', idx(s, 3), 1, 2);   // وكالةُ الموجّه باسم العمدة (×2)
+    await castVote('m12c', idx(s, 3), 1, 1);
+    const after = await getGameState('m12c');
+    const c3 = after.votingState.candidates[idx(after, 3)];
+    check('👥 الأصواتُ 3 والأشخاصُ 2', c3.votes === 3 && c3.voters === 2, `votes=${c3.votes} voters=${c3.voters}`);
+    await castVote('m12c', idx(s, 3), -1, 2);
+    const after2 = await getGameState('m12c');
+    const c3b = after2.votingState.candidates[idx(after2, 3)];
+    check('👥 سحبُ صوت العمدة: صوتٌ وشخص', c3b.votes === 1 && c3b.voters === 1, `votes=${c3b.votes} voters=${c3b.voters}`);
   }
 
   // ════════ ١١) عقود السفّاح (قرار ⑧) ════════

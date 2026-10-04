@@ -8,6 +8,7 @@
 
 import { useState, useEffect, useRef } from 'react';
 import PhaseLoading from '@/components/PhaseLoading';
+import { withdrawalNumbers } from '@/lib/voteCounts';
 
 interface Props {
   gameState: any;
@@ -109,11 +110,13 @@ export default function HostJustification({ gameState, emit, setError }: Props) 
   }
 
   // ── طور القرار ──
+  // 🎩 بالأصوات لا بالرؤوس — الخادمُ يحسب المجموعَ والنصفَ بوزن العمدة
   const ws = gameState.withdrawalState;
-  const votersTotal = jd?.votersForAccused?.length || 0;
-  const wsCount = ws?.count || 0;
-  const wsNeeded = ws?.needed || Math.ceil(votersTotal / 2);
-  const canRevoteByWithdrawal = wsCount >= wsNeeded;
+  const wn = withdrawalNumbers(ws, jd);
+  const votersTotal = wn.voters;
+  const wsCount = wn.count;
+  const wsNeeded = wn.needed;
+  const canRevoteByWithdrawal = wn.reached;
   const proxyVotes: Record<string, number> = jd?.leaderProxyVotes || {};
   const proxyEntries = Object.entries(proxyVotes);
   const accusedIds = accused.map((a: any) => a.targetPhysicalId);
@@ -132,11 +135,11 @@ export default function HostJustification({ gameState, emit, setError }: Props) 
       {votersTotal > 0 && (
         <div className="rounded-xl border border-[#1a1a1a] bg-[#0a0a0a] p-3 mb-3 text-center">
           <div className="flex items-center justify-center gap-3 font-mono">
-            <div><div className={`text-2xl font-black ${canRevoteByWithdrawal ? 'text-green-400' : 'text-blue-400'}`}>{wsCount}</div><div className="text-[10px] text-[#9a9a9a]">مسحوب</div></div>
+            <div><div className={`text-2xl font-black ${canRevoteByWithdrawal ? 'text-green-400' : 'text-blue-400'}`}>{wsCount}</div><div className="text-[10px] text-[#9a9a9a]">صوت مسحوب</div></div>
             <div className="text-[#9a9a9a]">/</div>
             <div><div className="text-2xl font-black text-[#808080]">{wsNeeded}</div><div className="text-[10px] text-[#9a9a9a]">للنصاب</div></div>
             <div className="text-[#9a9a9a]">من</div>
-            <div><div className="text-2xl font-black text-[#808080]">{votersTotal}</div><div className="text-[10px] text-[#9a9a9a]">مصوّت</div></div>
+            <div><div className="text-2xl font-black text-[#808080]">{wn.total}</div><div className="text-[10px] text-[#9a9a9a]">صوت · {votersTotal} لاعب</div></div>
           </div>
           <div className="w-full h-1.5 bg-[#1a1a1a] rounded-full overflow-hidden mt-2">
             <div className={`h-full rounded-full ${canRevoteByWithdrawal ? 'bg-green-500' : 'bg-blue-500/50'}`} style={{ width: `${wsNeeded > 0 ? Math.min(100, (wsCount / wsNeeded) * 100) : 0}%` }} />

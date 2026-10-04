@@ -1,8 +1,8 @@
 // ══════════════════════════════════════════════════════
 // 🎩 محرّك العمدة — Mayor Engine
 // مواطن يملك «نفوذاً» يُستخدم مرّة واحدة: بعد فرز التصويت وقبل تطبيق أيّ أثر،
-// يكشف نفسه ويُلغي نتيجة الإعدام ثم يختار: إعادة تصويت بين الأعلى اثنين، أو
-// تأجيلاً (لا موت اليوم). بعد الكشف صوته ×2 (فوريّاً — قرار المالك ②)،
+// يكشف نفسه ويُلغي نتيجة الإعدام ثم يختار: إعادة تصويت على كلّ الأحياء عدا مَن
+// أنقذه، أو تأجيلاً (لا موت اليوم). بعد الكشف صوته ×2 (فوريّاً — قرار المالك ②)،
 // وتعطيل الساحرة يجمّده ×1 مؤقّتاً (قرار ⑥).
 //
 // القرارات المقفلة (2026-07-16):
@@ -14,6 +14,7 @@
 
 import type { GameState, Candidate } from './state.js';
 import { Role } from './roles.js';
+import { buildVotingCandidates } from './vote-engine.js';
 
 export type MayorDecision = 'REVOTE' | 'POSTPONE';
 
@@ -102,28 +103,21 @@ export function closeMayorWindow(state: GameState): void {
   if (state.mayorState) state.mayorState.window = null;
 }
 
-// ── إعادة بناء التصويت بأمر العمدة: تصويت جديد كامل على **كلّ الأحياء** ──
+// ── إعادة بناء التصويت بأمر العمدة: تصويت جديد كامل على كلّ الأحياء **عدا مَن أنقذه** ──
 // (قرار المالك المعدَّل 2026-07-16: لا حصر بالأعلى اثنين). الصفقات القائمة تبقى مرشّحين
 // وتُخفي أهدافها كالمعتاد. علم mayorRevote على votingState يعرّف الواجهات بهويّة الجولة
 // ويزول تلقائيّاً مع أيّ تصويتٍ لاحق (initVoting يبني votingState جديدة).
-export function rebuildVotingForMayorRevote(state: GameState): void {
-  const alive = state.players.filter(p => p.isAlive && !p.penaltyKicked);
-  const deals = state.votingState.deals || [];
-  const dealTargets = deals.map(d => d.targetPhysicalId);
+//
+// 🛡️ درعُ العمدة (قرار المالك 2026-10-04): مَن أُلغي إعدامه لا يُرشَّح في بقيّة تصويت ذلك
+//    النهار — لا بكرته ولا بصفقةٍ عليه — ويعود مرشّحاً عاديّاً من النهار التالي. يُحفظ
+//    في `state.mayorShield` لا في votingState، لأنّ إعادةً بعد السحب أو «إلغاء الحصر»
+//    تبني votingState من جديد فيضيع ما عليها. والبناءُ نفسُه في `buildVotingCandidates`.
+export function rebuildVotingForMayorRevote(state: GameState, savedPhysicalId?: number | null): void {
+  state.mayorShield = savedPhysicalId != null ? { physicalId: savedPhysicalId, round: state.round || 0 } : null;
+  const { candidates, hidden } = buildVotingCandidates(state);
 
-  const dealCandidates: Candidate[] = deals.map(d => ({
-    type: 'DEAL' as any,
-    id: d.id,
-    initiatorPhysicalId: d.initiatorPhysicalId,
-    targetPhysicalId: d.targetPhysicalId,
-    votes: 0,
-  })) as any;
-  const playerCandidates: Candidate[] = alive
-    .filter(p => !dealTargets.includes(p.physicalId))
-    .map(p => ({ type: 'PLAYER' as any, targetPhysicalId: p.physicalId, votes: 0 })) as any;
-
-  state.votingState.candidates = [...dealCandidates, ...playerCandidates];
-  state.votingState.hiddenPlayersFromVoting = dealTargets;
+  state.votingState.candidates = candidates;
+  state.votingState.hiddenPlayersFromVoting = hidden;
   state.votingState.totalVotesCast = 0;
   state.votingState.tieBreakerLevel = 0;
   state.votingState.playerVotes = {};
