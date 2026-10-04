@@ -16,7 +16,7 @@ export function registerVoiceEvents(io: Server, socket: Socket) {
   // ── طلب توكن انضمام لاجتماع الغرفة ──
   socket.on('voice:get-token', async (data: { roomId: string }, callback) => {
     try {
-      if (socket.data.authStaff) socket.data.role = 'leader';
+      if (socket.data.authStaff && socket.data.role !== 'player') socket.data.role = 'leader'; // 🔒 لا ترقيةَ لمقبسٍ جالسٍ لاعباً
       if (!isVoiceConfigured()) return callback?.({ success: false, error: 'voice_not_configured' });
 
       const state = await getGameState(data.roomId);

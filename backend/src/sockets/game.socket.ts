@@ -5,7 +5,7 @@
 import { Server, Socket } from 'socket.io';
 import { getRoom, Phase, setPhase } from '../game/state.js';
 import { getTeamCounts } from '../game/roles.js';
-import { emitPhaseChangedSanitized } from './broadcast.util.js';
+import { emitPhaseChangedSanitized, projectStateFor } from './broadcast.util.js';
 
 export function registerGameEvents(io: Server, socket: Socket) {
 
@@ -15,18 +15,16 @@ export function registerGameEvents(io: Server, socket: Socket) {
       const state = await getRoom(data.roomId);
       if (!state) return callback({ success: false, error: 'Room not found' });
 
-      // إخفاء الأدوار عن غير الليدر
-      const isLeader = socket.data.role === 'leader';
-      const sanitizedState = isLeader ? state : {
-        ...state,
-        players: state.players.map(p => ({
-          ...p,
-          role: null, // لا تكشف الأدوار للاعبين
-        })),
-        nightActions: undefined,
-      };
-
-      callback({ success: true, state: sanitizedState });
+      // 🔒 الموثوق (الموجّه وشاشة العرض ومضيف الغرفة البعيدة) يأخذ الحالة كاملة.
+      //    غيرُه يأخذ الإسقاطَ نفسَه الذي يصله في البثّ — كان يأخذ كلَّ شيءٍ عدا الأدوار:
+      //    جيرانَ القنبلة بأدوارهم، والتوأمين، وعقودَ السفّاح، ونافذةَ العمدة، ورمزَ شاشة العرض.
+      //    ولا يُسأل عن غرفةٍ غير غرفته.
+      const trusted = socket.data.role === 'leader' || socket.data.role === 'display';
+      if (!trusted && socket.data.roomId !== data.roomId) {
+        return callback({ success: false, error: 'Not in this room' });
+      }
+      const seat = socket.data.role === 'player' && socket.data.physicalId != null ? Number(socket.data.physicalId) : null;
+      callback({ success: true, state: trusted ? state : projectStateFor(state, seat) });
     } catch (err: any) {
       callback({ success: false, error: err.message });
     }

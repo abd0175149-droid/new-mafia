@@ -74,7 +74,7 @@ export function registerConfrontationEvents(io: Server, socket: Socket) {
   // ── الليدر يوافق/يرفض ──
   socket.on('leader:approve-confrontation', async (data: { roomId: string; approve: boolean }, callback) => {
     try {
-      if (socket.data.authStaff) socket.data.role = 'leader';
+      if (socket.data.authStaff && socket.data.role !== 'player') socket.data.role = 'leader'; // 🔒 لا ترقيةَ لمقبسٍ جالسٍ لاعباً
       const isLeader = socket.data.role === 'leader' || socket.data.isPlayerHost === true;
       if (!isLeader) return callback?.({ success: false, error: 'only_leader' });
 

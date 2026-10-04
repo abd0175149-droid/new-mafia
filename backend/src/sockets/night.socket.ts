@@ -536,7 +536,7 @@ export function registerNightEvents(io: Server, socket: Socket) {
   // ── بدء مرحلة الليل ──────────────────────────
   // ── 🔮 تلميحات الموجّه المبكّرة للشاشة (خطّة الإحماء 2026-09-12): تحمل نوع التلميح فقط ──
   socket.on('display:hint', async (data: { roomId: string; kind: 'night-arming' | 'night-disarm' | 'execution-arming' | 'execution-disarm' }, callback?) => {
-    if (socket.data.authStaff) socket.data.role = 'leader';
+    if (socket.data.authStaff && socket.data.role !== 'player') socket.data.role = 'leader'; // 🔒 لا ترقيةَ لمقبسٍ جالسٍ لاعباً
     if (socket.data.role !== 'leader') return callback?.({ success: false, error: 'Only leader' });
     if (!['night-arming', 'night-disarm', 'execution-arming', 'execution-disarm'].includes(data?.kind)) return callback?.({ success: false, error: 'bad hint' });
     await emitTrustedOnly(io, data.roomId, 'display:hint', { kind: data.kind });
@@ -545,7 +545,7 @@ export function registerNightEvents(io: Server, socket: Socket) {
 
   socket.on('night:start', async (data: { roomId: string }, callback) => {
     try {
-      if (socket.data.authStaff) socket.data.role = 'leader';
+      if (socket.data.authStaff && socket.data.role !== 'player') socket.data.role = 'leader'; // 🔒 لا ترقيةَ لمقبسٍ جالسٍ لاعباً
       if (socket.data.role !== 'leader') {
         return callback({ success: false, error: 'Only leader' });
       }
@@ -848,14 +848,14 @@ export function registerNightEvents(io: Server, socket: Socket) {
   // يعيد إرسال الخطوة الحالية المحفوظة (currentNightStep) دون أي تصفير أو إعادة بناء.
   socket.on('night:resume', async (data: { roomId: string }, callback) => {
     try {
-      socket.join(data.roomId);
-      if (socket.data.authStaff) socket.data.role = 'leader';
+      if (socket.data.authStaff && socket.data.role !== 'player') socket.data.role = 'leader'; // 🔒 لا ترقيةَ لمقبسٍ جالسٍ لاعباً
       // 🔴 لليدر وحده: حمولة الاستئناف تحمل اسم الفاعل ورقم مقعده واختيارات
       //    الليلة كلّها. لم يكن هنا فحص دور، فأيّ سوكت لاعب — حيّاً كان أو ميّتاً —
       //    يناديه فيحصل على كلّ ذلك دفعةً واحدة.
       if (socket.data.role !== 'leader') {
         return callback?.({ success: false, error: 'Only leader' });
       }
+      socket.join(data.roomId);  // 🔒 بعد فحص الصلاحية لا قبله — المرفوضُ كان يبقى في الغرفة ويستقبل بثّها
       const state = await getGameState(data.roomId);
       if (!state || state.phase !== Phase.NIGHT) return callback?.({ success: false, error: 'ليس في مرحلة الليل' });
       emitNightResumeState(socket, state);
@@ -870,7 +870,7 @@ export function registerNightEvents(io: Server, socket: Socket) {
     targetPhysicalId: number;
   }, callback) => {
     try {
-      if (socket.data.authStaff) socket.data.role = 'leader';
+      if (socket.data.authStaff && socket.data.role !== 'player') socket.data.role = 'leader'; // 🔒 لا ترقيةَ لمقبسٍ جالسٍ لاعباً
       if (socket.data.role !== 'leader') {
         return callback({ success: false, error: 'Only leader' });
       }
@@ -1073,7 +1073,7 @@ export function registerNightEvents(io: Server, socket: Socket) {
     role: Role;
   }, callback) => {
     try {
-      if (socket.data.authStaff) socket.data.role = 'leader';
+      if (socket.data.authStaff && socket.data.role !== 'player') socket.data.role = 'leader'; // 🔒 لا ترقيةَ لمقبسٍ جالسٍ لاعباً
       if (socket.data.role !== 'leader') {
         return callback({ success: false, error: 'Only leader' });
       }
@@ -1216,7 +1216,7 @@ export function registerNightEvents(io: Server, socket: Socket) {
   // ── معالجة التقاطعات (بعد إنهاء الطابور) ────
   socket.on('night:resolve', async (data: { roomId: string }, callback) => {
     try {
-      if (socket.data.authStaff) socket.data.role = 'leader';
+      if (socket.data.authStaff && socket.data.role !== 'player') socket.data.role = 'leader'; // 🔒 لا ترقيةَ لمقبسٍ جالسٍ لاعباً
       if (socket.data.role !== 'leader') {
         return callback({ success: false, error: 'Only leader' });
       }
@@ -1965,7 +1965,7 @@ export function registerNightEvents(io: Server, socket: Socket) {
   // ══════════════════════════════════════════════════════
   socket.on('night:auto-advance-step', async (data: { roomId: string, durationSeconds?: number }, callback) => {
     try {
-      if (socket.data.authStaff) socket.data.role = 'leader';
+      if (socket.data.authStaff && socket.data.role !== 'player') socket.data.role = 'leader'; // 🔒 لا ترقيةَ لمقبسٍ جالسٍ لاعباً
       if (socket.data.role !== 'leader') {
         return callback?.({ success: false, error: 'Only leader' });
       }
@@ -1991,7 +1991,7 @@ export function registerNightEvents(io: Server, socket: Socket) {
   // ══════════════════════════════════════════════════════
   socket.on('night:auto-approve-step', async (data: { roomId: string, modifiedChoices?: any[], nextIndex: number }, callback) => {
     try {
-      if (socket.data.authStaff) socket.data.role = 'leader';
+      if (socket.data.authStaff && socket.data.role !== 'player') socket.data.role = 'leader'; // 🔒 لا ترقيةَ لمقبسٍ جالسٍ لاعباً
       if (socket.data.role !== 'leader') return callback?.({ success: false, error: 'Only leader' });
       
       const state = await getGameState(data.roomId);

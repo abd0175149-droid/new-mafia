@@ -52,6 +52,7 @@ export default function HostJustification({ gameState, emit, setError }: Props) 
 
   const run = async (fn: () => Promise<any>) => { setBusy(true); try { await fn(); } catch (e: any) { setError(e?.message || 'تعذّر'); } finally { setBusy(false); } };
   const roomId = gameState.roomId;
+  const mayorPending = !!gameState.mayorState?.window && !gameState.mayorState?.vetoUsed;
 
   const handleNext = async () => {
     try { await emit('day:stop-justification-timer', { roomId }); } catch { /* noop */ }
@@ -169,6 +170,14 @@ export default function HostJustification({ gameState, emit, setError }: Props) 
         </div>
       )}
 
+      {/* 🎩 نافذة العمدة مفتوحة — لا إقصاءَ ولا إعادة حتّى يُحسم قرارُه (وإلّا بقيت النافذةُ معلّقة
+          وقرارٌ متأخّر من هاتفه يُنفَّذ على تصويتٍ آخر) */}
+      {mayorPending && (
+        <div className="rounded-xl border border-[#C5A059]/40 bg-[#C5A059]/10 px-3 py-2.5 mb-2 text-center text-xs text-[#e8d5aa]">
+          🎩 بانتظار قرار العمدة — افتح النافذة من الأعلى أو انتظر قراره على هاتفه
+        </div>
+      )}
+
       {/* أزرار القرار */}
       {isTie ? (
         <div className="space-y-2">
@@ -178,8 +187,8 @@ export default function HostJustification({ gameState, emit, setError }: Props) 
         </div>
       ) : (
         <div className="space-y-2">
-          <button onClick={() => run(() => emit('day:execute-elimination', { roomId, skipWithdrawal: true }))} disabled={busy} className="w-full py-4 rounded-xl border-2 border-[#8A0303] bg-[#8A0303]/20 text-white font-mono font-black uppercase tracking-widest">💀 تنفيذ الإقصاء</button>
-          <button onClick={() => tie('REVOTE')} disabled={busy} className="w-full py-3.5 rounded-xl border-2 border-green-500/50 bg-[#0a1a0a] text-green-400 font-mono font-bold uppercase tracking-widest text-sm">🔁 إعادة التصويت {canRevoteByWithdrawal && <span className="text-[10px]">(النصاب ✅)</span>}</button>
+          <button onClick={() => run(() => emit('day:execute-elimination', { roomId, skipWithdrawal: true }))} disabled={busy || mayorPending} className="w-full py-4 rounded-xl border-2 border-[#8A0303] bg-[#8A0303]/20 text-white font-mono font-black uppercase tracking-widest disabled:opacity-40">💀 تنفيذ الإقصاء</button>
+          <button onClick={() => tie('REVOTE')} disabled={busy || mayorPending} className="disabled:opacity-40 w-full py-3.5 rounded-xl border-2 border-green-500/50 bg-[#0a1a0a] text-green-400 font-mono font-bold uppercase tracking-widest text-sm">🔁 إعادة التصويت {canRevoteByWithdrawal && <span className="text-[10px]">(النصاب ✅)</span>}</button>
         </div>
       )}
     </div>

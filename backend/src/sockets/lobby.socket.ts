@@ -21,7 +21,7 @@ import { getGameState, setGameState, deleteGameState } from '../config/redis.js'
 import { createMatch, finalizeIfDecided } from '../services/match.service.js';
 import { createSession, addPlayerToSession, getSessionPlayers, removePlayerFromSession, closeSession, unlinkSessionFromActivity, deleteSession, remapSessionPlayerSeats, updateSessionMaxPlayers } from '../services/session.service.js';
 import { remapPhysicalIds, validateRenumberChanges } from '../game/seat-remap.js';
-import { samePhone } from '../utils/phone.util.js';
+import { resolveSeatClaim, SEAT_CLAIM_ERRORS } from './seat-claim.js';
 import { mergeActivityPins } from '../game/seat-merge.js';
 import { dealLockedList } from '../game/deal-engine.js';
 import { publicConfrontations } from '../game/confrontation-engine.js';
@@ -36,9 +36,10 @@ import { sendPushToPlayer } from '../services/fcm.service.js';
 import { getDB } from '../config/db.js';
 import { matchPlayers, cheatSignals } from '../schemas/game.schema.js';
 import { eq, sql, and } from 'drizzle-orm';
-import { emitStateSanitized, emitPhaseChangedSanitized, emitTrustedOnly, spectatorRoom, stripSecrets } from './broadcast.util.js';
+import { emitStateSanitized, emitPhaseChangedSanitized, emitTrustedOnly, spectatorRoom, stripSecrets, publicJustification, publicPendingResolution } from './broadcast.util.js';
 import { buildAffinityPairs, loadPairRules, mergeRulesIntoAffinity, mergeGlobalBlockedPairs, upsertPairRule } from '../services/seat-affinity.service.js';
 import { personKey, pairKey } from '../game/seating/types.js';
+
 
 export const activeRooms: Map<string, {
   roomId: string; roomCode: string; gameName: string; playerCount: number; maxPlayers: number; displayPin: string;
@@ -336,7 +337,7 @@ export function detectSeatMoveHazard(state: any): SeatMoveHazard | null {
   }
 
   // 👮‍♀️🎩 نافذة قرار مفتوحة (الشرطية جاهزة أو نافذة العمدة)
-  if ((state.policewomanState?.isReady && !state.policewomanState?.isUsed) || state.mayorState?.pendingDecision) {
+  if ((state.policewomanState?.isReady && !state.policewomanState?.isUsed) || state.mayorState?.window) {
     return { kind: 'DECISION_WINDOW', message: 'هناك نافذة قرار مفتوحة — ستُغلق وتُعاد لصاحبها بعد النقل' };
   }
 
@@ -1330,12 +1331,11 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
         // 🔐 الهويّة من التوكن أوّلاً: كانت المطابقة على data.playerId/data.phone
         //    القادمَين من العميل، فأيّ جهازٍ يعرف هاتف غائبٍ يسترجع مقعده ودوره.
         //    والتطبيع كان بإضافة 0 فقط، فرقمٌ بصيغة 962… يُرفض كوافدٍ جديد.
-        const authId = socket.data.authPlayer?.playerId;
-        const claimedId = authId || data.playerId;
-        const existingPlayer =
-          (claimedId ? state.players.find((p: any) => p.playerId && p.playerId === claimedId) : undefined) ||
-          (data.phone ? state.players.find((p: any) => p.phone === data.phone) : undefined) ||
-          (data.phone ? state.players.find((p: any) => samePhone(p.phone, data.phone)) : undefined);
+        const claim = resolveSeatClaim(state, socket, { playerId: data.playerId, phone: data.phone, playerToken: (data as any).playerToken });
+        if (claim.error) {
+          return callback({ success: false, code: claim.error, error: SEAT_CLAIM_ERRORS[claim.error] });
+        }
+        const existingPlayer = claim.player;
 
         if (existingPlayer) {
           // ── فك التجميد والحجز عند العودة ──
@@ -1377,7 +1377,7 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
         // وفي تطبيق فلاتر لا تظهر الرسالة أصلاً (سبينر أبديّ). يكمل الآن بقيّة
         // البوّابات ثمّ يجلس **داخل الحلقة** في الذيل والأبعد عن الأحياء.
         // 🔒 عودةٌ لمتفرّجٍ سبق تسجيله: يُعاد لمقعده نفسه بلا تكرار.
-        const already = findSpectator(state, { playerId: claimedId, phone: data.phone });
+        const already = findSpectator(state, { playerId: socket.data.authPlayer?.playerId ?? data.playerId, phone: data.phone });
         if (already) {
           socket.join(spectatorRoom(data.roomId));
           socket.data.role = 'spectator';
@@ -2503,18 +2503,13 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
       // منقطعٍ خاصّاً بشخص آخر. السقوط عليه كان يسلّم للعائد دورَ غيره وفريقَ مافياه
       // وتوأمه وعقوده، ويربط سوكِته بذلك المقعد فيتصرّف بهويته.
       // الترتيب: حساب → هاتف (بالمطابقة التامة ثم بالتطبيع) → مقعد بشروط صارمة.
-      const byPlayerId = data.playerId
-        ? state.players.find((p: any) => p.playerId && p.playerId === data.playerId)
-        : undefined;
-      const byPhoneExact = !byPlayerId && data.phone
-        ? state.players.find((p: any) => p.phone === data.phone)
-        : undefined;
-      // تطبيع الهاتف يغلق فئة كاملة من الإخفاقات (٠٧٩… مقابل ٩٦٢٧٩…) كانت تُسقط على المقعد
-      const byPhoneNormalized = !byPlayerId && !byPhoneExact && data.phone
-        ? state.players.find((p: any) => samePhone(p.phone, data.phone))
-        : undefined;
-
-      let player = byPlayerId || byPhoneExact || byPhoneNormalized;
+      // 🪪 الهويّةُ من التوكن (resolveSeatClaim) — حسابٌ بتوكنه، وضيفٌ بهاتفه
+      const claim = resolveSeatClaim(state, socket, { playerId: data.playerId, phone: data.phone, playerToken: (data as any).playerToken });
+      if (claim.error) {
+        console.warn(`⛔ Rejoin refused in ${data.roomId}: ${claim.error} (seat #${data.physicalId})`);
+        return callback({ success: false, code: claim.error, error: SEAT_CLAIM_ERRORS[claim.error] });
+      }
+      let player = claim.player;
       const identifiedByPerson = !!player;
 
       if (!player) {
@@ -3725,13 +3720,13 @@ async function readSeatLayoutOnly(activityId: any): Promise<any> {
   }, callback) => {
     try {
       // Auto-join as leader — يُسمح لليدر الموظّف أو لمُضيف الغرفة البعيدة (اللاعب-الليدر) لغرفته فقط
-      socket.join(data.roomId);
       const isStaffLeader = !!socket.data.authStaff;
       const isPlayerHostOfRoom = socket.data.isPlayerHost === true && socket.data.hostRoomId === data.roomId;
       if (!isStaffLeader && !isPlayerHostOfRoom) {
         if (typeof callback === 'function') callback({ success: false, error: 'غير مصرّح — صلاحية الليدر مطلوبة' });
         return;
       }
+      socket.join(data.roomId);  // 🔒 بعد فحص الصلاحية لا قبله — المرفوضُ كان يبقى في الغرفة ويستقبل بثّها
       socket.data.role = 'leader';
       socket.data.roomId = data.roomId;
 
@@ -5156,10 +5151,15 @@ async function readSeatLayoutOnly(activityId: any): Promise<any> {
   // ── جلب دور اللاعب (Polling fallback) ──────────────
   socket.on('room:get-my-role', async (data: { roomId: string; physicalId: number }, callback) => {
     try {
+      // 🔒 المقعدُ من المقبس لا من الحمولة: كان أيُّ مقبسٍ يرسل رقمَ مقعدٍ فيأخذ دورَه وفريقَ مافياه
+      if (socket.data.role !== 'player' || socket.data.roomId !== data.roomId || socket.data.physicalId == null) {
+        return callback({ role: null, confirmed: false });
+      }
       const state = await getRoom(data.roomId);
       if (!state) return callback({ role: null, confirmed: false });
 
-      const player = state.players.find((p: any) => p.physicalId === data.physicalId);
+      const mySeat = Number(socket.data.physicalId);
+      const player = state.players.find((p: any) => p.physicalId === mySeat);
       const response: any = {
         role: player?.role || null,
         confirmed: state.rolesConfirmed || false,
@@ -5172,7 +5172,7 @@ async function readSeatLayoutOnly(activityId: any): Promise<any> {
       }
       // 👥 تعارف الأخوين (إعادة التسليم عند الاستعلام) — null لغير الأخوين (نفس بقية المسارات)
       if (player?.role && (state.rolesConfirmed || false)) {
-        response.sibling = getSiblingInfoFor(state, data.physicalId);
+        response.sibling = getSiblingInfoFor(state, mySeat);
       }
       callback(response);
     } catch {
@@ -5192,13 +5192,10 @@ async function readSeatLayoutOnly(activityId: any): Promise<any> {
       if (!state) return callback({ success: false, error: 'Room not found' });
 
       // البحث بـ playerId أولاً (الأوثق) ثم بالهاتف
-      let player = data.playerId
-        ? state.players.find((p: any) => p.playerId === data.playerId)
-        : null;
-      
-      if (!player && data.phone) {
-        player = state.players.find((p: any) => p.phone === data.phone);
-      }
+      // 🪪 الهويّةُ من التوكن (resolveSeatClaim) — كانت من الحمولة، فمَن يرسل معرّفَ غيره يقرأ دورَه
+      const claim = resolveSeatClaim(state, socket, { playerId: data.playerId, phone: data.phone, playerToken: (data as any).playerToken });
+      if (claim.error) return callback({ success: false, code: claim.error, error: SEAT_CLAIM_ERRORS[claim.error] });
+      let player = claim.player || null;
 
       if (!player) {
         // 👁️ متفرّجٌ وصل متأخّراً: ليس في players ولكنّه ليس غريباً.
@@ -5282,7 +5279,8 @@ async function readSeatLayoutOnly(activityId: any): Promise<any> {
         confrontationsPerPlayer: state.config?.confrontationsPerPlayer ?? 1,
         confrontationState: state.phase === 'DAY_DISCUSSION' ? publicConfrontations(state as any) : null,
         // بيانات التبرير (لاستعادة الـ UI عند reconnect)
-        justificationData: state.phase === 'DAY_JUSTIFICATION' ? state.justificationData || null : null,
+        // 🔒 بلا أدوار المتّهمين — كانت تصل هنا حتّى بعد حجبها من البثّ
+        justificationData: state.phase === 'DAY_JUSTIFICATION' ? publicJustification(state.justificationData) || null : null,
         // حالة سحب الأصوات
         withdrawalState: state.phase === 'DAY_JUSTIFICATION' ? (state.withdrawalState || null) : null,
         // 🎩 العمدة المكشوف (علنيّ بعد الكشف) — بلاه تختفي شارة ×N بعد إعادة التحميل.
@@ -5337,7 +5335,8 @@ async function readSeatLayoutOnly(activityId: any): Promise<any> {
           ? await oneNightResumeFor(state as any, player.physicalId)
           : null,
         // بيانات الإقصاء المعلّقة (لاستعادة شاشة الإقصاء عند reconnect)
-        pendingResolution: state.phase === 'DAY_ELIMINATION' ? state.pendingResolution || null : null,
+        // 🔒 قبل «كشف الأدوار»: مَن خرج (الأرقام) وحدها — لا أدوار ولا أسباب ولا صفقة
+        pendingResolution: state.phase === 'DAY_ELIMINATION' ? publicPendingResolution(state) || null : null,
         // عقود السفّاح
         assassinContracts: (shouldShowRole && player.role === 'ASSASSIN' && state.assassinState) ? {
           contracts: state.assassinState.contracts,
@@ -5916,8 +5915,8 @@ async function readSeatLayoutOnly(activityId: any): Promise<any> {
   socket.on('room:close', async (data: { roomId: string }, callback) => {
     try {
       // Auto-join as leader
-      socket.join(data.roomId);
       if (!socket.data.authStaff) { if (typeof callback === 'function') callback({ success: false, error: 'غير مصرّح — صلاحية الليدر مطلوبة' }); return; } socket.data.role = 'leader';
+      socket.join(data.roomId);  // 🔒 بعد فحص الصلاحية لا قبله — المرفوضُ كان يبقى في الغرفة ويستقبل بثّها
       socket.data.roomId = data.roomId;
 
       const state = await getGameState(data.roomId);
@@ -5946,8 +5945,8 @@ async function readSeatLayoutOnly(activityId: any): Promise<any> {
   socket.on('room:delete-room', async (data: { roomId: string }, callback) => {
     try {
       // Auto-join as leader for this operation
-      socket.join(data.roomId);
       if (!socket.data.authStaff) { if (typeof callback === 'function') callback({ success: false, error: 'غير مصرّح — صلاحية الليدر مطلوبة' }); return; } socket.data.role = 'leader';
+      socket.join(data.roomId);  // 🔒 بعد فحص الصلاحية لا قبله — المرفوضُ كان يبقى في الغرفة ويستقبل بثّها
       socket.data.roomId = data.roomId;
 
       const state = await getGameState(data.roomId);
@@ -6222,12 +6221,12 @@ async function readSeatLayoutOnly(activityId: any): Promise<any> {
   socket.on('room:reset-to-lobby', async (data: { roomId: string; resetPenalties?: boolean }, callback) => {
     try {
       // Auto-join as leader (staff أو مُضيف-لاعب مُخوّل — الحارس يقصره على غرفته)
-      socket.join(data.roomId);
-      if (socket.data.authStaff) socket.data.role = 'leader';
+      if (socket.data.authStaff && socket.data.role !== 'player') socket.data.role = 'leader'; // 🔒 لا ترقيةَ لمقبسٍ جالسٍ لاعباً
       if (socket.data.role !== 'leader' && socket.data.isPlayerHost !== true) {
         if (typeof callback === 'function') callback({ success: false, error: 'غير مصرّح — صلاحية الليدر مطلوبة' });
         return;
       }
+      socket.join(data.roomId);  // 🔒 بعد فحص الصلاحية لا قبله — المرفوضُ كان يبقى في الغرفة ويستقبل بثّها
       socket.data.roomId = data.roomId;
 
       const state = await getGameState(data.roomId);
@@ -6295,8 +6294,8 @@ async function readSeatLayoutOnly(activityId: any): Promise<any> {
   // ══════════════════════════════════════════════════════
   socket.on('room:lucky-draw:draw', async (data: { roomId: string; count: number; poolMode?: 'all' | 'alive'; excludeWinners?: boolean }, callback) => {
     try {
-      socket.join(data.roomId);
       if (!socket.data.authStaff) { if (typeof callback === 'function') callback({ success: false, error: 'غير مصرّح — صلاحية الليدر مطلوبة' }); return; }
+      socket.join(data.roomId);  // 🔒 بعد فحص الصلاحية لا قبله — المرفوضُ كان يبقى في الغرفة ويستقبل بثّها
       socket.data.role = 'leader';
 
       const state = await getGameState(data.roomId);
@@ -6340,8 +6339,8 @@ async function readSeatLayoutOnly(activityId: any): Promise<any> {
 
   socket.on('room:lucky-draw:reveal', async (data: { roomId: string }, callback) => {
     try {
-      socket.join(data.roomId);
       if (!socket.data.authStaff) { if (typeof callback === 'function') callback({ success: false, error: 'غير مصرّح — صلاحية الليدر مطلوبة' }); return; }
+      socket.join(data.roomId);  // 🔒 بعد فحص الصلاحية لا قبله — المرفوضُ كان يبقى في الغرفة ويستقبل بثّها
       socket.data.role = 'leader';
 
       const state = await getGameState(data.roomId);
@@ -6372,8 +6371,8 @@ async function readSeatLayoutOnly(activityId: any): Promise<any> {
 
   socket.on('room:lucky-draw:clear', async (data: { roomId: string }, callback) => {
     try {
-      socket.join(data.roomId);
       if (!socket.data.authStaff) { if (typeof callback === 'function') callback({ success: false, error: 'غير مصرّح — صلاحية الليدر مطلوبة' }); return; }
+      socket.join(data.roomId);  // 🔒 بعد فحص الصلاحية لا قبله — المرفوضُ كان يبقى في الغرفة ويستقبل بثّها
       socket.data.role = 'leader';
 
       const state = await getGameState(data.roomId);
@@ -6393,8 +6392,8 @@ async function readSeatLayoutOnly(activityId: any): Promise<any> {
   }, callback) => {
     try {
       // Auto-join as leader
-      socket.join(data.roomId);
       if (!socket.data.authStaff) { if (typeof callback === 'function') callback({ success: false, error: 'غير مصرّح — صلاحية الليدر مطلوبة' }); return; } socket.data.role = 'leader';
+      socket.join(data.roomId);  // 🔒 بعد فحص الصلاحية لا قبله — المرفوضُ كان يبقى في الغرفة ويستقبل بثّها
       socket.data.roomId = data.roomId;
 
       const state = await getGameState(data.roomId);

@@ -13,6 +13,7 @@ import LeaderDayView from '@/app/leader/LeaderDayView';
 import HostVoting from './HostVoting';
 import HostJustification from './HostJustification';
 import HostElimination from './HostElimination';
+import HostMayorWindow from './HostMayorWindow';
 
 interface Props {
   gameState: any;
@@ -20,7 +21,28 @@ interface Props {
   setError: (s: string) => void;
 }
 
-export default function HostDayControls({ gameState, emit, setError }: Props) {
+export default function HostDayControls(props: Props) {
+  const { gameState, emit, setError } = props;
+  const body = <HostDayBody {...props} />;
+  // 🎩 نافذة العمدة فوق كلّ أطوار النهار — إلّا حين يتولّى LeaderDayView العرضَ (له نافذتُه)
+  const delegated = isDelegatedToLeaderView(gameState);
+  return (
+    <>
+      {body}
+      {!delegated && <HostMayorWindow gameState={gameState} emit={emit} setError={setError} />}
+    </>
+  );
+}
+
+function isDelegatedToLeaderView(gameState: any): boolean {
+  if (['DAY_DISCUSSION', 'DAY_VOTING', 'DAY_JUSTIFICATION'].includes(gameState.phase)) return false;
+  const pendingType = (gameState.pendingResolution as any)?.type;
+  const hasBombFlow = !!gameState.pendingBomb;
+  return !(['DAY_ELIMINATION', 'DAY_REVEALED', 'DAY_TIEBREAKER'].includes(gameState.phase)
+    && pendingType !== 'MAYOR_POSTPONED' && !hasBombFlow);
+}
+
+function HostDayBody({ gameState, emit, setError }: Props) {
   const ds = gameState.discussionState;
   if (gameState.phase === 'DAY_DISCUSSION') {
     if (ds?.isFinished) return <DiscussionFinished gameState={gameState} emit={emit} setError={setError} />;

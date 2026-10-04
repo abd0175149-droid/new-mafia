@@ -98,7 +98,7 @@ export function registerGeofenceEvents(io: Server, socket: Socket) {
   socket.on('geofence:map', async (data: { roomId: string }, callback) => {
     const respond = (r: any) => { if (typeof callback === 'function') callback(r); };
     try {
-      if (socket.data.authStaff) socket.data.role = 'leader';
+      if (socket.data.authStaff && socket.data.role !== 'player') socket.data.role = 'leader'; // 🔒 لا ترقيةَ لمقبسٍ جالسٍ لاعباً
       if (socket.data.role !== 'leader') return respond({ success: false, error: 'Only leader' });
 
       const state: any = await getGameState(data?.roomId);

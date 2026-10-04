@@ -1,11 +1,15 @@
 // ══════════════════════════════════════════════════════
-// 🔒 بثّ الحالة مع إخفاء الأسرار عن اللاعبين في الغرف البعيدة
+// 🔒 بثّ الحالة مع إخفاء الأسرار عن اللاعبين — في كلّ الغرف
 // ══════════════════════════════════════════════════════
-// في الوضع المحلي (شاشة عرض فعليّة يشرف عليها الليدر) لا يتغيّر أي شيء:
-// السلوك مطابقٌ تماماً لـ io.to(roomId).emit — بايت ببايت.
-// في الغرف البعيدة (isRemote) يستقبل الليدر/شاشة العرض الحالة الكاملة،
-// بينما يستقبل اللاعبون نسخةً منزوعة الأسرار (الأدوار = null، بلا أحداث ليل/اختيارات).
-// السبب: مقبس اللاعب في الغرفة نفسها، ويمكن قراءة الحمولة الخام عبر devtools.
+// الموجّه وشاشةُ العرض ومضيفُ الغرفة البعيدة (موثوقون) يستقبلون الحالة كاملة.
+// كلُّ هاتف لاعبٍ يستقبل إسقاطاً (`projectStateFor`): بياناتُ اللعبة العلنيّة، ومقعدُه
+// هو بدوره وهاتفه، وأدوارُ الموتى بعد كشفها فقط.
+//
+// 🔴 تغيّر 2026-10-04: كانت الغرف المحلّيّة (القاعة) تبثّ الحالة **خاماً** لكلّ هاتف
+//    «بايت ببايت» — بأدوار الجميع ونيّات الليل والتوأمين وعقود السفّاح ونافذة العمدة
+//    ورمز شاشة العرض. مقبسُ اللاعب في الغرفة نفسها، ومَن يفتح أدوات المطوّر يقرؤها.
+//    ولا يقرأ أيٌّ من عميلَي اللاعب (الويب وفلاتر) دورَ غيره من الحالة — دورُه وفريقُه
+//    وتوأمُه وعقودُه تصله بأحداثٍ خاصّةٍ بمقبسه — فالإسقاطُ لا يكسر شيئاً.
 
 import type { Server } from 'socket.io';
 import { notifyPulseForRoom } from './activity-pulse.socket.js';
@@ -41,6 +45,167 @@ export function stripSecrets(state: any): any {
     // 🜂 وقائمةُ مؤهَّلي اللعنة تفضح مَن صوّت على مَن — سرٌّ حتى عن شاشة العرض.
     pendingAshCurse: undefined,
   };
+}
+
+// ── 🔒 إسقاطُ الحالة للاعب ──────────────────────────────
+
+/** حقولُ اللاعب العلنيّة — قائمةُ سماح: أيُّ حقلٍ جديد سرّيٌّ حتّى يُضاف هنا عمداً. */
+const PLAYER_PUBLIC_KEYS = [
+  'physicalId', 'name', 'gender', 'playerId', 'isAlive', 'isSilenced', 'justificationCount',
+  'addedBy', 'frozen', 'avatarUrl', 'rankTier', 'cosmetics', 'seatHeld', 'heldUntil',
+  'isConnected', 'penalties', 'penaltyKicked', 'cardRevealed',
+] as const;
+
+/** حقولُ الحالة العلنيّة على المستوى الأعلى — قائمةُ سماح كذلك. */
+const STATE_PUBLIC_KEYS = [
+  'roomId', 'roomCode', 'phase', 'round', 'rolesConfirmed', 'startedAt', 'setupStartedAt',
+  'matchId', 'sessionId', 'sessionCode', 'activityId', 'locationId', 'locationName', 'cityId',
+  'cityName', 'seasonName', 'discussionState', 'votingState', 'withdrawalState', 'confrontation',
+  'confrontationCount', 'confrontationRound', 'gameTimer', 'eliminationRevealed',
+  'dealRegisteredRound', 'confrontationsUsed', 'mayorShield', 'luckyDrawHistory', 'createdAt',
+] as const;
+
+const PRE_GAME_PHASES = new Set(['LOBBY', 'ROLE_GENERATION', 'ROLE_BINDING']);
+
+/** المقاعدُ الميّتة التي لم يُكشف دورُها بعد — موتُها في الحالة يسبق إعلانَه. */
+function unrevealedDeadSeats(state: any): Set<number> {
+  const out = new Set<number>();
+  // إقصاءُ النهار: يُعلَّم الميّتُ قبل «كشف الأدوار»
+  if (state.phase === 'DAY_ELIMINATION' && !state.eliminationRevealed) {
+    for (const id of state.pendingResolution?.eliminated || []) out.add(Number(id));
+  }
+  for (const id of state.heldBombResult?.bombEliminated || []) out.add(Number(id));
+  // الليل: كلُّ حدثٍ لم يعرضه الموجّه بعد
+  for (const ev of state.morningEvents || []) {
+    if (ev?.revealed) continue;
+    if (ev?.targetPhysicalId != null) out.add(Number(ev.targetPhysicalId));
+    const sniper = ev?.extra?.sniperPhysicalId;
+    if (sniper != null) out.add(Number(sniper));
+  }
+  return out;
+}
+
+const stripRole = (o: any) => {
+  if (!o || typeof o !== 'object') return o;
+  const { role, ...rest } = o;
+  void role;
+  return rest;
+};
+
+/** تبريرٌ بلا أدوار المتّهمين — لكلّ ما يصل غيرَ الموثوقين. */
+export function publicJustification(jd: any): any {
+  if (!jd || typeof jd !== 'object') return jd;
+  return {
+    ...jd,
+    accused: Array.isArray(jd.accused) ? jd.accused.map(stripRole) : jd.accused,
+    canJustifyList: Array.isArray(jd.canJustifyList) ? jd.canJustifyList.map(stripRole) : jd.canJustifyList,
+    candidates: Array.isArray(jd.candidates) ? jd.candidates.map(stripRole) : jd.candidates,
+  };
+}
+
+/** نتيجةُ الإقصاء قبل الكشف: مَن خرج (الأرقام) لا أدوارُهم ولا الأسباب ولا الصفقة. */
+export function publicPendingResolution(state: any): any {
+  const pr = state?.pendingResolution;
+  if (!pr) return pr;
+  return state.eliminationRevealed ? { ...pr } : { eliminated: pr.eliminated || [], type: pr.type };
+}
+
+/**
+ * يُسقط الحالةَ لهاتف لاعب. `viewerSeat` = مقعدُ المستلِم (أو null لمن لا مقعد له).
+ *
+ * يُبقي ما تحتاجه واجهتا اللاعب: الروستر (بلا أدوار الأحياء ولا هواتف غيره)، والطور،
+ * والنقاش والتصويت والسحب، والتبرير بلا أدوار المتّهمين، وإعداداتٍ علنيّة بلا رمز
+ * شاشة العرض. ويُسقط كلَّ ما عداها — قائمةُ سماحٍ لا قائمةُ منع.
+ */
+export function projectStateFor(state: any, viewerSeat: number | null): any {
+  if (!state || typeof state !== 'object' || !Array.isArray(state.players)) return state;
+  const hidden = unrevealedDeadSeats(state);
+  const started = !!state.rolesConfirmed || !PRE_GAME_PHASES.has(state.phase);
+
+  const out: any = {};
+  for (const k of STATE_PUBLIC_KEYS) if (state[k] !== undefined) out[k] = state[k];
+
+  out.players = state.players.map((p: any) => {
+    const q: any = {};
+    for (const k of PLAYER_PUBLIC_KEYS) if (p[k] !== undefined) q[k] = p[k];
+    if (viewerSeat != null && p.physicalId === viewerSeat) {
+      q.phone = p.phone ?? null;
+      q.role = started ? (p.role ?? null) : null;
+    } else {
+      q.role = p.isAlive === false && !hidden.has(Number(p.physicalId)) ? (p.role ?? null) : null;
+    }
+    return q;
+  });
+
+  if (Array.isArray(state.spectators)) {
+    out.spectators = state.spectators.map((s: any) => ({
+      physicalId: s.physicalId, name: s.name, playerId: s.playerId ?? null, gender: s.gender ?? null,
+      avatarUrl: s.avatarUrl ?? null, rankTier: s.rankTier ?? null, cosmetics: s.cosmetics ?? null,
+      joinedAt: s.joinedAt, addedBy: s.addedBy,
+    }));
+  }
+
+  if (state.config) {
+    // رمزُ شاشة العرض كان يصل كلَّ هاتف — وبه يصير الهاتفُ «شاشة عرض» موثوقةً تستقبل كلَّ شيء
+    const { displayPin, voiceMeetingId, overrideCode, ...cfg } = state.config;
+    void displayPin; void voiceMeetingId; void overrideCode;
+    out.config = cfg;
+  }
+
+  if (state.justificationData) out.justificationData = publicJustification(state.justificationData);
+  if (Array.isArray(state.tiedCandidates)) out.tiedCandidates = state.tiedCandidates.map(stripRole);
+  if (state.pendingResolution) out.pendingResolution = publicPendingResolution(state);
+
+  if (state.mayorState?.revealed) {
+    const ms = state.mayorState;
+    out.mayorState = { mayorPhysicalId: ms.mayorPhysicalId, revealed: true, vetoUsed: ms.vetoUsed, decision: ms.decision, revealedAtRound: ms.revealedAtRound };
+  }
+
+  if (Array.isArray(state.confrontations)) {
+    out.confrontations = state.confrontations.map((c: any) => ({ ...c, pulseVotes: undefined }));
+  }
+
+  if (state.luckyDraw) {
+    const ld = state.luckyDraw;
+    // الرابحون محسومون لحظةَ السحب — يبقون سرّاً حتّى الكشف على الشاشة
+    out.luckyDraw = ld.status === 'revealed' ? ld : { status: ld.status, count: ld.count, poolMode: ld.poolMode, excludeWinners: ld.excludeWinners };
+  }
+
+  if (state.phase === 'GAME_OVER') out.winner = state.winner ?? null;
+  return out;
+}
+
+/** يرسل لكلّ مقبسٍ في الغرفة نسختَه: الموثوق كاملة، واللاعب إسقاطَه، وغيرُهما الإسقاطَ العامّ. */
+async function emitProjected(
+  io: Server,
+  roomId: string,
+  event: string,
+  state: any,
+  wrap: (s: any) => any,
+): Promise<void> {
+  const base = projectStateFor(state, null);
+  io.to(spectatorRoom(roomId)).emit(event, wrap(base));
+  const sockets = await io.in(roomId).fetchSockets();
+  for (const s of sockets) {
+    if (isTrusted(s)) { s.emit(event, wrap(state)); continue; }
+    // المقعدُ يُعتمد في غرفته وحدها — مقبسٌ من غرفةٍ أخرى لا يأخذ بيانات مقعدٍ يحمل رقمَه هنا
+    const seat = s.data?.role === 'player' && s.data?.roomId === roomId && s.data?.physicalId != null
+      ? Number(s.data.physicalId) : null;
+    s.emit(event, wrap(seat != null ? projectStateFor(state, seat) : base));
+  }
+}
+
+/** حمولةٌ للموثوقين وأخرى لغيرهم — لأحداثٍ تحمل سرّاً بعينه (كأدوار المتّهمين). */
+export async function emitTrustedVariant(
+  io: Server,
+  roomId: string,
+  event: string,
+  trustedPayload: any,
+  publicPayload: any,
+): Promise<void> {
+  io.to(spectatorRoom(roomId)).emit(event, publicPayload);
+  const sockets = await io.in(roomId).fetchSockets();
+  for (const s of sockets) s.emit(event, isTrusted(s) ? trustedPayload : publicPayload);
 }
 
 /**
@@ -93,23 +258,14 @@ export async function emitTrustedOnly(
 }
 
 // بثّ حدثٍ حمولتُه هي كائن الحالة كاملاً (game:state-sync / game:state-updated …)
+// 🔒 في كلّ الغرف: الموثوق كاملة، وكلُّ لاعبٍ إسقاطَه (انظر رأس الملفّ).
 export async function emitStateSanitized(
   io: Server,
   roomId: string,
   event: string,
   state: any,
 ): Promise<void> {
-  if (!state?.config?.isRemote) {
-    io.to(roomId).emit(event, state); // محلي: بلا تغيير
-    io.to(spectatorRoom(roomId)).emit(event, stripSecrets(state)); // 👁️ نسخة معقّمة
-    return;
-  }
-  const stripped = stripSecrets(state);
-  io.to(spectatorRoom(roomId)).emit(event, stripped);
-  const sockets = await io.in(roomId).fetchSockets();
-  for (const s of sockets) {
-    s.emit(event, isTrusted(s) ? state : stripped);
-  }
+  await emitProjected(io, roomId, event, state, (st) => st);
 }
 
 // بثّ game:phase-changed حيث قد تحتوي الحمولة على حقل state يجب تعقيمه.
@@ -123,29 +279,19 @@ export async function emitPhaseChangedSanitized(
   // 🌙 مِشبكُ نبض الليلة — مكانٌ واحد بدل عشرين نداءً متفرّقاً.
   //    إشارةٌ مكبوحة لا حمولة؛ الحاجزون خارج الغرفة يسحبون لقطتهم.
   void notifyPulseForRoom(io, roomId, state);
-  const spectatorPayload = state ? { ...payload, state: stripSecrets(state) } : payload;
-  io.to(spectatorRoom(roomId)).emit('game:phase-changed', spectatorPayload); // 👁️ معقّمة دائماً
-  if (!state?.config?.isRemote) {
-    // 🎬 محلّيّاً كما كان — إلّا أسرارَ ما قبل الكشف فتُحذف عن غير الموثوقين (2026-09-13)
-    if (state && (state.pendingResolution || state.pendingBomb || state.heldBombResult)) {
-      const localStripped = { ...payload, state: stripEliminationSecrets(state) };
-      const socks = await io.in(roomId).fetchSockets();
-      for (const s of socks) s.emit('game:phase-changed', isTrusted(s) ? payload : localStripped);
-      return;
-    }
-    io.to(roomId).emit('game:phase-changed', payload); // بلا state أو محلي: بلا تغيير
+  if (!state) {
+    io.to(spectatorRoom(roomId)).emit('game:phase-changed', payload);
+    io.to(roomId).emit('game:phase-changed', payload); // بلا حالة: لا سرّ فيها
     return;
   }
-  const strippedPayload = { ...payload, state: stripEliminationSecrets(stripSecrets(state)) };
-  const sockets = await io.in(roomId).fetchSockets();
-  for (const s of sockets) {
-    s.emit('game:phase-changed', isTrusted(s) ? payload : strippedPayload);
-  }
+  // 🔒 في كلّ الغرف — كان المحلّيّ خاماً بأدوار الجميع لحظةَ بدء اللعبة (setup:binding-complete)
+  await emitProjected(io, roomId, 'game:phase-changed', state, (st) => ({ ...payload, state: st }));
 }
 
 // أحداث لوحة الليدر في الليل الآلي (auto-step-ready/approval/started/progress) تكشف
-// هويّة الفاعل ودوره واختياره الحقيقي. في الغرف البعيدة تُرسَل للليدر/العرض فقط،
-// ويُحجَب استقبالها الخام عن اللاعبين. محليّاً: بثٌّ كامل للغرفة كما كان (بلا تغيير).
+// هويّة الفاعل ودوره واختياره الحقيقي.
+// 🔒 للموثوقين في كلّ الغرف — كان المحلّيّ بثّاً للغرفة كلّها. لا يستمع إليها أيُّ عميل
+//    لاعب (الموجّه ومضيف الغرفة البعيدة وحدهما). `isRemote` باقٍ في التوقيع للتوافق.
 export async function emitLeaderOnly(
   io: Server,
   roomId: string,
@@ -153,38 +299,26 @@ export async function emitLeaderOnly(
   payload: any,
   isRemote: boolean | undefined,
 ): Promise<void> {
-  if (!isRemote) {
-    io.to(roomId).emit(event, payload);
-    return;
-  }
+  void isRemote;
   const sockets = await io.in(roomId).fetchSockets();
   for (const s of sockets) {
     if (isTrusted(s)) s.emit(event, payload);
   }
 }
 
-// ملخّص الصباح يحمل مصفوفة اللاعبين كاملةً بأدوارهم. للليدر تُرسَل كاملةً، وللاعبين
-// تُنزَع الأدوار وحالة القاتل (تبقى الأحداث العامّة: من مات، الفائز المعلّق).
-// محليّاً: بلا تغيير.
+// ملخّص الصباح يحمل مصفوفة اللاعبين كاملةً بأدوارهم، وفاعلي الليل (performerPhysicalId)،
+// وحالةَ السفّاح.
+// 🔒 للموثوقين في كلّ الغرف — حتّى نسخةُ الغرف البعيدة «المعقّمة» كانت تكشف الفاعلين.
+//    ولا يستمع إليها عميلُ لاعب: الموجّه ومضيف الغرفة البعيدة وحدهما.
 export async function emitMorningRecapSanitized(
   io: Server,
   roomId: string,
   payload: any,
   isRemote: boolean | undefined,
 ): Promise<void> {
-  if (!isRemote) {
-    io.to(roomId).emit('night:morning-recap', payload);
-    return;
-  }
-  const playerPayload = {
-    ...payload,
-    players: Array.isArray(payload?.players)
-      ? payload.players.map((p: any) => ({ ...p, role: p.isAlive === false ? (p.role ?? null) : null }))
-      : payload?.players,
-    assassinState: null,
-  };
+  void isRemote;
   const sockets = await io.in(roomId).fetchSockets();
   for (const s of sockets) {
-    s.emit('night:morning-recap', isTrusted(s) ? payload : playerPayload);
+    if (isTrusted(s)) s.emit('night:morning-recap', payload);
   }
 }

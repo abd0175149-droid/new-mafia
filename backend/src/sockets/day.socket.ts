@@ -29,7 +29,7 @@ import { scheduleRevealGrace, clearRevealGrace } from '../game/reveal-grace.js';
 import { processTwinBond, applySuicide, applyTransform } from '../game/twin-engine.js';
 import { notifyTwinTransform } from './twin-notify.js';
 import { clearGameTimer, adjustGameTimer } from '../game/game-timer.js';
-import { emitStateSanitized, emitPhaseChangedSanitized, emitEliminationPending, spectatorRoom, emitTrustedOnly } from './broadcast.util.js';
+import { emitStateSanitized, emitPhaseChangedSanitized, emitEliminationPending, spectatorRoom, emitTrustedOnly, emitTrustedVariant, publicJustification } from './broadcast.util.js';
 import {
   isMayorEligible,
   mayorVoteWeight,
@@ -537,7 +537,8 @@ export function registerDayEvents(io: Server, socket: Socket) {
       await setGameState(data.roomId, state);
 
       io.to(data.roomId).emit('game:phase-changed', { phase: Phase.DAY_JUSTIFICATION });
-      io.to(data.roomId).emit('day:justification-started', justificationData);
+      // 🔒 أدوارُ المتّهمين للموجّه والعرض وحدهما — كانت تصل كلَّ هاتفٍ وهم أحياء
+      await emitTrustedVariant(io, data.roomId, 'day:justification-started', justificationData, publicJustification(justificationData));
       callback({ success: true, result: sortResult });
     } catch (err: any) {
       callback({ success: false, error: err.message });
@@ -870,6 +871,13 @@ export function registerDayEvents(io: Server, socket: Socket) {
       // ولا يُستدعى resolveVoting إلا بعد قراره — فلا حاجة لأيّ تراجعٍ عن مهرج/قنبلة/توأمين.
       if (!(data as any).skipMayor) {
         const stateNow = await getGameState(data.roomId);
+        // 🎩 نافذةٌ مفتوحةٌ أصلاً (ضغطةٌ ثانية على «تنفيذ الإقصاء»): تُعاد إرسالُها كما هي — لا
+        //    لقطةَ جديدة تُبدّل ما يراه العمدةُ على هاتفه أثناء تفكيره.
+        if (stateNow?.mayorState?.window && !stateNow.mayorState.vetoUsed) {
+          const openWin = stateNow.mayorState.window;
+          await emitMayorWindow(io, data.roomId, stateNow, openWin);
+          return callback({ success: true, mayorWindow: true, resent: true, window: sanitizeWindowForLeader(stateNow, openWin) });
+        }
         if (stateNow && isMayorEligible(stateNow)) {
           const sort = await getVoteResult(data.roomId);
           if (sort.type === 'SINGLE_WINNER' && sort.topVotes > 0) {
@@ -905,6 +913,15 @@ export function registerDayEvents(io: Server, socket: Socket) {
       const ms = state.mayorState;
       if (!ms || !ms.window) return callback({ success: false, error: 'لا نافذة عمدةٍ مفتوحة' });
 
+      // 🔴 النافذةُ تخصّ تبريرَ هذه الجولة وحده. إن انتقلت الطاولة (إعادة تصويت، تعادل، طورٌ آخر)
+      //    فقرارٌ متأخّر من هاتف العمدة كان يُنفّذ إعداماً على تصويتٍ لم يعد قائماً. تُغلق ويُرفض.
+      if (state.phase !== Phase.DAY_JUSTIFICATION) {
+        closeMayorWindow(state);
+        await setGameState(data.roomId, state);
+        await emitMayorWindowClosed(io, data.roomId, ms.mayorPhysicalId);
+        return callback({ success: false, error: 'انتهت نافذة العمدة — تغيّرت الجولة' });
+      }
+
       const isLeader = socket.data.role === 'leader';
       const isMayorSelf = socket.data.role === 'player' && socket.data.physicalId === ms.mayorPhysicalId;
       if (!isLeader && !isMayorSelf) {
@@ -915,7 +932,9 @@ export function registerDayEvents(io: Server, socket: Socket) {
       if (data.decision === 'PASS') {
         closeMayorWindow(state);
         await setGameState(data.roomId, state);
-        io.to(data.roomId).emit('day:mayor-window-closed', {}); // للّيدر/هاتف العمدة — لا يكشف شيئاً للبقيّة
+        // 🔒 للموجّه والعرض وهاتف العمدة وحدهم: بثُّه للغرفة كان يُخبر كلَّ هاتفٍ أنّ عمدةً مخفيّاً
+        //    موجودٌ وحيٌّ وقد مرّر — معلومةٌ تكشف تركيبة الطاولة.
+        await emitMayorWindowClosed(io, data.roomId, ms.mayorPhysicalId);
         const result = await performElimination(io, data.roomId);
         console.log(`🎩 Mayor passed in room ${data.roomId} — elimination proceeded`);
         return callback({ success: true, passed: true, result });
@@ -1838,10 +1857,19 @@ export function registerDayEvents(io: Server, socket: Socket) {
     physicalId: number;
   }, callback) => {
     try {
-      // Auto-join as leader
-      socket.join(data.roomId);
-      socket.data.role = 'leader';
-      socket.data.roomId = data.roomId;
+      // 🔒 الصلاحيةُ قبل أيّ شيء: كان أيُّ مقبسٍ — بلا توكن — ينضمّ للغرفة ويصير «leader»
+      //    هنا ثمّ يُرفض بعد الترقية، فيبقى موثوقاً: يستقبل الحالة كاملةً ويُصدر أوامر الموجّه.
+      const isStaff = !!socket.data.authStaff;
+      const isRoomHost = !!socket.data.isPlayerHost && socket.data.hostRoomId === data.roomId;
+      const isRoomLeader = socket.data.role === 'leader' && socket.data.roomId === data.roomId;
+      if (!isStaff && !isRoomHost && !isRoomLeader) {
+        return callback({ success: false, error: 'غير مصرّح' });
+      }
+      if (isStaff) {
+        socket.join(data.roomId);
+        socket.data.role = 'leader';
+        socket.data.roomId = data.roomId;
+      }
 
       const state = await getGameState(data.roomId);
       if (!state) return callback({ success: false, error: 'Room not found' });
@@ -1959,7 +1987,7 @@ export function registerDayEvents(io: Server, socket: Socket) {
           (a: any) => a.targetPhysicalId !== data.physicalId
         );
 
-        io.to(data.roomId).emit('day:justification-started', state.justificationData);
+        await emitTrustedVariant(io, data.roomId, 'day:justification-started', state.justificationData, publicJustification(state.justificationData));
       }
 
       // ═══ حفظ الحالة ═══
@@ -2092,6 +2120,16 @@ async function emitAshCurseWindow(io: Server, roomId: string, state: any) {
 
 // بثّ نافذة العمدة سرّيّاً: الليدر/العرض لا يكشفان شيئاً، وهاتف العمدة وحده من اللاعبين
 // (بثّها للغرفة كلّها كان سيفضح وجود عمدةٍ في اللعبة قبل قراره).
+/** 🔒 إغلاقُ نافذة العمدة للموثوقين وهاتف العمدة وحدهم — لا تُكشف لبقيّة الهواتف. */
+async function emitMayorWindowClosed(io: Server, roomId: string, mayorPhysicalId: number): Promise<void> {
+  const sockets = await io.in(roomId).fetchSockets();
+  for (const s of sockets) {
+    const trusted = s.data.role === 'leader' || s.data.role === 'display';
+    const isMayor = s.data.role === 'player' && s.data.physicalId === mayorPhysicalId;
+    if (trusted || isMayor) s.emit('day:mayor-window-closed', {});
+  }
+}
+
 async function emitMayorWindow(io: Server, roomId: string, state: any, window: any) {
   const payload = {
     ...sanitizeWindowForLeader(state, window),
