@@ -21,6 +21,11 @@ const ID_VALUE_FIELDS = new Set([
   'sniperTarget', 'nurseTarget', 'assassinTarget', 'witchTarget', 'lastProtectedTarget',
   // 🎙️ المواجهة الثنائية (اللعب عن بُعد) — رقما مقعدين باسمين لا يتبعان النمط
   'requesterId', 'targetId',
+  // 🔥 مقعدُ العنقاء (phoenixState.seat) ومقعدُ فعلٍ في خطّة الليلة الواحدة (oneNight.plan[].seat).
+  //    فاته الجوّالُ فبقي العنقاءُ على المقعد القديم بعد تبديلٍ نهاريّ (مباراة 798، 2026-10-04):
+  //    اغتيل ليلاً فمات برصيدَين ولم يحترق قاتلُه. (seatLayout/pinnedSeats أرقامُ كراسٍ لا لاعبين،
+  //    وأسماؤها pos/seatNumber — لا تمرّ من هنا.)
+  'seat',
 ]);
 
 // مصفوفات عناصرها physicalIds
@@ -33,6 +38,8 @@ const ID_ARRAY_FIELDS = new Set([
   'luckyDrawHistory',
   // 🗳️ من صوّت صواباً في نبض الإقناع
   'correctVoters',
+  // 🔥 مَن احترقوا بالعنقاء · 🗳️ مَن صوّتوا على المتّهم (عتبة السحب) · 💣 ضحايا قنبلةٍ محبوسة ومقاعدُ بطاقاتها
+  'burned', 'votersForAccused', 'bombEliminated', 'revealSeats',
 ]);
 
 // قواميس مفاتيحها physicalIds (Record<physicalId, ...>)
@@ -44,11 +51,22 @@ const ID_KEYED_RECORDS = new Set([
   'confrontationsUsed',
   // 🗳️ أصوات نبض الإقناع: physicalId → REQ|TGT
   'pulseVotes',
+  // ⚖️ أوزانُ المصوّتين في التبرير (العمدة ×2): physicalId → الوزن
+  'voterWeights',
 ]);
+
+// قواميس مفاتيحُها **وقيمُها** أرقامُ مقاعد — 🌙 oneNight.idle: مقعدٌ خامل → اختيارُه
+const ID_KEYED_ID_VALUED_RECORDS = new Set(['idle']);
+
+// قواميس مفتاحُها مركّب «مقعد:قدرة» — dynamicNightState.actions وoneNight.choices (قيمتُها مقعدُ الهدف).
+// يُعاد بناءُ المقعد في المفتاح؛ والقيمةُ رقمٌ ⟵ مقعد، أو كائنٌ ⟵ يُمشى كالعادة.
+// lastTargets كذلك: مفتاحه «مقعد:قدرة» في المحرّك الديناميكيّ (وكان يُعاد ربطُ قيمه وحدها)،
+// ومفتاحُ قدرةٍ مجرّد في البيانات القديمة — يبقى كما هو وتُربط قيمته.
+const SEAT_PREFIXED_RECORDS = new Set(['actions', 'choices', 'lastTargets']);
 
 // قواميس **قيمها** physicalIds ومفاتيحها شيء آخر (مثل معرّف القدرة)
 // مثال: dynamicNightState.lastTargets = { SHERIFF_INVESTIGATE: 7, ... }
-const ID_VALUED_RECORDS = new Set(['lastTargets']);
+const ID_VALUED_RECORDS = new Set<string>([]);
 
 // مفاتيح تُتجاهل كلياً (غير قابلة للتسلسل أو لا علاقة لها)
 const SKIP_KEYS = new Set(['timerHandle']);
@@ -77,6 +95,33 @@ function walk(node: any, key: string | null, mapping: Map<number, number>): void
       const n = Number(k);
       const nk = Number.isFinite(n) && mapping.has(n) ? String(mapping.get(n)) : k;
       rebuilt[nk] = v;
+    }
+    for (const k of Object.keys(node)) delete node[k];
+    Object.assign(node, rebuilt);
+    return;
+  }
+
+  // قاموس مفاتيحه وقيمه أرقام مقاعد
+  if (key && ID_KEYED_ID_VALUED_RECORDS.has(key)) {
+    const rebuilt: Record<string, unknown> = {};
+    for (const [k, v] of Object.entries(node)) {
+      const n = Number(k);
+      rebuilt[Number.isFinite(n) && mapping.has(n) ? String(mapping.get(n)) : k] = mapId(mapping, v);
+    }
+    for (const k of Object.keys(node)) delete node[k];
+    Object.assign(node, rebuilt);
+    return;
+  }
+
+  // قاموس مفتاحه «مقعد:قدرة»
+  if (key && SEAT_PREFIXED_RECORDS.has(key)) {
+    const rebuilt: Record<string, unknown> = {};
+    for (const [k, v] of Object.entries(node)) {
+      const m = /^(\d+):(.*)$/.exec(k);
+      const seat = m ? Number(m[1]) : NaN;
+      const nk = m && mapping.has(seat) ? `${mapping.get(seat)}:${m[2]}` : k;
+      if (typeof v === 'number') rebuilt[nk] = mapId(mapping, v);
+      else { walk(v, nk, mapping); rebuilt[nk] = v; }
     }
     for (const k of Object.keys(node)) delete node[k];
     Object.assign(node, rebuilt);

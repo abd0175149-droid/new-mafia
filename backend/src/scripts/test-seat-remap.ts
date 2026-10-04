@@ -58,9 +58,32 @@ function makeState(): any {
     confrontation: { status: 'ACTIVE', requesterId: 3, targetId: 7, startedAt: 1 },
     dealRegisteredRound: { 3: 1, 7: 2 },
     dynamicNightState: {
-      actions: { SHERIFF_INVESTIGATE: { performerPhysicalId: 3, targetPhysicalId: 7, skipped: false } },
-      lastTargets: { SHERIFF_INVESTIGATE: 7, MAFIA_KILL: 3 },
+      // المفتاح الحقيقيّ «مقعد:قدرة» (actionKey) — كان المثالُ هنا بمفتاح القدرة وحده فلم يُكشف أنّ المقعد في المفتاح لا يتبع
+      actions: {
+        '3:INVESTIGATE': { abilityId: 'INVESTIGATE', performerPhysicalId: 3, targetPhysicalId: 7, skipped: false },
+        '7:KILL': { abilityId: 'KILL', performerPhysicalId: 7, targetPhysicalId: 3, skipped: false },
+      },
+      lastTargets: { SHERIFF_INVESTIGATE: 7, MAFIA_KILL: 3, '7:KILL': 9 },
     },
+    // 🔥 العنقاء (2026-10-05): مقعدُه باسم «seat» ومَن احترقوا «burned» — كانا يفلتان فيفقد هويّتَه بعد التبديل
+    phoenixState: { seat: 3, rebirthsLeft: 2, burned: [7] },
+    // 🌙 الليلة الواحدة: خطّةٌ بمقاعد، واختياراتٌ بمفتاح «مقعد:قدرة» وقيمةِ مقعد، وخاملون بمقعدٍ ومقعد
+    oneNight: {
+      plan: [
+        { seat: 3, abilityId: 'INVESTIGATE', nameAr: 'تحقيق', priority: 5, disabled: false, noRandom: false },
+        { seat: 7, abilityId: 'KILL', nameAr: 'اغتيال', priority: 1, disabled: false, noRandom: false },
+      ],
+      choices: { '3:INVESTIGATE': 7, '7:KILL': 3 },
+      idle: { 9: 3 },
+      submitted: { 3: true, 7: true },
+      deadline: null, review: false,
+    },
+    // 🗳️ التبرير: أوزانُ المصوّتين (العمدة ×2) ومَن صوّتوا على المتّهم — بمقاعد
+    justificationData: { accused: [{ physicalId: 7, votes: 3, voters: 2 }], voterWeights: { 3: 2, 9: 1 }, votersForAccused: [3, 9] },
+    // 💣 نتيجة قنبلةٍ محبوسة حتّى الكشف
+    heldBombResult: { godfatherPhysicalId: 7, bombEliminated: [3], bombRevealedRoles: [{ physicalId: 3, role: 'SHERIFF' }], revealSeats: [3] },
+    mayorShield: { physicalId: 3, round: 2 },
+    pendingAshCurse: { phoenixPhysicalId: 3, phoenixName: 'أ', eligible: [{ physicalId: 7, name: 'ب' }] },
     luckyDrawHistory: [3, 9],
     // 👁️ متفرّجون: مقاعدهم محجوزة داخل الحلقة ويجب أن تتبع أيّ إعادة ترقيم
     spectators: [
@@ -97,21 +120,27 @@ function collectSeatRefs(node: any, key: string | null, out: number[]): void {
   if (node === null || typeof node !== 'object') return;
   if (Array.isArray(node)) {
     const ARRAYS = ['speakingQueue', 'hasSpoken', 'hiddenPlayersFromVoting', 'winners', 'pool',
-      'witchPreviousTargets', 'eliminated', 'withdrawn', 'accusedIds', 'luckyDrawHistory'];
+      'witchPreviousTargets', 'eliminated', 'withdrawn', 'accusedIds', 'luckyDrawHistory',
+      'burned', 'votersForAccused', 'bombEliminated', 'revealSeats'];
     if (key && ARRAYS.includes(key)) { for (const v of node) if (typeof v === 'number') out.push(v); return; }
     for (const item of node) collectSeatRefs(item, key, out);
     return;
   }
-  const KEYED = ['playerVotes', 'leaderProxyVotes', 'submitted', 'dealRegisteredRound'];
+  const KEYED = ['playerVotes', 'leaderProxyVotes', 'submitted', 'dealRegisteredRound', 'voterWeights', 'idle'];
   if (key && KEYED.includes(key)) {
     for (const k of Object.keys(node)) { const n = Number(k); if (Number.isFinite(n)) out.push(n); }
+    if (key === 'idle') for (const v of Object.values(node)) if (typeof v === 'number') out.push(v);
     return;
   }
-  if (key === 'lastTargets') {
-    for (const v of Object.values(node)) if (typeof v === 'number') out.push(v);
+  // مفتاحٌ مركّب «مقعد:قدرة»
+  if (key === 'choices' || key === 'actions' || key === 'lastTargets') {
+    for (const [k, v] of Object.entries(node)) {
+      const m = /^(\d+):/.exec(k); if (m) out.push(Number(m[1]));
+      if (typeof v === 'number') out.push(v); else collectSeatRefs(v, k, out);
+    }
     return;
   }
-  const VALUE_FIELDS = ['physicalId', 'currentSpeakerId', 'autoNightPerformerId', 'requesterId', 'targetId',
+  const VALUE_FIELDS = ['physicalId', 'seat', 'currentSpeakerId', 'autoNightPerformerId', 'requesterId', 'targetId',
     'godfatherTarget', 'silencerTarget', 'sheriffTarget', 'doctorTarget', 'sniperTarget',
     'nurseTarget', 'assassinTarget', 'witchTarget', 'lastProtectedTarget'];
   for (const [k, v] of Object.entries(node)) {
@@ -168,8 +197,28 @@ section('1) تبديل لاعبَين (3 ⇄ 7) — لا يبقى أي أثر ل
     && s.performanceTracking.penaltyEvents[0].physicalId === 7
     && s.performanceTracking.bombEvents[0].physicalId === 3);
   check('العقوبة بقيت مربوطة بـplayerId الصحيح', s.performanceTracking.penaltyEvents[0].playerId === 100);
-  check('إجراءات الليل الديناميكية', s.dynamicNightState.actions.SHERIFF_INVESTIGATE.performerPhysicalId === 7
-    && s.dynamicNightState.actions.SHERIFF_INVESTIGATE.targetPhysicalId === 3);
+  check('إجراءات الليل الديناميكية: المفتاح «مقعد:قدرة» يتبع صاحبه', !!s.dynamicNightState.actions['7:INVESTIGATE']
+    && s.dynamicNightState.actions['7:INVESTIGATE'].performerPhysicalId === 7 && s.dynamicNightState.actions['7:INVESTIGATE'].targetPhysicalId === 3
+    && !!s.dynamicNightState.actions['3:KILL'] && s.dynamicNightState.actions['3:KILL'].targetPhysicalId === 7,
+    JSON.stringify(Object.keys(s.dynamicNightState.actions)));
+  // 🔥 الحادثة (2026-10-04، مباراة 798): بُدّل مقعدا العنقاء وجاره نهاراً، فبقي phoenixState.seat على
+  //    المقعد القديم — اغتيل العنقاءُ ليلاً فمات برصيدَين، ولم يحترق قاتلُه
+  check('lastTargets بمفتاح «مقعد:قدرة»: المفتاح يتبع صاحبه', s.dynamicNightState.lastTargets['3:KILL'] === 9 && !('7:KILL' in s.dynamicNightState.lastTargets),
+    JSON.stringify(s.dynamicNightState.lastTargets));
+  check('🔥 العنقاء يتبع صاحبه: seat 3→7', s.phoenixState.seat === 7, `=${s.phoenixState.seat}`);
+  check('🔥 …ومَن احترقوا: burned [7]→[3]', s.phoenixState.burned[0] === 3, JSON.stringify(s.phoenixState.burned));
+  check('🔥 …والرصيدُ لم يُمَس', s.phoenixState.rebirthsLeft === 2);
+  check('🌙 خطّة الليلة الواحدة: المقعدان انقلبا', s.oneNight.plan[0].seat === 7 && s.oneNight.plan[1].seat === 3);
+  check('🌙 اختياراتها: المفتاح والهدف', s.oneNight.choices['7:INVESTIGATE'] === 3 && s.oneNight.choices['3:KILL'] === 7,
+    JSON.stringify(s.oneNight.choices));
+  check('🌙 الخاملون: المفتاح والاختيار', s.oneNight.idle[9] === 7, JSON.stringify(s.oneNight.idle));
+  check('🗳️ أوزان المصوّتين (العمدة ×2) تتبع العمدة', s.justificationData.voterWeights[7] === 2 && s.justificationData.voterWeights[9] === 1,
+    JSON.stringify(s.justificationData.voterWeights));
+  check('🗳️ المصوّتون على المتّهم', s.justificationData.votersForAccused.join(',') === '7,9', JSON.stringify(s.justificationData.votersForAccused));
+  check('💣 نتيجة القنبلة المحبوسة', s.heldBombResult.bombEliminated[0] === 7 && s.heldBombResult.revealSeats[0] === 7
+    && s.heldBombResult.bombRevealedRoles[0].physicalId === 7 && s.heldBombResult.godfatherPhysicalId === 3);
+  check('🛡️ درع العمدة ولعنة الرماد', s.mayorShield.physicalId === 7 && s.pendingAshCurse.phoenixPhysicalId === 7
+    && s.pendingAshCurse.eligible[0].physicalId === 3);
   check('السحب (winners/pool) وأهداف الساحرة', s.luckyDraw.winners[0] === 3
     && s.luckyDraw.pool.sort((a: number, b: number) => a - b).join(',') === '3,7,9'
     && s.witchPreviousTargets[0] === 7);
