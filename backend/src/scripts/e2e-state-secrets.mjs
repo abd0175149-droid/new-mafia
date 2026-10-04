@@ -185,6 +185,9 @@ try {
   pA.on('day:elimination-revealed', d => { revealed.A = d; });
   leader.on('day:elimination-revealed', d => { revealed.leader = d; });
 
+  // العدّادُ قبل التصويت كما يراه الهاتف — مرجعُ «قبل الكشف»
+  const preC = (await rpc(pA, 'room:get-my-state', { roomId, phone: PH_A }))?.teamCounts;
+  ok('عدّادُ ما قبل التصويت معروف', !!preC, JSON.stringify(preC));
   const sv = await rpc(leader, 'day:start-voting', { roomId });
   ok('بدأ التصويت', sv?.success === true, sv?.error);
   await sleep(300);
@@ -193,8 +196,6 @@ try {
   const idxV = (vs?.votingState?.candidates || []).findIndex(c => c.type === 'PLAYER' && c.targetPhysicalId === victim);
   const voters = (vs?.players || []).filter(p => p.isAlive !== false).map(p => p.physicalId);
   for (const v of voters) await rpc(leader, 'day:cast-vote', { roomId, candidateIndex: idxV, delta: 1, voterPhysicalId: v });
-  const preC = phaseCounts.A.filter(x => x.phase === 'DAY_VOTING').at(-1)?.c;
-  ok('عدّادُ بداية التصويت وصل الهاتف', !!preC, JSON.stringify(phaseCounts.A.map(x => x.phase)));
   const mark = { A: phaseCounts.A.length, L: phaseCounts.leader.length };
   const rs = await rpc(leader, 'day:resolve', { roomId });
   ok('فُرزت الأصوات', rs?.success === true, rs?.error);
