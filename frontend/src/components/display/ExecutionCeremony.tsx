@@ -16,7 +16,11 @@ import { playEliminationSound, playCeremonySound } from '@/lib/soundManager';
 import { teamCardRevealed } from '@/lib/countGate';
 import { getStreetEngine, type ExecBeat, type ExecTeam, type ExecFigure, type ExecVictim } from '@/components/display/street/engine';
 
-export type ExecEntry = { physicalId: number; role: string; cause?: string; key?: string };
+/** `by` = مقعدُ مَن أخرجه (شيخُ المافيا للقنبلة) — يُسمّى في سطر السبب */
+export type ExecEntry = { physicalId: number; role: string; cause?: string; key?: string; by?: number | null };
+/** خروجٌ يتلو الكشف بسببٍ علنيّ (القنبلة/الرماد): سببُه يظهر مع ظهور كرته لا بعد ختمه */
+const LATER_CAUSES = new Set(['GODFATHER_BOMB', 'ASH_CURSE']);
+const causeText = (e: ExecEntry) => e.cause === 'GODFATHER_BOMB' && e.by != null ? `💣 خرج مع شيخ المافيا #${e.by}` : e.cause ? CAUSE_AR[e.cause] : null;
 type Stage = 'hidden' | 'face-down' | 'flipping' | 'revealed' | 'grayed';
 
 const CAUSE_AR: Record<string, string> = { DAY_VOTE: 'بقرار المدينة', DEAL: 'أُقصي بالديل', DEAL_BACKFIRE: 'ارتداد الديل على صاحبه', TWIN_SUICIDE: 'انتحار التوأم', ELIMINATE_ALL: 'تعادل: إقصاء الجميع', GODFATHER_BOMB: 'قنبلة شيخ المافيا', ASH_CURSE: 'رماد العنقاء' };
@@ -56,6 +60,8 @@ export default function ExecutionCeremony({ players, primary, secondary, holdFor
   const [stages, setStages] = useState<Record<number, Stage>>({});
   const [order, setOrder] = useState<number[]>([]);
   const firedSecondary = useRef<Set<string>>(new Set()); const primaryKey = primary.map(p => p.physicalId).join(',');
+  const heldRef = useRef(false);        // الساحةُ أُطلقت معلّقةً بانتظار ضحيّةٍ ثانية
+  const bombHeardRef = useRef(false);   // 💣 الانفجارُ مرّةً واحدة — مع أوّل ضحيّةٍ للقنبلة
   const entries = useMemo(() => [...primary, ...secondary], [primary, secondary]);
   const alive = (): ExecFigure[] => players.filter((p: any) => p.isAlive !== false).map((p: any) => ({ id: p.physicalId, gender: genderOf(p) }));
   const victimOf = (e: ExecEntry): ExecVictim => ({ id: e.physicalId, gender: genderOf(players.find((p: any) => p.physicalId === e.physicalId)), team: teamOf(e.role, getTeamForRole) });
@@ -65,7 +71,13 @@ export default function ExecutionCeremony({ players, primary, secondary, holdFor
     const eng = getStreetEngine(); if (!eng) return;
     eng.exec.onBeat = (b: ExecBeat) => {
       const id = b.victimId; const set = (st: Stage) => { if (id == null) return; setStages(prev => ({ ...prev, [id]: st })); setOrder(prev => prev.includes(id) ? prev : [...prev, id]); };
-      if (b.name === 'close' || b.name === 'pan') { set('face-down'); playCeremonySound('drumroll'); }
+      if (b.name === 'close' || b.name === 'pan') {
+        set('face-down');
+        // 💣 أوّلُ ضحيّةٍ للقنبلة: الانفجارُ بدل الطبل — الصوتُ مع المشهد، لا لحظةَ قرار الموجّه
+        const e = b.name === 'pan' ? entries.find(x => x.physicalId === id) : null;
+        if (e?.cause === 'GODFATHER_BOMB' && !bombHeardRef.current) { bombHeardRef.current = true; playCeremonySound('bomb'); }
+        else playCeremonySound('drumroll');
+      }
       if (b.name === 'shot') playGunshot();
       if (b.name === 'flip' || b.name === 'victim-flip') { set('flipping'); const e = entries.find(x => x.physicalId === id); if (e) playEliminationSound(e.role); setTimeout(() => { setStages(prev => (prev[id!] === 'flipping' ? { ...prev, [id!]: 'revealed' } : prev)); teamCardRevealed(id); }, 900); }
       if (b.name === 'gray' || b.name === 'victim-gray') { set('grayed'); playCeremonySound('impact'); }
@@ -79,6 +91,7 @@ export default function ExecutionCeremony({ players, primary, secondary, holdFor
   useEffect(() => {
     const eng = getStreetEngine(); if (!eng || !primary.length) return;
     const inline = secondary.filter(s => s.cause === 'DEAL_BACKFIRE' || s.cause === 'TWIN_SUICIDE');
+    heldRef.current = !!holdForSecondary;
     eng.exec.fire(primary.map(victimOf), alive(), { hold: !!holdForSecondary || inline.length > 0 });
     if (inline.length) { inline.forEach(s => firedSecondary.current.add(s.key || `${s.cause}:${s.physicalId}`)); eng.exec.fireSecondary(inline.map(victimOf), alive(), { hold: !!holdForSecondary }); }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -88,7 +101,13 @@ export default function ExecutionCeremony({ players, primary, secondary, holdFor
   useEffect(() => {
     const eng = getStreetEngine(); if (!eng) return;
     const fresh = secondary.filter(s => !firedSecondary.current.has(s.key || `${s.cause}:${s.physicalId}`) && s.cause !== 'DEAL_BACKFIRE' && s.cause !== 'TWIN_SUICIDE');
-    if (!fresh.length) return; fresh.forEach(s => firedSecondary.current.add(s.key || `${s.cause}:${s.physicalId}`));
+    if (!fresh.length) {
+      // انتهى الانتظارُ بلا ضحيّة (قنبلةٌ أُوقفت): الساحةُ المعلّقة تُختم بدل أن تبقى قائمةً حتّى الليل
+      if (heldRef.current && !holdForSecondary) { heldRef.current = false; eng.exec.end(); }
+      return;
+    }
+    fresh.forEach(s => firedSecondary.current.add(s.key || `${s.cause}:${s.physicalId}`));
+    heldRef.current = !!holdForSecondary;
     eng.exec.fireSecondary(fresh.map(victimOf), alive(), { hold: !!holdForSecondary });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [secondary, holdForSecondary]);
@@ -97,12 +116,16 @@ export default function ExecutionCeremony({ players, primary, secondary, holdFor
   useEffect(() => () => { getStreetEngine()?.exec.end(); }, []);
 
   const shown = order.map(id => entries.find(e => e.physicalId === id)).filter(Boolean) as ExecEntry[];
+  // العنوانُ يتبع الكرتَ الحاليّ: ضحايا القنبلة تحت «قنبلة شيخ المافيا» لا تحت «تمّ الإقصاء»
+  const cur = shown[shown.length - 1];
+  const curTitle = cur?.cause === 'GODFATHER_BOMB' ? '💣 قنبلة شيخ المافيا' : cur?.cause === 'ASH_CURSE' ? 'رماد العنقاء' : null;
+  const curSubtitle = cur?.cause === 'GODFATHER_BOMB' ? 'GODFATHER BOMB' : cur?.cause === 'ASH_CURSE' ? 'PHOENIX ASH' : null;
   return (
     <motion.div key="execution-ceremony" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="absolute inset-0 pointer-events-none" dir="rtl">
       {/* العنوان أعلى المنتصف (المشهد في الثلثين الأيسرين) */}
       <div className="absolute inset-x-0 top-[4%] text-center">
-        <h1 className="text-6xl font-black tracking-wide" style={{ fontFamily: 'Amiri, serif', background: 'linear-gradient(180deg,#f6e7bd 0%,#C5A059 52%,#7d5f2a 100%)', WebkitBackgroundClip: 'text', backgroundClip: 'text', color: 'transparent', filter: 'drop-shadow(0 2px 0 rgba(0,0,0,.85)) drop-shadow(0 0 30px rgba(0,0,0,.7))' }}>{title || 'تمّ الإقصاء'}</h1>
-        <p className="text-[#9a8f7d] font-mono text-xs tracking-[0.5em] uppercase mt-1" dir="ltr">{subtitle || 'IDENTITY DECLASSIFIED'}</p>
+        <h1 className="text-6xl font-black tracking-wide" style={{ fontFamily: 'Amiri, serif', background: 'linear-gradient(180deg,#f6e7bd 0%,#C5A059 52%,#7d5f2a 100%)', WebkitBackgroundClip: 'text', backgroundClip: 'text', color: 'transparent', filter: 'drop-shadow(0 2px 0 rgba(0,0,0,.85)) drop-shadow(0 0 30px rgba(0,0,0,.7))' }}>{curTitle || title || 'تمّ الإقصاء'}</h1>
+        <p className="text-[#9a8f7d] font-mono text-xs tracking-[0.5em] uppercase mt-1" dir="ltr">{curSubtitle || subtitle || 'IDENTITY DECLASSIFIED'}</p>
       </div>
       {/* الرصيف المُرسى يميناً: بطاقةٌ لكلّ خارج، بالمسار الكامل (وجه علنيّ ← دور) */}
       <div className="absolute right-[3%] top-[16%] bottom-[5%] w-[36%] flex flex-col items-center justify-center gap-3">
@@ -128,7 +151,7 @@ export default function ExecutionCeremony({ players, primary, secondary, holdFor
               <div className="text-center leading-tight">
                 <p className="text-2xl text-white" style={{ fontFamily: 'Amiri, serif', textDecoration: grayed ? 'line-through' : 'none', textShadow: '0 1px 0 #000, 0 0 18px rgba(0,0,0,.8)' }}>#{e.physicalId} {p?.name || ''}</p>
                 {flipped && <p className="text-sm font-mono tracking-[0.25em]" style={{ color: TEAM_AR[team].color, textShadow: '0 1px 0 #000' }}>{TEAM_AR[team].label}</p>}
-                {grayed && (e.cause || notes?.[e.physicalId]) && <p className="text-base text-[#C5A059]" style={{ fontFamily: 'Amiri, serif', textShadow: '0 1px 0 #000' }}>{[e.cause ? CAUSE_AR[e.cause] : null, notes?.[e.physicalId]].filter(Boolean).join(' · ')}</p>}
+                {(grayed || LATER_CAUSES.has(e.cause || '')) && (e.cause || notes?.[e.physicalId]) && <p className="text-base text-[#C5A059]" style={{ fontFamily: 'Amiri, serif', textShadow: '0 1px 0 #000' }}>{[causeText(e), notes?.[e.physicalId]].filter(Boolean).join(' · ')}</p>}
               </div>
             </motion.div>
           );

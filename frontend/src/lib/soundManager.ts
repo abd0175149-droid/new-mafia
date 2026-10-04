@@ -1502,10 +1502,16 @@ export function playImpactBoom(): void {
  *    ولا تزدوج: لا نداءَ لهما في صفحة الموجّه إطلاقاً.
  *
  * ⚠️ ولا يُوسَّع هذا الباب: أيُّ صوتٍ يعزفه الطرفان يُسمَع مرّتين في القاعة.
+ *
+ * 💣 `bomb` (2026-10-04) دخل بالشرط نفسه: كان الموجّه يعزف الانفجار لحظةَ قراره —
+ *    قبل «كشف الأدوار» — فتسمع القاعةُ القنبلةَ وتعرف أنّ المُقصى شيخُ المافيا قبل
+ *    أن يُقلب كرتُه. صار يُعزف مع مشهد القنبلة على الشاشة وحده، ولا نداءَ له عند الموجّه.
  */
-export function playCeremonySound(kind: 'drumroll' | 'impact'): void {
+export function playCeremonySound(kind: 'drumroll' | 'impact' | 'bomb'): void {
   if (localMuted) return;
-  if (kind === 'drumroll') _playDrumroll(); else _playImpactBoom();
+  if (kind === 'drumroll') _playDrumroll();
+  else if (kind === 'bomb') _playEventSound('bomb_explosion', 4000);
+  else _playImpactBoom();
 }
 function _playImpactBoom(): void {
   if (customSoundMap['impact_boom']) {

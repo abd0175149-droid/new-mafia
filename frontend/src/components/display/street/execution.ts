@@ -225,7 +225,7 @@ export class ExecutionController {
     this.beats.sort((a, b) => a.t - b.t); this.bi = this.beats.findIndex(b => !b.done); if (this.bi < 0) this.bi = this.beats.length; this.state = 'running'; return true;
   }
   /** لا ضحيّة ثانية (الموجّه تخطّى) أو انتهى الطور: الحشد يتفرّق */
-  end() { if (this.state === 'idle') return; if (this.state === 'running') { this.beats = this.beats.filter(b => !(b as any).tail); this.pushEnd(Math.max(this.t, this.beats.length ? this.beats[this.beats.length - 1].t : this.t) + .5); return; } this.finish(); }
+  end() { if (this.state === 'idle' || this.state === 'ending') return; /* الختامُ جارٍ — نداءٌ ثانٍ كان يعيد «end» ومؤقّتَ التفريق */ if (this.state === 'running') { this.beats = this.beats.filter(b => !(b as any).tail); this.pushEnd(Math.max(this.t, this.beats.length ? this.beats[this.beats.length - 1].t : this.t) + .5); return; } this.finish(); }
   private pushEnd(t: number) { const b: any = { t, fn: () => this.finish() }; b.tail = true; this.beats.push(b); }
   private finish() {
     this.state = 'ending'; this.emit('end', null, true); this.figs.forEach(f => { if (f.act === 'idle') { f.goal = f.home; f.face = null; } });

@@ -2405,6 +2405,25 @@ class GameSessionController extends ChangeNotifier with WidgetsBindingObserver {
       notifyListeners();
     });
 
+    // 💣 ضحايا قنبلة الشيخ — يحبسهم الخادم حتّى «كشف الأدوار» ويبثّهم بعد كشفه:
+    //    كانوا لا يصلون الهاتفَ أبداً، فلا بطاقةَ لهم ولا يتغيّر العدّاد حتّى الليل
+    _on('day:bomb-result', (d) {
+      if (d is! Map) return;
+      final add = <int, String>{};
+      for (final e in (d['bombRevealedRoles'] as List? ?? const []).whereType<Map>()) {
+        final pid = (e['physicalId'] as num?)?.toInt();
+        if (pid != null) add[pid] = '${e['role'] ?? ''}';
+      }
+      if (add.isEmpty) return;
+      _eliminated = [..._eliminated, ...add.keys.where((p) => !_eliminated.contains(p))];
+      _revealedRoles = {..._revealedRoles, ...add};
+      _readTeamCounts(d['teamCounts']);
+      if (add.containsKey(_physicalId)) {
+        unawaited(HapticsService.instance.eliminated());
+      }
+      notifyListeners();
+    });
+
     _on('day:elimination-pending', (d) {
       if (d is Map && d['eliminated'] is List) {
         _eliminated = (d['eliminated'] as List)

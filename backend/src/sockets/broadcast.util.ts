@@ -114,6 +114,9 @@ export function projectStateFor(state: any, viewerSeat: number | null): any {
   out.players = state.players.map((p: any) => {
     const q: any = {};
     for (const k of PLAYER_PUBLIC_KEYS) if (p[k] !== undefined) q[k] = p[k];
+    // 👁️ ميّتٌ لم يُكشف كرتُه حيٌّ في كلّ هاتف — صاحبُه أيضاً: هاتفُ ضحيّة القنبلة كان
+    //    يُعلن موتَها (فيفضح أنّ المُقصى شيخُ المافيا) قبل «كشف الأدوار»
+    if (hidden.has(Number(p.physicalId)) && p.isAlive === false) q.isAlive = true;
     if (viewerSeat != null && p.physicalId === viewerSeat) {
       q.phone = p.phone ?? null;
       q.role = started ? (p.role ?? null) : null;
@@ -178,6 +181,21 @@ async function emitProjected(
     const seat = s.data?.role === 'player' && s.data?.roomId === roomId && s.data?.physicalId != null
       ? Number(s.data.physicalId) : null;
     s.emit(event, wrap(seat != null ? projectStateFor(state, seat) : base));
+  }
+}
+
+/**
+ * الإسقاطُ للهواتف والمتفرّجين وحدهم — الموثوقون (الموجّه/الشاشة) لا يستلمونه: يحملون
+ * الحالةَ كاملةً أصلاً، والشاشةُ في منتصف مشهدٍ لا يُقاطَع بمزامنةٍ كاملة.
+ */
+export async function emitStateToPhones(io: Server, roomId: string, event: string, state: any): Promise<void> {
+  io.to(spectatorRoom(roomId)).emit(event, projectStateFor(state, null));
+  const sockets = await io.in(roomId).fetchSockets();
+  for (const s of sockets) {
+    if (isTrusted(s)) continue;
+    const seat = s.data?.role === 'player' && s.data?.roomId === roomId && s.data?.physicalId != null
+      ? Number(s.data.physicalId) : null;
+    s.emit(event, projectStateFor(state, seat));
   }
 }
 

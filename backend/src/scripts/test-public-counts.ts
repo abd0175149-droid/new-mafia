@@ -109,5 +109,17 @@ section('٦) المستقلّ');
   check('بعد العرض: 0 مستقلّ', publicTeamCounts(s).neutralAlive === 0);
 }
 
+section('٧) نتيجةُ قنبلةٍ عالقة بعد طور الإقصاء لا تُخفي أحداً');
+{
+  const s = table();
+  s.phase = 'NIGHT'; s.eliminationRevealed = false;
+  s.players.find((p: any) => p.physicalId === 3).isAlive = false;
+  s.heldBombResult = { bombEliminated: [3] };
+  check('في الليل: ضحيّةُ القنبلة ميّتةٌ في العدّاد', counts(publicTeamCounts(s)) === '4/3/1', counts(publicTeamCounts(s)));
+  check('ولا يُحجب مقعدُها', !unrevealedDeadSeats(s).has(3));
+  s.phase = 'DAY_ELIMINATION';
+  check('في طور الإقصاء: محجوبة', unrevealedDeadSeats(s).has(3));
+}
+
 console.log(`\nالنتيجة: ${pass} نجح / ${fail} فشل  (المجموع ${pass + fail})`);
 if (fail) { console.log('\nالفاشلة:'); failures.forEach(f => console.log('  • ' + f)); process.exit(1); }

@@ -449,6 +449,25 @@ export default function PlayerPhaseView({
       }
     });
 
+    // 💣 ضحايا قنبلة الشيخ — تصل بعد كشفه: تُضاف لقائمة الإقصاء بأدوارها وسببها
+    const cBomb = on('day:bomb-result', (data: any) => {
+      const victims = ((data?.bombRevealedRoles || []) as any[]);
+      if (!victims.length) return;
+      setEliminationData((prev: any) => {
+        const base = prev || { eliminated: [], revealedRoles: [] };
+        const known: number[] = base.eliminated || [];
+        const fresh = victims.filter((v: any) => !known.includes(v.physicalId));
+        return {
+          ...base,
+          eliminated: [...known, ...fresh.map((v: any) => v.physicalId)],
+          revealedRoles: [...(base.revealedRoles || []), ...fresh.map((v: any) => ({ ...v, cause: 'GODFATHER_BOMB' }))],
+        };
+      });
+      if (victims.some((v: any) => v.physicalId === getLatestMyId())) {
+        try { if (navigator.vibrate) navigator.vibrate([200, 100, 200]); } catch { /* سياسة المتصفّح */ }
+      }
+    });
+
     // ── أحداث الصباح ──
     const c8 = on('display:morning-event', (data: any) => {
       // منع التكرار عند إعادة العرض من الليدر
@@ -598,7 +617,7 @@ export default function PlayerPhaseView({
     });
 
     return () => {
-      [c1,c2,c3,c4,c5,c6,c7,c8,c9,c10,c11,c12,c13,c14,cDealsCreated,cDealsRemoved,cRemap].forEach(c => c?.());
+      [c1,c2,c3,c4,c5,c6,c7,cBomb,c8,c9,c10,c11,c12,c13,c14,cDealsCreated,cDealsRemoved,cRemap].forEach(c => c?.());
       if (justTimerRef.current) clearInterval(justTimerRef.current);
     };
   }, [on, physicalId, roomId, emit]);
@@ -1160,6 +1179,9 @@ export default function PlayerPhaseView({
                 <motion.p initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="text-[#C5A059] text-sm font-mono mt-2 tracking-wider">
                   {rev.role}
                 </motion.p>
+              )}
+              {rev?.cause === 'GODFATHER_BOMB' && (
+                <p className="text-orange-400 text-xs font-bold mt-1">💣 خرج مع شيخ المافيا</p>
               )}
             </motion.div>
           );

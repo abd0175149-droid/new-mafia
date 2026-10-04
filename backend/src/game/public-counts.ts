@@ -27,7 +27,8 @@ export function unrevealedDeadSeats(state: any, opts: RevealOptions = {}): Set<n
   if (!opts.revealElimination && state.phase === 'DAY_ELIMINATION' && !state.eliminationRevealed) {
     for (const id of state.pendingResolution?.eliminated || []) out.add(Number(id));
   }
-  if (!opts.revealHeldBomb) {
+  // ضحايا القنبلة المحبوسة — في طور الإقصاء وحده: نتيجةٌ عالقة بعده لا تُخفي موتى الليل التالي
+  if (!opts.revealHeldBomb && state.phase === 'DAY_ELIMINATION') {
     for (const id of state.heldBombResult?.bombEliminated || []) out.add(Number(id));
   }
   // الليل: كلُّ حدثٍ لم يعرضه الموجّه بعد

@@ -413,7 +413,8 @@ router.get('/me', authenticatePlayer, async (req: Request, res: Response) => {
             gameName: state.config?.gameName,
             physicalId: p.physicalId,
             role: state.rolesConfirmed ? (p.role || null) : null,
-            isAlive: p.isAlive,
+            // 👁️ موتٌ لم يُكشف كرتُه بعد لا يصل هاتفَ صاحبه (public-counts)
+            isAlive: p.isAlive === false && (await import('../game/public-counts.js')).unrevealedDeadSeats(state).has(Number(p.physicalId)) ? true : p.isAlive,
             phase: state.phase,
           };
 

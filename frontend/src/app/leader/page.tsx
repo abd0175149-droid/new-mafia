@@ -1144,9 +1144,9 @@ export default function LeaderPage() {
 
     // 💣 نتيجة القنبلة — بعد قرار الليدر
     const offBombResult = on('day:bomb-result', (data: any) => {
-      // 💣 الصوتُ من الموجّه (المصدر): مراسمُ القنبلة على الشاشة لها مرحلةُ «انفجار»
-      //    بلا أيّ نداء صوت، وملفُّ bomb_explosion مرفوعٌ وفعّالٌ ولم يُسمع مرّة.
-      if (data?.bombEliminated?.length > 0) localSound(() => playEventSound('bomb_explosion', 4000));
+      // 💣 لا صوتَ هنا: النتيجةُ تصل الموجّهَ لحظةَ قراره، **قبل** «كشف الأدوار» — والانفجارُ
+      //    من هنا كان يُبثّ للقاعة فيفضح أنّ المُقصى شيخُ المافيا قبل قلب كرته. يُعزف الآن مع
+      //    مشهد القنبلة على شاشة العرض (playCeremonySound('bomb')).
       setGameState(prev => {
         if (!prev) return prev;
         const updatedPlayers = prev.players.map((p: any) => {
@@ -1160,7 +1160,7 @@ export default function LeaderPage() {
           players: updatedPlayers,
           pendingBomb: null,
           pendingWinner: data.winResult !== 'GAME_CONTINUES'
-            ? (data.winResult === 'MAFIA_WIN' ? 'MAFIA' : 'CITIZEN')
+            ? (data.winResult === 'MAFIA_WIN' ? 'MAFIA' : data.winResult === 'ASSASSIN_WIN' ? 'ASSASSIN' : 'CITIZEN')
             : (prev as any).pendingWinner || null,
         } as any;
       });

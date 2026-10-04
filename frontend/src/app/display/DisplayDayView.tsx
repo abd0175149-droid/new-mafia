@@ -47,7 +47,7 @@ interface DisplayDayViewProps {
 export default function DisplayDayView({ roomId, players, initialDiscussionState, teamCounts }: DisplayDayViewProps) {
   const [phase, setPhase] = useState<'DISCUSSION' | 'VOTING' | 'JUSTIFICATION' | 'PENDING' | 'REVEALED' | 'TIE' | 'BOMB' | 'ASH'>('DISCUSSION');
   const [ashData, setAshData] = useState<any>(null);   // 🜂 لعنةُ الرماد
-  const [bombData, setBombData] = useState<{ bombEliminated: number[]; bombRevealedRoles: { physicalId: number; role: string }[] } | null>(null);
+  const [bombData, setBombData] = useState<BombData | null>(null);
   const [candidates, setCandidates] = useState<any[]>([]);
   const [totalVotesCast, setTotalVotesCast] = useState(0);
   const [tieBreakerLevel, setTieBreakerLevel] = useState(0);
@@ -66,6 +66,11 @@ export default function DisplayDayView({ roomId, players, initialDiscussionState
   const [pendingSecondary, setPendingSecondary] = useState<string[]>([]);
   const [secondaryVictims, setSecondaryVictims] = useState<ExecEntry[]>([]);
   const [sceneMode, setSceneMode] = useState(false); const sceneModeRef = useRef(false);
+  // 🎬 وضعُ البطاقات: مراسمُ القنبلة/الرماد تتلو كشفَ المُقصى ولا تقطعه. النتيجةُ المحبوسة تصل مع
+  //    الكشف في اللحظة نفسها، فكان مشهدُ القنبلة يحلّ محلّ كرت الشيخ قبل أن يظهر — فلا يُرى مَن
+  //    فجّر ولا يتغيّر عدّادُه إلّا بمهلة الأمان. الآن: كلُّ مراسمٍ تنتظر انتهاءَ ما قبلها.
+  const ceremonyBusyUntilRef = useRef(0);
+  const ceremonyTimersRef = useRef<ReturnType<typeof setTimeout>[]>([]);
   const playersRef = useRef<any[]>(players); useEffect(() => { playersRef.current = players; }, [players]);
   // 🔥 تحضير مسبق لبطاقات الأدوار (الشاشة موثوقة فتستلم الأدوار مع «بانتظار القرار»): صور القالب والأيقونة تُجلب قبل الكشف
   const { getRoleById, getCardForRole } = useGameConfig(); const cardCfgRef = useRef({ getRoleById, getCardForRole }); useEffect(() => { cardCfgRef.current = { getRoleById, getCardForRole }; }, [getRoleById, getCardForRole]);
@@ -73,6 +78,15 @@ export default function DisplayDayView({ roomId, players, initialDiscussionState
     if (icon && (icon.type === 'image' || icon.type === 'IMAGE')) { const v = icon.value || icon.url || ''; if (v) urls.push(v.startsWith('http') ? v : `${SOCKET_URL_FOR_CARDS}${v}`); }
     const sf = tpl?.secretFace?.customImageUrl; if (sf) urls.push(sf.startsWith('http') ? sf : `${SOCKET_URL_FOR_CARDS}${sf}`);
     urls.forEach(u => { if (seen.has(u)) return; seen.add(u); const im = new window.Image(); im.src = u; }); }); } catch { /* noop */ } };
+
+  const clearCeremonyQueue = () => { ceremonyTimersRef.current.forEach(clearTimeout); ceremonyTimersRef.current = []; ceremonyBusyUntilRef.current = 0; };
+  /** يعرض مراسمَ تالية حين تنتهي الجارية (كشفُ المُقصى، ثمّ القنبلة، ثمّ الرماد) — لا يقطع واحدةً بأخرى */
+  const queueCeremony = (next: 'BOMB' | 'ASH', durationMs: number) => {
+    const now = Date.now(); const start = Math.max(now, ceremonyBusyUntilRef.current);
+    ceremonyBusyUntilRef.current = start + durationMs;
+    if (start <= now) { setPhase(next); return; }
+    ceremonyTimersRef.current.push(setTimeout(() => setPhase(next), start - now));
+  };
 
   // Justification UI States
   const [justificationData, setJustificationData] = useState<any>(null);
@@ -305,6 +319,7 @@ export default function DisplayDayView({ roomId, players, initialDiscussionState
       const cz: Record<number, string> = {}; (data.causes || []).forEach((c: any) => { cz[c.physicalId] = c.by; }); setCauses(cz);
       setPendingSecondary(Array.isArray(data.pendingSecondary) ? data.pendingSecondary : []); setSecondaryVictims([]);
       const scene = executionSceneAvailable() && (data.revealedRoles || []).length > 0; sceneModeRef.current = scene; setSceneMode(scene);
+      clearCeremonyQueue(); ceremonyBusyUntilRef.current = scene ? 0 : Date.now() + revealCeremonyMs((data.revealedRoles || []).length);
       // تحديث عداد الفرق فقط بعد كشف الهوية — وليس قبلها
       if (data.teamCounts) {
         setLocalTeamCounts(data.teamCounts);
@@ -318,6 +333,7 @@ export default function DisplayDayView({ roomId, players, initialDiscussionState
 
     const onPhaseChanged = (data: any) => {
       if (data.phase === 'DAY_DISCUSSION') {
+        clearCeremonyQueue();
         setPhase('DISCUSSION');
         setCandidates([]);
       }
@@ -352,21 +368,21 @@ export default function DisplayDayView({ roomId, players, initialDiscussionState
       setJustTimeRemaining(0);
     };
 
-    // 💣 نتيجة القنبلة — بعد قرار الليدر
+    // 💣 نتيجة القنبلة — تصل الشاشةَ مع «كشف الأدوار» (أو بعده إن قرّر الموجّه بعد الكشف)
     const onBombResult = (data: any) => {
+      const victims = ((data.bombRevealedRoles || []) as any[]);
       if (sceneModeRef.current) {
-        // ⚖️ في المشهد: ضحايا القنبلة يسقطون من بين الحشد بدل مراسم منفصلة
-        setSecondaryVictims(prev => [...prev, ...((data.bombRevealedRoles || []) as any[]).map(r => ({ physicalId: r.physicalId, role: r.role, cause: 'GODFATHER_BOMB', key: `bomb:${r.physicalId}` }))]);
+        // ⚖️ في المشهد: ضحايا القنبلة يسقطون من بين الحشد بعد الشيخ، كلٌّ بسطر «خرج مع شيخ المافيا #…»
+        if (victims.length) setSecondaryVictims(prev => [...prev, ...victims.map(r => ({ physicalId: r.physicalId, role: r.role, cause: 'GODFATHER_BOMB', by: data.godfatherPhysicalId ?? null, key: `bomb:${r.physicalId}` }))]);
         setPendingSecondary(prev => prev.filter(k => k !== 'BOMB'));
         return;
       }
       setBombData({
+        godfatherPhysicalId: data.godfatherPhysicalId ?? null,
         bombEliminated: data.bombEliminated || [],
-        bombRevealedRoles: data.bombRevealedRoles || [],
+        bombRevealedRoles: victims,
       });
-      if (data.bombEliminated?.length > 0) {
-        setPhase('BOMB');
-      }
+      if (victims.length > 0) queueCeremony('BOMB', bombCeremonyMs(victims.length));
     };
 
 
@@ -389,7 +405,7 @@ export default function DisplayDayView({ roomId, players, initialDiscussionState
         return;
       }
       setAshData(data);
-      setPhase('ASH');
+      queueCeremony('ASH', ASH_CEREMONY_MS);
     };
     // ⚖️ الموجّه تخطّى الرماد: لا ضحيّة ثانية — الحشد يتفرّق
     const onSecondaryCancelled = () => { setPendingSecondary([]); getStreetEngine()?.exec.end(); };
@@ -440,6 +456,7 @@ export default function DisplayDayView({ roomId, players, initialDiscussionState
       setMayorScene(null);
       setSilencedPlayerId(null);
       setBombData(null);           // مراسم القنبلة تكشف أدواراً بأرقام قديمة
+      clearCeremonyQueue();
       setRevealedRoles([]);        // ⚠️ الأخطر: دور مكشوف منسوب لرقم مقعد
       setRevealType('');
       setEliminatedIds([]);
@@ -501,6 +518,7 @@ export default function DisplayDayView({ roomId, players, initialDiscussionState
     socket.on('game:state-updated', onStateSyncAfterRemap);
 
     return () => {
+      clearCeremonyQueue();
       socket.off('room:seats-remapped', onSeatsRemapped);
       socket.off('game:state-sync', onStateSyncAfterRemap);
       socket.off('game:state-updated', onStateSyncAfterRemap);
@@ -1376,7 +1394,7 @@ export default function DisplayDayView({ roomId, players, initialDiscussionState
 
         {/* 💣 BOMB EXPLOSION — أنيميشن القنبلة */}
         {phase === 'BOMB' && bombData && (
-          <BombCeremony players={players} bombData={bombData} />
+          <BombCeremony key={`bomb-${bombData.bombEliminated.join(',')}`} players={players} bombData={bombData} />
         )}
 
         {phase === 'ASH' && ashData && (
@@ -1387,6 +1405,15 @@ export default function DisplayDayView({ roomId, players, initialDiscussionState
     </div>
   );
 }
+
+type BombData = { godfatherPhysicalId?: number | null; bombEliminated: number[]; bombRevealedRoles: { physicalId: number; role: string }[] };
+
+// ⏱️ أعمارُ المراسم في وضع البطاقات — مشتقّةٌ من مؤقّتاتها أدناه، ومعها ثانيةٌ يبقى فيها الختامُ ظاهراً
+const REVEAL_CARD_MS = 5000;   // RevealCeremony: CARD_DELAY
+const revealCeremonyMs = (n: number) => (n > 0 ? (n - 1) * REVEAL_CARD_MS + 4500 + 1500 : 0);
+const BOMB_CARD_MS = 4000;     // BombCeremony: CARD_DELAY
+const bombCeremonyMs = (n: number) => 3000 + n * BOMB_CARD_MS + 1500;
+const ASH_CEREMONY_MS = 5400 + 1500;
 
 // ══════════════════════════════════════════════════════
 // 🎬 RevealCeremony — كشف الهوية السينمائي
@@ -1742,10 +1769,14 @@ function AshCeremony({ players, ashData }: {
 
 function BombCeremony({ players, bombData }: {
   players: any[];
-  bombData: { bombEliminated: number[]; bombRevealedRoles: { physicalId: number; role: string }[] };
+  bombData: BombData;
 }) {
   const MAFIA_ROLES = ['GODFATHER', 'SILENCER', 'CHAMELEON', 'WITCH', 'OLDER_BROTHER', 'MAFIA_REGULAR'];
-  const CARD_DELAY = 4; // ثوانٍ بين كل لاعب
+  const CARD_DELAY = BOMB_CARD_MS / 1000; // ثوانٍ بين كل لاعب
+  // 🎩 مَن فجّر: الشيخُ كُشف قبل لحظات — يُسمّى هنا كي تعرف القاعةُ أنّ هؤلاء خرجوا معه
+  const gfId = bombData.godfatherPhysicalId ?? null;
+  const gf = gfId != null ? players.find((pl: any) => pl.physicalId === gfId) : null;
+  const gfLabel = gfId != null ? `#${gfId}${gf?.name ? ` ${gf.name}` : ''}` : '';
 
   const [bombStage, setBombStage] = useState<'explosion' | 'revealing' | 'done'>('explosion');
   const [revealStages, setRevealStages] = useState<Record<number, 'hidden' | 'face-down' | 'flipping' | 'revealed' | 'grayed'>>({});
@@ -1753,7 +1784,8 @@ function BombCeremony({ players, bombData }: {
   useEffect(() => {
     const timers: NodeJS.Timeout[] = [];
 
-    // المرحلة 1: انفجار (3 ثوانٍ)
+    // المرحلة 1: انفجار (3 ثوانٍ) — بصوته، من الشاشة لحظةَ ظهوره (لا من الموجّه لحظةَ قراره)
+    playCeremonySound('bomb');
     timers.push(setTimeout(() => {
       setBombStage('revealing');
     }, 3000));
@@ -1855,6 +1887,9 @@ function BombCeremony({ players, bombData }: {
             >
               قنبلة شيخ المافيا
             </motion.h1>
+            {gfLabel && (
+              <p className="text-white text-4xl mt-4" style={{ fontFamily: 'Amiri, serif', textShadow: '0 0 30px rgba(255,68,68,0.5)' }}>{gfLabel}</p>
+            )}
             <motion.p
               animate={{ opacity: [0.3, 1, 0.3] }}
               transition={{ duration: 1.5, repeat: Infinity }}
@@ -1882,9 +1917,13 @@ function BombCeremony({ players, bombData }: {
               <h1 className="text-5xl font-black text-[#ff4444] uppercase tracking-widest mb-2" style={{ fontFamily: 'Amiri, serif', textShadow: '0 0 40px rgba(255,68,68,0.5)' }}>
                 💣 ضحايا القنبلة
               </h1>
-              <p className="text-orange-400/80 font-mono text-sm tracking-[0.5em] uppercase">
-                COLLATERAL DAMAGE — BOMB CASUALTIES
-              </p>
+              {gfLabel ? (
+                <p className="text-orange-300 text-2xl" style={{ fontFamily: 'Amiri, serif' }}>خرجوا مع شيخ المافيا {gfLabel}</p>
+              ) : (
+                <p className="text-orange-400/80 font-mono text-sm tracking-[0.5em] uppercase">
+                  COLLATERAL DAMAGE — BOMB CASUALTIES
+                </p>
+              )}
             </motion.div>
 
             {/* الكروت */}

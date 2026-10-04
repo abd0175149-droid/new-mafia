@@ -29,7 +29,7 @@ import { scheduleRevealGrace, clearRevealGrace } from '../game/reveal-grace.js';
 import { processTwinBond, applySuicide, applyTransform } from '../game/twin-engine.js';
 import { notifyTwinTransform } from './twin-notify.js';
 import { clearGameTimer, adjustGameTimer } from '../game/game-timer.js';
-import { emitStateSanitized, emitPhaseChangedSanitized, emitEliminationPending, spectatorRoom, emitTrustedOnly, emitTrustedVariant, publicJustification } from './broadcast.util.js';
+import { emitStateSanitized, emitStateToPhones, emitPhaseChangedSanitized, emitEliminationPending, spectatorRoom, emitTrustedOnly, emitTrustedVariant, publicJustification } from './broadcast.util.js';
 import {
   isMayorEligible,
   mayorVoteWeight,
@@ -1087,7 +1087,8 @@ export function registerDayEvents(io: Server, socket: Socket) {
       const revealedRolesOut = Array.isArray(pr.revealedRoles) && pr.revealedRoles.length ? pr.revealedRoles : (result.revealedRoles || []);
       const causesOut = Array.isArray(pr.causes) ? pr.causes : eliminatedIds.map((id: number) => ({ physicalId: id, by: result.type === 'DEAL_ELIMINATION' ? 'DEAL' : 'DAY_VOTE' }));
       const pendingSecondary: string[] = [];
-      if (currentState?.pendingBomb || currentState?.heldBombResult) pendingSecondary.push('BOMB');
+      // 💣 «قنبلةٌ قادمة» تُبقي الساحة قائمة — قنبلةٌ أُوقفت بلا ضحايا ليست قادمة (كانت تُعلّق المشهد حتّى الليل)
+      if (currentState?.pendingBomb || currentState?.heldBombResult?.bombEliminated?.length) pendingSecondary.push('BOMB');
       if (currentState?.pendingAshCurse) pendingSecondary.push('ASH');
       io.to(data.roomId).emit('day:elimination-revealed', {
         eliminated: eliminatedIds,
@@ -1114,6 +1115,9 @@ export function registerDayEvents(io: Server, socket: Socket) {
           io.to(spectatorRoom(data.roomId)).emit('day:bomb-result', held);
         }
         await setGameState(data.roomId, currentState);
+        // 📱 الهواتف: الكشفُ رفع الحجب عن المُقصى وضحايا القنبلة — روسترٌ جديد لكلّ هاتف
+        //    (الموثوقون عندهم الحالة كاملة، ولا تُرسل لهم: الشاشة في منتصف مشهد الكشف)
+        await emitStateToPhones(io, data.roomId, 'game:state-sync', currentState);
       }
 
       // 🜂 لعنةُ الرماد **بعد** الكشف (قرارُ المالك 2026-08-29).
@@ -1296,6 +1300,7 @@ export function registerDayEvents(io: Server, socket: Socket) {
 
       // بث النتيجة — 🎬 إن لم يُكشف الإقصاءُ بعد تُحبس للغرفة حتى «كشف الأدوار» (الموجّه يستلمها الآن لتُغلق شاشتُه)
       const bombPayload = {
+        godfatherPhysicalId: bomb.godfatherPhysicalId,
         bombEliminated,
         bombRevealedRoles,
         bombRR: totalBombRR,
@@ -1310,6 +1315,8 @@ export function registerDayEvents(io: Server, socket: Socket) {
         console.log(`💣 Bomb result held until reveal — room ${data.roomId}`);
       } else {
         io.to(data.roomId).emit('day:bomb-result', bombPayload);
+        io.to(spectatorRoom(data.roomId)).emit('day:bomb-result', bombPayload);
+        await emitStateToPhones(io, data.roomId, 'game:state-sync', state);
       }
 
       console.log(`💣 Bomb decision executed: eliminated ${bombEliminated.join(', ') || 'none'}, RR: ${totalBombRR}`);

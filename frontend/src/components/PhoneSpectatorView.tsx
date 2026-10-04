@@ -173,6 +173,15 @@ export default function PhoneSpectatorView({ roster, physicalId, gamePhase, on, 
     // بعد الكشف نبقى في المكبَّر (الافتراضي الجديد) — وإن كان ثمة متحدّث نعود إليه
     if (serverActiveRef.current != null) setFocusId(serverActiveRef.current);
   }, []);
+  // 💣 كشوفٌ متتالية (المُقصى ثمّ ضحايا قنبلته/رماده) تُعرض بالتتابع لا متداخلة —
+  //    والعدّادُ يتغيّر بعد قلب بطاقات دفعته لا قبلها
+  const revealChain = useRef<Promise<void>>(Promise.resolve());
+  const queueReveal = useCallback((roles: { physicalId: number; role: string }[], counts?: any) => {
+    revealChain.current = revealChain.current
+      .then(() => runReveal(roles))
+      .then(() => { if (counts) setTeamCounts(counts); })
+      .catch(() => {});
+  }, [runReveal]);
 
   // اشتراكات السيرفر
   useEffect(() => {
@@ -187,8 +196,13 @@ export default function PhoneSpectatorView({ roster, physicalId, gamePhase, on, 
         setMorningBanner(null);
       }),
       on('day:elimination-revealed', (d: any) => {
-        if (d?.teamCounts) setTeamCounts(d.teamCounts);
-        if (Array.isArray(d?.revealedRoles) && d.revealedRoles.length) runReveal(d.revealedRoles);
+        queueReveal(Array.isArray(d?.revealedRoles) ? d.revealedRoles : [], d?.teamCounts);
+      }),
+      on('day:bomb-result', (d: any) => {
+        queueReveal(Array.isArray(d?.bombRevealedRoles) ? d.bombRevealedRoles : [], d?.teamCounts);
+      }),
+      on('day:ash-curse-result', (d: any) => {
+        queueReveal(d?.targetPhysicalId != null && d?.revealedRole ? [{ physicalId: d.targetPhysicalId, role: d.revealedRole }] : [], d?.teamCounts);
       }),
       // 🔇 إشارة إسكات: لاعب مُسكَت جاء دوره — تظهر عليه علامة (بلا كشف دوره)
       on('day:show-silenced', (d: any) => {
@@ -249,7 +263,7 @@ export default function PhoneSpectatorView({ roster, physicalId, gamePhase, on, 
       }),
     ];
     return () => subs.forEach((u) => u && u());
-  }, [on, runReveal]);
+  }, [on, runReveal, queueReveal]);
 
   // الوضع التلقائيّ: صاحب دور → العجلة تدور إليه (المكبَّر هو الافتراضي دائماً؛
   // بين الأدوار لا ننزلق للمصغَّر — المصغَّر خيارٌ يدويّ بالزرّ فقط)

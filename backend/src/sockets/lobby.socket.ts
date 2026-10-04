@@ -39,7 +39,7 @@ import { eq, sql, and } from 'drizzle-orm';
 import { emitStateSanitized, emitPhaseChangedSanitized, emitTrustedOnly, spectatorRoom, stripSecrets, publicJustification, publicPendingResolution } from './broadcast.util.js';
 import { buildAffinityPairs, loadPairRules, mergeRulesIntoAffinity, mergeGlobalBlockedPairs, upsertPairRule } from '../services/seat-affinity.service.js';
 import { personKey, pairKey } from '../game/seating/types.js';
-import { publicTeamCounts } from '../game/public-counts.js';
+import { publicTeamCounts, unrevealedDeadSeats } from '../game/public-counts.js';
 
 
 export const activeRooms: Map<string, {
@@ -2625,7 +2625,8 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
           physicalId: player.physicalId,
           name: player.name,
           role: shouldShowRole ? (player.role || null) : null,
-          isAlive: player.isAlive,
+          // 👁️ موتُه يصل هاتفَه مع كشف كرته لا قبله — هاتفُ ضحيّة القنبلة كان يُعلن موتَها قبل «كشف الأدوار»
+          isAlive: player.isAlive === false && unrevealedDeadSeats(state).has(Number(player.physicalId)) ? true : player.isAlive,
           gender: player.gender || 'MALE',
           playerId: player.playerId || null,
           penalties: player.penalties || 0,
@@ -5214,16 +5215,21 @@ async function readSeatLayoutOnly(activityId: any): Promise<any> {
             teamCounts: state.rolesConfirmed ? publicTeamCounts(state) : null,
             maxPlayers: state.config.maxPlayers,
             discussionState: state.discussionState || null,
-            rosterInfo: state.players.map((p: any) => ({
-              physicalId: p.physicalId,
-              name: p.name,
-              isAlive: p.isAlive,
-              avatarUrl: p.avatarUrl || null,
-              gender: p.gender || 'MALE',
-              rankTier: p.rankTier || null,
-              // ⚰️ دور المُقصى أُعلن للجميع لحظة إقصائه — وحده يُمرّر
-              role: p.isAlive === false ? (p.role || null) : null,
-            })),
+            // 👁️ ميّتٌ لم يُكشف كرتُه (المُقصى قبل «كشف الأدوار»، ضحايا القنبلة، موتى الليل قبل عرضهم)
+            //    حيٌّ بلا دور — كان يصل المتفرّجَ دورُه قبل أن تراه القاعة
+            rosterInfo: (() => { const hidden = unrevealedDeadSeats(state); return state.players.map((p: any) => {
+              const dead = p.isAlive === false && !hidden.has(Number(p.physicalId));
+              return {
+                physicalId: p.physicalId,
+                name: p.name,
+                isAlive: !dead,
+                avatarUrl: p.avatarUrl || null,
+                gender: p.gender || 'MALE',
+                rankTier: p.rankTier || null,
+                // ⚰️ دور المُقصى بعد كشفه — وحده يُمرّر
+                role: dead ? (p.role || null) : null,
+              };
+            }); })(),
             waitingCount: getSpectators(state).length,
             waitingPosition: getSpectators(state)
               .slice().sort((a, b) => a.joinedAt - b.joinedAt)
@@ -5257,7 +5263,8 @@ async function readSeatLayoutOnly(activityId: any): Promise<any> {
           physicalId: player.physicalId,
           name: player.name,
           role: shouldShowRole ? (player.role || null) : null,
-          isAlive: player.isAlive,
+          // 👁️ موتُه يصل هاتفَه مع كشف كرته لا قبله — هاتفُ ضحيّة القنبلة كان يُعلن موتَها قبل «كشف الأدوار»
+          isAlive: player.isAlive === false && unrevealedDeadSeats(state).has(Number(player.physicalId)) ? true : player.isAlive,
           gender: player.gender || 'MALE',
           playerId: player.playerId || null,
           penalties: player.penalties || 0,
@@ -5350,14 +5357,15 @@ async function readSeatLayoutOnly(activityId: any): Promise<any> {
         // نتيجة اللعبة
         winner: state.phase === 'GAME_OVER' ? state.winner || null : null,
         // معلومات قائمة اللاعبين للمفكرة وغيرها
-        rosterInfo: state.players.map((p: any) => ({
+        // 👁️ ميّتٌ لم يُكشف كرتُه حيٌّ هنا كما في كلّ إسقاط (public-counts)
+        rosterInfo: (() => { const hidden = unrevealedDeadSeats(state); return state.players.map((p: any) => ({
           physicalId: p.physicalId,
           name: p.name,
           avatarUrl: p.avatarUrl || null,
-          isAlive: p.isAlive,
+          isAlive: p.isAlive === false && hidden.has(Number(p.physicalId)) ? true : p.isAlive,
           gender: p.gender || 'MALE',
           rankTier: p.rankTier || null,
-        })),
+        })); })(),
         // كشف أدوار الجميع عند انتهاء اللعبة
         allPlayers: state.phase === 'GAME_OVER' ? state.players.map((p: any) => ({
           physicalId: p.physicalId,
