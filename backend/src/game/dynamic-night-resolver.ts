@@ -17,6 +17,7 @@ import { processTwinBond, applySuicide, applyTransform, detectTwinDeaths } from 
 import { applySheriffRevenge } from './sheriff-revenge.js';
 import { applyPhoenix, isPhoenixDisabled, BURNING_ABILITIES, PHOENIX_SUPERSEDED, type PhoenixAttempt } from './phoenix-engine.js';
 import { checkPolicewomanTrigger } from './night-resolver.js';
+import { killHolderSeat } from './night-plan.js';
 
 // ── أنواع ────────────────────────────────────────────
 
@@ -55,14 +56,37 @@ export async function buildNightQueue(state: GameState): Promise<{abilityId: str
 
   const queue: {abilityId: string; performerPhysicalId: number; priority: number; nameAr: string; isDisabled?: boolean; disabledRoleName?: string}[] = [];
 
+  const isDisabledNow = (p: Player) => p.disabledUntilRound != null && p.disabledUntilRound >= (state.round || 1);
+
+  // 🔪 الاغتيالُ لحامل السلسلة وحده (MAFIA_KILL_PRIORITY) — كما في الليلة الواحدة والليل الآليّ.
+  // 🔴 كان يُعطى لكلّ حيٍّ يحمل KILL في تعريف دوره، وفي الإنتاج لا يحمله إلّا الشيخ والأخ الأكبر:
+  //    فإن مات الشيخ بلا توأمين لم تبقَ خطوةُ اغتيالٍ في الطابور (الحرباية والعاديّ بلا قدرة)،
+  //    وإن عاش الشيخ والأخ الأكبر معاً أخذ كلٌّ منهما خطوة — والمفتاحُ المركّب يحفظهما فتقتل
+  //    المافيا مرّتين في ليلة.
+  const holder = killHolderSeat(state);
+  const killDef = allAbilities.find(a => a.id === 'KILL');
+  if (holder != null && killDef) {
+    const hp = state.players.find(p => p.physicalId === holder)!;
+    const dis = isDisabledNow(hp);
+    queue.push({
+      abilityId: 'KILL',
+      performerPhysicalId: holder,
+      priority: killDef.priority,
+      nameAr: killDef.nameAr,
+      isDisabled: dis || undefined,
+      disabledRoleName: dis ? (hp.disabledRoleName || (hp.role as string)) : undefined,
+    });
+  }
+
   for (const player of alivePlayers) {
     const roleId = player.role as string;
     const abilities = await getAbilitiesForRole(roleId);
 
     // 🧙‍♀️ فحص التعطيل
-    const isPlayerDisabled = player.disabledUntilRound != null && player.disabledUntilRound >= (state.round || 1);
+    const isPlayerDisabled = isDisabledNow(player);
 
     for (const ability of abilities) {
+      if (ability.id === 'KILL') continue; // للحامل وحده أعلاه
       if (ability.phase === 'NIGHT' || ability.phase === 'BOTH') {
         // معالجة خاصة: الممرضة تُفعّل فقط بعد موت الطبيب
         if (roleId === 'NURSE' && ability.id === 'PROTECT') {

@@ -96,6 +96,44 @@ async function main() {
     check('DISABLE_ABILITY (ENEMY): مواطنون غير مكرّرين (8,12) لا #7 السابق', JSON.stringify(t) === JSON.stringify([8, 12]), `actual=${JSON.stringify(t)}`);
   }
 
+  section('8) الاغتيال لحامل السلسلة وحده (إصلاح 2026-10-04)');
+  {
+    // الشيخ ميّت بلا توأمين: كان الطابورُ بلا خطوة اغتيال لأنّ الحرباية والعاديّ بلا قدرة
+    const s = st([P(1, Role.GODFATHER, false), P(3, Role.CHAMELEON), P(5, Role.MAFIA_REGULAR), P(6, Role.SHERIFF), P(7, Role.DOCTOR), P(12, Role.CITIZEN)]);
+    const q = await buildNightQueue(s);
+    const kills = q.filter((x: any) => x.abilityId === 'KILL');
+    check('الشيخ ميّت: خطوةُ اغتيالٍ واحدة', kills.length === 1, `n=${kills.length}`);
+    check('…للحرباية (#3) أوّلِ الورثة', kills[0]?.performerPhysicalId === 3, `seat=${kills[0]?.performerPhysicalId}`);
+  }
+  {
+    // الشيخ والأخ الأكبر حيّان: كان لكلٍّ منهما خطوة ⇒ اغتيالان في ليلة
+    const s = st([P(1, Role.GODFATHER), P(15, Role.OLDER_BROTHER), P(6, Role.SHERIFF), P(16, Role.YOUNGER_BROTHER), P(12, Role.CITIZEN)]);
+    const q = await buildNightQueue(s);
+    const kills = q.filter((x: any) => x.abilityId === 'KILL');
+    check('الشيخ والأكبر حيّان: خطوةُ اغتيالٍ واحدة لا اثنتان', kills.length === 1, `n=${kills.length}`);
+    check('…للشيخ', kills[0]?.performerPhysicalId === 1);
+  }
+  {
+    // لم يبقَ إلّا القصّ: يرث الاغتيال ويبقى له الإسكات — والاغتيالُ أوّلاً بالأولويّة
+    const s = st([P(1, Role.GODFATHER, false), P(2, Role.SILENCER), P(6, Role.SHERIFF), P(12, Role.CITIZEN)]);
+    const q = await buildNightQueue(s);
+    const mine = q.filter((x: any) => x.performerPhysicalId === 2).map((x: any) => x.abilityId);
+    check('القصّ الوارث: KILL ثمّ SILENCE', JSON.stringify(mine) === JSON.stringify(['KILL', 'SILENCE']), JSON.stringify(mine));
+  }
+  {
+    // حاملٌ معطَّل يُعلَّم كما كان
+    const s = st([P(1, Role.GODFATHER), P(6, Role.SHERIFF), P(12, Role.CITIZEN)]);
+    s.players[0].disabledUntilRound = 9;
+    const q = await buildNightQueue(s);
+    check('حاملُ الاغتيال المعطَّل مُعلَّم', q.find((x: any) => x.abilityId === 'KILL')?.isDisabled === true);
+  }
+  {
+    // لا مافيا حيّ ⇒ لا اغتيال
+    const s = st([P(1, Role.GODFATHER, false), P(6, Role.SHERIFF), P(12, Role.CITIZEN)]);
+    const q = await buildNightQueue(s);
+    check('لا مافيا حيّ: لا خطوة اغتيال', !q.some((x: any) => x.abilityId === 'KILL'));
+  }
+
   console.log(`\n══════════════════════════════════════`);
   console.log(`النتيجة: ${pass} نجح / ${fail} فشل  (المجموع ${pass + fail})`);
   if (fail > 0) { console.log('\n❌ ' + failures.join('\n❌ ')); process.exit(1); }
