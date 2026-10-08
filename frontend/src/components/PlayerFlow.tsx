@@ -24,6 +24,7 @@ import { Users } from 'lucide-react';
 import MafiaTeamGallery from './MafiaTeamGallery';
 import SecretWatermark from './SecretWatermark';
 import PlayerNotepad from './PlayerNotepad';
+import { CollapsibleVoteHistory } from './VoteHistoryPanel';
 import OrderPanel from './OrderPanel';
 import { IcoPlate } from './fnb/icons';
 import TeamBar from './TeamBar';
@@ -3203,6 +3204,11 @@ export default function PlayerFlow({ initialRoomCode = '', inviteFlag = false, i
                   on={on}
                   maxPlayers={maxPlayers}
                 />
+              )}
+
+              {/* 🗳️ سجلّ التصويت — المتفرّج يرى ما يراه الجميع */}
+              {gamePhase && !['LOBBY', 'ROLE_GENERATION', 'ROLE_BINDING'].includes(gamePhase) && (
+                <CollapsibleVoteHistory roomId={roomId} />
               )}
 
               {apiError && <p className="text-[#8A0303] text-xs font-mono text-center mt-4 bg-[#8A0303]/10 p-2 rounded">{apiError}</p>}

@@ -8,11 +8,13 @@ import '../../models/game.dart';
 import '../../models/notepad.dart';
 import '../profile/profile_palette.dart';
 import 'game_session_controller.dart';
+import 'vote_history_view.dart';
 
 // ══════════════════════════════════════════════════════
 // 📝 مفكرة التحرّي — الملفّ ٢٦
 // ══════════════════════════════════════════════════════
-// ثلاثة تبويبات: إضافة ملاحظة · عرضها · التشاور السرّي (للمافيا وحدهم).
+// أربعة تبويبات: إضافة ملاحظة · عرضها · سجلّ التصويت (للجميع) · التشاور
+// السرّي (للمافيا وحدهم).
 //
 // 🔒 غطاءُ المفكرة مقصود: من يرى جاره يفتح «مفكرة» لا يعرف أنّه يتشاور
 //    مع شركائه. لذلك التبويب الثالث لا يظهر إلّا لمن يملكه، ولا يوجد
@@ -43,7 +45,7 @@ class NotepadSheet extends StatefulWidget {
   State<NotepadSheet> createState() => _NotepadSheetState();
 }
 
-enum _Tab { add, view, chat }
+enum _Tab { add, view, votes, chat }
 
 class _NotepadSheetState extends State<NotepadSheet> {
   GameSessionController get c => widget.controller;
@@ -133,6 +135,7 @@ class _NotepadSheetState extends State<NotepadSheet> {
                   child: switch (_tab) {
                     _Tab.add => _addTab(),
                     _Tab.view => _viewTab(),
+                    _Tab.votes => _votesTab(),
                     _Tab.chat => _chatTab(),
                   },
                 ),
@@ -182,10 +185,13 @@ class _NotepadSheetState extends State<NotepadSheet> {
     return Padding(
       padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
       child: Row(children: [
-        _tabBtn(_Tab.add, '✏️ إضافة ملاحظة'),
+        _tabBtn(_Tab.add, '✏️ إضافة'),
         const SizedBox(width: 4),
         _tabBtn(_Tab.view,
-            '📋 عرض الملاحظات${c.notepad.hasAny ? ' ($n)' : ''}'),
+            '📋 الملاحظات${c.notepad.hasAny ? ' ($n)' : ''}'),
+        const SizedBox(width: 4),
+        // 🗳️ للجميع — حيّاً أو مُقصى — فلا يميّز أحداً عن غطاء التشاور
+        _tabBtn(_Tab.votes, '🗳️ التصويت'),
         if (c.chatVisible) ...[
           const SizedBox(width: 4),
           _tabBtn(_Tab.chat, '🗣️ التشاور',
@@ -209,6 +215,7 @@ class _NotepadSheetState extends State<NotepadSheet> {
                 c.markChatRead();
                 _scrollChatToEnd();
               }
+              if (t == _Tab.votes) unawaited(c.loadVoteHistory());
             },
             child: Container(
               padding: const EdgeInsets.symmetric(vertical: 9, horizontal: 6),
@@ -220,12 +227,15 @@ class _NotepadSheetState extends State<NotepadSheet> {
                     ? null
                     : Border.all(color: const Color(0xFF2A2A2A)),
               ),
-              child: Text(label,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: ar(12,
-                      color: on ? Colors.black : const Color(0xFF9CA3AF),
-                      weight: FontWeight.bold)),
+              // يصغر ولا يُقصّ: أربعة تبويباتٍ على هاتفٍ ضيّق
+              child: FittedBox(
+                fit: BoxFit.scaleDown,
+                child: Text(label,
+                    maxLines: 1,
+                    style: ar(12,
+                        color: on ? Colors.black : const Color(0xFF9CA3AF),
+                        weight: FontWeight.bold)),
+              ),
             ),
           ),
         ),
@@ -238,6 +248,18 @@ class _NotepadSheetState extends State<NotepadSheet> {
       ]),
     );
   }
+
+  // ══════════════════════════════════════════════════════
+  // 🗳️ سجلّ التصويت — يتحدّث مع كلّ جولةٍ تُفرز
+  // ══════════════════════════════════════════════════════
+  Widget _votesTab() => SingleChildScrollView(
+        padding: const EdgeInsets.only(bottom: 12),
+        child: VoteHistoryView(
+          rounds: c.voteHistory,
+          mySeat: c.physicalId,
+          footerHint: 'الجولة الجارية تظهر هنا بعد فرزها',
+        ),
+      );
 
   // ══════════════════════════════════════════════════════
   // §4.4.1 إضافة ملاحظة

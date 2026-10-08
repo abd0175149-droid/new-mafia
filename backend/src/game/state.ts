@@ -470,6 +470,8 @@ export interface GameState {
   //    (إعادة العمدة نفسها، وكسرُ تعادلها، وإعادةُ السحب). `round` يحصره في نهاره؛
   //    ويُصفَّر عند بدء الليل وعند لعبةٍ جديدة. `physicalId` يُرقَّم بنقل المقاعد تلقائيّاً.
   mayorShield?: { physicalId: number; round: number } | null;
+  // 🗳️ سجلّ التصويت: جولاتُ اللعبة المفروزة (game/vote-history.ts) — علنيّ، بلا أدوار
+  voteHistory?: import('./vote-history.js').VoteHistoryRound[] | null;
   // 🎁 سحب «اختيار رابح» — توزيع هدايا الفعالية (منفصل تماماً عن منطق اللعبة/الرانك)
   luckyDraw?: LuckyDrawState | null;
   // 🎁 سجلّ الرابحين خلال حياة الغرفة (physicalIds) — لاستبعادهم اختيارياً من السحوبات التالية.

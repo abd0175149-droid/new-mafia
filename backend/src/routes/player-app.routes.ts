@@ -1095,6 +1095,8 @@ router.get('/:id/matches', authenticatePlayer, async (req: Request, res: Respons
       penaltyRRDeduction: matchPlayers.penaltyRRDeduction,
       bombRRChange: matchPlayers.bombRRChange,
       rewardBreakdown: matchPlayers.rewardBreakdown,
+      // 🗳️ هل حُفظ سجلّ التصويت مع المباراة؟ (السجلّ نفسه من /matches/:matchId/votes — لا يُثقل القائمة)
+      hasVoteLog: sql<boolean>`(matches.vote_log IS NOT NULL)`,
     })
       .from(matchPlayers)
       .innerJoin(matches, eq(matchPlayers.matchId, matches.id))
@@ -1111,6 +1113,26 @@ router.get('/:id/matches', authenticatePlayer, async (req: Request, res: Respons
     }));
 
     res.json({ success: true, matches: enriched });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ── 🗳️ GET /:id/matches/:matchId/votes — سجلّ تصويت مباراةٍ لعبها **الطالب نفسه** ──
+// التصويتُ كان علنيّاً في الغرفة؛ بعدها لا يقرؤه إلّا من كان فيها.
+router.get('/:id/matches/:matchId/votes', authenticatePlayer, async (req: Request, res: Response) => {
+  const db = getDB();
+  if (!db) return res.status(503).json({ error: 'DB unavailable' });
+  const matchId = parseInt(req.params.matchId);
+  const me = Number((req as any).playerAccount?.playerId);
+  if (!Number.isFinite(matchId) || !Number.isFinite(me)) return res.status(400).json({ error: 'معرّف غير صالح' });
+  try {
+    const rowsOf = (r: any): any[] => r?.rows ?? (Array.isArray(r) ? r : []);
+    const played = rowsOf(await db.execute(sql`SELECT 1 FROM match_players WHERE match_id = ${matchId} AND player_id = ${me} LIMIT 1`));
+    if (!played.length) return res.status(403).json({ error: 'سجلّ التصويت لمن لعب المباراة فقط' });
+    const m = rowsOf(await db.execute(sql`SELECT vote_log FROM matches WHERE id = ${matchId}`))[0];
+    const myPhysicalId = rowsOf(await db.execute(sql`SELECT physical_id FROM match_players WHERE match_id = ${matchId} AND player_id = ${me} LIMIT 1`))[0]?.physical_id ?? null;
+    res.json({ success: true, rounds: Array.isArray(m?.vote_log) ? m.vote_log : [], myPhysicalId });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }

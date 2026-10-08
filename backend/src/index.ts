@@ -963,6 +963,8 @@ async function main() {
       await db.execute(sql`ALTER TABLE bookings ADD COLUMN IF NOT EXISTS unit_price NUMERIC(10,2)`);
       await db.execute(sql`ALTER TABLE bookings ADD COLUMN IF NOT EXISTS price_promo_id INTEGER`);
       await db.execute(sql`ALTER TABLE activities ADD COLUMN IF NOT EXISTS no_show_judged_at TIMESTAMP`);
+      // 🗳️ سجلّ التصويت مع المباراة (يُقرأ بـSQL خام — لا عمود في مخطّط Drizzle كي لا يسبق الترحيل)
+      await db.execute(sql`ALTER TABLE matches ADD COLUMN IF NOT EXISTS vote_log JSONB`);
       // 📉 خصم الغياب: إعفاءُ فعاليّة (مناسبةٌ خاصّة) + وسمُ الحكم مرّةً واحدة
       await db.execute(sql`ALTER TABLE activities ADD COLUMN IF NOT EXISTS absence_exempt BOOLEAN NOT NULL DEFAULT false`);
       await db.execute(sql`ALTER TABLE activities ADD COLUMN IF NOT EXISTS absence_judged_at TIMESTAMP`);

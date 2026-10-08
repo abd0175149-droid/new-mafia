@@ -2,6 +2,7 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { swalConfirm } from '@/lib/swal';
+import VoteHistoryPanel, { useLiveVoteHistory } from './VoteHistoryPanel';
 
 export type SuspicionLevel = 'safe' | 'suspect' | 'mafia' | 'none';
 
@@ -38,7 +39,9 @@ export default function PlayerNotepad({
 
   // ── State ──
   const [notes, setNotes] = useState<Record<number, PlayerNote>>({});
-  const [activeTab, setActiveTab] = useState<'add' | 'view' | 'chat'>('add');
+  const [activeTab, setActiveTab] = useState<'add' | 'view' | 'chat' | 'votes'>('add');
+  // 🗳️ سجلّ التصويت — للجميع (حيّ، مُقصى) فلا يميّز التبويبُ أحداً عن غطاء التشاور
+  const voteRounds = useLiveVoteHistory(roomId, isOpen && activeTab === 'votes', remapNonce);
 
   // ── 🗣️ حالة تبويب التشاور السرّي ──
   const [chatMessages, setChatMessages] = useState<Array<{ physicalId: number; name: string; text: string; at: number }>>([]);
@@ -288,9 +291,19 @@ export default function PlayerNotepad({
                     : 'bg-[#1a1a1a] text-gray-400 hover:text-white border border-[#2a2a2a]'
                 }`}
               >
-                {tab === 'add' ? '✏️ إضافة ملاحظة' : `📋 عرض الملاحظات${hasAnyNotes ? ` (${playersWithNotes.length + (generalNote?.text ? 1 : 0)})` : ''}`}
+                {tab === 'add' ? '✏️ إضافة' : `📋 الملاحظات${hasAnyNotes ? ` (${playersWithNotes.length + (generalNote?.text ? 1 : 0)})` : ''}`}
               </button>
             ))}
+            <button
+              onClick={() => setActiveTab('votes')}
+              className={`flex-1 py-2 rounded-xl text-sm font-bold transition-all ${
+                activeTab === 'votes'
+                  ? 'bg-[#C5A059] text-black shadow'
+                  : 'bg-[#1a1a1a] text-gray-400 hover:text-white border border-[#2a2a2a]'
+              }`}
+            >
+              🗳️ التصويت
+            </button>
             {/* 🗣️ تبويب التشاور — يظهر فقط على أجهزة المافيا الأحياء عندما تكون الغرفة مفعّلة */}
             {chatVisible && (
               <button
@@ -311,6 +324,11 @@ export default function PlayerNotepad({
 
           {/* ── Body ── */}
           <div className="flex-1 overflow-y-auto px-4 pb-6">
+
+            {/* ══ تبويب سجلّ التصويت ══ */}
+            {activeTab === 'votes' && (
+              <VoteHistoryPanel rounds={voteRounds} myPhysicalId={myPhysicalId} footerHint="الجولة الجارية تظهر هنا بعد فرزها" />
+            )}
 
             {/* ══ تبويب الإضافة ══ */}
             {activeTab === 'add' && (

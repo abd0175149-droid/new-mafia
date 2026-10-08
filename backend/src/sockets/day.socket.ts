@@ -30,6 +30,14 @@ import { processTwinBond, applySuicide, applyTransform } from '../game/twin-engi
 import { notifyTwinTransform } from './twin-notify.js';
 import { clearGameTimer, adjustGameTimer } from '../game/game-timer.js';
 import { emitStateSanitized, emitStateToPhones, emitPhaseChangedSanitized, emitEliminationPending, spectatorRoom, emitTrustedOnly, emitTrustedVariant, publicJustification } from './broadcast.util.js';
+import { recordVoteRound, stampWithdrawals, stampVoteOutcome, stampRevealOutcome, voteHistoryOf } from '../game/vote-history.js';
+
+// 🗳️ سجلّ التصويت للغرفة والمتفرّجين — علنيّ وبلا أدوار (game/vote-history.ts). الشاشة لا تعرضه.
+function emitVoteHistory(io: Server, roomId: string, state: any) {
+  const payload = { history: voteHistoryOf(state), round: state?.round ?? null };
+  io.to(roomId).emit('day:vote-history', payload);
+  io.to(spectatorRoom(roomId)).emit('day:vote-history', payload);
+}
 import {
   isMayorEligible,
   mayorVoteWeight,
@@ -535,7 +543,10 @@ export function registerDayEvents(io: Server, socket: Socket) {
 
       // حفظ بيانات التبرير في الـ state لاستعادتها عند إعادة الاتصال
       state.justificationData = justificationData;
+      // 📸 سجلّ التصويت: الجولة كما فُرزت، قبل أن يمحوها أيّ شيء
+      try { recordVoteRound(state); } catch (e: any) { console.warn('⚠️ vote-history record:', e?.message); }
       await setGameState(data.roomId, state);
+      emitVoteHistory(io, data.roomId, state);
 
       io.to(data.roomId).emit('game:phase-changed', { phase: Phase.DAY_JUSTIFICATION });
       // 🔒 أدوارُ المتّهمين للموجّه والعرض وحدهما — كانت تصل كلَّ هاتفٍ وهم أحياء
@@ -837,9 +848,13 @@ export function registerDayEvents(io: Server, socket: Socket) {
         const ws = state.withdrawalState;
         if (ws.count >= ws.needed) {
           // أكثر من النصف سحبوا → إعادة تصويت
+          // 🗳️ الجولة في السجلّ: مَن سحب ونتيجتها
+          stampWithdrawals(state, ws.withdrawn);
+          stampVoteOutcome(state, { type: 'WITHDRAWN', withdrawnVotes: ws.count, neededVotes: ws.needed });
           state.withdrawalState = null;
           state.justificationData = null;
           await setGameState(data.roomId, state);
+          emitVoteHistory(io, data.roomId, state);
 
           io.to(data.roomId).emit('day:withdrawal-result', { revote: true });
 
@@ -862,6 +877,7 @@ export function registerDayEvents(io: Server, socket: Socket) {
         }
 
         // لم يسحب النصف → مسح السحب ومتابعة الإقصاء
+        if (stampWithdrawals(state, ws.withdrawn)) emitVoteHistory(io, data.roomId, state);   // 🗳️ مَن سحب يبقى في السجلّ
         state.withdrawalState = null;
         await setGameState(data.roomId, state);
         io.to(data.roomId).emit('day:withdrawal-result', { revote: false });
@@ -951,9 +967,12 @@ export function registerDayEvents(io: Server, socket: Socket) {
       if (decision === 'REVOTE') {
         // إعادة تصويت كاملة على كلّ الأحياء عدا مَن أنقذه العمدة (درعٌ لبقيّة تصويت هذا النهار)
         const savedPhysicalId = (window.winner as any).targetPhysicalId ?? null;
+        // 🗳️ نتيجةُ الجولة في السجلّ: أنقذ العمدةُ مَن كان سيُقصى
+        stampVoteOutcome(state, { type: 'MAYOR_SAVED', ...(savedPhysicalId != null ? { savedPhysicalId: Number(savedPhysicalId), savedName: String(state.players.find((p: any) => p.physicalId === savedPhysicalId)?.name || '') } : {}) });
         rebuildVotingForMayorRevote(state, savedPhysicalId);
         state.phase = Phase.DAY_VOTING;
         await setGameState(data.roomId, state);
+        emitVoteHistory(io, data.roomId, state);
         await setPhase(data.roomId, Phase.DAY_VOTING);
 
         io.to(data.roomId).emit('day:mayor-revealed', { ...revealPayload, savedPhysicalId: (window.winner as any).targetPhysicalId ?? null });
@@ -1106,6 +1125,8 @@ export function registerDayEvents(io: Server, socket: Socket) {
       // 💣 نتيجةُ القنبلة المحبوسة (قرار المالك 2026-09-13): تُبثّ الآن، بعد الكشف لا قبله — للجميع عدا الموجّه (وصلته لحظة القرار)
       if (currentState) {
         currentState.eliminationRevealed = true;
+        // 🗳️ المُقصى في سجلّ التصويت — مع الكشف لا قبله، وبلا دوره
+        try { if (stampRevealOutcome(currentState)) emitVoteHistory(io, data.roomId, currentState); } catch (e: any) { console.warn('⚠️ vote-history reveal:', e?.message); }
         if (currentState.heldBombResult) {
           const held = currentState.heldBombResult; currentState.heldBombResult = null;
           // 🔴 عدّادُ النتيجة المحبوسة حُسب لحظةَ قرار القنبلة والشيخُ ما زال محجوباً — يُعاد الآن
@@ -1427,6 +1448,19 @@ export function registerDayEvents(io: Server, socket: Socket) {
   });
 
   // ── إجراء كسر التعادل ──────────────────────────
+  // 🗳️ سجلّ التصويت عند الطلب (فتح التبويب، إعادة الاتصال) — لمن في الغرفة أو متفرّجيها
+  socket.on('room:get-vote-history', async (data: { roomId: string }, callback) => {
+    if (typeof callback !== 'function') return;
+    try {
+      const roomId = String(data?.roomId || '');
+      if (!roomId || !(socket.rooms.has(roomId) || socket.rooms.has(spectatorRoom(roomId)))) {
+        return callback({ success: false, error: 'لست في هذه الغرفة' });
+      }
+      const st = await getGameState(roomId);
+      callback({ success: true, history: voteHistoryOf(st), round: st?.round ?? null });
+    } catch (err: any) { callback({ success: false, error: err.message }); }
+  });
+
   socket.on('day:tie-action', async (data: {
     roomId: string;
     action: TieBreakerAction;
@@ -1449,6 +1483,12 @@ export function registerDayEvents(io: Server, socket: Socket) {
       }
 
       const state = await handleTieBreaker(data.roomId, data.action, data.tiedCandidates);
+      // 🗳️ قرارُ التعادل في سجلّ الجولة التي تعادلت
+      {
+        const t = data.action === TieBreakerAction.CANCEL ? 'TIE_CANCEL' : data.action === TieBreakerAction.REVOTE ? 'TIE_REVOTE'
+          : data.action === TieBreakerAction.NARROW ? 'TIE_NARROW' : 'TIE_ELIMINATE_ALL';
+        if (stampVoteOutcome(state, { type: t })) { await setGameState(data.roomId, state); emitVoteHistory(io, data.roomId, state); }
+      }
       if (pulseEliminated != null) {
         // إقصاءٌ بتصويت النهار (فُضّ تعادله بالنبض) — يُسجَّل ويُختم كأيّ إقصاءٍ بالتصويت
         const pl = state.players.find((p: any) => p.physicalId === pulseEliminated);
@@ -2178,6 +2218,7 @@ async function performElimination(io: Server, roomId: string) {
     await setPhase(roomId, Phase.DAY_TIEBREAKER);
     io.to(roomId).emit('game:phase-changed', { phase: Phase.DAY_TIEBREAKER });
     const tieState = await getGameState(roomId);
+    if (tieState && stampVoteOutcome(tieState, { type: 'TIE' })) { await setGameState(roomId, tieState); emitVoteHistory(io, roomId, tieState); }   // 🗳️
     io.to(roomId).emit('day:tie', {
       tiedCandidates: result.tiedCandidates,
       // 🗳️ المستوى ٣ (بمفتاح): اقتراح إقصاء خاسر النبض — الليدر يقرّر

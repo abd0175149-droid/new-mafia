@@ -83,6 +83,11 @@ function makeState(): any {
     // 💣 نتيجة قنبلةٍ محبوسة حتّى الكشف
     heldBombResult: { godfatherPhysicalId: 7, bombEliminated: [3], bombRevealedRoles: [{ physicalId: 3, role: 'SHERIFF' }], revealSeats: [3] },
     mayorShield: { physicalId: 3, round: 2 },
+    // 🗳️ سجلّ التصويت (2026-10-08): كلّ مقاعده بأسماء القاعدة فيتبع أصحابه
+    voteHistory: [{ id: 'r1-1', round: 1, seq: 1, kind: 'DAY', resolvedAt: 1, shieldedPhysicalId: 3,
+      candidates: [{ type: 'DEAL', targetPhysicalId: 3, initiatorPhysicalId: 7, name: 'أ', votes: 2, people: 2, unnamed: 0,
+        voters: [{ voterPhysicalId: 7, name: 'ب', weight: 1 }, { voterPhysicalId: 9, name: 'ج', weight: 1, via: 'proxy' }] }],
+      withdrawn: [3], outcome: { type: 'ELIMINATED', eliminated: [3], names: ['أ'] } }],
     pendingAshCurse: { phoenixPhysicalId: 3, phoenixName: 'أ', eligible: [{ physicalId: 7, name: 'ب' }] },
     luckyDrawHistory: [3, 9],
     // 👁️ متفرّجون: مقاعدهم محجوزة داخل الحلقة ويجب أن تتبع أيّ إعادة ترقيم
@@ -217,6 +222,9 @@ section('1) تبديل لاعبَين (3 ⇄ 7) — لا يبقى أي أثر ل
   check('🗳️ المصوّتون على المتّهم', s.justificationData.votersForAccused.join(',') === '7,9', JSON.stringify(s.justificationData.votersForAccused));
   check('💣 نتيجة القنبلة المحبوسة', s.heldBombResult.bombEliminated[0] === 7 && s.heldBombResult.revealSeats[0] === 7
     && s.heldBombResult.bombRevealedRoles[0].physicalId === 7 && s.heldBombResult.godfatherPhysicalId === 3);
+  { const h = s.voteHistory[0]; const c = h.candidates[0];
+    check('🗳️ سجلّ التصويت يتبع أصحابه', c.targetPhysicalId === 7 && c.initiatorPhysicalId === 3 && c.voters[0].voterPhysicalId === 3
+      && h.withdrawn[0] === 7 && h.shieldedPhysicalId === 7 && h.outcome.eliminated[0] === 7, JSON.stringify(h)); }
   check('🛡️ درع العمدة ولعنة الرماد', s.mayorShield.physicalId === 7 && s.pendingAshCurse.phoenixPhysicalId === 7
     && s.pendingAshCurse.eligible[0].physicalId === 3);
   check('السحب (winners/pool) وأهداف الساحرة', s.luckyDraw.winners[0] === 3

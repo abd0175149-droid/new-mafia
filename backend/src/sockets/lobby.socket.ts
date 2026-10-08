@@ -6218,6 +6218,7 @@ async function readSeatLayoutOnly(activityId: any): Promise<any> {
     state.dealRegisteredRound = {};  // 🤝 تصفير قفل الاتفاقيات عند لعبة جديدة
     state.confrontations = [];       // ⚔️ مواجهات النهار — تُصفَّر مع رصيد كلّ لاعب (قرار المالك: الحدّ لكلّ لعبة)
     state.confrontationsUsed = {};
+    state.voteHistory = null;        // 🗳️ سجلّ التصويت لكلّ لعبة — حُفظ مع المباراة عند الاحتساب قبل التصفير
 
     // ── تصفير مؤقت اللعبة ──
     clearGameTimer(state.roomId);

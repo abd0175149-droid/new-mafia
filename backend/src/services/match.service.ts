@@ -121,6 +121,14 @@ export async function finalizeMatch(state: GameState): Promise<void> {
       return;
     }
 
+    // 🗳️ سجلّ التصويت مع المباراة (لسجلّ المباريات) — فشلُه لا يمسّ الاحتساب
+    try {
+      const vh = (state as any).voteHistory;
+      if (Array.isArray(vh) && vh.length) {
+        await db.execute(sql`UPDATE matches SET vote_log = ${JSON.stringify(vh)}::jsonb WHERE id = ${state.matchId}`);
+      }
+    } catch (e: any) { console.warn(`⚠️ [finalizeMatch] vote_log #${state.matchId}:`, e?.message); }
+
 
     const tracking = state.performanceTracking || { dealOutcomes: [], abilityResults: [], eliminationLog: [] };
     const totalRounds = state.round || 1;

@@ -31,6 +31,7 @@ class MatchDetails {
     this.xpEarned = 0,
     this.rrChange = 0,
     this.breakdown,
+    this.hasVoteLog = false,
   });
 
   final int matchId;
@@ -46,6 +47,9 @@ class MatchDetails {
   final bool dealInitiated, dealSuccess;
   final int xpEarned, rrChange;
   final MatchBreakdown? breakdown;
+
+  /// 🗳️ حُفظ سجلّ التصويت مع المباراة (`matches.vote_log`) — يُجلب عند الطلب.
+  final bool hasVoteLog;
 
   // ⚖️ النتيجة والفريق من `MatchOutcome` — البطاقة وتفصيلها يقرآن **نفس
   //    القيمة**. (كان في الويب اشتقاقان مختلفان؛ انظر التعليق هناك.)
@@ -98,5 +102,6 @@ class MatchDetails {
         breakdown: j['breakdown'] is Map
             ? MatchBreakdown.fromJson(Map<String, dynamic>.from(j['breakdown'] as Map))
             : null,
+        hasVoteLog: j['hasVoteLog'] == true,
       );
 }

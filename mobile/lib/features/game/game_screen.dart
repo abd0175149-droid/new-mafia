@@ -20,6 +20,7 @@ import '../voice/remote_voice.dart';
 import '../voice/voice_service.dart';
 import 'lobby_view.dart';
 import 'spectator_table.dart';
+import 'vote_history_view.dart';
 
 // ══════════════════════════════════════════════════════
 // 🎬 شاشة اللعب — §4 في الملفّ 21
@@ -1172,6 +1173,13 @@ class _SpectatingView extends StatelessWidget {
           ),
         const SizedBox(height: 16),
         RemoteSpectatorTable(controller: controller, allowInHall: true),
+        // 🗳️ سجلّ التصويت — المتفرّج يرى ما يراه الجميع
+        if (controller.voteHistory.isNotEmpty ||
+            !const {null, 'LOBBY', 'ROLE_GENERATION', 'ROLE_BINDING'}
+                .contains(controller.gamePhase)) ...[
+          const SizedBox(height: 16),
+          CollapsibleVoteHistory(controller: controller),
+        ],
       ]),
     );
   }

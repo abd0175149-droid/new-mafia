@@ -36,7 +36,7 @@ void main() {
     testWidgets('تفتح على تبويب الإضافة بلا هدف', (t) async {
       await t.pumpWidget(_sheet(NotepadSheet(controller: c)));
       expect(find.text('📝 مفكرة التحري'), findsOneWidget);
-      expect(find.text('✏️ إضافة ملاحظة'), findsOneWidget);
+      expect(find.text('✏️ إضافة'), findsOneWidget);
       expect(
           find.textContaining('لاختيار لاعب — أو اترك فارغاً'), findsOneWidget);
     });
@@ -88,7 +88,7 @@ void main() {
 
       expect(c.notepad.noteOf(7).text, 'يتهرّب من الأسئلة');
       expect(find.text('يتهرّب من الأسئلة'), findsOneWidget);
-      expect(find.text('📋 عرض الملاحظات (1)'), findsOneWidget);
+      expect(find.text('📋 الملاحظات (1)'), findsOneWidget);
     });
 
     testWidgets('حفظُ ملاحظةٍ فارغة ممنوع — الزرّ معطّل', (t) async {
@@ -103,7 +103,7 @@ void main() {
           notepad: const Notepad()
               .withNote(7, const PlayerNote(text: 'مريب')));
       await t.pumpWidget(_sheet(NotepadSheet(controller: c)));
-      await t.tap(find.text('📋 عرض الملاحظات (1)'));
+      await t.tap(find.text('📋 الملاحظات (1)'));
       await t.pumpAndSettle();
 
       await t.tap(find.text('🔴 مافيا'));
@@ -123,7 +123,7 @@ void main() {
           notepad: const Notepad()
               .withNote(5, const PlayerNote(suspicion: Suspicion.safe)));
       await t.pumpWidget(_sheet(NotepadSheet(controller: c)));
-      await t.tap(find.text('📋 عرض الملاحظات (1)'));
+      await t.tap(find.text('📋 الملاحظات (1)'));
       await t.pumpAndSettle();
       expect(find.text('لا يوجد نص — فقط تصنيف'), findsOneWidget);
     });
@@ -132,7 +132,7 @@ void main() {
       c.primeForTest(
           notepad: const Notepad().withNote(7, const PlayerNote(text: 'x')));
       await t.pumpWidget(_sheet(NotepadSheet(controller: c)));
-      await t.tap(find.text('📋 عرض الملاحظات (1)'));
+      await t.tap(find.text('📋 الملاحظات (1)'));
       await t.pumpAndSettle();
       await t.tap(find.text('🗑️ حذف'));
       await t.pumpAndSettle();
@@ -144,7 +144,7 @@ void main() {
       c.primeForTest(
           notepad: const Notepad().withNote(7, const PlayerNote(text: 'x')));
       await t.pumpWidget(_sheet(NotepadSheet(controller: c)));
-      await t.tap(find.text('📋 عرض الملاحظات (1)'));
+      await t.tap(find.text('📋 الملاحظات (1)'));
       await t.pumpAndSettle();
       await t.tap(find.text('🗑️ مسح كل الملاحظات'));
       await t.pumpAndSettle();
@@ -161,7 +161,7 @@ void main() {
       c.primeForTest(
           notepad: const Notepad().withNote(7, const PlayerNote(text: 'x')));
       await t.pumpWidget(_sheet(NotepadSheet(controller: c)));
-      await t.tap(find.text('📋 عرض الملاحظات (1)'));
+      await t.tap(find.text('📋 الملاحظات (1)'));
       await t.pumpAndSettle();
       await t.tap(find.text('🗑️ مسح كل الملاحظات'));
       await t.pumpAndSettle();

@@ -1797,6 +1797,7 @@ export function registerNightEvents(io: Server, socket: Socket) {
       state.assassinState = null;
       state.twinState = null;              // 👥 تصفير حالة التوأمين
       state.luckyDraw = null;              // 🎁 تصفير سحب الهدايا
+      state.voteHistory = null;            // 🗳️ سجلّ تصويت اللعبة المُعادة
       state.withdrawalState = null;
       state.justificationData = null;
       state.gameTimer = null;

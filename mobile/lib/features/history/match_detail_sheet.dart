@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
 
+import '../../core/storage/session_store.dart';
 import '../../models/match.dart';
 import '../../models/profile.dart';
+import '../game/vote_history_view.dart';
 import '../profile/profile_palette.dart';
 
 // ══════════════════════════════════════════════════════
@@ -147,6 +149,15 @@ class _DetailBody extends StatelessWidget {
             ),
             const SizedBox(height: 16),
             _totals(),
+            // 🗳️ سجلّ التصويت — يُحمَّل عند الضغط (لمن لعب المباراة)
+            if (match.hasVoteLog && SessionStore.instance.player != null) ...[
+              const SizedBox(height: 16),
+              MatchVoteHistory(
+                key: ValueKey(match.matchId),
+                playerId: SessionStore.instance.player!.id,
+                matchId: match.matchId,
+              ),
+            ],
             if (match.dealInitiated) ...[
               const SizedBox(height: 16),
               _dealNote(),

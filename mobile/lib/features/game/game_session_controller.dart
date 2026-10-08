@@ -15,6 +15,7 @@ import '../../models/card_template.dart' show kMafiaRoleIds;
 import '../../models/game.dart';
 import '../../models/night.dart';
 import '../../models/notepad.dart';
+import '../../models/vote_history.dart';
 
 // ══════════════════════════════════════════════════════
 // 🎮 متحكّم جلسة اللعب — الملفّ 20
@@ -518,6 +519,23 @@ class GameSessionController extends ChangeNotifier with WidgetsBindingObserver {
     notifyListeners();
   }
 
+  // ══════════════════════════════════════════════════════
+  // 🗳️ سجلّ التصويت — علنيّ لكلّ من في الغرفة، حيّاً أو مُقصى أو متفرّجاً
+  // ══════════════════════════════════════════════════════
+  // يصل مع كلّ جولةٍ تُفرز (`day:vote-history`) ويُجلب عند فتح التبويب.
+  // ليس في `room:get-my-state` عمداً: الاستطلاع يبقى خفيفاً.
+  List<VoteRound> _voteHistory = const [];
+  List<VoteRound> get voteHistory => _voteHistory;
+
+  Future<void> loadVoteHistory() async {
+    if (_roomId.isEmpty) return;
+    final res = await SocketService.instance
+        .ask('room:get-vote-history', {'roomId': _roomId});
+    if (res?['success'] != true) return;
+    _voteHistory = VoteRound.listOf(res!['history']);
+    notifyListeners();
+  }
+
   Future<bool> sendChat(String text) async {
     final t = text.trim();
     if (t.isEmpty || _chatSending || !chatVisible) return false;
@@ -965,6 +983,7 @@ class GameSessionController extends ChangeNotifier with WidgetsBindingObserver {
       _persistNotes();
       _chat = const [];
       _chatUnread = false;
+      _voteHistory = const [];
       _morning = const [];
       // 🔒 الثابت السادس (٢٧ §4.7): كشوفُ الإقصاء تُمسح مع الجيم الجديد.
       //    بقاؤها يعرض أدوار جيمٍ مضى على لاعبين يحملون أدواراً أخرى
@@ -1900,6 +1919,8 @@ class GameSessionController extends ChangeNotifier with WidgetsBindingObserver {
     // ── ③ السؤال ──
     unawaited(_pollOnce());
     unawaited(loadChatHistory());
+    // 🗳️ أرقام السجلّ رُحِّلت في الخادم — نسختنا تشير للمقاعد القديمة
+    if (_voteHistory.isNotEmpty) unawaited(loadVoteHistory());
 
     // ── ④ الإشعار ──
     _flashSeatsRemapped();
@@ -2085,8 +2106,15 @@ class GameSessionController extends ChangeNotifier with WidgetsBindingObserver {
     // إعادة الجولة الكاملة — الـreset الوحيد الشامل
     _on('game:started', (_) {
       _isPlayerDead = false;
+      _voteHistory = const [];
       _clearVoting();
       _assassinContracts = null;
+      notifyListeners();
+    });
+
+    _on('day:vote-history', (d) {
+      if (d is! Map) return;
+      _voteHistory = VoteRound.listOf(d['history']);
       notifyListeners();
     });
 
@@ -2528,6 +2556,7 @@ class GameSessionController extends ChangeNotifier with WidgetsBindingObserver {
     _roleAlert = false;
     _gameOverData = null; _gameOver = null;
     _assassinContracts = null;
+    _voteHistory = const [];
     _guard.clear();
   }
 
@@ -2855,6 +2884,7 @@ class GameSessionController extends ChangeNotifier with WidgetsBindingObserver {
     Notepad? notepad,
     List<MafiaChatMessage>? chat,
     bool? chatEnabled,
+    List<VoteRound>? voteHistory,
     List<MorningEvent>? morning,
     Map<String, dynamic>? gameOver,
     VotingState? voting,
@@ -2882,6 +2912,7 @@ class GameSessionController extends ChangeNotifier with WidgetsBindingObserver {
     if (round != null) _round = round;
     if (notepad != null) _notepad = notepad;
     if (chat != null) _chat = chat;
+    if (voteHistory != null) _voteHistory = voteHistory;
     if (chatEnabled != null) _mafiaChatEnabled = chatEnabled;
     if (morning != null) _morning = morning;
     if (gameOver != null) {
@@ -2946,6 +2977,7 @@ class GameSessionController extends ChangeNotifier with WidgetsBindingObserver {
     _round = 1;
     _notepad = const Notepad();
     _chat = const [];
+    _voteHistory = const [];
     _chatUnread = false;
     _mafiaChatEnabled = false;
     _morning = const [];

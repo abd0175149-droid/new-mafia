@@ -2,6 +2,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import Link from 'next/link';
+import { MatchVoteHistory } from '@/components/VoteHistoryPanel';
 
 const ROLE_NAMES_AR: Record<string, string> = {
   GODFATHER: 'شيخ المافيا', SILENCER: 'قص المافيا', CHAMELEON: 'حرباية المافيا',
@@ -36,6 +37,7 @@ interface MatchDetails {
   penaltyCount: number;
   penaltyRRDeduction: number;
   bombRRChange: number;
+  hasVoteLog?: boolean;   // 🗳️ حُفظ سجلّ التصويت مع المباراة
   breakdown?: {
     team: 'MAFIA' | 'CITIZEN' | 'NEUTRAL';
     won: boolean;
@@ -73,6 +75,7 @@ export default function MatchHistoryPage() {
   const [error, setError] = useState('');
   const [selectedMatch, setSelectedMatch] = useState<MatchDetails | null>(null);
 
+  const [myPlayerId, setMyPlayerId] = useState<string | null>(null);   // 🗳️ لسجلّ التصويت
   const getAuthHeaders = useCallback((): Record<string, string> => {
     let token = localStorage.getItem('mafia_player_token');
     if (!token) {
@@ -96,6 +99,7 @@ export default function MatchHistoryPage() {
       return;
     }
 
+    setMyPlayerId(playerId);
     fetch(`/api/player-app/${playerId}/matches`, { headers: getAuthHeaders() })
       .then(r => r.json())
       .then(data => {
@@ -334,6 +338,11 @@ export default function MatchHistoryPage() {
                         </p>
                       </div>
                     </div>
+
+                    {/* 🗳️ سجلّ التصويت — يُحمَّل عند الضغط (لمن لعب المباراة) */}
+                    {m.hasVoteLog && (
+                      <MatchVoteHistory key={m.matchId} playerId={myPlayerId ?? ''} matchId={m.matchId} headers={getAuthHeaders()} />
+                    )}
 
                     {/* Deal info note */}
                     {m.dealInitiated && (
