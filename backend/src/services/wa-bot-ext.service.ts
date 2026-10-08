@@ -290,7 +290,7 @@ export function extToolDeclarations(t: Record<string, any>): any[] {
   if (t.loyalty) d.push({ name: 'offer_loyalty_reward_choice', description: 'عرض أزرار اختيار مكافأة بطاقة الولاء للعميل عندما تكون له مكافأة «بانتظار الاختيار» (تعرفها من get_my_loyalty_card). التنفيذ آليّ بعد ضغطه والاختيار نهائيّ — لا تكتب بعدها إلا جملة قصيرة.', parameters: O({}) });
   // 🍽️ (2026-10-08) كان البوت يحوّل كلّ سؤالٍ عن أسعار الكافيه وعروضه للتطبيق — المعرفة تقول «الأسعار
   //    من الأدوات حصراً» ولا أداةَ تقرأ المنيو. هذه تقرؤه بالدالّة نفسها التي يعرضه بها التطبيق.
-  if (t.menu) d.push({ name: 'get_venue_menu', description: 'منيو مكانٍ (الكافيه) كما يراه اللاعب في التطبيق: الأقسام والأصناف بأسعارها، وعروض الكافيه (الباقات) بمكوّناتها وأسعارها، والحدّ الأدنى للاستهلاك إن كان مفعّلاً. استدعِها لأيّ سؤالٍ عن أسعار الأراجيل أو المشروبات أو الأكل أو «شو في بالمنيو» أو «في عروض بالكافيه». المكان بـactivity_id أو location_id؛ بلاهما يُستعمل مكانُ حجزه القادم، وإلّا تعود الأماكن لتسأله أيّها.', parameters: O({ activity_id: { type: 'NUMBER', description: 'فعاليّةٌ في المكان المقصود (اختياريّ)' }, location_id: { type: 'NUMBER', description: 'معرّف المكان من get_locations (اختياريّ)' }, search: { type: 'STRING', description: 'كلمةٌ لتضييق الأصناف: «أرجيلة»، «قهوة»، «أكل» (اختياريّ)' } }) });
+  if (t.menu) d.push({ name: 'get_venue_menu', description: 'منيو مكانٍ (الكافيه) كما يراه اللاعب في التطبيق: الأقسام والأصناف بأسعارها، وعروض الكافيه (الباقات) بمكوّناتها وأسعارها، والحدّ الأدنى للاستهلاك إن كان مفعّلاً. استدعِها لأيّ سؤالٍ عن أسعار الأراجيل أو المشروبات أو الأكل أو «شو في بالمنيو» أو «في عروض بالكافيه». المكان بـvenue_name (اسمه كما قاله العميل) أو activity_id أو location_id؛ بلا أيٍّ منها يُستعمل مكانُ حجزه القادم، وإلّا تعود الأماكن لتسأله أيّها.', parameters: O({ venue_name: { type: 'STRING', description: 'اسم المكان كما ذكره العميل: «مزاج افندينا»، «Best View» (اختياريّ)' }, activity_id: { type: 'NUMBER', description: 'فعاليّةٌ في المكان المقصود (اختياريّ)' }, location_id: { type: 'NUMBER', description: 'معرّف المكان من get_locations (اختياريّ)' }, search: { type: 'STRING', description: 'كلمةٌ لتضييق الأصناف: «أرجيلة»، «قهوة»، «أكل» (اختياريّ)' } }) });
   if (t.invoice) d.push({ name: 'get_my_invoice', description: 'فاتورة العميل نفسه في فعاليّة الليلة أو آخر فعاليّة (خلال 36 ساعة): طلباته من المنيو، الماء، تكملة الحدّ الأدنى، رسم اللعبة، خصم مشروب الولاء، الإجماليّ، وهل حُصّلت. «شو فاتورتي؟ كم عليّ؟».', parameters: O({}) });
   if (t.chips) d.push({ name: 'get_my_chips', description: 'رصيد تشبس العميل وآخر حركاته وما يكفيه رصيده من الخزنة. «كم تشبس معي؟». الشراء من التطبيق فقط.', parameters: O({}) });
   if (t.changePeople) d.push({ name: 'request_change_people', description: 'تعديل عدد الأشخاص في حجزٍ قائم للعميل بدل الإلغاء وإعادة الحجز. تعرض أزرار تأكيد والتنفيذ آليّ بعد ضغطه (قاعدة الـ3 ساعات نفسها، وفحص السعة عند الزيادة).', parameters: O({ activity_id: { type: 'NUMBER', description: 'معرّف الفعاليّة المحجوزة' }, new_count: { type: 'NUMBER', description: 'العدد الجديد (1–12)' } }, ['activity_id', 'new_count']) });
@@ -443,6 +443,12 @@ export async function execExtTool(name: string, args: any, ctx: Ctx, h: ExtHelpe
         locationId = a?.location_id != null ? Number(a.location_id) : null;
       }
       if (!locationId && args.location_id) locationId = Number(args.location_id);
+      // 🔤 اسمُ المكان كما قاله العميل — يوفّر نداءً لجلب المعرّف أوّلاً
+      if (!locationId && args.venue_name) {
+        const want = norm(args.venue_name);
+        const hit = venues.filter(v => { const n = norm(v.name); return n && want && (n.includes(want) || want.includes(n)); });
+        if (hit.length === 1) locationId = hit[0].location_id;
+      }
       if (!locationId && conv.playerId) {
         const nb = rowsOf(await db.execute(sql`
           SELECT a.location_id FROM bookings b JOIN activities a ON a.id = b.activity_id
