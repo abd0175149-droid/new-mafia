@@ -280,6 +280,7 @@ export const EXT_TOOLS_DEFAULTS = {
   survey: true,           // استبيان ما بعد الأمسية بأزرار (داخل نافذة ٢٤ ساعة المفتوحة فقط)
   adminSeating: true,     // 🔒 الإجلاس عبر نقاط المحرّك نفسها (عرض، تعيين مقعد، منع تجاور، إعادة توزيع)
   adminKb: true,          // 🔒 قراءة قاعدة المعرفة وتعديلها من الواتساب (بلقطةٍ وتراجع)
+  menu: true,             // 🍽️ منيو المكان كما في التطبيق: الأصناف والأسعار وعروض الكافيه (الباقات) والحدّ الأدنى
 };
 export const EXT_ALWAYS_ADMIN_ONLY = ['adminTonight', 'adminChips', 'adminActivities', 'adminReports', 'adminPlayers', 'adminSeating', 'adminKb'];
 
@@ -287,6 +288,9 @@ export function extToolDeclarations(t: Record<string, any>): any[] {
   const d: any[] = [];
   const O = (properties: any, required: string[] = []) => ({ type: 'OBJECT', properties, required });
   if (t.loyalty) d.push({ name: 'offer_loyalty_reward_choice', description: 'عرض أزرار اختيار مكافأة بطاقة الولاء للعميل عندما تكون له مكافأة «بانتظار الاختيار» (تعرفها من get_my_loyalty_card). التنفيذ آليّ بعد ضغطه والاختيار نهائيّ — لا تكتب بعدها إلا جملة قصيرة.', parameters: O({}) });
+  // 🍽️ (2026-10-08) كان البوت يحوّل كلّ سؤالٍ عن أسعار الكافيه وعروضه للتطبيق — المعرفة تقول «الأسعار
+  //    من الأدوات حصراً» ولا أداةَ تقرأ المنيو. هذه تقرؤه بالدالّة نفسها التي يعرضه بها التطبيق.
+  if (t.menu) d.push({ name: 'get_venue_menu', description: 'منيو مكانٍ (الكافيه) كما يراه اللاعب في التطبيق: الأقسام والأصناف بأسعارها، وعروض الكافيه (الباقات) بمكوّناتها وأسعارها، والحدّ الأدنى للاستهلاك إن كان مفعّلاً. استدعِها لأيّ سؤالٍ عن أسعار الأراجيل أو المشروبات أو الأكل أو «شو في بالمنيو» أو «في عروض بالكافيه». المكان بـactivity_id أو location_id؛ بلاهما يُستعمل مكانُ حجزه القادم، وإلّا تعود الأماكن لتسأله أيّها.', parameters: O({ activity_id: { type: 'NUMBER', description: 'فعاليّةٌ في المكان المقصود (اختياريّ)' }, location_id: { type: 'NUMBER', description: 'معرّف المكان من get_locations (اختياريّ)' }, search: { type: 'STRING', description: 'كلمةٌ لتضييق الأصناف: «أرجيلة»، «قهوة»، «أكل» (اختياريّ)' } }) });
   if (t.invoice) d.push({ name: 'get_my_invoice', description: 'فاتورة العميل نفسه في فعاليّة الليلة أو آخر فعاليّة (خلال 36 ساعة): طلباته من المنيو، الماء، تكملة الحدّ الأدنى، رسم اللعبة، خصم مشروب الولاء، الإجماليّ، وهل حُصّلت. «شو فاتورتي؟ كم عليّ؟».', parameters: O({}) });
   if (t.chips) d.push({ name: 'get_my_chips', description: 'رصيد تشبس العميل وآخر حركاته وما يكفيه رصيده من الخزنة. «كم تشبس معي؟». الشراء من التطبيق فقط.', parameters: O({}) });
   if (t.changePeople) d.push({ name: 'request_change_people', description: 'تعديل عدد الأشخاص في حجزٍ قائم للعميل بدل الإلغاء وإعادة الحجز. تعرض أزرار تأكيد والتنفيذ آليّ بعد ضغطه (قاعدة الـ3 ساعات نفسها، وفحص السعة عند الزيادة).', parameters: O({ activity_id: { type: 'NUMBER', description: 'معرّف الفعاليّة المحجوزة' }, new_count: { type: 'NUMBER', description: 'العدد الجديد (1–12)' } }, ['activity_id', 'new_count']) });
@@ -421,6 +425,81 @@ export async function execExtTool(name: string, args: any, ctx: Ctx, h: ExtHelpe
         action: { buttons: kinds.map(k => ({ type: 'reply', reply: { id: `loy:${rw.id}:${k}`, title: label[k].slice(0, 20) } })) },
       }, 'أزرار اختيار مكافأة الولاء');
       return { sent: true, note: 'أُرسلت أزرار الاختيار — التنفيذ آليّ بعد ضغطه. اكتب جملة قصيرة فقط.' };
+    }
+
+    case 'get_venue_menu': {
+      // تطبيعٌ عربيّ للبحث: تشكيل، همزات، تاء مربوطة، ألف مقصورة
+      const norm = (x: any) => String(x || '').replace(/[\u064B-\u065F\u0670]/g, '').replace(/[أإآ]/g, 'ا').replace(/ة/g, 'ه').replace(/ى/g, 'ي').toLowerCase().trim();
+      const money = (v: any) => { const n = Number(v); return Number.isFinite(n) ? (Number.isInteger(n) ? String(n) : n.toFixed(2)) : String(v); };
+      const venues = rowsOf(await db.execute(sql`
+        SELECT l.id, l.name, c.name AS city FROM locations l LEFT JOIN cities c ON c.id = l.city_id
+         WHERE l.deleted_at IS NULL AND NOT COALESCE(l.is_test_location, false)
+           AND EXISTS (SELECT 1 FROM menu_items mi WHERE mi.location_id = l.id AND mi.is_available AND mi.deleted_at IS NULL)
+         ORDER BY l.id`)).map((v: any) => ({ location_id: Number(v.id), name: v.name, city: v.city || '' }));
+
+      let locationId: number | null = null;
+      if (args.activity_id) {
+        const a = rowsOf(await db.execute(sql`SELECT location_id FROM activities WHERE id = ${Number(args.activity_id)} AND deleted_at IS NULL`))[0];
+        locationId = a?.location_id != null ? Number(a.location_id) : null;
+      }
+      if (!locationId && args.location_id) locationId = Number(args.location_id);
+      if (!locationId && conv.playerId) {
+        const nb = rowsOf(await db.execute(sql`
+          SELECT a.location_id FROM bookings b JOIN activities a ON a.id = b.activity_id
+           WHERE b.player_id = ${conv.playerId} AND b.deleted_at IS NULL AND a.deleted_at IS NULL
+             AND a.date > NOW() - INTERVAL '6 hours' AND ${sql.raw(notTestActivitySql('a'))}
+           ORDER BY a.date LIMIT 1`))[0];
+        if (nb?.location_id != null) locationId = Number(nb.location_id);
+      }
+      if (!locationId) {
+        if (venues.length === 1) locationId = venues[0].location_id;
+        else return { needVenue: true, venuesWithMenu: venues, note: 'اسأله عن أيّ مكانٍ يقصد (اذكر الأماكن بأسمائها ومدنها)، ثمّ أعد الاستدعاء بـlocation_id.' };
+      }
+
+      const loc = rowsOf(await db.execute(sql`
+        SELECT l.id, l.name, COALESCE(l.is_test_location, false) AS is_test, l.min_charge_enabled, l.minimum_charge, c.name AS city
+          FROM locations l LEFT JOIN cities c ON c.id = l.city_id WHERE l.id = ${locationId} AND l.deleted_at IS NULL`))[0];
+      if (!loc || loc.is_test) return { error: 'المكان غير متاح', venuesWithMenu: venues };
+
+      const { buildPlayerMenu } = await import('../routes/fnb.routes.js');
+      const items: any[] = await buildPlayerMenu(db as any, Number(loc.id));
+      if (!items.length) return { venue: loc.name, city: loc.city || '', hasMenu: false, venuesWithMenu: venues, note: 'لا منيو مُدخَل لهذا المكان في النظام — قل ذلك بوضوح ولا تخمّن أسعاراً.' };
+
+      // مجموعات الخيارات المشتركة (نكهات المعسل مثلاً) تُذكر مرّةً واحدة لا مع كلّ صنف
+      const groups = new Map<string, { name: string; values: string[] }>();
+      const optText = (gs: any[]) => (gs || []).map((g: any) => {
+        if (!groups.has(g.key)) groups.set(g.key, { name: g.name, values: (g.values || []).map((v: any) => Number(v.priceDelta) > 0 ? `${v.name} (+${money(v.priceDelta)})` : v.name) });
+        return g.name;
+      });
+
+      const q = norm(args.search);
+      const match = (it: any) => !q || [it.name, it.category, it.subcategory, it.description].some(x => norm(x).includes(q));
+      const offers = items.filter(it => it.isBundle && match(it)).map(it => ({
+        name: it.name, price: money(it.price), description: it.description || '',
+        contents: (it.slots || []).map((sl: any) => sl.kind === 'choice'
+          ? `${sl.qty > 1 ? sl.qty + '× ' : ''}${sl.label || 'اختيار'}: ${(sl.from || []).map((f: any) => f.name).join(' / ')}`
+          : `${sl.qty > 1 ? sl.qty + '× ' : ''}${sl.name}`).join(' + '),
+      }));
+      const sections = new Map<string, string[]>();
+      for (const it of items) {
+        if (it.isBundle || !match(it)) continue;
+        const sec = [it.category, it.subcategory].filter(Boolean).join(' — ') || 'أخرى';
+        const opts = optText(it.optionGroups);
+        const line = `${it.name} — ${money(it.price)}${opts.length ? ` [خيارات: ${opts.join('، ')}]` : ''}${it.description ? ` (${String(it.description).slice(0, 80)})` : ''}`;
+        if (!sections.has(sec)) sections.set(sec, []);
+        sections.get(sec)!.push(line);
+      }
+      const minCharge = loc.min_charge_enabled ? Number(loc.minimum_charge) : null;
+      return {
+        venue: loc.name, city: loc.city || '', currency: 'د.أ',
+        cafeOffers: offers,
+        sections: [...sections].map(([section, lines]) => ({ section, items: lines })),
+        optionLists: [...groups.values()].map(g => ({ name: g.name, values: g.values })),
+        minimumCharge: minCharge != null ? { amount: money(minCharge), note: 'حدٌّ أدنى لاستهلاك الكافيه (المنيو) لكلّ لاعبٍ لعب — إن لم تبلغه طلباته أُكمل في فاتورته. هذا عن فاتورة الكافيه لا عن عدد اللاعبين.' } : null,
+        ...(q && !offers.length && !sections.size ? { noMatch: true, note: `لا صنف يطابق «${args.search}» — أعد الاستدعاء بلا search أو بكلمةٍ أخرى قبل أن تقول إنّه غير موجود.` } : {}),
+        otherVenuesWithMenu: venues.filter(v => v.location_id !== Number(loc.id)),
+        howToAnswer: 'أجب من هذه النتيجة بالأسعار كما هي (د.أ) ولا تحوّله للتطبيق بدل الجواب. لسؤالٍ عامّ: لخّص الأقسام وأبرز الأسعار وعروض الكافيه ثمّ اعرض التفصيل لما يهمّه — لا تلصق المنيو كلّه. «عروض الكافيه» هي cafeOffers؛ وعروض الحجز (سعر الدون المبكّر، جيب صحابك) شيءٌ آخر من أدوات الحجز. الطلب نفسه من التطبيق أثناء الفعاليّة والدفع بالمكان. أسعارُ الكافيه منفصلةٌ عن رسم اللعبة.',
+      };
     }
 
     case 'get_my_invoice': {
