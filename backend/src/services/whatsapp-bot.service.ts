@@ -2990,9 +2990,48 @@ export function enforceAddress(text: string, allowed: string): string {
   return out.replace(/[ \t]{2,}/g, ' ').replace(/ +([،,.!؟])/g, '$1').replace(/^[،, ]+/gm, '').trim();
 }
 
+// ══════════════════════════════════════════════════════
+// 🎟️ «القائمة الفري» (طلب المالك 2026-10-08)
+// ══════════════════════════════════════════════════════
+// يسأل الناسُ البوتَ «هل اسمي في القائمة الفري؟». الأسماء ممنوعٌ مشاركتُها، فلا تدخل سياقَ
+// النموذج إطلاقاً: القائمة **أرقامٌ فقط** في wa_runtime_flags('free_list')، والبطاقة تحمل حالةَ
+// المتحدّث وحده («ضمنها» أو «ليس ضمنها»). نموذجٌ لا يعرف مَن غيرُه فيها لا يستطيع تسريبه مهما سُئل.
+// تعديلُ القائمة: UPDATE wa_runtime_flags SET value = '{"phones":[...]}' WHERE key = 'free_list'
+// (حذفُ الصفّ يُطفئها: لا سطرَ في البطاقة ولا ذكرَ لها).
+let freeListCache: { at: number; phones: Set<string> | null } | null = null;
+async function freeListPhones(db: any): Promise<Set<string> | null> {
+  if (freeListCache && Date.now() - freeListCache.at < 60_000) return freeListCache.phones;
+  let phones: Set<string> | null = null;
+  try {
+    const r: any = await db.execute(sql`SELECT value FROM wa_runtime_flags WHERE key = 'free_list' LIMIT 1`);
+    const v = (r?.rows ?? r ?? [])[0]?.value;
+    if (v && Array.isArray(v.phones)) {
+      const { normalizeLocalPhone } = await import('../utils/phone.util.js');
+      phones = new Set(v.phones.map((x: any) => normalizeLocalPhone(String(x))).filter(Boolean) as string[]);
+    }
+  } catch { /* بلا قائمة */ }
+  freeListCache = { at: Date.now(), phones };
+  return phones;
+}
+
+/** سطرُ البطاقة لحالة هذا الرقم من القائمة الفري — أو null إن لم تكن قائمةٌ مفعّلة */
+export async function freeListCardLine(db: any, phone: string | null | undefined): Promise<string | null> {
+  const list = await freeListPhones(db);
+  if (!list) return null;
+  const { normalizeLocalPhone } = await import('../utils/phone.util.js');
+  const me = normalizeLocalPhone(phone || '');
+  const rules = ' لا تعرف مَن غيرُه فيها ولا عددَهم، فلا تذكر أيَّ اسمٍ ولا رقمٍ ولا عدد، ولا تؤكّد ولا تنفِ عن شخصٍ آخر.'
+    + ' إن سُئلت مَن فيها أو عن غيره: «القائمة ما بنشاركها، بس بقدر أقلّك إذا اسمك إنت فيها» ثمّ أجبه عن نفسه. لا تشرح ما تمنحه القائمة ولا تخترع شروطاً.';
+  return me && list.has(me)
+    ? '🎟️ القائمة الفري: **هذا العميل ضمنها** (بحسب رقمه). إن سأل إن كان اسمه فيها: نعم، اسمك ضمن القائمة الفري.' + rules
+    : '🎟️ القائمة الفري: **هذا العميل ليس ضمنها** (بحسب رقمه). إن سأل إن كان اسمه فيها: لا، اسمك مش ضمن القائمة الفري.' + rules;
+}
+
 async function buildCustomerCard(db: any, conv: any): Promise<string> {
   const lines: string[] = [];
   lines.push(`رقم العميل: ${conv.phone}`);
+  // 🎟️ القائمة الفري — حالةُ هذا الرقم وحده (لا أسماء في السياق)
+  try { const fl = await freeListCardLine(db, conv.phone || conv.waPhone); if (fl) lines.push(fl); } catch { /* غير حرج */ }
   if (conv.playerId) {
     const [p] = await db.select().from(players).where(eq(players.id, conv.playerId)).limit(1);
     if (p) {
@@ -3869,7 +3908,7 @@ async function performCancellation(convId: number, reservationId: number) {
 
 export async function runPlayground(
   history: Array<{ role: 'user' | 'model'; text: string }>,
-  opts?: { asAdmin?: boolean },
+  opts?: { asAdmin?: boolean; phone?: string },
 ) {
   const settings = await getBotSettings();
   if (!settings.geminiApiKey) throw new Error('أدخل مفتاح Gemini واحفظه أولاً');
@@ -3879,14 +3918,17 @@ export async function runPlayground(
   while (contents.length && contents[0].role !== 'user') contents.shift();
   if (contents.length === 0) throw new Error('اكتب رسالة أولاً');
 
-  const fakeConv = { id: 0, phone: '0790000000', waPhone: '962790000000', playerId: null, displayName: 'عميل تجريبي' };
+  // 📱 رقمٌ مُحاكى (اختياريّ) — لاختبار ما يتبع رقمَ المرسل كالقائمة الفري
+  const simPhone = opts?.phone || '0790000000';
+  const fakeConv = { id: 0, phone: simPhone, waPhone: '962' + simPhone.replace(/^0/, ''), playerId: null, displayName: 'عميل تجريبي' };
   // ساحة الاختبار بهويّتين: زائر (بلا أدوات أدمن — كما يراها عميل حقيقيّ) أو أدمن (لاختبار أدوات الإدارة)
   const asAdmin = !!opts?.asAdmin;
-  const customerCard = asAdmin
-    ? 'رقم العميل: 0790000000\nالاسم: أدمن تجريبي (ساحة اختبار) — حساب أدمن موثَّق، أدوات الإدارة 🔒 متاحة له.\n🎖️ لقب المخاطبة: باسمه فقط.'
-    : 'رقم العميل: 0790000000\nالاسم: عميل تجريبي (ساحة اختبار) — زائر غير مسجّل\n🎖️ لقب المخاطبة: «ضيفنا» بلا أيّ لقب رتبة.';
+  let customerCard = asAdmin
+    ? `رقم العميل: ${simPhone}\nالاسم: أدمن تجريبي (ساحة اختبار) — حساب أدمن موثَّق، أدوات الإدارة 🔒 متاحة له.\n🎖️ لقب المخاطبة: باسمه فقط.`
+    : `رقم العميل: ${simPhone}\nالاسم: عميل تجريبي (ساحة اختبار) — زائر غير مسجّل\n🎖️ لقب المخاطبة: «ضيفنا» بلا أيّ لقب رتبة.`;
 
   const dbPg = getDB();
+  if (dbPg) { try { const fl = await freeListCardLine(dbPg, simPhone); if (fl) customerCard += '\n' + fl; } catch { /* غير حرج */ } }
   const liveFacts = dbPg ? await buildLiveFacts(dbPg).catch(() => '') : '';
   const result = await runAgent({ settings, conv: fakeConv, history: contents, customerCard, liveFacts, dryRun: true, asAdmin });
   // ساحة الاختبار تستهلك توكنز حقيقية أيضاً — تُسجَّل بمصدرها الخاص
