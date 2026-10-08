@@ -188,7 +188,7 @@ export default function AdminFeedbackPage() {
 
   // ════════════════════ Header + Toolbar (دائماً ظاهر) ════════════════════
   const toolbar = (
-    <div className="sticky top-0 z-30 -mx-3 md:-mx-6 px-3 md:px-6 py-3 mb-5 bg-gray-950/85 backdrop-blur-xl border-b border-gray-800/60">
+    <div className="sticky top-[var(--admin-top,0px)] z-30 -mx-3 md:-mx-6 px-3 md:px-6 py-3 mb-5 bg-gray-950/85 backdrop-blur-xl border-b border-gray-800/60">
       <div className="flex items-start justify-between gap-3 flex-wrap">
         <div>
           <h1 className="text-2xl font-black text-white flex items-center gap-2">

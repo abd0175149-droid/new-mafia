@@ -93,7 +93,7 @@ export default function DoorMode() {
   return (
     <div dir="rtl" className="max-w-2xl mx-auto -mx-3 sm:mx-auto">
       {/* ══ الرأس ══ */}
-      <div className="sticky top-0 z-30 px-3 pt-2 pb-3 space-y-2.5"
+      <div className="sticky top-[var(--admin-top,0px)] z-30 px-3 pt-2 pb-3 space-y-2.5"
         style={{ background: 'rgba(10,10,12,.96)', backdropFilter: 'blur(12px)', borderBottom: '1px solid rgba(255,255,255,.07)' }}>
         <div className="flex items-center gap-2">
           <Link href="/admin/reservations"

@@ -2207,7 +2207,7 @@ function BotSettingsView({ onOpenConv, section = 'all' }: { onOpenConv?: (id: nu
     //    الخطأ — وهو ما كان يقطع تبويب الأداء نصفين لكلٍّ تمريرُه.
     <div>
       {/* شريط الحالة والحفظ */}
-      <div className="sticky top-0 z-10 bg-gray-950/95 backdrop-blur border border-gray-800 rounded-2xl px-4 py-3 mb-3 flex items-center gap-3 flex-wrap">
+      <div className="sticky top-[var(--admin-top,0px)] z-10 bg-gray-950/95 backdrop-blur border border-gray-800 rounded-2xl px-4 py-3 mb-3 flex items-center gap-3 flex-wrap">
         <div className="flex items-center gap-2.5">
           <Toggle on={!!s.enabled} onClick={toggleEnabled} />
           <div>

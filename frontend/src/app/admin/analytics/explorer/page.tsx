@@ -159,7 +159,7 @@ export default function ExplorerPage() {
       </div>
 
       {/* ── شريط العدسة ── */}
-      <div className="sticky top-0 z-30 bg-gray-900/95 backdrop-blur border border-gray-700/40 rounded-2xl p-3.5 space-y-3">
+      <div className="sticky top-[var(--admin-top,0px)] z-30 bg-gray-900/95 backdrop-blur border border-gray-700/40 rounded-2xl p-3.5 space-y-3">
         <div className="flex flex-wrap gap-3 items-end">
           <Field label="أُنشئ الحساب من">
             <DateInput value={lens.signupFrom} onChange={(v) => set('signupFrom', v)} />

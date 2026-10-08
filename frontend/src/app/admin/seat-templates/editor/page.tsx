@@ -260,7 +260,7 @@ function EditorInner() {
 
   return (
     <div dir="rtl" className="pb-10">
-      <div className="flex items-center justify-between mb-4 sticky top-0 bg-gray-950/90 backdrop-blur z-20 py-2">
+      <div className="flex items-center justify-between mb-4 sticky top-[var(--admin-top,0px)] bg-gray-950/90 backdrop-blur z-20 py-2">
         <div className="flex items-center gap-3">
           <button onClick={() => router.push('/admin/seat-templates')} className="w-9 h-9 rounded-xl bg-gray-800 text-gray-300 hover:text-white">→</button>
           <h1 className="text-xl font-bold text-white">{editId ? '✏️ تعديل القالب' : '✨ قالب مقاعد جديد'}</h1>

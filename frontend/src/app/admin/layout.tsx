@@ -7,6 +7,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { getSocket } from '@/lib/socket';
 import { AdminScopeProvider, useAdminScope } from './scope-context';
 import { CitySegment, CITY_TONE_HEX, cityTone } from '@/components/admin/CityBadge';
+import { useVisibleViewport } from '@/hooks/useVisibleViewport';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || '';
 
@@ -162,6 +163,7 @@ export default function AdminLayout({ children }: { children: ReactNode }) {
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [loading, setLoading] = useState(true);
   const [isMobile, setIsMobile] = useState(false);
+  const vp = useVisibleViewport();   // 📱 انزياحُ آيفون بعد لوحة المفاتيح
   // مجموعات مفتوحة — تُسترجع من التخزين، والمجموعة الحاويّة للصفحة الحاليّة تُفتح تلقائيّاً
   const [openGroups, setOpenGroups] = useState<Set<string>>(new Set());
   const [groupsLoaded, setGroupsLoaded] = useState(false);
@@ -286,7 +288,10 @@ export default function AdminLayout({ children }: { children: ReactNode }) {
 
   return (
     <AdminScopeProvider>
-    <div className="min-h-screen bg-gray-950 flex" dir="rtl">
+    {/* 📱 --admin-top: ارتفاعُ الشريط العلويّ الثابت (مع شريط الحالة في التطبيق المثبَّت) — تقيس منه
+        كلُّ ترويسةٍ لاصقة في الصفحات كي لا تنزلق تحته. على الحاسوب صفر: لا شريط. */}
+    <div className="min-h-screen bg-gray-950 flex" dir="rtl"
+      style={{ ['--admin-top' as any]: isMobile ? 'calc(56px + env(safe-area-inset-top, 0px))' : '0px' }}>
       {/* Mobile: Overlay backdrop */}
       {isMobile && sidebarOpen && (
         <motion.div
@@ -300,7 +305,10 @@ export default function AdminLayout({ children }: { children: ReactNode }) {
 
       {/* Mobile: Fixed top bar */}
       {isMobile && (
-        <div className="fixed top-0 left-0 right-0 h-14 bg-gray-900/90 backdrop-blur-xl border-b border-gray-800/50 z-[54] flex items-center px-4 gap-3">
+        // 🔴 التطبيقُ المثبَّت على آيفون يرسم تحت شريط الحالة (black-translucent): بلا حاشيته
+        //    كان الشريطُ كلّه — زرُّ القائمة واسمُ النادي — تحت الساعة فلا تُفتح القائمة.
+        <div className="fixed top-0 left-0 right-0 bg-gray-900/90 backdrop-blur-xl border-b border-gray-800/50 z-[54] flex items-center px-4 gap-3"
+          style={{ paddingTop: 'env(safe-area-inset-top, 0px)', height: 'calc(56px + env(safe-area-inset-top, 0px))', transform: vp.shiftTop ? `translateY(${vp.shiftTop}px)` : undefined }}>
           <button
             onClick={() => setSidebarOpen(!sidebarOpen)}
             className="w-10 h-10 flex items-center justify-center rounded-xl bg-gray-800/80 hover:bg-gray-700 text-gray-300 hover:text-white transition-colors text-lg shrink-0"
@@ -327,6 +335,7 @@ export default function AdminLayout({ children }: { children: ReactNode }) {
         className={`fixed top-0 right-0 h-[100dvh] bg-gray-900/95 backdrop-blur-xl border-l border-gray-800/50 flex flex-col overflow-hidden ${
           isMobile ? 'z-[60]' : 'z-50'
         }`}
+        style={{ paddingTop: isMobile ? 'env(safe-area-inset-top, 0px)' : undefined }}
       >
         {/* Header */}
         <div className="p-4 flex items-center gap-3 border-b border-gray-800/50 shrink-0">
@@ -538,7 +547,7 @@ export default function AdminLayout({ children }: { children: ReactNode }) {
         className="flex-1 min-w-0 transition-all duration-300"
         style={{ 
           marginRight: isMobile ? 0 : (sidebarOpen ? 260 : 72),
-          paddingTop: isMobile ? 56 : 0,
+          paddingTop: isMobile ? 'var(--admin-top)' : 0,
         }}
       >
         <div className={`max-w-7xl mx-auto ${isMobile ? 'p-3' : 'p-6'}`}>

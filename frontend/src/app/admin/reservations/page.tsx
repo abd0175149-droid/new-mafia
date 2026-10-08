@@ -35,6 +35,7 @@ import PersonSheet from '@/components/reservations/PersonSheet';
 import QuickAddSheet from '@/components/reservations/QuickAddSheet';
 import WaConfirmBar from '@/components/reservations/WaConfirmBar';
 import { Sheet, SheetHead, ActionRow } from '@/components/reservations/Sheet';
+import { useVisibleViewport } from '@/hooks/useVisibleViewport';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || '';
 
@@ -207,6 +208,7 @@ function initialTpl(): string {
 }
 
 export default function ReservationsPage() {
+  const vp = useVisibleViewport();   // 📱 الجزءُ الظاهر من الشاشة (انزياحُ آيفون بعد لوحة المفاتيح)
   const R = useReservations();
   const [sel, setSel] = useState<Reservation | null>(null);
   const [showAdd, setShowAdd] = useState(false);
@@ -396,8 +398,9 @@ export default function ReservationsPage() {
   return (
     <div dir="rtl" className="max-w-2xl mx-auto -mx-3 sm:mx-auto">
       {/* ══ الرأسُ الثابت ══ */}
-      <div className="sticky top-0 z-30 px-3 pt-2 pb-2 space-y-2"
-        style={{ background: 'rgba(10,10,12,.96)', backdropFilter: 'blur(12px)', borderBottom: '1px solid rgba(255,255,255,.07)' }}>
+      {/* 🔴 كان top-0: على الهاتف ينزلق تحت شريط اللوحة الثابت فيختفي اختيارُ الفعاليّة والبحث */}
+      <div className="sticky z-30 px-3 pt-2 pb-2 space-y-2"
+        style={{ top: `calc(var(--admin-top, 0px) + ${vp.shiftTop}px)`, background: 'rgba(10,10,12,.96)', backdropFilter: 'blur(12px)', borderBottom: '1px solid rgba(255,255,255,.07)' }}>
         <div className="flex items-center gap-2">
           <select
             value={R.activityId}
@@ -519,7 +522,7 @@ export default function ReservationsPage() {
           <motion.div
             initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 20 }}
             className="fixed left-3 right-3 z-40 flex items-center gap-2.5 px-4 py-3 rounded-2xl max-w-lg mx-auto"
-            style={{ bottom: 84, background: '#12211d', border: `1px solid ${RES_COLORS.attended}66` }}
+            style={{ bottom: 84, transform: vp.shiftBottom ? `translateY(${vp.shiftBottom}px)` : undefined, background: '#12211d', border: `1px solid ${RES_COLORS.attended}66` }}
           >
             <span style={{ color: RES_COLORS.attended }}>✓</span>
             <span className="flex-1 text-[13.5px] text-gray-200 truncate">{toast.text}</span>
@@ -534,9 +537,11 @@ export default function ReservationsPage() {
       </AnimatePresence>
 
       {/* ══ الشريطُ السفليّ — قوسُ الإبهام ══ */}
-      {R.activityId && (
+      {/* 📱 يتبع الجزءَ الظاهر من الشاشة (useVisibleViewport): كان يطفو في منتصفها بعد لوحة
+          المفاتيح والقائمةُ تُرسم تحته (2026-10-08) — ويختفي ما دامت اللوحة مفتوحة */}
+      {R.activityId && !vp.keyboard && (
         <div className="fixed left-0 right-0 bottom-0 z-30 px-3 pt-3 pb-[max(12px,env(safe-area-inset-bottom))]"
-          style={{ background: 'linear-gradient(to top,#0a0a0c 62%,rgba(10,10,12,0))' }}>
+          style={{ transform: vp.shiftBottom ? `translateY(${vp.shiftBottom}px)` : undefined, background: 'linear-gradient(to top,#0a0a0c 62%,rgba(10,10,12,0))' }}>
           <div className="max-w-lg mx-auto flex gap-2">
             <button
               onClick={() => setShowAdd(true)}
