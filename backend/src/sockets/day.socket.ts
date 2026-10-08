@@ -1483,8 +1483,8 @@ export function registerDayEvents(io: Server, socket: Socket) {
       }
 
       const state = await handleTieBreaker(data.roomId, data.action, data.tiedCandidates);
-      // 🗳️ قرارُ التعادل في سجلّ الجولة التي تعادلت
-      {
+      // 🗳️ قرارُ التعادل في سجلّ الجولة التي تعادلت — الحصر وإقصاء الكلّ بلا متعادلين لا يفعلان شيئاً فلا يُختمان
+      if (data.action === TieBreakerAction.CANCEL || data.action === TieBreakerAction.REVOTE || data.tiedCandidates?.length) {
         const t = data.action === TieBreakerAction.CANCEL ? 'TIE_CANCEL' : data.action === TieBreakerAction.REVOTE ? 'TIE_REVOTE'
           : data.action === TieBreakerAction.NARROW ? 'TIE_NARROW' : 'TIE_ELIMINATE_ALL';
         if (stampVoteOutcome(state, { type: t })) { await setGameState(data.roomId, state); emitVoteHistory(io, data.roomId, state); }
