@@ -3,8 +3,9 @@
 // 🌙 الليل — طبقة الواجهة فوق مشهد المدينة (المشهد نفسه يعيش في StreetStage على مستوى الصفحة)
 // ══════════════════════════════════════════════════════
 // خطّة الإصلاح المعتمدة 2026-09-12:
-// • «ليلة واحدة»: كلّ الأدوار مضاءة، وكلّ إرسالٍ يدخل «طابور الضربات» بترتيب التنفيذ الرسميّ
-//   ويُعرض 4 ثوانٍ بلا تراكب: أداةٌ ثلاثيّة الأبعاد للدور + جملة — بلا هدفٍ ولا اسم.
+// • «ليلة واحدة»: كلّ الأدوار مضاءة، وضرباتُها تُعرض بجدولٍ **ثابت** بترتيب التنفيذ الرسميّ
+//   (oneNightSchedule) — لا بلحظة إرسال أحد: كانت الضربةُ تظهر لحظةَ الاختيار فتكشف مَن اختار
+//   ومَن تأخّر (قرار المالك 2026-10-09). كلٌّ 4 ثوانٍ بلا تراكب، بلا هدفٍ ولا اسم.
 // • «دورٌ فدور»: الدور الجاري يُضاء في الشريط، وتُضاف ضربةٌ عند إتمام كلّ خطوة.
 // • قبل اختيار النمط: شارة «بانتظار الموجّه».
 // 🔒 لا أسماءَ ولا أهدافَ هنا أبداً.
@@ -29,6 +30,21 @@ const NIGHT_ROLES: Array<{ keys: string[]; icon: string; label: string; en: stri
   { keys: ['ASSASSIN', 'ASSASSINATE'], icon: '🗡️', label: 'السفّاح', en: 'ASSASSIN', beat: 'السفّاح نفّذ عقداً' },
 ];
 const roleOf = (a: string | null | undefined) => { const u = (a || '').toUpperCase(); return NIGHT_ROLES.find(r => r.keys.some(k => u.includes(k))) || null; };
+
+/**
+ * 🌙 جدولُ ضربات الليلة الواحدة — دالّةٌ في (القدرات، طول المهلة) وحدهما: الترتيبُ الرسميّ،
+ * ضربةٌ لكلّ دور، أولاها بعد ثانيتين والبقيّة موزّعةٌ على المهلة (٤٫٥–١٠ ثوانٍ بينها). لا شيء
+ * فيه يتغيّر بما يفعله اللاعبون، فلا يُستدلّ منه على أحد.
+ */
+export function oneNightSchedule(abilities: string[], windowMs: number): Array<{ ability: string; at: number }> {
+  const byRole = new Map<string, string>();
+  for (const a of [...(abilities || [])].sort((x, y) => rank(x) - rank(y))) {
+    const r = roleOf(a); if (r && !byRole.has(r.en)) byRole.set(r.en, a);
+  }
+  const seq = Array.from(byRole.values());
+  const gap = Math.min(10000, Math.max(4500, ((windowMs || 60000) - 4000) / Math.max(1, seq.length)));
+  return seq.map((ability, i) => ({ ability, at: 2000 + Math.round(i * gap) }));
+}
 const GOLD = { fontFamily: 'Amiri, serif', background: 'linear-gradient(180deg, #f6e7bd 0%, #C5A059 52%, #7d5f2a 100%)', WebkitBackgroundClip: 'text', backgroundClip: 'text', color: 'transparent', filter: 'drop-shadow(0 2px 0 rgba(0,0,0,.85)) drop-shadow(0 0 22px rgba(197,160,89,.35))' } as const;
 
 export default function NightScene({ stepType, oneNight, abilities, beats }: Props) {

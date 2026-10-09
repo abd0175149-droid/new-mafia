@@ -19,7 +19,7 @@ import { Phase } from '../game/state.js';
 import type { GameState } from '../game/state.js';
 import { buildNightPlan, slotsOfSeat, idleSeats, slotKey, type NightSlot } from '../game/night-plan.js';
 import { getAvailableTargets, actionKey, type DynamicNightState } from '../game/dynamic-night-resolver.js';
-import { emitTrustedOnly } from './broadcast.util.js';
+import { emitLeaderAndDisplay } from './broadcast.util.js';
 
 /** مهلٌ حيّة لكلّ غرفة — واحدةٌ للّيلة كلِّها لا واحدةٌ لكلّ خطوة. */
 const timers = new Map<string, NodeJS.Timeout>();
@@ -164,7 +164,8 @@ async function openReview(io: Server, roomId: string) {
   state.oneNight.review = true;
   state.oneNight.deadline = null;
   await setGameState(roomId, state);
-  await emitTrustedOnly(io, roomId, 'night:one-review', reviewRows(state));
+  // 🔒 الاختياراتُ بمقاعدها وأهدافها للموجّه وحده — الشاشةُ لا تستعملها
+  await emitLeaderAndDisplay(io, roomId, 'night:one-review', reviewRows(state), null);
   console.log(`🌙 [one-night] مراجعةُ الموجّه جاهزة — غرفة ${roomId}`);
 }
 
@@ -209,9 +210,10 @@ export function registerOneNightEvents(io: Server, socket: Socket) {
 
       const plan = await buildNightPlan(state);
       const secs = Math.max(10, Math.min(300, data.durationSeconds || state.config.autoNightTime || 60));
-      const deadline = Date.now() + secs * 1000;
+      const startedAt = Date.now();
+      const deadline = startedAt + secs * 1000;
 
-      state.oneNight = { plan, choices: {}, idle: {}, submitted: {}, deadline, review: false, dispatched: true };
+      state.oneNight = { plan, choices: {}, idle: {}, submitted: {}, deadline, review: false, dispatched: true, startedAt, windowMs: secs * 1000 };
       if (!state.dynamicNightState) state.dynamicNightState = { actions: {}, lastTargets: {} };
       state.dynamicNightState.actions = {};
       await setGameState(data.roomId, state);
@@ -222,12 +224,13 @@ export function registerOneNightEvents(io: Server, socket: Socket) {
         if (!sock) continue;
         sock.emit('night:one-ask', await payloadFor(state, plan, p.physicalId, dyn, deadline));
       }
-      await emitTrustedOnly(io, data.roomId, 'night:one-started', {
+      // 🏙️ للشاشة: القدرات التي تتحرّك الليلة (بلا مقاعد ولا أسماء) ومتى بدأت — تُضيء في شريط الليل
+      //    وتُعرض ضرباتُها بجدولٍ ثابتٍ من هذين وحدهما، لا بلحظة إرسال أحد (قرار المالك 2026-10-09)
+      const abilities = Array.from(new Set(plan.map(s => s.abilityId)));
+      await emitLeaderAndDisplay(io, data.roomId, 'night:one-started', {
         deadline, total: state.players.filter(x => x.isAlive).length, acting: plan.length,
-        roster: rosterOf(state),
-        // 🏙️ للشاشة: القدرات التي تتحرّك الليلة (بلا مقاعد ولا أسماء) — تُضيء في شريط الليل
-        abilities: Array.from(new Set(plan.map(s => s.abilityId))),
-      });
+        roster: rosterOf(state), abilities, startedAt, windowMs: secs * 1000,
+      }, { startedAt, windowMs: secs * 1000, abilities });
 
       clearOneNightTimer(data.roomId);
       timers.set(data.roomId, setTimeout(async () => {
@@ -287,11 +290,11 @@ export function registerOneNightEvents(io: Server, socket: Socket) {
 
       const aliveSeats = state.players.filter(p => p.isAlive).map(p => p.physicalId);
       const done = aliveSeats.filter(s => on.submitted[String(s)]).length;
-      await emitTrustedOnly(io, roomId, 'night:one-progress', {
+      // 🔒 للموجّه وحده: الشاشةُ كانت تعرض ضربةَ الدور لحظةَ إرساله فتكشف مَن اختار ومَن تأخّر —
+      //    صارت تعرض جدولاً ثابتاً من night:one-started (قرار المالك 2026-10-09)
+      await emitLeaderAndDisplay(io, roomId, 'night:one-progress', {
         done, total: aliveSeats.length, roster: rosterOf(state),
-        // 🏙️ للشاشة: القدرات التي نُفِّذت بهذا الإرسال (بلا مقعدٍ ولا هدف) — تدخل طابور «ضربات الليل» بترتيب التنفيذ
-        acted: mine.map(s => s.abilityId),
-      });
+      }, null);
 
       if (done >= aliveSeats.length) {
         const s2 = await getGameState(roomId);

@@ -480,6 +480,9 @@ export default function LeaderPage() {
   const fullResyncPendingRef = useRef(false);
   // المرحلة الحالية في مرجع — يقرأها مستمع room:seats-remapped دون إعادة تسجيله كل مرحلة
   const phaseRef = useRef<string | undefined>(undefined);
+  // 🌙 نهايةُ مهلة الليلة الواحدة بساعة هذا الجهاز — فراشُ «انتهى الاختيار» يُعزف عندها لا عند آخر إرسال
+  const oneNightEndRef = useRef<number | null>(null);
+  const oneNightAmbientRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   useEffect(() => { phaseRef.current = gameState?.phase; }, [gameState?.phase]);
 
   // ── مودال تعديل الأرقام (Renumber Modal) ──
@@ -1322,6 +1325,8 @@ export default function LeaderPage() {
     const offOneStarted = on('night:one-started', (d: any) => {
       // ⏳ نافذةُ الاختيار لها صوتُها — وبلا ملفٍّ يستمرّ فراشُ الليل كما هو
       localSound(() => playAmbientSound('ambient_night_choosing'));
+      if (oneNightAmbientRef.current) { clearTimeout(oneNightAmbientRef.current); oneNightAmbientRef.current = null; }
+      oneNightEndRef.current = Date.now() + (Number(d?.windowMs) || 60000);
       setOneNight({ deadline: d?.deadline ?? null, acting: d?.acting ?? 0, total: d?.total ?? 0 });
       setOneNightProgress({ done: 0, total: d?.total ?? 0 });
       setOneNightRoster(Array.isArray(d?.roster) ? d.roster : []);
@@ -1332,8 +1337,13 @@ export default function LeaderPage() {
       if (Array.isArray(d?.roster)) setOneNightRoster(d.roster);
     });
     const offOneReview = on('night:one-review', (d: any) => {
-      // 🌙 انتهت نافذةُ الاختيار — يعود هدوءُ الليل حتى الصباح
-      localSound(() => playAmbientSound('ambient_night'));
+      // 🌙 انتهت نافذةُ الاختيار — يعود هدوءُ الليل حتى الصباح، لكن **عند موعد المهلة** لا لحظةَ
+      //    آخر إرسال: الفراشُ يُبثّ لشاشة القاعة، فتبدّلُه المبكّر كان يُعلن لحظةَ اختيار المتأخّر
+      //    (قرار المالك 2026-10-09). الموجّه نفسه يرى المراجعة فوراً.
+      const backToNight = () => { oneNightAmbientRef.current = null; if (phaseRef.current === 'NIGHT') localSound(() => playAmbientSound('ambient_night')); };
+      const left = (oneNightEndRef.current ?? 0) - Date.now();
+      if (oneNightAmbientRef.current) clearTimeout(oneNightAmbientRef.current);
+      if (left > 0) oneNightAmbientRef.current = setTimeout(backToNight, left); else backToNight();
       setOneNightReview({ acting: d?.acting || [], idle: d?.idle || [] });
       setOneNight(null);
       if (leaderSoundOnRef.current) playLocalSound('vote_cast');

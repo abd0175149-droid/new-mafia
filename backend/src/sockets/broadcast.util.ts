@@ -261,6 +261,25 @@ export async function emitTrustedOnly(
   for (const s of sockets) if (isTrusted(s)) s.emit(event, payload);
 }
 
+/**
+ * للموجّه حمولةٌ وللشاشة أخرى — أو لا شيء (`null`). ما يكشف **إيقاعَ** اللاعبين (مَن أرسل
+ * ومتى) يخصّ الموجّه وحده: الشاشةُ أمام القاعة، وأيُّ أثرٍ فيها لحظةَ الإرسال يفضح صاحبه.
+ */
+export async function emitLeaderAndDisplay(
+  io: Server,
+  roomId: string,
+  event: string,
+  leaderPayload: any,
+  displayPayload: any | null,
+): Promise<void> {
+  const sockets = await io.in(roomId).fetchSockets();
+  for (const s of sockets) {
+    const role = s.data?.role;
+    if (role === 'leader') s.emit(event, leaderPayload);
+    else if (role === 'display' && displayPayload != null) s.emit(event, displayPayload);
+  }
+}
+
 // بثّ حدثٍ حمولتُه هي كائن الحالة كاملاً (game:state-sync / game:state-updated …)
 // 🔒 في كلّ الغرف: الموثوق كاملة، وكلُّ لاعبٍ إسقاطَه (انظر رأس الملفّ).
 export async function emitStateSanitized(

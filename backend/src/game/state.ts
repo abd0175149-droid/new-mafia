@@ -431,6 +431,9 @@ export interface GameState {
     review: boolean;
     /** أُرسلت الشاشةُ للاعبين. */
     dispatched: boolean;
+    /** 🏙️ لحظةُ البدء وطولُ المهلة — جدولُ ضربات الشاشة الثابت يُبنى منهما وحدهما (ويُستأنف بعد تحديث الصفحة). */
+    startedAt?: number;
+    windowMs?: number;
   } | null;
   // ── مؤقت اللعبة ──
   gameTimer: {

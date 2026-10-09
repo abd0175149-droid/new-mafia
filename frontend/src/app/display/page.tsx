@@ -12,7 +12,7 @@ import FitToScreen from '@/components/FitToScreen';
 import { DisplayViewportProvider, useDisplayViewport, computeCardGrid, CardZoom, GridRows } from '@/components/display/viewport';
 import MafiaCard from '@/components/MafiaCard';
 import NightAnimCinematic from '@/components/NightAnimCinematic';
-import NightScene from '@/components/display/NightScene';
+import NightScene, { oneNightSchedule } from '@/components/display/NightScene';
 import MorningReport from '@/components/display/MorningReport';
 import StreetStage, { type StageMode } from '@/components/display/StreetStage';
 import type { NightBeat } from '@/components/display/NightScene';
@@ -119,7 +119,22 @@ function DisplayPageContent() {
   const beatIdRef = useRef(0); const prevStepRef = useRef<string | null>(null);
   const [stageHint, setStageHint] = useState<string | null>(null);
   const pushBeats = (abilities: string[]) => { if (!abilities?.length) return; setNightBeats(prev => [...prev, ...abilities.map(a => ({ id: ++beatIdRef.current, ability: a }))]); };
-  const resetNightUi = () => { setOneNight(false); setNightAbilities([]); setNightBeats([]); prevStepRef.current = null; };
+  // 🌙 الليلة الواحدة: ضرباتٌ بجدولٍ ثابتٍ من لحظة البدء — لا من إرسال اللاعبين (قرار المالك 2026-10-09)
+  const oneNightTimersRef = useRef<ReturnType<typeof setTimeout>[]>([]);
+  const oneNightKeyRef = useRef<number | null>(null);
+  const clearOneNightBeats = () => { oneNightTimersRef.current.forEach(clearTimeout); oneNightTimersRef.current = []; oneNightKeyRef.current = null; };
+  /** `anchor`: لحظةُ البدء بساعة هذا الجهاز — وقتُ الاستلام حيّاً، أو startedAt عند الاستئناف بعد تحديث الصفحة */
+  const startOneNight = (key: number, abilities: string[], windowMs: number, anchor: number) => {
+    if (oneNightKeyRef.current === key) return;   // مزامنةٌ متكرّرة لليلة نفسها لا تُعيد الجدول
+    clearOneNightBeats(); oneNightKeyRef.current = key;
+    setOneNight(true); setNightAbilities(abilities); setNightBeats([]);
+    for (const b of oneNightSchedule(abilities, windowMs)) {
+      const wait = anchor + b.at - Date.now();
+      if (wait < -3000) continue;   // فاتت قبل التحديث
+      oneNightTimersRef.current.push(setTimeout(() => pushBeats([b.ability]), Math.max(0, wait)));
+    }
+  };
+  const resetNightUi = () => { clearOneNightBeats(); setOneNight(false); setNightAbilities([]); setNightBeats([]); prevStepRef.current = null; };
   const animTimerRef = useRef<NodeJS.Timeout | null>(null);
   // 🚪 تشريفة الدخول (طبقة بمستوى الصفحة) + مرجع الطور الحيّ لمعالجات السوكيت
   // (المعالجات تُسجَّل مرة واحدة فتلتقط قيمة phase القديمة — المرجع يحلّ ذلك)
@@ -340,6 +355,14 @@ function DisplayPageContent() {
       else if (state.phase) setPhase(state.phase as Phase);
       if (state.teamCounts) setTeamCounts(state.teamCounts);
       if (state.winner) setWinner(state.winner);
+      // 🌙 استئنافُ الليلة الواحدة بعد تحديث الصفحة — الجدولُ نفسه من لحظة البدء المحفوظة.
+      //    والليلةُ مفتوحةٌ فعلاً (اختيارٌ أو مراجعة): oneNight ليلةٍ سابقة يبقى في الحالة بـstartedAt قديم
+      const on1 = state.oneNight;
+      if ((phaseOverride || state.phase) === Phase.NIGHT && on1?.startedAt && (on1.dispatched || on1.review)
+          && Array.isArray(on1.plan) && Date.now() - Number(on1.startedAt) < 30 * 60 * 1000) {
+        const abilities = Array.from(new Set(on1.plan.map((s: any) => s.abilityId))) as string[];
+        startOneNight(Number(on1.startedAt), abilities, Number(on1.windowMs) || 60000, Number(on1.startedAt));
+      }
       if (state.gameTimer && !state.gameTimer.expired) {
         setGameTimerData(state.gameTimer);
       } else if (!state.gameTimer || state.gameTimer.expired || state.phase === Phase.GAME_OVER || state.phase === Phase.LOBBY) {
@@ -473,7 +496,7 @@ function DisplayPageContent() {
       if (animTimerRef.current) { clearTimeout(animTimerRef.current); animTimerRef.current = null; }
       setAnimation(null);
       if (data.phase === Phase.NIGHT) { setMorningEvents([]); setNightStepType(null); resetNightUi(); }
-      if (data.phase !== Phase.NIGHT) setNightStepType(null);
+      if (data.phase !== Phase.NIGHT) { setNightStepType(null); clearOneNightBeats(); }
       if (data.phase === Phase.LOBBY) {
         setWinner(null);
         setTeamCounts({ citizenAlive: 0, mafiaAlive: 0, neutralAlive: 0 });
@@ -517,8 +540,10 @@ function DisplayPageContent() {
     };
     const onHint = (data: any) => { setStageHint(data?.kind ? `${data.kind}#${Date.now()}` : null); };
     const onMorningManifest = (data: any) => { import('@/components/display/street/props').then(m => (data?.types || []).forEach((t: string) => m.prerenderProp(m.propFor(t)))).catch(() => {}); };
-    const onOneStarted = (data: any) => { setOneNight(true); setNightAbilities(Array.isArray(data?.abilities) ? data.abilities : []); setNightBeats([]); };
-    const onOneProgress = (data: any) => { if (Array.isArray(data?.acted)) pushBeats(data.acted.filter(Boolean)); };
+    const onOneStarted = (data: any) => {
+      const abilities = Array.isArray(data?.abilities) ? data.abilities : [];
+      startOneNight(Number(data?.startedAt) || Date.now(), abilities, Number(data?.windowMs) || 60000, Date.now());
+    };
 
     const onGameOver = (data: any) => {
       setGameTimerData(null);
@@ -639,7 +664,6 @@ function DisplayPageContent() {
     socket.on('night:animation', onNightAnimation);
     socket.on('night:step-info', onNightStepInfo);
     socket.on('night:one-started', onOneStarted);
-    socket.on('night:one-progress', onOneProgress);
     socket.on('display:hint', onHint);
     socket.on('display:morning-manifest', onMorningManifest);
     socket.on('display:morning-event', onMorningEvent);
@@ -901,7 +925,6 @@ function DisplayPageContent() {
       socket.off('night:animation', onNightAnimation);
       socket.off('night:step-info', onNightStepInfo);
       socket.off('night:one-started', onOneStarted);
-      socket.off('night:one-progress', onOneProgress);
       socket.off('display:hint', onHint);
       socket.off('display:morning-manifest', onMorningManifest);
       socket.off('display:morning-event', onMorningEvent);
