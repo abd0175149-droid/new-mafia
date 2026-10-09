@@ -142,8 +142,13 @@ async function finish(io: Server, roomId: string, state: any, done: PhoneHoldGro
 
   const socks = await io.in(roomId).fetchSockets();
   const phones = socks.filter(s => !isTrustedRole((s.data as any)?.role));
-  const counts = publicTeamCounts(state, { forPhones: true });
-  for (const g of done) {
+  const remaining: PhoneHoldGroup[] = state.phoneHold || [];
+  for (let i = 0; i < done.length; i++) {
+    const g = done[i];
+    // 👁️ عدّادُ كلّ مجموعةٍ كما يصير بعدها هي وحدها: كشفُ الشيخ ثمّ قنبلتُه يُطلقان معاً (بلا شاشة)
+    //    ولكلٍّ رقمُه — ما بعدها يُعدّ محجوباً حين يُحسب رقمُها
+    const later = [...done.slice(i + 1), ...remaining].map(x => ({ ...x, deadline: Number.MAX_SAFE_INTEGER }));
+    const counts = publicTeamCounts({ ...state, phoneHold: later }, { forPhones: true });
     for (const e of g.emits) {
       const payload = e.payload && typeof e.payload === 'object' && 'teamCounts' in e.payload ? { ...e.payload, teamCounts: counts } : e.payload;
       if (e.toSeat != null) {
