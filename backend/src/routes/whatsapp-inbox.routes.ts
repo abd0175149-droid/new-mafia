@@ -584,6 +584,13 @@ router.post('/open-window-broadcast', authenticate, adminOnly, async (req: Reque
 router.post('/open-window-broadcast/:id/stop', authenticate, adminOnly, async (req: Request, res: Response) => {
   const B = await import('../services/whatsapp-broadcast.service.js'); B.stopBroadcast(parseInt(req.params.id)); res.json({ success: true });
 });
+// 📜 سجلّ البثّ بصفحات — ?page&pageSize&sort=created|sent|targets|failed|read&order=asc|desc&status&q
+router.get('/open-window-broadcast/history', authenticate, adminOnly, async (req: Request, res: Response) => {
+  try {
+    const B = await import('../services/whatsapp-broadcast.service.js');
+    res.json({ success: true, ...(await B.pageBroadcasts(req.query as any)) });
+  } catch (err: any) { res.status(500).json({ error: err.message }); }
+});
 // 👁 تقرير القراءة لبثٍّ واحد — قرأها / وصلت ولم تُقرأ / لم تصل / رفضها واتساب
 router.get('/open-window-broadcast/:id/report', authenticate, adminOnly, async (req: Request, res: Response) => {
   try {

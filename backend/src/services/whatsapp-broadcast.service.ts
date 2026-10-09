@@ -254,6 +254,80 @@ export async function listBroadcasts(limit = 20) {
   });
 }
 
+// ══════════════════════════════════════════════════════
+// 📜 سجلّ البثّ بصفحات — تصفيةٌ بالحالة، بحثٌ في النصّ/المرسِل/الرقم، وترتيبٌ بأيّ عمود
+// ══════════════════════════════════════════════════════
+// إحصاءُ القراءة مكلفٌ (رسالةٌ لكلّ مستلم) فيُحسب لصفحة العرض وحدها — إلّا حين يكون
+// الترتيبُ بنسبة القراءة نفسِها، فيُحسب لكلّ ما طابق التصفية ثمّ تُقطع الصفحة.
+const BCAST_SORT: Record<string, string> = { created: 'created_at', sent: 'sent_count', targets: 'total_targets', failed: 'failed_count', read: 'read_rate' };
+export async function pageBroadcasts(o: { page?: unknown; pageSize?: unknown; sort?: unknown; order?: unknown; status?: unknown; q?: unknown }) {
+  const pageSize = Math.min(100, Math.max(5, Math.trunc(Number(o.pageSize) || 10)));
+  const page = Math.max(1, Math.trunc(Number(o.page) || 1));
+  const empty = { rows: [] as any[], total: 0, page, pageSize, summary: { sent: 0, targets: 0, failed: 0 } };
+  const db = getDB(); if (!db) return empty;
+  const sort = BCAST_SORT[String(o.sort)] ? String(o.sort) : 'created';
+  const dir = o.order === 'asc' ? 'ASC' : 'DESC';
+  const status = ['running', 'done', 'stopped'].includes(String(o.status)) ? String(o.status) : null;
+  const q = String(o.q ?? '').trim().slice(0, 100);
+  const idQ = /^#?\d+$/.test(q) ? Number(q.replace('#', '')) : null;
+  const where = sql`WHERE true
+    ${status ? sql`AND b.status = ${status}` : sql``}
+    ${q ? sql`AND (b.body ILIKE ${'%' + q + '%'} OR b.created_by ILIKE ${'%' + q + '%'} ${idQ != null ? sql`OR b.id = ${idQ}` : sql``})` : sql``}`;
+
+  const [agg] = rowsOf(await db.execute(sql`
+    SELECT COUNT(*)::int AS n, COALESCE(SUM(b.sent_count), 0)::int AS sent, COALESCE(SUM(b.total_targets), 0)::int AS targets,
+           COALESCE(SUM(b.failed_count), 0)::int AS failed
+      FROM wa_broadcasts b ${where}`));
+  const total = Number(agg?.n || 0);
+  if (!total) return { ...empty, summary: { sent: 0, targets: 0, failed: 0 } };
+
+  const off = (page - 1) * pageSize;
+  const order = sql.raw(`${BCAST_SORT[sort]} ${dir} NULLS LAST, id DESC`);
+  // نطاقُ الإحصاء: الصفحةُ وحدها، أو كلُّ المطابق حين نرتّب بالقراءة
+  const scope = sort === 'read'
+    ? sql`SELECT b.* FROM wa_broadcasts b ${where}`
+    : sql`SELECT b.* FROM wa_broadcasts b ${where} ORDER BY ${sql.raw(`b.${BCAST_SORT[sort]} ${dir} NULLS LAST, b.id DESC`)} LIMIT ${pageSize} OFFSET ${off}`;
+  const rows = rowsOf(await db.execute(sql`
+    WITH sc AS (${scope}),
+    st AS (
+      SELECT r.broadcast_id AS id, COUNT(*)::int AS recipients,
+             COUNT(*) FILTER (WHERE m.status = 'read')::int AS read,
+             COUNT(*) FILTER (WHERE m.status = 'delivered')::int AS delivered,
+             COUNT(*) FILTER (WHERE m.status = 'failed')::int AS failed,
+             COUNT(*) FILTER (WHERE m.id IS NULL OR m.status NOT IN ('read', 'delivered', 'failed'))::int AS not_delivered
+        FROM wa_broadcast_recipients r ${RECIPIENT_MSG}
+       WHERE r.broadcast_id IN (SELECT id FROM sc)
+       GROUP BY r.broadcast_id),
+    j AS (
+      SELECT sc.*, t.name AS template_name, st.recipients, st.read, st.delivered, st.failed AS failed_msgs, st.not_delivered,
+             CASE WHEN COALESCE(st.recipients, 0) > 0 THEN st.read::float / st.recipients END AS read_rate
+        FROM sc LEFT JOIN st ON st.id = sc.id LEFT JOIN wa_message_templates t ON t.id = sc.template_id)
+    SELECT * FROM j ORDER BY ${order} ${sort === 'read' ? sql`LIMIT ${pageSize} OFFSET ${off}` : sql``}`));
+
+  const iso = (v: any) => (v ? new Date(v).toISOString() : null);
+  return {
+    total, page, pageSize,
+    summary: { sent: Number(agg.sent), targets: Number(agg.targets), failed: Number(agg.failed) },
+    rows: rows.map((b: any) => {
+      const raw = String(b.body || '');
+      const img = /^🖼️ (\/uploads\/wa-out\/[\w.-]+)\n?/.exec(raw);
+      const started = b.created_at ? new Date(b.created_at).getTime() : null;
+      const ended = b.finished_at ? new Date(b.finished_at).getTime() : null;
+      return {
+        id: Number(b.id), status: b.status, createdBy: b.created_by || '',
+        createdAt: iso(b.created_at), finishedAt: iso(b.finished_at),
+        durationSec: started && ended ? Math.max(0, Math.round((ended - started) / 1000)) : null,
+        text: img ? raw.slice(img[0].length) : raw, imageUrl: img ? img[1] : null,
+        templateId: b.template_id != null ? Number(b.template_id) : null, templateName: b.template_name || null,
+        totalTargets: Number(b.total_targets || 0), sentCount: Number(b.sent_count || 0),
+        skippedCount: Number(b.skipped_count || 0), failedCount: Number(b.failed_count || 0),
+        readStats: b.recipients != null ? { recipients: Number(b.recipients), read: Number(b.read), delivered: Number(b.delivered), notDelivered: Number(b.not_delivered), failed: Number(b.failed_msgs) } : null,
+        readRate: b.read_rate != null ? Number(b.read_rate) : null,
+      };
+    }),
+  };
+}
+
 /** تفصيل بثٍّ واحد: كلّ مستلم وحالة رسالته ووقت وصولها وقراءتها */
 export async function broadcastReadReport(id: number) {
   const db = getDB(); if (!db) return null;
