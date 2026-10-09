@@ -239,8 +239,8 @@ export default function BroadcastHistory({ apiFetch, refreshKey, onReuse }: {
                   {isOpen && (
                     <div className="px-3 pb-4 space-y-3">
                       <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-                        <Stat label="بدأ" value={dt(r.createdAt)} />
-                        <Stat label="انتهى" value={r.status === 'running' ? 'جارٍ…' : dt(r.finishedAt)} />
+                        <Stat label="بدأ" value={hm(r.createdAt)} />
+                        <Stat label="انتهى" value={r.status === 'running' ? 'جارٍ…' : (hm(r.finishedAt) || '—')} />
                         <Stat label="المدّة" value={dur(r.durationSec)} />
                         <Stat label="بواسطة" value={r.createdBy || '—'} />
                         <Stat label="المستهدفون" value={r.totalTargets} />
