@@ -477,6 +477,64 @@ router.post('/conversations/:id/bot-toggle', authenticate, adminOnly, async (req
 });
 
 // ══════════════════════════════════════════════════════
+// 📣 POST /api/whatsapp/conversations/:id/marketing — تشغيل/إيقاف الرسائل التسويقية لهذا الرقم
+// ══════════════════════════════════════════════════════
+// جدولٌ واحد (wa_optouts) يحترمه البثّ والمتابعة وعروض الحجز — فهذا الزرّ يكفيها كلَّها.
+// 🔴 إعادةُ التشغيل لمن كتب «إيقاف» بنفسه تنقض طلبه الصريح: ميتا تحاسب على البلاغات، وهو
+//    مَن سيبلّغ. لا تُمنع (قرار المالك: الأدمن يملكها) لكن لا تمرّ إلّا بتأكيدٍ ثانٍ (force)
+//    يرى فيه الموظّف أنّ العميل طلبها بنفسه ومتى. ولا رسالةَ تُرسل للعميل في الاتّجاهين.
+const OPTOUT_CUSTOMER_REASON = 'طلب العميل عبر واتساب';
+function isCustomerOptout(reason: string | null | undefined): boolean {
+  return String(reason || '').trim() === OPTOUT_CUSTOMER_REASON;
+}
+router.post('/conversations/:id/marketing', authenticate, adminOnly, async (req: Request, res: Response) => {
+  try {
+    const db = getDB();
+    if (!db) return res.status(503).json({ error: 'DB unavailable' });
+    const convId = parseInt(req.params.id);
+    const enabled = !!req.body?.enabled;
+    const [conv] = await db.select({ phone: waConversations.phone, displayName: waConversations.displayName })
+      .from(waConversations).where(eq(waConversations.id, convId)).limit(1);
+    if (!conv) return res.status(404).json({ error: 'المحادثة غير موجودة' });
+    const u = (req as any).user;
+    const [cur] = await db.select().from(waOptouts).where(eq(waOptouts.phone, conv.phone)).limit(1);
+
+    if (enabled) {
+      if (cur && isCustomerOptout(cur.reason) && req.body?.force !== true) {
+        return res.status(409).json({
+          code: 'CUSTOMER_OPTOUT',
+          error: 'العميل أوقف الرسائل التسويقية بنفسه',
+          since: cur.createdAt,
+        });
+      }
+      if (cur) await db.delete(waOptouts).where(eq(waOptouts.phone, conv.phone));
+    } else if (!cur) {
+      await db.insert(waOptouts)
+        .values({ phone: conv.phone, reason: `أوقفها ${u?.displayName || u?.username || 'الإدارة'} من لوحة الواتساب` } as any)
+        .onConflictDoNothing({ target: waOptouts.phone });
+    }
+
+    try {
+      const { logStaffAction } = await import('../services/staff-action-log.service.js');
+      void logStaffAction({
+        staffId: u?.id, staffUsername: u?.username, staffRole: u?.role, source: 'rest', action: 'rest:wa-marketing-toggle',
+        category: 'WHATSAPP_ADMIN',
+        labelAr: enabled
+          ? (cur && isCustomerOptout(cur.reason) ? 'إعادة تشغيل التسويق لعميلٍ أوقفه بنفسه (مؤكَّد)' : 'تشغيل الرسائل التسويقية لرقم')
+          : 'إيقاف الرسائل التسويقية لرقم',
+        targetName: conv.displayName || conv.phone,
+        details: { conversationId: convId, phone: conv.phone, enabled, previousReason: cur?.reason ?? null },
+      });
+    } catch { /* غير حاجب */ }
+
+    const [now] = await db.select({ reason: waOptouts.reason, createdAt: waOptouts.createdAt }).from(waOptouts).where(eq(waOptouts.phone, conv.phone)).limit(1);
+    res.json({ success: true, optedOut: !!now, optout: now ? { reason: now.reason || '', createdAt: now.createdAt, byCustomer: isCustomerOptout(now.reason) } : null });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ══════════════════════════════════════════════════════
 // 🤖 إعدادات البوت الذكي — تُدار من تبويب «البوت» (أدمن فقط)
 // ══════════════════════════════════════════════════════
 
@@ -884,10 +942,11 @@ router.get('/conversations/:id/context', authenticate, adminOnly, async (req: Re
       .orderBy(desc(waCustomerNotes.createdAt))
       .limit(10);
 
-    // ── إيقاف التسويق؟ ──
-    const [opt] = await db.select({ id: waOptouts.id }).from(waOptouts).where(eq(waOptouts.phone, conv.phone)).limit(1);
+    // ── إيقاف التسويق؟ ── (ومَن أوقفه ومتى: العميلُ بنفسه أم الإدارة)
+    const [opt] = await db.select({ id: waOptouts.id, reason: waOptouts.reason, createdAt: waOptouts.createdAt })
+      .from(waOptouts).where(eq(waOptouts.phone, conv.phone)).limit(1);
 
-    res.json({ success: true, player, bookings: lastBookings, notes, optedOut: !!opt });
+    res.json({ success: true, player, bookings: lastBookings, notes, optedOut: !!opt, optout: opt ? { reason: opt.reason || '', createdAt: opt.createdAt, byCustomer: isCustomerOptout(opt.reason) } : null });
   } catch (err: any) {
     console.error('❌ whatsapp/context:', err.message);
     res.status(500).json({ error: err.message });

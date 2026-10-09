@@ -574,6 +574,46 @@ export default function WhatsAppInboxPage() {
     }
   }, [conv]);
 
+  // ══════════════════════════════════════════════════════
+  // 📣 الرسائل التسويقية لهذا الرقم — بثٌّ ومتابعةٌ وعروضُ حجز (جدول wa_optouts)
+  // ══════════════════════════════════════════════════════
+  // ردودُ المحادثة والحجوزات وإلغاؤها ليست تسويقاً — تصله في الحالين.
+  // 🔴 مَن كتب «إيقاف» بنفسه: تأكيدٌ ثانٍ بالسبب، فإعادتُها بلا طلبه تجلب البلاغات على الرقم.
+  const toggleMarketing = useCallback(async () => {
+    if (!conv || !ctx) return;
+    const enabling = !!ctx.optedOut;
+    const who = conv.displayName || intlPhone(conv.phone);
+    const ok = await swalConfirm(
+      enabling
+        ? `ستعود تصل ${who} رسائلُ البثّ والمتابعة وعروض الحجز.`
+        : `لن تصل ${who} رسائلُ البثّ ولا المتابعة ولا عروض الحجز. ردودُ المحادثة والحجوزات وإلغاؤها تبقى تصله.`,
+      { title: enabling ? 'تشغيل الرسائل التسويقية؟' : 'إيقاف الرسائل التسويقية؟', danger: !enabling, confirmText: enabling ? 'تشغيل' : 'إيقاف' },
+    );
+    if (!ok) return;
+    const send = (force: boolean) => apiFetch(`/api/whatsapp/conversations/${conv.id}/marketing`, {
+      method: 'POST',
+      body: JSON.stringify({ enabled: enabling, ...(force ? { force: true } : {}) }),
+    });
+    try {
+      let res: any;
+      try { res = await send(false); }
+      catch (e: any) {
+        if (e.code !== 'CUSTOMER_OPTOUT') throw e;
+        const since = e.body?.since ? ` (${fmtWhen(e.body.since)})` : '';
+        const sure = await swalConfirm(
+          `${who} كتب «إيقاف» بنفسه${since} وطلب ألّا تصله رسائل تسويقيّة.\n\nإعادةُ تشغيلها دون طلبه قد تدفعه للإبلاغ عن الرقم — والبلاغات تخفض تصنيف رقم الواتساب عند ميتا وقد توقفه. شغّلها فقط إن طلب ذلك منك صراحةً.`,
+          { title: '⚠️ العميل أوقفها بنفسه', danger: true, confirmText: 'شغّلها رغم ذلك' },
+        );
+        if (!sure) return;
+        res = await send(true);
+      }
+      setCtx((prev: any) => ({ ...prev, optedOut: res.optedOut, optout: res.optout }));
+      swalToast(res.optedOut ? 'أُوقفت الرسائل التسويقية لهذا الرقم' : 'شُغّلت الرسائل التسويقية ✅', res.optedOut ? 'info' : 'success');
+    } catch (e: any) {
+      swalAlert(e.message, 'error');
+    }
+  }, [conv, ctx]);
+
   // ── الملاحظات ──
   const addNote = useCallback(async () => {
     const note = noteDraft.trim();
@@ -894,7 +934,10 @@ export default function WhatsAppInboxPage() {
                       </span>
                     )}
                     {ctx?.optedOut && (
-                      <span className="text-[10px] font-bold text-rose-400 bg-rose-500/10 rounded-full px-2">🚫 أوقف التسويق</span>
+                      <span className="text-[10px] font-bold text-rose-400 bg-rose-500/10 rounded-full px-2"
+                        title={ctx.optout?.byCustomer ? `أوقفها العميل بنفسه${ctx.optout?.createdAt ? ` — ${fmtWhen(ctx.optout.createdAt)}` : ''}` : (ctx.optout?.reason || '')}>
+                        🚫 {ctx.optout?.byCustomer ? 'أوقف التسويق' : 'التسويق موقوف'}
+                      </span>
                     )}
                   </div>
                   <div className="text-[11px] text-gray-500" dir="ltr">{intlPhone(conv.phone)}</div>
@@ -914,6 +957,18 @@ export default function WhatsAppInboxPage() {
                       title="الرقم غير مربوط بأيّ لاعب — لا حساب يُفتح"
                     >🔗 ربط بلاعب</button>
                   ) : null}
+                  {/* 📣 الرسائل التسويقية — أخضر = تصله */}
+                  <button
+                    onClick={toggleMarketing}
+                    disabled={!ctx}
+                    className="flex items-center gap-1.5 text-[11px] font-bold text-gray-300 disabled:opacity-40"
+                    title={!ctx ? '' : ctx.optedOut ? 'الرسائل التسويقية موقوفة عن هذا الرقم — اضغط للتشغيل' : 'الرسائل التسويقية تصل هذا الرقم — اضغط للإيقاف'}
+                  >
+                    📣
+                    <span className={`w-9 h-5 rounded-full relative transition-colors ${ctx && !ctx.optedOut ? 'bg-emerald-500' : 'bg-gray-700'}`}>
+                      <span className={`absolute top-0.5 w-4 h-4 rounded-full bg-white transition-all ${ctx && !ctx.optedOut ? 'right-0.5' : 'right-4'}`} />
+                    </span>
+                  </button>
                   <button
                     onClick={toggleBot}
                     className="flex items-center gap-1.5 text-[11px] font-bold text-gray-300"
