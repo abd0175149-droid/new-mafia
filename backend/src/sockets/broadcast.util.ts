@@ -13,7 +13,7 @@
 
 import type { Server } from 'socket.io';
 import { notifyPulseForRoom } from './activity-pulse.socket.js';
-import { unrevealedDeadSeats } from '../game/public-counts.js';
+import { unrevealedDeadSeats, roleHiddenSeats, phoneHeldSeats, announcedRoleOf } from '../game/public-counts.js';
 
 // إزالة كل ما يكشف الأدوار أو نيّات الليل من نسخة اللاعب
 // ⚰️ دور الميت يُكشف: أُعلن للجميع لحظة الإقصاء/الصباح أصلاً — إبقاؤه في الروستر
@@ -89,11 +89,19 @@ export function publicJustification(jd: any): any {
   };
 }
 
-/** نتيجةُ الإقصاء قبل الكشف: مَن خرج (الأرقام) لا أدوارُهم ولا الأسباب ولا الصفقة. */
+/**
+ * نتيجةُ الإقصاء للهواتف: **لا شيء** قبل أن تُقلب البطاقة على شاشة القاعة — لا مَن خرج،
+ * ولا نوعُ النتيجة، ولا الفائز (قرار المالك 2026-10-09: كانت الأرقامُ تصل فيعرض الهاتفُ
+ * «💀 إقصاء» بالأسماء و«تم إقصاؤك» لحظةَ قرار الموجّه). `eliminated: []` عمداً لا غياباً:
+ * نسخُ أندرويد السابقة تأخذ القائمة من هنا، والفارغةُ تُطفئ عندها قائمةَ يومٍ سابق.
+ */
+export const PENDING_FOR_PHONES = Object.freeze({ pending: true, eliminated: [] as number[] });
 export function publicPendingResolution(state: any): any {
   const pr = state?.pendingResolution;
   if (!pr) return pr;
-  return state.eliminationRevealed ? { ...pr } : { eliminated: pr.eliminated || [], type: pr.type };
+  const held = phoneHeldSeats(state);
+  const announced = state.eliminationRevealed && !(pr.eliminated || []).some((id: any) => held.has(Number(id)));
+  return announced ? { ...pr } : { ...PENDING_FOR_PHONES };
 }
 
 /**
@@ -105,7 +113,14 @@ export function publicPendingResolution(state: any): any {
  */
 export function projectStateFor(state: any, viewerSeat: number | null): any {
   if (!state || typeof state !== 'object' || !Array.isArray(state.players)) return state;
-  const hidden = unrevealedDeadSeats(state);
+  // 📱 للهواتف: ما أُعلن على الشاشة ولم تُقلب بطاقتُه بعد محجوبٌ كذلك (phone-hold)
+  const hidden = unrevealedDeadSeats(state, { forPhones: true });
+  const roleHidden = roleHiddenSeats(state, { forPhones: true });
+  // 🤐 الإسكاتُ يُحسم ليلاً ويُعلن بحدث الصباح — قبله لا يظهر على أحد
+  const silenceHidden = new Set<number>();
+  for (const ev of state.morningEvents || []) {
+    if (!ev?.revealed && ev?.type === 'SILENCED' && ev?.targetPhysicalId != null) silenceHidden.add(Number(ev.targetPhysicalId));
+  }
   const started = !!state.rolesConfirmed || !PRE_GAME_PHASES.has(state.phase);
 
   const out: any = {};
@@ -117,11 +132,14 @@ export function projectStateFor(state: any, viewerSeat: number | null): any {
     // 👁️ ميّتٌ لم يُكشف كرتُه حيٌّ في كلّ هاتف — صاحبُه أيضاً: هاتفُ ضحيّة القنبلة كان
     //    يُعلن موتَها (فيفضح أنّ المُقصى شيخُ المافيا) قبل «كشف الأدوار»
     if (hidden.has(Number(p.physicalId)) && p.isAlive === false) q.isAlive = true;
+    if (silenceHidden.has(Number(p.physicalId))) q.isSilenced = false;
     if (viewerSeat != null && p.physicalId === viewerSeat) {
       q.phone = p.phone ?? null;
-      q.role = started ? (p.role ?? null) : null;
+      // 👥 الأصغرُ المتحوّل يرى دورَه القديم حتّى يُعلن موتُ أخيه
+      q.role = started ? announcedRoleOf(state, p) : null;
     } else {
-      q.role = p.isAlive === false && !hidden.has(Number(p.physicalId)) ? (p.role ?? null) : null;
+      const seat = Number(p.physicalId);
+      q.role = p.isAlive === false && !hidden.has(seat) && !roleHidden.has(seat) ? (p.role ?? null) : null;
     }
     return q;
   });
@@ -162,6 +180,15 @@ export function projectStateFor(state: any, viewerSeat: number | null): any {
 
   if (state.phase === 'GAME_OVER') out.winner = state.winner ?? null;
   return out;
+}
+
+/**
+ * 🏁 نهايةُ اللعبة: الأدوارُ كلُّها علنيّةٌ الآن، لكنّ أرقامَ هواتف اللاعبين ليست كذلك —
+ *    كانت `players` تُبثّ كما هي لكلّ هاتف. الموثوقون يستلمون الحمولة كاملة.
+ */
+export async function emitGameOver(io: Server, roomId: string, payload: any): Promise<void> {
+  const pub = { ...payload, players: Array.isArray(payload?.players) ? payload.players.map(({ phone, ...p }: any) => { void phone; return p; }) : payload?.players };
+  await emitTrustedVariant(io, roomId, 'game:over', payload, pub);
 }
 
 /** يرسل لكلّ مقبسٍ في الغرفة نسختَه: الموثوق كاملة، واللاعب إسقاطَه، وغيرُهما الإسقاطَ العامّ. */
@@ -227,12 +254,13 @@ export function stripEliminationSecrets(state: any): any {
 }
 
 /**
- * 🎬 «بانتظار القرار» بلا أسرار: الغرفةُ تعرف مَن خرج (الأرقام) لا أدوارَهم ولا القنبلة؛
+ * 🎬 «بانتظار القرار» بلا أسرار: الغرفةُ لا تعرف حتّى مَن خرج — تعرفه من شاشة القاعة؛
  *    الموجّه وشاشةُ القاعة يستلمان الحمولةَ كاملةً (الموجّه يحتاج pendingBomb لشاشة القرار).
  *    كان بثّاً عامّاً يحمل revealedRoles وأدوار الجيران قبل الكشف — يُقرأ من أدوات المطوّر على أيّ هاتف.
  */
 export async function emitEliminationPending(io: Server, roomId: string, payload: any): Promise<void> {
-  const publicPayload = { ...payload, revealedRoles: [], pendingBomb: null, causes: undefined, deal: undefined };
+  // 📱 الهواتف والمتفرّجون: «بانتظار الإعلان» وحده — لا أرقامَ ولا نوعَ ولا فائزاً (انظر PENDING_FOR_PHONES)
+  const publicPayload = { ...PENDING_FOR_PHONES };
   const sockets = await io.in(roomId).fetchSockets();
   for (const s of sockets) s.emit('day:elimination-pending', isTrusted(s) ? payload : publicPayload);
   io.to(spectatorRoom(roomId)).emit('day:elimination-pending', publicPayload);

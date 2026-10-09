@@ -5,6 +5,7 @@
 
 import { type GameState, type TwinState, type MorningEvent, ROLE_NAMES_AR } from './state.js';
 import { Role, isMafiaRole } from './roles.js';
+import { phoneAlive } from './public-counts.js';
 
 // ── أنواع النتائج ──────────────────────────────────────
 
@@ -191,7 +192,8 @@ export function getSiblingInfoFor(state: GameState, physicalId: number): Sibling
     name: sib.name,
     role: (sib.role as string) || 'UNKNOWN',
     avatarUrl: (sib as any).avatarUrl || null,
-    isAlive: sib.isAlive !== false,
+    // 📱 موتٌ لم يُعلن على الشاشة ليس موتاً عند أخيه — كان «(متوفّى)» يظهر قبل الكشف
+    isAlive: phoneAlive(state, sib),
     recipientIsMafia: true,
   };
 }

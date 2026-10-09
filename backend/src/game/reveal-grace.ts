@@ -7,6 +7,7 @@
 
 import type { Server } from 'socket.io';
 import { notifyPulseForRoom } from '../sockets/activity-pulse.socket.js';
+import { emitGameOver } from '../sockets/broadcast.util.js';
 import { getGameState, setGameState } from '../config/redis.js';
 import { Phase, setPhase } from './state.js';
 import { WinResult } from './win-checker.js';
@@ -100,7 +101,7 @@ async function autoFinalizeIfStuck(io: Server, roomId: string): Promise<void> {
   }
   // 🌙 بدءُ مباراةٍ وانتهاؤها لحظتان يُنتظران — تُرسلان فوراً بلا كبح.
   void notifyPulseForRoom(io, roomId, state, true);
-  io.to(roomId).emit('game:over', gameOverPayload);
+  void emitGameOver(io, roomId, gameOverPayload);
   await setGameState(roomId, state);
 
   // 3) حفظ نتيجة المباراة (نقاط/إحصاءات) — نفس مسار الإنهاء اليدوي

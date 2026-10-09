@@ -185,7 +185,10 @@ export function stampRevealOutcome(state: GameState): boolean {
   const pr: any = (state as any).pendingResolution || {};
   if (pr.type === 'MAYOR_POSTPONED') return stampVoteOutcome(state, { type: 'MAYOR_POSTPONED' });
   const eliminated: number[] = Array.isArray(pr.eliminated) ? pr.eliminated.map(Number) : [];
-  const keep = e.outcome?.type === 'TIE_ELIMINATE_ALL';
+  // إقصاءُ المتعادلين يُختم هنا مع الكشف (لا عند القرار — 2026-10-09). النبضُ يمرّ بالمسار نفسه
+  // بمتعادلٍ واحد فهو «أُقصي» لا «إقصاء المتعادلين»
+  const tiedOut = Array.isArray(pr.causes) ? pr.causes.filter((c: any) => c?.by === 'ELIMINATE_ALL').length : 0;
+  const keep = e.outcome?.type === 'TIE_ELIMINATE_ALL' || (pr.type === 'ELIMINATE_ALL' && tiedOut > 1);
   return stampVoteOutcome(state, {
     type: keep ? 'TIE_ELIMINATE_ALL' : eliminated.length ? 'ELIMINATED' : 'NO_ELIMINATION',
     eliminated,

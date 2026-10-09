@@ -292,8 +292,15 @@ export default function PlayerPhaseView({
       setAllPlayers(pollData.allPlayers);
     }
     // استعادة بيانات الإقصاء عند reconnect في DAY_ELIMINATION
-    if (pollData.pendingResolution && !eliminationData) {
-      setEliminationData(pollData.pendingResolution);
+    if (pollData.pendingResolution) {
+      const pr = pollData.pendingResolution;
+      // 📱 الخادم يرسل النتيجةَ كاملةً بعد قلب البطاقة على الشاشة وحده — هاتفٌ فاته الحدثُ يلحقها هنا
+      if (!pr.pending && Array.isArray(pr.eliminated) && pr.eliminated.length && !eliminationRevealed) {
+        setEliminationData(pr);
+        setEliminationRevealed(true);
+      } else if (!eliminationData) {
+        setEliminationData(pr);
+      }
     }
   }, [pollData]);
 
@@ -1157,6 +1164,18 @@ export default function PlayerPhaseView({
     const eliminated = elim?.eliminated || [];
     const revealed = elim?.revealedRoles || [];
     const amIEliminated = eliminated.includes(myId);
+
+    // 🔒 لا شيءَ عن الإقصاء قبل أن تُقلب البطاقة على شاشة القاعة (قرار المالك 2026-10-09):
+    //    الخادم لا يرسل مَن خرج حتّى ذلك الحين — فلا عنوانَ «إقصاء» ولا قائمة.
+    if (!eliminationRevealed || eliminated.length === 0) {
+      return (
+        <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="py-10 text-center">
+          <motion.div animate={{ opacity: [0.5, 1, 0.5] }} transition={{ duration: 2.4, repeat: Infinity }} className="text-5xl mb-3">⚖️</motion.div>
+          <h3 className="text-lg font-bold text-[#C5A059]" style={{ fontFamily: 'Amiri, serif' }}>القرار عند الموجّه</h3>
+          <p className="text-[#9a9a9a] text-sm mt-2">النتيجة تُعلن على شاشة القاعة — تابِع الشاشة</p>
+        </motion.div>
+      );
+    }
 
     return (
       <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="py-4">

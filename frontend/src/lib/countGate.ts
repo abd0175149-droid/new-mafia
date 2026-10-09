@@ -20,6 +20,14 @@ interface Hold {
 
 let queue: Hold[] = [];
 let applyFn: ((c: TeamCountsLike) => void) | null = null;
+// 📱 مُبلِّغُ القلب للخادم: الهواتف محبوسةٌ عن الكشف حتّى تُقلب البطاقة هنا (sockets/phone-hold.ts)
+let flipReporter: ((seat: number) => void) | null = null;
+
+/** يربط تبليغَ الخادم بكلّ قلب بطاقة (`display:card-flipped`) — صفحةُ العرض وحدها تربطه. */
+export function bindFlipReporter(report: (seat: number) => void): () => void {
+  flipReporter = report;
+  return () => { if (flipReporter === report) flipReporter = null; };
+}
 
 /** يربط البوّابة بمُطبِّق العدّاد (setTeamCounts في صفحة العرض). */
 export function bindCountGate(apply: (c: TeamCountsLike) => void): () => void {
@@ -42,6 +50,7 @@ export function teamCardRevealed(seat: number | string | null | undefined): void
   const n = Number(seat);
   for (const h of queue) h.waiting.delete(n);
   drain();
+  if (Number.isFinite(n)) { try { flipReporter?.(n); } catch { /* التبليغُ أثرٌ لا شرط */ } }
 }
 
 /** عدّادٌ موثوقٌ جديد وصل (تغيّر الطور): يُلغي كلَّ حبسٍ معلّق — هو الحقيقة الأحدث. */

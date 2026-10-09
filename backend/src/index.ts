@@ -340,6 +340,7 @@ app.patch('/api/leader/sessions/:id/close', async (req, res) => {
 // GET /api/game/leader-rooms — الغرف النشطة
 import { activeRooms } from './sockets/lobby.socket.js';
 import { getRoom } from './game/state.js';
+import { registerPhoneHoldEvents } from './sockets/phone-hold.js';
 
 app.get('/api/game/leader-rooms', (_req, res) => {
   // 🏙️ + الفعاليّة والمكان والمدينة وحالة الاحتساب لكلّ غرفة (تُعرض في قائمة الليدر)
@@ -621,6 +622,7 @@ io.on('connection', (socket) => {
   registerDayEvents(io, socket);
   registerNightEvents(io, socket);
   registerOneNightEvents(io, socket);
+  registerPhoneHoldEvents(io, socket);   // 📺 الشاشة تُبلغ بقلب البطاقات ⇒ تُطلق الهواتف
   registerGameEvents(io, socket);
   registerMafiaChatEvents(io, socket);
   registerVoiceEvents(io, socket);

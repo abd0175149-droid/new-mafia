@@ -26,6 +26,8 @@ import { clearRevealGrace } from '../game/reveal-grace.js';
 import { markRoomAsFinished } from './lobby.socket.js';
 import { closeSession } from '../services/session.service.js';
 import { emitStateSanitized, emitPhaseChangedSanitized, emitLeaderOnly, emitMorningRecapSanitized, emitTrustedOnly } from './broadcast.util.js';
+import { emitGameOver } from './broadcast.util.js';
+import { addPhoneHold, armPhoneHolds, flushPhoneHolds, dropPhoneHolds, HOLD_MS } from './phone-hold.js';
 import { publicTeamCounts, seatsRevealedBy } from '../game/public-counts.js';
 
 // ── ترتيب الطابور الإجباري (حسب الإجراء وليس الدور) ──
@@ -174,14 +176,7 @@ async function resolveAutoNight(io: Server, roomId: string) {
 
   // 🔪 إشعار اللاعب السفّاح بالتحديثات إذا حصلت
   const stateAfterResolve = await getGameState(roomId);
-  if (stateAfterResolve?.assassinState) {
-    findPlayerSocket(io, roomId, stateAfterResolve.assassinState.assassinPhysicalId)?.emit('assassin:contracts-update', {
-      contracts: stateAfterResolve.assassinState.contracts,
-      currentIndex: 0, // legacy
-      completedCount: stateAfterResolve.assassinState.completedCount,
-      totalRequired: stateAfterResolve.assassinState.totalRequired,
-    });
-  }
+      // 🔪 عقودُ السفّاح تصل هاتفَه عند نهاية ملخّص الصباح (night:end-recap) — لا لحظةَ الحسم
 
   await setPhase(roomId, Phase.MORNING_RECAP);
 
@@ -559,8 +554,25 @@ export function registerNightEvents(io: Server, socket: Socket) {
         console.log(`🌙 [night:start] Mid-night already in progress — resumed instead of restarting (room ${data.roomId})`);
         return callback({ success: true, resumed: true, round: existing.round });
       }
+      // 🔒 إقصاءٌ لم يُكشف على الشاشة: الليلُ كان يُعلنه للهواتف بلا مشهد (الحجبُ يخصّ طورَ
+      //    الإقصاء وحده) — فيعرف الجميعُ المُقصى ودورَه دون أن تراه القاعة. يُكشف أوّلاً.
+      if (existing?.phase === Phase.DAY_ELIMINATION && !existing.eliminationRevealed && (existing.pendingResolution?.eliminated || []).length) {
+        return callback({ success: false, error: 'اكشف نتيجة الإقصاء على شاشة العرض أوّلاً' });
+      }
+      // 📱 ما بقي محبوساً عن الهواتف يُطلق قبل الليل (عدّادٌ جديد قادم)
+      await flushPhoneHolds(io, data.roomId);
 
       const state = await resetNightActions(data.roomId);
+      // 🔪 عقودُ السفّاح كما يعرفها الآن — تُعرض له حتّى نهاية ملخّص الصباح: عقدٌ يتجدّد عند
+      //    الحسم يعني أنّ هدفاً مات، قبل أن تُعرض أحداثُ الليل على الشاشة
+      if (state.assassinState) {
+        (state as any).assassinShownContracts = JSON.parse(JSON.stringify({
+          contracts: state.assassinState.contracts,
+          completedCount: state.assassinState.completedCount,
+          totalRequired: state.assassinState.totalRequired,
+        }));
+        await setGameState(data.roomId, state);
+      }
       // تصفير خطوة الليل السابقة
       state.currentNightStep = null;
       state.nightComplete = false;
@@ -1268,6 +1280,9 @@ export function registerNightEvents(io: Server, socket: Socket) {
         // مسح الطابور المؤقت
         delete (state as any).dynamicQueue;
         delete (state as any).dynamicQueueIndex;
+        // 🔴 الطورُ في الكائن نفسه: `setPhase` يكتب نسخةَ Redis ثمّ يُحفظ هذا الكائن بعدها
+        //    (إشعارُ التوأمين أدناه) — فكان الطورُ يعود NIGHT طوالَ الصباح.
+        state.phase = Phase.MORNING_RECAP;
         await setGameState(data.roomId, state);
 
         await setPhase(data.roomId, Phase.MORNING_RECAP);
@@ -1291,14 +1306,7 @@ export function registerNightEvents(io: Server, socket: Socket) {
         await setGameState(data.roomId, state);
 
         // 🔪 إشعار اللاعب السفّاح بالتحديثات
-        if (state.assassinState) {
-          findPlayerSocket(io, data.roomId, state.assassinState.assassinPhysicalId)?.emit('assassin:contracts-update', {
-            contracts: state.assassinState.contracts,
-            currentIndex: 0, // legacy
-            completedCount: state.assassinState.completedCount,
-            totalRequired: state.assassinState.totalRequired,
-          });
-        }
+      // 🔪 عقودُ السفّاح تصل هاتفَه عند نهاية ملخّص الصباح (night:end-recap) — لا لحظةَ الحسم
 
         console.log(`🧩 Dynamic night resolved: ${events.length} events`);
         return callback({ success: true, events });
@@ -1344,17 +1352,7 @@ export function registerNightEvents(io: Server, socket: Socket) {
       }
 
       // 🔪 إشعار اللاعب السفّاح بالتحديثات اليدوية
-      if (stateAfterResolve?.assassinState) {
-        const assassinSock = findPlayerSocket(io, data.roomId, stateAfterResolve.assassinState.assassinPhysicalId);
-        if (assassinSock) {
-          assassinSock.emit('assassin:contracts-update', {
-            contracts: stateAfterResolve.assassinState.contracts,
-            currentIndex: 0, // legacy
-            completedCount: stateAfterResolve.assassinState.completedCount,
-            totalRequired: stateAfterResolve.assassinState.totalRequired,
-          });
-        }
-      }
+      // 🔪 عقودُ السفّاح تصل هاتفَه عند نهاية ملخّص الصباح (night:end-recap) — لا لحظةَ الحسم
 
       // 🏙️ للشاشة: أنواع أحداث الصباح فقط (بلا أسماء ولا أهداف)
       await emitTrustedOnly(io, data.roomId, 'display:morning-manifest', { types: (resolution.events as any[]).map((e: any) => e.type) });
@@ -1397,7 +1395,13 @@ export function registerNightEvents(io: Server, socket: Socket) {
       const event = state.morningEvents[data.eventIndex];
       if (!event) return callback({ success: false, error: 'Event not found' });
 
+      // 📱 أوّلُ عرضٍ للحدث: الهواتف تنتظر قلبَ البطاقة على الشاشة (phone-hold) — إعادةُ العرض لا تُعيد الحجب
+      const firstShow = !event.revealed;
       event.revealed = true;
+      if (firstShow) {
+        const seats = seatsRevealedBy(state, event);
+        if (seats.length) addPhoneHold(state, { id: `night:${state.round}:${data.eventIndex}`, seats, fallbackMs: HOLD_MS.night });
+      }
       await setGameState(data.roomId, state);
 
       // 🔴 للعرض والموجّه حصراً: الحمولةُ تحمل نوعَ الحدث والهدف و`extra.targetRole`
@@ -1414,6 +1418,7 @@ export function registerNightEvents(io: Server, socket: Socket) {
         teamCounts: publicTeamCounts(state),
         revealSeats: seatsRevealedBy(state, event),
       });
+      await armPhoneHolds(io, data.roomId);
 
       callback({ success: true });
     } catch (err: any) {
@@ -1451,7 +1456,7 @@ export function registerNightEvents(io: Server, socket: Socket) {
       }
       // 🌙 بدءُ مباراةٍ وانتهاؤها لحظتان يُنتظران — تُرسلان فوراً بلا كبح.
       void notifyPulseForRoom(io, data.roomId, state, true);
-      io.to(data.roomId).emit('game:over', gameOverPayload);
+      await emitGameOver(io, data.roomId, gameOverPayload);
       await setPhase(data.roomId, Phase.GAME_OVER);
       state.phase = Phase.GAME_OVER;
       clearGameTimer(data.roomId);
@@ -1533,11 +1538,24 @@ export function registerNightEvents(io: Server, socket: Socket) {
           playerVotes: {},
         };
         // تصفير عدادات التبرير لبداية نهار جديد (الإسكات يبقى — يُصفَّر في بداية الليل التالي)
-        state.players.forEach(p => { 
+        state.players.forEach(p => {
           if (p.isAlive) {
             p.justificationCount = 0;
           }
         });
+        // 📱 الصباحُ أُعلن كلُّه: لا حبسَ عن الهواتف بعده، والأصغرُ المتحوّل يُخطَر الآن
+        dropPhoneHolds(state, data.roomId);
+        notifyTwinTransform(io, data.roomId, state);
+        // 🔪 عقودُ السفّاح الحقيقيّة تصل هاتفَه الآن (حُبست منذ بدء الليل)
+        if ((state as any).assassinShownContracts) {
+          delete (state as any).assassinShownContracts;
+          if (state.assassinState) findPlayerSocket(io, data.roomId, state.assassinState.assassinPhysicalId)?.emit('assassin:contracts-update', {
+            contracts: state.assassinState.contracts,
+            currentIndex: 0,
+            completedCount: state.assassinState.completedCount,
+            totalRequired: state.assassinState.totalRequired,
+          });
+        }
         await setGameState(data.roomId, state);
 
         // 👮‍♀️ فحص: هل صلاحية الشرطية جاهزة؟ (بعد ملخص الليل)
@@ -1573,7 +1591,7 @@ export function registerNightEvents(io: Server, socket: Socket) {
         }
         // 🌙 المسار الثاني لانتهاء المباراة — يُشار له فوراً كسابقه
         void notifyPulseForRoom(io, data.roomId, state, true);
-        io.to(data.roomId).emit('game:over', gameOverPayload);
+        await emitGameOver(io, data.roomId, gameOverPayload);
         await setPhase(data.roomId, Phase.GAME_OVER);
         state.phase = Phase.GAME_OVER;
         clearGameTimer(data.roomId);
@@ -1669,8 +1687,8 @@ export function registerNightEvents(io: Server, socket: Socket) {
 
       await setGameState(data.roomId, state);
 
-      // بث الأنيميشن لشاشة العرض
-      io.to(data.roomId).emit('display:morning-event', {
+      // بث الأنيميشن لشاشة العرض — 📱 والهواتف مع قلب البطاقة (phone-hold)
+      const policeEvent = {
         type: 'POLICEWOMAN_EXECUTION',
         targetPhysicalId: target.physicalId,
         targetName: target.name,
@@ -1681,7 +1699,11 @@ export function registerNightEvents(io: Server, socket: Socket) {
         },
         teamCounts: publicTeamCounts(state),
         revealSeats: [target.physicalId],
-      });
+      };
+      addPhoneHold(state, { id: `police:${state.round}:${target.physicalId}`, seats: [target.physicalId], emits: [{ event: 'display:morning-event', payload: policeEvent }], fallbackMs: HOLD_MS.police });
+      await setGameState(data.roomId, state);
+      await emitTrustedOnly(io, data.roomId, 'display:morning-event', policeEvent);
+      await armPhoneHolds(io, data.roomId);
 
       callback({
         success: true,

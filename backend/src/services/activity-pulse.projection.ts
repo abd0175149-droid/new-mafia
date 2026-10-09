@@ -19,6 +19,7 @@
 
 import { getTeamCounts } from '../game/roles.js';
 import { publicTeamCounts } from '../game/public-counts.js';
+import { phoneAlive } from '../game/public-counts.js';
 
 export interface PulseTimer { totalSeconds: number; startedAt: number; expired: boolean }
 export interface PulseCounts { mafiaAlive: number; citizenAlive: number; neutralAlive: number }
@@ -66,7 +67,8 @@ export function projectActivityPulse(
   if (requesterPhysicalId != null) {
     const p = players.find((x: any) => x?.physicalId === requesterPhysicalId);
     // ⚠️ isAlive فقط — لا اسم ولا دور ولا عقوبات. اللاعب يعرف نفسه من شاشة اللعب.
-    if (p) me = { inRoom: true, seat: p.physicalId, isAlive: p.isAlive !== false };
+    // 📱 موتٌ لم يُعلن على شاشة القاعة ليس موتاً هنا — بطاقةُ النبض كانت تكتب «أُقصيت» قبل الكشف
+    if (p) me = { inRoom: true, seat: p.physicalId, isAlive: phoneAlive(state, p) };
   }
 
   return {

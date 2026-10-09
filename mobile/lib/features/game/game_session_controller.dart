@@ -952,6 +952,13 @@ class GameSessionController extends ChangeNotifier with WidgetsBindingObserver {
     final was = _gamePhase;
     _gamePhase = phase;
 
+    // 🔒 دخولُ طورِ إقصاءٍ جديد: قائمةُ يومٍ سابق لا تُعرض بأدوارها القديمة. والجديدةُ لا تصل
+    //    قبل أن تُقلب البطاقة على شاشة القاعة (`day:elimination-revealed`).
+    if (phase == GamePhase.eliminationPending && was != null) {
+      _eliminated = const [];
+      _revealedRoles = const {};
+    }
+
     // ── نظافة المرحلة ──
     //
     // 🔴 تُطبَّق على **بدء جولةٍ جديدة** فقط: أي رجوعٍ من طورِ لعبٍ إلى
@@ -2419,6 +2426,12 @@ class GameSessionController extends ChangeNotifier with WidgetsBindingObserver {
 
     _on('day:elimination-revealed', (d) {
       if (d is! Map) return;
+      // 📱 القائمةُ من الكشف نفسه: «بانتظار الإعلان» لم يعد يحملها (قرار المالك 2026-10-09)
+      final elim = (d['eliminated'] as List? ?? const [])
+          .whereType<num>()
+          .map((e) => e.toInt())
+          .toList();
+      if (elim.isNotEmpty) _eliminated = elim;
       final out = <int, String>{};
       for (final e in (d['revealedRoles'] as List? ?? const []).whereType<Map>()) {
         final pid = (e['physicalId'] as num?)?.toInt();

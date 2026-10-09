@@ -15,6 +15,7 @@ import { Server, Socket } from 'socket.io';
 import { getGameState, setGameState, getAux, setAux } from '../config/redis.js';
 import { isMafiaRole, Role } from '../game/roles.js';
 import { Phase } from '../game/state.js';
+import { phoneAlive, announcedRoleOf } from '../game/public-counts.js';
 
 const MAX_MESSAGES = 200;      // آخر 200 رسالة تُحفظ
 const MAX_TEXT_LEN = 300;      // أقصى طول للرسالة
@@ -50,8 +51,10 @@ async function verifyAliveMafia(socket: Socket, roomId?: string): Promise<{ stat
 
     const player = state.players.find((p: any) => p.physicalId === physicalId);
     if (!player?.role) return null;
-    if (player.isAlive === false) return null;
-    if (!isMafiaRole(player.role as Role)) return null;
+    // 📱 موتٌ أو تحوّلٌ لم يُعلن بعد لا يُغلق التشاور ولا يفتحه — رفضُ الرسالة كان يُخبر صاحبها أنّه مات
+    if (!phoneAlive(state, player)) return null;
+    const role = announcedRoleOf(state, player);
+    if (!role || !isMafiaRole(role as Role)) return null;
 
     return { state, player };
   } catch {
@@ -95,7 +98,8 @@ export function registerMafiaChatEvents(io: Server, socket: Socket) {
           s.emit('mafia:chat-message', msg);
         } else if (sd?.role === 'player' && sd?.physicalId) {
           const sp = state.players.find((p: any) => p.physicalId === sd.physicalId);
-          if (sp?.role && sp.isAlive !== false && isMafiaRole(sp.role as Role)) {
+          const spRole = sp ? announcedRoleOf(state, sp) : null;
+          if (spRole && phoneAlive(state, sp) && isMafiaRole(spRole as Role)) {
             s.emit('mafia:chat-message', msg);
           }
         }

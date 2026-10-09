@@ -29,8 +29,9 @@ import { scheduleRevealGrace, clearRevealGrace } from '../game/reveal-grace.js';
 import { processTwinBond, applySuicide, applyTransform } from '../game/twin-engine.js';
 import { notifyTwinTransform } from './twin-notify.js';
 import { clearGameTimer, adjustGameTimer } from '../game/game-timer.js';
-import { emitStateSanitized, emitStateToPhones, emitPhaseChangedSanitized, emitEliminationPending, spectatorRoom, emitTrustedOnly, emitTrustedVariant, publicJustification } from './broadcast.util.js';
-import { recordVoteRound, stampWithdrawals, stampVoteOutcome, stampRevealOutcome, voteHistoryOf } from '../game/vote-history.js';
+import { emitStateSanitized, emitStateToPhones, emitPhaseChangedSanitized, emitEliminationPending, spectatorRoom, emitTrustedOnly, emitTrustedVariant, publicJustification, emitGameOver } from './broadcast.util.js';
+import { recordVoteRound, stampWithdrawals, stampVoteOutcome, voteHistoryOf } from '../game/vote-history.js';
+import { addPhoneHold, armPhoneHolds, HOLD_MS, type PhoneHoldEmit } from './phone-hold.js';
 
 // 🗳️ سجلّ التصويت للغرفة والمتفرّجين — علنيّ وبلا أدوار (game/vote-history.ts). الشاشة لا تعرضه.
 function emitVoteHistory(io: Server, roomId: string, state: any) {
@@ -1071,6 +1072,7 @@ export function registerDayEvents(io: Server, socket: Socket) {
       }
 
       const currentState = await getGameState(data.roomId);
+      let assassinHoldEmit: PhoneHoldEmit | null = null;
 
       // 🔪 تجديد عقود السفّاح إذا خرج لاعب مستهدف
       if (currentState?.assassinState) {
@@ -1079,24 +1081,19 @@ export function registerDayEvents(io: Server, socket: Socket) {
         if (regen.changed) {
           await setGameState(data.roomId, currentState);
           console.log(`🔄 Assassin contracts updated after elimination: ${regen.changeLog.join(', ')}`);
-          // إشعار اللاعب السفّاح
-          const assassinRoom = io.sockets.adapter.rooms.get(data.roomId);
-          if (assassinRoom) {
-            for (const socketId of assassinRoom) {
-              const sock = io.sockets.sockets.get(socketId);
-              if (sock?.data.physicalId === currentState.assassinState.assassinPhysicalId && sock?.data.role === 'player') {
-                sock.emit('assassin:contracts-update', {
-                  contracts: currentState.assassinState.contracts,
-                  currentIndex: 0,
-                  completedCount: currentState.assassinState.completedCount,
-                  totalRequired: currentState.assassinState.totalRequired,
-                  changeLog: regen.changeLog,
-                });
-              }
-            }
-          }
+          // 📱 عقدٌ تجدّد = هدفٌ خرج: يصل هاتفَ السفّاح مع قلب البطاقة لا قبله (يُضاف لحبس الكشف أدناه)
+          assassinHoldEmit = {
+            event: 'assassin:contracts-update', toSeat: currentState.assassinState.assassinPhysicalId,
+            payload: {
+              contracts: currentState.assassinState.contracts,
+              currentIndex: 0,
+              completedCount: currentState.assassinState.completedCount,
+              totalRequired: currentState.assassinState.totalRequired,
+              changeLog: regen.changeLog,
+            },
+          };
           // إشعار الليدر
-          await emitStateSanitized(io, data.roomId, 'game:state-sync', currentState);
+          await emitTrustedOnly(io, data.roomId, 'game:state-sync', currentState);
         }
       }
 
@@ -1109,7 +1106,7 @@ export function registerDayEvents(io: Server, socket: Socket) {
       // 💣 «قنبلةٌ قادمة» تُبقي الساحة قائمة — قنبلةٌ أُوقفت بلا ضحايا ليست قادمة (كانت تُعلّق المشهد حتّى الليل)
       if (currentState?.pendingBomb || currentState?.heldBombResult?.bombEliminated?.length) pendingSecondary.push('BOMB');
       if (currentState?.pendingAshCurse) pendingSecondary.push('ASH');
-      io.to(data.roomId).emit('day:elimination-revealed', {
+      const revealPayload = {
         eliminated: eliminatedIds,
         revealedRoles: revealedRolesOut,
         causes: causesOut,
@@ -1121,24 +1118,35 @@ export function registerDayEvents(io: Server, socket: Socket) {
         teamCounts: currentState ? publicTeamCounts(currentState, { revealElimination: true }) : undefined,
         revealSeats: eliminatedIds,
         confrontationNotes: currentState ? confrontationNotes(currentState, eliminatedIds) : {},   // 🗳️ «وُوجه وخسر النبض»
-      });
-      // 💣 نتيجةُ القنبلة المحبوسة (قرار المالك 2026-09-13): تُبثّ الآن، بعد الكشف لا قبله — للجميع عدا الموجّه (وصلته لحظة القرار)
+      };
+      // 📺 الموجّه والشاشة الآن — يبدأ مشهدُ الكشف
+      await emitTrustedOnly(io, data.roomId, 'day:elimination-revealed', revealPayload);
+      // 💣 نتيجةُ القنبلة المحبوسة (قرار المالك 2026-09-13): تُبثّ الآن، بعد الكشف لا قبله — للشاشة (الموجّه وصلته لحظة القرار)
       if (currentState) {
         currentState.eliminationRevealed = true;
-        // 🗳️ المُقصى في سجلّ التصويت — مع الكشف لا قبله، وبلا دوره
-        try { if (stampRevealOutcome(currentState)) emitVoteHistory(io, data.roomId, currentState); } catch (e: any) { console.warn('⚠️ vote-history reveal:', e?.message); }
+        // 📱 الهواتف والمتفرّجون ينتظرون قلبَ البطاقة على الشاشة (phone-hold) — ومعه سجلُّ التصويت
+        //    ودورُ الأصغر المتحوّل وعقودُ السفّاح (قرار المالك 2026-10-09)
+        addPhoneHold(currentState, {
+          id: `day:${currentState.round}:${Date.now()}`, seats: eliminatedIds, voteReveal: true,
+          emits: [{ event: 'day:elimination-revealed', payload: revealPayload }, ...(assassinHoldEmit ? [assassinHoldEmit] : [])],
+          fallbackMs: HOLD_MS.day(eliminatedIds.length),
+        });
         if (currentState.heldBombResult) {
-          const held = currentState.heldBombResult; currentState.heldBombResult = null;
+          const held: any = currentState.heldBombResult; currentState.heldBombResult = null;
+          const twinSuicideEvent = held.twinSuicideEvent; delete held.twinSuicideEvent;
           // 🔴 عدّادُ النتيجة المحبوسة حُسب لحظةَ قرار القنبلة والشيخُ ما زال محجوباً — يُعاد الآن
           held.teamCounts = publicTeamCounts(currentState);
           held.revealSeats = held.bombEliminated || [];
-          for (const s of await io.in(data.roomId).fetchSockets()) if (s.data.role !== 'leader') s.emit('day:bomb-result', held);
-          io.to(spectatorRoom(data.roomId)).emit('day:bomb-result', held);
+          for (const s of await io.in(data.roomId).fetchSockets()) if (s.data.role === 'display') s.emit('day:bomb-result', held);
+          // 👥 انتحارُ الأكبر بالقنبلة: بعد نتيجتها على الشاشة لا لحظةَ القرار
+          if (twinSuicideEvent) await emitTrustedOnly(io, data.roomId, 'display:morning-event', twinSuicideEvent);
+          addPhoneHold(currentState, {
+            id: `bomb:${currentState.round}:${Date.now()}`, seats: [...(held.bombEliminated || []), ...(held.twinSuicideSeats || [])],
+            emits: [{ event: 'day:bomb-result', payload: held, spectators: true }],
+            fallbackMs: HOLD_MS.bomb((held.bombEliminated || []).length),
+          });
         }
         await setGameState(data.roomId, currentState);
-        // 📱 الهواتف: الكشفُ رفع الحجب عن المُقصى وضحايا القنبلة — روسترٌ جديد لكلّ هاتف
-        //    (الموثوقون عندهم الحالة كاملة، ولا تُرسل لهم: الشاشة في منتصف مشهد الكشف)
-        await emitStateToPhones(io, data.roomId, 'game:state-sync', currentState);
       }
 
       // 🜂 لعنةُ الرماد **بعد** الكشف (قرارُ المالك 2026-08-29).
@@ -1149,11 +1157,10 @@ export function registerDayEvents(io: Server, socket: Socket) {
       //    أثر. الترتيبُ الصحيح: تُكشف هويّتُه أمام الجميع أوّلاً، ثمّ يُسأل.
       await emitAshCurseWindow(io, data.roomId, currentState);
 
-      // 👥 إشعار + إظهار تحوّل الأخ الأصغر إن حدث بالتصويت (vote-engine نفّذ التحوّل)
-      if (currentState) {
-        notifyTwinTransform(io, data.roomId, currentState);
-        await setGameState(data.roomId, currentState);
-      }
+      // 📱 مؤقّتاتُ الحبس — أو إطلاقٌ فوريّ إن لم تكن في الغرفة شاشة. تحوّلُ الأخ الأصغر (إن حدث
+      //    بالتصويت) يُخطَر عند الإطلاق: موتُ أخيه يصل الهواتف حينها لا قبله.
+      //    🔴 بعدها لا يُحفظ currentState: الإطلاقُ كتب نسخةً أحدث.
+      await armPhoneHolds(io, data.roomId);
 
       callback({ success: true });
     } catch (err: any) {
@@ -1268,6 +1275,9 @@ export function registerDayEvents(io: Server, socket: Socket) {
       state.pendingBomb = null;
 
       // 👥 معالجة ارتباط التوأمين بعد القنبلة
+      //    🔒 حدثُ الانتحار يُبثّ مع نتيجة القنبلة (بعد كشف الشيخ إن كانت محبوسة) لا لحظةَ القرار،
+      //    وتحوّلُ الأصغر يُخطَر عند إطلاق الهواتف (phone-hold) — كلاهما يكشف أنّ المُقصى شيخ المافيا.
+      let twinSuicide: { seat: number; event: any } | null = null;
       if (state.twinState) {
         for (const elId of bombEliminated) {
           const twinResult = processTwinBond(state, elId, 'BOMB');
@@ -1276,14 +1286,17 @@ export function registerDayEvents(io: Server, socket: Socket) {
               const suicideEvent = applySuicide(state, twinResult);
               if (suicideEvent) {
                 checkPolicewomanTrigger(state, twinResult.suicidePhysicalId!);
-                await emitTrustedOnly(io, data.roomId, 'display:morning-event', {
-                  type: 'TWIN_SUICIDE',
-                  targetPhysicalId: twinResult.suicidePhysicalId,
-                  targetName: twinResult.suicideName,
-                  // 🃏 بلا دورِ الخارج لا كرتَ له في الكشف — والمسار الثالث لهذا
-                  //    الحدث نفسِه كان يحمله وحده، فظهر الكرتُ من طريقٍ وغاب من طريقين.
-                  extra: { targetRole: state.players.find((p: any) => p.physicalId === twinResult.suicidePhysicalId)?.role },
-                });
+                twinSuicide = {
+                  seat: Number(twinResult.suicidePhysicalId),
+                  event: {
+                    type: 'TWIN_SUICIDE',
+                    targetPhysicalId: twinResult.suicidePhysicalId,
+                    targetName: twinResult.suicideName,
+                    // 🃏 بلا دورِ الخارج لا كرتَ له في الكشف — والمسار الثالث لهذا
+                    //    الحدث نفسِه كان يحمله وحده، فظهر الكرتُ من طريقٍ وغاب من طريقين.
+                    extra: { targetRole: state.players.find((p: any) => p.physicalId === twinResult.suicidePhysicalId)?.role },
+                  },
+                };
               }
             } else if (twinResult.type === 'TRANSFORM') {
               applyTransform(state, twinResult);
@@ -1291,8 +1304,6 @@ export function registerDayEvents(io: Server, socket: Socket) {
             break;
           }
         }
-        // 👥 إشعار + إظهار التحوّل (بعد القنبلة)
-        notifyTwinTransform(io, data.roomId, state);
       }
 
       // فحص شرط الفوز بعد الإقصاء الإضافي
@@ -1329,15 +1340,23 @@ export function registerDayEvents(io: Server, socket: Socket) {
         teamCounts: publicTeamCounts(state),
         revealSeats: bombEliminated,
       } as any;
+      if (twinSuicide) bombPayload.twinSuicideSeats = [twinSuicide.seat];
       if (state.eliminationRevealed === false) {
-        state.heldBombResult = bombPayload;
+        state.heldBombResult = { ...bombPayload, ...(twinSuicide ? { twinSuicideEvent: twinSuicide.event } : {}) };
         await setGameState(data.roomId, state);
         for (const s of await io.in(data.roomId).fetchSockets()) if (s.data.role === 'leader') s.emit('day:bomb-result', bombPayload);
         console.log(`💣 Bomb result held until reveal — room ${data.roomId}`);
       } else {
-        io.to(data.roomId).emit('day:bomb-result', bombPayload);
-        io.to(spectatorRoom(data.roomId)).emit('day:bomb-result', bombPayload);
-        await emitStateToPhones(io, data.roomId, 'game:state-sync', state);
+        // 📺 الشاشة والموجّه الآن؛ 📱 الهواتف والمتفرّجون مع قلب بطاقات الضحايا (phone-hold)
+        await emitTrustedOnly(io, data.roomId, 'day:bomb-result', bombPayload);
+        if (twinSuicide) await emitTrustedOnly(io, data.roomId, 'display:morning-event', twinSuicide.event);
+        addPhoneHold(state, {
+          id: `bomb:${state.round}:${Date.now()}`, seats: [...bombEliminated, ...(twinSuicide ? [twinSuicide.seat] : [])],
+          emits: [{ event: 'day:bomb-result', payload: bombPayload, spectators: true }],
+          fallbackMs: HOLD_MS.bomb(bombEliminated.length),
+        });
+        await setGameState(data.roomId, state);
+        await armPhoneHolds(io, data.roomId);
       }
 
       console.log(`💣 Bomb decision executed: eliminated ${bombEliminated.join(', ') || 'none'}, RR: ${totalBombRR}`);
@@ -1392,17 +1411,18 @@ export function registerDayEvents(io: Server, socket: Socket) {
       checkPolicewomanTrigger(state, data.targetPhysicalId);
 
       // 👥 رابطُ الأخوين يسري على لعنة الرماد كما يسري على القنبلة
+      //    (والإخطارُ بالتحوّل عند إطلاق الهواتف — phone-hold)
+      let ashTwinSuicideSeat: number | null = null;
       if (state.twinState) {
         const twinResult = processTwinBond(state, data.targetPhysicalId, 'BOMB');
         if (twinResult.triggered) {
           if (twinResult.type === 'SUICIDE') {
             const suicideEvent = applySuicide(state, twinResult);
-            if (suicideEvent) checkPolicewomanTrigger(state, twinResult.suicidePhysicalId!);
+            if (suicideEvent) { checkPolicewomanTrigger(state, twinResult.suicidePhysicalId!); ashTwinSuicideSeat = Number(twinResult.suicidePhysicalId); }
           } else if (twinResult.type === 'TRANSFORM') {
             applyTransform(state, twinResult);
           }
         }
-        notifyTwinTransform(io, data.roomId, state);
       }
 
       let winResult: string;
@@ -1423,11 +1443,11 @@ export function registerDayEvents(io: Server, socket: Socket) {
       }
 
       state.pendingAshCurse = null;
-      await setGameState(data.roomId, state);
 
       // 🔴 الإعلانُ للغرفة كلّها لكن **بلا تمييز أيّهما العنقاء**: «خرج فلانٌ وفلان،
       //    احترق أحدُهما بالآخر». كشفُ الأدوار يبقى بيد الموجّه كأيّ إقصاء.
-      io.to(data.roomId).emit('day:ash-curse-result', {
+      //    📺 الشاشة والموجّه الآن؛ 📱 الهواتف مع قلب البطاقة (phone-hold — قرار المالك 2026-10-09)
+      const ashPayload = {
         phoenixPhysicalId: pending.phoenixPhysicalId,
         phoenixName: pending.phoenixName,
         targetPhysicalId: data.targetPhysicalId,
@@ -1438,7 +1458,15 @@ export function registerDayEvents(io: Server, socket: Socket) {
         winResult,
         teamCounts: publicTeamCounts(state),
         revealSeats: [data.targetPhysicalId],
+      };
+      addPhoneHold(state, {
+        id: `ash:${state.round}:${Date.now()}`, seats: [data.targetPhysicalId, ...(ashTwinSuicideSeat != null ? [ashTwinSuicideSeat] : [])],
+        emits: [{ event: 'day:ash-curse-result', payload: ashPayload }],
+        fallbackMs: HOLD_MS.ash,
       });
+      await setGameState(data.roomId, state);
+      await emitTrustedOnly(io, data.roomId, 'day:ash-curse-result', ashPayload);
+      await armPhoneHolds(io, data.roomId);
       console.log(`🜂 Ash curse executed: #${data.targetPhysicalId} taken by Phoenix #${pending.phoenixPhysicalId}`);
       callback({ success: true, winResult });
     } catch (err: any) {
@@ -1484,7 +1512,8 @@ export function registerDayEvents(io: Server, socket: Socket) {
 
       const state = await handleTieBreaker(data.roomId, data.action, data.tiedCandidates);
       // 🗳️ قرارُ التعادل في سجلّ الجولة التي تعادلت — الحصر وإقصاء الكلّ بلا متعادلين لا يفعلان شيئاً فلا يُختمان
-      if (data.action === TieBreakerAction.CANCEL || data.action === TieBreakerAction.REVOTE || data.tiedCandidates?.length) {
+      //    🔒 إقصاءُ الكلّ (والنبض) قرارٌ بموت: يُختم في السجلّ عند إطلاق الكشف للهواتف لا الآن
+      if (data.action === TieBreakerAction.CANCEL || data.action === TieBreakerAction.REVOTE || (data.action === TieBreakerAction.NARROW && data.tiedCandidates?.length)) {
         const t = data.action === TieBreakerAction.CANCEL ? 'TIE_CANCEL' : data.action === TieBreakerAction.REVOTE ? 'TIE_REVOTE'
           : data.action === TieBreakerAction.NARROW ? 'TIE_NARROW' : 'TIE_ELIMINATE_ALL';
         if (stampVoteOutcome(state, { type: t })) { await setGameState(data.roomId, state); emitVoteHistory(io, data.roomId, state); }
@@ -1605,8 +1634,7 @@ export function registerDayEvents(io: Server, socket: Socket) {
               break;
             }
           }
-          // 👥 إشعار + إظهار التحوّل (بعد كسر التعادل/الإقصاء بالتصويت)
-          notifyTwinTransform(io, data.roomId, state);
+          // 👥 الإخطارُ بالتحوّل بعد «كشف الأدوار» وقلب البطاقة (phone-hold) — لا لحظةَ القرار
           await setGameState(data.roomId, state);
         }
 
@@ -1935,6 +1963,9 @@ export function registerDayEvents(io: Server, socket: Socket) {
 
       // ═══ إقصاء اللاعب ═══
       player.isAlive = false;
+      // 🃏 خرج أمام الجميع، ودورُه وفريقُه سرٌّ حتّى يُقلب كرتُه على الشاشة (admin:reveal-eliminated)
+      (player as any).adminEliminated = true;
+      (player as any).cardRevealed = false;
       checkPolicewomanTrigger(state, data.physicalId);
 
       // 👥 معالجة ارتباط التوأمين بعد الإقصاء الإداري
@@ -1945,12 +1976,14 @@ export function registerDayEvents(io: Server, socket: Socket) {
             const suicideEvent = applySuicide(state, twinResult);
             if (suicideEvent) {
               checkPolicewomanTrigger(state, twinResult.suicidePhysicalId!);
-              io.to(data.roomId).emit('display:morning-event', {
+              // 🔒 دورُ المنتحر في الحمولة — للموجّه والشاشة وحدهما (كان يُبثّ لكلّ هاتف)
+              const sp: any = state.players.find((p: any) => p.physicalId === twinResult.suicidePhysicalId);
+              if (sp) { sp.adminEliminated = true; sp.cardRevealed = false; }
+              await emitTrustedOnly(io, data.roomId, 'display:morning-event', {
                 type: 'TWIN_SUICIDE',
                 targetPhysicalId: twinResult.suicidePhysicalId,
                 targetName: twinResult.suicideName,
-                // ندرج الدور كي تكشفه حلقة اللاعب البعيد (كما تفعل شاشة العرض)
-                extra: { targetRole: state.players.find((p: any) => p.physicalId === twinResult.suicidePhysicalId)?.role },
+                extra: { targetRole: sp?.role },
               });
             }
           } else if (twinResult.type === 'TRANSFORM') {
@@ -2051,7 +2084,8 @@ export function registerDayEvents(io: Server, socket: Socket) {
       // بث الإقصاء للجميع — مع المرحلة الحالية + عداد الفريقين
       const teamCounts = publicTeamCounts(state);
 
-      io.to(data.roomId).emit('admin:player-eliminated', {
+      // 🔒 الدورُ في الحمولة: للموجّه والشاشة وحدهما — الهواتفُ تعرف الخروجَ من الروستر، والدورَ مع الكرت
+      await emitTrustedOnly(io, data.roomId, 'admin:player-eliminated', {
         physicalId: data.physicalId,
         playerName: player.name,
         role: player.role,
@@ -2089,7 +2123,7 @@ export function registerDayEvents(io: Server, socket: Socket) {
         }
         // 🌙 بدءُ مباراةٍ وانتهاؤها لحظتان يُنتظران — تُرسلان فوراً بلا كبح.
         void notifyPulseForRoom(io, data.roomId, state, true);
-        io.to(data.roomId).emit('game:over', gameOverData);
+        await emitGameOver(io, data.roomId, gameOverData);
         // حفظ نتيجة المباراة في PostgreSQL
         await finalizeMatch(state);
         // الغرفة تبقى مفتوحة — الليدر يقرر متى يغلقها أو يبدأ لعبة جديدة
@@ -2111,22 +2145,30 @@ export function registerDayEvents(io: Server, socket: Socket) {
     role: string;
   }, callback?: (res: { success: boolean; error?: string }) => void) => {
     if (socket.data.role !== 'leader') return callback?.({ success: false, error: 'Only leader' });
-    io.to(data.roomId).emit('admin:show-reveal', {
-      physicalId: data.physicalId,
-      playerName: data.playerName,
-      role: data.role,
-    });
     // 🔴 الكشفُ كان بثّاً عابراً لا أثر له في الحالة — فلا شيء يعرف لاحقاً أنّ
     //    الدور صار علنيّاً. وهو بالضبط الشرط الذي يمنع إعادة المُقصى بالعقوبات
     //    (`leader:restore-penalized`): بعد أن يراه الجميع، إعادتُه تفسد اللعبة.
+    //    والآن هو أيضاً ما يرفع حجبَ الدور والعدّاد عن الهواتف — مع قلب الكرت لا قبله.
+    let teamCounts: any;
     try {
       const st = await getGameState(data.roomId);
       const pl = st?.players.find(p => p.physicalId === data.physicalId);
-      if (st && pl && !pl.cardRevealed) {
-        pl.cardRevealed = true;
+      if (st && pl) {
+        if (!pl.cardRevealed) pl.cardRevealed = true;
+        teamCounts = publicTeamCounts(st);
+        if (pl.isAlive === false) addPhoneHold(st, { id: `card:${data.physicalId}:${Date.now()}`, seats: [data.physicalId], fallbackMs: HOLD_MS.card });
         await setGameState(data.roomId, st);
       }
-    } catch { /* الكشفُ وصل الشاشة فعلاً — تسجيلُه أثرٌ لا شرطُ نجاح */ }
+    } catch { /* الكشفُ يصل الشاشة على أيّ حال — تسجيلُه أثرٌ لا شرطُ نجاح */ }
+    // 🔒 الدورُ في الحمولة: للموجّه والشاشة — الهواتف تعرفه من الروستر بعد قلب الكرت
+    await emitTrustedOnly(io, data.roomId, 'admin:show-reveal', {
+      physicalId: data.physicalId,
+      playerName: data.playerName,
+      role: data.role,
+      teamCounts,
+      revealSeats: [data.physicalId],
+    });
+    await armPhoneHolds(io, data.roomId);
     callback?.({ success: true });
   });
 

@@ -25,7 +25,7 @@ import { LoyaltyCelebration, type LoyaltyCelebrant } from '@/components/LoyaltyC
 //    وفكُّ القفل واستئنافُ الفراش عند اللمسة. لا نداءَ صوتٍ محلّيّ — أيُّ نداءٍ يُضاف
 //    هنا يعود بصمتٍ عند أوّل سطرٍ ويُضلّل من يقرأ.
 import { loadSoundMap, reloadSoundMap, applyRemoteSound, setLocalPlayback, primeAudio, retryAmbient, heardLevel } from '@/lib/soundManager';
-import { bindCountGate, holdTeamCounts, cancelHeldCounts } from '@/lib/countGate';
+import { bindCountGate, holdTeamCounts, cancelHeldCounts, bindFlipReporter, teamCardRevealed } from '@/lib/countGate';
 
 // مؤثرات صوتية — يستخدم soundManager المركزي
 // (الأصوات الافتراضية محفوظة في soundManager.ts كـ fallback)
@@ -199,6 +199,8 @@ function DisplayPageContent() {
 
   // 👁️ بوّابةُ العدّاد: الكشفُ يُحبس حتّى تُقلب بطاقتُه (lib/countGate)
   useEffect(() => bindCountGate(setTeamCounts), []);
+  // 📱 كلُّ بطاقةٍ تُقلب هنا تُطلق الهواتف المحبوسة عن كشفها (الخادم: sockets/phone-hold.ts)
+  useEffect(() => bindFlipReporter(seat => { socketRef.current?.emit('display:card-flipped', { seats: [seat] }); }), []);
 
   // ══════════════════════════════════════════════════
   // 🔄 Auto-Login via Query Parameters OR Session Restore
@@ -771,7 +773,9 @@ function DisplayPageContent() {
       // ضبط الوجه الأمامي بنفس الدفعة مع البيانات → أول رندر يعرض الاسم/الرقم دائماً (لا وميض للدور)
       setAdminRevealFlipped(false);
       setAdminReveal(data);
-      adminRevealFlipTimerRef.current = setTimeout(() => setAdminRevealFlipped(true), 1200); // اقلب لكشف الدور
+      // 👁️ العدّادُ والهواتفُ مع قلب الكرت لا قبله
+      holdTeamCounts(data?.teamCounts, data?.revealSeats ?? (data?.physicalId != null ? [data.physicalId] : []), 6000);
+      adminRevealFlipTimerRef.current = setTimeout(() => { setAdminRevealFlipped(true); teamCardRevealed(data?.physicalId); }, 1200); // اقلب لكشف الدور
       adminRevealTimerRef.current = setTimeout(() => setAdminReveal(null), 30000);
     };
     const onHideReveal = () => {

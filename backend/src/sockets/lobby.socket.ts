@@ -4,6 +4,7 @@
 // ══════════════════════════════════════════════════════
 
 import { Server, Socket } from 'socket.io';
+import { dropPhoneHolds } from './phone-hold.js';
 import { notifyPulseForRoom } from './activity-pulse.socket.js';
 import { notifyScheduleDrift } from '../services/activity-pulse.notify.js';
 import {
@@ -28,7 +29,7 @@ import { publicConfrontations } from '../game/confrontation-engine.js';
 import { resolveRoomCapacity, clampCapacity } from '../services/capacity.service.js';
 import { startGameTimer, clearGameTimer, getRemainingSeconds, restoreGameTimer } from '../game/game-timer.js';
 import { initTwinState, getSiblingInfoFor } from '../game/twin-engine.js';
-import { initMayorState, mayorVoteWeight } from '../game/mayor-engine.js';
+import { initMayorState, mayorVoteWeight, configuredMayorWeight } from '../game/mayor-engine.js';
 import { initPhoenixState } from '../game/phoenix-engine.js';
 import { oneNightResumeFor } from './night-one.socket.js';
 import { getProgressionConfig } from '../routes/progression-settings.routes.js';
@@ -39,7 +40,7 @@ import { eq, sql, and } from 'drizzle-orm';
 import { emitStateSanitized, emitPhaseChangedSanitized, emitTrustedOnly, spectatorRoom, stripSecrets, publicJustification, publicPendingResolution } from './broadcast.util.js';
 import { buildAffinityPairs, loadPairRules, mergeRulesIntoAffinity, mergeGlobalBlockedPairs, upsertPairRule } from '../services/seat-affinity.service.js';
 import { personKey, pairKey } from '../game/seating/types.js';
-import { publicTeamCounts, unrevealedDeadSeats } from '../game/public-counts.js';
+import { publicTeamCounts, unrevealedDeadSeats, phoneMafiaTeam, phoneAlive, announcedRoleOf } from '../game/public-counts.js';
 
 
 export const activeRooms: Map<string, {
@@ -394,9 +395,7 @@ export async function republishAfterSeatMove(
 
       // الدور + فريق المافيا + التوأم
       const mafiaTeam = (player.role && isMafiaRole(player.role as Role) && state.config.allowMafiaReveal !== false)
-        ? state.players
-            .filter((p: any) => p.role && isMafiaRole(p.role as Role) && p.isAlive !== false && p.physicalId !== seat)
-            .map((p: any) => ({ physicalId: p.physicalId, name: p.name, role: p.role, avatarUrl: p.avatarUrl || null }))
+        ? phoneMafiaTeam(state, seat)
         : undefined;
 
       target.emit('player:role-assigned', {
@@ -2587,9 +2586,7 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
       // جمع زملاء المافيا إذا اللاعب مافيا
       let mafiaTeamData: any[] | undefined;
       if (shouldShowRole && player.role && isMafiaRole(player.role as Role) && state.config.allowMafiaReveal !== false) {
-        mafiaTeamData = state.players
-          .filter((p: any) => p.role && isMafiaRole(p.role as Role) && p.isAlive !== false && p.physicalId !== player.physicalId)
-          .map((p: any) => ({ physicalId: p.physicalId, name: p.name, role: p.role, avatarUrl: p.avatarUrl || null }));
+        mafiaTeamData = phoneMafiaTeam(state, player.physicalId);   // 📱 بلا موتٍ أو تحوّلٍ لم يُعلن
       }
 
       // 👥 تعارف الأخوين (إعادة التسليم عند rejoin)
@@ -2601,7 +2598,7 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
         totalVotesCast: state.votingState.totalVotesCast,
         playerVotes: state.votingState.playerVotes || {},
         hiddenPlayers: state.votingState.hiddenPlayersFromVoting,
-        playersInfo: state.players.filter((p: any) => p.isAlive).map((p: any) => ({
+        playersInfo: state.players.filter((p: any) => phoneAlive(state, p)).map((p: any) => ({
           physicalId: p.physicalId,
           name: p.name,
           avatarUrl: p.avatarUrl || null,
@@ -2624,9 +2621,10 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
         player: {
           physicalId: player.physicalId,
           name: player.name,
-          role: shouldShowRole ? (player.role || null) : null,
-          // 👁️ موتُه يصل هاتفَه مع كشف كرته لا قبله — هاتفُ ضحيّة القنبلة كان يُعلن موتَها قبل «كشف الأدوار»
-          isAlive: player.isAlive === false && unrevealedDeadSeats(state).has(Number(player.physicalId)) ? true : player.isAlive,
+          // 👥 الأصغرُ المتحوّل يرى دورَه القديم حتّى يُعلن موتُ أخيه
+          role: shouldShowRole ? announcedRoleOf(state, player) : null,
+          // 👁️ موتُه يصل هاتفَه مع قلب كرته على الشاشة لا قبله — هاتفُ ضحيّة القنبلة كان يُعلن موتَها قبل «كشف الأدوار»
+          isAlive: player.isAlive === false && unrevealedDeadSeats(state, { forPhones: true }).has(Number(player.physicalId)) ? true : player.isAlive,
           gender: player.gender || 'MALE',
           playerId: player.playerId || null,
           penalties: player.penalties || 0,
@@ -3900,7 +3898,8 @@ async function readSeatLayoutOnly(activityId: any): Promise<any> {
       const player = state.players.find((p: any) => p.physicalId === physicalId);
       if (!player?.role) return reply({ success: false, error: 'لم تُوزَّع الأدوار بعد' });
 
-      const wasDead = player.isAlive === false;
+      // 📱 موتٌ لم يُعلن على الشاشة ليس موتاً على الهاتف — رفضُ المهامّ كان يُخبر صاحبَها أنّه خرج
+      const wasDead = !phoneAlive(state, player);
       const now = Date.now();
 
       // ختمُ رؤية السرّ — يقرأه فحصُ «الغياب بعد رؤية السرّ». لا يُختم لمن مُنع.
@@ -5168,9 +5167,7 @@ async function readSeatLayoutOnly(activityId: any): Promise<any> {
       };
       // إذا اللاعب مافيا → أرسل أرقام زملائه
       if (player?.role && isMafiaRole(player.role as Role) && state.config.allowMafiaReveal !== false) {
-        response.mafiaTeam = state.players
-          .filter((p: any) => p.role && isMafiaRole(p.role as Role) && p.isAlive !== false && p.physicalId !== player.physicalId)
-          .map((p: any) => ({ physicalId: p.physicalId, name: p.name, role: p.role, avatarUrl: p.avatarUrl || null }));
+        response.mafiaTeam = phoneMafiaTeam(state, player.physicalId);   // 📱 بلا موتٍ أو تحوّلٍ لم يُعلن
       }
       // 👥 تعارف الأخوين (إعادة التسليم عند الاستعلام) — null لغير الأخوين (نفس بقية المسارات)
       if (player?.role && (state.rolesConfirmed || false)) {
@@ -5212,12 +5209,12 @@ async function readSeatLayoutOnly(activityId: any): Promise<any> {
             phase: state.phase,
             round: state.round,
             gameName: state.config.gameName,
-            teamCounts: state.rolesConfirmed ? publicTeamCounts(state) : null,
+            teamCounts: state.rolesConfirmed ? publicTeamCounts(state, { forPhones: true }) : null,
             maxPlayers: state.config.maxPlayers,
             discussionState: state.discussionState || null,
             // 👁️ ميّتٌ لم يُكشف كرتُه (المُقصى قبل «كشف الأدوار»، ضحايا القنبلة، موتى الليل قبل عرضهم)
             //    حيٌّ بلا دور — كان يصل المتفرّجَ دورُه قبل أن تراه القاعة
-            rosterInfo: (() => { const hidden = unrevealedDeadSeats(state); return state.players.map((p: any) => {
+            rosterInfo: (() => { const hidden = unrevealedDeadSeats(state, { forPhones: true }); return state.players.map((p: any) => {
               const dead = p.isAlive === false && !hidden.has(Number(p.physicalId));
               return {
                 physicalId: p.physicalId,
@@ -5250,7 +5247,7 @@ async function readSeatLayoutOnly(activityId: any): Promise<any> {
         hiddenPlayers: state.votingState.hiddenPlayersFromVoting,
         durationSeconds: state.votingState.durationSeconds,
         votingStartTime: state.votingState.votingStartTime,
-        playersInfo: state.players.filter((p: any) => p.isAlive).map((p: any) => ({
+        playersInfo: state.players.filter((p: any) => phoneAlive(state, p)).map((p: any) => ({
           physicalId: p.physicalId,
           name: p.name,
           avatarUrl: p.avatarUrl || null,
@@ -5262,9 +5259,10 @@ async function readSeatLayoutOnly(activityId: any): Promise<any> {
         player: {
           physicalId: player.physicalId,
           name: player.name,
-          role: shouldShowRole ? (player.role || null) : null,
-          // 👁️ موتُه يصل هاتفَه مع كشف كرته لا قبله — هاتفُ ضحيّة القنبلة كان يُعلن موتَها قبل «كشف الأدوار»
-          isAlive: player.isAlive === false && unrevealedDeadSeats(state).has(Number(player.physicalId)) ? true : player.isAlive,
+          // 👥 الأصغرُ المتحوّل يرى دورَه القديم حتّى يُعلن موتُ أخيه
+          role: shouldShowRole ? announcedRoleOf(state, player) : null,
+          // 👁️ موتُه يصل هاتفَه مع قلب كرته على الشاشة لا قبله — هاتفُ ضحيّة القنبلة كان يُعلن موتَها قبل «كشف الأدوار»
+          isAlive: player.isAlive === false && unrevealedDeadSeats(state, { forPhones: true }).has(Number(player.physicalId)) ? true : player.isAlive,
           gender: player.gender || 'MALE',
           playerId: player.playerId || null,
           penalties: player.penalties || 0,
@@ -5273,7 +5271,7 @@ async function readSeatLayoutOnly(activityId: any): Promise<any> {
         // 🎭 أعداد الفرق — معلومةٌ عامّة (على شاشة القاعة أمام الجميع).
         //    تُرسَل هنا لا في حدث المرحلة وحده: من أعاد التحميل أو دخل متأخّراً
         //    كان يبقى بلا أرقام حتّى تتغيّر المرحلة — نفس درس شاشة الليل.
-        teamCounts: state.rolesConfirmed ? publicTeamCounts(state) : null,
+        teamCounts: state.rolesConfirmed ? publicTeamCounts(state, { forPhones: true }) : null,
         isRemote: !!state.config?.isRemote, // 🌐 ليعرف اللاعب أنه في غرفة بعيدة → يعرض طاولة الطور
         allowPlayerInvites: !!state.config?.allowPlayerInvites, // 📨 يسمح للاعب برؤية زرّ إرسال الدعوة
         rolesConfirmed: state.rolesConfirmed || false,
@@ -5293,8 +5291,9 @@ async function readSeatLayoutOnly(activityId: any): Promise<any> {
         withdrawalState: state.phase === 'DAY_JUSTIFICATION' ? (state.withdrawalState || null) : null,
         // 🎩 العمدة المكشوف (علنيّ بعد الكشف) — بلاه تختفي شارة ×N بعد إعادة التحميل.
         //    الوزنُ الفعليّ الآن (تجميدُ الساحرة يجعله 1) لا المضبوطُ في الإعدادات.
+        //    📱 موتُه أو تعطيلُه ليلاً لا يُسقط الوزن قبل أن يُعرض حدثُه على الشاشة.
         mayorPublic: state.mayorState?.revealed
-          ? { physicalId: state.mayorState.mayorPhysicalId, voteWeight: mayorVoteWeight(state, state.mayorState.mayorPhysicalId) }
+          ? { physicalId: state.mayorState.mayorPhysicalId, voteWeight: publicMayorWeight(state) }
           : null,
         // حالة النقاش
         discussionState: state.phase === 'DAY_DISCUSSION' ? { ...(state.discussionState || {}), deals: state.votingState?.deals || [], dealLockedPlayers: dealLockedList(state) } : null,
@@ -5346,19 +5345,23 @@ async function readSeatLayoutOnly(activityId: any): Promise<any> {
         // 🔒 قبل «كشف الأدوار»: مَن خرج (الأرقام) وحدها — لا أدوار ولا أسباب ولا صفقة
         pendingResolution: state.phase === 'DAY_ELIMINATION' ? publicPendingResolution(state) || null : null,
         // عقود السفّاح
-        assassinContracts: (shouldShowRole && player.role === 'ASSASSIN' && state.assassinState) ? {
+        //    🔪 من بدء الليل حتّى نهاية ملخّص الصباح: العقودُ كما كانت عند البدء (night:start)
+        assassinContracts: (shouldShowRole && player.role === 'ASSASSIN' && state.assassinState) ? ((state as any).assassinShownContracts ? {
+          ...(state as any).assassinShownContracts,
+          currentIndex: state.assassinState.currentContractIndex || 0,
+        } : {
           contracts: state.assassinState.contracts,
           currentIndex: state.assassinState.currentContractIndex || 0,
           completedCount: state.assassinState.completedCount,
           totalRequired: state.assassinState.totalRequired,
-        } : null,
+        }) : null,
         // 👥 تعارف الأخوين (إعادة التسليم عند جلب الحالة الكاملة)
         sibling: shouldShowRole ? getSiblingInfoFor(state, player.physicalId) : null,
         // نتيجة اللعبة
         winner: state.phase === 'GAME_OVER' ? state.winner || null : null,
         // معلومات قائمة اللاعبين للمفكرة وغيرها
         // 👁️ ميّتٌ لم يُكشف كرتُه حيٌّ هنا كما في كلّ إسقاط (public-counts)
-        rosterInfo: (() => { const hidden = unrevealedDeadSeats(state); return state.players.map((p: any) => ({
+        rosterInfo: (() => { const hidden = unrevealedDeadSeats(state, { forPhones: true }); return state.players.map((p: any) => ({
           physicalId: p.physicalId,
           name: p.name,
           avatarUrl: p.avatarUrl || null,
@@ -5374,7 +5377,8 @@ async function readSeatLayoutOnly(activityId: any): Promise<any> {
           isAlive: p.isAlive,
         })) : null,
         // معلومات اللاعبين الأحياء (لأسماء المتهمين)
-        playersInfo: state.players.filter((p: any) => p.isAlive).map((p: any) => ({
+        //    📱 موتٌ لم يُعلن ليس موتاً هنا — كانت تُرشَّح بالحياة الخام فيعرف كلُّ هاتفٍ مَن مات خلال ٣ ثوانٍ
+        playersInfo: state.players.filter((p: any) => phoneAlive(state, p)).map((p: any) => ({
           physicalId: p.physicalId,
           name: p.name,
         })),
@@ -6219,6 +6223,8 @@ async function readSeatLayoutOnly(activityId: any): Promise<any> {
     state.confrontations = [];       // ⚔️ مواجهات النهار — تُصفَّر مع رصيد كلّ لاعب (قرار المالك: الحدّ لكلّ لعبة)
     state.confrontationsUsed = {};
     state.voteHistory = null;        // 🗳️ سجلّ التصويت لكلّ لعبة — حُفظ مع المباراة عند الاحتساب قبل التصفير
+    dropPhoneHolds(state, state.roomId);   // 📱 لا حبسَ عن الهواتف يعبر إلى اللعبة التالية
+    delete (state as any).assassinShownContracts;
 
     // ── تصفير مؤقت اللعبة ──
     clearGameTimer(state.roomId);
@@ -6557,4 +6563,13 @@ async function readSeatLayoutOnly(activityId: any): Promise<any> {
       void openAbsence(io, socket.data.roomId, socket.data.physicalId, secretOpen);
     }
   });
+}
+
+/** 🎩 وزنُ العمدة كما يجوز أن يعرفه الهاتف: موتُه أو تعطيلُه ليلاً لا يُسقطه قبل أن يُعرض حدثُه على الشاشة */
+function publicMayorWeight(state: any): number {
+  const seat = Number(state?.mayorState?.mayorPhysicalId);
+  const pending = (state?.morningEvents || []).some((ev: any) => !ev?.revealed && Number(ev?.targetPhysicalId) === seat);
+  const me = state?.players?.find((p: any) => Number(p.physicalId) === seat);
+  if (pending || (me && me.isAlive === false && phoneAlive(state, me))) return configuredMayorWeight(state);
+  return mayorVoteWeight(state, seat);
 }

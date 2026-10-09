@@ -94,11 +94,54 @@ section('٤) الميّت قبل الكشف');
   st.pendingResolution = { eliminated: [1], revealedRoles: [{ physicalId: 1, role: 'GODFATHER' }], causes: [{ physicalId: 1, by: 'DAY_VOTE' }], type: 'ELIMINATION' };
   const v = projectStateFor(st, 2);
   check('المُعدَم قبل الكشف: دورُه مخفيّ', v.players.find((p: any) => p.physicalId === 1).role === null);
-  check('النتيجة قبل الكشف: الأرقام وحدها', JSON.stringify(v.pendingResolution) === JSON.stringify({ eliminated: [1], type: 'ELIMINATION' }));
+  // 🔒 2026-10-09: لا أرقامَ ولا نوعَ قبل أن تُقلب البطاقة على الشاشة — «بانتظار الإعلان» وحده
+  check('النتيجة قبل الكشف: لا شيء — حتّى الأرقام', JSON.stringify(v.pendingResolution) === JSON.stringify({ pending: true, eliminated: [] }));
+  check('النتيجة قبل الكشف: المُعدَم حيٌّ على الهاتف', v.players.find((p: any) => p.physicalId === 1).isAlive === true);
   st.eliminationRevealed = true;
   const v2 = projectStateFor(st, 2);
   check('بعد الكشف: دورُه ظاهر', v2.players.find((p: any) => p.physicalId === 1).role === 'GODFATHER');
   check('بعد الكشف: النتيجة كاملة', v2.pendingResolution.revealedRoles?.length === 1);
+
+  // 📱 الكشفُ ضُغط لكنّ البطاقة لم تُقلب على الشاشة بعد (phone-hold): الهاتف كما قبل الكشف
+  st.phoneHold = [{ id: 'day:3', seats: [1], pending: [1], deadline: Date.now() + 20000, emits: [] }];
+  const h = projectStateFor(st, 2);
+  check('📱 محبوس: المُعدَم حيٌّ بلا دور', h.players.find((p: any) => p.physicalId === 1).isAlive === true && h.players.find((p: any) => p.physicalId === 1).role === null);
+  check('📱 محبوس: النتيجة «بانتظار الإعلان»', JSON.stringify(h.pendingResolution) === JSON.stringify({ pending: true, eliminated: [] }));
+  check('📱 محبوس: المُعدَم نفسُه يرى نفسه حيّاً', projectStateFor(st, 1).players.find((p: any) => p.physicalId === 1).isAlive === true);
+  st.phoneHold[0].deadline = Date.now() - 1;
+  const h2 = projectStateFor(st, 2);
+  check('📱 انقضت المهلة: يظهر الموتُ والدور', h2.players.find((p: any) => p.physicalId === 1).isAlive === false && h2.players.find((p: any) => p.physicalId === 1).role === 'GODFATHER');
+  check('📱 انقضت المهلة: النتيجة كاملة', h2.pendingResolution.revealedRoles?.length === 1);
+
+  // 🃏 طردٌ بالعقوبات: الخروجُ علنيّ، الدورُ سرٌّ حتّى يُقلب الكرت
+  const k = baseState();
+  const kp = k.players.find((p: any) => p.physicalId === 2); kp.isAlive = false; kp.penaltyKicked = true;
+  const kv = projectStateFor(k, 4);
+  check('🃏 المطرود ميّتٌ على الهاتف', kv.players.find((p: any) => p.physicalId === 2).isAlive === false);
+  check('🃏 المطرود بلا دور قبل الكرت', kv.players.find((p: any) => p.physicalId === 2).role === null);
+  kp.cardRevealed = true;
+  check('🃏 بعد قلب الكرت يظهر دوره', projectStateFor(k, 4).players.find((p: any) => p.physicalId === 2).role === 'SHERIFF');
+  k.phoneHold = [{ id: 'card:2', seats: [2], pending: [2], deadline: Date.now() + 6000, emits: [] }];
+  const kh = projectStateFor(k, 4).players.find((p: any) => p.physicalId === 2);
+  check('🃏 الكرتُ يُقلب الآن: ميّتٌ بلا دور (لا يعود حيّاً)', kh.isAlive === false && kh.role === null);
+
+  // 👥 الأصغر المتحوّل يرى دوره القديم حتّى يُعلن موتُ أخيه
+  const tw = baseState();
+  tw.players.find((p: any) => p.physicalId === 6).isAlive = false;
+  tw.players.find((p: any) => p.physicalId === 7).role = 'MAFIA_REGULAR';
+  tw.twinState = { olderBrotherPhysicalId: 6, youngerBrotherPhysicalId: 7, transformed: true, transformNotified: false };
+  check('👥 قبل الإخطار: الأصغر يرى «الأخ الأصغر»', projectStateFor(tw, 7).players.find((p: any) => p.physicalId === 7).role === 'YOUNGER_BROTHER');
+  tw.twinState.transformNotified = true;
+  check('👥 بعد الإخطار: دورُه الجديد', projectStateFor(tw, 7).players.find((p: any) => p.physicalId === 7).role === 'MAFIA_REGULAR');
+
+  // 🤐 الإسكاتُ قبل عرض حدثه
+  const sl = baseState();
+  sl.phase = 'MORNING_RECAP';
+  sl.players.find((p: any) => p.physicalId === 4).isSilenced = true;
+  sl.morningEvents = [{ type: 'SILENCED', targetPhysicalId: 4, revealed: false }];
+  check('🤐 قبل العرض: غير مُسكَت على الهاتف', projectStateFor(sl, 2).players.find((p: any) => p.physicalId === 4).isSilenced === false);
+  sl.morningEvents[0].revealed = true;
+  check('🤐 بعد العرض: مُسكَت', projectStateFor(sl, 2).players.find((p: any) => p.physicalId === 4).isSilenced === true);
 
   const night = baseState();
   night.phase = 'MORNING_RECAP';

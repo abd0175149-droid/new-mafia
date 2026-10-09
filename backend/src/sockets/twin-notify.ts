@@ -5,9 +5,10 @@
 // ══════════════════════════════════════════════════════
 
 import type { Server } from 'socket.io';
-import { Role, isMafiaRole } from '../game/roles.js';
+import { Role } from '../game/roles.js';
 import { Phase, ROLE_NAMES_AR } from '../game/state.js';
 import { emitTrustedOnly } from './broadcast.util.js';
+import { unrevealedDeadSeats, roleHiddenSeats, phoneMafiaTeam } from '../game/public-counts.js';
 
 // إرسال حدث لكل اتصالات لاعب محدّد عبر physicalId
 function emitToPlayer(io: Server, roomId: string, physicalId: number, event: string, payload: any) {
@@ -32,15 +33,20 @@ export function notifyTwinTransform(io: Server, roomId: string, state: any) {
   const younger = state.players.find((p: any) => p.physicalId === t.youngerBrotherPhysicalId);
   if (!younger || younger.isAlive === false) return;
 
+  // 🔒 موتُ الأكبر لم يُعلن بعد (لم يُقلب كرتُه على الشاشة، أو الهواتف محبوسةٌ عنه):
+  //    دورٌ جديدٌ للأصغر الآن يُعلن أنّ أخاه مات — قبل القاعة. يُؤجَّل، ويُستدعى ثانيةً
+  //    عند الإطلاق (phone-hold) وعند كشف حدث الصباح ونهاية الملخّص (قرار المالك 2026-10-09).
+  const older = Number(t.olderBrotherPhysicalId);
+  if (unrevealedDeadSeats(state, { forPhones: true }).has(older) || roleHiddenSeats(state, { forPhones: true }).has(older)) return;
+
   t.transformNotified = true;
 
   const reveal = state.config?.allowMafiaReveal !== false;
   const newRole = t.transformedToRole || Role.MAFIA_REGULAR;
   const newRoleName = ROLE_NAMES_AR[newRole as keyof typeof ROLE_NAMES_AR] || newRole;
 
-  const mafiaPlayers = state.players
-    .filter((p: any) => p.role && isMafiaRole(p.role as Role) && p.isAlive !== false)
-    .map((p: any) => ({ physicalId: p.physicalId, name: p.name, role: p.role, avatarUrl: p.avatarUrl || null }));
+  // 📱 بلا موتٍ لم يُعلن بعد (ضحايا ليلٍ لم يُعرضوا) — نفسُ ما تراه الهواتف في كلّ مسار
+  const mafiaPlayers = phoneMafiaTeam(state, null);
 
   // 1) الأصغر: كشف دوره الجديد + فريقه (إن سُمح الكشف)
   emitToPlayer(io, roomId, younger.physicalId, 'player:role-assigned', {

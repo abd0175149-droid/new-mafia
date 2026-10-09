@@ -331,7 +331,8 @@ class LobbyView extends StatelessWidget {
         GamePhase.dayTiebreaker => 'كسر التعادل',
         GamePhase.night => 'الليل',
         GamePhase.morningRecap => 'الصباح',
-        GamePhase.eliminationPending => 'الإقصاء',
+        // 🔒 لا «إقصاء» قبل الشاشة: الخادم لا يرسل النتيجة حتّى تُقلب البطاقة هناك
+        GamePhase.eliminationPending => 'القرار عند الموجّه',
         GamePhase.gameOver => 'انتهت اللعبة',
         _ => 'في الغرفة',
       };

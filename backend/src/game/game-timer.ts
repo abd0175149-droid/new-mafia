@@ -5,6 +5,7 @@
 
 import type { Server } from 'socket.io';
 import { notifyPulseForRoom } from '../sockets/activity-pulse.socket.js';
+import { emitGameOver } from '../sockets/broadcast.util.js';
 import { getGameState, setGameState } from '../config/redis.js';
 import { Phase } from './state.js';
 import { decideTimeoutWinner } from './win-checker.js';
@@ -87,7 +88,7 @@ async function expireGameByTimeout(io: Server, roomId: string): Promise<void> {
     io.to(roomId).emit('game:timer-expired', { winner });
     // 🌙 بدءُ مباراةٍ وانتهاؤها لحظتان يُنتظران — تُرسلان فوراً بلا كبح.
     void notifyPulseForRoom(io, roomId, state, true);
-    io.to(roomId).emit('game:over', {
+    void emitGameOver(io, roomId, {
       winner,
       matchId: state.matchId,
       players: state.players,
