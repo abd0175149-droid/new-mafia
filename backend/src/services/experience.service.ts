@@ -103,7 +103,9 @@ export async function ensureExperienceTables(): Promise<void> {
   const any = rowsOf(await db.execute(sql`SELECT 1 FROM experience_campaigns LIMIT 1`));
   if (!any.length) {
     await db.execute(sql`INSERT INTO experience_campaigns (title, intro, questions, status, push_title, push_body, created_by)
-      VALUES (${FIRST_TITLE}, ${FIRST_INTRO}, ${JSON.stringify(DEFAULT_EXP_QUESTIONS)}::jsonb, 'draft', ${FIRST_TITLE}, ${FIRST_INTRO}, 'system')`);
+      VALUES (${FIRST_TITLE}, ${FIRST_INTRO}, ${JSON.stringify(DEFAULT_EXP_QUESTIONS)}::jsonb, 'draft', ${FIRST_TITLE}, ${FIRST_INTRO.split('
+').slice(1).join('
+').trim()}, 'system')`);   // نصُّ الإشعار بلا سطره الأوّل: هو العنوان
     console.log('🌟 experience: أُنشئت الحملة الأولى (مسوّدة)');
   }
 }
