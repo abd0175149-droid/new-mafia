@@ -173,6 +173,8 @@ function resolveNotificationUrl(type, data) {
       return data.url || '/player/games';
     case 'feedback_survey':
       return data.sessionId ? `/player/feedback?sessionId=${data.sessionId}` : '/player/feedback';
+    case 'experience_review':
+      return data.url || (data.campaignId ? `/player/experience?c=${data.campaignId}` : '/player/experience');
     case 'order_status':
       return data.url || '/player/order';
     case 'new_order':

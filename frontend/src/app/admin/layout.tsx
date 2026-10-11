@@ -59,6 +59,7 @@ const NAV_GROUPS: NavGroup[] = [
       { href: '/admin/players/map', icon: '🗺️', label: 'مواقع اللاعبين', roles: ['admin', 'manager'] },
       { href: '/admin/players/contacts', icon: '📇', label: 'جهات اتصال الآيفون', roles: ['admin'] },
       { href: '/admin/feedback', icon: '📋', label: 'تقييمات اللاعبين', roles: ['admin', 'manager'] },
+      { href: '/admin/experience', icon: '🌟', label: 'رأيهم بالتجربة', roles: ['admin', 'manager'] },
       { href: '/admin/notifications', icon: '🔔', label: 'الإشعارات' },
     ],
   },

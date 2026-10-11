@@ -3,6 +3,7 @@ import 'package:go_router/go_router.dart';
 
 import '../core/routing/destination.dart';
 import '../features/auth/auth_screen.dart';
+import '../features/experience/experience_screen.dart';
 import '../features/feedback/feedback_screen.dart';
 import '../features/host/host_screen.dart';
 import '../features/loyalty/loyalty_screen.dart';
@@ -41,6 +42,7 @@ abstract final class Routes {
   static const host = '/player/host';
   static const order = '/player/order';
   static const feedback = '/player/feedback';
+  static const experience = '/player/experience';
   static const history = '/player/history';
   static const loyalty = '/player/loyalty';
   static const debugPush = '/player/debug-push';
@@ -142,6 +144,15 @@ GoRouter buildRouter(AppConfig config) {
         path: Routes.feedback,
         builder: (_, s) => FeedbackScreen(
           sessionId: int.tryParse(s.uri.queryParameters['sessionId'] ?? ''),
+        ),
+      ),
+
+      // 🌟 رأيك بتجربتك — `?c=` من إشعار «رأيك يهمّنا» (بلا مسارٍ هنا كانت النقرة تهبط على الرئيسية)
+      GoRoute(
+        path: Routes.experience,
+        builder: (_, s) => ExperienceScreen(
+          campaignId: int.tryParse(s.uri.queryParameters['c'] ?? ''),
+          source: s.uri.queryParameters['src'],
         ),
       ),
 

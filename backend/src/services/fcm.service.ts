@@ -33,19 +33,36 @@ async function getWebPush() {
 }
 
 // ── إرسال عبر Web Push API (Safari/iOS) ──
-async function sendWebPush(subscriptionJson: string, title: string, body: string, type: string, data: Record<string, any> = {}) {
+async function sendWebPush(subscriptionJson: string, title: string, body: string, type: string, data: Record<string, any> = {}): Promise<{ ok: boolean; gone: boolean }> {
   const wp = await getWebPush();
-  if (!wp) return false;
+  if (!wp) return { ok: false, gone: false };
   try {
     const subscription = JSON.parse(subscriptionJson);
     await wp.sendNotification(subscription, JSON.stringify({
       data: { title, body, type, url: data.url || '/player/home', ...data },
-    }));
-    return true;
+    }), { TTL: 86400, urgency: 'high' });
+    return { ok: true, gone: false };
   } catch (err: any) {
-    console.error('❌ WebPush send error:', err.message);
-    return false;
+    // 🔴 كان كلُّ خطأٍ يحذف الاشتراك — حمولةٌ كبيرة (413) أو عطلٌ مؤقّت كان يمحو جهاز آيفون
+    //    إلى الأبد. وحده 404/410 يعني أنّ الاشتراك انتهى فعلاً.
+    const code = Number(err?.statusCode || 0);
+    console.error(`❌ WebPush send error (${code || '-'}):`, err.message);
+    return { ok: false, gone: code === 404 || code === 410 };
   }
+}
+
+// ══════════════════════════════════════════════════════
+// ✂️ حدودُ ما يُدفع للجهاز — الصندوقُ داخل التطبيق يحفظ النصَّ كاملاً
+// ══════════════════════════════════════════════════════
+// FCM وAPNs والويب ~٤ ك.ب لكلّ رسالة، والعربيّة ~٢ بايت للحرف، والنصّ يُرسل مرّتين
+// (data وكتلة المنصّة). فوق ذلك تُرفض الرسالة — وكان رفضُ الويب يحذف الاشتراك.
+const PUSH_TITLE_MAX = 120;
+const PUSH_BODY_MAX = 400;
+const DB_TITLE_MAX = 200;   // player_notifications.title VARCHAR(200) — أطول منه كان يُسقط الإدراج والإرسال كلَّه
+const FCM_BATCH = 500;      // حدّ sendEachForMulticast — فوقه يُرمى خطأٌ فلا يصل أيُّ جهاز
+function clip(s: string, max: number): string {
+  const t = String(s || '').trim();
+  return t.length <= max ? t : t.slice(0, max - 1).trimEnd() + '…';
 }
 
 // ── فصل tokens: FCM عادي vs WebPush ──
@@ -236,6 +253,10 @@ export async function sendPushToPlayer(
 ) {
   const db = getDB();
   if (!db) return;
+  // ✂️ نفسُ حدود sendPushToPlayers: الصندوق كاملاً، والجهاز مقصوصاً
+  title = clip(title, DB_TITLE_MAX);
+  const pushTitle = clip(title, PUSH_TITLE_MAX);
+  const pushBody = clip(body, PUSH_BODY_MAX);
 
   // حفظ الإشعار في قاعدة البيانات والتقاط معرف السجل
   const [insertedNotif] = await db.insert(playerNotifications).values({
@@ -263,7 +284,7 @@ export async function sendPushToPlayer(
     if (messaging) {
       try {
         const response = await messaging.sendEachForMulticast(
-          buildFCMPayload(fcmTokens, title, body, type, data)
+          buildFCMPayload(fcmTokens, pushTitle, pushBody, type, data)
         );
         if (response.successCount > 0) {
           isDelivered = true;
@@ -282,12 +303,12 @@ export async function sendPushToPlayer(
 
   // إرسال عبر Web Push API (Safari/iOS)
   for (const wp of webpushSubs) {
-    const ok = await sendWebPush(wp.sub, title, body, type, data);
-    if (ok) {
+    const r = await sendWebPush(wp.sub, pushTitle, pushBody, type, data);
+    if (r.ok) {
       isDelivered = true;
       console.log(`🍎 WebPush sent to player #${playerId}`);
-    } else {
-      // إزالة الاشتراك الفاشل
+    } else if (r.gone) {
+      // إزالة الاشتراك المنتهي وحده (404/410)
       db.delete(playerFcmTokens).where(eq(playerFcmTokens.fcmToken, wp.token)).catch(() => {});
     }
   }
@@ -311,6 +332,12 @@ export async function sendPushToPlayers(
 ) {
   const db = getDB();
   if (!db || playerIds.length === 0) return;
+  // ✂️ الصندوق: العنوانُ في حدود عموده والنصُّ كاملاً · الجهاز: مقصوصان (انظر PUSH_*_MAX)
+  const fullBody = body;
+  title = clip(title, DB_TITLE_MAX);
+  const pushTitle = clip(title, PUSH_TITLE_MAX);
+  const pushBody = clip(fullBody, PUSH_BODY_MAX);
+  body = fullBody;
 
   // حفظ إشعار لكل لاعب والتقاط المعرفات.
   // 📌 دمج بالوسم (قرار المالك — إشعارات محادثات الواتساب): وجود data.tag يعني
@@ -370,33 +397,39 @@ export async function sendPushToPlayers(
   if (fcmRows.length > 0) {
     const messaging = getMessaging();
     if (messaging) {
-      try {
-        const response = await messaging.sendEachForMulticast(
-          buildFCMPayload(fcmRows.map(r => r.token), title, body, type, data)
-        );
-        response.responses.forEach((r, i) => {
-          const row = fcmRows[i];
-          if (r.success) {
-            if (row.playerId) successfulPlayerIds.add(row.playerId);
-          } else if (r.error?.code === 'messaging/registration-token-not-registered') {
-            db.delete(playerFcmTokens).where(eq(playerFcmTokens.fcmToken, row.token)).catch(() => {});
-          }
-        });
-        console.log(`🔔 FCM push to ${playerIds.length} players: ${response.successCount} delivered`);
-      } catch (err: any) {
-        console.error('❌ FCM push to players:', err.message);
+      // 🔴 دفعاتٌ من ٥٠٠: نداءٌ واحدٌ بأكثر منها يُرمى فلا يصل أيُّ جهاز أندرويد/كروم
+      let delivered = 0;
+      for (let off = 0; off < fcmRows.length; off += FCM_BATCH) {
+        const batch = fcmRows.slice(off, off + FCM_BATCH);
+        try {
+          const response = await messaging.sendEachForMulticast(
+            buildFCMPayload(batch.map(r => r.token), pushTitle, pushBody, type, data)
+          );
+          delivered += response.successCount;
+          response.responses.forEach((r, i) => {
+            const row = batch[i];
+            if (r.success) {
+              if (row.playerId) successfulPlayerIds.add(row.playerId);
+            } else if (r.error?.code === 'messaging/registration-token-not-registered') {
+              db.delete(playerFcmTokens).where(eq(playerFcmTokens.fcmToken, row.token)).catch(() => {});
+            }
+          });
+        } catch (err: any) {
+          console.error(`❌ FCM push to players (batch ${off / FCM_BATCH + 1}):`, err.message);
+        }
       }
+      console.log(`🔔 FCM push to ${playerIds.length} players: ${delivered}/${fcmRows.length} devices`);
     }
   }
 
   // WebPush (Safari/iOS)
   let wpSuccessCount = 0;
   for (const wp of webpushRows) {
-    const ok = await sendWebPush(wp.token.slice(9), title, body, type, data); // إزالة "WEBPUSH::"
-    if (ok) {
+    const r = await sendWebPush(wp.token.slice(9), pushTitle, pushBody, type, data); // إزالة "WEBPUSH::"
+    if (r.ok) {
       wpSuccessCount++;
       if (wp.playerId) successfulPlayerIds.add(wp.playerId);
-    } else {
+    } else if (r.gone) {
       db.delete(playerFcmTokens).where(eq(playerFcmTokens.fcmToken, wp.token)).catch(() => {});
     }
   }
@@ -508,7 +541,7 @@ export async function sendPushToStaff(
   if (fcmTokens.length > 0 && messaging) {
     try {
       const response = await messaging.sendEachForMulticast(
-        buildFCMPayload(fcmTokens, title, body, type, staffData)
+        buildFCMPayload(fcmTokens, clip(title, PUSH_TITLE_MAX), clip(body, PUSH_BODY_MAX), type, staffData)
       );
       ok += response.successCount;
       response.responses.forEach((r, i) => {
@@ -522,9 +555,10 @@ export async function sendPushToStaff(
   }
 
   for (const wp of webpushSubs) {
-    if (await sendWebPush(wp.sub, title, body, type, staffData)) {
+    const r = await sendWebPush(wp.sub, clip(title, PUSH_TITLE_MAX), clip(body, PUSH_BODY_MAX), type, staffData);
+    if (r.ok) {
       ok++;
-    } else {
+    } else if (r.gone) {
       // اشتراكٌ منتهٍ (المستخدم أزال التطبيق أو أوقف الإذن) — يُنظَّف
       db.delete(staffFcmTokens).where(eq(staffFcmTokens.fcmToken, wp.token)).catch(() => {});
     }

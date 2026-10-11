@@ -212,6 +212,8 @@ export async function anonymizePlayer(playerId: number): Promise<void> {
 
   // 8) الآراء الحرّة المنسوبة
   await db.execute(sql`UPDATE room_feedback SET notes = NULL WHERE player_id = ${id}`);
+  // 🌟 «رأيك بتجربتك»: نصوصٌ حرّةٌ منسوبة — تُحذف مع صاحبها (الأرقامُ لا تُعادل خسارةَ التجهيل)
+  await db.execute(sql`DELETE FROM experience_responses WHERE player_id = ${id}`).catch(() => {});
   // 🔴 وملاحظاتُ الموظّفين: نصٌّ حرٌّ يصف شخصاً بعينه، وإبقاؤه بعد محو اسمِه
   //    نقضُ التجهيل نفسِه — يبقى الوصفُ ويسقط الاسم. شرطُ قبولِ الجدول لا
   //    تحسينٌ لاحق.

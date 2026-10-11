@@ -32,6 +32,8 @@ function resolveNotificationUrl(type: string, data: any): string | null {
       return '/player/games';
     case 'feedback_survey':
       return data?.sessionId ? `/player/feedback?sessionId=${data.sessionId}` : '/player/feedback';
+    case 'experience_review':
+      return data?.campaignId ? `/player/experience?c=${data.campaignId}` : '/player/experience';
     case 'custom':
       return data?.url || null;
     default:
@@ -334,7 +336,7 @@ export function NotificationBell() {
                     onClick={() => { const u = detail.data.url; setDetail(null); go(u); }}
                     style={{ width: '100%', padding: '12px 0', borderRadius: 12, border: 'none', background: 'linear-gradient(135deg, #f59e0b, #d97706)', color: '#000', fontWeight: 700, fontSize: 14, cursor: 'pointer' }}
                   >
-                    {isExternalUrl(detail.data.url) ? '🔗 فتح الرابط' : 'انتقال ◀'}
+                    {detail.data.ctaLabel || (isExternalUrl(detail.data.url) ? '🔗 فتح الرابط' : 'انتقال ◀')}
                   </button>
                 </div>
               )}

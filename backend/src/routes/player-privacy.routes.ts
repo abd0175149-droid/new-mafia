@@ -282,6 +282,9 @@ router.get('/export', authenticatePlayer, async (req: Request, res: Response) =>
       feedback: await q('feedback', sql`
         SELECT overall, venue, gameplay, leader, notes, submitted_at
         FROM room_feedback WHERE player_id = ${id} ORDER BY submitted_at DESC`),
+      experienceReviews: await q('experience', sql`
+        SELECT campaign_id, answers, submitted_at, updated_at
+        FROM experience_responses WHERE player_id = ${id} ORDER BY submitted_at DESC`),
       presenceChecks: await q('presence', sql`
         SELECT activity_id, gate, result, distance_m, created_at
         FROM presence_checks WHERE player_id = ${id} ORDER BY created_at DESC LIMIT 500`),

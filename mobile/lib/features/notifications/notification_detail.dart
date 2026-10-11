@@ -138,7 +138,7 @@ class _DetailState extends State<_Detail> {
                               ),
                               child: Center(
                                 child: Text(
-                                  isExternalUrl(n.url!) ? '🔗 فتح الرابط' : 'انتقال ◀',
+                                  n.ctaLabel ?? (isExternalUrl(n.url!) ? '🔗 فتح الرابط' : 'انتقال ◀'),
                                   style: ar(14,
                                       color: Colors.black, weight: FontWeight.w700),
                                 ),

@@ -27,6 +27,8 @@ class NotificationRow {
   String? get videoUrl => _str('videoUrl');
   String? get richBody => _str('richBody');
   String? get url => _str('url');
+  /// نصُّ زرّ الانتقال في مودال التفاصيل (مثلاً «✍️ اكتب رأيك») — غيابُه ⇒ «انتقال ◀»
+  String? get ctaLabel => _str('ctaLabel');
 
   /// صفٌّ «غنيّ» يفتح مودال التفاصيل بدل التنقّل.
   bool get isRich => imageUrl != null || videoUrl != null;
@@ -143,6 +145,10 @@ String? resolveNotificationUrl(String type, Map<String, dynamic> data) {
     case 'feedback_survey':
       final sid = data['sessionId'];
       return sid == null ? '/player/feedback' : '/player/feedback?sessionId=$sid';
+
+    case 'experience_review':
+      final cid = data['campaignId'];
+      return cid == null ? '/player/experience' : '/player/experience?c=$cid';
 
     case 'order_status':
       return '/player/order';

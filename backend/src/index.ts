@@ -41,6 +41,8 @@ import playerNotificationRoutes from './routes/player-notification.routes.js';
 import staffNotificationRoutes from './routes/staff-notification.routes.js';
 import playerFeedbackRoutes from './routes/player-feedback.routes.js';
 import feedbackAnalyticsRoutes from './routes/feedback-analytics.routes.js';
+import experienceRoutes from './routes/experience.routes.js';
+import playerExperienceRoutes from './routes/player-experience.routes.js';
 import dashboardRoutes from './routes/dashboard.routes.js';
 import soundsRoutes from './routes/sounds.routes.js';
 import reportsRoutes from './routes/reports.routes.js';
@@ -203,6 +205,8 @@ app.use('/api/dashboard', dashboardRoutes);
 app.use('/api/staff-notifications', staffNotificationRoutes);
 app.use('/api/player-feedback', playerFeedbackRoutes);
 app.use('/api/feedback', feedbackAnalyticsRoutes);
+app.use('/api/experience', experienceRoutes);                 // 🌟 «رأيك بتجربتك» — إدارة الحملات والنتائج
+app.use('/api/player-experience', playerExperienceRoutes);    // 🌟 صفحة اللاعب
 app.use('/api/sounds', soundsRoutes);
 app.use('/api/reports', reportsRoutes);
 app.use('/api/print-layouts', printLayoutRoutes);
@@ -2326,6 +2330,14 @@ async function main() {
     initFirebase();
   } catch (err: any) {
     console.warn('⚠️ Firebase init skipped:', err.message);
+  }
+
+  // ── 🌟 جداول «رأيك بتجربتك» + الحملة الأولى (مسوّدة) ──
+  try {
+    const { ensureExperienceTables } = await import('./services/experience.service.js');
+    await ensureExperienceTables();
+  } catch (err: any) {
+    console.warn('⚠️ ensureExperienceTables skipped:', err.message);
   }
 
   // ── إنشاء جدول الفيدباك إن لم يكن موجوداً (idempotent) ──
