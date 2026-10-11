@@ -67,6 +67,9 @@ const FIRST_INTRO = `mafia club بالنسبة إلنا أكبر من مجرد �
 
 لأنه بالنهاية، هذا المجتمع إلكم، وإحنا بدنا نبنيه معكم، ونحافظ سوا على الروح الحلوة اللي خلت mafia club مكانًا مميزًا. 🫶🏻`;
 
+/** نصُّ الإشعار بلا سطره الأوّل — ذاك هو العنوان */
+const FIRST_PUSH_BODY = FIRST_INTRO.slice(FIRST_INTRO.indexOf(String.fromCharCode(10)) + 1).trim();
+
 export async function ensureExperienceTables(): Promise<void> {
   const db = getDB(); if (!db) return;
   await db.execute(sql`CREATE TABLE IF NOT EXISTS experience_campaigns (
@@ -103,9 +106,7 @@ export async function ensureExperienceTables(): Promise<void> {
   const any = rowsOf(await db.execute(sql`SELECT 1 FROM experience_campaigns LIMIT 1`));
   if (!any.length) {
     await db.execute(sql`INSERT INTO experience_campaigns (title, intro, questions, status, push_title, push_body, created_by)
-      VALUES (${FIRST_TITLE}, ${FIRST_INTRO}, ${JSON.stringify(DEFAULT_EXP_QUESTIONS)}::jsonb, 'draft', ${FIRST_TITLE}, ${FIRST_INTRO.split('
-').slice(1).join('
-').trim()}, 'system')`);   // نصُّ الإشعار بلا سطره الأوّل: هو العنوان
+      VALUES (${FIRST_TITLE}, ${FIRST_INTRO}, ${JSON.stringify(DEFAULT_EXP_QUESTIONS)}::jsonb, 'draft', ${FIRST_TITLE}, ${FIRST_PUSH_BODY}, 'system')`);   // نصُّ الإشعار بلا سطره الأوّل: هو العنوان
     console.log('🌟 experience: أُنشئت الحملة الأولى (مسوّدة)');
   }
 }
