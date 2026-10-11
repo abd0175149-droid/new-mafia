@@ -337,7 +337,8 @@ export async function campaignSummary(c: ExpCampaign) {
     SELECT (SELECT COUNT(*)::int FROM n) AS notified,
            (SELECT COUNT(*)::int FROM n WHERE pushed) AS pushed,
            (SELECT COUNT(*)::int FROM experience_opens WHERE campaign_id = ${c.id}) AS page_opened,
-           (SELECT COUNT(*)::int FROM (SELECT player_id FROM n WHERE read UNION SELECT player_id FROM experience_opens WHERE campaign_id = ${c.id}) x) AS opened`));
+           (SELECT COUNT(*)::int FROM (SELECT player_id FROM n WHERE read UNION SELECT player_id FROM experience_opens WHERE campaign_id = ${c.id}
+                                        UNION SELECT player_id FROM experience_responses WHERE campaign_id = ${c.id}) x) AS opened`));
   return {
     responses: n,
     notified: Number(aud?.notified || 0), pushed: Number(aud?.pushed || 0), opened: Number(aud?.opened || 0),
@@ -416,12 +417,13 @@ export async function recordOpen(campaignId: number, playerId: number): Promise<
 }
 
 const OPEN_FILTERS: Record<string, any> = {
-  opened: sql`AND (o.player_id IS NOT NULL OR n.read)`,
-  not_opened: sql`AND o.player_id IS NULL AND NOT COALESCE(n.read, false)`,
+  // مَن قيّم فتح حتماً — ولو قبل أن يُسجَّل الفتح (أُضيف التسجيل بعد إرسال الحملة الأولى بدقائق)
+  opened: sql`AND (o.player_id IS NOT NULL OR n.read OR r.player_id IS NOT NULL)`,
+  not_opened: sql`AND o.player_id IS NULL AND NOT COALESCE(n.read, false) AND r.player_id IS NULL`,
   page: sql`AND o.player_id IS NOT NULL`,
   opened_no_response: sql`AND (o.player_id IS NOT NULL OR n.read) AND r.player_id IS NULL`,
   responded: sql`AND r.player_id IS NOT NULL`,
-  device_not_opened: sql`AND n.pushed AND o.player_id IS NULL AND NOT COALESCE(n.read, false)`,
+  device_not_opened: sql`AND n.pushed AND o.player_id IS NULL AND NOT COALESCE(n.read, false) AND r.player_id IS NULL`,
 };
 /** كلُّ مَن وصله إشعار الحملة (أو فتح صفحتها) — حالتُه: وصل جهازه؟ فتح؟ متى ومن أين؟ قيّم؟ */
 export async function campaignOpens(campaignId: number, o: { page?: unknown; pageSize?: unknown; filter?: unknown; q?: unknown }) {
@@ -445,7 +447,7 @@ export async function campaignOpens(campaignId: number, o: { page?: unknown; pag
      WHERE true ${f} ${qf}`;
   const [t] = rowsOf(await db.execute(sql`SELECT COUNT(*)::int AS n FROM (${base}) x`));
   const rows = rowsOf(await db.execute(sql`${base}
-     ORDER BY COALESCE(o.first_opened_at, CASE WHEN n.read THEN n.notified_at END) DESC NULLS LAST, p.name
+     ORDER BY COALESCE(o.first_opened_at, r.submitted_at, CASE WHEN n.read THEN n.notified_at END) DESC NULLS LAST, p.name
      LIMIT ${pageSize} OFFSET ${(page - 1) * pageSize}`));
   return {
     total: Number(t?.n || 0), page, pageSize,

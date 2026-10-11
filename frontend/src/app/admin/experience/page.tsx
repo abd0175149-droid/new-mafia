@@ -474,7 +474,9 @@ function OpensTab({ campaign, api }: { campaign: Campaign; api: ReturnType<typeo
                       <span className="block text-[10.5px] text-gray-500">{VIA_AR[r.via] || ''}{r.openCount > 1 ? ` · ${r.openCount} مرّات` : ''}</span>
                     </>
                   ) : r.readInApp ? (
-                    <span className="text-sky-300/80">🔔 قرأه في الجرس <span className="block text-[10.5px] text-gray-500">لم يفتح الصفحة</span></span>
+                    <span className="text-sky-300/80">🔔 قرأه في الجرس <span className="block text-[10.5px] text-gray-500">{r.respondedAt ? 'ثمّ قيّم' : 'لم يفتح الصفحة'}</span></span>
+                  ) : r.respondedAt ? (
+                    <span className="text-sky-300/80">👁 فتحه <span className="block text-[10.5px] text-gray-500">قبل بدء تسجيل الفتح</span></span>
                   ) : <span className="text-gray-600">لم يفتحه</span>}
                 </div>
                 <div>{r.respondedAt ? <span className="text-amber-300 font-bold">📝 {r.overall ? `${r.overall}★` : 'قيّم'}</span> : <span className="text-gray-600">—</span>}</div>
