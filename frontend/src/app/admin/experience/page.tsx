@@ -44,7 +44,7 @@ function ExperienceAdmin() {
   const sp = useSearchParams();
   const [campaigns, setCampaigns] = useState<Campaign[]>([]);
   const [selId, setSelId] = useState<number | null>(sp.get('c') ? Number(sp.get('c')) : null);
-  const [tab, setTab] = useState<'edit' | 'send' | 'results' | 'responses'>('edit');
+  const [tab, setTab] = useState<'edit' | 'send' | 'results' | 'opens' | 'responses'>('edit');
   const [loading, setLoading] = useState(true);
 
   const loadList = useCallback(async () => {
@@ -90,7 +90,7 @@ function ExperienceAdmin() {
           {sel && (
             <>
               <div className="flex flex-wrap gap-1.5 mb-4 border-b border-gray-800 pb-2">
-                {([['edit', '📝 الرسالة والأسئلة'], ['send', '📣 الإرسال'], ['results', '📊 النتائج'], ['responses', '💬 الآراء']] as const).map(([k, l]) => (
+                {([['edit', '📝 الرسالة والأسئلة'], ['send', '📣 الإرسال'], ['results', '📊 النتائج'], ['opens', '👁 من فتح'], ['responses', '💬 الآراء']] as const).map(([k, l]) => (
                   <button key={k} onClick={() => setTab(k)}
                     className={`px-3.5 py-2 rounded-xl text-sm font-bold ${tab === k ? 'bg-amber-500/15 text-amber-300' : 'text-gray-400 hover:text-white'}`}>{l}</button>
                 ))}
@@ -98,6 +98,7 @@ function ExperienceAdmin() {
               {tab === 'edit' && <EditTab key={`e${sel.id}`} campaign={sel} api={api} onSaved={loadList} />}
               {tab === 'send' && <SendTab key={`s${sel.id}`} campaign={sel} api={api} onSent={loadList} />}
               {tab === 'results' && <ResultsTab key={`r${sel.id}`} campaign={sel} api={api} />}
+              {tab === 'opens' && <OpensTab key={`o${sel.id}`} campaign={sel} api={api} />}
               {tab === 'responses' && <ResponsesTab key={`p${sel.id}`} campaign={sel} api={api} />}
             </>
           )}
@@ -348,10 +349,11 @@ function ResultsTab({ campaign, api }: { campaign: Campaign; api: ReturnType<typ
   const rate = s.notified ? Math.round((s.responses / s.notified) * 100) : null;
   return (
     <div className="space-y-4">
-      <div className="grid grid-cols-2 md:grid-cols-5 gap-2">
-        <Stat label="آراء" value={s.responses} cls="text-amber-300" />
+      <div className="grid grid-cols-2 md:grid-cols-6 gap-2">
         <Stat label="وصلهم الإشعار" value={s.notified} />
-        <Stat label="فتحوه" value={s.opened} />
+        <Stat label="على أجهزتهم" value={s.pushed} />
+        <Stat label="فتحوه" value={s.opened} cls="text-sky-300" />
+        <Stat label="آراء" value={s.responses} cls="text-amber-300" />
         <Stat label="نسبة الاستجابة" value={rate == null ? '—' : `${rate}٪`} />
         <Stat label="يقبلون التواصل" value={s.contactYes} />
       </div>
@@ -401,6 +403,95 @@ function ResultsTab({ campaign, api }: { campaign: Campaign; api: ReturnType<typ
           </Card>
         </div>
       )}
+    </div>
+  );
+}
+
+// ══════════════════════════════════════════════════════
+// 👁 مَن فتح الإشعار
+// ══════════════════════════════════════════════════════
+// «فتحه» = نقر إشعارَ جهازه أو فتحه من الجرس داخل التطبيق فوصل الصفحة، أو قرأه في الجرس.
+// الصفحةُ تسجّل كلَّ فتح (experience_opens) — نقرةُ إشعار الجهاز لا تترك أثراً غيره.
+const VIA_AR: Record<string, string> = { push: '📲 من إشعار الجهاز', inbox: '🔔 من داخل التطبيق', link: '🔗 من رابط' };
+const OPEN_FILTERS = [
+  ['', 'الكلّ'], ['opened', '👁 فتحوه'], ['not_opened', 'لم يفتحوه'], ['opened_no_response', 'فتحوه ولم يقيّموا'],
+  ['responded', '📝 قيّموا'], ['device_not_opened', 'وصل جهازه ولم يفتحه'],
+] as const;
+function OpensTab({ campaign, api }: { campaign: Campaign; api: ReturnType<typeof useApi> }) {
+  const [filter, setFilter] = useState('opened');
+  const [qIn, setQIn] = useState('');
+  const [q, setQ] = useState('');
+  const [page, setPage] = useState(1);
+  const [d, setD] = useState<any>(null);
+  const [s, setS] = useState<any>(null);
+  useEffect(() => { api(`/api/experience/campaigns/${campaign.id}/summary`).then(x => setS(x.summary)).catch(() => {}); }, [api, campaign.id]);
+  useEffect(() => { const t = setTimeout(() => { setQ(qIn.trim()); setPage(1); }, 350); return () => clearTimeout(t); }, [qIn]);
+  useEffect(() => {
+    const qs = new URLSearchParams({ page: String(page), pageSize: '25' });
+    if (filter) qs.set('filter', filter);
+    if (q) qs.set('q', q);
+    api(`/api/experience/campaigns/${campaign.id}/opens?${qs}`).then(setD).catch((e: any) => swalAlert(e.message, 'error'));
+  }, [api, campaign.id, filter, q, page]);
+  const pages = d ? Math.max(1, Math.ceil(d.total / d.pageSize)) : 1;
+  const pct = (a: number, b: number) => (b ? `${Math.round((a / b) * 100)}٪` : '—');
+
+  return (
+    <div className="space-y-3">
+      {s && (
+        <div className="grid grid-cols-2 md:grid-cols-5 gap-2">
+          <Stat label="وصلهم (داخل التطبيق)" value={s.notified} />
+          <Stat label="وصل أجهزتهم" value={`${s.pushed} · ${pct(s.pushed, s.notified)}`} />
+          <Stat label="👁 فتحوه" value={`${s.opened} · ${pct(s.opened, s.notified)}`} cls="text-sky-300" />
+          <Stat label="فتحوا صفحة الاستبيان" value={`${s.pageOpened} · ${pct(s.pageOpened, s.notified)}`} />
+          <Stat label="📝 قيّموا" value={`${s.responses} · ${pct(s.responses, s.opened)} ممّن فتح`} cls="text-amber-300" />
+        </div>
+      )}
+      <div className="flex flex-wrap items-center gap-2">
+        {OPEN_FILTERS.map(([k, l]) => (
+          <button key={k || 'all'} onClick={() => { setFilter(k); setPage(1); }}
+            className={`px-3 py-1.5 rounded-xl text-xs font-bold border ${filter === k ? 'bg-amber-500/10 text-amber-400 border-amber-500/40' : 'border-gray-800 text-gray-400 hover:text-white'}`}>{l}</button>
+        ))}
+        <input value={qIn} onChange={e => setQIn(e.target.value)} placeholder="ابحث بالاسم أو الرقم" className={inputCls + ' max-w-[220px] text-xs py-1.5'} />
+        {d && <span className="mr-auto text-xs text-gray-500 tabular-nums">{d.total} لاعباً</span>}
+      </div>
+      {!d ? <p className="text-gray-500 text-sm">جارِ التحميل…</p> : !d.rows.length ? <p className="text-gray-500 text-sm py-6 text-center">{campaign.sentAt ? 'لا أحد يطابق.' : 'لم يُرسل إشعار هذه الحملة بعد.'}</p> : (
+        <div className="rounded-xl border border-gray-800 overflow-hidden">
+          <div className="hidden md:grid grid-cols-[minmax(0,1fr)_110px_200px_110px] gap-3 px-3 py-2 bg-gray-950/60 text-[11px] text-gray-500 font-bold">
+            <span>اللاعب</span><span>الجهاز</span><span>الفتح</span><span>الرأي</span>
+          </div>
+          <div className="divide-y divide-gray-800">
+            {d.rows.map((r: any) => (
+              <div key={r.playerId} className="grid grid-cols-2 md:grid-cols-[minmax(0,1fr)_110px_200px_110px] gap-x-3 gap-y-1 px-3 py-2.5 items-center text-xs">
+                <div className="min-w-0 col-span-2 md:col-span-1">
+                  <a href={`/admin/players/${r.playerId}`} target="_blank" rel="noreferrer" className="block text-sm text-white font-bold truncate hover:text-amber-300">{r.name}</a>
+                  <span className="text-[11px] text-gray-500" dir="ltr">{r.phone}</span>
+                </div>
+                <div>{r.pushed ? <span className="text-emerald-300">📱 وصل جهازه</span> : <span className="text-gray-500">داخل التطبيق فقط</span>}</div>
+                <div>
+                  {r.openedAt ? (
+                    <>
+                      <span className="text-sky-300 font-bold">👁 {fmt(r.openedAt)}</span>
+                      <span className="block text-[10.5px] text-gray-500">{VIA_AR[r.via] || ''}{r.openCount > 1 ? ` · ${r.openCount} مرّات` : ''}</span>
+                    </>
+                  ) : r.readInApp ? (
+                    <span className="text-sky-300/80">🔔 قرأه في الجرس <span className="block text-[10.5px] text-gray-500">لم يفتح الصفحة</span></span>
+                  ) : <span className="text-gray-600">لم يفتحه</span>}
+                </div>
+                <div>{r.respondedAt ? <span className="text-amber-300 font-bold">📝 {r.overall ? `${r.overall}★` : 'قيّم'}</span> : <span className="text-gray-600">—</span>}</div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+      {d && d.total > d.pageSize && (
+        <div className="flex items-center gap-2 text-xs">
+          <span className="text-gray-500 tabular-nums">{(page - 1) * d.pageSize + 1}–{Math.min(d.total, page * d.pageSize)} من {d.total}</span>
+          <button disabled={page <= 1} onClick={() => setPage(p => p - 1)} className="mr-auto px-2.5 py-1 rounded-lg border border-gray-800 text-gray-300 disabled:opacity-30">السابق</button>
+          <span className="tabular-nums text-gray-400">{page} / {pages}</span>
+          <button disabled={page >= pages} onClick={() => setPage(p => p + 1)} className="px-2.5 py-1 rounded-lg border border-gray-800 text-gray-300 disabled:opacity-30">التالي</button>
+        </div>
+      )}
+      <p className="text-[11px] text-gray-500">«فتحه» = وصل صفحة الاستبيان من إشعار جهازه أو من الجرس، أو قرأه في الجرس دون أن يكمل. مَن رأى الإشعار على شاشة القفل ولم يلمسه لا يُعرف — لا شيء يُبلغنا بذلك.</p>
     </div>
   );
 }

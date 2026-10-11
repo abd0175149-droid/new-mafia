@@ -15,6 +15,8 @@ router.get('/current', authenticatePlayer, async (req: Request, res: Response) =
     const c = await X.playerCampaign(id);
     if (!c) return res.json({ success: true, campaign: null });
     const mine = await X.myResponse(c.id, me);
+    // 👁 «مَن فتح الإشعار» — فشلُه لا يمنع الصفحة
+    try { await X.recordOpen(c.id, me); } catch (e: any) { console.warn('⚠️ experience open:', e?.message); }
     res.json({
       success: true,
       campaign: {

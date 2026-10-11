@@ -70,6 +70,12 @@ router.get('/campaigns/:id/responses', authenticate, managerOrAbove, async (req,
   catch (e: any) { res.status(500).json({ error: e.message }); }
 });
 
+// 👁 مَن فتح الإشعار — ?filter=opened|not_opened|page|opened_no_response|responded|device_not_opened&q&page
+router.get('/campaigns/:id/opens', authenticate, managerOrAbove, async (req, res) => {
+  try { res.json({ success: true, ...(await X.campaignOpens(parseInt(req.params.id), req.query as any)) }); }
+  catch (e: any) { res.status(500).json({ error: e.message }); }
+});
+
 router.get('/campaigns/:id/export.csv', authenticate, managerOrAbove, async (req, res) => {
   try {
     const c = await X.getCampaign(parseInt(req.params.id));

@@ -102,6 +102,16 @@ export async function ensureExperienceTables(): Promise<void> {
     CONSTRAINT experience_responses_uniq UNIQUE (campaign_id, player_id)
   )`);
   await db.execute(sql`CREATE INDEX IF NOT EXISTS experience_responses_campaign_idx ON experience_responses (campaign_id, submitted_at DESC)`);
+  // 👁 مَن فتح: الصفحةُ تسجّل كلَّ فتحٍ (نقرةُ إشعار الجهاز لا تترك أثراً غير هذا — الصندوقُ وحده يعلّم «مقروء»)
+  await db.execute(sql`CREATE TABLE IF NOT EXISTS experience_opens (
+    campaign_id INTEGER NOT NULL REFERENCES experience_campaigns(id) ON DELETE CASCADE,
+    player_id INTEGER NOT NULL REFERENCES players(id) ON DELETE CASCADE,
+    first_opened_at TIMESTAMP NOT NULL DEFAULT NOW(),
+    last_opened_at TIMESTAMP NOT NULL DEFAULT NOW(),
+    open_count INTEGER NOT NULL DEFAULT 1,
+    first_via VARCHAR(10),
+    PRIMARY KEY (campaign_id, player_id)
+  )`);
   // الحملةُ الأولى برسالة المالك — مسوّدة: تُفتح عند إرسال إشعارها من اللوحة
   const any = rowsOf(await db.execute(sql`SELECT 1 FROM experience_campaigns LIMIT 1`));
   if (!any.length) {
@@ -320,12 +330,18 @@ export async function campaignSummary(c: ExpCampaign) {
     return { key: q.key, label: q.label, type: q.type, answered, options: counts };
   });
   const texts = qs.filter(q => q.type === 'text').map(q => ({ key: q.key, label: q.label, count: rows.filter(r => String(r.answers?.[q.key] || '').trim()).length }));
+  // بالأشخاص لا بالصفوف: إشعارٌ تجريبيٌّ ثمّ حقيقيٌّ للاعبٍ واحد صفّان
   const [aud] = rowsOf(await db.execute(sql`
-    SELECT COUNT(*)::int AS notified, COUNT(*) FILTER (WHERE is_push_sent)::int AS pushed, COUNT(*) FILTER (WHERE is_read)::int AS opened
-      FROM player_notifications WHERE type = 'experience_review' AND (data->>'campaignId') = ${String(c.id)}`));
+    WITH n AS (SELECT player_id, bool_or(is_push_sent) AS pushed, bool_or(is_read) AS read
+                 FROM player_notifications WHERE type = 'experience_review' AND (data->>'campaignId') = ${String(c.id)} GROUP BY player_id)
+    SELECT (SELECT COUNT(*)::int FROM n) AS notified,
+           (SELECT COUNT(*)::int FROM n WHERE pushed) AS pushed,
+           (SELECT COUNT(*)::int FROM experience_opens WHERE campaign_id = ${c.id}) AS page_opened,
+           (SELECT COUNT(*)::int FROM (SELECT player_id FROM n WHERE read UNION SELECT player_id FROM experience_opens WHERE campaign_id = ${c.id}) x) AS opened`));
   return {
     responses: n,
     notified: Number(aud?.notified || 0), pushed: Number(aud?.pushed || 0), opened: Number(aud?.opened || 0),
+    pageOpened: Number(aud?.page_opened || 0),
     contactYes: rows.filter(r => r.answers?.contact === 'نعم').length,
     stars, nps, choices, texts,
   };
@@ -374,6 +390,72 @@ export async function campaignCsv(c: ExpCampaign): Promise<string> {
   const lines = [head.map(esc).join(',')];
   for (const r of rows) lines.push([r.player_id, r.name, r.phone, ...qs.map(q => r.answers?.[q.key]), r.source, iso(r.submitted_at), iso(r.updated_at)].map(esc).join(','));
   return '﻿' + lines.join('\r\n');
+}
+
+// ══════════════════════════════════════════════════════
+// 👁 مَن فتح الإشعار
+// ══════════════════════════════════════════════════════
+/**
+ * يُسجَّل عند فتح اللاعب للصفحة. ومن أين جاء: صفُّ صندوقه للحملة غيرُ مقروءٍ بعد ⇒ نقرَ إشعارَ
+ * جهازه (النقرةُ هناك لا تعلّم المقروء)؛ مقروءٌ ⇒ فتحه من الصندوق داخل التطبيق؛ بلا صفّ ⇒ رابط.
+ * ثمّ يُعلَّم مقروءاً كي لا يبقى عدّادُ الجرس يذكّره بما فتحه.
+ */
+export async function recordOpen(campaignId: number, playerId: number): Promise<void> {
+  const db = getDB(); if (!db) return;
+  const [n] = rowsOf(await db.execute(sql`
+    SELECT COUNT(*)::int AS rows, COUNT(*) FILTER (WHERE NOT is_read)::int AS unread FROM player_notifications
+     WHERE player_id = ${playerId} AND type = 'experience_review' AND (data->>'campaignId') = ${String(campaignId)}`));
+  const via = !Number(n?.rows) ? 'link' : Number(n?.unread) ? 'push' : 'inbox';
+  await db.execute(sql`
+    INSERT INTO experience_opens (campaign_id, player_id, first_via) VALUES (${campaignId}, ${playerId}, ${via})
+    ON CONFLICT (campaign_id, player_id) DO UPDATE SET last_opened_at = NOW(), open_count = experience_opens.open_count + 1`);
+  if (Number(n?.unread)) {
+    await db.execute(sql`UPDATE player_notifications SET is_read = true
+      WHERE player_id = ${playerId} AND type = 'experience_review' AND (data->>'campaignId') = ${String(campaignId)} AND NOT is_read`);
+  }
+}
+
+const OPEN_FILTERS: Record<string, any> = {
+  opened: sql`AND (o.player_id IS NOT NULL OR n.read)`,
+  not_opened: sql`AND o.player_id IS NULL AND NOT COALESCE(n.read, false)`,
+  page: sql`AND o.player_id IS NOT NULL`,
+  opened_no_response: sql`AND (o.player_id IS NOT NULL OR n.read) AND r.player_id IS NULL`,
+  responded: sql`AND r.player_id IS NOT NULL`,
+  device_not_opened: sql`AND n.pushed AND o.player_id IS NULL AND NOT COALESCE(n.read, false)`,
+};
+/** كلُّ مَن وصله إشعار الحملة (أو فتح صفحتها) — حالتُه: وصل جهازه؟ فتح؟ متى ومن أين؟ قيّم؟ */
+export async function campaignOpens(campaignId: number, o: { page?: unknown; pageSize?: unknown; filter?: unknown; q?: unknown }) {
+  const db = getDB(); if (!db) return { rows: [], total: 0, page: 1, pageSize: 25 };
+  const pageSize = Math.min(100, Math.max(5, Math.trunc(Number(o.pageSize) || 25)));
+  const page = Math.max(1, Math.trunc(Number(o.page) || 1));
+  const f = OPEN_FILTERS[String(o.filter)] || sql``;
+  const q = String(o.q ?? '').trim().slice(0, 80);
+  const qf = q ? sql`AND (p.name ILIKE ${'%' + q + '%'} OR p.phone ILIKE ${'%' + q + '%'})` : sql``;
+  const base = sql`
+    WITH n AS (SELECT player_id, MIN(created_at) AS notified_at, bool_or(is_push_sent) AS pushed, bool_or(is_read) AS read
+                 FROM player_notifications WHERE type = 'experience_review' AND (data->>'campaignId') = ${String(campaignId)} GROUP BY player_id),
+         who AS (SELECT player_id FROM n UNION SELECT player_id FROM experience_opens WHERE campaign_id = ${campaignId}
+                 UNION SELECT player_id FROM experience_responses WHERE campaign_id = ${campaignId})
+    SELECT p.id, p.name, p.phone, p.avatar_url, n.notified_at, COALESCE(n.pushed, false) AS pushed, COALESCE(n.read, false) AS read,
+           o.first_opened_at, o.last_opened_at, o.open_count, o.first_via, r.submitted_at, r.overall
+      FROM who w JOIN players p ON p.id = w.player_id
+      LEFT JOIN n ON n.player_id = w.player_id
+      LEFT JOIN experience_opens o ON o.campaign_id = ${campaignId} AND o.player_id = w.player_id
+      LEFT JOIN experience_responses r ON r.campaign_id = ${campaignId} AND r.player_id = w.player_id
+     WHERE true ${f} ${qf}`;
+  const [t] = rowsOf(await db.execute(sql`SELECT COUNT(*)::int AS n FROM (${base}) x`));
+  const rows = rowsOf(await db.execute(sql`${base}
+     ORDER BY COALESCE(o.first_opened_at, CASE WHEN n.read THEN n.notified_at END) DESC NULLS LAST, p.name
+     LIMIT ${pageSize} OFFSET ${(page - 1) * pageSize}`));
+  return {
+    total: Number(t?.n || 0), page, pageSize,
+    rows: rows.map(r => ({
+      playerId: Number(r.id), name: r.name, phone: r.phone, avatarUrl: r.avatar_url || null,
+      notifiedAt: iso(r.notified_at), pushed: !!r.pushed, readInApp: !!r.read,
+      openedAt: iso(r.first_opened_at), lastOpenedAt: iso(r.last_opened_at), openCount: r.open_count != null ? Number(r.open_count) : 0,
+      via: r.first_via || null, respondedAt: iso(r.submitted_at), overall: r.overall,
+    })),
+  };
 }
 
 // ══════════════════════════════════════════════════════
