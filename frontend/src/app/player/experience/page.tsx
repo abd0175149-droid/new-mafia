@@ -251,7 +251,9 @@ function ExperienceInner() {
 
       {error && <p className="mt-4 text-center text-rose-400 text-sm">{error}</p>}
 
-      <div className="fixed inset-x-0 bottom-0 z-30 px-4 pb-[max(env(safe-area-inset-bottom),12px)] pt-3 bg-gradient-to-t from-black via-black/95 to-transparent">
+      {/* 🔴 فوق شريط التنقّل لا تحته: الشريطُ ثابتٌ أسفل الشاشة (z-50) وكان يغطّي الزرَّ كلَّه
+             فلا يستطيع أحدٌ الإرسال — كلُّ ما يُثبَّت أسفلَ الشاشة يقيس من --nav-h (globals.css) */}
+      <div className="fixed inset-x-0 z-40 px-4 pb-3 pt-3 bg-gradient-to-t from-black via-black/95 to-transparent" style={{ bottom: 'var(--nav-h)' }}>
         <div className="max-w-xl mx-auto">
           <button onClick={submit} disabled={!!missing.length || submitting}
             className="w-full py-3.5 rounded-2xl text-[15px] font-black text-black disabled:opacity-40"
