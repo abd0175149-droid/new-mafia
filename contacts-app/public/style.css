@@ -162,5 +162,4 @@ details.sub > summary { cursor: pointer; font-weight: 600; margin-bottom: 8px; }
 .mapping .mrow .lbl b { color: var(--muted); font-weight: 600; }
 .mapping select { min-height: 38px; padding: 6px 8px; font-size: 14px; }
 
-.foot { text-align: center; margin-top: 24px; }
 [hidden] { display: none !important; }
