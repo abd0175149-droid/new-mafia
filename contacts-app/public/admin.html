@@ -4,76 +4,157 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="robots" content="noindex, nofollow">
-  <title>لوحة الأدمن</title>
+  <title>إدارة جهات الشعبة</title>
   <link rel="icon" href="/icon.svg" type="image/svg+xml">
   <link rel="stylesheet" href="/style.css">
   <link rel="stylesheet" href="/admin.css">
 </head>
-<body>
+<body class="adm">
   <!-- تسجيل الدخول -->
-  <main class="wrap" id="loginView" hidden>
-    <form class="card login" id="loginForm">
-      <h1>لوحة الأدمن</h1>
+  <main id="loginView" class="login-wrap" hidden>
+    <form class="login-card" id="loginForm">
+      <img src="/icon.svg" alt="" width="48" height="48">
+      <h1>لوحة الإدارة</h1>
+      <p class="muted small">جهات اتصال الشعبة</p>
       <label class="field"><span>كلمة المرور</span><input type="password" id="password" autocomplete="current-password" required></label>
       <button class="btn primary" type="submit">دخول</button>
       <div id="loginError" class="alert error" hidden></div>
     </form>
   </main>
 
-  <!-- القائمة -->
-  <main class="admin" id="listView" hidden>
-    <header class="bar">
-      <h1>لوحة الأدمن</h1>
-      <div class="bar-actions">
-        <button class="btn ghost small" id="dedupe" type="button">مراجعة وإزالة التكرارات</button>
-        <a class="btn ghost small" href="/api/admin/export/contacts.csv">تصدير الجهات الموحّدة CSV</a>
-        <button class="btn ghost small" id="logout" type="button">خروج</button>
+  <div id="app" hidden>
+    <header class="topbar">
+      <a class="brand" href="#/">
+        <img src="/icon.svg" alt="" width="28" height="28">
+        <span>جهات الشعبة <small>الإدارة</small></span>
+      </a>
+      <nav class="nav" id="nav">
+        <a href="#/" data-v="overview">نظرة عامة</a>
+        <a href="#/files" data-v="files">الملفات</a>
+        <a href="#/contacts" data-v="contacts">جهات الاتصال</a>
+      </nav>
+      <div class="top-actions">
+        <details class="menu">
+          <summary class="icon-btn" aria-label="المزيد">⋯</summary>
+          <div class="menu-list">
+            <button type="button" id="dedupe">مراجعة البيانات وإزالة التكرارات</button>
+            <a href="/api/admin/export/contacts.csv">تصدير جهات الاتصال الموحّدة (CSV)</a>
+            <hr>
+            <button type="button" id="logout">تسجيل الخروج</button>
+          </div>
+        </details>
       </div>
     </header>
-    <div class="stats" id="stats"></div>
-    <div id="dedupeStatus" class="alert ok" hidden></div>
-    <div class="tabs" id="listTabs">
-      <button type="button" data-v="uploads" class="on">الملفات</button>
-      <button type="button" data-v="contacts">جهات الاتصال الموحّدة</button>
-    </div>
-    <input class="search" id="q" type="search" placeholder="بحث: اسم، رقم، بريد، بادئة، ملف، IP">
-    <div class="table-wrap" id="contactsWrap" hidden>
-      <table class="tbl" id="contacts">
-        <thead><tr>
-          <th>الاسم في الهاتف</th><th>الاسم الكامل</th><th>الرقم 1</th><th>الرقم 2</th><th>البريد</th><th>جهة العمل</th><th>المسمى</th>
-          <th>المنطقة</th><th>أول ظهور</th><th>آخر ظهور</th><th>عدد الملفات</th><th>أول ملف</th>
-        </tr></thead>
-        <tbody></tbody>
-      </table>
-    </div>
-    <div class="table-wrap" id="uploadsWrap">
-      <table class="tbl" id="uploads">
-        <thead><tr>
-          <th>وقت الرفع</th><th>الملف</th><th>البادئة</th><th>الجهات</th><th>الحالة</th><th>الجهاز</th><th>IP</th>
-        </tr></thead>
-        <tbody></tbody>
-      </table>
-    </div>
-    <p class="muted small" id="empty" hidden>لا توجد ملفات بعد.</p>
-  </main>
 
-  <!-- التفاصيل -->
-  <main class="admin" id="detailView" hidden>
-    <header class="bar">
-      <button class="btn ghost small" id="back" type="button">→ رجوع</button>
-      <h1 id="dTitle"></h1>
-      <div class="bar-actions" id="dActions"></div>
-    </header>
-    <section class="info" id="dInfo"></section>
-    <div class="tabs" id="dTabs">
-      <button type="button" data-t="contacts" class="on">جهات الاتصال</button>
-      <button type="button" data-t="sheet">الشيت الأصلي</button>
-      <button type="button" data-t="repeats">مرات الرفع</button>
-      <button type="button" data-t="analysis">التحليل</button>
-      <button type="button" data-t="device">الجهاز</button>
-    </div>
-    <div id="dBody"></div>
-  </main>
+    <div id="progress" class="progress" hidden><div class="progress-bar"><span id="progressFill"></span></div><span id="progressText"></span></div>
+
+    <!-- نظرة عامة -->
+    <main class="page" id="overviewView" hidden>
+      <section class="kpis" id="kpis"></section>
+      <section class="grid-2">
+        <div class="panel">
+          <div class="panel-head"><h2>الملفات المرفوعة يومياً</h2><span class="muted small">آخر 14 يوماً</span></div>
+          <div class="chart" id="chart"></div>
+        </div>
+        <div class="panel">
+          <div class="panel-head"><h2>تحتاج انتباهك</h2></div>
+          <ul class="attention" id="attention"></ul>
+        </div>
+      </section>
+      <section class="panel">
+        <div class="panel-head"><h2>آخر الملفات</h2><a href="#/files" class="link">عرض الكل ←</a></div>
+        <div id="recent"></div>
+      </section>
+    </main>
+
+    <!-- الملفات -->
+    <main class="page" id="filesView" hidden>
+      <div class="page-head">
+        <h1>الملفات</h1>
+        <span class="count" id="filesCount"></span>
+      </div>
+      <div class="toolbar">
+        <input class="search" id="filesQ" type="search" placeholder="بحث: اسم، رقم، بريد، بادئة، ملف، IP">
+        <div class="chips" id="filesFilter">
+          <button type="button" data-f="active" class="on">النشطة</button>
+          <button type="button" data-f="all">الكل</button>
+          <button type="button" data-f="excluded">المستثناة</button>
+          <button type="button" data-f="repeated">أُعيد رفعها</button>
+          <button type="button" data-f="unsaved">لم تُحفظ</button>
+        </div>
+      </div>
+      <div id="filesList"></div>
+    </main>
+
+    <!-- جهات الاتصال -->
+    <main class="page" id="contactsView" hidden>
+      <div class="page-head">
+        <h1>جهات الاتصال الموحّدة</h1>
+        <span class="count" id="contactsCount"></span>
+        <a class="btn ghost small" href="/api/admin/export/contacts.csv">تصدير CSV</a>
+      </div>
+      <div class="toolbar">
+        <input class="search" id="contactsQ" type="search" placeholder="بحث بالاسم أو الرقم أو البريد">
+        <div class="chips" id="contactsFilter">
+          <button type="button" data-f="all" class="on">الكل</button>
+          <button type="button" data-f="shared">في أكثر من ملف</button>
+        </div>
+      </div>
+      <div class="table-wrap">
+        <table class="tbl" id="contactsTable">
+          <thead><tr>
+            <th>الاسم في الهاتف</th><th>الرقم</th><th>البريد</th><th>جهة العمل</th><th>المسمى</th><th>المنطقة</th>
+            <th>أول ظهور</th><th>الملفات</th><th>أول ملف</th>
+          </tr></thead>
+          <tbody></tbody>
+        </table>
+      </div>
+      <button class="btn ghost" id="contactsMore" type="button" hidden>عرض المزيد</button>
+    </main>
+
+    <!-- تفاصيل ملف -->
+    <main class="page" id="detailView" hidden>
+      <a class="back" href="#/files">→ الملفات</a>
+      <section class="detail-head">
+        <div class="detail-title">
+          <h1 id="dTitle"></h1>
+          <div class="badges" id="dBadges"></div>
+        </div>
+        <div class="detail-actions" id="dActions"></div>
+      </section>
+      <div id="dBanner"></div>
+      <section class="info" id="dInfo"></section>
+      <div class="tabs-line" id="dTabs">
+        <button type="button" data-t="contacts" class="on">جهات الاتصال</button>
+        <button type="button" data-t="sheet">الشيت الأصلي</button>
+        <button type="button" data-t="repeats">مرات الرفع</button>
+        <button type="button" data-t="analysis">التحليل</button>
+        <button type="button" data-t="device">الجهاز</button>
+      </div>
+      <div id="dBody"></div>
+    </main>
+  </div>
+
+  <!-- نافذة الاستثناء -->
+  <dialog id="excludeDialog" class="dialog">
+    <form method="dialog" id="excludeForm">
+      <h2>استثناء هذا الملف</h2>
+      <p class="muted small">يبقى الملف محفوظاً ويمكنك إرجاعه في أي وقت، لكن جهاته تُزال من جهات الاتصال الموحّدة والتصدير والإحصائيات.</p>
+      <div class="chips" id="reasonChips">
+        <button type="button">أرقام غير صحيحة</button>
+        <button type="button">أسماء غير صحيحة</button>
+        <button type="button">ملف خاطئ أو شعبة أخرى</button>
+        <button type="button">بيانات تجريبية</button>
+      </div>
+      <label class="field"><span>السبب (اختياري)</span><textarea id="excludeReason" rows="3" maxlength="500"></textarea></label>
+      <div class="dialog-actions">
+        <button class="btn ghost small" value="cancel" type="submit">إلغاء</button>
+        <button class="btn danger-solid small" value="ok" type="submit" id="excludeConfirm">استثناء الملف</button>
+      </div>
+    </form>
+  </dialog>
+
+  <div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
 
   <script type="module" src="/admin.js"></script>
 </body>

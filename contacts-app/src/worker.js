@@ -7,7 +7,7 @@ const SAFE_EXT = new Set(['.xlsx', '.xls', '.csv', '.xlsm', '.ods']);
 const STATUS_AR = { ready: 'جاهز', warn: 'تنبيه', excluded: 'مستبعد' };
 const CONTACT_HEADERS = ['رقم الرفع', 'وقت الرفع', 'الملف', 'البادئة', 'السطر', 'م', 'الاسم في الهاتف', 'الاسم الكامل', 'الرقم 1', 'الرقم 2', 'البريد', 'جهة العمل', 'المسمى', 'المنطقة', 'الحالة', 'التنبيهات'];
 const LIST_COLS = `id, created_at, saved_at, save_count, ip, user_agent, device_json, geo_json, file_name, file_size, sheet_name, prefix,
-  count_total, count_ready, count_warn, count_excluded, repeat_count, last_repeat_at`;
+  count_total, count_ready, count_warn, count_excluded, repeat_count, last_repeat_at, excluded_at, exclude_reason`;
 const UNIQUE_HEADERS = ['الاسم في الهاتف', 'الاسم الكامل', 'الرقم 1', 'الرقم 2', 'البريد', 'جهة العمل', 'المسمى', 'المنطقة', 'البادئة',
   'أول ظهور', 'آخر ظهور', 'عدد الملفات', 'أول ملف'];
 const MAX_REPEATS_KEPT = 100;
@@ -205,7 +205,7 @@ async function saveResult(req, env, { row, tokenHash, original }) {
     return json({ ok: true, duplicate: true });
   }
   const now = Date.now();
-  await mergeContacts(env, row.id, String(b.prefix ?? row.prefix), contacts, now);
+  if (!row.excluded_at) await mergeContacts(env, row.id, String(b.prefix ?? row.prefix), contacts, now);
   await Promise.all([
     env.FILES.put(blobKey(row.id, 'contacts.json'), JSON.stringify(contacts)),
     env.FILES.put(blobKey(row.id, 'contacts.vcf'), String(b.vcf || '')),
@@ -253,14 +253,24 @@ async function listUploads(env, q) {
     ORDER BY created_at DESC LIMIT 1000`).bind(like, q).all()).results;
 }
 
-async function stats(env) {
-  const d = new Date(); d.setUTCHours(0, 0, 0, 0);
-  const [u, c] = await env.DB.batch([
-    env.DB.prepare(`SELECT COUNT(*) AS uploads, COUNT(saved_at) AS saved, COALESCE(SUM(repeat_count), 0) AS repeats,
-      COALESCE(SUM(CASE WHEN created_at > ? THEN 1 END), 0) AS today FROM uploads`).bind(d.getTime()),
+/** tz: فرق توقيت المتصفح بالدقائق (getTimezoneOffset) لتُحسب "اليوم" والأيام بتوقيت الأدمن. */
+async function stats(env, tz) {
+  const offsetMs = (Number.isFinite(tz) ? tz : 0) * 60000;
+  const now = Date.now();
+  const startToday = Math.floor((now - offsetMs) / 86400000) * 86400000 + offsetMs;
+  const since = startToday - 13 * 86400000;
+  const [u, c, daily] = await env.DB.batch([
+    env.DB.prepare(`SELECT COUNT(CASE WHEN excluded_at IS NULL THEN 1 END) AS uploads, COUNT(excluded_at) AS excluded,
+      COUNT(CASE WHEN saved_at IS NOT NULL AND excluded_at IS NULL THEN 1 END) AS saved, COALESCE(SUM(repeat_count), 0) AS repeats,
+      COUNT(CASE WHEN saved_at IS NULL AND excluded_at IS NULL THEN 1 END) AS unsaved,
+      COALESCE(SUM(CASE WHEN created_at >= ? THEN 1 END), 0) AS today FROM uploads`).bind(startToday),
     env.DB.prepare('SELECT COUNT(*) AS contacts, COALESCE(SUM(CASE WHEN seen_count > 1 THEN 1 END), 0) AS shared FROM contacts'),
+    env.DB.prepare(`SELECT CAST((created_at - ?) / 86400000 AS INTEGER) AS day, COUNT(*) AS n, COALESCE(SUM(repeat_count), 0) AS rep
+      FROM uploads WHERE created_at >= ? GROUP BY day`).bind(since, since),
   ]);
-  return { ...u.results[0], ...c.results[0] };
+  const days = Array.from({ length: 14 }, (_, i) => ({ start: since + i * 86400000, uploads: 0 }));
+  for (const r of daily.results) if (days[r.day]) days[r.day].uploads = r.n;
+  return { ...u.results[0], ...c.results[0], days };
 }
 
 async function contactRows(env, row) {
@@ -319,7 +329,7 @@ async function maintenance(env, parts) {
     }
     await env.DB.batch(stmts);
     await deletePrefix(env, `uploads/${row.id}/`);
-    if (moved) {
+    if (moved && !earlier.excluded_at) {
       await mergeContacts(env, earlier.id, row.prefix, moved, row.saved_at);
       await env.FILES.put(blobKey(earlier.id, 'contacts.json'), JSON.stringify(moved));
     }
@@ -327,6 +337,7 @@ async function maintenance(env, parts) {
   }
 
   await env.DB.prepare('UPDATE uploads SET content_hash = ? WHERE id = ?').bind(hash, row.id).run();
+  if (row.excluded_at) return json({ ok: true, excluded: true });
   if (row.saved_at) {
     const contacts = parseJson(await blobText(env, blobKey(row.id, 'contacts.json')), []) || [];
     await mergeContacts(env, row.id, row.prefix, contacts, row.saved_at);
@@ -339,7 +350,7 @@ async function adminRoute(req, env, url, parts) {
   const getRow = (id) => env.DB.prepare('SELECT * FROM uploads WHERE id = ?').bind(id).first();
   // /api/admin/uploads
   if (parts.length === 1 && parts[0] === 'uploads' && req.method === 'GET') return json(await listUploads(env, (url.searchParams.get('q') || '').trim()));
-  if (parts.length === 1 && parts[0] === 'stats') return json(await stats(env));
+  if (parts.length === 1 && parts[0] === 'stats') return json(await stats(env, Number(url.searchParams.get('tz'))));
   if (parts.length === 1 && parts[0] === 'contacts') return json(await listContacts(env, (url.searchParams.get('q') || '').trim()));
   if (parts.length === 2 && parts[0] === 'export' && parts[1] === 'contacts.csv') {
     const rows = await listContacts(env, '', 1e6);
@@ -375,6 +386,16 @@ async function adminRoute(req, env, url, parts) {
       sheets: parseJson(sheets, []), analysis: parseJson(row.analysis_json, {}), options: parseJson(row.options_json, null),
       contacts: row.saved_at ? parseJson(contacts, null) : null, has_file: !!row.file_key,
     });
+  }
+  if ((sub === 'exclude' || sub === 'include') && req.method === 'POST') {
+    if (sub === 'exclude') {
+      const body = await req.json().catch(() => ({}));
+      await env.DB.prepare('UPDATE uploads SET excluded_at = ?, exclude_reason = ? WHERE id = ?')
+        .bind(Date.now(), String(body.reason || '').trim().slice(0, 500), row.id).run();
+    } else {
+      await env.DB.prepare('UPDATE uploads SET excluded_at = NULL, exclude_reason = NULL WHERE id = ?').bind(row.id).run();
+    }
+    return json({ ok: true, rebuild: true });
   }
   if (sub === 'file') {
     const obj = row.file_key && await env.FILES.get(row.file_key, 'stream');
