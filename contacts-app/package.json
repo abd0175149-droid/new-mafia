@@ -1,0 +1,19 @@
+{
+  "name": "contacts-prefix",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "تحويل شيت Excel إلى جهات اتصال على الهاتف مع بادئة، مع لوحة أدمن",
+  "scripts": {
+    "start": "node --disable-warning=ExperimentalWarning server.js",
+    "test": "node --disable-warning=ExperimentalWarning --test test/*.test.js"
+  },
+  "engines": {
+    "node": ">=22.13"
+  },
+  "dependencies": {
+    "express": "^4.22.3",
+    "multer": "^2.4.0",
+    "xlsx": "^0.18.5"
+  }
+}

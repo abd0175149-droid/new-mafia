@@ -1,0 +1,64 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex, nofollow">
+  <title>لوحة الأدمن</title>
+  <link rel="icon" href="/icon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="/style.css">
+  <link rel="stylesheet" href="/admin.css">
+</head>
+<body>
+  <!-- تسجيل الدخول -->
+  <main class="wrap" id="loginView" hidden>
+    <form class="card login" id="loginForm">
+      <h1>لوحة الأدمن</h1>
+      <label class="field"><span>كلمة المرور</span><input type="password" id="password" autocomplete="current-password" required></label>
+      <button class="btn primary" type="submit">دخول</button>
+      <div id="loginError" class="alert error" hidden></div>
+    </form>
+  </main>
+
+  <!-- القائمة -->
+  <main class="admin" id="listView" hidden>
+    <header class="bar">
+      <h1>الملفات المرفوعة</h1>
+      <div class="bar-actions">
+        <a class="btn ghost small" href="/api/admin/export/contacts.csv">تصدير كل الجهات CSV</a>
+        <button class="btn ghost small" id="logout" type="button">خروج</button>
+      </div>
+    </header>
+    <div class="stats" id="stats"></div>
+    <input class="search" id="q" type="search" placeholder="بحث: اسم، رقم، بريد، بادئة، ملف، IP">
+    <div class="table-wrap">
+      <table class="tbl" id="uploads">
+        <thead><tr>
+          <th>وقت الرفع</th><th>الملف</th><th>البادئة</th><th>الجهات</th><th>الحالة</th><th>الجهاز</th><th>IP</th>
+        </tr></thead>
+        <tbody></tbody>
+      </table>
+    </div>
+    <p class="muted small" id="empty" hidden>لا توجد ملفات بعد.</p>
+  </main>
+
+  <!-- التفاصيل -->
+  <main class="admin" id="detailView" hidden>
+    <header class="bar">
+      <button class="btn ghost small" id="back" type="button">→ رجوع</button>
+      <h1 id="dTitle"></h1>
+      <div class="bar-actions" id="dActions"></div>
+    </header>
+    <section class="info" id="dInfo"></section>
+    <div class="tabs" id="dTabs">
+      <button type="button" data-t="contacts" class="on">جهات الاتصال</button>
+      <button type="button" data-t="sheet">الشيت الأصلي</button>
+      <button type="button" data-t="analysis">التحليل</button>
+      <button type="button" data-t="device">الجهاز</button>
+    </div>
+    <div id="dBody"></div>
+  </main>
+
+  <script type="module" src="/admin.js"></script>
+</body>
+</html>

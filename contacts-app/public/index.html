@@ -1,0 +1,139 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#0f766e">
+  <title>جهات اتصال الشعبة</title>
+  <link rel="manifest" href="/manifest.webmanifest">
+  <link rel="icon" href="/icon.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="/icon.svg">
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+  <main class="wrap">
+    <header class="top">
+      <h1>جهات اتصال الشعبة</h1>
+      <p class="muted">ارفع شيت الإكسل، واحفظ كل الأرقام في هاتفك دفعة واحدة مع بادئة الشعبة.</p>
+    </header>
+
+    <!-- 1) اختيار الملف -->
+    <label class="drop" id="drop">
+      <input type="file" id="file" accept=".xlsx,.xls,.xlsm,.csv,.ods,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel,text/csv">
+      <span class="drop-icon" aria-hidden="true">📄</span>
+      <span class="drop-title" id="dropTitle">اختر ملف الإكسل</span>
+      <span class="muted small" id="dropSub">xlsx أو xls أو csv</span>
+    </label>
+
+    <div id="error" class="alert error" hidden></div>
+
+    <!-- اختيار سطر العناوين يدوياً -->
+    <section id="pickHeader" class="card" hidden>
+      <h2>أي سطر فيه عناوين الأعمدة؟</h2>
+      <p class="muted small">لم نتعرّف على العناوين تلقائياً. اضغط على السطر الصحيح.</p>
+      <div id="headerRows" class="header-rows"></div>
+    </section>
+
+    <!-- 2) النتيجة والحفظ -->
+    <section id="result" hidden>
+      <div class="card">
+        <div class="summary" id="summary"></div>
+
+        <label class="field">
+          <span>البادئة</span>
+          <input id="prefix" type="text" maxlength="20" autocomplete="off" autocapitalize="characters" spellcheck="false" placeholder="مثل G119">
+        </label>
+
+        <div class="preview" id="preview" aria-live="polite"></div>
+
+        <button id="save" class="btn primary big" type="button">حفظ في جهات الاتصال</button>
+        <button id="share" class="btn ghost" type="button" hidden>مشاركة الملف</button>
+        <p class="muted small" id="saveNote">من هو محفوظ مسبقاً في هاتفك سيظهر مرتين، وحفظ الملف مرتين يكرّر الكل. البادئة تسهّل إيجاد المكرر وحذفه.</p>
+        <div id="saved" class="alert ok" hidden></div>
+      </div>
+
+      <details class="card" id="howto">
+        <summary>طريقة الإضافة على <span id="deviceName"></span></summary>
+        <ol id="steps"></ol>
+      </details>
+
+      <details class="card" id="reviewBox">
+        <summary>مراجعة الأسماء <span class="badge" id="reviewBadge"></span></summary>
+        <div class="tabs" role="tablist" id="tabs">
+          <button type="button" data-f="all" class="on">الكل</button>
+          <button type="button" data-f="warn">تنبيه</button>
+          <button type="button" data-f="excluded">مستبعد</button>
+        </div>
+        <input id="search" class="search" type="search" placeholder="بحث بالاسم أو الرقم">
+        <ul id="list" class="list"></ul>
+        <button id="more" type="button" class="btn ghost" hidden>عرض المزيد</button>
+      </details>
+
+      <details class="card" id="optionsBox">
+        <summary>خيارات</summary>
+
+        <div class="grid2">
+          <label class="field"><span>صيغة الاسم</span>
+            <select id="nameFormat">
+              <option value="first_last">الأول + العائلة</option>
+              <option value="first_father_last">الأول + الأب + العائلة</option>
+              <option value="full">الاسم الكامل</option>
+            </select>
+          </label>
+          <label class="field"><span>الفاصل</span>
+            <select id="sep">
+              <option value=" ">مسافة</option>
+              <option value=" - ">-</option>
+              <option value=" | ">|</option>
+              <option value="_">_</option>
+            </select>
+          </label>
+          <label class="field"><span>موضع البادئة</span>
+            <select id="position">
+              <option value="before">قبل الاسم</option>
+              <option value="after">بعد الاسم</option>
+            </select>
+          </label>
+          <label class="check"><input type="checkbox" id="numbering"> ترقيم حسب الشيت (G119-07)</label>
+        </div>
+
+        <label class="check"><input type="checkbox" id="secondPhone" checked> أضف الرقم الثاني إن اختلف</label>
+
+        <fieldset class="fields">
+          <legend>الحقول المضافة</legend>
+          <label class="check"><input type="checkbox" data-field="email" checked> البريد</label>
+          <label class="check"><input type="checkbox" data-field="org" checked> المدرسة</label>
+          <label class="check"><input type="checkbox" data-field="title" checked> المسمى</label>
+          <label class="check"><input type="checkbox" data-field="note" checked> الملاحظات</label>
+          <label class="check sens"><input type="checkbox" data-field="nid"> الرقم الوطني <em>حساس</em></label>
+          <label class="check sens"><input type="checkbox" data-field="ministry"> الرقم الوزاري <em>حساس</em></label>
+          <label class="check sens"><input type="checkbox" data-field="dob"> تاريخ الميلاد <em>حساس</em></label>
+        </fieldset>
+
+        <details class="sub">
+          <summary>قالب متقدم</summary>
+          <input id="template" type="text" dir="ltr" placeholder="{prefix} {first} {last}">
+          <div class="tokens" id="tokens"></div>
+          <p class="muted small">اتركه فارغاً لاستخدام الخيارات أعلاه.</p>
+        </details>
+
+        <details class="sub">
+          <summary>الأعمدة والورقة</summary>
+          <label class="field" id="sheetField" hidden><span>الورقة</span><select id="sheet"></select></label>
+          <label class="field"><span>سطر العناوين</span><select id="headerRow"></select></label>
+          <div id="mapping" class="mapping"></div>
+        </details>
+
+        <label class="check"><input type="checkbox" id="v21"> صيغة vCard 2.1 (لأجهزة Android القديمة إن ظهرت العربية مشوهة)</label>
+      </details>
+    </section>
+
+    <footer class="foot muted small">
+      تُحفظ نسخة من الملف المرفوع وبياناته لدى إدارة الموقع.
+    </footer>
+  </main>
+
+  <script src="/vendor/xlsx.full.min.js"></script>
+  <script type="module" src="/app.js"></script>
+</body>
+</html>
