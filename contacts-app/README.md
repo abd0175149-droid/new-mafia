@@ -37,7 +37,40 @@
 - تنزيل: الملف الأصلي، الشيت CSV، الجهات CSV، ملف vCard، وتصدير كل الجهات من كل الرفعات CSV. ملفات CSV مكتوبة بـ UTF-8 مع BOM حتى تظهر العربية سليمة في Excel.
 - حذف رفعة نهائياً.
 
-## النشر على سيرفرك (Docker + Cloudflare Tunnel)
+## النشر على Cloudflare Workers (بدون سيرفر، موصى به)
+
+التطبيق يشتغل على Cloudflare نفسها:
+- الصفحات ملفات ثابتة.
+- الخادم في `src/worker.js`.
+- البيانات الوصفية في D1.
+- الملفات الأصلية والشيتات وملفات vCard في KV.
+
+كل هذا ضمن الخطة المجانية، ولا يحتاج بطاقة دفع. الدومين `contacts.masaros.net` مضبوط في `wrangler.toml`، وCloudflare تنشئ سجل DNS وشهادة SSL له تلقائياً.
+
+```bash
+npm ci
+CLOUDFLARE_API_TOKEN=... bash scripts/deploy-cloudflare.sh
+```
+
+السكربت:
+1. ينشئ قاعدة D1 ومخزن KV إن لم يكونا موجودين، ويكتب معرّفاتهما في `wrangler.toml`.
+2. يطبّق جداول القاعدة.
+3. يولّد `SESSION_SECRET`. ويولّد كلمة مرور للأدمن ويحفظها في `.admin-password`، إلا إذا مرّرت `ADMIN_PASSWORD`.
+4. ينشر ويتحقق من الموقع.
+
+يمكن إعادة تشغيله للتحديث.
+
+صلاحيات التوكن (dash.cloudflare.com ← My Profile ← API Tokens ← Custom token):
+- **Account:** Workers Scripts:Edit، D1:Edit، Workers KV Storage:Edit
+- **Zone masaros.net:** Workers Routes:Edit، DNS:Edit
+
+لتغيير كلمة مرور الأدمن لاحقاً: `npx wrangler secret put ADMIN_PASSWORD`
+
+التجربة محلياً بمحاكي Cloudflare: ضع `ADMIN_PASSWORD` و`SESSION_SECRET` و`COOKIE_SECURE=false` في ملف `.dev.vars`، ثم شغّل `npm run dev:cf`.
+
+حدود الخطة المجانية التي تهمّك: 1000 عملية كتابة في KV يومياً، وكل رفعة تستخدم 3 إلى 4 منها، أي نحو 250 رفعة يومياً. و100 ألف طلب يومياً للـ Worker. وحجم الملف حتى 15 ميغابايت.
+
+## بديل: النشر على سيرفرك (Docker + Cloudflare Tunnel)
 
 على السيرفر نفسه (فيه Docker وcloudflared بإعدادات `/etc/cloudflared/config.yml`):
 
@@ -77,7 +110,8 @@ npm test
 | `public/core.js` | كل منطق المعالجة: تنظيف الخلايا، اكتشاف العناوين والأعمدة، توحيد الأرقام، الأسماء والبادئة، التفرّد، الحالات، vCard. يعمل في المتصفح وفي الاختبارات |
 | `public/app.js` | صفحة الهاتف: قراءة الملف بـ SheetJS، العرض، الرفع، والحفظ حسب الجهاز |
 | `public/admin.js` | لوحة الأدمن |
-| `server.js` | Express: استقبال الرفع، رابط vCard لـ iPhone، وواجهات الأدمن مع جلسة موقّعة |
+| `src/worker.js` | نسخة Cloudflare Workers من الخادم (D1 + KV) بنفس الواجهات |
+| `server.js` | نسخة Node/Docker — Express: استقبال الرفع، رابط vCard لـ iPhone، وواجهات الأدمن مع جلسة موقّعة |
 | `lib/db.js` | SQLite |
 | `test/` | اختبارات على شيت وهمي يحاكي بنية ملف G119 ومشكلاته، والمتوقع: 43 جاهز، 2 تنبيه، 0 مستبعد |
 

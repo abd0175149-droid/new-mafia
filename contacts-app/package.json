@@ -6,7 +6,9 @@
   "description": "تحويل شيت Excel إلى جهات اتصال على الهاتف مع بادئة، مع لوحة أدمن",
   "scripts": {
     "start": "node --disable-warning=ExperimentalWarning server.js",
-    "test": "node --disable-warning=ExperimentalWarning --test test/*.test.js"
+    "test": "node --disable-warning=ExperimentalWarning --test test/*.test.js",
+    "dev:cf": "wrangler d1 migrations apply contacts-app --local && wrangler dev --local",
+    "deploy:cf": "bash scripts/deploy-cloudflare.sh"
   },
   "engines": {
     "node": ">=22.13"
@@ -15,5 +17,8 @@
     "express": "^4.22.3",
     "multer": "^2.4.0",
     "xlsx": "^0.18.5"
+  },
+  "devDependencies": {
+    "wrangler": "^4.150.0"
   }
 }

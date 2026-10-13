@@ -1,0 +1,29 @@
+# نشر على Cloudflare Workers: الصفحات من public/، والبيانات في D1، والملفات في KV.
+# الدليل: README.md ← "النشر على Cloudflare"
+name = "contacts-app"
+main = "src/worker.js"
+compatibility_date = "2025-09-01"
+workers_dev = false
+routes = [{ pattern = "contacts.masaros.net", custom_domain = true }]
+
+[build]
+command = "node scripts/copy-vendor.mjs"
+
+[assets]
+directory = "./public"
+binding = "ASSETS"
+run_worker_first = ["/api/*"]
+
+[[d1_databases]]
+binding = "DB"
+database_name = "contacts-app"
+database_id = "REPLACE_WITH_D1_ID"
+migrations_dir = "migrations"
+
+[[kv_namespaces]]
+binding = "FILES"
+id = "REPLACE_WITH_KV_ID"
+
+[vars]
+MAX_FILE_MB = "15"
+COOKIE_SECURE = "true"
