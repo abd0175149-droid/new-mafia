@@ -58,7 +58,9 @@ if [ -s "$SECRETS" ]; then $W deploy --secrets-file "$SECRETS"; else $W deploy; 
 echo "── فحص"
 HOST=$(grep -oE 'pattern = "[^"]+"' wrangler.toml | head -1 | cut -d'"' -f2)
 for i in $(seq 1 30); do
-  curl -fsS "https://$HOST/api/admin/me" 2>/dev/null && { echo; echo "تمّ: https://$HOST   والأدمن: https://$HOST/admin"; exit 0; }
+  if curl -fsS "https://$HOST/api/admin/me" 2>/dev/null | grep -q '"admin"'; then
+    echo "تمّ: https://$HOST   والأدمن: https://$HOST/admin"; exit 0
+  fi
   sleep 5
 done
-echo "النشر تم، لكن https://$HOST لم يستجب بعد (شهادة SSL للدومين الجديد قد تأخذ دقائق)."
+echo "النشر تم، لكن https://$HOST لا يصل إلى التطبيق بعد. إن كان يعرض موقعاً آخر فهناك سجل DNS أو مسار Worker عام (*.masaros.net) يسبقه."
