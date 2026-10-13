@@ -414,6 +414,7 @@ async function onSave() {
         : `تم تنزيل ${name} (${n} جهة). استورده في Google Contacts أو iCloud.`;
     msg.hidden = false;
     $('howto').open = true;
+    setTimeout(reloadIfIdle, 8000);
   } finally {
     btn.disabled = false;
     btn.textContent = label;
@@ -448,11 +449,39 @@ const STEPS = {
   desktop: ['اضغط زر الحفظ أعلاه فيُنزَّل الملف.', 'افتح contacts.google.com ← استيراد ← اختر الملف (يُزامَن مع Android).', 'أو icloud.com/contacts ← ⚙︎ ← استيراد vCard (يُزامَن مع iPhone).'],
 };
 
+// ───────────── التحديث التلقائي ─────────────
+// عند كل نشر يتغيّر version.json؛ الصفحة المفتوحة تعيد تحميل نفسها حين تعود للواجهة.
+// لا تقاطع المستخدم وسط ملف لم يحفظه: تنتظر حتى ينتهي الحفظ أو يُغلق.
+
+let loadedVersion = null, updatePending = false;
+async function fetchVersion() {
+  try {
+    const r = await fetch('/version.json', { cache: 'no-store' });
+    return r.ok ? (await r.json()).v : null;
+  } catch { return null; }
+}
+function reloadIfIdle() {
+  if (updatePending && (!state.analysis || !$('saved').hidden)) location.reload();
+}
+async function checkForUpdate() {
+  const v = await fetchVersion();
+  if (!v) return;
+  if (loadedVersion === null) { loadedVersion = v; return; }
+  if (v !== loadedVersion) { updatePending = true; reloadIfIdle(); }
+}
+function watchForUpdates() {
+  checkForUpdate();
+  document.addEventListener('visibilitychange', () => { if (!document.hidden) checkForUpdate(); });
+  addEventListener('pageshow', (e) => { if (e.persisted) checkForUpdate(); });
+  setInterval(checkForUpdate, 5 * 60 * 1000);
+}
+
 function init() {
   $('deviceName').textContent = { ios: 'iPhone', android: 'Android', desktop: 'الكمبيوتر' }[device];
   $('steps').replaceChildren(...STEPS[device].map((s) => el('li', {}, s)));
   if (navigator.canShare && navigator.canShare({ files: [new File(['x'], 'a.vcf', { type: 'text/vcard' })] })) $('share').hidden = false;
   bindOptions();
+  watchForUpdates();
 }
 
 init();

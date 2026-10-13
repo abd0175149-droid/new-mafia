@@ -5,3 +5,4 @@ public/vendor/
 .wrangler/
 .dev.vars
 .admin-password
+public/version.json
