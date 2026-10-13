@@ -37,37 +37,27 @@
 - تنزيل: الملف الأصلي، الشيت CSV، الجهات CSV، ملف vCard، وتصدير كل الجهات من كل الرفعات CSV. ملفات CSV مكتوبة بـ UTF-8 مع BOM حتى تظهر العربية سليمة في Excel.
 - حذف رفعة نهائياً.
 
-## النشر على سيرفرك (Docker)
+## النشر على سيرفرك (Docker + Cloudflare Tunnel)
 
-على السيرفر (Ubuntu مع Docker وNginx):
+على السيرفر نفسه (فيه Docker وcloudflared بإعدادات `/etc/cloudflared/config.yml`):
 
 ```bash
-# 1) انسخ المجلد إلى السيرفر
-scp -r contacts-app user@SERVER:/opt/contacts-app
-ssh user@SERVER
-cd /opt/contacts-app
-
-# 2) الإعدادات
-cp .env.example .env
-sed -i "s/^SESSION_SECRET=.*/SESSION_SECRET=$(openssl rand -hex 32)/" .env
-nano .env            # غيّر ADMIN_PASSWORD
-
-# 3) التشغيل
-docker compose up -d --build
-curl -s http://127.0.0.1:3010/api/admin/me     # يجب أن يطبع {"admin":false}
-
-# 4) Nginx + HTTPS (عدّل الدومين داخل الملف أولاً)
-sudo cp deploy/nginx.conf /etc/nginx/sites-available/contacts
-sudo ln -s /etc/nginx/sites-available/contacts /etc/nginx/sites-enabled/
-sudo nginx -t && sudo systemctl reload nginx
-sudo certbot --nginx -d contacts.example.com
+git clone -b claude/lucid-darwin-t2q37e https://github.com/abd0175149-droid/new-mafia.git ~/contacts-src
+cp -r ~/contacts-src/contacts-app ~/contacts-app && cd ~/contacts-app
+sudo bash deploy/setup-server.sh contacts.masaros.net
 ```
+
+السكربت:
+1. ينشئ `.env` بسرّ عشوائي، ويسألك عن كلمة مرور الأدمن.
+2. يبني الحاوية ويشغّلها على `127.0.0.1:3070`. هذا المنفذ لا يتعارض مع 3000 و3010 و3060 و4000 و4001 المستخدمة.
+3. يضيف السب دومين إلى النفق قبل قاعدة 404، مع نسخة احتياطية من الإعدادات، ثم يتحقق ويعيد تشغيل cloudflared.
+4. يضيف سجل DNS. إن لم يستطع، يطبع لك السجل لتضيفه يدوياً.
 
 البيانات كلها في `./data`: قاعدة SQLite والملفات الأصلية. انسخ هذا المجلد احتياطياً.
 
 التحديث لاحقاً: `docker compose up -d --build`.
 
-> HTTPS ضروري: كوكي الأدمن `Secure`، وكلمة المرور تمر عبر الشبكة. للتجربة بدون HTTPS فقط ضع `COOKIE_SECURE=false`.
+لا حاجة إلى Nginx مع النفق. الملف `deploy/nginx.conf` للسيرفرات التي لا تستخدم نفقاً فقط.
 
 ## التشغيل محلياً
 
