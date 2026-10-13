@@ -49,7 +49,8 @@
 
 ```bash
 npm ci
-CLOUDFLARE_API_TOKEN=... bash scripts/deploy-cloudflare.sh
+npx wrangler login
+bash scripts/deploy-cloudflare.sh   # أو بتوكن: CLOUDFLARE_API_TOKEN=... bash scripts/deploy-cloudflare.sh
 ```
 
 السكربت:

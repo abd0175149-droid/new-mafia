@@ -1,6 +1,8 @@
 #!/bin/bash
 # ينشر التطبيق على Cloudflare Workers من الصفر أو يحدّثه. آمن لإعادة التشغيل.
-#   CLOUDFLARE_API_TOKEN=... [ADMIN_PASSWORD=...] bash scripts/deploy-cloudflare.sh
+#   bash scripts/deploy-cloudflare.sh                 (بعد npx wrangler login)
+#   CLOUDFLARE_API_TOKEN=... bash scripts/deploy-cloudflare.sh   (أو بتوكن)
+#   ADMIN_PASSWORD=... لتحديد كلمة مرور الأدمن بدل توليدها
 # يحتاج توكن بصلاحيات: Workers Scripts:Edit، D1:Edit، Workers KV Storage:Edit (للحساب)،
 # وWorkers Routes:Edit وDNS:Edit لنطاق masaros.net.
 set -euo pipefail
@@ -8,11 +10,10 @@ cd "$(dirname "$0")/.."
 export WRANGLER_SEND_METRICS=false
 W="npx --no-install wrangler"
 
-[ -n "${CLOUDFLARE_API_TOKEN:-}" ] || { echo "CLOUDFLARE_API_TOKEN غير موجود"; exit 1; }
-[ -d node_modules ] || npm ci
+[ -x node_modules/.bin/wrangler ] || npm ci
 
 echo "── الحساب"
-$W whoami
+$W whoami | grep -q "associated with the email\|You are logged in" || { echo "سجّل الدخول أولاً: npx wrangler login (أو مرّر CLOUDFLARE_API_TOKEN)"; exit 1; }
 
 echo "── قاعدة D1"
 DB_ID=$($W d1 list --json | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{const x=JSON.parse(s).find(d=>d.name==="contacts-app");console.log(x?x.uuid:"")})')
