@@ -11,8 +11,12 @@ function el(tag, attrs = {}, ...kids) {
   return e;
 }
 
-const fmt = new Intl.DateTimeFormat('ar-JO-u-nu-latn', { year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false });
-const when = (ms) => (ms ? fmt.format(new Date(ms)) : '—');
+const p2 = (n) => String(n).padStart(2, '0');
+const when = (ms) => {
+  if (!ms) return '—';
+  const d = new Date(ms);
+  return `${d.getFullYear()}-${p2(d.getMonth() + 1)}-${p2(d.getDate())} ${p2(d.getHours())}:${p2(d.getMinutes())}:${p2(d.getSeconds())}`;
+};
 const size = (b) => (b > 1048576 ? `${(b / 1048576).toFixed(1)} MB` : `${Math.max(1, Math.round(b / 1024))} KB`);
 const STATUS = { ready: ['جاهز', 'ok'], warn: ['تنبيه', 'warn'], excluded: ['مستبعد', 'bad'] };
 
@@ -60,18 +64,48 @@ $('logout').onclick = async () => { await fetch('/api/admin/logout', { method: '
 
 // ───────────── القائمة ─────────────
 
-let searchTimer;
+let searchTimer, listMode = 'uploads';
 $('q').addEventListener('input', () => { clearTimeout(searchTimer); searchTimer = setTimeout(loadList, 250); });
+$('listTabs').addEventListener('click', (e) => {
+  const b = e.target.closest('button');
+  if (!b) return;
+  listMode = b.dataset.v;
+  $('listTabs').querySelectorAll('button').forEach((x) => x.classList.toggle('on', x === b));
+  loadList();
+});
+
+async function loadStats() {
+  const st = await api('/api/admin/stats');
+  $('stats').replaceChildren(
+    el('div', { class: 'stat' }, el('b', {}, st.uploads), el('span', {}, 'ملف فريد')),
+    el('div', { class: 'stat' }, el('b', {}, st.repeats), el('span', {}, 'رفع مكرر لم يُسجَّل')),
+    el('div', { class: 'stat' }, el('b', {}, st.contacts), el('span', {}, 'جهة اتصال فريدة')),
+    el('div', { class: 'stat' }, el('b', {}, st.shared), el('span', {}, 'جهة في أكثر من ملف')),
+    el('div', { class: 'stat' }, el('b', {}, st.today), el('span', {}, 'ملف جديد اليوم')),
+  );
+}
 
 async function loadList() {
   const q = $('q').value.trim();
-  const [rows, st] = await Promise.all([api(`/api/admin/uploads?q=${encodeURIComponent(q)}`), api('/api/admin/stats')]);
-  $('stats').replaceChildren(
-    el('div', { class: 'stat' }, el('b', {}, st.uploads), el('span', {}, 'ملف مرفوع')),
-    el('div', { class: 'stat' }, el('b', {}, st.saved), el('span', {}, 'حُفظت في الهاتف')),
-    el('div', { class: 'stat' }, el('b', {}, st.contacts), el('span', {}, 'جهة اتصال محفوظة')),
-    el('div', { class: 'stat' }, el('b', {}, st.today), el('span', {}, 'رفع اليوم')),
-  );
+  $('uploadsWrap').hidden = listMode !== 'uploads';
+  $('contactsWrap').hidden = listMode !== 'contacts';
+  if (listMode === 'contacts') {
+    const [rows] = await Promise.all([api(`/api/admin/contacts?q=${encodeURIComponent(q)}`), loadStats()]);
+    $('contacts').tBodies[0].replaceChildren(...rows.map((c) => {
+      const tr = el('tr', { class: 'click' },
+        el('td', { dir: 'auto' }, c.name), el('td', {}, c.full || ''), el('td', { class: 'num' }, c.phone), el('td', { class: 'num' }, c.phone2 || ''),
+        el('td', { class: 'ltr' }, c.email || ''), el('td', {}, c.org || ''), el('td', {}, c.title || ''), el('td', {}, c.region || ''),
+        el('td', { class: 'num' }, when(c.first_seen)), el('td', { class: 'num' }, when(c.last_seen)),
+        el('td', {}, c.seen_count > 1 ? el('span', { class: 'tag warn' }, `${c.seen_count} ملفات`) : '1'),
+        el('td', { class: 'wrap' }, c.first_file || c.first_upload_id || ''));
+      tr.onclick = () => { if (c.first_upload_id) location.hash = `#/u/${c.first_upload_id}`; };
+      return tr;
+    }));
+    $('empty').hidden = rows.length > 0;
+    show('list');
+    return;
+  }
+  const [rows] = await Promise.all([api(`/api/admin/uploads?q=${encodeURIComponent(q)}`), loadStats()]);
   $('uploads').tBodies[0].replaceChildren(...rows.map((r) => {
     const dev = JSON.parse(r.device_json || '{}');
     const tr = el('tr', { class: 'click' },
@@ -79,7 +113,8 @@ async function loadList() {
       el('td', { class: 'wrap' }, r.file_name || '—', el('div', { class: 'muted small' }, `${r.sheet_name || ''} · ${size(r.file_size || 0)}`)),
       el('td', { dir: 'auto' }, r.prefix || '—'),
       el('td', {}, `${r.count_total}`, el('div', { class: 'muted small' }, `${r.count_ready} جاهز · ${r.count_warn} تنبيه · ${r.count_excluded} مستبعد`)),
-      el('td', {}, r.saved_at ? el('span', { class: 'tag ok', title: when(r.saved_at) }, r.save_count > 1 ? `حُفظ ×${r.save_count}` : 'حُفظ') : el('span', { class: 'tag no' }, 'رُفع فقط')),
+      el('td', {}, r.saved_at ? el('span', { class: 'tag ok', title: when(r.saved_at) }, r.save_count > 1 ? `حُفظ ×${r.save_count}` : 'حُفظ') : el('span', { class: 'tag no' }, 'رُفع فقط'),
+        r.repeat_count ? el('div', {}, el('span', { class: 'tag warn', title: `آخر مرة ${when(r.last_repeat_at)}` }, `أُعيد رفعه ×${r.repeat_count}`)) : null),
       el('td', { class: 'wrap' }, describeUA(r.user_agent), dev.screen ? el('div', { class: 'muted small ltr' }, dev.screen) : null),
       el('td', { class: 'num' }, r.ip || '—'));
     tr.onclick = () => { location.hash = `#/u/${r.id}`; };
@@ -88,6 +123,27 @@ async function loadList() {
   $('empty').hidden = rows.length > 0;
   show('list');
 }
+
+$('dedupe').onclick = async () => {
+  if (!confirm('مراجعة كل البيانات: الملفات ذات المحتوى المطابق تُدمج في الأقدم وتُحذف نسخها، ويُعاد بناء جدول الجهات الموحّد. متابعة؟')) return;
+  const btn = $('dedupe'), status = $('dedupeStatus');
+  btn.disabled = true; status.hidden = false;
+  try {
+    const { ids } = await api('/api/admin/maintenance/start', { method: 'POST' });
+    let merged = 0;
+    for (let i = 0; i < ids.length; i++) {
+      status.textContent = `جارٍ المراجعة… ${i + 1} من ${ids.length}`;
+      const r = await api(`/api/admin/maintenance/process/${encodeURIComponent(ids[i])}`, { method: 'POST' });
+      if (r.merged) merged++;
+    }
+    status.textContent = `تمت المراجعة: ${ids.length} ملف، دُمج منها ${merged} مكرر. الجهات الموحّدة أُعيد بناؤها.`;
+  } catch (e) {
+    status.textContent = 'توقفت المراجعة بسبب خطأ. أعد المحاولة؛ يمكن تشغيلها أكثر من مرة بأمان.';
+  } finally {
+    btn.disabled = false;
+    loadList();
+  }
+};
 
 // ───────────── التفاصيل ─────────────
 
@@ -122,6 +178,7 @@ async function loadDetail(id) {
     ['البادئة', d.prefix || '—'], ['الورقة / سطر العناوين', `${d.sheet_name || '—'} / ${a.headerRow || '—'}`],
     ['الجهات', `${d.count_total} — ${d.count_ready} جاهز · ${d.count_warn} تنبيه · ${d.count_excluded} مستبعد`],
     ['الملف', `${d.file_name || '—'} · ${size(d.file_size || 0)}`], ['الجهاز', describeUA(d.user_agent)], ['IP', d.ip || '—'],
+    ['أُعيد رفعه', d.repeat_count ? `${d.repeat_count} مرة (لم تُسجَّل) · آخرها ${when(d.last_repeat_at)}` : 'لا'],
   ];
   $('dInfo').replaceChildren(...info.map(([k, v]) => el('div', {}, el('span', {}, k), v)));
   $('dTabs').querySelectorAll('button').forEach((x, i) => x.classList.toggle('on', i === 0));
@@ -138,8 +195,10 @@ function renderTab(t) {
       body.replaceChildren(el('p', { class: 'muted' }, 'رُفع الملف لكن المستخدم لم يضغط "حفظ" بعد. البيانات الكاملة في تبويب "الشيت الأصلي".'));
       return;
     }
+    const dups = d.contacts.filter((c) => c.dupOf || c.dupInFile).length;
+    const note = dups ? el('p', { class: 'muted small' }, `${dups} من هذه الجهات موجودة مسبقاً فلم تُسجَّل مرة ثانية في الجهات الموحّدة.`) : null;
     const head = ['السطر', 'م', 'الاسم في الهاتف', 'الاسم الكامل', 'الرقم 1', 'الرقم 2', 'أرقام غير صالحة', 'البريد', 'جهة العمل', 'المسمى', 'المنطقة', 'الحالة', 'التنبيهات والملاحظات'];
-    body.replaceChildren(el('div', { class: 'table-wrap' }, el('table', { class: 'tbl' },
+    body.replaceChildren(note || '', el('div', { class: 'table-wrap' }, el('table', { class: 'tbl' },
       el('thead', {}, el('tr', {}, head.map((h) => el('th', {}, h)))),
       el('tbody', {}, d.contacts.map((c) => {
         const [label, cls] = STATUS[c.status] || [c.status, ''];
@@ -149,7 +208,9 @@ function renderTab(t) {
           el('td', {}, c.full || ''), el('td', { class: 'num' }, c.phones?.[0] || ''), el('td', { class: 'num' }, c.phones?.[1] || ''),
           el('td', { class: 'num err' }, (c.invalidPhones || []).join(' / ')),
           el('td', { class: 'ltr' }, c.email || ''), el('td', {}, c.org || ''), el('td', {}, c.title || ''), el('td', {}, c.region || ''),
-          el('td', {}, el('span', { class: `tag ${cls}` }, label)),
+          el('td', {}, el('span', { class: `tag ${cls}` }, label),
+            c.dupOf ? el('div', {}, el('a', { class: 'tag warn', href: `#/u/${c.dupOf}` }, 'موجود من ملف سابق')) : null,
+            c.dupInFile ? el('div', {}, el('span', { class: 'tag warn' }, 'مكرر داخل الملف')) : null),
           el('td', { class: 'wrap' }, [...(c.warnings || []), ...(c.notes || [])].join(' · ')));
       })))));
     return;
@@ -176,6 +237,16 @@ function renderTab(t) {
     };
     draw();
     body.replaceChildren(tabs, holder);
+    return;
+  }
+  if (t === 'repeats') {
+    const rows = [{ at: d.created_at, ip: d.ip, ua: d.user_agent, fileName: d.file_name, first: true }, ...(d.repeats || [])];
+    body.replaceChildren(el('div', { class: 'table-wrap' }, el('table', { class: 'tbl' },
+      el('thead', {}, el('tr', {}, ['', 'الوقت', 'اسم الملف', 'الجهاز', 'IP', 'الدولة'].map((h) => el('th', {}, h)))),
+      el('tbody', {}, rows.map((r, i) => el('tr', {},
+        el('td', {}, r.first ? el('span', { class: 'tag ok' }, 'الأصل') : el('span', { class: 'tag warn' }, `مكرر ${i}`)),
+        el('td', { class: 'num' }, when(r.at)), el('td', { class: 'wrap' }, r.fileName || ''), el('td', { class: 'wrap' }, describeUA(r.ua)),
+        el('td', { class: 'num' }, r.ip || ''), el('td', {}, r.country || (r.first ? d.device?.geo?.country || '' : ''))))))));
     return;
   }
   if (t === 'analysis') {
