@@ -376,3 +376,23 @@ button.kpi { font: inherit; text-align: start; color: inherit; width: 100%; }
   .page-head h1 { display: none; }
   .page-head { justify-content: space-between; }
 }
+
+/* ── حالة حفظ القالب والخطوة التالية ── */
+.save-state { margin-top: 10px; font-size: .88rem; font-weight: 600; }
+.save-state .ok { color: var(--ok); }
+.save-state .warn { color: var(--warn); }
+.save-state .bad { color: var(--bad); }
+.tpl-buttons { flex-wrap: wrap; }
+.saved-next { margin-top: 14px; background: var(--ok-soft); color: var(--text); border: 1px solid color-mix(in srgb, var(--ok) 35%, transparent); border-radius: 14px; padding: 14px; }
+.saved-next b { color: var(--ok); }
+.saved-next p { margin: 6px 0 10px; font-size: .9rem; }
+.saved-files { display: flex; flex-wrap: wrap; gap: 8px; }
+.saved-files .btn { margin: 0; }
+.pick-list { display: flex; flex-direction: column; gap: 8px; margin: 10px 0; }
+.pick-item { display: flex; flex-direction: column; gap: 2px; padding: 12px 14px; border: 1px solid var(--line); border-radius: 12px; text-decoration: none; color: var(--text); background: var(--bg); }
+.pick-item:hover, .pick-item:active { border-color: var(--accent); }
+.how { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 10px 14px; font-size: .9rem; }
+.how summary { cursor: pointer; font-weight: 600; color: var(--accent); }
+.how ol { margin: 8px 0 0; padding-inline-start: 20px; }
+.how li { margin: 4px 0; }
+#dTabs { scroll-margin-top: 76px; }

@@ -368,7 +368,7 @@ $('dTabs').addEventListener('click', (e) => {
   renderTab(b.dataset.t);
 });
 
-async function loadDetail(id) {
+async function loadDetail(id, opts = {}) {
   const d = await api(`/api/admin/uploads/${encodeURIComponent(id)}`);
   current = d;
   $('dTitle').textContent = d.file_name || d.id;
@@ -407,16 +407,19 @@ async function loadDetail(id) {
     ['أُعيد رفعه', d.repeat_count ? `${d.repeat_count} مرة — آخرها ${when(d.last_repeat_at)}` : 'لا'],
   ];
   $('dInfo').replaceChildren(...info.map(([k, v]) => el('div', {}, el('span', {}, k), v)));
-  $('dTabs').querySelectorAll('button').forEach((x, i) => x.classList.toggle('on', i === 0));
-  renderTab('contacts');
+  const first = opts.tab || 'contacts';
+  $('dTabs').querySelectorAll('button').forEach((x) => x.classList.toggle('on', x.dataset.t === first));
   showView('detail');
   scrollTo(0, 0);
+  await renderTab(first, opts);
+  // فُتح من رابط "إرسال بهذا القالب": انزل مباشرة إلى تبويب واتساب بعد تحميله
+  if (opts.tab) $('dTabs').scrollIntoView({ block: 'start' });
 }
 
-function renderTab(t) {
+function renderTab(t, opts = {}) {
   const d = current;
   const body = $('dBody');
-  if (t === 'wa') { renderWaTab(body, d).catch((e) => { console.error(e); toast('تعذّر تحميل تبويب واتساب.'); }); return; }
+  if (t === 'wa') return renderWaTab(body, d, opts).catch((e) => { console.error(e); toast('تعذّر تحميل تبويب واتساب.'); });
   leaveWaTab();
   if (t === 'contacts') {
     if (!d.contacts) {
@@ -515,6 +518,8 @@ async function route() {
     const h = location.hash;
     const m = h.match(/^#\/u\/([\w-]+)$/);
     if (m) return await loadDetail(m[1]);
+    const mw = h.match(/^#\/u\/([\w-]+)\/wa(?:\?(.*))?$/);
+    if (mw) return await loadDetail(mw[1], { tab: 'wa', template: new URLSearchParams(mw[2] || '').get('t') });
     if (h.startsWith('#/files')) {
       const f = new URLSearchParams(h.split('?')[1] || '').get('f');
       if (f && FILE_FILTERS[f]) filesFilter = f;
