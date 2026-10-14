@@ -21,7 +21,7 @@ export function buildFixture() {
   set('A', 'م'); set('B', 'NationAL-ID'); set('C', 'Name EN'); set('D', 'Name AR');
   set('E', 'first name'); set('F', 'second'); set('G', 'third'); set('H', 'last name');
   set('I', 'First Name EN'); set('J', 'Last Name EN');
-  set('O', 'Ministry Number'); set('P', 'Job title'); set('Q', 'Job Title');
+  set('O', 'Ministry Number'); set('P', 'Job title'); set('Q', 'Job Title'); set('R', 'Gender');
   set('S', 'Governorate'); set('T', 'Gov'); set('U', 'Phone number MOE DB'); set('V', 'Phone number 2 Form');
   set('W', 'DOB'); set('AA', 'specialty'); set('AB', 'School'); set('AC', 'ئ'); set('AD', 'Email'); set('AG', 'Group Number');
   grid.push(h);
@@ -39,7 +39,7 @@ export function buildFixture() {
     set('D', `${firstCell} ${father} ${grand} ${last}`, r);
     set('E', firstCell, r); set('F', father, r); set('G', grand, r); set('H', last, r);
     set('I', 'First', r); set('J', 'Last', r);
-    set('O', 1000 + i, r); set('P', '0', r); set('Q', i === 9 ? '#N/A' : 'معلم مساعد', r);
+    set('O', 1000 + i, r); set('R', (i % FIRST.length) % 2 === 0 ? 'Female أنثى' : 'Male ذكر', r); set('P', '0', r); set('Q', i === 9 ? '#N/A' : 'معلم مساعد', r);
     set('S', 'إربد', r); set('T', 'قصبة إربد', r);
     // MOE DB: أعداد ضاع صفرها، وصفّان مقطوعان إلى 6 خانات
     set('U', i === 5 || i === 14 ? 790012 : mobile, r);

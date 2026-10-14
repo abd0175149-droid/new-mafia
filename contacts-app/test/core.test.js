@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import {
   normalizePhone, parsePhoneCell, cleanCell, detectHeaderRow, analyzeGrid, buildContacts, buildVCard,
   renderTemplate, splitFullName, suggestEmailFix, colLetter, colIndex, vcfFileName, prefixFromFileName,
-  templateFromOptions, DEFAULT_OPTIONS, detectDevice,
+  templateFromOptions, DEFAULT_OPTIONS, detectDevice, parseGender,
 } from '../public/core.js';
 
 import { buildFixture } from './fixture.js';
@@ -57,6 +57,7 @@ test('detects the header row and columns by meaning, not by position', () => {
   assert.deepEqual(a.mapping.ministry.map(L), ['O']);
   assert.deepEqual(a.mapping.dob.map(L), ['W']);
   assert.equal(L(a.mapping.serial), 'A');
+  assert.equal(L(a.mapping.gender), 'R');
   assert.equal(a.prefixSuggestion, 'G119');
   assert.equal(a.meta.count, 45);
   assert.equal(a.meta.group, 'G119');
@@ -165,4 +166,25 @@ test('helpers', () => {
   assert.equal(prefixFromFileName('كشف_G119-2026.xlsx'), 'G119');
   assert.equal(detectDevice('Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X)'), 'ios');
   assert.equal(detectDevice('Mozilla/5.0 (Linux; Android 14)'), 'android');
+});
+
+test('gender column and parsing', () => {
+  for (const [v, g] of [['Male ذكر', 'm'], ['Female أنثى', 'f'], ['ذكر', 'm'], ['أنثى', 'f'], ['انثى', 'f'], ['M', 'm'], ['F', 'f'], ['female', 'f'], ['', ''], ['؟', '']]) {
+    assert.equal(parseGender(v), g, v);
+  }
+  const res = buildContacts(analyzeGrid(buildFixture()), { prefix: 'G119' });
+  assert.equal(res.contacts[0].gender, 'm'); // محمد
+  assert.equal(res.contacts[1].gender, 'f'); // ليلى
+});
+
+test('ties prefer the more informative column; school ministry number is not the teacher\'s', () => {
+  const grid = [
+    ['الاسم', 'هاتف', 'Job title', 'Job Title', 'Ministry Number', 'School Ministry Number'],
+    ['سارة أحمد العلي', '0791111111', 'معلم', 'معلم مساعد', '11', '900'],
+    ['ليلى أحمد العلي', '0792222222', 'معلم', 'معلم أول', '12', '900'],
+  ];
+  const a = analyzeGrid(grid);
+  assert.equal(a.mapping.title, 3);
+  assert.deepEqual(a.mapping.ministry, [4]);
+  assert.equal(a.mapping.school_id, 5);
 });

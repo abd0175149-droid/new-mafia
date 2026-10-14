@@ -115,6 +115,9 @@ const SYNONYMS = {
   nid: ['national id', 'nationalid', 'national number', 'الرقم الوطني'],
   ministry: ['ministry number', 'ministry', 'الرقم الوزاري'],
   dob: ['dob', 'date of birth', 'birth date', 'birthdate', 'تاريخ الميلاد', 'الميلاد'],
+  gender: ['gender', 'sex', 'الجنس', 'النوع الاجتماعي'],
+  // رقم المدرسة الوزاري ليس الرقم الوزاري للمعلم: تطابق تام يسبق "ministry number".
+  school_id: ['school ministry number', 'school number', 'school id', 'الرقم الوزاري للمدرسه', 'رقم المدرسه'],
 };
 const EXACT_ONLY = { serial: ['م', 'ت', '#', 'no', 'sn', 'تسلسل', 'الرقم التسلسلي', 'رقم'] };
 const NAME_ROLES = ['first', 'father', 'grand', 'last', 'full'];
@@ -125,7 +128,7 @@ export const ROLE_LABELS = {
   first: 'الاسم الأول', father: 'اسم الأب', grand: 'اسم الجد', last: 'اسم العائلة', full: 'الاسم الكامل',
   en_first: 'الاسم الأول (إنجليزي)', en_last: 'العائلة (إنجليزي)', en_full: 'الاسم (إنجليزي)', en_other: 'جزء اسم إنجليزي',
   phone: 'هاتف', email: 'البريد', org: 'جهة العمل', title: 'المسمى', specialty: 'التخصص', region: 'المنطقة',
-  group: 'الشعبة', serial: 'الرقم المتسلسل (م)', nid: 'الرقم الوطني (حساس)', ministry: 'الرقم الوزاري (حساس)', dob: 'تاريخ الميلاد (حساس)',
+  group: 'الشعبة', gender: 'الجنس', school_id: 'رقم المدرسة', serial: 'الرقم المتسلسل (م)', nid: 'الرقم الوطني (حساس)', ministry: 'الرقم الوزاري (حساس)', dob: 'تاريخ الميلاد (حساس)',
 };
 
 const NORM_SYN = Object.fromEntries(Object.entries(SYNONYMS).map(([r, l]) => [r, l.map(normalizeText)]));
@@ -285,7 +288,9 @@ export function mapColumns(headers, rows) {
     } else if (MULTI_ROLES.has(role)) {
       mapping[role] = list.map((c) => c.idx).sort((a, b) => a - b);
     } else {
-      list.sort((a, b) => b.score - a.score || b.filled - a.filled || a.idx - b.idx);
+      // عند التعادل: العمود الأغنى بالقيم المختلفة أدق (Job Title "معلم مساعد" أدق من Job title "معلم" للجميع).
+      for (const c of list) c.distinct = new Set(columnValues(rows, c.idx)).size;
+      list.sort((a, b) => b.score - a.score || b.distinct - a.distinct || b.filled - a.filled || a.idx - b.idx);
       mapping[role] = list[0].idx;
     }
   }
@@ -322,6 +327,15 @@ export function mappingFromColumns(byCol, rows) {
   if (m.phone && rows) m.phone.sort((a, b) => phoneStats(rows, b).valid - phoneStats(rows, a).valid || a - b);
   for (const r of Object.keys(m)) if (MULTI_ROLES.has(r) && r !== 'phone') m[r].sort((a, b) => a - b);
   return m;
+}
+
+/** 'm' | 'f' | '' من قيم مثل "Male ذكر" و"Female أنثى" و"M" و"أنثى". */
+export function parseGender(v) {
+  const s = normalizeText(v);
+  if (!s) return '';
+  if (/(^| )(female|f|انثي|انثى|مونث|مؤنث|ا|أ)( |$)/.test(s) || s.includes('female') || s.includes('انثي')) return 'f';
+  if (/(^| )(male|m|ذكر|مذكر|ذ)( |$)/.test(s)) return 'm';
+  return '';
 }
 
 // ───────────── الأسماء ─────────────
@@ -469,6 +483,7 @@ export function buildContacts(analysis, options = {}, overrides = {}) {
     }
 
     c.org = getText(row, m.org);
+    c.gender = parseGender(getVal(row, m.gender));
     c.title = [getText(row, m.title), getText(row, m.specialty)].filter(Boolean).join(' - ');
     c.group = getText(row, m.group);
     c.region = (m.region || []).map((idx) => getText(row, idx)).filter(Boolean).join(' - ');

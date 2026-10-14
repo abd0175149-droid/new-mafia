@@ -15,7 +15,7 @@ function fixtureDetail() {
     sheet_name: 'G119', prefix: 'G119',
     sheets: [{ name: 'G119', grid: grid.map((r) => r.map((v) => (typeof v === 'number' ? String(v) : v))) }],
     analysis: { headerRow: a.headerRow + 1, headers: a.headers.map((h) => ({ col: h.col, label: h.label })), mapping },
-    contacts: res.contacts.map((c) => ({ rowNum: c.rowNum, name: c.name, full: c.parts.full, phones: c.phones.map((p) => p.e164) })),
+    contacts: res.contacts.map((c) => ({ rowNum: c.rowNum, name: c.name, full: c.parts.full, phones: c.phones.map((p) => p.e164), gender: c.gender })),
   };
 }
 
@@ -50,4 +50,20 @@ test('renderMessage fills values, fallbacks, and reports problems', () => {
 test('waLink encodes the message', () => {
   assert.equal(waLink('+962790001007', 'مرحبا & أهلاً'), 'https://wa.me/962790001007?text=%D9%85%D8%B1%D8%AD%D8%A8%D8%A7%20%26%20%D8%A3%D9%87%D9%84%D8%A7%D9%8B');
   assert.equal(waLink('+962790001007'), 'https://wa.me/962790001007');
+});
+
+test('title and gendered words follow the Gender column', () => {
+  const d = fixtureDetail();
+  const body = '{ذ/أ: عزيزي|عزيزتي} {اللقب} {الاسم الأول}، أنت {ذ/أ: مدعوّ|مدعوّة}';
+  const m = renderMessage(body, recipientValues(d, d.contacts[0]));
+  assert.equal(m.text, 'عزيزي الأستاذ محمد، أنت مدعوّ');
+  const f = renderMessage(body, recipientValues(d, d.contacts[1]));
+  assert.equal(f.text, 'عزيزتي الأستاذة ليلى، أنت مدعوّة');
+  // ملف رُفع قبل دعم الجنس: لا gender في الجهة، فيُقرأ من عمود Gender في الشيت
+  const old = { ...d, contacts: d.contacts.map(({ gender, ...c }) => c) };
+  assert.equal(recipientValues(old, old.contacts[1])['اللقب'], 'الأستاذة');
+  // جنس غير معروف: فارغ مع تنبيه
+  const unknown = renderMessage('{ذ/أ: عزيزي|عزيزتي} {اللقب}', { 'اللقب': '' });
+  assert.deepEqual(unknown.empty.sort(), ['الجنس', 'اللقب'].sort());
+  assert.deepEqual(templateTokens(body), ['اللقب', 'الاسم الأول']);
 });

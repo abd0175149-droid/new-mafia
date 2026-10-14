@@ -1,11 +1,15 @@
 // قوالب رسائل واتساب: متغيرات من أعمدة شيت الإكسل نفسه لكل طالب.
 //   {اسم العمود}         قيمة العمود في صف الطالب (بعنوانه كما في الشيت)
 //   {اسم العمود|بديل}    البديل إن كانت الخلية فارغة
-// وحقول جاهزة: {الاسم الأول} {اسم العائلة} {الاسم الكامل} {الاسم في الهاتف} {الرقم} {الشعبة}
+// وحقول جاهزة: {اللقب} {الاسم الأول} {اسم العائلة} {الاسم الكامل} {الاسم في الهاتف} {الرقم} {الشعبة} {الجنس}
+//   {ذ/أ: للذكر|للأنثى}  كلمة حسب جنس الطالب، مثل {ذ/أ: عزيزي|عزيزتي}
 
-import { splitFullName, cleanName, cleanCell, colIndex, normalizeText } from './core.js';
+import { splitFullName, cleanName, cleanCell, colIndex, normalizeText, matchRole, parseGender } from './core.js';
 
-export const BUILTINS = ['الاسم الأول', 'اسم العائلة', 'الاسم الكامل', 'الاسم في الهاتف', 'الرقم', 'الشعبة'];
+export const BUILTINS = ['اللقب', 'الاسم الأول', 'اسم العائلة', 'الاسم الكامل', 'الاسم في الهاتف', 'الرقم', 'الشعبة', 'الجنس'];
+export const TITLES = { m: 'الأستاذ', f: 'الأستاذة' };
+const GENDER_KEY = '\u0000gender';
+const CHOICE_RE = /^ذ\s*\/\s*أ\s*:(.*)$/;
 
 const TOKEN_RE = /\{([^{}\n]{1,80})\}/g;
 
@@ -43,6 +47,15 @@ export function recipientValues(detail, contact, columns = fileColumns(detail)) 
   values['الاسم في الهاتف'] = contact.name || '';
   values['الرقم'] = localPhone(contact.phones?.[0]);
   values['الشعبة'] = detail.prefix || '';
+  // الجنس: ما حُفظ مع الجهة، وإلا من عمود الجنس في الشيت (للملفات المرفوعة قبل دعمه).
+  let g = contact.gender || '';
+  if (!g) {
+    const h = (detail.analysis?.headers || []).find((x) => matchRole(x.label)?.role === 'gender');
+    if (h) g = parseGender(row[colIndex(h.col)] ?? '');
+  }
+  values['الجنس'] = g === 'm' ? 'ذكر' : g === 'f' ? 'أنثى' : '';
+  values['اللقب'] = TITLES[g] || '';
+  values[GENDER_KEY] = g;
   return values;
 }
 
@@ -50,6 +63,15 @@ export function recipientValues(detail, contact, columns = fileColumns(detail)) 
 export function renderMessage(body, values) {
   const missing = new Set(), empty = new Set();
   const text = String(body || '').replace(TOKEN_RE, (whole, inner) => {
+    const choice = inner.match(CHOICE_RE);
+    if (choice) {
+      const [male = '', female = ''] = choice[1].split('|').map((x) => x.trim());
+      const g = values[GENDER_KEY];
+      if (g === 'm') return male;
+      if (g === 'f') return female;
+      empty.add('الجنس');
+      return '';
+    }
     const [rawKey, ...rest] = inner.split('|');
     const key = rawKey.trim();
     const fallback = rest.length ? rest.join('|').trim() : null;
@@ -65,7 +87,7 @@ export function renderMessage(body, values) {
 
 /** المتغيرات المستخدمة في القالب (لعرض التحذيرات قبل البدء). */
 export function templateTokens(body) {
-  return [...new Set([...String(body || '').matchAll(TOKEN_RE)].map((m) => m[1].split('|')[0].trim()))];
+  return [...new Set([...String(body || '').matchAll(TOKEN_RE)].filter((m) => !CHOICE_RE.test(m[1])).map((m) => m[1].split('|')[0].trim()))];
 }
 
 export function waLink(e164, text) {

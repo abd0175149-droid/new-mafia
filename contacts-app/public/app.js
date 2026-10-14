@@ -358,7 +358,7 @@ function compactContacts() {
   return state.result.contacts.map((c) => ({
     rowNum: c.rowNum, serial: c.serial, name: c.name, full: c.parts.full, phones: c.phones.map((p) => p.e164),
     invalidPhones: c.invalidPhones.map((p) => p.raw), email: c.email || c.emailInvalid, org: c.org, title: c.title,
-    region: c.region, status: c.status, warnings: c.warnings, notes: c.notes, edited: !!c.manualName,
+    region: c.region, gender: c.gender, status: c.status, warnings: c.warnings, notes: c.notes, edited: !!c.manualName,
   }));
 }
 

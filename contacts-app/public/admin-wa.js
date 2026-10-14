@@ -387,7 +387,8 @@ async function drawTemplates(holder) {
   const columns = page.sample ? fileColumns(page.sample) : [];
   const chips = el('div', { class: 'tpl-tokens' },
     el('div', { class: 'muted small' }, 'حقول جاهزة'),
-    el('div', { class: 'chips' }, BUILTINS.map((k) => el('button', { type: 'button', onclick: () => insert(`{${k}}`) }, k))),
+    el('div', { class: 'chips' }, BUILTINS.map((k) => el('button', { type: 'button', onclick: () => insert(`{${k}}`) }, k)),
+      el('button', { type: 'button', title: 'كلمة حسب الجنس: الأولى للذكر والثانية للأنثى', onclick: () => insert('{ذ/أ: عزيزي|عزيزتي}') }, 'كلمة حسب الجنس')),
     el('div', { class: 'muted small', style: 'margin-top:8px' }, page.sample ? `أعمدة ملف المعاينة (${page.sample.file_name})` : 'لا يوجد ملف للمعاينة'),
     el('div', { class: 'chips' }, columns.map((c) => el('button', { type: 'button', title: `العمود ${c.col}`, onclick: () => insert(`{${c.key}}`) }, c.key))));
 
@@ -435,7 +436,7 @@ async function drawTemplates(holder) {
       el('div', { class: 'panel-head' }, el('h2', {}, current ? 'تحرير القالب' : 'قالب جديد')),
       el('label', { class: 'field' }, el('span', {}, 'اسم القالب'), name),
       el('label', { class: 'field' }, el('span', {}, 'نص الرسالة'), body),
-      el('p', { class: 'muted small' }, 'اضغط على أي حقل لإدراجه مكان المؤشر. للتنسيق في واتساب: *عريض* _مائل_ ~مشطوب~. وللقيمة البديلة إن كانت الخلية فارغة: {اسم العمود|بديل}'),
+      el('p', { class: 'muted small' }, 'اضغط على أي حقل لإدراجه مكان المؤشر. للتنسيق في واتساب: *عريض* _مائل_ ~مشطوب~. وللقيمة البديلة إن كانت الخلية فارغة: {اسم العمود|بديل}. {اللقب} يصير الأستاذ أو الأستاذة حسب عمود الجنس، و{ذ/أ: عزيزي|عزيزتي} يختار الكلمة حسب الجنس.'),
       chips,
       el('div', { class: 'tpl-buttons' }, saveBtn, delBtn)),
     el('section', { class: 'panel tpl-preview' },
