@@ -13,6 +13,7 @@ const UNIQUE_HEADERS = ['الاسم في الهاتف', 'الاسم الكامل
 const MAX_REPEATS_KEPT = 100;
 const WA_LABEL = { yes: 'له واتساب', no: 'ليس عليه واتساب' };
 const PHONE_RE = /^\+\d{8,15}$/;
+const OUTCOMES = ['replied', 'no_reply', 'no_whatsapp', 'wrong_number', 'not_delivered', 'other'];
 
 // ───────────── أدوات ─────────────
 
@@ -355,6 +356,7 @@ async function maintenance(env, parts) {
  *   POST wa/check     { phone, status: yes|no|clear, upload_id }
  *   POST wa/messages  { upload_id, phone, name, template_id, template_name, body, status: sent|skipped|no_whatsapp }
  *   GET  wa/messages?upload=<id>
+ *   POST wa/messages/<id>/outcome  { outcome: replied|no_reply|no_whatsapp|wrong_number|not_delivered|other|'' , note }
  */
 async function waRoute(req, env, url, parts) {
   const now = Date.now();
@@ -386,7 +388,7 @@ async function waRoute(req, env, url, parts) {
     } else return json({ error: 'status' }, 400);
     return json({ ok: true, phone, status: b.status, checked_at: now });
   }
-  if (parts[0] === 'messages' && req.method === 'POST') {
+  if (parts[0] === 'messages' && !parts[1] && req.method === 'POST') {
     const b = await req.json().catch(() => ({}));
     const phone = String(b.phone || '');
     if (!PHONE_RE.test(phone) || !['sent', 'skipped', 'no_whatsapp'].includes(b.status)) return json({ error: 'bad' }, 400);
@@ -402,6 +404,24 @@ async function waRoute(req, env, url, parts) {
     }
     await env.DB.batch(stmts);
     return json({ ok: true, id, created_at: now });
+  }
+  if (parts[0] === 'messages' && parts[1] && parts[2] === 'outcome' && req.method === 'POST') {
+    const b = await req.json().catch(() => ({}));
+    const outcome = b.outcome ? String(b.outcome) : null;
+    if (outcome && !OUTCOMES.includes(outcome)) return json({ error: 'outcome' }, 400);
+    const msg = await env.DB.prepare('SELECT * FROM wa_messages WHERE id = ?').bind(parts[1]).first();
+    if (!msg) return json({ error: 'not-found' }, 404);
+    const note = String(b.note ?? msg.outcome_note ?? '').slice(0, 2000);
+    const stmts = [env.DB.prepare('UPDATE wa_messages SET outcome = ?, outcome_note = ?, outcome_at = ? WHERE id = ?')
+      .bind(outcome, note || null, outcome || note ? now : null, msg.id)];
+    // الرد يثبت أن الرقم على واتساب، و"لا يوجد واتساب" يثبت العكس.
+    if (outcome === 'replied' || outcome === 'no_whatsapp') {
+      stmts.push(env.DB.prepare(`INSERT INTO wa_numbers (phone, status, method, checked_at, upload_id) VALUES (?, ?, 'manual', ?, ?)
+        ON CONFLICT(phone) DO UPDATE SET status = excluded.status, method = excluded.method, checked_at = excluded.checked_at`)
+        .bind(msg.phone, outcome === 'replied' ? 'yes' : 'no', now, msg.upload_id));
+    }
+    await env.DB.batch(stmts);
+    return json({ ok: true, id: msg.id, outcome, outcome_note: note || null, outcome_at: outcome || note ? now : null });
   }
   if (parts[0] === 'messages' && req.method === 'GET') {
     const upload = url.searchParams.get('upload');

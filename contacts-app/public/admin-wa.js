@@ -16,6 +16,69 @@ const MSG = {
   no_whatsapp: ['ليس على واتساب', 'bad'],
 };
 
+// حالة المتابعة بعد الإرسال (تُختار من قائمة منسدلة، ومعها ملاحظة حرة).
+export const OUTCOME = {
+  replied: ['تم الرد', 'ok'],
+  no_reply: ['لم يرد', 'warn'],
+  no_whatsapp: ['لا يوجد واتساب', 'bad'],
+  wrong_number: ['رقم خاطئ', 'bad'],
+  not_delivered: ['الرسالة لم تصل', 'bad'],
+  other: ['أخرى', 'muted'],
+};
+const PROBLEM = new Set(['no_whatsapp', 'wrong_number', 'not_delivered']);
+const outcomeBadge = (m) => (m.outcome
+  ? ctx.badge(OUTCOME[m.outcome][1], OUTCOME[m.outcome][0], [m.outcome_note, m.outcome_at && ctx.when(m.outcome_at)].filter(Boolean).join(' · '))
+  : ctx.badge('muted', 'بانتظار المتابعة'));
+
+let outcomeDlg = null;
+/** نافذة متابعة رسالة واحدة: الرسالة كما أُرسلت + الحالة + الملاحظات. تعيد الرسالة بعد الحفظ أو null. */
+export function openOutcome(m) {
+  const { el, post, when, toast } = ctx;
+  if (!outcomeDlg) {
+    outcomeDlg = el('dialog', { class: 'dialog outcome-dialog' });
+    document.body.append(outcomeDlg);
+  }
+  const sel = el('select', { 'aria-label': 'حالة الاستجابة' },
+    el('option', { value: '' }, '— لم تُحدد بعد —'),
+    Object.entries(OUTCOME).map(([k, [label]]) => el('option', { value: k, selected: m.outcome === k }, label)));
+  const note = el('textarea', { rows: 3, maxlength: 2000, placeholder: 'مثلاً: ردّ وأكّد الحضور، أو طلب التواصل مساءً…' });
+  note.value = m.outcome_note || '';
+  const quick = el('div', { class: 'chips' }, Object.entries(OUTCOME).map(([k, [label]]) =>
+    el('button', { type: 'button', class: m.outcome === k ? 'on' : '', onclick: (e) => {
+      sel.value = k;
+      quick.querySelectorAll('button').forEach((b) => b.classList.toggle('on', b === e.currentTarget));
+    } }, label)));
+  sel.onchange = () => quick.querySelectorAll('button').forEach((b, i) => b.classList.toggle('on', Object.keys(OUTCOME)[i] === sel.value));
+  const save = el('button', { type: 'submit', class: 'btn primary small', value: 'ok' }, 'حفظ');
+  outcomeDlg.replaceChildren(el('form', { method: 'dialog' },
+    el('h2', {}, 'متابعة الرسالة'),
+    el('div', { class: 'outcome-meta' },
+      el('div', {}, el('span', {}, 'المستلم'), el('b', { dir: 'auto' }, m.name || '—')),
+      el('div', {}, el('span', {}, 'الرقم'), el('b', { class: 'ltr' }, local(m.phone))),
+      el('div', {}, el('span', {}, 'أُرسلت'), when(m.created_at)),
+      el('div', {}, el('span', {}, 'القالب'), m.template_name || '—')),
+    m.body ? el('div', { class: 'wa-chat' }, el('div', { class: 'wa-bubble', dir: 'auto' }, waFormat(m.body))) : null,
+    el('label', { class: 'field', style: 'margin-top:14px' }, el('span', {}, 'حالة الاستجابة'), sel),
+    quick,
+    el('label', { class: 'field' }, el('span', {}, 'ملاحظات'), note),
+    m.outcome_at ? el('p', { class: 'muted small' }, `آخر تحديث: ${when(m.outcome_at)}`) : null,
+    el('div', { class: 'dialog-actions' }, el('button', { type: 'submit', class: 'btn ghost small', value: 'cancel' }, 'إلغاء'), save)));
+  return new Promise((resolve) => {
+    outcomeDlg.onclose = async () => {
+      if (outcomeDlg.returnValue !== 'ok') return resolve(null);
+      try {
+        const r = await post(`/api/admin/wa/messages/${encodeURIComponent(m.id)}/outcome`, { outcome: sel.value, note: note.value.trim() });
+        Object.assign(m, { outcome: r.outcome, outcome_note: r.outcome_note, outcome_at: r.outcome_at });
+        toast('حُفظت المتابعة.');
+        resolve(m);
+      } catch { toast('تعذّر حفظ المتابعة.'); resolve(null); }
+    };
+    outcomeDlg.returnValue = '';
+    outcomeDlg.showModal();
+    sel.focus();
+  });
+}
+
 let templatesCache = null;
 async function getTemplates(force) {
   if (!templatesCache || force) templatesCache = await ctx.api('/api/admin/wa/templates');
@@ -73,6 +136,7 @@ const phoneOf = (r) => r.c.phones[r.phoneIdx] || r.c.phones[0];
 const template = () => tab.templates.find((t) => t.id === tab.templateId) || null;
 const message = (r) => renderMessage(template()?.body || '', r.values);
 const lastMsg = (r) => tab.messages.find((m) => m.phone === phoneOf(r) && (!tab.templateId || m.template_id === tab.templateId));
+const sentMsg = (r) => tab.messages.find((m) => m.phone === phoneOf(r) && m.status === 'sent' && (!tab.templateId || m.template_id === tab.templateId));
 function isDone(r) {
   const n = tab.numbers[phoneOf(r)];
   if (tab.mode === 'check') return !!n;
@@ -84,7 +148,9 @@ const FILTERS = {
   all: ['الكل', () => true],
   yes: ['له واتساب', (r) => tab.numbers[phoneOf(r)]?.status === 'yes'],
   no: ['ليس عليه', (r) => tab.numbers[phoneOf(r)]?.status === 'no'],
-  sent: ['أُرسلت', (r) => lastMsg(r)?.status === 'sent'],
+  sent: ['أُرسلت', (r) => !!sentMsg(r)],
+  awaiting: ['بانتظار المتابعة', (r) => { const m = sentMsg(r); return !!m && !m.outcome; }],
+  replied: ['تم الرد', (r) => sentMsg(r)?.outcome === 'replied'],
 };
 
 function savePrefs() {
@@ -168,8 +234,11 @@ function row(r) {
         `الرقم ${r.phoneIdx ? 'الأول' : 'الثاني'}`) : null)),
     el('div', { class: 'badges' },
       n ? badge(WA[n.status][1], WA[n.status][0], `${when(n.checked_at)}${n.method === 'sent' ? ' · ثبت بالإرسال' : ''}`) : badge('muted', 'لم يُفحص'),
-      m ? badge(MSG[m.status][1], `${MSG[m.status][0]}${m.template_name && !t.templateId ? ` · ${m.template_name}` : ''}`, when(m.created_at)) : null),
-    el('div', { class: 'wa-row-actions' }, actions),
+      m ? badge(MSG[m.status][1], `${MSG[m.status][0]}${m.template_name && !t.templateId ? ` · ${m.template_name}` : ''}`, when(m.created_at)) : null,
+      sentMsg(r) ? outcomeBadge(sentMsg(r)) : null),
+    el('div', { class: 'wa-row-actions' }, actions,
+      sentMsg(r) ? el('button', { type: 'button', class: 'btn ghost small', onclick: async () => { if (await openOutcome(sentMsg(r))) draw(); } }, 'المتابعة') : null),
+    sentMsg(r)?.outcome_note ? el('div', { class: 'wa-note' }, '📝 ', sentMsg(r).outcome_note) : null,
     msg ? el('details', { class: 'wa-preview' }, el('summary', {}, msg.empty.length ? `معاينة الرسالة · فارغ: ${msg.empty.join('، ')}` : 'معاينة الرسالة'),
       el('div', { class: 'wa-bubble', dir: 'auto' }, waFormat(msg.text))) : null);
   return node;
@@ -381,34 +450,76 @@ async function drawTemplates(holder) {
 async function drawLog(holder) {
   const { el, api, when, badge } = ctx;
   const rows = await api('/api/admin/wa/messages');
-  let filter = 'all', q = '';
+  let filter = 'awaiting', q = '';
+  const FILTERS_LOG = {
+    awaiting: ['بانتظار المتابعة', (m) => m.status === 'sent' && !m.outcome],
+    replied: ['تم الرد', (m) => m.outcome === 'replied'],
+    no_reply: ['لم يرد', (m) => m.outcome === 'no_reply'],
+    problem: ['مشكلة في الرقم أو الوصول', (m) => PROBLEM.has(m.outcome) || m.status === 'no_whatsapp'],
+    sent: ['كل المُرسلة', (m) => m.status === 'sent'],
+    all: ['الكل', () => true],
+  };
   const tbody = el('tbody');
   const count = el('span', { class: 'count' });
-  const draw = () => {
-    const list = rows.filter((m) => (filter === 'all' || m.status === filter)
-      && (!q || `${m.name} ${m.phone} ${m.body} ${m.file_name} ${m.template_name}`.includes(q)));
-    count.textContent = `${list.length} سجل`;
-    tbody.replaceChildren(...(list.length ? list.map((m) => el('tr', {},
-      el('td', { class: 'num' }, when(m.created_at)),
-      el('td', { dir: 'auto' }, m.name || ''), el('td', { class: 'num' }, local(m.phone)),
-      el('td', {}, badge(MSG[m.status]?.[1] || 'muted', MSG[m.status]?.[0] || m.status)),
-      el('td', {}, m.template_name || '—'),
-      el('td', { class: 'wrap' }, m.upload_id ? el('a', { class: 'link', href: `#/u/${m.upload_id}` }, m.file_name || m.upload_id) : '—'),
-      el('td', { class: 'wrap' }, m.body ? el('details', { class: 'wa-preview' }, el('summary', {}, m.body.split('\n')[0].slice(0, 50)),
-        el('div', { class: 'wa-bubble', dir: 'auto' }, waFormat(m.body))) : '—')))
-      : [el('tr', {}, el('td', { colspan: 7, class: 'muted', style: 'text-align:center;padding:32px' }, 'لا يوجد سجل بعد.'))]));
+  const chips = el('div', { class: 'chips' });
+  const summary = el('div', { class: 'kpis' });
+  const drawSummary = () => {
+    const sent = rows.filter((m) => m.status === 'sent');
+    const n = (f) => sent.filter(f).length;
+    const pct = (x) => (sent.length ? `${Math.round((x / sent.length) * 100)}%` : '—');
+    const replied = n((m) => m.outcome === 'replied');
+    const kpi = (label, value, sub, f) => el('button', { type: 'button', class: `kpi link-card${filter === f ? ' on' : ''}`, onclick: () => { filter = f; draw(); } },
+      el('div', { class: 'label' }, label), el('div', { class: 'value' }, value), sub ? el('div', { class: 'sub' }, sub) : null);
+    summary.replaceChildren(
+      kpi('رسائل مُرسلة', sent.length, null, 'sent'),
+      kpi('بانتظار المتابعة', n((m) => !m.outcome), 'لم تُسجَّل استجابتها', 'awaiting'),
+      kpi('تم الرد', replied, `نسبة الرد ${pct(replied)}`, 'replied'),
+      kpi('لم يرد', n((m) => m.outcome === 'no_reply'), null, 'no_reply'),
+      kpi('مشكلة في الرقم أو الوصول', n((m) => PROBLEM.has(m.outcome)), 'لا واتساب · رقم خاطئ · لم تصل', 'problem'));
   };
-  const search = el('input', { class: 'search', type: 'search', placeholder: 'بحث بالاسم أو الرقم أو النص' });
+  const draw = () => {
+    drawSummary();
+    chips.replaceChildren(...Object.entries(FILTERS_LOG).map(([k, [label]]) =>
+      el('button', { type: 'button', class: k === filter ? 'on' : '', onclick: () => { filter = k; draw(); } }, label)));
+    const list = rows.filter((m) => FILTERS_LOG[filter][1](m)
+      && (!q || `${m.name} ${m.phone} ${m.body} ${m.file_name} ${m.template_name} ${m.outcome_note || ''}`.includes(q)));
+    count.textContent = `${list.length} سجل`;
+    tbody.replaceChildren(...(list.length ? list.map((m) => {
+      const sel = m.status === 'sent' ? el('select', { class: 'outcome-select', 'aria-label': 'الاستجابة', onclick: (e) => e.stopPropagation() },
+        el('option', { value: '' }, 'بانتظار المتابعة'),
+        Object.entries(OUTCOME).map(([k, [label]]) => el('option', { value: k, selected: m.outcome === k }, label))) : null;
+      if (sel) {
+        sel.dataset.state = m.outcome ? OUTCOME[m.outcome][1] : 'muted';
+        sel.onchange = async () => {
+          try {
+            const r = await ctx.post(`/api/admin/wa/messages/${encodeURIComponent(m.id)}/outcome`, { outcome: sel.value });
+            Object.assign(m, { outcome: r.outcome, outcome_note: r.outcome_note, outcome_at: r.outcome_at });
+            ctx.toast('حُفظت المتابعة.');
+            draw();
+          } catch { ctx.toast('تعذّر الحفظ.'); }
+        };
+      }
+      const tr = el('tr', { class: m.status === 'sent' ? 'click' : '' },
+        el('td', { class: 'num' }, when(m.created_at)),
+        el('td', { dir: 'auto' }, m.name || '', el('div', { class: 'sub ltr' }, local(m.phone))),
+        el('td', {}, badge(MSG[m.status]?.[1] || 'muted', MSG[m.status]?.[0] || m.status)),
+        el('td', {}, sel || '—'),
+        el('td', { class: 'wrap' }, m.outcome_note || el('span', { class: 'muted' }, m.status === 'sent' ? 'أضف ملاحظة…' : '')),
+        el('td', {}, m.template_name || '—'),
+        el('td', { class: 'wrap' }, m.upload_id ? el('a', { class: 'link', href: `#/u/${m.upload_id}`, onclick: (e) => e.stopPropagation() }, m.file_name || m.upload_id) : '—'),
+        el('td', { class: 'wrap' }, m.body ? m.body.split('\n')[0].slice(0, 50) : '—'));
+      if (m.status === 'sent') tr.onclick = async () => { if (await openOutcome(m)) draw(); };
+      return tr;
+    }) : [el('tr', {}, el('td', { colspan: 8, class: 'muted', style: 'text-align:center;padding:32px' }, 'لا شيء هنا.'))]));
+  };
+  const search = el('input', { class: 'search', type: 'search', placeholder: 'بحث بالاسم أو الرقم أو النص أو الملاحظات' });
   let timer;
   search.addEventListener('input', () => { clearTimeout(timer); timer = setTimeout(() => { q = search.value.trim(); draw(); }, 200); });
-  const chips = el('div', { class: 'chips' }, [['all', 'الكل'], ['sent', 'أُرسلت'], ['no_whatsapp', 'ليس على واتساب'], ['skipped', 'تُخطّيت']].map(([k, label]) =>
-    el('button', { type: 'button', class: k === filter ? 'on' : '', onclick: (e) => {
-      filter = k; e.target.parentNode.querySelectorAll('button').forEach((b) => b.classList.toggle('on', b === e.target)); draw();
-    } }, label)));
   holder.replaceChildren(
-    el('p', { class: 'muted small' }, 'كل رسالة سجّلتها من تبويب واتساب في صفحات الملفات: متى، ولمن، وبأي قالب، والنص النهائي كما فُتح في واتساب.'),
+    el('p', { class: 'muted small' }, 'اضغط على أي رسالة مُرسلة لفتحها وتسجيل استجابة المستلم مع ملاحظات، أو غيّر الحالة مباشرة من القائمة المنسدلة.'),
+    summary,
     el('div', { class: 'toolbar' }, search, chips, count),
     el('div', { class: 'table-wrap' }, el('table', { class: 'tbl' },
-      el('thead', {}, el('tr', {}, ['الوقت', 'المستلم', 'الرقم', 'الحالة', 'القالب', 'الملف', 'الرسالة'].map((h) => el('th', {}, h)))), tbody)));
+      el('thead', {}, el('tr', {}, ['الوقت', 'المستلم', 'الإرسال', 'الاستجابة', 'ملاحظات', 'القالب', 'الملف', 'الرسالة'].map((h) => el('th', {}, h)))), tbody)));
   draw();
 }
