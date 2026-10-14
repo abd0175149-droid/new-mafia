@@ -1,4 +1,5 @@
-import { initWa, renderWaTab, loadWaPage, leaveWaTab } from './admin-wa.js';
+import { initWa, loadWaPage } from './admin-wa.js';
+import { initSend, leaveSend } from './admin-send.js';
 import { canInstall, install, onInstallChange } from './pwa.js';
 
 const $ = (id) => document.getElementById(id);
@@ -376,6 +377,7 @@ async function loadDetail(id, opts = {}) {
   const base = `/api/admin/uploads/${encodeURIComponent(d.id)}`;
   const reload = () => loadDetail(d.id);
   $('dActions').replaceChildren(
+    d.contacts && !d.excluded_at ? el('a', { class: 'btn primary small', href: `#/whatsapp/send?f=${encodeURIComponent(d.id)}` }, 'مراسلة الطلاب عبر واتساب') : null,
     d.excluded_at
       ? el('button', { class: 'btn restore small', type: 'button', onclick: async () => { if (await setExcluded(d.id, false)) reload(); } }, 'إرجاع الملف')
       : el('button', { class: 'btn danger small', type: 'button', onclick: async () => { if (await setExcluded(d.id, true)) reload(); } }, 'استثناء الملف'),
@@ -419,8 +421,6 @@ async function loadDetail(id, opts = {}) {
 function renderTab(t, opts = {}) {
   const d = current;
   const body = $('dBody');
-  if (t === 'wa') return renderWaTab(body, d, opts).catch((e) => { console.error(e); toast('تعذّر تحميل تبويب واتساب.'); });
-  leaveWaTab();
   if (t === 'contacts') {
     if (!d.contacts) {
       body.replaceChildren(el('div', { class: 'empty-state' }, 'رُفع الملف لكن المستخدم لم يضغط "حفظ" بعد. البيانات الكاملة في تبويب "الشيت الأصلي".'));
@@ -511,15 +511,16 @@ function colName(i) {
 // ───────────── التوجيه ─────────────
 
 async function route() {
-  leaveWaTab();
+  leaveSend();
   try {
     const me = await (await fetch('/api/admin/me')).json();
     if (!me.admin) { showLogin(); return; }
     const h = location.hash;
     const m = h.match(/^#\/u\/([\w-]+)$/);
     if (m) return await loadDetail(m[1]);
+    // رابط قديم لتبويب واتساب داخل الملف ← شاشة الإرسال
     const mw = h.match(/^#\/u\/([\w-]+)\/wa(?:\?(.*))?$/);
-    if (mw) return await loadDetail(mw[1], { tab: 'wa', template: new URLSearchParams(mw[2] || '').get('t') });
+    if (mw) { location.replace(`#/whatsapp/send?f=${mw[1]}&t=${new URLSearchParams(mw[2] || '').get('t') || ''}`); return; }
     if (h.startsWith('#/files')) {
       const f = new URLSearchParams(h.split('?')[1] || '').get('f');
       if (f && FILE_FILTERS[f]) filesFilter = f;
@@ -528,7 +529,8 @@ async function route() {
     if (h.startsWith('#/contacts')) return await loadContacts();
     if (h.startsWith('#/whatsapp')) {
       showView('whatsapp');
-      return await loadWaPage($('whatsappView'), new URLSearchParams(h.split('?')[1] || ''));
+      const [path, query] = h.slice('#/whatsapp'.length).split('?');
+      return await loadWaPage($('whatsappView'), path.replace(/^\//, ''), new URLSearchParams(query || ''));
     }
     return await loadOverview();
   } catch (e) {
@@ -547,5 +549,6 @@ installBtn.onclick = async () => {
 };
 
 initWa({ el, api, post, toast, when, badge });
+initSend({ el, api, post, toast, when, badge });
 addEventListener('hashchange', route);
 route();
