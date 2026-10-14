@@ -532,3 +532,13 @@ button.kpi { font: inherit; text-align: start; color: inherit; width: 100%; }
   /* كل النوافذ أوراق سفلية بعرض الشاشة على الهاتف */
   .field-sheet, .send-sheet, .outcome-dialog { width: 100%; max-width: 100%; margin: auto 0 0; border-radius: 20px 20px 0 0; max-height: 88vh; }
 }
+
+/* نص الرسالة مطوي في نوافذ المتابعة */
+.msg-fold > summary { list-style: none; cursor: pointer; display: flex; flex-direction: column; gap: 2px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 12px; background: var(--bg); position: relative; padding-inline-end: 34px; }
+.msg-fold > summary::-webkit-details-marker { display: none; }
+.msg-fold > summary::after { content: "⌄"; position: absolute; inset-inline-end: 12px; top: 50%; transform: translateY(-50%); color: var(--muted); transition: transform .15s; }
+.msg-fold[open] > summary::after { transform: translateY(-50%) rotate(180deg); }
+.msg-fold-title { font-weight: 700; font-size: .9rem; }
+.msg-fold-snippet { color: var(--muted); font-size: .82rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.msg-fold[open] .msg-fold-snippet { display: none; }
+.msg-fold .wa-chat { margin-top: 8px; }
