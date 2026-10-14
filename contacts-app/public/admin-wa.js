@@ -460,7 +460,7 @@ async function drawLog(holder) {
     sent: ['كل المُرسلة', (m) => m.status === 'sent'],
     all: ['الكل', () => true],
   };
-  const tbody = el('tbody');
+  const listBox = el('div', { class: 'cards' });
   const count = el('span', { class: 'count' });
   const chips = el('div', { class: 'chips' });
   const summary = el('div', { class: 'kpis' });
@@ -485,7 +485,7 @@ async function drawLog(holder) {
     const list = rows.filter((m) => FILTERS_LOG[filter][1](m)
       && (!q || `${m.name} ${m.phone} ${m.body} ${m.file_name} ${m.template_name} ${m.outcome_note || ''}`.includes(q)));
     count.textContent = `${list.length} سجل`;
-    tbody.replaceChildren(...(list.length ? list.map((m) => {
+    listBox.replaceChildren(...(list.length ? list.map((m) => {
       const sel = m.status === 'sent' ? el('select', { class: 'outcome-select', 'aria-label': 'الاستجابة', onclick: (e) => e.stopPropagation() },
         el('option', { value: '' }, 'بانتظار المتابعة'),
         Object.entries(OUTCOME).map(([k, [label]]) => el('option', { value: k, selected: m.outcome === k }, label))) : null;
@@ -500,27 +500,28 @@ async function drawLog(holder) {
           } catch { ctx.toast('تعذّر الحفظ.'); }
         };
       }
-      const tr = el('tr', { class: m.status === 'sent' ? 'click' : '' },
-        el('td', { class: 'num' }, when(m.created_at)),
-        el('td', { dir: 'auto' }, m.name || '', el('div', { class: 'sub ltr' }, local(m.phone))),
-        el('td', {}, badge(MSG[m.status]?.[1] || 'muted', MSG[m.status]?.[0] || m.status)),
-        el('td', {}, sel || '—'),
-        el('td', { class: 'wrap' }, m.outcome_note || el('span', { class: 'muted' }, m.status === 'sent' ? 'أضف ملاحظة…' : '')),
-        el('td', {}, m.template_name || '—'),
-        el('td', { class: 'wrap' }, m.upload_id ? el('a', { class: 'link', href: `#/u/${m.upload_id}`, onclick: (e) => e.stopPropagation() }, m.file_name || m.upload_id) : '—'),
-        el('td', { class: 'wrap' }, m.body ? m.body.split('\n')[0].slice(0, 50) : '—'));
-      if (m.status === 'sent') tr.onclick = async () => { if (await openOutcome(m)) draw(); };
-      return tr;
-    }) : [el('tr', {}, el('td', { colspan: 8, class: 'muted', style: 'text-align:center;padding:32px' }, 'لا شيء هنا.'))]));
+      const card = el('div', { class: `card-item${m.status === 'sent' ? ' click' : ''}`, role: m.status === 'sent' ? 'button' : null, tabindex: m.status === 'sent' ? '0' : null },
+        el('div', { class: 'ci-head' }, el('div', { class: 'ci-title', dir: 'auto' }, m.name || local(m.phone)), badge(MSG[m.status]?.[1] || 'muted', MSG[m.status]?.[0] || m.status)),
+        el('div', { class: 'ci-sub' }, el('span', { class: 'ltr' }, local(m.phone)), ` · ${when(m.created_at)}`),
+        sel ? el('div', { class: 'ci-outcome' }, sel) : null,
+        m.outcome_note ? el('div', { class: 'wa-note' }, '📝 ', m.outcome_note) : null,
+        el('div', { class: 'ci-meta' }, [m.template_name, m.file_name].filter(Boolean).join(' · ')),
+        m.body ? el('div', { class: 'ci-quote', dir: 'auto' }, m.body.split('\n').filter(Boolean).slice(0, 2).join(' · ')) : null);
+      if (m.status === 'sent') {
+        const open = async () => { if (await openOutcome(m)) draw(); };
+        card.onclick = open;
+        card.onkeydown = (e) => { if (e.key === 'Enter' && e.target === card) open(); };
+      }
+      return card;
+    }) : [el('div', { class: 'empty-state' }, 'لا شيء هنا.')]));
   };
   const search = el('input', { class: 'search', type: 'search', placeholder: 'بحث بالاسم أو الرقم أو النص أو الملاحظات' });
   let timer;
   search.addEventListener('input', () => { clearTimeout(timer); timer = setTimeout(() => { q = search.value.trim(); draw(); }, 200); });
   holder.replaceChildren(
-    el('p', { class: 'muted small' }, 'اضغط على أي رسالة مُرسلة لفتحها وتسجيل استجابة المستلم مع ملاحظات، أو غيّر الحالة مباشرة من القائمة المنسدلة.'),
+    el('p', { class: 'muted small' }, 'اضغط على أي رسالة مُرسلة لتسجيل استجابة المستلم مع ملاحظات، أو غيّر الحالة مباشرة من القائمة.'),
     summary,
     el('div', { class: 'toolbar' }, search, chips, count),
-    el('div', { class: 'table-wrap' }, el('table', { class: 'tbl' },
-      el('thead', {}, el('tr', {}, ['الوقت', 'المستلم', 'الإرسال', 'الاستجابة', 'ملاحظات', 'القالب', 'الملف', 'الرسالة'].map((h) => el('th', {}, h)))), tbody)));
+    listBox);
   draw();
 }

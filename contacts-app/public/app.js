@@ -1,3 +1,4 @@
+import { canInstall, install, onInstallChange } from './pwa.js';
 import {
   analyzeGrid, buildContacts, buildVCard, vcfFileName, detectDevice, cleanCell, numToStr, colLetter, normalizePhone,
   mappingByColumn, mappingFromColumns, ROLE_LABELS, DEFAULT_OPTIONS,
@@ -476,7 +477,20 @@ function watchForUpdates() {
   setInterval(checkForUpdate, 5 * 60 * 1000);
 }
 
+function setupInstall() {
+  const btn = $('installBtn');
+  const refresh = () => { btn.hidden = !canInstall(); };
+  onInstallChange(refresh);
+  refresh();
+  btn.onclick = async () => {
+    const r = await install();
+    if (r === 'ios') alert('لتثبيت التطبيق على iPhone: اضغط زر المشاركة ⬆︎ في Safari، ثم "إضافة إلى الشاشة الرئيسية".');
+    refresh();
+  };
+}
+
 function init() {
+  setupInstall();
   $('deviceName').textContent = { ios: 'iPhone', android: 'Android', desktop: 'الكمبيوتر' }[device];
   $('steps').replaceChildren(...STEPS[device].map((s) => el('li', {}, s)));
   if (navigator.canShare && navigator.canShare({ files: [new File(['x'], 'a.vcf', { type: 'text/vcard' })] })) $('share').hidden = false;

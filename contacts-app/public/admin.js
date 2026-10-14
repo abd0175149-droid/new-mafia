@@ -1,4 +1,5 @@
 import { initWa, renderWaTab, loadWaPage, leaveWaTab } from './admin-wa.js';
+import { canInstall, install, onInstallChange } from './pwa.js';
 
 const $ = (id) => document.getElementById(id);
 const SVG = 'http://www.w3.org/2000/svg';
@@ -79,6 +80,7 @@ function showView(v) {
   $('app').hidden = false;
   for (const x of VIEWS) $(`${x}View`).hidden = x !== v;
   const navKey = v === 'detail' ? 'files' : v;
+  $('topTitle').textContent = { overview: 'الرئيسية', files: 'الملفات', contacts: 'جهات الاتصال', whatsapp: 'واتساب', detail: current?.file_name || 'ملف' }[v];
   $('nav').querySelectorAll('a').forEach((a) => a.classList.toggle('on', a.dataset.v === navKey));
   document.querySelector('.menu')?.removeAttribute('open');
 }
@@ -182,11 +184,12 @@ function fileRow(r, onChange) {
     el('div', { class: 'file-icon' }, ext),
     el('div', { class: 'file-main' },
       el('div', { class: 'file-name', title: r.file_name }, r.file_name || '—'),
-      el('div', { class: 'file-meta', title: when(r.created_at) }, `${ago(r.created_at)} · ${describeUA(r.user_agent)} · ${r.ip || ''}`)),
+      el('div', { class: 'file-meta', title: when(r.created_at) }, `${ago(r.created_at)} · ${r.prefix || ''} · ${r.count_total} جهة`),
+      el('div', { class: 'badges file-badges' }, fileBadges(r))),
     el('div', { class: 'col-hide' }, el('div', { dir: 'auto', style: 'font-weight:700' }, r.prefix || '—'), el('div', { class: 'file-meta' }, r.sheet_name || '')),
     el('div', { class: 'file-counts col-hide' }, el('b', {}, r.count_total), ' جهة',
       el('div', { class: 'file-meta' }, `${r.count_ready} جاهز · ${r.count_warn} تنبيه · ${r.count_excluded} مستبعد`)),
-    el('div', { class: 'badges col-hide' }, fileBadges(r)),
+    el('div', { class: 'file-meta col-hide' }, describeUA(r.user_agent), el('div', {}, r.ip || '')),
     el('div', { class: 'file-actions' }, action));
   const open = () => { location.hash = `#/u/${r.id}`; };
   row.onclick = open;
@@ -330,23 +333,28 @@ async function loadContacts() {
   showView('contacts');
 }
 
+const localPhone = (e164 = '') => (e164.startsWith('+962') ? `0${e164.slice(4, 6)} ${e164.slice(6, 9)} ${e164.slice(9)}` : e164);
+const telLink = (e164) => el('a', { href: `tel:${e164}`, class: 'ltr phone-link', onclick: (e) => e.stopPropagation() }, localPhone(e164));
+const waBadge = (s) => (s === 'yes' ? badge('ok', 'واتساب ✓') : s === 'no' ? badge('bad', 'لا واتساب') : badge('muted', 'واتساب؟'));
+
 function renderContacts() {
   const rows = contactsFilter === 'shared' ? contactsRows.filter((c) => c.seen_count > 1) : contactsRows;
   $('contactsCount').textContent = `${rows.length} جهة`;
   const shown = rows.slice(0, contactsShown);
-  $('contactsTable').tBodies[0].replaceChildren(...shown.map((c) => {
-    const tr = el('tr', { class: 'click' },
-      el('td', { dir: 'auto' }, c.name, c.full && c.full !== c.name ? el('div', { class: 'sub' }, c.full) : null),
-      el('td', { class: 'num' }, c.phone, c.phone2 ? el('div', { class: 'sub' }, c.phone2) : null),
-      el('td', { class: 'ltr' }, c.email || ''), el('td', {}, c.org || ''), el('td', {}, c.title || ''), el('td', {}, c.region || ''),
-      el('td', {}, c.wa_status === 'yes' ? badge('ok', 'له') : c.wa_status === 'no' ? badge('bad', 'ليس عليه') : badge('muted', 'لم يُفحص')),
-      el('td', { class: 'num', title: when(c.first_seen) }, when(c.first_seen).slice(0, 10)),
-      el('td', {}, c.seen_count > 1 ? badge('warn', `${c.seen_count} ملفات`) : '1'),
-      el('td', { class: 'wrap' }, c.first_file || c.first_upload_id || ''));
-    tr.onclick = () => { if (c.first_upload_id) location.hash = `#/u/${c.first_upload_id}`; };
-    return tr;
-  }));
-  if (!shown.length) $('contactsTable').tBodies[0].append(el('tr', {}, el('td', { colspan: 10, class: 'muted', style: 'text-align:center;padding:32px' }, 'لا توجد جهات.')));
+  $('contactsList').replaceChildren(...(shown.length ? shown.map((c) => {
+    const card = el('div', { class: 'card-item click', role: 'link', tabindex: '0' },
+      el('div', { class: 'ci-head' }, el('div', { class: 'ci-title', dir: 'auto' }, c.name), waBadge(c.wa_status)),
+      c.full && c.full !== c.name ? el('div', { class: 'ci-sub', dir: 'auto' }, c.full) : null,
+      el('div', { class: 'ci-phones' }, telLink(c.phone), c.phone2 ? telLink(c.phone2) : null),
+      [c.title, c.org, c.region].some(Boolean) ? el('div', { class: 'ci-meta' }, [c.title, c.org, c.region].filter(Boolean).join(' · ')) : null,
+      c.email ? el('div', { class: 'ci-meta ltr' }, c.email) : null,
+      el('div', { class: 'ci-foot' }, c.seen_count > 1 ? badge('warn', `في ${c.seen_count} ملفات`) : null,
+        el('span', {}, `أول ظهور ${when(c.first_seen).slice(0, 10)}${c.first_file ? ` · ${c.first_file}` : ''}`)));
+    const open = () => { if (c.first_upload_id) location.hash = `#/u/${c.first_upload_id}`; };
+    card.onclick = open;
+    card.onkeydown = (e) => { if (e.key === 'Enter') open(); };
+    return card;
+  }) : [el('div', { class: 'empty-state' }, 'لا توجد جهات.')]));
   $('contactsMore').hidden = rows.length <= shown.length;
 }
 
@@ -371,16 +379,19 @@ async function loadDetail(id) {
     d.excluded_at
       ? el('button', { class: 'btn restore small', type: 'button', onclick: async () => { if (await setExcluded(d.id, false)) reload(); } }, 'إرجاع الملف')
       : el('button', { class: 'btn danger small', type: 'button', onclick: async () => { if (await setExcluded(d.id, true)) reload(); } }, 'استثناء الملف'),
-    d.has_file ? el('a', { class: 'btn ghost small', href: `${base}/file` }, 'الملف الأصلي') : null,
-    el('a', { class: 'btn ghost small', href: `${base}/sheet.csv` }, 'الشيت CSV'),
-    d.contacts ? el('a', { class: 'btn ghost small', href: `${base}/contacts.csv` }, 'الجهات CSV') : null,
-    d.vcf ? el('a', { class: 'btn ghost small', href: `${base}/vcf` }, 'vCard') : null,
-    el('button', { class: 'btn danger small', type: 'button', onclick: async () => {
-      if (!confirm('حذف هذا الملف وكل بياناته نهائياً؟ لا يمكن التراجع. (للإخفاء المؤقت استخدم "استثناء")')) return;
-      await api(base, { method: 'DELETE' });
-      toast('حُذف الملف.');
-      location.hash = '#/files';
-    } }, 'حذف'),
+    el('details', { class: 'menu' }, el('summary', { class: 'btn ghost small' }, 'تنزيل وخيارات ▾'),
+      el('div', { class: 'menu-list' },
+        d.has_file ? el('a', { href: `${base}/file` }, '⬇︎ الملف الأصلي') : null,
+        el('a', { href: `${base}/sheet.csv` }, '⬇︎ الشيت (CSV)'),
+        d.contacts ? el('a', { href: `${base}/contacts.csv` }, '⬇︎ جهات الاتصال (CSV)') : null,
+        d.vcf ? el('a', { href: `${base}/vcf` }, '⬇︎ ملف vCard') : null,
+        el('hr'),
+        el('button', { type: 'button', class: 'danger-text', onclick: async () => {
+          if (!confirm('حذف هذا الملف وكل بياناته نهائياً؟ لا يمكن التراجع. (للإخفاء المؤقت استخدم "استثناء")')) return;
+          await api(base, { method: 'DELETE' });
+          toast('حُذف الملف.');
+          location.hash = '#/files';
+        } }, 'حذف الملف نهائياً'))),
   );
   $('dBanner').replaceChildren(d.excluded_at ? el('div', { class: 'banner bad' },
     el('span', {}, el('b', {}, 'ملف مستثنى'), ` منذ ${when(d.excluded_at)}`, d.exclude_reason ? ` — ${d.exclude_reason}` : ''),
@@ -414,23 +425,23 @@ function renderTab(t) {
     }
     const dups = d.contacts.filter((c) => c.dupOf || c.dupInFile).length;
     const note = dups ? el('div', { class: 'note' }, `${dups} من هذه الجهات موجودة مسبقاً، فلم تُسجَّل مرة ثانية في جهات الاتصال الموحّدة.`) : null;
-    const head = ['السطر', 'م', 'الاسم في الهاتف', 'الرقم 1', 'الرقم 2', 'أرقام غير صالحة', 'البريد', 'جهة العمل', 'المسمى', 'المنطقة', 'الحالة', 'التنبيهات والملاحظات'];
-    body.replaceChildren(note || '', el('div', { class: 'table-wrap' }, el('table', { class: 'tbl' },
-      el('thead', {}, el('tr', {}, head.map((h) => el('th', {}, h)))),
-      el('tbody', {}, d.contacts.map((c) => {
-        const [label, cls] = STATUS[c.status] || [c.status, ''];
-        return el('tr', { class: `st-${c.status}` },
-          el('td', { class: 'num' }, c.rowNum), el('td', { class: 'num' }, c.serial),
-          el('td', { dir: 'auto' }, c.name, c.edited ? el('span', { class: 'tag', style: 'margin-inline-start:6px' }, 'معدّل') : null,
-            c.full && c.full !== c.name ? el('div', { class: 'sub' }, c.full) : null),
-          el('td', { class: 'num' }, c.phones?.[0] || ''), el('td', { class: 'num' }, c.phones?.[1] || ''),
-          el('td', { class: 'num err' }, (c.invalidPhones || []).join(' / ')),
-          el('td', { class: 'ltr' }, c.email || ''), el('td', {}, c.org || ''), el('td', {}, c.title || ''), el('td', {}, c.region || ''),
-          el('td', {}, el('span', { class: `tag ${cls}` }, label),
-            c.dupOf ? el('div', {}, el('a', { class: 'tag warn', href: `#/u/${c.dupOf}` }, 'موجود من ملف سابق')) : null,
-            c.dupInFile ? el('div', {}, el('span', { class: 'tag warn' }, 'مكرر داخل الملف')) : null),
-          el('td', { class: 'wrap' }, [...(c.warnings || []), ...(c.notes || [])].join(' · ')));
-      })))));
+    body.replaceChildren(note || '', el('div', { class: 'cards' }, d.contacts.map((c) => {
+      const [label, cls] = STATUS[c.status] || [c.status, ''];
+      const issues = [...(c.warnings || []), ...(c.notes || [])];
+      return el('div', { class: `card-item st-${c.status}` },
+        el('div', { class: 'ci-head' },
+          el('div', { class: 'ci-title', dir: 'auto' }, c.name, c.edited ? el('span', { class: 'tag', style: 'margin-inline-start:6px' }, 'معدّل') : null),
+          badge(cls, label)),
+        c.full && c.full !== c.name ? el('div', { class: 'ci-sub', dir: 'auto' }, c.full) : null,
+        el('div', { class: 'ci-phones' }, (c.phones || []).map(telLink),
+          (c.invalidPhones || []).map((p) => el('span', { class: 'ltr err' }, p))),
+        [c.title, c.org, c.region].some(Boolean) ? el('div', { class: 'ci-meta' }, [c.title, c.org, c.region].filter(Boolean).join(' · ')) : null,
+        el('div', { class: 'ci-meta' }, `م ${c.serial} · سطر ${c.rowNum}`, c.email ? el('span', { class: 'ltr' }, ` · ${c.email}`) : null),
+        c.dupOf || c.dupInFile ? el('div', { class: 'ci-foot' },
+          c.dupOf ? el('a', { class: 'tag warn', href: `#/u/${c.dupOf}` }, 'موجود من ملف سابق') : null,
+          c.dupInFile ? el('span', { class: 'tag warn' }, 'مكرر داخل الملف') : null) : null,
+        issues.length ? el('ul', { class: 'ci-issues' }, issues.map((w) => el('li', {}, w))) : null);
+    })));
     return;
   }
   if (t === 'sheet') {
@@ -459,12 +470,10 @@ function renderTab(t) {
   }
   if (t === 'repeats') {
     const rows = [{ at: d.created_at, ip: d.ip, ua: d.user_agent, fileName: d.file_name, first: true, country: d.device?.geo?.country }, ...(d.repeats || [])];
-    body.replaceChildren(el('div', { class: 'table-wrap' }, el('table', { class: 'tbl' },
-      el('thead', {}, el('tr', {}, ['', 'الوقت', 'اسم الملف', 'الجهاز', 'IP', 'الدولة'].map((h) => el('th', {}, h)))),
-      el('tbody', {}, rows.map((r, i) => el('tr', {},
-        el('td', {}, r.first ? badge('ok', 'الأصل') : badge('warn', `تكرار ${i}`)),
-        el('td', { class: 'num' }, when(r.at)), el('td', { class: 'wrap' }, r.fileName || ''), el('td', { class: 'wrap' }, describeUA(r.ua)),
-        el('td', { class: 'num' }, r.ip || ''), el('td', {}, r.country || '')))))));
+    body.replaceChildren(el('div', { class: 'cards' }, rows.map((r, i) => el('div', { class: 'card-item' },
+      el('div', { class: 'ci-head' }, el('div', { class: 'ci-title ltr' }, when(r.at)), r.first ? badge('ok', 'الأصل') : badge('warn', `تكرار ${i}`)),
+      el('div', { class: 'ci-sub' }, r.fileName || ''),
+      el('div', { class: 'ci-meta' }, [describeUA(r.ua), r.ip, r.country].filter(Boolean).join(' · '))))));
     return;
   }
   if (t === 'analysis') {
@@ -521,6 +530,17 @@ async function route() {
     if (e.message !== 'auth') { console.error(e); toast('تعذّر تحميل البيانات. أعد المحاولة.'); }
   }
 }
+const installBtn = $('installAdmin');
+const refreshInstall = () => { installBtn.hidden = !canInstall(); };
+onInstallChange(refreshInstall);
+refreshInstall();
+installBtn.onclick = async () => {
+  document.querySelector('.menu')?.removeAttribute('open');
+  const r = await install();
+  if (r === 'ios') alert('لتثبيت لوحة الإدارة على iPhone: افتح هذه الصفحة في Safari، اضغط زر المشاركة ⬆︎ ثم "إضافة إلى الشاشة الرئيسية".');
+  refreshInstall();
+};
+
 initWa({ el, api, post, toast, when, badge });
 addEventListener('hashchange', route);
 route();

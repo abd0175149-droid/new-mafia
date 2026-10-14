@@ -2,10 +2,17 @@
 <html lang="ar" dir="rtl">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <meta name="robots" content="noindex, nofollow">
+  <meta name="theme-color" content="#134e4a">
   <title>إدارة جهات الشعبة</title>
-  <link rel="icon" href="/icon.svg" type="image/svg+xml">
+  <link rel="manifest" href="/admin.webmanifest">
+  <link rel="icon" href="/icons/admin.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="/icons/admin-apple-touch-icon.png">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-title" content="إدارة الشعبة">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
   <link rel="stylesheet" href="/style.css">
   <link rel="stylesheet" href="/admin.css">
 </head>
@@ -13,7 +20,7 @@
   <!-- تسجيل الدخول -->
   <main id="loginView" class="login-wrap" hidden>
     <form class="login-card" id="loginForm">
-      <img src="/icon.svg" alt="" width="48" height="48">
+      <img src="/icons/admin-192.png" alt="" width="64" height="64" class="login-logo">
       <h1>لوحة الإدارة</h1>
       <p class="muted small">جهات اتصال الشعبة</p>
       <label class="field"><span>كلمة المرور</span><input type="password" id="password" autocomplete="current-password" required></label>
@@ -25,19 +32,21 @@
   <div id="app" hidden>
     <header class="topbar">
       <a class="brand" href="#/">
-        <img src="/icon.svg" alt="" width="28" height="28">
+        <img src="/icons/admin.svg" alt="" width="30" height="30">
         <span>جهات الشعبة <small>الإدارة</small></span>
       </a>
+      <span class="top-title" id="topTitle"></span>
       <nav class="nav" id="nav">
-        <a href="#/" data-v="overview">نظرة عامة</a>
-        <a href="#/files" data-v="files">الملفات</a>
-        <a href="#/contacts" data-v="contacts">جهات الاتصال</a>
-        <a href="#/whatsapp" data-v="whatsapp">واتساب</a>
+        <a href="#/" data-v="overview"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 4h7v7H4zM13 4h7v7h-7zM4 13h7v7H4zM13 13h7v7h-7z"/></svg><span>الرئيسية</span></a>
+        <a href="#/files" data-v="files"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 3h8l4 4v14H6zM14 3v4h4M9 12h6M9 16h6"/></svg><span>الملفات</span></a>
+        <a href="#/contacts" data-v="contacts"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="9" cy="8" r="3.5"/><path d="M3 20c.6-3.5 3-5.5 6-5.5s5.4 2 6 5.5M17 6.5a2.5 2.5 0 1 1 0 5M16.5 14.6c2.6.3 4 2 4.5 5.4"/></svg><span>الجهات</span></a>
+        <a href="#/whatsapp" data-v="whatsapp"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 20l1.3-3.7A8 8 0 1 1 8.6 19z"/><path d="M9 9.5c.3 2.4 2.6 4.7 5 5"/></svg><span>واتساب</span></a>
       </nav>
       <div class="top-actions">
         <details class="menu">
           <summary class="icon-btn" aria-label="المزيد">⋯</summary>
           <div class="menu-list">
+            <button type="button" id="installAdmin" hidden>📲 ثبّت لوحة الإدارة على الهاتف</button>
             <button type="button" id="dedupe">مراجعة البيانات وإزالة التكرارات</button>
             <a href="/api/admin/export/contacts.csv">تصدير جهات الاتصال الموحّدة (CSV)</a>
             <hr>
@@ -101,15 +110,7 @@
           <button type="button" data-f="shared">في أكثر من ملف</button>
         </div>
       </div>
-      <div class="table-wrap">
-        <table class="tbl" id="contactsTable">
-          <thead><tr>
-            <th>الاسم في الهاتف</th><th>الرقم</th><th>البريد</th><th>جهة العمل</th><th>المسمى</th><th>المنطقة</th>
-            <th>واتساب</th><th>أول ظهور</th><th>الملفات</th><th>أول ملف</th>
-          </tr></thead>
-          <tbody></tbody>
-        </table>
-      </div>
+      <div class="cards" id="contactsList"></div>
       <button class="btn ghost" id="contactsMore" type="button" hidden>عرض المزيد</button>
     </main>
 
