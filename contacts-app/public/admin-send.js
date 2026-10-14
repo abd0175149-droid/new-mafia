@@ -120,6 +120,15 @@ function visible() {
 
 // ───────────── العرض ─────────────
 
+const PHONE_SVG = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6.6 10.8a15.1 15.1 0 0 0 6.6 6.6l2.2-2.2a1 1 0 0 1 1-.25 11.4 11.4 0 0 0 3.6.57 1 1 0 0 1 1 1V20a1 1 0 0 1-1 1A17 17 0 0 1 3 4a1 1 0 0 1 1-1h3.5a1 1 0 0 1 1 1c0 1.25.2 2.45.57 3.6a1 1 0 0 1-.25 1z"/></svg>';
+/** زر اتصال هاتفي مباشر (tel:) — لا يفتح بطاقة الطالب عند الضغط. */
+function callLink(phone, withLabel) {
+  const a = ctx.el('a', { href: `tel:${phone}`, class: withLabel ? 'btn ghost call-btn-wide' : 'call-btn', 'aria-label': `اتصال بـ ${local(phone)}`, title: 'اتصال', onclick: (e) => e.stopPropagation() });
+  a.insertAdjacentHTML('afterbegin', PHONE_SVG);
+  if (withLabel) a.append('اتصال');
+  return a;
+}
+
 function render() {
   const { el } = ctx;
   if (!S) return;
@@ -190,6 +199,7 @@ function drawList() {
     const sub = [local(phoneOf(r)), r.values.specialty || r.values['التخصص'] || ''].filter(Boolean).join(' · ');
     const row = el('div', { class: `srow${S.opened?.r === r ? ' active' : ''}`, role: 'button', tabindex: '0' },
       el('div', { class: 'srow-main' }, el('div', { class: 'srow-name', dir: 'auto' }, nameOf(r)), el('div', { class: 'srow-sub' }, sub)),
+      callLink(phoneOf(r)),
       // إما فعل مطلوب (الحالة مفهومة منه) أو شارة الحالة النهائية — لا الاثنان معاً
       action ? el('button', { type: 'button', class: `btn small ${action[0] === 'سجّل الرد' ? 'ghost' : 'primary'}`, onclick: (e) => { e.stopPropagation(); action[1](); } }, action[0])
         : badge(cls, label));
@@ -308,7 +318,8 @@ function openSheet(r, focusFollowUp) {
   }
 
   const history = msgsOf(r);
-  dlg.append(el('div', { class: 'sheet-head' },
+  // dlg.append الأصلية تطبع null كنص؛ تُستبعد الأجزاء الفارغة
+  dlg.append(...[el('div', { class: 'sheet-head' },
     el('div', {}, el('h2', { dir: 'auto' }, nameOf(r)),
       el('div', { class: 'sheet-phones' }, r.c.phones.map((p, i) => el('a', { class: `ltr phone-link${i === r.phoneIdx ? ' on' : ''}`, href: `tel:${p}` }, local(p))))),
     el('button', { type: 'button', class: 'icon-btn', 'aria-label': 'إغلاق', onclick: () => dlg.close() }, '✕')),
@@ -321,6 +332,7 @@ function openSheet(r, focusFollowUp) {
   el('div', { class: 'sheet-actions' },
     el('button', { type: 'button', class: 'btn primary', onclick: () => { dlg.close(); openWa(r); } },
       isCheck() ? 'افحص في واتساب' : sent ? 'إرسال مرة أخرى' : 'أرسل في واتساب'),
+    callLink(phoneOf(r), true),
     msg ? el('button', { type: 'button', class: 'btn ghost', onclick: async () => {
       try { await navigator.clipboard.writeText(msg.text); toast('نُسخت الرسالة.'); } catch { toast('تعذّر النسخ.'); }
     } }, 'نسخ الرسالة') : null),
@@ -331,7 +343,7 @@ function openSheet(r, focusFollowUp) {
       el('b', {}, m.template_name || '—'), ' · ',
       { sent: 'أُرسلت', skipped: 'تُخطّيت', no_whatsapp: 'لا واتساب' }[m.status] || m.status,
       m.outcome ? ` · ${OUTCOME[m.outcome]?.[0] || m.outcome}` : '',
-      m.outcome_note ? el('div', { class: 'muted small' }, `📝 ${m.outcome_note}`) : null)))) : null);
+      m.outcome_note ? el('div', { class: 'muted small' }, `📝 ${m.outcome_note}`) : null)))) : null].filter(Boolean));
   dlg.onclose = () => dlg.remove();
   document.body.append(dlg);
   dlg.showModal();

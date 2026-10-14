@@ -415,7 +415,7 @@ button.kpi { font: inherit; text-align: start; color: inherit; width: 100%; }
 .chip-n { display: inline-block; min-width: 20px; margin-inline-start: 6px; padding: 0 6px; border-radius: 999px; background: color-mix(in srgb, currentColor 14%, transparent); font-size: .78rem; font-variant-numeric: tabular-nums; }
 
 .send-list { display: flex; flex-direction: column; gap: 6px; padding-bottom: 120px; }
-.srow { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 10px; align-items: center; background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 10px 12px; cursor: pointer; min-height: 60px; }
+.srow { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; gap: 10px; align-items: center; background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 10px 12px; cursor: pointer; min-height: 60px; }
 .srow:active { background: var(--bg); }
 .srow.active { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
 .srow-main { min-width: 0; }
@@ -542,3 +542,13 @@ button.kpi { font: inherit; text-align: start; color: inherit; width: 100%; }
 .msg-fold-snippet { color: var(--muted); font-size: .82rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .msg-fold[open] .msg-fold-snippet { display: none; }
 .msg-fold .wa-chat { margin-top: 8px; }
+
+/* زر الاتصال المباشر */
+.call-btn { width: 40px; height: 40px; flex: none; display: grid; place-items: center; border-radius: 50%; border: 1px solid var(--line); background: var(--bg); color: var(--ok); text-decoration: none; }
+.call-btn:active { background: var(--ok-soft); }
+.call-btn svg, .call-btn-wide svg { width: 20px; height: 20px; fill: currentColor; }
+.call-btn-wide { display: inline-flex; align-items: center; justify-content: center; gap: 6px; color: var(--ok); border-color: color-mix(in srgb, var(--ok) 45%, var(--line)); text-decoration: none; }
+
+.sheet-actions { flex-wrap: wrap; }
+.sheet-actions > * { flex: 1 1 40%; }
+.sheet-actions > .btn.primary { flex: 1 1 100%; }
