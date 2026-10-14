@@ -9,8 +9,10 @@ const CONTACT_HEADERS = ['رقم الرفع', 'وقت الرفع', 'الملف',
 const LIST_COLS = `id, created_at, saved_at, save_count, ip, user_agent, device_json, geo_json, file_name, file_size, sheet_name, prefix,
   count_total, count_ready, count_warn, count_excluded, repeat_count, last_repeat_at, excluded_at, exclude_reason`;
 const UNIQUE_HEADERS = ['الاسم في الهاتف', 'الاسم الكامل', 'الرقم 1', 'الرقم 2', 'البريد', 'جهة العمل', 'المسمى', 'المنطقة', 'البادئة',
-  'أول ظهور', 'آخر ظهور', 'عدد الملفات', 'أول ملف'];
+  'أول ظهور', 'آخر ظهور', 'عدد الملفات', 'أول ملف', 'واتساب'];
 const MAX_REPEATS_KEPT = 100;
+const WA_LABEL = { yes: 'له واتساب', no: 'ليس عليه واتساب' };
+const PHONE_RE = /^\+\d{8,15}$/;
 
 // ───────────── أدوات ─────────────
 
@@ -281,7 +283,8 @@ async function contactRows(env, row) {
 }
 
 async function listContacts(env, q, limit = 5000) {
-  const base = `SELECT c.*, u.file_name AS first_file FROM contacts c LEFT JOIN uploads u ON u.id = c.first_upload_id`;
+  const base = `SELECT c.*, u.file_name AS first_file, w.status AS wa_status FROM contacts c
+    LEFT JOIN uploads u ON u.id = c.first_upload_id LEFT JOIN wa_numbers w ON w.phone = c.phone`;
   if (!q) return (await env.DB.prepare(`${base} ORDER BY c.first_seen DESC LIMIT ?`).bind(limit).all()).results;
   const like = `%${q.replace(/[\\%_]/g, (ch) => '\\' + ch)}%`;
   return (await env.DB.prepare(`${base} WHERE c.search LIKE ? ESCAPE '\\' ORDER BY c.first_seen DESC LIMIT ?`).bind(like, limit).all()).results;
@@ -346,6 +349,70 @@ async function maintenance(env, parts) {
   return json({ ok: true });
 }
 
+/**
+ * واتساب (يدوي): الإرسال يتم من تطبيق واتساب نفسه عبر رابط wa.me؛ هنا تُحفظ النتائج والقوالب والسجل فقط.
+ *   GET/POST wa/templates, DELETE wa/templates/<id>
+ *   POST wa/check     { phone, status: yes|no|clear, upload_id }
+ *   POST wa/messages  { upload_id, phone, name, template_id, template_name, body, status: sent|skipped|no_whatsapp }
+ *   GET  wa/messages?upload=<id>
+ */
+async function waRoute(req, env, url, parts) {
+  const now = Date.now();
+  if (parts[0] === 'templates') {
+    if (req.method === 'GET') return json((await env.DB.prepare('SELECT * FROM wa_templates ORDER BY updated_at DESC').all()).results);
+    if (req.method === 'POST') {
+      const b = await req.json().catch(() => ({}));
+      const name = String(b.name || '').trim().slice(0, 120), body = String(b.body || '').slice(0, 4000);
+      if (!name || !body.trim()) return json({ error: 'empty' }, 400);
+      const id = b.id ? String(b.id) : randomToken(8);
+      await env.DB.prepare(`INSERT INTO wa_templates (id, name, body, created_at, updated_at) VALUES (?, ?, ?, ?, ?)
+        ON CONFLICT(id) DO UPDATE SET name = excluded.name, body = excluded.body, updated_at = excluded.updated_at`).bind(id, name, body, now, now).run();
+      return json(await env.DB.prepare('SELECT * FROM wa_templates WHERE id = ?').bind(id).first());
+    }
+    if (req.method === 'DELETE' && parts[1]) {
+      await env.DB.prepare('DELETE FROM wa_templates WHERE id = ?').bind(parts[1]).run();
+      return json({ ok: true });
+    }
+  }
+  if (parts[0] === 'check' && req.method === 'POST') {
+    const b = await req.json().catch(() => ({}));
+    const phone = String(b.phone || '');
+    if (!PHONE_RE.test(phone)) return json({ error: 'phone' }, 400);
+    if (b.status === 'clear') await env.DB.prepare('DELETE FROM wa_numbers WHERE phone = ?').bind(phone).run();
+    else if (b.status === 'yes' || b.status === 'no') {
+      await env.DB.prepare(`INSERT INTO wa_numbers (phone, status, method, checked_at, upload_id) VALUES (?, ?, 'manual', ?, ?)
+        ON CONFLICT(phone) DO UPDATE SET status = excluded.status, method = excluded.method, checked_at = excluded.checked_at, upload_id = excluded.upload_id`)
+        .bind(phone, b.status, now, b.upload_id ? String(b.upload_id) : null).run();
+    } else return json({ error: 'status' }, 400);
+    return json({ ok: true, phone, status: b.status, checked_at: now });
+  }
+  if (parts[0] === 'messages' && req.method === 'POST') {
+    const b = await req.json().catch(() => ({}));
+    const phone = String(b.phone || '');
+    if (!PHONE_RE.test(phone) || !['sent', 'skipped', 'no_whatsapp'].includes(b.status)) return json({ error: 'bad' }, 400);
+    const id = randomToken(9);
+    const stmts = [env.DB.prepare(`INSERT INTO wa_messages (id, upload_id, phone, name, template_id, template_name, body, status, created_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`).bind(id, b.upload_id ? String(b.upload_id) : null, phone, String(b.name || '').slice(0, 200),
+      b.template_id ? String(b.template_id) : null, String(b.template_name || '').slice(0, 120), String(b.body || '').slice(0, 4000), b.status, now)];
+    // الإرسال الفعلي يثبت أن الرقم على واتساب؛ و"ليس على واتساب" يثبت العكس.
+    if (b.status !== 'skipped') {
+      stmts.push(env.DB.prepare(`INSERT INTO wa_numbers (phone, status, method, checked_at, upload_id) VALUES (?, ?, ?, ?, ?)
+        ON CONFLICT(phone) DO UPDATE SET status = excluded.status, method = excluded.method, checked_at = excluded.checked_at, upload_id = excluded.upload_id`)
+        .bind(phone, b.status === 'sent' ? 'yes' : 'no', b.status === 'sent' ? 'sent' : 'manual', now, b.upload_id ? String(b.upload_id) : null));
+    }
+    await env.DB.batch(stmts);
+    return json({ ok: true, id, created_at: now });
+  }
+  if (parts[0] === 'messages' && req.method === 'GET') {
+    const upload = url.searchParams.get('upload');
+    const sql = `SELECT m.*, u.file_name FROM wa_messages m LEFT JOIN uploads u ON u.id = m.upload_id ${upload ? 'WHERE m.upload_id = ?' : ''}
+      ORDER BY m.created_at DESC LIMIT 2000`;
+    const stmt = env.DB.prepare(sql);
+    return json((await (upload ? stmt.bind(upload) : stmt).all()).results);
+  }
+  return json({ error: 'not-found' }, 404);
+}
+
 async function adminRoute(req, env, url, parts) {
   const getRow = (id) => env.DB.prepare('SELECT * FROM uploads WHERE id = ?').bind(id).first();
   // /api/admin/uploads
@@ -356,10 +423,11 @@ async function adminRoute(req, env, url, parts) {
     const rows = await listContacts(env, '', 1e6);
     const iso = (t) => (t ? new Date(t).toISOString() : '');
     const out = [UNIQUE_HEADERS, ...rows.map((r) => [r.name, r.full, r.phone, r.phone2, r.email, r.org, r.title, r.region, r.prefix,
-      iso(r.first_seen), iso(r.last_seen), r.seen_count, r.first_file || r.first_upload_id])];
+      iso(r.first_seen), iso(r.last_seen), r.seen_count, r.first_file || r.first_upload_id, WA_LABEL[r.wa_status] || 'لم يُفحص'])];
     return attachment(toCsv(out), `unique_contacts_${new Date().toISOString().slice(0, 10)}.csv`, 'text/csv; charset=utf-8');
   }
   if (parts[0] === 'maintenance' && req.method === 'POST') return maintenance(env, parts.slice(1));
+  if (parts[0] === 'wa') return waRoute(req, env, url, parts.slice(1));
   if (parts[0] !== 'uploads' || !parts[1]) return json({ error: 'not-found' }, 404);
 
   const row = await getRow(parts[1]);
@@ -396,6 +464,18 @@ async function adminRoute(req, env, url, parts) {
       await env.DB.prepare('UPDATE uploads SET excluded_at = NULL, exclude_reason = NULL WHERE id = ?').bind(row.id).run();
     }
     return json({ ok: true, rebuild: true });
+  }
+  if (sub === 'wa') {
+    const contacts = parseJson(await blobText(env, blobKey(row.id, 'contacts.json')), []) || [];
+    const phones = [...new Set(contacts.flatMap((c) => c.phones || []))];
+    const numbers = {};
+    for (let i = 0; i < phones.length; i += 80) {
+      const chunk = phones.slice(i, i + 80);
+      const { results } = await env.DB.prepare(`SELECT * FROM wa_numbers WHERE phone IN (${chunk.map(() => '?').join(',')})`).bind(...chunk).all();
+      for (const r of results) numbers[r.phone] = r;
+    }
+    const { results: messages } = await env.DB.prepare('SELECT * FROM wa_messages WHERE upload_id = ? ORDER BY created_at DESC LIMIT 2000').bind(row.id).all();
+    return json({ numbers, messages });
   }
   if (sub === 'file') {
     const obj = row.file_key && await env.FILES.get(row.file_key, 'stream');

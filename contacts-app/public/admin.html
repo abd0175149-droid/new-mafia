@@ -32,6 +32,7 @@
         <a href="#/" data-v="overview">نظرة عامة</a>
         <a href="#/files" data-v="files">الملفات</a>
         <a href="#/contacts" data-v="contacts">جهات الاتصال</a>
+        <a href="#/whatsapp" data-v="whatsapp">واتساب</a>
       </nav>
       <div class="top-actions">
         <details class="menu">
@@ -104,13 +105,16 @@
         <table class="tbl" id="contactsTable">
           <thead><tr>
             <th>الاسم في الهاتف</th><th>الرقم</th><th>البريد</th><th>جهة العمل</th><th>المسمى</th><th>المنطقة</th>
-            <th>أول ظهور</th><th>الملفات</th><th>أول ملف</th>
+            <th>واتساب</th><th>أول ظهور</th><th>الملفات</th><th>أول ملف</th>
           </tr></thead>
           <tbody></tbody>
         </table>
       </div>
       <button class="btn ghost" id="contactsMore" type="button" hidden>عرض المزيد</button>
     </main>
+
+    <!-- واتساب: القوالب والسجل -->
+    <main class="page" id="whatsappView" hidden></main>
 
     <!-- تفاصيل ملف -->
     <main class="page" id="detailView" hidden>
@@ -126,6 +130,7 @@
       <section class="info" id="dInfo"></section>
       <div class="tabs-line" id="dTabs">
         <button type="button" data-t="contacts" class="on">جهات الاتصال</button>
+        <button type="button" data-t="wa">واتساب</button>
         <button type="button" data-t="sheet">الشيت الأصلي</button>
         <button type="button" data-t="repeats">مرات الرفع</button>
         <button type="button" data-t="analysis">التحليل</button>

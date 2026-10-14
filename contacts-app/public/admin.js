@@ -1,3 +1,5 @@
+import { initWa, renderWaTab, loadWaPage, leaveWaTab } from './admin-wa.js';
+
 const $ = (id) => document.getElementById(id);
 const SVG = 'http://www.w3.org/2000/svg';
 
@@ -71,7 +73,7 @@ function toast(msg) {
 
 // ───────────── التنقل ─────────────
 
-const VIEWS = ['overview', 'files', 'contacts', 'detail'];
+const VIEWS = ['overview', 'files', 'contacts', 'whatsapp', 'detail'];
 function showView(v) {
   $('loginView').hidden = true;
   $('app').hidden = false;
@@ -337,13 +339,14 @@ function renderContacts() {
       el('td', { dir: 'auto' }, c.name, c.full && c.full !== c.name ? el('div', { class: 'sub' }, c.full) : null),
       el('td', { class: 'num' }, c.phone, c.phone2 ? el('div', { class: 'sub' }, c.phone2) : null),
       el('td', { class: 'ltr' }, c.email || ''), el('td', {}, c.org || ''), el('td', {}, c.title || ''), el('td', {}, c.region || ''),
+      el('td', {}, c.wa_status === 'yes' ? badge('ok', 'له') : c.wa_status === 'no' ? badge('bad', 'ليس عليه') : badge('muted', 'لم يُفحص')),
       el('td', { class: 'num', title: when(c.first_seen) }, when(c.first_seen).slice(0, 10)),
       el('td', {}, c.seen_count > 1 ? badge('warn', `${c.seen_count} ملفات`) : '1'),
       el('td', { class: 'wrap' }, c.first_file || c.first_upload_id || ''));
     tr.onclick = () => { if (c.first_upload_id) location.hash = `#/u/${c.first_upload_id}`; };
     return tr;
   }));
-  if (!shown.length) $('contactsTable').tBodies[0].append(el('tr', {}, el('td', { colspan: 9, class: 'muted', style: 'text-align:center;padding:32px' }, 'لا توجد جهات.')));
+  if (!shown.length) $('contactsTable').tBodies[0].append(el('tr', {}, el('td', { colspan: 10, class: 'muted', style: 'text-align:center;padding:32px' }, 'لا توجد جهات.')));
   $('contactsMore').hidden = rows.length <= shown.length;
 }
 
@@ -402,6 +405,8 @@ async function loadDetail(id) {
 function renderTab(t) {
   const d = current;
   const body = $('dBody');
+  if (t === 'wa') { renderWaTab(body, d).catch((e) => { console.error(e); toast('تعذّر تحميل تبويب واتساب.'); }); return; }
+  leaveWaTab();
   if (t === 'contacts') {
     if (!d.contacts) {
       body.replaceChildren(el('div', { class: 'empty-state' }, 'رُفع الملف لكن المستخدم لم يضغط "حفظ" بعد. البيانات الكاملة في تبويب "الشيت الأصلي".'));
@@ -494,6 +499,7 @@ function colName(i) {
 // ───────────── التوجيه ─────────────
 
 async function route() {
+  leaveWaTab();
   try {
     const me = await (await fetch('/api/admin/me')).json();
     if (!me.admin) { showLogin(); return; }
@@ -506,10 +512,15 @@ async function route() {
       return await loadFiles();
     }
     if (h.startsWith('#/contacts')) return await loadContacts();
+    if (h.startsWith('#/whatsapp')) {
+      showView('whatsapp');
+      return await loadWaPage($('whatsappView'), new URLSearchParams(h.split('?')[1] || ''));
+    }
     return await loadOverview();
   } catch (e) {
     if (e.message !== 'auth') { console.error(e); toast('تعذّر تحميل البيانات. أعد المحاولة.'); }
   }
 }
+initWa({ el, api, post, toast, when, badge });
 addEventListener('hashchange', route);
 route();
