@@ -1,5 +1,6 @@
 import { initWa, loadWaPage } from './admin-wa.js';
 import { initSend, leaveSend } from './admin-send.js';
+import { initTemplates } from './admin-templates.js';
 import { canInstall, install, onInstallChange } from './pwa.js';
 
 const $ = (id) => document.getElementById(id);
@@ -550,5 +551,6 @@ installBtn.onclick = async () => {
 
 initWa({ el, api, post, toast, when, badge });
 initSend({ el, api, post, toast, when, badge });
+initTemplates({ el, api, post, toast, when, badge });
 addEventListener('hashchange', route);
 route();

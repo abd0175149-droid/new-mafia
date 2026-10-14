@@ -149,7 +149,7 @@ function render() {
     el('label', { class: 'field' }, el('span', {}, 'الرسالة'), tplSel),
     el('div', { class: 'send-links' },
       tpl ? el('a', { class: 'link', href: `#/whatsapp/templates?t=${encodeURIComponent(tpl.id)}&f=${encodeURIComponent(S.fileId)}` }, 'تعديل الرسالة') : null,
-      el('a', { class: 'link', href: `#/whatsapp/templates?f=${encodeURIComponent(S.fileId)}` }, '＋ رسالة جديدة')),
+      el('a', { class: 'link', href: `#/whatsapp/templates?t=new&f=${encodeURIComponent(S.fileId)}` }, '＋ رسالة جديدة')),
     warn);
 
   // 2) التقدّم

@@ -1,10 +1,10 @@
 // Service worker: يجعل الصفحتين قابلتين للتثبيت ويعملان بلا اتصال قدر الإمكان.
 // الشبكة أولاً دائماً (حتى يصل كل نشر جديد فوراً)، والنسخة المحفوظة احتياط عند انقطاع الاتصال.
 // لا يُخزَّن أي شيء من /api/ ولا version.json — البيانات لا تُحفظ في الجهاز.
-const CACHE = 'contacts-shell-v2';
+const CACHE = 'contacts-shell-v3';
 const SHELL = [
   '/', '/style.css', '/app.js', '/core.js', '/vendor/xlsx.full.min.js', '/manifest.webmanifest',
-  '/admin', '/admin.css', '/admin.js', '/admin-wa.js', '/admin-send.js', '/wa-shared.js', '/template.js', '/admin.webmanifest',
+  '/admin', '/admin.css', '/admin.js', '/admin-wa.js', '/admin-send.js', '/admin-templates.js', '/wa-shared.js', '/template.js', '/admin.webmanifest',
   '/offline', '/offline.js', '/icon.svg', '/icons/icon-192.png', '/icons/admin-192.png',
 ];
 

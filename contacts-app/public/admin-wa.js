@@ -1,7 +1,8 @@
 // واتساب في لوحة الإدارة: فحص الأرقام يدوياً، وقوالب الرسائل، والإرسال المتتالي عبر تطبيق واتساب، والسجل.
 // لا يُرسل شيء آلياً: كل رسالة تُفتح في واتساب جاهزة، ويضغط الأدمن "إرسال" بنفسه ثم يسجّل النتيجة هنا.
 
-import { fileColumns, recipientValues, renderMessage, waFormat, BUILTINS } from './template.js';
+import { waFormat } from './template.js';
+import { drawTemplatesPage } from './admin-templates.js';
 import { MSG, OUTCOME, PROBLEM, local } from './wa-shared.js';
 import { loadSendView, leaveSend } from './admin-send.js';
 
@@ -57,17 +58,6 @@ export function openOutcome(m) {
   });
 }
 
-let templatesCache = null;
-async function getTemplates(force) {
-  if (!templatesCache || force) templatesCache = await ctx.api('/api/admin/wa/templates');
-  return templatesCache;
-}
-
-
-// ───────────── صفحة "واتساب": القوالب والسجل ─────────────
-
-let page = { editing: null, sample: null, sampleIdx: 0 };
-
 const SUBS = [['send', 'الإرسال والمتابعة'], ['templates', 'الرسائل الجاهزة'], ['log', 'السجل الكامل']];
 
 /** صفحة واتساب: sub = send | templates | log */
@@ -75,169 +65,14 @@ export async function loadWaPage(container, sub, params) {
   const { el } = ctx;
   leaveSend();
   if (!SUBS.some(([k]) => k === sub)) sub = 'send';
-  if (sub === 'templates') {
-    if (params.has('t')) page.editing = params.get('t') || null;
-    if (params.get('f')) page.sampleFile = params.get('f');
-  }
   const subTabs = el('div', { class: 'tabs-line' }, SUBS.map(([k, label]) => el('a', { href: `#/whatsapp/${k}`, class: k === sub ? 'on' : '' }, label)));
   const holder = el('div');
-  container.replaceChildren(subTabs, holder);
+  // محرّر الرسالة شاشة كاملة بلا تبويبات فوقه
+  const editing = sub === 'templates' && params.get('t');
+  container.replaceChildren(...(editing ? [holder] : [subTabs, holder]));
   if (sub === 'send') return loadSendView(holder, params);
   if (sub === 'log') return drawLog(holder);
-  return drawTemplates(holder);
-}
-
-const DEFAULT_BODY = 'السلام عليكم {اللقب} {الاسم الأول}،\n\n';
-
-async function drawTemplates(holder) {
-  const { el, api, post, toast } = ctx;
-  const [templates, uploads] = await Promise.all([getTemplates(true), api('/api/admin/uploads')]);
-  const files = uploads.filter((u) => u.saved_at && !u.excluded_at);
-  if (!page.sampleFile || !files.some((f) => f.id === page.sampleFile)) page.sampleFile = files[0]?.id || null;
-  if (page.sampleFile && page.sample?.id !== page.sampleFile) {
-    page.sample = await api(`/api/admin/uploads/${encodeURIComponent(page.sampleFile)}`);
-    page.sampleIdx = 0;
-  }
-  const current = templates.find((x) => x.id === page.editing) || null;
-  if (!page.draft || page.draft.forId !== (current?.id || null)) {
-    page.draft = { forId: current?.id || null, id: current?.id || null, name: current?.name || '', body: current?.body ?? DEFAULT_BODY };
-  }
-  const draft = page.draft;
-  const isDirty = () => (current
-    ? draft.name.trim() !== current.name.trim() || draft.body !== current.body
-    : !!draft.name.trim() || draft.body !== DEFAULT_BODY);
-  const leaveDraft = () => !isDirty() || confirm('في تغييرات غير محفوظة على القالب. تتجاهلها؟');
-  const select = (id) => { if (!leaveDraft()) return; page.editing = id; page.draft = null; page.justSaved = null; drawTemplates(holder); };
-
-  const list = el('div', { class: 'tpl-list' },
-    el('button', { type: 'button', class: `tpl-item${!current ? ' on' : ''}`, onclick: () => select(null) }, '＋ قالب جديد'),
-    templates.map((x) => el('button', { type: 'button', class: `tpl-item${x.id === page.editing ? ' on' : ''}`, onclick: () => select(x.id) },
-      el('b', {}, x.name), el('span', { class: 'muted small' }, x.body.slice(0, 60)))));
-
-  const name = el('input', { type: 'text', value: draft.name, placeholder: 'اسم القالب، مثل: ترحيب بالشعبة', maxlength: 120 });
-  const body = el('textarea', { rows: 10, dir: 'auto', maxlength: 4000 });
-  body.value = draft.body;
-  const insert = (token) => {
-    const s = body.selectionStart ?? body.value.length, e = body.selectionEnd ?? s;
-    body.value = body.value.slice(0, s) + token + body.value.slice(e);
-    body.focus(); body.selectionStart = body.selectionEnd = s + token.length;
-    draft.body = body.value;
-    preview();
-  };
-  const columns = page.sample ? fileColumns(page.sample) : [];
-  const chips = el('div', { class: 'tpl-tokens' },
-    el('div', { class: 'muted small' }, 'حقول جاهزة'),
-    el('div', { class: 'chips' }, BUILTINS.map((k) => el('button', { type: 'button', onclick: () => insert(`{${k}}`) }, k)),
-      el('button', { type: 'button', title: 'كلمة حسب الجنس: الأولى للذكر والثانية للأنثى', onclick: () => insert('{ذ/أ: عزيزي|عزيزتي}') }, 'كلمة حسب الجنس')),
-    el('div', { class: 'muted small', style: 'margin-top:8px' }, page.sample ? `أعمدة ملف المعاينة (${page.sample.file_name})` : 'لا يوجد ملف للمعاينة'),
-    el('div', { class: 'chips' }, columns.map((c) => el('button', { type: 'button', title: `العمود ${c.col}`, onclick: () => insert(`{${c.key}}`) }, c.key))));
-
-  const fileSel = el('select', { 'aria-label': 'ملف المعاينة' }, files.map((f) => el('option', { value: f.id, selected: f.id === page.sampleFile }, `${f.file_name} · ${f.prefix || ''}`)));
-  fileSel.onchange = () => { page.sampleFile = fileSel.value; drawTemplates(holder); };
-  const people = (page.sample?.contacts || []).filter((c) => c.status !== 'excluded' && c.phones?.length);
-  const who = el('span', { class: 'muted small' });
-  const bubble = el('div', { class: 'wa-bubble', dir: 'auto' });
-  const warn = el('div');
-  const nav = (d) => { if (!people.length) return; page.sampleIdx = (page.sampleIdx + d + people.length) % people.length; preview(); };
-
-  function preview() {
-    const p = people[page.sampleIdx];
-    if (!p) { bubble.replaceChildren('لا يوجد طالب للمعاينة.'); return; }
-    const r = renderMessage(body.value, recipientValues(page.sample, p, columns));
-    who.textContent = `${page.sampleIdx + 1} من ${people.length}: ${p.full || p.name}`;
-    bubble.replaceChildren(waFormat(r.text || ' '));
-    warn.replaceChildren(
-      r.missing.length ? el('div', { class: 'note bad' }, `غير موجود في هذا الملف: ${r.missing.map((k) => `{${k}}`).join('، ')}`) : '',
-      r.empty.length ? el('div', { class: 'note' }, `فارغ لهذا الطالب: ${r.empty.map((k) => `{${k}}`).join('، ')} — أضف بديلاً هكذا: {${r.empty[0]}|بديل}`) : '');
-  }
-  // حالة الحفظ ظاهرة دائماً بجانب الأزرار، لا رسالة عابرة فقط.
-  const state = el('div', { class: 'save-state', role: 'status', 'aria-live': 'polite' });
-  const sendBtn = el('button', { type: 'button', class: 'btn ghost small', onclick: () => chooseFileAndSend(current, files) }, 'إرسال بهذا القالب ←');
-  function refreshState(error) {
-    const dirty = isDirty();
-    saveBtn.disabled = false;
-    saveBtn.textContent = current ? 'حفظ التعديلات' : 'حفظ القالب';
-    sendBtn.hidden = !current;
-    sendBtn.disabled = dirty;
-    if (error) state.replaceChildren(el('span', { class: 'bad' }, `✗ لم يُحفظ: ${error}`));
-    else if (dirty) state.replaceChildren(el('span', { class: 'warn' }, current ? '● تعديلات غير محفوظة' : '● قالب جديد لم يُحفظ بعد'));
-    else if (current) state.replaceChildren(el('span', { class: 'ok' }, `✓ محفوظ · آخر تعديل ${ctx.when(current.updated_at)}`));
-    else state.replaceChildren(el('span', { class: 'muted' }, 'اكتب اسماً ونصاً ثم احفظ.'));
-  }
-  body.addEventListener('input', () => { draft.body = body.value; preview(); refreshState(); });
-  name.addEventListener('input', () => { draft.name = name.value; refreshState(); });
-
-  const saveBtn = el('button', { type: 'button', class: 'btn primary small', onclick: async () => {
-    if (!name.value.trim()) { refreshState('اكتب اسم القالب'); name.focus(); return; }
-    if (!body.value.trim()) { refreshState('نص الرسالة فارغ'); body.focus(); return; }
-    saveBtn.disabled = true; saveBtn.textContent = 'جارٍ الحفظ…';
-    try {
-      const saved = await post('/api/admin/wa/templates', { id: draft.id, name: name.value, body: body.value });
-      page.editing = saved.id;
-      page.draft = null;
-      page.justSaved = saved.id;
-      templatesCache = null;
-      toast(`✓ حُفظ القالب "${saved.name}"`);
-      await drawTemplates(holder);
-      holder.querySelector('.saved-next')?.scrollIntoView({ block: 'center', behavior: 'smooth' });
-    } catch (e) {
-      refreshState(e.message === 'auth' ? 'انتهت الجلسة، سجّل الدخول ثم أعد الحفظ' : 'تعذّر الاتصال بالخادم، أعد المحاولة');
-    }
-  } }, current ? 'حفظ التعديلات' : 'حفظ القالب');
-  const delBtn = current ? el('button', { type: 'button', class: 'btn danger small', onclick: async () => {
-    if (!confirm(`حذف القالب "${current.name}"؟ السجل السابق يبقى كما هو.`)) return;
-    try {
-      await api(`/api/admin/wa/templates/${encodeURIComponent(current.id)}`, { method: 'DELETE' });
-      page.editing = null; page.draft = null; page.justSaved = null; templatesCache = null;
-      toast('حُذف القالب.');
-      drawTemplates(holder);
-    } catch { toast('تعذّر حذف القالب.'); }
-  } }, 'حذف') : null;
-
-  // بعد الحفظ مباشرة: ماذا بعد؟
-  const next = current && page.justSaved === current.id ? el('div', { class: 'saved-next' },
-    el('b', {}, `✓ حُفظ القالب "${current.name}"`),
-    el('p', {}, 'الخطوة التالية: اختر الملف الذي تريد مراسلة طلابه. ستُفتح قائمة الطلاب وكل رسالة جاهزة ببيانات صاحبها، ترسلها من واتساب ثم تسجّل "أُرسلت".'),
-    files.length
-      ? el('div', { class: 'saved-files' }, files.slice(0, 6).map((f) => el('a', { class: 'btn primary small', href: `#/whatsapp/send?f=${encodeURIComponent(f.id)}&t=${encodeURIComponent(current.id)}` }, `إرسال لطلاب ${f.prefix || f.file_name} (${f.count_ready + f.count_warn})`)))
-      : el('p', { class: 'muted' }, 'لا يوجد ملف محفوظ بعد.')) : null;
-
-  holder.replaceChildren(el('div', { class: 'tpl-layout' },
-    el('aside', { class: 'panel tpl-side' }, el('div', { class: 'panel-head' }, el('h2', {}, 'القوالب')), list),
-    el('section', { class: 'panel' },
-      el('div', { class: 'panel-head' }, el('h2', {}, current ? 'تحرير القالب' : 'قالب جديد')),
-      el('label', { class: 'field' }, el('span', {}, 'اسم القالب'), name),
-      el('label', { class: 'field' }, el('span', {}, 'نص الرسالة'), body),
-      el('p', { class: 'muted small' }, 'اضغط على أي حقل لإدراجه مكان المؤشر. للتنسيق في واتساب: *عريض* _مائل_ ~مشطوب~. وللقيمة البديلة إن كانت الخلية فارغة: {اسم العمود|بديل}. {اللقب} يصير الأستاذ أو الأستاذة حسب عمود الجنس، و{ذ/أ: عزيزي|عزيزتي} يختار الكلمة حسب الجنس.'),
-      chips,
-      el('div', { class: 'tpl-buttons' }, saveBtn, sendBtn, delBtn),
-      state,
-      next),
-    el('section', { class: 'panel tpl-preview' },
-      el('div', { class: 'panel-head' }, el('h2', {}, 'المعاينة')),
-      files.length ? el('label', { class: 'field' }, el('span', {}, 'ملف المعاينة'), fileSel) : el('p', { class: 'muted' }, 'لا يوجد ملف محفوظ للمعاينة بعد.'),
-      el('div', { class: 'tpl-nav' }, el('button', { type: 'button', class: 'icon-btn', onclick: () => nav(1), 'aria-label': 'التالي' }, '›'), who,
-        el('button', { type: 'button', class: 'icon-btn', onclick: () => nav(-1), 'aria-label': 'السابق' }, '‹')),
-      el('div', { class: 'wa-chat' }, bubble), warn)));
-  preview();
-  refreshState();
-}
-
-/** نافذة اختيار الملف للإرسال بقالب محفوظ، ثم الانتقال لتبويب واتساب في ذلك الملف (وضع الإرسال). */
-function chooseFileAndSend(tpl, files) {
-  const { el } = ctx;
-  if (!tpl) return;
-  const dlg = el('dialog', { class: 'dialog' });
-  dlg.append(el('form', { method: 'dialog' },
-    el('h2', {}, 'إرسال بالقالب'),
-    el('p', { class: 'muted small' }, `"${tpl.name}" — اختر الملف:`),
-    files.length ? el('div', { class: 'pick-list' }, files.map((f) => el('a', { class: 'pick-item', href: `#/whatsapp/send?f=${encodeURIComponent(f.id)}&t=${encodeURIComponent(tpl.id)}`, onclick: () => dlg.close() },
-      el('b', {}, f.prefix || f.file_name), el('span', { class: 'muted small' }, `${f.file_name} · ${f.count_ready + f.count_warn} طالب`))))
-      : el('p', {}, 'لا يوجد ملف محفوظ بعد.'),
-    el('div', { class: 'dialog-actions' }, el('button', { class: 'btn ghost small', value: 'cancel' }, 'إلغاء'))));
-  dlg.onclose = () => dlg.remove();
-  document.body.append(dlg);
-  dlg.showModal();
+  return drawTemplatesPage(holder, params);
 }
 
 async function drawLog(holder) {

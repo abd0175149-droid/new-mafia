@@ -471,3 +471,64 @@ button.kpi { font: inherit; text-align: start; color: inherit; width: 100%; }
 .send-progress { margin-bottom: 8px; }
 .send-progress-text { font-size: .82rem; margin-bottom: 4px; }
 @media (max-width: 760px) { .send-setup { grid-template-columns: 1fr 1fr; padding: 8px 10px 0; } }
+
+/* ═════════════ الرسائل الجاهزة: القائمة والمحرّر ═════════════ */
+.tpl-new { display: flex; margin: 0 0 12px; min-height: 50px; font-size: 1rem; text-decoration: none; }
+.tpl-card { text-decoration: none; color: var(--text); }
+.tpl-snippet { color: var(--muted); font-size: .88rem; line-height: 1.6; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+
+.editor { display: flex; flex-direction: column; gap: 12px; padding-bottom: 24px; }
+.ed-top { position: sticky; top: 60px; z-index: 6; display: flex; align-items: center; gap: 10px; background: var(--bg); padding: 8px 0; margin-top: -4px; }
+.ed-back { color: var(--accent); text-decoration: none; font-weight: 600; white-space: nowrap; }
+.ed-state { flex: 1; text-align: center; font-size: .82rem; font-weight: 600; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ed-state.ok { color: var(--ok); } .ed-state.warn { color: var(--warn); } .ed-state.bad { color: var(--bad); }
+.ed-top .btn { margin: 0; min-width: 76px; min-height: 40px; }
+.ed-top .btn:disabled { opacity: .45; }
+
+.ed-name { font-size: 1.05rem !important; font-weight: 700; background: var(--card) !important; }
+
+.seg { display: grid; grid-template-columns: 1fr 1fr; background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 3px; gap: 3px; }
+.seg button { font: inherit; font-weight: 600; border: 0; border-radius: 9px; padding: 9px; background: none; color: var(--muted); cursor: pointer; }
+.seg button.on { background: var(--accent); color: var(--accent-ink); }
+
+.ed-pane { display: flex; flex-direction: column; gap: 10px; }
+.ed-body { width: 100%; min-height: 180px; font: inherit; font-size: 16px; line-height: 1.75; color: var(--text); background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 14px; resize: none; overflow: hidden; }
+.ed-body:focus { outline: 2px solid var(--accent); outline-offset: 0; }
+
+/* شريط الأدوات يلتصق أسفل الشاشة فوق شريط التنقل أثناء الكتابة */
+.ed-toolbar { position: sticky; bottom: calc(72px + env(safe-area-inset-bottom)); z-index: 6; display: flex; gap: 6px; align-items: center; overflow-x: auto; scrollbar-width: none;
+  background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 6px; box-shadow: 0 6px 20px rgba(0, 0, 0, .12); }
+.ed-toolbar::-webkit-scrollbar { display: none; }
+.ed-toolbar button { flex: none; font: inherit; font-size: .88rem; border-radius: 10px; min-height: 38px; padding: 6px 12px; cursor: pointer; border: 1px solid var(--line); background: var(--bg); color: var(--text); white-space: nowrap; }
+.ed-toolbar .ed-insert { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); font-weight: 700; }
+.ed-toolbar .ed-fmt { width: 38px; padding: 0; }
+.ed-sep { flex: none; width: 1px; height: 24px; background: var(--line); }
+@media (min-width: 761px) { .ed-toolbar { bottom: 12px; } .ed-top { top: 60px; } }
+
+.pv-bar { display: flex; flex-direction: column; gap: 8px; }
+.pv-bar select { min-height: 42px; }
+.pv-nav { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.pv-nav .icon-btn { flex: none; }
+.pv-who { flex: 1; text-align: center; font-size: .88rem; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pv-chat { min-height: 200px; padding: 16px 12px; }
+.pv-chat .wa-bubble { max-width: 92%; font-size: 15px; }
+
+.ed-footer { display: flex; flex-direction: column; gap: 8px; margin-top: 4px; }
+.ed-footer .btn { margin: 0; }
+.btn.danger-link { background: none; border: 0; color: var(--bad); font-weight: 600; min-height: 44px; }
+
+.field-sheet { width: min(560px, calc(100vw - 32px)); max-height: 80vh; overflow: auto; }
+.field-sheet .search { margin: 4px 0 10px; }
+.field-list section { margin-bottom: 14px; }
+.field-list h3 { margin: 0 0 8px; font-size: .82rem; color: var(--muted); font-weight: 600; }
+.field-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+.field-grid button { font: inherit; font-size: .9rem; text-align: start; padding: 11px 12px; border-radius: 10px; border: 1px solid var(--line); background: var(--bg); color: var(--text); cursor: pointer; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.field-grid button:active { border-color: var(--accent); }
+
+@media (max-width: 760px) {
+  .ed-top { top: calc(58px + env(safe-area-inset-top)); margin-inline: -12px; padding: 8px 12px; border-bottom: 1px solid var(--line); }
+}
+@media (max-width: 760px) {
+  /* كل النوافذ أوراق سفلية بعرض الشاشة على الهاتف */
+  .field-sheet, .send-sheet, .outcome-dialog { width: 100%; max-width: 100%; margin: auto 0 0; border-radius: 20px 20px 0 0; max-height: 88vh; }
+}
