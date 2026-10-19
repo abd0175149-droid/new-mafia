@@ -104,7 +104,9 @@ check(/'restyle'\]/.test(bot) || /, 'restyle'/.test(bot),
 check(/mergeRestyle/.test(bot), 'الإعدادات تُنقّح في الخادم لا في الواجهة');
 check(/ADD COLUMN IF NOT EXISTS restyle/.test(boot), 'العمود يُنشأ عند الإقلاع');
 // storedBody = جسم الطلب (+ رابط صورة البثّ للعرض منذ 2026-09-30) — والدمج مع meta كما هو
-check(/meta\?:\s*Record<string, any>/.test(inbox) && /input\.meta \? \{ \.\.\.storedBody, \.\.\.input\.meta \}/.test(inbox),
+// (منذ م١: meta تُدمج مع حمولة القناة — ميتا والجلسة معاً)
+check(/meta\?:\s*Record<string, any>/.test(inbox) && /const meta = \{ \.\.\.\(input\.meta \|\| \{\}\)/.test(inbox)
+  && /\{ \.\.\.r\.storedPayload, \.\.\.meta \}/.test(inbox) && /\{ \.\.\.stored, \.\.\.meta \}/.test(inbox),
   'اسم الموظّف ونصّه الأصليّ يُحفظان مع الرسالة — كان الاسم يُمرَّر ولا يُخزَّن');
 
 // ══════════════════════════════════════════════════════

@@ -25,6 +25,8 @@ function check(ok: boolean, label: string, detail = ''): void {
 }
 
 const inbox = read('services/whatsapp-inbox.service.ts');
+// منذ م١ (2026-10-20): بناء حمولة ميتا ونداؤها ورفع الوسائط في قناة ميتا (wa-transport/cloud.transport.ts)
+const cloud = read('services/wa-transport/cloud.transport.ts');
 const routes = read('routes/whatsapp-inbox.routes.ts');
 const bcast = read('services/whatsapp-broadcast.service.ts');
 
@@ -33,15 +35,16 @@ console.log('\n🖼️  إرسال الصور عبر واتساب\n');
 // ── ١. البوّابة الوحيدة للصادر لم تُفتح ───────────────────
 console.log('١. بوّابة النافذة');
 {
-  // مسار الصورة يجب أن يمرّ من sendMessage نفسها، بعد فحص النافذة
-  const gateAt = inbox.indexOf('if (!isFreeWindowOpen(conv))');
-  const imageBranchAt = inbox.indexOf("type: 'image'");
+  // مسار الصورة يمرّ من sendMessage نفسها: الموجِّه (حارس النافذة) ثمّ الإرسال
+  const fnStart = inbox.indexOf('export async function sendMessage');
+  const gateAt = inbox.indexOf('if (!pick.channel) throw', fnStart);
+  const imageBranchAt = inbox.indexOf('const r = await sendCloud(', fnStart);
   check(gateAt > 0 && imageBranchAt > gateAt,
     'بناءُ رسالة الصورة يقع بعد فحص النافذة لا قبله',
     gateAt < 0 ? 'لم يُعثر على الفحص' : `gate=${gateAt} image=${imageBranchAt}`);
 
   // لا مسارَ ثانٍ إلى نقطة الرسائل في Cloud API
-  const msgCalls = (inbox.match(/\/messages`/g) || []).length;
+  const msgCalls = (inbox.match(/\/messages`/g) || []).length + (cloud.match(/\/messages`/g) || []).length;
   check(msgCalls === 1, 'نداءٌ واحد فقط لنقطة messages في Cloud API', `عدد النداءات: ${msgCalls}`);
 
   // نقطةُ الرفع لا ترسل شيئاً — تُنتج رابطاً فقط
@@ -97,7 +100,7 @@ console.log('\n٣. الصيغة والامتداد');
 // ── ٤. حدُّ التعليق ────────────────────────────────────
 console.log('\n٤. حدُّ التعليق');
 {
-  check(/export const WA_CAPTION_MAX = 1024;/.test(inbox), 'الحدُّ معرَّفٌ ومُصدَّر (1024)');
+  check(/export const WA_CAPTION_MAX = 1024;/.test(cloud) && /export const WA_CAPTION_MAX = CLOUD_CAPTION_MAX;/.test(inbox), 'الحدُّ معرَّفٌ ومُصدَّر (1024)');
   check(/\.slice\(0, WA_CAPTION_MAX\)/.test(inbox), 'التعليقُ يُقصّ عندنا قبل أن ترفضه ميتا');
   check(/WA_CAPTION_MAX/.test(bcast) && /أطول من/.test(bcast),
     'البثُّ يرفض النصَّ الطويل قبل أن يكتب صفّاً أو يرسل رسالة');
@@ -138,17 +141,17 @@ console.log('\n٧. الصفُّ المحفوظ');
   check(/hasImage \? 'image'/.test(inbox), "msgType = 'image' للصورة الصادرة");
   check(/hasImage \? \(caption \|\| '📷 صورة'\)/.test(inbox), 'المعاينةُ التعليقُ أو «📷 صورة»');
   // payload = جسمُ الطلب، ويُضاف له رابطُنا حين أُرسلت الصورة بالمعرّف (البثّ) — للعرض فقط
-  check(/payload: input\.meta \? \{ \.\.\.storedBody, \.\.\.input\.meta \} : storedBody/.test(inbox)
-    && /storedBody = hasImage && input\.image!\.mediaId && input\.image!\.link\s*\? \{ \.\.\.apiBody, image: \{ \.\.\.apiBody\.image, link: input\.image!\.link \} \}\s*: apiBody/.test(inbox),
+  check(/payload: Object\.keys\(meta\)\.length \? \{ \.\.\.r\.storedPayload, \.\.\.meta \} : r\.storedPayload/.test(inbox)
+    && /storedPayload = c\.image\?\.mediaId && c\.image\?\.link\s*\? \{ \.\.\.apiBody, image: \{ \.\.\.apiBody\.image, link: c\.image\.link \} \}\s*: apiBody/.test(cloud),
     'السجلّ = جسمُ الطلب، وصورةُ البثّ تحمل رابطنا للعرض');
-  check(/callWaApi\(`\$\{env\.WA_PHONE_NUMBER_ID\}\/messages`, apiBody\)/.test(inbox) && /\? \{ id: input\.image!\.mediaId/.test(inbox),
+  check(/callWaApi\(`\$\{env\.WA_PHONE_NUMBER_ID\}\/messages`, apiBody\)/.test(cloud) && /\? \{ id: c\.image\.mediaId/.test(cloud),
     'ميتا تأخذ المعرّف وحده (الرابط لا يُرسل)');
 }
 
 // ── ٨. الرفعُ لميتا بـmultipart لا JSON ──────────────────
 console.log('\n٨. رفعُ الوسائط');
 {
-  const fn = inbox.slice(inbox.indexOf('export async function uploadWaMedia'), inbox.indexOf('// ── استدعاء Cloud API'));
+  const fn = cloud.slice(cloud.indexOf('export async function uploadCloudMedia'), cloud.indexOf('/** تنزيل وسيطٍ من Graph'));
   check(/new FormData\(\)/.test(fn) && /messaging_product/.test(fn), 'multipart بحقول ميتا المطلوبة');
   check(!/'Content-Type'/.test(fn), 'بلا Content-Type يدويّ (fetch يضبط الحدَّ الفاصل)');
   check(/\/media`/.test(fn), 'ينادي نقطةَ /media لا /messages');

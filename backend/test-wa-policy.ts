@@ -76,33 +76,44 @@ const bulkRoutes = [...routesCode.matchAll(/router\.\w+\(\s*'([^']+)'/g)]
 check(bulkRoutes.length === 0, 'لا مسار حملات، ولا بثّ خارج /open-window-broadcast المقيَّد', bulkRoutes.join(' · '));
 
 // ── ٤) منفذ واحد إلى Cloud API ────────────────────────
-console.log('\n٤) منفذ واحد فقط إلى واتساب — وهو المشروط:');
+// منذ م١ (2026-10-20) كودُ ميتا في wa-transport/cloud.transport.ts، وsendMessage يستدعيه عبر sendCloud.
+console.log('\n٤) منفذ واحد فقط إلى واتساب ميتا — وهو المشروط:');
+const CLOUD = path.join(SRC, 'services', 'wa-transport', 'cloud.transport.ts');
 const senders: Array<{ file: string; count: number }> = [];
 for (const f of files) {
   const n = (code(f).match(/callWaApi\(/g) || []).length;
-  if (n) senders.push({ file: path.relative(SRC, f), count: n });
+  if (n) senders.push({ file: path.relative(SRC, f).split(path.sep).join('/'), count: n });
 }
-const posts = senders.filter((s) => s.file.endsWith('whatsapp-inbox.service.ts'));
+const posts = senders.filter((s) => s.file.endsWith('wa-transport/cloud.transport.ts'));
 check(senders.length === 1 && posts.length === 1,
-  'callWaApi لا يُستدعى إلا من whatsapp-inbox.service',
+  'callWaApi لا يُستدعى إلا داخل قناة ميتا (cloud.transport)',
   senders.map((s) => `${s.file}×${s.count}`).join(', '));
 
 const inboxSrc = read(path.join(SRC, 'services', 'whatsapp-inbox.service.ts'));
-const msgCalls = (code(path.join(SRC, 'services', 'whatsapp-inbox.service.ts'))
-  .match(/callWaApi\(`\$\{env\.WA_PHONE_NUMBER_ID\}\/messages`/g) || []).length;
+const cloudSrc = read(CLOUD);
+const msgCalls = (code(CLOUD).match(/callWaApi\(`\$\{env\.WA_PHONE_NUMBER_ID\}\/messages`/g) || []).length;
 check(msgCalls === 1, 'استدعاء واحد فقط لنقطة /messages', `العدد=${msgCalls}`);
+const sendCloudCallers = files.filter((f) => /sendCloud\(/.test(code(f)) && !f.endsWith('cloud.transport.ts'));
+check(sendCloudCallers.length === 1 && sendCloudCallers[0].endsWith('whatsapp-inbox.service.ts'),
+  'وsendCloud لا يستدعيها إلا sendMessage', sendCloudCallers.map((f) => path.relative(SRC, f)).join(', '));
 
 // ── ٥) قيد الموافقة يسبق الإرسال في نفس الدالة ────────
 console.log('\n٥) «a number can only be messaged if that customer opened the conversation first»:');
 const sendFn = inboxSrc.slice(
   inboxSrc.indexOf('export async function sendMessage'),
-  inboxSrc.indexOf('callWaApi(`${env.WA_PHONE_NUMBER_ID}/messages`'),
+  inboxSrc.indexOf('const r = await sendCloud('),
 );
-check(sendFn.length > 0 && /if \(!isFreeWindowOpen\(conv\)\)/.test(sendFn),
-  '🔒 حارس النافذة يقع قبل نداء الإرسال داخل sendMessage');
+check(sendFn.length > 0 && /const pick = pickChannel\(conv, lane\);/.test(sendFn) && /if \(!pick\.channel\) throw/.test(sendFn),
+  '🔒 حارس النافذة (الموجِّه) يقع قبل نداء الإرسال داخل sendMessage');
 check(/WINDOW_EXPIRED/.test(sendFn), 'ويرمي WINDOW_EXPIRED بدل المتابعة');
-check(/if \(!conv\.lastInboundAt\) return false;/.test(inboxSrc),
+const routerSrc = read(path.join(SRC, 'services', 'wa-transport', 'router.ts'));
+check(/if \(ch === 'cloud'\) return cloudConfigured\(\) && cloudWindowOpen\(conv\);/.test(routerSrc),
+  'وقناة ميتا لا تُختار إلا ونافذتها مفتوحة');
+check(/return !!at && Date\.now\(\) - at < CLOUD_WINDOW_MS - marginMs;/.test(routerSrc),
   'والنافذة لا تُفتح إلا برسالة واردة من العميل — أي أنه راسلنا أولاً');
+const anchorWrites = (code(path.join(SRC, 'services', 'whatsapp-inbox.service.ts')).match(/cloudLastInboundAt: now/g) || []).length;
+check(anchorWrites === 1 && /channel === 'cloud' \? \{ cloudLastInboundAt: now \}/.test(inboxSrc),
+  'ومرساة نافذة ميتا لا تُكتب إلا من وارد ميتا', `مواضع=${anchorWrites}`);
 
 // ── ٦) لا إرسال قوالب (المسار الوحيد الذي كان يتجاوز النافذة) ──
 console.log('\n٦) لا أداة تخاطب نافذة مغلقة:');
@@ -124,9 +135,11 @@ check(/export async function deleteTemplate/.test(tplSvc),
 console.log('\n٨) «Account-health monitoring halts all sending on any signal from Meta»:');
 check(/export function suspendSending/.test(inboxSrc), 'دالة قفل الإرسال موجودة');
 check(/suspendSending\(label\)/.test(inboxSrc), 'ومعالج أحداث صحّة الحساب يستدعيها');
-check(/const blocked = sendingSuspendedReason\(\);/.test(sendFn),
-  '🔒 وsendMessage يفحص القفل قبل أي شيء آخر');
-check(/env\.WA_SUSPENDED/.test(inboxSrc), 'والقفل التشغيليّ WA_SUSPENDED يُطبَّق في نفس الموضع');
+check(/const blocked = sendingSuspendedReason\(channel\);/.test(sendFn),
+  '🔒 وsendMessage يفحص قفل القناة قبل نداء الإرسال');
+const locksSrc = read(path.join(SRC, 'services', 'wa-transport', 'locks.ts'));
+check(/if \(channel === 'cloud' && env\.WA_SUSPENDED\)/.test(locksSrc), 'والقفل التشغيليّ WA_SUSPENDED يُطبَّق على قناة ميتا في الموضع نفسه');
+check(/suspendSending\(`ميتا ترفض الطلبات/.test(cloudSrc), 'ورفضُ ميتا (200/368/131031) يقفل الإرسال فوراً');
 
 const remSrc = code(path.join(SRC, 'services', 'whatsapp-reminder.service.ts'));
 check(/if \(env\.WA_SUSPENDED\)/.test(remSrc), 'ومجدول التذكير لا يبدأ أصلاً وهو مرفوع');
