@@ -1056,11 +1056,25 @@ class _SocialSection extends StatefulWidget {
 
 class _SocialSectionState extends State<_SocialSection> {
   String _waGroup = _kWhatsappGroupFallback;
+  // 💬 رابط الدون من الخادم (رقم ميتا أو رقم الأعمال بحسب وضع القنوات) — الثابت احتياطٌ
+  String _waBot = _kWhatsappBot;
 
   @override
   void initState() {
     super.initState();
     _loadGroup();
+    _loadBot();
+  }
+
+  Future<void> _loadBot() async {
+    try {
+      final r = await ApiClient.instance.get('/api/player-app/whatsapp-bot');
+      if (!mounted || r is! Map) return;
+      final url = r['url'];
+      if (url is String && RegExp(r'^https://wa\.me/\d+$').hasMatch(url)) setState(() => _waBot = url);
+    } catch (_) {
+      // يبقى رقم ميتا — يردّ عليه البوت ويوجّه
+    }
   }
 
   Future<void> _loadGroup() async {
@@ -1121,7 +1135,7 @@ class _SocialSectionState extends State<_SocialSection> {
             title: 'راسل الدون على واتساب',
             sub: 'حجز، أسعار، أختامك ورتبتك — يردّ فوراً ويحوّلك للإدارة متى طلبت',
             tint: const Color(0xFF25D366),
-            url: _kWhatsappBot,
+            url: _waBot,
           ),
         ],
       );

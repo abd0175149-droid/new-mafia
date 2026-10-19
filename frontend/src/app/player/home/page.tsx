@@ -42,6 +42,8 @@ export default function HomePage() {
   const { player, staffInfo } = usePlayer();
   const router = useRouter();
   const [waGroup, setWaGroup] = useState(WHATSAPP_GROUP_FALLBACK);
+  // 💬 رابط بوت الدون من الخادم (رقم ميتا أو رقم الأعمال بحسب وضع القنوات) — الثابت احتياطٌ قبل الردّ
+  const [waBot, setWaBot] = useState(WHATSAPP_BOT_URL);
   const [profile, setProfile] = useState<any>(null);
   const [feed, setFeed] = useState<any[]>([]);
   const [upcoming, setUpcoming] = useState<any[]>([]);
@@ -93,6 +95,15 @@ export default function HomePage() {
         { timeout: 8000, maximumAge: 300000 },
       );
     } else ask('');
+    return () => { cancelled = true; };
+  }, [player?.token]);
+
+  useEffect(() => {
+    if (!player?.token) return;
+    let cancelled = false;
+    fetch('/api/player-app/whatsapp-bot', { headers: { Authorization: `Bearer ${player.token}` } })
+      .then(r => r.json()).then(d => { if (!cancelled && d?.success && /^https:\/\/wa\.me\/\d+$/.test(d.url || '')) setWaBot(d.url); })
+      .catch(() => {});
     return () => { cancelled = true; };
   }, [player?.token]);
 
@@ -919,7 +930,7 @@ export default function HomePage() {
           تاريخه: عطّلت ميتا الحساب القديم في ٣١ يوليو ٢٠٢٦ فحُوِّل الزرّ مؤقّتاً إلى إنستغرام؛
           عاد إلى واتساب في ١٩ أيلول ٢٠٢٦ مع الرقم الجديد (0781495972) على حساب أعمال جديد. */}
       <a
-        href={WHATSAPP_BOT_URL}
+        href={waBot}
         target="_blank"
         rel="noopener noreferrer"
         aria-label="راسلنا على واتساب"
