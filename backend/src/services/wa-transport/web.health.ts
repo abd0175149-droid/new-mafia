@@ -147,12 +147,13 @@ export async function ensureWebhook(): Promise<void> {
   if (!webConfigured() || !env.OPENWA_WEBHOOK_SECRET) return;
   try {
     const list = await gw.listWebhooks();
-    const body = { url: env.OPENWA_WEBHOOK_URL, events: WEBHOOK_EVENTS, secret: env.OPENWA_WEBHOOK_SECRET, retryCount: 5, active: true };
+    // الإنشاء لا يقبل `active` (whitelist صارم ⟵ 400)؛ التحديث يقبله
+    const body = { url: env.OPENWA_WEBHOOK_URL, events: WEBHOOK_EVENTS, secret: env.OPENWA_WEBHOOK_SECRET, retryCount: 5 };
     const hit = list.find((w: any) => w?.url === env.OPENWA_WEBHOOK_URL);
     if (!hit) await gw.createWebhook(body);
     else {
       const same = Array.isArray(hit.events) && WEBHOOK_EVENTS.every(e => hit.events.includes(e)) && hit.active !== false && (hit.retryCount ?? 5) === 5;
-      if (!same) await gw.updateWebhook(String(hit.id), body);
+      if (!same) await gw.updateWebhook(String(hit.id), { ...body, active: true });
     }
     state.webhook = { ok: true, at: new Date().toISOString() };
   } catch (e: any) {

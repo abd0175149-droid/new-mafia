@@ -18,6 +18,7 @@ import { env } from '../config/env.js';
 import { waConversations, waMessages, waCustomerNotes, waOptouts, waMessageTemplates, bookings, locations } from '../schemas/admin.schema.js';
 import { players } from '../schemas/player.schema.js';
 import { normalizeLocalPhone } from '../utils/phone.util.js';
+import { pickChannel, cloudWindowOpen } from '../services/wa-transport/router.js';
 import { authenticate, adminOnly } from '../middleware/auth.js';
 import {
   processWebhookPayload,
@@ -27,6 +28,13 @@ import {
 } from '../services/whatsapp-inbox.service.js';
 
 const router = Router();
+
+// 🔀 من أيّ رقمٍ سيخرج الردّ الآن، وهل يمكن الردّ أصلاً — يغني الواجهة عن حساب النافذة بنفسها
+//    (على رقم الأعمال لا نافذة، فحسابها من lastInboundAt في المتصفّح يكذب)
+function routeInfo(c: any): { windowOpen: boolean; sendVia: 'cloud' | 'web' | null; cloudWindowOpen: boolean } {
+  const p = pickChannel(c, 'reply');
+  return { windowOpen: p.channel !== null, sendVia: p.channel, cloudWindowOpen: cloudWindowOpen(c) };
+}
 
 // ══════════════════════════════════════════════════════
 // حُرّاس المصادقة
@@ -210,7 +218,7 @@ router.post('/send', botOrAdmin, async (req: Request, res: Response) => {
 
     res.json({ success: true, ...result });
   } catch (err: any) {
-    const status = err.code === 'WINDOW_EXPIRED' ? 409 : 500;
+    const status = ['WINDOW_EXPIRED', 'CHANNEL_UNAVAILABLE', 'SENDING_SUSPENDED'].includes(err.code) ? 409 : 500;
     console.error('❌ whatsapp/send:', err.message);
     res.status(status).json({ error: err.message, code: err.code || 'SEND_FAILED' });
   }
@@ -297,7 +305,7 @@ router.get('/conversations', authenticate, adminOnly, async (req: Request, res: 
       ...c,
       avatarUrl: c.playerId ? (avatars.get(c.playerId) || null) : null,
       botActive: isBotActive(c),
-      windowOpen: isFreeWindowOpen(c),
+      ...routeInfo(c),
     }));
     res.json({ success: true, conversations: list });
   } catch (err: any) {
@@ -371,7 +379,7 @@ router.get('/conversations/:id/messages', authenticate, adminOnly, async (req: R
 
     res.json({
       success: true,
-      conversation: { ...conv, avatarUrl, botActive: isBotActive(conv), windowOpen: isFreeWindowOpen(conv) },
+      conversation: { ...conv, avatarUrl, botActive: isBotActive(conv), ...routeInfo(conv) },
       messages, // الأحدث أولاً
       hasMore: messages.length === limit,
     });
@@ -488,7 +496,7 @@ router.post('/conversations/:id/bot-toggle', authenticate, adminOnly, async (req
       });
     } catch { /* غير حاجب */ }
 
-    res.json({ success: true, conversation: { ...updated, botActive: isBotActive(updated), windowOpen: isFreeWindowOpen(updated) } });
+    res.json({ success: true, conversation: { ...updated, botActive: isBotActive(updated), ...routeInfo(updated) } });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }
@@ -643,7 +651,8 @@ router.get('/bot/quality', authenticate, adminOnly, async (req: Request, res: Re
 router.get('/open-window-broadcast/audience', authenticate, adminOnly, async (req: Request, res: Response) => {
   try {
     const B = await import('../services/whatsapp-broadcast.service.js');
-    const aud = await B.previewAudience({ filter: String(req.query.filter || 'all') as any, activityId: req.query.activityId ? Number(req.query.activityId) : null, excludeBroadcastIds: String(req.query.excludeBroadcasts || '').split(',').map(Number).filter(Boolean) });
+    const ch = ['cloud', 'web'].includes(String(req.query.channel)) ? (String(req.query.channel) as any) : 'all';
+    const aud = await B.previewAudience({ filter: String(req.query.filter || 'all') as any, activityId: req.query.activityId ? Number(req.query.activityId) : null, excludeBroadcastIds: String(req.query.excludeBroadcasts || '').split(',').map(Number).filter(Boolean), channel: ch });
     res.json({ ...aud, status: await B.broadcastStatus(), history: await B.listBroadcasts(15), activities: await B.upcomingActivities() });
   } catch (e: any) { res.status(500).json({ error: e.message }); }
 });
@@ -651,14 +660,14 @@ router.post('/open-window-broadcast', authenticate, adminOnly, async (req: Reque
   try {
     const B = await import('../services/whatsapp-broadcast.service.js');
     const u: any = (req as any).user;
-    const r = await B.startBroadcast({ body: req.body?.body, imageUrl: req.body?.imageUrl ?? null, filter: req.body?.filter || 'all', activityId: req.body?.activityId ?? null, excludeIds: Array.isArray(req.body?.excludeIds) ? req.body.excludeIds : [], templateId: req.body?.templateId ? Number(req.body.templateId) : null, excludeBroadcastIds: Array.isArray(req.body?.excludeBroadcastIds) ? req.body.excludeBroadcastIds.map(Number) : [], appendOptout: req.body?.appendOptout !== false, createdBy: u?.displayName || u?.username || '' });
+    const r = await B.startBroadcast({ body: req.body?.body, imageUrl: req.body?.imageUrl ?? null, filter: req.body?.filter || 'all', activityId: req.body?.activityId ?? null, excludeIds: Array.isArray(req.body?.excludeIds) ? req.body.excludeIds : [], templateId: req.body?.templateId ? Number(req.body.templateId) : null, excludeBroadcastIds: Array.isArray(req.body?.excludeBroadcastIds) ? req.body.excludeBroadcastIds.map(Number) : [], appendOptout: req.body?.appendOptout !== false, channel: ['cloud', 'web'].includes(req.body?.channel) ? req.body.channel : 'all', createdBy: u?.displayName || u?.username || '' });
     if (!r.ok) return res.status(400).json({ error: r.error });
     try { const { logStaffAction } = await import('../services/staff-action-log.service.js'); void logStaffAction({ staffId: u?.id, staffUsername: u?.username, staffRole: u?.role, source: 'rest', action: 'rest:wa-broadcast', category: 'WHATSAPP_ADMIN', labelAr: 'بثّ واتساب للنوافذ المفتوحة', details: { broadcastId: r.id, targets: r.total, filter: req.body?.filter || 'all', body: String(req.body?.body || '').slice(0, 200) } }); } catch { /* غير حاجب */ }
     res.json({ success: true, id: r.id, total: r.total });
   } catch (e: any) { res.status(500).json({ error: e.message }); }
 });
 router.post('/open-window-broadcast/:id/stop', authenticate, adminOnly, async (req: Request, res: Response) => {
-  const B = await import('../services/whatsapp-broadcast.service.js'); B.stopBroadcast(parseInt(req.params.id)); res.json({ success: true });
+  const B = await import('../services/whatsapp-broadcast.service.js'); await B.stopBroadcast(parseInt(req.params.id)); res.json({ success: true });
 });
 // 📜 سجلّ البثّ بصفحات — ?page&pageSize&sort=created|sent|targets|failed|read&order=asc|desc&status&q
 router.get('/open-window-broadcast/history', authenticate, adminOnly, async (req: Request, res: Response) => {
@@ -695,8 +704,9 @@ router.post('/health/test-alert', authenticate, adminOnly, async (_req: Request,
 // ⛔ قفل الإرسال (يُغلقه حدث صحّة الحساب من ميتا أو WA_SUSPENDED) — حالته ورفعه اليدويّ
 router.get('/sending-status', authenticate, adminOnly, async (_req: Request, res: Response) => {
   const { sendingSuspendedReason } = await import('../services/whatsapp-inbox.service.js');
+  const { allLocks } = await import('../services/wa-transport/locks.js');
   const reason = sendingSuspendedReason();
-  res.json({ suspended: !!reason, reason, envLocked: !!env.WA_SUSPENDED });
+  res.json({ suspended: !!reason, reason, envLocked: !!env.WA_SUSPENDED, channels: allLocks() });
 });
 router.post('/sending-resume', authenticate, adminOnly, async (req: Request, res: Response) => {
   if (env.WA_SUSPENDED) return res.status(409).json({ error: 'القفل مضبوط في البيئة (WA_SUSPENDED=1) — يُرفع من ملفّ البيئة وإعادة التشغيل' });
@@ -1021,7 +1031,7 @@ router.post('/conversations/:id/link-player', authenticate, adminOnly, async (re
       .where(eq(waConversations.id, convId)).returning();
     if (!updated) return res.status(404).json({ error: 'المحادثة غير موجودة' });
 
-    res.json({ success: true, conversation: { ...updated, botActive: isBotActive(updated), windowOpen: isFreeWindowOpen(updated) } });
+    res.json({ success: true, conversation: { ...updated, botActive: isBotActive(updated), ...routeInfo(updated) } });
 
     // 🎁 الموضع الثالث لصرف مطالبةٍ معلَّقة من عرضِ الحديث (بعد الردّ — لا يؤخّر الواجهة)
     if (playerId !== null) {

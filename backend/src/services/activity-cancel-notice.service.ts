@@ -79,9 +79,16 @@ async function reachOf(phones: string[]): Promise<Map<string, Reach>> {
   if (!db || !phones.length) return out;
   const { isFreeWindowOpen } = await import('./whatsapp-inbox.service.js');
   const convs = rowsOf(await db.execute(sql`
-    SELECT c.id, c.phone, c.last_inbound_at, EXISTS (SELECT 1 FROM wa_optouts o WHERE o.phone = c.phone) AS opted
+    SELECT c.id, c.phone, c.last_inbound_at, c.cloud_last_inbound_at, c.channel, EXISTS (SELECT 1 FROM wa_optouts o WHERE o.phone = c.phone) AS opted
       FROM wa_conversations c WHERE c.phone IN (${sql.join(phones.map(p => sql`${p}`), sql`, `)})`));
-  for (const c of convs) out.set(String(c.phone), { conversationId: Number(c.id), windowOpen: isFreeWindowOpen({ lastInboundAt: c.last_inbound_at }), optedOut: !!c.opted });
+  for (const c of convs) out.set(String(c.phone), { conversationId: Number(c.id), windowOpen: isFreeWindowOpen({ lastInboundAt: c.last_inbound_at, cloudLastInboundAt: c.cloud_last_inbound_at, channel: c.channel }), optedOut: !!c.opted });
+  // 📱 رقم الأعمال يصل الحاجز ولو لم تكن له محادثة بعد (لا شرط محادثة سابقة — قرار المالك):
+  //    يُراسَل برقمه فتُفتح محادثته. في cloud_only يبقى «بلا محادثة» كما كان.
+  const { webConfigured } = await import('./wa-transport/router.js');
+  const { transportSettings } = await import('./wa-transport/settings.js');
+  if (webConfigured() && transportSettings().mode !== 'cloud_only') {
+    for (const p of phones) if (!out.has(p)) out.set(p, { conversationId: null, windowOpen: true, optedOut: false });
+  }
   return out;
 }
 
@@ -177,21 +184,26 @@ export async function runCancelNotice(activityId: number, opts: { by: string; te
 
 async function sendQueued(activityId: number, act: { name: string; date: Date }, tpl: string, list: Array<Booker & { reach?: Reach }>): Promise<number> {
   const db = getDB(); if (!db) return 0;
-  const { sendMessage } = await import('./whatsapp-inbox.service.js');
+  const { sendMessage, isUnreachable } = await import('./whatsapp-inbox.service.js');
   let sent = 0;
+  let viaWeb = false;
   for (const b of list) {
     const text = renderCancelText(tpl, { name: b.name, activity: act.name, when: whenAr(act.date) });
     try {
-      const r: any = await sendMessage({ conversationId: b.reach!.conversationId!, text, source: 'system', meta: { cancelNotice: activityId } });
+      const cid = b.reach?.conversationId;
+      // جماعيّ بأولويّةٍ تسبق البثّ في طابور رقم الأعمال؛ بلا محادثة ⟵ برقمه (تُفتح محادثته)
+      const r: any = await sendMessage({ ...(cid ? { conversationId: cid } : { phone: b.phone }), text, source: 'system', lane: 'bulk', priority: 2, meta: { cancelNotice: activityId } });
+      viaWeb = r?.message?.channel === 'web';
       await db.execute(sql`UPDATE activity_cancel_recipients SET outcome = 'sent', wa_message_id = ${r?.message?.id ?? null}, sent_at = NOW(), error = NULL
         WHERE activity_id = ${activityId} AND phone = ${b.phone}`);
       sent++;
     } catch (e: any) {
-      const code = e?.code === 'WINDOW_EXPIRED' ? 'window_closed' : 'failed';
+      const code = isUnreachable(e) ? 'window_closed' : 'failed';
       await db.execute(sql`UPDATE activity_cancel_recipients SET outcome = ${code}, error = ${String(e?.message || e).slice(0, 300)}
         WHERE activity_id = ${activityId} AND phone = ${b.phone}`);
     }
-    await new Promise(r => setTimeout(r, SEND_GAP_MS));
+    // ميتا: التباعد هنا · رقم الأعمال: الطابور يتولّاه
+    if (!viaWeb) await new Promise(r => setTimeout(r, SEND_GAP_MS));
   }
   return sent;
 }

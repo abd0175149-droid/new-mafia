@@ -22,6 +22,8 @@ import { players, playerNotes } from '../schemas/player.schema.js';
 import { activities, reservations, locations, staff, waConversations, waMessages } from '../schemas/admin.schema.js';
 import { logStaffAction } from './staff-action-log.service.js';
 import { notTestActivity, notTestActivitySql, notTestLocationSql, isTestActivity, TEST_ACTIVITY_RESULT } from './test-location.util.js';
+import { reachableSql, webConfigured } from './wa-transport/router.js';
+import { transportSettings } from './wa-transport/settings.js';
 
 const rowsOf = (r: any): any[] => r?.rows ?? (Array.isArray(r) ? r : []);
 const GRAPH = 'https://graph.facebook.com/v20.0';
@@ -76,13 +78,13 @@ export async function alertAdminsWA(key: string, text: string, opts?: { exceptCo
     await setAux(`wa-alert:${key}`, { at: Date.now() });
     const r: any = await db.execute(sql`
       SELECT c.id FROM wa_conversations c JOIN players p ON p.id = c.player_id JOIN staff s ON s.id = p.linked_staff_id
-       WHERE s.role = 'admin' AND c.last_inbound_at > NOW() - INTERVAL '23 hours 50 minutes'
+       WHERE s.role = 'admin' AND ${reachableSql('c', 'timely', 10)} AND c.phone_verified = true
     `);
     const { sendMessage } = await import('./whatsapp-inbox.service.js');
     let n = 0;
     for (const row of rowsOf(r)) {
       if (opts?.exceptConvId && Number(row.id) === opts.exceptConvId) continue;
-      try { await sendMessage({ conversationId: Number(row.id), text: `🔔 ${text}`, source: 'system' }); n++; } catch { /* نافذة أُغلقت أو قفل إرسال */ }
+      try { await sendMessage({ conversationId: Number(row.id), text: `🔔 ${text}`, source: 'system', lane: 'timely' }); n++; } catch { /* نافذة أُغلقت أو قفل إرسال */ }
     }
     return n;
   } catch { return 0; }
@@ -1268,13 +1270,13 @@ export async function offerFreedSeat(activityId: number, h: ExtHelpers): Promise
         FROM reservations r JOIN activities a ON a.id = r.activity_id JOIN wa_conversations c ON c.phone = r.phone
        WHERE r.activity_id = ${activityId} AND r.deleted_at IS NULL AND r.status = 'waitlist' AND a.date > NOW()
          AND ${sql.raw(notTestActivitySql('a'))}
-         AND c.last_inbound_at > NOW() - INTERVAL '23 hours 50 minutes' AND r.people_count <= ${av.remaining}
+         AND ${reachableSql('c', 'timely', 10)} AND r.people_count <= ${av.remaining}
        ORDER BY r.created_at ASC LIMIT 1`);
     const x = rowsOf(r)[0]; if (!x) return false;
     const { getAux, setAux } = await import('../config/redis.js');
     if (await getAux(`wl-offer:${x.id}`)) return false;
     await setAux(`wl-offer:${x.id}`, { at: Date.now() });
-    await h.sendMessage({ conversationId: Number(x.conv_id), source: 'bot', interactive: {
+    await h.sendMessage({ conversationId: Number(x.conv_id), source: 'bot', lane: 'timely', interactive: {
       type: 'button', body: { text: `🪑 خبر حلو: فضي مكان في «${x.name}» (${h.fmtJo(x.date)}) يكفي حجزك لـ${x.people_count} أشخاص.\nبتحب أثبّته إلك؟ (الأسبقيّة لمن يؤكّد أوّلاً)` },
       action: { buttons: [{ type: 'reply', reply: { id: `wl_take:${x.id}`, title: 'ثبّته لي ✓' } }, { type: 'reply', reply: { id: 'wl_skip', title: 'لا، شكراً' } }] },
     } });
@@ -1315,14 +1317,16 @@ async function sendSurveyQuestion(convId: number, rowId: number, q: any, idx: nu
     (q.type === 'scale' && Array.isArray(q.options) && q.options.length ? q.options : FIVE_SCALE);
   const body = String(q.text || '').slice(0, 900);
   const tail = total > 1 ? ` (${idx + 1}/${total})` : '';
+  // السؤال الأوّل يبادر به النادي (جماعيّ)، وما بعده ردٌّ على ضغطة العميل
+  const lane = idx === 0 ? 'bulk' as const : 'reply' as const;
 
   if (opts.length <= 3) {
-    await sendMessage({ conversationId: convId, source: 'bot', interactive: { type: 'button',
+    await sendMessage({ conversationId: convId, source: 'bot', lane, interactive: { type: 'button',
       body: { text: body + tail },
       action: { buttons: opts.map(o => ({ type: 'reply', reply: { id: `srv:${rowId}:${q.id}:${o.score}`, title: o.label.slice(0, 20) } })) } } });
     return;
   }
-  await sendMessage({ conversationId: convId, source: 'bot', interactive: { type: 'list',
+  await sendMessage({ conversationId: convId, source: 'bot', lane, interactive: { type: 'list',
     body: { text: body + tail },
     action: {
       button: 'اختر تقييمك',
@@ -1338,7 +1342,7 @@ function lowScoreAlert(h: any, conv: any, rowId: number, score: number): void {
 }
 
 async function surveyTick() {
-  const db = getDB(); if (!db || !env.WA_TOKEN) return;
+  const db = getDB(); if (!db || !(env.WA_TOKEN || webConfigured())) return;
   const { getBotSettings } = await import('./whatsapp-bot.service.js');
   const settings: any = await getBotSettings();
   if (!settings.enabled || (settings.toolsConfig?.survey ?? true) === false) return;
@@ -1351,14 +1355,19 @@ async function surveyTick() {
   if (sendingSuspendedReason()) return;
 
   const r: any = await db.execute(sql`
-    SELECT f.id, f.player_id, c.id AS conv_id, a.name AS activity
-      FROM room_feedback f JOIN wa_conversations c ON c.player_id = f.player_id LEFT JOIN activities a ON a.id = f.activity_id
+    SELECT f.id, f.player_id, c.id AS conv_id, p.phone AS player_phone, a.name AS activity
+      FROM room_feedback f JOIN players p ON p.id = f.player_id
+      LEFT JOIN wa_conversations c ON c.player_id = f.player_id
+      LEFT JOIN activities a ON a.id = f.activity_id
      WHERE f.submitted_at IS NULL
        AND f.created_at < NOW() - (${cfg.delayMin} || ' minutes')::interval
        AND f.created_at > NOW() - (${cfg.validHours} || ' hours')::interval
        -- 🧪 موقع اختبار: لا استبيان على أمسيةٍ هناك (f.location_id يُلتقط عند إغلاق الغرفة)
        AND (f.location_id IS NULL OR f.location_id NOT IN (SELECT id FROM locations WHERE is_test_location IS TRUE))
-       AND c.bot_enabled = true AND c.last_inbound_at > NOW() - INTERVAL '23 hours 30 minutes'
+       AND (
+         (c.id IS NOT NULL AND c.bot_enabled = true AND ${reachableSql('c', 'bulk', 30)})
+         ${webConfigured() && transportSettings().mode !== 'cloud_only' ? sql`OR (c.id IS NULL AND p.phone IS NOT NULL)` : sql``}
+       )
      ORDER BY f.created_at DESC LIMIT 40`);
   const { getAux, setAux } = await import('../config/redis.js');
   const seenPlayer = new Set<number>();
@@ -1370,6 +1379,13 @@ async function surveyTick() {
     if (seen && Number(seen.until || 0) > Date.now()) continue;
     await setAux(`wa-survey:${x.player_id}`, { at: Date.now(), rowId: x.id, until: Date.now() + cfg.onceHours * 3600e3 });
     try {
+      // رقم الأعمال: لاعبٌ بلا محادثة تُفتح محادثته برقمه (لا شرط محادثة سابقة)
+      if (!x.conv_id) {
+        const { getOrCreateConversation } = await import('./whatsapp-inbox.service.js');
+        const cv: any = await getOrCreateConversation(String(x.player_phone), '', { channel: 'web' });
+        if (!cv) continue;
+        x.conv_id = cv.id;
+      }
       // موضعُ اللاعب من الأسئلة — النمطُ نفسه المستعمَل في زرّ «أضيف ملاحظة»
       await setAux(`wa-survey-at:${Number(x.conv_id)}`, { rowId: Number(x.id), idx: 0, total: questions.length });
       const first = { ...questions[0] };

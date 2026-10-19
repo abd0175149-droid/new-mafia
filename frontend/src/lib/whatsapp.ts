@@ -87,3 +87,27 @@ export function ensureHttp(raw?: string | null): string {
   const s = String(raw || '').trim();
   return s && !/^https?:\/\//i.test(s) ? `https://${s}` : s;
 }
+
+// ══════════════════════════════════════════════════════
+// 📤 الإرسال المباشر عبر رقم الأعمال (بدل فتح تطبيق واتساب)
+// ══════════════════════════════════════════════════════
+// يعمل حين تكون جلسة رقم الأعمال مفعّلة ووضع القنوات غير «ميتا وحدها» (من «مركز واتساب ← القنوات»).
+// وإلّا تبقى الصفحات على openWhatsApp كما كانت. القيمة تُخبّأ دقيقةً لكلّ الصفحات.
+let directCache: { at: number; value: boolean } | null = null;
+let directInflight: Promise<boolean> | null = null;
+export async function waDirectEnabled(): Promise<boolean> {
+  if (directCache && Date.now() - directCache.at < 60e3) return directCache.value;
+  // صفحةٌ فيها عشرات الأزرار تسأل مرّة واحدة لا عشرات المرّات
+  if (directInflight) return directInflight;
+  directInflight = fetchDirect().finally(() => { directInflight = null; });
+  return directInflight;
+}
+async function fetchDirect(): Promise<boolean> {
+  try {
+    const token = typeof window !== 'undefined' ? localStorage.getItem('token') : null;
+    const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || ''}/api/whatsapp/outreach/config`, { headers: { Authorization: `Bearer ${token}` } });
+    const d = res.ok ? await res.json() : null;
+    directCache = { at: Date.now(), value: !!d?.direct };
+  } catch { directCache = { at: Date.now(), value: false }; }
+  return directCache.value;
+}

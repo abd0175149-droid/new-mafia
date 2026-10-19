@@ -32,7 +32,7 @@ check(/const beforeStart = Date\.now\(\) < act\.date\.getTime\(\)/.test(svc) && 
 check(/act\.isTest \? 'test_location'/.test(svc) && /if \(skipped\) return \{ ok: true, skipped/.test(svc), 'موقع الاختبار لا يصل واتساب');
 check(/ON CONFLICT \(activity_id, phone\) DO NOTHING RETURNING id/.test(svc), 'مرّةً لكلّ رقم — إعادة الإلغاء تراسل الجدد وحدهم');
 check(/r\.status <> 'cancelled'/.test(svc) && /'waitlist'/.test(svc), 'الحاجزون: الحجوزات + المتابعة (بلا الملغاة) + الانتظار');
-check(/e\?\.code === 'WINDOW_EXPIRED' \? 'window_closed'/.test(svc), 'رفضُ النافذة لحظة الإرسال يُسجَّل «نافذة مغلقة» لا «فشل»');
+check(/isUnreachable\(e\) \? 'window_closed'/.test(svc), 'رفضُ النافذة لحظة الإرسال يُسجَّل «نافذة مغلقة» لا «فشل»');
 check(/CREATE TABLE IF NOT EXISTS activity_cancel_recipients/.test(code('src/index.ts')), 'الجداول تُنشأ عند الإقلاع');
 
 console.log('\n🚫 الملغاة ليست دَيناً ولا غياباً ولا تذكيراً');

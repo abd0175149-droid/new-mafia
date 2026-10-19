@@ -34,6 +34,8 @@ import ResRow, { ar } from '@/components/reservations/ResRow';
 import PersonSheet from '@/components/reservations/PersonSheet';
 import QuickAddSheet from '@/components/reservations/QuickAddSheet';
 import WaConfirmBar from '@/components/reservations/WaConfirmBar';
+import DirectSendDialog, { type DirectItem } from '@/components/DirectSendDialog';
+import { useWaDirect } from '@/hooks/useWaDirect';
 import { Sheet, SheetHead, ActionRow } from '@/components/reservations/Sheet';
 import { useVisibleViewport } from '@/hooks/useVisibleViewport';
 
@@ -217,6 +219,9 @@ export default function ReservationsPage() {
   const [busy, setBusy] = useState<string | null>(null);
   const [toast, setToast] = useState<{ text: string; id: number; prev: boolean | null } | null>(null);
   const [waJust, setWaJust] = useState<Reservation | null>(null);
+  // 📤 رقم الأعمال مفعّل ⟵ الرسالة تخرج من النظام مباشرة بدل فتح تطبيق واتساب
+  const direct = useWaDirect();
+  const [dsend, setDsend] = useState<{ items: DirectItem[]; title: string; label: string } | null>(null);
 
   const [tpl, setTpl] = useState(initialTpl);
   /** قالبٌ صاغه صاحبُه ويختلف عن الافتراضيّ الحاليّ — يُنبَّه ولا يُدهس */
@@ -245,7 +250,14 @@ export default function ReservationsPage() {
   // يفتح واتساب فوراً ثمّ يُعلّم — بهذا الترتيب: فتحُ نافذةٍ بعد `await`
   // يعدّه المتصفّحُ نافذةً منبثقةً لا استجابةً للمسة، فيحجبها.
   // ══════════════════════════════════════════════════════
+  const asItem = useCallback((r: Reservation): DirectItem => ({
+    phone: r.phone || '', text: waMessage(r), name: r.contactName, reservationId: r.id, playerId: (r as any).playerId ?? null,
+  }), [waMessage]);
   const sendWa = useCallback((r: Reservation) => {
+    if (direct) {
+      setDsend({ items: [asItem(r)], title: `رسالة إلى ${r.contactName || r.phone}`, label: `حجز #${r.id}` });
+      return;
+    }
     if (!openWhatsApp(r.phone || '', waMessage(r))) {
       alert('رقمٌ غير صالحٍ للواتساب — صحّحه من «تعديل البيانات».');
       return;
@@ -253,7 +265,7 @@ export default function ReservationsPage() {
     R.markWaSent(r.id, true);
     setToast(null);   // يتشاركان الموضعَ نفسَه أسفلَ الشاشة
     setWaJust(r);
-  }, [R, waMessage]);
+  }, [R, waMessage, direct, asItem]);
 
   /** مَن ينتظر رسالةً في العرض الحاليّ — بترتيب الشاشة نفسِه لئلّا يقفز المؤشّر */
   const waQueue = useMemo(
@@ -586,8 +598,32 @@ export default function ReservationsPage() {
         onCreate={R.createRow} findDuplicate={findDuplicate}
       />
 
+      {dsend && (
+        <DirectSendDialog
+          origin="reservations" items={dsend.items} title={dsend.title} label={dsend.label}
+          onClose={() => { setDsend(null); R.fetchAll(); }}
+        />
+      )}
+
       <Sheet open={showMore} onClose={() => setShowMore(false)}>
         <SheetHead title="المزيد" sub={single ? R.activityName(Number(R.activityId)) : 'كلّ الفعاليّات'} />
+        {direct && R.filtered.some(needsWa) && (
+          <button
+            onClick={() => {
+              setShowMore(false);
+              const rows = R.filtered.filter(needsWa);
+              setDsend({ items: rows.map(asItem), title: `رسالة الحجز لكلّ من لم تصله (${rows.length})`, label: single ? R.activityName(Number(R.activityId)) : 'كلّ الفعاليّات' });
+            }}
+            className="w-full flex items-center gap-3 p-3 rounded-2xl mb-2.5 text-right"
+            style={{ background: 'rgba(16,185,129,.08)', border: '1px solid rgba(16,185,129,.35)' }}
+          >
+            <span className="text-[17px]">📤</span>
+            <span className="flex-1">
+              <b className="block text-[14.5px] font-bold text-emerald-300">أرسل لكلّ من لم تصله ({R.filtered.filter(needsWa).length})</b>
+              <span className="block text-[12px] text-gray-400">من رقم الأعمال مباشرة، بالقالب الحاليّ — معاينةٌ قبل الإرسال</span>
+            </span>
+          </button>
+        )}
         {R.pendingRows.length > 0 && (
           <button
             onClick={() => { setShowMore(false); confirmAllPending(); }}

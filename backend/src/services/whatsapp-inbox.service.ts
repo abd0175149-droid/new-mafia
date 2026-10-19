@@ -770,7 +770,7 @@ export async function sendMessage(input: SendMessageInput) {
   const blocked = sendingSuspendedReason(channel);
   if (blocked) throw codeErr('SENDING_SUSPENDED', `الإرسال مقفل: ${blocked}`);
 
-  const content = {
+  const content: { text: string; interactive?: any; location?: any; image?: any } = {
     text,
     interactive: input.interactive,
     location: input.location,
@@ -782,7 +782,34 @@ export async function sendMessage(input: SendMessageInput) {
     : hasImage ? (caption || '📷 صورة')
     : text;
   const msgType = hasInteractive ? 'interactive' : hasLocation ? 'location' : hasImage ? 'image' : 'text';
-  const meta = { ...(input.meta || {}), ...(pick.failover ? { failover: true } : {}) };
+  const meta: Record<string, any> = { ...(input.meta || {}), ...(pick.failover ? { failover: true } : {}) };
+
+  // 📲 التحويل إلى رقم الأعمال (قرار المالك): في «الجلسة أوّلاً» و«الجلسة + ميتا للتحويل» يحمل
+  //    أوّلُ ردٍّ من ميتا في اليوم لكلّ محادثة سطراً برقم الأعمال. رابط wa.me **بلا** ?text=
+  //    (wa.me يُتلف الإيموجي في النصّ — lib/whatsapp.ts). البوت يردّ كاملاً ولا يكتفي بالتحويل.
+  if (channel === 'cloud') {
+    const ts = transportSettings();
+    const num = String(ts.cloudRedirect.businessNumber || '').replace(/\D/g, '');
+    if ((ts.mode === 'web_primary' || ts.mode === 'web_final') && ts.cloudRedirect.enabled && num.length >= 9
+        && ['bot', 'staff', 'system'].includes(input.source) && !hasImage && !hasLocation) {
+      try {
+        const { getAux, setAux } = await import('../config/redis.js');
+        const day = new Date(Date.now() + 3 * 3600e3).toISOString().slice(0, 10);
+        const k = `wa-redirect:${conv.id}:${ts.cloudRedirect.oncePerDay ? day : 'once'}`;
+        if (!(await getAux(k))) {
+          const intl = num.startsWith('0') ? '962' + num.slice(1) : num;
+          const line = `\n\n📲 رقمنا للحجز والتواصل: +${intl}\nhttps://wa.me/${intl}`;
+          if (hasInteractive && content.interactive?.body?.text) {
+            content.interactive = { ...content.interactive, body: { ...content.interactive.body, text: String(content.interactive.body.text).slice(0, 1024 - line.length) + line } };
+          } else if (!hasInteractive) {
+            content.text = content.text + line;
+          }
+          await setAux(k, { at: Date.now() });
+          meta.redirectLine = true;
+        }
+      } catch { /* التحويل تكميليّ */ }
+    }
+  }
 
   let saved: any;
   if (channel === 'cloud') {

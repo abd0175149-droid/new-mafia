@@ -17,6 +17,7 @@ import PerformanceTab from './PerformanceTab';
 import RewardsTab from './RewardsTab';
 import BookingOffersTab from './BookingOffersTab';
 import HealthBar from './HealthBar';
+import ChannelsSection from './ChannelsSection';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || '';
 const MUTE_KEY = 'wa_inbox_muted';
@@ -137,6 +138,8 @@ function playPing() {
 
 // ── صحّات التسليم ──
 function Ticks({ status }: { status: string }) {
+  // رقم الأعمال: الرسالة في الطابور (الجماعيّ متباعد ١٥–٤٥ث، وقد يكمل غداً)
+  if (status === 'queued' || status === 'sending') return <span className="text-gray-500 text-[11px]" title={status === 'sending' ? 'تُرسل الآن' : 'في طابور رقم الأعمال'}>⏱</span>;
   if (status === 'failed') return <span className="text-rose-400 text-[11px] font-bold">✗ فشل</span>;
   if (status === 'read') return <span className="text-sky-400 text-xs tracking-[-2px]">✓✓</span>;
   if (status === 'delivered') return <span className="text-gray-500 text-xs tracking-[-2px]">✓✓</span>;
@@ -150,11 +153,13 @@ function SourceTag({ m }: { m: any }) {
   if (m.source === 'system') return <span className="text-violet-400 font-bold">⚙️ النظام</span>;
   if (m.source === 'template') return <span className="text-violet-400 font-bold">📋 قالب</span>;
   if (m.source === 'broadcast') return <span className="text-teal-400 font-bold">📢 بث</span>;
+  if (m.source === 'outreach') return <span className="text-teal-400 font-bold">📤 {OUTREACH_AR[m.payload?.origin] || 'من النظام'}{m.payload?.staffName ? ` · ${m.payload.staffName}` : ''}</span>;
   return null;
 }
 
-const STATUS_AR: Record<string, string> = { sent: 'أُرسلت', delivered: 'وصلت', read: 'قُرئت', failed: 'فشلت', received: 'استُلمت' };
-const SOURCE_AR: Record<string, string> = { customer: 'العميل', bot: 'البوت 🤖', staff: 'موظف 👤', system: 'النظام ⚙️', template: 'قالب 📋', broadcast: 'بث جماعي 📢', injected: 'بلسان العميل 🎭' };
+const STATUS_AR: Record<string, string> = { sent: 'أُرسلت', delivered: 'وصلت', read: 'قُرئت', failed: 'فشلت', received: 'استُلمت', queued: 'في الطابور', sending: 'تُرسل' };
+const OUTREACH_AR: Record<string, string> = { reservations: 'من الحجوزات', analytics: 'من التحليلات', explorer: 'من المستكشف' };
+const SOURCE_AR: Record<string, string> = { customer: 'العميل', bot: 'البوت 🤖', staff: 'موظف 👤', system: 'النظام ⚙️', template: 'قالب 📋', broadcast: 'بث جماعي 📢', injected: 'بلسان العميل 🎭', outreach: 'إرسال من صفحات النظام 📤' };
 
 // «معلومات الرسالة»: النوع والمصدر والحالة بسجلها الزمني والتفاعل
 function messageInfoText(m: any): string {
@@ -163,6 +168,10 @@ function messageInfoText(m: any): string {
     ? (m.source === 'injected' ? `مُدخلة بلسان العميل من ${m.payload?.by || 'الإدارة'} — لم تصل العميل` : 'واردة من العميل')
     : 'صادرة'}`);
   lines.push(`المصدر: ${SOURCE_AR[m.source] || m.source}`);
+  lines.push(`القناة: ${m.channel === 'web' ? 'رقم الأعمال 📱' : 'ميتا ☁️'}${m.payload?.failover ? ' (بديلاً عن القناة الأخرى)' : ''}`);
+  if (m.payload?.fromPhone) lines.push('كُتبت من هاتف رقم الأعمال مباشرة');
+  if (m.payload?._emulated?.raw) lines.push(`ردّ على قائمة مرقّمة بكتابة: «${m.payload._emulated.raw}»`);
+  if (m.payload?.imported) lines.push('مستوردة من سجلّ رقم الأعمال');
   lines.push(`النوع: ${m.msgType}`);
   lines.push(`التوقيت: ${fmtWhen(m.createdAt)}`);
   if (m.direction === 'out') lines.push(`الحالة: ${STATUS_AR[m.status] || m.status || '—'}`);
@@ -188,6 +197,7 @@ function messageInfoText(m: any): string {
     lines.push(`الصياغة: ${WHY[k] || (k.startsWith('guard:') ? `أوقفها الحارس (${k.slice(6)})` : k.startsWith('error:') ? `تعذّرت (${k.slice(6)})` : k)}`);
   }
   if (m.payload?.signed) lines.push('تحمل توقيع التحويل (أوّل ردٍّ بشريّ في الجلسة)');
+  if (m.payload?._rendered && m.msgType === 'interactive') { lines.push(''); lines.push('كما وصلت العميل (رقم الأعمال لا يعرض الأزرار):'); lines.push(m.payload._rendered); lines.push(''); }
   if (m.payload?.customerReaction?.emoji) lines.push(`تفاعل العميل: ${m.payload.customerReaction.emoji} (${fmtTime(m.payload.customerReaction.at)})`);
   if (m.errorMessage) lines.push(`الخطأ: ${m.errorMessage}`);
   if (m.deletedAt) lines.push(`محذوفة من السجل: بواسطة ${m.deletedBy || 'أدمن'} — ${fmtWhen(m.deletedAt)}`);
@@ -227,7 +237,7 @@ export default function WhatsAppInboxPage() {
   const [mobilePane, setMobilePane] = useState<'list' | 'chat' | 'info'>('list');
   // مستويان بدل خمسة تبويباتٍ متساوية: الوارد عملٌ يوميّ، والإدارة ضبطٌ وتحليل
   const [mainTab, setMainTab] = useState<'chat' | 'admin'>('chat');
-  const [adminSec, setAdminSec] = useState<'don' | 'know' | 'perf' | 'cast' | 'offers' | 'bookoffers'>('don');
+  const [adminSec, setAdminSec] = useState<'don' | 'know' | 'perf' | 'cast' | 'offers' | 'bookoffers' | 'channels'>('don');
   const [noteDraft, setNoteDraft] = useState('');
   const [showLink, setShowLink] = useState(false);
   const [linkQ, setLinkQ] = useState('');
@@ -414,15 +424,24 @@ export default function WhatsAppInboxPage() {
     try {
       const sp = new URLSearchParams(window.location.search);
       const id = parseInt(sp.get('conv') || '');
+      // 📤 من زرّ واتساب في صفحات اللاعبين والفعاليّات: افتح محادثة الرقم (تُنشأ إن لم تكن)
+      const byPhone = sp.get('phone');
+      if (byPhone && !id) {
+        apiFetch('/api/whatsapp/conversations/open-by-phone', { method: 'POST', body: JSON.stringify({ phone: byPhone }) })
+          .then((r: any) => { if (r?.conversation?.id) { setMainTab('chat'); openConv(r.conversation.id); } })
+          .catch((e: any) => swalToast(e.message, 'error'));
+        window.history.replaceState({}, '', '/admin/whatsapp');
+      }
       // `?tab=` كان يصل من إشعار العروض ولا يقرؤه أحد — رابطٌ ميّت منذ إضافته
       const tab = sp.get('tab');
       if (id) {
         setMainTab('chat');
         openConv(id);
       } else if (tab) {
-        const SEC: Record<string, 'don' | 'know' | 'perf' | 'cast' | 'offers' | 'bookoffers'> = {
+        const SEC: Record<string, 'don' | 'know' | 'perf' | 'cast' | 'offers' | 'bookoffers' | 'channels'> = {
           rewards: 'offers', offers: 'offers', bookoffers: 'bookoffers', 'booking-offers': 'bookoffers', broadcast: 'cast', cast: 'cast',
           quality: 'perf', perf: 'perf', bot: 'don', don: 'don', know: 'know',
+          channels: 'channels', health: 'channels',
         };
         if (SEC[tab]) { setMainTab('admin'); setAdminSec(SEC[tab]); }
       }
@@ -579,6 +598,15 @@ export default function WhatsAppInboxPage() {
   // ══════════════════════════════════════════════════════
   // ردودُ المحادثة والحجوزات وإلغاؤها ليست تسويقاً — تصله في الحالين.
   // 🔴 مَن كتب «إيقاف» بنفسه: تأكيدٌ ثانٍ بالسبب، فإعادتُها بلا طلبه تجلب البلاغات على الرقم.
+  const pinChannel = useCallback(async (ch: string) => {
+    if (!conv) return;
+    try {
+      const res = await apiFetch(`/api/whatsapp/conversations/${conv.id}/channel-pin`, { method: 'POST', body: JSON.stringify({ channel: ch || null }) });
+      setConvs(prev => prev.map(c => (c.id === conv.id ? { ...c, ...res.conversation } : c)));
+      swalToast(ch ? `ثُبّتت: ${ch === 'web' ? 'رقم الأعمال' : 'ميتا'}` : 'عادت تلقائيّة', 'success');
+    } catch (e: any) { swalToast(e.message, 'error'); }
+  }, [conv]);
+
   const toggleMarketing = useCallback(async () => {
     if (!conv || !ctx) return;
     const enabling = !!ctx.optedOut;
@@ -684,7 +712,10 @@ export default function WhatsAppInboxPage() {
   // ── مشتقات العرض ──
   const paused = conv?.botPausedUntil && new Date(conv.botPausedUntil).getTime() > Date.now();
   const botActive = conv?.botEnabled && !paused;
-  const winH = conv ? windowHoursLeft(conv.lastInboundAt) : 0;
+  // 📱 رقم الأعمال: لا نافذة ولا قفل — الخادم يقول من أين سيخرج الردّ (sendVia)
+  // (حدث المقبس يحمل الصفّ الخام بلا sendVia — قناة آخر وارد تكفي حتّى التحديث التالي)
+  const viaWeb = conv ? (conv.sendVia ? conv.sendVia === 'web' : conv.channel === 'web') : false;
+  const winH = conv ? (viaWeb ? 999 : windowHoursLeft(conv.cloudLastInboundAt ?? conv.lastInboundAt)) : 0;
   const capOver = img ? draft.trim().length - WA_CAPTION_MAX : 0;   // الزائدُ عن حدّ التعليق
   const totalUnread = convs.reduce((s, c) => s + (c.unreadCount || 0), 0);
 
@@ -756,6 +787,8 @@ export default function WhatsAppInboxPage() {
               ['cast', '📢 البثّ'],
               ['bookoffers', '🎟️ عروض الحجز'],
               ['offers', '🎁 نقاط الحديث'],
+              ['sep', 'الأرقام'],
+              ['channels', '🔀 القنوات'],
             ] as const).map(([k, l], i) => k === 'sep' ? (
               <div key={'s' + i} className="hidden md:block text-[9.5px] font-bold text-gray-600 px-2.5 pt-2.5 pb-1">{l}</div>
             ) : (
@@ -782,6 +815,7 @@ export default function WhatsAppInboxPage() {
             {adminSec === 'cast' && <BroadcastTab apiFetch={apiFetch} />}
             {adminSec === 'offers' && <RewardsTab apiFetch={apiFetch} />}
             {adminSec === 'bookoffers' && <BookingOffersTab apiFetch={apiFetch} />}
+            {adminSec === 'channels' && <ChannelsSection apiFetch={apiFetch} />}
           </div>
         </div>
       )}
@@ -844,7 +878,8 @@ export default function WhatsAppInboxPage() {
               return convs.map(c => {
                 const cPaused = c.botPausedUntil && new Date(c.botPausedUntil).getTime() > Date.now();
                 const cBot = c.botEnabled && !cPaused;
-                const left = windowHoursLeft(c.lastInboundAt);
+                const cWeb = c.sendVia ? c.sendVia === 'web' : c.channel === 'web';
+                const left = cWeb ? 24 : windowHoursLeft(c.cloudLastInboundAt ?? c.lastInboundAt);
                 const tn = winTone(left);
                 const head = winMode && tn.group !== lastGroup ? (lastGroup = tn.group) : null;
                 return (
@@ -872,8 +907,8 @@ export default function WhatsAppInboxPage() {
                         <div className="flex items-center gap-1.5 mt-0.5">
                           {!winMode && (
                             <span
-                              className={`w-1.5 h-1.5 rounded-full shrink-0 ${left > 0 ? 'bg-emerald-400' : 'bg-gray-600'}`}
-                              title={left > 0 ? 'نافذة الرد مفتوحة' : 'النافذة منتهية'}
+                              className={`w-1.5 h-1.5 rounded-full shrink-0 ${cWeb ? 'bg-teal-300 ring-1 ring-teal-500/50' : left > 0 ? 'bg-emerald-400' : 'bg-gray-600'}`}
+                              title={cWeb ? 'يُردّ عليه من رقم الأعمال — بلا نافذة' : left > 0 ? 'نافذة الرد مفتوحة' : 'النافذة منتهية'}
                             />
                           )}
                           <span className="text-xs text-gray-400 truncate flex-1">{c.lastMessagePreview || '—'}</span>
@@ -933,6 +968,10 @@ export default function WhatsAppInboxPage() {
                         {RANK_AR[ctx.player.rankTier] || ctx.player.rankTier} · {ctx.player.rankRR}RR
                       </span>
                     )}
+                    {conv.phoneVerified === false && (
+                      <span className="text-[10px] font-bold text-amber-300 bg-amber-500/10 rounded-full px-2"
+                        title="واتساب أخفى رقم المرسل (…@lid) ولم يُعرف بعد — أدوات الحساب والأدمن معطّلة لهذه المحادثة حتّى يُعرف">🕶️ رقم مخفيّ</span>
+                    )}
                     {ctx?.optedOut && (
                       <span className="text-[10px] font-bold text-rose-400 bg-rose-500/10 rounded-full px-2"
                         title={ctx.optout?.byCustomer ? `أوقفها العميل بنفسه${ctx.optout?.createdAt ? ` — ${fmtWhen(ctx.optout.createdAt)}` : ''}` : (ctx.optout?.reason || '')}>
@@ -979,12 +1018,30 @@ export default function WhatsAppInboxPage() {
                       <span className={`absolute top-0.5 w-4 h-4 rounded-full bg-white transition-all ${conv.botEnabled ? 'right-0.5' : 'right-4'}`} />
                     </span>
                   </button>
+                  {(conv.sendVia || conv.channelPin) && (
+                    <select
+                      value={conv.channelPin || ''}
+                      onChange={e => pinChannel(e.target.value)}
+                      className="bg-gray-950 border border-gray-800 rounded-lg text-[11px] text-gray-300 px-1.5 py-1"
+                      title="من أيّ رقمٍ يخرج الردّ لهذه المحادثة"
+                    >
+                      <option value="">{conv.sendVia === 'web' ? '📱 تلقائيّ (رقم الأعمال)' : '☁️ تلقائيّ (ميتا)'}</option>
+                      <option value="web">📱 ثبّت: رقم الأعمال</option>
+                      <option value="cloud">☁️ ثبّت: ميتا</option>
+                    </select>
+                  )}
                   <button className="hidden md:block text-gray-500 hover:text-white px-1" onClick={() => setMobilePane('info')} title="لوحة العميل">👤</button>
                 </div>
               </div>
 
               {/* ⏳ النافذة — مكانٌ واحد يقولها: كانت تُعرض ثلاث مرّاتٍ بثلاثة أشكال */}
-              {(() => {
+              {viaWeb ? (
+                <div className="flex items-center gap-2 px-4 py-1 border-b border-gray-800 bg-gray-950/60 text-[11px] font-bold">
+                  <span className="text-teal-300 shrink-0">📱 يُرسل عبر رقم الأعمال — بلا نافذة</span>
+                  {conv.channelPin && <span className="text-gray-500 font-normal">(مثبَّتة يدويّاً)</span>}
+                  <span className="text-gray-600 font-normal shrink-0 hidden sm:inline mr-auto">آخر رسالةٍ منه {fmtWhen(conv.lastInboundAt)}</span>
+                </div>
+              ) : (() => {
                 const tn = winTone(winH);
                 return (
                   <div className="flex items-center gap-2 px-4 py-1 border-b border-gray-800 bg-gray-950/60 text-[11px] font-bold">
@@ -1081,6 +1138,7 @@ export default function WhatsAppInboxPage() {
                           <span className="text-violet-400 font-bold" title="أعاد الدون صياغتها — النصّ الأصليّ في «معلومات الرسالة»">✨ صيغت</span>
                         )}
                         <span>{fmtTime(g.m.createdAt)}</span>
+                        {g.m.channel === 'web' && <span className="text-teal-400/80" title="عبر رقم الأعمال">📱</span>}
                         {g.m.direction === 'out' && <Ticks status={g.m.status} />}
                       </div>
                       {g.m.status === 'failed' && g.m.errorMessage && (
@@ -1100,7 +1158,7 @@ export default function WhatsAppInboxPage() {
 
               {/* صندوق الرد */}
               <div className="border-t border-gray-800 bg-gray-900/80 p-3">
-                {winH > 0 ? (
+                {winH > 0 || conv.windowOpen ? (
                   <>
                     {/* ⚠️ بطاقة المراجعة — تظهر حين يمسك الحارس تفصيلاً تغيّر */}
                     {review && (
@@ -1249,7 +1307,7 @@ export default function WhatsAppInboxPage() {
                   <div className="bg-rose-500/10 border border-rose-500/30 text-rose-300 rounded-xl px-4 py-3 text-center text-xs font-bold">
                     🔒 نافذة الرد المجانية (24 ساعة) منتهية
                     <div className="font-normal text-gray-400 mt-1">
-                      الرد الآن يتطلب قالباً معتمداً (يُفعَّل مع الحملات) — أو انتظر رسالة جديدة من العميل
+                      انتظر رسالة جديدة من العميل — أو فعّل رقم الأعمال من «الإدارة ← القنوات» فيصل بلا نافذة
                     </div>
                   </div>
                 )}

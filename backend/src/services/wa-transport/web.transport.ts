@@ -179,6 +179,11 @@ async function sendOne(job: any): Promise<void> {
     .returning({ id: waMessages.id, conversationId: waMessages.conversationId, status: waMessages.status, errorMessage: waMessages.errorMessage });
   if (u) { const { emitInbox } = await import('../whatsapp-inbox.service.js'); emitInbox('wa:status:update', u); }
   if (wamid) { const { flushPendingAcks } = await import('./web.inbound.js'); await flushPendingAcks(wamid); }
+  // 📤 رسالة حجزٍ من صفحة الحجوزات: «أُرسلت» تُضبط الآن — عند خروجها فعلاً لا عند النقر
+  if ((payload as any).reservationId) {
+    const { markReservationSent } = await import('../wa-outreach.service.js');
+    await markReservationSent(Number((payload as any).reservationId), String((payload as any).staffName || ''));
+  }
 }
 
 async function step(): Promise<void> {

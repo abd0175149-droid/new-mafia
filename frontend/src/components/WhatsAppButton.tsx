@@ -1,6 +1,7 @@
 'use client';
 
 import React from 'react';
+import { useWaDirect } from '@/hooks/useWaDirect';
 
 // ⚠️ هذا الزرّ يفتح المحادثة **بلا نصّ**، ولذلك يبقى wa.me آمناً هنا.
 //    إن أضفتَ يوماً `?text=` فانقله إلى openWhatsApp في lib/whatsapp.ts —
@@ -25,14 +26,19 @@ interface WhatsAppButtonProps {
 // زر دائري صغير لفتح محادثة واتساب مباشرة مع الرقم. لا يظهر إن كان الرقم غير صالح.
 export default function WhatsAppButton({ phone, size = 15, className = '' }: WhatsAppButtonProps) {
   const wa = toWaNumber(phone);
+  // 📤 رقم الأعمال مفعّل: الزرّ يفتح محادثة الشخص في مركز واتساب (تُفتح إن لم تكن) — يُكتب له من النظام
+  const directOn = useWaDirect();
+  // المركز للأدمن وحده — غيرهم يبقى على فتح التطبيق
+  const isAdmin = typeof window !== 'undefined' && (() => { try { return JSON.parse(localStorage.getItem('user') || '{}')?.role === 'admin'; } catch { return false; } })();
+  const direct = directOn && isAdmin;
   if (!wa) return null;
   return (
     <a
-      href={`https://wa.me/${wa}`}
-      target="_blank"
+      href={direct ? `/admin/whatsapp?phone=${wa}` : `https://wa.me/${wa}`}
+      target={direct ? undefined : '_blank'}
       rel="noopener noreferrer"
       onClick={(e) => e.stopPropagation()}
-      title="فتح محادثة واتساب"
+      title={direct ? 'فتح المحادثة في مركز واتساب' : 'فتح محادثة واتساب'}
       aria-label="فتح محادثة واتساب"
       className={`inline-flex items-center justify-center rounded-full bg-[#25D366]/15 hover:bg-[#25D366]/30 text-[#25D366] transition-colors shrink-0 ${className}`}
       style={{ width: size + 12, height: size + 12 }}

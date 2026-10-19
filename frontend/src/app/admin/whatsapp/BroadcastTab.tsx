@@ -14,7 +14,7 @@ import BroadcastHistory from './BroadcastHistory';
 type Fetcher = (path: string, opts?: RequestInit) => Promise<any>;
 type Filter = 'all' | 'players' | 'visitors' | 'booked_upcoming' | 'activity' | 'not_booked_activity';
 interface Tpl { id: number; name: string; body: string; usedCount: number }
-interface Target { id: number; phone: string; name: string; isPlayer: boolean; rank: string; windowClosesAt: string }
+interface Target { id: number; phone: string; name: string; isPlayer: boolean; rank: string; windowClosesAt: string | null; via?: 'cloud' | 'web' | null }
 
 const FILTERS: Array<{ key: Filter; label: string }> = [
   { key: 'all', label: 'الكلّ' },
@@ -63,6 +63,9 @@ const fmt = (iso: string) => new Date(iso).toLocaleString('ar-JO', { day: 'numer
 
 export default function BroadcastTab({ apiFetch }: { apiFetch: Fetcher }) {
   const [filter, setFilter] = useState<Filter>('all');
+  // 🔀 القناة: الكلّ / ميتا (نافذة مفتوحة) / رقم الأعمال (بلا نافذة)
+  const [channel, setChannel] = useState<'all' | 'cloud' | 'web'>('all');
+  const [aud, setAud] = useState<any>(null);
   const [activityId, setActivityId] = useState<number | null>(null);
   const [rows, setRows] = useState<Target[]>([]);
   const [activities, setActivities] = useState<Array<{ id: number; name: string; date: string; venue?: string; when?: string }>>([]);
@@ -171,12 +174,13 @@ export default function BroadcastTab({ apiFetch }: { apiFetch: Fetcher }) {
   const load = useCallback(async () => {
     try {
       const qs = `filter=${filter}${(filter === 'activity' || filter === 'not_booked_activity') && activityId ? `&activityId=${activityId}` : ''}`;
-      const d = await apiFetch(`/api/whatsapp/open-window-broadcast/audience?${qs}${exB.length ? `&excludeBroadcasts=${exB.join(',')}` : ''}`);
+      const d = await apiFetch(`/api/whatsapp/open-window-broadcast/audience?${qs}&channel=${channel}${exB.length ? `&excludeBroadcasts=${exB.join(',')}` : ''}`);
+      setAud(d);
       setRows(d.rows || []); setStatus(d.status || null); setHistory(d.history || []); setActivities(d.activities || []);
       setErr(null); setHistoryTick(t => t + 1);
     } catch (e: any) { setErr(e.message); }
     setLoading(false);
-  }, [apiFetch, filter, activityId, exB]);
+  }, [apiFetch, filter, activityId, exB, channel]);
 
   useEffect(() => { setLoading(true); load(); }, [load]);
   // أثناء بثٍّ جارٍ: حدّث العدّادات كلّ 5 ثوانٍ، وعند انتهائه فوراً
@@ -214,7 +218,7 @@ export default function BroadcastTab({ apiFetch }: { apiFetch: Fetcher }) {
     if (!ok) return;
     setSending(true);
     try {
-      const r = await apiFetch('/api/whatsapp/open-window-broadcast', { method: 'POST', body: JSON.stringify({ body, filter, activityId, templateId: currentTpl && !tplDirty ? currentTpl.id : null, excludeBroadcastIds: exB, excludeIds: Array.from(excluded), appendOptout: footer, imageUrl: img?.url || null }) });
+      const r = await apiFetch('/api/whatsapp/open-window-broadcast', { method: 'POST', body: JSON.stringify({ body, filter, channel, activityId, templateId: currentTpl && !tplDirty ? currentTpl.id : null, excludeBroadcastIds: exB, excludeIds: Array.from(excluded), appendOptout: footer, imageUrl: img?.url || null }) });
       swalToast(`بدأ البثّ إلى ${r.total}`, 'success');
       setBody(''); setTplId(null); setExcluded(new Set()); setExB([]); setImg(null);
       await load(); loadTpls();
@@ -236,8 +240,9 @@ export default function BroadcastTab({ apiFetch }: { apiFetch: Fetcher }) {
         {/* ── الكتابة ── */}
         <div className="space-y-4 min-w-0">
           <div className="rounded-2xl border border-amber-500/20 bg-amber-500/5 p-4 text-[13px] leading-relaxed text-amber-100/90">
-            <b className="text-amber-400">ما يفعله هذا التبويب:</b> يرسل رسالةً واحدة (نصّاً أو صورةً بتعليق) لمن راسلونا خلال آخر 24 ساعة فقط — هؤلاء وحدهم تسمح ميتا بمراسلتهم مجّاناً وبلا قالب.
-            لا يصل لمن أُغلقت نافذته، ولا لمن كتب «إيقاف». السقف: {status?.maxTargets ?? 300} مستلم للبثّ الواحد.
+            <b className="text-amber-400">ما يفعله هذا التبويب:</b> يرسل رسالةً واحدة (نصّاً أو صورةً بتعليق) لكلّ من في الفلتر.
+            عبر ميتا: لمن راسلنا خلال آخر 24 ساعة فقط. عبر رقم الأعمال: بلا نافذة، بطابورٍ متباعد وسقفٍ يوميّ (من «القنوات»).
+            لا يصل لمن كتب «إيقاف». السقف: {status?.maxTargets ?? 300} مستلم للبثّ الواحد.
           </div>
 
           {runningRow && (
@@ -252,6 +257,22 @@ export default function BroadcastTab({ apiFetch }: { apiFetch: Fetcher }) {
           )}
 
           <div className="rounded-2xl border border-gray-800 bg-gray-900/60 p-4 space-y-3">
+            {(aud?.byChannel?.web > 0 || channel !== 'all') && (
+              <div className="flex flex-wrap items-center gap-1.5 text-xs">
+                <span className="text-gray-500">القناة:</span>
+                {([['all', 'الكلّ'], ['cloud', '☁️ ميتا'], ['web', '📱 رقم الأعمال']] as const).map(([k, l]) => (
+                  <button key={k} onClick={() => { setChannel(k); setExcluded(new Set()); }}
+                    className={`px-2.5 py-1 rounded-lg font-bold border ${channel === k ? 'bg-teal-500/10 text-teal-300 border-teal-500/40' : 'border-gray-800 text-gray-400 hover:text-white'}`}>{l}</button>
+                ))}
+                {aud?.byChannel && <span className="text-gray-500 mr-1">☁️ {aud.byChannel.cloud} · 📱 {aud.byChannel.web}</span>}
+              </div>
+            )}
+            {aud?.estimate && (
+              <div className="text-[12px] text-teal-200/90 bg-teal-500/5 border border-teal-500/20 rounded-xl px-3 py-2">
+                📱 {aud.estimate.messages} رسالة عبر رقم الأعمال: نحو {aud.estimate.minutesFirstDay} دقيقة اليوم
+                {aud.estimate.days > 1 ? ` — وتكتمل خلال ${aud.estimate.days} أيّام (${aud.estimate.perDay} يوميّاً)` : ''}.
+              </div>
+            )}
             <div className="flex flex-wrap gap-1.5">
               {FILTERS.map(f => (
                 <button key={f.key} onClick={() => { setFilter(f.key); setExcluded(new Set()); }}
@@ -370,7 +391,7 @@ export default function BroadcastTab({ apiFetch }: { apiFetch: Fetcher }) {
           </div>
           {err && <p className="text-xs text-rose-400">⚠️ {err}</p>}
           {loading ? <p className="text-xs text-gray-500">جاري التحميل…</p> : rows.length === 0 ? (
-            <p className="text-xs text-gray-500">لا أحد نافذته مفتوحة ضمن هذا الفلتر.</p>
+            <p className="text-xs text-gray-500">لا أحد يمكن مراسلته ضمن هذا الفلتر.</p>
           ) : (
             <div className="overflow-y-auto min-h-0 -mx-1 px-1 divide-y divide-gray-800/70">
               {rows.map(r => {
@@ -383,7 +404,9 @@ export default function BroadcastTab({ apiFetch }: { apiFetch: Fetcher }) {
                       <span className="block text-sm text-white truncate">{r.name}</span>
                       <span className="block text-[11px] text-gray-500" dir="ltr" style={{ textAlign: 'right' }}>{r.phone}{r.rank ? ` · ${r.rank}` : r.isPlayer ? '' : ' · زائر'}</span>
                     </span>
-                    <span className="text-[11px] text-gray-400 tabular-nums whitespace-nowrap" title="الوقت المتبقّي قبل إغلاق نافذته">⏳ {hoursLeft(r.windowClosesAt)}</span>
+                    {r.via === 'web'
+                      ? <span className="text-[11px] text-teal-300 whitespace-nowrap" title="يصله من رقم الأعمال — بلا نافذة">📱</span>
+                      : <span className="text-[11px] text-gray-400 tabular-nums whitespace-nowrap" title="الوقت المتبقّي قبل إغلاق نافذته">⏳ {r.windowClosesAt ? hoursLeft(r.windowClosesAt) : '—'}</span>}
                   </label>
                 );
               })}

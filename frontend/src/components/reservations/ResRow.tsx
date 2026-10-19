@@ -149,6 +149,10 @@ export default function ResRow({ r, onOpen, onAttend }: {
                 <span className="tabular-nums">{waAgo(r.waSentAt)}</span>
               </span>
             )}
+            {/* 📤 رسالةٌ من النظام: في الطابور / قُرئت */}
+            {((r as any).waStatus === 'queued' || (r as any).waStatus === 'sending') && <span className="text-[11px]" title="رسالة الحجز في طابور رقم الأعمال">⏱</span>}
+            {(r as any).waStatus === 'read' && <span className="text-[11px] text-sky-400 tracking-[-2px]" title="قرأ رسالة الحجز">✓✓</span>}
+            {(r as any).waStatus === 'failed' && <span className="text-[11px] text-rose-400" title="تعذّر إرسال رسالة الحجز">✗</span>}
             {r.appConfirmed && <span className="text-[11px]" title="تأكّد من التطبيق">📱</span>}
             {r.remindOptIn === false && (
               <span className="text-[11px]" title="طلب عدم إرسال تذكيرات">🔕</span>

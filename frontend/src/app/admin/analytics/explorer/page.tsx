@@ -13,12 +13,14 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { exportReport } from '@/app/admin/reports/lib/reportsApi';
 import {
   EMPTY_LENS, WA_DEFAULT, WA_VARS,
-  fetchExplore, fetchOptions, fetchViews, saveView, removeView, fillTemplate,
+  fetchExplore, fetchOptions, fetchViews, saveView, removeView, fillTemplate, normalizePhone,
   fmtMoney, fmtNum, lensToReportParams, pctOf, shiftDays, todayISO,
   type ExploreResult, type Lens, type Option, type Player, type SavedView,
 } from './lib';
 import { CohortMatrix, ConversionStrip, Funnel, Kpi, SignupWeeks, Waffle } from './panels';
 import MessageTemplateEditor from '@/components/MessageTemplateEditor';
+import DirectSendDialog, { type DirectItem } from '@/components/DirectSendDialog';
+import { useWaDirect } from '@/hooks/useWaDirect';
 import { COLUMNS, COL_GROUPS, DEFAULT_COLS, PlayerTable, type ColKey } from './table';
 
 const COLS_KEY = 'explorer_cols';
@@ -48,6 +50,9 @@ export default function ExplorerPage() {
   const [showCols, setShowCols] = useState(false);
   const [showTpl, setShowTpl] = useState(false);
   const [waTemplate, setWaTemplate] = useState(WA_DEFAULT);
+  // 📤 رقم الأعمال مفعّل ⟵ الإرسال من النظام (لصفٍّ أو للمعروضين كلّهم) بدل فتح تطبيق واتساب
+  const direct = useWaDirect();
+  const [dsend, setDsend] = useState<{ items: DirectItem[]; title: string; label: string } | null>(null);
   const [notifTitle, setNotifTitle] = useState('نادي المافيا 🎭');
   const [toast, setToast] = useState('');
   const [exporting, setExporting] = useState<'' | 'pdf' | 'excel'>('');
@@ -330,6 +335,16 @@ export default function ExplorerPage() {
               )}
             </div>
             <button type="button" onClick={() => setShowTpl((v) => !v)} className={btnCls}>💬 قالب الرسالة</button>
+            {direct && shown.length > 0 && (
+              <button type="button"
+                onClick={() => {
+                  const list = shown.filter((p) => normalizePhone(p.phone));
+                  setDsend({ items: list.map((p) => ({ phone: p.phone, text: fillTemplate(waTemplate, p), name: p.name, playerId: p.id })), title: `أرسل للمعروضين (${list.length})`, label: `المستكشف${q ? ` · بحث: ${q}` : ''}` });
+                }}
+                className={btnCls + ' !text-emerald-300 !border-emerald-500/40'}
+                title="ترسل قالب الرسالة لكلّ المعروضين — عبر رقم الأعمال، بمعاينةٍ قبل الإرسال"
+              >📤 أرسل للمعروضين ({shown.length})</button>
+            )}
             <span className="w-px h-6 bg-gray-700/60" />
             <button type="button" onClick={() => doExport('pdf')} disabled={!!exporting} className={btnCls + ' disabled:opacity-50'}>
               {exporting === 'pdf' ? '⏳' : '🖨️'} PDF
@@ -366,7 +381,9 @@ export default function ExplorerPage() {
             </div>
           )}
 
-          <PlayerTable players={shown} cols={cols} waTemplate={waTemplate} notifTitle={notifTitle} onToast={flash} />
+          <PlayerTable players={shown} cols={cols} waTemplate={waTemplate} notifTitle={notifTitle} onToast={flash}
+            onWa={direct ? (p) => setDsend({ items: [{ phone: p.phone, text: fillTemplate(waTemplate, p), name: p.name, playerId: p.id }], title: `رسالة إلى ${p.name || p.phone}`, label: `لاعب #${p.id}` }) : undefined} />
+          {dsend && <DirectSendDialog origin="explorer" items={dsend.items} title={dsend.title} label={dsend.label} onClose={() => setDsend(null)} />}
 
           {/* ── تحفّظات على البيانات — تُذكَر ولا تُخفى ── */}
           <div className="mt-6 grid gap-4 text-[11.5px] text-gray-500 leading-relaxed"

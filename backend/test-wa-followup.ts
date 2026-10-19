@@ -56,7 +56,9 @@ for (const [re, label] of [
   [/needs_attention = false/, 'المحوَّلون لموظّف'],
   [/bot_paused_until IS NULL OR c\.bot_paused_until < NOW\(\)/, 'المحادثات الموقوفة بعد ردّ بشريّ'],
   [/bot_enabled = true/, 'من أُطفئ البوت لمحادثته'],
-  [/last_inbound_at > NOW\(\) - INTERVAL '23 hours/, 'من أُغلقت نافذته (٢٤ ساعة)'],
+  // (منذ م٤: نافذة ميتا عبر الموجِّه، وعلى رقم الأعمال حدّ عمر آخر وارد — لا نوقظ محادثةً قديمة)
+  [/reachableSql\('c', 'bulk', 30\)/, 'من أُغلقت نافذته (٢٤ ساعة على ميتا)'],
+  [/followupMaxAgeHours/, 'وعلى رقم الأعمال: لا متابعة لمحادثةٍ قديمة'],
 ] as const) {
   check(re.test(fu), `يُستبعد: ${label}`);
 }

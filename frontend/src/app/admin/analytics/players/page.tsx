@@ -7,6 +7,8 @@
 
 import { useEffect, useState, useMemo } from 'react';
 import { openWhatsApp as openWaChat } from '@/lib/whatsapp';
+import DirectSendDialog, { type DirectItem } from '@/components/DirectSendDialog';
+import { useWaDirect } from '@/hooks/useWaDirect';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || '';
 function getToken() { return typeof window !== 'undefined' ? localStorage.getItem('token') : null; }
@@ -115,6 +117,9 @@ export default function AnalyticsPlayersPage() {
   // 🎯 شريحة «لم يلعب آخر N فعاليّة» — فلتر عرض قابل للضبط
   const [unplayed, setUnplayed] = useState(false);
   const [unplayedN, setUnplayedN] = useState(10);
+  // 📤 رقم الأعمال مفعّل ⟵ الرسالة تخرج من النظام (لشخصٍ أو للمعروضين كلّهم) بدل فتح تطبيق واتساب
+  const direct = useWaDirect();
+  const [dsend, setDsend] = useState<{ items: DirectItem[]; title: string; label: string } | null>(null);
 
   useEffect(() => {
     if (typeof window === 'undefined') return;
@@ -210,6 +215,15 @@ export default function AnalyticsPlayersPage() {
     });
   })();
   const sortBy = (k: string) => { if (sortKey === k) setSortDir(d => -d); else { setSortKey(k); setSortDir(k === 'name' ? 1 : -1); } };
+  const toItem = (p: any): DirectItem => ({ phone: p.phone, text: fillTemplate(waTemplate, p), name: p.name, playerId: p.id });
+  const sendWaTo = (p: any) => {
+    if (direct) { setDsend({ items: [toItem(p)], title: `رسالة إلى ${p.name || p.phone}`, label: `لاعب #${p.id}` }); return; }
+    openWhatsApp(p, waTemplate, flash);
+  };
+  const segLabel = [
+    segFilter ? `شريحة: ${segList.find((x: any) => x.id === segFilter)?.name || segFilter}` : 'كلّ الشرائح',
+    unplayed ? `لم يحضر آخر ${unplayedN}` : '', sinceOn && sinceDate ? `مُنشأ بعد ${sinceDate}` : '', q ? `بحث: ${q}` : '',
+  ].filter(Boolean).join(' · ');
 
   return (
     <div className="space-y-5 max-w-6xl mx-auto" dir="rtl">
@@ -284,6 +298,16 @@ export default function AnalyticsPlayersPage() {
             <input value={q} onChange={e => setQ(e.target.value)} placeholder="🔍 ابحث باسم اللاعب أو رقم هاتفه…" className="flex-1 min-w-[220px] bg-gray-900/50 border border-gray-700/50 rounded-xl px-4 py-2.5 text-sm text-white outline-none focus:border-amber-500/50" />
             {segFilter && <button onClick={() => setSegFilter(null)} className="px-3 py-2 rounded-full text-xs border bg-amber-500/10 text-amber-400 border-amber-500/30">الكل ✕</button>}
             <button onClick={() => setShowTemplate(v => !v)} className={`px-3 py-2 rounded-xl text-xs border ${showTemplate ? 'bg-green-500/15 text-green-400 border-green-500/40' : 'bg-gray-800/40 text-gray-300 border-gray-700/40'}`}>💬 قالب الرسالة</button>
+            {direct && rows.length > 0 && (
+              <button
+                onClick={() => {
+                  const list = rows.filter((p: any) => normalizePhoneIntl(p.phone));
+                  setDsend({ items: list.map(toItem), title: `أرسل للمعروضين (${list.length})`, label: segLabel });
+                }}
+                className="px-3 py-2 rounded-xl text-xs font-bold border bg-emerald-500/15 text-emerald-300 border-emerald-500/40"
+                title="ترسل قالب الرسالة لكلّ اللاعبين المعروضين الآن — عبر رقم الأعمال، بمعاينةٍ قبل الإرسال"
+              >📤 أرسل للمعروضين ({rows.length})</button>
+            )}
           </div>
 
           {/* 📅 الفوج: متى أُنشئ الحساب وكم حضر **بعد** ذلك */}
@@ -391,7 +415,7 @@ export default function AnalyticsPlayersPage() {
                       {/* 💬 واتساب — يظهر لمن له رقم صالح */}
                       {normalizePhoneIntl(p.phone) && (
                         <button
-                          onClick={() => openWhatsApp(p, waTemplate, flash)}
+                          onClick={() => sendWaTo(p)}
                           title="إرسال رسالة واتساب"
                           className="w-8 h-8 rounded-lg flex items-center justify-center bg-green-500/15 border border-green-500/30 text-green-400 hover:bg-green-500/25 transition shrink-0"
                         >
@@ -420,7 +444,8 @@ export default function AnalyticsPlayersPage() {
           onEdit={editConfig} onSave={saveConfig} onReset={resetConfig} saving={saving} dirty={dirty} />
       )}
 
-      {detail && <PlayerDetail p={detail} onClose={() => setDetail(null)} onWa={(pp: any) => openWhatsApp(pp, waTemplate, flash)} onPush={sendPush} pushBusy={sendingPushId === detail.id} />}
+      {dsend && <DirectSendDialog origin="analytics" items={dsend.items} title={dsend.title} label={dsend.label} onClose={() => setDsend(null)} />}
+      {detail && <PlayerDetail p={detail} onClose={() => setDetail(null)} onWa={(pp: any) => sendWaTo(pp)} onPush={sendPush} pushBusy={sendingPushId === detail.id} />}
       {toast && <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-[60] bg-gray-900 border border-amber-500/40 text-amber-200 text-sm px-4 py-2.5 rounded-xl shadow-2xl">{toast}</div>}
     </div>
   );

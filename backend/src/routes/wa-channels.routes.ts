@@ -145,4 +145,16 @@ router.post('/conversations/:id/channel-pin', authenticate, adminOnly, async (re
   res.json({ success: true, conversation: { ...u, sendVia: pickChannel(u as any, 'reply').channel } });
 });
 
+// ── فتح محادثة رقمٍ من صفحات النظام (زرّ واتساب الأخضر) — تُنشأ إن لم تكن ──
+router.post('/conversations/open-by-phone', authenticate, adminOnly, async (req: Request, res: Response) => {
+  try {
+    const { normalizeAnyPhone } = await import('../utils/phone.util.js');
+    const norm = normalizeAnyPhone(String(req.body?.phone || ''));
+    if (!norm) return res.status(400).json({ error: 'رقمٌ غير صالح' });
+    const { getOrCreateConversation } = await import('../services/whatsapp-inbox.service.js');
+    const conv: any = await getOrCreateConversation(norm.local, '', { channel: webConfigured() && transportSettings().mode !== 'cloud_only' ? 'web' : 'cloud' });
+    res.json({ success: true, conversation: { id: conv?.id } });
+  } catch (e: any) { res.status(500).json({ error: e.message }); }
+});
+
 export default router;

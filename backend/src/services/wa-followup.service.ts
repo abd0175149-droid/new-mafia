@@ -21,6 +21,8 @@ import { sql } from 'drizzle-orm';
 import { getDB } from '../config/db.js';
 import { env } from '../config/env.js';
 import { notTestActivitySql } from './test-location.util.js';
+import { reachableSql, webConfigured } from './wa-transport/router.js';
+import { transportSettings } from './wa-transport/settings.js';
 
 export interface FollowupConfig {
   enabled: boolean;
@@ -150,7 +152,7 @@ function dailyCount(): number {
 
 export async function followupTick(): Promise<void> {
   const db = getDB();
-  if (!db || !env.WA_TOKEN) return;
+  if (!db || !(env.WA_TOKEN || webConfigured())) return;
   const cfg = await getFollowupConfig();
   if (!cfg.enabled) return;
   if (inQuietHours(cfg)) return;
@@ -174,8 +176,9 @@ export async function followupTick(): Promise<void> {
        AND c.needs_attention = false
        AND (c.bot_paused_until IS NULL OR c.bot_paused_until < NOW())
        AND c.followup_stopped_at IS NULL
-       -- نافذة الـ٢٤ ساعة مفتوحة بهامش نصف ساعة (الإرسال يُرفض بعدها أصلاً)
-       AND c.last_inbound_at > NOW() - INTERVAL '23 hours 30 minutes'
+       -- ميتا: نافذة الـ٢٤ ساعة بهامش نصف ساعة · رقم الأعمال: بلا نافذة، لكن لا نوقظ محادثةً قديمة
+       AND ${reachableSql('c', 'bulk', 30)}
+       ${transportSettings().mode !== 'cloud_only' && webConfigured() ? sql`AND c.last_inbound_at > NOW() - (${transportSettings().followupMaxAgeHours} * INTERVAL '1 hour')` : sql``}
        ${cfg.audience === 'new_only' ? sql`AND c.player_id IS NULL AND c.created_at > NOW() - INTERVAL '48 hours'` : sql``}
        AND (
          (COALESCE(c.followup_stage,0) = 0

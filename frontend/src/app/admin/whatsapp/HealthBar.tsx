@@ -14,6 +14,29 @@ const TONE: Record<string, { dot: string; text: string; border: string }> = {
 };
 const ago = (iso: string) => { const m = Math.round((Date.now() - new Date(iso).getTime()) / 60e3); return m < 1 ? 'الآن' : `قبل ${m} د`; };
 
+// 📱 سطر رقم الأعمال (جلسة OpenWA) — يظهر حين تكون القناة مهيّأة. التفاصيل والربط في «الإدارة ← القنوات»
+const WEB_STATUS_AR: Record<string, string> = { ready: 'يعمل', qr_ready: 'ينتظر الربط', disconnected: 'مفصول', created: 'غير مربوط', unreachable: 'البوّابة لا تستجيب', failed: 'فشل', initializing: 'يبدأ…', authenticating: 'يتحقّق…' };
+const MODE_AR: Record<string, string> = { cloud_only: 'ميتا وحدها', dual: 'مزدوج', web_primary: 'الجلسة أوّلاً', web_final: 'الجلسة + ميتا للتحويل' };
+function WebLine({ apiFetch }: { apiFetch: Fetcher }) {
+  const [c, setC] = useState<any>(null);
+  useEffect(() => {
+    const load = () => apiFetch('/api/whatsapp/channels').then(setC).catch(() => {});
+    load(); const t = setInterval(load, 60e3); return () => clearInterval(t);
+  }, [apiFetch]);
+  if (!c?.configured?.web) return null;
+  const w = c.web || {};
+  const ok = w.ready && !w.locked;
+  const dot = w.locked ? 'bg-rose-500 animate-pulse' : ok ? 'bg-emerald-400' : 'bg-amber-400 animate-pulse';
+  return (
+    <a href="/admin/whatsapp?tab=channels" className="flex items-center gap-2 px-3 py-1.5 rounded-xl border border-gray-800 bg-gray-900/70 mb-2 text-xs" dir="rtl">
+      <span className={`w-2 h-2 rounded-full shrink-0 ${dot}`} />
+      <b className={ok ? 'text-emerald-300' : w.locked ? 'text-rose-300' : 'text-amber-300'}>📱 رقم الأعمال: {WEB_STATUS_AR[w.status] || w.status}{w.locked ? ' — ⛔ مقفل' : ''}</b>
+      {w.phone && <span className="text-gray-500" dir="ltr">+{w.phone}</span>}
+      <span className="mr-auto text-gray-500">الوضع: <b className="text-gray-300">{MODE_AR[c.settings?.mode] || c.settings?.mode}</b>{c.outbox ? ` · في الطابور ${c.outbox.queued.reply + c.outbox.queued.timely + c.outbox.queued.bulk}` : ''}</span>
+    </a>
+  );
+}
+
 export default function HealthBar({ apiFetch }: { apiFetch: Fetcher }) {
   const [h, setH] = useState<any>(null);
   const [open, setOpen] = useState(false);
@@ -24,7 +47,7 @@ export default function HealthBar({ apiFetch }: { apiFetch: Fetcher }) {
   }, [apiFetch]);
   useEffect(() => { load(); const t = setInterval(() => load(), 120e3); return () => clearInterval(t); }, [load]);
 
-  if (!h) return null;
+  if (!h) return <WebLine apiFetch={apiFetch} />;
   const tone = TONE[h.level] || TONE.unconfigured;
   const bad = h.level !== 'ok' || !!h.sendingLocked;
 
@@ -34,6 +57,8 @@ export default function HealthBar({ apiFetch }: { apiFetch: Fetcher }) {
   };
 
   return (
+    <>
+    <WebLine apiFetch={apiFetch} />
     <div className={`rounded-xl border ${tone.border} bg-gray-900/70 mb-2 text-xs`} dir="rtl">
       <button onClick={() => setOpen(o => !o)} className="w-full flex items-center gap-2 px-3 py-2 text-right">
         <span className={`w-2 h-2 rounded-full shrink-0 ${tone.dot}`} />
@@ -76,5 +101,6 @@ export default function HealthBar({ apiFetch }: { apiFetch: Fetcher }) {
         </div>
       )}
     </div>
+    </>
   );
 }

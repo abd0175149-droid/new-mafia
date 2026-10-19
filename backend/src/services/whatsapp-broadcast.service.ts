@@ -17,18 +17,24 @@ import pathMod from 'path';
 import { getDB } from '../config/db.js';
 import { env } from '../config/env.js';
 import { waBroadcasts, waMessageTemplates } from '../schemas/admin.schema.js';
-import { sendMessage, sendingSuspendedReason, uploadWaMedia, WA_CAPTION_MAX } from './whatsapp-inbox.service.js';
+import { sendMessage, sendingSuspendedReason, uploadWaMedia, WA_CAPTION_MAX, isUnreachable } from './whatsapp-inbox.service.js';
+import { pickChannel, reachableSql } from './wa-transport/router.js';
+import { transportSettings } from './wa-transport/settings.js';
+import type { Channel } from './wa-transport/types.js';
 import { isTestActivity, notTestActivitySql, notTestLocationSql } from './test-location.util.js';
 
 const rowsOf = (r: any): any[] => r?.rows ?? (Array.isArray(r) ? r : []);
 export const BROADCAST_MAX_TARGETS = 300;
+/** على رقم الأعمال لا نافذة: الجمهور أوسع، والطابور (٢٥٠/يوم، ١٥–٤٥ث) هو الضابط لا هذا السقف */
+export const BROADCAST_MAX_TARGETS_WEB = 1000;
+function maxTargets(): number { return transportSettings().mode === 'cloud_only' ? BROADCAST_MAX_TARGETS : BROADCAST_MAX_TARGETS_WEB; }
 const PACE_MS = 1300;
 const WINDOW_MARGIN = "23 hours 45 minutes";
 const OPTOUT_FOOTER = '\n\n— لإيقاف هذه الرسائل أرسل: إيقاف';
 const RANK_AR: Record<string, string> = { INFORMANT: 'مُخبر', SOLDIER: 'جندي', CAPO: 'كابو', UNDERBOSS: 'ساعد الزعيم', GODFATHER: 'العرّاب' };
 
 export type AudienceFilter = 'all' | 'players' | 'visitors' | 'booked_upcoming' | 'activity' | 'not_booked_activity';
-export interface AudienceQuery { filter: AudienceFilter; activityId?: number | null; excludeIds?: number[]; excludeBroadcastIds?: number[] }
+export interface AudienceQuery { filter: AudienceFilter; activityId?: number | null; excludeIds?: number[]; excludeBroadcastIds?: number[]; channel?: 'all' | Channel }
 
 const stopFlags = new Set<number>();
 let running: number | null = null;
@@ -53,21 +59,33 @@ export async function previewAudience(q: AudienceQuery) {
   const notSentBefore = exB.length ? sql`AND NOT EXISTS (SELECT 1 FROM wa_broadcast_recipients br WHERE br.conversation_id = c.id AND br.broadcast_id = ANY(${exBLit}::int[]))
        AND NOT EXISTS (SELECT 1 FROM wa_messages m JOIN wa_broadcasts b ON b.id = ANY(${exBLit}::int[]) WHERE m.conversation_id = c.id AND m.source = 'broadcast' AND m.created_at >= b.created_at AND m.created_at <= COALESCE(b.finished_at, NOW()) + INTERVAL '1 minute')` : sql``;
   const r: any = await db.execute(sql`
-    SELECT c.id, c.phone, c.display_name, c.player_id, c.last_inbound_at, p.name AS player_name, p.rank_tier
+    SELECT c.id, c.phone, c.wa_phone, c.channel, c.channel_pin, c.cloud_last_inbound_at, c.web_chat_id,
+           c.display_name, c.player_id, c.last_inbound_at, p.name AS player_name, p.rank_tier
       FROM wa_conversations c LEFT JOIN players p ON p.id = c.player_id
-     WHERE c.last_inbound_at > NOW() - INTERVAL '23 hours 45 minutes'
+     WHERE ${reachableSql('c', 'bulk', 15)}
+       AND c.phone NOT LIKE 'lid:%'
        AND NOT EXISTS (SELECT 1 FROM wa_optouts o WHERE o.phone = c.phone)
        ${extra}
        ${notSentBefore}
-     ORDER BY c.last_inbound_at DESC LIMIT ${BROADCAST_MAX_TARGETS + 50}
+     ORDER BY COALESCE(c.last_inbound_at, c.last_message_at, c.created_at) DESC LIMIT ${maxTargets() + 50}
   `);
   const ex = new Set((q.excludeIds || []).map(Number));
-  const rows = rowsOf(r).filter((x: any) => !ex.has(Number(x.id))).map((x: any) => ({
-    id: Number(x.id), phone: x.phone, name: x.player_name || x.display_name || x.phone, isPlayer: !!x.player_id,
-    rank: x.rank_tier ? (RANK_AR[x.rank_tier] || '') : '', windowClosesAt: new Date(new Date(x.last_inbound_at).getTime() + 24 * 3600e3).toISOString(),
-  }));
+  // 🔀 القناة التي سيخرج منها كلٌّ — ميتا لمن نافذته عندها مفتوحة، ورقم الأعمال لغيره (بحسب الوضع)
+  const rows = rowsOf(r).filter((x: any) => !ex.has(Number(x.id))).map((x: any) => {
+    const via = pickChannel({
+      id: Number(x.id), phone: x.phone, waPhone: x.wa_phone, channel: x.channel, channelPin: x.channel_pin,
+      cloudLastInboundAt: x.cloud_last_inbound_at, lastInboundAt: x.last_inbound_at, webChatId: x.web_chat_id,
+    }, 'bulk').channel;
+    return {
+      id: Number(x.id), phone: x.phone, name: x.player_name || x.display_name || x.phone, isPlayer: !!x.player_id,
+      rank: x.rank_tier ? (RANK_AR[x.rank_tier] || '') : '', via,
+      windowClosesAt: via === 'cloud' && x.cloud_last_inbound_at ? new Date(new Date(x.cloud_last_inbound_at).getTime() + 24 * 3600e3).toISOString() : null,
+    };
+  }).filter((x: any) => x.via && (!q.channel || q.channel === 'all' || x.via === q.channel));
   void WINDOW_MARGIN;
-  return { total: rows.length, rows: rows.slice(0, BROADCAST_MAX_TARGETS), capped: rows.length > BROADCAST_MAX_TARGETS };
+  const cap = maxTargets();
+  const byChannel = { cloud: rows.filter((x: any) => x.via === 'cloud').length, web: rows.filter((x: any) => x.via === 'web').length };
+  return { total: rows.length, rows: rows.slice(0, cap), capped: rows.length > cap, byChannel, maxTargets: cap, estimate: estimateWeb(Math.min(byChannel.web, cap)) };
 }
 
 // ══════════════════════════════════════════════════════
@@ -99,7 +117,7 @@ export function fillVars(body: string, t: { name: string; rank: string; activity
 
 export async function broadcastStatus() {
   const db = getDB(); if (!db) return { running: null, nextAllowedAt: null, suspended: null };
-  return { running, suspended: sendingSuspendedReason(), nextAllowedAt: null, maxTargets: BROADCAST_MAX_TARGETS };
+  return { running, suspended: sendingSuspendedReason(), nextAllowedAt: null, maxTargets: maxTargets() };
 }
 
 export async function startBroadcast(input: AudienceQuery & { body: string; createdBy: string; appendOptout?: boolean; templateId?: number | null; imageUrl?: string | null }): Promise<{ ok: boolean; error?: string; id?: number; total?: number }> {
@@ -145,44 +163,49 @@ export async function startBroadcast(input: AudienceQuery & { body: string; crea
     if (longest > WA_CAPTION_MAX) return { ok: false, error: `النصّ مع الصورة أطول من ${WA_CAPTION_MAX} حرفاً بعد حلّ المتغيّرات (حدّ تعليق الصورة) — اختصره ${longest - WA_CAPTION_MAX} حرفاً` };
   }
   const aud = await previewAudience(input);
-  if (!aud.total) return { ok: false, error: 'لا مستلمين بنافذة مفتوحة يطابقون الفلتر' };
+  if (!aud.total) return { ok: false, error: transportSettings().mode === 'cloud_only' ? 'لا مستلمين بنافذة مفتوحة يطابقون الفلتر' : 'لا مستلمين يطابقون الفلتر' };
   const targets = aud.rows;
+  const anyCloud = targets.some((t: any) => t.via === 'cloud');
   // 🖼️ رفعةٌ **واحدة** لميتا يُعاد استعمالُ معرّفها لكلّ مستلم. بالرابط كانت ميتا تسحب
   //    الصورة من اللابتوب مرّةً لكلّ مستلم (٣٠٠ مستلم × ٢ م.ب = ٦٠٠ م.ب خروجاً). المعرّف صالحٌ ~٣٠ يوماً.
   let mediaId = '';
-  if (imgRel) {
+  // رقم الأعمال يرسل الملفّ نفسه من القرص — الرفع لميتا يلزم فقط إن خرج شيءٌ عبرها
+  if (imgRel && anyCloud) {
     try {
       mediaId = await uploadWaMedia(pathMod.resolve(process.cwd(), '.' + imgRel), imgRel.endsWith('.png') ? 'image/png' : 'image/jpeg');
     } catch (e: any) {
       return { ok: false, error: `تعذّر رفع الصورة لواتساب: ${e?.message || 'خطأ'}` };
     }
   }
-  const [row] = await db.insert(waBroadcasts).values({ body: imgRel ? `🖼️ ${imgRel}\n${body}` : body, templateId: input.templateId || null, totalTargets: targets.length, status: 'running', createdBy: input.createdBy } as any).returning();
+  const [row] = await db.insert(waBroadcasts).values({ body: imgRel ? `🖼️ ${imgRel}\n${body}` : body, templateId: input.templateId || null, totalTargets: targets.length, status: 'running', createdBy: input.createdBy, origin: 'inbox', lane: 'bulk' } as any).returning();
   if (input.templateId) await db.update(waMessageTemplates).set({ usedCount: sql`COALESCE(${waMessageTemplates.usedCount}, 0) + 1` } as any).where(eq(waMessageTemplates.id, Number(input.templateId))).catch(() => {});
   running = row.id;
   const withFooter = input.appendOptout !== false;
 
   (async () => {
-    let sent = 0, skipped = 0, failed = 0, streak = 0, status = 'done';
+    let sent = 0, skipped = 0, failed = 0, streak = 0, status = 'done', viaWeb = false;
     for (const t of targets) {
       if (stopFlags.has(row.id)) { status = 'stopped'; break; }
       if (sendingSuspendedReason()) { status = 'stopped'; break; }           // إنذار صحّة الحساب أثناء البثّ
       try {
         const msgText = fillVars(body, { ...t, activity: activityName, venue: venueName, place: placeText, when: whenText }) + (withFooter ? OPTOUT_FOOTER : '');
-        const sentRes: any = await sendMessage(mediaId
-          // يُرسَل بالمعرّف (رفعةٌ واحدة)، والرابط يُحفظ في السجلّ ليعرض الانبوكس الصورة
-          ? { conversationId: t.id, image: { mediaId, ...(env.PUBLIC_URL ? { link: `${env.PUBLIC_URL}${imgRel}` } : {}), caption: msgText }, source: 'broadcast' as any }
-          : { conversationId: t.id, text: msgText, source: 'broadcast' as any });
+        const link = imgRel && env.PUBLIC_URL ? `${env.PUBLIC_URL}${imgRel}` : '';
+        const sentRes: any = await sendMessage(imgRel
+          // ميتا: بالمعرّف (رفعةٌ واحدة) والرابط للعرض · رقم الأعمال: الملفّ نفسه من القرص عبر الرابط
+          ? { conversationId: t.id, image: { ...(mediaId ? { mediaId } : {}), ...(link ? { link } : {}), caption: msgText }, source: 'broadcast' as any, lane: 'bulk' }
+          : { conversationId: t.id, text: msgText, source: 'broadcast' as any, lane: 'bulk' });
+        viaWeb = sentRes?.message?.channel === 'web';
         sent++; streak = 0;
         // 👁 معرّف الرسالة يربط المستلم بحالتها (وصلت/قُرئت) — تقرير القراءة لكلّ بثّ
         await db.execute(sql`INSERT INTO wa_broadcast_recipients (broadcast_id, conversation_id, wa_message_id) VALUES (${row.id}, ${t.id}, ${sentRes?.message?.id ?? null}) ON CONFLICT DO NOTHING`).catch(() => {});
       } catch (e: any) {
-        if (e?.code === 'WINDOW_EXPIRED') { skipped++; }                     // النافذة أُغلقت بين المعاينة والإرسال
+        if (isUnreachable(e)) { skipped++; }                     // النافذة أُغلقت بين المعاينة والإرسال
         else if (e?.code === 'SENDING_SUSPENDED') { status = 'stopped'; break; }
         else { failed++; streak++; if (streak >= 5) { status = 'stopped'; break; } }
       }
       if ((sent + skipped + failed) % 10 === 0) await db.update(waBroadcasts).set({ sentCount: sent, skippedCount: skipped, failedCount: failed } as any).where(eq(waBroadcasts.id, row.id)).catch(() => {});
-      await new Promise(r => setTimeout(r, PACE_MS + Math.random() * 500));
+      // ميتا: التباعد هنا · رقم الأعمال: الطابور يتولّاه (١٥–٤٥ث، ٢٥٠/يوم) فلا انتظار
+      if (!viaWeb) await new Promise(r => setTimeout(r, PACE_MS + Math.random() * 500));
     }
     await db.update(waBroadcasts).set({ sentCount: sent, skippedCount: skipped, failedCount: failed, status, finishedAt: new Date() } as any).where(eq(waBroadcasts.id, row.id)).catch(() => {});
     stopFlags.delete(row.id); running = null;
@@ -217,7 +240,34 @@ export async function upcomingActivities() {
   }));
 }
 
-export function stopBroadcast(id: number) { stopFlags.add(Number(id)); return true; }
+export async function stopBroadcast(id: number) {
+  stopFlags.add(Number(id));
+  // رقم الأعمال: الحلقة انتهت سريعاً والرسائل في الطابور — الإيقاف يحذف ما لم يخرج بعد
+  try {
+    const db = getDB();
+    if (db) {
+      const r: any = await db.execute(sql`SELECT r.wa_message_id AS mid FROM wa_broadcast_recipients r
+        JOIN wa_messages m ON m.id = r.wa_message_id WHERE r.broadcast_id = ${Number(id)} AND m.status = 'queued'`);
+      const ids = rowsOf(r).map((x: any) => Number(x.mid)).filter(Boolean);
+      if (ids.length) {
+        const { cancelQueued } = await import('./wa-transport/web.transport.js');
+        const n = await cancelQueued(ids);
+        await db.execute(sql`UPDATE wa_broadcasts SET status = 'stopped', finished_at = NOW() WHERE id = ${Number(id)}`);
+        console.log(`📢 WA broadcast #${id} stopped — ${n} queued message(s) cancelled`);
+      }
+    }
+  } catch (e: any) { console.warn('⚠️ stopBroadcast queue:', e?.message); }
+  return true;
+}
+
+/** كم يستغرق الجماعيّ عبر رقم الأعمال: بالسقف اليوميّ ومتوسّط التباعد */
+export function estimateWeb(n: number): { messages: number; perDay: number; days: number; minutesFirstDay: number } | null {
+  if (!n) return null;
+  const b = transportSettings().bulk;
+  const perDay = Math.max(1, b.dailyCap);
+  const avgGap = (b.gapMinSec + b.gapMaxSec) / 2;
+  return { messages: n, perDay, days: Math.ceil(n / perDay), minutesFirstDay: Math.round(Math.min(n, perDay) * avgGap / 60) };
+}
 
 // ══════════════════════════════════════════════════════
 // 👁 تقرير القراءة لكلّ بثّ — قرأها / وصلت ولم تُقرأ / لم تصل / رفضها واتساب

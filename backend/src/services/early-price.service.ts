@@ -384,8 +384,8 @@ async function notifyStrike(s: { playerId: number | null; phone: string | null; 
     const [conv] = await db.select().from(waConversations).where(eq(waConversations.phone, s.phone)).limit(1);
     if (!conv) return;
     const { sendMessage, isFreeWindowOpen } = await import('./whatsapp-inbox.service.js');
-    if (!isFreeWindowOpen(conv as any)) return;
-    await sendMessage({ conversationId: conv.id, text: `⚠️ ${body}`, source: 'system' }).catch(() => {});
+    if (!isFreeWindowOpen(conv as any, 'timely')) return;
+    await sendMessage({ conversationId: conv.id, text: `⚠️ ${body}`, source: 'system', lane: 'timely' }).catch(() => {});
   } catch { /* غير حاجب */ }
 }
 
@@ -574,7 +574,12 @@ export async function activate(promoId: number, by: string, applyRetro: boolean)
       const text = `💸 حجزك على «${x.activityName}» صار بـ${jod(x.to)} للشخص بدل ${jod(x.from)} — سعر الدون المبكّر لأنّك حجزت بكّير 🎭${x.losesStamp ? '\nℹ️ بالسعر المبكّر ما بتنحسب هالزيارة ختم ولاء.' : ''}`;
       try {
         const [conv] = await db.select().from(waConversations).where(eq(waConversations.phone, x.phone)).limit(1);
-        if (conv && isFreeWindowOpen(conv as any)) { await sendMessage({ conversationId: conv.id, text: text + OPTOUT_FOOTER, source: 'system' }); notified++; await new Promise(r => setTimeout(r, PACE_MS)); }
+        if (conv && isFreeWindowOpen(conv as any, 'bulk')) {
+          const r: any = await sendMessage({ conversationId: conv.id, text: text + OPTOUT_FOOTER, source: 'system', lane: 'bulk' });
+          notified++;
+          // ميتا: التباعد هنا · رقم الأعمال: الطابور يتولّاه
+          if (r?.message?.channel !== 'web') await new Promise(r2 => setTimeout(r2, PACE_MS));
+        }
       } catch { /* نافذة مغلقة */ }
     }
   })().catch(() => {});

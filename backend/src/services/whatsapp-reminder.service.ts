@@ -71,12 +71,13 @@ export async function runReminderScan(): Promise<void> {
       const local = normalizeLocalPhone(r.phone);
       if (!local) continue;
       const [conv] = await db
-        .select({ id: waConversations.id, lastInboundAt: waConversations.lastInboundAt })
+        .select()
         .from(waConversations)
         .where(eq(waConversations.phone, local))
         .limit(1);
       if (!conv) continue;                    // لا محادثة واتساب لهذا الرقم
-      if (!isFreeWindowOpen(conv)) continue;  // النافذة مغلقة — لا نرسل (قد يفتحها لاحقاً قبل اللعبة)
+      // ميتا: النافذة مغلقة ⟵ لا نرسل (قد يفتحها لاحقاً) · رقم الأعمال: يصل دائماً (الموجِّه)
+      if (!isFreeWindowOpen(conv, 'timely')) continue;
 
       const loc = r.locName ? `${r.locName}${r.mapUrl ? ` — ${r.mapUrl}` : ''}` : '';
       const text = `🎭 تذكير: لعبتك بعد ساعة تقريباً!\n\n`
@@ -86,7 +87,7 @@ export async function runReminderScan(): Promise<void> {
         + (loc ? `📍 المكان: ${loc}\n` : '')
         + `\nنستنّاك 🎭 الدفع بالمكان.`;
 
-      await sendMessage({ conversationId: conv.id, text, source: 'system' });
+      await sendMessage({ conversationId: conv.id, text, source: 'system', lane: 'timely' });
       await db.update(reservations).set({ remindSentAt: new Date() } as any).where(eq(reservations.id, r.id));
       console.log(`🔔 WA reminder sent → reservation #${r.id} (${r.actName})`);
     } catch (err: any) {

@@ -54,6 +54,7 @@ import anticheatRoutes from './routes/anticheat.routes.js';
 import whatsappRoutes from './routes/whatsapp.routes.js';
 import whatsappInboxRoutes from './routes/whatsapp-inbox.routes.js';
 import waChannelsRoutes from './routes/wa-channels.routes.js';
+import waOutreachRoutes from './routes/wa-outreach.routes.js';
 import waRewardRoutes from './routes/wa-reward.routes.js';
 import bookingOfferRoutes from './routes/booking-offers.routes.js';
 import earlyPriceRoutes from './routes/early-price.routes.js';
@@ -222,6 +223,7 @@ app.use('/api/admin/consents', adminConsentsRoutes); // ⚖️ سجلّ المو
 app.use('/api/whatsapp', whatsappRoutes);
 app.use('/api/whatsapp', whatsappInboxRoutes);  // 💬 مركز المحادثات: webhook + send + inbox
 app.use('/api/whatsapp', waRewardRoutes);
+app.use('/api/whatsapp', waOutreachRoutes);     // 📤 الإرسال المباشر من الحجوزات والتحليلات والمستكشف
 app.use('/api/whatsapp', waChannelsRoutes);     // 🔀 القناتان: الوضع، الصحّة، الربط، الاستيراد، الأقفال       // 🎁 عروض الحديث مع البوت (نقاط هديّة)
 app.use('/api/booking-offers', bookingOfferRoutes); // 🎟️ عروض الحجز الجماعيّ («جيب صحابك»)
 app.use('/api/early-price', earlyPriceRoutes);        // 💸 سعر الدون المبكّر + الغياب

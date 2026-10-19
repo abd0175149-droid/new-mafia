@@ -121,8 +121,9 @@ console.log('\n٥. رفعةٌ واحدة للبثّ');
 
   const loopBody = bcast.slice(loopStart, bcast.indexOf('await new Promise(r => setTimeout(r, PACE_MS', loopStart));
   check(!/uploadWaMedia/.test(loopBody), 'لا رفعَ داخل الحلقة');
-  check(/image: \{ mediaId, .*caption: msgText \}/.test(loopBody), 'كلُّ مستلمٍ يأخذ المعرّفَ نفسه مع تعليقه');
-  check(/link: `\$\{env\.PUBLIC_URL\}\$\{imgRel\}`/.test(loopBody), 'ومعه رابطُنا للعرض في الانبوكس');
+  // (منذ م٤: المعرّف يُرفع إن خرج شيءٌ عبر ميتا، ورقم الأعمال يرسل الملفّ من القرص بالرابط)
+  check(/image: \{ \.\.\.\(mediaId \? \{ mediaId \} : \{\}\), \.\.\.\(link \? \{ link \} : \{\}\), caption: msgText \}/.test(loopBody), 'كلُّ مستلمٍ يأخذ المعرّفَ نفسه مع تعليقه');
+  check(/const link = imgRel && env\.PUBLIC_URL \? `\$\{env\.PUBLIC_URL\}\$\{imgRel\}`/.test(loopBody), 'ومعه رابطُنا للعرض في الانبوكس');
 }
 
 // ── ٦. قيودُ البثّ لم تُمسّ ─────────────────────────────

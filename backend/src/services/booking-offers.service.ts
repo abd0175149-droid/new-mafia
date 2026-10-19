@@ -615,7 +615,7 @@ async function inviteMember(playerId: number, token: string, ownerName: string, 
     if (!pl?.phone) return;
     const [conv] = await db.select().from(waConversations).where(eq(waConversations.phone, pl.phone)).limit(1);
     if (!conv) return;
-    await h.sendMessage({ conversationId: conv.id, source: 'system', interactive: {
+    await h.sendMessage({ conversationId: conv.id, source: 'system', lane: 'timely', interactive: {
       type: 'button',
       body: { text: `👥 ${first} ضمّك لمجموعته على «${act.name}» (${fmtWhen(act.date)}).\nانحجزلك مقعد باسمك — أكّد إنك جاي، أو قلّي إذا مش إنت.` },
       action: { buttons: [
@@ -839,10 +839,13 @@ export async function settleGroup(groupId: number, present: number[], by: string
 // ══════════════════════════════════════════════════════
 // 📣 إبلاغ الحاجزين مسبقاً — معاينةٌ ثمّ إرسالٌ يؤكّده الأدمن
 // ══════════════════════════════════════════════════════
-function isWindowOpen(lastInboundAt: any): boolean {
-  if (!lastInboundAt) return false;
-  return Date.now() - new Date(lastInboundAt).getTime() < 24 * H;
+// 🔀 «يمكن الوصول» من الموجِّه: نافذة ميتا، أو رقم الأعمال (بلا شرط) بحسب الوضع
+async function reachable(conv: any): Promise<boolean> {
+  if (!conv) return false;
+  const { isFreeWindowOpen } = await import('./whatsapp-inbox.service.js');
+  return isFreeWindowOpen(conv, 'bulk');
 }
+void H;
 export function notifyText(o: OfferLike & { name: string }, act: ActivityInfo, b: { name: string; people: number }): { text: string; qualifies: boolean; target: number } {
   const t: Terms = { N: o.N, K: o.K, repeat: o.repeat };
   const first = String(b.name || '').split(/\s+/)[0] || '';
@@ -871,13 +874,13 @@ export async function notifyPreview(offerId: number): Promise<any> {
   for (const b of people) {
     const act = await loadActivity(b.activityId);
     if (!act || act.isTest) continue;
-    const [conv] = await db.select({ id: waConversations.id, lastInboundAt: waConversations.lastInboundAt }).from(waConversations).where(eq(waConversations.phone, b.phone)).limit(1);
+    const [conv] = await db.select().from(waConversations).where(eq(waConversations.phone, b.phone)).limit(1);
     const [opt] = await db.select({ phone: waOptouts.phone }).from(waOptouts).where(eq(waOptouts.phone, b.phone)).limit(1);
     let kind: string;
     if (new Date(act.date).getTime() <= Date.now()) kind = 'past';
     else if (b.inGroup) kind = 'in_group';
     else if (opt) kind = 'optout';
-    else if (!conv || !isWindowOpen(conv.lastInboundAt)) kind = 'closed';
+    else if (!conv || !(await reachable(conv))) kind = 'closed';
     else kind = 'send';
     const msg = notifyText({ ...o, name: String(r.name) } as any, act, b);
     rows.push({ ...b, activityName: act.name, activityWhen: fmtWhen(act.date), conversationId: conv?.id ?? null,
@@ -911,7 +914,7 @@ export async function notifySend(offerId: number, by: string): Promise<{ ok: boo
       for (const x of targets) {
         if (sendingSuspendedReason()) break;
         try {
-          await sendMessage({ conversationId: x.conversationId, source: 'broadcast', meta: { offerNotify: offerId, by }, interactive: {
+          const sr: any = await sendMessage({ conversationId: x.conversationId, source: 'broadcast', lane: 'bulk', meta: { offerNotify: offerId, by }, interactive: {
             type: 'button', body: { text: x.message.slice(0, 1024) },
             action: { buttons: [
               { type: 'reply', reply: { id: `grp_add:${x.activityId}`, title: x.qualifies ? 'أبعت أرقامهم' : 'أضيف أصحابي' } },
@@ -921,6 +924,7 @@ export async function notifySend(offerId: number, by: string): Promise<{ ok: boo
           sent++;
           await db.update(waConversations).set({ offersAnnounced: sql`COALESCE(${waConversations.offersAnnounced}, '{}'::jsonb) || ${JSON.stringify({ [offerId]: new Date().toISOString() })}::jsonb` } as any)
             .where(eq(waConversations.id, x.conversationId));
+          if (sr?.message?.channel === 'web') continue;   // رقم الأعمال: الطابور يباعد
         } catch { skipped++; }
         await new Promise(r => setTimeout(r, PACE_MS + Math.random() * 400));
       }

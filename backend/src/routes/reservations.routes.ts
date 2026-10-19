@@ -47,6 +47,15 @@ router.get('/', authenticate, async (req: Request, res: Response) => {
   }
 
   const rows = await query;
+  // 📤 علامات التسليم لرسائل الحجز المرسلة من النظام (✓ ✓✓ مقروءة)
+  try {
+    const mids = rows.map((r: any) => r.waMessageId).filter(Boolean) as number[];
+    if (mids.length) {
+      const { reservationWaStatuses } = await import('../services/wa-outreach.service.js');
+      const st = await reservationWaStatuses(mids);
+      return res.json(rows.map((r: any) => (r.waMessageId ? { ...r, waStatus: st.get(Number(r.waMessageId)) || null } : r)));
+    }
+  } catch { /* العلامات تكميليّة */ }
   res.json(rows);
 });
 

@@ -545,6 +545,10 @@ export const waBroadcasts = pgTable('wa_broadcasts', {
   createdBy: varchar('created_by', { length: 100 }).default(''),
   createdAt: timestamp('created_at').defaultNow().notNull(),
   finishedAt: timestamp('finished_at'),
+  // 📤 الدفعات من صفحات النظام تعيد استعمال جدول البثّ: inbox | reservations | analytics | explorer
+  origin: varchar('origin', { length: 16 }).default('inbox').notNull(),
+  lane: varchar('lane', { length: 8 }).default('bulk').notNull(),
+  audienceLabel: text('audience_label').default(''),
 });
 
 // ── ملاحظات العميل: الذاكرة طويلة المدى للبوت والإدارة ──
@@ -643,6 +647,7 @@ export const reservations = pgTable('reservations', {
   // (تذكيرُ البوت الآليّ قبل ساعة). التمييزُ مقصود: أحدهما فعلُ إنسانٍ والآخر فعلُ نظام.
   waSentAt: timestamp('wa_sent_at'),
   waSentBy: varchar('wa_sent_by', { length: 100 }).default(''),
+  waMessageId: integer('wa_message_id'),                               // 📤 رسالة الحجز المرسلة من النظام ⟵ علامات التسليم
   // 💸 سعر الدون المبكّر: السعر المقفول لحظة الحجز لأوّل promo_seats مقعداً (والباقي بسعر الفعاليّة)
   unitPrice: decimal('unit_price', { precision: 10, scale: 2 }),
   pricePromoId: integer('price_promo_id'),

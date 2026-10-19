@@ -3756,7 +3756,7 @@ export async function runFollowUp(convId: number, stage: 1 | 2, instruction: str
   const [conv] = await db.select().from(waConversations).where(eq(waConversations.id, convId)).limit(1);
   if (!conv) return { sent: false, reason: 'no-conv' };
   if (!isBotActive(conv)) return { sent: false, reason: 'paused' };
-  if (!isFreeWindowOpen(conv)) return { sent: false, reason: 'window' };
+  if (!isFreeWindowOpen(conv, 'bulk')) return { sent: false, reason: 'window' };
 
   const addressTitle = await addressTitleFor(db, conv);
   const history = await buildHistory(db, conv, settings.contextMessages || 20, addressTitle);
@@ -3780,7 +3780,7 @@ export async function runFollowUp(convId: number, stage: 1 | 2, instruction: str
     }).catch(() => {});
     const finalOut = enforceLinks(enforceAddress((text || '').trim(), addressTitle));
     if (!finalOut) return { sent: false, reason: 'empty-reply' };
-    await sendMessage({ conversationId: convId, text: finalOut, source: 'bot' });
+    await sendMessage({ conversationId: convId, text: finalOut, source: 'bot', lane: 'bulk' });
     return { sent: true };
   } catch (err: any) {
     console.warn('⚠️ WA follow-up:', err?.message || err);
