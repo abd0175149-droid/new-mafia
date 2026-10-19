@@ -72,7 +72,7 @@ function collectErrors(hs: any, issues: string[], notes: string[]) {
 export async function checkWaHealth(): Promise<WaHealth> {
   const base = { checkedAt: new Date().toISOString(), issues: [] as string[], notes: [] as string[], links: links() };
   if (!env.WA_TOKEN || !env.WA_PHONE_NUMBER_ID) {
-    last = { ...base, level: 'unconfigured', summary: 'واتساب غير مهيّأ في البيئة', sendingLocked: sendingSuspendedReason() };
+    last = { ...base, level: 'unconfigured', summary: 'واتساب غير مهيّأ في البيئة', sendingLocked: sendingSuspendedReason('cloud') };
     return last;
   }
   const p = await g(`${env.WA_PHONE_NUMBER_ID}?fields=status,quality_rating,messaging_limit_tier,name_status,health_status`);
@@ -81,13 +81,13 @@ export async function checkWaHealth(): Promise<WaHealth> {
     const msg = String(p.data?.error?.message || 'خطأ غير معروف'); const code = Number(p.data?.error?.code);
     if (p.net) {
       netFailStreak++; okStreak = 0;
-      h = { ...base, level: 'unreachable', summary: `تعذّر الوصول إلى ميتا (${msg})`, issues: [msg], sendingLocked: sendingSuspendedReason() };
+      h = { ...base, level: 'unreachable', summary: `تعذّر الوصول إلى ميتا (${msg})`, issues: [msg], sendingLocked: sendingSuspendedReason('cloud') };
     } else {
       netFailStreak = 0; okStreak = 0;
       const blocked = (code === 200 && /access blocked/i.test(msg)) || code === 190 || code === 368 || code === 131031;
-      h = { ...base, level: blocked ? 'blocked' : 'degraded', summary: blocked ? `⛔ ميتا ترفض طلباتنا: ${msg} (code ${code})` : `ميتا أعادت خطأ: ${msg} (code ${code})`, issues: [`${msg} (code ${code})`], sendingLocked: sendingSuspendedReason() };
-      if (blocked && !sendingSuspendedReason()) suspendSending(`${AUTO_LOCK_PREFIX}: ${msg} (code ${code})`);
-      h.sendingLocked = sendingSuspendedReason();
+      h = { ...base, level: blocked ? 'blocked' : 'degraded', summary: blocked ? `⛔ ميتا ترفض طلباتنا: ${msg} (code ${code})` : `ميتا أعادت خطأ: ${msg} (code ${code})`, issues: [`${msg} (code ${code})`], sendingLocked: sendingSuspendedReason('cloud') };
+      if (blocked && !sendingSuspendedReason('cloud')) suspendSending(`${AUTO_LOCK_PREFIX}: ${msg} (code ${code})`, 'cloud');
+      h.sendingLocked = sendingSuspendedReason('cloud');
     }
   } else {
     netFailStreak = 0; okStreak++;
@@ -111,12 +111,12 @@ export async function checkWaHealth(): Promise<WaHealth> {
       ...base, issues: uniq(issues), notes: uniq(notes), level: issues.length ? 'degraded' : 'ok',
       summary: issues.length ? `⚠️ ${uniq(issues)[0]}${issues.length > 1 ? ` (+${uniq(issues).length - 1})` : ''}` : `سليم — الرقم متّصل، الجودة ${QUALITY_AR[d.quality_rating] || d.quality_rating}، السقف ${String(d.messaging_limit_tier || '').replace('TIER_', '')}/يوم`,
       phone: { status: d.status, quality: d.quality_rating, tier: d.messaging_limit_tier, nameStatus: d.name_status }, waba,
-      sendingLocked: sendingSuspendedReason(),
+      sendingLocked: sendingSuspendedReason('cloud'),
     };
     // رفع تلقائيّ للقفل العابر فقط، وبعد فحصين سليمين
-    const lock = sendingSuspendedReason();
+    const lock = sendingSuspendedReason('cloud');
     if (lock && lock.startsWith(AUTO_LOCK_PREFIX) && okStreak >= 2 && !env.WA_SUSPENDED) {
-      await resumeSending(); h.sendingLocked = null;
+      await resumeSending('cloud'); h.sendingLocked = null;
       h.notes.push('رُفع قفل الإرسال تلقائيّاً بعد عودة ميتا (فحصان سليمان متتاليان)');
       console.log('✅ WA health: sending lock lifted automatically (Meta access restored)');
       await notify('✅ واتساب عاد للعمل', 'ميتا تقبل طلباتنا من جديد ورُفع قفل الإرسال تلقائيّاً. الرسائل التي وصلت أثناء الانقطاع قد لا تصل.');
@@ -162,7 +162,7 @@ async function onChange(h: WaHealth) {
   else if (h.level === 'ok' && prev && prev !== 'ok') await notify('✅ واتساب سليم من جديد', h.summary);
 }
 
-export function getWaHealth(): WaHealth | null { return last ? { ...last, sendingLocked: sendingSuspendedReason() } : null; }
+export function getWaHealth(): WaHealth | null { return last ? { ...last, sendingLocked: sendingSuspendedReason('cloud') } : null; }
 
 export async function startWaHealthMonitor() {
   if (timer) return;

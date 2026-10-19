@@ -1,0 +1,96 @@
+// ══════════════════════════════════════════════════════
+// 🔀 طبقة النقل — قناتان خلف sendMessage / processWebhookPayload
+// ══════════════════════════════════════════════════════
+// cloud = Cloud API الرسميّ (رقم ميتا) · web = جلسة رقم الأعمال عبر بوّابة OpenWA.
+//
+// القاعدة الذهبيّة: الشكل القانونيّ داخل النظام هو **حمولة ميتا**. ما يصل من الجلسة
+// يُترجَم إليها، وما يُرسَل يُخزَّن بها — فلا يعرف البوت ولا التحليلات ولا الواجهة
+// من أيّ قناة جاءت الرسالة إلّا من عمود `channel`.
+
+export type Channel = 'cloud' | 'web';
+export const CHANNELS: Channel[] = ['cloud', 'web'];
+
+/**
+ * مسار الإرسال — يحدّد التباعد والسقف في طابور الجلسة، والبديل بين القناتين.
+ *   reply  : ردّ على وارد (البوت، الموظّف، النظام)
+ *   timely : مقيّد بوقت (تذكير، مقعد متحرّر، تنبيه أدمن، رسالة حجز)
+ *   bulk   : جماعيّ (بثّ، متابعة، استبيان، عروض، فئات التحليلات)
+ */
+export type Lane = 'reply' | 'timely' | 'bulk';
+
+/** أوضاع التشغيل — تُبدَّل من «الإدارة ← القنوات» بلا نشر */
+export type TransportMode = 'cloud_only' | 'dual' | 'web_primary' | 'web_final';
+export const TRANSPORT_MODES: TransportMode[] = ['cloud_only', 'dual', 'web_primary', 'web_final'];
+
+export interface TransportSettings {
+  mode: TransportMode;
+  /** البديل حين تتعطّل القناة المختارة — لكلّ مسار (قرار المالك: timely وحده) */
+  failover: Record<Lane, boolean>;
+  /** البوت يردّ على قناة الجلسة؟ (مطفأ في مرحلة «الظلّ») */
+  webBot: boolean;
+  /** سقوف طابور الجلسة */
+  bulk: { dailyCap: number; gapMinSec: number; gapMaxSec: number; from: string; to: string };
+  timely: { gapMinSec: number; gapMaxSec: number; serviceDailyCap: number };
+  /** ردود ميتا تعرّف برقم الأعمال (مرّة في اليوم لكلّ محادثة) */
+  cloudRedirect: { enabled: boolean; businessNumber: string; oncePerDay: boolean };
+  /** الإرسال المباشر من صفحات الحجوزات والتحليلات والمستكشف */
+  outreach: { direct: boolean; cohortFreqDays: number };
+  /** المتابعات على الجلسة: أقصى عمرٍ لآخر وارد يُتابَع (لا نافذة على الجلسة، لكن لا نوقظ محادثات قديمة) */
+  followupMaxAgeHours: number;
+}
+
+export const DEFAULT_TRANSPORT_SETTINGS: TransportSettings = {
+  mode: 'cloud_only',
+  failover: { reply: false, timely: true, bulk: false },
+  webBot: false,
+  bulk: { dailyCap: 250, gapMinSec: 15, gapMaxSec: 45, from: '10:00', to: '23:30' },
+  timely: { gapMinSec: 3, gapMaxSec: 8, serviceDailyCap: 120 },
+  cloudRedirect: { enabled: true, businessNumber: '', oncePerDay: true },
+  outreach: { direct: true, cohortFreqDays: 3 },
+  followupMaxAgeHours: 48,
+};
+
+/** محتوى رسالة صادرة — نفس حقول SendMessageInput */
+export interface OutboundContent {
+  text?: string;
+  interactive?: any;
+  location?: { latitude: number; longitude: number; name?: string; address?: string };
+  image?: { link?: string; mediaId?: string; localPath?: string; caption?: string };
+}
+
+export interface SendResult {
+  /** wamid.HBg… لميتا · true_9627…@c.us_3EB0… للجلسة · null إن بقيت في الطابور */
+  wamid: string | null;
+  /** حمولة ميتا القانونيّة التي تُخزَّن في wa_messages.payload */
+  storedPayload: any;
+  /** الجلسة: الرسالة في الطابور ولم تخرج بعد */
+  queued?: boolean;
+}
+
+/** ما يكفي من صفّ المحادثة لاختيار القناة */
+export interface ConvRoutingRow {
+  id: number;
+  phone: string;
+  waPhone: string;
+  channel?: string | null;
+  channelPin?: string | null;
+  cloudLastInboundAt?: Date | string | null;
+  webLastInboundAt?: Date | string | null;
+  lastInboundAt?: Date | string | null;
+  webChatId?: string | null;
+}
+
+export interface PickResult {
+  channel: Channel | null;
+  /** عند غياب القناة: WINDOW_EXPIRED (ميتا وحدها والنافذة مغلقة) أو CHANNEL_UNAVAILABLE */
+  code?: 'WINDOW_EXPIRED' | 'CHANNEL_UNAVAILABLE';
+  reason?: string;
+  /** اختيرت بديلاً عن القناة الأصليّة */
+  failover?: boolean;
+}
+
+/** أخطاء «تعذّر الوصول» التي يصنّفها المستدعون «تخطّى» لا «فشل» */
+export const UNREACHABLE_CODES = ['WINDOW_EXPIRED', 'OPTED_OUT', 'CHANNEL_UNAVAILABLE'] as const;
+export function isUnreachable(e: any): boolean {
+  return UNREACHABLE_CODES.includes(e?.code);
+}

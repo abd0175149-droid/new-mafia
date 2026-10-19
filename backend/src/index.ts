@@ -1816,6 +1816,56 @@ async function main() {
       await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_wa_bot_usage_at ON wa_bot_usage(created_at DESC)`);
       console.log('✅ WhatsApp inbox tables ensured');
 
+      // ── 🔀 القناتان: Cloud API + جلسة رقم الأعمال (OpenWA) — wa-transport/ ──
+      // كلّها إضافات بقيمٍ افتراضيّة تحفظ السلوك: الوضع الأوّل cloud_only.
+      await db.execute(sql`ALTER TABLE wa_conversations ADD COLUMN IF NOT EXISTS channel VARCHAR(8) DEFAULT 'cloud' NOT NULL`);
+      await db.execute(sql`ALTER TABLE wa_conversations ADD COLUMN IF NOT EXISTS channel_pin VARCHAR(8)`);
+      await db.execute(sql`ALTER TABLE wa_conversations ADD COLUMN IF NOT EXISTS cloud_last_inbound_at TIMESTAMP`);
+      await db.execute(sql`ALTER TABLE wa_conversations ADD COLUMN IF NOT EXISTS web_last_inbound_at TIMESTAMP`);
+      await db.execute(sql`ALTER TABLE wa_conversations ADD COLUMN IF NOT EXISTS web_first_contact_at TIMESTAMP`);
+      await db.execute(sql`ALTER TABLE wa_conversations ADD COLUMN IF NOT EXISTS web_chat_id VARCHAR(80)`);
+      await db.execute(sql`ALTER TABLE wa_conversations ADD COLUMN IF NOT EXISTS phone_verified BOOLEAN DEFAULT TRUE NOT NULL`);
+      // نافذة ميتا كانت last_inbound_at وحده — قبل القناة الثانية كلّ وارد كان من ميتا
+      await db.execute(sql`UPDATE wa_conversations SET cloud_last_inbound_at = last_inbound_at
+        WHERE cloud_last_inbound_at IS NULL AND last_inbound_at IS NOT NULL AND channel = 'cloud'`);
+      await db.execute(sql`ALTER TABLE wa_messages ADD COLUMN IF NOT EXISTS channel VARCHAR(8) DEFAULT 'cloud' NOT NULL`);
+      await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_wa_conv_web_chat ON wa_conversations(web_chat_id) WHERE web_chat_id IS NOT NULL`);
+      await db.execute(sql`
+        CREATE TABLE IF NOT EXISTS wa_identities (
+          lid VARCHAR(80) PRIMARY KEY,
+          phone VARCHAR(20),
+          source VARCHAR(16) DEFAULT '',
+          resolved_at TIMESTAMP,
+          seen_at TIMESTAMP DEFAULT NOW() NOT NULL
+        )
+      `);
+      await db.execute(sql`
+        CREATE TABLE IF NOT EXISTS wa_outbox (
+          message_id INTEGER PRIMARY KEY REFERENCES wa_messages(id) ON DELETE CASCADE,
+          lane VARCHAR(8) NOT NULL,
+          priority SMALLINT DEFAULT 5 NOT NULL,
+          not_before TIMESTAMP DEFAULT NOW() NOT NULL,
+          attempts INTEGER DEFAULT 0 NOT NULL,
+          lease_until TIMESTAMP,
+          last_error TEXT DEFAULT '',
+          content JSONB NOT NULL,
+          created_at TIMESTAMP DEFAULT NOW() NOT NULL
+        )
+      `);
+      await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_wa_outbox_due ON wa_outbox(lane, priority, not_before)`);
+      // الدفعات (البثّ + الإرسال المباشر من الصفحات) تعيد استعمال جداول البثّ
+      await db.execute(sql`ALTER TABLE wa_broadcasts ADD COLUMN IF NOT EXISTS origin VARCHAR(16) DEFAULT 'inbox' NOT NULL`).catch(() => {});
+      await db.execute(sql`ALTER TABLE wa_broadcasts ADD COLUMN IF NOT EXISTS lane VARCHAR(8) DEFAULT 'bulk' NOT NULL`).catch(() => {});
+      await db.execute(sql`ALTER TABLE wa_broadcasts ADD COLUMN IF NOT EXISTS audience_label TEXT DEFAULT ''`).catch(() => {});
+      await db.execute(sql`ALTER TABLE wa_broadcast_recipients ADD COLUMN IF NOT EXISTS body TEXT`).catch(() => {});
+      await db.execute(sql`ALTER TABLE wa_broadcast_recipients ADD COLUMN IF NOT EXISTS player_id INTEGER`).catch(() => {});
+      await db.execute(sql`ALTER TABLE wa_broadcast_recipients ADD COLUMN IF NOT EXISTS reservation_id INTEGER`).catch(() => {});
+      await db.execute(sql`ALTER TABLE wa_broadcast_recipients ADD COLUMN IF NOT EXISTS skip_reason VARCHAR(24)`).catch(() => {});
+      await db.execute(sql`ALTER TABLE reservations ADD COLUMN IF NOT EXISTS wa_message_id INTEGER`).catch(() => {});
+      await db.execute(sql`INSERT INTO wa_runtime_flags (key, value, updated_at) VALUES ('transport', '{"mode":"cloud_only"}'::jsonb, NOW())
+        ON CONFLICT (key) DO NOTHING`).catch(() => {});
+      console.log('✅ WhatsApp dual-channel columns ensured');
+
       // ── 📱 تهيئة التطبيق الأصليّ (Flutter) ──
       // منصّة التوكن: كل الصفوف القائمة توكنات ويب، فالافتراضيّ web صحيح أثريّاً.
       await db.execute(sql`ALTER TABLE player_fcm_tokens ADD COLUMN IF NOT EXISTS platform VARCHAR(10) DEFAULT 'web'`);
@@ -2426,6 +2476,8 @@ async function main() {
   try { const { startWaSurveyScheduler } = await import('./services/wa-bot-ext.service.js'); startWaSurveyScheduler(); } catch (e: any) { console.warn('⚠️ WA survey scheduler init:', e.message); }
   // ── ⛔ قفل إرسال واتساب المحفوظ (إن وُجد) يُستعاد قبل أيّ إرسال ──
   try { const { loadSendingSuspension } = await import('./services/whatsapp-inbox.service.js'); await loadSendingSuspension(); } catch { /* غير حرج */ }
+  // ── 🔀 إعدادات القناتين (الوضع، السقوف، البديل) — تُقرأ من القاعدة وتُنعَّش كلّ ٣٠ ثانية ──
+  try { const { loadTransportSettings, startTransportSettingsRefresh } = await import('./services/wa-transport/settings.js'); await loadTransportSettings(); startTransportSettingsRefresh(); } catch (e: any) { console.warn('⚠️ WA transport settings init:', e.message); }
   try { const { startWaHealthMonitor } = await import('./services/wa-health.service.js'); await startWaHealthMonitor(); } catch (e: any) { console.warn('⚠️ WA health monitor init:', e.message); }
   // ── 🎁 عروضُ الحديث مع البوت: بدءٌ وإنهاءٌ آليّان + مسحُ مصالحةٍ احتياطيّ ──
   //    المسحُ عند الإقلاع ليس ترفاً: سقوطُ الخادم بين إدراج الدفتر والمصالحة

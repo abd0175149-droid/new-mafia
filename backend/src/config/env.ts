@@ -28,6 +28,15 @@ export const env = {
   WA_SUSPENDED: process.env.WA_SUSPENDED === '1',                       // ⛔ إجراء من ميتا قائم — يوقف كل إرسال تلقائيّ
   N8N_API_KEY: process.env.N8N_API_KEY || '',                           // مفتاح استدعاءات n8n الداخلية (البوت)
   N8N_WA_WEBHOOK_URL: process.env.N8N_WA_WEBHOOK_URL || '',             // رابط webhook البوت في n8n (فارغ = البوت معطّل)
+
+  // ── 📱 جلسة واتساب عبر بوّابة OpenWA (رقم الأعمال) — القناة الثانية بجانب Cloud API ──
+  //    تُضبط بـ ops/mafia-wa/setup.sh. غيابها = القناة غير مهيّأة (لا شيء يتغيّر).
+  OPENWA_URL: (process.env.OPENWA_URL || '').replace(/\/+$/, ''),        // http://mafia-wa-gateway:2785
+  OPENWA_SESSION_ID: process.env.OPENWA_SESSION_ID || '',
+  OPENWA_API_KEY: process.env.OPENWA_API_KEY || '',                       // operator · allowedSessions=[SID]
+  OPENWA_WEBHOOK_SECRET: process.env.OPENWA_WEBHOOK_SECRET || '',         // HMAC لـ X-OpenWA-Signature
+  // عنوان الويبهوك كما تراه البوّابة (اسم الخدمة على شبكة mafia-prod_default)
+  OPENWA_WEBHOOK_URL: process.env.OPENWA_WEBHOOK_URL || `http://backend:${process.env.PORT || '4000'}/api/whatsapp/hooks/openwa`,
 } as const;
 
 // ── التحقق من قوة JWT_SECRET ────────────────────────────

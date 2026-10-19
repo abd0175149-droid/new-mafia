@@ -146,6 +146,8 @@ export async function fetchWaMedia(mediaId: string): Promise<{ bin: Buffer; mime
       return { bin, mime: EXT_MIME[ext] || 'application/octet-stream' };
     } catch { /* غير محفوظ بهذا الامتداد */ }
   }
+  // وسائط رقم الأعمال (owa-…) تُحفظ لحظة وصولها ولا مصدر لها غير القرص — لا معنى لسؤال ميتا عنها
+  if (safe.startsWith('owa-')) return null;
   try {
     const meta: any = await (await fetch(`${GRAPH}/${mediaId}`, { headers: { Authorization: `Bearer ${env.WA_TOKEN}` } })).json();
     if (!meta?.url) return null;

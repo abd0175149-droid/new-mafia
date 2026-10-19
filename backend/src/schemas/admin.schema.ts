@@ -435,6 +435,14 @@ export const waConversations = pgTable('wa_conversations', {
   followupStopReason: varchar('followup_stop_reason', { length: 40 }).default(''),
   // 🎟️ عروضُ الحجز التي أُعلنت لهذه المحادثة { offerId: ISO } — فرضُ «مرّةً واحدة» بالشيفرة لا بالموجّه
   offersAnnounced: jsonb('offers_announced').default({}),
+  // 🔀 القناتان (ميتا + جلسة رقم الأعمال) — wa-transport/
+  channel: varchar('channel', { length: 8 }).default('cloud').notNull(),   // قناة آخر وارد = قناة الردّ (لاصقة)
+  channelPin: varchar('channel_pin', { length: 8 }),                       // تثبيت يدويّ من الأدمن
+  cloudLastInboundAt: timestamp('cloud_last_inbound_at'),                  // نافذة ميتا (قيدٌ تفرضه ميتا)
+  webLastInboundAt: timestamp('web_last_inbound_at'),
+  webFirstContactAt: timestamp('web_first_contact_at'),                    // للعلم والإحصاء فقط — ليس شرطاً
+  webChatId: varchar('web_chat_id', { length: 80 }),                       // 9627…@c.us أو …@lid
+  phoneVerified: boolean('phone_verified').default(true).notNull(),        // false ⇒ @lid لم يُحلّ: لا أدوات حسّاسة
   status: varchar('status', { length: 20 }).default('open').notNull(), // open | closed
   createdAt: timestamp('created_at').defaultNow().notNull(),
   updatedAt: timestamp('updated_at').defaultNow().notNull(),
@@ -444,7 +452,8 @@ export const waConversations = pgTable('wa_conversations', {
 export const waMessages = pgTable('wa_messages', {
   id: serial('id').primaryKey(),
   conversationId: integer('conversation_id').references(() => waConversations.id, { onDelete: 'cascade' }).notNull(),
-  wamid: varchar('wamid', { length: 255 }).unique(),                   // معرّف Meta — يمنع التكرار
+  wamid: varchar('wamid', { length: 255 }).unique(),                   // معرّف Meta أو الجلسة — يمنع التكرار
+  channel: varchar('channel', { length: 8 }).default('cloud').notNull(), // cloud | web
   direction: varchar('direction', { length: 3 }).notNull(),            // in | out
   source: varchar('source', { length: 16 }).notNull(),                 // customer | bot | staff | template | system
   msgType: varchar('msg_type', { length: 20 }).default('text').notNull(), // text | interactive | button | image | ...

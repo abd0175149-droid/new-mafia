@@ -1,0 +1,163 @@
+# ════════════════════════════════════════════════════════════════
+# بوّابة واتساب المافيا (OpenWA) — مشروع compose مستقلّ (~/mafia-wa) على sysadmin-Inspiron-3593
+#
+# لماذا مستقلّ: على سابقة HOW (wbhub) — نشرُ المافيا أو WB web لا يقطع الرقم الآخر،
+# وبوّابة الرقم الشخصيّ (wbagent-api) لا تُلمس ولا تُعاد تهيئتها.
+#
+# الشبكات:
+#   default (10.122.0.0/24)  ← البوّابة + قاعدتها + ريدِسها. لا منافذ على المضيف لغير اللوحة.
+#   mafia-prod_default       ← خارجيّة: البوّابة تنضمّ إليها فيصلها الخادم بـ http://mafia-wa-gateway:2785
+#                              وتصل هي الويبهوك على http://backend:4000 — بلا أيّ تعديل على compose المافيا.
+#   ⚠ مجمّعات دوكر الافتراضيّة مستنفدة على هذا الخادم ⇒ مدى صريح (10.120 لـwbagent، 10.121 لـwbhub).
+#
+# المنفذ: 127.0.0.1:4130 للوحة OpenWA وحدها (عبر نفق ssh عند الحاجة). لا نطاق عامّ.
+# الصورة: wbagent-openwa:<الإصدار> المرقّعة (إيصالات القراءة) يبنيها deploy.sh في ~/wbagent.
+# ════════════════════════════════════════════════════════════════
+name: mafiawa
+
+x-logging: &logging
+  driver: json-file
+  options: { max-size: '10m', max-file: '3' }
+
+services:
+  gateway:
+    image: wbagent-openwa:${OPENWA_VERSION:-0.24.0}
+    pull_policy: never
+    container_name: mafia-wa-gateway
+    restart: unless-stopped
+    stop_grace_period: 75s
+    logging: *logging
+    security_opt: ['no-new-privileges:true']
+    cap_drop: [ALL]
+    cap_add: [CHOWN, DAC_OVERRIDE, FOWNER, KILL, SETGID, SETUID]
+    read_only: true
+    tmpfs: [/tmp]
+    shm_size: 512m
+    pids_limit: 2048
+    # حساب أعمال عمره أشهر ⇒ Chromium أثقل من رقمٍ جديد
+    mem_limit: ${GATEWAY_MEM_LIMIT:-2560m}
+    ports:
+      - '127.0.0.1:${GATEWAY_PORT:-4130}:2785'
+    environment:
+      NODE_ENV: production
+      TZ: Asia/Amman
+      HOME: /tmp
+      XDG_CONFIG_HOME: /tmp/.config
+      XDG_CACHE_HOME: /tmp/.cache
+      PORT: 2785
+      LOG_LEVEL: info
+      BASE_URL: http://127.0.0.1:${GATEWAY_PORT:-4130}
+      DASHBOARD_URL: http://127.0.0.1:${GATEWAY_PORT:-4130}
+      API_MASTER_KEY: ${GW_MASTER_KEY:?اضبط GW_MASTER_KEY}
+      # 🔴 يُضبط قبل أوّل إقلاع ولا يُغيَّر أبداً: تغييره يُبطل كلّ مفاتيح API
+      API_KEY_PEPPER: ${GW_KEY_PEPPER:?اضبط GW_KEY_PEPPER}
+      ENABLE_SWAGGER: 'false'
+
+      DATABASE_TYPE: postgres
+      DATABASE_HOST: db
+      DATABASE_PORT: 5432
+      DATABASE_NAME: openwa
+      DATABASE_USERNAME: openwa
+      DATABASE_PASSWORD: ${GW_DB_PASSWORD:?اضبط GW_DB_PASSWORD}
+      DATABASE_SYNCHRONIZE: 'false'
+
+      # الويبهوك عبر BullMQ: لا يضيع حدثٌ إن أُعيد تشغيل خادم المافيا أثناء النشر
+      REDIS_ENABLED: 'true'
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      QUEUE_ENABLED: 'true'
+
+      SESSION_DATA_PATH: /app/data/sessions
+      PUPPETEER_HEADLESS: 'true'
+      PUPPETEER_EXECUTABLE_PATH: /usr/local/bin/puppeteer-chrome
+      AUTO_START_SESSIONS: 'true'
+      RESOLVE_LID_TO_PHONE: 'true'
+      MAX_CONCURRENT_SESSIONS: 1
+      STORAGE_TYPE: local
+      STORAGE_LOCAL_PATH: /app/data/media
+
+      WEBHOOK_TIMEOUT: 10000
+      WEBHOOK_RETRY_DELAY: 5000
+      WEBHOOK_SHUTDOWN_DRAIN_MS: 15000
+      # ما فشل تسليمه يُحفظ ٣ أيّام ويُعاد بـ redrive — نشرُ المافيا قد يطول أكثر من المحاولات
+      WEBHOOK_FAILURE_PAYLOAD_RETENTION_HOURS: 72
+      # حارس SSRF: نسمح لخادم المافيا وحده بالاسم (بلا منفذ)
+      SSRF_ALLOWED_HOSTS: backend
+
+      # رقم الأعمال قديم (+7 أشهر): بلا جدول تسخين، ولا معاملة خاصّة للمحادثة الأولى (قرار المالك
+      # 2026-10-20). الضبط الحقيقيّ في طابور المافيا: 250/يوم جماعيّ، 15–45ث، 10:00–23:30.
+      SEND_PACING_ENABLED: 'true'
+      SEND_PACING_WARMUP_SCHEDULE: '600'
+      SEND_PACING_COLD_DAILY_CAP: '600'
+      SIMULATE_TYPING: 'true'
+      MCP_ENABLED: 'false'
+      PLUGINS_DIR: /app/data/plugins
+      UPDATE_CHECK_ENABLED: 'false'
+    volumes:
+      # الجلسة (Chromium) + main.sqlite (مفاتيح API) — فقدانه = إعادة الربط ومفاتيح جديدة
+      - gateway_data:/app/data
+    networks:
+      default: {}
+      mafia:
+        aliases: [mafia-wa]
+    depends_on:
+      db: { condition: service_healthy }
+      redis: { condition: service_healthy }
+    healthcheck:
+      test: ['CMD', 'curl', '-f', 'http://localhost:2785/api/health/ready']
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 90s
+
+  db:
+    image: postgres:16-alpine
+    container_name: mafia-wa-db
+    restart: unless-stopped
+    logging: *logging
+    security_opt: ['no-new-privileges:true']
+    mem_limit: 256m
+    environment:
+      POSTGRES_USER: openwa
+      POSTGRES_PASSWORD: ${GW_DB_PASSWORD:?اضبط GW_DB_PASSWORD}
+      POSTGRES_DB: openwa
+      LANG: C.UTF-8
+    volumes:
+      - db_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U openwa -d openwa']
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    container_name: mafia-wa-redis
+    restart: unless-stopped
+    logging: *logging
+    security_opt: ['no-new-privileges:true']
+    mem_limit: 128m
+    # appendonly: مهامّ الطابور حالةٌ حقيقيّة · noeviction: BullMQ يرفض غيرها
+    command: ['redis-server', '--appendonly', 'yes', '--appendfsync', 'everysec', '--maxmemory-policy', 'noeviction']
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ['CMD', 'redis-cli', 'ping']
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+volumes:
+  gateway_data:
+  db_data:
+  redis_data:
+
+networks:
+  default:
+    ipam:
+      config:
+        - subnet: 10.122.0.0/24
+          gateway: 10.122.0.1
+  mafia:
+    external: true
+    name: mafia-prod_default

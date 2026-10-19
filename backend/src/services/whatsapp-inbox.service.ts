@@ -19,93 +19,37 @@ import { players } from '../schemas/player.schema.js';
 import { normalizeLocalPhone, toWaPhone, samePhone, normalizeAnyPhone } from '../utils/phone.util.js';
 import { sendPushToPlayers } from './fcm.service.js';
 
-const GRAPH_BASE = 'https://graph.facebook.com/v20.0';
-/** حدّ ميتا لتعليق الصورة (حرفاً) — يُتحقّق منه عند المعاينة وعند الإرسال */
-export const WA_CAPTION_MAX = 1024;
+import { WA_CAPTION_MAX as CLOUD_CAPTION_MAX, uploadCloudMedia, cloudConfigured, sendCloud } from './wa-transport/cloud.transport.js';
+import {
+  suspendSending as _suspend, resumeSending as _resume, loadSendingSuspension as _load,
+  sendingSuspendedReason as _reason,
+} from './wa-transport/locks.js';
+import { pickChannel, cloudWindowOpen, webConfigured } from './wa-transport/router.js';
+import { transportSettings } from './wa-transport/settings.js';
+import type { Channel, Lane } from './wa-transport/types.js';
+export { isUnreachable } from './wa-transport/types.js';
 
-// نافذة الرد الحر (رسائل service المجانية) — 24 ساعة من آخر رسالة واردة
-const FREE_REPLY_WINDOW_MS = 24 * 60 * 60 * 1000;
+/** حدّ ميتا لتعليق الصورة (حرفاً) — يُتحقّق منه عند المعاينة وعند الإرسال */
+export const WA_CAPTION_MAX = CLOUD_CAPTION_MAX;
+
 // مدة إيقاف البوت المؤقت بعد رد بشري (قرار المالك: 30 دقيقة)
 export const BOT_PAUSE_AFTER_HUMAN_MS = 30 * 60 * 1000;
 
-// ── تفعيل الميزة ─────────────────────────────────────
+// ── تفعيل الميزة: أيّ قناةٍ مهيّأة ───────────────────
 export function waEnabled(): boolean {
-  return !!(env.WA_TOKEN && env.WA_PHONE_NUMBER_ID);
+  return cloudConfigured() || webConfigured();
 }
 
 // ── بث لحظي لغرفة الإنبوكس (أدمن فقط — الانضمام في index.ts) ──
-function emitInbox(event: string, payload: any) {
+export function emitInbox(event: string, payload: any) {
   try {
     const io = (global as any).io;
     if (io) io.to('wa:inbox').emit(event, payload);
   } catch { /* البث ليس حرجاً */ }
 }
 
-// ══════════════════════════════════════════════════════
-// 🖼️ رفعُ صورةٍ إلى مكتبة وسائط ميتا
-// ══════════════════════════════════════════════════════
-// طريقتان لإرسال صورة: رابطٌ عامّ تسحبه ميتا من خادمنا، أو معرّفٌ نرفعه مسبقاً.
-// الرابط أبسط للرسالة الواحدة؛ أمّا البثّ فميتا تسحب الرابط **مرّةً لكلّ مستلم**
-// (بثٌّ لـ300 نافذة بصورة 2 م.ب = 600 م.ب تخرج من اللابتوب) — فيُرفع مرّةً ويُعاد
-// استعمالُ المعرّف. المعرّف صالحٌ ~30 يوماً عند ميتا.
-// لا تمرّ هذه الدالّة بـ`callWaApi` لأنّ ذاك يرسل JSON وهذه تحتاج multipart.
-export async function uploadWaMedia(filePath: string, mime: string): Promise<string> {
-  if (!waEnabled()) throw new Error('إرسال واتساب غير مفعّل');
-  const fs = await import('node:fs');
-  const buf = await fs.promises.readFile(filePath);
-  const form = new FormData();
-  form.append('messaging_product', 'whatsapp');
-  form.append('type', mime);
-  form.append('file', new Blob([new Uint8Array(buf)], { type: mime }), filePath.split(/[\\/]/).pop() || 'image.jpg');
-  const ctrl = new AbortController();
-  const timer = setTimeout(() => ctrl.abort(), 60000);   // الرفع أبطأ من رسالة نصّ
-  try {
-    const res = await fetch(`${GRAPH_BASE}/${env.WA_PHONE_NUMBER_ID}/media`, {
-      method: 'POST',
-      headers: { Authorization: `Bearer ${env.WA_TOKEN}` },   // لا Content-Type — fetch يضبط الحدّ الفاصل
-      body: form,
-      signal: ctrl.signal,
-    });
-    const data: any = await res.json().catch(() => ({}));
-    if (!res.ok || !data?.id) throw new Error(data?.error?.message || `فشل رفع الصورة لميتا (HTTP ${res.status})`);
-    return String(data.id);
-  } finally {
-    clearTimeout(timer);
-  }
-}
-
-// ── استدعاء Cloud API ────────────────────────────────
-async function callWaApi(path: string, body: any): Promise<any> {
-  const ctrl = new AbortController();
-  const timer = setTimeout(() => ctrl.abort(), 15000);
-  try {
-    const res = await fetch(`${GRAPH_BASE}/${path}`, {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${env.WA_TOKEN}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify(body),
-      signal: ctrl.signal,
-    });
-    const data: any = await res.json().catch(() => ({}));
-    if (!res.ok) {
-      const msg = data?.error?.message || `WhatsApp API HTTP ${res.status}`;
-      const err: any = new Error(msg);
-      err.waError = data?.error || null;
-      // ⛔ حظر على مستوى التطبيق/الحساب (OAuth 200 «API access blocked»، 368 حظر مؤقّت، 131031 حساب مقفل):
-      //    كلّ محاولة لاحقة ستفشل بالمثل — نقفل الإرسال فوراً بدل مواصلة الطرق (2026-09-20: حُظر التطبيق ولم يُقفل شيء).
-      const code = Number(data?.error?.code);
-      if ((code === 200 && /access blocked/i.test(msg)) || code === 368 || code === 131031) {
-        try { suspendSending(`ميتا ترفض الطلبات: ${msg} (code ${code})`); } catch { /* غير حاجب */ }
-      }
-      throw err;
-    }
-    return data;
-  } finally {
-    clearTimeout(timer);
-  }
-}
+// 🖼️ رفعُ صورةٍ إلى مكتبة وسائط ميتا — انتقل إلى wa-transport/cloud.transport.ts
+export const uploadWaMedia = uploadCloudMedia;
 
 // ══════════════════════════════════════════════════════
 // المحادثات: إيجاد/إنشاء + ربط اللاعب
@@ -120,16 +64,31 @@ async function findPlayerByPhone(db: any, localPhone: string) {
   return p || null;
 }
 
-export async function getOrCreateConversation(rawPhone: string, profileName?: string) {
+export async function getOrCreateConversation(
+  rawPhone: string,
+  profileName?: string,
+  opts: { channel?: Channel; webChatId?: string; phoneVerified?: boolean } = {},
+) {
   const db = getDB();
   if (!db) throw new Error('DB unavailable');
 
   // الأردني يُطبَّع محلياً (07…) كما كان دائماً؛ غير الأردني يُخزَّن بصيغته الدولية.
   // قبل هذا كان أي رقم غير أردني يرمي استثناءً يبتلعه معالج الويبهوك، فتختفي
   // رسالة الزائر الخليجي أو السائح بلا أثر — لا تُخزَّن ولا تظهر ولا يردّ عليها أحد.
-  const norm = normalizeAnyPhone(rawPhone);
-  if (!norm) throw new Error(`رقم غير صالح: ${rawPhone}`);
-  const { local: localPhone, wa: waPhone, isJordanian } = norm;
+  //
+  // 🕶️ الجلسة قد تُخفي الرقم خلف معرّف خصوصيّة (…@lid) لم يُحلّ بعد: يُخزَّن بمفتاح
+  //    «lid:<digits>» مؤقّتاً، بلا ربطٍ بلاعب، وبـ phone_verified=false — فلا أداة أدمن
+  //    ولا كتابة على حساب من محادثةٍ لا نعرف رقمها (web.inbound يدمجها عند الحلّ).
+  let localPhone: string, waPhone: string, isJordanian: boolean;
+  const isLidKey = /^lid:\d{5,20}$/.test(rawPhone);
+  if (isLidKey) {
+    localPhone = rawPhone; waPhone = ''; isJordanian = false;
+  } else {
+    const norm = normalizeAnyPhone(rawPhone);
+    if (!norm) throw new Error(`رقم غير صالح: ${rawPhone}`);
+    ({ local: localPhone, wa: waPhone, isJordanian } = norm);
+  }
+  const verified = isLidKey ? false : opts.phoneVerified !== false;
 
   const [existing] = await db
     .select()
@@ -148,6 +107,7 @@ export async function getOrCreateConversation(rawPhone: string, profileName?: st
       }
     }
     if (profileName && !existing.displayName) patch.displayName = profileName;
+    if (opts.channel === 'web' && opts.webChatId && existing.webChatId !== opts.webChatId) patch.webChatId = opts.webChatId;
     if (Object.keys(patch).length > 0) {
       patch.updatedAt = new Date();
       const [updated] = await db
@@ -162,7 +122,7 @@ export async function getOrCreateConversation(rawPhone: string, profileName?: st
 
   // إنشاء جديد — مع مطابقة اللاعب فوراً (اللاعبون يُخزَّنون بأرقام محلية، فلا معنى
   // للبحث عن رقم أجنبي: يربط نفسه لاحقاً برمز تحقق عبر request_account_link)
-  const player = isJordanian ? await findPlayerByPhone(db, localPhone) : null;
+  const player = isJordanian && verified ? await findPlayerByPhone(db, localPhone) : null;
   await db
     .insert(waConversations)
     .values({
@@ -170,6 +130,9 @@ export async function getOrCreateConversation(rawPhone: string, profileName?: st
       waPhone,
       playerId: player?.id || null,
       displayName: player?.name || profileName || '',
+      channel: opts.channel || 'cloud',
+      webChatId: opts.channel === 'web' ? (opts.webChatId || null) : null,
+      phoneVerified: verified,
     } as any)
     .onConflictDoNothing({ target: waConversations.phone });
 
@@ -188,49 +151,29 @@ export function isBotActive(conv: { botEnabled: boolean; botPausedUntil: Date | 
   return true;
 }
 
-// ── هل نافذة الرد الحر (24 ساعة) مفتوحة؟ ─────────────
-export function isFreeWindowOpen(conv: { lastInboundAt: Date | null }): boolean {
-  if (!conv.lastInboundAt) return false;
-  return Date.now() - new Date(conv.lastInboundAt).getTime() < FREE_REPLY_WINDOW_MS;
+// ── هل يمكن مراسلة هذه المحادثة الآن؟ ─────────────────
+// كانت «نافذة الـ24 ساعة» وحدها. صارت تسأل الموجِّه: على ميتا النافذةُ قيدٌ تفرضه ميتا،
+// وعلى رقم الأعمال (الجلسة) لا قيد ولا شرط (قرار المالك 2026-10-20).
+// الاسم باقٍ لأنّ عشرين مستدعياً يستعملونه؛ والصفّ الجزئيّ ({lastInboundAt}) يُعامَل كما كان.
+export function isFreeWindowOpen(conv: any, lane: Lane = 'reply'): boolean {
+  if (conv && conv.id !== undefined && conv.waPhone !== undefined) return pickChannel(conv, lane).channel !== null;
+  // صفٌّ جزئيّ ({lastInboundAt}): نافذة ميتا كما كانت، أو رقم الأعمال إن كان الوضع يرسل منه
+  if (cloudWindowOpen(conv || {})) return true;
+  return webConfigured() && transportSettings().mode !== 'cloud_only';
 }
 
 // ══════════════════════════════════════════════════════
-// ⛔ قفل الإرسال
+// ⛔ قفل الإرسال — لكلّ قناة قفلها (wa-transport/locks.ts)
 // ══════════════════════════════════════════════════════
 // مصدران يُغلقانه: قرار تشغيليّ (WA_SUSPENDED في البيئة) وإشارة من ميتا
 // نفسها تصل عبر webhook. الثاني هو ما كان ناقصاً يوم ٣١ يوليو: وصل
 // DISABLED_UPDATE فأوقفنا «الحملات» فقط، بينما كان يجب أن يتوقّف كل شيء.
-let metaSuspension: string | null = null;
-
-// 🔒 القفل يُحفظ في القاعدة: كان في ذاكرة العمليّة فقط، فإعادة تشغيل الخادم ترفعه صامتةً
-//    بينما سبب القفل (مخالفة عند ميتا) ما زال قائماً. يُرفع يدويّاً حصراً (resumeSending).
-export function suspendSending(reason: string): void {
-  metaSuspension = reason;
-  console.warn(`⛔ WA sending suspended: ${reason}`);
-  const db = getDB();
-  if (db) db.execute(sql`INSERT INTO wa_runtime_flags (key, value, updated_at) VALUES ('sending_suspended', ${JSON.stringify({ reason, at: new Date().toISOString() })}::jsonb, NOW())
-    ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = NOW()`).catch(() => {});
-}
-export async function loadSendingSuspension(): Promise<void> {
-  try {
-    const db = getDB(); if (!db) return;
-    const r: any = await db.execute(sql`SELECT value FROM wa_runtime_flags WHERE key = 'sending_suspended' LIMIT 1`);
-    const v = (r?.rows ?? r ?? [])[0]?.value;
-    if (v?.reason) { metaSuspension = String(v.reason); console.warn(`⛔ WA sending still suspended (persisted): ${metaSuspension}`); }
-  } catch { /* الجدول قد لا يكون موجوداً بعد */ }
-}
-export async function resumeSending(): Promise<void> {
-  metaSuspension = null;
-  const db = getDB();
-  if (db) await db.execute(sql`DELETE FROM wa_runtime_flags WHERE key = 'sending_suspended'`).catch(() => {});
-  console.warn('✅ WA sending resumed manually');
-}
-
-/** سبب المنع إن كان الإرسال مقفلاً، وإلا null. */
-export function sendingSuspendedReason(): string | null {
-  if (env.WA_SUSPENDED) return 'إجراء إنفاذ قائم من ميتا (WA_SUSPENDED=1)';
-  return metaSuspension;
-}
+// 🔒 القفل يُحفظ في القاعدة ويُرفع يدويّاً حصراً (resumeSending).
+export function suspendSending(reason: string, channel: Channel = 'cloud'): void { _suspend(reason, channel); }
+export async function loadSendingSuspension(): Promise<void> { await _load(); }
+export async function resumeSending(channel: Channel = 'cloud'): Promise<void> { await _resume(channel); }
+/** بلا قناة: سببٌ إن كانت كلّ قنوات الوضع الحاليّ مقفلة. مع قناة: قفلها وحدها. */
+export function sendingSuspendedReason(channel?: Channel): string | null { return _reason(channel); }
 
 // ══════════════════════════════════════════════════════
 // إشعار الأدمنية — عبر تطبيق اللاعب (قرار المالك):
@@ -412,7 +355,7 @@ export async function processWebhookPayload(payload: any): Promise<void> {
       const contacts = value.contacts || [];
       for (const msg of value.messages || []) {
         try {
-          await handleInboundMessage(db, msg, contacts);
+          await handleInboundMessage(db, msg, contacts, 'cloud');
         } catch (err: any) {
           console.error('❌ WA inbound message:', err.message);
         }
@@ -430,7 +373,30 @@ export async function processWebhookPayload(payload: any): Promise<void> {
   }
 }
 
-async function handleInboundMessage(db: any, msg: any, contacts: any[]) {
+// ══════════════════════════════════════════════════════
+// 📥 مدخل الوارد الموحّد — لكلّ قناة
+// ══════════════════════════════════════════════════════
+// ميتا تمرّر رسالتها كما هي. الجلسة (web.inbound.ts) تترجم حدث OpenWA إلى الشكل نفسه
+// ثمّ تدخل من هنا، فيمرّ الوارد من القناتين بمسارٍ واحد: منع التكرار، المحادثة،
+// الوسائط، النافذة، الإيقاف، الإشعار، الأزرار، المتابعة، المكافآت، البوت.
+export interface InboundOpts {
+  /** محادثة الجلسة: معرّفها عند واتساب (9627…@c.us أو …@lid) لتوجيه الردّ */
+  webChatId?: string;
+  /** false ⇒ الرقم لم يُحلّ من @lid — تُعطَّل الأدوات الحسّاسة */
+  phoneVerified?: boolean;
+  /** مستورد من سجلّ الهاتف: يُخزَّن بلا إشعار ولا بوت ولا تحديث للنافذة */
+  imported?: boolean;
+  /** البوت لا يردّ على هذه القناة الآن (الظلّ) */
+  suppressBot?: boolean;
+}
+
+export async function ingestInbound(msg: any, contacts: any[], channel: Channel, opts: InboundOpts = {}): Promise<void> {
+  const db = getDB();
+  if (!db) return;
+  await handleInboundMessage(db, msg, contacts, channel, opts);
+}
+
+async function handleInboundMessage(db: any, msg: any, contacts: any[], channel: Channel = 'cloud', opts: InboundOpts = {}) {
   const wamid: string = msg.id;
   if (!wamid) return;
 
@@ -439,7 +405,7 @@ async function handleInboundMessage(db: any, msg: any, contacts: any[]) {
   if (dup) return;
 
   const profileName = contacts.find((c: any) => c.wa_id === msg.from)?.profile?.name || '';
-  const conv = await getOrCreateConversation(msg.from, profileName);
+  const conv = await getOrCreateConversation(msg.from, profileName, { channel, webChatId: opts.webChatId, phoneVerified: opts.phoneVerified });
   if (!conv) return;
 
   const { msgType, body } = extractInbound(msg);
@@ -449,21 +415,27 @@ async function handleInboundMessage(db: any, msg: any, contacts: any[]) {
     .values({
       conversationId: conv.id,
       wamid,
+      channel,
       direction: 'in',
       source: 'customer',
       msgType,
       body,
-      payload: msg,
+      payload: opts.imported ? { ...msg, imported: true } : msg,
       status: 'received',
+      ...(opts.imported && msg.timestamp ? { createdAt: new Date(Number(msg.timestamp) * 1000) } : {}),
     } as any)
     .onConflictDoNothing({ target: waMessages.wamid })
     .returning();
   if (!saved) return; // سباق dedupe
 
   // 📥 الصور والملصقات والفيديو والملفّات: تُنزَّل الآن لتبقى بعد حذف ميتا لها
-  if (['image', 'sticker', 'video', 'document'].includes(msgType)) {
+  if (channel === 'cloud' && ['image', 'sticker', 'video', 'document'].includes(msgType)) {
     import('./wa-bot-ext.service.js').then(m => m.cacheInboundMedia(msg)).catch(() => {});
   }
+  // الجلسة تحفظ وسائطها قبل الوصول إلى هنا (web.inbound.ts) — لا جلب لاحقاً بالمعرّف
+
+  // 🗄️ المستورد من سجلّ الهاتف: سياقٌ للبوت والموظّف، لا حدثٌ جديد
+  if (opts.imported) return;
 
   // ── التفاعلات (رياكشن): تُلصق بالرسالة الهدف ولا تدخل مسار الرسائل ──
   // لا تفتح نافذة الـ24 ساعة، لا unread، لا push، ولا تمرير للبوت — كانت
@@ -478,6 +450,10 @@ async function handleInboundMessage(db: any, msg: any, contacts: any[]) {
     .update(waConversations)
     .set({
       lastInboundAt: now,
+      // قناة آخر وارد = قناة الردّ (لاصقة)، ونافذة ميتا تُحسب من وارد ميتا وحده
+      channel,
+      ...(channel === 'cloud' ? { cloudLastInboundAt: now } : { webLastInboundAt: now }),
+      ...(channel === 'web' && opts.webChatId ? { webChatId: opts.webChatId } : {}),
       lastMessageAt: now,
       lastMessagePreview: body.slice(0, 120),
       unreadCount: sql`${waConversations.unreadCount} + 1`,
@@ -539,7 +515,7 @@ async function handleInboundMessage(db: any, msg: any, contacts: any[]) {
     .catch((err: any) => console.warn('⚠️ WA reward hook:', err?.message || err));
 
   // ── تمرير للبوت إن كان نشطاً ──
-  if (isBotActive(updatedConv)) {
+  if (isBotActive(updatedConv) && !opts.suppressBot) {
     forwardToBot(updatedConv);
   }
 }
@@ -727,25 +703,32 @@ export interface SendMessageInput {
    *  إن جاء الاثنان (البثّ): يُرسَل بالمعرّف، ويُحفظ الرابط في السجلّ ليعرض الانبوكس الصورة.
    *  التعليق يُقصّ عند 1024 حرفاً (حدّ ميتا). */
   image?: { link?: string; mediaId?: string; caption?: string };
-  source: 'staff' | 'bot' | 'system' | 'broadcast';
+  /** outreach = من صفحات الحجوزات/التحليلات/المستكشف — لا يوقف البوت */
+  source: 'staff' | 'bot' | 'system' | 'broadcast' | 'outreach';
   staffId?: number;
   staffName?: string;
+  /** مسار الإرسال (التباعد والسقف والبديل). الافتراضيّ: broadcast ⇒ bulk، وغيره ⇒ reply */
+  lane?: Lane;
   /** يُدمج في `payload` المحفوظ: اسم الموظّف ونصّه قبل الصياغة — كان الاسم
    *  يُمرَّر ولا يُخزَّن، فلا يُعرف لاحقاً مَن كتب الردّ إلّا برقمٍ في عمود. */
   meta?: Record<string, any>;
 }
 
+function laneFor(input: SendMessageInput): Lane {
+  if (input.lane) return input.lane;
+  return input.source === 'broadcast' ? 'bulk' : 'reply';
+}
+
+function codeErr(code: string, message: string): Error {
+  const err: any = new Error(message);
+  err.code = code;
+  return err;
+}
+
 export async function sendMessage(input: SendMessageInput) {
   const db = getDB();
   if (!db) throw new Error('DB unavailable');
-  if (!waEnabled()) throw new Error('إرسال واتساب غير مفعّل (WA_TOKEN/WA_PHONE_NUMBER_ID)');
-
-  const blocked = sendingSuspendedReason();
-  if (blocked) {
-    const err: any = new Error(`الإرسال مقفل: ${blocked}`);
-    err.code = 'SENDING_SUSPENDED';
-    throw err;
-  }
+  if (!waEnabled()) throw new Error('إرسال واتساب غير مفعّل (لا Cloud API ولا جلسة)');
 
   // ── إيجاد المحادثة ──
   let conv: any = null;
@@ -765,64 +748,74 @@ export async function sendMessage(input: SendMessageInput) {
   const caption = hasImage ? (input.image!.caption || '').slice(0, WA_CAPTION_MAX) : '';
 
   // ══════════════════════════════════════════════════════
-  // 🔒 قيد الموافقة — البوّابة الوحيدة للصادر
+  // 🔒 البوّابة الوحيدة للصادر: الموجِّه
   // ══════════════════════════════════════════════════════
-  // النافذة تُفتح بوصول رسالة من العميل (lastInboundAt)، فاشتراطها هنا
-  // يعني حرفياً: لا نراسل إلا مَن راسلنا أولاً، وردّاً على رسالته.
-  // هذا ليس قاعدة في دليل الموظّف بل شرطٌ في طبقة الإرسال — لا يوجد
-  // مسار آخر إلى Cloud API في هذا النظام، ولا استثناء لأحد.
-  if (!isFreeWindowOpen(conv)) {
-    const err: any = new Error(
-      'لا توجد نافذة خدمة مفتوحة مع هذا الرقم — لا نبدأ محادثة مع أحد. '
-      + 'انتظر أن يراسلك العميل، فتُفتح نافذة الـ24 ساعة.',
-    );
-    err.code = 'WINDOW_EXPIRED';
-    throw err;
-  }
+  // ميتا: لا نراسل إلا مَن راسلنا خلال ٢٤ ساعة — قيدٌ تفرضه ميتا وشرطٌ في طبقة الإرسال.
+  // رقم الأعمال (الجلسة): لا قيد ولا شرط (قرار المالك) — الضبط بالطابور وسقوفه.
+  const lane = laneFor(input);
+  const pick = pickChannel(conv, lane);
+  if (!pick.channel) throw codeErr(pick.code || 'WINDOW_EXPIRED', pick.reason || 'لا قناة متاحة');
+  const channel: Channel = pick.channel;
 
-  // ── الإرسال عبر Cloud API ──
-  const apiBody: any = hasInteractive
-    ? { messaging_product: 'whatsapp', to: conv.waPhone, type: 'interactive', interactive: input.interactive }
-    : hasLocation
-    ? { messaging_product: 'whatsapp', to: conv.waPhone, type: 'location', location: input.location }
-    : hasImage
-    ? {
-        messaging_product: 'whatsapp', to: conv.waPhone, type: 'image',
-        image: input.image!.mediaId
-          ? { id: input.image!.mediaId, ...(caption ? { caption } : {}) }
-          : { link: input.image!.link, ...(caption ? { caption } : {}) },
-      }
-    : { messaging_product: 'whatsapp', to: conv.waPhone, type: 'text', text: { body: text } };
+  const blocked = sendingSuspendedReason(channel);
+  if (blocked) throw codeErr('SENDING_SUSPENDED', `الإرسال مقفل: ${blocked}`);
 
-  const apiRes = await callWaApi(`${env.WA_PHONE_NUMBER_ID}/messages`, apiBody);
-  const wamid = apiRes?.messages?.[0]?.id || null;
-  // 🖼️ صورةٌ أُرسلت بمعرّف ميتا (البثّ): المعرّف لا يُعرض في الانبوكس — نحفظ معه رابطنا العامّ
-  //    للعرض فقط (لا يُرسل لميتا). بدونه كانت رسائل البثّ تظهر نصّاً بلا صورة.
-  const storedBody = hasImage && input.image!.mediaId && input.image!.link
-    ? { ...apiBody, image: { ...apiBody.image, link: input.image!.link } }
-    : apiBody;
-
-  // ── التخزين ──
+  const content = {
+    text,
+    interactive: input.interactive,
+    location: input.location,
+    image: hasImage ? { ...input.image!, caption } : undefined,
+  };
   const preview = hasInteractive
     ? (input.interactive?.body?.text || '📋 رسالة تفاعلية')
     : hasLocation ? `📍 ${input.location?.name || 'موقع'}`
     : hasImage ? (caption || '📷 صورة')
     : text;
+  const msgType = hasInteractive ? 'interactive' : hasLocation ? 'location' : hasImage ? 'image' : 'text';
+  const meta = { ...(input.meta || {}), ...(pick.failover ? { failover: true } : {}) };
 
-  const [saved] = await db
-    .insert(waMessages)
-    .values({
-      conversationId: conv.id,
-      wamid,
-      direction: 'out',
-      source: input.source,
-      msgType: hasInteractive ? 'interactive' : hasLocation ? 'location' : hasImage ? 'image' : 'text',
-      body: preview,
-      payload: input.meta ? { ...storedBody, ...input.meta } : storedBody,
-      status: 'sent',
-      staffId: input.staffId || null,
-    } as any)
-    .returning();
+  let saved: any;
+  if (channel === 'cloud') {
+    // ── ميتا: كما كان حرفيّاً — أرسل ثمّ خزّن ──
+    const r = await sendCloud(conv.waPhone, content);
+    [saved] = await db
+      .insert(waMessages)
+      .values({
+        conversationId: conv.id,
+        wamid: r.wamid,
+        channel: 'cloud',
+        direction: 'out',
+        source: input.source,
+        msgType,
+        body: preview,
+        payload: Object.keys(meta).length ? { ...r.storedPayload, ...meta } : r.storedPayload,
+        status: 'sent',
+        staffId: input.staffId || null,
+      } as any)
+      .returning();
+  } else {
+    // ── رقم الأعمال: يُكتب الصفّ أوّلاً (queued) ثمّ يدخل الطابور ──
+    // الصفّ قبل الإرسال يمنع ازدواج الصدى (message.sent يصل قبل ردّ الـHTTP أحياناً)
+    // ويُظهر «في الطابور» في الواجهة للجماعيّ المتباعد.
+    const { enqueueWeb, buildWebStoredPayload } = await import('./wa-transport/web.transport.js');
+    const stored = buildWebStoredPayload(conv, content);
+    [saved] = await db
+      .insert(waMessages)
+      .values({
+        conversationId: conv.id,
+        wamid: null,
+        channel: 'web',
+        direction: 'out',
+        source: input.source,
+        msgType,
+        body: preview,
+        payload: Object.keys(meta).length ? { ...stored, ...meta } : stored,
+        status: 'queued',
+        staffId: input.staffId || null,
+      } as any)
+      .returning();
+    saved = await enqueueWeb(saved, conv, content, lane);
+  }
 
   // ── تحديث المحادثة (+ إيقاف البوت 30 دقيقة عند رد بشري) ──
   const now = new Date();
