@@ -772,6 +772,8 @@ async function listCollectors(): Promise<Array<{ id: number; name: string }>> {
 async function isAdminConversation(conv: any): Promise<boolean> {
   try {
     if (!conv?.playerId) return false;
+    // 🕶️ رقمٌ مخفيّ (…@lid لم يُحلّ): لا نعرف من يكتب — لا أدوات أدمن مهما رُبطت المحادثة يدويّاً
+    if (conv.phoneVerified === false) return false;
     const db = getDB();
     if (!db) return false;
     const [row] = await db
@@ -1426,10 +1428,22 @@ async function guardHandoffPromise(conv: any, text: string, toolTrace: Array<{ n
   console.log(`🛡️ WA handoff-guard: conv ${conv.id} — وعدٌ بلا تحويل، حُوِّل آليّاً`);
 }
 
+const IDENTITY_TOOLS = new Set([
+  'request_password_reset', 'request_account_link', 'confirm_account_link', 'start_registration',
+  'create_reservation', 'set_group_members', 'request_cancellation', 'request_change_people', 'get_player_stats',
+  'get_my_bookings', 'get_my_loyalty_card', 'get_my_game_status', 'get_my_seat', 'get_my_match_summary',
+  'get_my_match_points', 'get_my_invoice', 'get_my_chips',
+]);
+
 async function execTool(name: string, args: any, ctx: ToolCtx): Promise<any> {
   const db = getDB();
   if (!db) return { error: 'DB unavailable' };
   const { conv, dryRun } = ctx;
+  // 🕶️ الرقم إثبات هويّة (حساب، كلمة سرّ، تسجيل، حجوزات باسم الرقم). محادثةٌ رقمها مخفيّ (…@lid)
+  //    لا تملك هذا الإثبات — تُرفض أدوات الهويّة فيها بالكود لا بالموجّه.
+  if (conv?.phoneVerified === false && IDENTITY_TOOLS.has(name)) {
+    return { error: 'رقم هذه المحادثة غير ظاهر لنا بعد — لا يمكن تنفيذ عملٍ على حساب. اطلب من العميل مراسلتنا من رقمه، أو حوّله للإدارة.' };
+  }
   {
     const ext = await execExtTool(name, args, ctx as any, extHelpers());
     if (ext !== undefined) return ext;

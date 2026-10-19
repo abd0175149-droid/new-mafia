@@ -123,6 +123,13 @@ export async function getOrCreateConversation(
   // إنشاء جديد — مع مطابقة اللاعب فوراً (اللاعبون يُخزَّنون بأرقام محلية، فلا معنى
   // للبحث عن رقم أجنبي: يربط نفسه لاحقاً برمز تحقق عبر request_account_link)
   const player = isJordanian && verified ? await findPlayerByPhone(db, localPhone) : null;
+  // 📇 رقم الأعمال فيه محادثات قديمة لموردين ومعارف (استيراد التاريخ يعلّمهم في wa_web_known):
+  //    من كان «معروفاً وليس لاعباً» تُفتح محادثته والبوت مطفأ — الأدمن يفعّله بضغطة إن شاء.
+  let knownNonPlayer = false;
+  if (opts.channel === 'web' && !player) {
+    const r: any = await db.execute(sql`SELECT 1 FROM wa_web_known WHERE phone = ${localPhone} LIMIT 1`).catch(() => null);
+    knownNonPlayer = !!(r?.rows ?? r ?? [])[0];
+  }
   await db
     .insert(waConversations)
     .values({
@@ -130,6 +137,7 @@ export async function getOrCreateConversation(
       waPhone,
       playerId: player?.id || null,
       displayName: player?.name || profileName || '',
+      ...(knownNonPlayer ? { botEnabled: false } : {}),
       channel: opts.channel || 'cloud',
       webChatId: opts.channel === 'web' ? (opts.webChatId || null) : null,
       phoneVerified: verified,
@@ -218,7 +226,7 @@ function forwardToBot(conv: any) {
 // استخراج نص/نوع الرسالة الواردة من حمولة Meta
 // ══════════════════════════════════════════════════════
 
-function extractInbound(msg: any): { msgType: string; body: string } {
+export function extractInbound(msg: any): { msgType: string; body: string } {
   const t = msg.type || 'unknown';
   switch (t) {
     case 'text':
@@ -709,6 +717,8 @@ export interface SendMessageInput {
   staffName?: string;
   /** مسار الإرسال (التباعد والسقف والبديل). الافتراضيّ: broadcast ⇒ bulk، وغيره ⇒ reply */
   lane?: Lane;
+  /** ترتيبٌ داخل المسار في طابور الجلسة (أصغر = أسبق). إشعار الإلغاء يسبق البثّ */
+  priority?: number;
   /** يُدمج في `payload` المحفوظ: اسم الموظّف ونصّه قبل الصياغة — كان الاسم
    *  يُمرَّر ولا يُخزَّن، فلا يُعرف لاحقاً مَن كتب الردّ إلّا برقمٍ في عمود. */
   meta?: Record<string, any>;
@@ -814,7 +824,7 @@ export async function sendMessage(input: SendMessageInput) {
         staffId: input.staffId || null,
       } as any)
       .returning();
-    saved = await enqueueWeb(saved, conv, content, lane);
+    saved = await enqueueWeb(saved, conv, content, lane, input.priority);
   }
 
   // ── تحديث المحادثة (+ إيقاف البوت 30 دقيقة عند رد بشري) ──

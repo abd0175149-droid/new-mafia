@@ -74,6 +74,24 @@ router.get('/webhook', (req: Request, res: Response) => {
 });
 
 // ══════════════════════════════════════════════════════
+// POST /api/whatsapp/hooks/openwa — أحداث بوّابة رقم الأعمال (OpenWA)
+// ══════════════════════════════════════════════════════
+// تصل من الشبكة الداخليّة (http://backend:4000) لا من الإنترنت، ومع ذلك تُرفض بلا توقيعٍ سليم.
+// نردّ 200 فوراً كمسار ميتا؛ منع التكرار بمفتاح idempotencyKey ثمّ wamid، وما يضيع
+// (انقطاعٌ أطول من محاولات البوّابة) يُسترجع من سجلّ المحادثات عند عودة الجلسة.
+router.post('/hooks/openwa', async (req: Request, res: Response) => {
+  const { verifyOpenWaSignature, handleOpenWaEvent } = await import('../services/wa-transport/web.inbound.js');
+  if (!verifyOpenWaSignature((req as any).rawBody, req.headers['x-openwa-signature'])) {
+    console.warn('🚫 WA web hook: توقيع غير صالح — تم الرفض');
+    return res.sendStatus(403);
+  }
+  res.sendStatus(200);
+  handleOpenWaEvent(req.body).catch((err: any) =>
+    console.error(`❌ WA web hook (${req.body?.event}):`, err?.message || err),
+  );
+});
+
+// ══════════════════════════════════════════════════════
 // POST /api/whatsapp/webhook — استقبال الأحداث
 // ══════════════════════════════════════════════════════
 // نرد 200 فوراً (وإلا تعيد Meta الإرسال وقد تعطّل الـ webhook)،

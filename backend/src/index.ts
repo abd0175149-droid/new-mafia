@@ -53,6 +53,7 @@ import progressionSettingsRoutes from './routes/progression-settings.routes.js';
 import anticheatRoutes from './routes/anticheat.routes.js';
 import whatsappRoutes from './routes/whatsapp.routes.js';
 import whatsappInboxRoutes from './routes/whatsapp-inbox.routes.js';
+import waChannelsRoutes from './routes/wa-channels.routes.js';
 import waRewardRoutes from './routes/wa-reward.routes.js';
 import bookingOfferRoutes from './routes/booking-offers.routes.js';
 import earlyPriceRoutes from './routes/early-price.routes.js';
@@ -220,7 +221,8 @@ app.use('/api/analytics', analyticsRoutes);
 app.use('/api/admin/consents', adminConsentsRoutes); // ⚖️ سجلّ الموافقات (adminOnly · قراءةٌ فقط)
 app.use('/api/whatsapp', whatsappRoutes);
 app.use('/api/whatsapp', whatsappInboxRoutes);  // 💬 مركز المحادثات: webhook + send + inbox
-app.use('/api/whatsapp', waRewardRoutes);       // 🎁 عروض الحديث مع البوت (نقاط هديّة)
+app.use('/api/whatsapp', waRewardRoutes);
+app.use('/api/whatsapp', waChannelsRoutes);     // 🔀 القناتان: الوضع، الصحّة، الربط، الاستيراد، الأقفال       // 🎁 عروض الحديث مع البوت (نقاط هديّة)
 app.use('/api/booking-offers', bookingOfferRoutes); // 🎟️ عروض الحجز الجماعيّ («جيب صحابك»)
 app.use('/api/early-price', earlyPriceRoutes);        // 💸 سعر الدون المبكّر + الغياب
 app.use('/api/contacts-sync', contactsSyncRoutes);    // 📇 دفتر أرقام MC — إعدادات وأجهزة المزامنة
@@ -1853,6 +1855,15 @@ async function main() {
         )
       `);
       await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_wa_outbox_due ON wa_outbox(lane, priority, not_before)`);
+      // أرقامٌ لها محادثة سابقة على رقم الأعمال وليست لاعبين (استيراد التاريخ) — تُفتح بالبوت مطفأً
+      await db.execute(sql`
+        CREATE TABLE IF NOT EXISTS wa_web_known (
+          phone VARCHAR(20) PRIMARY KEY,
+          chat_id VARCHAR(80),
+          last_at TIMESTAMP,
+          created_at TIMESTAMP DEFAULT NOW() NOT NULL
+        )
+      `);
       // الدفعات (البثّ + الإرسال المباشر من الصفحات) تعيد استعمال جداول البثّ
       await db.execute(sql`ALTER TABLE wa_broadcasts ADD COLUMN IF NOT EXISTS origin VARCHAR(16) DEFAULT 'inbox' NOT NULL`).catch(() => {});
       await db.execute(sql`ALTER TABLE wa_broadcasts ADD COLUMN IF NOT EXISTS lane VARCHAR(8) DEFAULT 'bulk' NOT NULL`).catch(() => {});
@@ -2478,6 +2489,17 @@ async function main() {
   try { const { loadSendingSuspension } = await import('./services/whatsapp-inbox.service.js'); await loadSendingSuspension(); } catch { /* غير حرج */ }
   // ── 🔀 إعدادات القناتين (الوضع، السقوف، البديل) — تُقرأ من القاعدة وتُنعَّش كلّ ٣٠ ثانية ──
   try { const { loadTransportSettings, startTransportSettingsRefresh } = await import('./services/wa-transport/settings.js'); await loadTransportSettings(); startTransportSettingsRefresh(); } catch (e: any) { console.warn('⚠️ WA transport settings init:', e.message); }
+  // ── 📱 رقم الأعمال (جلسة OpenWA): الحارس + الويبهوك + طابور الإرسال + استرجاع ما فات ──
+  //    كلّها لا تعمل إن لم تُضبط OPENWA_* — ولا ترسل شيئاً في وضع cloud_only (الطابور يبقى فارغاً)
+  try {
+    const { startWebHealth } = await import('./services/wa-transport/web.health.js');
+    const { startWebOutbox } = await import('./services/wa-transport/web.transport.js');
+    startWebOutbox();
+    void startWebHealth().then(async () => {
+      const { catchUpWeb } = await import('./services/wa-transport/web.history.js');
+      await catchUpWeb().catch((e: any) => console.warn('⚠️ WA web catch-up:', e?.message));
+    }).catch((e: any) => console.warn('⚠️ WA web health init:', e?.message));
+  } catch (e: any) { console.warn('⚠️ WA web init:', e.message); }
   try { const { startWaHealthMonitor } = await import('./services/wa-health.service.js'); await startWaHealthMonitor(); } catch (e: any) { console.warn('⚠️ WA health monitor init:', e.message); }
   // ── 🎁 عروضُ الحديث مع البوت: بدءٌ وإنهاءٌ آليّان + مسحُ مصالحةٍ احتياطيّ ──
   //    المسحُ عند الإقلاع ليس ترفاً: سقوطُ الخادم بين إدراج الدفتر والمصالحة
