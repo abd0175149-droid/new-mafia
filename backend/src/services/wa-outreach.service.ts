@@ -107,16 +107,26 @@ export async function previewOutreach(origin: OutreachOrigin, items: OutreachIte
   if (unchecked.length) scheduleChecks(unchecked);
   const check = { total: webLocals.length, done: webLocals.length - unchecked.length, pending: unchecked.length, inProgress: pendingOf(unchecked) };
   const webN = eligible.filter(e => e.via === 'web').length;
-  const perDay = lane === 'bulk' ? s.bulk.dailyCap : s.timely.serviceDailyCap;
-  const gap = lane === 'bulk' ? (s.bulk.gapMinSec + s.bulk.gapMaxSec) / 2 : (s.timely.gapMinSec + s.timely.gapMaxSec) / 2;
+  // ❄️ البارد (أوّل رسالة منّا) يُنثر بسقفه الصغير على أيّام؛ فالتقدير يميّزه عن الدافئ
+  const coldN = eligible.filter(e => e.via === 'web' && e.firstContact).length;
+  const warmN = webN - coldN;
+  // عملٌ تقديريّ: لا يُحسب تدرّج التسخين (يحتاج عمر الجلسة) — يُعطي الحدّ الأعلى المضبوط
+  let estimate: any = null;
+  if (lane === 'bulk' && webN) {
+    const warmDays = Math.ceil(warmN / Math.max(1, s.bulk.dailyCap));
+    const coldDays = Math.ceil(coldN / Math.max(1, s.cold.dailyCap));
+    estimate = { perDay: s.bulk.dailyCap, coldPerDay: s.cold.dailyCap, warm: warmN, cold: coldN, days: Math.max(warmDays, coldDays, 1) };
+  } else if (lane === 'timely' && webN) {
+    estimate = { perDay: s.timely.serviceDailyCap, days: Math.ceil(webN / Math.max(1, s.timely.serviceDailyCap)) };
+  }
   return {
     origin, lane, direct: directEnabled(),
     total: items.length,
     eligible: eligible.length,
     byChannel: { cloud: eligible.length - webN, web: webN },
-    firstContact: eligible.filter(e => e.firstContact).length,     // للعلم فقط
+    firstContact: coldN,     // «أوّل رسالة منّا» = باردة
     skipped: Object.fromEntries(Object.entries(skipped).map(([k, v]) => [k, v.length])),
-    estimate: webN ? { perDay, days: Math.ceil(webN / Math.max(1, perDay)), minutesFirstDay: Math.round(Math.min(webN, perDay) * gap / 60) } : null,
+    estimate,
     samples: eligible.slice(0, 3).map(e => ({ name: e.name, phone: e.local, text: e.text, via: e.via })),
     check,
     notOnWhatsapp: notOnWa.reverse(),

@@ -31,8 +31,9 @@ export function normalizeSettings(raw: any): TransportSettings {
     webBot: typeof r.webBot === 'boolean' ? r.webBot : d.webBot,
     bulk: {
       dailyCap: num(r.bulk?.dailyCap, d.bulk.dailyCap, 0, 5000),
-      gapMinSec: num(r.bulk?.gapMinSec, d.bulk.gapMinSec, 1, 600),
-      gapMaxSec: Math.max(num(r.bulk?.gapMinSec, d.bulk.gapMinSec, 1, 600), num(r.bulk?.gapMaxSec, d.bulk.gapMaxSec, 1, 900)),
+      hourlyCap: num(r.bulk?.hourlyCap, d.bulk.hourlyCap, 1, 1000),
+      gapMinSec: num(r.bulk?.gapMinSec, d.bulk.gapMinSec, 1, 1200),
+      gapMaxSec: Math.max(num(r.bulk?.gapMinSec, d.bulk.gapMinSec, 1, 1200), num(r.bulk?.gapMaxSec, d.bulk.gapMaxSec, 1, 1800)),
       from: hhmm(r.bulk?.from, d.bulk.from),
       to: hhmm(r.bulk?.to, d.bulk.to),
     },
@@ -40,6 +41,20 @@ export function normalizeSettings(raw: any): TransportSettings {
       gapMinSec: num(r.timely?.gapMinSec, d.timely.gapMinSec, 0, 120),
       gapMaxSec: Math.max(num(r.timely?.gapMinSec, d.timely.gapMinSec, 0, 120), num(r.timely?.gapMaxSec, d.timely.gapMaxSec, 0, 300)),
       serviceDailyCap: num(r.timely?.serviceDailyCap, d.timely.serviceDailyCap, 0, 5000),
+    },
+    cold: {
+      dailyCap: num(r.cold?.dailyCap, d.cold.dailyCap, 0, 2000),
+      gapMinSec: num(r.cold?.gapMinSec, d.cold.gapMinSec, 10, 1800),
+      gapMaxSec: Math.max(num(r.cold?.gapMinSec, d.cold.gapMinSec, 10, 1800), num(r.cold?.gapMaxSec, d.cold.gapMaxSec, 10, 3600)),
+    },
+    warmup: {
+      enabled: typeof r.warmup?.enabled === 'boolean' ? r.warmup.enabled : d.warmup.enabled,
+      schedule: Array.isArray(r.warmup?.schedule) && r.warmup.schedule.length ? r.warmup.schedule.map((x: any) => num(x, 50, 1, 5000)).slice(0, 60) : d.warmup.schedule,
+      coldSchedule: Array.isArray(r.warmup?.coldSchedule) && r.warmup.coldSchedule.length ? r.warmup.coldSchedule.map((x: any) => num(x, 20, 0, 2000)).slice(0, 60) : d.warmup.coldSchedule,
+    },
+    longPause: {
+      everyN: num(r.longPause?.everyN, d.longPause.everyN, 0, 1000),
+      seconds: num(r.longPause?.seconds, d.longPause.seconds, 0, 3600),
     },
     cloudRedirect: {
       enabled: typeof r.cloudRedirect?.enabled === 'boolean' ? r.cloudRedirect.enabled : d.cloudRedirect.enabled,
@@ -78,6 +93,9 @@ export async function saveTransportSettings(patch: Partial<TransportSettings>): 
     failover: { ...cached.failover, ...(patch.failover || {}) },
     bulk: { ...cached.bulk, ...(patch.bulk || {}) },
     timely: { ...cached.timely, ...(patch.timely || {}) },
+    cold: { ...cached.cold, ...(patch.cold || {}) },
+    warmup: { ...cached.warmup, ...(patch.warmup || {}) },
+    longPause: { ...cached.longPause, ...(patch.longPause || {}) },
     cloudRedirect: { ...cached.cloudRedirect, ...(patch.cloudRedirect || {}) },
     outreach: { ...cached.outreach, ...(patch.outreach || {}) },
   });

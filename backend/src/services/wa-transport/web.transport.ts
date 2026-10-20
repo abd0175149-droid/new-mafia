@@ -92,10 +92,13 @@ export async function enqueueWeb(saved: any, conv: any, c: OutboundContent, lane
   if (!content.chatId) {
     const err: any = new Error('لا معرّف محادثة لرقم الأعمال'); err.code = 'CHANNEL_UNAVAILABLE'; throw err;
   }
-  const payload = { ...(saved.payload || {}), _rendered: rendered, _lane: lane };
+  // ❄️ محادثةٌ باردة = لم يراسلنا صاحبها على رقم الأعمال قطّ (أوّل رسالة منّا إليه). أخطر ما يُحظر
+  //    عليه الرقم، فتُعامَل بسقفٍ أصغر وتباعدٍ أوسع في المسار الجماعيّ.
+  const cold = lane === 'bulk' && !conv?.webLastInboundAt && !conv?.web_last_inbound_at;
+  const payload = { ...(saved.payload || {}), _rendered: rendered, _lane: lane, ...(cold ? { _cold: true } : {}) };
   const [row] = await db.update(waMessages).set({ payload } as any).where(eq(waMessages.id, saved.id)).returning();
-  await db.execute(sql`INSERT INTO wa_outbox (message_id, lane, priority, not_before, content)
-    VALUES (${saved.id}, ${lane}, ${priority ?? LANE_PRIORITY[lane]}, NOW(), ${JSON.stringify(content)}::jsonb)
+  await db.execute(sql`INSERT INTO wa_outbox (message_id, lane, cold, priority, not_before, content)
+    VALUES (${saved.id}, ${lane}, ${cold}, ${priority ?? LANE_PRIORITY[lane]}, NOW(), ${JSON.stringify(content)}::jsonb)
     ON CONFLICT (message_id) DO NOTHING`);
   kick();
   return row || saved;
@@ -140,6 +143,32 @@ async function sentToday(lane: Lane): Promise<number> {
       AND (payload->>'_sentAt')::timestamptz >= ${joNow().dayStartUtc.toISOString()}::timestamptz`);
   return Number((r?.rows ?? r ?? [])[0]?.n || 0);
 }
+
+/** عدّادات الجماعيّ: اليوم (كلّه + البارد) والساعة الأخيرة — لسقوف اليوم والساعة والبارد */
+async function bulkCounts(): Promise<{ today: number; coldToday: number; lastHour: number }> {
+  const db = getDB(); if (!db) return { today: 0, coldToday: 0, lastHour: 0 };
+  const dayStart = joNow().dayStartUtc.toISOString();
+  const r: any = await db.execute(sql`SELECT
+      COUNT(*) FILTER (WHERE (payload->>'_sentAt')::timestamptz >= ${dayStart}::timestamptz)::int AS today,
+      COUNT(*) FILTER (WHERE (payload->>'_sentAt')::timestamptz >= ${dayStart}::timestamptz AND payload->>'_cold' = 'true')::int AS cold_today,
+      COUNT(*) FILTER (WHERE (payload->>'_sentAt')::timestamptz >= NOW() - INTERVAL '1 hour')::int AS last_hour
+    FROM wa_messages WHERE channel = 'web' AND direction = 'out' AND payload->>'_lane' = 'bulk' AND payload ? '_sentAt'`);
+  const x = (r?.rows ?? r ?? [])[0] || {};
+  return { today: Number(x.today || 0), coldToday: Number(x.cold_today || 0), lastHour: Number(x.last_hour || 0) };
+}
+
+/** السقف اليوميّ للتدرّج بحسب عمر الجلسة — schedule[min(age, len-1)] */
+function warmupCap(schedule: number[]): number {
+  if (!schedule.length) return Infinity;
+  const age = webSessionAge();
+  if (!Number.isFinite(age)) return 0;     // غير مربوط ⟵ لا إرسال
+  return schedule[Math.min(age, schedule.length - 1)];
+}
+let webSessionAge = (): number => Infinity;   // يُربط بـ web.health عند الإقلاع لتفادي الاستيراد الدائريّ
+export function bindWebSessionAge(fn: () => number): void { webSessionAge = fn; }
+let bulkSinceLongPause = 0;
+let lastReplyAt = 0;
+void lastReplyAt;
 
 async function finalizeFailure(id: number, reason: string): Promise<void> {
   const db = getDB(); if (!db) return;
@@ -201,24 +230,56 @@ async function step(): Promise<void> {
     const lanes: Lane[] = ['reply', 'timely', 'bulk'];
     for (const lane of lanes) {
       if (nextAllowed[lane] > now) continue;
+      let coldJob = false;
+      let jobSql = sql`SELECT * FROM wa_outbox WHERE lane = ${lane} AND not_before <= NOW() ORDER BY priority ASC, message_id ASC LIMIT 1`;
+
       if (lane === 'bulk') {
         if (bulkPausedUntil() > now) continue;
         const wait = bulkWindowDelayMs();
         if (wait > 0) { nextAllowed.bulk = now + Math.min(wait, 10 * 60e3); continue; }
-        if ((await sentToday('bulk')) >= s.bulk.dailyCap) { nextAllowed.bulk = now + 15 * 60e3; continue; }
+        const counts = await bulkCounts();
+        // سقف الساعة: يمنع إرسال اليوم كلّه في ساعتين (طلب المالك 2026-10-20)
+        if (counts.lastHour >= s.bulk.hourlyCap) { nextAllowed.bulk = now + 5 * 60e3; continue; }
+        // السقف اليوميّ الفعليّ = الأصغر بين المضبوط وتدرّج تسخين الجلسة
+        const dayCap = s.warmup.enabled ? Math.min(s.bulk.dailyCap, warmupCap(s.warmup.schedule)) : s.bulk.dailyCap;
+        if (counts.today >= dayCap) { nextAllowed.bulk = now + 30 * 60e3; continue; }
+        // سقف البارد منفصلٌ وأصغر: أوّل رسالةٍ منّا لأشخاصٍ جدد أخطر ما يُحظر عليه الرقم
+        const coldCap = s.warmup.enabled ? Math.min(s.cold.dailyCap, warmupCap(s.warmup.coldSchedule)) : s.cold.dailyCap;
+        const coldFull = counts.coldToday >= coldCap;
+        // نفضّل الدافئ (من راسلنا) أوّلاً؛ والبارد يُؤخَّر لغدٍ إن امتلأ سقفه
+        if (coldFull) {
+          jobSql = sql`SELECT * FROM wa_outbox WHERE lane = 'bulk' AND cold = false AND not_before <= NOW() ORDER BY priority ASC, message_id ASC LIMIT 1`;
+        } else {
+          jobSql = sql`SELECT * FROM wa_outbox WHERE lane = 'bulk' AND not_before <= NOW() ORDER BY cold ASC, priority ASC, message_id ASC LIMIT 1`;
+        }
       }
       if (lane === 'timely' && (await sentToday('timely')) >= s.timely.serviceDailyCap) { nextAllowed.timely = now + 15 * 60e3; continue; }
 
-      const r: any = await db.execute(sql`SELECT * FROM wa_outbox WHERE lane = ${lane} AND not_before <= NOW()
-        ORDER BY priority ASC, message_id ASC LIMIT 1`);
+      const r: any = await db.execute(jobSql);
       const job = (r?.rows ?? r ?? [])[0];
-      if (!job) continue;
+      if (!job) {
+        // لا دافئ متاحٌ والبارد ممتلئ ⟵ أخّر البارد المتبقّي لبداية نافذة الغد
+        if (lane === 'bulk') { const w = await db.execute(sql`SELECT 1 FROM wa_outbox WHERE lane='bulk' AND cold=true LIMIT 1`); if ((w as any)?.rows?.length ?? (w as any)?.length) nextAllowed.bulk = now + 30 * 60e3; }
+        continue;
+      }
+      coldJob = !!job.cold;
       await db.execute(sql`UPDATE wa_outbox SET lease_until = NOW() + INTERVAL '2 minutes', attempts = attempts + 1 WHERE message_id = ${job.message_id}`);
       await db.update(waMessages).set({ status: 'sending' } as any).where(and(eq(waMessages.id, job.message_id), eq(waMessages.status, 'queued')));
       try {
         await sendOne(job);
         if (lane === 'timely') nextAllowed.timely = Date.now() + rand(s.timely.gapMinSec, s.timely.gapMaxSec) * 1000;
-        if (lane === 'bulk') nextAllowed.bulk = Date.now() + rand(s.bulk.gapMinSec, s.bulk.gapMaxSec) * 1000;
+        if (lane === 'bulk') {
+          // البارد تباعدُه أوسع؛ وبعد كلّ عددٍ من الرسائل استراحةٌ بشريّة أطول
+          const base = coldJob ? rand(s.cold.gapMinSec, s.cold.gapMaxSec) : rand(s.bulk.gapMinSec, s.bulk.gapMaxSec);
+          let gap = base;
+          if (s.longPause.everyN > 0 && ++bulkSinceLongPause >= s.longPause.everyN) {
+            bulkSinceLongPause = 0;
+            gap += s.longPause.seconds * (0.7 + Math.random() * 0.6);
+          }
+          nextAllowed.bulk = Date.now() + gap * 1000;
+        }
+        // ردٌّ حيٌّ خرج ⟵ أخّر البثّ قليلاً فوقه (أقلّ شبهاً بالبوت)
+        if (lane === 'reply') { lastReplyAt = Date.now(); nextAllowed.bulk = Math.max(nextAllowed.bulk, Date.now() + 20_000); }
       } catch (e: any) {
         const ge = e as gw.GatewayError;
         if (ge?.status === 429) {
@@ -253,6 +314,8 @@ async function step(): Promise<void> {
 
 export function startWebOutbox(): void {
   if (timer || !webConfigured()) return;
+  // تدرّج التسخين يُحسب من عمر ربط الجلسة (web.health) — يُربط هنا لتفادي الاستيراد الدائريّ
+  import('./web.health.js').then(m => bindWebSessionAge(m.webSessionAgeDays)).catch(() => {});
   // ⏱ الدفعات «يُرسَل» تُحدَّث كلّ دقيقة وتُغلق متى فرغ طابورها
   const rec = setInterval(() => {
     import('../whatsapp-broadcast.service.js').then(m => m.reconcileSendingBatches()).catch(() => {});
@@ -263,17 +326,29 @@ export function startWebOutbox(): void {
   console.log('📤 WA web outbox worker started');
 }
 
-/** إحصاء الطابور للواجهة */
-export async function outboxStats(): Promise<{ queued: Record<Lane, number>; sentToday: Record<Lane, number>; next: Record<Lane, string | null> }> {
+/** إحصاء الطابور والسقوف للواجهة */
+export async function outboxStats(): Promise<any> {
   const db = getDB();
   const queued: Record<Lane, number> = { reply: 0, timely: 0, bulk: 0 };
+  let coldQueued = 0;
   if (db) {
-    const r: any = await db.execute(sql`SELECT lane, COUNT(*)::int AS n FROM wa_outbox GROUP BY lane`);
-    for (const x of (r?.rows ?? r ?? [])) if (x.lane in queued) queued[x.lane as Lane] = Number(x.n);
+    const r: any = await db.execute(sql`SELECT lane, COUNT(*)::int AS n, COUNT(*) FILTER (WHERE cold)::int AS c FROM wa_outbox GROUP BY lane`);
+    for (const x of (r?.rows ?? r ?? [])) { if (x.lane in queued) queued[x.lane as Lane] = Number(x.n); if (x.lane === 'bulk') coldQueued = Number(x.c || 0); }
   }
-  const [b, t, rp] = await Promise.all([sentToday('bulk'), sentToday('timely'), sentToday('reply')]);
+  const s = transportSettings();
+  const [bc, t, rp] = await Promise.all([bulkCounts(), sentToday('timely'), sentToday('reply')]);
   const iso = (n: number) => (n > Date.now() ? new Date(n).toISOString() : null);
-  return { queued, sentToday: { reply: rp, timely: t, bulk: b }, next: { reply: null, timely: iso(nextAllowed.timely), bulk: iso(nextAllowed.bulk) } };
+  const age = webSessionAge();
+  const dayCap = s.warmup.enabled ? Math.min(s.bulk.dailyCap, warmupCap(s.warmup.schedule)) : s.bulk.dailyCap;
+  const coldCap = s.warmup.enabled ? Math.min(s.cold.dailyCap, warmupCap(s.warmup.coldSchedule)) : s.cold.dailyCap;
+  return {
+    queued: { ...queued, coldBulk: coldQueued },
+    sentToday: { reply: rp, timely: t, bulk: bc.today, coldBulk: bc.coldToday },
+    sentLastHour: bc.lastHour,
+    caps: { bulkDaily: Number.isFinite(dayCap) ? dayCap : null, coldDaily: Number.isFinite(coldCap) ? coldCap : null, bulkHourly: s.bulk.hourlyCap },
+    warmup: { enabled: s.warmup.enabled, ageDays: Number.isFinite(age) ? age : null, linked: Number.isFinite(age) },
+    next: { reply: null, timely: iso(nextAllowed.timely), bulk: iso(nextAllowed.bulk) },
+  };
 }
 
 /** إيقاف دفعةٍ جماعيّة: حذف ما لم يُرسل بعد من صفوفها */

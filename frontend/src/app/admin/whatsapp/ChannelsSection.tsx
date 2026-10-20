@@ -187,21 +187,42 @@ export default function ChannelsSection({ apiFetch }: { apiFetch: Fetcher }) {
       <div className="rounded-xl border border-gray-800 bg-gray-900/70 p-3 space-y-2">
         <b className="text-white block">طابور رقم الأعمال</b>
         {ob && (
-          <div className="grid grid-cols-3 gap-2 text-center">
-            {(['reply', 'timely', 'bulk'] as const).map(l => (
-              <div key={l} className="rounded-lg border border-gray-800 p-2">
-                <div className="text-[11px] text-gray-500">{LANE_AR[l]}</div>
-                <div className="text-white font-bold tabular-nums">{ob.sentToday[l]}{l === 'bulk' ? ` / ${s.bulk.dailyCap}` : l === 'timely' ? ` / ${s.timely.serviceDailyCap}` : ''}</div>
-                <div className="text-[11px] text-gray-500">اليوم · في الطابور {ob.queued[l]}</div>
-              </div>
-            ))}
-          </div>
+          <>
+            <div className="grid grid-cols-3 gap-2 text-center">
+              {(['reply', 'timely', 'bulk'] as const).map(l => (
+                <div key={l} className="rounded-lg border border-gray-800 p-2">
+                  <div className="text-[11px] text-gray-500">{LANE_AR[l]}</div>
+                  <div className="text-white font-bold tabular-nums">{ob.sentToday[l]}{l === 'bulk' ? ` / ${ob.caps?.bulkDaily ?? s.bulk.dailyCap}` : l === 'timely' ? ` / ${s.timely.serviceDailyCap}` : ''}</div>
+                  <div className="text-[11px] text-gray-500">اليوم · في الطابور {ob.queued[l]}</div>
+                </div>
+              ))}
+            </div>
+            <div className="flex flex-wrap gap-x-4 gap-y-1 text-[11.5px] text-gray-400">
+              {ob.warmup?.enabled && (
+                ob.warmup.linked
+                  ? <span>🔥 تسخين الجلسة: اليوم {ob.warmup.ageDays} — سقف اليوم {ob.caps?.bulkDaily} (البارد {ob.caps?.coldDaily})</span>
+                  : <span className="text-amber-300">🔥 التسخين: الرقم غير مربوط — لا إرسال جماعيّ حتّى يُربط</span>
+              )}
+              <span>❄️ بارد اليوم: {ob.sentToday.coldBulk} / {ob.caps?.coldDaily} · في الطابور {ob.queued.coldBulk}</span>
+              <span>⏳ آخر ساعة: {ob.sentLastHour} / {ob.caps?.bulkHourly}</span>
+            </div>
+          </>
         )}
         <div className="flex flex-wrap items-center gap-x-4 gap-y-2 text-gray-300">
           <span>الجماعيّ يوميّاً <input type="number" min={0} value={draft.bulk.dailyCap} onChange={e => set('bulk.dailyCap', Number(e.target.value))} className={inp + ' w-20'} /></span>
+          <span>بالساعة <input type="number" min={1} value={draft.bulk.hourlyCap} onChange={e => set('bulk.hourlyCap', Number(e.target.value))} className={inp + ' w-16'} /></span>
           <span>التباعد <input type="number" min={1} value={draft.bulk.gapMinSec} onChange={e => set('bulk.gapMinSec', Number(e.target.value))} className={inp + ' w-16'} /> – <input type="number" min={1} value={draft.bulk.gapMaxSec} onChange={e => set('bulk.gapMaxSec', Number(e.target.value))} className={inp + ' w-16'} /> ث</span>
           <span>الساعات <input type="time" value={draft.bulk.from} onChange={e => set('bulk.from', e.target.value)} className={inp} /> – <input type="time" value={draft.bulk.to} onChange={e => set('bulk.to', e.target.value)} className={inp} /></span>
         </div>
+        <div className="flex flex-wrap items-center gap-x-4 gap-y-2 text-gray-300 border-t border-gray-800/60 pt-2">
+          <span className="text-amber-300 font-bold text-[12px]">❄️ المحادثات الباردة (أوّل رسالة منّا):</span>
+          <span>يوميّاً <input type="number" min={0} value={draft.cold.dailyCap} onChange={e => set('cold.dailyCap', Number(e.target.value))} className={inp + ' w-16'} /></span>
+          <span>التباعد <input type="number" min={10} value={draft.cold.gapMinSec} onChange={e => set('cold.gapMinSec', Number(e.target.value))} className={inp + ' w-16'} /> – <input type="number" min={10} value={draft.cold.gapMaxSec} onChange={e => set('cold.gapMaxSec', Number(e.target.value))} className={inp + ' w-16'} /> ث</span>
+        </div>
+        <label className="flex items-center gap-2 text-gray-300">
+          <input type="checkbox" checked={!!draft.warmup.enabled} onChange={e => set('warmup.enabled', e.target.checked)} />
+          🔥 تسخين تدريجيّ لكلّ ربطٍ جديد <span className="text-gray-500 text-xs">(يبدأ السقف منخفضاً ويرتفع يوميّاً — أهمّ حماية بعد فكّ الربط أو التقييد)</span>
+        </label>
         <div className="flex flex-wrap items-center gap-x-4 gap-y-2 text-gray-300">
           <span>المقيّد بوقت: تباعد <input type="number" min={0} value={draft.timely.gapMinSec} onChange={e => set('timely.gapMinSec', Number(e.target.value))} className={inp + ' w-16'} /> – <input type="number" min={0} value={draft.timely.gapMaxSec} onChange={e => set('timely.gapMaxSec', Number(e.target.value))} className={inp + ' w-16'} /> ث</span>
           <span>سقفه اليوميّ <input type="number" min={0} value={draft.timely.serviceDailyCap} onChange={e => set('timely.serviceDailyCap', Number(e.target.value))} className={inp + ' w-20'} /></span>

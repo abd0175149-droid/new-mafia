@@ -1857,6 +1857,7 @@ async function main() {
         )
       `);
       await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_wa_outbox_due ON wa_outbox(lane, priority, not_before)`);
+      await db.execute(sql`ALTER TABLE wa_outbox ADD COLUMN IF NOT EXISTS cold BOOLEAN DEFAULT FALSE NOT NULL`);
       // 🔎 هل للرقم واتساب؟ — نتائج فحص البوّابة (معاينة الإرسال من الصفحات)
       await db.execute(sql`
         CREATE TABLE IF NOT EXISTS wa_number_checks (

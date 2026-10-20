@@ -38,14 +38,22 @@ export interface WebHealth {
   restriction: { kind: string; code?: string; expiresAt: string | null } | null;
   webhook: { ok: boolean; error?: string; at: string } | null;
   locked: string | null;
+  /** يوم ربط الرقم الحاليّ (ISO) — يُصفَّر عند كلّ فكّ ربط (LOGOUT): به يُحسب تدرّج التسخين */
+  linkedAt: string | null;
   checkedAt: string;
 }
 
 const state: WebHealth = {
   configured: false, status: 'unknown', phone: null, pushName: null, linked: false, ready: false,
   lastProbeAt: null, lastProbeOk: null, probeFailStreak: 0, lastEventAt: null, lastEvent: null,
-  disconnectReason: null, restriction: null, webhook: null, locked: null, checkedAt: new Date().toISOString(),
+  disconnectReason: null, restriction: null, webhook: null, locked: null, linkedAt: null, checkedAt: new Date().toISOString(),
 };
+
+/** أيّام منذ ربط الرقم الحاليّ (٠ في يوم الربط). ∞ إن لم يكن مربوطاً بعد — فالتسخين يمنع الإرسال */
+export function webSessionAgeDays(): number {
+  if (!state.linkedAt) return state.linked ? 0 : Infinity;
+  return Math.floor((Date.now() - new Date(state.linkedAt).getTime()) / 86400e3);
+}
 let timer: NodeJS.Timeout | null = null;
 let lastRestartAt = 0;
 let lastSig = '';
@@ -97,6 +105,8 @@ async function applyStatus(status: string, extra: { phone?: string | null; pushN
   if (extra.phone !== undefined) state.phone = extra.phone;
   if (extra.pushName !== undefined) state.pushName = extra.pushName;
   state.linked = String(state.status).toLowerCase() === 'ready' && !!String(state.phone || '').replace(/\D/g, '');
+  // يوم الربط يُضبط عند أوّل جاهزيّة بعد فكّ ربط — به يبدأ التسخين من الصفر لكلّ جهازٍ جديد
+  if (state.linked && !state.linkedAt) state.linkedAt = new Date().toISOString();
 }
 
 /** حدثٌ وصل من البوّابة (أيّ نوع) — دليل حياة */
@@ -120,7 +130,11 @@ export async function onSessionEvent(event: string, d: any): Promise<void> {
       state.disconnectReason = String(d.reason || '');
       await applyStatus('disconnected');
       const terminal = /logout|unpaired|conflict|banned|tos/i.test(state.disconnectReason);
-      if (terminal && !channelSuspendedReason('web')) suspendSending(`${UNLINKED_PREFIX}: ${state.disconnectReason}`, 'web');
+      if (terminal) {
+        if (!channelSuspendedReason('web')) suspendSending(`${UNLINKED_PREFIX}: ${state.disconnectReason}`, 'web');
+        // فكُّ ربطٍ نهائيّ ⟵ الجهاز التالي جديدٌ عند واتساب: يُصفَّر التسخين ليبدأ من أدنى سقف
+        state.linkedAt = null;
+      }
       setWebReady(false);
       break;
     }
@@ -209,6 +223,15 @@ export async function checkWebNow(): Promise<WebHealth> {
 
 export async function startWebHealth(): Promise<void> {
   if (timer || !webConfigured()) return;
+  // يوم الربط يُستعاد من آخر حالةٍ محفوظة فلا يُصفَّر التسخين عند كلّ نشر
+  try {
+    const db = getDB();
+    if (db) {
+      const r: any = await db.execute(sql`SELECT value->>'linkedAt' AS at FROM wa_runtime_flags WHERE key = 'web_session' LIMIT 1`);
+      const at = (r?.rows ?? r ?? [])[0]?.at;
+      if (at) state.linkedAt = String(at);
+    }
+  } catch { /* الجدول قد لا يكون جاهزاً */ }
   await ensureWebhook();
   await tick().catch(() => {});
   timer = setInterval(() => {

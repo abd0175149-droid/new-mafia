@@ -125,9 +125,12 @@ export default function DirectSendDialog({ origin, items, label, title, onClose,
               </div>
             )}
             {pv.estimate && (
-              <div className="text-[12px] text-teal-200/90 bg-teal-500/5 border border-teal-500/20 rounded-xl px-3 py-2">
-                ⏱ {pv.lane === 'bulk' ? 'رسائل جماعيّة متباعدة' : 'رسائل خدميّة'}: نحو {pv.estimate.minutesFirstDay} دقيقة اليوم
-                {pv.estimate.days > 1 ? `، وتكتمل خلال ${pv.estimate.days} أيّام (${pv.estimate.perDay} يوميّاً)` : ''}.
+              <div className="text-[12px] text-teal-200/90 bg-teal-500/5 border border-teal-500/20 rounded-xl px-3 py-2 space-y-1">
+                <div>⏱ {pv.lane === 'bulk' ? 'رسائل جماعيّة متباعدة (حمايةً من الحظر)' : 'رسائل خدميّة'}
+                  {pv.estimate.days > 1 ? `: تكتمل خلال نحو ${pv.estimate.days} أيّام` : ' اليوم'}.</div>
+                {pv.estimate.cold > 0 && (
+                  <div className="text-amber-200/90">❄️ منهم {pv.estimate.cold} لم يراسلونا على رقم الأعمال من قبل — هؤلاء يُرسل لهم {pv.estimate.coldPerDay} فقط يوميّاً وبتباعدٍ أوسع، لأنّ الإرسال السريع لأشخاصٍ جدد هو أكثر ما يُحظر عليه الرقم.</div>
+                )}
               </div>
             )}
             {pv.samples?.length > 0 && (
