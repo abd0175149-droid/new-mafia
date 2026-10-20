@@ -246,6 +246,11 @@ async function step(): Promise<void> {
 
 export function startWebOutbox(): void {
   if (timer || !webConfigured()) return;
+  // ⏱ الدفعات «يُرسَل» تُحدَّث كلّ دقيقة وتُغلق متى فرغ طابورها
+  const rec = setInterval(() => {
+    import('../whatsapp-broadcast.service.js').then(m => m.reconcileSendingBatches()).catch(() => {});
+  }, 60_000);
+  rec.unref?.();
   timer = setInterval(() => { void step(); }, 1000);
   timer.unref?.();
   console.log('📤 WA web outbox worker started');

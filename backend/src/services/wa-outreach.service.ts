@@ -161,7 +161,9 @@ export async function startOutreach(input: {
         else failed++;
       }
     }
-    await db.update(waBroadcasts).set({ sentCount: sent, skippedCount: skipped, failedCount: failed, status, finishedAt: new Date() } as any)
+    const { hasQueued } = await import('./whatsapp-broadcast.service.js');
+    const finalStatus = status === 'done' && await hasQueued(id) ? 'sending' : status;
+    await db.update(waBroadcasts).set({ sentCount: sent, skippedCount: skipped, failedCount: failed, status: finalStatus, finishedAt: finalStatus === 'sending' ? null : new Date() } as any)
       .where(eq(waBroadcasts.id, id)).catch(() => {});
     running.delete(id);
     try { const io = (global as any).io; if (io) io.to('wa:inbox').emit('wa:outreach:done', { id, origin: input.origin, sent, skipped, failed, status }); } catch { /* غير حرج */ }

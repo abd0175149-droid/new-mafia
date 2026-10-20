@@ -8,22 +8,25 @@
 import { useEffect, useState, type ReactNode } from 'react';
 
 type Fetcher = (path: string, opts?: RequestInit) => Promise<any>;
-interface ReadStats { recipients: number; read: number; delivered: number; notDelivered: number; failed: number }
+interface ReadStats { recipients: number; read: number; delivered: number; notDelivered: number; failed: number; queued?: number }
 interface Row {
   id: number; status: string; createdBy: string; createdAt: string; finishedAt: string | null; durationSec: number | null;
   text: string; imageUrl: string | null; templateId: number | null; templateName: string | null;
   totalTargets: number; sentCount: number; skippedCount: number; failedCount: number;
   readStats: ReadStats | null; readRate: number | null;
+  origin?: string; lane?: string; audienceLabel?: string;
 }
+const ORIGIN_AR: Record<string, string> = { reservations: '📤 الحجوزات', analytics: '📤 التحليلات', explorer: '📤 المستكشف' };
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || '';
 const STATUS: Record<string, { label: string; cls: string }> = {
   done: { label: 'اكتمل', cls: 'bg-emerald-500/10 text-emerald-300 border-emerald-500/30' },
   running: { label: 'جارٍ', cls: 'bg-amber-500/10 text-amber-300 border-amber-500/30' },
+  sending: { label: '⏱ يُرسَل', cls: 'bg-teal-500/10 text-teal-300 border-teal-500/30' },
   stopped: { label: 'أُوقف', cls: 'bg-rose-500/10 text-rose-300 border-rose-500/30' },
 };
 const STATUS_FILTERS: Array<{ key: string; label: string }> = [
-  { key: '', label: 'الكلّ' }, { key: 'done', label: 'اكتمل' }, { key: 'running', label: 'جارٍ' }, { key: 'stopped', label: 'أُوقف' },
+  { key: '', label: 'الكلّ' }, { key: 'done', label: 'اكتمل' }, { key: 'sending', label: 'يُرسَل' }, { key: 'running', label: 'جارٍ' }, { key: 'stopped', label: 'أُوقف' },
 ];
 const SORTS: Array<{ key: string; label: string; sort: string; order: 'asc' | 'desc' }> = [
   { key: 'new', label: 'الأحدث أوّلاً', sort: 'created', order: 'desc' },
@@ -50,7 +53,8 @@ const pct = (n: number, d: number) => d > 0 ? Math.round((n / d) * 100) : 0;
 const READ_GROUPS: Array<{ key: string; label: string; cls: string; hint?: string }> = [
   { key: 'read', label: '👁 قرأها', cls: 'text-sky-300' },
   { key: 'delivered', label: '✓✓ وصلت ولم تُقرأ', cls: 'text-gray-300', hint: 'تشمل من أطفأ «إيصالات القراءة» — واتساب لا يخبرنا بقراءته أصلاً' },
-  { key: 'notDelivered', label: '✓ لم تصل بعد', cls: 'text-amber-300', hint: 'هاتفه مطفأ أو بلا إنترنت منذ الإرسال' },
+  { key: 'queued', label: '⏱ في الطابور', cls: 'text-teal-300', hint: 'لم تخرج بعد — رقم الأعمال يرسل الجماعيّ متباعداً (١٥–٤٥ث، ٢٥٠/يوم، ١٠:٠٠–٢٣:٣٠)' },
+  { key: 'notDelivered', label: '✓ لم تصل بعد', cls: 'text-amber-300', hint: 'خرجت ولم تصل الجهاز — هاتفه مطفأ أو بلا إنترنت منذ الإرسال' },
   { key: 'failed', label: '✗ رفضها واتساب', cls: 'text-rose-300' },
 ];
 function ReadReport({ id, apiFetch }: { id: number; apiFetch: Fetcher }) {
@@ -92,7 +96,7 @@ function ReadReport({ id, apiFetch }: { id: number; apiFetch: Fetcher }) {
 function ReadBar({ s }: { s: ReadStats }) {
   const parts = [
     { n: s.read, cls: 'bg-sky-400' }, { n: s.delivered, cls: 'bg-gray-400' },
-    { n: s.notDelivered, cls: 'bg-amber-400' }, { n: s.failed, cls: 'bg-rose-400' },
+    { n: s.notDelivered, cls: 'bg-amber-400' }, { n: s.queued || 0, cls: 'bg-teal-700' }, { n: s.failed, cls: 'bg-rose-400' },
   ];
   return (
     <div className="flex h-1.5 w-full overflow-hidden rounded-full bg-gray-800" dir="ltr">
@@ -211,6 +215,7 @@ export default function BroadcastHistory({ apiFetch, refreshKey, onReuse }: {
                       <div className="text-[11px] text-gray-500 flex flex-wrap gap-x-2">
                         <span>{dt(r.createdAt)}</span>
                         {r.createdBy && <span>· {r.createdBy}</span>}
+                        {r.origin && ORIGIN_AR[r.origin] && <span className="text-teal-400">· {ORIGIN_AR[r.origin]}{r.audienceLabel ? ` (${r.audienceLabel})` : ''}</span>}
                         {r.templateName && <span className="text-amber-400/70">· 📋 {r.templateName}</span>}
                       </div>
                       <p className="text-[13px] text-gray-200 mt-0.5 truncate">{r.imageUrl ? '🖼️ ' : ''}{r.text.split('\n').find(l => l.trim()) || '—'}</p>
@@ -240,11 +245,11 @@ export default function BroadcastHistory({ apiFetch, refreshKey, onReuse }: {
                     <div className="px-3 pb-4 space-y-3">
                       <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
                         <Stat label="بدأ" value={hm(r.createdAt)} />
-                        <Stat label="انتهى" value={r.status === 'running' ? 'جارٍ…' : (hm(r.finishedAt) || '—')} />
+                        <Stat label="انتهى" value={r.status === 'running' || r.status === 'sending' ? 'جارٍ…' : (hm(r.finishedAt) || '—')} />
                         <Stat label="المدّة" value={dur(r.durationSec)} />
                         <Stat label="بواسطة" value={r.createdBy || '—'} />
                         <Stat label="المستهدفون" value={r.totalTargets} />
-                        <Stat label="أُرسل" value={r.sentCount} cls="text-emerald-300" />
+                        <Stat label={r.status === 'sending' ? 'خرج فعلاً حتّى الآن' : 'أُرسل'} value={r.sentCount} cls="text-emerald-300" />
                         <Stat label="تخطّي (نافذة أُغلقت/إيقاف)" value={r.skippedCount} cls={r.skippedCount ? 'text-amber-300' : 'text-white'} />
                         <Stat label="فشل" value={r.failedCount} cls={r.failedCount ? 'text-rose-300' : 'text-white'} />
                       </div>
@@ -252,6 +257,7 @@ export default function BroadcastHistory({ apiFetch, refreshKey, onReuse }: {
                         <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
                           <Stat label="👁 قرأها" value={`${rs.read} · ${pct(rs.read, rs.recipients)}٪`} cls="text-sky-300" />
                           <Stat label="✓✓ وصلت ولم تُقرأ" value={rs.delivered} cls="text-gray-200" />
+                          {(rs.queued || 0) > 0 && <Stat label="⏱ في الطابور" value={rs.queued} cls="text-teal-300" />}
                           <Stat label="✓ لم تصل بعد" value={rs.notDelivered} cls={rs.notDelivered ? 'text-amber-300' : 'text-white'} />
                           <Stat label="✗ رفضها واتساب" value={rs.failed} cls={rs.failed ? 'text-rose-300' : 'text-white'} />
                         </div>

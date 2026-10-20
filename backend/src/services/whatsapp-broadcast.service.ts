@@ -207,7 +207,8 @@ export async function startBroadcast(input: AudienceQuery & { body: string; crea
       // ميتا: التباعد هنا · رقم الأعمال: الطابور يتولّاه (١٥–٤٥ث، ٢٥٠/يوم) فلا انتظار
       if (!viaWeb) await new Promise(r => setTimeout(r, PACE_MS + Math.random() * 500));
     }
-    await db.update(waBroadcasts).set({ sentCount: sent, skippedCount: skipped, failedCount: failed, status, finishedAt: new Date() } as any).where(eq(waBroadcasts.id, row.id)).catch(() => {});
+    const finalStatus = status === 'done' && await hasQueued(row.id) ? 'sending' : status;
+    await db.update(waBroadcasts).set({ sentCount: sent, skippedCount: skipped, failedCount: failed, status: finalStatus, finishedAt: finalStatus === 'sending' ? null : new Date() } as any).where(eq(waBroadcasts.id, row.id)).catch(() => {});
     stopFlags.delete(row.id); running = null;
     try { const io = (global as any).io; if (io) io.to('wa:inbox').emit('wa:broadcast:done', { id: row.id, status, sent, skipped, failed }); } catch { /* غير حرج */ }
     console.log(`📢 WA broadcast #${row.id} ${status}: sent=${sent} skipped=${skipped} failed=${failed}`);
@@ -238,6 +239,38 @@ export async function upcomingActivities() {
     id: Number(x.id), name: x.name, date: x.date,
     venue: x.venue || '', place: formatPlace(x.venue, x.region, x.city), when: fmtWhen(x.date),
   }));
+}
+
+// ══════════════════════════════════════════════════════
+// ⏱ دفعاتٌ في طابور رقم الأعمال — «يُرسَل» حتّى تخرج آخر رسالة
+// ══════════════════════════════════════════════════════
+// إدخال ١٣٣ رسالة الطابور يستغرق ثوانٍ، وخروجها متباعدةً ساعة. كانت الدفعة تُعلَّم «اكتمل» و«أُرسل ١٣٣»
+// لحظة الإدخال (لقطة المالك، البثّ #23). الآن: الحالة sending، و«أُرسل» = ما خرج فعلاً، وتُغلق متى فرغ الطابور.
+export async function hasQueued(id: number): Promise<boolean> {
+  const db = getDB(); if (!db) return false;
+  const r = rowsOf(await db.execute(sql`SELECT 1 FROM wa_broadcast_recipients r JOIN wa_messages m ON m.id = r.wa_message_id
+    WHERE r.broadcast_id = ${Number(id)} AND m.status IN ('queued', 'sending') LIMIT 1`));
+  return r.length > 0;
+}
+export async function reconcileSendingBatches(): Promise<void> {
+  const db = getDB(); if (!db) return;
+  const list = rowsOf(await db.execute(sql`SELECT id FROM wa_broadcasts WHERE status = 'sending'`));
+  for (const b of list) {
+    const [s] = rowsOf(await db.execute(sql`SELECT
+        COUNT(*) FILTER (WHERE m.status IN ('queued', 'sending'))::int AS queued,
+        COUNT(*) FILTER (WHERE m.status IN ('sent', 'delivered', 'read'))::int AS out,
+        COUNT(*) FILTER (WHERE m.status = 'failed')::int AS failed,
+        MAX((m.payload->>'_sentAt')::timestamptz) AS last_at
+      FROM wa_broadcast_recipients r JOIN wa_messages m ON m.id = r.wa_message_id WHERE r.broadcast_id = ${Number(b.id)}`));
+    if (!s) continue;
+    if (Number(s.queued) > 0) {
+      await db.execute(sql`UPDATE wa_broadcasts SET sent_count = ${Number(s.out)}, failed_count = ${Number(s.failed)} WHERE id = ${Number(b.id)}`);
+    } else {
+      await db.execute(sql`UPDATE wa_broadcasts SET sent_count = ${Number(s.out)}, failed_count = ${Number(s.failed)}, status = 'done',
+        finished_at = COALESCE(${s.last_at}::timestamptz, NOW()) WHERE id = ${Number(b.id)}`);
+      try { const io = (global as any).io; if (io) io.to('wa:inbox').emit('wa:broadcast:done', { id: Number(b.id), status: 'done' }); } catch { /* غير حرج */ }
+    }
+  }
 }
 
 export async function stopBroadcast(id: number) {
@@ -293,14 +326,15 @@ export async function listBroadcasts(limit = 20) {
            COUNT(*) FILTER (WHERE m.status = 'read')::int AS read,
            COUNT(*) FILTER (WHERE m.status = 'delivered')::int AS delivered,
            COUNT(*) FILTER (WHERE m.status = 'failed')::int AS failed,
-           COUNT(*) FILTER (WHERE m.id IS NULL OR m.status NOT IN ('read', 'delivered', 'failed'))::int AS not_delivered
+           COUNT(*) FILTER (WHERE m.status IN ('queued', 'sending'))::int AS queued,
+           COUNT(*) FILTER (WHERE m.id IS NULL OR m.status NOT IN ('read', 'delivered', 'failed', 'queued', 'sending'))::int AS not_delivered
       FROM wa_broadcast_recipients r ${RECIPIENT_MSG}
      WHERE r.broadcast_id IN (${sql.join(ids.map(i => sql`${i}`), sql`, `)})
      GROUP BY r.broadcast_id`));
   const by = new Map(stats.map((s: any) => [Number(s.id), s]));
   return list.map((b: any) => {
     const s: any = by.get(Number(b.id));
-    return { ...b, readStats: s ? { recipients: s.recipients, read: s.read, delivered: s.delivered, notDelivered: s.not_delivered, failed: s.failed } : null };
+    return { ...b, readStats: s ? { recipients: s.recipients, read: s.read, delivered: s.delivered, notDelivered: s.not_delivered, failed: s.failed, queued: s.queued } : null };
   });
 }
 
@@ -317,7 +351,7 @@ export async function pageBroadcasts(o: { page?: unknown; pageSize?: unknown; so
   const db = getDB(); if (!db) return empty;
   const sort = BCAST_SORT[String(o.sort)] ? String(o.sort) : 'created';
   const dir = o.order === 'asc' ? 'ASC' : 'DESC';
-  const status = ['running', 'done', 'stopped'].includes(String(o.status)) ? String(o.status) : null;
+  const status = ['running', 'sending', 'done', 'stopped'].includes(String(o.status)) ? String(o.status) : null;
   const q = String(o.q ?? '').trim().slice(0, 100);
   const idQ = /^#?\d+$/.test(q) ? Number(q.replace('#', '')) : null;
   const where = sql`WHERE true
@@ -344,12 +378,13 @@ export async function pageBroadcasts(o: { page?: unknown; pageSize?: unknown; so
              COUNT(*) FILTER (WHERE m.status = 'read')::int AS read,
              COUNT(*) FILTER (WHERE m.status = 'delivered')::int AS delivered,
              COUNT(*) FILTER (WHERE m.status = 'failed')::int AS failed,
-             COUNT(*) FILTER (WHERE m.id IS NULL OR m.status NOT IN ('read', 'delivered', 'failed'))::int AS not_delivered
+             COUNT(*) FILTER (WHERE m.status IN ('queued', 'sending'))::int AS queued,
+             COUNT(*) FILTER (WHERE m.id IS NULL OR m.status NOT IN ('read', 'delivered', 'failed', 'queued', 'sending'))::int AS not_delivered
         FROM wa_broadcast_recipients r ${RECIPIENT_MSG}
        WHERE r.broadcast_id IN (SELECT id FROM sc)
        GROUP BY r.broadcast_id),
     j AS (
-      SELECT sc.*, t.name AS template_name, st.recipients, st.read, st.delivered, st.failed AS failed_msgs, st.not_delivered,
+      SELECT sc.*, t.name AS template_name, st.recipients, st.read, st.delivered, st.failed AS failed_msgs, st.not_delivered, st.queued,
              CASE WHEN COALESCE(st.recipients, 0) > 0 THEN st.read::float / st.recipients END AS read_rate
         FROM sc LEFT JOIN st ON st.id = sc.id LEFT JOIN wa_message_templates t ON t.id = sc.template_id)
     SELECT * FROM j ORDER BY ${order} ${sort === 'read' ? sql`LIMIT ${pageSize} OFFSET ${off}` : sql``}`));
@@ -371,7 +406,8 @@ export async function pageBroadcasts(o: { page?: unknown; pageSize?: unknown; so
         templateId: b.template_id != null ? Number(b.template_id) : null, templateName: b.template_name || null,
         totalTargets: Number(b.total_targets || 0), sentCount: Number(b.sent_count || 0),
         skippedCount: Number(b.skipped_count || 0), failedCount: Number(b.failed_count || 0),
-        readStats: b.recipients != null ? { recipients: Number(b.recipients), read: Number(b.read), delivered: Number(b.delivered), notDelivered: Number(b.not_delivered), failed: Number(b.failed_msgs) } : null,
+        readStats: b.recipients != null ? { recipients: Number(b.recipients), read: Number(b.read), delivered: Number(b.delivered), notDelivered: Number(b.not_delivered), failed: Number(b.failed_msgs), queued: Number(b.queued || 0) } : null,
+        origin: b.origin || 'inbox', lane: b.lane || 'bulk', audienceLabel: b.audience_label || '',
         readRate: b.read_rate != null ? Number(b.read_rate) : null,
       };
     }),
@@ -396,7 +432,8 @@ export async function broadcastReadReport(id: number) {
     const e = h.find((x: any) => x?.status === st);
     return e?.at || null;
   };
-  const group = (st: string | null) => st === 'read' ? 'read' : st === 'delivered' ? 'delivered' : st === 'failed' ? 'failed' : 'notDelivered';
+  const group = (st: string | null) => st === 'read' ? 'read' : st === 'delivered' ? 'delivered' : st === 'failed' ? 'failed'
+    : st === 'queued' || st === 'sending' ? 'queued' : 'notDelivered';
   const recipients = rows.map((r: any) => ({
     conversationId: Number(r.conversation_id),
     name: String(r.player_name || r.display_name || '').trim() || r.phone,
@@ -410,7 +447,7 @@ export async function broadcastReadReport(id: number) {
   const count = (g: string) => recipients.filter(x => x.group === g).length;
   return {
     broadcast: { id: Number(b.id), createdAt: (b as any).createdAt, createdBy: (b as any).createdBy, sentCount: (b as any).sentCount },
-    totals: { recipients: recipients.length, read: count('read'), delivered: count('delivered'), notDelivered: count('notDelivered'), failed: count('failed') },
+    totals: { recipients: recipients.length, read: count('read'), delivered: count('delivered'), notDelivered: count('notDelivered'), failed: count('failed'), queued: count('queued') },
     recipients,
   };
 }
