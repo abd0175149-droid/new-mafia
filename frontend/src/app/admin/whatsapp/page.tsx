@@ -213,6 +213,13 @@ export default function WhatsAppInboxPage() {
   const [loadingConvs, setLoadingConvs] = useState(true);
   const [filter, setFilter] = useState<string>('all');
   const [sort, setSort] = useState<string>('recent');
+  // 🔀 فلتر الرقم: كلّ المحادثات · رسائل رقم ميتا · رسائل رقم الأعمال — يُحفظ في المتصفّح
+  const [inboxCh, setInboxCh] = useState<'all' | 'cloud' | 'web'>(() => {
+    try { const v = localStorage.getItem('wa_inbox_channel'); return v === 'cloud' || v === 'web' ? v : 'all'; } catch { return 'all'; }
+  });
+  const inboxChRef = useRef(inboxCh);
+  useEffect(() => { inboxChRef.current = inboxCh; try { localStorage.setItem('wa_inbox_channel', inboxCh); } catch { /* لا شيء */ } }, [inboxCh]);
+  const chQs = (ch: string) => (ch === 'all' ? '' : `&channel=${ch}`);
   const [counts, setCounts] = useState<Record<string, number> | null>(null);
   const [lightbox, setLightbox] = useState<string | null>(null);
   const [q, setQ] = useState('');
@@ -257,17 +264,19 @@ export default function WhatsAppInboxPage() {
   const loadConvs = useCallback(async (opts?: { silent?: boolean }) => {
     try {
       if (!opts?.silent) setLoadingConvs(true);
-      const data = await apiFetch(`/api/whatsapp/conversations?filter=${filter}&sort=${sort}&q=${encodeURIComponent(q)}&limit=100`);
+      const data = await apiFetch(`/api/whatsapp/conversations?filter=${filter}&sort=${sort}&q=${encodeURIComponent(q)}&limit=100${chQs(inboxCh)}`);
       setConvs(data.conversations || []);
-      apiFetch('/api/whatsapp/conversations/counts').then(r => setCounts(r.counts)).catch(() => {});
+      apiFetch(`/api/whatsapp/conversations/counts?x=1${chQs(inboxCh)}`).then(r => setCounts(r.counts)).catch(() => {});
     } catch (e: any) {
       if (!opts?.silent) swalAlert('تعذر جلب المحادثات: ' + e.message, 'error');
     } finally {
       setLoadingConvs(false);
     }
-  }, [filter, sort, q]);
+  }, [filter, sort, q, inboxCh]);
 
   useEffect(() => { loadConvs(); }, [loadConvs]);
+  useEffect(() => { if (selIdRef.current) openConv(selIdRef.current); // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [inboxCh]);
 
   // ── فتح محادثة: رسائل + مقروء + سياق العميل ──
   const openConv = useCallback(async (id: number) => {
@@ -278,7 +287,7 @@ export default function WhatsAppInboxPage() {
     setImg(null); setImgErr(null);   // صورةُ محادثةٍ لا تُهاجر لغيرها
     setShowLink(false);
     try {
-      const data = await apiFetch(`/api/whatsapp/conversations/${id}/messages?limit=50`);
+      const data = await apiFetch(`/api/whatsapp/conversations/${id}/messages?limit=50${chQs(inboxChRef.current)}`);
       setConv(data.conversation);
       setMessages((data.messages || []).slice().reverse()); // الأقدم أولاً للعرض
       setHasMore(!!data.hasMore);
@@ -303,7 +312,7 @@ export default function WhatsAppInboxPage() {
     if (!selId || messages.length === 0) return;
     const oldest = messages[0]?.id;
     try {
-      const data = await apiFetch(`/api/whatsapp/conversations/${selId}/messages?limit=50&before=${oldest}`);
+      const data = await apiFetch(`/api/whatsapp/conversations/${selId}/messages?limit=50&before=${oldest}${chQs(inboxChRef.current)}`);
       setMessages(prev => [...(data.messages || []).slice().reverse(), ...prev]);
       setHasMore(!!data.hasMore);
     } catch { /* تجاهل */ }
@@ -335,7 +344,11 @@ export default function WhatsAppInboxPage() {
       // المحادثة المفتوحة: إلحاق الرسالة + مقروء
       if (selIdRef.current === conversation.id) {
         setConv((prev: any) => ({ ...prev, ...conversation, unreadCount: 0 }));
-        setMessages(prev => (prev.some(m => m.id === message.id) ? prev : [...prev, message]));
+        // فلتر الرقم: رسالةٌ من الرقم الآخر لا تُلحق بالخيط المعروض
+        const chF = inboxChRef.current;
+        if (chF === 'all' || (message.channel || 'cloud') === chF) {
+          setMessages(prev => (prev.some(m => m.id === message.id) ? prev : [...prev, message]));
+        }
         if (message.direction === 'in') {
           apiFetch(`/api/whatsapp/conversations/${conversation.id}/read`, { method: 'POST' }).catch(() => {});
         }
@@ -825,7 +838,16 @@ export default function WhatsAppInboxPage() {
 
         {/* ─── لوحة المحادثات ─── */}
         <div className={`${paneHidden('list')} flex-col min-h-0 border-l border-gray-800`}>
-          <div className="p-3 border-b border-gray-800">
+          <div className="p-3 border-b border-gray-800 space-y-2">
+            {/* 🔀 أيّ رقم: ميتا · رقم الأعمال · كلاهما */}
+            <div className="flex gap-1 bg-gray-950 border border-gray-800 rounded-xl p-1 text-[11.5px] font-bold">
+              {([['all', 'كلا الرقمين'], ['cloud', '☁️ رقم ميتا'], ['web', '📱 رقم الأعمال']] as const).map(([k, l]) => (
+                <button key={k} onClick={() => setInboxCh(k)}
+                  className={`flex-1 py-1 rounded-lg ${inboxCh === k ? (k === 'web' ? 'bg-teal-500/15 text-teal-300' : k === 'cloud' ? 'bg-indigo-500/15 text-indigo-300' : 'bg-amber-500/10 text-amber-400') : 'text-gray-500 hover:text-white'}`}
+                  title={k === 'all' ? 'كلّ المحادثات وكلّ الرسائل' : k === 'cloud' ? 'المحادثات التي فيها رسائل على رقم ميتا — وتُعرض رسائله وحدها' : 'المحادثات التي فيها رسائل على رقم الأعمال — وتُعرض رسائله وحدها'}
+                >{l}</button>
+              ))}
+            </div>
             <input
               value={q}
               onChange={e => setQ(e.target.value)}

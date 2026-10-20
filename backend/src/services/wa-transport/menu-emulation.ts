@@ -33,7 +33,7 @@ export function renderInteractive(interactive: any): { text: string; menu: Omit<
   const i = interactive || {};
   const lines: string[] = [];
   const header = i.header?.text ? String(i.header.text).trim() : '';
-  const body = String(i.body?.text || '').trim();
+  const body = adaptForTextMenus(String(i.body?.text || '').trim());
   const footer = String(i.footer?.text || '').trim();
   if (header) lines.push(`*${header}*`);
   if (body) lines.push(body);
@@ -69,6 +69,24 @@ export function renderInteractive(interactive: any): { text: string; menu: Omit<
   if (items.length) lines.push('', '↩️ اكتب رقم اختيارك');
   if (footer) lines.push('', `_${footer}_`);
   return { text: lines.join('\n').trim(), menu: items.length ? { kind, items } : null };
+}
+
+/**
+ * 🧹 صياغةٌ تفترض أزراراً ⟵ صياغةٌ لقائمةٍ مرقّمة (رقم الأعمال فقط). حتميّ، يُطبَّق على نصوص البوت والنظام
+ * وعلى نصّ رسائل الخيارات قبل رسمها. شبكةُ أمانٍ خلف تعليمة القناة في موجّه الدون.
+ */
+export function adaptForTextMenus(text: string): string {
+  if (!text) return text;
+  return String(text)
+    // «من الأزرار تحت» · «بالأزرار اللي تحت» · «عبر الأزرار أدناه»
+    .replace(/(?:من|ب|عبر)\s*(?:ال)?(?:أزرار|ازرار|زرار|الأزرار|الازرار)\s*(?:اللي\s*|التي\s*)?(?:تحت|بالأسفل|أدناه|ادناه|تحتها|تحته)?/g, 'بكتابة رقم الخيار')
+    // «اضغط زرّ «تأكيد الحجز»» · «اضغط على الزر» ⟵ «اكتب رقم «تأكيد الحجز»»
+    .replace(/اضغط(?:ي|وا)?\s+(?:على\s+)?(?:ال)?زرّ?(?:ار)?\s*/g, 'اكتب رقم ')
+    // «اضغط تراجع» · «اضغطي تأكيد» ⟵ «اختر تراجع»
+    .replace(/اضغط(?:ي|وا)?\s+/g, 'اختر ')
+    // «من القائمة فوق» ⟵ «بكتابة رقمها من القائمة فوق»
+    .replace(/(?<!بكتابة رقمها )من القائمة\s*(فوق|أعلاه|اعلاه|بالأعلى)/g, 'بكتابة رقمها من القائمة $1')
+    .replace(/بكتابة رقم الخيار\s+بكتابة رقم الخيار/g, 'بكتابة رقم الخيار');
 }
 
 export async function saveMenu(phoneOrKey: string, menu: Omit<MenuState, 'msgId' | 'at'>, msgId: string | null): Promise<void> {

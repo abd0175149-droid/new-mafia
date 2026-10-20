@@ -39,7 +39,7 @@ export function jidKind(jid: string): JidKind {
 const jidUser = (jid: string) => String(jid).split('@')[0].split(':')[0].replace(/\D/g, '');
 
 /** رسائل النظام الداخليّة — واتساب لا يعرضها، فلا نفتح لها محادثة */
-const SYSTEM_TYPES = new Set(['unknown', 'e2e_notification', 'notification', 'notification_template', 'protocol', 'gp2',
+export const SYSTEM_TYPES = new Set(['unknown', 'e2e_notification', 'notification', 'notification_template', 'protocol', 'gp2',
   'ciphertext', 'revoked', 'call_log', 'broadcast_notification', 'masked', 'pinned_message', 'debug', 'keep_in_chat',
   // سجلّ المكالمات (واردة أو صادرة من الهاتف) ليس رسالة: كان يُعكس «رسالة غير مدعومة» ويوقف البوت (2026-10-20)
   'call']);

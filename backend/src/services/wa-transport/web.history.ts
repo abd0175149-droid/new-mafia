@@ -14,9 +14,13 @@ import { waConversations, waMessages } from '../../schemas/admin.schema.js';
 import { players } from '../../schemas/player.schema.js';
 import { normalizeAnyPhone } from '../../utils/phone.util.js';
 import * as gw from './openwa.client.js';
-import { jidKind, resolveIdentity, toMetaMessage } from './web.inbound.js';
+import { jidKind, resolveIdentity, toMetaMessage, SYSTEM_TYPES } from './web.inbound.js';
 import { webConfigured } from './router.js';
 
+/** مكالمات ورسائل نظام وما لا نعرف عرضه: لا تُستورد (كانت تظهر «رسالة غير مدعومة») */
+function isSkippable(m: any): boolean {
+  return SYSTEM_TYPES.has(String(m?.type || '').toLowerCase()) || toMetaMessage(m, '', null).type === 'unsupported';
+}
 const chatIdOf = (c: any): string => String(c?.id?._serialized || c?.id || c?.chatId || '');
 const chatTs = (c: any): number => Number(c?.timestamp || c?.lastMessage?.timestamp || c?.t || 0) * 1000;
 const msgTs = (m: any): number => Number(m?.timestamp || 0) * (Number(m?.timestamp) < 1e12 ? 1000 : 1);
@@ -80,6 +84,7 @@ export async function catchUpWeb(): Promise<{ chats: number; added: number }> {
     const msgs = await gw.history(chatId, 20).catch(() => []);
     for (const m of msgs) {
       if (!m?.id || msgTs(m) <= since || (await existsWamid(String(m.id)))) continue;
+      if (isSkippable(m)) continue;
       const who = await resolveIdentity(chatId, m.senderPhone);
       if (!who) continue;
       if (m.fromMe) { await storeImportedOutgoing(m, who); added++; continue; }
@@ -138,6 +143,7 @@ export async function importWebHistory(opts: { perChat?: number; maxChats?: numb
     for (const m of msgs) {
       if (!m?.id || (await existsWamid(String(m.id)))) continue;
       oldest = Math.min(oldest, msgTs(m) || Infinity);
+      if (isSkippable(m)) continue;
       if (m.fromMe) await storeImportedOutgoing(m, who);
       else await ingestInbound(toMetaMessage(m, who.key, null), [], 'web', { webChatId: who.chatId, phoneVerified: true, imported: true, suppressBot: true });
       rep.messages++;

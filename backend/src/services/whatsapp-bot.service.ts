@@ -30,6 +30,7 @@ import {
 import { players } from '../schemas/player.schema.js';
 import { ROLE_NAMES_AR } from '../game/roles.js';
 import { sendMessage, isBotActive, isFreeWindowOpen, notifyAdmins } from './whatsapp-inbox.service.js';
+import { pickChannel } from './wa-transport/router.js';
 import { claimsHandoff } from './wa-handoff-guard.js';
 import { withGeminiResilience } from './gemini-resilience.js';
 import { emitStateSanitized } from '../sockets/broadcast.util.js';
@@ -3166,6 +3167,20 @@ function stripToolLeak(text: string, toolNames: string[]): string {
     .replace(/[:：]$/, '.');  // كان ينتهي بنقطتين تمهيداً للتسريب المحذوف
 }
 
+// 📱 رقم الأعمال لا يعرض أزرار ميتا ولا قوائمها: ما ترسله الأدوات يصل نصّاً مرقّماً والعميل يكتب الرقم.
+//    بلا هذا السطر كان الدون يقول «أكّد حجزك من الأزرار تحت» تحت قائمةٍ مرقّمة (2026-10-20).
+//    والفلتر الحتميّ adaptForTextMenus في الإرسال شبكةُ أمانٍ لما يفلت من النموذج.
+function channelNote(conv: any): string {
+  try {
+    if (!conv?.id || conv.waPhone === undefined) return '';
+    if (pickChannel(conv, 'reply').channel !== 'web') return '';
+    return '\n───── قناة هذه المحادثة: رقم الأعمال (واتساب عاديّ) ─────\n'
+      + '⚠️ لا أزرار ولا قوائم تفاعليّة هنا. كلّ ما ترسله الأدوات من أزرار أو قوائم يصل العميل نصّاً مرقّماً (1️⃣ 2️⃣ …) ويختار بكتابة الرقم. '
+      + 'فلا تقل «اضغط الزرّ» ولا «من الأزرار تحت» ولا «اختر من القائمة» — قل «اكتب رقم اختيارك» أو «ردّ برقم الخيار». '
+      + 'وبعد رسالة الخيارات لا تكتب نصّاً يكرّرها.';
+  } catch { return ''; }
+}
+
 export async function runAgent(opts: {
   settings: any;
   conv: any;
@@ -3188,6 +3203,7 @@ export async function runAgent(opts: {
     '\n───── حقائق حيّة من النظام (تتقدّم على قاعدة المعرفة عند التعارض) ─────\n' + (opts.liveFacts || ''),
     '\n───── الآن بتوقيت الأردن ─────\n' + fmtJo(new Date()),
     '\n───── بطاقة العميل الحالي ─────\n' + opts.customerCard,
+    channelNote(conv),
   ].join('\n');
 
   const ctx: ToolCtx = { conv, dryRun, interactives: [], settings };

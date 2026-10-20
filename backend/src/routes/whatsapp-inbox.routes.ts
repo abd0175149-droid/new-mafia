@@ -239,8 +239,11 @@ router.get('/conversations', authenticate, adminOnly, async (req: Request, res: 
     const sort = String(req.query.sort || 'recent');
     const limit = Math.min(parseInt(String(req.query.limit)) || 50, 200);
     const offset = parseInt(String(req.query.offset)) || 0;
+    // 🔀 فلتر الرقم: محادثاتٌ فيها رسائل على ميتا / على رقم الأعمال (الكلّ = بلا شرط)
+    const ch = ['cloud', 'web'].includes(String(req.query.channel)) ? String(req.query.channel) : '';
 
     const conds: any[] = [];
+    if (ch) conds.push(sql`EXISTS (SELECT 1 FROM wa_messages m WHERE m.conversation_id = ${waConversations.id} AND m.channel = ${ch})`);
     if (q) {
       conds.push(or(
         ilike(waConversations.displayName, `%${q}%`),
@@ -319,10 +322,12 @@ router.get('/conversations', authenticate, adminOnly, async (req: Request, res: 
 // ══════════════════════════════════════════════════════
 // استعلامٌ واحد بـ FILTER بدل ستّة: الرقم على الشارة يجعل الفلتر قراراً
 // («في ثلاث تحتاج تدخّلاً») لا تجربةً بالضغط.
-router.get('/conversations/counts', authenticate, adminOnly, async (_req: Request, res: Response) => {
+router.get('/conversations/counts', authenticate, adminOnly, async (req: Request, res: Response) => {
   try {
     const db = getDB();
     if (!db) return res.status(503).json({ error: 'DB unavailable' });
+    const ch = ['cloud', 'web'].includes(String(req.query.channel)) ? String(req.query.channel) : '';
+    const chWhere = ch ? sql`WHERE EXISTS (SELECT 1 FROM wa_messages m WHERE m.conversation_id = c.id AND m.channel = ${ch})` : sql``;
     const r: any = await db.execute(sql`
       SELECT
         COUNT(*)::int AS "all",
@@ -333,7 +338,7 @@ router.get('/conversations/counts', authenticate, adminOnly, async (_req: Reques
           AND (bot_paused_until IS NULL OR bot_paused_until < NOW()))::int AS "bot",
         COUNT(*) FILTER (WHERE NOT (bot_enabled = true
           AND (bot_paused_until IS NULL OR bot_paused_until < NOW())))::int AS "human"
-      FROM wa_conversations`);
+      FROM wa_conversations c ${chWhere}`);
     const row = (r.rows || r)[0] || {};
     res.json({ success: true, counts: row });
   } catch (err: any) {
@@ -362,6 +367,8 @@ router.get('/conversations/:id/messages', authenticate, adminOnly, async (req: R
 
     const conds: any[] = [eq(waMessages.conversationId, convId)];
     if (before > 0) conds.push(lt(waMessages.id, before));
+    // 🔀 رسائل رقمٍ واحد فقط (ميتا أو رقم الأعمال) — الكلّ بلا شرط
+    if (['cloud', 'web'].includes(String(req.query.channel))) conds.push(eq(waMessages.channel, String(req.query.channel)));
 
     const messages = await db
       .select()
