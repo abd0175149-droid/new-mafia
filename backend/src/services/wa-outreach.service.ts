@@ -45,7 +45,7 @@ export async function previewOutreach(origin: OutreachOrigin, items: OutreachIte
   if (items.length > MAX_ITEMS) throw new Error(`الحدّ ${MAX_ITEMS} مستلماً للدفعة الواحدة`);
   const s = transportSettings();
   const lane = laneOf(origin);
-  const skipped = { invalid: [] as string[], duplicate: [] as string[], optout: [] as string[], recent: [] as string[], unreachable: [] as string[], emptyText: [] as string[] };
+  const skipped = { invalid: [] as string[], duplicate: [] as string[], optout: [] as string[], recent: [] as string[], unreachable: [] as string[], emptyText: [] as string[], notOnWhatsapp: [] as string[] };
   const seen = new Set<string>();
   const cand: Array<OutreachItem & { local: string }> = [];
   for (const it of items) {
@@ -91,6 +91,21 @@ export async function previewOutreach(origin: OutreachOrigin, items: OutreachIte
       firstContact: via === 'web' && !conv?.webFirstContactAt && !conv?.webLastInboundAt,
     });
   }
+  // 🔎 هل لهم واتساب؟ — من يخرج عبر رقم الأعمال يُفحص (ميتا: من راسلنا خلال ٢٤ ساعة له واتساب حتماً).
+  //    المخزَّن يُستعمل فوراً، وما لم يُفحص يُفحص في الخلفيّة والنافذة تعيد المعاينة حتّى يكتمل.
+  const { cachedChecks, scheduleChecks, pendingOf } = await import('./wa-transport/number-check.js');
+  const webLocals = eligible.filter(e => e.via === 'web').map(e => e.local);
+  const checks = await cachedChecks(webLocals);
+  const notOnWa: Array<{ name: string; phone: string }> = [];
+  for (let i = eligible.length - 1; i >= 0; i--) {
+    const e = eligible[i];
+    if (e.via !== 'web') continue;
+    const c = checks.get(e.local);
+    if (c && !c.onWa) { skipped.notOnWhatsapp.push(e.local); notOnWa.push({ name: e.name, phone: e.local }); eligible.splice(i, 1); }
+  }
+  const unchecked = webLocals.filter(p => !checks.has(p));
+  if (unchecked.length) scheduleChecks(unchecked);
+  const check = { total: webLocals.length, done: webLocals.length - unchecked.length, pending: unchecked.length, inProgress: pendingOf(unchecked) };
   const webN = eligible.filter(e => e.via === 'web').length;
   const perDay = lane === 'bulk' ? s.bulk.dailyCap : s.timely.serviceDailyCap;
   const gap = lane === 'bulk' ? (s.bulk.gapMinSec + s.bulk.gapMaxSec) / 2 : (s.timely.gapMinSec + s.timely.gapMaxSec) / 2;
@@ -103,6 +118,8 @@ export async function previewOutreach(origin: OutreachOrigin, items: OutreachIte
     skipped: Object.fromEntries(Object.entries(skipped).map(([k, v]) => [k, v.length])),
     estimate: webN ? { perDay, days: Math.ceil(webN / Math.max(1, perDay)), minutesFirstDay: Math.round(Math.min(webN, perDay) * gap / 60) } : null,
     samples: eligible.slice(0, 3).map(e => ({ name: e.name, phone: e.local, text: e.text, via: e.via })),
+    check,
+    notOnWhatsapp: notOnWa.reverse(),
     rows: eligible,
   };
 }

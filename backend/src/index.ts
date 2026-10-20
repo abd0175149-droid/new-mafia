@@ -1857,6 +1857,15 @@ async function main() {
         )
       `);
       await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_wa_outbox_due ON wa_outbox(lane, priority, not_before)`);
+      // 🔎 هل للرقم واتساب؟ — نتائج فحص البوّابة (معاينة الإرسال من الصفحات)
+      await db.execute(sql`
+        CREATE TABLE IF NOT EXISTS wa_number_checks (
+          phone VARCHAR(20) PRIMARY KEY,
+          on_wa BOOLEAN NOT NULL,
+          wa_id VARCHAR(80),
+          checked_at TIMESTAMP DEFAULT NOW() NOT NULL
+        )
+      `);
       // أرقامٌ لها محادثة سابقة على رقم الأعمال وليست لاعبين (استيراد التاريخ) — تُفتح بالبوت مطفأً
       await db.execute(sql`
         CREATE TABLE IF NOT EXISTS wa_web_known (

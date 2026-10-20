@@ -227,7 +227,14 @@ async function step(): Promise<void> {
           await db.execute(sql`UPDATE wa_outbox SET attempts = GREATEST(attempts - 1, 0), not_before = NOW() + (${after} * INTERVAL '1 second'), last_error = ${String(ge.message).slice(0, 300)} WHERE message_id = ${job.message_id}`);
           nextAllowed[lane] = Date.now() + after * 1000;
         } else if (e?.fatal || (ge?.status >= 400 && ge?.status < 500 && ge?.status !== 408 && ge?.status !== 409)) {
-          await finalizeFailure(job.message_id, `${ge?.status ? `HTTP ${ge.status} — ` : ''}${e?.message || 'فشل'}`);
+          // 🔎 «لا يمكن الوصول للمستلم» ⟵ الرقم بلا واتساب: يُسجَّل فتستبعده المعاينات القادمة
+          const notOnWa = ge?.status === 400 && /could not resolve the recipient|not on WhatsApp/i.test(String(e?.message || ''));
+          if (notOnWa) {
+            const { recordCheck, localFromChatId } = await import('./number-check.js');
+            const local = localFromChatId(job.content?.chatId);
+            if (local) await recordCheck(local, false);
+          }
+          await finalizeFailure(job.message_id, notOnWa ? 'الرقم ليس على واتساب' : `${ge?.status ? `HTTP ${ge.status} — ` : ''}${e?.message || 'فشل'}`);
         } else if ((job.attempts + 1) >= MAX_ATTEMPTS) {
           await finalizeFailure(job.message_id, `تعذّر الإرسال بعد ${MAX_ATTEMPTS} محاولات: ${e?.message || ''}`);
         } else {

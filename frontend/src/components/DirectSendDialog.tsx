@@ -23,7 +23,7 @@ async function api(path: string, opts?: RequestInit) {
 
 const SKIP_AR: Record<string, string> = {
   optout: 'طلبوا إيقاف الرسائل', recent: 'تلقّوا رسالة فئةٍ مؤخّراً', invalid: 'أرقام غير صالحة',
-  duplicate: 'مكرّرون', unreachable: 'لا قناة متاحة الآن', emptyText: 'بلا نصّ',
+  duplicate: 'مكرّرون', unreachable: 'لا قناة متاحة الآن', emptyText: 'بلا نصّ', notOnWhatsapp: 'ليس لهم واتساب',
 };
 
 export default function DirectSendDialog({ origin, items, label, title, onClose, onDone }: {
@@ -43,8 +43,13 @@ export default function DirectSendDialog({ origin, items, label, title, onClose,
   const [prog, setProg] = useState<any>(null);
 
   useEffect(() => {
-    api('/api/whatsapp/outreach/preview', { method: 'POST', body: JSON.stringify({ origin, items }) })
-      .then(setPv).catch((e: any) => setErr(e.message));
+    // 🔎 المعاينة تفحص «هل لهم واتساب؟» في الخلفيّة — تُعاد كلّ ٤ ثوانٍ حتّى يكتمل الفحص
+    let alive = true; let t: any = null;
+    const load = () => api('/api/whatsapp/outreach/preview', { method: 'POST', body: JSON.stringify({ origin, items }) })
+      .then((r: any) => { if (!alive) return; setPv(r); if (r?.check?.pending > 0) t = setTimeout(load, 4000); })
+      .catch((e: any) => { if (alive) setErr(e.message); });
+    load();
+    return () => { alive = false; if (t) clearTimeout(t); };
   }, [origin, items]);
 
   useEffect(() => {
@@ -92,6 +97,24 @@ export default function DirectSendDialog({ origin, items, label, title, onClose,
                 {Object.entries(pv.skipped).filter(([, n]) => Number(n) > 0).map(([k, n]) => <span key={k}>• {SKIP_AR[k] || k}: <b className="text-gray-200">{String(n)}</b></span>)}
               </div>
             )}
+            {pv.check?.total > 0 && (
+              pv.check.pending > 0 ? (
+                <div className="text-xs text-teal-200/90 bg-teal-500/5 border border-teal-500/20 rounded-xl px-3 py-2 space-y-1.5">
+                  <div>🔎 نفحص من لهم واتساب: {pv.check.done} من {pv.check.total} — ثانيةٌ تقريباً لكلّ رقم</div>
+                  <div className="h-1.5 rounded-full bg-gray-800 overflow-hidden"><div className="h-full bg-teal-400" style={{ width: `${Math.round((pv.check.done / Math.max(1, pv.check.total)) * 100)}%` }} /></div>
+                </div>
+              ) : (
+                <div className="text-xs text-emerald-300/90">✓ فُحصت الأرقام كلّها{pv.notOnWhatsapp?.length ? ` — استُبعد ${pv.notOnWhatsapp.length} ليس لهم واتساب` : ' — لكلّهم واتساب'}</div>
+              )
+            )}
+            {pv.notOnWhatsapp?.length > 0 && (
+              <details className="text-xs text-gray-400">
+                <summary className="cursor-pointer hover:text-white">ليس لهم واتساب ({pv.notOnWhatsapp.length}) — لن يُرسل لهم</summary>
+                <div className="mt-1 max-h-32 overflow-y-auto space-y-0.5">
+                  {pv.notOnWhatsapp.map((r: any) => <div key={r.phone} className="flex gap-2"><span className="flex-1 truncate">{r.name || '—'}</span><span dir="ltr">{r.phone}</span></div>)}
+                </div>
+              </details>
+            )}
             {pv.firstContact > 0 && (
               <div className="text-xs text-gray-400 bg-gray-950/60 rounded-xl px-3 py-2 flex flex-wrap items-center gap-2">
                 <span>ℹ️ {pv.firstContact} منهم لم يراسلوا رقم الأعمال من قبل — للعلم فقط، يُرسل لهم كغيرهم.</span>
@@ -136,9 +159,12 @@ export default function DirectSendDialog({ origin, items, label, title, onClose,
               </div>
             )}
             <div className="flex items-center gap-2 pt-1">
-              <button disabled={sending || willSend <= 0} onClick={send} className="px-4 py-2 rounded-xl bg-emerald-500 text-black font-bold disabled:opacity-40">
-                {sending ? '⏳ يرسل…' : `أرسل إلى ${willSend}`}
+              <button disabled={sending || willSend <= 0 || pv.check?.pending > 0} onClick={send} className="px-4 py-2 rounded-xl bg-emerald-500 text-black font-bold disabled:opacity-40">
+                {sending ? '⏳ يرسل…' : pv.check?.pending > 0 ? `⏳ يفحص الأرقام…` : `أرسل إلى ${willSend}`}
               </button>
+              {pv.check?.pending > 0 && (
+                <button disabled={sending || willSend <= 0} onClick={send} className="px-3 py-2 rounded-xl border border-gray-700 text-gray-300 text-xs disabled:opacity-40" title="من لم يُفحص بعد يُرسل له، وإن لم يكن له واتساب تفشل رسالته وحدها">أرسل دون انتظار الفحص</button>
+              )}
               <button onClick={onClose} className="px-3 py-2 rounded-xl border border-gray-800 text-gray-400">إلغاء</button>
             </div>
           </>
