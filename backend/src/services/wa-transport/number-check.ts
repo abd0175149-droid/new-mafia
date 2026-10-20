@@ -30,7 +30,7 @@ export async function cachedChecks(locals: string[]): Promise<Map<string, Number
   if (!db || !locals.length) return out;
   const r: any = await db.execute(sql`SELECT phone, on_wa, checked_at FROM wa_number_checks
     WHERE phone IN (${sql.join(locals.map(p => sql`${p}`), sql`, `)})
-      AND checked_at > NOW() - (CASE WHEN on_wa THEN ${TTL_YES_DAYS} ELSE ${TTL_NO_DAYS} END * INTERVAL '1 day')`);
+      AND checked_at > NOW() - (CASE WHEN on_wa THEN ${TTL_YES_DAYS}::int ELSE ${TTL_NO_DAYS}::int END * INTERVAL '1 day')`);
   for (const x of (r?.rows ?? r ?? [])) out.set(String(x.phone), { onWa: !!x.on_wa, at: new Date(x.checked_at) });
   return out;
 }
