@@ -40,7 +40,9 @@ const jidUser = (jid: string) => String(jid).split('@')[0].split(':')[0].replace
 
 /** رسائل النظام الداخليّة — واتساب لا يعرضها، فلا نفتح لها محادثة */
 const SYSTEM_TYPES = new Set(['unknown', 'e2e_notification', 'notification', 'notification_template', 'protocol', 'gp2',
-  'ciphertext', 'revoked', 'call_log', 'broadcast_notification', 'masked', 'pinned_message', 'debug', 'keep_in_chat']);
+  'ciphertext', 'revoked', 'call_log', 'broadcast_notification', 'masked', 'pinned_message', 'debug', 'keep_in_chat',
+  // سجلّ المكالمات (واردة أو صادرة من الهاتف) ليس رسالة: كان يُعكس «رسالة غير مدعومة» ويوقف البوت (2026-10-20)
+  'call']);
 
 export interface WebIdentity {
   /** ما يُمرَّر إلى getOrCreateConversation: أرقام دوليّة، أو lid:<digits> لرقمٍ مخفيّ */
@@ -259,6 +261,8 @@ async function onOutgoing(d: any): Promise<string> {
   if (!c) return 'no-conv';
   const media = await storeMedia(d, chatId);
   const meta = toMetaMessage(d, who.key, media);
+  // ما لا نعرف عرضه لا يُعكس ردّاً بشريّاً: لا يوقف البوت ولا يصفّر غير المقروء على حدثٍ ليس رسالة
+  if (meta.type === 'unsupported') return 'unsupported-ignored';
   const { extractInbound } = await import('../whatsapp-inbox.service.js');
   const preview = extractInbound(meta).body || '';
   const [saved] = await db.insert(waMessages).values({
