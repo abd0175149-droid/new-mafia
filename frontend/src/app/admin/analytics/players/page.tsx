@@ -58,6 +58,12 @@ function normalizePhoneIntl(raw: string): string | null {
   return WA_COUNTRY + p;
 }
 const fmtDay = (s: string | null) => s ? new Date(s).toLocaleDateString('ar-EG', { day: 'numeric', month: 'long', year: 'numeric' }) : '';
+// 📇 حالة خطّ الأعمال لكلّ لاعب (p.lineStatus من الخادم): «دافئ» = راسَلنا أو له محادثة
+const isWarmLine = (s: any) => s === 'two_way' || s === 'has_chat';
+const LINE_BADGE: Record<string, { t: string; cls: string; title: string }> = {
+  two_way: { t: '📇 راسَلنا', cls: 'bg-emerald-500/15 text-emerald-300 border-emerald-500/30', title: 'راسَلنا على خطّ الأعمال — إرساله إليه ليس محادثةً باردة' },
+  has_chat: { t: '📇 له محادثة', cls: 'bg-teal-500/15 text-teal-300 border-teal-500/30', title: 'له محادثة سابقة على خطّ الأعمال — ليس أوّل تواصل' },
+};
 // المتغيّرات المتاحة في القالب — تُستبدل بقيم اللاعب عند الإرسال
 const WA_VARS: { token: string; label: string; get: (p: any) => string }[] = [
   { token: '{الاسم}', label: 'الاسم', get: p => (p.name || '').trim() },
@@ -117,6 +123,8 @@ export default function AnalyticsPlayersPage() {
   // 🎯 شريحة «لم يلعب آخر N فعاليّة» — فلتر عرض قابل للضبط
   const [unplayed, setUnplayed] = useState(false);
   const [unplayedN, setUnplayedN] = useState(10);
+  // 📇 فلتر «له محادثة مع خطّ الأعمال» — لحصر الإرسال بمن لسنا بادئين معه محادثةً باردة
+  const [lineWarm, setLineWarm] = useState(false);
   // 📤 رقم الأعمال مفعّل ⟵ الرسالة تخرج من النظام (لشخصٍ أو للمعروضين كلّهم) بدل فتح تطبيق واتساب
   const direct = useWaDirect();
   const [dsend, setDsend] = useState<{ items: DirectItem[]; title: string; label: string } | null>(null);
@@ -203,6 +211,7 @@ export default function AnalyticsPlayersPage() {
   const rows = (() => {
     let r = segmented as any[];
     if (segFilter) r = r.filter(p => p._seg.id === segFilter);
+    if (lineWarm) r = r.filter(p => isWarmLine(p.lineStatus)); // 📇 له محادثة مع خطّ الأعمال
     if (unplayed) r = r.filter(p => Number(p.activitiesSince) >= unplayedN); // 🎯 لم يحضر آخر N فعاليّة
     if (sinceOn && sinceDate) r = r.filter(p => Number(p.acctCreatedNum) >= dateToNum(sinceDate));
     if (actsOn) r = r.filter(p => OPS[actsOp]?.(Number(p.actsAfterSignup), actsN));
@@ -222,6 +231,7 @@ export default function AnalyticsPlayersPage() {
   };
   const segLabel = [
     segFilter ? `شريحة: ${segList.find((x: any) => x.id === segFilter)?.name || segFilter}` : 'كلّ الشرائح',
+    lineWarm ? 'له محادثة معنا' : '',
     unplayed ? `لم يحضر آخر ${unplayedN}` : '', sinceOn && sinceDate ? `مُنشأ بعد ${sinceDate}` : '', q ? `بحث: ${q}` : '',
   ].filter(Boolean).join(' · ');
 
@@ -298,6 +308,7 @@ export default function AnalyticsPlayersPage() {
             <input value={q} onChange={e => setQ(e.target.value)} placeholder="🔍 ابحث باسم اللاعب أو رقم هاتفه…" className="flex-1 min-w-[220px] bg-gray-900/50 border border-gray-700/50 rounded-xl px-4 py-2.5 text-sm text-white outline-none focus:border-amber-500/50" />
             {segFilter && <button onClick={() => setSegFilter(null)} className="px-3 py-2 rounded-full text-xs border bg-amber-500/10 text-amber-400 border-amber-500/30">الكل ✕</button>}
             <button onClick={() => setShowTemplate(v => !v)} className={`px-3 py-2 rounded-xl text-xs border ${showTemplate ? 'bg-green-500/15 text-green-400 border-green-500/40' : 'bg-gray-800/40 text-gray-300 border-gray-700/40'}`}>💬 قالب الرسالة</button>
+            <button onClick={() => setLineWarm(v => !v)} title="اعرض فقط من راسَلنا أو له محادثة سابقة على خطّ الأعمال — لئلّا تبدأ محادثةً باردة" className={`px-3 py-2 rounded-xl text-xs border ${lineWarm ? 'bg-emerald-500/15 text-emerald-300 border-emerald-500/40' : 'bg-gray-800/40 text-gray-300 border-gray-700/40'}`}>{lineWarm ? '✓ ' : ''}📇 له محادثة معنا</button>
             {direct && rows.length > 0 && (
               <button
                 onClick={() => {
@@ -405,7 +416,7 @@ export default function AnalyticsPlayersPage() {
                   <div key={p.id} onClick={() => setDetail(p)} className="grid grid-cols-[2fr_1fr_.7fr_.7fr_.75fr_.85fr] items-center border-b border-gray-800/40 hover:bg-gray-800/40 cursor-pointer">
                     <div className="px-3.5 py-2.5 flex items-center gap-2.5 min-w-0">
                       <span className="w-8 h-8 rounded-lg flex items-center justify-center text-xs font-bold text-black shrink-0" style={{ background: p._seg.color }}>{initials(p.name)}</span>
-                      <span className="min-w-0"><div className="text-[13px] font-semibold text-white truncate">{p.name || '—'}{p.isTest && <span className="text-[9px] text-amber-400 border border-amber-500/40 rounded px-1 mr-1.5">اختبار</span>}</div><div className="text-[10px] text-gray-500 tabular-nums" dir="ltr">{p.phone}</div></span>
+                      <span className="min-w-0"><div className="text-[13px] font-semibold text-white truncate">{p.name || '—'}{p.isTest && <span className="text-[9px] text-amber-400 border border-amber-500/40 rounded px-1 mr-1.5">اختبار</span>}{LINE_BADGE[p.lineStatus] && <span className={`text-[9px] border rounded px-1 mr-1.5 ${LINE_BADGE[p.lineStatus].cls}`} title={LINE_BADGE[p.lineStatus].title}>{LINE_BADGE[p.lineStatus].t}</span>}</div><div className="text-[10px] text-gray-500 tabular-nums" dir="ltr">{p.phone}</div></span>
                     </div>
                     <div className="px-3.5"><span className="inline-flex items-center gap-1.5 text-[11px] font-semibold px-2 py-1 rounded-full" style={{ background: hexa(p._seg.color, .13), color: p._seg.color }}><span className="w-1.5 h-1.5 rounded-full" style={{ background: p._seg.color }} />{p._seg.name}</span></div>
                     <div className="px-3.5 text-center text-[13px] tabular-nums">{p.activitiesAll}</div>

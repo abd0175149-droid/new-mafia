@@ -45,7 +45,13 @@ export interface TransportSettings {
   outreach: { direct: boolean; cohortFreqDays: number };
   /** المتابعات على الجلسة: أقصى عمرٍ لآخر وارد يُتابَع (لا نافذة على الجلسة، لكن لا نوقظ محادثات قديمة) */
   followupMaxAgeHours: number;
+  /** فلتر الجمهور الافتراضيّ في كلّ الصفحات: all | warm (له محادثة) | two_way (راسلَنا) */
+  lineDefault: LineFilter;
 }
+
+/** فلتر القرب من خطّ الأعمال — مشترَكٌ عبر كلّ الصفحات */
+export type LineFilter = 'all' | 'warm' | 'two_way';
+export const LINE_FILTERS: LineFilter[] = ['all', 'warm', 'two_way'];
 
 export const DEFAULT_TRANSPORT_SETTINGS: TransportSettings = {
   mode: 'cloud_only',
@@ -60,6 +66,7 @@ export const DEFAULT_TRANSPORT_SETTINGS: TransportSettings = {
   cloudRedirect: { enabled: true, businessNumber: '', oncePerDay: true },
   outreach: { direct: true, cohortFreqDays: 3 },
   followupMaxAgeHours: 48,
+  lineDefault: 'all',   // يُبدَّل إلى warm من «القنوات» للفترة الحسّاسة
 };
 
 /** محتوى رسالة صادرة — نفس حقول SendMessageInput */

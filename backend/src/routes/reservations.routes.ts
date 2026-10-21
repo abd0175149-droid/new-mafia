@@ -53,8 +53,16 @@ router.get('/', authenticate, async (req: Request, res: Response) => {
     if (mids.length) {
       const { reservationWaStatuses } = await import('../services/wa-outreach.service.js');
       const st = await reservationWaStatuses(mids);
-      return res.json(rows.map((r: any) => (r.waMessageId ? { ...r, waStatus: st.get(Number(r.waMessageId)) || null } : r)));
+      rows.forEach((r: any) => { if (r.waMessageId) r.waStatus = st.get(Number(r.waMessageId)) || null; });
     }
+    // 📇 حالة خطّ الأعمال لكلّ حجز (له محادثة / راسلَنا)
+    try {
+      const { lineStatusOf } = await import('../services/wa-transport/line-roster.js');
+      const { normalizeLocalPhone } = await import('../utils/phone.util.js');
+      const locals = rows.map((r: any) => normalizeLocalPhone(r.phone)).filter(Boolean) as string[];
+      const map = await lineStatusOf([...new Set(locals)]);
+      rows.forEach((r: any) => { const l = normalizeLocalPhone(r.phone); r.lineStatus = (l && map.get(l)) || 'unknown'; });
+    } catch { /* تكميليّ */ }
   } catch { /* العلامات تكميليّة */ }
   res.json(rows);
 });

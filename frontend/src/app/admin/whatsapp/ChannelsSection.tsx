@@ -18,6 +18,12 @@ const MODE_INFO: Record<string, { title: string; desc: string }> = {
   web_final: { title: 'الجلسة + ميتا للتحويل', desc: 'كلّ إرسال من رقم الأعمال. ميتا يردّ عليها البوت كاملاً ويوجّه، ولا جماعيّ منها.' },
 };
 const LANE_AR: Record<string, string> = { reply: 'الردود', timely: 'المقيّد بوقت', bulk: 'الجماعيّ' };
+// الفلتر الكونيّ الافتراضيّ لكلّ صفحات النظام: مَن نرسل له ابتداءً
+const LINE_DEFAULT: Record<string, { t: string; d: string }> = {
+  all: { t: 'الكلّ', d: 'لا تقييد — قد يبدأ محادثةً باردة (يعتمد على سقف البارد والتسخين)' },
+  warm: { t: 'مَن له محادثة معنا', d: 'راسَلنا أو له محادثة سابقة على خطّ الأعمال — لا أوّل تواصلٍ بارد' },
+  two_way: { t: 'مَن راسَلنا فقط', d: 'الأضيق — مَن بادَرنا هو برسالة من قبل' },
+};
 const STATUS_AR: Record<string, string> = {
   ready: 'متّصل', qr_ready: 'ينتظر الربط', initializing: 'يبدأ…', authenticating: 'يتحقّق…', created: 'لم يبدأ',
   disconnected: 'مفصول', failed: 'فشل', action_required: 'يحتاج إجراءً', unreachable: 'البوّابة لا تستجيب', unknown: '—',
@@ -250,6 +256,20 @@ export default function ChannelsSection({ apiFetch }: { apiFetch: Fetcher }) {
         <div className="flex flex-wrap items-center gap-3">
           <label className="flex items-center gap-1.5"><input type="checkbox" checked={!!draft.outreach.direct} onChange={e => set('outreach.direct', e.target.checked)} />الحجوزات والتحليلات والمستكشف ترسل من النظام</label>
           <span>رسالة فئة للّاعب نفسه مرّة كلّ <input type="number" min={0} value={draft.outreach.cohortFreqDays} onChange={e => set('outreach.cohortFreqDays', Number(e.target.value))} className={inp + ' w-14'} /> أيّام</span>
+        </div>
+        {/* ── الجمهور الافتراضيّ لكلّ الصفحات ── */}
+        <div className="border-t border-gray-800/60 pt-2">
+          <b className="text-white block mb-1">الجمهور الافتراضيّ في كلّ الصفحات</b>
+          <div className="text-xs text-gray-500 mb-2">يُطبَّق على التحليلات والحجوزات والمتابعة والبثّ ما لم تغيّره في الصفحة نفسها. يحمي من بدء محادثةٍ باردةٍ عن غير قصد.</div>
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+            {(['all', 'warm', 'two_way'] as const).map(k => (
+              <button key={k} type="button" onClick={() => set('lineDefault', k)}
+                className={`text-right rounded-xl border p-2.5 ${(draft.lineDefault || 'all') === k ? 'border-amber-500 bg-amber-500/10' : 'border-gray-800 hover:border-gray-600'}`}>
+                <b className={`block ${(draft.lineDefault || 'all') === k ? 'text-amber-300' : 'text-gray-200'}`}>{(draft.lineDefault || 'all') === k ? '● ' : ''}{LINE_DEFAULT[k].t}</b>
+                <span className="block text-[11px] text-gray-500 leading-snug mt-1">{LINE_DEFAULT[k].d}</span>
+              </button>
+            ))}
+          </div>
         </div>
       </div>
 

@@ -92,9 +92,13 @@ export async function enqueueWeb(saved: any, conv: any, c: OutboundContent, lane
   if (!content.chatId) {
     const err: any = new Error('لا معرّف محادثة لرقم الأعمال'); err.code = 'CHANNEL_UNAVAILABLE'; throw err;
   }
-  // ❄️ محادثةٌ باردة = لم يراسلنا صاحبها على رقم الأعمال قطّ (أوّل رسالة منّا إليه). أخطر ما يُحظر
-  //    عليه الرقم، فتُعامَل بسقفٍ أصغر وتباعدٍ أوسع في المسار الجماعيّ.
-  const cold = lane === 'bulk' && !conv?.webLastInboundAt && !conv?.web_last_inbound_at;
+  // ❄️ محادثةٌ باردة = ليست دافئةً في سجلّ جهات الخطّ (لا راسلَنا ولا خيطٌ قائم). أخطر ما يُحظر
+  //    عليه الرقم، فتُعامَل بسقفٍ أصغر وتباعدٍ أوسع في المسار الجماعيّ. مصدرٌ واحد للحقيقة.
+  let cold = false;
+  if (lane === 'bulk') {
+    try { const { isColdLocal } = await import('./line-roster.js'); cold = await isColdLocal(conv.phone); }
+    catch { cold = !conv?.webLastInboundAt && !conv?.web_last_inbound_at; }
+  }
   const payload = { ...(saved.payload || {}), _rendered: rendered, _lane: lane, ...(cold ? { _cold: true } : {}) };
   const [row] = await db.update(waMessages).set({ payload } as any).where(eq(waMessages.id, saved.id)).returning();
   await db.execute(sql`INSERT INTO wa_outbox (message_id, lane, cold, priority, not_before, content)
@@ -208,6 +212,8 @@ async function sendOne(job: any): Promise<void> {
     .returning({ id: waMessages.id, conversationId: waMessages.conversationId, status: waMessages.status, errorMessage: waMessages.errorMessage });
   if (u) { const { emitInbox } = await import('../whatsapp-inbox.service.js'); emitInbox('wa:status:update', u); }
   if (wamid) { const { flushPendingAcks } = await import('./web.inbound.js'); await flushPendingAcks(wamid); }
+  // 📇 أوّل صادرٍ نجح ⟵ خيطٌ قائم (لم يعُد بارداً) — بالرقم المحلّيّ من معرّف المحادثة
+  try { const { localFromChatId } = await import('./number-check.js'); const local = localFromChatId(c.chatId); if (local) { const { noteOutbound } = await import('./line-roster.js'); await noteOutbound(local, c.chatId); } } catch { /* تكميليّ */ }
   // 📤 رسالة حجزٍ من صفحة الحجوزات: «أُرسلت» تُضبط الآن — عند خروجها فعلاً لا عند النقر
   if ((payload as any).reservationId) {
     const { markReservationSent } = await import('../wa-outreach.service.js');

@@ -154,6 +154,11 @@ export default function ResRow({ r, onOpen, onAttend }: {
             {(r as any).waStatus === 'read' && <span className="text-[11px] text-sky-400 tracking-[-2px]" title="قرأ رسالة الحجز">✓✓</span>}
             {(r as any).waStatus === 'failed' && <span className="text-[11px] text-rose-400" title="تعذّر إرسال رسالة الحجز">✗</span>}
             {r.appConfirmed && <span className="text-[11px]" title="تأكّد من التطبيق">📱</span>}
+            {/* 📇 له محادثة مع خطّ الأعمال — إرساله إليه ليس محادثةً باردة */}
+            {((r as any).lineStatus === 'two_way' || (r as any).lineStatus === 'has_chat') && (
+              <span className="text-[10.5px] px-1.5 py-px rounded-full border font-bold text-emerald-300 border-emerald-500/40"
+                title={(r as any).lineStatus === 'two_way' ? 'راسَلنا على خطّ الأعمال — ليست محادثةً باردة' : 'له محادثة سابقة على خطّ الأعمال'}>📇</span>
+            )}
             {r.remindOptIn === false && (
               <span className="text-[11px]" title="طلب عدم إرسال تذكيرات">🔕</span>
             )}

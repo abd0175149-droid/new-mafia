@@ -22,7 +22,16 @@ const router = Router();
 router.get('/players', authenticate, managerOrAbove, async (_req: Request, res: Response) => {
   try {
     const { payload, refreshedAt } = await getCache();
-    res.json({ success: true, refreshedAt, generatedAt: payload.generatedAt, today: payload.today, players: payload.players || [] });
+    const players = payload.players || [];
+    // 📇 حالة خطّ الأعمال لكلّ لاعب (له محادثة / راسلَنا) — فلترٌ اختياريّ وعرضٌ في التحليلات
+    try {
+      const { lineStatusOf } = await import('../services/wa-transport/line-roster.js');
+      const { normalizeLocalPhone } = await import('../utils/phone.util.js');
+      const locals = players.map((p: any) => normalizeLocalPhone(p.phone)).filter(Boolean) as string[];
+      const map = await lineStatusOf([...new Set(locals)]);
+      for (const p of players) { const l = normalizeLocalPhone(p.phone); p.lineStatus = (l && map.get(l)) || 'unknown'; }
+    } catch { /* تكميليّ */ }
+    res.json({ success: true, refreshedAt, generatedAt: payload.generatedAt, today: payload.today, players });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }

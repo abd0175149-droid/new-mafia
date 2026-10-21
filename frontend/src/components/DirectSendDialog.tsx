@@ -23,8 +23,9 @@ async function api(path: string, opts?: RequestInit) {
 
 const SKIP_AR: Record<string, string> = {
   optout: 'طلبوا إيقاف الرسائل', recent: 'تلقّوا رسالة فئةٍ مؤخّراً', invalid: 'أرقام غير صالحة',
-  duplicate: 'مكرّرون', unreachable: 'لا قناة متاحة الآن', emptyText: 'بلا نصّ', notOnWhatsapp: 'ليس لهم واتساب',
+  duplicate: 'مكرّرون', unreachable: 'لا قناة متاحة الآن', emptyText: 'بلا نصّ', notOnWhatsapp: 'ليس لهم واتساب', noChat: 'لا محادثة لهم مع خطّ الأعمال',
 };
+const LINE_AR: Record<string, string> = { all: 'الكلّ', warm: 'له محادثة معنا', two_way: 'راسلَنا فقط' };
 
 export default function DirectSendDialog({ origin, items, label, title, onClose, onDone }: {
   origin: Origin;
@@ -41,16 +42,18 @@ export default function DirectSendDialog({ origin, items, label, title, onClose,
   const [sending, setSending] = useState(false);
   const [job, setJob] = useState<{ id: number; queued: number } | null>(null);
   const [prog, setProg] = useState<any>(null);
+  // 📇 فلتر خطّ الأعمال — undefined ⟵ الافتراض العامّ من الخادم (يظهر في pv.lineFilter)
+  const [lineFilter, setLineFilter] = useState<string | undefined>(undefined);
 
   useEffect(() => {
     // 🔎 المعاينة تفحص «هل لهم واتساب؟» في الخلفيّة — تُعاد كلّ ٤ ثوانٍ حتّى يكتمل الفحص
     let alive = true; let t: any = null;
-    const load = () => api('/api/whatsapp/outreach/preview', { method: 'POST', body: JSON.stringify({ origin, items }) })
+    const load = () => api('/api/whatsapp/outreach/preview', { method: 'POST', body: JSON.stringify({ origin, items, lineFilter }) })
       .then((r: any) => { if (!alive) return; setPv(r); if (r?.check?.pending > 0) t = setTimeout(load, 4000); })
       .catch((e: any) => { if (alive) setErr(e.message); });
     load();
     return () => { alive = false; if (t) clearTimeout(t); };
-  }, [origin, items]);
+  }, [origin, items, lineFilter]);
 
   useEffect(() => {
     if (!job) return;
@@ -65,7 +68,7 @@ export default function DirectSendDialog({ origin, items, label, title, onClose,
   const send = async () => {
     setSending(true); setErr(null);
     try {
-      const r = await api('/api/whatsapp/outreach', { method: 'POST', body: JSON.stringify({ origin, items, label, excludePhones: Array.from(excluded) }) });
+      const r = await api('/api/whatsapp/outreach', { method: 'POST', body: JSON.stringify({ origin, items, label, excludePhones: Array.from(excluded), lineFilter: lineFilter ?? pv?.lineFilter }) });
       setJob({ id: r.id, queued: r.queued });
       onDone?.({ id: r.id, queued: r.queued });
     } catch (e: any) { setErr(e.message); }
@@ -91,6 +94,15 @@ export default function DirectSendDialog({ origin, items, label, title, onClose,
               <div className="rounded-xl border border-emerald-500/30 bg-emerald-500/5 p-2"><div className="text-2xl font-bold text-emerald-300 tabular-nums">{willSend}</div><div className="text-[11px] text-gray-400">سيصلهم</div></div>
               <div className="rounded-xl border border-gray-800 p-2"><div className="text-2xl font-bold text-gray-300 tabular-nums">{pv.total - pv.eligible}</div><div className="text-[11px] text-gray-400">مستبعدون</div></div>
               <div className="rounded-xl border border-gray-800 p-2"><div className="text-2xl font-bold text-gray-300 tabular-nums">{pv.firstContact}</div><div className="text-[11px] text-gray-400">أوّل رسالة منّا</div></div>
+            </div>
+            <div className="flex flex-wrap items-center gap-1.5 text-xs">
+              <span className="text-gray-500">خطّ الأعمال:</span>
+              {(['all', 'warm', 'two_way'] as const).map(k => {
+                const active = (lineFilter ?? pv.lineFilter) === k;
+                return <button key={k} onClick={() => setLineFilter(k)}
+                  className={`px-2.5 py-1 rounded-lg font-bold border ${active ? 'bg-teal-500/15 text-teal-300 border-teal-500/40' : 'border-gray-800 text-gray-400 hover:text-white'}`}>{LINE_AR[k]}</button>;
+              })}
+              {pv.byLine && <span className="text-gray-500">راسلَنا {pv.byLine.two_way} · له محادثة {pv.byLine.has_chat}{pv.byLine.cold ? ` · بارد ${pv.byLine.cold}` : ''}</span>}
             </div>
             {Object.entries(pv.skipped || {}).some(([, n]) => Number(n) > 0) && (
               <div className="text-xs text-gray-400 flex flex-wrap gap-x-3 gap-y-1">

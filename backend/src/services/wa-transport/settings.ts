@@ -6,7 +6,7 @@
 
 import { sql } from 'drizzle-orm';
 import { getDB } from '../../config/db.js';
-import { DEFAULT_TRANSPORT_SETTINGS, TRANSPORT_MODES, type TransportSettings } from './types.js';
+import { DEFAULT_TRANSPORT_SETTINGS, TRANSPORT_MODES, LINE_FILTERS, type TransportSettings } from './types.js';
 
 let cached: TransportSettings = structuredClone(DEFAULT_TRANSPORT_SETTINGS);
 let timer: NodeJS.Timeout | null = null;
@@ -66,6 +66,7 @@ export function normalizeSettings(raw: any): TransportSettings {
       cohortFreqDays: num(r.outreach?.cohortFreqDays, d.outreach.cohortFreqDays, 0, 60),
     },
     followupMaxAgeHours: num(r.followupMaxAgeHours, d.followupMaxAgeHours, 1, 24 * 30),
+    lineDefault: LINE_FILTERS.includes(r.lineDefault) ? r.lineDefault : d.lineDefault,
   };
 }
 

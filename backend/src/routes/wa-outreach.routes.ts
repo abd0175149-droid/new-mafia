@@ -53,7 +53,8 @@ router.post('/outreach/preview', authenticate, guard, async (req: Request, res: 
   try {
     const origin = req.body.origin as OutreachOrigin;
     const items = await sanitize(origin, req.body.items);
-    const pv = await previewOutreach(origin, items);
+    const lf = ['all','warm','two_way'].includes(String(req.body.lineFilter)) ? req.body.lineFilter : undefined;
+    const pv = await previewOutreach(origin, items, lf);
     res.json({ success: true, ...pv, rows: pv.rows.map(r => ({ name: r.name, phone: r.local, via: r.via, firstContact: r.firstContact })) });
   } catch (e: any) { res.status(400).json({ error: e.message }); }
 });
@@ -64,7 +65,8 @@ router.post('/outreach', authenticate, guard, async (req: Request, res: Response
     const origin = req.body.origin as OutreachOrigin;
     const items = await sanitize(origin, req.body.items);
     const staffName = String(u?.displayName || u?.username || '');
-    const r = await startOutreach({ origin, items, staffId: u?.id, staffName, label: req.body.label, excludePhones: req.body.excludePhones });
+    const lf = ['all','warm','two_way'].includes(String(req.body.lineFilter)) ? req.body.lineFilter : undefined;
+    const r = await startOutreach({ origin, items, staffId: u?.id, staffName, label: req.body.label, excludePhones: req.body.excludePhones, lineFilter: lf });
     if (!r.ok) return res.status(400).json({ error: r.error });
     try {
       const { logStaffAction } = await import('../services/staff-action-log.service.js');

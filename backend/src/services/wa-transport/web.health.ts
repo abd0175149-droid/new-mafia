@@ -125,6 +125,8 @@ export async function onSessionEvent(event: string, d: any): Promise<void> {
       await applyStatus('ready', { phone: String(d.phone || '').replace(/\D/g, '') || state.phone, pushName: d.pushName ?? state.pushName });
       void ensureWebhook();
       void tick();
+      // 📇 ربطٌ جديد ⟵ مزامنةٌ كاملة لسجلّ جهات الخطّ (بعد لحظات ليستقرّ المحرّك)
+      setTimeout(() => { import('./line-roster.js').then(m => m.syncLineContacts({ max: 2000 })).catch(() => {}); }, 20_000);
       break;
     case 'session.disconnected': {
       state.disconnectReason = String(d.reason || '');

@@ -206,6 +206,8 @@ async function onIncoming(d: any): Promise<string> {
     suppressBot: s.mode === 'cloud_only' || !s.webBot,
   });
   await markFirstContact(who.key);
+  // 📇 السجلّ: راسلَنا ⟵ two_way (fire-and-forget)
+  import('./line-roster.js').then(m => m.noteInbound(who.key, who.chatId, pushName)).catch(() => {});
   return 'stored';
 }
 

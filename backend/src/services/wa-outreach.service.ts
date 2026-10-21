@@ -18,7 +18,8 @@ import { waBroadcasts, waConversations, reservations } from '../schemas/admin.sc
 import { normalizeAnyPhone } from '../utils/phone.util.js';
 import { pickChannel, webConfigured } from './wa-transport/router.js';
 import { transportSettings } from './wa-transport/settings.js';
-import type { Lane } from './wa-transport/types.js';
+import type { Lane, LineFilter } from './wa-transport/types.js';
+import { lineStatusOf } from './wa-transport/line-roster.js';
 
 export type OutreachOrigin = 'reservations' | 'analytics' | 'explorer';
 export const OUTREACH_ORIGINS: OutreachOrigin[] = ['reservations', 'analytics', 'explorer'];
@@ -38,14 +39,15 @@ export function directEnabled(): boolean {
 
 export interface PreviewRow { phone: string; local: string; name: string; text: string; playerId: number | null; reservationId: number | null; conversationId: number | null; via: 'cloud' | 'web' | null; firstContact: boolean }
 
-export async function previewOutreach(origin: OutreachOrigin, items: OutreachItem[]) {
+export async function previewOutreach(origin: OutreachOrigin, items: OutreachItem[], lineFilter?: LineFilter) {
   const db = getDB(); if (!db) throw new Error('DB unavailable');
   if (!OUTREACH_ORIGINS.includes(origin)) throw new Error('مصدرٌ غير معروف');
   if (!Array.isArray(items) || !items.length) throw new Error('لا مستلمين');
   if (items.length > MAX_ITEMS) throw new Error(`الحدّ ${MAX_ITEMS} مستلماً للدفعة الواحدة`);
   const s = transportSettings();
+  const lf: LineFilter = lineFilter || s.lineDefault;
   const lane = laneOf(origin);
-  const skipped = { invalid: [] as string[], duplicate: [] as string[], optout: [] as string[], recent: [] as string[], unreachable: [] as string[], emptyText: [] as string[], notOnWhatsapp: [] as string[] };
+  const skipped = { invalid: [] as string[], duplicate: [] as string[], optout: [] as string[], recent: [] as string[], unreachable: [] as string[], emptyText: [] as string[], notOnWhatsapp: [] as string[], noChat: [] as string[] };
   const seen = new Set<string>();
   const cand: Array<OutreachItem & { local: string }> = [];
   for (const it of items) {
@@ -103,10 +105,26 @@ export async function previewOutreach(origin: OutreachOrigin, items: OutreachIte
     const c = checks.get(e.local);
     if (c && !c.onWa) { skipped.notOnWhatsapp.push(e.local); notOnWa.push({ name: e.name, phone: e.local }); eligible.splice(i, 1); }
   }
+  // 📇 فلتر خطّ الأعمال: استبعد من ليس له محادثة (warm) أو من لم يراسلنا (two_way) — حسب الاختيار/الافتراض العامّ
+  const lineMap = await lineStatusOf(eligible.filter(e => e.via === 'web').map(e => e.local));
+  const isWarm = (st?: string) => st === 'two_way' || st === 'has_chat';
+  for (let i = eligible.length - 1; i >= 0; i--) {
+    const e = eligible[i];
+    if (e.via !== 'web') continue;
+    const st = lineMap.get(e.local);
+    (e as any).lineStatus = st || 'unknown';
+    const pass = lf === 'all' ? true : lf === 'two_way' ? st === 'two_way' : isWarm(st);
+    if (!pass) { skipped.noChat.push(e.local); eligible.splice(i, 1); }
+  }
   const unchecked = webLocals.filter(p => !checks.has(p));
   if (unchecked.length) scheduleChecks(unchecked);
   const check = { total: webLocals.length, done: webLocals.length - unchecked.length, pending: unchecked.length, inProgress: pendingOf(unchecked) };
   const webN = eligible.filter(e => e.via === 'web').length;
+  const byLine = {
+    two_way: eligible.filter(e => (e as any).lineStatus === 'two_way').length,
+    has_chat: eligible.filter(e => (e as any).lineStatus === 'has_chat').length,
+    cold: eligible.filter(e => e.via === 'web' && !isWarm((e as any).lineStatus)).length,
+  };
   // ❄️ البارد (أوّل رسالة منّا) يُنثر بسقفه الصغير على أيّام؛ فالتقدير يميّزه عن الدافئ
   const coldN = eligible.filter(e => e.via === 'web' && e.firstContact).length;
   const warmN = webN - coldN;
@@ -129,6 +147,8 @@ export async function previewOutreach(origin: OutreachOrigin, items: OutreachIte
     estimate,
     samples: eligible.slice(0, 3).map(e => ({ name: e.name, phone: e.local, text: e.text, via: e.via })),
     check,
+    lineFilter: lf,
+    byLine,
     notOnWhatsapp: notOnWa.reverse(),
     rows: eligible,
   };
@@ -143,11 +163,11 @@ export async function markReservationSent(reservationId: number, by: string): Pr
 const running = new Set<number>();
 
 export async function startOutreach(input: {
-  origin: OutreachOrigin; items: OutreachItem[]; staffId?: number; staffName: string; label?: string; excludePhones?: string[];
+  origin: OutreachOrigin; items: OutreachItem[]; staffId?: number; staffName: string; label?: string; excludePhones?: string[]; lineFilter?: LineFilter;
 }): Promise<{ ok: boolean; id?: number; queued?: number; error?: string; preview?: any }> {
   const db = getDB(); if (!db) return { ok: false, error: 'DB unavailable' };
   if (!directEnabled()) return { ok: false, error: 'الإرسال المباشر غير مفعّل — فعّل رقم الأعمال ووضعاً غير «ميتا وحدها» من القنوات' };
-  const pv = await previewOutreach(input.origin, input.items);
+  const pv = await previewOutreach(input.origin, input.items, input.lineFilter);
   const ex = new Set((input.excludePhones || []).map(p => normalizeAnyPhone(p)?.local).filter(Boolean) as string[]);
   const rows = pv.rows.filter(r => !ex.has(r.local));
   if (!rows.length) return { ok: false, error: 'لا مستلم مؤهّل بعد الاستبعاد', preview: pv };

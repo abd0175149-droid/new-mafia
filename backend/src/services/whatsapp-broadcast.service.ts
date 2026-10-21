@@ -20,7 +20,8 @@ import { waBroadcasts, waMessageTemplates } from '../schemas/admin.schema.js';
 import { sendMessage, sendingSuspendedReason, uploadWaMedia, WA_CAPTION_MAX, isUnreachable } from './whatsapp-inbox.service.js';
 import { pickChannel, reachableSql } from './wa-transport/router.js';
 import { transportSettings } from './wa-transport/settings.js';
-import type { Channel } from './wa-transport/types.js';
+import type { Channel, LineFilter } from './wa-transport/types.js';
+import { lineFilterSql } from './wa-transport/line-roster.js';
 import { isTestActivity, notTestActivitySql, notTestLocationSql } from './test-location.util.js';
 
 const rowsOf = (r: any): any[] => r?.rows ?? (Array.isArray(r) ? r : []);
@@ -34,7 +35,7 @@ const OPTOUT_FOOTER = '\n\n— لإيقاف هذه الرسائل أرسل: إي
 const RANK_AR: Record<string, string> = { INFORMANT: 'مُخبر', SOLDIER: 'جندي', CAPO: 'كابو', UNDERBOSS: 'ساعد الزعيم', GODFATHER: 'العرّاب' };
 
 export type AudienceFilter = 'all' | 'players' | 'visitors' | 'booked_upcoming' | 'activity' | 'not_booked_activity';
-export interface AudienceQuery { filter: AudienceFilter; activityId?: number | null; excludeIds?: number[]; excludeBroadcastIds?: number[]; channel?: 'all' | Channel }
+export interface AudienceQuery { filter: AudienceFilter; activityId?: number | null; excludeIds?: number[]; excludeBroadcastIds?: number[]; channel?: 'all' | Channel; lineFilter?: LineFilter }
 
 const stopFlags = new Set<number>();
 let running: number | null = null;
@@ -44,6 +45,9 @@ export async function previewAudience(q: AudienceQuery) {
   // 🧪 موقع اختبار: فعاليّةٌ هناك بلا جمهور — لا معاينة ولا بثّ
   if (q.activityId && await isTestActivity(db, q.activityId)) return { total: 0, rows: [] as any[], capped: false };
   const f = q.filter || 'all';
+  // 📇 فلتر خطّ الأعمال: على رقم الأعمال وحده (ميتا لها نافذتها). all ⟵ بلا قيد
+  const lf = (q.lineFilter || transportSettings().lineDefault) as LineFilter;
+  const lineGate = lf === 'all' ? sql`TRUE` : sql`(c.channel = 'cloud' OR ${lineFilterSql(sql`c.phone`, lf)})`;
   const extra = f === 'players' ? sql`AND c.player_id IS NOT NULL`
     : f === 'visitors' ? sql`AND c.player_id IS NULL`
     // 🧪 موقع اختبار: حجزٌ هناك لا يُدخل صاحبه في «حجز قادم»
@@ -64,6 +68,7 @@ export async function previewAudience(q: AudienceQuery) {
       FROM wa_conversations c LEFT JOIN players p ON p.id = c.player_id
      WHERE ${reachableSql('c', 'bulk', 15)}
        AND c.phone NOT LIKE 'lid:%'
+       AND ${lineGate}
        AND NOT EXISTS (SELECT 1 FROM wa_optouts o WHERE o.phone = c.phone)
        ${extra}
        ${notSentBefore}

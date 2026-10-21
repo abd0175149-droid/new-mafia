@@ -18,6 +18,7 @@ import RewardsTab from './RewardsTab';
 import BookingOffersTab from './BookingOffersTab';
 import HealthBar from './HealthBar';
 import ChannelsSection from './ChannelsSection';
+import LineContactsSection from './LineContactsSection';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || '';
 const MUTE_KEY = 'wa_inbox_muted';
@@ -244,7 +245,7 @@ export default function WhatsAppInboxPage() {
   const [mobilePane, setMobilePane] = useState<'list' | 'chat' | 'info'>('list');
   // مستويان بدل خمسة تبويباتٍ متساوية: الوارد عملٌ يوميّ، والإدارة ضبطٌ وتحليل
   const [mainTab, setMainTab] = useState<'chat' | 'admin'>('chat');
-  const [adminSec, setAdminSec] = useState<'don' | 'know' | 'perf' | 'cast' | 'offers' | 'bookoffers' | 'channels'>('don');
+  const [adminSec, setAdminSec] = useState<'don' | 'know' | 'perf' | 'cast' | 'offers' | 'bookoffers' | 'channels' | 'roster'>('don');
   const [noteDraft, setNoteDraft] = useState('');
   const [showLink, setShowLink] = useState(false);
   const [linkQ, setLinkQ] = useState('');
@@ -451,10 +452,10 @@ export default function WhatsAppInboxPage() {
         setMainTab('chat');
         openConv(id);
       } else if (tab) {
-        const SEC: Record<string, 'don' | 'know' | 'perf' | 'cast' | 'offers' | 'bookoffers' | 'channels'> = {
+        const SEC: Record<string, 'don' | 'know' | 'perf' | 'cast' | 'offers' | 'bookoffers' | 'channels' | 'roster'> = {
           rewards: 'offers', offers: 'offers', bookoffers: 'bookoffers', 'booking-offers': 'bookoffers', broadcast: 'cast', cast: 'cast',
           quality: 'perf', perf: 'perf', bot: 'don', don: 'don', know: 'know',
-          channels: 'channels', health: 'channels',
+          channels: 'channels', health: 'channels', roster: 'roster', contacts: 'roster',
         };
         if (SEC[tab]) { setMainTab('admin'); setAdminSec(SEC[tab]); }
       }
@@ -802,6 +803,7 @@ export default function WhatsAppInboxPage() {
               ['offers', '🎁 نقاط الحديث'],
               ['sep', 'الأرقام'],
               ['channels', '🔀 القنوات'],
+              ['roster', '📇 جهات الخطّ'],
             ] as const).map(([k, l], i) => k === 'sep' ? (
               <div key={'s' + i} className="hidden md:block text-[9.5px] font-bold text-gray-600 px-2.5 pt-2.5 pb-1">{l}</div>
             ) : (
@@ -829,6 +831,7 @@ export default function WhatsAppInboxPage() {
             {adminSec === 'offers' && <RewardsTab apiFetch={apiFetch} />}
             {adminSec === 'bookoffers' && <BookingOffersTab apiFetch={apiFetch} />}
             {adminSec === 'channels' && <ChannelsSection apiFetch={apiFetch} />}
+            {adminSec === 'roster' && <LineContactsSection apiFetch={apiFetch} />}
           </div>
         </div>
       )}

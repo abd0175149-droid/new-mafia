@@ -157,4 +157,24 @@ router.post('/conversations/open-by-phone', authenticate, adminOnly, async (req:
   } catch (e: any) { res.status(500).json({ error: e.message }); }
 });
 
+// ── 📇 سجلّ جهات خطّ الأعمال ──────────────────────────
+router.get('/channels/roster', authenticate, adminOnly, async (req: Request, res: Response) => {
+  try {
+    const { rosterStats, rosterList } = await import('../services/wa-transport/line-roster.js');
+    const [stats, list] = await Promise.all([
+      rosterStats(),
+      rosterList({ q: String(req.query.q || ''), status: req.query.status as any, players: req.query.players as any, limit: Number(req.query.limit) || 50, offset: Number(req.query.offset) || 0 }),
+    ]);
+    res.json({ success: true, stats, ...list });
+  } catch (e: any) { res.status(500).json({ error: e.message }); }
+});
+router.post('/channels/roster/sync', authenticate, adminOnly, async (req: Request, res: Response) => {
+  try {
+    const { syncLineContacts, syncState } = await import('../services/wa-transport/line-roster.js');
+    void syncLineContacts({ max: Number(req.body?.max) || 2000 });   // في الخلفيّة — قد يطول
+    await audit(req, 'rest:wa-roster-sync', 'واتساب: مزامنة سجلّ جهات الخطّ', {});
+    res.json({ success: true, state: syncState() });
+  } catch (e: any) { res.status(500).json({ error: e.message }); }
+});
+
 export default router;

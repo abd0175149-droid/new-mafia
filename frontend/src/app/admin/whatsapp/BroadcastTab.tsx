@@ -25,6 +25,13 @@ const FILTERS: Array<{ key: Filter; label: string }> = [
   { key: 'not_booked_activity', label: 'لم يحجزوا بعد في فعاليّة' },
 ];
 const API_URL = process.env.NEXT_PUBLIC_API_URL || '';   // `/uploads` من الخادم؛ البادئة للتطوير (النشر يتركها فارغةً ويحوّل next.config)
+// 📇 فلتر خطّ الأعمال: مَن نراسله ابتداءً — '' يتبع الافتراضيّ العامّ من «القنوات»
+const LINE_OPTS: Array<{ key: '' | 'all' | 'warm' | 'two_way'; label: string }> = [
+  { key: '', label: 'الافتراضيّ' },
+  { key: 'all', label: 'الكلّ' },
+  { key: 'warm', label: 'له محادثة معنا' },
+  { key: 'two_way', label: 'راسَلنا فقط' },
+];
 
 // ══════════════════════════════════════════════════════
 // ✂️ حدود النصّ — كلّها مرآةٌ لما يفرضه الخادم، لا اجتهادَ هنا
@@ -65,6 +72,8 @@ export default function BroadcastTab({ apiFetch }: { apiFetch: Fetcher }) {
   const [filter, setFilter] = useState<Filter>('all');
   // 🔀 القناة: الكلّ / ميتا (نافذة مفتوحة) / رقم الأعمال (بلا نافذة)
   const [channel, setChannel] = useState<'all' | 'cloud' | 'web'>('all');
+  // 📇 فلتر خطّ الأعمال ('' = الافتراضيّ العامّ) — يضيّق مستلمي رقم الأعمال وحدهم
+  const [line, setLine] = useState<'' | 'all' | 'warm' | 'two_way'>('');
   const [aud, setAud] = useState<any>(null);
   const [activityId, setActivityId] = useState<number | null>(null);
   const [rows, setRows] = useState<Target[]>([]);
@@ -174,13 +183,13 @@ export default function BroadcastTab({ apiFetch }: { apiFetch: Fetcher }) {
   const load = useCallback(async () => {
     try {
       const qs = `filter=${filter}${(filter === 'activity' || filter === 'not_booked_activity') && activityId ? `&activityId=${activityId}` : ''}`;
-      const d = await apiFetch(`/api/whatsapp/open-window-broadcast/audience?${qs}&channel=${channel}${exB.length ? `&excludeBroadcasts=${exB.join(',')}` : ''}`);
+      const d = await apiFetch(`/api/whatsapp/open-window-broadcast/audience?${qs}&channel=${channel}${line ? `&line=${line}` : ''}${exB.length ? `&excludeBroadcasts=${exB.join(',')}` : ''}`);
       setAud(d);
       setRows(d.rows || []); setStatus(d.status || null); setHistory(d.history || []); setActivities(d.activities || []);
       setErr(null); setHistoryTick(t => t + 1);
     } catch (e: any) { setErr(e.message); }
     setLoading(false);
-  }, [apiFetch, filter, activityId, exB, channel]);
+  }, [apiFetch, filter, activityId, exB, channel, line]);
 
   useEffect(() => { setLoading(true); load(); }, [load]);
   // أثناء بثٍّ جارٍ: حدّث العدّادات كلّ 5 ثوانٍ، وعند انتهائه فوراً
@@ -218,7 +227,7 @@ export default function BroadcastTab({ apiFetch }: { apiFetch: Fetcher }) {
     if (!ok) return;
     setSending(true);
     try {
-      const r = await apiFetch('/api/whatsapp/open-window-broadcast', { method: 'POST', body: JSON.stringify({ body, filter, channel, activityId, templateId: currentTpl && !tplDirty ? currentTpl.id : null, excludeBroadcastIds: exB, excludeIds: Array.from(excluded), appendOptout: footer, imageUrl: img?.url || null }) });
+      const r = await apiFetch('/api/whatsapp/open-window-broadcast', { method: 'POST', body: JSON.stringify({ body, filter, channel, lineFilter: line || undefined, activityId, templateId: currentTpl && !tplDirty ? currentTpl.id : null, excludeBroadcastIds: exB, excludeIds: Array.from(excluded), appendOptout: footer, imageUrl: img?.url || null }) });
       swalToast(`بدأ البثّ إلى ${r.total}`, 'success');
       setBody(''); setTplId(null); setExcluded(new Set()); setExB([]); setImg(null);
       await load(); loadTpls();
@@ -265,6 +274,17 @@ export default function BroadcastTab({ apiFetch }: { apiFetch: Fetcher }) {
                     className={`px-2.5 py-1 rounded-lg font-bold border ${channel === k ? 'bg-teal-500/10 text-teal-300 border-teal-500/40' : 'border-gray-800 text-gray-400 hover:text-white'}`}>{l}</button>
                 ))}
                 {aud?.byChannel && <span className="text-gray-500 mr-1">☁️ {aud.byChannel.cloud} · 📱 {aud.byChannel.web}</span>}
+              </div>
+            )}
+            {/* 📇 فلتر خطّ الأعمال — يضيّق مستلمي رقم الأعمال؛ مستلمو ميتا وارِدون أصلاً فلا يمسّهم */}
+            {(aud?.byChannel?.web > 0 || channel === 'web' || line) && (
+              <div className="flex flex-wrap items-center gap-1.5 text-xs">
+                <span className="text-gray-500">خطّ الأعمال يراسل:</span>
+                {LINE_OPTS.map(o => (
+                  <button key={o.key || 'def'} onClick={() => { setLine(o.key); setExcluded(new Set()); }}
+                    className={`px-2.5 py-1 rounded-lg font-bold border ${line === o.key ? 'bg-emerald-500/10 text-emerald-300 border-emerald-500/40' : 'border-gray-800 text-gray-400 hover:text-white'}`}>{o.label}</button>
+                ))}
+                <span className="text-gray-600 w-full sm:w-auto sm:mr-1">يحمي من بدء محادثةٍ باردة. «الافتراضيّ» = ما ضبطته في «القنوات».</span>
               </div>
             )}
             {aud?.estimate && (

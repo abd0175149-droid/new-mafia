@@ -1876,6 +1876,35 @@ async function main() {
           created_at TIMESTAMP DEFAULT NOW() NOT NULL
         )
       `);
+      // 📇 سجلّ جهات خطّ الأعمال — الركيزة: مَن يملك الخطّ محادثةً معه فعلاً (line-roster.ts)
+      await db.execute(sql`
+        CREATE TABLE IF NOT EXISTS wa_line_contacts (
+          phone VARCHAR(20) PRIMARY KEY,
+          wa_id VARCHAR(80),
+          chat_exists BOOLEAN DEFAULT FALSE NOT NULL,
+          inbound_at TIMESTAMP,
+          outbound_at TIMESTAMP,
+          last_chat_at TIMESTAMP,
+          unread INTEGER DEFAULT 0,
+          name VARCHAR(150),
+          player_id INTEGER,
+          source VARCHAR(16) DEFAULT '',
+          synced_at TIMESTAMP,
+          updated_at TIMESTAMP DEFAULT NOW() NOT NULL
+        )
+      `);
+      await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_wa_line_warm ON wa_line_contacts (phone) WHERE inbound_at IS NOT NULL OR chat_exists`);
+      await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_wa_line_player ON wa_line_contacts (player_id) WHERE player_id IS NOT NULL`);
+      // بذرٌ من المحادثات القائمة: راسلَنا (web_last_inbound_at) + خيطٌ قائم (web_chat_id/صادر)
+      await db.execute(sql`INSERT INTO wa_line_contacts (phone, wa_id, chat_exists, inbound_at, last_chat_at, name, player_id, source, synced_at, updated_at)
+        SELECT phone, web_chat_id, TRUE, web_last_inbound_at, GREATEST(web_last_inbound_at, last_message_at), NULLIF(display_name,''), player_id, 'seed', NOW(), NOW()
+          FROM wa_conversations
+         WHERE phone NOT LIKE 'lid:%' AND (web_last_inbound_at IS NOT NULL OR channel = 'web' OR web_chat_id IS NOT NULL OR web_first_contact_at IS NOT NULL)
+        ON CONFLICT (phone) DO NOTHING`).catch(() => {});
+      // ودمج wa_web_known (أرقامٌ معروفة ليست لاعبين) — يُلغى عمليّاً لصالح السجلّ
+      await db.execute(sql`INSERT INTO wa_line_contacts (phone, wa_id, chat_exists, last_chat_at, source, synced_at, updated_at)
+        SELECT phone, chat_id, TRUE, last_at, 'seed', NOW(), NOW() FROM wa_web_known
+        ON CONFLICT (phone) DO NOTHING`).catch(() => {});
       // الدفعات (البثّ + الإرسال المباشر من الصفحات) تعيد استعمال جداول البثّ
       await db.execute(sql`ALTER TABLE wa_broadcasts ADD COLUMN IF NOT EXISTS origin VARCHAR(16) DEFAULT 'inbox' NOT NULL`).catch(() => {});
       await db.execute(sql`ALTER TABLE wa_broadcasts ADD COLUMN IF NOT EXISTS lane VARCHAR(8) DEFAULT 'bulk' NOT NULL`).catch(() => {});
@@ -2507,6 +2536,8 @@ async function main() {
     const { startWebHealth } = await import('./services/wa-transport/web.health.js');
     const { startWebOutbox } = await import('./services/wa-transport/web.transport.js');
     startWebOutbox();
+    const { startLineRosterSync } = await import('./services/wa-transport/line-roster.js');
+    startLineRosterSync();
     void startWebHealth().then(async () => {
       const { catchUpWeb } = await import('./services/wa-transport/web.history.js');
       await catchUpWeb().catch((e: any) => console.warn('⚠️ WA web catch-up:', e?.message));
