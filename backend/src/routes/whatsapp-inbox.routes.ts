@@ -41,7 +41,8 @@ function routeInfo(c: any): { windowOpen: boolean; sendVia: 'cloud' | 'web' | nu
 // ⏱️ «آخر رسالة» تُحسب من الرسائل نفسها في العروض الثلاثة — لا من عمود last_message_at: العمود انحرف
 //    (استيرادٌ قديم أخذ وقت نشاط المحادثة على الهاتف — مكالمة أو إشعار نظام — ورسائل لم تعد في سجلّنا)
 //    فكانت ١٣٤ محادثة تتقدّم بوقتٍ أحدث من آخر رسائلها بما يصل ١٥٥ يوماً. التفاعل (رياكشن) ليس رسالة.
-const lastMsgFilter = sql`m.deleted_at IS NULL AND m.msg_type <> 'reaction'`;
+// ⏳ وما لم يخرج بعد (في طابور رقم الأعمال) أو فشل ليس «آخر رسالة» — وإلّا قفز البثّ بكلّ مستلميه إلى الأعلى
+const lastMsgFilter = sql`m.deleted_at IS NULL AND m.msg_type <> 'reaction' AND m.status NOT IN ('queued', 'sending', 'failed')`;
 /** وقتٌ من استعلامٍ خام (نصّ بلا منطقة: «2026-10-24 05:03:02») ⟵ ISO بتوقيت UTC — وإلّا قرأه المتصفّح محلّيّاً فتأخّر ٣ ساعات */
 const isoUtc = (v: any): string | null => v instanceof Date ? v.toISOString()
   : v ? new Date(/[zZ]$|[+-]\d\d:?\d\d$/.test(String(v)) ? String(v) : String(v).replace(' ', 'T') + 'Z').toISOString() : null;
@@ -332,6 +333,7 @@ router.get('/conversations', authenticate, adminOnly, async (req: Request, res: 
       const ids = sql.join(rows.map((c: any) => sql`${c.id}`), sql`, `);
       const lr: any = await db.execute(sql`SELECT DISTINCT ON (conversation_id) conversation_id, created_at, body
         FROM wa_messages WHERE conversation_id IN (${ids}) ${ch ? sql`AND channel = ${ch}` : sql``} AND deleted_at IS NULL AND msg_type <> 'reaction'
+          AND status NOT IN ('queued', 'sending', 'failed')
         ORDER BY conversation_id, created_at DESC, id DESC`);
       for (const r of (lr.rows || lr)) lastOnCh.set(Number(r.conversation_id), { at: r.created_at, preview: String(r.body || '').slice(0, 120) });
     }
@@ -410,7 +412,13 @@ router.get('/conversations/:id/messages', authenticate, adminOnly, async (req: R
     const conds: any[] = [eq(waMessages.conversationId, convId)];
     if (before > 0) conds.push(sql`(${waMessages.createdAt}, ${waMessages.id}) < (SELECT b.created_at, b.id FROM wa_messages b WHERE b.id = ${before})`);
     // 🔀 رسائل رقمٍ واحد فقط (ميتا أو رقم الأعمال) — الكلّ بلا شرط
-    if (['cloud', 'web'].includes(String(req.query.channel))) conds.push(eq(waMessages.channel, String(req.query.channel)));
+    const chF = ['cloud', 'web'].includes(String(req.query.channel)) ? String(req.query.channel) : '';
+    if (chF) conds.push(eq(waMessages.channel, chF));
+    // ⏳ ما في الطابور لم يخرج بعد: لا يدخل الخيط (يضع نفسه قبل ردودٍ تصل بعده) — يُعاد وحده شريطاً تحت الخيط
+    conds.push(sql`${waMessages.status} NOT IN ('queued', 'sending')`);
+    const pending = before > 0 ? [] : await db.select().from(waMessages)
+      .where(and(eq(waMessages.conversationId, convId), sql`${waMessages.status} IN ('queued', 'sending')`, ...(chF ? [eq(waMessages.channel, chF)] : [])))
+      .orderBy(waMessages.id).limit(50);
 
     const messages = await db
       .select()
@@ -430,6 +438,7 @@ router.get('/conversations/:id/messages', authenticate, adminOnly, async (req: R
       success: true,
       conversation: { ...conv, avatarUrl, botActive: isBotActive(conv), ...routeInfo(conv) },
       messages, // الأحدث أولاً
+      pending,  // في الطابور — الأقدم أولاً
       hasMore: messages.length === limit,
     });
   } catch (err: any) {

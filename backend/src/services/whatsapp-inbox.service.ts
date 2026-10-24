@@ -870,11 +870,11 @@ export async function sendMessage(input: SendMessageInput) {
 
   // ── تحديث المحادثة (+ إيقاف البوت 30 دقيقة عند رد بشري) ──
   const now = new Date();
-  const patch: any = {
-    lastMessageAt: now,
-    lastMessagePreview: preview.slice(0, 120),
-    updatedAt: now,
-  };
+  // ⏳ رقم الأعمال: الرسالة الآن في الطابور لا عند العميل — «آخر رسالة» تُضبط حين تخرج فعلاً (web.transport)،
+  //    وإلّا قفزت كلّ محادثات البثّ إلى أعلى الوارد ساعاتٍ قبل أن يصلهم شيء
+  const patch: any = channel === 'cloud'
+    ? { lastMessageAt: now, lastMessagePreview: preview.slice(0, 120), updatedAt: now }
+    : { updatedAt: now };
   if (input.source === 'staff') {
     // مدة الإيقاف من إعدادات البوت (قابلة للتعديل من الداشبورد) — الافتراضي 30 دقيقة
     let pauseMs = BOT_PAUSE_AFTER_HUMAN_MS;

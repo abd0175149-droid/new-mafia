@@ -121,6 +121,11 @@ function intlPhone(local: string) { return local ? '+962 ' + local.slice(1) : ''
 // الخيط: رسائل الرقم المعروض وحده، مرتّبةً بالزمن. القائمة: معاينةُ ووقتُ آخر رسالةٍ على ذلك الرقم.
 // غير المقروء: unread_web جزءٌ من unreadCount (ميتا = الفرق) — فعرضُ رقمٍ لا يقرأ رسائل الآخر.
 type InboxCh = 'all' | 'cloud' | 'web';
+// 📄 الصفحات: القائمة ٢٠ محادثة والخيط ٣٠ رسالة — والأقدم يُحمَّل بالتمرير (بترتيب العرض المختار)
+const CONV_PAGE = 20;
+const MSG_PAGE = 30;
+/** ⏳ في طابور رقم الأعمال ولم يخرج بعد — لا يدخل الخيط ولا يغيّر ترتيب القائمة */
+const isPendingMsg = (m: any) => ['queued', 'sending'].includes(String(m?.status || ''));
 const chOf = (m: any): 'cloud' | 'web' => (m?.channel === 'web' ? 'web' : 'cloud');
 const CH_AR: Record<'cloud' | 'web', string> = { cloud: '☁️ رقم ميتا', web: '📱 رقم الأعمال' };
 const inView = (m: any, ch: InboxCh) => ch === 'all' || chOf(m) === ch;
@@ -257,6 +262,14 @@ export default function WhatsAppInboxPage() {
   const [conv, setConv] = useState<any | null>(null);
   const [loadingMsgs, setLoadingMsgs] = useState(false);
   const [hasMore, setHasMore] = useState(false);
+  const [loadingOlder, setLoadingOlder] = useState(false);
+  const [pending, setPending] = useState<any[]>([]);          // ⏳ شريط الطابور تحت الخيط
+  const pendingRef = useRef<any[]>([]);
+  pendingRef.current = pending;
+  const [convHasMore, setConvHasMore] = useState(false);
+  const [loadingMoreConvs, setLoadingMoreConvs] = useState(false);
+  const convsRef = useRef<any[]>([]);
+  convsRef.current = convs;
   const [ctx, setCtx] = useState<any | null>(null);
   const [draft, setDraft] = useState('');
   const [sending, setSending] = useState(false);
@@ -293,8 +306,15 @@ export default function WhatsAppInboxPage() {
   const loadConvs = useCallback(async (opts?: { silent?: boolean }) => {
     try {
       if (!opts?.silent) setLoadingConvs(true);
-      const data = await apiFetch(`/api/whatsapp/conversations?filter=${filter}&sort=${sort}&q=${encodeURIComponent(q)}&limit=100${chQs(inboxCh)}`);
-      setConvs(data.conversations || []);
+      // الصامت (كلّ دقيقة) يحدّث ما حُمِّل كلّه لا الصفحة الأولى وحدها — وإلّا انكمشت القائمة تحت يد المستخدم
+      const loaded = convsRef.current.length;
+      const n = opts?.silent ? Math.min(200, Math.max(CONV_PAGE, loaded)) : CONV_PAGE;
+      const data = await apiFetch(`/api/whatsapp/conversations?filter=${filter}&sort=${sort}&q=${encodeURIComponent(q)}&limit=${n}&offset=0${chQs(inboxCh)}`);
+      const fresh: any[] = data.conversations || [];
+      setConvs(prev => (opts?.silent && prev.length > n
+        ? [...fresh, ...prev.slice(n).filter(c => !fresh.some(f => f.id === c.id))]
+        : fresh));
+      if (!opts?.silent || loaded <= n) setConvHasMore(fresh.length === n);
       apiFetch(`/api/whatsapp/conversations/counts?x=1${chQs(inboxCh)}`).then(r => setCounts(r.counts)).catch(() => {});
     } catch (e: any) {
       if (!opts?.silent) swalAlert('تعذر جلب المحادثات: ' + e.message, 'error');
@@ -304,6 +324,20 @@ export default function WhatsAppInboxPage() {
   }, [filter, sort, q, inboxCh]);
 
   useEffect(() => { loadConvs(); }, [loadConvs]);
+
+  // ── المحادثات الأقدم بالتمرير: ٢٠ كلّ مرّة بنفس الفلتر والترتيب والرقم المعروض ──
+  const loadMoreConvs = useCallback(async () => {
+    if (loadingMoreConvs || !convHasMore) return;
+    setLoadingMoreConvs(true);
+    try {
+      const off = convsRef.current.length;
+      const data = await apiFetch(`/api/whatsapp/conversations?filter=${filter}&sort=${sort}&q=${encodeURIComponent(q)}&limit=${CONV_PAGE}&offset=${off}${chQs(inboxCh)}`);
+      const page: any[] = data.conversations || [];
+      setConvs(prev => [...prev, ...page.filter(c => !prev.some(p => p.id === c.id))]);
+      setConvHasMore(page.length === CONV_PAGE);
+    } catch { /* المحاولة التالية بالتمرير */ }
+    finally { setLoadingMoreConvs(false); }
+  }, [filter, sort, q, inboxCh, loadingMoreConvs, convHasMore]);
   useEffect(() => { if (selIdRef.current) openConv(selIdRef.current); // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [inboxCh]);
 
@@ -316,9 +350,10 @@ export default function WhatsAppInboxPage() {
     setImg(null); setImgErr(null);   // صورةُ محادثةٍ لا تُهاجر لغيرها
     setShowLink(false);
     try {
-      const data = await apiFetch(`/api/whatsapp/conversations/${id}/messages?limit=50${chQs(inboxChRef.current)}`);
+      const data = await apiFetch(`/api/whatsapp/conversations/${id}/messages?limit=${MSG_PAGE}${chQs(inboxChRef.current)}`);
       setConv(data.conversation);
       setMessages((data.messages || []).slice().reverse()); // الأقدم أولاً للعرض
+      setPending(data.pending || []);
       setHasMore(!!data.hasMore);
       // فتح المحادثة يعلّمها مقروءة (بند معتمد) — في عرض رقمٍ واحد: رسائل ذلك الرقم وحده
       const chF = inboxChRef.current;
@@ -339,14 +374,21 @@ export default function WhatsAppInboxPage() {
 
   // ── تحميل رسائل أقدم ──
   const loadOlder = useCallback(async () => {
-    if (!selId || messages.length === 0) return;
+    if (!selId || messages.length === 0 || loadingOlder) return;
     const oldest = messages[0]?.id;
+    setLoadingOlder(true);
+    const el = threadRef.current;
+    const prevH = el?.scrollHeight || 0, prevTop = el?.scrollTop || 0;
     try {
-      const data = await apiFetch(`/api/whatsapp/conversations/${selId}/messages?limit=50&before=${oldest}${chQs(inboxChRef.current)}`);
-      setMessages(prev => [...(data.messages || []).slice().reverse(), ...prev]);
+      const data = await apiFetch(`/api/whatsapp/conversations/${selId}/messages?limit=${MSG_PAGE}&before=${oldest}${chQs(inboxChRef.current)}`);
+      const older: any[] = (data.messages || []).slice().reverse();
+      setMessages(prev => [...older.filter(o => !prev.some(p => p.id === o.id)), ...prev]);
       setHasMore(!!data.hasMore);
+      // الموضع يبقى على ما كان يقرؤه — لا قفزٌ إلى أعلى الأقدم
+      requestAnimationFrame(() => { const e2 = threadRef.current; if (e2) e2.scrollTop = e2.scrollHeight - prevH + prevTop; });
     } catch { /* تجاهل */ }
-  }, [selId, messages]);
+    finally { setLoadingOlder(false); }
+  }, [selId, messages, loadingOlder]);
 
   // ── التمرير لأسفل عند الرسائل الجديدة ──
   const scrollBottom = useCallback(() => {
@@ -367,6 +409,12 @@ export default function WhatsAppInboxPage() {
       const chF = inboxChRef.current;
       const visible = inView(message, chF);
       const isOpen = selIdRef.current === conversation.id;
+      if (isPendingMsg(message)) {
+        // ⏳ دخل طابور رقم الأعمال ولم يخرج: لا ترتيب ولا معاينة في القائمة، ولا خيط — شريط الطابور فقط
+        setConvs(prev => prev.map(c => (c.id === conversation.id ? { ...c, ...withoutPreview(conversation) } : c)));
+        if (isOpen && visible) setPending(prev => (prev.some(m => m.id === message.id) ? prev : [...prev, message]));
+        return;
+      }
       const readNow = isOpen && visible && message.direction === 'in';
       // تحديث القائمة: رسالةٌ على الرقم المعروض ⟵ للمقدّمة بمعاينتها (أو إدراجٌ إن لم تكن فيها).
       // رسالةٌ على الرقم الآخر ⟵ لا تُدرج محادثةً ليست في هذا العرض، ولا تغيّر معاينته ولا ترتيبه
@@ -383,7 +431,9 @@ export default function WhatsAppInboxPage() {
       if (isOpen) {
         setConv((prev: any) => ({ ...prev, ...(visible ? conversation : withoutPreview(conversation)), ...(readNow ? readInView(conversation, chF) : {}) }));
         if (visible) {
-          setMessages(prev => insertByTime(prev, message));
+          // خرجت من الطابور ⟵ تغادر شريطه وتدخل الخيط بوقت خروجها الفعليّ
+          setPending(prev => prev.filter(m => m.id !== message.id));
+          setMessages(prev => insertByTime(prev.filter(m => m.id !== message.id), message));
           scrollBottom();
         }
         if (readNow) {
@@ -395,6 +445,14 @@ export default function WhatsAppInboxPage() {
 
     const onStatus = (upd: any) => {
       if (!upd?.id) return;
+      const pm = pendingRef.current.find(m => m.id === upd.id);
+      if (pm && !isPendingMsg(upd)) {
+        // خرجت (أو فشلت) ⟵ من شريط الطابور إلى الخيط، بوقت خروجها إن وصل
+        setPending(prev => prev.filter(m => m.id !== upd.id));
+        setMessages(prev => insertByTime(prev.filter(m => m.id !== upd.id), { ...pm, status: upd.status, errorMessage: upd.errorMessage, ...(upd.createdAt ? { createdAt: upd.createdAt } : {}) }));
+        return;
+      }
+      if (pm) { setPending(prev => prev.map(m => (m.id === upd.id ? { ...m, status: upd.status } : m))); return; }
       setMessages(prev => prev.map(m => (m.id === upd.id ? { ...m, status: upd.status, errorMessage: upd.errorMessage } : m)));
     };
 
@@ -578,7 +636,8 @@ export default function WhatsAppInboxPage() {
       const chF = inboxChRef.current;
       const shown = !res.message || inView(res.message, chF);
       if (res.message) {
-        if (shown) setMessages(prev => insertByTime(prev, res.message));
+        if (shown && isPendingMsg(res.message)) setPending(prev => (prev.some(m => m.id === res.message.id) ? prev : [...prev, res.message]));
+        else if (shown) setMessages(prev => insertByTime(prev, res.message));
         else swalToast(`أُرسلت عبر ${CH_AR[chOf(res.message)]} — تظهر في عرضه أو في «كلا الرقمين»`, 'info');
       }
       if (res.conversation) {
@@ -934,7 +993,7 @@ export default function WhatsAppInboxPage() {
             </select>
           </div>
 
-          <div className="flex-1 overflow-y-auto">
+          <div className="flex-1 overflow-y-auto" onScroll={e => { const el = e.currentTarget; if (el.scrollHeight - el.scrollTop - el.clientHeight < 160) loadMoreConvs(); }}>
             {loadingConvs ? (
               <div className="p-6 text-center text-gray-500 text-sm">جارٍ التحميل…</div>
             ) : convs.length === 0 ? (
@@ -1014,6 +1073,13 @@ export default function WhatsAppInboxPage() {
                 );
               });
             })()}
+            {!loadingConvs && convs.length > 0 && (
+              <div className="py-3 text-center text-[11px] text-gray-600">
+                {loadingMoreConvs ? '⏳ جارٍ تحميل الأقدم…'
+                  : convHasMore ? <button onClick={loadMoreConvs} className="hover:text-amber-400">⬇ محادثات أقدم</button>
+                    : `— ${convs.length} محادثة —`}
+              </div>
+            )}
           </div>
         </div>
 
@@ -1145,11 +1211,14 @@ export default function WhatsAppInboxPage() {
               )}
 
               {/* الرسائل */}
-              <div ref={threadRef} className="flex-1 overflow-y-auto px-4 py-3 flex flex-col gap-1.5 bg-gray-950/40">
+              <div ref={threadRef} onScroll={e => { if (e.currentTarget.scrollTop < 80 && hasMore && !loadingOlder && !loadingMsgs) loadOlder(); }}
+                className="flex-1 overflow-y-auto px-4 py-3 flex flex-col gap-1.5 bg-gray-950/40">
                 {hasMore && (
-                  <button onClick={loadOlder} className="self-center text-[11px] text-gray-500 hover:text-amber-400 border border-gray-800 rounded-full px-4 py-1 mb-1">
-                    ⬆ تحميل رسائل أقدم
-                  </button>
+                  <div className="self-center text-[11px] text-gray-500 mb-1">
+                    {loadingOlder ? '⏳ جارٍ تحميل الأقدم…' : (
+                      <button onClick={loadOlder} className="hover:text-amber-400 border border-gray-800 rounded-full px-4 py-1">⬆ رسائل أقدم</button>
+                    )}
+                  </div>
                 )}
                 {loadingMsgs ? (
                   <div className="flex-1 flex items-center justify-center text-gray-600 text-sm">جارٍ التحميل…</div>
@@ -1231,6 +1300,21 @@ export default function WhatsAppInboxPage() {
                       )}
                     </div>
                   )
+                )}
+                {!loadingMsgs && pending.length > 0 && (
+                  <div className="mt-2 pt-2 border-t border-dashed border-gray-800 flex flex-col gap-1.5">
+                    <div className="self-center text-[10.5px] font-bold text-amber-300/80 bg-amber-500/5 border border-amber-500/20 rounded-full px-3 py-0.5">
+                      ⏳ في الطابور — لم تُرسل بعد ({pending.length})
+                    </div>
+                    {pending.map(m => (
+                      <div key={m.id} className="self-end max-w-[78%] rounded-2xl rounded-tl-md px-3 py-1.5 text-[12.5px] bg-gray-800/40 border border-dashed border-gray-700 text-gray-400 whitespace-pre-wrap break-words">
+                        {m.msgType === 'video' ? '🎬 ' : m.msgType === 'image' ? '🖼️ ' : ''}{m.body || `[${m.msgType}]`}
+                        <div className="text-[10px] text-gray-600 mt-0.5 text-left">
+                          {m.source === 'broadcast' ? '📢 بثّ' : m.source === 'staff' ? '👤 موظّف' : m.source === 'bot' ? '🤖 الدون' : m.source} · {m.status === 'sending' ? 'يُرسل الآن…' : 'ينتظر دوره'}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
                 )}
               </div>
 

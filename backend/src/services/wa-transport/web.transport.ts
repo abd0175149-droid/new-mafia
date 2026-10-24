@@ -15,7 +15,7 @@ import fs from 'fs';
 import path from 'path';
 import { and, eq, sql } from 'drizzle-orm';
 import { getDB } from '../../config/db.js';
-import { waMessages } from '../../schemas/admin.schema.js';
+import { waMessages, waConversations } from '../../schemas/admin.schema.js';
 import { buildCloudBody, WA_CAPTION_MAX } from './cloud.transport.js';
 import { transportSettings } from './settings.js';
 import { channelSuspendedReason } from './locks.js';
@@ -220,8 +220,17 @@ async function sendOne(job: any): Promise<void> {
   const status = row && ['delivered', 'read'].includes(String(row.status)) ? row.status : 'sent';
   const [u] = await db.update(waMessages).set({ wamid: wamid || null, status, payload } as any)
     .where(eq(waMessages.id, job.message_id))
-    .returning({ id: waMessages.id, conversationId: waMessages.conversationId, status: waMessages.status, errorMessage: waMessages.errorMessage });
-  if (u) { const { emitInbox } = await import('../whatsapp-inbox.service.js'); emitInbox('wa:status:update', u); }
+    .returning();
+  if (u) {
+    const { emitInbox } = await import('../whatsapp-inbox.service.js');
+    emitInbox('wa:status:update', { id: u.id, conversationId: u.conversationId, status: u.status, errorMessage: u.errorMessage, createdAt: u.createdAt });
+    // خرجت فعلاً ⟵ الآن صارت «آخر رسالة» في المحادثة، والوارد يقدّمها ويخرجها من شريط الطابور
+    const [cv] = await db.update(waConversations).set({
+      lastMessageAt: sql`GREATEST(${waConversations.lastMessageAt}, ${u.createdAt})`,
+      lastMessagePreview: String(u.body || '').slice(0, 120), updatedAt: new Date(),
+    } as any).where(eq(waConversations.id, u.conversationId)).returning();
+    if (cv) emitInbox('wa:message:new', { conversation: cv, message: u });
+  }
   if (wamid) { const { flushPendingAcks } = await import('./web.inbound.js'); await flushPendingAcks(wamid); }
   // 📇 أوّل صادرٍ نجح ⟵ خيطٌ قائم (لم يعُد بارداً) — بالرقم المحلّيّ من معرّف المحادثة،
   //    ولمعرّف ‏@lid من رقم المحادثة نفسها (لا من أرقام المعرّف المستعار)
@@ -290,7 +299,9 @@ async function step(): Promise<void> {
       }
       coldJob = !!job.cold;
       await db.execute(sql`UPDATE wa_outbox SET lease_until = NOW() + INTERVAL '2 minutes', attempts = attempts + 1 WHERE message_id = ${job.message_id}`);
-      await db.update(waMessages).set({ status: 'sending' } as any).where(and(eq(waMessages.id, job.message_id), eq(waMessages.status, 'queued')));
+      // ⏱️ وقت الرسالة = لحظة خروجها لا لحظة دخولها الطابور: الجماعيّ ينتظر ساعاتٍ وأيّاماً (التسخين)، ووقتُ
+      //    الدخول كان يضعها في الخيط قبل ردودٍ وصلت بعدها، ويخرجها من نافذة مطابقة الصدى (٣ دقائق)
+      await db.update(waMessages).set({ status: 'sending', createdAt: sql`NOW()` } as any).where(and(eq(waMessages.id, job.message_id), eq(waMessages.status, 'queued')));
       try {
         await sendOne(job);
         if (lane === 'timely') nextAllowed.timely = Date.now() + rand(s.timely.gapMinSec, s.timely.gapMaxSec) * 1000;
