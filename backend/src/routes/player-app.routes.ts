@@ -164,19 +164,19 @@ router.get('/whatsapp-group', authenticatePlayer, async (req: Request, res: Resp
 // ══════════════════════════════════════════════════════
 // 💬 رابط بوت «الدون» — من الخادم لا من العميلين
 // ══════════════════════════════════════════════════════
-// كان رقم ميتا مكتوباً في الويب وفلاتر، فتغييره يحتاج إصدار APK. صار الخادم يقرّر: في «الجلسة أوّلاً»
-// و«الجلسة + ميتا للتحويل» يشير إلى رقم الأعمال (من «القنوات»)، وإلّا إلى رقم ميتا. wa.me بلا نصّ ⟵ آمن.
-const META_BOT_URL = 'https://wa.me/962781495972';
+// كان رقم ميتا مكتوباً في الويب وفلاتر، فتغييره يحتاج إصدار APK. صار الخادم يقرّر.
+// 🔒 قرار المالك (2026-10-24): زرّ واتساب في واجهة اللاعب يفتح محادثة **رقم الأعمال** دائماً، أيّاً كان
+//    وضع القنوات — الرقم من «القنوات» (cloudRedirect.businessNumber)، واحتياطه الثابت رقم الأعمال نفسه لا رقم ميتا.
+//    (الرقم هاتفٌ حقيقيّ: تصله الرسالة حتّى لو تعطّلت البوّابة.) wa.me بلا نصّ ⟵ آمن.
+const BUSINESS_BOT_URL = 'https://wa.me/962793390966';
 router.get('/whatsapp-bot', authenticatePlayer, async (_req: Request, res: Response) => {
   try {
     const { transportSettings } = await import('../services/wa-transport/settings.js');
-    const s = transportSettings();
-    const num = String(s.cloudRedirect.businessNumber || '').replace(/\D/g, '');
+    const num = String(transportSettings().cloudRedirect.businessNumber || '').replace(/\D/g, '');
     const intl = num.startsWith('0') ? '962' + num.slice(1) : num;
-    const useBusiness = (s.mode === 'web_primary' || s.mode === 'web_final') && intl.length >= 11;
-    res.json({ success: true, url: useBusiness ? `https://wa.me/${intl}` : META_BOT_URL, channel: useBusiness ? 'web' : 'cloud' });
+    res.json({ success: true, url: intl.length >= 11 ? `https://wa.me/${intl}` : BUSINESS_BOT_URL, channel: 'web' });
   } catch {
-    res.json({ success: true, url: META_BOT_URL, channel: 'cloud' });
+    res.json({ success: true, url: BUSINESS_BOT_URL, channel: 'web' });
   }
 });
 

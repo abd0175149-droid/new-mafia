@@ -1036,8 +1036,9 @@ class _StaffLink extends StatelessWidget {
 //    ويفتحها في المتصفّح — لا `launchUrl` مباشرةً، كي يبقى تصنيف الوجهات
 //    في مكانٍ واحد.
 const _kInstagram = 'https://www.instagram.com/mafia_club_jo/';
-// 💬 بوت واتساب «الدون» — الرقم الجديد منذ 2026-09-19 (الحساب القديم عطّلته ميتا فحُوِّل التواصل مؤقّتاً لإنستغرام)
-const _kWhatsappBot = 'https://wa.me/962781495972';
+// 💬 زرّ واتساب «الدون» — يفتح محادثة رقم الأعمال (قرار المالك 2026-10-24). الخادم يعيد الرابط
+//    (/api/player-app/whatsapp-bot)، وهذا احتياطه قبل الردّ أو عند تعذّره — لا رقم ميتا
+const _kWhatsappBot = 'https://wa.me/962793390966';
 const _kSnapchat = 'https://www.snapchat.com/add/mafia_club26';
 // 🔴 المجموعةُ العامّة احتياطاً فقط: الخادمُ يقرّر أيَّ مجموعةٍ حسب مدينة
 //    اللاعب وجنسه، وهذه قيمةُ ما قبل وصول الردّ أو عند تعذّره.
@@ -1056,7 +1057,7 @@ class _SocialSection extends StatefulWidget {
 
 class _SocialSectionState extends State<_SocialSection> {
   String _waGroup = _kWhatsappGroupFallback;
-  // 💬 رابط الدون من الخادم (رقم ميتا أو رقم الأعمال بحسب وضع القنوات) — الثابت احتياطٌ
+  // 💬 رابط الدون من الخادم (رقم الأعمال من «القنوات») — الثابت احتياطٌ بنفس الرقم
   String _waBot = _kWhatsappBot;
 
   @override
@@ -1073,7 +1074,7 @@ class _SocialSectionState extends State<_SocialSection> {
       final url = r['url'];
       if (url is String && RegExp(r'^https://wa\.me/\d+$').hasMatch(url)) setState(() => _waBot = url);
     } catch (_) {
-      // يبقى رقم ميتا — يردّ عليه البوت ويوجّه
+      // يبقى الاحتياطيّ: رقم الأعمال
     }
   }
 
