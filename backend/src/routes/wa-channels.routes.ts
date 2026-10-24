@@ -115,10 +115,12 @@ router.post('/channels/web/pair', authenticate, adminOnly, async (req: Request, 
 // ── استيراد تاريخ رقم الأعمال (مرّة، أو force) ──────────
 router.post('/channels/web/import', authenticate, adminOnly, async (req: Request, res: Response) => {
   try {
-    const { importWebHistory } = await import('../services/wa-transport/web.history.js');
-    const rep = await importWebHistory({ force: !!req.body?.force });
-    await audit(req, 'rest:wa-web-import', 'واتساب: استيراد تاريخ رقم الأعمال', rep);
-    res.json({ success: true, report: rep });
+    const { importWebHistory, importRunning } = await import('../services/wa-transport/web.history.js');
+    if (importRunning()) return res.status(409).json({ error: 'الاستيراد جارٍ الآن — تُحدَّث حالته في الصفحة' });
+    await audit(req, 'rest:wa-web-import', 'واتساب: مرآة محادثات رقم الأعمال في الوارد', { force: !!req.body?.force });
+    // مرآةٌ كاملة (كلّ المحادثات بتاريخها) تأخذ دقائق — تعمل في الخلفيّة، وحالتها في web_history_import
+    void importWebHistory({ force: !!req.body?.force }).catch(e => console.warn('⚠️ WA web mirror:', e?.message));
+    res.json({ success: true, started: true });
   } catch (e: any) { res.status(500).json({ error: e.message }); }
 });
 

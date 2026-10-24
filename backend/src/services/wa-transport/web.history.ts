@@ -4,9 +4,10 @@
 // ١) catchUpWeb: بعد انقطاعٍ أطول من محاولات البوّابة (نشرٌ طويل، سقوط الخادم) نقرأ المحادثات
 //    التي تحرّكت منذ آخر حدثٍ عالجناه ونُدخل ما لم يصلنا — بمنع التكرار بـwamid. في ٢٠ أيلول
 //    ضاعت رسائل الحظر عند ميتا بلا رجعة؛ على الجلسة السجلّ عند الهاتف فيُسترجع.
-// ٢) importWebHistory: مرّة واحدة عند الربط — محادثات اللاعبين المسجّلين تُستورد (آخر ٣٠ رسالة)
-//    سياقاً للبوت والموظّف بلا إشعار ولا بوت. غير اللاعبين: يُعلَّم «معروف» فقط، والبوت عليهم
-//    مطفأ (رقم الأعمال فيه محادثات موردين ومعارف — ردٌّ آليّ عليها يضرّ).
+// ٢) importWebHistory: مرآةٌ كاملة لمحادثات رقم الأعمال (قرار المالك 2026-10-24: «ما دام في محادثة
+//    معه لازم تكون له محادثة بالوارد»). كلّ محادثة فرديّة ⟵ محادثةٌ في الوارد بتاريخها كاملاً (حتّى 2000)،
+//    لاعباً كان أو لا — سياقاً بلا إشعار ولا بوت ولا غير مقروء. غير اللاعبين يُعلَّمون «معروفين» قبل فتح
+//    محادثاتهم فتُفتح والبوت مطفأ (رقم الأعمال فيه محادثات موردين ومعارف — ردٌّ آليّ عليها يضرّ).
 
 import { eq, sql } from 'drizzle-orm';
 import { getDB } from '../../config/db.js';
@@ -99,9 +100,15 @@ export async function catchUpWeb(): Promise<{ chats: number; added: number }> {
   return { chats: list.length, added };
 }
 
-export interface ImportReport { chats: number; players: number; others: number; messages: number; skipped: number; at: string }
+export interface ImportReport { chats: number; players: number; others: number; messages: number; skipped: number; created: number; at: string; running?: boolean; done?: number }
 
-/** استيراد تاريخ رقم الأعمال — مرّة واحدة (أو بطلبٍ صريح من «القنوات») */
+/** معرّف الرسالة القصير (آخر مقطع) — نفس الرسالة قد تُخزَّن بمحادثة @c.us ثمّ تعود بمحادثة @lid */
+const shortId = (id: string): string => String(id || '').split('_').pop() || '';
+
+let importing = false;
+export function importRunning(): boolean { return importing; }
+
+/** مرآة رقم الأعمال في الوارد — كلّ المحادثات بتاريخها (مرّة، أو بطلبٍ صريح من «القنوات») */
 export async function importWebHistory(opts: { perChat?: number; maxChats?: number; force?: boolean } = {}): Promise<ImportReport> {
   const db = getDB();
   if (!db || !webConfigured()) throw new Error('رقم الأعمال غير مهيّأ');
@@ -109,56 +116,75 @@ export async function importWebHistory(opts: { perChat?: number; maxChats?: numb
   if (!gw.isLinked(s)) throw new Error('رقم الأعمال غير مربوط بعد');
   const prev = await getFlag('web_history_import');
   if (prev?.at && !opts.force) return prev as ImportReport;
+  if (importing) throw new Error('الاستيراد جارٍ الآن');
+  importing = true;
+  try {
+    const perChat = Math.min(2000, Math.max(5, opts.perChat ?? 2000));
+    const chats = (await gw.chats(opts.maxChats ?? 2000)).filter((c: any) => ['user', 'lid'].includes(jidKind(chatIdOf(c))) && !c.isGroup);
+    const rep: ImportReport = { chats: chats.length, players: 0, others: 0, messages: 0, skipped: 0, created: 0, at: '', running: true, done: 0 };
+    const { getOrCreateConversation, ingestInbound } = await import('../whatsapp-inbox.service.js');
+    // منع التكرار بالمعرّف القصير: مجموعةٌ واحدة في الذاكرة بدل استعلامٍ لكلّ رسالة
+    const seenR: any = await db.execute(sql`SELECT wamid FROM wa_messages WHERE wamid IS NOT NULL AND channel = 'web'`);
+    const seen = new Set<string>((seenR?.rows ?? seenR ?? []).map((r: any) => shortId(r.wamid)));
 
-  const perChat = Math.min(50, Math.max(5, opts.perChat ?? 30));
-  const chats = (await gw.chats(opts.maxChats ?? 500)).filter((c: any) => ['user', 'lid'].includes(jidKind(chatIdOf(c))));
-  const rep: ImportReport = { chats: chats.length, players: 0, others: 0, messages: 0, skipped: 0, at: '' };
-  const { getOrCreateConversation, ingestInbound } = await import('../whatsapp-inbox.service.js');
-
-  for (const c of chats) {
-    const chatId = chatIdOf(c);
-    const who = await resolveIdentity(chatId, null);
-    if (!who) { rep.skipped++; continue; }
-    const norm = who.verified ? normalizeAnyPhone(who.key) : null;
-    const [pl] = norm?.isJordanian
-      ? await db.select({ id: players.id }).from(players).where(eq(players.phone, norm.local)).limit(1)
-      : [];
-    const firstAt = new Date(chatTs(c) || Date.now());
-
-    if (!pl) {
-      // معروفٌ لرقم الأعمال وليس لاعباً: لا استيراد، والبوت عليه مطفأ إن فُتحت محادثته
-      rep.others++;
-      if (!norm) continue;
+    for (const c of chats) {
+      rep.done = (rep.done || 0) + 1;
+      if (rep.done % 25 === 0) await setFlag('web_history_import', rep).catch(() => {});
+      const chatId = chatIdOf(c);
+      const who = await resolveIdentity(chatId, null).catch(() => null);
+      // معرّفٌ لم يُحلّ رقمه لا يطابق أيّ فلترٍ أو حجز — لا محادثة باسم مستعار
+      if (!who || !who.verified) { rep.skipped++; continue; }
+      const norm = normalizeAnyPhone(who.key);
+      if (!norm) { rep.skipped++; continue; }
+      const [pl] = norm.isJordanian
+        ? await db.select({ id: players.id }).from(players).where(eq(players.phone, norm.local)).limit(1)
+        : [];
+      const firstAt = new Date(chatTs(c) || Date.now());
+      if (pl) rep.players++;
+      else {
+        rep.others++;
+        // «معروفٌ وليس لاعباً» قبل فتح محادثته ⟵ getOrCreateConversation يفتحها والبوت مطفأ
+        await db.execute(sql`INSERT INTO wa_web_known (phone, chat_id, last_at) VALUES (${norm.local}, ${who.chatId}, ${firstAt})
+          ON CONFLICT (phone) DO UPDATE SET chat_id = EXCLUDED.chat_id, last_at = GREATEST(wa_web_known.last_at, EXCLUDED.last_at)`);
+      }
       const [ex] = await db.select({ id: waConversations.id }).from(waConversations).where(eq(waConversations.phone, norm.local)).limit(1);
-      if (ex) await db.execute(sql`UPDATE wa_conversations SET web_first_contact_at = COALESCE(web_first_contact_at, ${firstAt}), web_chat_id = COALESCE(web_chat_id, ${who.chatId}) WHERE id = ${ex.id}`);
-      else await db.execute(sql`INSERT INTO wa_web_known (phone, chat_id, last_at) VALUES (${norm.local}, ${who.chatId}, ${firstAt})
-        ON CONFLICT (phone) DO UPDATE SET chat_id = EXCLUDED.chat_id, last_at = GREATEST(wa_web_known.last_at, EXCLUDED.last_at)`);
-      continue;
-    }
+      const name = String(c.name || c.contact?.pushname || c.contact?.name || '').trim().slice(0, 150);
+      const conv: any = await getOrCreateConversation(who.key, pl ? '' : name, { channel: 'web', webChatId: who.chatId, phoneVerified: true });
+      if (!conv) { rep.skipped++; continue; }
+      if (!ex) rep.created++;
 
-    rep.players++;
-    const conv: any = await getOrCreateConversation(who.key, '', { channel: 'web', webChatId: who.chatId, phoneVerified: true });
-    const msgs = await gw.history(chatId, perChat).catch(() => []);
-    let oldest = Infinity;
-    for (const m of msgs) {
-      if (!m?.id || (await existsWamid(String(m.id)))) continue;
-      oldest = Math.min(oldest, msgTs(m) || Infinity);
-      if (isSkippable(m)) continue;
-      if (m.fromMe) await storeImportedOutgoing(m, who);
-      else await ingestInbound(toMetaMessage(m, who.key, null), [], 'web', { webChatId: who.chatId, phoneVerified: true, imported: true, suppressBot: true });
-      rep.messages++;
+      const msgs = await gw.history(chatId, perChat, perChat > 100).catch(() => []);
+      for (const m of msgs) {
+        if (!m?.id || seen.has(shortId(String(m.id))) || (await existsWamid(String(m.id)))) continue;
+        if (isSkippable(m)) continue;
+        if (m.fromMe) await storeImportedOutgoing(m, who);
+        else await ingestInbound(toMetaMessage(m, who.key, null), [], 'web', { webChatId: who.chatId, phoneVerified: true, imported: true, suppressBot: true });
+        seen.add(shortId(String(m.id)));
+        rep.messages++;
+      }
+      // ملخّص المحادثة من رسائلها على رقم الأعمال: أوّل تواصل، آخر وارد، وآخر رسالةٍ ومعاينتها
+      // (لا يُمسّ last_inbound_at — نافذة ميتا تُحسب منه احتياطاً، والمستورد ليس وارداً على ميتا)
+      await db.execute(sql`UPDATE wa_conversations c SET
+          web_first_contact_at = LEAST(COALESCE(c.web_first_contact_at, x.first_at), x.first_at),
+          web_chat_id = COALESCE(c.web_chat_id, ${who.chatId}),
+          web_last_inbound_at = GREATEST(c.web_last_inbound_at, x.last_in),
+          last_message_preview = CASE WHEN c.last_message_at IS NULL OR x.last_at > c.last_message_at THEN x.last_body ELSE c.last_message_preview END,
+          last_message_at = GREATEST(c.last_message_at, x.last_at)
+        FROM (SELECT MIN(m.created_at) AS first_at, MAX(m.created_at) AS last_at,
+                     MAX(m.created_at) FILTER (WHERE m.direction = 'in') AS last_in,
+                     (SELECT LEFT(l.body, 120) FROM wa_messages l WHERE l.conversation_id = ${conv.id} AND l.deleted_at IS NULL AND l.msg_type <> 'reaction'
+                       ORDER BY l.created_at DESC, l.id DESC LIMIT 1) AS last_body
+                FROM wa_messages m WHERE m.conversation_id = ${conv.id} AND m.channel = 'web') x
+        WHERE c.id = ${conv.id} AND x.last_at IS NOT NULL`);
     }
-    const first = Number.isFinite(oldest) ? new Date(oldest) : firstAt;
-    await db.execute(sql`UPDATE wa_conversations SET
-        web_first_contact_at = LEAST(COALESCE(web_first_contact_at, ${first}), ${first}),
-        web_chat_id = COALESCE(web_chat_id, ${who.chatId}),
-        last_message_at = GREATEST(COALESCE(last_message_at, ${first}), ${new Date(chatTs(c) || first.getTime())})
-      WHERE id = ${conv.id}`);
+    rep.at = new Date().toISOString();
+    rep.running = false;
+    await setFlag('web_history_import', rep);
+    console.log(`🗄️ WA web mirror: ${rep.chats} chat(s) — ${rep.created} new conversation(s), ${rep.messages} message(s), ${rep.players} player(s), ${rep.others} other(s), ${rep.skipped} skipped`);
+    return rep;
+  } finally {
+    importing = false;
   }
-  rep.at = new Date().toISOString();
-  await setFlag('web_history_import', rep);
-  console.log(`🗄️ WA web history import: ${rep.players} player chat(s), ${rep.messages} message(s), ${rep.others} other(s)`);
-  return rep;
 }
 
 /** هل هذا الرقم «معروفٌ» لرقم الأعمال وليس لاعباً؟ (فيُفتح بالبوت مطفأً) */

@@ -64,7 +64,9 @@ export default function ChannelsSection({ apiFetch }: { apiFetch: Fetcher }) {
     } catch (e: any) { swalToast(e.message, 'error'); }
   }, [apiFetch, pair]);
 
-  useEffect(() => { load(); const t = setInterval(load, pair ? 5000 : 60000); pollRef.current = t; return () => clearInterval(t); }, [load, pair]);
+  // المرآة جارية ⟵ تحديثٌ كلّ ٥ ثوانٍ كالربط
+  const mirroring = !!d?.historyImport?.running;
+  useEffect(() => { load(); const t = setInterval(load, pair || mirroring ? 5000 : 60000); pollRef.current = t; return () => clearInterval(t); }, [load, pair, mirroring]);
 
   if (!d || !draft) return <div className="text-gray-500 p-4">⏳ تحميل القنوات…</div>;
   const s = d.settings;
@@ -110,9 +112,10 @@ export default function ChannelsSection({ apiFetch }: { apiFetch: Fetcher }) {
   };
 
   const runImport = async (force = false) => {
-    if (!(await swalConfirm(force ? 'إعادة استيراد تاريخ رقم الأعمال؟ (المكرّر لا يُضاف مرّتين)' : 'استيراد تاريخ رقم الأعمال؟\n\nمحادثات اللاعبين المسجّلين تُستورد (آخر ٣٠ رسالة) سياقاً للبوت والموظّفين — بلا إشعارات وبلا ردود. وبقيّة المحادثات تُعلَّم «معروفة» ويُطفأ عليها البوت إن راسلت.', { confirmText: 'استورد' }))) return;
+    if (!(await swalConfirm((force ? 'إعادة مرآة محادثات رقم الأعمال؟ (المكرّر لا يُضاف مرّتين)' : 'مرآة محادثات رقم الأعمال في الوارد؟')
+      + '\n\nكلّ محادثةٍ على رقم الأعمال تصير محادثةً في الوارد بتاريخها كاملاً — لاعبين وغيرهم — بلا إشعارات ولا ردود ولا «غير مقروء». غير اللاعبين تُفتح محادثاتهم والبوت مطفأ. تعمل في الخلفيّة بضع دقائق.', { confirmText: 'ابدأ' }))) return;
     setImporting(true);
-    try { const r = await apiFetch('/api/whatsapp/channels/web/import', { method: 'POST', body: JSON.stringify({ force }) }); swalToast(`استُورد ${r.report.messages} رسالة من ${r.report.players} لاعب`, 'success'); load(); }
+    try { await apiFetch('/api/whatsapp/channels/web/import', { method: 'POST', body: JSON.stringify({ force }) }); swalToast('بدأت المرآة في الخلفيّة — تُحدَّث حالتها هنا', 'info'); setTimeout(load, 3000); }
     catch (e: any) { swalToast(e.message, 'error'); }
     finally { setImporting(false); }
   };
@@ -278,8 +281,10 @@ export default function ChannelsSection({ apiFetch }: { apiFetch: Fetcher }) {
         {dirty && <button onClick={() => setDraft(structuredClone(s))} className="px-3 py-2 rounded-xl border border-gray-800 text-gray-400">تراجع</button>}
         <span className="mr-auto" />
         {d.configured.web && web.linked && (
-          <button disabled={importing} onClick={() => runImport(!!d.historyImport)} className="px-3 py-2 rounded-xl border border-gray-800 text-gray-300 hover:text-white disabled:opacity-50">
-            {importing ? '⏳ يستورد…' : d.historyImport ? `🗄️ أعد الاستيراد (آخر مرّة: ${d.historyImport.players} لاعب · ${d.historyImport.messages} رسالة)` : '🗄️ استورد تاريخ رقم الأعمال'}
+          <button disabled={importing || d.historyImport?.running} onClick={() => runImport(!!d.historyImport)} className="px-3 py-2 rounded-xl border border-gray-800 text-gray-300 hover:text-white disabled:opacity-50">
+            {importing ? '⏳ يبدأ…'
+              : d.historyImport?.running ? `⏳ المرآة جارية… ${d.historyImport.done || 0}/${d.historyImport.chats} محادثة · ${d.historyImport.messages} رسالة`
+                : d.historyImport ? `🗄️ أعد مرآة المحادثات (آخر مرّة: ${d.historyImport.chats} محادثة · ${d.historyImport.messages} رسالة)` : '🗄️ مرآة محادثات رقم الأعمال في الوارد'}
           </button>
         )}
       </div>

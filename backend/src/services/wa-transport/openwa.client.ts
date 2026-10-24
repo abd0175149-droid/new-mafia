@@ -82,8 +82,9 @@ export const chats = async (limit = 100) => {
   const d = unwrap(await S('GET', `/chats?limit=${limit}`, undefined, { timeout: 60000 }));
   return Array.isArray(d) ? d : (d?.items || d?.chats || []);
 };
-export const history = async (chatId: string, limit = 30) => {
-  const d = unwrap(await S('GET', `/messages/${encodeURIComponent(chatId)}/history?limit=${limit}`, undefined, { timeout: 120000, bulk: true }));
+/** deep: يرفع سقف البوّابة من 100 إلى 2000 (يقرأ كلّ ما في واتساب ويب محلّيّاً، بلا وسائط) */
+export const history = async (chatId: string, limit = 30, deep = false) => {
+  const d = unwrap(await S('GET', `/messages/${encodeURIComponent(chatId)}/history?limit=${limit}${deep ? '&deep=true' : ''}`, undefined, { timeout: 180000, bulk: true }));
   return Array.isArray(d) ? d : (d?.items || d?.messages || []);
 };
 /** معرّف خصوصيّة (@lid) ← الرقم، أو null إن لم تعرفه واتساب */
