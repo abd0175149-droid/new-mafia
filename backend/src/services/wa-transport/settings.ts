@@ -52,6 +52,7 @@ export function normalizeSettings(raw: any): TransportSettings {
       enabled: typeof r.warmup?.enabled === 'boolean' ? r.warmup.enabled : d.warmup.enabled,
       schedule: Array.isArray(r.warmup?.schedule) && r.warmup.schedule.length ? r.warmup.schedule.map((x: any) => num(x, 50, 1, 5000)).slice(0, 60) : d.warmup.schedule,
       coldSchedule: Array.isArray(r.warmup?.coldSchedule) && r.warmup.coldSchedule.length ? r.warmup.coldSchedule.map((x: any) => num(x, 20, 0, 2000)).slice(0, 60) : d.warmup.coldSchedule,
+      warmExempt: typeof r.warmup?.warmExempt === 'boolean' ? r.warmup.warmExempt : d.warmup.warmExempt,
     },
     longPause: {
       everyN: num(r.longPause?.everyN, d.longPause.everyN, 0, 1000),

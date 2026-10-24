@@ -39,7 +39,8 @@ export interface TransportSettings {
   cold: { dailyCap: number; gapMinSec: number; gapMaxSec: number };
   /** تسخين الجلسة: سقفٌ يوميّ متدرّج يُحسب من يوم ربط الرقم (كلّ ربطٍ جديد يبدأ من الصفر).
    *  schedule سقف اليوم ٠،١،٢… · coldSchedule سقف المحادثات الباردة بالتدرّج نفسه. */
-  warmup: { enabled: boolean; schedule: number[]; coldSchedule: number[] };
+  /** warmExempt: الدافئ (له محادثة معنا) لا يخضع لتدرّج عمر الجلسة — يبقى سقفا اليوم والساعة المضبوطان. البارد يبقى بتدرّجه */
+  warmup: { enabled: boolean; schedule: number[]; coldSchedule: number[]; warmExempt: boolean };
   /** استراحةٌ بشريّة: بعد كلّ عددٍ من الرسائل الجماعيّة، توقّفٌ أطول (ثوانٍ) */
   longPause: { everyN: number; seconds: number };
   /** ردود ميتا تعرّف برقم الأعمال (مرّة في اليوم لكلّ محادثة) */
@@ -65,7 +66,7 @@ export const DEFAULT_TRANSPORT_SETTINGS: TransportSettings = {
   bulk: { dailyCap: 150, hourlyCap: 20, gapMinSec: 45, gapMaxSec: 120, from: '10:00', to: '22:00' },
   timely: { gapMinSec: 5, gapMaxSec: 15, serviceDailyCap: 120 },
   cold: { dailyCap: 20, gapMinSec: 120, gapMaxSec: 300 },
-  warmup: { enabled: true, schedule: [20, 30, 40, 60, 90, 120, 160, 200, 250], coldSchedule: [10, 15, 20, 25, 30, 40, 50] },
+  warmup: { enabled: true, schedule: [20, 30, 40, 60, 90, 120, 160, 200, 250], coldSchedule: [10, 15, 20, 25, 30, 40, 50], warmExempt: false },
   longPause: { everyN: 12, seconds: 240 },
   cloudRedirect: { enabled: true, businessNumber: '', oncePerDay: true },
   outreach: { direct: true, cohortFreqDays: 3 },

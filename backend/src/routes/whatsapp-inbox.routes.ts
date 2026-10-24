@@ -722,6 +722,14 @@ router.get('/open-window-broadcast/audience', authenticate, adminOnly, async (re
     res.json({ ...aud, status: await B.broadcastStatus(), history: await B.listBroadcasts(15), activities: await B.upcomingActivities() });
   } catch (e: any) { res.status(500).json({ error: e.message }); }
 });
+// 📡 البثوث الجارية: يُرسل أم متوقّف ولماذا، وآخر رسالةٍ خرجت ومتى يستأنف
+router.get('/open-window-broadcast/live', authenticate, adminOnly, async (_req: Request, res: Response) => {
+  try {
+    const B = await import('../services/whatsapp-broadcast.service.js');
+    res.json({ success: true, ...(await B.liveBroadcasts()) });
+  } catch (err: any) { res.status(500).json({ error: err.message }); }
+});
+
 // 🧪 اختبار البثّ قبل اعتماده — إلى أرقام الإداريّين من رقم الأعمال (إلزاميّ قبل الإرسال)
 router.get('/open-window-broadcast/test-recipients', authenticate, adminOnly, async (_req: Request, res: Response) => {
   try {

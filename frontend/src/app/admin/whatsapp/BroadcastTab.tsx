@@ -142,6 +142,16 @@ export default function BroadcastTab({ apiFetch }: { apiFetch: Fetcher }) {
     try { const d = await apiFetch('/api/whatsapp/open-window-broadcast/templates'); setTpls(d.templates || []); } catch { /* غير حاجب */ }
   }, [apiFetch]);
   useEffect(() => { loadTpls(); }, [loadTpls]);
+  // 📡 البثوث الجارية: يُرسل أم متوقّف ولماذا، وآخر رسالةٍ خرجت — تحديثٌ كلّ ٢٠ ثانية
+  const [live, setLive] = useState<{ broadcasts: any[]; lane: any } | null>(null);
+  useEffect(() => {
+    let alive = true;
+    const pull = () => apiFetch('/api/whatsapp/open-window-broadcast/live').then(d => { if (alive) setLive({ broadcasts: d.broadcasts || [], lane: d.lane || null }); }).catch(() => {});
+    pull();
+    const t = setInterval(pull, 20_000);
+    return () => { alive = false; clearInterval(t); };
+  }, [apiFetch, historyTick]);
+
   // 🧪 من يصله الاختبار (أرقام الإداريّين) — للعرض فقط؛ الخادم يحدّدهم عند الإرسال
   useEffect(() => {
     apiFetch('/api/whatsapp/open-window-broadcast/test-recipients').then(d => setTestRcpts(d.recipients || [])).catch(() => setTestRcpts([]));
@@ -294,8 +304,65 @@ export default function BroadcastTab({ apiFetch }: { apiFetch: Fetcher }) {
 
   const runningRow = history.find(h => h.id === status?.running);
 
+  const fmtAt = (iso?: string | null) => {
+    if (!iso) return '—';
+    const d = new Date(iso), now = new Date();
+    const t = d.toLocaleTimeString('ar-JO', { hour: 'numeric', minute: '2-digit' });
+    if (d.toDateString() === now.toDateString()) return `اليوم ${t}`;
+    const tm = new Date(now); tm.setDate(now.getDate() + 1);
+    if (d.toDateString() === tm.toDateString()) return `غداً ${t}`;
+    const ys = new Date(now); ys.setDate(now.getDate() - 1);
+    if (d.toDateString() === ys.toDateString()) return `أمس ${t}`;
+    return `${d.toLocaleDateString('ar-JO', { weekday: 'long', day: 'numeric', month: 'short' })} ${t}`;
+  };
+  const LANE_TONE: Record<string, { dot: string; text: string; label: string }> = {
+    sending: { dot: 'bg-emerald-400 animate-pulse', text: 'text-emerald-300', label: '🟢 يُرسل الآن' },
+    paused: { dot: 'bg-amber-400', text: 'text-amber-300', label: '⏸️ متوقّف مؤقّتاً' },
+    idle: { dot: 'bg-gray-500', text: 'text-gray-400', label: '✓ لا شيء في الطابور' },
+  };
+
   return (
     <div className="flex-1 min-h-0 overflow-y-auto" dir="rtl">
+      {/* ── 📡 البثوث الجارية: الحالة الآن وسببها ── */}
+      {live && live.broadcasts.length > 0 && (
+        <div className="mb-4 space-y-2">
+          {live.broadcasts.map(b => {
+            const ln = live.lane || {};
+            const tone = LANE_TONE[ln.state] || LANE_TONE.paused;
+            const done = b.sent + b.failed;
+            const pct = b.total ? Math.round((done / b.total) * 100) : 0;
+            return (
+              <div key={b.id} className="rounded-2xl border border-sky-500/25 bg-sky-500/5 p-3.5 space-y-2">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <span className={`w-2.5 h-2.5 rounded-full ${tone.dot}`} />
+                  <b className="text-white text-sm">📢 بثّ #{b.id} {b.media === 'video' ? '🎬' : b.media === 'image' ? '🖼️' : ''}</b>
+                  <span className={`text-xs font-bold ${tone.text}`}>{b.queued === 0 ? '✓ خرجت كلّها' : tone.label}</span>
+                  <span className="text-[11px] text-gray-500 truncate max-w-[50%]">{String(b.text || '').split('\n').find((l: string) => l.trim()) || ''}</span>
+                  <span className="mr-auto text-[11px] text-gray-500">بدأ {fmtAt(b.createdAt)}{b.createdBy ? ` · ${b.createdBy}` : ''}</span>
+                </div>
+                <div className="h-1.5 rounded-full bg-gray-800 overflow-hidden"><div className="h-full bg-sky-400" style={{ width: `${pct}%` }} /></div>
+                <div className="flex flex-wrap gap-x-4 gap-y-1 text-[12px] text-gray-300 tabular-nums">
+                  <span>أُرسل فعلاً <b className="text-white">{b.sent}</b> من {b.total}</span>
+                  <span>وصل {b.delivered} · قُرئ {b.read}</span>
+                  <span>في الطابور <b className="text-amber-200">{b.queued}</b>{b.sending ? ` (${b.sending} يُرسل الآن)` : ''}</span>
+                  {b.failed > 0 && <span className="text-rose-300">فشل {b.failed}</span>}
+                  <span>آخر رسالة خرجت: <b className="text-white">{fmtAt(b.lastSentAt)}</b></span>
+                </div>
+                {b.queued > 0 && ln.state && (
+                  <div className={`text-[12px] rounded-xl px-3 py-2 border ${ln.state === 'sending' ? 'border-emerald-500/25 bg-emerald-500/5 text-emerald-200' : 'border-amber-500/25 bg-amber-500/5 text-amber-100'}`}>
+                    <b>{ln.state === 'sending' ? 'يُرسل:' : 'سبب التوقّف:'}</b> {ln.reason}
+                    {ln.resumeAt && <span> — {ln.state === 'sending' ? 'التالية' : 'يستأنف'} <b>{fmtAt(ln.resumeAt)}</b></span>}
+                    {ln.code === 'daily_cap' && ln.tomorrowCap ? <span> بحدّ {ln.tomorrowCap}</span> : null}
+                    <div className="text-[11px] text-gray-400 mt-0.5 tabular-nums">
+                      اليوم {ln.todaySent}/{ln.dayCap ?? '∞'} · آخر ساعة {ln.hourSent}/{ln.hourCap} · ساعات الإرسال {ln.window}{ln.warmup ? ' · التسخين مفعّل' : ''}
+                    </div>
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
       <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_380px] gap-4">
         {/* ── الكتابة ── */}
         <div className="space-y-4 min-w-0">

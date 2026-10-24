@@ -179,6 +179,40 @@ export async function testBroadcast(input: ContentInput & { createdBy: string })
   return { ok: true, key: prep.key, at, sentTo };
 }
 
+/** 📡 البثوث الجارية الآن (الجماعيّ في الطابور) + حالة المسار: يُرسل أم متوقّف ولماذا ومتى يستأنف */
+export async function liveBroadcasts(): Promise<{ broadcasts: any[]; lane: any }> {
+  const db = getDB(); if (!db) return { broadcasts: [], lane: null };
+  const rows = rowsOf(await db.execute(sql`SELECT b.id, b.status, b.total_targets, b.created_at, b.created_by, b.body, b.origin,
+      COUNT(m.id) FILTER (WHERE m.status IN ('queued', 'sending'))::int AS queued,
+      COUNT(m.id) FILTER (WHERE m.status = 'sending')::int AS sending,
+      COUNT(m.id) FILTER (WHERE m.status = 'failed')::int AS failed,
+      COUNT(m.id) FILTER (WHERE m.status NOT IN ('queued', 'sending', 'failed'))::int AS sent,
+      COUNT(m.id) FILTER (WHERE m.status IN ('delivered', 'read'))::int AS delivered,
+      COUNT(m.id) FILTER (WHERE m.status = 'read')::int AS read,
+      MAX(m.created_at) FILTER (WHERE m.status NOT IN ('queued', 'sending', 'failed')) AS last_sent_at
+    FROM wa_broadcasts b
+    LEFT JOIN wa_broadcast_recipients r ON r.broadcast_id = b.id
+    LEFT JOIN wa_messages m ON m.id = r.wa_message_id
+   WHERE b.status IN ('running', 'sending')
+   GROUP BY b.id ORDER BY b.id DESC LIMIT 5`));
+  const iso = (v: any) => (v ? new Date(v).toISOString() : null);
+  const { bulkLaneState } = await import('./wa-transport/web.transport.js');
+  const lane = await bulkLaneState().catch(() => null);
+  return {
+    broadcasts: rows.map((b: any) => {
+      const raw = String(b.body || '');
+      const media = /^(🖼️|🎬) \/uploads\/wa-out\/[\w.-]+\n?/.exec(raw);
+      return {
+        id: Number(b.id), status: b.status, origin: b.origin || 'inbox', createdBy: b.created_by || '', createdAt: iso(b.created_at),
+        text: media ? raw.slice(media[0].length) : raw, media: media ? (media[1] === '🎬' ? 'video' : 'image') : null,
+        total: Number(b.total_targets || 0), sent: Number(b.sent || 0), queued: Number(b.queued || 0), sending: Number(b.sending || 0),
+        failed: Number(b.failed || 0), delivered: Number(b.delivered || 0), read: Number(b.read || 0), lastSentAt: iso(b.last_sent_at),
+      };
+    }),
+    lane,
+  };
+}
+
 export async function broadcastStatus() {
   const db = getDB(); if (!db) return { running: null, nextAllowedAt: null, suspended: null };
   return { running, suspended: sendingSuspendedReason(), nextAllowedAt: null, maxTargets: maxTargets() };

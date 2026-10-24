@@ -175,6 +175,62 @@ function warmupCap(schedule: number[]): number {
   return schedule[Math.min(age, schedule.length - 1)];
 }
 let webSessionAge = (): number => Infinity;   // يُربط بـ web.health عند الإقلاع لتفادي الاستيراد الدائريّ
+/** سقف الجماعيّ اليوميّ: المضبوط، ومعه تدرّج عمر الجلسة ما لم يُعفَ الدافئ منه (البارد له سقفه بتدرّجه دائماً) */
+function bulkDayCap(ageOffset = 0): number {
+  const s = transportSettings();
+  if (!s.warmup.enabled || s.warmup.warmExempt) return s.bulk.dailyCap;
+  if (!ageOffset) return Math.min(s.bulk.dailyCap, warmupCap(s.warmup.schedule));
+  const age = webSessionAge();
+  if (!Number.isFinite(age) || !s.warmup.schedule.length) return s.bulk.dailyCap;
+  return Math.min(s.bulk.dailyCap, s.warmup.schedule[Math.min(age + ageOffset, s.warmup.schedule.length - 1)]);
+}
+
+/**
+ * 📡 حالة المسار الجماعيّ الآن — لِمَ يُرسل أو لا يُرسل، ومتى يستأنف. نفس شروط step() بترتيبها،
+ * لتقول صفحة البثّ «متوقّف: وصل حدّ اليوم ٤٠ — يستأنف غداً ١٠:٠٠ بحدّ ٦٠» بدل الصمت.
+ */
+export async function bulkLaneState(): Promise<any> {
+  const s = transportSettings();
+  const now = Date.now();
+  const counts = await bulkCounts();
+  const age = webSessionAge();
+  const dayCap = bulkDayCap();
+  const base: any = {
+    todaySent: counts.today, dayCap: Number.isFinite(dayCap) ? dayCap : null, tomorrowCap: bulkDayCap(1),
+    hourSent: counts.lastHour, hourCap: s.bulk.hourlyCap, window: `${s.bulk.from}–${s.bulk.to}`,
+    warmup: s.warmup.enabled && !s.warmup.warmExempt, ageDays: Number.isFinite(age) ? age : null,
+    queued: 0, resumeAt: null as string | null,
+  };
+  const db = getDB();
+  if (db) { const q: any = await db.execute(sql`SELECT COUNT(*)::int AS n FROM wa_outbox WHERE lane = 'bulk'`); base.queued = Number((q?.rows ?? q ?? [])[0]?.n || 0); }
+  const at = (t: number) => new Date(t).toISOString();
+  const tomorrowWindow = () => joNow().dayStartUtc.getTime() + 24 * 3600e3 + hm(s.bulk.from) * 60e3;
+  if (!webConfigured()) return { ...base, state: 'paused', code: 'not_configured', reason: 'رقم الأعمال غير مهيّأ' };
+  const lock = channelSuspendedReason('web');
+  if (lock) return { ...base, state: 'paused', code: 'locked', reason: `الإرسال من رقم الأعمال مقفل: ${lock}` };
+  if (!isWebReady()) return { ...base, state: 'paused', code: 'offline', reason: 'رقم الأعمال غير متّصل الآن — يستأنف وحده حين يعود' };
+  if (!base.queued) return { ...base, state: 'idle', code: 'empty', reason: 'لا رسائل جماعيّة في الطابور' };
+  const { bulkPausedUntil } = await import('./web.health.js');
+  const bp = bulkPausedUntil();
+  if (bp > now) return { ...base, state: 'paused', code: 'timelock', reason: 'استراحة حماية: واتساب قيّد التواصل مؤقّتاً', resumeAt: at(bp) };
+  const wait = bulkWindowDelayMs();
+  if (wait > 0) return { ...base, state: 'paused', code: 'window', reason: `خارج ساعات الإرسال الجماعيّ (${base.window} بتوقيت عمّان)`, resumeAt: at(now + wait) };
+  if (counts.today >= dayCap) {
+    const why = base.warmup && base.ageDays != null ? ` — تسخين الرقم: اليوم ${base.ageDays + 1} من عمر ربطه` : '';
+    return { ...base, state: 'paused', code: 'daily_cap', reason: `وصل حدّ اليوم (${dayCap})${why}`, resumeAt: at(tomorrowWindow()) };
+  }
+  if (counts.lastHour >= s.bulk.hourlyCap) {
+    let resume = now + 5 * 60e3;
+    if (db) {
+      const r: any = await db.execute(sql`SELECT MIN((payload->>'_sentAt')::timestamptz) AS t FROM wa_messages
+        WHERE channel = 'web' AND direction = 'out' AND payload->>'_lane' = 'bulk' AND (payload->>'_sentAt')::timestamptz >= NOW() - INTERVAL '1 hour'`);
+      const t = (r?.rows ?? r ?? [])[0]?.t; if (t) resume = new Date(t).getTime() + 3600e3;
+    }
+    return { ...base, state: 'paused', code: 'hourly_cap', reason: `وصل حدّ الساعة (${s.bulk.hourlyCap})`, resumeAt: at(resume) };
+  }
+  const next = Math.max(nextAllowed.bulk, now);
+  return { ...base, state: 'sending', code: 'sending', reason: `يُرسل — رسالةٌ كلّ ${s.bulk.gapMinSec}–${s.bulk.gapMaxSec} ثانية`, resumeAt: next > now + 1000 ? at(next) : null };
+}
 export function bindWebSessionAge(fn: () => number): void { webSessionAge = fn; }
 let bulkSinceLongPause = 0;
 let lastReplyAt = 0;
@@ -275,8 +331,8 @@ async function step(): Promise<void> {
         const counts = await bulkCounts();
         // سقف الساعة: يمنع إرسال اليوم كلّه في ساعتين (طلب المالك 2026-10-20)
         if (counts.lastHour >= s.bulk.hourlyCap) { nextAllowed.bulk = now + 5 * 60e3; continue; }
-        // السقف اليوميّ الفعليّ = الأصغر بين المضبوط وتدرّج تسخين الجلسة
-        const dayCap = s.warmup.enabled ? Math.min(s.bulk.dailyCap, warmupCap(s.warmup.schedule)) : s.bulk.dailyCap;
+        // السقف اليوميّ الفعليّ = الأصغر بين المضبوط وتدرّج تسخين الجلسة (إلّا إن أُعفي الدافئ منه)
+        const dayCap = bulkDayCap();
         if (counts.today >= dayCap) { nextAllowed.bulk = now + 30 * 60e3; continue; }
         // سقف البارد منفصلٌ وأصغر: أوّل رسالةٍ منّا لأشخاصٍ جدد أخطر ما يُحظر عليه الرقم
         const coldCap = s.warmup.enabled ? Math.min(s.cold.dailyCap, warmupCap(s.warmup.coldSchedule)) : s.cold.dailyCap;
@@ -376,7 +432,7 @@ export async function outboxStats(): Promise<any> {
   const [bc, t, rp] = await Promise.all([bulkCounts(), sentToday('timely'), sentToday('reply')]);
   const iso = (n: number) => (n > Date.now() ? new Date(n).toISOString() : null);
   const age = webSessionAge();
-  const dayCap = s.warmup.enabled ? Math.min(s.bulk.dailyCap, warmupCap(s.warmup.schedule)) : s.bulk.dailyCap;
+  const dayCap = bulkDayCap();
   const coldCap = s.warmup.enabled ? Math.min(s.cold.dailyCap, warmupCap(s.warmup.coldSchedule)) : s.cold.dailyCap;
   return {
     queued: { ...queued, coldBulk: coldQueued },

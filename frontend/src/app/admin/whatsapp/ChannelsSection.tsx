@@ -241,6 +241,13 @@ export default function ChannelsSection({ apiFetch }: { apiFetch: Fetcher }) {
           <input type="checkbox" checked={!!draft.warmup.enabled} onChange={e => set('warmup.enabled', e.target.checked)} />
           🔥 تسخين تدريجيّ لكلّ ربطٍ جديد <span className="text-gray-500 text-xs">(يبدأ السقف منخفضاً ويرتفع يوميّاً — أهمّ حماية بعد فكّ الربط أو التقييد)</span>
         </label>
+        {draft.warmup.enabled && (
+          <label className="flex items-start gap-2 text-gray-300 mr-6">
+            <input type="checkbox" className="mt-1" checked={!!draft.warmup.warmExempt} onChange={e => set('warmup.warmExempt', e.target.checked)} />
+            <span>إعفاء الدافئ من التسخين <span className="block text-gray-500 text-xs leading-snug">من له محادثة معنا لا يخضع لتدرّج عمر الربط — يبقى سقفا اليوم والساعة المضبوطان أعلاه، والبارد يبقى بتدرّجه.
+              ⚠️ التسخين يحمي <b>الرقم</b> من قفزة حجمٍ بعد ربطٍ جديد أيّاً كان المستلم — الإعفاء أنسب بعد أيّامٍ من الربط بلا إنذارات.</span></span>
+          </label>
+        )}
         <div className="flex flex-wrap items-center gap-x-4 gap-y-2 text-gray-300">
           <span>المقيّد بوقت: تباعد <input type="number" min={0} value={draft.timely.gapMinSec} onChange={e => set('timely.gapMinSec', Number(e.target.value))} className={inp + ' w-16'} /> – <input type="number" min={0} value={draft.timely.gapMaxSec} onChange={e => set('timely.gapMaxSec', Number(e.target.value))} className={inp + ' w-16'} /> ث</span>
           <span>سقفه اليوميّ <input type="number" min={0} value={draft.timely.serviceDailyCap} onChange={e => set('timely.serviceDailyCap', Number(e.target.value))} className={inp + ' w-20'} /></span>
