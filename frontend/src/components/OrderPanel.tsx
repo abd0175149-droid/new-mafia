@@ -791,7 +791,7 @@ const OrderPanel = forwardRef<OrderPanelHandle, Props>(function OrderPanel({
         <p className="text-[13px] truncate" style={{ color: INK.low }}>
           {browse ? 'للاطّلاع — يفتح الطلب قبل الموعد بساعة ويحتاج حجزاً'
             : ro && next ? `للقراءة — يفتح الطلب الساعة ${next.opensAt}`
-            : ctx?.source === 'live' ? 'أنت داخل اللعبة — الطلب يصل طاولتك' : 'حجزك مؤكّد — الطلب متاح'}
+            : ctx?.source === 'live' ? 'داخل اللعبة · يصل طاولتك' : 'حجزك مؤكّد · الطلب متاح'}
         </p>
       </div>
       {items.length > 0 && (
