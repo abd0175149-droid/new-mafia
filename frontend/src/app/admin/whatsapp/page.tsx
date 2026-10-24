@@ -775,7 +775,10 @@ export default function WhatsAppInboxPage() {
   const winH = conv ? (viaWeb ? 999 : windowHoursLeft(conv.cloudLastInboundAt ?? conv.lastInboundAt)) : 0;
   const capOver = img ? draft.trim().length - WA_CAPTION_MAX : 0;   // الزائدُ عن حدّ التعليق
   // 🔀 في عرض رقمٍ واحد: «آخر رسالةٍ منه» من ذلك الرقم، وتنبيهٌ إن كان الردّ سيخرج من الرقم الآخر
-  const lastInView = !conv ? null : inboxCh === 'web' ? conv.webLastInboundAt : inboxCh === 'cloud' ? (conv.cloudLastInboundAt ?? null) : conv.lastInboundAt;
+  //    (المستورد من تاريخ رقم الأعمال لا يضبط عمود آخر وارد — فالاحتياط آخر واردٍ في الخيط المعروض)
+  const lastInView = !conv ? null
+    : (inboxCh === 'web' ? conv.webLastInboundAt : inboxCh === 'cloud' ? conv.cloudLastInboundAt : conv.lastInboundAt)
+      ?? [...messages].reverse().find(m => m.direction === 'in')?.createdAt ?? null;
   const replyElsewhere: 'cloud' | 'web' | null = conv && inboxCh !== 'all' && (viaWeb ? 'web' : 'cloud') !== inboxCh ? (viaWeb ? 'web' : 'cloud') : null;
   const totalUnread = convs.reduce((s, c) => s + viewUnread(c, inboxCh), 0);
 
