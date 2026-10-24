@@ -28,6 +28,9 @@ export interface TransportSettings {
   failover: Record<Lane, boolean>;
   /** البوت يردّ على قناة الجلسة؟ (مطفأ في مرحلة «الظلّ») */
   webBot: boolean;
+  /** البوت يردّ على غير اللاعبين «المعروفين» لرقم الأعمال (محادثاته القديمة)؟ مطفأ = تُفتح والبوت مطفأ (موردون ومعارف).
+   *  قرار المالك 2026-10-24: هؤلاء عملاء مهتمّون — المفتاح من «القنوات» يشغّله ويطفئه عليهم دفعةً، والاختيار اليدويّ لكلّ محادثة يُحترم. */
+  webBotKnown: boolean;
   /** سقوف طابور الجلسة الجماعيّ: سقف يوميّ + سقف بالساعة + تباعد + ساعات العمل */
   bulk: { dailyCap: number; hourlyCap: number; gapMinSec: number; gapMaxSec: number; from: string; to: string };
   timely: { gapMinSec: number; gapMaxSec: number; serviceDailyCap: number };
@@ -57,6 +60,7 @@ export const DEFAULT_TRANSPORT_SETTINGS: TransportSettings = {
   mode: 'cloud_only',
   failover: { reply: false, timely: true, bulk: false },
   webBot: false,
+  webBotKnown: false,
   // سقوفٌ متحفّظة بعد تقييد 2026-10-20: ٤٥–١٢٠ث بدل ١٥–٤٥، وسقفٌ بالساعة، وساعاتٌ أضيق
   bulk: { dailyCap: 150, hourlyCap: 20, gapMinSec: 45, gapMaxSec: 120, from: '10:00', to: '22:00' },
   timely: { gapMinSec: 5, gapMaxSec: 15, serviceDailyCap: 120 },

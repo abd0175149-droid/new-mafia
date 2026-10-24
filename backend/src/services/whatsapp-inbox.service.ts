@@ -125,8 +125,9 @@ export async function getOrCreateConversation(
   const player = isJordanian && verified ? await findPlayerByPhone(db, localPhone) : null;
   // 📇 رقم الأعمال فيه محادثات قديمة لموردين ومعارف (استيراد التاريخ يعلّمهم في wa_web_known):
   //    من كان «معروفاً وليس لاعباً» تُفتح محادثته والبوت مطفأ — الأدمن يفعّله بضغطة إن شاء.
+  //    ومفتاح «القنوات» webBotKnown يلغي ذلك: هم عملاء مهتمّون — تُفتح والبوت يعمل.
   let knownNonPlayer = false;
-  if (opts.channel === 'web' && !player) {
+  if (opts.channel === 'web' && !player && !transportSettings().webBotKnown) {
     const r: any = await db.execute(sql`SELECT 1 FROM wa_web_known WHERE phone = ${localPhone} LIMIT 1`).catch(() => null);
     knownNonPlayer = !!(r?.rows ?? r ?? [])[0];
   }

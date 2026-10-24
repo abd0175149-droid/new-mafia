@@ -64,11 +64,17 @@ router.put('/channels', authenticate, adminOnly, async (req: Request, res: Respo
       return res.status(409).json({ error: 'رقم الأعمال غير مهيّأ — لا يمكن تفعيل وضعٍ يرسل منه', code: 'WEB_NOT_CONFIGURED' });
     }
     const after = await saveTransportSettings(patch);
+    // 🤖 مفتاح البوت لغير اللاعبين المعروفين تبدّل ⟵ يُطبَّق على محادثاتهم القائمة (الاختيار اليدويّ محترم)
+    let knownBotChanged: number | null = null;
+    if (after.webBotKnown !== before.webBotKnown) {
+      const { applyKnownBotSetting } = await import('../services/wa-transport/web.history.js');
+      knownBotChanged = await applyKnownBotSetting(after.webBotKnown);
+    }
     const label = patch.mode && patch.mode !== before.mode
       ? `واتساب: تبديل الوضع ${MODE_AR[before.mode]} ← ${MODE_AR[after.mode]}`
       : 'واتساب: تعديل إعدادات القنوات';
-    await audit(req, 'rest:wa-channels', label, { before, after });
-    res.json({ success: true, ...(await snapshot()) });
+    await audit(req, 'rest:wa-channels', label, { before, after, knownBotChanged });
+    res.json({ success: true, ...(await snapshot()), knownBotChanged });
   } catch (e: any) { res.status(500).json({ error: e.message }); }
 });
 

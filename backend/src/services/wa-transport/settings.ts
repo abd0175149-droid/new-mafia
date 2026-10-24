@@ -29,6 +29,7 @@ export function normalizeSettings(raw: any): TransportSettings {
       bulk: typeof r.failover?.bulk === 'boolean' ? r.failover.bulk : d.failover.bulk,
     },
     webBot: typeof r.webBot === 'boolean' ? r.webBot : d.webBot,
+    webBotKnown: typeof r.webBotKnown === 'boolean' ? r.webBotKnown : d.webBotKnown,
     bulk: {
       dailyCap: num(r.bulk?.dailyCap, d.bulk.dailyCap, 0, 5000),
       hourlyCap: num(r.bulk?.hourlyCap, d.bulk.hourlyCap, 1, 1000),

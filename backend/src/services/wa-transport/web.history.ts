@@ -205,6 +205,26 @@ export async function importWebHistory(opts: { perChat?: number; maxChats?: numb
   }
 }
 
+/**
+ * مفتاح «القنوات» webBotKnown على المحادثات القائمة: يشغّل البوت (أو يطفئه) دفعةً على محادثات غير اللاعبين
+ * «المعروفين» لرقم الأعمال — ما عدا محادثةً آخرُ ضغطةٍ يدويّة عليها (🤖 في الوارد) عكسُ المطلوب: اختيار الموظّف يُحترم.
+ * لا يُرسل شيئاً — البوت يردّ حين يراسلون. يعيد عدد المحادثات التي تغيّرت.
+ */
+export async function applyKnownBotSetting(on: boolean): Promise<number> {
+  const db = getDB(); if (!db) return 0;
+  const r: any = await db.execute(sql`UPDATE wa_conversations c SET bot_enabled = ${on}, updated_at = NOW()
+    WHERE c.bot_enabled = ${!on} AND c.player_id IS NULL AND c.phone NOT LIKE 'lid:%'
+      AND EXISTS (SELECT 1 FROM wa_web_known k WHERE k.phone = c.phone)
+      AND NOT EXISTS (
+        SELECT 1 FROM (
+          SELECT DISTINCT ON (details->>'conversationId') details->>'conversationId' AS cid, (details->>'enabled')::boolean AS en
+            FROM staff_action_log WHERE action = 'rest:wa-bot-toggle'
+           ORDER BY details->>'conversationId', created_at DESC) t
+         WHERE t.cid = c.id::text AND t.en = ${!on})
+    RETURNING c.id`);
+  return (r?.rows ?? r ?? []).length;
+}
+
 /** هل هذا الرقم «معروفٌ» لرقم الأعمال وليس لاعباً؟ (فيُفتح بالبوت مطفأً) */
 export async function isKnownNonPlayer(localPhone: string): Promise<boolean> {
   const db = getDB(); if (!db) return false;

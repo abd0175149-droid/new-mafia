@@ -82,7 +82,10 @@ export default function ChannelsSection({ apiFetch }: { apiFetch: Fetcher }) {
     setSaving(true);
     try {
       const r = await apiFetch('/api/whatsapp/channels', { method: 'PUT', body: JSON.stringify(patch || draft) });
-      setD(r); setDraft(structuredClone(r.settings)); swalToast('حُفظت إعدادات القنوات', 'success');
+      setD(r); setDraft(structuredClone(r.settings));
+      swalToast(r.knownBotChanged != null
+        ? `حُفظت — ${r.settings.webBotKnown ? 'شُغّل' : 'أُطفئ'} الدون على ${r.knownBotChanged} محادثة لغير اللاعبين`
+        : 'حُفظت إعدادات القنوات', 'success');
     } catch (e: any) { swalToast(e.message, 'error'); }
     finally { setSaving(false); }
   };
@@ -189,6 +192,12 @@ export default function ChannelsSection({ apiFetch }: { apiFetch: Fetcher }) {
         <label className="flex items-center gap-2 mt-3 text-gray-300">
           <input type="checkbox" checked={!!draft.webBot} onChange={e => set('webBot', e.target.checked)} />
           الدون يردّ على رقم الأعمال <span className="text-gray-500 text-xs">(مطفأ = رسائل رقم الأعمال تُعرض فقط والموظّفون يردّون)</span>
+        </label>
+        <label className="flex items-start gap-2 mt-2 text-gray-300">
+          <input type="checkbox" className="mt-1" checked={!!draft.webBotKnown} onChange={e => set('webBotKnown', e.target.checked)} />
+          <span>الدون يردّ على غير اللاعبين في محادثات رقم الأعمال
+            <span className="block text-gray-500 text-xs leading-snug">مطفأ = محادثات رقم الأعمال القديمة لغير اللاعبين تُفتح والبوت مطفأ (موردون ومعارف). مفعّل = يردّ عليهم كعملاء.
+              يُطبَّق عند الحفظ على محادثاتهم القائمة أيضاً — ومن غيّرتَ بوته يدويّاً (🤖) يبقى على اختيارك.</span></span>
         </label>
       </div>
 
