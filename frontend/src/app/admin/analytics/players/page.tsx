@@ -62,7 +62,7 @@ const fmtDay = (s: string | null) => s ? new Date(s).toLocaleDateString('ar-EG',
 const isWarmLine = (s: any) => s === 'two_way' || s === 'has_chat';
 const LINE_BADGE: Record<string, { t: string; cls: string; title: string }> = {
   two_way: { t: '📇 راسَلنا', cls: 'bg-emerald-500/15 text-emerald-300 border-emerald-500/30', title: 'راسَلنا على خطّ الأعمال — إرساله إليه ليس محادثةً باردة' },
-  has_chat: { t: '📇 له محادثة', cls: 'bg-teal-500/15 text-teal-300 border-teal-500/30', title: 'له محادثة سابقة على خطّ الأعمال — ليس أوّل تواصل' },
+  has_chat: { t: '📇 منّا فقط', cls: 'bg-teal-500/15 text-teal-300 border-teal-500/30', title: 'في خيطه على خطّ الأعمال رسائلنا وحدها — لم يصلنا منه شيء فيما استرجعناه' },
 };
 // المتغيّرات المتاحة في القالب — تُستبدل بقيم اللاعب عند الإرسال
 const WA_VARS: { token: string; label: string; get: (p: any) => string }[] = [
@@ -123,8 +123,8 @@ export default function AnalyticsPlayersPage() {
   // 🎯 شريحة «لم يلعب آخر N فعاليّة» — فلتر عرض قابل للضبط
   const [unplayed, setUnplayed] = useState(false);
   const [unplayedN, setUnplayedN] = useState(10);
-  // 📇 فلتر «له محادثة مع خطّ الأعمال» — لحصر الإرسال بمن لسنا بادئين معه محادثةً باردة
-  const [lineWarm, setLineWarm] = useState(false);
+  // 📇 فلتر خطّ الأعمال: «راسَلنا» (أرسل لنا ولو مرّة — الأأمن) أو «له خيط» (راسلَنا أو راسلناه نحن)
+  const [lineF, setLineF] = useState<'' | 'two_way' | 'warm'>('');
   // 📤 رقم الأعمال مفعّل ⟵ الرسالة تخرج من النظام (لشخصٍ أو للمعروضين كلّهم) بدل فتح تطبيق واتساب
   const direct = useWaDirect();
   const [dsend, setDsend] = useState<{ items: DirectItem[]; title: string; label: string } | null>(null);
@@ -211,7 +211,8 @@ export default function AnalyticsPlayersPage() {
   const rows = (() => {
     let r = segmented as any[];
     if (segFilter) r = r.filter(p => p._seg.id === segFilter);
-    if (lineWarm) r = r.filter(p => isWarmLine(p.lineStatus)); // 📇 له محادثة مع خطّ الأعمال
+    if (lineF === 'two_way') r = r.filter(p => p.lineStatus === 'two_way'); // 📇 راسَلنا على خطّ الأعمال
+    else if (lineF === 'warm') r = r.filter(p => isWarmLine(p.lineStatus)); // 📇 له خيطٌ معنا
     if (unplayed) r = r.filter(p => Number(p.activitiesSince) >= unplayedN); // 🎯 لم يحضر آخر N فعاليّة
     if (sinceOn && sinceDate) r = r.filter(p => Number(p.acctCreatedNum) >= dateToNum(sinceDate));
     if (actsOn) r = r.filter(p => OPS[actsOp]?.(Number(p.actsAfterSignup), actsN));
@@ -231,7 +232,7 @@ export default function AnalyticsPlayersPage() {
   };
   const segLabel = [
     segFilter ? `شريحة: ${segList.find((x: any) => x.id === segFilter)?.name || segFilter}` : 'كلّ الشرائح',
-    lineWarm ? 'له محادثة معنا' : '',
+    lineF === 'two_way' ? 'راسَلنا' : lineF === 'warm' ? 'له خيطٌ معنا' : '',
     unplayed ? `لم يحضر آخر ${unplayedN}` : '', sinceOn && sinceDate ? `مُنشأ بعد ${sinceDate}` : '', q ? `بحث: ${q}` : '',
   ].filter(Boolean).join(' · ');
 
@@ -308,7 +309,8 @@ export default function AnalyticsPlayersPage() {
             <input value={q} onChange={e => setQ(e.target.value)} placeholder="🔍 ابحث باسم اللاعب أو رقم هاتفه…" className="flex-1 min-w-[220px] bg-gray-900/50 border border-gray-700/50 rounded-xl px-4 py-2.5 text-sm text-white outline-none focus:border-amber-500/50" />
             {segFilter && <button onClick={() => setSegFilter(null)} className="px-3 py-2 rounded-full text-xs border bg-amber-500/10 text-amber-400 border-amber-500/30">الكل ✕</button>}
             <button onClick={() => setShowTemplate(v => !v)} className={`px-3 py-2 rounded-xl text-xs border ${showTemplate ? 'bg-green-500/15 text-green-400 border-green-500/40' : 'bg-gray-800/40 text-gray-300 border-gray-700/40'}`}>💬 قالب الرسالة</button>
-            <button onClick={() => setLineWarm(v => !v)} title="اعرض فقط من راسَلنا أو له محادثة سابقة على خطّ الأعمال — لئلّا تبدأ محادثةً باردة" className={`px-3 py-2 rounded-xl text-xs border ${lineWarm ? 'bg-emerald-500/15 text-emerald-300 border-emerald-500/40' : 'bg-gray-800/40 text-gray-300 border-gray-700/40'}`}>{lineWarm ? '✓ ' : ''}📇 له محادثة معنا</button>
+            <button onClick={() => setLineF(v => v === 'two_way' ? '' : 'two_way')} title="اعرض فقط من أرسل لنا رسالةً واحدة على الأقلّ على رقم الأعمال (في أيّ وقت) — الأأمن للإرسال" className={`px-3 py-2 rounded-xl text-xs border ${lineF === 'two_way' ? 'bg-emerald-500/15 text-emerald-300 border-emerald-500/40' : 'bg-gray-800/40 text-gray-300 border-gray-700/40'}`}>{lineF === 'two_way' ? '✓ ' : ''}📇 راسَلنا</button>
+            <button onClick={() => setLineF(v => v === 'warm' ? '' : 'warm')} title="راسَلنا، أو راسلناه نحن من قبل ولو لم يردّ — ليس أوّل تواصل لكنّه ليس بالضرورة من طرفين" className={`px-3 py-2 rounded-xl text-xs border ${lineF === 'warm' ? 'bg-teal-500/15 text-teal-300 border-teal-500/40' : 'bg-gray-800/40 text-gray-300 border-gray-700/40'}`}>{lineF === 'warm' ? '✓ ' : ''}📇 له خيطٌ معنا</button>
             {direct && rows.length > 0 && (
               <button
                 onClick={() => {

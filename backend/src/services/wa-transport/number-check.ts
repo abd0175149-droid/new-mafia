@@ -41,9 +41,12 @@ export async function recordCheck(local: string, onWa: boolean, waId: string | n
     ON CONFLICT (phone) DO UPDATE SET on_wa = EXCLUDED.on_wa, wa_id = COALESCE(EXCLUDED.wa_id, wa_number_checks.wa_id), checked_at = NOW()`).catch(() => {});
 }
 
-/** من معرّف محادثة البوّابة (9627…@c.us) إلى الرقم المحلّيّ */
+/** من معرّف محادثة البوّابة (9627…@c.us) إلى الرقم المحلّيّ — ‏@lid معرّفٌ مستعار لا رقم ⟵ null
+ *  (كانت أرقامه تمرّ «دوليّةً» فتُسجَّل في سجلّ الجهات جهاتٍ وهميّة مكرّرة) */
 export function localFromChatId(chatId: string): string | null {
-  const d = String(chatId || '').split('@')[0].replace(/\D/g, '');
+  const [user, server = 'c.us'] = String(chatId || '').split('@');
+  if (server !== 'c.us' && server !== 's.whatsapp.net') return null;
+  const d = user.split(':')[0].replace(/\D/g, '');
   return d ? (normalizeAnyPhone(d)?.local || null) : null;
 }
 

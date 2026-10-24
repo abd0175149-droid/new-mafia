@@ -212,8 +212,17 @@ async function sendOne(job: any): Promise<void> {
     .returning({ id: waMessages.id, conversationId: waMessages.conversationId, status: waMessages.status, errorMessage: waMessages.errorMessage });
   if (u) { const { emitInbox } = await import('../whatsapp-inbox.service.js'); emitInbox('wa:status:update', u); }
   if (wamid) { const { flushPendingAcks } = await import('./web.inbound.js'); await flushPendingAcks(wamid); }
-  // 📇 أوّل صادرٍ نجح ⟵ خيطٌ قائم (لم يعُد بارداً) — بالرقم المحلّيّ من معرّف المحادثة
-  try { const { localFromChatId } = await import('./number-check.js'); const local = localFromChatId(c.chatId); if (local) { const { noteOutbound } = await import('./line-roster.js'); await noteOutbound(local, c.chatId); } } catch { /* تكميليّ */ }
+  // 📇 أوّل صادرٍ نجح ⟵ خيطٌ قائم (لم يعُد بارداً) — بالرقم المحلّيّ من معرّف المحادثة،
+  //    ولمعرّف ‏@lid من رقم المحادثة نفسها (لا من أرقام المعرّف المستعار)
+  try {
+    const { localFromChatId } = await import('./number-check.js');
+    let local = localFromChatId(c.chatId);
+    if (!local && u?.conversationId) {
+      const r: any = await db.execute(sql`SELECT phone FROM wa_conversations WHERE id = ${u.conversationId} AND phone NOT LIKE 'lid:%' LIMIT 1`);
+      local = (r?.rows ?? r)?.[0]?.phone || null;
+    }
+    if (local) { const { noteOutbound } = await import('./line-roster.js'); await noteOutbound(local, c.chatId); }
+  } catch { /* تكميليّ */ }
   // 📤 رسالة حجزٍ من صفحة الحجوزات: «أُرسلت» تُضبط الآن — عند خروجها فعلاً لا عند النقر
   if ((payload as any).reservationId) {
     const { markReservationSent } = await import('../wa-outreach.service.js');

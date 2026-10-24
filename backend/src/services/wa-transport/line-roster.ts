@@ -3,10 +3,12 @@
 // ══════════════════════════════════════════════════════
 // الركيزة الأساسيّة: جدولٌ واحد مفتاحه الرقم، يقول لكلّ رقمٍ مستوى قربه من خطّ الأعمال.
 // يُبنى من قائمة محادثات الخطّ (GET /chats)، ويتحدّث يوميّاً، وكلّ ما يُرسل في النظام يسأله:
-//   two_way  (راسلَنا)            inbound_at ≠ فارغ — أأمن إرسال
-//   has_chat (له محادثة)          chat_exists = true — خيطٌ قائم، ليست مراسلةً باردة
+//   two_way  (راسلَنا)            inbound_at ≠ فارغ — أرسل لنا ولو رسالةً واحدة في أيّ وقت (المباشر + التاريخ المسترجَع)
+//   has_chat (منّا فقط)           chat_exists بلا وارد — خيطٌ فيه رسائلنا وحدها، وينقسم في شاشة الجهات إلى:
+//       never   history_state = complete — التاريخ كاملٌ بين أيدينا: لم يراسلنا قطّ
+//       partial غير ذلك — تاريخٌ أقدم بقي على الهاتف لم يُسترجع، فلا نجزم
 //   on_whatsapp / no_whatsapp     ليس في السجلّ — من wa_number_checks
-// «دافئ» = two_way ∪ has_chat = جمهور الفلتر الآمن. و«بارد» = ليس دافئاً (سبب الحظر).
+// «دافئ» = two_way ∪ has_chat. و«بارد» = ليس دافئاً (سبب الحظر). والأأمن = two_way وحده.
 
 import { sql } from 'drizzle-orm';
 import { getDB } from '../../config/db.js';
@@ -64,20 +66,24 @@ export async function isColdLocal(local: string): Promise<boolean> {
 // الروافد: upsert من قائمة المحادثات، ومن الوارد، ومن الصادر
 // ══════════════════════════════════════════════════════
 async function upsert(local: string, patch: { waId?: string | null; chatExists?: boolean; inbound?: boolean; outbound?: boolean; lastChatAt?: Date | null; unread?: number | null; name?: string | null; source: string }): Promise<void> {
-  const db = getDB(); if (!db || !local) return;
-  const norm = local.startsWith('lid:') ? null : normalizeAnyPhone(local);
+  // معرّفٌ مستعار لم يُحلّ رقمه لا يطابقه أيّ فلترٍ بالرقم — يُسجَّل حين يُعرف الرقم لا قبله
+  const db = getDB(); if (!db || !local || local.startsWith('lid:')) return;
+  const norm = normalizeAnyPhone(local);
   const phone = norm?.local || local;
   const [pl] = norm?.isJordanian
     ? rowsOf(await db.execute(sql`SELECT id FROM players WHERE phone = ${phone} LIMIT 1`))
     : [];
-  await db.execute(sql`INSERT INTO wa_line_contacts (phone, wa_id, chat_exists, inbound_at, outbound_at, last_chat_at, unread, name, player_id, source, synced_at, updated_at)
+  await db.execute(sql`INSERT INTO wa_line_contacts (phone, wa_id, chat_exists, inbound_at, first_inbound_at, inbound_count, outbound_at, last_chat_at, unread, name, player_id, source, synced_at, updated_at)
     VALUES (${phone}, ${patch.waId ?? null}, ${patch.chatExists ?? false},
-            ${patch.inbound ? sql`NOW()` : sql`NULL`}, ${patch.outbound ? sql`NOW()` : sql`NULL`},
+            ${patch.inbound ? sql`NOW()` : sql`NULL`}, ${patch.inbound ? sql`NOW()` : sql`NULL`}, ${patch.inbound ? 1 : 0},
+            ${patch.outbound ? sql`NOW()` : sql`NULL`},
             ${patch.lastChatAt ?? null}, ${patch.unread ?? 0}, ${patch.name ?? null}, ${pl?.id ?? null}, ${patch.source}, NOW(), NOW())
     ON CONFLICT (phone) DO UPDATE SET
       wa_id = COALESCE(EXCLUDED.wa_id, wa_line_contacts.wa_id),
       chat_exists = wa_line_contacts.chat_exists OR EXCLUDED.chat_exists,
       inbound_at = ${patch.inbound ? sql`NOW()` : sql`wa_line_contacts.inbound_at`},
+      first_inbound_at = ${patch.inbound ? sql`COALESCE(wa_line_contacts.first_inbound_at, NOW())` : sql`wa_line_contacts.first_inbound_at`},
+      inbound_count = wa_line_contacts.inbound_count + ${patch.inbound ? 1 : 0},
       outbound_at = ${patch.outbound ? sql`NOW()` : sql`wa_line_contacts.outbound_at`},
       last_chat_at = GREATEST(wa_line_contacts.last_chat_at, EXCLUDED.last_chat_at),
       unread = COALESCE(EXCLUDED.unread, wa_line_contacts.unread),
@@ -154,20 +160,30 @@ export async function rosterStats(): Promise<any> {
       COUNT(*)::int AS total,
       COUNT(*) FILTER (WHERE inbound_at IS NOT NULL)::int AS two_way,
       COUNT(*) FILTER (WHERE inbound_at IS NULL AND chat_exists)::int AS has_chat,
+      COUNT(*) FILTER (WHERE inbound_at IS NULL AND chat_exists AND history_state = 'complete')::int AS never,
+      COUNT(*) FILTER (WHERE inbound_at IS NULL AND chat_exists AND history_state IS DISTINCT FROM 'complete')::int AS partial,
       COUNT(*) FILTER (WHERE player_id IS NOT NULL)::int AS players,
       COUNT(*) FILTER (WHERE player_id IS NULL)::int AS others
     FROM wa_line_contacts`));
-  const flag = rowsOf(await db.execute(sql`SELECT value FROM wa_runtime_flags WHERE key = 'line_roster_sync' LIMIT 1`))[0]?.value || null;
-  return { ...s, lastSync: flag, syncing };
+  const flags = rowsOf(await db.execute(sql`SELECT key, value FROM wa_runtime_flags WHERE key IN ('line_roster_sync', 'line_history_scan')`));
+  const flag = (k: string) => flags.find((f: any) => f.key === k)?.value || null;
+  return { ...s, lastSync: flag('line_roster_sync'), historyScan: flag('line_history_scan'), syncing };
 }
 
-export async function rosterList(o: { q?: string; status?: LineStatus | ''; players?: 'all' | 'players' | 'others'; limit?: number; offset?: number }): Promise<any> {
+/** حالة السطر في شاشة الجهات — أدقّ من LineStatus: «منّا فقط» تنقسم بحسب اكتمال التاريخ */
+const ROW_STATUS = sql`CASE WHEN lc.inbound_at IS NOT NULL THEN 'two_way'
+  WHEN lc.chat_exists AND lc.history_state = 'complete' THEN 'never'
+  WHEN lc.chat_exists THEN 'partial' ELSE 'unknown' END`;
+
+export async function rosterList(o: { q?: string; status?: 'two_way' | 'has_chat' | 'never' | 'partial' | ''; players?: 'all' | 'players' | 'others'; limit?: number; offset?: number }): Promise<any> {
   const db = getDB(); if (!db) return { rows: [], total: 0 };
   const conds: any[] = [];
   const q = String(o.q || '').trim();
   if (q) conds.push(sql`(lc.phone ILIKE ${'%' + q + '%'} OR lc.name ILIKE ${'%' + q + '%'})`);
   if (o.status === 'two_way') conds.push(sql`lc.inbound_at IS NOT NULL`);
   else if (o.status === 'has_chat') conds.push(sql`lc.inbound_at IS NULL AND lc.chat_exists`);
+  else if (o.status === 'never') conds.push(sql`lc.inbound_at IS NULL AND lc.chat_exists AND lc.history_state = 'complete'`);
+  else if (o.status === 'partial') conds.push(sql`lc.inbound_at IS NULL AND lc.chat_exists AND lc.history_state IS DISTINCT FROM 'complete'`);
   if (o.players === 'players') conds.push(sql`lc.player_id IS NOT NULL`);
   else if (o.players === 'others') conds.push(sql`lc.player_id IS NULL`);
   const where = conds.length ? sql`WHERE ${sql.join(conds, sql` AND `)}` : sql``;
@@ -176,7 +192,7 @@ export async function rosterList(o: { q?: string; status?: LineStatus | ''; play
   const [cnt] = rowsOf(await db.execute(sql`SELECT COUNT(*)::int AS n FROM wa_line_contacts lc ${where}`));
   const rows = rowsOf(await db.execute(sql`
     SELECT lc.phone, lc.name, lc.player_id, p.name AS player_name, lc.inbound_at, lc.chat_exists, lc.last_chat_at, lc.unread,
-      CASE WHEN lc.inbound_at IS NOT NULL THEN 'two_way' WHEN lc.chat_exists THEN 'has_chat' ELSE 'unknown' END AS status
+      lc.first_inbound_at, lc.inbound_count, lc.history_state, ${ROW_STATUS} AS status
     FROM wa_line_contacts lc LEFT JOIN players p ON p.id = lc.player_id
     ${where} ORDER BY GREATEST(lc.inbound_at, lc.last_chat_at) DESC NULLS LAST LIMIT ${limit} OFFSET ${offset}`));
   return { rows, total: Number(cnt?.n || 0), limit, offset };

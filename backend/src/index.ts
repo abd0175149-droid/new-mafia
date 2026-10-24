@@ -1895,6 +1895,12 @@ async function main() {
       `);
       await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_wa_line_warm ON wa_line_contacts (phone) WHERE inbound_at IS NOT NULL OR chat_exists`);
       await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_wa_line_player ON wa_line_contacts (player_id) WHERE player_id IS NOT NULL`);
+      // 📜 تاريخ الوارد الكامل (مسحُ كلّ رسائل الخطّ لا المباشر فقط): أوّل وارد، عدده، واكتمال التاريخ المفحوص
+      //   history_state: complete = لا رسائل أقدم على الهاتف · partial = تاريخٌ أقدم بقي على الهاتف · NULL = لم يُفحص
+      await db.execute(sql`ALTER TABLE wa_line_contacts ADD COLUMN IF NOT EXISTS first_inbound_at TIMESTAMP`).catch(() => {});
+      await db.execute(sql`ALTER TABLE wa_line_contacts ADD COLUMN IF NOT EXISTS inbound_count INTEGER DEFAULT 0 NOT NULL`).catch(() => {});
+      await db.execute(sql`ALTER TABLE wa_line_contacts ADD COLUMN IF NOT EXISTS history_state VARCHAR(10)`).catch(() => {});
+      await db.execute(sql`ALTER TABLE wa_line_contacts ADD COLUMN IF NOT EXISTS history_checked_at TIMESTAMP`).catch(() => {});
       // بذرٌ من المحادثات القائمة: راسلَنا (web_last_inbound_at) + خيطٌ قائم (web_chat_id/صادر)
       await db.execute(sql`INSERT INTO wa_line_contacts (phone, wa_id, chat_exists, inbound_at, last_chat_at, name, player_id, source, synced_at, updated_at)
         SELECT phone, web_chat_id, TRUE, web_last_inbound_at, GREATEST(web_last_inbound_at, last_message_at), NULLIF(display_name,''), player_id, 'seed', NOW(), NOW()

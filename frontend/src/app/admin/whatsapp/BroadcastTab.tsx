@@ -29,8 +29,8 @@ const API_URL = process.env.NEXT_PUBLIC_API_URL || '';   // `/uploads` من ال
 const LINE_OPTS: Array<{ key: '' | 'all' | 'warm' | 'two_way'; label: string }> = [
   { key: '', label: 'الافتراضيّ' },
   { key: 'all', label: 'الكلّ' },
-  { key: 'warm', label: 'له محادثة معنا' },
-  { key: 'two_way', label: 'راسَلنا فقط' },
+  { key: 'warm', label: 'له خيطٌ معنا (ولو منّا فقط)' },
+  { key: 'two_way', label: 'راسَلنا (في أيّ وقت)' },
 ];
 
 // ══════════════════════════════════════════════════════

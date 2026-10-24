@@ -25,7 +25,7 @@ const SKIP_AR: Record<string, string> = {
   optout: 'طلبوا إيقاف الرسائل', recent: 'تلقّوا رسالة فئةٍ مؤخّراً', invalid: 'أرقام غير صالحة',
   duplicate: 'مكرّرون', unreachable: 'لا قناة متاحة الآن', emptyText: 'بلا نصّ', notOnWhatsapp: 'ليس لهم واتساب', noChat: 'لا محادثة لهم مع خطّ الأعمال',
 };
-const LINE_AR: Record<string, string> = { all: 'الكلّ', warm: 'له محادثة معنا', two_way: 'راسلَنا فقط' };
+const LINE_AR: Record<string, string> = { all: 'الكلّ', warm: 'له خيطٌ معنا', two_way: 'راسلَنا (في أيّ وقت)' };
 
 export default function DirectSendDialog({ origin, items, label, title, onClose, onDone }: {
   origin: Origin;
@@ -102,7 +102,7 @@ export default function DirectSendDialog({ origin, items, label, title, onClose,
                 return <button key={k} onClick={() => setLineFilter(k)}
                   className={`px-2.5 py-1 rounded-lg font-bold border ${active ? 'bg-teal-500/15 text-teal-300 border-teal-500/40' : 'border-gray-800 text-gray-400 hover:text-white'}`}>{LINE_AR[k]}</button>;
               })}
-              {pv.byLine && <span className="text-gray-500">راسلَنا {pv.byLine.two_way} · له محادثة {pv.byLine.has_chat}{pv.byLine.cold ? ` · بارد ${pv.byLine.cold}` : ''}</span>}
+              {pv.byLine && <span className="text-gray-500">راسلَنا {pv.byLine.two_way} · منّا فقط {pv.byLine.has_chat}{pv.byLine.cold ? ` · بارد ${pv.byLine.cold}` : ''}</span>}
             </div>
             {Object.entries(pv.skipped || {}).some(([, n]) => Number(n) > 0) && (
               <div className="text-xs text-gray-400 flex flex-wrap gap-x-3 gap-y-1">
