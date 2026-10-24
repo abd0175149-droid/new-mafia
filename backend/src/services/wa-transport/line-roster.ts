@@ -12,7 +12,7 @@
 
 import { sql } from 'drizzle-orm';
 import { getDB } from '../../config/db.js';
-import { normalizeAnyPhone, isMissingName, firstRealName } from '../../utils/phone.util.js';
+import { normalizeAnyPhone, isMissingName, firstRealName, nameKey } from '../../utils/phone.util.js';
 import { isWebReady, webConfigured } from './router.js';
 import { jidKind } from './web.inbound.js';
 import * as gw from './openwa.client.js';
@@ -129,14 +129,14 @@ export async function syncLineContacts(opts: { max?: number } = {}): Promise<Syn
         if (phone) { local = normalizeAnyPhone(phone)?.local || null; st.resolved++; }
       }
       if (!local) continue;
-      await upsert(local, { waId: chatId, chatExists: true, lastChatAt: new Date(chatTs(c) || Date.now()), unread: Number(c.unreadCount || 0), name: firstRealName(c.name, c.contact?.pushname, c.contact?.pushName), source: 'chatlist' });
+      await upsert(local, { waId: chatId, chatExists: true, lastChatAt: new Date(chatTs(c) || Date.now()), unread: Number(c.unreadCount || 0), name: firstRealName(c.contact?.pushname, c.contact?.pushName, c.name), source: 'chatlist' });
       st.added++;
     }
     lastSync = { ...st, running: false };
     await saveFlag();
     console.log(`📇 WA line roster sync: ${st.added} contact(s) from ${st.chats} chat(s), ${st.resolved} lid resolved`);
     // لاعبٌ سجّل بعد أن راسلنا ⟵ يُربط؛ ثمّ الجدد بلا اسم: من واتساب
-    void linkConversationsToPlayers().catch(() => {}).then(() => fillMissingNames()).catch(() => {});
+    void fillMissingNames().catch(() => null).then(() => linkConversationsToPlayers()).catch(() => {});
   } catch (e: any) {
     st.error = String(e?.message || e);
     lastSync = { ...st, running: false };
@@ -159,12 +159,30 @@ async function saveFlag(): Promise<void> {
 // كلّ محادثةٍ غير مربوطة يُوحَّد رقمها ويُطابَق بأرقام اللاعبين الموحّدة (لا بالنصّ المخزّن: عربيّ-هنديّ، «+962 …»،
 // بلا صفر). عند المطابقة: player_id + اسم اللاعب اسماً للمحادثة + سجلّ جهات الخطّ. رقمٌ يطابق لاعبَين ⟵ لا ربط (يُعدّ).
 let linking = false;
-export interface LinkState { at: string; checked: number; linked: number; ambiguous: number; rosterLinked: number }
+export interface LinkState { at: string; checked: number; linked: number; ambiguous: number; rosterLinked: number; typoLinked: number; typoSkipped: number }
+
+/** رقمان يختلفان بخانةٍ واحدة (زيادة أو نقص أو تبديل) — أرقام لاعبين حُفظت بخطأ إملائيّ */
+function oneDigitApart(a: string, b: string): boolean {
+  if (a === b || Math.abs(a.length - b.length) > 1) return false;
+  if (a.length === b.length) { let d = 0; for (let i = 0; i < a.length; i++) if (a[i] !== b[i] && ++d > 1) return false; return d === 1; }
+  const [s, l] = a.length < b.length ? [a, b] : [b, a];
+  for (let i = 0; i < l.length; i++) if (l.slice(0, i) + l.slice(i + 1) === s) return true;
+  return false;
+}
+const latinDigits = (s: any) => String(s || '').replace(/[٠-٩]/g, d => String('٠١٢٣٤٥٦٧٨٩'.indexOf(d))).replace(/[۰-۹]/g, d => String('۰۱۲۳۴۵۶۷۸۹'.indexOf(d))).replace(/\D/g, '');
+/** الاسمان لشخصٍ واحد؟ تامّ بعد التطبيع، أو الاسم الأوّل نفسه (٣ أحرف فأكثر) */
+function sameName(a: string, b: string): boolean {
+  const A = nameKey(a), B = nameKey(b);
+  if (!A || !B) return false;
+  if (A === B) return true;
+  const fa = A.split(' ')[0], fb = B.split(' ')[0];
+  return fa.length >= 3 && fa === fb;
+}
 
 export async function linkConversationsToPlayers(): Promise<LinkState | null> {
   const db = getDB(); if (!db || linking) return null;
   linking = true;
-  const st: LinkState = { at: new Date().toISOString(), checked: 0, linked: 0, ambiguous: 0, rosterLinked: 0 };
+  const st: LinkState = { at: new Date().toISOString(), checked: 0, linked: 0, ambiguous: 0, rosterLinked: 0, typoLinked: 0, typoSkipped: 0 };
   try {
     const byPhone = new Map<string, Array<{ id: number; name: string }>>();
     for (const p of rowsOf(await db.execute(sql`SELECT id, name, phone FROM players WHERE deleted_at IS NULL AND COALESCE(phone, '') <> ''`))) {
@@ -187,6 +205,28 @@ export async function linkConversationsToPlayers(): Promise<LinkState | null> {
         WHERE id = ${c.id} AND player_id IS NULL`);
       st.linked++;
     }
+    // ٢) أرقام لاعبين محفوظة بخطأ (لا تتوحّد، أو أجنبيّةٌ بصيغةٍ محلّيّة): تُربط بدليلين معاً — رقم المحادثة يختلف
+    //    عنها بخانةٍ واحدة (أو يطابق أرقامها التسعة الأخيرة لأجنبيّ) **و**اسمه على واتساب يطابق اسم اللاعب.
+    //    مرشّحٌ واحد فقط وإلّا لا ربط؛ ولاعبٌ مربوطٌ أصلاً بمحادثةٍ أخرى لا يُعاد ربطه.
+    const linkedPids = new Set(rowsOf(await db.execute(sql`SELECT DISTINCT player_id FROM wa_conversations WHERE player_id IS NOT NULL`)).map((r: any) => Number(r.player_id)));
+    const odd = rowsOf(await db.execute(sql`SELECT id, name, phone FROM players WHERE deleted_at IS NULL AND COALESCE(phone, '') <> ''`))
+      .filter((p: any) => { const n = normalizeAnyPhone(p.phone); return (!n || (!n.isJordanian && latinDigits(p.phone).startsWith('0'))) && !linkedPids.has(Number(p.id)); });
+    const open = rowsOf(await db.execute(sql`SELECT id, phone, display_name FROM wa_conversations WHERE player_id IS NULL AND phone NOT LIKE 'lid:%'`));
+    for (const c of open) {
+      const cd = latinDigits(c.phone);
+      const hits = odd.filter((p: any) => {
+        const pd = latinDigits(p.phone);
+        if (pd.length < 8) return false;
+        const near = oneDigitApart(pd, cd) || (pd.startsWith('0') && !cd.startsWith('0') && cd.endsWith(pd.slice(1)) && cd.length - (pd.length - 1) <= 4);
+        return near && sameName(c.display_name, p.name);
+      });
+      if (hits.length !== 1) { if (hits.length > 1) st.typoSkipped++; continue; }
+      const pl = hits[0];
+      await db.execute(sql`UPDATE wa_conversations SET player_id = ${Number(pl.id)}, display_name = ${String(pl.name || '').slice(0, 150) || c.display_name}, updated_at = NOW()
+        WHERE id = ${c.id} AND player_id IS NULL`);
+      linkedPids.add(Number(pl.id));
+      st.typoLinked++;
+    }
     // سجلّ جهات الخطّ: من محادثته المربوطة، أو مباشرةً بالرقم الموحّد
     const r1: any = await db.execute(sql`UPDATE wa_line_contacts lc SET player_id = c.player_id, updated_at = NOW()
       FROM wa_conversations c WHERE c.phone = lc.phone AND c.player_id IS NOT NULL AND lc.player_id IS NULL RETURNING lc.phone`);
@@ -198,7 +238,11 @@ export async function linkConversationsToPlayers(): Promise<LinkState | null> {
     }
     await db.execute(sql`INSERT INTO wa_runtime_flags (key, value, updated_at) VALUES ('players_link', ${JSON.stringify(st)}::jsonb, NOW())
       ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = NOW()`).catch(() => {});
-    console.log(`🔗 WA link players: ${st.linked} conversation(s) linked of ${st.checked}, ${st.ambiguous} ambiguous, roster ${st.rosterLinked}`);
+    // ٣) المربوطون: اسم اللاعب اسماً للمحادثة إن كان المخزّن فارغاً أو «MC + رقم»
+    for (const r of rowsOf(await db.execute(sql`SELECT c.id, c.display_name, p.name FROM wa_conversations c JOIN players p ON p.id = c.player_id WHERE COALESCE(p.name, '') <> ''`))) {
+      if (isMissingName(r.display_name)) await db.execute(sql`UPDATE wa_conversations SET display_name = ${String(r.name).slice(0, 150)} WHERE id = ${r.id}`);
+    }
+    console.log(`🔗 WA link players: ${st.linked} by number + ${st.typoLinked} by typo+name of ${st.checked}, ${st.ambiguous} ambiguous, roster ${st.rosterLinked}`);
     return st;
   } finally {
     linking = false;
@@ -238,7 +282,8 @@ export async function fillMissingNames(): Promise<NamesFillState | null> {
       if (!jid) { st.noName++; continue; }
       try {
         const info = await gw.contactInfo(jid);   // متباعدٌ داخل العميل (bulk)
-        const name = firstRealName(info?.name, info?.pushName);
+        // الاسم على واتساب (يضعه صاحبه) أوّلاً؛ ثمّ المحفوظ على هاتف الأعمال ما لم يكن «MC + رقم»
+        const name = firstRealName(info?.pushName, info?.name);
         if (!name) { st.noName++; continue; }
         await db.execute(sql`UPDATE wa_conversations SET display_name = ${name}, updated_at = NOW() WHERE id = ${r.id}`);
         await db.execute(sql`UPDATE wa_line_contacts SET name = ${name}, updated_at = NOW() WHERE phone = ${r.phone}`);
@@ -249,9 +294,9 @@ export async function fillMissingNames(): Promise<NamesFillState | null> {
       }
     }
     // ٣) جهات السجلّ بلا اسم ولها محادثة صار لها اسم الآن
-    await db.execute(sql`UPDATE wa_line_contacts lc SET name = c.display_name, updated_at = NOW()
-      FROM wa_conversations c WHERE c.phone = lc.phone AND COALESCE(c.display_name, '') <> ''
-        AND (COALESCE(lc.name, '') = '' OR lc.name ~ '^[[:space:][:digit:]+().-]+$')`);
+    for (const r of rowsOf(await db.execute(sql`SELECT lc.phone, lc.name, c.display_name FROM wa_line_contacts lc JOIN wa_conversations c ON c.phone = lc.phone`))) {
+      if (isMissingName(r.name) && !isMissingName(r.display_name)) await db.execute(sql`UPDATE wa_line_contacts SET name = ${r.display_name}, updated_at = NOW() WHERE phone = ${r.phone}`);
+    }
     await db.execute(sql`INSERT INTO wa_runtime_flags (key, value, updated_at) VALUES ('line_names_fill', ${JSON.stringify(st)}::jsonb, NOW())
       ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = NOW()`).catch(() => {});
     console.log(`🪪 WA names fill: ${st.filled}/${st.candidates} from WhatsApp, ${st.players} player(s), ${st.noName} without a name${st.stopped ? ` — ${st.stopped}` : ''}`);

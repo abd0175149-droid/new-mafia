@@ -94,7 +94,21 @@ export function normalizeAnyPhone(input: string | null | undefined):
  *  بعلامات الاتّجاه والمسافات غير الكاسرة التي يضعها واتساب حول الأرقام */
 export function isMissingName(s: string | null | undefined): boolean {
   const t = String(s || '').trim();
-  return !t || /^[\s\d+()\-.\u00a0\u200e\u200f\u202a-\u202e\u2066-\u2069]+$/.test(t);
+  if (!t || /^[\s\d+()\-.\u00a0\u200e\u200f\u202a-\u202e\u2066-\u2069]+$/.test(t)) return true;
+  // «MC +962 7 8070 2381»: اختصارٌ حفظه الموظّفون على هاتف الأعمال + الرقم — ليس اسماً (≤٣ أحرف حول ٧ أرقام فأكثر)
+  const digits = (t.match(/\d/g) || []).length;
+  const letters = t.replace(/[\s\d+()\-.\u00a0\u200e\u200f\u202a-\u202e\u2066-\u2069]/g, '');
+  if (digits >= 7 && letters.length <= 3) return true;
+  // رموزٌ أو إيموجي بلا حرفٍ واحد ليست اسماً يُعرض
+  return !/\p{L}/u.test(t);
+}
+
+/** تطبيع اسمٍ للمقارنة: حروفٌ صغيرة، بلا تشكيل/تطويل، ألِفات وتاء مربوطة وياء موحّدة، مسافاتٌ مفردة */
+export function nameKey(s: string | null | undefined): string {
+  return String(s || '').toLowerCase()
+    .replace(/[\u064B-\u065F\u0670\u0640]/g, '')
+    .replace(/[أإآ]/g, 'ا').replace(/ة/g, 'ه').replace(/ى/g, 'ي')
+    .replace(/[^\p{L}\p{N}\s]/gu, ' ').replace(/\s+/g, ' ').trim();
 }
 /** أوّل اسمٍ حقيقيّ من مرشّحين (الاسم المحفوظ على هاتف الأعمال، ثمّ اسم الملفّ الشخصيّ) */
 export function firstRealName(...cands: Array<string | null | undefined>): string {

@@ -154,7 +154,8 @@ export async function importWebHistory(opts: { perChat?: number; maxChats?: numb
           ON CONFLICT (phone) DO UPDATE SET chat_id = EXCLUDED.chat_id, last_at = GREATEST(wa_web_known.last_at, EXCLUDED.last_at)`);
       }
       const [ex] = await db.select({ id: waConversations.id }).from(waConversations).where(eq(waConversations.phone, norm.local)).limit(1);
-      const name = firstRealName(c.name, c.contact?.pushname, c.contact?.pushName, c.contact?.name);
+      // الاسم على واتساب (ملفّه الشخصيّ) أوّلاً، ثمّ المحفوظ على هاتف الأعمال إن لم يكن «MC + رقم»
+      const name = firstRealName(c.contact?.pushname, c.contact?.pushName, c.name, c.contact?.name);
       const conv: any = await getOrCreateConversation(who.key, pl ? '' : name, { channel: 'web', webChatId: who.chatId, phoneVerified: true });
       if (!conv) { rep.skipped++; continue; }
       if (!ex) rep.created++;
