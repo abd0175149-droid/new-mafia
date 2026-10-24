@@ -45,9 +45,13 @@ export async function previewAudience(q: AudienceQuery) {
   // 🧪 موقع اختبار: فعاليّةٌ هناك بلا جمهور — لا معاينة ولا بثّ
   if (q.activityId && await isTestActivity(db, q.activityId)) return { total: 0, rows: [] as any[], capped: false };
   const f = q.filter || 'all';
-  // 📇 فلتر خطّ الأعمال: على رقم الأعمال وحده (ميتا لها نافذتها). all ⟵ بلا قيد
+  // 📇 فلتر خطّ الأعمال: على من يخرج عبر رقم الأعمال وحده (ميتا لها نافذتها). all ⟵ بلا قيد
+  // 🔴 كان الإعفاء بقناة آخر وارد (c.channel = 'cloud') لا بالقناة التي سيخرج منها فعلاً: في «مزدوج»
+  //    من آخر وارده على ميتا ونافذته مغلقة يخرج عبر رقم الأعمال — فكان يمرّ بلا فلتر (٧٩٦ بدل من راسلَنا).
+  //    الآن: الاستعلام يضيّق (نافذة ميتا مفتوحة أو يجتاز الفلتر)، والحكم النهائيّ بعد pickChannel أدناه.
   const lf = (q.lineFilter || transportSettings().lineDefault) as LineFilter;
-  const lineGate = lf === 'all' ? sql`TRUE` : sql`(c.channel = 'cloud' OR ${lineFilterSql(sql`c.phone`, lf)})`;
+  const lineOk = lf === 'all' ? sql`TRUE` : lineFilterSql(sql`c.phone`, lf);
+  const lineGate = lf === 'all' ? sql`TRUE` : sql`(COALESCE(c.cloud_last_inbound_at, c.last_inbound_at) > NOW() - INTERVAL '24 hours' OR ${lineOk})`;
   const extra = f === 'players' ? sql`AND c.player_id IS NOT NULL`
     : f === 'visitors' ? sql`AND c.player_id IS NULL`
     // 🧪 موقع اختبار: حجزٌ هناك لا يُدخل صاحبه في «حجز قادم»
@@ -64,7 +68,8 @@ export async function previewAudience(q: AudienceQuery) {
        AND NOT EXISTS (SELECT 1 FROM wa_messages m JOIN wa_broadcasts b ON b.id = ANY(${exBLit}::int[]) WHERE m.conversation_id = c.id AND m.source = 'broadcast' AND m.created_at >= b.created_at AND m.created_at <= COALESCE(b.finished_at, NOW()) + INTERVAL '1 minute')` : sql``;
   const r: any = await db.execute(sql`
     SELECT c.id, c.phone, c.wa_phone, c.channel, c.channel_pin, c.cloud_last_inbound_at, c.web_chat_id,
-           c.display_name, c.player_id, c.last_inbound_at, p.name AS player_name, p.rank_tier
+           c.display_name, c.player_id, c.last_inbound_at, p.name AS player_name, p.rank_tier,
+           ${lineOk} AS line_ok
       FROM wa_conversations c LEFT JOIN players p ON p.id = c.player_id
      WHERE ${reachableSql('c', 'bulk', 15)}
        AND c.phone NOT LIKE 'lid:%'
@@ -83,10 +88,12 @@ export async function previewAudience(q: AudienceQuery) {
     }, 'bulk').channel;
     return {
       id: Number(x.id), phone: x.phone, name: x.player_name || x.display_name || x.phone, isPlayer: !!x.player_id,
-      rank: x.rank_tier ? (RANK_AR[x.rank_tier] || '') : '', via,
+      rank: x.rank_tier ? (RANK_AR[x.rank_tier] || '') : '', via, lineOk: x.line_ok === true,
       windowClosesAt: via === 'cloud' && x.cloud_last_inbound_at ? new Date(new Date(x.cloud_last_inbound_at).getTime() + 24 * 3600e3).toISOString() : null,
     };
-  }).filter((x: any) => x.via && (!q.channel || q.channel === 'all' || x.via === q.channel));
+  })
+    // 📇 من يخرج عبر رقم الأعمال يجب أن يجتاز فلتر الخطّ — بالقناة الفعليّة لا بآخر وارد
+    .filter((x: any) => x.via && (x.via !== 'web' || x.lineOk) && (!q.channel || q.channel === 'all' || x.via === q.channel));
   void WINDOW_MARGIN;
   const cap = maxTargets();
   const byChannel = { cloud: rows.filter((x: any) => x.via === 'cloud').length, web: rows.filter((x: any) => x.via === 'web').length };
