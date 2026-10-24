@@ -84,6 +84,10 @@ const STATUS_META: Record<string, { label: string; color: string }> = {
   cancelled: { label: 'ملغى', color: '#9ca3af' },
 };
 const money = (n: number) => n.toFixed(2);
+/** السعر وعملته لا يفترقان آخرَ السطر — مسافةٌ غير فاصلة */
+const jod = (n: number) => `${money(n)} د.أ`;
+/** «صنفٌ واحد · صنفان · 3 أصناف · 11 صنفاً» */
+const countOf = (n: number) => n === 1 ? 'صنفٌ واحد' : n === 2 ? 'صنفان' : n <= 10 ? `${n} أصناف` : `${n} صنفاً`;
 const LONG_DESC = 40;
 const timeOf = (iso: string) => new Date(iso).toLocaleTimeString('ar-JO-u-nu-latn', { hour: 'numeric', minute: '2-digit' });
 
@@ -157,7 +161,7 @@ function Stepper({ qty, name, onInc, onDec, spread }: { qty: number; name: strin
 }
 
 const Price = ({ v, big }: { v: number; big?: boolean }) => (
-  <span className={`${big ? 'text-[17px]' : 'text-[15.5px]'} font-bold tabular-nums`} style={{ color: INK.hi }}>
+  <span className={`${big ? 'text-[17px]' : 'text-[15.5px]'} font-bold tabular-nums whitespace-nowrap`} style={{ color: INK.hi }}>
     {money(v)} <span className="text-[12.5px] font-medium" style={{ color: INK.low }}>د.أ</span>
   </span>
 );
@@ -381,7 +385,7 @@ function BundleWizard({ item, sectionOfId, onCancel, onConfirm }: {
           );
         })}
         {item.description && <p className="text-[13.5px] mt-2 leading-relaxed" style={{ color: INK.mid }}>{item.description}</p>}
-        {extra > 0 && <p className="text-[13.5px] mt-2 tabular-nums" style={{ color: AMBER.fg }}>زيادة اختيارك المعلَنة: +{money(extra)} د.أ</p>}
+        {extra > 0 && <p className="text-[13.5px] mt-2 tabular-nums" style={{ color: AMBER.fg }}>زيادة اختيارك المعلَنة: +{jod(extra)}</p>}
       </div>
     );
   }
@@ -389,14 +393,14 @@ function BundleWizard({ item, sectionOfId, onCancel, onConfirm }: {
   return (
     <Sheet
       title={stepTitle}
-      subtitle={`${item.name} · الخطوة ${i + 1} من ${steps.length} · ${money(unitPrice)} د.أ`}
+      subtitle={`الخطوة ${i + 1} من ${steps.length} · ${jod(unitPrice)} · ${item.name}`}
       progress={{ at: i, of: steps.length }}
       onClose={onCancel}
       footer={
         <>
           {st.t === 'done' ? (
             <button onClick={() => onConfirm(build())} className="flex-1 min-h-[48px] rounded-xl text-[15.5px] font-extrabold tabular-nums" style={goldBtn}>
-              أضف العرض · {money(unitPrice)} د.أ
+              أضف العرض · {jod(unitPrice)}
             </button>
           ) : (
             <button disabled={!stepDone(st, picks)} onClick={() => setStep(k => k + 1)}
@@ -421,11 +425,11 @@ function BundleWizard({ item, sectionOfId, onCancel, onConfirm }: {
 // ══════════════════════════════════════════════════════
 function DetailSheet({ item, onCancel, onAdd }: { item: Item; onCancel: () => void; onAdd: () => void }) {
   return (
-    <Sheet title={item.name} subtitle={`${money(parseFloat(item.price))} د.أ`} onClose={onCancel}
+    <Sheet title={item.name} subtitle={`${jod(parseFloat(item.price))}`} onClose={onCancel}
       footer={
         <>
           <button onClick={onAdd} className="flex-1 min-h-[48px] rounded-xl text-[15.5px] font-extrabold tabular-nums" style={amberBtn}>
-            أضف للسلّة · {money(parseFloat(item.price))} د.أ
+            أضف للسلّة · {jod(parseFloat(item.price))}
           </button>
           <button onClick={onCancel} className="px-5 min-h-[48px] rounded-xl text-[15px] font-bold" style={ghost}>إغلاق</button>
         </>
@@ -682,7 +686,7 @@ const OrderPanel = forwardRef<OrderPanelHandle, Props>(function OrderPanel({
 
   const addSimple = (it: Item) => {
     bumpLine({ key: `${it.id}#`, itemId: it.id, name: it.name, quantity: 1, options: [], slots: [], unitPrice: parseFloat(it.price), label: '', isBundle: false });
-    flash(`أُضيف ${it.name} · ${money(parseFloat(it.price))} د.أ`);
+    flash(`أُضيف ${it.name} · ${jod(parseFloat(it.price))}`);
   };
   const addWithOptions = (it: Item) => {
     const groups = it.optionGroups ?? [];
@@ -695,7 +699,7 @@ const OrderPanel = forwardRef<OrderPanelHandle, Props>(function OrderPanel({
     bumpLine({ key: `${it.id}#${JSON.stringify(options.map(o => `${o.groupKey}|${o.valueKey}`).sort())}`,
       itemId: it.id, name: it.name, quantity: 1, options, slots: [], unitPrice, label: labels.join(' · '), isBundle: false });
     setExpanded(null); setSel({});
-    flash(`أُضيف ${it.name} ${labels.join(' · ')} · ${money(unitPrice)} د.أ`);
+    flash(`أُضيف ${it.name} ${labels.join(' · ')} · ${jod(unitPrice)}`);
   };
   const expand = (it: Item) => {
     // ✅ «عادي» يُحدَّد مبدئيّاً في المجموعة الإلزاميّة الأحاديّة — النكهات لا تُمسّ
@@ -840,7 +844,7 @@ const OrderPanel = forwardRef<OrderPanelHandle, Props>(function OrderPanel({
           <button onClick={() => { setExpanded(null); setSel({}); }} className="px-4 min-h-[46px] rounded-xl text-[15px] font-bold" style={ghost}>إلغاء</button>
           <button disabled={missing.length > 0} onClick={() => addWithOptions(it)}
             className="flex-1 min-h-[46px] rounded-xl text-[15.5px] font-extrabold tabular-nums disabled:opacity-45" style={amberBtn}>
-            {missing.length > 0 ? `اختر ${missing[0].name}` : `أضف · ${money(parseFloat(it.price) + delta)} د.أ`}
+            {missing.length > 0 ? `اختر ${missing[0].name}` : `أضف · ${jod(parseFloat(it.price) + delta)}`}
           </button>
         </div>
       </div>
@@ -1024,7 +1028,7 @@ const OrderPanel = forwardRef<OrderPanelHandle, Props>(function OrderPanel({
           >
             <span className="w-10 h-10 rounded-xl flex items-center justify-center text-[17px] font-black shrink-0 tabular-nums" style={{ background: AMBER.bg, border: `1px solid ${AMBER.bd}`, color: AMBER.fg }}>{cartCount}</span>
             <span className="flex-1 min-w-0 flex flex-col">
-              <b className="text-[15.5px] font-extrabold tabular-nums" style={{ color: AMBER.fg }}>سلّتك · {money(cartTotal)} د.أ</b>
+              <b className="text-[15.5px] font-extrabold tabular-nums" style={{ color: AMBER.fg }}>سلّتك · {jod(cartTotal)}</b>
               <span className="text-[12.5px]" style={{ color: 'rgba(252,211,77,0.72)' }}>لم تُرسَل بعد</span>
             </span>
             <span className="min-h-[44px] px-4 rounded-xl text-[15px] font-extrabold shrink-0 flex items-center" style={amberBtn}>راجع وأرسل</span>
@@ -1047,12 +1051,12 @@ const OrderPanel = forwardRef<OrderPanelHandle, Props>(function OrderPanel({
 
       {/* ══ درج السلّة ══ */}
       {sheet === 'cart' && cart.length > 0 && (
-        <Sheet title="سلّتك" subtitle={`لم تُرسَل بعد — ${cartCount} أصناف · ${money(cartTotal)} د.أ`} subtitleWarn
+        <Sheet title="سلّتك" subtitle={`لم تُرسَل بعد — ${countOf(cartCount)} · ${jod(cartTotal)}`} subtitleWarn
           onClose={() => setSheet(null)}
           footer={
             <>
               <button onClick={submit} disabled={sending} className="flex-1 min-h-[48px] rounded-xl text-[15.5px] font-extrabold tabular-nums disabled:opacity-50" style={amberBtn}>
-                {sending ? 'جارٍ الإرسال…' : `إرسال الطلب · ${money(cartTotal)} د.أ`}
+                {sending ? 'جارٍ الإرسال…' : `إرسال الطلب · ${jod(cartTotal)}`}
               </button>
               <button onClick={() => setSheet(null)} className="px-5 min-h-[48px] rounded-xl text-[15px] font-bold" style={ghost}>متابعة</button>
             </>
@@ -1080,7 +1084,7 @@ const OrderPanel = forwardRef<OrderPanelHandle, Props>(function OrderPanel({
 
       {/* ══ قبل الإغلاق والسلّة ممتلئة ══ */}
       {sheet === 'leave' && (
-        <Sheet title="سلّتك لم تُرسَل" subtitle={`${cartCount} أصناف · ${money(cartTotal)} د.أ`} subtitleWarn onClose={() => setSheet(null)}
+        <Sheet title="سلّتك لم تُرسَل" subtitle={`${countOf(cartCount)} · ${jod(cartTotal)}`} subtitleWarn onClose={() => setSheet(null)}
           footer={
             <>
               <button onClick={() => setSheet('cart')} className="flex-1 min-h-[48px] rounded-xl text-[15.5px] font-extrabold" style={amberBtn}>راجع وأرسل</button>
