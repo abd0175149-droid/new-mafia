@@ -1,23 +1,22 @@
 'use client';
 
 // ══════════════════════════════════════════════════════
-// 🍽️ لوحة المنيو — تصميم «الرفّ» (قرار 2026-09-09)
+// 🍽️ لوحة المنيو — «الرفّ» بالبلاطات المكبّرة (قرار المالك 2026-10-24، المقترح ب)
 //
-// 🧭 البنية: رفٌّ عموديٌّ ثابت على اليمين يحمل الأقسام كلّها (العروض أوّلاً)،
-//    وبلاطاتٌ بعمودين على اليسار للقسم المختار. أوّل صنفٍ على بعد ترويسةٍ
-//    واحدة (~٥٦ بكسل) — لا تبويبات ولا شرائح لاصقة ولا بحثٍ دائم.
-// ⚙️ الصنف ذو الخيارات يتّسع في مكانه (يمتدّ على العمودين) ويُظهر نكهاته
-//    أزراراً بارتفاعٍ ≥ ٤٠ بكسل، ثمّ يُضاف بنقرة. لا ورقة فوق القائمة للأرجيلة.
-// 🎁 العرض يُركَّب بمُركِّبٍ متدرّج: خطوةٌ لكلّ قرار (نكهة ← مشروب ← نكهة
-//    المشروب ← مراجعة) بدل ورقةٍ واحدةٍ طويلةٍ تحوي ٢٥ مرشّحاً وثماني نكهات.
-// 🧾 «طلباتي» ورقةٌ من أيقونة الترويسة (بشارة العدد)، وفيها خدمة الأرجيلة.
+// 🧭 البنية: رفٌّ عموديٌّ ثابت على اليمين بأسماء الأقسام وحدها (العروض أوّلاً)،
+//    وبلاطاتٌ بعمودين للقسم المختار. البلاطة: اسم ١٥ · وصف ١٢٫٥ · سعر ١٥٫٥ ثمّ
+//    زرٌّ بعرضها (٤٤ بكسل). لا نصّ تحت ١٢٫٥ بكسل ولا زرّ تحت ٤٤.
+// ⚙️ الصنف ذو الخيارات يتّسع في مكانه على العمودين، والشبكة `grid-flow-row-dense`
+//    فلا تبقى خانةٌ فارغة خلفه، ثمّ يُمرَّر إلى العين داخل اللوحة لا الصفحة.
+// 🎁 العرض يُركَّب بمُركِّبٍ متدرّج: خطوةٌ لكلّ قرار؛ والمرشّحون الكثر يُجمَعون بأقسامهم.
+// 🧾 «طلباتي» ورقةٌ من أيقونة الترويسة، وفيها خدمة الأرجيلة ولافتة «وصل طلبك».
 // 📖 وضعان: mode='order' (الرئيسيّة/اللعبة — يحتاج سياقاً من الخادم) و
 //    mode='browse' (استعراضٌ للقراءة قبل الحجز — النقطة العامّة بلا مصادقة).
 //    العارض واحدٌ للسطوح الثلاثة؛ لا يتفرّع عارضٌ ثانٍ في صفحة الألعاب.
 // 🕒 بلا سياقٍ لكن بحجزٍ قادم: الخادم يعيد next (المكان وموعد الفتح) فتُعرض
 //    الرسالة الصحيحة ويُتاح تصفّح المنيو للقراءة — لا شاشة فارغة.
 //
-// 🔴 دروسٌ محفوظة من النسخة السابقة (لا تُكسر):
+// 🔴 دروسٌ محفوظة (لا تُكسر):
 //    - حقول الإدخال بحجم ١٦ بكسل: أصغر من ذلك يُقرّب سفاري الشاشة عند
 //      التركيز فينزاح التخطيط الثابت وتختفي الأزرار السفليّة.
 //    - ارتفاع الصفحة الكاملة من صنف CSS (fnb-page-h) يحمل سطر 100vh
@@ -26,13 +25,17 @@
 //      (visualViewport) كي لا يختفي زرّ الإرسال خلفها.
 //    - مفتاح السلّة = صنف + توليفة الخيارات؛ توليفتان = سطران.
 //    - مفتاح تكرار الإرسال يثبت عبر إعادة المحاولة ويتجدّد مع تغيّر السلّة.
+//    - البحث يطبّع التشكيل والهمزة: «تركية» تجد «تركيّة» و«اسبريسو» تجد «إسبريسو».
+//    - الإغلاق والسلّة غير فارغة يسأل أوّلاً (requestClose) — لمسةٌ خارج الورقة
+//      داخل اللعبة كانت تمسح السلّة بلا كلمة.
+//    - الأرقام لاتينيّة في المنيو كلّه — لا «3» في الشريط و«٣ أصناف» في الدرج.
 // ══════════════════════════════════════════════════════
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { AnimatePresence, motion } from 'framer-motion';
+import { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState } from 'react';
+import { AnimatePresence, MotionConfig, motion } from 'framer-motion';
 import { usePlayer } from '@/context/PlayerContext';
 import { freshFixForGate } from './LocationGate';
-import { IcoFire, IcoPlate, IcoReceipt, IcoSearch, IcoTool, IcoX, sectionIcon } from './fnb/icons';
+import { IcoFire, IcoPlate, IcoReceipt, IcoSearch, IcoTool, IcoX } from './fnb/icons';
 
 // ── الأنواع (كما يبنيها الخادم) ─────────────────────────
 interface OptionValue { key: string; name: string; priceDelta: number }
@@ -70,38 +73,45 @@ interface CartLine {
   label: string;
   isBundle: boolean;
 }
-interface Section { key: string; short: string; title: string; isPkg: boolean; items: Item[] }
+interface Section { key: string; short: string; parent: string; isPkg: boolean; items: Item[] }
+/** يستدعيه المستضيف بدل إغلاق اللوحة مباشرةً — فيسأل إن كانت السلّة غير فارغة */
+export interface OrderPanelHandle { requestClose: () => void }
 
 const STATUS_META: Record<string, { label: string; color: string }> = {
-  new: { label: 'بانتظار المكان', color: '#8CC1F2' },
+  new: { label: 'وصل للمكان · بانتظار القبول', color: '#8CC1F2' },
   preparing: { label: 'قيد التحضير', color: '#fbbf24' },
   delivered: { label: 'تمّ التسليم', color: '#4ade80' },
-  cancelled: { label: 'ملغى', color: '#6b7280' },
+  cancelled: { label: 'ملغى', color: '#9ca3af' },
 };
 const money = (n: number) => n.toFixed(2);
 const LONG_DESC = 40;
-const AR_DIGITS = (s: string | number) => String(s).replace(/\d/g, d => '٠١٢٣٤٥٦٧٨٩'[+d]);
+const timeOf = (iso: string) => new Date(iso).toLocaleTimeString('ar-JO-u-nu-latn', { hour: 'numeric', minute: '2-digit' });
 
-// ألوان اللوحة — كهرمانيّ التطبيق للفعل، ذهبيّه للعروض، ودلاليّ للحالات
-const AMBER = { bg: 'rgba(251,191,36,0.14)', bd: 'rgba(251,191,36,0.45)', fg: '#fcd34d' };
-const GOLD = { bg: 'rgba(197,160,89,0.12)', bd: 'rgba(197,160,89,0.45)', fg: '#e7cf8d' };
+// ألوان اللوحة — كهرمانيّ التطبيق للفعل، ذهبيّه للعروض، ودلاليّ للحالات؛
+// والنصّ بثلاث درجاتٍ دافئة (أخفتها ≥ ٤٫٥:١ على #050505).
+const AMBER = { bg: 'rgba(251,191,36,0.13)', bd: 'rgba(251,191,36,0.46)', fg: '#fcd34d' };
+const GOLD = { bg: 'rgba(197,160,89,0.12)', bd: 'rgba(197,160,89,0.46)', fg: '#e7cf8d' };
+const INK = { hi: '#f3eee6', mid: '#c4bdb1', low: '#958e83' };
 const goldBtn = { background: 'linear-gradient(135deg, #d9b563, #a7833a)', color: '#150f04' };
+const amberBtn = { background: 'linear-gradient(135deg, #f59e0b, #d97706)', color: '#1a1003' };
+const ghost = { background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.12)', color: INK.mid };
 
 // ══════════════════════════════════════════════════════
 // أدوات صغيرة
 // ══════════════════════════════════════════════════════
 const hasOpts = (it: Item) => (it.optionGroups?.length ?? 0) > 0;
-/** «٨ نكهات» أنفع من «نكهة الأرجيلة» عندما تكون المجموعة واحدة */
-function optionHint(it: Item) {
-  const gs = it.optionGroups ?? [];
-  if (gs.length === 0) return '';
-  if (gs.length === 1) {
-    const n = gs[0].name.replace(/^نوع\s+/, '').replace(/^نكهة\s+/, 'نكهات ');
-    return `${AR_DIGITS(gs[0].values.length)} ${n}`;
-  }
-  return gs.map(g => g.name).join(' · ');
+/** سطر البلاطة: الوصف المكتوب، وإلّا نكهات الصنف نفسها — «لوتس · أوريو · كيندر» تُعرف بالعين، «٣ نكهات» لا */
+function subOf(it: Pick<Item, 'description' | 'optionGroups'>) {
+  if (it.description) return it.description;
+  const vals = (it.optionGroups ?? []).flatMap(g => g.values.map(v => v.name));
+  if (!vals.length) return '';
+  return vals.slice(0, 4).join(' · ') + (vals.length > 4 ? ` و${vals.length - 4} غيرها` : '');
 }
-const shortOf = (cat: string, sub: string) => (sub || cat || 'المنيو');
+/** تطبيعٌ للبحث: بلا تشكيلٍ ولا تطويل، والهمزات ألفاً، والتاء المربوطة هاءً، والمقصورة ياءً */
+const norm = (s: string) => (s || '').normalize('NFKC')
+  .replace(/[ً-ٰٟـ]/g, '')
+  .replace(/[أإآٱ]/g, 'ا').replace(/ة/g, 'ه').replace(/ى/g, 'ي').replace(/ؤ/g, 'و').replace(/ئ/g, 'ي')
+  .toLowerCase();
 
 /** ذيلٌ يرتفع مع لوحة المفاتيح — iOS لا يُصغّر dvh عند فتحها، فنقيس visualViewport */
 function useKeyboardInset() {
@@ -117,6 +127,41 @@ function useKeyboardInset() {
   return kb;
 }
 
+/** زرّ أيقونةٍ في الترويسة — ٤٤ بكسل */
+function IconBtn({ label, onClick, active, children, badge }: {
+  label: string; onClick: () => void; active?: boolean; children: React.ReactNode; badge?: number;
+}) {
+  return (
+    <button onClick={onClick} aria-label={label} aria-pressed={active}
+      className="shrink-0 w-11 h-11 rounded-full flex items-center justify-center relative"
+      style={active ? { background: AMBER.bg, border: `1px solid ${AMBER.bd}`, color: AMBER.fg } : { background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.12)', color: INK.mid }}>
+      {children}
+      {!!badge && (
+        <span className="absolute -top-0.5 -left-0.5 min-w-[18px] h-[18px] px-1 rounded-full text-[11px] font-black flex items-center justify-center text-black tabular-nums" style={{ background: '#fbbf24' }}>{badge}</span>
+      )}
+    </button>
+  );
+}
+
+/** عدّاد ± — زرّان ٤٤ بكسل يسمّيان الصنف لقارئ الشاشة */
+function Stepper({ qty, name, onInc, onDec, spread }: { qty: number; name: string; onInc: () => void; onDec: () => void; spread?: boolean }) {
+  return (
+    <div className={`flex items-center gap-1 ${spread ? 'justify-between w-full' : ''}`}>
+      <button onClick={onInc} aria-label={`واحد آخر من ${name}`} className="w-11 h-11 rounded-xl text-xl font-bold flex items-center justify-center"
+        style={{ background: AMBER.bg, border: `1px solid ${AMBER.bd}`, color: AMBER.fg }}>+</button>
+      <b className="min-w-[28px] text-center text-white text-[17px] tabular-nums">{qty}</b>
+      <button onClick={onDec} aria-label={`واحد أقلّ من ${name}`} className="w-11 h-11 rounded-xl text-xl font-bold flex items-center justify-center text-white"
+        style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.12)' }}>−</button>
+    </div>
+  );
+}
+
+const Price = ({ v, big }: { v: number; big?: boolean }) => (
+  <span className={`${big ? 'text-[17px]' : 'text-[15.5px]'} font-bold tabular-nums`} style={{ color: INK.hi }}>
+    {money(v)} <span className="text-[12.5px] font-medium" style={{ color: INK.low }}>د.أ</span>
+  </span>
+);
+
 // ══════════════════════════════════════════════════════
 // ورقةٌ سفليّة: ترويسةٌ وذيلٌ ثابتان وجسمٌ متمرّر
 // ══════════════════════════════════════════════════════
@@ -125,32 +170,38 @@ function Sheet({ title, subtitle, subtitleWarn, onClose, children, footer, progr
   children: React.ReactNode; footer?: React.ReactNode; progress?: { at: number; of: number };
 }) {
   const kb = useKeyboardInset();
+  const closeRef = useRef(onClose);
+  closeRef.current = onClose;
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') closeRef.current(); };
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, []);
   return (
     // 🔴 `fixed` لا `absolute` — انظر ترويسة الملفّ
     <div className="fixed inset-0 z-[60] flex items-end justify-center" style={{ background: 'rgba(0,0,0,0.78)', paddingBottom: kb }}
       onClick={onClose} dir="rtl">
       <motion.div
+        role="dialog" aria-modal="true" aria-label={title}
         initial={{ y: 60, opacity: 0.6 }} animate={{ y: 0, opacity: 1 }}
         transition={{ type: 'spring', damping: 26, stiffness: 320 }}
         className="w-full max-w-lg max-h-[92%] flex flex-col rounded-t-3xl border-t border-white/12"
         style={{ background: '#0b0b0b' }}
         onClick={e => e.stopPropagation()}
       >
-        <div className="shrink-0 px-4 pt-3 pb-2.5 border-b border-white/7">
+        <div className="shrink-0 px-4 pt-3 pb-3 border-b border-white/7">
           <div className="w-11 h-1.5 rounded-full bg-white/20 mx-auto mb-3" />
           <div className="flex items-start gap-2.5">
             <div className="flex-1 min-w-0">
-              <h3 className="text-white text-[15px] font-bold truncate">{title}</h3>
+              <h3 className="text-white text-[18px] font-extrabold leading-snug">{title}</h3>
               {subtitle && (
-                <p className="text-[10.5px] mt-0.5" style={{ color: subtitleWarn ? '#fcd34d' : '#8d8d8d' }}>{subtitle}</p>
+                <p className="text-[13.5px] mt-0.5 tabular-nums" style={{ color: subtitleWarn ? AMBER.fg : INK.low }}>{subtitle}</p>
               )}
             </div>
-            <button onClick={onClose} aria-label="إغلاق"
-              className="shrink-0 w-8 h-8 rounded-full text-gray-400 flex items-center justify-center"
-              style={{ background: 'rgba(255,255,255,0.07)', border: '1px solid rgba(255,255,255,0.12)' }}><IcoX size={13} /></button>
+            <IconBtn label="إغلاق" onClick={onClose}><IcoX size={15} /></IconBtn>
           </div>
           {progress && (
-            <div className="flex gap-1 mt-2.5">
+            <div className="flex gap-1 mt-3">
               {Array.from({ length: progress.of }).map((_, k) => (
                 <i key={k} className="flex-1 h-[3px] rounded-full"
                   style={{ background: k < progress.at ? '#d9b563' : k === progress.at ? '#f3dea3' : 'rgba(255,255,255,0.12)' }} />
@@ -168,7 +219,7 @@ function Sheet({ title, subtitle, subtitleWarn, onClose, children, footer, progr
   );
 }
 
-/** بلاطات اختيارٍ كبيرة — هدف لمسٍ ≥ ٤٤ بكسل */
+/** بلاطات اختيارٍ كبيرة — هدف لمسٍ ≥ ٥٢ بكسل، والاسم يلتفّ ولا يُقصّ */
 function Tiles({ values, selected, onPick, cols = 2 }: {
   values: { key: string; name: string; sub?: string; priceDelta?: number }[]; selected: string[]; onPick: (k: string) => void; cols?: number;
 }) {
@@ -177,14 +228,14 @@ function Tiles({ values, selected, onPick, cols = 2 }: {
       {values.map(v => {
         const on = selected.includes(v.key);
         return (
-          <button key={v.key} onClick={() => onPick(v.key)}
-            className="rounded-xl px-2.5 py-3 min-h-[50px] text-[13.5px] font-bold text-center leading-tight"
+          <button key={v.key} onClick={() => onPick(v.key)} aria-pressed={on}
+            className="rounded-xl px-2.5 py-2.5 min-h-[52px] text-[14.5px] font-bold text-center leading-snug"
             style={on
-              ? { background: GOLD.bg, border: `1px solid ${GOLD.bd}`, color: GOLD.fg }
-              : { background: 'rgba(255,255,255,0.045)', border: '1px solid rgba(255,255,255,0.09)', color: '#e5e5e5' }}>
+              ? { background: GOLD.bg, border: `1px solid ${GOLD.bd}`, color: '#f3dea3' }
+              : { background: 'rgba(255,255,255,0.045)', border: '1px solid rgba(255,255,255,0.1)', color: INK.hi }}>
             {v.name}
             {(v.sub || (v.priceDelta ?? 0) > 0) && (
-              <span className="block text-[10px] font-medium mt-0.5" style={{ color: on ? '#d7bf86' : '#9a9a9a' }}>
+              <span className="block text-[12.5px] font-medium mt-0.5 tabular-nums" style={{ color: on ? '#d7bf86' : INK.low }}>
                 {v.sub}{v.sub && (v.priceDelta ?? 0) > 0 ? ' · ' : ''}{(v.priceDelta ?? 0) > 0 ? `+${money(v.priceDelta!)}` : ''}
               </span>
             )}
@@ -227,8 +278,12 @@ const stepDone = (st: Step, picks: Picks) =>
   : st.t === 'opt' ? (!st.g.isRequired || !!picks[st.s.i]?.options?.[st.g.key])
   : true;
 const NONE = '__none';
+/** مرشّحون كثر (٣٦ مشروباً في عرض Best View) يُجمَعون بأقسامهم من المنيو نفسه */
+const GROUP_CANDIDATES_FROM = 9;
 
-function BundleWizard({ item, onCancel, onConfirm }: { item: Item; onCancel: () => void; onConfirm: (line: CartLine) => void }) {
+function BundleWizard({ item, sectionOfId, onCancel, onConfirm }: {
+  item: Item; sectionOfId: (id: number) => string; onCancel: () => void; onConfirm: (line: CartLine) => void;
+}) {
   const slots = item.slots ?? [];
   const [picks, setPicks] = useState<Picks>(() => {
     const init: Picks = {};
@@ -280,11 +335,28 @@ function BundleWizard({ item, onCancel, onConfirm }: { item: Item; onCancel: () 
   if (st.t === 'choice') {
     stepTitle = st.s.label;
     const cur = picks[st.s.i]?.menuItemId;
+    const tile = (f: typeof st.s.from[number]) => ({ key: String(f.menuItemId), name: f.name, sub: f.optionGroups.length ? subOf({ description: '', optionGroups: f.optionGroups }) : undefined });
+    const groups = new Map<string, typeof st.s.from>();
+    for (const f of st.s.from) {
+      const g = sectionOfId(f.menuItemId);
+      groups.set(g, [...(groups.get(g) ?? []), f]);
+    }
+    const pick = (k: string) => setChoice(st.s, Number(k));
     body = (
       <>
-        {st.s.note && <p className="text-[11px] text-gray-500 mb-2">{st.s.note}</p>}
-        <Tiles values={st.s.from.map(f => ({ key: String(f.menuItemId), name: f.name, sub: f.optionGroups.length ? optionHint({ optionGroups: f.optionGroups } as Item) : undefined }))}
-          selected={cur ? [String(cur)] : []} onPick={k => setChoice(st.s, Number(k))} />
+        {st.s.note && <p className="text-[13.5px] mb-2.5" style={{ color: INK.low }}>{st.s.note}</p>}
+        {st.s.from.length >= GROUP_CANDIDATES_FROM && groups.size > 1 ? (
+          <div className="flex flex-col gap-4">
+            {Array.from(groups.entries()).map(([g, fs]) => (
+              <div key={g}>
+                <p className="text-[14px] font-bold mb-2" style={{ color: GOLD.fg }}>{g}</p>
+                <Tiles values={fs.map(tile)} selected={cur ? [String(cur)] : []} onPick={pick} />
+              </div>
+            ))}
+          </div>
+        ) : (
+          <Tiles values={st.s.from.map(tile)} selected={cur ? [String(cur)] : []} onPick={pick} />
+        )}
       </>
     );
   } else if (st.t === 'opt') {
@@ -296,45 +368,45 @@ function BundleWizard({ item, onCancel, onConfirm }: { item: Item; onCancel: () 
   } else {
     stepTitle = 'راجع العرض';
     body = (
-      <div className="rounded-2xl p-3" style={{ background: GOLD.bg, border: `1px solid ${GOLD.bd}` }}>
+      <div className="rounded-2xl p-3.5" style={{ background: GOLD.bg, border: `1px solid ${GOLD.bd}` }}>
         {slots.map(s => {
           const vals = groupsOf(s, picks).map(g => g.values.find(v => v.key === picks[s.i]?.options?.[g.key])?.name).filter(Boolean);
           const locked = s.kind === 'fixed' ? Object.values(s.lockedOptions) : [];
           return (
-            <div key={s.i} className="flex items-center gap-2 py-2 border-b border-dashed border-white/10 last:border-0">
+            <div key={s.i} className="flex items-center gap-2 py-2.5 border-b border-dashed border-white/10 last:border-0">
               <span style={{ color: '#d9b563' }}>✓</span>
-              <b className="flex-1 text-[13px] text-white">{nameOf(s, picks)}{s.qty > 1 ? ` ×${s.qty}` : ''}</b>
-              <small className="text-[11px]" style={{ color: '#d7bf86' }}>{[...locked, ...vals].join(' · ')}</small>
+              <b className="flex-1 text-[15px] text-white">{nameOf(s, picks)}{s.qty > 1 ? ` ×${s.qty}` : ''}</b>
+              <small className="text-[13px]" style={{ color: '#d7bf86' }}>{[...locked, ...vals].join(' · ')}</small>
             </div>
           );
         })}
-        {item.description && <p className="text-[11px] text-gray-400 mt-2 leading-relaxed">{item.description}</p>}
-        {extra > 0 && <p className="text-[11px] mt-2" style={{ color: '#fcd34d' }}>زيادة اختيارك المعلَنة: +{money(extra)} د.أ</p>}
+        {item.description && <p className="text-[13.5px] mt-2 leading-relaxed" style={{ color: INK.mid }}>{item.description}</p>}
+        {extra > 0 && <p className="text-[13.5px] mt-2 tabular-nums" style={{ color: AMBER.fg }}>زيادة اختيارك المعلَنة: +{money(extra)} د.أ</p>}
       </div>
     );
   }
 
   return (
     <Sheet
-      title={item.name}
-      subtitle={`الخطوة ${AR_DIGITS(i + 1)} من ${AR_DIGITS(steps.length)} — ${stepTitle} · ${money(unitPrice)} د.أ`}
+      title={stepTitle}
+      subtitle={`${item.name} · الخطوة ${i + 1} من ${steps.length} · ${money(unitPrice)} د.أ`}
       progress={{ at: i, of: steps.length }}
       onClose={onCancel}
       footer={
         <>
           {st.t === 'done' ? (
-            <button onClick={() => onConfirm(build())} className="flex-1 py-3 rounded-xl text-sm font-bold" style={goldBtn}>
+            <button onClick={() => onConfirm(build())} className="flex-1 min-h-[48px] rounded-xl text-[15.5px] font-extrabold tabular-nums" style={goldBtn}>
               أضف العرض · {money(unitPrice)} د.أ
             </button>
           ) : (
             <button disabled={!stepDone(st, picks)} onClick={() => setStep(k => k + 1)}
-              className="flex-1 py-3 rounded-xl text-sm font-bold disabled:opacity-40" style={goldBtn}>
+              className="flex-1 min-h-[48px] rounded-xl text-[15.5px] font-extrabold disabled:opacity-40" style={goldBtn}>
               {stepDone(st, picks) ? 'التالي' : 'اختر أوّلاً'}
             </button>
           )}
           {i > 0 && (
             <button onClick={() => setStep(k => Math.max(0, k - 1))}
-              className="px-4 py-3 rounded-xl text-sm bg-white/5 border border-white/10 text-gray-400">رجوع</button>
+              className="px-5 min-h-[48px] rounded-xl text-[15px] font-bold" style={ghost}>رجوع</button>
           )}
         </>
       }
@@ -352,22 +424,20 @@ function DetailSheet({ item, onCancel, onAdd }: { item: Item; onCancel: () => vo
     <Sheet title={item.name} subtitle={`${money(parseFloat(item.price))} د.أ`} onClose={onCancel}
       footer={
         <>
-          <button onClick={onAdd} className="flex-1 py-3 rounded-xl text-sm font-bold" style={goldBtn}>
+          <button onClick={onAdd} className="flex-1 min-h-[48px] rounded-xl text-[15.5px] font-extrabold tabular-nums" style={amberBtn}>
             أضف للسلّة · {money(parseFloat(item.price))} د.أ
           </button>
-          <button onClick={onCancel} className="px-4 py-3 rounded-xl text-sm bg-white/5 border border-white/10 text-gray-400">إغلاق</button>
+          <button onClick={onCancel} className="px-5 min-h-[48px] rounded-xl text-[15px] font-bold" style={ghost}>إغلاق</button>
         </>
       }>
       {item.imageUrl && <img src={item.imageUrl} alt="" className="w-full h-40 object-cover rounded-2xl mb-3" />}
-      <p className="text-[13px] text-gray-300 leading-relaxed">{item.description}</p>
+      <p className="text-[15px] leading-relaxed" style={{ color: INK.mid }}>{item.description}</p>
     </Sheet>
   );
 }
 
 // ══════════════════════════════════════════════════════
-export default function OrderPanel({
-  embedded = false, onClose, onEmptyContext, mode = 'order', locationId, locationName,
-}: {
+type Props = {
   embedded?: boolean;
   onClose?: () => void;
   /** يُستدعى إن تبيّن أن لا سياق طلبٍ ولا حجزَ قادماً — ليُخفي المستضيفُ الزرّ. */
@@ -376,7 +446,11 @@ export default function OrderPanel({
   mode?: 'order' | 'browse';
   locationId?: number;
   locationName?: string;
-}) {
+};
+
+const OrderPanel = forwardRef<OrderPanelHandle, Props>(function OrderPanel({
+  embedded = false, onClose, onEmptyContext, mode = 'order', locationId, locationName,
+}, ref) {
   const { player } = usePlayer();
   const browse = mode === 'browse';
   const [ctx, setCtx] = useState<Ctx | null>(null);
@@ -393,12 +467,13 @@ export default function OrderPanel({
   const [sel, setSel] = useState<Record<string, string[]>>({});
   const [wizard, setWizard] = useState<Item | null>(null);
   const [viewing, setViewing] = useState<Item | null>(null);
-  const [sheet, setSheet] = useState<'cart' | 'orders' | null>(null);
+  const [sheet, setSheetState] = useState<'cart' | 'orders' | 'leave' | null>(null);
   const [searchOn, setSearchOn] = useState(false);
   const [search, setSearch] = useState('');
   const [note, setNote] = useState('');
   const [sending, setSending] = useState(false);
   const [err, setErr] = useState('');
+  const [sentId, setSentId] = useState<number | null>(null);
   const [toast, setToast] = useState<{ txt: string; err?: boolean } | null>(null);
   const [svc, setSvc] = useState<{ available: boolean; pending: { id: number; kind: string } | null }>({ available: false, pending: null });
   const [svcBusy, setSvcBusy] = useState(false);
@@ -407,7 +482,15 @@ export default function OrderPanel({
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const searchRef = useRef<HTMLInputElement>(null);
   const mainRef = useRef<HTMLDivElement>(null);
+  const railRef = useRef<HTMLElement>(null);
   const rootRef = useRef<HTMLDivElement>(null);
+
+  // 🔴 إشعارٌ عابر فوق ورقةٍ مفتوحة كان يغطّي سطراً من السلّة — فتح أيّ ورقةٍ يُسكته
+  const setSheet = (s: 'cart' | 'orders' | 'leave' | null) => {
+    if (s) { setToast(null); if (toastTimer.current) clearTimeout(toastTimer.current); }
+    if (s !== 'orders') setSentId(null);
+    setSheetState(s);
+  };
 
   // 🚫 ما دامت اللوحة مركّبةً — على أيّ سطحٍ من الثلاثة — لا إعادةَ تحميلٍ بالسحب:
   //    `usePullToRefresh` في تخطيط اللاعب يقرأ هذا الصنف ويكفّ (كانت السحبة
@@ -521,7 +604,7 @@ export default function OrderPanel({
   const sections = useMemo<Section[]>(() => {
     const out: Section[] = [];
     const packages = items.filter(i => i.isBundle);
-    if (packages.length) out.push({ key: '_pkg', short: 'العروض', title: 'العروض', isPkg: true, items: packages });
+    if (packages.length) out.push({ key: '_pkg', short: 'العروض', parent: '', isPkg: true, items: packages });
     const idx = new Map<string, Section>();
     for (const it of items) {
       if (it.isBundle) continue;
@@ -529,7 +612,7 @@ export default function OrderPanel({
       const key = `${c}|${s}`;
       let sec = idx.get(key);
       if (!sec) {
-        sec = { key, short: shortOf(c, s), title: s ? `${c} ← ${s}` : (c || 'المنيو'), isPkg: false, items: [] };
+        sec = { key, short: s || c || 'المنيو', parent: s ? c : '', isPkg: false, items: [] };
         idx.set(key, sec); out.push(sec);
       }
       sec.items.push(it);
@@ -538,21 +621,40 @@ export default function OrderPanel({
   }, [items]);
   const activeKey = sections.some(s => s.key === cat) ? cat : (sections[0]?.key ?? '');
   const active = sections.find(s => s.key === activeKey);
-
-  const inPackageIds = useMemo(() => {
-    const ids = new Set<number>();
-    for (const p of items) if (p.isBundle) for (const s of p.slots ?? []) {
-      if (s.kind === 'fixed') ids.add(s.menuItemId); else s.from.forEach(f => ids.add(f.menuItemId));
-    }
-    return ids;
+  const sectionOfId = useCallback((id: number) => {
+    const it = items.find(x => x.id === id);
+    return it ? (it.subcategory || it.category || 'المنيو') : 'المنيو';
   }, [items]);
 
-  const query = search.trim();
-  const results = useMemo(() => !query ? [] : items.filter(i =>
-    i.name.includes(query) || (i.description || '').includes(query)
-    || (i.subcategory || '').includes(query) || (i.category || '').includes(query)
-    || (i.optionGroups ?? []).some(g => g.values.some(v => v.name.includes(query)))
-  ), [items, query]);
+  const query = norm(search.trim());
+  const results = useMemo(() => !query ? [] : items.filter(i => {
+    const has = (s?: string) => norm(s || '').includes(query);
+    return has(i.name) || has(i.description) || has(i.subcategory) || has(i.category)
+      || (i.optionGroups ?? []).some(g => g.values.some(v => has(v.name)));
+  }), [items, query]);
+
+  // القسم المختار يبقى مرئيّاً في الرفّ — حسابٌ يدويّ لا scrollIntoView كي لا تتحرّك الصفحة
+  useEffect(() => {
+    const rail = railRef.current;
+    const on = rail?.querySelector<HTMLElement>('[aria-current="true"]');
+    if (!rail || !on) return;
+    const t = on.offsetTop, b = t + on.offsetHeight;
+    if (t < rail.scrollTop + 8) rail.scrollTop = t - 8;
+    else if (b > rail.scrollTop + rail.clientHeight - 8) rail.scrollTop = b - rail.clientHeight + 8;
+  }, [activeKey]);
+
+  // البلاطة التي اتّسعت تُمرَّر إلى العين داخل اللوحة — كان زرّ «أضف» يسقط تحت الحافّة
+  useEffect(() => {
+    if (expanded == null) return;
+    const main = mainRef.current;
+    const el = main?.querySelector<HTMLElement>(`[data-tile="${expanded}"]`);
+    if (!main || !el) return;
+    const m = main.getBoundingClientRect(), r = el.getBoundingClientRect();
+    if (r.bottom > m.bottom - 8) {
+      const reduce = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+      main.scrollBy({ top: Math.min(r.bottom - m.bottom + 12, r.top - m.top - 8), behavior: reduce ? 'auto' : 'smooth' });
+    }
+  }, [expanded]);
 
   // ── السلّة ──
   const bumpLine = (line: CartLine) => { submitKeyRef.current = null; setCart(prev => {
@@ -568,6 +670,15 @@ export default function OrderPanel({
   const cartCount = cart.reduce((s, l) => s + l.quantity, 0);
   const cartTotal = cart.reduce((s, l) => s + l.unitPrice * l.quantity, 0);
   const qtyOfItem = (id: number) => cart.filter(l => l.itemId === id).reduce((s, l) => s + l.quantity, 0);
+
+  // 🛑 الإغلاق والسلّة غير فارغة يسأل أوّلاً — المستضيف يستدعي requestClose بدل الإغلاق
+  const cartCountRef = useRef(0);
+  cartCountRef.current = cartCount;
+  const requestClose = useCallback(() => {
+    if (cartCountRef.current > 0) setSheet('leave'); else onClose?.();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [onClose]);
+  useImperativeHandle(ref, () => ({ requestClose }), [requestClose]);
 
   const addSimple = (it: Item) => {
     bumpLine({ key: `${it.id}#`, itemId: it.id, name: it.name, quantity: 1, options: [], slots: [], unitPrice: parseFloat(it.price), label: '', isBundle: false });
@@ -631,8 +742,9 @@ export default function OrderPanel({
       if (d.success) {
         submitKeyRef.current = null;
         setCart([]); setNote(''); setSheet('orders');
+        // ✅ تأكيد الوصول لافتةٌ داخل «طلباتي» لا إشعارٌ عابر يُخفيه ما فوقه
+        setSentId(d.order?.id ?? d.orderId ?? 0);
         loadOrders(ctx.activityId);
-        flash('وصل طلبك للمكان');
       } else setErr(d.error || 'فشل إرسال الطلب');
     } catch { setErr('خطأ في الاتصال — لم يُرسَل الطلب، أعد المحاولة'); }
     setSending(false);
@@ -669,74 +781,54 @@ export default function OrderPanel({
 
   // ── لبنات ──
   const Header = (
-    <div className="shrink-0 px-3.5 py-2.5 flex items-center gap-2.5 border-b border-white/7" style={{ background: '#0b0b0b' }}>
-      <span className="w-9 h-9 rounded-xl flex items-center justify-center shrink-0" style={{ background: GOLD.bg, border: `1px solid ${GOLD.bd}`, color: GOLD.fg }}>
-        <IcoPlate size={20} />
-      </span>
+    <div className="shrink-0 px-3.5 py-2.5 flex items-center gap-2 border-b border-white/7" style={{ background: '#0b0b0b' }}>
       <div className="flex-1 min-w-0">
-        <h1 className="text-white text-[14.5px] font-bold truncate">{venue || 'المنيو'}</h1>
-        <p className="text-[10.5px] truncate" style={{ color: '#8d8d8d' }}>
+        <h1 className="text-white text-[17px] font-extrabold leading-snug truncate">{venue || 'المنيو'}</h1>
+        <p className="text-[13px] truncate" style={{ color: INK.low }}>
           {browse ? 'للاطّلاع — يفتح الطلب قبل الموعد بساعة ويحتاج حجزاً'
             : ro && next ? `للقراءة — يفتح الطلب الساعة ${next.opensAt}`
             : ctx?.source === 'live' ? 'أنت داخل اللعبة — الطلب يصل طاولتك' : 'حجزك مؤكّد — الطلب متاح'}
         </p>
       </div>
       {items.length > 0 && (
-        <button onClick={() => { setSearchOn(v => !v); setSearch(''); setTimeout(() => searchRef.current?.focus(), 50); }} aria-label="بحث"
-          className="shrink-0 w-8 h-8 rounded-full flex items-center justify-center"
-          style={searchOn ? { background: AMBER.bg, border: `1px solid ${AMBER.bd}`, color: AMBER.fg } : { background: 'rgba(255,255,255,0.07)', border: '1px solid rgba(255,255,255,0.12)', color: '#ccc' }}>
-          <IcoSearch size={15} />
-        </button>
+        <IconBtn label="بحث" active={searchOn}
+          onClick={() => { setSearchOn(v => !v); setSearch(''); setExpanded(null); setTimeout(() => searchRef.current?.focus(), 50); }}>
+          <IcoSearch size={18} />
+        </IconBtn>
       )}
       {!ro && ctx && (
-        <button onClick={() => setSheet('orders')} aria-label="طلباتي"
-          className="shrink-0 w-8 h-8 rounded-full flex items-center justify-center relative"
-          style={{ background: 'rgba(255,255,255,0.07)', border: '1px solid rgba(255,255,255,0.12)', color: '#ccc' }}>
-          <IcoReceipt size={15} />
-          {openBadge > 0 && (
-            <span className="absolute -top-1 -left-1 min-w-[16px] h-4 px-1 rounded-full text-[9.5px] font-black flex items-center justify-center text-black" style={{ background: '#fbbf24' }}>{openBadge}</span>
-          )}
-        </button>
+        <IconBtn label="طلباتي" onClick={() => setSheet('orders')} badge={openBadge}><IcoReceipt size={18} /></IconBtn>
       )}
-      {embedded && (
-        <button onClick={onClose} aria-label="إغلاق"
-          className="shrink-0 w-8 h-8 rounded-full flex items-center justify-center text-gray-400"
-          style={{ background: 'rgba(255,255,255,0.07)', border: '1px solid rgba(255,255,255,0.12)' }}><IcoX size={13} /></button>
-      )}
+      {embedded && <IconBtn label="إغلاق" onClick={requestClose}><IcoX size={15} /></IconBtn>}
     </div>
   );
 
-  const Tile = (it: Item) => {
-    const n = qtyOfItem(it.id);
-    const open = expanded === it.id;
+  const OptionsPanel = (it: Item) => {
     const groups = it.optionGroups ?? [];
     const missing = groups.filter(g => g.isRequired && (sel[g.key]?.length ?? 0) === 0);
-    const longDesc = !hasOpts(it) && (it.description || '').length > LONG_DESC;
-    const sub = it.description || (hasOpts(it) ? optionHint(it) : '') || (inPackageIds.has(it.id) ? 'ضمن عرض' : '');
+    let delta = 0;
+    for (const g of groups) for (const vk of (sel[g.key] ?? [])) delta += g.values.find(x => x.key === vk)?.priceDelta ?? 0;
     return (
-      <div key={it.id} className={`rounded-2xl p-2.5 flex flex-col gap-1.5 relative ${open ? 'col-span-2' : ''}`}
-        style={{ minHeight: 96, background: n > 0 ? 'rgba(251,191,36,0.06)' : 'rgba(255,255,255,0.035)', border: `1px solid ${n > 0 ? AMBER.bd : 'rgba(255,255,255,0.07)'}` }}>
-        {it.imageUrl && <img src={it.imageUrl} alt="" className="w-full h-20 object-cover rounded-xl" />}
-        <p className="text-white text-[13px] font-bold leading-snug">{it.name}</p>
-        {sub && <p className="text-[10px] leading-snug truncate" style={{ color: inPackageIds.has(it.id) && !it.description && !hasOpts(it) ? '#d7bf86' : '#8a8a8a' }}>{sub}</p>}
-        {open && groups.map(g => {
+      <div className="mt-2 flex flex-col gap-3">
+        {groups.map(g => {
           const cur = sel[g.key] ?? [];
           return (
-            <div key={g.key} className="mt-1">
-              <p className="text-[10.5px] font-bold mb-1.5 flex items-center gap-1.5" style={{ color: '#d7bf86' }}>
+            <div key={g.key}>
+              <p className="text-[14.5px] font-bold mb-2 flex items-baseline gap-2" style={{ color: GOLD.fg }}>
                 {g.name}
-                {!g.isRequired && <span className="text-gray-600 font-normal">اختياريّ</span>}
-                {g.selectionType === 'multi' && <span className="text-gray-600 font-normal">حتى {AR_DIGITS(g.maxSelect)}</span>}
+                {!g.isRequired && <span className="text-[13px] font-medium" style={{ color: INK.low }}>اختياريّ</span>}
+                {g.selectionType === 'multi' && <span className="text-[13px] font-medium" style={{ color: INK.low }}>حتى {g.maxSelect}</span>}
               </p>
-              <div className="flex flex-wrap gap-1.5">
+              <div className="grid grid-cols-2 gap-2">
                 {g.values.map(v => {
                   const on = cur.includes(v.key);
                   return (
-                    <button key={v.key} onClick={() => pick(g, v.key)}
-                      className="px-3 rounded-xl text-[12.5px] font-bold min-h-[40px] flex items-center"
+                    <button key={v.key} onClick={() => pick(g, v.key)} aria-pressed={on}
+                      className="px-2 py-1.5 rounded-xl text-[14.5px] font-bold min-h-[46px] flex flex-col items-center justify-center leading-snug"
                       style={on ? { background: AMBER.bg, border: `1px solid ${AMBER.bd}`, color: AMBER.fg }
-                        : { background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)', color: '#ddd' }}>
-                      {v.name}{v.priceDelta > 0 && <span className="text-[9.5px] opacity-80 mr-1">+{money(v.priceDelta)}</span>}
+                        : { background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.11)', color: INK.hi }}>
+                      {v.name}
+                      {v.priceDelta > 0 && <span className="text-[12.5px] font-medium tabular-nums" style={{ color: on ? AMBER.fg : INK.low }}>+{money(v.priceDelta)}</span>}
                     </button>
                   );
                 })}
@@ -744,41 +836,46 @@ export default function OrderPanel({
             </div>
           );
         })}
-        <div className="mt-auto flex items-center justify-between pt-1">
-          <span className="text-[14px] font-black tabular-nums" style={{ color: '#fcd34d' }}>
-            {money(parseFloat(it.price))}<span className="text-[8.5px] font-bold opacity-65"> د.أ</span>
-          </span>
-          {ro ? null : hasOpts(it) ? (
-            open ? (
-              <div className="flex items-center gap-1.5">
-                <button onClick={() => { setExpanded(null); setSel({}); }} className="h-[34px] px-2.5 rounded-xl text-[12px] text-gray-400 bg-white/5 border border-white/10">إلغاء</button>
-                <button disabled={missing.length > 0} onClick={() => addWithOptions(it)}
-                  className="h-[34px] px-3 rounded-xl text-[12px] font-bold disabled:opacity-45"
-                  style={{ background: AMBER.bg, border: `1px solid ${AMBER.bd}`, color: AMBER.fg }}>
-                  {missing.length > 0 ? `اختر ${missing[0].name}` : 'أضف'}
-                </button>
-              </div>
-            ) : (
-              <button onClick={() => expand(it)} className="h-[34px] px-3 rounded-xl text-[12px] font-bold"
-                style={{ background: AMBER.bg, border: `1px solid ${AMBER.bd}`, color: AMBER.fg }}>
-                {n > 0 ? `×${n} +` : 'اختر'}
-              </button>
-            )
-          ) : longDesc ? (
-            <button onClick={() => setViewing(it)} className="h-[34px] px-3 rounded-xl text-[12px] font-bold"
-              style={{ background: AMBER.bg, border: `1px solid ${AMBER.bd}`, color: AMBER.fg }}>{n > 0 ? `×${n} +` : 'التفاصيل'}</button>
-          ) : n > 0 ? (
-            <div className="flex items-center gap-1.5">
-              <button onClick={() => changeQty(`${it.id}#`, -1)} aria-label="أقلّ" className="w-[30px] h-[30px] rounded-lg bg-white/6 border border-white/10 text-white text-base font-bold">−</button>
-              <b className="min-w-[16px] text-center text-white text-sm tabular-nums">{n}</b>
-              <button onClick={() => changeQty(`${it.id}#`, 1)} aria-label="أكثر" className="w-[30px] h-[30px] rounded-lg text-base font-bold"
-                style={{ background: AMBER.bg, border: `1px solid ${AMBER.bd}`, color: AMBER.fg }}>+</button>
-            </div>
-          ) : (
-            <button onClick={() => addSimple(it)} aria-label={`أضف ${it.name}`} className="w-[34px] h-[34px] rounded-xl text-lg font-black flex items-center justify-center"
-              style={{ background: AMBER.bg, border: `1px solid ${AMBER.bd}`, color: AMBER.fg }}>+</button>
-          )}
+        <div className="flex gap-2">
+          <button onClick={() => { setExpanded(null); setSel({}); }} className="px-4 min-h-[46px] rounded-xl text-[15px] font-bold" style={ghost}>إلغاء</button>
+          <button disabled={missing.length > 0} onClick={() => addWithOptions(it)}
+            className="flex-1 min-h-[46px] rounded-xl text-[15.5px] font-extrabold tabular-nums disabled:opacity-45" style={amberBtn}>
+            {missing.length > 0 ? `اختر ${missing[0].name}` : `أضف · ${money(parseFloat(it.price) + delta)} د.أ`}
+          </button>
         </div>
+      </div>
+    );
+  };
+
+  const Tile = (it: Item) => {
+    const n = qtyOfItem(it.id);
+    const open = expanded === it.id;
+    const longDesc = !hasOpts(it) && (it.description || '').length > LONG_DESC;
+    const sub = subOf(it);
+    const cnt = n > 0 && <i className="not-italic min-w-[22px] h-[22px] px-1.5 rounded-full text-[12px] font-black text-black flex items-center justify-center tabular-nums" style={{ background: '#fbbf24' }}>{n}</i>;
+    const outline = { background: 'transparent', border: `1px solid ${AMBER.bd}`, color: AMBER.fg };
+    let action: React.ReactNode = null;
+    if (!ro) {
+      if (hasOpts(it)) action = (
+        <button onClick={() => expand(it)} aria-expanded={false} className="w-full min-h-[44px] rounded-xl text-[15px] font-bold flex items-center justify-center gap-1.5" style={outline}>اختر{cnt}</button>
+      );
+      else if (longDesc) action = (
+        <button onClick={() => setViewing(it)} className="w-full min-h-[44px] rounded-xl text-[15px] font-bold flex items-center justify-center gap-1.5" style={outline}>التفاصيل{cnt}</button>
+      );
+      else if (n > 0) action = <Stepper spread qty={n} name={it.name} onInc={() => changeQty(`${it.id}#`, 1)} onDec={() => changeQty(`${it.id}#`, -1)} />;
+      else action = (
+        <button onClick={() => addSimple(it)} aria-label={`أضف ${it.name}`} className="w-full min-h-[44px] rounded-xl text-[15px] font-bold flex items-center justify-center gap-1.5"
+          style={{ background: AMBER.bg, border: `1px solid ${AMBER.bd}`, color: AMBER.fg }}><span className="text-[19px] leading-none">+</span>أضف</button>
+      );
+    }
+    return (
+      <div key={it.id} data-tile={it.id} className={`rounded-2xl p-3 flex flex-col gap-1 min-w-0 ${open ? 'col-span-2' : ''}`}
+        style={{ background: n > 0 ? 'rgba(251,191,36,0.05)' : 'rgba(255,255,255,0.03)', border: `1px solid ${n > 0 || open ? AMBER.bd : 'rgba(255,255,255,0.085)'}` }}>
+        {it.imageUrl && <img src={it.imageUrl} alt="" className="w-full h-24 object-cover rounded-xl mb-1" />}
+        <p className={`text-[15px] font-bold leading-snug ${open ? '' : 'line-clamp-2'}`} style={{ color: n > 0 ? AMBER.fg : INK.hi }}>{it.name}</p>
+        {sub && <p className={`text-[12.5px] leading-normal ${open ? '' : 'line-clamp-2'}`} style={{ color: INK.low }}>{sub}</p>}
+        <p className="mt-auto pt-1"><Price v={parseFloat(it.price)} /></p>
+        {open ? OptionsPanel(it) : action && <div className="mt-1.5">{action}</div>}
       </div>
     );
   };
@@ -786,25 +883,25 @@ export default function OrderPanel({
   const PkgCard = (p: Item) => {
     const n = qtyOfItem(p.id);
     return (
-      <div key={p.id} className="rounded-2xl p-3 mb-2" style={{ background: 'linear-gradient(135deg, rgba(197,160,89,0.13), rgba(255,255,255,0.02))', border: `1px solid ${GOLD.bd}` }}>
-        <div className="flex items-center gap-2">
-          <h3 className="text-white text-[13.5px] font-bold flex-1 min-w-0">{p.name}</h3>
-          <span className="text-[15px] font-black tabular-nums shrink-0" style={{ color: GOLD.fg }}>{money(parseFloat(p.price))}<span className="text-[9px] opacity-65"> د.أ</span></span>
+      <div key={p.id} className="rounded-2xl p-3.5 mb-2.5 flex flex-col gap-2.5" style={{ background: 'linear-gradient(160deg, rgba(197,160,89,0.14), rgba(197,160,89,0.02) 70%)', border: `1px solid ${GOLD.bd}` }}>
+        <div className="flex items-baseline gap-2.5">
+          <h3 className="text-white text-[16px] font-extrabold leading-snug flex-1 min-w-0">{p.name}</h3>
+          <span className="text-[17px] font-extrabold tabular-nums shrink-0" style={{ color: GOLD.fg }}>{money(parseFloat(p.price))} <span className="text-[12.5px] font-medium">د.أ</span></span>
         </div>
-        {p.description && <p className="text-[10.5px] text-gray-400 mt-1 leading-relaxed">{p.description}</p>}
-        <div className="flex flex-wrap gap-1.5 mt-2">
+        {p.description && <p className="text-[13.5px] leading-relaxed" style={{ color: INK.mid }}>{p.description}</p>}
+        <div className="flex flex-wrap gap-1.5">
           {(p.slots ?? []).map(s => (
-            <span key={s.i} className="text-[10.5px] px-2 py-0.5 rounded-lg"
+            <span key={s.i} className="text-[13px] px-2.5 py-1 rounded-lg"
               style={s.kind === 'choice'
                 ? { background: 'transparent', border: `1px dashed ${GOLD.bd}`, color: GOLD.fg }
-                : { background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.08)', color: '#ccc' }}>
-              {s.kind === 'choice' ? `${s.label}: ${AR_DIGITS(s.from.length)} خيارات`
+                : { background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.08)', color: INK.mid }}>
+              {s.kind === 'choice' ? `${s.label}: ${s.from.length} خيارات`
                 : `${s.name}${s.qty > 1 ? ` ×${s.qty}` : ''}${Object.values(s.lockedOptions)[0] ? ` ${Object.values(s.lockedOptions)[0]}` : s.optionGroups.length ? ' · بنكهتك' : ''}`}
             </span>
           ))}
         </div>
         {!ro && (
-          <button onClick={() => setWizard(p)} className="w-full mt-2.5 py-2.5 rounded-xl text-[12.5px] font-bold" style={goldBtn}>
+          <button onClick={() => setWizard(p)} className="w-full min-h-[46px] rounded-xl text-[15.5px] font-extrabold" style={goldBtn}>
             {n > 0 ? `في السلّة ×${n} — ركّب توليفةً أخرى` : 'ركّب العرض'}
           </button>
         )}
@@ -812,94 +909,102 @@ export default function OrderPanel({
     );
   };
 
+  const SectionHead = (s: Section) => (
+    <h2 className="flex items-baseline gap-2 pt-1 pb-2.5">
+      <b className="text-[16px] font-extrabold" style={{ color: GOLD.fg }}>{s.short}</b>
+      {s.parent && <span className="text-[13px]" style={{ color: INK.low }}>{s.parent}</span>}
+    </h2>
+  );
+
   const NoCtx = (
     <div className="flex-1 flex flex-col items-center justify-center text-center px-6 py-10" dir="rtl">
       <span className="w-14 h-14 rounded-full flex items-center justify-center mb-3" style={{ background: GOLD.bg, border: `1px solid ${GOLD.bd}`, color: GOLD.fg }}><IcoPlate size={24} /></span>
-      <b className="text-white text-[14px]">{next ? `يفتح الطلب الساعة ${next.opensAt}` : 'لا يوجد نشاط متاح للطلب الآن'}</b>
-      <p className="text-gray-400 text-[12px] mt-2 leading-relaxed">{reason || 'الطلب متاح للحاجزين داخل نافذة الفعاليّة'}</p>
+      <b className="text-white text-[17px]">{next ? `يفتح الطلب الساعة ${next.opensAt}` : 'لا يوجد نشاط متاح للطلب الآن'}</b>
+      <p className="text-[14.5px] mt-2 leading-relaxed" style={{ color: INK.mid }}>{reason || 'الطلب متاح للحاجزين داخل نافذة الفعاليّة'}</p>
       {next && (
-        <button onClick={browseNext} className="mt-4 px-4 py-2.5 rounded-xl text-[12.5px] font-bold" style={{ background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.12)', color: '#ddd' }}>
+        <button onClick={browseNext} className="mt-4 px-5 min-h-[46px] rounded-xl text-[15px] font-bold" style={{ background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.12)', color: INK.hi }}>
           تصفّح منيو {next.locationName} للقراءة
         </button>
       )}
-      {embedded && <button onClick={onClose} className="mt-3 text-[12px] underline" style={{ color: GOLD.fg }}>إغلاق</button>}
+      {embedded && <button onClick={onClose} className="mt-2 min-h-[44px] px-4 text-[15px] underline" style={{ color: GOLD.fg }}>إغلاق</button>}
     </div>
   );
 
   const noCtx = !browse && !ctx && !readOnly;
 
   return (
-    <div ref={rootRef} className={`${embedded ? 'h-full' : 'fnb-page-h max-w-lg mx-auto'} flex flex-col relative overscroll-none`} dir="rtl" style={{ background: '#050505', overscrollBehavior: 'none' }}>
+    <MotionConfig reducedMotion="user">
+    <div ref={rootRef} className={`fnb-root ${embedded ? 'h-full' : 'fnb-page-h max-w-lg mx-auto'} flex flex-col relative overscroll-none`} dir="rtl" style={{ background: '#050505', overscrollBehavior: 'none' }}>
       {Header}
 
       {noCtx ? NoCtx : items.length === 0 ? (
-        <div className="flex-1 flex items-center justify-center"><p className="text-gray-500 text-sm">المكان لم يضف أصنافاً بعد</p></div>
+        <div className="flex-1 flex items-center justify-center"><p className="text-[15px]" style={{ color: INK.low }}>المكان لم يضف أصنافاً بعد</p></div>
       ) : (
         <div className="flex-1 min-h-0 flex">
-          {/* ══ الرفّ ══ */}
+          {/* ══ الرفّ — أسماء الأقسام وحدها، ٤٤ بكسل لكلّ قسم ══ */}
           {!searchOn && (
-            <div className="w-[78px] shrink-0 overflow-y-auto overscroll-none border-l border-white/7 px-1.5 py-2 flex flex-col gap-1" style={{ background: '#080808', scrollbarWidth: 'none' }}>
+            <nav ref={railRef} aria-label="أقسام المنيو"
+              className="w-[86px] shrink-0 overflow-y-auto overscroll-none border-l border-white/7 px-1.5 py-2 flex flex-col gap-0.5 relative"
+              style={{ background: '#080808', scrollbarWidth: 'none' }}>
               {sections.map(s => {
                 const on = s.key === activeKey;
-                const Ico = sectionIcon(s.title, s.isPkg);
                 return (
-                  <button key={s.key} onClick={() => { setCat(s.key); setExpanded(null); mainRef.current?.scrollTo({ top: 0 }); }}
-                    className="rounded-xl px-1 pt-2 pb-1.5 flex flex-col items-center gap-1 text-[10.5px] font-bold leading-tight text-center"
+                  <button key={s.key} aria-current={on ? 'true' : undefined}
+                    onClick={() => { setCat(s.key); setExpanded(null); mainRef.current?.scrollTo({ top: 0 }); }}
+                    className="min-h-[44px] rounded-xl px-1 py-1.5 text-[13.5px] font-bold leading-tight text-center"
                     style={on
                       ? { background: s.isPkg ? GOLD.bg : AMBER.bg, border: `1px solid ${s.isPkg ? GOLD.bd : AMBER.bd}`, color: s.isPkg ? GOLD.fg : AMBER.fg }
-                      : { border: '1px solid transparent', color: '#9a9a9a' }}>
-                    <Ico size={18} />
-                    <span>{s.short}</span>
-                    <span className="text-[9px] font-medium opacity-70 tabular-nums">{AR_DIGITS(s.items.length)}</span>
+                      : { border: '1px solid transparent', color: s.isPkg ? GOLD.fg : INK.low }}>
+                    {s.short}
                   </button>
                 );
               })}
-            </div>
+            </nav>
           )}
 
           {/* ══ البلاطات ══ */}
-          <div ref={mainRef} className="flex-1 min-w-0 overflow-y-auto overscroll-none px-2.5 py-2.5 pb-6">
+          <div ref={mainRef} className="flex-1 min-w-0 overflow-y-auto overscroll-none px-2.5 py-2.5 pb-6 relative">
             {searchOn && (
-              <div className="relative mb-2.5">
+              <div className="relative mb-3">
                 {/* 🔴 ١٦ بكسل — أصغر منها يُقرّب سفاري الشاشة عند التركيز */}
-                <input ref={searchRef} value={search} onChange={e => setSearch(e.target.value)} placeholder="ابحث: نكهة، صنف، قسم…"
-                  enterKeyHint="search" autoComplete="off"
-                  className="w-full rounded-xl py-2.5 pr-3 pl-9 text-white placeholder:text-gray-600 focus:outline-none"
-                  style={{ fontSize: 16, background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)' }} />
-                {query && (
-                  <button onClick={() => setSearch('')} aria-label="مسح"
-                    className="absolute left-2.5 top-1/2 -translate-y-1/2 w-6 h-6 rounded-full bg-white/10 text-gray-400 flex items-center justify-center"><IcoX size={11} /></button>
+                <input ref={searchRef} value={search} onChange={e => { setSearch(e.target.value); setExpanded(null); }} placeholder="ابحث: كراميل، اسبريسو، نخلة…"
+                  enterKeyHint="search" autoComplete="off" type="search" aria-label="ابحث في المنيو"
+                  className="w-full h-[46px] rounded-xl pr-3.5 pl-11 text-white focus:outline-none focus:border-amber-400/60"
+                  style={{ fontSize: 16, background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.12)' }} />
+                {search && (
+                  <button onClick={() => setSearch('')} aria-label="امسح البحث"
+                    className="absolute left-0.5 top-1/2 -translate-y-1/2 w-11 h-11 rounded-full flex items-center justify-center" style={{ color: INK.mid }}><IcoX size={13} /></button>
                 )}
               </div>
             )}
-            {err && sheet !== 'cart' && <p className="text-rose-300 text-xs bg-rose-500/10 border border-rose-500/25 rounded-lg px-3 py-2 mb-2">{err}</p>}
+            {err && sheet !== 'cart' && <p className="text-rose-300 text-[13.5px] bg-rose-500/10 border border-rose-500/25 rounded-lg px-3 py-2 mb-2">{err}</p>}
 
             {searchOn ? (
               !query ? (
-                <p className="text-center text-gray-500 text-[12px] py-10">جرّب اسم نكهةٍ: «نخلة» يعيد الأرجيلة الفاخرة وعروضها</p>
+                <p className="text-center text-[14px] py-10" style={{ color: INK.low }}>جرّب اسم نكهةٍ: «نخلة» يعيد الأرجيلة الفاخرة وعروضها</p>
               ) : results.length === 0 ? (
                 <div className="text-center py-10">
-                  <p className="text-gray-500 text-sm">لا صنف يطابق «{query}»</p>
-                  <button onClick={() => setSearch('')} className="text-xs underline mt-2" style={{ color: GOLD.fg }}>امسح البحث</button>
+                  <p className="text-[15px]" style={{ color: INK.low }}>لا صنف يطابق «{search.trim()}»</p>
+                  <button onClick={() => setSearch('')} className="text-[14.5px] underline mt-2 min-h-[44px] px-3" style={{ color: GOLD.fg }}>امسح البحث</button>
                 </div>
               ) : (
                 <>
                   {results.filter(i => i.isBundle).map(PkgCard)}
-                  <div className="grid grid-cols-2 gap-2">{results.filter(i => !i.isBundle).map(Tile)}</div>
+                  <div className="grid grid-cols-2 gap-2 grid-flow-row-dense">{results.filter(i => !i.isBundle).map(Tile)}</div>
                 </>
               )
             ) : active ? (
               active.isPkg ? (
                 <>
+                  {SectionHead(active)}
                   {active.items.map(PkgCard)}
-                  <p className="text-[10px] text-gray-600 text-center mt-1">اختياراتك لا تغيّر السعر — إلّا ما عليه زيادةٌ معلَنة</p>
+                  <p className="text-[13px] text-center mt-1" style={{ color: INK.low }}>اختياراتك لا تغيّر السعر — إلّا ما عليه زيادةٌ معلَنة</p>
                 </>
               ) : (
                 <>
-                  <p className="text-[10.5px] font-bold mb-2 flex items-center gap-2" style={{ color: 'rgba(197,160,89,0.8)' }}>
-                    <span>{active.title}</span><span className="flex-1 h-px" style={{ background: 'rgba(197,160,89,0.18)' }} /><span className="text-gray-600 tabular-nums">{AR_DIGITS(active.items.length)}</span>
-                  </p>
-                  <div className="grid grid-cols-2 gap-2">{active.items.map(Tile)}</div>
+                  {SectionHead(active)}
+                  {/* dense: البلاطة التي تتّسع على العمودين لا تترك خانةً فارغة خلفها */}
+                  <div className="grid grid-cols-2 gap-2 grid-flow-row-dense">{active.items.map(Tile)}</div>
                 </>
               )
             ) : null}
@@ -907,91 +1012,110 @@ export default function OrderPanel({
         </div>
       )}
 
-      {/* ══ شريط السلّة — كهرمانيٌّ يقول «لم يُرسَل بعد» ══ */}
+      {/* ══ شريط السلّة — كهرمانيٌّ يقول «لم تُرسَل بعد»، ثابتٌ بلا نبض ══ */}
       <AnimatePresence>
         {!ro && cartCount > 0 && (
           <motion.button
-            initial={{ y: 70 }} exit={{ y: 70 }}
-            animate={{ y: 0, boxShadow: ['0 -2px 14px rgba(245,158,11,0.10)', '0 -6px 26px rgba(245,158,11,0.32)', '0 -2px 14px rgba(245,158,11,0.10)'] }}
-            transition={{ y: { type: 'spring', damping: 26, stiffness: 320 }, boxShadow: { duration: 1.6, repeat: Infinity, ease: 'easeInOut' } }}
+            initial={{ y: 70 }} exit={{ y: 70 }} animate={{ y: 0 }}
+            transition={{ type: 'spring', damping: 26, stiffness: 320 }}
             onClick={() => { setErr(''); setSheet('cart'); }}
-            className="shrink-0 w-full px-3 py-2.5 flex items-center gap-2.5 border-t"
-            style={{ background: 'rgba(28,19,5,0.97)', borderColor: 'rgba(245,158,11,0.5)' }}
+            className="shrink-0 w-full px-3 py-2.5 flex items-center gap-2.5 border-t text-right"
+            style={{ background: '#1a1305', borderColor: AMBER.bd }}
           >
-            <span className="w-9 h-9 rounded-xl flex items-center justify-center text-sm font-black shrink-0 tabular-nums" style={{ background: AMBER.bg, border: `1px solid ${AMBER.bd}`, color: AMBER.fg }}>{cartCount}</span>
-            <div className="flex-1 min-w-0 text-right">
-              <b className="block text-[12.5px] font-black" style={{ color: '#fcd34d' }}>لم يُرسَل بعد — <span className="tabular-nums">{money(cartTotal)} د.أ</span></b>
-              <span className="block text-[10px]" style={{ color: 'rgba(252,211,77,0.55)' }}>طلبك لم يصل الكافيه · اضغط للمراجعة والإرسال</span>
-            </div>
-            <span className="px-4 py-2.5 rounded-xl text-[12.5px] font-bold text-white shrink-0" style={{ background: 'linear-gradient(135deg, #f59e0b, #d97706)' }}>راجع وأرسل</span>
+            <span className="w-10 h-10 rounded-xl flex items-center justify-center text-[17px] font-black shrink-0 tabular-nums" style={{ background: AMBER.bg, border: `1px solid ${AMBER.bd}`, color: AMBER.fg }}>{cartCount}</span>
+            <span className="flex-1 min-w-0 flex flex-col">
+              <b className="text-[15.5px] font-extrabold tabular-nums" style={{ color: AMBER.fg }}>سلّتك · {money(cartTotal)} د.أ</b>
+              <span className="text-[12.5px]" style={{ color: 'rgba(252,211,77,0.72)' }}>لم تُرسَل بعد</span>
+            </span>
+            <span className="min-h-[44px] px-4 rounded-xl text-[15px] font-extrabold shrink-0 flex items-center" style={amberBtn}>راجع وأرسل</span>
           </motion.button>
         )}
       </AnimatePresence>
 
       {/* ══ إشعارٌ عابر ══ */}
-      <AnimatePresence>
-        {toast && (
-          <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }}
-            className="absolute left-4 right-4 z-[70] rounded-xl px-3.5 py-2.5 text-[12.5px]"
-            style={{ bottom: cartCount > 0 ? 80 : 20, background: toast.err ? '#1c1210' : '#151006', border: `1px solid ${toast.err ? 'rgba(224,106,94,0.5)' : GOLD.bd}`, color: toast.err ? '#f7c9c4' : '#f3dea3', boxShadow: '0 10px 30px rgba(0,0,0,0.5)' }}>
-            {toast.txt}
-          </motion.div>
-        )}
-      </AnimatePresence>
+      <div className="absolute left-4 right-4 z-[50] pointer-events-none" style={{ bottom: cartCount > 0 ? 80 : 20 }} role="status" aria-live="polite">
+        <AnimatePresence>
+          {toast && (
+            <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }}
+              className="rounded-xl px-3.5 py-3 text-[14px] tabular-nums"
+              style={{ background: toast.err ? '#1c1210' : '#151006', border: `1px solid ${toast.err ? 'rgba(224,106,94,0.5)' : GOLD.bd}`, color: toast.err ? '#f7c9c4' : '#f3dea3', boxShadow: '0 10px 30px rgba(0,0,0,0.5)' }}>
+              {toast.txt}
+            </motion.div>
+          )}
+        </AnimatePresence>
+      </div>
 
       {/* ══ درج السلّة ══ */}
       {sheet === 'cart' && cart.length > 0 && (
-        <Sheet title="سلّتك" subtitle={`لم تُرسَل بعد — ${AR_DIGITS(cartCount)} أصناف · ${money(cartTotal)} د.أ`} subtitleWarn
+        <Sheet title="سلّتك" subtitle={`لم تُرسَل بعد — ${cartCount} أصناف · ${money(cartTotal)} د.أ`} subtitleWarn
           onClose={() => setSheet(null)}
           footer={
             <>
-              <button onClick={submit} disabled={sending} className="flex-1 py-3 rounded-xl text-sm font-bold text-white disabled:opacity-50"
-                style={{ background: 'linear-gradient(135deg, #f59e0b, #d97706)' }}>
+              <button onClick={submit} disabled={sending} className="flex-1 min-h-[48px] rounded-xl text-[15.5px] font-extrabold tabular-nums disabled:opacity-50" style={amberBtn}>
                 {sending ? 'جارٍ الإرسال…' : `إرسال الطلب · ${money(cartTotal)} د.أ`}
               </button>
-              <button onClick={() => setSheet(null)} className="px-4 py-3 rounded-xl text-sm bg-white/5 border border-white/10 text-gray-400">متابعة</button>
+              <button onClick={() => setSheet(null)} className="px-5 min-h-[48px] rounded-xl text-[15px] font-bold" style={ghost}>متابعة</button>
             </>
           }>
-          {err && <p className="text-rose-300 text-xs bg-rose-500/10 border border-rose-500/25 rounded-lg px-3 py-2 mb-3">{err}</p>}
+          {err && <p className="text-rose-300 text-[13.5px] bg-rose-500/10 border border-rose-500/25 rounded-lg px-3 py-2 mb-3">{err}</p>}
           {cart.map(l => (
-            <div key={l.key} className="rounded-2xl p-2.5 mb-2 flex items-center gap-2.5" style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.07)' }}>
+            <div key={l.key} className="py-2.5 flex items-center gap-2.5 border-b border-white/7">
               <div className="flex-1 min-w-0">
-                <p className="text-white text-[12.5px] font-semibold truncate">{l.isBundle ? 'عرض · ' : ''}{l.name}</p>
-                {l.label && <p className="text-[10px] leading-relaxed" style={{ color: '#d7bf86' }}>{l.label}</p>}
-                <p className="text-[11px] font-bold tabular-nums mt-0.5" style={{ color: '#fcd34d' }}>{money(l.unitPrice * l.quantity)} د.أ</p>
+                <p className="text-white text-[15px] font-semibold leading-snug">{l.isBundle ? 'عرض · ' : ''}{l.name}</p>
+                {l.label && <p className="text-[13px] leading-relaxed" style={{ color: '#d7bf86' }}>{l.label}</p>}
+                <p className="mt-0.5"><Price v={l.unitPrice * l.quantity} /></p>
               </div>
-              <div className="flex items-center gap-1.5 shrink-0">
-                <button onClick={() => changeQty(l.key, -99)} aria-label="حذف" className="w-7 h-7 rounded-lg flex items-center justify-center"
-                  style={{ background: 'rgba(244,63,94,0.12)', border: '1px solid rgba(244,63,94,0.3)', color: '#fb7185' }}><IcoX size={11} /></button>
-                <button onClick={() => changeQty(l.key, -1)} className="w-7 h-7 rounded-lg bg-white/5 border border-white/10 text-white text-sm">−</button>
-                <span className="text-white text-sm font-bold w-4 text-center tabular-nums">{l.quantity}</span>
-                <button onClick={() => changeQty(l.key, 1)} className="w-7 h-7 rounded-lg text-sm font-bold" style={{ background: AMBER.bg, border: `1px solid ${AMBER.bd}`, color: AMBER.fg }}>+</button>
-              </div>
+              <Stepper qty={l.quantity} name={l.name} onInc={() => changeQty(l.key, 1)} onDec={() => changeQty(l.key, -1)} />
+              {/* الحذف بعيدٌ عن «−» بفاصلٍ واضح — كانا متلاصقين بحجم ٢٨ بكسل */}
+              <button onClick={() => changeQty(l.key, -99)} aria-label={`احذف ${l.name}`} className="w-11 h-11 rounded-xl flex items-center justify-center shrink-0 mr-1.5"
+                style={{ background: 'rgba(244,63,94,0.1)', border: '1px solid rgba(244,63,94,0.32)', color: '#fb7185' }}><IcoX size={13} /></button>
             </div>
           ))}
-          <input value={note} onChange={e => setNote(e.target.value)} maxLength={300} enterKeyHint="done"
+          <input value={note} onChange={e => setNote(e.target.value)} maxLength={300} enterKeyHint="done" aria-label="ملاحظة للمكان"
             placeholder="ملاحظة للمكان (اختياريّ)"
-            className="w-full mt-1 rounded-xl px-3 py-2.5 text-white placeholder:text-gray-600 focus:outline-none"
-            style={{ fontSize: 16, background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)' }} />
+            className="w-full mt-3 h-12 rounded-xl px-3.5 text-white focus:outline-none focus:border-amber-400/60"
+            style={{ fontSize: 16, background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.12)' }} />
+        </Sheet>
+      )}
+
+      {/* ══ قبل الإغلاق والسلّة ممتلئة ══ */}
+      {sheet === 'leave' && (
+        <Sheet title="سلّتك لم تُرسَل" subtitle={`${cartCount} أصناف · ${money(cartTotal)} د.أ`} subtitleWarn onClose={() => setSheet(null)}
+          footer={
+            <>
+              <button onClick={() => setSheet('cart')} className="flex-1 min-h-[48px] rounded-xl text-[15.5px] font-extrabold" style={amberBtn}>راجع وأرسل</button>
+              <button onClick={() => { setSheet(null); setCart([]); onClose?.(); }} className="px-4 min-h-[48px] rounded-xl text-[15px] font-bold"
+                style={{ background: 'rgba(244,63,94,0.1)', border: '1px solid rgba(244,63,94,0.32)', color: '#fb7185' }}>أغلق وامسحها</button>
+            </>
+          }>
+          <p className="text-[15px] leading-relaxed" style={{ color: INK.mid }}>
+            الأصناف في سلّتك لم تصل المكان بعد. إن أغلقت الآن تُمسح السلّة.
+          </p>
         </Sheet>
       )}
 
       {/* ══ طلباتي + خدمة الأرجيلة ══ */}
       {sheet === 'orders' && (
-        <Sheet title="طلباتي" subtitle={openBadge ? `${AR_DIGITS(openBadge)} قيد المتابعة` : 'كلّ ما طلبته في هذه الفعاليّة'} onClose={() => setSheet(null)}>
+        <Sheet title="طلباتي" subtitle={openBadge ? `${openBadge} قيد المتابعة` : 'كلّ ما طلبته في هذه الفعاليّة'} onClose={() => setSheet(null)}>
+          {sentId !== null && (
+            <div className="rounded-2xl px-3.5 py-3 mb-3" style={{ background: 'rgba(74,222,128,0.09)', border: '1px solid rgba(74,222,128,0.32)' }}>
+              <b className="block text-[15.5px] tabular-nums" style={{ color: '#bfe9cf' }}>وصل طلبك للمكان{sentId ? ` · #${sentId}` : ''}</b>
+              <p className="text-[13.5px] mt-0.5" style={{ color: INK.mid }}>يصلك إشعارٌ حين يبدأ تحضيره.</p>
+            </div>
+          )}
           {svc.available && (
-            <div className="rounded-2xl p-3 mb-3" style={{ background: GOLD.bg, border: `1px solid ${GOLD.bd}` }}>
-              <b className="block text-white text-[13px]">أرجيلتك وصلت — تحتاج شيئاً؟</b>
-              <p className="text-gray-400 text-[10.5px] mt-0.5 mb-2.5">طلبٌ بلا سعر يصل مسؤول الأراجيل مباشرةً ولا يدخل فاتورتك.</p>
+            <div className="rounded-2xl p-3.5 mb-3" style={{ background: GOLD.bg, border: `1px solid ${GOLD.bd}` }}>
+              <b className="block text-white text-[15.5px]">أرجيلتك وصلت — تحتاج شيئاً؟</b>
+              <p className="text-[13.5px] mt-0.5 mb-2.5" style={{ color: INK.mid }}>طلبٌ بلا سعر يصل مسؤول الأراجيل مباشرةً ولا يدخل فاتورتك.</p>
               {svc.pending ? (
-                <p className="text-[11.5px] text-center rounded-xl px-3 py-2.5" style={{ background: 'rgba(74,222,128,0.1)', border: '1px solid rgba(74,222,128,0.3)', color: '#bfe9cf' }}>وصل طلبك — الموظّف في الطريق</p>
+                <p className="text-[14px] text-center rounded-xl px-3 py-3" style={{ background: 'rgba(74,222,128,0.1)', border: '1px solid rgba(74,222,128,0.3)', color: '#bfe9cf' }}>وصل طلبك — الموظّف في الطريق</p>
               ) : (
                 <div className="flex gap-2">
                   {([['coal', 'أحتاج فحماً', IcoFire], ['fix', 'تزبيط الأرجيلة', IcoTool]] as const).map(([k, label, Ico]) => (
                     <button key={k} onClick={() => askService(k)} disabled={svcBusy}
-                      className="flex-1 min-h-[44px] rounded-xl text-[12.5px] font-bold disabled:opacity-45 flex items-center justify-center gap-1.5"
-                      style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.12)', color: '#eee' }}>
-                      <Ico size={15} />{label}
+                      className="flex-1 min-h-[48px] rounded-xl text-[14.5px] font-bold disabled:opacity-45 flex items-center justify-center gap-1.5"
+                      style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.12)', color: INK.hi }}>
+                      <Ico size={16} />{label}
                     </button>
                   ))}
                 </div>
@@ -999,29 +1123,29 @@ export default function OrderPanel({
             </div>
           )}
           {myOrders.length === 0 ? (
-            <p className="text-center text-gray-500 text-sm py-12">لا طلبات بعد</p>
+            <p className="text-center text-[15px] py-12" style={{ color: INK.low }}>لا طلبات بعد</p>
           ) : myOrders.map(o => {
             const meta = STATUS_META[o.status] || STATUS_META.new;
             return (
-              <div key={o.id} className="rounded-2xl p-3 mb-2" style={{ background: 'rgba(255,255,255,0.03)', border: `1px solid ${meta.color}33` }}>
+              <div key={o.id} className="rounded-2xl p-3.5 mb-2.5" style={{ background: 'rgba(255,255,255,0.03)', border: `1px solid ${meta.color}33` }}>
                 <div className="flex items-center gap-2 mb-1.5">
-                  <span className="w-2 h-2 rounded-full" style={{ background: meta.color, boxShadow: `0 0 8px ${meta.color}` }} />
-                  <span className="flex-1 text-[12px] font-bold" style={{ color: meta.color }}>{meta.label}</span>
-                  <span className="text-white text-xs font-bold tabular-nums">{money(parseFloat(o.total))} د.أ</span>
+                  <span className="w-2 h-2 rounded-full shrink-0" style={{ background: meta.color }} />
+                  <span className="flex-1 text-[14.5px] font-bold" style={{ color: meta.color }}>{meta.label}</span>
+                  <Price v={parseFloat(o.total)} />
                 </div>
-                <p className="text-gray-300 text-[11.5px] leading-relaxed">{o.items.map(i => `${i.name} ×${i.quantity}`).join(' • ')}</p>
+                <p className="text-[14px] leading-relaxed" style={{ color: INK.mid }}>{o.items.map(i => `${i.name} ×${i.quantity}`).join(' • ')}</p>
                 {o.items.filter(i => i.options?.length).map((i, ix) => (
-                  <p key={`o${ix}`} className="text-[10.5px] leading-relaxed" style={{ color: '#d7bf86' }}>{i.name}: {i.options!.map(x => x.value).join(' · ')}</p>
+                  <p key={`o${ix}`} className="text-[13px] leading-relaxed" style={{ color: '#d7bf86' }}>{i.name}: {i.options!.map(x => x.value).join(' · ')}</p>
                 ))}
                 {o.items.filter(i => i.components?.length).map((i, ix) => (
-                  <p key={`c${ix}`} className="text-[10.5px] leading-relaxed" style={{ color: '#d7bf86' }}>
+                  <p key={`c${ix}`} className="text-[13px] leading-relaxed" style={{ color: '#d7bf86' }}>
                     {i.name}: {i.components!.map(c => `${c.name}${c.options?.length ? ` (${c.options.map(x => x.value).join(' · ')})` : ''}`).join(' + ')}
                   </p>
                 ))}
-                {o.note && <p className="text-gray-500 text-[10px] mt-1">ملاحظة: {o.note}</p>}
-                <div className="flex items-center justify-between mt-1.5">
-                  <span className="text-gray-600 text-[9.5px]">#{o.id} · {new Date(o.createdAt).toLocaleTimeString('ar-JO', { hour: '2-digit', minute: '2-digit' })}</span>
-                  {o.status === 'new' && <button onClick={() => cancelOrder(o.id)} className="text-[10.5px] text-rose-400/80 underline">إلغاء الطلب</button>}
+                {o.note && <p className="text-[13px] mt-1" style={{ color: INK.low }}>ملاحظة: {o.note}</p>}
+                <div className="flex items-center justify-between mt-1">
+                  <span className="text-[12.5px] tabular-nums" style={{ color: INK.low }}>#{o.id} · {timeOf(o.createdAt)}</span>
+                  {o.status === 'new' && <button onClick={() => cancelOrder(o.id)} className="min-h-[44px] px-2 text-[14px] underline" style={{ color: '#fb7185' }}>إلغاء الطلب</button>}
                 </div>
               </div>
             );
@@ -1031,12 +1155,15 @@ export default function OrderPanel({
 
       {/* ══ المُركِّب وورقة التفصيل ══ */}
       {wizard && (
-        <BundleWizard item={wizard} onCancel={() => setWizard(null)}
+        <BundleWizard item={wizard} sectionOfId={sectionOfId} onCancel={() => setWizard(null)}
           onConfirm={line => { bumpLine(line); setWizard(null); flash(`أُضيف العرض · ${line.label}`); }} />
       )}
       {viewing && (
         <DetailSheet item={viewing} onCancel={() => setViewing(null)} onAdd={() => { addSimple(viewing); setViewing(null); }} />
       )}
     </div>
+    </MotionConfig>
   );
-}
+});
+
+export default OrderPanel;

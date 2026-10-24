@@ -25,7 +25,7 @@ import MafiaTeamGallery from './MafiaTeamGallery';
 import SecretWatermark from './SecretWatermark';
 import PlayerNotepad from './PlayerNotepad';
 import { CollapsibleVoteHistory } from './VoteHistoryPanel';
-import OrderPanel from './OrderPanel';
+import OrderPanel, { type OrderPanelHandle } from './OrderPanel';
 import { IcoPlate } from './fnb/icons';
 import TeamBar from './TeamBar';
 type Step = 'code' | 'phone' | 'login' | 'register' | 'change_password' | 'ticket' | 'auto_joining' | 'done' | 'rejoined' | 'spectating';
@@ -235,6 +235,8 @@ export default function PlayerFlow({ initialRoomCode = '', inviteFlag = false, i
   // شارة الزرّ العائم: عدد الطلبات المفتوحة ولونها بالحالة (أزرق بانتظار المكان، ذهبيّ قيد التحضير)
   const [fnbOpen, setFnbOpen] = useState<{ count: number; preparing: boolean }>({ count: 0, preparing: false });
   const [isOrderOpen, setIsOrderOpen] = useState(false);
+  // اللمسة خارج الورقة تمرّ عبر اللوحة: تسأل قبل مسح سلّةٍ لم تُرسَل
+  const orderPanelRef = useRef<OrderPanelHandle>(null);
   const refreshFnbOrders = useCallback((activityId: number | null) => {
     if (!activityId) return;
     const t = localStorage.getItem('mafia_player_token');
@@ -4427,7 +4429,7 @@ export default function PlayerFlow({ initialRoomCode = '', inviteFlag = false, i
       {isOrderOpen && (
         <div
           className="fixed inset-0 z-[210] flex items-end sm:items-center justify-center bg-black/80 backdrop-blur-sm"
-          onClick={() => setIsOrderOpen(false)}
+          onClick={() => { if (orderPanelRef.current) orderPanelRef.current.requestClose(); else setIsOrderOpen(false); }}
         >
           {/* 🔴 ارتفاعٌ ثابتٌ بلا تمريرٍ هنا: اللوحة تدير تمريرها الداخليّ بين
               ترويسةٍ وشريطٍ ثابتَين. تمريرٌ خارجيٌّ هنا كان يُخفي شريط السلّة. */}
@@ -4436,7 +4438,7 @@ export default function PlayerFlow({ initialRoomCode = '', inviteFlag = false, i
             style={{ background: '#050505', borderColor: 'rgba(197,160,89,0.35)' }}
             onClick={e => e.stopPropagation()}
           >
-            <OrderPanel embedded onClose={() => { setIsOrderOpen(false); refreshFnbOrders(fnbActivityId); }} onEmptyContext={() => setFnbReady(false)} />
+            <OrderPanel ref={orderPanelRef} embedded onClose={() => { setIsOrderOpen(false); refreshFnbOrders(fnbActivityId); }} onEmptyContext={() => setFnbReady(false)} />
           </div>
         </div>
       )}

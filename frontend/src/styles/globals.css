@@ -62,8 +62,12 @@
      🔴 سطر 100vh احتياطيّ قبل 100dvh: متصفّحات أندرويد القديمة وiOS < 15.4 لا
         تعرف dvh فتُسقط السطر كلّه، ويصير الارتفاع تلقائيّاً وينزل شريط
         «راجع وأرسل» تحت شريط التنقّل (الشكوى: «زرّ الإرسال لا يظهر»). */
-  .fnb-page-h { height: calc(100vh - var(--nav-h)); height: calc(100dvh - var(--nav-h)); }
+  /* 🔴 −16px: تخطيط اللاعب يحشو أسفل كلّ صفحة بـ nav-h + 16px، فبدونها كانت
+        الصفحة أطول من الشاشة بـ16 بكسل تنزاح بها الترويسة لأعلى عند أوّل تمرير. */
+  .fnb-page-h { height: calc(100vh - var(--nav-h) - 16px); height: calc(100dvh - var(--nav-h) - 16px); }
   .fnb-sheet-h { height: 88vh; height: 88dvh; }
+  /* حلقة تركيزٍ ظاهرة للوحة المفاتيح داخل المنيو (لا تظهر للّمس) */
+  .fnb-root :focus-visible { outline: 2px solid #fbbf24; outline-offset: 2px; }
 
   /* منع السكرول عند فتح موديل */
   body.modal-open {
