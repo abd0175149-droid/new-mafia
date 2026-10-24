@@ -464,6 +464,27 @@ export async function outboxStats(): Promise<any> {
   };
 }
 
+/**
+ * ▶ استئناف الجماعيّ الآن (زرّ في حالة البثّ): يمسح انتظاراً فرضته البوّابة أو تأجيلاً معلّقاً في الذاكرة، ويفكّ
+ * الصفوف المؤجَّلة برفض البوّابة. لا يتجاوز قيودنا (الساعات/السقوف/التباعد تُفحص في الخطوة التالية كالعادة)،
+ * ولا يمسّ المحتجَز يدويّاً (HELD) ولا صفوفاً أجّلها غير البوّابة.
+ */
+export async function resumeBulkNow(): Promise<{ released: number }> {
+  nextAllowed.bulk = 0;
+  delete lastRefusal.bulk;
+  let released = 0;
+  const db = getDB();
+  if (db) {
+    const r: any = await db.execute(sql`UPDATE wa_outbox SET not_before = NOW(), last_error = ''
+      WHERE lane = 'bulk' AND not_before > NOW() AND last_error NOT LIKE 'HELD%'
+        AND (last_error ILIKE '%allowance%' OR last_error ILIKE '%Too Many%' OR last_error ILIKE '%pacing%')
+      RETURNING message_id`);
+    released = (r?.rows ?? r ?? []).length;
+  }
+  kick();
+  return { released };
+}
+
 /** إيقاف دفعةٍ جماعيّة: حذف ما لم يُرسل بعد من صفوفها */
 export async function cancelQueued(messageIds: number[]): Promise<number> {
   const db = getDB(); if (!db || !messageIds.length) return 0;

@@ -353,6 +353,15 @@ export default function BroadcastTab({ apiFetch }: { apiFetch: Fetcher }) {
                     <b>{ln.state === 'sending' ? 'يُرسل:' : 'سبب التوقّف:'}</b> {ln.reason}
                     {ln.resumeAt && <span> — {ln.state === 'sending' ? 'التالية' : 'يستأنف'} <b>{fmtAt(ln.resumeAt)}</b></span>}
                     {ln.code === 'daily_cap' && ln.tomorrowCap ? <span> بحدّ {ln.tomorrowCap}</span> : null}
+                    {(ln.code === 'gateway' || ln.code === 'deferred') && (
+                      <button type="button" onClick={async () => {
+                        try {
+                          const r = await apiFetch('/api/whatsapp/open-window-broadcast/resume-lane', { method: 'POST' });
+                          swalToast(`▶ استُؤنف — ${r.released ? `فُكّ ${r.released} مؤجَّل، ` : ''}قيودنا تبقى سارية`, 'success');
+                          setTimeout(() => apiFetch('/api/whatsapp/open-window-broadcast/live').then(d => setLive({ broadcasts: d.broadcasts || [], lane: d.lane || null })).catch(() => {}), 1500);
+                        } catch (e: any) { swalToast(e.message, 'error'); }
+                      }} className="mr-2 px-2.5 py-0.5 rounded-lg text-[11px] font-bold bg-emerald-500/15 text-emerald-200 border border-emerald-500/40 hover:bg-emerald-500/25">▶ استأنف الآن</button>
+                    )}
                     <div className="text-[11px] text-gray-400 mt-0.5 tabular-nums">
                       اليوم {ln.todaySent}/{ln.dayCap ?? '∞'} · آخر ساعة {ln.hourSent}/{ln.hourCap} · ساعات الإرسال {ln.window}{ln.warmup ? ' · التسخين مفعّل' : ''}
                     </div>

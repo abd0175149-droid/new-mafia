@@ -730,6 +730,20 @@ router.get('/open-window-broadcast/live', authenticate, adminOnly, async (_req: 
   } catch (err: any) { res.status(500).json({ error: err.message }); }
 });
 
+// ▶ استئناف الجماعيّ الآن — يمسح انتظار البوّابة/التأجيل المعلّق (قيودنا تبقى سارية)
+router.post('/open-window-broadcast/resume-lane', authenticate, adminOnly, async (req: Request, res: Response) => {
+  try {
+    const { resumeBulkNow } = await import('../services/wa-transport/web.transport.js');
+    const r = await resumeBulkNow();
+    try {
+      const { logStaffAction } = await import('../services/staff-action-log.service.js');
+      const u: any = (req as any).user;
+      void logStaffAction({ staffId: u?.id, staffUsername: u?.username, staffRole: u?.role, source: 'rest', action: 'rest:wa-bulk-resume', category: 'WHATSAPP_ADMIN', labelAr: 'استئناف الإرسال الجماعيّ الآن', details: r });
+    } catch { /* غير حاجب */ }
+    res.json({ success: true, ...r });
+  } catch (err: any) { res.status(500).json({ error: err.message }); }
+});
+
 // 🧪 اختبار البثّ قبل اعتماده — إلى أرقام الإداريّين من رقم الأعمال (إلزاميّ قبل الإرسال)
 router.get('/open-window-broadcast/test-recipients', authenticate, adminOnly, async (_req: Request, res: Response) => {
   try {
