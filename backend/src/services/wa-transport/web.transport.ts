@@ -120,6 +120,14 @@ export async function enqueueWeb(saved: any, conv: any, c: OutboundContent, lane
 let running = false;
 let timer: NodeJS.Timeout | null = null;
 const nextAllowed: Record<Lane, number> = { reply: 0, timely: 0, bulk: 0 };
+/** 🚦 آخر رفضٍ من حاكم البوّابة لكلّ مسار — كان الطابور يسكت ساعاتٍ بلا سبب ظاهر (بثّ #24: «حدّ المحادثات الجديدة» عند البوّابة) */
+interface GatewayRefusal { at: number; rule: string; reason: string; resumeAt: number }
+const lastRefusal: Partial<Record<Lane, GatewayRefusal>> = {};
+const REFUSAL_AR: Record<string, string> = {
+  cold_daily_cap: 'حدّ البوّابة اليوميّ لـ«المحادثات الجديدة» — تعدّ جديدةً كلّ محادثةٍ بلا رسائل عبرها منذ ربطها (٢٠ تشرين)، ولو كان بيننا تاريخٌ أقدم',
+  daily_cap: 'حدّ البوّابة اليوميّ لكلّ الرسائل الصادرة — يشمل ردود البوت والموظّفين والتذكيرات',
+  breaker: 'قاطع البوّابة بعد إخفاقاتٍ متتالية',
+};
 
 function kick(): void { setImmediate(() => { void step(); }); }
 
@@ -229,6 +237,11 @@ export async function bulkLaneState(): Promise<any> {
     return { ...base, state: 'paused', code: 'hourly_cap', reason: `وصل حدّ الساعة (${s.bulk.hourlyCap})`, resumeAt: at(resume) };
   }
   const next = Math.max(nextAllowed.bulk, now);
+  const ref = lastRefusal.bulk;
+  if (ref && ref.resumeAt > now && nextAllowed.bulk > now) {
+    return { ...base, state: 'paused', code: 'gateway', reason: `رفضت البوّابة: ${REFUSAL_AR[ref.rule] || ref.rule} (${ref.reason})`, resumeAt: at(Math.max(ref.resumeAt, nextAllowed.bulk)), gatewayRule: ref.rule };
+  }
+  if (next - now > 10 * 60e3) return { ...base, state: 'paused', code: 'deferred', reason: 'مؤجَّل', resumeAt: at(next) };
   return { ...base, state: 'sending', code: 'sending', reason: `يُرسل — رسالةٌ كلّ ${s.bulk.gapMinSec}–${s.bulk.gapMaxSec} ثانية`, resumeAt: next > now + 1000 ? at(next) : null };
 }
 export function bindWebSessionAge(fn: () => number): void { webSessionAge = fn; }
@@ -376,10 +389,17 @@ async function step(): Promise<void> {
       } catch (e: any) {
         const ge = e as gw.GatewayError;
         if (ge?.status === 429) {
-          // البوّابة نفسها قالت «تمهّل» — لا تُحسب محاولة
-          const after = Math.min(6 * 3600, Math.max(60, Number(ge.body?.retryAfterSeconds) || 300));
+          // البوّابة نفسها قالت «تمهّل» — لا تُحسب محاولة. الجماعيّ يحترم مهلتها (حتّى ٦ ساعات)؛ أمّا الردود
+          // والمقيّد بوقت فلا يُحبسان ساعاتٍ خلف حدٍّ استهلكه البثّ — العميل ينتظر جواباً: إعادةٌ خلال دقيقتين
+          const asked = Math.max(60, Number(ge.body?.retryAfterSeconds) || 300);
+          const after = lane === 'bulk' ? Math.min(6 * 3600, asked) : Math.min(120, asked);
           await db.execute(sql`UPDATE wa_outbox SET attempts = GREATEST(attempts - 1, 0), not_before = NOW() + (${after} * INTERVAL '1 second'), last_error = ${String(ge.message).slice(0, 300)} WHERE message_id = ${job.message_id}`);
           nextAllowed[lane] = Date.now() + after * 1000;
+          // حاكم البوّابة يردّ code=SEND_PACING_LIMITED بلا اسم القاعدة — تُعرف من نصّه
+          const gm = String(ge.body?.message || ge.message || '');
+          const rule = /new (conversation|contact)/i.test(gm) ? 'cold_daily_cap' : /daily send allowance/i.test(gm) ? 'daily_cap' : /breaker|circuit|consecutive/i.test(gm) ? 'breaker' : String(ge.body?.code || 'gateway');
+          lastRefusal[lane] = { at: Date.now(), rule, reason: String(ge.body?.reason || ge.message || '').slice(0, 300), resumeAt: nextAllowed[lane] };
+          console.warn(`🚦 WA gateway refused ${lane}: ${rule} — retry in ${after}s`);
         } else if (e?.fatal || (ge?.status >= 400 && ge?.status < 500 && ge?.status !== 408 && ge?.status !== 409)) {
           // 🔎 «لا يمكن الوصول للمستلم» ⟵ الرقم بلا واتساب: يُسجَّل فتستبعده المعاينات القادمة
           const notOnWa = ge?.status === 400 && /could not resolve the recipient|not on WhatsApp/i.test(String(e?.message || ''));
