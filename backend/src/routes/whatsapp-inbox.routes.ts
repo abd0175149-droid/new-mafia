@@ -713,12 +713,30 @@ router.get('/open-window-broadcast/audience', authenticate, adminOnly, async (re
     res.json({ ...aud, status: await B.broadcastStatus(), history: await B.listBroadcasts(15), activities: await B.upcomingActivities() });
   } catch (e: any) { res.status(500).json({ error: e.message }); }
 });
+// 🧪 اختبار البثّ قبل اعتماده — إلى أرقام الإداريّين من رقم الأعمال (إلزاميّ قبل الإرسال)
+router.get('/open-window-broadcast/test-recipients', authenticate, adminOnly, async (_req: Request, res: Response) => {
+  try {
+    const B = await import('../services/whatsapp-broadcast.service.js');
+    const list = await B.broadcastTestRecipients();
+    res.json({ success: true, recipients: list.map(x => ({ name: x.name, phone: x.phone.length > 6 ? `${x.phone.slice(0, 4)}•••${x.phone.slice(-2)}` : x.phone })) });
+  } catch (err: any) { res.status(500).json({ error: err.message }); }
+});
+router.post('/open-window-broadcast/test', authenticate, adminOnly, async (req: Request, res: Response) => {
+  try {
+    const B = await import('../services/whatsapp-broadcast.service.js');
+    const u = (req as any).user;
+    const r = await B.testBroadcast({ body: req.body?.body, imageUrl: req.body?.imageUrl ?? null, videoUrl: req.body?.videoUrl ?? null, appendOptout: req.body?.appendOptout !== false, activityId: req.body?.activityId ?? null, createdBy: u?.displayName || u?.username || '' });
+    if (!r.ok) return res.status(400).json({ error: r.error, sentTo: r.sentTo });
+    res.json({ success: true, ...r });
+  } catch (err: any) { res.status(500).json({ error: err.message }); }
+});
+
 router.post('/open-window-broadcast', authenticate, adminOnly, async (req: Request, res: Response) => {
   try {
     const B = await import('../services/whatsapp-broadcast.service.js');
     const u: any = (req as any).user;
     const r = await B.startBroadcast({ body: req.body?.body, imageUrl: req.body?.imageUrl ?? null, videoUrl: req.body?.videoUrl ?? null, filter: req.body?.filter || 'all', activityId: req.body?.activityId ?? null, excludeIds: Array.isArray(req.body?.excludeIds) ? req.body.excludeIds : [], templateId: req.body?.templateId ? Number(req.body.templateId) : null, excludeBroadcastIds: Array.isArray(req.body?.excludeBroadcastIds) ? req.body.excludeBroadcastIds.map(Number) : [], appendOptout: req.body?.appendOptout !== false, channel: ['cloud', 'web'].includes(req.body?.channel) ? req.body.channel : 'all', lineFilter: ['all','warm','two_way'].includes(String(req.body?.lineFilter)) ? req.body.lineFilter : undefined, createdBy: u?.displayName || u?.username || '' });
-    if (!r.ok) return res.status(400).json({ error: r.error });
+    if (!r.ok) return res.status(400).json({ error: r.error, code: r.code });
     try { const { logStaffAction } = await import('../services/staff-action-log.service.js'); void logStaffAction({ staffId: u?.id, staffUsername: u?.username, staffRole: u?.role, source: 'rest', action: 'rest:wa-broadcast', category: 'WHATSAPP_ADMIN', labelAr: 'بثّ واتساب للنوافذ المفتوحة', details: { broadcastId: r.id, targets: r.total, filter: req.body?.filter || 'all', body: String(req.body?.body || '').slice(0, 200) } }); } catch { /* غير حاجب */ }
     res.json({ success: true, id: r.id, total: r.total });
   } catch (e: any) { res.status(500).json({ error: e.message }); }

@@ -8,7 +8,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { getSocket } from '@/lib/socket';
 import Swal from 'sweetalert2';
-import { swalConfirm, swalToast } from '@/lib/swal';
+import { swalAlert, swalConfirm, swalToast } from '@/lib/swal';
 import BroadcastHistory from './BroadcastHistory';
 
 type Fetcher = (path: string, opts?: RequestInit) => Promise<any>;
@@ -92,6 +92,10 @@ export default function BroadcastTab({ apiFetch }: { apiFetch: Fetcher }) {
   const [imgBusy, setImgBusy] = useState(false);
   const imgRef = useRef<HTMLInputElement>(null);
   const vidRef = useRef<HTMLInputElement>(null);
+  // 🧪 آخر اختبارٍ ناجح: بصمة المحتوى الذي اختُبر + متى + لمن
+  const [tested, setTested] = useState<{ sig: string; at: number; sentTo: Array<{ name: string; phone: string; ok: boolean; error?: string }> } | null>(null);
+  const [testing, setTesting] = useState(false);
+  const [testRcpts, setTestRcpts] = useState<Array<{ name: string; phone: string }> | null>(null);
 
   // ══════════════════════════════════════════════════════
   // ✂️ الحدّ الفعليّ للنصّ: ٩٠٠ عادةً، وحدُّ التعليق مع صورة
@@ -138,6 +142,10 @@ export default function BroadcastTab({ apiFetch }: { apiFetch: Fetcher }) {
     try { const d = await apiFetch('/api/whatsapp/open-window-broadcast/templates'); setTpls(d.templates || []); } catch { /* غير حاجب */ }
   }, [apiFetch]);
   useEffect(() => { loadTpls(); }, [loadTpls]);
+  // 🧪 من يصله الاختبار (أرقام الإداريّين) — للعرض فقط؛ الخادم يحدّدهم عند الإرسال
+  useEffect(() => {
+    apiFetch('/api/whatsapp/open-window-broadcast/test-recipients').then(d => setTestRcpts(d.recipients || [])).catch(() => setTestRcpts([]));
+  }, [apiFetch]);
   const currentTpl = tpls.find(t => t.id === tplId) || null;
   const tplDirty = !!currentTpl && currentTpl.body.trim() !== body.trim();
 
@@ -234,7 +242,30 @@ export default function BroadcastTab({ apiFetch }: { apiFetch: Fetcher }) {
     : status?.running ? 'هناك بثّ جارٍ الآن'
     : status?.nextAllowedAt && !coversRecent ? `بثّ واحد كلّ ١٢ ساعة — المتاح ${fmt(status.nextAllowedAt)}. أو استثنِ مستلمي البثّ السابق لترسل للباقي الآن`
     : null;
-  const canSend = !blockedReason && !sending && !imgBusy && !missingActivity && targets.length > 0 && body.trim().length >= 5 && body.length <= bodyMax;
+  // ══════════════════════════════════════════════════════
+  // 🧪 الاختبار الإلزاميّ قبل البثّ (قرار المالك 2026-10-24)
+  // ══════════════════════════════════════════════════════
+  // المحتوى نفسه (نصّ/صورة/فيديو + التذييل + الفعاليّة إن كان متغيّرها في النصّ) يصل أرقامَ الإداريّين من رقم
+  // الأعمال مباشرةً، ثمّ يُفتح زرّ البثّ. أيّ تعديلٍ بعد الاختبار يقفله من جديد — والخادم يفرض ذلك أيضاً.
+  const TEST_VALID_MS = 12 * 3600e3;
+  const contentSig = JSON.stringify([body.trim(), img?.kind || '', img?.url || '', footer, ACT_VARS.test(body) ? activityId : null]);
+  const testedOk = !!tested && tested.sig === contentSig && Date.now() - tested.at < TEST_VALID_MS;
+  const canTest = !testing && !imgBusy && !missingActivity && body.trim().length >= 5 && body.length <= bodyMax;
+  const runTest = async () => {
+    setTesting(true);
+    try {
+      const r = await apiFetch('/api/whatsapp/open-window-broadcast/test', { method: 'POST', body: JSON.stringify({ body, appendOptout: footer, activityId, imageUrl: img?.kind === 'image' ? img.url : null, videoUrl: img?.kind === 'video' ? img.url : null }) });
+      setTested({ sig: contentSig, at: Number(r.at) || Date.now(), sentTo: r.sentTo || [] });
+      const n = (r.sentTo || []).filter((x: any) => x.ok).length;
+      swalToast(`🧪 خرج الاختبار من رقم الأعمال إلى ${n} — راجعوه على هواتفكم ثمّ اعتمد البثّ`, 'success');
+    } catch (e: any) {
+      setTested(null);
+      const fails = (e.body?.sentTo || []).map((x: any) => `• ${x.name}: ${x.ok ? 'وصل' : x.error}`).join('\n');
+      swalAlert(`تعذّر الاختبار: ${e.message}${fails ? `\n\n${fails}` : ''}`, 'error');
+    }
+    setTesting(false);
+  };
+  const canSend = testedOk && !blockedReason && !sending && !imgBusy && !missingActivity && targets.length > 0 && body.trim().length >= 5 && body.length <= bodyMax;
 
   const send = async () => {
     const ok = await swalConfirm(
@@ -246,9 +277,12 @@ export default function BroadcastTab({ apiFetch }: { apiFetch: Fetcher }) {
     try {
       const r = await apiFetch('/api/whatsapp/open-window-broadcast', { method: 'POST', body: JSON.stringify({ body, filter, channel, lineFilter: line || undefined, activityId, templateId: currentTpl && !tplDirty ? currentTpl.id : null, excludeBroadcastIds: exB, excludeIds: Array.from(excluded), appendOptout: footer, imageUrl: img?.kind === 'image' ? img.url : null, videoUrl: img?.kind === 'video' ? img.url : null }) });
       swalToast(`بدأ البثّ إلى ${r.total}`, 'success');
-      setBody(''); setTplId(null); setExcluded(new Set()); setExB([]); setImg(null);
+      setBody(''); setTplId(null); setExcluded(new Set()); setExB([]); setImg(null); setTested(null);
       await load(); loadTpls();
-    } catch (e: any) { swalToast(e.message || 'تعذّر بدء البثّ', 'error'); }
+    } catch (e: any) {
+      if (e.code === 'TEST_REQUIRED') setTested(null);   // انتهت صلاحيّة الاختبار أو تغيّر المحتوى عند الخادم
+      swalToast(e.message || 'تعذّر بدء البثّ', 'error');
+    }
     setSending(false);
   };
 
@@ -419,11 +453,32 @@ export default function BroadcastTab({ apiFetch }: { apiFetch: Fetcher }) {
             )}
 
             {missingActivity && <p className="text-xs text-amber-300 font-bold">اختر الفعاليّة أوّلاً.</p>}
+
+            {/* ── 🧪 الاختبار الإلزاميّ: من رقم الأعمال إلى الإداريّين ── */}
+            <div className={`rounded-xl border p-3 space-y-2 ${testedOk ? 'border-emerald-500/30 bg-emerald-500/5' : 'border-sky-500/30 bg-sky-500/5'}`}>
+              <div className="flex items-center gap-2 flex-wrap">
+                <b className={`text-sm ${testedOk ? 'text-emerald-300' : 'text-sky-300'}`}>🧪 اختبار قبل البثّ</b>
+                <span className="text-[11px] text-gray-400">إلزاميّ — يصل كما سيصل الناس (بالاسم والتذييل{img ? (img.kind === 'video' ? ' والفيديو' : ' والصورة') : ''}) من رقم الأعمال إلى:
+                  {' '}{testRcpts === null ? '…' : testRcpts.length ? testRcpts.map(r => r.name).join('، ') : <span className="text-rose-300">لا أرقام إداريّين مربوطة</span>}</span>
+              </div>
+              <div className="flex items-center gap-2 flex-wrap">
+                <button type="button" disabled={!canTest} onClick={runTest}
+                  className="px-4 py-2 rounded-xl text-xs font-bold bg-sky-500/15 text-sky-200 border border-sky-500/40 hover:bg-sky-500/25 disabled:opacity-40 disabled:cursor-not-allowed">
+                  {testing ? '⏳ يرسل الاختبار…' : testedOk ? '↻ أعد الاختبار' : '🧪 أرسل الاختبار للإداريّين'}
+                </button>
+                {testedOk && <span className="text-[11px] text-emerald-300">✅ خرج الاختبار {new Date(tested!.at).toLocaleTimeString('ar-JO', { hour: 'numeric', minute: '2-digit' })} — راجعوه على هواتفكم، ثمّ اعتمد البثّ</span>}
+                {tested && !testedOk && <span className="text-[11px] text-amber-300">⚠️ تغيّرت الرسالة بعد الاختبار (أو مضى عليه ١٢ ساعة) — اختبر من جديد</span>}
+              </div>
+              {testedOk && tested!.sentTo.some(x => !x.ok) && (
+                <div className="text-[11px] text-amber-300/90">{tested!.sentTo.filter(x => !x.ok).map(x => `${x.name}: ${x.error}`).join(' · ')}</div>
+              )}
+            </div>
+
             {blockedReason && <p className="text-xs text-rose-300 font-bold">⛔ {blockedReason}</p>}
             <button disabled={!canSend} onClick={send}
               className="w-full py-3 rounded-xl text-sm font-black text-black disabled:opacity-40 disabled:cursor-not-allowed"
               style={{ background: 'linear-gradient(135deg, #fbbf24, #f59e0b)' }}>
-              {sending ? '⏳ جاري البدء…' : `📢 أرسل إلى ${targets.length} شخصاً`}
+              {sending ? '⏳ جاري البدء…' : !testedOk ? '🔒 اختبر الرسالة أوّلاً ثمّ اعتمد البثّ' : `📢 اعتمد البثّ — أرسل إلى ${targets.length} شخصاً`}
             </button>
           </div>
 

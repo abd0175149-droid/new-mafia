@@ -24,7 +24,7 @@ import {
   suspendSending as _suspend, resumeSending as _resume, loadSendingSuspension as _load,
   sendingSuspendedReason as _reason,
 } from './wa-transport/locks.js';
-import { pickChannel, cloudWindowOpen, webConfigured } from './wa-transport/router.js';
+import { pickChannel, cloudWindowOpen, webConfigured, isWebReady } from './wa-transport/router.js';
 import { transportSettings } from './wa-transport/settings.js';
 import type { Channel, Lane } from './wa-transport/types.js';
 export { isUnreachable } from './wa-transport/types.js';
@@ -720,6 +720,8 @@ export interface SendMessageInput {
   lane?: Lane;
   /** ترتيبٌ داخل المسار في طابور الجلسة (أصغر = أسبق). إشعار الإلغاء يسبق البثّ */
   priority?: number;
+  /** 🧪 يُجبر الخروج من رقم الأعمال (اختبار البثّ قبل اعتماده) — لا موجّه ولا بديل ميتا */
+  forceChannel?: 'web';
   /** يُدمج في `payload` المحفوظ: اسم الموظّف ونصّه قبل الصياغة — كان الاسم
    *  يُمرَّر ولا يُخزَّن، فلا يُعرف لاحقاً مَن كتب الردّ إلّا برقمٍ في عمود. */
   meta?: Record<string, any>;
@@ -766,7 +768,9 @@ export async function sendMessage(input: SendMessageInput) {
   // ميتا: لا نراسل إلا مَن راسلنا خلال ٢٤ ساعة — قيدٌ تفرضه ميتا وشرطٌ في طبقة الإرسال.
   // رقم الأعمال (الجلسة): لا قيد ولا شرط (قرار المالك) — الضبط بالطابور وسقوفه.
   const lane = laneFor(input);
-  const pick = pickChannel(conv, lane);
+  const pick: ReturnType<typeof pickChannel> = input.forceChannel === 'web'
+    ? (isWebReady() ? { channel: 'web' } : { channel: null, code: 'CHANNEL_UNAVAILABLE', reason: 'رقم الأعمال غير متّصل الآن' })
+    : pickChannel(conv, lane);
   if (!pick.channel) throw codeErr(pick.code || 'WINDOW_EXPIRED', pick.reason || 'لا قناة متاحة');
   const channel: Channel = pick.channel;
 

@@ -12,17 +12,19 @@
 //   • كلّ بثّ يُسجَّل في wa_broadcasts وفي سجلّ عمليّات الموظّفين.
 
 import { sql, eq, desc } from 'drizzle-orm';
+import crypto from 'crypto';
 import fsSync from 'fs';
 import pathMod from 'path';
 import { getDB } from '../config/db.js';
 import { env } from '../config/env.js';
 import { waBroadcasts, waMessageTemplates } from '../schemas/admin.schema.js';
 import { sendMessage, sendingSuspendedReason, uploadWaMedia, WA_CAPTION_MAX, isUnreachable } from './whatsapp-inbox.service.js';
-import { pickChannel, reachableSql } from './wa-transport/router.js';
+import { pickChannel, reachableSql, isWebReady } from './wa-transport/router.js';
 import { transportSettings } from './wa-transport/settings.js';
 import type { Channel, LineFilter } from './wa-transport/types.js';
 import { lineFilterSql } from './wa-transport/line-roster.js';
 import { isTestActivity, notTestActivitySql, notTestLocationSql } from './test-location.util.js';
+import { getAux, setAux } from '../config/redis.js';
 
 const rowsOf = (r: any): any[] => r?.rows ?? (Array.isArray(r) ? r : []);
 export const BROADCAST_MAX_TARGETS = 300;
@@ -127,39 +129,92 @@ export function fillVars(body: string, t: { name: string; rank: string; activity
     .replace(/\{الموعد\}/g, t.when || '');
 }
 
+// ══════════════════════════════════════════════════════
+// 🧪 اختبار البثّ — إلى أرقام الإداريّين من رقم الأعمال مباشرةً
+// ══════════════════════════════════════════════════════
+// قرار المالك 2026-10-24: قبل اعتماد أيّ بثّ (نصّ أو صورة أو فيديو) يصل المحتوى نفسه من رقم الأعمال إلى
+// الإداريّين (حساب أدمن فعّال مربوط بملفّ لاعب = رقمه)، و«{الاسم}» باسم كلٍّ منهم. خارج الموجّه والطابور الجماعيّ
+// (مسار timely)، ولا يُحسب في سجلّ البثوث. نجاحه يسجّل بصمة المحتوى فيفتح startBroadcast له ١٢ ساعة.
+export const TEST_VALID_MS = 12 * 3600e3;
+
+export async function broadcastTestRecipients(): Promise<Array<{ staff: string; name: string; phone: string }>> {
+  const db = getDB(); if (!db) return [];
+  const r: any = await db.execute(sql`SELECT s.username, p.name, p.phone, p.rank_tier
+      FROM staff s JOIN players p ON p.linked_staff_id = s.id
+     WHERE s.role = 'admin' AND s.is_active = true AND COALESCE(p.phone, '') <> '' ORDER BY s.id`);
+  return rowsOf(r).map((x: any) => ({ staff: x.username, name: x.name || x.username, phone: String(x.phone), rank: x.rank_tier ? (RANK_AR[x.rank_tier] || '') : '' })) as any;
+}
+
+export async function testBroadcast(input: ContentInput & { createdBy: string }): Promise<{ ok: boolean; error?: string; key?: string; at?: number; sentTo?: Array<{ name: string; phone: string; ok: boolean; error?: string }> }> {
+  const db = getDB(); if (!db) return { ok: false, error: 'DB unavailable' };
+  if (input.activityId && await isTestActivity(db, input.activityId)) return { ok: false, error: 'فعاليّة في موقع اختبار — لا بثّ عنها' };
+  const prep = await prepareContent(db, input);
+  if ('error' in prep) return { ok: false, error: prep.error };
+  if (!isWebReady()) return { ok: false, error: 'رقم الأعمال غير متّصل الآن — الاختبار يخرج منه' };
+  const admins: any[] = await broadcastTestRecipients();
+  if (!admins.length) return { ok: false, error: 'لا أرقام إداريّين: اربط حساب الأدمن بملفّ لاعبه (رقمه)' };
+  const { getOrCreateConversation } = await import('./whatsapp-inbox.service.js');
+  const sentTo: Array<{ name: string; phone: string; ok: boolean; error?: string }> = [];
+  for (const a of admins) {
+    const masked = a.phone.length > 6 ? `${a.phone.slice(0, 4)}•••${a.phone.slice(-2)}` : a.phone;
+    try {
+      const conv: any = await getOrCreateConversation(a.phone, a.name, { channel: 'web' });
+      const msgText = fillVars(prep.body, { name: a.name, rank: a.rank, activity: prep.activityName, venue: prep.venueName, place: prep.placeText, when: prep.whenText }) + (prep.withFooter ? OPTOUT_FOOTER : '');
+      // رابطٌ نسبيّ يكفي: رقم الأعمال يقرأ الملفّ من القرص، والوارد يعرضه عبر /uploads
+      const media = { link: `${env.PUBLIC_URL || ''}${prep.mediaRel}`, caption: msgText };
+      await sendMessage({
+        conversationId: conv.id, source: 'system', lane: 'timely', forceChannel: 'web', priority: 1,
+        meta: { broadcastTest: true, by: input.createdBy },
+        ...(prep.imgRel ? { image: media } : prep.vidRel ? { video: media } : { text: msgText }),
+      });
+      sentTo.push({ name: a.name, phone: masked, ok: true });
+    } catch (e: any) {
+      sentTo.push({ name: a.name, phone: masked, ok: false, error: String(e?.message || e).slice(0, 160) });
+    }
+  }
+  const n = sentTo.filter(x => x.ok).length;
+  if (!n) return { ok: false, error: 'لم يخرج الاختبار لأيّ رقم', sentTo };
+  const at = Date.now();
+  await setAux(`bcast-test:${prep.key}`, { at, by: input.createdBy, sent: n });
+  return { ok: true, key: prep.key, at, sentTo };
+}
+
 export async function broadcastStatus() {
   const db = getDB(); if (!db) return { running: null, nextAllowedAt: null, suspended: null };
   return { running, suspended: sendingSuspendedReason(), nextAllowedAt: null, maxTargets: maxTargets() };
 }
 
-export async function startBroadcast(input: AudienceQuery & { body: string; createdBy: string; appendOptout?: boolean; templateId?: number | null; imageUrl?: string | null; videoUrl?: string | null }): Promise<{ ok: boolean; error?: string; id?: number; total?: number }> {
-  const db = getDB(); if (!db) return { ok: false, error: 'DB unavailable' };
-  // 🧪 موقع اختبار: لا بثّ عن فعاليّةٍ هناك — للعميل والأدمن سواء
-  if (input.activityId && await isTestActivity(db, input.activityId)) return { ok: false, error: 'فعاليّة في موقع اختبار — لا بثّ عنها' };
+/** محتوى البثّ المحضَّر — مشتركٌ بين الاختبار والبثّ نفسه فيصل الاختبارُ نصّاً وبوسيطٍ مطابقَين */
+interface PreparedContent { body: string; imgRel: string; vidRel: string; mediaRel: string; activityName: string; venueName: string; whenText: string; placeText: string; key: string; withFooter: boolean }
+type ContentInput = { body: string; imageUrl?: string | null; videoUrl?: string | null; appendOptout?: boolean; activityId?: number | null };
+
+/** بصمة المحتوى: ما يغيّر الرسالة الواصلة (النصّ، الوسيط، التذييل، والفعاليّة إن كان في النصّ متغيّرها) */
+function contentKey(c: { body: string; imgRel: string; vidRel: string; withFooter: boolean; activityId: number | null }): string {
+  return crypto.createHash('sha256').update(JSON.stringify([c.body, c.imgRel, c.vidRel, c.withFooter, c.activityId])).digest('hex').slice(0, 32);
+}
+
+async function prepareContent(db: any, input: ContentInput): Promise<PreparedContent | { error: string }> {
   const body = String(input.body || '').trim();
-  if (body.length < 5) return { ok: false, error: 'اكتب نصّ الرسالة (٥ أحرف على الأقلّ)' };
-  if (body.length > 900) return { ok: false, error: 'النصّ طويل — الحدّ ٩٠٠ حرف' };
+  if (body.length < 5) return { error: 'اكتب نصّ الرسالة (٥ أحرف على الأقلّ)' };
+  if (body.length > 900) return { error: 'النصّ طويل — الحدّ ٩٠٠ حرف' };
   // (قيدُ الروابط الخارجيّة أُلغي نهائيّاً بقرار المالك 2026-09-26: كان يمنع حتّى رابط قناة الواتساب. أيُّ رابطٍ يُرسل.)
   // 🖼️ صورةُ البثّ: رابطُنا نحن فقط (نفس قيد `/send` — لا نكون وكيلَ تحميلٍ لأحد)
   const imgRel = String(input.imageUrl || '').trim();
   if (imgRel) {
-    if (!/^\/uploads\/wa-out\/[\w.-]+$/.test(imgRel)) return { ok: false, error: 'رابط صورة غير مقبول — ارفع الصورة أوّلاً' };
-    if (!fsSync.existsSync(pathMod.resolve(process.cwd(), '.' + imgRel))) return { ok: false, error: 'ملفّ الصورة غير موجود على الخادم' };
+    if (!/^\/uploads\/wa-out\/[\w.-]+$/.test(imgRel)) return { error: 'رابط صورة غير مقبول — ارفع الصورة أوّلاً' };
+    if (!fsSync.existsSync(pathMod.resolve(process.cwd(), '.' + imgRel))) return { error: 'ملفّ الصورة غير موجود على الخادم' };
   }
   // 🎬 فيديو البثّ (MP4 من رفعنا) — بديلٌ عن الصورة لا معها: رسالةٌ واحدة بوسيطٍ واحد وتعليق
   const vidRel = String(input.videoUrl || '').trim();
   if (vidRel) {
-    if (imgRel) return { ok: false, error: 'اختر صورة أو فيديو — لا الاثنين' };
-    if (!/^\/uploads\/wa-out\/[\w.-]+\.mp4$/.test(vidRel)) return { ok: false, error: 'رابط فيديو غير مقبول — ارفع الفيديو أوّلاً' };
-    if (!fsSync.existsSync(pathMod.resolve(process.cwd(), '.' + vidRel))) return { ok: false, error: 'ملفّ الفيديو غير موجود على الخادم' };
+    if (imgRel) return { error: 'اختر صورة أو فيديو — لا الاثنين' };
+    if (!/^\/uploads\/wa-out\/[\w.-]+\.mp4$/.test(vidRel)) return { error: 'رابط فيديو غير مقبول — ارفع الفيديو أوّلاً' };
+    if (!fsSync.existsSync(pathMod.resolve(process.cwd(), '.' + vidRel))) return { error: 'ملفّ الفيديو غير موجود على الخادم' };
   }
   const mediaRel = imgRel || vidRel;
-  const blocked = sendingSuspendedReason(); if (blocked) return { ok: false, error: `الإرسال مقفل: ${blocked}` };
-  if (running) return { ok: false, error: 'هناك بثّ جارٍ الآن' };
-  // (حظر الـ12 ساعة بين البثوث أُلغي بقرار المالك 2026-09-20. الحماية من التكرار صارت بيده: خيار «استثنِ من وصلهم بثّ سابق».)
   let activityName = '', venueName = '', whenText = '', placeText = '';
   if (/\{(الفعالية|المكان|الموقع|الموعد)\}/.test(body)) {
-    if (!input.activityId) return { ok: false, error: 'النصّ فيه متغيّر فعاليّة ({الفعالية}/{المكان}/{الموقع}/{الموعد}) — اختر فعاليّة من الفلتر أوّلاً' };
+    if (!input.activityId) return { error: 'النصّ فيه متغيّر فعاليّة ({الفعالية}/{المكان}/{الموقع}/{الموعد}) — اختر فعاليّة من الفلتر أوّلاً' };
     const ar: any = await db.execute(sql`
       SELECT a.name, a.date, l.name AS venue, l.region, c.name AS city
         FROM activities a
@@ -171,8 +226,8 @@ export async function startBroadcast(input: AudienceQuery & { body: string; crea
     venueName = row.venue || '';
     placeText = formatPlace(row.venue, row.region, row.city);
     whenText = row.date ? fmtWhen(row.date) : '';
-    if (/\{(المكان|الموقع)\}/.test(body) && !venueName) return { ok: false, error: 'الفعاليّة بلا مكان محدَّد — احذف {المكان} و{الموقع} من النصّ' };
-    if (!activityName) return { ok: false, error: 'الفعاليّة غير موجودة' };
+    if (/\{(المكان|الموقع)\}/.test(body) && !venueName) return { error: 'الفعاليّة بلا مكان محدَّد — احذف {المكان} و{الموقع} من النصّ' };
+    if (!activityName) return { error: 'الفعاليّة غير موجودة' };
   }
   // 🖼️ حدُّ تعليق الصورة يُقاس على النصّ **بعد** حلّ متغيّرات الفعاليّة (اسمُ فعاليّةٍ طويل قد
   //    يضيف عشرات الأحرف)، مع هامشٍ لمتغيّرات المستلم (الاسم واللقب). يُقاس هنا لا عند ميتا:
@@ -181,7 +236,28 @@ export async function startBroadcast(input: AudienceQuery & { body: string; crea
     const resolved = fillVars(body, { name: 'م'.repeat(28), rank: 'م'.repeat(12), activity: activityName, venue: venueName, place: placeText, when: whenText });
     const longest = resolved.length + (input.appendOptout !== false ? OPTOUT_FOOTER.length : 0);
     const what = vidRel ? 'الفيديو' : 'الصورة';
-    if (longest > WA_CAPTION_MAX) return { ok: false, error: `النصّ مع ${what} أطول من ${WA_CAPTION_MAX} حرفاً بعد حلّ المتغيّرات (حدّ التعليق) — اختصره ${longest - WA_CAPTION_MAX} حرفاً` };
+    if (longest > WA_CAPTION_MAX) return { error: `النصّ مع ${what} أطول من ${WA_CAPTION_MAX} حرفاً بعد حلّ المتغيّرات (حدّ التعليق) — اختصره ${longest - WA_CAPTION_MAX} حرفاً` };
+  }
+  const withFooter = input.appendOptout !== false;
+  const key = contentKey({ body, imgRel, vidRel, withFooter, activityId: /\{(الفعالية|المكان|الموقع|الموعد)\}/.test(body) ? Number(input.activityId) || null : null });
+  return { body, imgRel, vidRel, mediaRel, activityName, venueName, whenText, placeText, key, withFooter };
+}
+
+export async function startBroadcast(input: AudienceQuery & { body: string; createdBy: string; appendOptout?: boolean; templateId?: number | null; imageUrl?: string | null; videoUrl?: string | null }): Promise<{ ok: boolean; error?: string; code?: string; id?: number; total?: number }> {
+  const db = getDB(); if (!db) return { ok: false, error: 'DB unavailable' };
+  // 🧪 موقع اختبار: لا بثّ عن فعاليّةٍ هناك — للعميل والأدمن سواء
+  if (input.activityId && await isTestActivity(db, input.activityId)) return { ok: false, error: 'فعاليّة في موقع اختبار — لا بثّ عنها' };
+  const prep = await prepareContent(db, input);
+  if ('error' in prep) return { ok: false, error: prep.error };
+  const { body, imgRel, vidRel, mediaRel, activityName, venueName, whenText, placeText } = prep;
+  const blocked = sendingSuspendedReason(); if (blocked) return { ok: false, error: `الإرسال مقفل: ${blocked}` };
+  if (running) return { ok: false, error: 'هناك بثّ جارٍ الآن' };
+  // (حظر الـ12 ساعة بين البثوث أُلغي بقرار المالك 2026-09-20. الحماية من التكرار صارت بيده: خيار «استثنِ من وصلهم بثّ سابق».)
+  // 🧪 الاختبار إلزاميّ قبل الاعتماد (قرار المالك 2026-10-24): هذا المحتوى نفسه وصل أرقامَ الإداريّين من
+  //    رقم الأعمال خلال ١٢ ساعة — وإلّا لا بثّ. أيّ تعديلٍ في النصّ أو الوسيط أو التذييل يتطلّب اختباراً جديداً.
+  const tested = await getAux(`bcast-test:${prep.key}`);
+  if (!tested || Date.now() - Number(tested.at || 0) > TEST_VALID_MS) {
+    return { ok: false, code: 'TEST_REQUIRED', error: 'لم تُختبر هذه الرسالة بعد — أرسل الاختبار لأرقام الإداريّين وراجعوه على هواتفكم، ثمّ اعتمد البثّ' };
   }
   const aud = await previewAudience(input);
   if (!aud.total) return { ok: false, error: transportSettings().mode === 'cloud_only' ? 'لا مستلمين بنافذة مفتوحة يطابقون الفلتر' : 'لا مستلمين يطابقون الفلتر' };
