@@ -11,7 +11,7 @@ type Fetcher = (path: string, opts?: RequestInit) => Promise<any>;
 interface ReadStats { recipients: number; read: number; delivered: number; notDelivered: number; failed: number; queued?: number }
 interface Row {
   id: number; status: string; createdBy: string; createdAt: string; finishedAt: string | null; durationSec: number | null;
-  text: string; imageUrl: string | null; templateId: number | null; templateName: string | null;
+  text: string; imageUrl: string | null; videoUrl?: string | null; templateId: number | null; templateName: string | null;
   totalTargets: number; sentCount: number; skippedCount: number; failedCount: number;
   readStats: ReadStats | null; readRate: number | null;
   origin?: string; lane?: string; audienceLabel?: string;
@@ -218,7 +218,7 @@ export default function BroadcastHistory({ apiFetch, refreshKey, onReuse }: {
                         {r.origin && ORIGIN_AR[r.origin] && <span className="text-teal-400">· {ORIGIN_AR[r.origin]}{r.audienceLabel ? ` (${r.audienceLabel})` : ''}</span>}
                         {r.templateName && <span className="text-amber-400/70">· 📋 {r.templateName}</span>}
                       </div>
-                      <p className="text-[13px] text-gray-200 mt-0.5 truncate">{r.imageUrl ? '🖼️ ' : ''}{r.text.split('\n').find(l => l.trim()) || '—'}</p>
+                      <p className="text-[13px] text-gray-200 mt-0.5 truncate">{r.imageUrl ? '🖼️ ' : r.videoUrl ? '🎬 ' : ''}{r.text.split('\n').find(l => l.trim()) || '—'}</p>
                     </div>
                     {/* الإرسال */}
                     <div className="text-xs tabular-nums">
@@ -266,6 +266,7 @@ export default function BroadcastHistory({ apiFetch, refreshKey, onReuse }: {
                         <div className="text-[11px] text-gray-500 mb-1">الرسالة كاملة{r.templateName ? ` · من القالب «${r.templateName}»` : ''}</div>
                         <div className="max-w-md rounded-2xl rounded-tr-sm px-3 py-2 text-sm text-white whitespace-pre-wrap leading-relaxed" style={{ background: '#005c4b' }}>
                           {r.imageUrl && <img src={`${API_URL}${r.imageUrl}`} alt="" className="block w-full max-h-52 object-cover rounded-xl mb-1.5" />}
+                          {r.videoUrl && <video src={`${API_URL}${r.videoUrl}`} controls preload="metadata" className="block w-full max-h-60 rounded-xl mb-1.5 bg-black" />}
                           {r.text}
                         </div>
                       </div>

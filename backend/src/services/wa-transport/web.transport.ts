@@ -40,8 +40,8 @@ export function buildWebStoredPayload(conv: { waPhone?: string | null; webChatId
   return buildCloudBody(conv.waPhone || conv.webChatId || '', c);
 }
 
-/** صورةٌ من رابطنا العامّ (PUBLIC_URL/uploads/…) ⟵ ملفّها المحلّيّ. لا نقبل ما سواه (لا وكيل تحميل للغير) */
-function localImagePath(img: OutboundContent['image']): string | null {
+/** صورةٌ (أو فيديو) من رابطنا العامّ (PUBLIC_URL/uploads/…) ⟵ ملفّها المحلّيّ. لا نقبل ما سواه (لا وكيل تحميل للغير) */
+function localImagePath(img: OutboundContent['image'] | OutboundContent['video']): string | null {
   if (!img) return null;
   if (img.localPath) return img.localPath;
   const link = String(img.link || '');
@@ -54,6 +54,7 @@ interface OutboxContent {
   chatId: string;
   text?: string;
   imagePath?: string;
+  videoPath?: string;
   caption?: string;
   location?: { latitude: number; longitude: number; description?: string; address?: string };
   menu?: { kind: 'button' | 'list'; items: any[] } | null;
@@ -72,6 +73,11 @@ export function toOutboxContent(conv: any, c: OutboundContent): { content: Outbo
       content: { kind: 'location', chatId, location: { latitude: c.location.latitude, longitude: c.location.longitude, description: c.location.name || '', address: c.location.address || '' } },
       rendered: `📍 ${c.location.name || 'موقع'}`,
     };
+  }
+  const videoPath = localImagePath(c.video);
+  if (c.video && videoPath) {
+    const caption = (c.video.caption || '').slice(0, WA_CAPTION_MAX);
+    return { content: { kind: 'video', chatId, videoPath, caption }, rendered: caption || '🎬 فيديو' };
   }
   const imagePath = localImagePath(c.image);
   if (c.image && imagePath) {
@@ -193,6 +199,11 @@ async function sendOne(job: any): Promise<void> {
     const base64 = (await fs.promises.readFile(abs)).toString('base64');
     const mimetype = /\.png$/i.test(abs) ? 'image/png' : 'image/jpeg';
     wamid = await gw.send('image', { chatId: c.chatId, base64, mimetype, ...(c.caption ? { caption: c.caption } : {}) }, idem);
+  } else if (c.kind === 'video' && c.videoPath) {
+    const abs = path.resolve(c.videoPath);
+    if (!abs.startsWith(path.resolve('uploads')) || !fs.existsSync(abs)) throw Object.assign(new Error('ملفّ الفيديو غير موجود'), { fatal: true });
+    const base64 = (await fs.promises.readFile(abs)).toString('base64');
+    wamid = await gw.send('video', { chatId: c.chatId, base64, mimetype: 'video/mp4', ...(c.caption ? { caption: c.caption } : {}) }, idem);
   } else if (c.kind === 'location' && c.location) {
     wamid = await gw.send('location', { chatId: c.chatId, ...c.location }, idem);
   } else {

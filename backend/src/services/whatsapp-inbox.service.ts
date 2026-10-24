@@ -710,6 +710,8 @@ export interface SendMessageInput {
    *  إن جاء الاثنان (البثّ): يُرسَل بالمعرّف، ويُحفظ الرابط في السجلّ ليعرض الانبوكس الصورة.
    *  التعليق يُقصّ عند 1024 حرفاً (حدّ ميتا). */
   image?: { link?: string; mediaId?: string; caption?: string };
+  /** 🎬 فيديو MP4 بتعليق — بنفس قواعد الصورة (رابطنا أو معرّف ميتا، والتعليق ١٠٢٤) */
+  video?: { link?: string; mediaId?: string; caption?: string };
   /** outreach = من صفحات الحجوزات/التحليلات/المستكشف — لا يوقف البوت */
   source: 'staff' | 'bot' | 'system' | 'broadcast' | 'outreach';
   staffId?: number;
@@ -750,11 +752,13 @@ export async function sendMessage(input: SendMessageInput) {
 
   const hasInteractive = !!input.interactive;
   const hasLocation = !!input.location;
-  const hasImage = !!(input.image && (input.image.link || input.image.mediaId));
+  const hasVideo = !!(input.video && (input.video.link || input.video.mediaId));
+  const hasImage = !hasVideo && !!(input.image && (input.image.link || input.image.mediaId));
   const text = (input.text || '').trim();
-  if (!hasInteractive && !hasLocation && !hasImage && !text) throw new Error('لا يوجد محتوى للإرسال');
+  if (!hasInteractive && !hasLocation && !hasImage && !hasVideo && !text) throw new Error('لا يوجد محتوى للإرسال');
   // 🖼️ التعليق يُقصّ هنا لا عند ميتا: رفضُها يأتي بعد أن يكون الصفّ قد كُتب في بثٍّ نصفِ منفَّذ
-  const caption = hasImage ? (input.image!.caption || '').slice(0, WA_CAPTION_MAX) : '';
+  const caption = hasImage ? (input.image!.caption || '').slice(0, WA_CAPTION_MAX)
+    : hasVideo ? (input.video!.caption || '').slice(0, WA_CAPTION_MAX) : '';
 
   // ══════════════════════════════════════════════════════
   // 🔒 البوّابة الوحيدة للصادر: الموجِّه
@@ -769,18 +773,20 @@ export async function sendMessage(input: SendMessageInput) {
   const blocked = sendingSuspendedReason(channel);
   if (blocked) throw codeErr('SENDING_SUSPENDED', `الإرسال مقفل: ${blocked}`);
 
-  const content: { text: string; interactive?: any; location?: any; image?: any } = {
+  const content: { text: string; interactive?: any; location?: any; image?: any; video?: any } = {
     text,
     interactive: input.interactive,
     location: input.location,
     image: hasImage ? { ...input.image!, caption } : undefined,
+    video: hasVideo ? { ...input.video!, caption } : undefined,
   };
   const preview = hasInteractive
     ? (input.interactive?.body?.text || '📋 رسالة تفاعلية')
     : hasLocation ? `📍 ${input.location?.name || 'موقع'}`
     : hasImage ? (caption || '📷 صورة')
+    : hasVideo ? (caption || '🎬 فيديو')
     : text;
-  const msgType = hasInteractive ? 'interactive' : hasLocation ? 'location' : hasImage ? 'image' : 'text';
+  const msgType = hasInteractive ? 'interactive' : hasLocation ? 'location' : hasImage ? 'image' : hasVideo ? 'video' : 'text';
   const meta: Record<string, any> = { ...(input.meta || {}), ...(pick.failover ? { failover: true } : {}) };
 
   // 📲 التحويل إلى رقم الأعمال (قرار المالك): في «الجلسة أوّلاً» و«الجلسة + ميتا للتحويل» يحمل
@@ -790,7 +796,7 @@ export async function sendMessage(input: SendMessageInput) {
     const ts = transportSettings();
     const num = String(ts.cloudRedirect.businessNumber || '').replace(/\D/g, '');
     if ((ts.mode === 'web_primary' || ts.mode === 'web_final') && ts.cloudRedirect.enabled && num.length >= 9
-        && ['bot', 'staff', 'system'].includes(input.source) && !hasImage && !hasLocation) {
+        && ['bot', 'staff', 'system'].includes(input.source) && !hasImage && !hasVideo && !hasLocation) {
       try {
         const { getAux, setAux } = await import('../config/redis.js');
         const day = new Date(Date.now() + 3 * 3600e3).toISOString().slice(0, 10);

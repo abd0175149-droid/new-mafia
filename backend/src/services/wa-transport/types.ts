@@ -79,6 +79,8 @@ export interface OutboundContent {
   interactive?: any;
   location?: { latitude: number; longitude: number; name?: string; address?: string };
   image?: { link?: string; mediaId?: string; localPath?: string; caption?: string };
+  /** 🎬 فيديو MP4 بتعليق — مثل الصورة تماماً (رابطنا العامّ أو معرّف ميتا)، حدّ واتساب ١٦ م.ب */
+  video?: { link?: string; mediaId?: string; localPath?: string; caption?: string };
 }
 
 export interface SendResult {

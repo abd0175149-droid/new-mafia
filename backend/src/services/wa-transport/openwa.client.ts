@@ -104,14 +104,15 @@ export async function media(chatId: string, msgId: string): Promise<{ buf: Buffe
 export const markRead = (chatId: string) => S('POST', '/chats/read', { chatId }).catch(() => null);
 
 // ── الإرسال ───────────────────────────────────────────
-export type SendKind = 'text' | 'image' | 'location' | 'reply' | 'audio' | 'document';
+export type SendKind = 'text' | 'image' | 'video' | 'location' | 'reply' | 'audio' | 'document';
 const SEND_PATH: Record<SendKind, string> = {
-  text: 'send-text', image: 'send-image', location: 'send-location', reply: 'reply', audio: 'send-audio', document: 'send-document',
+  text: 'send-text', image: 'send-image', video: 'send-video', location: 'send-location', reply: 'reply', audio: 'send-audio', document: 'send-document',
 };
 /** يعيد معرّف الرسالة عند واتساب (true_9627…@c.us_3EB0…). Idempotency-Key يمنع الإرسال المزدوج عند الإعادة */
 export async function send(kind: SendKind, body: any, idempotencyKey?: string): Promise<string | null> {
   const r = unwrap(await S('POST', `/messages/${SEND_PATH[kind]}`, body, {
-    timeout: 90000, headers: idempotencyKey ? { 'Idempotency-Key': idempotencyKey } : undefined,
+    // الفيديو (حتّى ١٦ م.ب) يُرفع لواتساب داخل الطلب — مهلةٌ أطول
+    timeout: kind === 'video' ? 240000 : 90000, headers: idempotencyKey ? { 'Idempotency-Key': idempotencyKey } : undefined,
   }));
   return (r?.messageId || r?.id || null) as string | null;
 }

@@ -717,7 +717,7 @@ router.post('/open-window-broadcast', authenticate, adminOnly, async (req: Reque
   try {
     const B = await import('../services/whatsapp-broadcast.service.js');
     const u: any = (req as any).user;
-    const r = await B.startBroadcast({ body: req.body?.body, imageUrl: req.body?.imageUrl ?? null, filter: req.body?.filter || 'all', activityId: req.body?.activityId ?? null, excludeIds: Array.isArray(req.body?.excludeIds) ? req.body.excludeIds : [], templateId: req.body?.templateId ? Number(req.body.templateId) : null, excludeBroadcastIds: Array.isArray(req.body?.excludeBroadcastIds) ? req.body.excludeBroadcastIds.map(Number) : [], appendOptout: req.body?.appendOptout !== false, channel: ['cloud', 'web'].includes(req.body?.channel) ? req.body.channel : 'all', lineFilter: ['all','warm','two_way'].includes(String(req.body?.lineFilter)) ? req.body.lineFilter : undefined, createdBy: u?.displayName || u?.username || '' });
+    const r = await B.startBroadcast({ body: req.body?.body, imageUrl: req.body?.imageUrl ?? null, videoUrl: req.body?.videoUrl ?? null, filter: req.body?.filter || 'all', activityId: req.body?.activityId ?? null, excludeIds: Array.isArray(req.body?.excludeIds) ? req.body.excludeIds : [], templateId: req.body?.templateId ? Number(req.body.templateId) : null, excludeBroadcastIds: Array.isArray(req.body?.excludeBroadcastIds) ? req.body.excludeBroadcastIds.map(Number) : [], appendOptout: req.body?.appendOptout !== false, channel: ['cloud', 'web'].includes(req.body?.channel) ? req.body.channel : 'all', lineFilter: ['all','warm','two_way'].includes(String(req.body?.lineFilter)) ? req.body.lineFilter : undefined, createdBy: u?.displayName || u?.username || '' });
     if (!r.ok) return res.status(400).json({ error: r.error });
     try { const { logStaffAction } = await import('../services/staff-action-log.service.js'); void logStaffAction({ staffId: u?.id, staffUsername: u?.username, staffRole: u?.role, source: 'rest', action: 'rest:wa-broadcast', category: 'WHATSAPP_ADMIN', labelAr: 'بثّ واتساب للنوافذ المفتوحة', details: { broadcastId: r.id, targets: r.total, filter: req.body?.filter || 'all', body: String(req.body?.body || '').slice(0, 200) } }); } catch { /* غير حاجب */ }
     res.json({ success: true, id: r.id, total: r.total });
@@ -860,6 +860,51 @@ router.post('/media/upload', authenticate, adminOnly, (req: Request, res: Respon
         return res.status(400).json({ error: 'الصورة أكبر من ٥ م.ب وتعذّر ضغطها — صغّرها قبل الرفع' });
       }
       return res.json({ success: true, url: `/uploads/wa-out/${f.filename}`, bytes: st?.size || f.size, width: null, height: null });
+    }
+  });
+});
+
+// ══════════════════════════════════════════════════════
+// 🎬 رفع فيديو لرسالة واتساب (البثّ) — MP4 حتّى ١٦ م.ب
+// ══════════════════════════════════════════════════════
+// ١٦ م.ب حدّ واتساب لميتا وللجلسة معاً. لا تحويل ولا ضغط (لا ffmpeg على الخادم) — فالصيغة MP4 وحدها
+// (H.264): ‎.mov من الآيفون يُرفض هنا أوضح من رفض ميتا وسط البثّ. الاسمُ عشوائيّ والامتداد ثابت،
+// والتحقّق بتوقيع الملفّ (ftyp) لا بالنوع المعلَن وحده — الرابط عامّ تحت uploads/.
+const WA_VID_MAX_BYTES = 16 * 1024 * 1024;
+const waVideoUpload = multer({
+  storage: multer.diskStorage({
+    destination: (_req, _file, cb) => cb(null, WA_OUT_DIR),
+    filename: (_req, _file, cb) => cb(null, `v${Date.now()}-${crypto.randomBytes(8).toString('hex')}.mp4`),
+  }),
+  limits: { fileSize: WA_VID_MAX_BYTES, files: 1 },
+  fileFilter: (_req, file, cb) => {
+    if (file.mimetype === 'video/mp4') cb(null, true);
+    else cb(new Error(`صيغة غير مدعومة: ${file.mimetype} — واتساب يقبل MP4 فقط (فيديو الآيفون ‎.mov يُحوَّل أوّلاً)`));
+  },
+});
+
+router.post('/media/upload-video', authenticate, adminOnly, (req: Request, res: Response) => {
+  waVideoUpload.single('video')(req, res, async (err: any) => {
+    if (err) {
+      const msg = err?.code === 'LIMIT_FILE_SIZE' ? 'الفيديو أكبر من ١٦ م.ب — حدّ واتساب. قصّره أو صغّر دقّته' : (err?.message || 'فشل رفع الفيديو');
+      return res.status(400).json({ error: msg });
+    }
+    const f = (req as any).file;
+    if (!f) return res.status(400).json({ error: 'لا يوجد ملف' });
+    const full = path.join(WA_OUT_DIR, f.filename);
+    try {
+      const fh = await fs.promises.open(full, 'r');
+      const head = Buffer.alloc(12);
+      await fh.read(head, 0, 12, 0);
+      await fh.close();
+      if (head.subarray(4, 8).toString('latin1') !== 'ftyp') {
+        await fs.promises.unlink(full).catch(() => {});
+        return res.status(400).json({ error: 'الملفّ ليس فيديو MP4 صالحاً' });
+      }
+      return res.json({ success: true, url: `/uploads/wa-out/${f.filename}`, bytes: f.size });
+    } catch (e: any) {
+      await fs.promises.unlink(full).catch(() => {});
+      return res.status(500).json({ error: e?.message || 'فشل رفع الفيديو' });
     }
   });
 });

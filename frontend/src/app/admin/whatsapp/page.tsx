@@ -1186,6 +1186,8 @@ export default function WhatsAppInboxPage() {
                           // صورةٌ أرسلناها نحن — رابطُنا في الحمولة يكفي، ولا وكيل. صفُّ البثّ
                           // يُرسَل بمعرّف ميتا ويُحفظ معه رابطنا للعرض (منذ 2026-09-30).
                           <OutImageBubble m={g.m} onOpen={setLightbox} />
+                        ) : g.m.msgType === 'video' && g.m.direction === 'out' && g.m.payload?.video?.link ? (
+                          <OutVideoBubble m={g.m} />
                         ) : ['video', 'document'].includes(g.m.msgType) && g.m.direction === 'in' ? (
                           <FileBubble m={g.m} />
                         ) : (
@@ -1845,6 +1847,26 @@ function ImageBubble({ m, onOpen }: { m: any; onOpen: (url: string) => void }) {
 // لا حاجة لوكيل `/messages/:id/media` هنا: `payload.image.link` هو الرابط المطلق
 // الذي سحبت ميتا الصورةَ منه، مخدومٌ عامّاً من `/uploads/` — فيُستعمل كما هو بلا
 // بادئة API_URL (هو مطلقٌ أصلاً بـPUBLIC_URL).
+/** 🎬 فيديو أرسلناه نحن (البثّ) — رابطُنا العامّ في الحمولة يكفي، كالصورة */
+function OutVideoBubble({ m }: { m: any }) {
+  const link: string = m.payload?.video?.link || '';
+  const [err, setErr] = useState(false);
+  const caption = m.body && m.body !== '🎬 فيديو' ? m.body : '';
+  return (
+    <div className="min-w-[180px]">
+      {err ? (
+        <div className="text-[11.5px] text-rose-400 border border-rose-500/30 bg-rose-500/5 rounded-lg px-2.5 py-2">
+          ⚠️ تعذّر عرض الفيديو — وصل العميل كما في السجل
+        </div>
+      ) : (
+        <video src={link} controls preload="metadata" onError={() => setErr(true)}
+          className="rounded-xl border border-emerald-900/70 max-w-[240px] max-h-[300px] bg-black" />
+      )}
+      {caption && <div className="mt-1.5 whitespace-pre-wrap break-words">{caption}</div>}
+    </div>
+  );
+}
+
 function OutImageBubble({ m, onOpen }: { m: any; onOpen: (url: string) => void }) {
   const link: string = m.payload?.image?.link || '';
   const [err, setErr] = useState(false);

@@ -64,7 +64,7 @@ export async function uploadCloudMedia(filePath: string, mime: string): Promise<
   form.append('type', mime);
   form.append('file', new Blob([new Uint8Array(buf)], { type: mime }), filePath.split(/[\\/]/).pop() || 'image.jpg');
   const ctrl = new AbortController();
-  const timer = setTimeout(() => ctrl.abort(), 60000);   // الرفع أبطأ من رسالة نصّ
+  const timer = setTimeout(() => ctrl.abort(), mime.startsWith('video/') ? 180000 : 60000);   // الرفع أبطأ من رسالة نصّ (والفيديو أكثر)
   try {
     const res = await fetch(`${GRAPH_BASE}/${env.WA_PHONE_NUMBER_ID}/media`, {
       method: 'POST',
@@ -95,6 +95,13 @@ export async function fetchCloudMedia(mediaId: string): Promise<{ buf: Buffer; m
 export function buildCloudBody(to: string, c: OutboundContent): any {
   const caption = c.image ? (c.image.caption || '').slice(0, WA_CAPTION_MAX) : '';
   if (c.interactive) return { messaging_product: 'whatsapp', to, type: 'interactive', interactive: c.interactive };
+  if (c.video && (c.video.link || c.video.mediaId)) {
+    const vc = (c.video.caption || '').slice(0, WA_CAPTION_MAX);
+    return {
+      messaging_product: 'whatsapp', to, type: 'video',
+      video: c.video.mediaId ? { id: c.video.mediaId, ...(vc ? { caption: vc } : {}) } : { link: c.video.link, ...(vc ? { caption: vc } : {}) },
+    };
+  }
   if (c.location) return { messaging_product: 'whatsapp', to, type: 'location', location: c.location };
   if (c.image && (c.image.link || c.image.mediaId)) {
     return {
@@ -115,6 +122,8 @@ export async function sendCloud(waPhone: string, c: OutboundContent): Promise<Se
   //    للعرض فقط (لا يُرسل لميتا). بدونه كانت رسائل البثّ تظهر نصّاً بلا صورة.
   const storedPayload = c.image?.mediaId && c.image?.link
     ? { ...apiBody, image: { ...apiBody.image, link: c.image.link } }
-    : apiBody;
+    : c.video?.mediaId && c.video?.link
+      ? { ...apiBody, video: { ...apiBody.video, link: c.video.link } }
+      : apiBody;
   return { wamid, storedPayload };
 }

@@ -132,7 +132,7 @@ export async function broadcastStatus() {
   return { running, suspended: sendingSuspendedReason(), nextAllowedAt: null, maxTargets: maxTargets() };
 }
 
-export async function startBroadcast(input: AudienceQuery & { body: string; createdBy: string; appendOptout?: boolean; templateId?: number | null; imageUrl?: string | null }): Promise<{ ok: boolean; error?: string; id?: number; total?: number }> {
+export async function startBroadcast(input: AudienceQuery & { body: string; createdBy: string; appendOptout?: boolean; templateId?: number | null; imageUrl?: string | null; videoUrl?: string | null }): Promise<{ ok: boolean; error?: string; id?: number; total?: number }> {
   const db = getDB(); if (!db) return { ok: false, error: 'DB unavailable' };
   // 🧪 موقع اختبار: لا بثّ عن فعاليّةٍ هناك — للعميل والأدمن سواء
   if (input.activityId && await isTestActivity(db, input.activityId)) return { ok: false, error: 'فعاليّة في موقع اختبار — لا بثّ عنها' };
@@ -146,6 +146,14 @@ export async function startBroadcast(input: AudienceQuery & { body: string; crea
     if (!/^\/uploads\/wa-out\/[\w.-]+$/.test(imgRel)) return { ok: false, error: 'رابط صورة غير مقبول — ارفع الصورة أوّلاً' };
     if (!fsSync.existsSync(pathMod.resolve(process.cwd(), '.' + imgRel))) return { ok: false, error: 'ملفّ الصورة غير موجود على الخادم' };
   }
+  // 🎬 فيديو البثّ (MP4 من رفعنا) — بديلٌ عن الصورة لا معها: رسالةٌ واحدة بوسيطٍ واحد وتعليق
+  const vidRel = String(input.videoUrl || '').trim();
+  if (vidRel) {
+    if (imgRel) return { ok: false, error: 'اختر صورة أو فيديو — لا الاثنين' };
+    if (!/^\/uploads\/wa-out\/[\w.-]+\.mp4$/.test(vidRel)) return { ok: false, error: 'رابط فيديو غير مقبول — ارفع الفيديو أوّلاً' };
+    if (!fsSync.existsSync(pathMod.resolve(process.cwd(), '.' + vidRel))) return { ok: false, error: 'ملفّ الفيديو غير موجود على الخادم' };
+  }
+  const mediaRel = imgRel || vidRel;
   const blocked = sendingSuspendedReason(); if (blocked) return { ok: false, error: `الإرسال مقفل: ${blocked}` };
   if (running) return { ok: false, error: 'هناك بثّ جارٍ الآن' };
   // (حظر الـ12 ساعة بين البثوث أُلغي بقرار المالك 2026-09-20. الحماية من التكرار صارت بيده: خيار «استثنِ من وصلهم بثّ سابق».)
@@ -169,10 +177,11 @@ export async function startBroadcast(input: AudienceQuery & { body: string; crea
   // 🖼️ حدُّ تعليق الصورة يُقاس على النصّ **بعد** حلّ متغيّرات الفعاليّة (اسمُ فعاليّةٍ طويل قد
   //    يضيف عشرات الأحرف)، مع هامشٍ لمتغيّرات المستلم (الاسم واللقب). يُقاس هنا لا عند ميتا:
   //    رفضُها يأتي وسطَ بثٍّ نصفِ منفَّذ. وسقفُ `sendMessage` يبقى شبكةَ أمانٍ أخيرة تقصّ لا تُسقط.
-  if (imgRel) {
+  if (mediaRel) {
     const resolved = fillVars(body, { name: 'م'.repeat(28), rank: 'م'.repeat(12), activity: activityName, venue: venueName, place: placeText, when: whenText });
     const longest = resolved.length + (input.appendOptout !== false ? OPTOUT_FOOTER.length : 0);
-    if (longest > WA_CAPTION_MAX) return { ok: false, error: `النصّ مع الصورة أطول من ${WA_CAPTION_MAX} حرفاً بعد حلّ المتغيّرات (حدّ تعليق الصورة) — اختصره ${longest - WA_CAPTION_MAX} حرفاً` };
+    const what = vidRel ? 'الفيديو' : 'الصورة';
+    if (longest > WA_CAPTION_MAX) return { ok: false, error: `النصّ مع ${what} أطول من ${WA_CAPTION_MAX} حرفاً بعد حلّ المتغيّرات (حدّ التعليق) — اختصره ${longest - WA_CAPTION_MAX} حرفاً` };
   }
   const aud = await previewAudience(input);
   if (!aud.total) return { ok: false, error: transportSettings().mode === 'cloud_only' ? 'لا مستلمين بنافذة مفتوحة يطابقون الفلتر' : 'لا مستلمين يطابقون الفلتر' };
@@ -182,14 +191,16 @@ export async function startBroadcast(input: AudienceQuery & { body: string; crea
   //    الصورة من اللابتوب مرّةً لكلّ مستلم (٣٠٠ مستلم × ٢ م.ب = ٦٠٠ م.ب خروجاً). المعرّف صالحٌ ~٣٠ يوماً.
   let mediaId = '';
   // رقم الأعمال يرسل الملفّ نفسه من القرص — الرفع لميتا يلزم فقط إن خرج شيءٌ عبرها
-  if (imgRel && anyCloud) {
+  if (mediaRel && anyCloud) {
     try {
-      mediaId = await uploadWaMedia(pathMod.resolve(process.cwd(), '.' + imgRel), imgRel.endsWith('.png') ? 'image/png' : 'image/jpeg');
+      const mime = vidRel ? 'video/mp4' : imgRel.endsWith('.png') ? 'image/png' : 'image/jpeg';
+      mediaId = await uploadWaMedia(pathMod.resolve(process.cwd(), '.' + mediaRel), mime);
     } catch (e: any) {
-      return { ok: false, error: `تعذّر رفع الصورة لواتساب: ${e?.message || 'خطأ'}` };
+      return { ok: false, error: `تعذّر رفع ${vidRel ? 'الفيديو' : 'الصورة'} لواتساب: ${e?.message || 'خطأ'}` };
     }
   }
-  const [row] = await db.insert(waBroadcasts).values({ body: imgRel ? `🖼️ ${imgRel}\n${body}` : body, templateId: input.templateId || null, totalTargets: targets.length, status: 'running', createdBy: input.createdBy, origin: 'inbox', lane: 'bulk' } as any).returning();
+  // الوسيط يُسجَّل سطراً أوّلَ في النصّ المحفوظ (🖼️ صورة · 🎬 فيديو) ويُفصل عند العرض
+  const [row] = await db.insert(waBroadcasts).values({ body: imgRel ? `🖼️ ${imgRel}\n${body}` : vidRel ? `🎬 ${vidRel}\n${body}` : body, templateId: input.templateId || null, totalTargets: targets.length, status: 'running', createdBy: input.createdBy, origin: 'inbox', lane: 'bulk' } as any).returning();
   if (input.templateId) await db.update(waMessageTemplates).set({ usedCount: sql`COALESCE(${waMessageTemplates.usedCount}, 0) + 1` } as any).where(eq(waMessageTemplates.id, Number(input.templateId))).catch(() => {});
   running = row.id;
   const withFooter = input.appendOptout !== false;
@@ -201,11 +212,14 @@ export async function startBroadcast(input: AudienceQuery & { body: string; crea
       if (sendingSuspendedReason()) { status = 'stopped'; break; }           // إنذار صحّة الحساب أثناء البثّ
       try {
         const msgText = fillVars(body, { ...t, activity: activityName, venue: venueName, place: placeText, when: whenText }) + (withFooter ? OPTOUT_FOOTER : '');
-        const link = imgRel && env.PUBLIC_URL ? `${env.PUBLIC_URL}${imgRel}` : '';
+        const link = mediaRel && env.PUBLIC_URL ? `${env.PUBLIC_URL}${mediaRel}` : '';
+        const media = { ...(mediaId ? { mediaId } : {}), ...(link ? { link } : {}), caption: msgText };
         const sentRes: any = await sendMessage(imgRel
           // ميتا: بالمعرّف (رفعةٌ واحدة) والرابط للعرض · رقم الأعمال: الملفّ نفسه من القرص عبر الرابط
-          ? { conversationId: t.id, image: { ...(mediaId ? { mediaId } : {}), ...(link ? { link } : {}), caption: msgText }, source: 'broadcast' as any, lane: 'bulk' }
-          : { conversationId: t.id, text: msgText, source: 'broadcast' as any, lane: 'bulk' });
+          ? { conversationId: t.id, image: media, source: 'broadcast' as any, lane: 'bulk' }
+          : vidRel
+            ? { conversationId: t.id, video: media, source: 'broadcast' as any, lane: 'bulk' }
+            : { conversationId: t.id, text: msgText, source: 'broadcast' as any, lane: 'bulk' });
         viaWeb = sentRes?.message?.channel === 'web';
         sent++; streak = 0;
         // 👁 معرّف الرسالة يربط المستلم بحالتها (وصلت/قُرئت) — تقرير القراءة لكلّ بثّ
@@ -408,13 +422,14 @@ export async function pageBroadcasts(o: { page?: unknown; pageSize?: unknown; so
     rows: rows.map((b: any) => {
       const raw = String(b.body || '');
       const img = /^🖼️ (\/uploads\/wa-out\/[\w.-]+)\n?/.exec(raw);
+      const vid = img ? null : /^🎬 (\/uploads\/wa-out\/[\w.-]+)\n?/.exec(raw);
       const started = b.created_at ? new Date(b.created_at).getTime() : null;
       const ended = b.finished_at ? new Date(b.finished_at).getTime() : null;
       return {
         id: Number(b.id), status: b.status, createdBy: b.created_by || '',
         createdAt: iso(b.created_at), finishedAt: iso(b.finished_at),
         durationSec: started && ended ? Math.max(0, Math.round((ended - started) / 1000)) : null,
-        text: img ? raw.slice(img[0].length) : raw, imageUrl: img ? img[1] : null,
+        text: img ? raw.slice(img[0].length) : vid ? raw.slice(vid[0].length) : raw, imageUrl: img ? img[1] : null, videoUrl: vid ? vid[1] : null,
         templateId: b.template_id != null ? Number(b.template_id) : null, templateName: b.template_name || null,
         totalTargets: Number(b.total_targets || 0), sentCount: Number(b.sent_count || 0),
         skippedCount: Number(b.skipped_count || 0), failedCount: Number(b.failed_count || 0),

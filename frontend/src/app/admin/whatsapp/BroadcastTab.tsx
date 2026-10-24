@@ -44,9 +44,10 @@ const VAR_SLACK = 60;                                    // هامشُ الخا�
 //    لا يظهر مسارُ ملفٍّ في السجلّ مكانَ الرسالة.
 const bodyOf = (raw: any) => {
   const t = String(raw || '');
-  const m = /^🖼️ \/uploads\/wa-out\/[\w.-]+\n?/.exec(t);
-  return m ? `🖼️ ${t.slice(m[0].length)}` : t;
+  const m = /^(🖼️|🎬) \/uploads\/wa-out\/[\w.-]+\n?/.exec(t);
+  return m ? `${m[1]} ${t.slice(m[0].length)}` : t;
 };
+const VIDEO_MAX_MB = 16;                                 // حدّ واتساب للفيديو (ميتا والجلسة معاً)
 
 const ACT_VARS = /\{(الفعالية|المكان|الموقع|الموعد)\}/;
 function fill(body: string, t: { name: string; rank: string; activity?: string; venue?: string; place?: string; when?: string }) {
@@ -85,11 +86,12 @@ export default function BroadcastTab({ apiFetch }: { apiFetch: Fetcher }) {
   const [body, setBody] = useState('');
   const bodyRef = useRef<HTMLTextAreaElement>(null);
   const [footer, setFooter] = useState(true);
-  // 🖼️ صورةٌ اختياريّة للبثّ: تُرفع هنا مرّةً فتصير رابطاً، ويرفعها الخادم لميتا مرّةً
-  //    واحدة ويُعيد استعمال معرّفها لكلّ مستلم.
-  const [img, setImg] = useState<{ url: string; bytes: number } | null>(null);
+  // 🖼️/🎬 وسيطٌ اختياريّ للبثّ (صورة أو فيديو MP4): يُرفع هنا مرّةً فيصير رابطاً، ويرفعه الخادم
+  //    لميتا مرّةً واحدة ويُعيد استعمال معرّفه لكلّ مستلم. والنّصّ يصير تعليقه في الحالين.
+  const [img, setImg] = useState<{ url: string; bytes: number; kind: 'image' | 'video' } | null>(null);
   const [imgBusy, setImgBusy] = useState(false);
   const imgRef = useRef<HTMLInputElement>(null);
+  const vidRef = useRef<HTMLInputElement>(null);
 
   // ══════════════════════════════════════════════════════
   // ✂️ الحدّ الفعليّ للنصّ: ٩٠٠ عادةً، وحدُّ التعليق مع صورة
@@ -174,10 +176,25 @@ export default function BroadcastTab({ apiFetch }: { apiFetch: Fetcher }) {
       const fd = new FormData();
       fd.append('image', f);
       const d = await apiFetch('/api/whatsapp/media/upload', { method: 'POST', body: fd });
-      setImg({ url: String(d.url), bytes: Number(d.bytes) || 0 });
+      setImg({ url: String(d.url), bytes: Number(d.bytes) || 0, kind: 'image' });
     } catch (e: any) { swalToast(e.message || 'تعذّر رفع الصورة', 'error'); }
     setImgBusy(false);
     if (imgRef.current) imgRef.current.value = '';
+  };
+  // 🎬 رفعُ فيديو البثّ: MP4 حتّى ١٦ م.ب — يُفحص الحجم هنا قبل رفعٍ طويلٍ يُرفض في آخره
+  const pickVid = async (f: File | null | undefined) => {
+    if (!f) return;
+    if (vidRef.current) vidRef.current.value = '';
+    if (f.size > VIDEO_MAX_MB * 1024 * 1024) { swalToast(`الفيديو ${(f.size / 1048576).toFixed(1)} م.ب — حدّ واتساب ${VIDEO_MAX_MB} م.ب`, 'error'); return; }
+    if (f.type && f.type !== 'video/mp4') { swalToast('واتساب يقبل MP4 فقط — فيديو الآيفون (‎.mov) يُحوَّل أوّلاً', 'error'); return; }
+    setImgBusy(true);
+    try {
+      const fd = new FormData();
+      fd.append('video', f);
+      const d = await apiFetch('/api/whatsapp/media/upload-video', { method: 'POST', body: fd });
+      setImg({ url: String(d.url), bytes: Number(d.bytes) || 0, kind: 'video' });
+    } catch (e: any) { swalToast(e.message || 'تعذّر رفع الفيديو', 'error'); }
+    setImgBusy(false);
   };
 
   const load = useCallback(async () => {
@@ -221,13 +238,13 @@ export default function BroadcastTab({ apiFetch }: { apiFetch: Fetcher }) {
 
   const send = async () => {
     const ok = await swalConfirm(
-      `ستُرسَل ${img ? 'هذه الصورة بتعليقها' : 'هذه الرسالة'} إلى ${targets.length} شخصاً نافذتهم مفتوحة الآن.\nلا يمكن التراجع عمّا أُرسل.`,
+      `ستُرسَل ${img ? (img.kind === 'video' ? 'هذا الفيديو بتعليقه' : 'هذه الصورة بتعليقها') : 'هذه الرسالة'} إلى ${targets.length} شخصاً نافذتهم مفتوحة الآن.\nلا يمكن التراجع عمّا أُرسل.`,
       { title: 'تأكيد البثّ', confirmText: `أرسل إلى ${targets.length}`, icon: 'warning' },
     );
     if (!ok) return;
     setSending(true);
     try {
-      const r = await apiFetch('/api/whatsapp/open-window-broadcast', { method: 'POST', body: JSON.stringify({ body, filter, channel, lineFilter: line || undefined, activityId, templateId: currentTpl && !tplDirty ? currentTpl.id : null, excludeBroadcastIds: exB, excludeIds: Array.from(excluded), appendOptout: footer, imageUrl: img?.url || null }) });
+      const r = await apiFetch('/api/whatsapp/open-window-broadcast', { method: 'POST', body: JSON.stringify({ body, filter, channel, lineFilter: line || undefined, activityId, templateId: currentTpl && !tplDirty ? currentTpl.id : null, excludeBroadcastIds: exB, excludeIds: Array.from(excluded), appendOptout: footer, imageUrl: img?.kind === 'image' ? img.url : null, videoUrl: img?.kind === 'video' ? img.url : null }) });
       swalToast(`بدأ البثّ إلى ${r.total}`, 'success');
       setBody(''); setTplId(null); setExcluded(new Set()); setExB([]); setImg(null);
       await load(); loadTpls();
@@ -358,20 +375,30 @@ export default function BroadcastTab({ apiFetch }: { apiFetch: Fetcher }) {
             <div className="flex flex-wrap items-center gap-2">
               <input ref={imgRef} type="file" accept="image/jpeg,image/png" className="hidden"
                 onChange={e => pickImg(e.target.files?.[0])} />
+              <input ref={vidRef} type="file" accept="video/mp4" className="hidden"
+                onChange={e => pickVid(e.target.files?.[0])} />
               {img ? (
                 <span className="flex items-center gap-2 py-1 pr-2 pl-1 rounded-xl border border-amber-500/30 bg-amber-500/5">
-                  <img src={`${API_URL}${img.url}`} alt="" className="w-10 h-10 rounded-lg object-cover" />
-                  <span className="text-[11px] text-amber-100/90 tabular-nums">{Math.round(img.bytes / 1024)} ك.ب</span>
-                  <button type="button" onClick={() => setImg(null)} title="أزل الصورة"
+                  {img.kind === 'video'
+                    ? <video src={`${API_URL}${img.url}`} muted preload="metadata" className="w-10 h-10 rounded-lg object-cover bg-black" />
+                    : <img src={`${API_URL}${img.url}`} alt="" className="w-10 h-10 rounded-lg object-cover" />}
+                  <span className="text-[11px] text-amber-100/90 tabular-nums">{img.kind === 'video' ? `🎬 ${(img.bytes / 1048576).toFixed(1)} م.ب` : `${Math.round(img.bytes / 1024)} ك.ب`}</span>
+                  <button type="button" onClick={() => setImg(null)} title={img.kind === 'video' ? 'أزل الفيديو' : 'أزل الصورة'}
                     className="w-6 h-6 rounded-lg text-sm font-bold text-rose-300/80 hover:text-rose-300 hover:bg-rose-500/10">×</button>
                 </span>
               ) : (
-                <button type="button" disabled={imgBusy} onClick={() => imgRef.current?.click()}
-                  className="px-3 py-2 rounded-xl text-xs font-bold border border-gray-800 text-gray-300 hover:text-white hover:border-amber-500/40 disabled:opacity-40">
-                  {imgBusy ? '⏳ جاري الرفع…' : '🖼️ أضف صورة'}
-                </button>
+                <>
+                  <button type="button" disabled={imgBusy} onClick={() => imgRef.current?.click()}
+                    className="px-3 py-2 rounded-xl text-xs font-bold border border-gray-800 text-gray-300 hover:text-white hover:border-amber-500/40 disabled:opacity-40">
+                    {imgBusy ? '⏳ جاري الرفع…' : '🖼️ أضف صورة'}
+                  </button>
+                  <button type="button" disabled={imgBusy} onClick={() => vidRef.current?.click()}
+                    className="px-3 py-2 rounded-xl text-xs font-bold border border-gray-800 text-gray-300 hover:text-white hover:border-amber-500/40 disabled:opacity-40">
+                    🎬 أضف فيديو
+                  </button>
+                </>
               )}
-              <p className="text-[11px] text-gray-500 flex-1 min-w-[220px]">تُرفع الصورة لواتساب <b className="text-gray-400">مرّةً واحدة</b> ويُعاد استعمالها لكلّ مستلم، والنّصّ يصير تعليقَها — رسالةٌ واحدة لا رسالتان. JPG أو PNG فقط.</p>
+              <p className="text-[11px] text-gray-500 flex-1 min-w-[220px]">صورة <b className="text-gray-400">أو</b> فيديو: يُرفع لواتساب <b className="text-gray-400">مرّةً واحدة</b> ويُعاد استعماله لكلّ مستلم، والنّصّ يصير تعليقَه — رسالةٌ واحدة لا رسالتان. الصورة JPG/PNG، والفيديو MP4 حتّى {VIDEO_MAX_MB} م.ب (الأصغر أسرع: رقم الأعمال يرفعه مع كلّ رسالة).</p>
             </div>
 
             <label className="flex items-center gap-2 text-xs text-gray-300 cursor-pointer">
@@ -383,7 +410,9 @@ export default function BroadcastTab({ apiFetch }: { apiFetch: Fetcher }) {
               <div>
                 <div className="text-[11px] text-gray-500 mb-1">معاينة كما تصل إلى {sample.name}:</div>
                 <div className="max-w-md rounded-2xl rounded-tr-sm px-3 py-2 text-sm text-white whitespace-pre-wrap leading-relaxed" style={{ background: '#005c4b' }}>
-                  {img && <img src={`${API_URL}${img.url}`} alt="" className="block w-full max-h-52 object-cover rounded-xl mb-1.5" />}
+                  {img && (img.kind === 'video'
+                    ? <video src={`${API_URL}${img.url}`} controls preload="metadata" className="block w-full max-h-60 rounded-xl mb-1.5 bg-black" />
+                    : <img src={`${API_URL}${img.url}`} alt="" className="block w-full max-h-52 object-cover rounded-xl mb-1.5" />)}
                   {fill(body, { ...sample, activity: act?.name, venue: act?.venue, place: (act as any)?.place, when: act?.when })}{footer ? OPTOUT_FOOTER : ''}
                 </div>
               </div>
