@@ -214,7 +214,7 @@ export async function shouldSign(
       .select({ staffId: waMessages.staffId, createdAt: waMessages.createdAt })
       .from(waMessages)
       .where(and(eq(waMessages.conversationId, conversationId), eq(waMessages.source, 'staff')))
-      .orderBy(desc(waMessages.id))
+      .orderBy(desc(waMessages.createdAt), desc(waMessages.id))
       .limit(1);
     if (!last) return true;                                   // أوّل ردٍّ بشريّ إطلاقاً
     if ((last.staffId ?? null) !== (staffId ?? null)) return true; // تولّاها غيره

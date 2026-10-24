@@ -227,7 +227,7 @@ export async function transcribePendingAudio(convId: number, settings: any): Pro
   const db = getDB(); if (!db) return { done: 0, usage };
   const rows = await db.select().from(waMessages)
     .where(and(eq(waMessages.conversationId, convId), eq(waMessages.direction, 'in'), eq(waMessages.msgType, 'audio')))
-    .orderBy(desc(waMessages.id)).limit(3);
+    .orderBy(desc(waMessages.createdAt), desc(waMessages.id)).limit(3);
   let done = 0;
   for (const m of rows) {
     const p: any = m.payload || {};
@@ -641,7 +641,7 @@ export async function execExtTool(name: string, args: any, ctx: Ctx, h: ExtHelpe
         const { dobInCustomerText } = await import('./wa-dob-evidence.js');
         const inbound = await db.select({ body: waMessages.body }).from(waMessages)
           .where(and(eq(waMessages.conversationId, conv.id), eq(waMessages.direction, 'in')))
-          .orderBy(desc(waMessages.id)).limit(12);
+          .orderBy(desc(waMessages.createdAt), desc(waMessages.id)).limit(12);
         if (!dobInCustomerText(dob, inbound.map(r => String(r.body || '')))) {
           return { error: 'تاريخ الميلاد هذا لم يكتبه العميل في المحادثة — لا تفترضه ولا تخمّنه ولا ترسل ملخّصاً. اسأله: «شو تاريخ ميلادك؟ (يوم/شهر/سنة بالأرقام)» ثمّ أعد الاستدعاء بما كتبه هو.' };
         }

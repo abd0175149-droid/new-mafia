@@ -1385,7 +1385,7 @@ function extHelpers(): ExtHelpers {
 // آخر رسالة واردة للمحادثة تحمل معرّف زرّ؟ (فرض «التأكيد بالزرّ» بالكود لا بالموجّه)
 async function lastInboundButtonId(db: any, convId: number): Promise<string | null> {
   const [m] = await db.select({ payload: waMessages.payload, direction: waMessages.direction }).from(waMessages)
-    .where(and(eq(waMessages.conversationId, convId), eq(waMessages.direction, 'in'))).orderBy(desc(waMessages.id)).limit(1);
+    .where(and(eq(waMessages.conversationId, convId), eq(waMessages.direction, 'in'))).orderBy(desc(waMessages.createdAt), desc(waMessages.id)).limit(1);
   const p: any = m?.payload;
   return p?.interactive?.button_reply?.id || p?.interactive?.list_reply?.id || null;
 }
@@ -3113,15 +3113,29 @@ function msgToHistoryText(m: any): string {
   return body;
 }
 
+// ⏱️ السجلّ بالزمن لا بالمعرّف: مرآة رقم الأعمال (2026-10-24) أدرجت رسائل قديمة بمعرّفاتٍ جديدة، فكانت تظهر
+//    للنموذج كأنّها آخر ما قيل (منجد #595: «الرابع هسا بجيبلك اسمو» من ٩ تشرين قبل «مسا الخير» مباشرةً ⟵
+//    «مستنيك تكمل اسم الرابع»). والنموذج لا يرى تواريخ — فأوّل رسالة عميلٍ بعد انقطاعٍ طويل تحمل مدّته.
+const HISTORY_GAP_MS = 12 * 3600e3;
+function gapLabel(ms: number): string {
+  const h = ms / 3600e3;
+  return h >= 36 ? `${Math.round(h / 24)} يوم` : `${Math.round(h)} ساعة`;
+}
+
 async function buildHistory(db: any, conv: any, limit: number, addressTitle?: string) {
   const rows = await db.select().from(waMessages)
     .where(eq(waMessages.conversationId, conv.id))
-    .orderBy(desc(waMessages.id)).limit(limit);
+    .orderBy(desc(waMessages.createdAt), desc(waMessages.id)).limit(limit);
   rows.reverse();
   const contents: any[] = [];
+  let prevAt = 0;
   for (const m of rows) {
     let text = msgToHistoryText(m);
+    const at = new Date(m.createdAt).getTime();
+    const gap = prevAt && at ? at - prevAt : 0;
+    if (at) prevAt = at;
     if (!text) continue;
+    if (m.direction === 'in' && gap >= HISTORY_GAP_MS) text = `(بعد انقطاع ${gapLabel(gap)}) ${text}`;
     // ردود البوت القديمة تُنظَّف من ألقاب الرتب الخاطئة كي لا تعمل أمثلةً يقلّدها النموذج
     if (m.direction !== 'in' && addressTitle !== undefined) text = enforceAddress(text, addressTitle);
     contents.push({ role: m.direction === 'in' ? 'user' : 'model', parts: [{ text }] });
@@ -3328,7 +3342,7 @@ async function processConversation(convId: number) {
     // آخر رسالة يجب أن تكون من العميل (وإلا لا داعي للرد) — «ثواني وبرجعلك» لا تُعدّ
     const [lastMsg] = await db.select().from(waMessages)
       .where(and(eq(waMessages.conversationId, convId), sql`COALESCE(${waMessages.payload}->>'transientHold', '') <> 'true'`))
-      .orderBy(desc(waMessages.id)).limit(1);
+      .orderBy(desc(waMessages.createdAt), desc(waMessages.id)).limit(1);   // بالزمن: المستورد القديم ليس «آخر رسالة»
     if (!lastMsg || lastMsg.direction !== 'in') return;
     // ضغطات الأزرار والقوائم الحساسة/البسيطة — مسارات حتمية بدون نموذج
     // ⚠️ الأزرار تصل كـ button_reply والقوائم كـ list_reply — لازم نلتقط الاثنين
