@@ -7,12 +7,14 @@ import '../profile/profile_palette.dart';
 import 'order_widgets.dart';
 
 // ══════════════════════════════════════════════════════
-// 🎁 مُركِّب العرض — خطوةٌ لكلّ قرار (تصميم «الرفّ» 2026-09-09)
+// 🎁 مُركِّب العرض — خطوةٌ لكلّ قرار (تصميم «الرفّ»، مكبَّر 2026-10-24)
 // ══════════════════════════════════════════════════════
 // بدل ورقةٍ واحدةٍ طويلة تحوي ٢٥ مرشّحاً وثماني نكهاتٍ بشرائح صغيرة:
 //   نكهة الأرجيلة ← اختر مشروبك ← نكهة المشروب (إن وُجدت) ← راجع وأضف.
 // الخطوات تُعاد حسابها بعد كلّ اختيار: مرشّحٌ بلا خياراتٍ لا يُضيف خطوة.
-// الاختيار يتقدّم وحده؛ «التالي» لمن يعيد النظر. بلاطاتٌ ≥ ٥٦ بكسل.
+// الاختيار يتقدّم وحده؛ «التالي» لمن يعيد النظر. بلاطاتٌ ≥ ٥٦.
+// العنوان سؤال الخطوة («اختر مشروبك الخفيف») لا اسم العرض — والمرشّحون
+// الكثر (٣٦ مشروباً في Best View) يُجمَعون بأقسامهم من المنيو.
 // 💰 فرق خيارٍ معلَن × كمّية الخانة — مطابقةً لحساب الخادم.
 // 📖 DetailSheet تبقى: صنفٌ بلا خياراتٍ ووصفُه طويل يُقرأ ثمّ يُضاف.
 // ══════════════════════════════════════════════════════
@@ -49,158 +51,35 @@ Widget _footerRow({
           onTap: onSecondary,
           borderRadius: BorderRadius.circular(12),
           child: Container(
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+            constraints: const BoxConstraints(minHeight: kTap),
+            alignment: Alignment.center,
+            padding: const EdgeInsets.symmetric(horizontal: 18),
             decoration: BoxDecoration(
               borderRadius: BorderRadius.circular(12),
               color: const Color(0x0DFFFFFF),
-              border: Border.all(color: const Color(0x1AFFFFFF)),
+              border: Border.all(color: const Color(0x1FFFFFFF)),
             ),
-            child: Text(secondaryText, style: ar(13.5, color: Tw.gray400)),
+            child: Text(secondaryText, style: ar(15, color: kInkMid, weight: FontWeight.bold)),
           ),
         ),
       ],
     ]);
 
 // ══════════════════════════════════════════════════════
-// ⚙️ ورقة خيارات صنفٍ مفرد — تبقى لمن يفضّلها من المستدعين (بلاطات كبيرة)
-// ══════════════════════════════════════════════════════
-
-/// يعيد سطر سلّةٍ جاهزاً، أو null إن ألغى اللاعب.
-Future<FnbCartLine?> showOptionPicker(BuildContext context, FnbMenuItem item) =>
-    _sheet<FnbCartLine>(context, (_) => _OptionSheet(item: item));
-
-class _OptionSheet extends StatefulWidget {
-  const _OptionSheet({required this.item});
-  final FnbMenuItem item;
-
-  @override
-  State<_OptionSheet> createState() => _OptionSheetState();
-}
-
-class _OptionSheetState extends State<_OptionSheet> {
-  late final Map<String, List<String>> _sel = _preselect();
-  int _qty = 1;
-
-  /// ✅ «عادي» يُحدَّد مسبقاً في الإلزاميّة الأحاديّة صفريّة الفرق.
-  Map<String, List<String>> _preselect() {
-    final out = <String, List<String>>{};
-    for (final g in widget.item.optionGroups) {
-      if (g.isRequired && !g.isMulti) {
-        final normal = g.values.where((v) => v.name == 'عادي' && v.priceDelta == 0).firstOrNull;
-        if (normal != null) out[g.key] = [normal.key];
-      }
-    }
-    return out;
-  }
-
-  void _pick(FnbOptionGroup g, String valueKey) {
-    setState(() {
-      final cur = _sel[g.key] ?? const <String>[];
-      List<String> next;
-      if (!g.isMulti) {
-        next = (cur.isNotEmpty && cur.first == valueKey && !g.isRequired) ? const [] : [valueKey];
-      } else if (cur.contains(valueKey)) {
-        next = cur.where((v) => v != valueKey).toList();
-      } else {
-        next = cur.length >= g.maxSelect ? cur : [...cur, valueKey];
-      }
-      _sel[g.key] = next;
-    });
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final groups = widget.item.optionGroups;
-    final missing = [for (final g in groups) if (g.isRequired && (_sel[g.key]?.isEmpty ?? true)) g.name];
-
-    var delta = 0.0;
-    final labels = <String>[];
-    final options = <FnbSelection>[];
-    for (final g in groups) {
-      for (final vk in (_sel[g.key] ?? const <String>[])) {
-        final v = g.values.where((x) => x.key == vk).firstOrNull;
-        if (v == null) continue;
-        delta += v.priceDelta;
-        labels.add(v.name);
-        options.add(FnbSelection(groupKey: g.key, valueKey: vk));
-      }
-    }
-    final unitPrice = widget.item.priceValue + delta;
-
-    return OrderSheetShell(
-      title: widget.item.name,
-      subtitle: '${widget.item.description.isNotEmpty ? widget.item.description : widget.item.optionHint} · ${widget.item.priceText}',
-      body: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          for (final g in groups) ...[
-            Text('${g.name}${g.isRequired ? '' : ' · اختياريّ'}',
-                style: ar(11.5, color: const Color(0xFFD7BF86), weight: FontWeight.bold)),
-            const SizedBox(height: 8),
-            OptionTiles(
-              values: [
-                for (final v in g.values)
-                  (key: v.key, name: v.name, sub: v.priceDelta > 0 ? '+${jod(v.priceDelta)}' : null),
-              ],
-              selected: (_sel[g.key] ?? const []).toSet(),
-              onPick: (k) => _pick(g, k),
-            ),
-            const SizedBox(height: 12),
-          ],
-          Row(children: [
-            Text('الكمّية', style: ar(12.5, color: Tw.gray300)),
-            const Spacer(),
-            _qtyBtn('−', () => setState(() => _qty = _qty > 1 ? _qty - 1 : 1)),
-            SizedBox(width: 28, child: Center(child: ltrText('$_qty', num_(14)))),
-            _qtyBtn('+', () => setState(() => _qty = _qty < kMaxQtyPerItem ? _qty + 1 : _qty), primary: true),
-          ]),
-        ],
-      ),
-      footer: _footerRow(
-        confirmText: missing.isNotEmpty
-            ? 'اختر ${missing.join(' و')}'
-            : 'أضف${_qty > 1 ? ' ×$_qty' : ''} · ${jod(unitPrice * _qty)}',
-        enabled: missing.isEmpty,
-        onConfirm: () => Navigator.of(context).pop(FnbCartLine(
-          key: FnbCartLine.makeKey(widget.item.id, options, const []),
-          itemId: widget.item.id,
-          name: widget.item.name,
-          quantity: _qty,
-          unitPrice: unitPrice,
-          label: labels.join(' · '),
-          options: options,
-        )),
-      ),
-    );
-  }
-
-  Widget _qtyBtn(String g, VoidCallback onTap, {bool primary = false}) => InkWell(
-        onTap: onTap,
-        borderRadius: BorderRadius.circular(9),
-        child: Container(
-          width: 30,
-          height: 30,
-          decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(9),
-            color: primary ? kGoldBg : const Color(0x0DFFFFFF),
-            border: Border.all(color: primary ? kGoldBorder : const Color(0x1AFFFFFF)),
-          ),
-          child: Center(child: Text(g, style: ar(16, color: primary ? kGoldFg : Colors.white, weight: FontWeight.bold))),
-        ),
-      );
-}
-
-// ══════════════════════════════════════════════════════
 // 🎁 المُركِّب المتدرّج
 // ══════════════════════════════════════════════════════
 
-Future<FnbCartLine?> showBundleWizard(BuildContext context, FnbMenuItem item) =>
-    _sheet<FnbCartLine>(context, (_) => _BundleWizard(item: item));
+/// [sectionOf] يعيد قسم صنفٍ في المنيو — به يُجمَع المرشّحون الكثر.
+Future<FnbCartLine?> showBundleWizard(BuildContext context, FnbMenuItem item,
+        {String Function(int menuItemId)? sectionOf}) =>
+    _sheet<FnbCartLine>(context, (_) => _BundleWizard(item: item, sectionOf: sectionOf));
 
 /// الاسم القديم يبقى للمستدعين.
 Future<FnbCartLine?> showPackageSheet(BuildContext context, FnbMenuItem item) =>
     showBundleWizard(context, item);
+
+/// من هذا العدد فصاعداً تُجمَع المرشّحات بأقسامها.
+const _groupCandidatesFrom = 9;
 
 class _Pick {
   int? menuItemId;
@@ -227,8 +106,9 @@ class _DoneStep extends _Step {
 }
 
 class _BundleWizard extends StatefulWidget {
-  const _BundleWizard({required this.item});
+  const _BundleWizard({required this.item, this.sectionOf});
   final FnbMenuItem item;
+  final String Function(int menuItemId)? sectionOf;
 
   @override
   State<_BundleWizard> createState() => _BundleWizardState();
@@ -324,6 +204,37 @@ class _BundleWizardState extends State<_BundleWizard> {
     );
   }
 
+  /// بلاطات مرشّحي خانةٍ — مجموعةً بأقسامها إن كثروا وتعدّدت أقسامهم.
+  Widget _choiceTiles(FnbSlot slot, int? cur, ValueChanged<String> onPick) {
+    ({String key, String name, String? sub}) tile(FnbSlotCandidate c) => (
+          key: '${c.menuItemId}',
+          name: c.name,
+          sub: c.optionGroups.isEmpty
+              ? null
+              : FnbMenuItem(id: 0, name: '', optionGroups: c.optionGroups).optionValuesLine,
+        );
+    final selected = {if (cur != null) '$cur'};
+    final sectionOf = widget.sectionOf;
+    if (sectionOf == null || slot.from.length < _groupCandidatesFrom) {
+      return OptionTiles(values: [for (final c in slot.from) tile(c)], selected: selected, onPick: onPick);
+    }
+    final groups = <String, List<FnbSlotCandidate>>{};
+    for (final c in slot.from) {
+      (groups[sectionOf(c.menuItemId)] ??= []).add(c);
+    }
+    if (groups.length < 2) {
+      return OptionTiles(values: [for (final c in slot.from) tile(c)], selected: selected, onPick: onPick);
+    }
+    return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+      for (final e in groups.entries) ...[
+        Text(e.key, style: ar(14, color: kGoldFg, weight: FontWeight.bold)),
+        const SizedBox(height: 8),
+        OptionTiles(values: [for (final c in e.value) tile(c)], selected: selected, onPick: onPick),
+        const SizedBox(height: 16),
+      ],
+    ]);
+  }
+
   @override
   Widget build(BuildContext context) {
     final steps = _steps;
@@ -339,22 +250,13 @@ class _BundleWizardState extends State<_BundleWizard> {
         final cur = _picks[slot.i]?.menuItemId;
         body = Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
           if (slot.note.isNotEmpty) ...[
-            Text(slot.note, style: ar(11, color: Tw.gray500)),
-            const SizedBox(height: 8),
+            Text(slot.note, style: ar(13.5, color: kInkLow, height: 1.5)),
+            const SizedBox(height: 10),
           ],
-          OptionTiles(
-            values: [
-              for (final c in slot.from)
-                (
-                  key: '${c.menuItemId}',
-                  name: c.name,
-                  sub: c.optionGroups.isEmpty
-                      ? null
-                      : FnbMenuItem(id: 0, name: '', optionGroups: c.optionGroups).optionHint,
-                ),
-            ],
-            selected: {if (cur != null) '$cur'},
-            onPick: (k) => setState(() {
+          _choiceTiles(
+            slot,
+            cur,
+            (k) => setState(() {
               // 🔴 خيارات المرشّح السابق تُمحى — وإلّا فُسِّرت على مجموعات الجديد
               _picks[slot.i] = _Pick()..menuItemId = int.tryParse(k);
               _step = i + 1;
@@ -379,41 +281,44 @@ class _BundleWizardState extends State<_BundleWizard> {
       case _DoneStep():
         stepTitle = 'راجع العرض';
         body = Container(
-          padding: const EdgeInsets.all(12),
+          padding: const EdgeInsets.all(14),
           decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(14),
+            borderRadius: BorderRadius.circular(16),
             color: kGoldBg,
             border: Border.all(color: kGoldBorder),
           ),
           child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
             for (final s in widget.item.slots)
               Padding(
-                padding: const EdgeInsets.symmetric(vertical: 6),
+                padding: const EdgeInsets.symmetric(vertical: 8),
                 child: Row(children: [
-                  const Text('✓', style: TextStyle(color: Color(0xFFD9B563), fontSize: 13)),
+                  const Text('✓', style: TextStyle(color: Color(0xFFD9B563), fontSize: 15)),
                   const SizedBox(width: 8),
                   Expanded(
                     child: Text('${_nameOf(s)}${s.qty > 1 ? ' ×${s.qty}' : ''}',
-                        style: ar(13, weight: FontWeight.bold)),
+                        style: ar(15, weight: FontWeight.bold)),
                   ),
-                  Text(_valsOf(s).join(' · '), style: ar(11, color: const Color(0xFFD7BF86))),
+                  Flexible(
+                    child: Text(_valsOf(s).join(' · '),
+                        textAlign: TextAlign.end, style: ar(13, color: const Color(0xFFD7BF86))),
+                  ),
                 ]),
               ),
             if (widget.item.description.isNotEmpty) ...[
               const SizedBox(height: 6),
-              Text(widget.item.description, style: ar(11, color: Tw.gray400, height: 1.6)),
+              Text(widget.item.description, style: ar(13.5, color: kInkMid, height: 1.6)),
             ],
             if (_extra > 0) ...[
               const SizedBox(height: 6),
-              Text('زيادة اختيارك المعلَنة: +${jod(_extra)}', style: ar(11, color: kAmberFg)),
+              Text('زيادة اختيارك المعلَنة: +${jod(_extra)}', style: ar(13.5, color: kAmberFg)),
             ],
           ]),
         );
     }
 
     return OrderSheetShell(
-      title: widget.item.name,
-      subtitle: 'الخطوة ${arDigits(i + 1)} من ${arDigits(steps.length)} — $stepTitle · ${jod(unitPrice)}',
+      title: stepTitle,
+      subtitle: 'الخطوة ${i + 1} من ${steps.length} · ${jod(unitPrice)} · ${widget.item.name}',
       progress: (i, steps.length),
       body: body,
       footer: st is _DoneStep
@@ -462,7 +367,7 @@ Future<bool?> showDetailSheet(BuildContext context, FnbMenuItem item) => _sheet<
               ),
               const SizedBox(height: 12),
             ],
-            Text(item.description, style: ar(13, color: Tw.gray300, height: 1.8)),
+            Text(item.description, style: ar(15, color: kInkMid, height: 1.75)),
           ],
         ),
         footer: _footerRow(

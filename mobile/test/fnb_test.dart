@@ -182,7 +182,7 @@ void main() {
         });
 
     test('خريطة الحالات حرفيّة', () {
-      expect(orderStatusMeta('new').label, 'جديد — بانتظار المكان');
+      expect(orderStatusMeta('new').label, 'وصل للمكان · بانتظار القبول');
       expect(orderStatusMeta('preparing').label, 'قيد التحضير');
       expect(orderStatusMeta('delivered').label, 'تمّ التسليم');
       expect(orderStatusMeta('cancelled').label, 'ملغى');

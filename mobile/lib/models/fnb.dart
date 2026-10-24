@@ -127,8 +127,29 @@ class FnbContextResult {
 }
 
 /// أرقامٌ عربيّة (٠١٢…) لما يُقرأ في الجملة: «٨ نكهات»، «٦١ صنفاً».
+/// ⚠️ المنيو نفسه بأرقامٍ لاتينيّة كلّه (قرار 2026-10-24) — لا تستعملها في شاشات الطلب.
 String arDigits(Object v) => '$v'.replaceAllMapped(
     RegExp('[0-9]'), (m) => '٠١٢٣٤٥٦٧٨٩'[int.parse(m[0]!)]);
+
+/// «صنفٌ واحد · صنفان · 3 أصناف · 11 صنفاً» — بأرقام المنيو اللاتينيّة.
+String itemsCount(int n) => n == 1
+    ? 'صنفٌ واحد'
+    : n == 2
+        ? 'صنفان'
+        : n <= 10
+            ? '$n أصناف'
+            : '$n صنفاً';
+
+/// تطبيعٌ للبحث: بلا تشكيلٍ ولا تطويل، والهمزات ألفاً، والتاء المربوطة هاءً،
+/// والمقصورة ياءً — «تركية» تجد «تركيّة» و«اسبريسو» تجد «إسبريسو».
+String normAr(String s) => s
+    .replaceAll(RegExp('[ً-ٰٟـ]'), '')
+    .replaceAll(RegExp('[أإآٱ]'), 'ا')
+    .replaceAll('ة', 'ه')
+    .replaceAll('ى', 'ي')
+    .replaceAll('ؤ', 'و')
+    .replaceAll('ئ', 'ي')
+    .toLowerCase();
 
 // ══════════════════════════════════════════════════════
 // المنيو
@@ -372,6 +393,26 @@ class FnbMenuItem {
     return '${optionGroups.first.name} +${optionGroups.length - 1}';
   }
 
+  /// نكهات الصنف نفسها: «لوتس · أوريو · روشيه · كيندر و3 غيرها» — تُعرف بالعين،
+  /// و«٣ نكهات» لا.
+  String get optionValuesLine {
+    final vals = [for (final g in optionGroups) for (final v in g.values) v.name];
+    if (vals.isEmpty) return '';
+    return vals.take(4).join(' · ') + (vals.length > 4 ? ' و${vals.length - 4} غيرها' : '');
+  }
+
+  /// سطر البلاطة: الوصف المكتوب، وإلّا النكهات — لا «ضمن عرض» (كانت تحت 38 صنفاً من 68).
+  String get subLine => description.isNotEmpty ? description : optionValuesLine;
+
+  /// يطابق البحث في الاسم والوصف والقسمين والنكهات — بعد التطبيع.
+  bool matches(String query) {
+    final q = normAr(query.trim());
+    if (q.isEmpty) return false;
+    bool has(String s) => normAr(s).contains(q);
+    return has(name) || has(description) || has(category) || has(subcategory) ||
+        optionGroups.any((g) => g.values.any((v) => has(v.name)));
+  }
+
   double get priceValue => parsePrice(price);
   String get priceText => jod(priceValue);
 
@@ -463,7 +504,8 @@ class FnbOrderStatusMeta {
 }
 
 const _statusMeta = <String, FnbOrderStatusMeta>{
-  'new': FnbOrderStatusMeta('جديد — بانتظار المكان', Color(0xFF3B82F6), '🕐'),
+  // «بانتظار المكان» كانت تُقرأ «لم يرَه المكان بعد» — والطلب وصله فعلاً
+  'new': FnbOrderStatusMeta('وصل للمكان · بانتظار القبول', Color(0xFF8CC1F2), '🕐'),
   'preparing': FnbOrderStatusMeta('قيد التحضير', Color(0xFFF59E0B), '👨‍🍳'),
   'delivered': FnbOrderStatusMeta('تمّ التسليم', Color(0xFF22C55E), '✅'),
   'cancelled': FnbOrderStatusMeta('ملغى', Color(0xFF6B7280), '✖️'),
