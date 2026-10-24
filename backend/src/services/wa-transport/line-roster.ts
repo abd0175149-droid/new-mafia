@@ -284,7 +284,14 @@ export async function fillMissingNames(): Promise<NamesFillState | null> {
         const info = await gw.contactInfo(jid);   // متباعدٌ داخل العميل (bulk)
         // الاسم على واتساب (يضعه صاحبه) أوّلاً؛ ثمّ المحفوظ على هاتف الأعمال ما لم يكن «MC + رقم»
         const name = firstRealName(info?.pushName, info?.name);
-        if (!name) { st.noName++; continue; }
+        if (!name) {
+          // لا اسم على واتساب ولا محفوظ: الرقم نفسه يُعرض (الواجهة) — لا «MC + رقم» ولا بقايا رقمٍ منسّق
+          if (String(r.display_name || '').trim()) {
+            await db.execute(sql`UPDATE wa_conversations SET display_name = '', updated_at = NOW() WHERE id = ${r.id}`);
+            await db.execute(sql`UPDATE wa_line_contacts SET name = NULL, updated_at = NOW() WHERE phone = ${r.phone}`);
+          }
+          st.noName++; continue;
+        }
         await db.execute(sql`UPDATE wa_conversations SET display_name = ${name}, updated_at = NOW() WHERE id = ${r.id}`);
         await db.execute(sql`UPDATE wa_line_contacts SET name = ${name}, updated_at = NOW() WHERE phone = ${r.phone}`);
         st.filled++;
