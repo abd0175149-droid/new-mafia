@@ -152,7 +152,7 @@ export function toMetaMessage(d: any, fromKey: string, media: { id: string; mime
       return { ...base, type: 'text', text: { body: String(d.body || '') } };
     case 'image':
       return { ...base, type: 'image', image: { id: media?.id, mime_type: media?.mime, ...(caption ? { caption } : {}) } };
-    case 'video':
+    case 'video': case 'ptv':   // ptv = رسالة فيديو دائريّة — كانت تصل «غير مدعومة»
       return { ...base, type: 'video', video: { id: media?.id, mime_type: media?.mime, ...(caption ? { caption } : {}) } };
     case 'audio': case 'voice': case 'ptt':
       return { ...base, type: 'audio', audio: { id: media?.id, mime_type: media?.mime, voice: t !== 'audio' } };
