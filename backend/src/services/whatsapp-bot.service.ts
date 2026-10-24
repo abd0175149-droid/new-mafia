@@ -30,7 +30,8 @@ import {
 import { players } from '../schemas/player.schema.js';
 import { ROLE_NAMES_AR } from '../game/roles.js';
 import { sendMessage, isBotActive, isFreeWindowOpen, notifyAdmins } from './whatsapp-inbox.service.js';
-import { pickChannel } from './wa-transport/router.js';
+import { pickChannel, webConfigured } from './wa-transport/router.js';
+import { transportSettings } from './wa-transport/settings.js';
 import { claimsHandoff } from './wa-handoff-guard.js';
 import { withGeminiResilience } from './gemini-resilience.js';
 import { emitStateSanitized } from '../sockets/broadcast.util.js';
@@ -1796,15 +1797,18 @@ async function execTool(name: string, args: any, ctx: ToolCtx): Promise<any> {
       ).catch(() => {});
       notifyAdmins('🤖 حجز مؤكد من البوت', `${conv.displayName || conv.phone} — ${people} أشخاص — ${act.name}`, { conversationId: conv.id, url: '/admin/reservations', tag: `wa-conv-${conv.id}` }).catch(() => {});
 
-      // 🔔 عرض «تذكير قبل اللعبة بساعة» — فقط إذا كانت اللعبة خلال ≤24 ساعة (عندها نضمن أن
-      // نافذة الإرسال ستبقى مفتوحة وقت التذكير). الموافقة ضمنيّة افتراضاً؛ زرّ «لا شكراً» للاستبعاد.
+      // 🔔 عرض «تذكير قبل اللعبة بساعة». الموافقة ضمنيّة افتراضاً؛ زرّ «لا شكراً» للاستبعاد.
+      //   • ميتا: فقط إذا كانت اللعبة خلال ≤24 ساعة — عندها نضمن أن نافذة الإرسال ستبقى مفتوحة وقت التذكير.
+      //   • رقم الأعمال (قرار المالك 2026-10-24): دائماً — لا نافذة عليه، فالتذكير يصل مهما بَعُد الموعد.
       const msToGame = new Date(act.date).getTime() - Date.now();
       const within24 = msToGame > 0 && msToGame <= 24 * 3600e3;
-      if (within24) {
+      const viaBusiness = conv.channel === 'web' && webConfigured() && transportSettings().mode !== 'cloud_only';
+      const offerReminder = within24 || (viaBusiness && msToGame > 0);
+      if (offerReminder) {
         try {
           await sendMessage({ conversationId: conv.id, source: 'bot', interactive: {
             type: 'button',
-            body: { text: '🔔 وبما إنّ لعبتك قريبة — بتحب أذكّرك قبل موعدها بساعة؟' },
+            body: { text: within24 ? '🔔 وبما إنّ لعبتك قريبة — بتحب أذكّرك قبل موعدها بساعة؟' : '🔔 بتحب أذكّرك قبل موعد لعبتك بساعة؟' },
             action: { buttons: [
               { type: 'reply', reply: { id: `wa_remind:on:${saved.id}`, title: '🔔 ذكّرني' } },
               { type: 'reply', reply: { id: `wa_remind:off:${saved.id}`, title: 'لا، شكراً' } },
@@ -1817,7 +1821,7 @@ async function execTool(name: string, args: any, ctx: ToolCtx): Promise<any> {
       return {
         success: true,
         reservation: { id: saved.id, activity: act.name, dateText: fmtJo(act.date), people, unitPriceJOD: unitCost, totalJOD: totalCost },
-        note: `الحجز مؤكد ومسجّل — أبلغ العميل بالتفاصيل${totalCost > 0 ? ` واذكر التكلفة إلزامياً: ${totalCost} د.أ${people > 1 ? ` (${people} × ${unitCost})` : ''}` : ''} وذكّره أن الدفع في المكان.${epNote}${within24 ? ' (أُرسل للعميل عرض تذكير قبل اللعبة بساعة عبر أزرار — لا داعي لذكره نصّاً).' : ''}`,
+        note: `الحجز مؤكد ومسجّل — أبلغ العميل بالتفاصيل${totalCost > 0 ? ` واذكر التكلفة إلزامياً: ${totalCost} د.أ${people > 1 ? ` (${people} × ${unitCost})` : ''}` : ''} وذكّره أن الدفع في المكان.${epNote}${offerReminder ? ' (أُرسل للعميل عرض تذكير قبل اللعبة بساعة عبر أزرار — لا داعي لذكره نصّاً).' : ''}`,
       };
     }
 
