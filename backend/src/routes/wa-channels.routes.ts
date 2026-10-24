@@ -177,6 +177,16 @@ router.get('/channels/roster', authenticate, adminOnly, async (req: Request, res
     res.json({ success: true, stats, ...list });
   } catch (e: any) { res.status(500).json({ error: e.message }); }
 });
+// 🔗 ربط كلّ المحادثات غير المربوطة باللاعبين بالأرقام الموحّدة — في الخلفيّة
+router.post('/channels/roster/link-players', authenticate, adminOnly, async (req: Request, res: Response) => {
+  try {
+    const { linkConversationsToPlayers } = await import('../services/wa-transport/line-roster.js');
+    const st = await linkConversationsToPlayers();
+    await audit(req, 'rest:wa-link-players', 'واتساب: ربط المحادثات باللاعبين', st || {});
+    res.json({ success: true, state: st });
+  } catch (e: any) { res.status(500).json({ error: e.message }); }
+});
+
 // 🪪 جلب الأسماء الناقصة (فراغ أو رقمٌ منسّق) من واتساب — في الخلفيّة
 router.post('/channels/roster/fill-names', authenticate, adminOnly, async (req: Request, res: Response) => {
   try {

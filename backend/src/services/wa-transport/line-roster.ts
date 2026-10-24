@@ -135,7 +135,8 @@ export async function syncLineContacts(opts: { max?: number } = {}): Promise<Syn
     lastSync = { ...st, running: false };
     await saveFlag();
     console.log(`📇 WA line roster sync: ${st.added} contact(s) from ${st.chats} chat(s), ${st.resolved} lid resolved`);
-    void fillMissingNames().catch(() => {});   // الجدد بلا اسم: من واتساب
+    // لاعبٌ سجّل بعد أن راسلنا ⟵ يُربط؛ ثمّ الجدد بلا اسم: من واتساب
+    void linkConversationsToPlayers().catch(() => {}).then(() => fillMissingNames()).catch(() => {});
   } catch (e: any) {
     st.error = String(e?.message || e);
     lastSync = { ...st, running: false };
@@ -150,6 +151,58 @@ async function saveFlag(): Promise<void> {
   const db = getDB(); if (!db) return;
   await db.execute(sql`INSERT INTO wa_runtime_flags (key, value, updated_at) VALUES ('line_roster_sync', ${JSON.stringify(lastSync)}::jsonb, NOW())
     ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = NOW()`).catch(() => {});
+}
+
+// ══════════════════════════════════════════════════════
+// 🔗 ربط المحادثات باللاعبين — مسحٌ كامل بالأرقام الموحّدة
+// ══════════════════════════════════════════════════════
+// كلّ محادثةٍ غير مربوطة يُوحَّد رقمها ويُطابَق بأرقام اللاعبين الموحّدة (لا بالنصّ المخزّن: عربيّ-هنديّ، «+962 …»،
+// بلا صفر). عند المطابقة: player_id + اسم اللاعب اسماً للمحادثة + سجلّ جهات الخطّ. رقمٌ يطابق لاعبَين ⟵ لا ربط (يُعدّ).
+let linking = false;
+export interface LinkState { at: string; checked: number; linked: number; ambiguous: number; rosterLinked: number }
+
+export async function linkConversationsToPlayers(): Promise<LinkState | null> {
+  const db = getDB(); if (!db || linking) return null;
+  linking = true;
+  const st: LinkState = { at: new Date().toISOString(), checked: 0, linked: 0, ambiguous: 0, rosterLinked: 0 };
+  try {
+    const byPhone = new Map<string, Array<{ id: number; name: string }>>();
+    for (const p of rowsOf(await db.execute(sql`SELECT id, name, phone FROM players WHERE deleted_at IS NULL AND COALESCE(phone, '') <> ''`))) {
+      const k = normalizeAnyPhone(p.phone)?.local;
+      if (!k) continue;
+      const list = byPhone.get(k) || [];
+      list.push({ id: Number(p.id), name: String(p.name || '') });
+      byPhone.set(k, list);
+    }
+    const convs = rowsOf(await db.execute(sql`SELECT id, phone FROM wa_conversations WHERE player_id IS NULL AND phone NOT LIKE 'lid:%'`));
+    st.checked = convs.length;
+    for (const c of convs) {
+      const k = normalizeAnyPhone(c.phone)?.local;
+      const hits = k ? byPhone.get(k) : undefined;
+      if (!hits?.length) continue;
+      if (hits.length > 1) { st.ambiguous++; continue; }
+      const pl = hits[0];
+      await db.execute(sql`UPDATE wa_conversations SET player_id = ${pl.id},
+          display_name = CASE WHEN ${pl.name} <> '' THEN ${pl.name.slice(0, 150)} ELSE display_name END, updated_at = NOW()
+        WHERE id = ${c.id} AND player_id IS NULL`);
+      st.linked++;
+    }
+    // سجلّ جهات الخطّ: من محادثته المربوطة، أو مباشرةً بالرقم الموحّد
+    const r1: any = await db.execute(sql`UPDATE wa_line_contacts lc SET player_id = c.player_id, updated_at = NOW()
+      FROM wa_conversations c WHERE c.phone = lc.phone AND c.player_id IS NOT NULL AND lc.player_id IS NULL RETURNING lc.phone`);
+    st.rosterLinked = rowsOf(r1).length;
+    for (const lc of rowsOf(await db.execute(sql`SELECT phone FROM wa_line_contacts WHERE player_id IS NULL`))) {
+      const k = normalizeAnyPhone(lc.phone)?.local;
+      const hits = k ? byPhone.get(k) : undefined;
+      if (hits?.length === 1) { await db.execute(sql`UPDATE wa_line_contacts SET player_id = ${hits[0].id}, updated_at = NOW() WHERE phone = ${lc.phone}`); st.rosterLinked++; }
+    }
+    await db.execute(sql`INSERT INTO wa_runtime_flags (key, value, updated_at) VALUES ('players_link', ${JSON.stringify(st)}::jsonb, NOW())
+      ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = NOW()`).catch(() => {});
+    console.log(`🔗 WA link players: ${st.linked} conversation(s) linked of ${st.checked}, ${st.ambiguous} ambiguous, roster ${st.rosterLinked}`);
+    return st;
+  } finally {
+    linking = false;
+  }
 }
 
 // ══════════════════════════════════════════════════════

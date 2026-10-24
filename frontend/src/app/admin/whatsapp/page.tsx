@@ -1028,7 +1028,7 @@ export default function WhatsAppInboxPage() {
                       <ConvAvatar c={c} size={40} />
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center gap-1.5">
-                          <span className="font-bold text-[13px] text-white truncate">{c.displayName || intlPhone(c.phone)}</span>
+                          <span className="font-bold text-[13px] text-white truncate">{c.playerName || c.displayName || intlPhone(c.phone)}</span>
                           <span className="text-[10px] text-gray-500 mr-auto shrink-0">
                             {fmtWhen(c.lastMessageAt)}
                           </span>
@@ -1098,7 +1098,7 @@ export default function WhatsAppInboxPage() {
                 <ConvAvatar c={conv} size={36} />
                 <div className="min-w-0">
                   <div className="font-bold text-sm text-white flex items-center gap-2 flex-wrap">
-                    {conv.displayName || intlPhone(conv.phone)}
+                    {conv.playerName || conv.displayName || intlPhone(conv.phone)}
                     {ctx?.player && (
                       <span className="text-[10px] font-bold text-amber-400 border border-amber-500/40 rounded px-1.5">
                         {RANK_AR[ctx.player.rankTier] || ctx.player.rankTier} · {ctx.player.rankRR}RR

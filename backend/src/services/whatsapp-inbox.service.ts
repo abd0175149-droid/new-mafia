@@ -55,13 +55,27 @@ export const uploadWaMedia = uploadCloudMedia;
 // المحادثات: إيجاد/إنشاء + ربط اللاعب
 // ══════════════════════════════════════════════════════
 
-async function findPlayerByPhone(db: any, localPhone: string) {
+/**
+ * اللاعب صاحب الرقم — بعد التوحيد لا بمطابقة النصّ: أرقام لاعبين مخزّنة بأرقامٍ عربيّة-هنديّة (٠٧٨…)، أو
+ * «+962 7 …» بمسافات وعلامات اتّجاه، أو بلا صفر — كانت لا تُطابق أبداً فتبقى محادثاتهم «غير مربوطة».
+ * المطابقة التامّة أوّلاً (الغالب)، ثمّ مرشّحون بآخر ٩ أرقام يُحسم كلٌّ منهم بالتوحيد نفسه.
+ */
+export async function findPlayerByPhone(db: any, phone: string) {
   const [p] = await db
     .select({ id: players.id, name: players.name })
     .from(players)
-    .where(eq(players.phone, localPhone))
+    .where(eq(players.phone, phone))
     .limit(1);
-  return p || null;
+  if (p) return p;
+  const target = normalizeAnyPhone(phone)?.local;
+  const last9 = String(target || '').replace(/\D/g, '').slice(-9);
+  if (!target || last9.length < 9) return null;
+  const r: any = await db.execute(sql`SELECT id, name, phone FROM players
+    WHERE deleted_at IS NULL
+      AND regexp_replace(translate(COALESCE(phone, ''), '٠١٢٣٤٥٦٧٨٩۰۱۲۳۴۵۶۷۸۹', '01234567890123456789'), '[^0-9]', '', 'g') LIKE ${'%' + last9}
+    LIMIT 5`);
+  const hits = (r?.rows ?? r ?? []).filter((x: any) => normalizeAnyPhone(x.phone)?.local === target);
+  return hits.length === 1 ? { id: Number(hits[0].id), name: hits[0].name } : null;   // تكرار ⟵ لا ربط تخميناً
 }
 
 export async function getOrCreateConversation(
@@ -99,7 +113,7 @@ export async function getOrCreateConversation(
   if (existing) {
     // تحديثات خفيفة: ربط لاعب إن ظهر لاحقاً، أو اسم بروفايل إن كان فارغاً
     const patch: any = {};
-    if (!existing.playerId && isJordanian) {
+    if (!existing.playerId && verified) {
       const player = await findPlayerByPhone(db, localPhone);
       if (player) {
         patch.playerId = player.id;
@@ -123,7 +137,7 @@ export async function getOrCreateConversation(
 
   // إنشاء جديد — مع مطابقة اللاعب فوراً (اللاعبون يُخزَّنون بأرقام محلية، فلا معنى
   // للبحث عن رقم أجنبي: يربط نفسه لاحقاً برمز تحقق عبر request_account_link)
-  const player = isJordanian && verified ? await findPlayerByPhone(db, localPhone) : null;
+  const player = verified ? await findPlayerByPhone(db, localPhone) : null;
   // 📇 رقم الأعمال فيه محادثات قديمة لموردين ومعارف (استيراد التاريخ يعلّمهم في wa_web_known):
   //    من كان «معروفاً وليس لاعباً» تُفتح محادثته والبوت مطفأ — الأدمن يفعّله بضغطة إن شاء.
   //    ومفتاح «القنوات» webBotKnown يلغي ذلك: هم عملاء مهتمّون — تُفتح والبوت يعمل.

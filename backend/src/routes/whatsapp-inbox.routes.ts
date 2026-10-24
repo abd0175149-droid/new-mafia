@@ -321,10 +321,11 @@ router.get('/conversations', authenticate, adminOnly, async (req: Request, res: 
     //    اللاعب إن كانت المحادثة مربوطة. استعلامٌ واحد بالجملة، لا واحدٌ لكلّ صفّ.
     const pids = [...new Set(rows.map((c: any) => c.playerId).filter(Boolean))] as number[];
     const avatars = new Map<number, string>();
+    const pnames = new Map<number, string>();   // 🔗 اسم اللاعب المربوط يُعرض أيّاً كان اسم المحادثة المخزّن
     if (pids.length) {
-      const prs = await db.select({ id: players.id, avatarUrl: players.avatarUrl })
+      const prs = await db.select({ id: players.id, avatarUrl: players.avatarUrl, name: players.name })
         .from(players).where(inArray(players.id, pids));
-      for (const p of prs) if (p.avatarUrl) avatars.set(p.id, p.avatarUrl);
+      for (const p of prs) { if (p.avatarUrl) avatars.set(p.id, p.avatarUrl); if (p.name) pnames.set(p.id, p.name); }
     }
 
     // المعاينة والوقت من آخر رسالةٍ فعليّة (وفي عرض رقمٍ واحد: على ذلك الرقم) — نفس مصدر الترتيب أعلاه
@@ -346,6 +347,7 @@ router.get('/conversations', authenticate, adminOnly, async (req: Request, res: 
         // محادثةٌ بلا رسائل: لا وقت (تُرتَّب في الذيل) — لا عمودٌ منحرف يدّعي نشاطاً
         lastMessageAt: l ? isoUtc(l.at) : null, lastMessagePreview: l ? l.preview : (c.lastMessagePreview || ''),
         avatarUrl: c.playerId ? (avatars.get(c.playerId) || null) : null,
+        playerName: c.playerId ? (pnames.get(c.playerId) || null) : null,
         botActive: isBotActive(c),
         ...routeInfo(c),
       };
@@ -428,15 +430,17 @@ router.get('/conversations/:id/messages', authenticate, adminOnly, async (req: R
       .limit(limit);
 
     let avatarUrl: string | null = null;
+    let playerName: string | null = null;
     if (conv.playerId) {
-      const [pl] = await db.select({ avatarUrl: players.avatarUrl })
+      const [pl] = await db.select({ avatarUrl: players.avatarUrl, name: players.name })
         .from(players).where(eq(players.id, conv.playerId)).limit(1);
       avatarUrl = pl?.avatarUrl || null;
+      playerName = pl?.name || null;
     }
 
     res.json({
       success: true,
-      conversation: { ...conv, avatarUrl, botActive: isBotActive(conv), ...routeInfo(conv) },
+      conversation: { ...conv, avatarUrl, playerName, botActive: isBotActive(conv), ...routeInfo(conv) },
       messages, // الأحدث أولاً
       pending,  // في الطابور — الأقدم أولاً
       hasMore: messages.length === limit,
