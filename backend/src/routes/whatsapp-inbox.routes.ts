@@ -42,6 +42,9 @@ function routeInfo(c: any): { windowOpen: boolean; sendVia: 'cloud' | 'web' | nu
 //    (استيرادٌ قديم أخذ وقت نشاط المحادثة على الهاتف — مكالمة أو إشعار نظام — ورسائل لم تعد في سجلّنا)
 //    فكانت ١٣٤ محادثة تتقدّم بوقتٍ أحدث من آخر رسائلها بما يصل ١٥٥ يوماً. التفاعل (رياكشن) ليس رسالة.
 const lastMsgFilter = sql`m.deleted_at IS NULL AND m.msg_type <> 'reaction'`;
+/** وقتٌ من استعلامٍ خام (نصّ بلا منطقة: «2026-10-24 05:03:02») ⟵ ISO بتوقيت UTC — وإلّا قرأه المتصفّح محلّيّاً فتأخّر ٣ ساعات */
+const isoUtc = (v: any): string | null => v instanceof Date ? v.toISOString()
+  : v ? new Date(/[zZ]$|[+-]\d\d:?\d\d$/.test(String(v)) ? String(v) : String(v).replace(' ', 'T') + 'Z').toISOString() : null;
 function viewSql(ch: string) {
   const lastAt = ch
     ? sql`(SELECT MAX(m.created_at) FROM wa_messages m WHERE m.conversation_id = "wa_conversations"."id" AND m.channel = ${ch} AND ${lastMsgFilter})`
@@ -339,7 +342,7 @@ router.get('/conversations', authenticate, adminOnly, async (req: Request, res: 
       return {
         ...c,
         // محادثةٌ بلا رسائل: لا وقت (تُرتَّب في الذيل) — لا عمودٌ منحرف يدّعي نشاطاً
-        lastMessageAt: l ? l.at : null, lastMessagePreview: l ? l.preview : (c.lastMessagePreview || ''),
+        lastMessageAt: l ? isoUtc(l.at) : null, lastMessagePreview: l ? l.preview : (c.lastMessagePreview || ''),
         avatarUrl: c.playerId ? (avatars.get(c.playerId) || null) : null,
         botActive: isBotActive(c),
         ...routeInfo(c),
