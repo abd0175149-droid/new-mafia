@@ -284,8 +284,11 @@ export default function ChannelsSection({ apiFetch }: { apiFetch: Fetcher }) {
           <button disabled={importing || d.historyImport?.running} onClick={() => runImport(!!d.historyImport)} className="px-3 py-2 rounded-xl border border-gray-800 text-gray-300 hover:text-white disabled:opacity-50">
             {importing ? '⏳ يبدأ…'
               : d.historyImport?.running ? `⏳ المرآة جارية… ${d.historyImport.done || 0}/${d.historyImport.chats} محادثة · ${d.historyImport.messages} رسالة`
-                : d.historyImport ? `🗄️ أعد مرآة المحادثات (آخر مرّة: ${d.historyImport.chats} محادثة · ${d.historyImport.messages} رسالة)` : '🗄️ مرآة محادثات رقم الأعمال في الوارد'}
+                : d.historyImport ? `🗄️ حدّث مرآة المحادثات (آخر مرّة: ${d.historyImport.chats} محادثة · ${d.historyImport.messages} رسالة)` : '🗄️ مرآة محادثات رقم الأعمال في الوارد'}
           </button>
+        )}
+        {d.historyImport?.error && !d.historyImport?.running && (
+          <span className="text-[11px] text-amber-300">⚠️ {d.historyImport.error}</span>
         )}
       </div>
     </div>

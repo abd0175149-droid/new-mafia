@@ -403,11 +403,7 @@ export default function WhatsAppInboxPage() {
       if (p?.message && selIdRef.current === p.conversationId) {
         setMessages(prev => prev.map(m => (m.id === p.message.id ? { ...m, payload: p.message.payload } : m)));
       }
-      if (p?.conversationId && (inboxChRef.current === 'all' || (p.message && inView(p.message, inboxChRef.current)))) {
-        setConvs(prev => prev.map(c => (c.id === p.conversationId
-          ? { ...c, lastMessagePreview: p.emoji ? `تفاعل ${p.emoji} برسالتك` : 'أزال تفاعله عن رسالتك' }
-          : c)));
-      }
+      // (التفاعل ليس رسالة: لا يغيّر معاينة القائمة ولا ترتيبها — الترتيب بآخر رسالةٍ فعليّة)
     };
 
     const onConvUpdate = (p: any) => {

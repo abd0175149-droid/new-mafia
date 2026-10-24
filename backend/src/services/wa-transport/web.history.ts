@@ -100,7 +100,7 @@ export async function catchUpWeb(): Promise<{ chats: number; added: number }> {
   return { chats: list.length, added };
 }
 
-export interface ImportReport { chats: number; players: number; others: number; messages: number; skipped: number; created: number; at: string; running?: boolean; done?: number }
+export interface ImportReport { chats: number; players: number; others: number; messages: number; skipped: number; created: number; at: string; running?: boolean; done?: number; fetched?: number; error?: string }
 
 /** معرّف الرسالة القصير (آخر مقطع) — نفس الرسالة قد تُخزَّن بمحادثة @c.us ثمّ تعود بمحادثة @lid */
 const shortId = (id: string): string => String(id || '').split('_').pop() || '';
@@ -109,7 +109,12 @@ let importing = false;
 export function importRunning(): boolean { return importing; }
 
 /** مرآة رقم الأعمال في الوارد — كلّ المحادثات بتاريخها (مرّة، أو بطلبٍ صريح من «القنوات») */
-export async function importWebHistory(opts: { perChat?: number; maxChats?: number; force?: boolean } = {}): Promise<ImportReport> {
+/**
+ * full: اجلب تاريخ كلّ محادثة. وإلّا (الافتراض) تُجلب فقط المحادثة الجديدة أو التي نشاطها على الهاتف أحدث من
+ * آخر رسالةٍ عندنا — حدّ البوّابة ١٠٠٠ طلبٍ في الساعة (و١٠٠ في الدقيقة)، ومرآتان كاملتان متتاليتان استنفدتاه
+ * فرُفضت الطلبات بـ429 (والإرسال من رقم الأعمال يمرّ بنفس الحدّ). onlyChats: محادثاتٌ بعينها.
+ */
+export async function importWebHistory(opts: { perChat?: number; maxChats?: number; force?: boolean; full?: boolean; onlyChats?: string[] } = {}): Promise<ImportReport> {
   const db = getDB();
   if (!db || !webConfigured()) throw new Error('رقم الأعمال غير مهيّأ');
   const s = await gw.session();
@@ -120,7 +125,8 @@ export async function importWebHistory(opts: { perChat?: number; maxChats?: numb
   importing = true;
   try {
     const perChat = Math.min(2000, Math.max(5, opts.perChat ?? 2000));
-    const chats = (await gw.chats(opts.maxChats ?? 2000)).filter((c: any) => ['user', 'lid'].includes(jidKind(chatIdOf(c))) && !c.isGroup);
+    const only = opts.onlyChats?.length ? new Set(opts.onlyChats) : null;
+    const chats = (await gw.chats(opts.maxChats ?? 2000)).filter((c: any) => ['user', 'lid'].includes(jidKind(chatIdOf(c))) && !c.isGroup && (!only || only.has(chatIdOf(c))));
     const rep: ImportReport = { chats: chats.length, players: 0, others: 0, messages: 0, skipped: 0, created: 0, at: '', running: true, done: 0 };
     const { getOrCreateConversation, ingestInbound } = await import('../whatsapp-inbox.service.js');
     // منع التكرار بالمعرّف القصير: مجموعةٌ واحدة في الذاكرة بدل استعلامٍ لكلّ رسالة
@@ -153,7 +159,19 @@ export async function importWebHistory(opts: { perChat?: number; maxChats?: numb
       if (!conv) { rep.skipped++; continue; }
       if (!ex) rep.created++;
 
-      const msgs = await gw.history(chatId, perChat, perChat > 100).catch(() => []);
+      // جلبٌ عند الحاجة فقط: محادثةٌ جديدة، أو طلبٌ صريح، أو نشاطٌ على الهاتف بعد آخر رسالةٍ عندنا
+      if (ex && !opts.full && !only) {
+        const lr: any = await db.execute(sql`SELECT MAX(created_at) AS at FROM wa_messages WHERE conversation_id = ${conv.id} AND channel = 'web'`);
+        const lastWeb = (lr?.rows ?? lr ?? [])[0]?.at;
+        if (lastWeb && chatTs(c) <= new Date(lastWeb).getTime() + 60e3) continue;
+      }
+      let msgs: any[];
+      try { msgs = await gw.history(chatId, perChat, perChat > 100); rep.fetched = (rep.fetched || 0) + 1; }
+      catch (e: any) {
+        // 429 = حدّ البوّابة: توقّفٌ فوريّ — الاستمرار يحرق الحصّة ويعطّل الإرسال، و«فارغ» كان يُخفي الرفض
+        if (e?.status === 429 || /429|Too Many/i.test(String(e?.message || e))) { rep.error = 'حدّ طلبات البوّابة (429) — أعد المحاولة بعد ساعة'; break; }
+        rep.skipped++; continue;
+      }
       for (const m of msgs) {
         if (!m?.id || seen.has(shortId(String(m.id))) || (await existsWamid(String(m.id)))) continue;
         if (isSkippable(m)) continue;

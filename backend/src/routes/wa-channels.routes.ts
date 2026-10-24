@@ -119,7 +119,8 @@ router.post('/channels/web/import', authenticate, adminOnly, async (req: Request
     if (importRunning()) return res.status(409).json({ error: 'الاستيراد جارٍ الآن — تُحدَّث حالته في الصفحة' });
     await audit(req, 'rest:wa-web-import', 'واتساب: مرآة محادثات رقم الأعمال في الوارد', { force: !!req.body?.force });
     // مرآةٌ كاملة (كلّ المحادثات بتاريخها) تأخذ دقائق — تعمل في الخلفيّة، وحالتها في web_history_import
-    void importWebHistory({ force: !!req.body?.force }).catch(e => console.warn('⚠️ WA web mirror:', e?.message));
+    const onlyChats = Array.isArray(req.body?.onlyChats) ? req.body.onlyChats.map(String).slice(0, 200) : undefined;
+    void importWebHistory({ force: !!req.body?.force, full: !!req.body?.full, onlyChats }).catch(e => console.warn('⚠️ WA web mirror:', e?.message));
     res.json({ success: true, started: true });
   } catch (e: any) { res.status(500).json({ error: e.message }); }
 });

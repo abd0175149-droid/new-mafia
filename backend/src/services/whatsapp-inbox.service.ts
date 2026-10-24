@@ -566,14 +566,11 @@ async function handleReactionMessage(db: any, conv: any, msg: any, saved: any) {
       target = { ...t, payload };
     }
   }
+  // التفاعل ليس رسالة: لا يقدّم المحادثة في القائمة ولا يغيّر معاينتها (الترتيب بآخر رسالةٍ فعليّة)
   const now = new Date();
   const [updatedConv] = await db
     .update(waConversations)
-    .set({
-      lastMessageAt: now,
-      lastMessagePreview: emoji ? `تفاعل ${emoji} برسالتك` : 'أزال تفاعله عن رسالتك',
-      updatedAt: now,
-    } as any)
+    .set({ updatedAt: now } as any)
     .where(eq(waConversations.id, conv.id))
     .returning();
   emitInbox('wa:reaction', { conversationId: conv.id, message: target, emoji, reactionRowId: saved?.id });

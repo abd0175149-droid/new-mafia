@@ -36,14 +36,21 @@ function routeInfo(c: any): { windowOpen: boolean; sendVia: 'cloud' | 'web' | nu
   return { windowOpen: p.channel !== null, sendVia: p.channel, cloudWindowOpen: cloudWindowOpen(c) };
 }
 
-// 🔀 تعابير العرض لكلّ رقم: غير المقروء، آخر وارد (النافذة)، آخر رسالة — «الكلّ» = أعمدة المحادثة نفسها.
+// 🔀 تعابير العرض لكلّ رقم: غير المقروء، آخر وارد (النافذة)، آخر رسالة.
 //    مؤهّلةٌ نصّاً لأنّها تُستعمل داخل استعلاماتٍ فرعيّة (فخّ الأعمدة غير المؤهّلة في Drizzle)
+// ⏱️ «آخر رسالة» تُحسب من الرسائل نفسها في العروض الثلاثة — لا من عمود last_message_at: العمود انحرف
+//    (استيرادٌ قديم أخذ وقت نشاط المحادثة على الهاتف — مكالمة أو إشعار نظام — ورسائل لم تعد في سجلّنا)
+//    فكانت ١٣٤ محادثة تتقدّم بوقتٍ أحدث من آخر رسائلها بما يصل ١٥٥ يوماً. التفاعل (رياكشن) ليس رسالة.
+const lastMsgFilter = sql`m.deleted_at IS NULL AND m.msg_type <> 'reaction'`;
 function viewSql(ch: string) {
-  if (!ch) return { unread: sql`"wa_conversations"."unread_count"`, inbound: sql`"wa_conversations"."last_inbound_at"`, lastAt: sql`"wa_conversations"."last_message_at"` };
+  const lastAt = ch
+    ? sql`(SELECT MAX(m.created_at) FROM wa_messages m WHERE m.conversation_id = "wa_conversations"."id" AND m.channel = ${ch} AND ${lastMsgFilter})`
+    : sql`(SELECT MAX(m.created_at) FROM wa_messages m WHERE m.conversation_id = "wa_conversations"."id" AND ${lastMsgFilter})`;
+  if (!ch) return { unread: sql`"wa_conversations"."unread_count"`, inbound: sql`"wa_conversations"."last_inbound_at"`, lastAt };
   return {
     unread: ch === 'web' ? sql`"wa_conversations"."unread_web"` : sql`("wa_conversations"."unread_count" - "wa_conversations"."unread_web")`,
     inbound: ch === 'web' ? sql`"wa_conversations"."web_last_inbound_at"` : sql`"wa_conversations"."cloud_last_inbound_at"`,
-    lastAt: sql`(SELECT MAX(m.created_at) FROM wa_messages m WHERE m.conversation_id = "wa_conversations"."id" AND m.channel = ${ch} AND m.deleted_at IS NULL AND m.msg_type <> 'reaction')`,
+    lastAt,
   };
 }
 
@@ -282,7 +289,7 @@ router.get('/conversations', authenticate, adminOnly, async (req: Request, res: 
     // في المتصفّح: الترتيب هناك يرتّب المئة المحمَّلة فقط فيبدو صحيحاً وهو كاذب.
     // وفي عرض رقمٍ واحد: آخر وارد وآخر رسالة وغير المقروء كلّها من ذلك الرقم وحده.
     const openWindow = sql`${v.inbound} > NOW() - INTERVAL '24 hours'`;
-    let orderBy: any = sql`${v.lastAt} DESC NULLS LAST`;
+    let orderBy: any = sql`${v.lastAt} DESC NULLS LAST, "wa_conversations"."id" DESC`;
     if (sort === 'closing') {
       // الأقرب إغلاقاً أوّلاً = الأقدم رسالةً واردة — والمغلقة تُستبعد لا تُذيَّل
       conds.push(openWindow);
@@ -316,12 +323,12 @@ router.get('/conversations', authenticate, adminOnly, async (req: Request, res: 
       for (const p of prs) if (p.avatarUrl) avatars.set(p.id, p.avatarUrl);
     }
 
-    // 🔀 عرض رقمٍ واحد: المعاينة والوقت من آخر رسالةٍ على ذلك الرقم، لا من الرقم الآخر
+    // المعاينة والوقت من آخر رسالةٍ فعليّة (وفي عرض رقمٍ واحد: على ذلك الرقم) — نفس مصدر الترتيب أعلاه
     const lastOnCh = new Map<number, { at: any; preview: string }>();
-    if (ch && rows.length) {
+    if (rows.length) {
       const ids = sql.join(rows.map((c: any) => sql`${c.id}`), sql`, `);
       const lr: any = await db.execute(sql`SELECT DISTINCT ON (conversation_id) conversation_id, created_at, body
-        FROM wa_messages WHERE conversation_id IN (${ids}) AND channel = ${ch} AND deleted_at IS NULL AND msg_type <> 'reaction'
+        FROM wa_messages WHERE conversation_id IN (${ids}) ${ch ? sql`AND channel = ${ch}` : sql``} AND deleted_at IS NULL AND msg_type <> 'reaction'
         ORDER BY conversation_id, created_at DESC, id DESC`);
       for (const r of (lr.rows || lr)) lastOnCh.set(Number(r.conversation_id), { at: r.created_at, preview: String(r.body || '').slice(0, 120) });
     }
@@ -331,7 +338,8 @@ router.get('/conversations', authenticate, adminOnly, async (req: Request, res: 
       const l = lastOnCh.get(c.id);
       return {
         ...c,
-        ...(l ? { lastMessageAt: l.at, lastMessagePreview: l.preview } : {}),
+        // محادثةٌ بلا رسائل: لا وقت (تُرتَّب في الذيل) — لا عمودٌ منحرف يدّعي نشاطاً
+        lastMessageAt: l ? l.at : null, lastMessagePreview: l ? l.preview : (c.lastMessagePreview || ''),
         avatarUrl: c.playerId ? (avatars.get(c.playerId) || null) : null,
         botActive: isBotActive(c),
         ...routeInfo(c),
