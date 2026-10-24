@@ -177,6 +177,16 @@ router.get('/channels/roster', authenticate, adminOnly, async (req: Request, res
     res.json({ success: true, stats, ...list });
   } catch (e: any) { res.status(500).json({ error: e.message }); }
 });
+// 🪪 جلب الأسماء الناقصة (فراغ أو رقمٌ منسّق) من واتساب — في الخلفيّة
+router.post('/channels/roster/fill-names', authenticate, adminOnly, async (req: Request, res: Response) => {
+  try {
+    const { fillMissingNames } = await import('../services/wa-transport/line-roster.js');
+    void fillMissingNames().catch(e => console.warn('⚠️ WA names fill:', e?.message));
+    await audit(req, 'rest:wa-names-fill', 'واتساب: جلب أسماء جهات خطّ الأعمال من واتساب', {});
+    res.json({ success: true, started: true });
+  } catch (e: any) { res.status(500).json({ error: e.message }); }
+});
+
 router.post('/channels/roster/sync', authenticate, adminOnly, async (req: Request, res: Response) => {
   try {
     const { syncLineContacts, syncState } = await import('../services/wa-transport/line-roster.js');

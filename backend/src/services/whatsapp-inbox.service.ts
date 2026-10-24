@@ -16,7 +16,7 @@ import { getDB } from '../config/db.js';
 import { env } from '../config/env.js';
 import { waConversations, waMessages, waOptouts, staff, reservations } from '../schemas/admin.schema.js';
 import { players } from '../schemas/player.schema.js';
-import { normalizeLocalPhone, toWaPhone, samePhone, normalizeAnyPhone } from '../utils/phone.util.js';
+import { normalizeLocalPhone, toWaPhone, samePhone, normalizeAnyPhone, isMissingName } from '../utils/phone.util.js';
 import { sendPushToPlayers } from './fcm.service.js';
 
 import { WA_CAPTION_MAX as CLOUD_CAPTION_MAX, uploadCloudMedia, cloudConfigured, sendCloud } from './wa-transport/cloud.transport.js';
@@ -106,7 +106,8 @@ export async function getOrCreateConversation(
         if (!existing.displayName) patch.displayName = player.name;
       }
     }
-    if (profileName && !existing.displayName) patch.displayName = profileName;
+    // اسمٌ حقيقيّ يحلّ محلّ الفراغ أو الرقم المنسّق — ولا يُكتب رقمٌ اسماً
+    if (!isMissingName(profileName) && isMissingName(existing.displayName)) patch.displayName = profileName;
     if (opts.channel === 'web' && opts.webChatId && existing.webChatId !== opts.webChatId) patch.webChatId = opts.webChatId;
     if (Object.keys(patch).length > 0) {
       patch.updatedAt = new Date();
@@ -137,7 +138,7 @@ export async function getOrCreateConversation(
       phone: localPhone,
       waPhone,
       playerId: player?.id || null,
-      displayName: player?.name || profileName || '',
+      displayName: player?.name || (isMissingName(profileName) ? '' : profileName) || '',
       ...(knownNonPlayer ? { botEnabled: false } : {}),
       channel: opts.channel || 'cloud',
       webChatId: opts.channel === 'web' ? (opts.webChatId || null) : null,

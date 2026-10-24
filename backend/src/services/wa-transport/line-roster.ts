@@ -12,7 +12,7 @@
 
 import { sql } from 'drizzle-orm';
 import { getDB } from '../../config/db.js';
-import { normalizeAnyPhone } from '../../utils/phone.util.js';
+import { normalizeAnyPhone, isMissingName, firstRealName } from '../../utils/phone.util.js';
 import { isWebReady, webConfigured } from './router.js';
 import { jidKind } from './web.inbound.js';
 import * as gw from './openwa.client.js';
@@ -129,12 +129,13 @@ export async function syncLineContacts(opts: { max?: number } = {}): Promise<Syn
         if (phone) { local = normalizeAnyPhone(phone)?.local || null; st.resolved++; }
       }
       if (!local) continue;
-      await upsert(local, { waId: chatId, chatExists: true, lastChatAt: new Date(chatTs(c) || Date.now()), unread: Number(c.unreadCount || 0), name: String(c.name || '').slice(0, 150), source: 'chatlist' });
+      await upsert(local, { waId: chatId, chatExists: true, lastChatAt: new Date(chatTs(c) || Date.now()), unread: Number(c.unreadCount || 0), name: firstRealName(c.name, c.contact?.pushname, c.contact?.pushName), source: 'chatlist' });
       st.added++;
     }
     lastSync = { ...st, running: false };
     await saveFlag();
     console.log(`📇 WA line roster sync: ${st.added} contact(s) from ${st.chats} chat(s), ${st.resolved} lid resolved`);
+    void fillMissingNames().catch(() => {});   // الجدد بلا اسم: من واتساب
   } catch (e: any) {
     st.error = String(e?.message || e);
     lastSync = { ...st, running: false };
@@ -149,6 +150,62 @@ async function saveFlag(): Promise<void> {
   const db = getDB(); if (!db) return;
   await db.execute(sql`INSERT INTO wa_runtime_flags (key, value, updated_at) VALUES ('line_roster_sync', ${JSON.stringify(lastSync)}::jsonb, NOW())
     ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = NOW()`).catch(() => {});
+}
+
+// ══════════════════════════════════════════════════════
+// 🪪 الأسماء الناقصة — من واتساب نفسه
+// ══════════════════════════════════════════════════════
+// جهةٌ غير محفوظة على هاتف الأعمال يعيد واتساب عنوانَ محادثتها رقمَها المنسّق، فخُزّن الرقم «اسماً».
+// الحلّ من البوّابة: الاسم المحفوظ على الهاتف إن وُجد، وإلّا اسم ملفّه الشخصيّ (pushName — يضعه هو).
+// لا يمسّ اسماً حقيقيّاً ولا اسم لاعبٍ مربوط؛ اللاعب يأخذ اسم ملفّه في النظام بلا طلب. يتوقّف عند 429.
+let filling = false;
+export interface NamesFillState { at: string; candidates: number; filled: number; players: number; noName: number; errors: number; stopped?: string }
+
+export async function fillMissingNames(): Promise<NamesFillState | null> {
+  const db = getDB(); if (!db || filling || !webConfigured() || !isWebReady()) return null;
+  filling = true;
+  const st: NamesFillState = { at: new Date().toISOString(), candidates: 0, filled: 0, players: 0, noName: 0, errors: 0 };
+  try {
+    // ١) اللاعب: اسم ملفّه في النظام (بلا بوّابة)
+    const pr: any = await db.execute(sql`SELECT c.id, c.display_name, p.name FROM wa_conversations c JOIN players p ON p.id = c.player_id
+      WHERE COALESCE(p.name, '') <> ''`);
+    for (const r of rowsOf(pr).filter((x: any) => isMissingName(x.display_name))) {
+      await db.execute(sql`UPDATE wa_conversations SET display_name = ${String(r.name).trim().slice(0, 150)} WHERE id = ${r.id}`);
+      st.players++;
+    }
+    // ٢) غيرهم على خطّ الأعمال: من واتساب
+    const cr: any = await db.execute(sql`SELECT c.id, c.phone, c.wa_phone, c.web_chat_id, c.display_name, lc.wa_id
+        FROM wa_conversations c LEFT JOIN wa_line_contacts lc ON lc.phone = c.phone
+       WHERE c.player_id IS NULL AND c.phone NOT LIKE 'lid:%'
+         AND (c.web_chat_id IS NOT NULL OR lc.phone IS NOT NULL OR EXISTS (SELECT 1 FROM wa_messages m WHERE m.conversation_id = c.id AND m.channel = 'web'))`);
+    const cands = rowsOf(cr).filter((r: any) => isMissingName(r.display_name));
+    st.candidates = cands.length;
+    for (const r of cands) {
+      const jid = String(r.web_chat_id || r.wa_id || (r.wa_phone ? `${r.wa_phone}@c.us` : ''));
+      if (!jid) { st.noName++; continue; }
+      try {
+        const info = await gw.contactInfo(jid);   // متباعدٌ داخل العميل (bulk)
+        const name = firstRealName(info?.name, info?.pushName);
+        if (!name) { st.noName++; continue; }
+        await db.execute(sql`UPDATE wa_conversations SET display_name = ${name}, updated_at = NOW() WHERE id = ${r.id}`);
+        await db.execute(sql`UPDATE wa_line_contacts SET name = ${name}, updated_at = NOW() WHERE phone = ${r.phone}`);
+        st.filled++;
+      } catch (e: any) {
+        if (e?.status === 429 || /429|Too Many/i.test(String(e?.message || e))) { st.stopped = 'حدّ طلبات البوّابة (429)'; break; }
+        st.errors++;
+      }
+    }
+    // ٣) جهات السجلّ بلا اسم ولها محادثة صار لها اسم الآن
+    await db.execute(sql`UPDATE wa_line_contacts lc SET name = c.display_name, updated_at = NOW()
+      FROM wa_conversations c WHERE c.phone = lc.phone AND COALESCE(c.display_name, '') <> ''
+        AND (COALESCE(lc.name, '') = '' OR lc.name ~ '^[[:space:][:digit:]+().-]+$')`);
+    await db.execute(sql`INSERT INTO wa_runtime_flags (key, value, updated_at) VALUES ('line_names_fill', ${JSON.stringify(st)}::jsonb, NOW())
+      ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = NOW()`).catch(() => {});
+    console.log(`🪪 WA names fill: ${st.filled}/${st.candidates} from WhatsApp, ${st.players} player(s), ${st.noName} without a name${st.stopped ? ` — ${st.stopped}` : ''}`);
+    return st;
+  } finally {
+    filling = false;
+  }
 }
 
 // ══════════════════════════════════════════════════════

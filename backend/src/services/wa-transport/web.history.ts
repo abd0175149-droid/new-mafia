@@ -13,7 +13,7 @@ import { eq, sql } from 'drizzle-orm';
 import { getDB } from '../../config/db.js';
 import { waConversations, waMessages } from '../../schemas/admin.schema.js';
 import { players } from '../../schemas/player.schema.js';
-import { normalizeAnyPhone } from '../../utils/phone.util.js';
+import { normalizeAnyPhone, firstRealName } from '../../utils/phone.util.js';
 import * as gw from './openwa.client.js';
 import { jidKind, resolveIdentity, toMetaMessage, SYSTEM_TYPES } from './web.inbound.js';
 import { webConfigured } from './router.js';
@@ -154,7 +154,7 @@ export async function importWebHistory(opts: { perChat?: number; maxChats?: numb
           ON CONFLICT (phone) DO UPDATE SET chat_id = EXCLUDED.chat_id, last_at = GREATEST(wa_web_known.last_at, EXCLUDED.last_at)`);
       }
       const [ex] = await db.select({ id: waConversations.id }).from(waConversations).where(eq(waConversations.phone, norm.local)).limit(1);
-      const name = String(c.name || c.contact?.pushname || c.contact?.name || '').trim().slice(0, 150);
+      const name = firstRealName(c.name, c.contact?.pushname, c.contact?.pushName, c.contact?.name);
       const conv: any = await getOrCreateConversation(who.key, pl ? '' : name, { channel: 'web', webChatId: who.chatId, phoneVerified: true });
       if (!conv) { rep.skipped++; continue; }
       if (!ex) rep.created++;

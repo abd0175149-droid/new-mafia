@@ -90,6 +90,18 @@ export function normalizeAnyPhone(input: string | null | undefined):
   return { local: d, wa: d, isJordanian: false };
 }
 
+/** «اسمٌ» ليس اسماً: فارغ، أو رقمٌ منسّق (+962 7…) كما يعيده واتساب عنواناً لجهةٍ غير محفوظة —
+ *  بعلامات الاتّجاه والمسافات غير الكاسرة التي يضعها واتساب حول الأرقام */
+export function isMissingName(s: string | null | undefined): boolean {
+  const t = String(s || '').trim();
+  return !t || /^[\s\d+()\-.\u00a0\u200e\u200f\u202a-\u202e\u2066-\u2069]+$/.test(t);
+}
+/** أوّل اسمٍ حقيقيّ من مرشّحين (الاسم المحفوظ على هاتف الأعمال، ثمّ اسم الملفّ الشخصيّ) */
+export function firstRealName(...cands: Array<string | null | undefined>): string {
+  for (const c of cands) if (!isMissingName(c)) return String(c).trim().slice(0, 150);
+  return '';
+}
+
 /** هل هذا الرقم المخزَّن محلي أردني؟ (للعرض والمنطق المرتبط باللاعبين) */
 export function isJordanianPhone(stored: string | null | undefined): boolean {
   return /^07[789]\d{7}$/.test(String(stored || ''));

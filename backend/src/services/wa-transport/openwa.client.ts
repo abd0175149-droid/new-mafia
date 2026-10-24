@@ -87,6 +87,11 @@ export const history = async (chatId: string, limit = 30, deep = false) => {
   const d = unwrap(await S('GET', `/messages/${encodeURIComponent(chatId)}/history?limit=${limit}${deep ? '&deep=true' : ''}`, undefined, { timeout: 180000, bulk: true }));
   return Array.isArray(d) ? d : (d?.items || d?.messages || []);
 };
+/** تفاصيل جهة: name = المحفوظ على هاتف الأعمال (إن حُفظت)، pushName = اسم ملفّه الشخصيّ الذي وضعه بنفسه */
+export async function contactInfo(jid: string): Promise<{ name?: string; pushName?: string; isMyContact?: boolean } | null> {
+  const d = unwrap(await S('GET', `/contacts/${encodeURIComponent(jid)}`, undefined, { bulk: true }));
+  return d && typeof d === 'object' ? { name: d.name, pushName: d.pushName ?? d.pushname, isMyContact: d.isMyContact } : null;
+}
 /** معرّف خصوصيّة (@lid) ← الرقم، أو null إن لم تعرفه واتساب */
 export async function resolvePhone(jid: string): Promise<string | null> {
   try {
