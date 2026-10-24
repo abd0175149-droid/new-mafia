@@ -516,10 +516,13 @@ class MenuItemRow extends StatelessWidget {
     if (_hasOpts) return _btn('اختر', onAdd, trailing: _qtyBadge);
     if (item.hasLongDescription) return _btn('التفاصيل', onAdd, trailing: _qtyBadge);
     if (qty > 0 && onQty != null) {
-      return Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
-        stepButton('+', kAmberBg, kAmberBorder, kAmberFg, () => onQty!(1), label: 'واحد آخر من ${item.name}'),
-        Text('$qty', style: ar(17, weight: FontWeight.w800)),
-        stepButton('−', _ghostBg, _ghostBorder, Colors.white, () => onQty!(-1), label: 'واحد أقلّ من ${item.name}'),
+      // البلاطة على هاتفٍ عرضه 360 داخلها 98 فقط: زرّان 42×48 والرقم يأخذ ما بقي
+      return Row(children: [
+        stepButton('+', kAmberBg, kAmberBorder, kAmberFg, () => onQty!(1),
+            label: 'واحد آخر من ${item.name}', width: 42),
+        Expanded(child: Text('$qty', textAlign: TextAlign.center, style: ar(17, weight: FontWeight.w800))),
+        stepButton('−', _ghostBg, _ghostBorder, Colors.white, () => onQty!(-1),
+            label: 'واحد أقلّ من ${item.name}', width: 42),
       ]);
     }
     return Semantics(
@@ -567,7 +570,8 @@ class QtyBadge extends StatelessWidget {
 }
 
 /// زرّ ±: مشتركٌ بين البلاطة وسطور السلّة — 48، ويسمّي الصنف لقارئ الشاشة.
-Widget stepButton(String glyph, Color bg, Color border, Color fg, VoidCallback onTap, {String? label}) =>
+Widget stepButton(String glyph, Color bg, Color border, Color fg, VoidCallback onTap,
+        {String? label, double width = kTap}) =>
     Semantics(
       button: true,
       label: label,
@@ -576,7 +580,7 @@ Widget stepButton(String glyph, Color bg, Color border, Color fg, VoidCallback o
         onTap: onTap,
         borderRadius: BorderRadius.circular(12),
         child: Container(
-          width: kTap,
+          width: width,
           height: kTap,
           decoration: BoxDecoration(
             borderRadius: BorderRadius.circular(12),

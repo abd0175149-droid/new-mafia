@@ -149,12 +149,14 @@ function IconBtn({ label, onClick, active, children, badge }: {
 
 /** عدّاد ± — زرّان ٤٤ بكسل يسمّيان الصنف لقارئ الشاشة */
 function Stepper({ qty, name, onInc, onDec, spread }: { qty: number; name: string; onInc: () => void; onDec: () => void; spread?: boolean }) {
+  // في البلاطة (spread) يضيق المكان على هاتفٍ عرضه 360: الرقم يتقلّص لا الزرّان
+  const btn = `${spread ? 'w-10' : 'w-11'} h-11 shrink-0 rounded-xl text-xl font-bold flex items-center justify-center`;
   return (
-    <div className={`flex items-center gap-1 ${spread ? 'justify-between w-full' : ''}`}>
-      <button onClick={onInc} aria-label={`واحد آخر من ${name}`} className="w-11 h-11 rounded-xl text-xl font-bold flex items-center justify-center"
+    <div className={`flex items-center gap-0.5 ${spread ? 'justify-between w-full' : ''}`}>
+      <button onClick={onInc} aria-label={`واحد آخر من ${name}`} className={btn}
         style={{ background: AMBER.bg, border: `1px solid ${AMBER.bd}`, color: AMBER.fg }}>+</button>
-      <b className="min-w-[28px] text-center text-white text-[17px] tabular-nums">{qty}</b>
-      <button onClick={onDec} aria-label={`واحد أقلّ من ${name}`} className="w-11 h-11 rounded-xl text-xl font-bold flex items-center justify-center text-white"
+      <b className={`${spread ? 'flex-1 min-w-0' : 'min-w-[28px]'} text-center text-white text-[17px] tabular-nums`}>{qty}</b>
+      <button onClick={onDec} aria-label={`واحد أقلّ من ${name}`} className={`${btn} text-white`}
         style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.12)' }}>−</button>
     </div>
   );
