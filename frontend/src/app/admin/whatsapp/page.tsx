@@ -115,6 +115,34 @@ function fmtDay(d: any) {
   return dt.toLocaleDateString('ar-JO', { weekday: 'long', day: 'numeric', month: 'long' });
 }
 function intlPhone(local: string) { return local ? '+962 ' + local.slice(1) : ''; }
+// ══════════════════════════════════════════════════════
+// 🔀 العروض الثلاثة (كلا الرقمين · ميتا · رقم الأعمال) — قواعدُ واحدة لكلّ مسار
+// ══════════════════════════════════════════════════════
+// الخيط: رسائل الرقم المعروض وحده، مرتّبةً بالزمن. القائمة: معاينةُ ووقتُ آخر رسالةٍ على ذلك الرقم.
+// غير المقروء: unread_web جزءٌ من unreadCount (ميتا = الفرق) — فعرضُ رقمٍ لا يقرأ رسائل الآخر.
+type InboxCh = 'all' | 'cloud' | 'web';
+const chOf = (m: any): 'cloud' | 'web' => (m?.channel === 'web' ? 'web' : 'cloud');
+const CH_AR: Record<'cloud' | 'web', string> = { cloud: '☁️ رقم ميتا', web: '📱 رقم الأعمال' };
+const inView = (m: any, ch: InboxCh) => ch === 'all' || chOf(m) === ch;
+const viewUnread = (c: any, ch: InboxCh): number =>
+  ch === 'web' ? Number(c?.unreadWeb || 0)
+    : ch === 'cloud' ? Math.max(0, Number(c?.unreadCount || 0) - Number(c?.unreadWeb || 0))
+      : Number(c?.unreadCount || 0);
+/** أثر «قُرئت» في العرض الحاليّ — مرآة POST /read?channel= في الخادم */
+const readInView = (c: any, ch: InboxCh) =>
+  ch === 'web' ? { unreadCount: Math.max(0, Number(c?.unreadCount || 0) - Number(c?.unreadWeb || 0)), unreadWeb: 0 }
+    : ch === 'cloud' ? { unreadCount: Number(c?.unreadWeb || 0) }
+      : { unreadCount: 0, unreadWeb: 0 };
+/** صفّ المحادثة الخام من المقبس يحمل معاينة آخر رسالةٍ على أيّ رقم — في عرض رقمٍ واحد لا تُطبَّق */
+const withoutPreview = (c: any) => { const r = { ...(c || {}) }; delete r.lastMessageAt; delete r.lastMessagePreview; return r; };
+/** إدراجٌ بالترتيب الزمنيّ (والحيّ في آخره عادةً) */
+const insertByTime = (prev: any[], m: any) => {
+  if (prev.some(x => x.id === m.id)) return prev;
+  const t = new Date(m.createdAt).getTime();
+  let i = prev.length;
+  while (i > 0 && new Date(prev[i - 1].createdAt).getTime() > t) i--;
+  return [...prev.slice(0, i), m, ...prev.slice(i)];
+};
 function windowHoursLeft(lastInboundAt: any): number {
   if (!lastInboundAt) return 0;
   const left = 24 * 3600e3 - (Date.now() - new Date(lastInboundAt).getTime());
@@ -215,7 +243,7 @@ export default function WhatsAppInboxPage() {
   const [filter, setFilter] = useState<string>('all');
   const [sort, setSort] = useState<string>('recent');
   // 🔀 فلتر الرقم: كلّ المحادثات · رسائل رقم ميتا · رسائل رقم الأعمال — يُحفظ في المتصفّح
-  const [inboxCh, setInboxCh] = useState<'all' | 'cloud' | 'web'>(() => {
+  const [inboxCh, setInboxCh] = useState<InboxCh>(() => {
     try { const v = localStorage.getItem('wa_inbox_channel'); return v === 'cloud' || v === 'web' ? v : 'all'; } catch { return 'all'; }
   });
   const inboxChRef = useRef(inboxCh);
@@ -292,11 +320,12 @@ export default function WhatsAppInboxPage() {
       setConv(data.conversation);
       setMessages((data.messages || []).slice().reverse()); // الأقدم أولاً للعرض
       setHasMore(!!data.hasMore);
-      // فتح المحادثة يعلّمها مقروءة (بند معتمد)
+      // فتح المحادثة يعلّمها مقروءة (بند معتمد) — في عرض رقمٍ واحد: رسائل ذلك الرقم وحده
+      const chF = inboxChRef.current;
       if (data.conversation?.unreadCount > 0) {
-        apiFetch(`/api/whatsapp/conversations/${id}/read`, { method: 'POST' }).catch(() => {});
+        apiFetch(`/api/whatsapp/conversations/${id}/read?x=1${chQs(chF)}`, { method: 'POST' }).catch(() => {});
       }
-      setConvs(prev => prev.map(c => (c.id === id ? { ...c, unreadCount: 0 } : c)));
+      setConvs(prev => prev.map(c => (c.id === id ? { ...c, ...readInView(c, chF) } : c)));
       // سياق العميل بالتوازي
       apiFetch(`/api/whatsapp/conversations/${id}/context`)
         .then(setCtx)
@@ -335,25 +364,31 @@ export default function WhatsAppInboxPage() {
     const onNew = (payload: any) => {
       const { conversation, message } = payload || {};
       if (!conversation || !message) return;
-      // تحديث القائمة: استبدال أو إدراج بالمقدمة
+      const chF = inboxChRef.current;
+      const visible = inView(message, chF);
+      const isOpen = selIdRef.current === conversation.id;
+      const readNow = isOpen && visible && message.direction === 'in';
+      // تحديث القائمة: رسالةٌ على الرقم المعروض ⟵ للمقدّمة بمعاينتها (أو إدراجٌ إن لم تكن فيها).
+      // رسالةٌ على الرقم الآخر ⟵ لا تُدرج محادثةً ليست في هذا العرض، ولا تغيّر معاينته ولا ترتيبه
       setConvs(prev => {
+        if (!visible) {
+          return prev.some(c => c.id === conversation.id)
+            ? prev.map(c => (c.id === conversation.id ? { ...c, ...withoutPreview(conversation) } : c))
+            : prev;
+        }
         const rest = prev.filter(c => c.id !== conversation.id);
-        const openNow = selIdRef.current === conversation.id && message.direction === 'in';
-        const merged = { ...conversation, unreadCount: openNow ? 0 : conversation.unreadCount };
-        return [merged, ...rest];
+        return [{ ...conversation, ...(readNow ? readInView(conversation, chF) : {}) }, ...rest];
       });
-      // المحادثة المفتوحة: إلحاق الرسالة + مقروء
-      if (selIdRef.current === conversation.id) {
-        setConv((prev: any) => ({ ...prev, ...conversation, unreadCount: 0 }));
-        // فلتر الرقم: رسالةٌ من الرقم الآخر لا تُلحق بالخيط المعروض
-        const chF = inboxChRef.current;
-        if (chF === 'all' || (message.channel || 'cloud') === chF) {
-          setMessages(prev => (prev.some(m => m.id === message.id) ? prev : [...prev, message]));
+      // المحادثة المفتوحة: إلحاقٌ بالترتيب الزمنيّ + مقروء — لرسائل الرقم المعروض وحدها
+      if (isOpen) {
+        setConv((prev: any) => ({ ...prev, ...(visible ? conversation : withoutPreview(conversation)), ...(readNow ? readInView(conversation, chF) : {}) }));
+        if (visible) {
+          setMessages(prev => insertByTime(prev, message));
+          scrollBottom();
         }
-        if (message.direction === 'in') {
-          apiFetch(`/api/whatsapp/conversations/${conversation.id}/read`, { method: 'POST' }).catch(() => {});
+        if (readNow) {
+          apiFetch(`/api/whatsapp/conversations/${conversation.id}/read?x=1${chQs(chF)}`, { method: 'POST' }).catch(() => {});
         }
-        scrollBottom();
       }
       if (message.direction === 'in' && !mutedRef.current) playPing();
     };
@@ -368,7 +403,7 @@ export default function WhatsAppInboxPage() {
       if (p?.message && selIdRef.current === p.conversationId) {
         setMessages(prev => prev.map(m => (m.id === p.message.id ? { ...m, payload: p.message.payload } : m)));
       }
-      if (p?.conversationId) {
+      if (p?.conversationId && (inboxChRef.current === 'all' || (p.message && inView(p.message, inboxChRef.current)))) {
         setConvs(prev => prev.map(c => (c.id === p.conversationId
           ? { ...c, lastMessagePreview: p.emoji ? `تفاعل ${p.emoji} برسالتك` : 'أزال تفاعله عن رسالتك' }
           : c)));
@@ -378,8 +413,9 @@ export default function WhatsAppInboxPage() {
     const onConvUpdate = (p: any) => {
       const c = p?.conversation || (p?.id ? p : null); // يدعم الشكلين: {conversation} أو مسطّحاً
       if (!c) return;
-      setConvs(prev => prev.map(x => (x.id === c.id ? { ...x, ...c } : x)));
-      if (selIdRef.current === c.id) setConv((prev: any) => ({ ...prev, ...c }));
+      const patch = inboxChRef.current === 'all' ? c : withoutPreview(c);
+      setConvs(prev => prev.map(x => (x.id === c.id ? { ...x, ...patch } : x)));
+      if (selIdRef.current === c.id) setConv((prev: any) => ({ ...prev, ...patch }));
     };
 
     const onDeleted = (d: any) => {
@@ -543,10 +579,17 @@ export default function WhatsAppInboxPage() {
       setImg(null);
       setImgErr(null);
       setReview(null);
-      if (res.message) setMessages(prev => (prev.some(m => m.id === res.message.id) ? prev : [...prev, res.message]));
+      const chF = inboxChRef.current;
+      const shown = !res.message || inView(res.message, chF);
+      if (res.message) {
+        if (shown) setMessages(prev => insertByTime(prev, res.message));
+        else swalToast(`أُرسلت عبر ${CH_AR[chOf(res.message)]} — تظهر في عرضه أو في «كلا الرقمين»`, 'info');
+      }
       if (res.conversation) {
-        setConv((prev: any) => ({ ...prev, ...res.conversation }));
-        setConvs(prev => prev.map(c => (c.id === selId ? { ...c, ...res.conversation, unreadCount: 0 } : c)));
+        // ردّ الموظّف يصفّر غير المقروء على الرقمين (كما في الخادم)
+        const rc = shown ? res.conversation : withoutPreview(res.conversation);
+        setConv((prev: any) => ({ ...prev, ...rc }));
+        setConvs(prev => prev.map(c => (c.id === selId ? { ...c, ...rc, unreadCount: 0, unreadWeb: 0 } : c)));
       }
       scrollBottom();
     } catch (e: any) {
@@ -731,7 +774,10 @@ export default function WhatsAppInboxPage() {
   const viaWeb = conv ? (conv.sendVia ? conv.sendVia === 'web' : conv.channel === 'web') : false;
   const winH = conv ? (viaWeb ? 999 : windowHoursLeft(conv.cloudLastInboundAt ?? conv.lastInboundAt)) : 0;
   const capOver = img ? draft.trim().length - WA_CAPTION_MAX : 0;   // الزائدُ عن حدّ التعليق
-  const totalUnread = convs.reduce((s, c) => s + (c.unreadCount || 0), 0);
+  // 🔀 في عرض رقمٍ واحد: «آخر رسالةٍ منه» من ذلك الرقم، وتنبيهٌ إن كان الردّ سيخرج من الرقم الآخر
+  const lastInView = !conv ? null : inboxCh === 'web' ? conv.webLastInboundAt : inboxCh === 'cloud' ? (conv.cloudLastInboundAt ?? null) : conv.lastInboundAt;
+  const replyElsewhere: 'cloud' | 'web' | null = conv && inboxCh !== 'all' && (viaWeb ? 'web' : 'cloud') !== inboxCh ? (viaWeb ? 'web' : 'cloud') : null;
+  const totalUnread = convs.reduce((s, c) => s + viewUnread(c, inboxCh), 0);
 
   // تجميع الرسائل بفواصل الأيام — صفوف الرياكشن لا تُعرض كفقاعات (تظهر شارةً على رسالتها)
   const grouped = useMemo(() => {
@@ -943,9 +989,9 @@ export default function WhatsAppInboxPage() {
                           <span className={`text-[9px] font-bold rounded-full px-1.5 py-px shrink-0 ${
                             cBot ? 'bg-sky-500/10 text-sky-400' : 'bg-amber-500/10 text-amber-400'
                           }`}>{cBot ? '🤖' : '👤'}</span>
-                          {c.unreadCount > 0 && (
+                          {viewUnread(c, inboxCh) > 0 && (
                             <span className="bg-emerald-500 text-gray-950 text-[10px] font-bold rounded-full min-w-[18px] h-[18px] flex items-center justify-center px-1 shrink-0">
-                              {c.unreadCount}
+                              {viewUnread(c, inboxCh)}
                             </span>
                           )}
                         </div>
@@ -1064,7 +1110,7 @@ export default function WhatsAppInboxPage() {
                 <div className="flex items-center gap-2 px-4 py-1 border-b border-gray-800 bg-gray-950/60 text-[11px] font-bold">
                   <span className="text-teal-300 shrink-0">📱 يُرسل عبر رقم الأعمال — بلا نافذة</span>
                   {conv.channelPin && <span className="text-gray-500 font-normal">(مثبَّتة يدويّاً)</span>}
-                  <span className="text-gray-600 font-normal shrink-0 hidden sm:inline mr-auto">آخر رسالةٍ منه {fmtWhen(conv.lastInboundAt)}</span>
+                  <span className="text-gray-600 font-normal shrink-0 hidden sm:inline mr-auto">آخر رسالةٍ منه {fmtWhen(lastInView)}</span>
                 </div>
               ) : (() => {
                 const tn = winTone(winH);
@@ -1080,11 +1126,17 @@ export default function WhatsAppInboxPage() {
                       />
                     </span>
                     <span className="text-gray-600 font-normal shrink-0 hidden sm:inline">
-                      آخر رسالةٍ منه {fmtWhen(conv.lastInboundAt)}
+                      آخر رسالةٍ منه {fmtWhen(lastInView)}
                     </span>
                   </div>
                 );
               })()}
+
+              {replyElsewhere && (
+                <div className="bg-sky-500/10 text-sky-300 text-[11px] font-bold text-center py-1 border-b border-gray-800">
+                  ↪️ ردّك هنا سيخرج من {CH_AR[replyElsewhere]} — فلن يظهر في هذا العرض (يظهر في «{CH_AR[replyElsewhere]}» و«كلا الرقمين»)
+                </div>
+              )}
 
               {/* شريط الإيقاف المؤقت */}
               {conv.botEnabled && paused && (

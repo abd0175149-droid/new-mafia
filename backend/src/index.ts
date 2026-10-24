@@ -1671,6 +1671,8 @@ async function main() {
         )
       `);
       await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_wa_messages_conv ON wa_messages(conversation_id, id DESC)`);
+      // الخيط يُرتَّب بالزمن لا بالمعرّف: المستورد من تاريخ رقم الأعمال أُدرج متأخّراً بتواريخ قديمة
+      await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_wa_messages_conv_time ON wa_messages(conversation_id, created_at DESC, id DESC)`);
       await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_wa_messages_wamid ON wa_messages(wamid)`);
       await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_wa_conv_last_msg ON wa_conversations(last_message_at DESC)`);
       await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_wa_notes_phone ON wa_customer_notes(phone)`);
@@ -1829,6 +1831,8 @@ async function main() {
       await db.execute(sql`ALTER TABLE wa_conversations ADD COLUMN IF NOT EXISTS web_first_contact_at TIMESTAMP`);
       await db.execute(sql`ALTER TABLE wa_conversations ADD COLUMN IF NOT EXISTS web_chat_id VARCHAR(80)`);
       await db.execute(sql`ALTER TABLE wa_conversations ADD COLUMN IF NOT EXISTS phone_verified BOOLEAN DEFAULT TRUE NOT NULL`);
+      // 🔀 غير المقروء لكلّ رقم: unread_web جزءٌ من unread_count — فعرضُ رقمٍ واحد لا يقرأ رسائل الرقم الآخر
+      await db.execute(sql`ALTER TABLE wa_conversations ADD COLUMN IF NOT EXISTS unread_web INTEGER DEFAULT 0 NOT NULL`);
       // نافذة ميتا كانت last_inbound_at وحده — قبل القناة الثانية كلّ وارد كان من ميتا
       await db.execute(sql`UPDATE wa_conversations SET cloud_last_inbound_at = last_inbound_at
         WHERE cloud_last_inbound_at IS NULL AND last_inbound_at IS NOT NULL AND channel = 'cloud'`);

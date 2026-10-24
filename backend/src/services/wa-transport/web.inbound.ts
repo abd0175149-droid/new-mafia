@@ -105,6 +105,7 @@ async function mergeLidConversation(lid: string, phoneDigits: string): Promise<v
   await db.update(waMessages).set({ conversationId: real.id } as any).where(eq(waMessages.conversationId, (tmp as any).id));
   await db.execute(sql`UPDATE wa_conversations SET
       unread_count = unread_count + ${(tmp as any).unreadCount || 0},
+      unread_web = unread_web + ${(tmp as any).unreadCount || 0},
       last_inbound_at = GREATEST(last_inbound_at, ${(tmp as any).lastInboundAt}),
       web_last_inbound_at = GREATEST(web_last_inbound_at, ${(tmp as any).webLastInboundAt}),
       last_message_at = GREATEST(last_message_at, ${(tmp as any).lastMessageAt}),
@@ -282,7 +283,7 @@ async function onOutgoing(d: any): Promise<string> {
   const now = new Date();
   const [updated] = await db.update(waConversations).set({
     lastMessageAt: now, lastMessagePreview: preview.slice(0, 120), updatedAt: now,
-    botPausedUntil: new Date(now.getTime() + pauseMs), unreadCount: 0, needsAttention: false,
+    botPausedUntil: new Date(now.getTime() + pauseMs), unreadCount: 0, unreadWeb: 0, needsAttention: false,
   } as any).where(eq(waConversations.id, c.id)).returning();
   emitInbox('wa:message:new', { conversation: updated, message: saved });
   return 'phone';

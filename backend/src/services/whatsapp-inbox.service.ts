@@ -465,6 +465,7 @@ async function handleInboundMessage(db: any, msg: any, contacts: any[], channel:
       lastMessageAt: now,
       lastMessagePreview: body.slice(0, 120),
       unreadCount: sql`${waConversations.unreadCount} + 1`,
+      ...(channel === 'web' ? { unreadWeb: sql`${waConversations.unreadWeb} + 1` } : {}),
       status: 'open',
       updatedAt: now,
     } as any)
@@ -875,7 +876,8 @@ export async function sendMessage(input: SendMessageInput) {
       if (s?.pauseMinutes) pauseMs = s.pauseMinutes * 60_000;
     } catch { /* نبقى على الافتراضي */ }
     patch.botPausedUntil = new Date(now.getTime() + pauseMs);
-    patch.unreadCount = 0;        // الموظف ردّ ⇒ شاف المحادثة
+    patch.unreadCount = 0;        // الموظف ردّ ⇒ شاف المحادثة (على الرقمين)
+    patch.unreadWeb = 0;
     patch.needsAttention = false; // الرد البشري يزيل شارة «بحاجة تدخل»
   }
   const [updatedConv] = await db

@@ -423,6 +423,7 @@ export const waConversations = pgTable('wa_conversations', {
   lastMessageAt: timestamp('last_message_at'),
   lastMessagePreview: text('last_message_preview').default(''),
   unreadCount: integer('unread_count').default(0).notNull(),
+  unreadWeb: integer('unread_web').default(0).notNull(),            // الجزء من unread_count الذي وصل على رقم الأعمال (ميتا = الفرق)
   needsAttention: boolean('needs_attention').default(false).notNull(), // ⚠️ handoff من البوت — تختفي عند رد الموظف
   // 🎯 مصدر الحملة: تُختم عند إرسال قالب حملة، ليعرف البوت أن المحادثة بدأت من تسويق
   //    (بحث O(1) بلا join مع كل رسالة — تُقرأ في بطاقة العميل)

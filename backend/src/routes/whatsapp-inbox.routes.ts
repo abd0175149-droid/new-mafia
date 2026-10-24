@@ -12,7 +12,7 @@ import crypto from 'crypto';
 import fs from 'fs';
 import path from 'path';
 import multer from 'multer';
-import { eq, desc, and, lt, sql, or, ilike, isNull, inArray } from 'drizzle-orm';
+import { eq, desc, and, sql, or, ilike, isNull, inArray } from 'drizzle-orm';
 import { getDB } from '../config/db.js';
 import { env } from '../config/env.js';
 import { waConversations, waMessages, waCustomerNotes, waOptouts, waMessageTemplates, bookings, locations } from '../schemas/admin.schema.js';
@@ -34,6 +34,17 @@ const router = Router();
 function routeInfo(c: any): { windowOpen: boolean; sendVia: 'cloud' | 'web' | null; cloudWindowOpen: boolean } {
   const p = pickChannel(c, 'reply');
   return { windowOpen: p.channel !== null, sendVia: p.channel, cloudWindowOpen: cloudWindowOpen(c) };
+}
+
+// 🔀 تعابير العرض لكلّ رقم: غير المقروء، آخر وارد (النافذة)، آخر رسالة — «الكلّ» = أعمدة المحادثة نفسها.
+//    مؤهّلةٌ نصّاً لأنّها تُستعمل داخل استعلاماتٍ فرعيّة (فخّ الأعمدة غير المؤهّلة في Drizzle)
+function viewSql(ch: string) {
+  if (!ch) return { unread: sql`"wa_conversations"."unread_count"`, inbound: sql`"wa_conversations"."last_inbound_at"`, lastAt: sql`"wa_conversations"."last_message_at"` };
+  return {
+    unread: ch === 'web' ? sql`"wa_conversations"."unread_web"` : sql`("wa_conversations"."unread_count" - "wa_conversations"."unread_web")`,
+    inbound: ch === 'web' ? sql`"wa_conversations"."web_last_inbound_at"` : sql`"wa_conversations"."cloud_last_inbound_at"`,
+    lastAt: sql`(SELECT MAX(m.created_at) FROM wa_messages m WHERE m.conversation_id = "wa_conversations"."id" AND m.channel = ${ch} AND m.deleted_at IS NULL AND m.msg_type <> 'reaction')`,
+  };
 }
 
 // ══════════════════════════════════════════════════════
@@ -241,9 +252,10 @@ router.get('/conversations', authenticate, adminOnly, async (req: Request, res: 
     const offset = parseInt(String(req.query.offset)) || 0;
     // 🔀 فلتر الرقم: محادثاتٌ فيها رسائل على ميتا / على رقم الأعمال (الكلّ = بلا شرط)
     const ch = ['cloud', 'web'].includes(String(req.query.channel)) ? String(req.query.channel) : '';
+    const v = viewSql(ch);
 
     const conds: any[] = [];
-    if (ch) conds.push(sql`EXISTS (SELECT 1 FROM wa_messages m WHERE m.conversation_id = ${waConversations.id} AND m.channel = ${ch})`);
+    if (ch) conds.push(sql`EXISTS (SELECT 1 FROM wa_messages m WHERE m.conversation_id = "wa_conversations"."id" AND m.channel = ${ch})`);
     if (q) {
       conds.push(or(
         ilike(waConversations.displayName, `%${q}%`),
@@ -259,29 +271,30 @@ router.get('/conversations', authenticate, adminOnly, async (req: Request, res: 
     // إطلاقاً. الفلتر الذي يُخفي ما يبحث عنه المستخدم أسوأ من غيابه.
     const botActiveSql = sql`${waConversations.botEnabled} = true
       AND (${waConversations.botPausedUntil} IS NULL OR ${waConversations.botPausedUntil} < NOW())`;
-    if (filter === 'unread') conds.push(sql`${waConversations.unreadCount} > 0`);
+    if (filter === 'unread') conds.push(sql`${v.unread} > 0`);
     else if (filter === 'bot') conds.push(botActiveSql);
     else if (filter === 'human') conds.push(sql`NOT (${botActiveSql})`);
     else if (filter === 'attn') conds.push(eq(waConversations.needsAttention, true));
-    else if (filter === 'open') conds.push(sql`${waConversations.lastInboundAt} > NOW() - INTERVAL '24 hours'`);
+    else if (filter === 'open') conds.push(sql`${v.inbound} > NOW() - INTERVAL '24 hours'`);
 
     // ── الترتيب ──
     // نافذة الخدمة أهمّ حقيقةٍ زمنيّة في واتساب، ولا سبيل لترتيب الناس بها
     // في المتصفّح: الترتيب هناك يرتّب المئة المحمَّلة فقط فيبدو صحيحاً وهو كاذب.
-    const openWindow = sql`${waConversations.lastInboundAt} > NOW() - INTERVAL '24 hours'`;
-    let orderBy: any = desc(waConversations.lastMessageAt);
+    // وفي عرض رقمٍ واحد: آخر وارد وآخر رسالة وغير المقروء كلّها من ذلك الرقم وحده.
+    const openWindow = sql`${v.inbound} > NOW() - INTERVAL '24 hours'`;
+    let orderBy: any = sql`${v.lastAt} DESC NULLS LAST`;
     if (sort === 'closing') {
       // الأقرب إغلاقاً أوّلاً = الأقدم رسالةً واردة — والمغلقة تُستبعد لا تُذيَّل
       conds.push(openWindow);
-      orderBy = sql`${waConversations.lastInboundAt} ASC`;
+      orderBy = sql`${v.inbound} ASC`;
     } else if (sort === 'fresh') {
       conds.push(openWindow);
-      orderBy = sql`${waConversations.lastInboundAt} DESC`;
+      orderBy = sql`${v.inbound} DESC`;
     } else if (sort === 'waiting') {
       // «الأطول انتظاراً للردّ» تقريبٌ مقصود: غير المقروءة مرتّبةً بالأقدم.
       // الدقّة التامّة تحتاج آخر صادرٍ لكلّ محادثة، وهو استعلامٌ أثقل بلا فائدةٍ تُذكر.
-      conds.push(sql`${waConversations.unreadCount} > 0`);
-      orderBy = sql`${waConversations.lastMessageAt} ASC`;
+      conds.push(sql`${v.unread} > 0`);
+      orderBy = sql`${v.lastAt} ASC`;
     }
 
     let query: any = db.select().from(waConversations);
@@ -303,13 +316,27 @@ router.get('/conversations', authenticate, adminOnly, async (req: Request, res: 
       for (const p of prs) if (p.avatarUrl) avatars.set(p.id, p.avatarUrl);
     }
 
+    // 🔀 عرض رقمٍ واحد: المعاينة والوقت من آخر رسالةٍ على ذلك الرقم، لا من الرقم الآخر
+    const lastOnCh = new Map<number, { at: any; preview: string }>();
+    if (ch && rows.length) {
+      const ids = sql.join(rows.map((c: any) => sql`${c.id}`), sql`, `);
+      const lr: any = await db.execute(sql`SELECT DISTINCT ON (conversation_id) conversation_id, created_at, body
+        FROM wa_messages WHERE conversation_id IN (${ids}) AND channel = ${ch} AND deleted_at IS NULL AND msg_type <> 'reaction'
+        ORDER BY conversation_id, created_at DESC, id DESC`);
+      for (const r of (lr.rows || lr)) lastOnCh.set(Number(r.conversation_id), { at: r.created_at, preview: String(r.body || '').slice(0, 120) });
+    }
+
     // حقول محسوبة للواجهة (الفلترة صارت في الاستعلام أعلاه)
-    const list = rows.map((c: any) => ({
-      ...c,
-      avatarUrl: c.playerId ? (avatars.get(c.playerId) || null) : null,
-      botActive: isBotActive(c),
-      ...routeInfo(c),
-    }));
+    const list = rows.map((c: any) => {
+      const l = lastOnCh.get(c.id);
+      return {
+        ...c,
+        ...(l ? { lastMessageAt: l.at, lastMessagePreview: l.preview } : {}),
+        avatarUrl: c.playerId ? (avatars.get(c.playerId) || null) : null,
+        botActive: isBotActive(c),
+        ...routeInfo(c),
+      };
+    });
     res.json({ success: true, conversations: list });
   } catch (err: any) {
     console.error('❌ whatsapp/conversations:', err.message);
@@ -328,11 +355,13 @@ router.get('/conversations/counts', authenticate, adminOnly, async (req: Request
     if (!db) return res.status(503).json({ error: 'DB unavailable' });
     const ch = ['cloud', 'web'].includes(String(req.query.channel)) ? String(req.query.channel) : '';
     const chWhere = ch ? sql`WHERE EXISTS (SELECT 1 FROM wa_messages m WHERE m.conversation_id = c.id AND m.channel = ${ch})` : sql``;
+    const unread = ch === 'web' ? sql`c.unread_web` : ch === 'cloud' ? sql`(c.unread_count - c.unread_web)` : sql`c.unread_count`;
+    const inbound = ch === 'web' ? sql`c.web_last_inbound_at` : ch === 'cloud' ? sql`c.cloud_last_inbound_at` : sql`c.last_inbound_at`;
     const r: any = await db.execute(sql`
       SELECT
         COUNT(*)::int AS "all",
-        COUNT(*) FILTER (WHERE unread_count > 0)::int AS "unread",
-        COUNT(*) FILTER (WHERE last_inbound_at > NOW() - INTERVAL '24 hours')::int AS "open",
+        COUNT(*) FILTER (WHERE ${unread} > 0)::int AS "unread",
+        COUNT(*) FILTER (WHERE ${inbound} > NOW() - INTERVAL '24 hours')::int AS "open",
         COUNT(*) FILTER (WHERE needs_attention = true)::int AS "attn",
         COUNT(*) FILTER (WHERE bot_enabled = true
           AND (bot_paused_until IS NULL OR bot_paused_until < NOW()))::int AS "bot",
@@ -365,8 +394,10 @@ router.get('/conversations/:id/messages', authenticate, adminOnly, async (req: R
     const limit = Math.min(parseInt(String(req.query.limit)) || 50, 200);
     const before = parseInt(String(req.query.before)) || 0;
 
+    // ⏱️ الترتيب بالزمن لا بالمعرّف: تاريخ رقم الأعمال المستورد أُدرج بعد رسائل ميتا الأحدث منه،
+    //    فترتيب المعرّف كان يضعه أسفل «كلا الرقمين» بتواريخ قديمة. والمؤشّر (الوقت، المعرّف) معاً.
     const conds: any[] = [eq(waMessages.conversationId, convId)];
-    if (before > 0) conds.push(lt(waMessages.id, before));
+    if (before > 0) conds.push(sql`(${waMessages.createdAt}, ${waMessages.id}) < (SELECT b.created_at, b.id FROM wa_messages b WHERE b.id = ${before})`);
     // 🔀 رسائل رقمٍ واحد فقط (ميتا أو رقم الأعمال) — الكلّ بلا شرط
     if (['cloud', 'web'].includes(String(req.query.channel))) conds.push(eq(waMessages.channel, String(req.query.channel)));
 
@@ -374,7 +405,7 @@ router.get('/conversations/:id/messages', authenticate, adminOnly, async (req: R
       .select()
       .from(waMessages)
       .where(and(...conds))
-      .orderBy(desc(waMessages.id))
+      .orderBy(desc(waMessages.createdAt), desc(waMessages.id))
       .limit(limit);
 
     let avatarUrl: string | null = null;
@@ -423,17 +454,25 @@ router.post('/conversations/:id/read', authenticate, adminOnly, async (req: Requ
     const db = getDB();
     if (!db) return res.status(503).json({ error: 'DB unavailable' });
     const convId = parseInt(req.params.id);
+    // 🔀 عرض رقمٍ واحد يقرأ رسائل ذلك الرقم وحده — غير المقروء على الرقم الآخر يبقى
+    const ch = String(req.query.channel || '');
+    const patch: any = ch === 'web'
+      ? { unreadCount: sql`GREATEST(${waConversations.unreadCount} - ${waConversations.unreadWeb}, 0)`, unreadWeb: 0 }
+      : ch === 'cloud'
+        ? { unreadCount: sql`${waConversations.unreadWeb}` }
+        : { unreadCount: 0, unreadWeb: 0 };
 
     const [updated] = await db
       .update(waConversations)
-      .set({ unreadCount: 0, updatedAt: new Date() } as any)
+      .set({ ...patch, updatedAt: new Date() } as any)
       .where(eq(waConversations.id, convId))
       .returning();
     if (!updated) return res.status(404).json({ error: 'المحادثة غير موجودة' });
 
     // 📌 فتح المحادثة = انتهاء دورة إشعارها (قرار المالك): يُحذف إشعارها المجمّع
     // من صناديق كل الأدمن تلقائياً — والرسائل التالية تبدأ دورة بإشعار جديد
-    try {
+    // (ما دام فيها غير مقروءٍ على الرقم الآخر فالإشعار باقٍ)
+    if (updated.unreadCount === 0) try {
       const { playerNotifications } = await import('../schemas/notification.schema.js');
       await db.delete(playerNotifications).where(sql`${playerNotifications.data}->>'tag' = ${`wa-conv-${convId}`}`);
     } catch (err: any) {
