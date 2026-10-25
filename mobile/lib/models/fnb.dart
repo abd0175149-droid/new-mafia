@@ -396,7 +396,13 @@ class FnbMenuItem {
   /// نكهات الصنف نفسها: «لوتس · أوريو · روشيه · كيندر و3 غيرها» — تُعرف بالعين،
   /// و«٣ نكهات» لا.
   String get optionValuesLine {
-    final vals = [for (final g in optionGroups) for (final v in g.values) v.name];
+    // النكهات والأنواع وحدها: لا الحجم (صغير/كبير) ولا الإضافات الاختياريّة —
+    // كانت تُقرأ «صغير · كبير · نكهة · شوت…» تحت كلّ قهوة في The Hub
+    final vals = [
+      for (final g in optionGroups)
+        if (g.isRequired && g.values.length >= 3)
+          for (final v in g.values) v.name,
+    ];
     if (vals.isEmpty) return '';
     return vals.take(4).join(' · ') + (vals.length > 4 ? ' و${vals.length - 4} غيرها' : '');
   }

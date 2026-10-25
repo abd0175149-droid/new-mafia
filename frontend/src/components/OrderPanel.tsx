@@ -107,7 +107,9 @@ const hasOpts = (it: Item) => (it.optionGroups?.length ?? 0) > 0;
 /** سطر البلاطة: الوصف المكتوب، وإلّا نكهات الصنف نفسها — «لوتس · أوريو · كيندر» تُعرف بالعين، «٣ نكهات» لا */
 function subOf(it: Pick<Item, 'description' | 'optionGroups'>) {
   if (it.description) return it.description;
-  const vals = (it.optionGroups ?? []).flatMap(g => g.values.map(v => v.name));
+  // النكهات والأنواع وحدها: لا الحجم (صغير/كبير) ولا الإضافات الاختياريّة —
+  // كانت تُقرأ «صغير · كبير · نكهة · شوت…» تحت كلّ قهوة في The Hub
+  const vals = (it.optionGroups ?? []).filter(g => g.isRequired && g.values.length >= 3).flatMap(g => g.values.map(v => v.name));
   if (!vals.length) return '';
   return vals.slice(0, 4).join(' · ') + (vals.length > 4 ? ` و${vals.length - 4} غيرها` : '');
 }
