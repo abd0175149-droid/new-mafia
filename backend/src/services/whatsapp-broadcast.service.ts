@@ -22,7 +22,7 @@ import { sendMessage, sendingSuspendedReason, uploadWaMedia, WA_CAPTION_MAX, isU
 import { pickChannel, reachableSql, isWebReady } from './wa-transport/router.js';
 import { transportSettings } from './wa-transport/settings.js';
 import type { Channel, LineFilter } from './wa-transport/types.js';
-import { lineFilterSql } from './wa-transport/line-roster.js';
+import { lineFilterSql, lineSinceSql } from './wa-transport/line-roster.js';
 import { isTestActivity, notTestActivitySql, notTestLocationSql } from './test-location.util.js';
 import { getAux, setAux } from '../config/redis.js';
 
@@ -37,7 +37,9 @@ const OPTOUT_FOOTER = '\n\n— لإيقاف هذه الرسائل أرسل: إي
 const RANK_AR: Record<string, string> = { INFORMANT: 'مُخبر', SOLDIER: 'جندي', CAPO: 'كابو', UNDERBOSS: 'ساعد الزعيم', GODFATHER: 'العرّاب' };
 
 export type AudienceFilter = 'all' | 'players' | 'visitors' | 'booked_upcoming' | 'activity' | 'not_booked_activity';
-export interface AudienceQuery { filter: AudienceFilter; activityId?: number | null; excludeIds?: number[]; excludeBroadcastIds?: number[]; channel?: 'all' | Channel; lineFilter?: LineFilter }
+export interface AudienceQuery { filter: AudienceFilter; activityId?: number | null; excludeIds?: number[]; excludeBroadcastIds?: number[]; channel?: 'all' | Channel; lineFilter?: LineFilter;
+  /** مع «راسلَنا» وحده: أيّامٌ («30») أو تاريخ («2026-10-01») — انظر lineSinceSql */
+  lineSince?: string | null }
 
 const stopFlags = new Set<number>();
 let running: number | null = null;
@@ -52,7 +54,7 @@ export async function previewAudience(q: AudienceQuery) {
   //    من آخر وارده على ميتا ونافذته مغلقة يخرج عبر رقم الأعمال — فكان يمرّ بلا فلتر (٧٩٦ بدل من راسلَنا).
   //    الآن: الاستعلام يضيّق (نافذة ميتا مفتوحة أو يجتاز الفلتر)، والحكم النهائيّ بعد pickChannel أدناه.
   const lf = (q.lineFilter || transportSettings().lineDefault) as LineFilter;
-  const lineOk = lf === 'all' ? sql`TRUE` : lineFilterSql(sql`c.phone`, lf);
+  const lineOk = lf === 'all' ? sql`TRUE` : lineFilterSql(sql`c.phone`, lf, lf === 'two_way' ? lineSinceSql(q.lineSince) : null);
   const lineGate = lf === 'all' ? sql`TRUE` : sql`(COALESCE(c.cloud_last_inbound_at, c.last_inbound_at) > NOW() - INTERVAL '24 hours' OR ${lineOk})`;
   const extra = f === 'players' ? sql`AND c.player_id IS NOT NULL`
     : f === 'visitors' ? sql`AND c.player_id IS NULL`

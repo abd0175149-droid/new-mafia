@@ -10,7 +10,7 @@
 //   on_whatsapp / no_whatsapp     ليس في السجلّ — من wa_number_checks
 // «دافئ» = two_way ∪ has_chat. و«بارد» = ليس دافئاً (سبب الحظر). والأأمن = two_way وحده.
 
-import { sql } from 'drizzle-orm';
+import { sql, type SQL } from 'drizzle-orm';
 import { getDB } from '../../config/db.js';
 import { normalizeAnyPhone, isMissingName, firstRealName, nameKey } from '../../utils/phone.util.js';
 import { isWebReady, webConfigured } from './router.js';
@@ -25,12 +25,30 @@ const jidUser = (jid: string) => String(jid).split('@')[0].split(':')[0].replace
 // ══════════════════════════════════════════════════════
 // الفلتر المشترك — شرطٌ واحد تستعمله كلّ الصفحات
 // ══════════════════════════════════════════════════════
-/** شرط SQL «يطابق الفلتر» على تعبير رقمٍ محلّيّ. all ⟵ TRUE */
-export function lineFilterSql(phoneExpr: any, filter: LineFilter) {
+/** شرط SQL «يطابق الفلتر» على تعبير رقمٍ محلّيّ. all ⟵ TRUE
+ *  [since] (لـ two_way وحده): «راسلَنا منذ…» — على **آخر** وارد (inbound_at يُكتب عند كلّ
+ *  رسالةٍ منه، والتاريخ المسترجَع من الهاتف بوقته الأصليّ). دقيقٌ لـ«آخر N يوماً» و«منذ
+ *  تاريخ»، ولا يصلح لفترةٍ مغلقة في الماضي: من راسلنا فيها ثمّ عاد أمس يُحسب «أمس». */
+export function lineFilterSql(phoneExpr: any, filter: LineFilter, since?: SQL | null) {
   if (filter === 'all') return sql`TRUE`;
   const warm = sql`(lc.inbound_at IS NOT NULL OR lc.chat_exists)`;
-  const cond = filter === 'two_way' ? sql`lc.inbound_at IS NOT NULL` : warm;
+  const cond = filter === 'two_way' ? (since ? sql`lc.inbound_at >= ${since}` : sql`lc.inbound_at IS NOT NULL`) : warm;
   return sql`EXISTS (SELECT 1 FROM wa_line_contacts lc WHERE lc.phone = ${phoneExpr} AND ${cond})`;
+}
+
+/** «منذ متى راسلَنا» من الطلب: عدد أيّامٍ (1–3650) أو تاريخ YYYY-MM-DD يبدأ منتصف ليل عمّان.
+ *  inbound_at ‹timestamp› بتوقيت UTC (الحاوية UTC) — فالتاريخ يُحوَّل لا يُقارن نصّاً.
+ *  قيمةٌ غير صالحة ⟵ null = «أيّ وقت»، لا خطأ يوقف البثّ. */
+export function lineSinceSql(raw: unknown): SQL | null {
+  const s = String(raw ?? '').trim();
+  if (/^\d{1,4}$/.test(s)) {
+    const n = Number(s);
+    return n >= 1 && n <= 3650 ? sql`NOW() - make_interval(days => ${n})` : null;
+  }
+  if (/^\d{4}-\d{2}-\d{2}$/.test(s) && !Number.isNaN(Date.parse(s))) {
+    return sql`((${s}::date)::timestamp AT TIME ZONE 'Asia/Amman') AT TIME ZONE 'UTC'`;
+  }
+  return null;
 }
 
 /** حالة القرب لمجموعة أرقام محلّيّة — للعرض والتصنيف في الصفحات */

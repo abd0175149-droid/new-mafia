@@ -75,6 +75,9 @@ export default function BroadcastTab({ apiFetch }: { apiFetch: Fetcher }) {
   const [channel, setChannel] = useState<'all' | 'cloud' | 'web'>('all');
   // 📇 فلتر خطّ الأعمال ('' = الافتراضيّ العامّ) — يضيّق مستلمي رقم الأعمال وحدهم
   const [line, setLine] = useState<'' | 'all' | 'warm' | 'two_way'>('');
+  // ⏱️ «راسَلنا منذ…» — مع two_way وحده: '' أيّ وقت · '7'/'30'/'90' أيّام · YYYY-MM-DD تاريخ
+  const [lineSince, setLineSince] = useState('');
+  const since = line === 'two_way' ? lineSince : '';
   const [aud, setAud] = useState<any>(null);
   const [activityId, setActivityId] = useState<number | null>(null);
   const [rows, setRows] = useState<Target[]>([]);
@@ -218,13 +221,13 @@ export default function BroadcastTab({ apiFetch }: { apiFetch: Fetcher }) {
   const load = useCallback(async () => {
     try {
       const qs = `filter=${filter}${(filter === 'activity' || filter === 'not_booked_activity') && activityId ? `&activityId=${activityId}` : ''}`;
-      const d = await apiFetch(`/api/whatsapp/open-window-broadcast/audience?${qs}&channel=${channel}${line ? `&line=${line}` : ''}${exB.length ? `&excludeBroadcasts=${exB.join(',')}` : ''}`);
+      const d = await apiFetch(`/api/whatsapp/open-window-broadcast/audience?${qs}&channel=${channel}${line ? `&line=${line}` : ''}${since ? `&lineSince=${encodeURIComponent(since)}` : ''}${exB.length ? `&excludeBroadcasts=${exB.join(',')}` : ''}`);
       setAud(d);
       setRows(d.rows || []); setStatus(d.status || null); setHistory(d.history || []); setActivities(d.activities || []);
       setErr(null); setHistoryTick(t => t + 1);
     } catch (e: any) { setErr(e.message); }
     setLoading(false);
-  }, [apiFetch, filter, activityId, exB, channel, line]);
+  }, [apiFetch, filter, activityId, exB, channel, line, since]);
 
   useEffect(() => { setLoading(true); load(); }, [load]);
   // أثناء بثٍّ جارٍ: حدّث العدّادات كلّ 5 ثوانٍ، وعند انتهائه فوراً
@@ -285,7 +288,7 @@ export default function BroadcastTab({ apiFetch }: { apiFetch: Fetcher }) {
     if (!ok) return;
     setSending(true);
     try {
-      const r = await apiFetch('/api/whatsapp/open-window-broadcast', { method: 'POST', body: JSON.stringify({ body, filter, channel, lineFilter: line || undefined, activityId, templateId: currentTpl && !tplDirty ? currentTpl.id : null, excludeBroadcastIds: exB, excludeIds: Array.from(excluded), appendOptout: footer, imageUrl: img?.kind === 'image' ? img.url : null, videoUrl: img?.kind === 'video' ? img.url : null }) });
+      const r = await apiFetch('/api/whatsapp/open-window-broadcast', { method: 'POST', body: JSON.stringify({ body, filter, channel, lineFilter: line || undefined, lineSince: since || undefined, activityId, templateId: currentTpl && !tplDirty ? currentTpl.id : null, excludeBroadcastIds: exB, excludeIds: Array.from(excluded), appendOptout: footer, imageUrl: img?.kind === 'image' ? img.url : null, videoUrl: img?.kind === 'video' ? img.url : null }) });
       swalToast(`بدأ البثّ إلى ${r.total}`, 'success');
       setBody(''); setTplId(null); setExcluded(new Set()); setExB([]); setImg(null); setTested(null);
       await load(); loadTpls();
@@ -412,6 +415,23 @@ export default function BroadcastTab({ apiFetch }: { apiFetch: Fetcher }) {
                     className={`px-2.5 py-1 rounded-lg font-bold border ${line === o.key ? 'bg-emerald-500/10 text-emerald-300 border-emerald-500/40' : 'border-gray-800 text-gray-400 hover:text-white'}`}>{o.label}</button>
                 ))}
                 <span className="text-gray-600 w-full sm:w-auto sm:mr-1">يحمي من بدء محادثةٍ باردة. «الافتراضيّ» = ما ضبطته في «القنوات».</span>
+              </div>
+            )}
+            {/* ⏱️ مدّة «راسَلنا» — على آخر رسالةٍ منه: دقيقٌ لـ«آخر N يوماً» و«منذ تاريخ» */}
+            {line === 'two_way' && (
+              <div className="flex flex-wrap items-center gap-1.5 text-xs">
+                <span className="text-gray-500">راسَلنا خلال:</span>
+                {([['', 'أيّ وقت'], ['7', 'آخر 7 أيّام'], ['30', 'آخر 30 يوماً'], ['90', 'آخر 90 يوماً']] as const).map(([k, l]) => (
+                  <button key={k || 'any'} onClick={() => { setLineSince(k); setExcluded(new Set()); }}
+                    className={`px-2.5 py-1 rounded-lg font-bold border ${lineSince === k ? 'bg-emerald-500/10 text-emerald-300 border-emerald-500/40' : 'border-gray-800 text-gray-400 hover:text-white'}`}>{l}</button>
+                ))}
+                <label className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg font-bold border ${/^\d{4}-/.test(lineSince) ? 'bg-emerald-500/10 text-emerald-300 border-emerald-500/40' : 'border-gray-800 text-gray-400'}`}>
+                  منذ
+                  <input type="date" value={/^\d{4}-/.test(lineSince) ? lineSince : ''} max={new Date().toISOString().slice(0, 10)}
+                    onChange={e => { setLineSince(e.target.value); setExcluded(new Set()); }}
+                    className="bg-transparent text-white outline-none [color-scheme:dark]" style={{ fontSize: 16 }} aria-label="راسَلنا منذ تاريخ" />
+                </label>
+                <span className="text-gray-600 w-full sm:w-auto sm:mr-1">بحسب آخر رسالةٍ منه — من راسلنا قديماً وعاد مؤخّراً يُحسب بتاريخ رسالته الأخيرة.</span>
               </div>
             )}
             {aud?.estimate && (
