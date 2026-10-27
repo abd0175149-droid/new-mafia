@@ -694,3 +694,49 @@ class FnbCart {
 
   List<Map<String, dynamic>> toPayload() => lines.map((l) => l.toJson()).toList();
 }
+
+// ══════════════════════════════════════════════════════
+// 💨 تغيير الراس — كما يعيده /api/fnb/service/state (قرار المالك 2026-10-27)
+// صنفٌ مدفوع اسمه «تغيير راس» في منيو المكان، يُطلب طلباً عاديّاً بنكهة أرجيلته
+// فيدخل الفاتورة. لا يظهر في المنيو، بل في بطاقة «أرجيلتك» لمن استلم أرجيلة.
+// ══════════════════════════════════════════════════════
+class FnbHeadOffer {
+  const FnbHeadOffer({
+    required this.itemId,
+    required this.price,
+    this.groupKey,
+    this.flavors = const [],
+    this.all = const [],
+  });
+
+  final int itemId;
+  final double price;
+
+  /// مفتاح مجموعة النكهة الإلزاميّة على الصنف — null إن لم تكن له مجموعة.
+  final String? groupKey;
+
+  /// نكهات أرجيلته المستلَمة المطابِقة — واحدةٌ ⟵ بلا سؤال.
+  final List<({String key, String name})> flavors;
+
+  /// كلّ نكهات الصنف — يختار منها إن لم تُعرف نكهته.
+  final List<({String key, String name})> all;
+
+  String get priceText => jod(price);
+
+  static List<({String key, String name})> _vals(dynamic v) => (v as List? ?? const [])
+      .whereType<Map>()
+      .map((e) => (key: _s(e['key']), name: _s(e['name'])))
+      .where((e) => e.key.isNotEmpty)
+      .toList();
+
+  static FnbHeadOffer? fromJson(dynamic j) {
+    if (j is! Map || j['itemId'] == null) return null;
+    return FnbHeadOffer(
+      itemId: _i(j['itemId']),
+      price: parsePrice('${j['price']}'),
+      groupKey: j['groupKey'] is String && (j['groupKey'] as String).isNotEmpty ? j['groupKey'] as String : null,
+      flavors: _vals(j['flavors']),
+      all: _vals(j['all']),
+    );
+  }
+}

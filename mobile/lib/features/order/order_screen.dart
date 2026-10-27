@@ -120,6 +120,8 @@ class _OrderScreenState extends State<OrderScreen> with WidgetsBindingObserver {
   // 💨 خدمة الأرجيلة
   bool _svcAvailable = false;
   Map<String, dynamic>? _svcPending;
+  FnbHeadOffer? _head;      // 💨 تغيير الراس — مدفوع، بنكهة أرجيلته
+  bool _headBusy = false;
   bool _svcBusy = false;
 
   // 🔁 مفتاح التكرار — يتجدّد مع أيّ تغييرٍ في السلّة ويثبت عبر إعادة المحاولة
@@ -260,6 +262,7 @@ class _OrderScreenState extends State<OrderScreen> with WidgetsBindingObserver {
       setState(() {
         _svcAvailable = r['available'] == true;
         _svcPending = r['pending'] is Map ? Map<String, dynamic>.from(r['pending']) : null;
+        _head = FnbHeadOffer.fromJson(r['head']);
       });
     } catch (_) {}
   }
@@ -471,6 +474,122 @@ class _OrderScreenState extends State<OrderScreen> with WidgetsBindingObserver {
     }
   }
 
+  /// 💨 تغيير الراس: طلبٌ عاديّ لصنف «تغيير راس» بنكهة أرجيلته — يدخل الفاتورة والطابور.
+  /// يعيد رقم الطلب عند النجاح، وnull مع رسالةٍ في [_err] عند الفشل.
+  Future<int?> _orderHead(String? valueKey) async {
+    final h = _head;
+    if (h == null || _ctx == null || _headBusy) return null;
+    setState(() {
+      _headBusy = true;
+      _err = '';
+    });
+    try {
+      final fix = await LocationService.instance.fixForGate();
+      final r = await ApiClient.instance.post('/api/fnb/orders', body: {
+        if (fix != null) 'fix': fix,
+        'items': [
+          {
+            'menuItemId': h.itemId,
+            'quantity': 1,
+            'slots': const [],
+            'options': [
+              if (h.groupKey != null && valueKey != null) {'group': h.groupKey, 'value': valueKey},
+            ],
+          },
+        ],
+        'note': '',
+        'clientKey': 'h${DateTime.now().millisecondsSinceEpoch}-${Random().nextInt(0x7FFFFFFF)}',
+      });
+      if (!mounted) return null;
+      if (r is Map && r['success'] == true) {
+        await _loadOrders();
+        final order = r['order'];
+        final id = order is Map ? order['id'] : r['orderId'];
+        return id is int ? id : int.tryParse('$id') ?? 0;
+      }
+      setState(() => _err = (r is Map ? r['error'] as String? : null) ?? 'تعذّر طلب تغيير الراس');
+    } on ApiException catch (e) {
+      if (mounted) setState(() => _err = e.message);
+    } catch (_) {
+      if (mounted) setState(() => _err = 'خطأ في الاتصال — لم يُرسَل الطلب، أعد المحاولة');
+    } finally {
+      if (mounted) setState(() => _headBusy = false);
+    }
+    return null;
+  }
+
+  /// ورقة تغيير الراس: نكهة أرجيلته الواحدة جاهزة، وإلّا يختار.
+  Future<void> _openHead() async {
+    final h = _head;
+    if (h == null) return;
+    var pick = h.flavors.length == 1 ? h.flavors.first.key : null;
+    final choices = h.flavors.isNotEmpty ? h.flavors : h.all;
+    final sent = await _modal<int>((ctx) => StatefulBuilder(
+          builder: (ctx, setSheet) {
+            final need = h.groupKey != null && pick == null;
+            return OrderSheetShell(
+              title: 'تغيير راس',
+              subtitle: '${h.priceText} تُضاف لفاتورتك',
+              subtitleWarn: true,
+              body: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+                if (_err.isNotEmpty) ...[
+                  OrderErrorBanner(message: _err),
+                  const SizedBox(height: 10),
+                ],
+                if (h.groupKey == null)
+                  Text('يصل مسؤول الأراجيل ويبدّل الراس.', style: ar(15, color: kInkMid, height: 1.6))
+                else if (h.flavors.length == 1)
+                  Text.rich(TextSpan(children: [
+                    TextSpan(text: 'راسٌ جديد بنفس نكهة أرجيلتك: ', style: ar(15, color: kInkMid, height: 1.6)),
+                    TextSpan(text: h.flavors.first.name, style: ar(15, color: kGoldFg, weight: FontWeight.bold)),
+                  ]))
+                else ...[
+                  Text(h.flavors.length > 1 ? 'عندك أكثر من أرجيلة — أيّ نكهةٍ نبدّل راسها؟' : 'اختر نكهة الراس الجديد',
+                      style: ar(14, color: kInkMid)),
+                  const SizedBox(height: 10),
+                  OptionTiles(
+                    values: [for (final c in choices) (key: c.key, name: c.name, sub: null)],
+                    selected: {if (pick != null) pick!},
+                    onPick: (k) => setSheet(() => pick = k),
+                  ),
+                ],
+              ]),
+              footer: Row(children: [
+                Expanded(
+                  child: Opacity(
+                    opacity: _headBusy || need ? 0.45 : 1,
+                    child: InkWell(
+                      onTap: _headBusy || need
+                          ? null
+                          : () async {
+                              final id = await _orderHead(pick);
+                              if (!ctx.mounted) return;
+                              if (id != null) {
+                                Navigator.of(ctx).pop(id);
+                              } else {
+                                setSheet(() {});
+                              }
+                            },
+                      borderRadius: BorderRadius.circular(12),
+                      child: Container(
+                        constraints: const BoxConstraints(minHeight: kTap),
+                        alignment: Alignment.center,
+                        decoration: BoxDecoration(borderRadius: BorderRadius.circular(12), gradient: kAmberGradient),
+                        child: Text(
+                          _headBusy ? 'جارٍ الإرسال…' : need ? 'اختر النكهة' : 'اطلب تغيير الراس · ${h.priceText}',
+                          style: ar(15.5, color: kAmberOnText, weight: FontWeight.w800),
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              ]),
+            );
+          },
+        ));
+    if (sent != null && mounted) unawaited(_openOrders(sentId: sent));
+  }
+
   Future<void> _askService(String kind) async {
     if (_svcBusy || _svcPending != null) return;
     setState(() => _svcBusy = true);
@@ -541,6 +660,28 @@ class _OrderScreenState extends State<OrderScreen> with WidgetsBindingObserver {
     return Stack(children: [
       Column(children: [
         _header(),
+        // 💨 من استلم أرجيلةً يرى خدماتها فوق المنيو — لا مخبّأةً في «طلباتي» وحدها
+        if (!_ro && _ctx != null && _svcAvailable)
+          InkWell(
+            onTap: () => unawaited(_openOrders()),
+            child: Container(
+              width: double.infinity,
+              constraints: const BoxConstraints(minHeight: kTap),
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+              decoration: const BoxDecoration(
+                color: kGoldBg,
+                border: Border(bottom: BorderSide(color: kGoldBorder)),
+              ),
+              child: Row(children: [
+                Expanded(
+                  child: Text('أرجيلتك وصلت — فحم · تزبيط${_head != null ? ' · تغيير راس' : ''}',
+                      maxLines: 1, overflow: TextOverflow.ellipsis,
+                      style: ar(14, color: kGoldFg, weight: FontWeight.bold)),
+                ),
+                Text('اطلب ←', style: ar(13, color: kInkMid)),
+              ]),
+            ),
+          ),
         Expanded(
           child: noCtx
               ? _noContext()
@@ -1035,6 +1176,15 @@ class _OrderScreenState extends State<OrderScreen> with WidgetsBindingObserver {
                   await _askService(kind);
                   if (ctx.mounted) setSheet(() {});
                 },
+                headPrice: _head?.priceText,
+                // تُغلق «طلباتي» أوّلاً ثمّ تُفتح ورقة الراس — وتعود «طلباتي» بلافتة الوصول بعد الطلب
+                onHead: _head == null
+                    ? null
+                    : () {
+                        Navigator.of(sheetCtx).pop();
+                        _err = '';
+                        unawaited(_openHead());
+                      },
               ),
               const SizedBox(height: 12),
             ],

@@ -914,10 +914,16 @@ class ShishaServiceCard extends StatelessWidget {
     required this.pending,
     required this.busy,
     required this.onAsk,
+    this.headPrice,
+    this.onHead,
   });
 
   final bool pending, busy;
   final ValueChanged<String> onAsk;   // 'coal' | 'fix'
+
+  /// 💨 تغيير الراس — مدفوع؛ يظهر حين يملك المكان صنف «تغيير راس»
+  final String? headPrice;
+  final VoidCallback? onHead;
 
   @override
   Widget build(BuildContext context) => Container(
@@ -933,7 +939,10 @@ class ShishaServiceCard extends StatelessWidget {
           children: [
             Text('أرجيلتك وصلت — تحتاج شيئاً؟', style: ar(15.5, weight: FontWeight.bold)),
             const SizedBox(height: 2),
-            Text('طلبٌ بلا سعر يصل مسؤول الأراجيل مباشرةً ولا يدخل فاتورتك.',
+            Text(
+                onHead != null
+                    ? 'الفحم والتزبيط بلا سعر يصلان مسؤول الأراجيل مباشرةً، وتغيير الراس يُضاف لفاتورتك.'
+                    : 'طلبٌ بلا سعر يصل مسؤول الأراجيل مباشرةً ولا يدخل فاتورتك.',
                 style: ar(13.5, color: kInkMid, height: 1.45)),
             const SizedBox(height: 10),
             if (pending)
@@ -956,6 +965,26 @@ class ShishaServiceCard extends StatelessWidget {
                 const SizedBox(width: 8),
                 Expanded(child: _svcBtn(Icons.build_outlined, 'تزبيط الأرجيلة', () => onAsk('fix'))),
               ]),
+            // مدفوعٌ بخلاف الفحم والتزبيط — ظاهرٌ ولو كان طلبٌ مجّانيّ معلَّقاً
+            if (onHead != null) ...[
+              const SizedBox(height: 8),
+              InkWell(
+                onTap: onHead,
+                borderRadius: BorderRadius.circular(12),
+                child: Container(
+                  width: double.infinity,
+                  constraints: const BoxConstraints(minHeight: kTap),
+                  alignment: Alignment.center,
+                  decoration: BoxDecoration(
+                    borderRadius: BorderRadius.circular(12),
+                    color: kAmberBg,
+                    border: Border.all(color: kAmberBorder),
+                  ),
+                  child: Text('تغيير راس${headPrice != null ? ' · $headPrice' : ''}',
+                      style: ar(14.5, color: kAmberFg, weight: FontWeight.bold)),
+                ),
+              ),
+            ],
           ],
         ),
       );

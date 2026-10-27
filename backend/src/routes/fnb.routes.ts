@@ -1689,7 +1689,8 @@ export async function buildPlayerMenu(db: NonNullable<ReturnType<typeof getDB>>,
   });
 
   // الخانات جاهزةٌ بخياراتها من الأعلى — لا حاجة لمرورٍ ثانٍ
-  return mapped.map(({ _sort, ...m }) => m);
+  // 💨 «تغيير راس» لا يُعرض في المنيو: يُطلب من بطاقة «أرجيلتك» وحدها، لمن استلم أرجيلة
+  return mapped.filter(m => m.name !== HEAD_CHANGE_NAME).map(({ _sort, ...m }) => m);
 }
 
 // ── GET /menu — منيو مكان الفعاليّة (المتاح فقط، بلا حصّة النادي) ──
@@ -1940,6 +1941,15 @@ playerFnbRouter.post('/orders', authenticatePlayer, async (req: Request, res: Re
         },
       });
     }
+    // 💨 تغيير الراس يصل مسؤول الأراجيل كذلك — هو من يبدّله، والطلب وحده يصل الكاشير
+    const head = emittedItems.find(i => i.name === HEAD_CHANGE_NAME);
+    if (head) {
+      const flavor = (head.options as ChosenOption[] | undefined)?.map((o: any) => o.value).filter(Boolean).join(' · ');
+      sendPushToLocationStaff(ctx.locationId, 'service.shisha', '💨 تغيير راس',
+        `${order.playerName}${order.physicalId ? ` — مقعد ${order.physicalId}` : ''}${flavor ? ` · ${flavor}` : ''}`,
+        'new_order', { url: '/venue/orders', orderId: String(order.id) },
+      ).catch(() => {});
+    }
     const summary = emittedItems.map(i => `${i.name} ×${i.quantity}`).join('، ');
     sendPushToLocationStaff(ctx.locationId, 'orders.receive',
       `🍽️ طلب جديد من ${order.playerName}`,
@@ -2097,6 +2107,54 @@ async function hasDeliveredShisha(
   return (row?.n ?? 0) > 0;
 }
 
+// ════════════════════════════════════════════
+// 💨 تغيير الراس — خدمةٌ **مدفوعة** بخلاف الفحم والتزبيط (قرار المالك 2026-10-27)
+// صنفٌ في منيو المكان اسمه «تغيير راس» حرفيّاً (اصطلاحٌ كـ«مياه» للماء التلقائيّ):
+// سعره وحصّته من المنيو، ويُطلب طلباً عاديّاً فيدخل الفاتورة وطابور التحضير.
+// لا يظهر في المنيو (buildPlayerMenu يستثنيه)، بل في بطاقة «أرجيلتك» لمن استلم
+// أرجيلة — وبنكهة أرجيلته نفسها: مجموعة الصنف الإلزاميّة تُطابَق بالاسم مع ما طلبه.
+// مكانٌ بلا هذا الصنف ⟵ لا زرّ.
+// ════════════════════════════════════════════
+const HEAD_CHANGE_NAME = 'تغيير راس';
+const SHISHA_RE = /رجيل|شيش/;
+
+/** صنف تغيير الراس في منيو المكان (المصدر لمواقع الاختبار) مع نكهات أرجيلة اللاعب المستلَمة */
+async function headChangeOffer(
+  db: NonNullable<ReturnType<typeof getDB>>, locationId: number, activityId: number, playerId: number,
+) {
+  const menuLocId = await effectiveMenuLocation(db, locationId);
+  const [item] = await db.select().from(menuItems)
+    .where(and(eq(menuItems.locationId, menuLocId), eq(menuItems.name, HEAD_CHANGE_NAME),
+      eq(menuItems.isAvailable, true), isNull(menuItems.deletedAt))).limit(1);
+  if (!item) return null;
+  const groups = (await resolveOptionGroups(db, [item])).get(item.id) ?? [];
+  const g = groups.find(x => x.isRequired && x.selectionType === 'single') ?? null;
+
+  // نكهات الأرجيلة المستلَمة: من الصنف نفسه أو من مكوّن الباقة — بالاسم الملقوط لحظة الطلب
+  const rows = await db.select({
+    name: orderItems.nameSnapshot, opts: orderItems.optionsSnapshot, comps: orderItems.componentsSnapshot,
+  }).from(orderItems).innerJoin(orders, eq(orderItems.orderId, orders.id))
+    .where(and(eq(orders.activityId, activityId), eq(orders.playerId, playerId), eq(orders.status, 'delivered')));
+  const tasted = new Set<string>();
+  for (const r of rows) {
+    if (r.name === HEAD_CHANGE_NAME) continue;
+    if (SHISHA_RE.test(r.name || '')) for (const o of (Array.isArray(r.opts) ? r.opts as any[] : [])) if (o?.value) tasted.add(String(o.value).trim());
+    for (const c of (Array.isArray(r.comps) ? r.comps as any[] : [])) {
+      if (!SHISHA_RE.test(String(c?.name || ''))) continue;
+      for (const o of (Array.isArray(c?.options) ? c.options : [])) if (o?.value) tasted.add(String(o.value).trim());
+    }
+  }
+  const all = g ? g.values.map(v => ({ key: v.key, name: v.name })) : [];
+  return {
+    itemId: item.id,
+    price: Number(item.price),
+    groupKey: g?.key ?? null,
+    // نكهاتٌ طلبها فعلاً وتوجد في مجموعة الصنف — واحدةٌ ⟵ بلا سؤال؛ صفرٌ ⟵ يختار من الكلّ
+    flavors: all.filter(v => tasted.has(v.name)),
+    all,
+  };
+}
+
 // ── GET /service/state — هل تُعرض البطاقة، وهل ثمّة طلبٌ معلَّق؟ ──
 playerFnbRouter.get('/service/state', authenticatePlayer, async (req: Request, res: Response) => {
   const db = getDB();
@@ -2115,10 +2173,12 @@ playerFnbRouter.get('/service/state', authenticatePlayer, async (req: Request, r
         eq(serviceRequests.status, 'open'),
       )).limit(1);
 
+    const available = await hasDeliveredShisha(db, ctx.activityId, playerId);
     res.json({
       success: true,
-      available: await hasDeliveredShisha(db, ctx.activityId, playerId),
+      available,
       pending: pending || null,
+      head: available ? await headChangeOffer(db, ctx.locationId, ctx.activityId, playerId) : null,
     });
   } catch (err: any) { res.status(500).json({ error: err.message }); }
 });

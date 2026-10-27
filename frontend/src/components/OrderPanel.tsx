@@ -74,6 +74,11 @@ interface CartLine {
   isBundle: boolean;
 }
 interface Section { key: string; short: string; parent: string; isPkg: boolean; items: Item[] }
+/** 💨 تغيير الراس كما يعيده /service/state: الصنف وسعره، ونكهات أرجيلته المطابِقة، وكلّ النكهات احتياطاً */
+interface HeadOffer {
+  itemId: number; price: number; groupKey: string | null;
+  flavors: { key: string; name: string }[]; all: { key: string; name: string }[];
+}
 /** يستدعيه المستضيف بدل إغلاق اللوحة مباشرةً — فيسأل إن كانت السلّة غير فارغة */
 export interface OrderPanelHandle { requestClose: () => void }
 
@@ -475,7 +480,7 @@ const OrderPanel = forwardRef<OrderPanelHandle, Props>(function OrderPanel({
   const [sel, setSel] = useState<Record<string, string[]>>({});
   const [wizard, setWizard] = useState<Item | null>(null);
   const [viewing, setViewing] = useState<Item | null>(null);
-  const [sheet, setSheetState] = useState<'cart' | 'orders' | 'leave' | null>(null);
+  const [sheet, setSheetState] = useState<'cart' | 'orders' | 'leave' | 'head' | null>(null);
   const [searchOn, setSearchOn] = useState(false);
   const [search, setSearch] = useState('');
   const [note, setNote] = useState('');
@@ -483,7 +488,10 @@ const OrderPanel = forwardRef<OrderPanelHandle, Props>(function OrderPanel({
   const [err, setErr] = useState('');
   const [sentId, setSentId] = useState<number | null>(null);
   const [toast, setToast] = useState<{ txt: string; err?: boolean } | null>(null);
-  const [svc, setSvc] = useState<{ available: boolean; pending: { id: number; kind: string } | null }>({ available: false, pending: null });
+  const [svc, setSvc] = useState<{ available: boolean; pending: { id: number; kind: string } | null; head?: HeadOffer | null }>({ available: false, pending: null });
+  // 💨 تغيير الراس: النكهة المختارة (مفتاح القيمة) — تُملأ وحدها إن كانت نكهة أرجيلته واحدة
+  const [headPick, setHeadPick] = useState('');
+  const [headBusy, setHeadBusy] = useState(false);
   const [svcBusy, setSvcBusy] = useState(false);
 
   const submitKeyRef = useRef<string | null>(null);
@@ -494,7 +502,7 @@ const OrderPanel = forwardRef<OrderPanelHandle, Props>(function OrderPanel({
   const rootRef = useRef<HTMLDivElement>(null);
 
   // 🔴 إشعارٌ عابر فوق ورقةٍ مفتوحة كان يغطّي سطراً من السلّة — فتح أيّ ورقةٍ يُسكته
-  const setSheet = (s: 'cart' | 'orders' | 'leave' | null) => {
+  const setSheet = (s: 'cart' | 'orders' | 'leave' | 'head' | null) => {
     if (s) { setToast(null); if (toastTimer.current) clearTimeout(toastTimer.current); }
     if (s !== 'orders') setSentId(null);
     setSheetState(s);
@@ -555,7 +563,7 @@ const OrderPanel = forwardRef<OrderPanelHandle, Props>(function OrderPanel({
   const loadSvc = useCallback(() => {
     fetch('/api/fnb/service/state', { headers })
       .then(r => r.json())
-      .then(d => { if (d.success) setSvc({ available: d.available, pending: d.pending }); })
+      .then(d => { if (d.success) setSvc({ available: d.available, pending: d.pending, head: d.head ?? null }); })
       .catch(() => {});
   }, [headers]);
   const loadPublicMenu = useCallback((locId: number) => fetch(`/api/player-app/locations/${locId}/menu`)
@@ -773,6 +781,35 @@ const OrderPanel = forwardRef<OrderPanelHandle, Props>(function OrderPanel({
   };
 
   // بلا سياق: التصفّح للقراءة من منيو الحجز القادم
+  // 💨 تغيير الراس: طلبٌ عاديّ لصنف «تغيير راس» بنكهة أرجيلته — يدخل الفاتورة والطابور
+  const openHead = () => {
+    const h = svc.head; if (!h) return;
+    setHeadPick(h.flavors.length === 1 ? h.flavors[0].key : '');
+    setErr(''); setSheet('head');
+  };
+  const orderHead = async () => {
+    const h = svc.head; if (!h || !ctx || headBusy) return;
+    if (h.groupKey && !headPick) return;
+    setHeadBusy(true); setErr('');
+    try {
+      const fix = await freshFixForGate();
+      const key = globalThis.crypto?.randomUUID?.() ?? `h${Date.now()}${Math.random().toString(36).slice(2, 10)}`;
+      const d = await fetch('/api/fnb/orders', {
+        method: 'POST', headers: { ...headers, 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          fix, note: '', clientKey: key,
+          items: [{ menuItemId: h.itemId, quantity: 1, slots: [],
+            options: h.groupKey ? [{ group: h.groupKey, value: headPick }] : [] }],
+        }),
+      }).then(r => r.json());
+      if (d.success) {
+        setSheet('orders'); setSentId(d.order?.id ?? d.orderId ?? 0);
+        loadOrders(ctx.activityId);
+      } else setErr(d.error || 'تعذّر طلب تغيير الراس');
+    } catch { setErr('خطأ في الاتصال — لم يُرسَل الطلب، أعد المحاولة'); }
+    setHeadBusy(false);
+  };
+
   const browseNext = () => { if (!next) return; setReadOnly(true); setLoading(true); loadPublicMenu(next.locationId).finally(() => setLoading(false)); };
 
   const openBadge = myOrders.filter(o => o.status === 'new' || o.status === 'preparing').length;
@@ -945,6 +982,18 @@ const OrderPanel = forwardRef<OrderPanelHandle, Props>(function OrderPanel({
     <div ref={rootRef} className={`fnb-root ${embedded ? 'h-full' : 'fnb-page-h max-w-lg mx-auto'} flex flex-col relative overscroll-none`} dir="rtl" style={{ background: '#050505', overscrollBehavior: 'none' }}>
       {Header}
 
+      {/* 💨 من استلم أرجيلةً يرى خدماتها فوق المنيو — لا مخبّأةً في «طلباتي» وحدها */}
+      {!ro && ctx && svc.available && (
+        <button onClick={() => setSheet('orders')}
+          className="shrink-0 w-full px-3.5 py-2.5 flex items-center gap-2 border-b text-right"
+          style={{ background: GOLD.bg, borderColor: GOLD.bd }}>
+          <span className="flex-1 min-w-0 text-[14px] font-bold truncate" style={{ color: GOLD.fg }}>
+            أرجيلتك وصلت — فحم · تزبيط{svc.head ? ' · تغيير راس' : ''}
+          </span>
+          <span className="text-[13px] shrink-0" style={{ color: INK.mid }}>اطلب ←</span>
+        </button>
+      )}
+
       {noCtx ? NoCtx : items.length === 0 ? (
         <div className="flex-1 flex items-center justify-center"><p className="text-[15px]" style={{ color: INK.low }}>المكان لم يضف أصنافاً بعد</p></div>
       ) : (
@@ -1086,6 +1135,41 @@ const OrderPanel = forwardRef<OrderPanelHandle, Props>(function OrderPanel({
         </Sheet>
       )}
 
+      {/* ══ 💨 تغيير الراس — بنكهة أرجيلته، ويُضاف للفاتورة ══ */}
+      {sheet === 'head' && svc.head && (() => {
+        const h = svc.head;
+        const choices = h.flavors.length > 0 ? h.flavors : h.all;
+        const one = h.flavors.length === 1 ? h.flavors[0] : null;
+        return (
+          <Sheet title="تغيير راس" subtitle={`${jod(h.price)} تُضاف لفاتورتك`} subtitleWarn onClose={() => setSheet('orders')}
+            footer={
+              <>
+                <button onClick={orderHead} disabled={headBusy || (!!h.groupKey && !headPick)}
+                  className="flex-1 min-h-[48px] rounded-xl text-[15.5px] font-extrabold tabular-nums disabled:opacity-45" style={amberBtn}>
+                  {headBusy ? 'جارٍ الإرسال…' : h.groupKey && !headPick ? 'اختر النكهة' : `اطلب تغيير الراس · ${jod(h.price)}`}
+                </button>
+                <button onClick={() => setSheet('orders')} className="px-5 min-h-[48px] rounded-xl text-[15px] font-bold" style={ghost}>رجوع</button>
+              </>
+            }>
+            {err && <p className="text-rose-300 text-[13.5px] bg-rose-500/10 border border-rose-500/25 rounded-lg px-3 py-2 mb-3">{err}</p>}
+            {!h.groupKey ? (
+              <p className="text-[15px] leading-relaxed" style={{ color: INK.mid }}>يصل مسؤول الأراجيل ويبدّل الراس.</p>
+            ) : one ? (
+              <p className="text-[15px] leading-relaxed" style={{ color: INK.mid }}>
+                راسٌ جديد بنفس نكهة أرجيلتك: <b style={{ color: GOLD.fg }}>{one.name}</b>
+              </p>
+            ) : (
+              <>
+                <p className="text-[14px] mb-2.5" style={{ color: INK.mid }}>
+                  {h.flavors.length > 1 ? 'عندك أكثر من أرجيلة — أيّ نكهةٍ نبدّل راسها؟' : 'اختر نكهة الراس الجديد'}
+                </p>
+                <Tiles values={choices} selected={headPick ? [headPick] : []} onPick={setHeadPick} />
+              </>
+            )}
+          </Sheet>
+        );
+      })()}
+
       {/* ══ قبل الإغلاق والسلّة ممتلئة ══ */}
       {sheet === 'leave' && (
         <Sheet title="سلّتك لم تُرسَل" subtitle={`${countOf(cartCount)} · ${jod(cartTotal)}`} subtitleWarn onClose={() => setSheet(null)}
@@ -1114,7 +1198,7 @@ const OrderPanel = forwardRef<OrderPanelHandle, Props>(function OrderPanel({
           {svc.available && (
             <div className="rounded-2xl p-3.5 mb-3" style={{ background: GOLD.bg, border: `1px solid ${GOLD.bd}` }}>
               <b className="block text-white text-[15.5px]">أرجيلتك وصلت — تحتاج شيئاً؟</b>
-              <p className="text-[13.5px] mt-0.5 mb-2.5" style={{ color: INK.mid }}>طلبٌ بلا سعر يصل مسؤول الأراجيل مباشرةً ولا يدخل فاتورتك.</p>
+              <p className="text-[13.5px] mt-0.5 mb-2.5" style={{ color: INK.mid }}>الفحم والتزبيط بلا سعر يصلان مسؤول الأراجيل مباشرةً{svc.head ? '، وتغيير الراس يُضاف لفاتورتك' : ' ولا يدخلان فاتورتك'}.</p>
               {svc.pending ? (
                 <p className="text-[14px] text-center rounded-xl px-3 py-3" style={{ background: 'rgba(74,222,128,0.1)', border: '1px solid rgba(74,222,128,0.3)', color: '#bfe9cf' }}>وصل طلبك — الموظّف في الطريق</p>
               ) : (
@@ -1127,6 +1211,14 @@ const OrderPanel = forwardRef<OrderPanelHandle, Props>(function OrderPanel({
                     </button>
                   ))}
                 </div>
+              )}
+              {svc.head && (
+                // مدفوعٌ بخلاف الفحم والتزبيط — ظاهرٌ ولو كان طلبٌ مجّانيّ معلَّقاً
+                <button onClick={openHead}
+                  className="w-full mt-2 min-h-[48px] rounded-xl text-[14.5px] font-bold flex items-center justify-center gap-1.5 tabular-nums"
+                  style={{ background: AMBER.bg, border: `1px solid ${AMBER.bd}`, color: AMBER.fg }}>
+                  تغيير راس · {jod(svc.head.price)}
+                </button>
               )}
             </div>
           )}
