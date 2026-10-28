@@ -970,8 +970,9 @@ router.get('/messages/:id/media', authenticate, adminOnly, async (req: Request, 
     const [m] = await db.select().from(waMessages).where(eq(waMessages.id, id)).limit(1);
     if (!m) return res.status(404).json({ error: 'الرسالة غير موجودة' });
     const p: any = m.payload || {};
-    const mediaId = p?.audio?.id || p?.image?.id || p?.video?.id || p?.document?.id || p?.voice?.id;
-    if (!mediaId) return res.status(404).json({ error: 'لا يوجد ملفّ في هذه الرسالة' });
+    const mediaId = p?.audio?.id || p?.image?.id || p?.sticker?.id || p?.video?.id || p?.document?.id || p?.voice?.id;
+    // المستورد من أرشيف الهاتف (مزامنة التاريخ) نُقل نصّاً بلا ملفّاته — فلا شيء يُجلب
+    if (!mediaId) return res.status(404).json({ error: p?.imported ? 'من أرشيف الهاتف المستورد — ملفّها لم يُنقل' : 'لا يوجد ملفّ في هذه الرسالة' });
 
     const { fetchWaMedia } = await import('../services/wa-bot-ext.service.js');
     const media = await fetchWaMedia(String(mediaId));
