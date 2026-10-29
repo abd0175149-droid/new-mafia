@@ -85,7 +85,9 @@ const NAV_GROUPS: NavGroup[] = [
       { href: '/admin/venues/menu', icon: '🍽️', label: 'المنيو والباقات', roles: ['admin', 'manager'] },
       { href: '/admin/venues/orders', icon: '📥', label: 'طلبات الأماكن', roles: ['admin', 'manager'] },
       { href: '/admin/venues/invoices', icon: '🧾', label: 'فواتير وتحصيل', roles: ['admin', 'manager'] },
-      { href: '/admin/venues/revenue', icon: '💰', label: 'دخل الأماكن وحصصها', roles: ['admin', 'manager'] },
+      { href: '/admin/venues/revenue', icon: '💰', label: 'حساب المكان', roles: ['admin', 'manager'] },
+      // 🤝 التسويات — ما للنادي بيد كلّ مكان وتأكيد تسليماته، عبر الأماكن كلّها
+      { href: '/admin/venue-settlements', icon: '🤝', label: 'التسويات', roles: ['admin', 'manager'] },
     ],
   },
   {

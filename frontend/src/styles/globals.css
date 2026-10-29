@@ -407,3 +407,32 @@ select optgroup {
 select option:disabled {
   color: #5b6270;
 }
+
+/* ══════════════════════════════════════════════════════
+   🔥 كونسول المكان — حركةٌ تشرح الحالة لا تزيّن (2026-10-30)
+   ضغطة 0.97 خلال 160ms · الأوراق تصعد بمنحنى iOS خلال 320ms ·
+   الإشعار يدخل من الأسفل · ولا حركة مع «تقليل الحركة».
+   ══════════════════════════════════════════════════════ */
+.vc-press { transition: transform 160ms cubic-bezier(.23,1,.32,1), background-color 160ms ease; -webkit-tap-highlight-color: transparent; }
+.vc-press:active { transform: scale(.97); }
+.vc-press:disabled { opacity: .45; cursor: not-allowed; }
+.vc-scrim { animation: vc-fade 200ms ease-out; }
+.vc-sheet { animation: vc-sheet 320ms cubic-bezier(.32,.72,0,1); }
+.vc-toast { animation: vc-toast 240ms cubic-bezier(.23,1,.32,1); }
+.vc-enter { animation: vc-rise 220ms cubic-bezier(.23,1,.32,1); }
+.vc-seg { transition: width 280ms cubic-bezier(.77,0,.175,1); }
+.vc-num { font-family: "Cascadia Mono", Consolas, "SF Mono", ui-monospace, monospace; font-variant-numeric: tabular-nums; direction: ltr; unicode-bidi: isolate; }
+.vc-root ::selection { background: rgba(204,127,34,.38); color: #fff; }
+.vc-root input, .vc-root select, .vc-root textarea { caret-color: #E9A24F; }
+.vc-root :focus-visible { outline: 2px solid #E9A24F; outline-offset: 2px; }
+.vc-scroll { scrollbar-width: none; overscroll-behavior: contain; }
+.vc-scroll::-webkit-scrollbar { width: 0; height: 0; }
+@keyframes vc-fade { from { opacity: 0; } }
+@keyframes vc-sheet { from { transform: translateY(100%); } }
+@keyframes vc-toast { from { opacity: 0; transform: translateY(12px); } }
+@keyframes vc-rise { from { opacity: 0; transform: translateY(6px); } }
+@media (prefers-reduced-motion: reduce) {
+  .vc-sheet, .vc-toast, .vc-enter { animation: vc-fade 150ms ease; }
+  .vc-press:active { transform: none; }
+  .vc-seg { transition: none; }
+}

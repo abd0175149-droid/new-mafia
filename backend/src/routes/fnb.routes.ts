@@ -44,11 +44,21 @@ venueRouter.get('/me', authenticate, async (req: Request, res: Response) => {
 
     if (!row || row.isActive === false) return res.status(403).json({ error: 'الحساب غير نشط' });
 
-    let location: { id: number; name: string } | null = null;
+    let location: { id: number; name: string; rules?: any } | null = null;
     if (row.locationId) {
-      const [loc] = await db.select({ id: locations.id, name: locations.name })
-        .from(locations).where(eq(locations.id, row.locationId)).limit(1);
-      location = loc || null;
+      const [loc] = await db.select({
+        id: locations.id, name: locations.name,
+        minChargeEnabled: locations.minChargeEnabled, minimumCharge: locations.minimumCharge,
+        autoWater: locations.autoWater, latitude: locations.latitude, radius: locations.geofenceRadiusM,
+      }).from(locations).where(eq(locations.id, row.locationId)).limit(1);
+      // 📋 قواعد الفاتورة للاطّلاع في ورقة «المكان» — تضبطها الإدارة لا الكونسول
+      location = loc ? {
+        id: loc.id, name: loc.name,
+        rules: {
+          minChargeEnabled: loc.minChargeEnabled === true, minimumCharge: parseFloat(loc.minimumCharge || '0'),
+          autoWater: loc.autoWater === true, geofenceSet: loc.latitude != null, geofenceRadiusM: loc.radius ?? null,
+        },
+      } : null;
     }
     res.json({
       success: true,
@@ -58,6 +68,36 @@ venueRouter.get('/me', authenticate, async (req: Request, res: Response) => {
         location,
       },
     });
+  } catch (err: any) { res.status(500).json({ error: err.message }); }
+});
+
+// ── GET /badges — عدّادا شريط التبويبات: طلباتٌ مفتوحة · لاعبون عليهم مال (2026-10-30) ──
+// خفيفٌ عمداً (يُستطلع كلّ ٣٠ث من كلّ جهاز): المفتوحة من آخر ٢٤ ساعة كشاشة الطلبات،
+// والمستحقّ تقريبٌ رخيص (طلباتٌ بلا ختمٍ + فواتير مفتوحة) — الرقم الدقيق في «التحصيل».
+venueRouter.get('/badges', authenticate, async (req: Request, res: Response) => {
+  const db = getDB();
+  if (!db) return res.status(503).json({ error: 'DB unavailable' });
+  try {
+    const [row] = await db.select({ role: staff.role, locationId: staff.locationId, permissions: staff.permissions })
+      .from(staff).where(and(eq(staff.id, req.user!.id), isNull(staff.deletedAt))).limit(1);
+    if (!row) return res.status(403).json({ error: 'الحساب غير نشط' });
+    const isHQ = row.role === 'admin' || row.role === 'manager';
+    const locId = isHQ ? parseInt(String(req.query.locationId || '')) : row.locationId;
+    if (!locId || !Number.isFinite(locId)) return res.json({ success: true, openOrders: 0, dueCount: 0 });
+    const r: any = await db.execute(sql`
+      SELECT
+        (SELECT COUNT(*)::int FROM orders WHERE location_id = ${locId} AND status IN ('new','preparing')
+           AND created_at >= NOW() - INTERVAL '24 hours') AS open_orders,
+        (SELECT COUNT(DISTINCT (activity_id, player_id))::int FROM (
+           SELECT o.activity_id, o.player_id FROM orders o JOIN activities a ON a.id = o.activity_id
+            WHERE o.location_id = ${locId} AND o.status <> 'cancelled' AND o.invoice_id IS NULL
+              AND a.date >= NOW() - INTERVAL '60 days'
+           UNION
+           SELECT i.activity_id, i.player_id FROM order_invoices i JOIN activities a ON a.id = i.activity_id
+            WHERE i.location_id = ${locId} AND i.is_paid = false AND a.date >= NOW() - INTERVAL '60 days'
+        ) d) AS due_count`);
+    const x = r?.rows?.[0] ?? r?.[0] ?? {};
+    res.json({ success: true, openOrders: Number(x.open_orders) || 0, dueCount: Number(x.due_count) || 0 });
   } catch (err: any) { res.status(500).json({ error: err.message }); }
 });
 

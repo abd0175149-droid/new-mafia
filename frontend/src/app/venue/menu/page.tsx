@@ -9,7 +9,6 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { useVenue } from '../context';
 import CategoriesModal, { type MenuCategory } from './CategoriesModal';
 import OptionGroupsModal, { type OptionGroup } from './OptionGroupsModal';
-import ClubShareModal from './ClubShareModal';
 
 interface BundleComponent { menuItemId: number; qty: number }
 
@@ -94,18 +93,13 @@ function PlayerPreview({
         {isBundle && components.length === 0 && (
           <p className="text-[10px] text-violet-300/80">🎁 اختر مكوّنات الباقة لتظهر للاعب مكان الوصف.</p>
         )}
-        {parseFloat(form.clubShare || '0') > 0 && (
-          <p className="text-[10px] text-[#8B9A92]">
-            🔒 حصّة النادي ({parseFloat(form.clubShare).toFixed(2)}) لا تصل تطبيق اللاعب — يرى السعر فقط.
-          </p>
-        )}
       </div>
     </div>
   );
 }
 
 export default function VenueMenuPage() {
-  const { locationId, locationName, authHeaders, can, isHQ } = useVenue();
+  const { locationId, authHeaders, can, isHQ } = useVenue();
   const [items, setItems] = useState<MenuItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [modal, setModal] = useState<'add' | 'edit' | null>(null);
@@ -129,7 +123,7 @@ export default function VenueMenuPage() {
   // 🗂️ الأقسام و⚙️ مجموعات الخيارات — تُدار من مودالَين مستقلَّين
   const [cats, setCats] = useState<MenuCategory[]>([]);
   const [groups, setGroups] = useState<OptionGroup[]>([]);
-  const [managerModal, setManagerModal] = useState<'cats' | 'groups' | 'share' | null>(null);
+  const [managerModal, setManagerModal] = useState<'cats' | 'groups' | null>(null);
   // مجموعات الخيارات المربوطة بالصنف قيد التحرير
   const [linkedGroups, setLinkedGroups] = useState<Set<number>>(new Set());
 
@@ -286,11 +280,21 @@ export default function VenueMenuPage() {
   return (
     <div className="space-y-4">
       {/* ── ترويسة مدمجة للهاتف: عنوانٌ وسطران لا غير — الأفعال في الشرائح والزرّ العائم ── */}
-      <div>
-        <h2 className="text-base font-bold">🍽️ المنيو والباقات</h2>
-        <p className="text-[11px] text-[#8B9A92] mt-0.5">
-          {locationName} • {items.length} صنفاً ({availCount} متاح) • يُعدّ مرّةً ويظهر في كلّ فعاليّة مفعَّلة
-        </p>
+      {/* ➕ «صنف جديد» في العنوان لا عائماً (2026-10-30): العائم كان يغطّي مفاتيح الإتاحة
+          في آخر القائمة ويتصادم مع شريط التبويبات السفليّ */}
+      <div className="flex items-end justify-between gap-3">
+        <div className="min-w-0">
+          <h2 className="text-[22px] font-extrabold leading-tight">المنيو</h2>
+          <p className="text-[13px] text-[#9AA8A0] mt-0.5">
+            <span className="vc-num">{availCount}</span> متاح من <span className="vc-num">{items.length}</span> · أطفئ ما نفد الليلة
+          </p>
+        </div>
+        <button onClick={openAdd} type="button"
+          className="vc-press shrink-0 h-11 px-3.5 rounded-xl text-[14px] font-extrabold flex items-center gap-1.5"
+          style={{ background: '#CC7F22', color: '#1A1208' }}>
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.6" strokeLinecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14" /></svg>
+          صنف جديد
+        </button>
       </div>
 
       {/* ── بحث + شريطٌ منزلقٌ واحد: الأدوات الثلاث ثمّ فلاتر الفئات — لا التفاف على الهاتف ── */}
@@ -311,11 +315,6 @@ export default function VenueMenuPage() {
           <button onClick={() => setManagerModal('groups')}
             className="shrink-0 px-3 py-2 rounded-xl text-xs font-bold bg-white/5 border border-white/10 whitespace-nowrap">
             ⚙️ الخيارات
-          </button>
-          {/* 💰 الحصّة رقمُ عملٍ يتغيّر بالتفاوض — ضبطها صنفاً صنفاً عملٌ يُؤجَّل فلا يُنجَز */}
-          <button onClick={() => setManagerModal('share')}
-            className="shrink-0 px-3 py-2 rounded-xl text-xs font-bold bg-white/5 border border-white/10 whitespace-nowrap">
-            💰 الحصّة
           </button>
           {existingCats.length > 1 && (
             <>
@@ -397,11 +396,6 @@ export default function VenueMenuPage() {
                     ) : null}
                     <div className="flex items-center gap-2 mt-0.5">
                       <span className="text-[11px] font-bold text-emerald-400">{parseFloat(it.price).toFixed(2)} د.أ</span>
-                      {parseFloat(it.clubShare || '0') > 0 && (
-                        <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-amber-500/10 text-amber-400 border border-amber-500/20">
-                          حصّة النادي {parseFloat(it.clubShare).toFixed(2)}
-                        </span>
-                      )}
                       {(it.optionGroupIds?.length ?? 0) > 0 && (
                         <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-amber-500/10 text-amber-300 border border-amber-500/20" title="مجموعات خيارات مربوطة">
                           ⚙️ {it.optionGroupIds.map(gid => groups.find(g => g.id === gid)?.name).filter(Boolean).join(' · ') || it.optionGroupIds.length}
@@ -503,18 +497,12 @@ export default function VenueMenuPage() {
                   className="w-full bg-[#1B211D] border border-[#232B27] rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-[#D98A2B]/50" placeholder="اختياريّ" />
               </div>
 
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-[11px] text-[#8B9A92] mb-1">السعر (د.أ) *</label>
-                  <input type="number" step="0.05" min="0" value={form.price} onChange={e => setForm(f => ({ ...f, price: e.target.value }))}
-                    className="w-full bg-[#1B211D] border border-[#232B27] rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-[#D98A2B]/50" placeholder="3.50" />
-                </div>
-                <div>
-                  <label className="block text-[11px] text-[#8B9A92] mb-1">حصّة النادي (د.أ)</label>
-                  <input type="number" step="0.05" min="0" value={form.clubShare} onChange={e => setForm(f => ({ ...f, clubShare: e.target.value }))}
-                    className="w-full bg-[#1B211D] border border-[#232B27] rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-amber-500/50" placeholder="0 = لا حصّة" />
-                  <p className="text-[9px] text-[#5A6862] mt-0.5">من كلّ وحدة تُباع — 0 إن لا حصّة</p>
-                </div>
+              {/* 💰 لا حقل «حصّة النادي» (قرار المالك 2026-10-30): دخل النادي من الدخوليّة وحدها،
+                  والمنيو كلّه للمكان. القيمة المخزّنة تُرسل كما هي فلا تتغيّر بالحفظ. */}
+              <div>
+                <label className="block text-[12.5px] text-[#9AA8A0] mb-1">السعر (د.أ) *</label>
+                <input type="number" inputMode="decimal" step="0.05" min="0" value={form.price} onChange={e => setForm(f => ({ ...f, price: e.target.value }))}
+                  className="w-full bg-[#1B211D] border border-[#232B27] rounded-lg px-3 h-12 text-base focus:outline-none focus:border-[#D98A2B]/50" placeholder="3.50" />
               </div>
 
               {/* ── 🎁 مكوّنات الباقة — أصنافٌ فعليّة تُطبع تفاصيلها في فاتورة اللاعب ── */}
@@ -690,39 +678,11 @@ export default function VenueMenuPage() {
         <OptionGroupsModal authHeaders={authHeaders} withLoc={withLoc}
           onClose={() => setManagerModal(null)} onChanged={load} />
       )}
-      {managerModal === 'share' && (
-        <ClubShareModal
-          items={items.map(i => ({ id: i.id, name: i.name, price: i.price, clubShare: i.clubShare || '0', categoryId: i.categoryId ?? null }))}
-          cats={cats.map(c => ({ id: c.id, name: c.name, parentId: c.parentId ?? null }))}
-          onClose={() => setManagerModal(null)}
-          onApply={async (body) => {
-            const r = await fetch(withLoc('/api/venue/menu-items/bulk-club-share'), {
-              method: 'POST',
-              headers: { ...authHeaders, 'Content-Type': 'application/json' },
-              body: JSON.stringify(body),
-            });
-            const d = await r.json();
-            if (!r.ok || !d.success) throw new Error(d.error || 'فشل التطبيق');
-            flash(`💰 ضُبطت حصّة النادي على ${d.changed} صنفاً`);
-            load();
-          }}
-        />
-      )}
 
-      {/* ── 📱 الزرّ العائم: الفعل الأكثر تكراراً بمتناول الإبهام دائماً ── */}
-      {!modal && !managerModal && (
-        <button
-          onClick={openAdd}
-          className="fixed z-40 rounded-2xl px-5 py-3.5 text-sm font-extrabold bg-gradient-to-l from-[#D98A2B] to-[#C2751F] text-[#1A1208] shadow-2xl shadow-black/60 active:scale-95 transition-transform"
-          style={{ bottom: 'calc(18px + env(safe-area-inset-bottom))', left: 16 }}
-        >
-          ＋ صنف جديد
-        </button>
-      )}
 
       {/* ── توست ── */}
       {toast && (
-        <div className="fixed bottom-20 sm:bottom-6 left-1/2 -translate-x-1/2 z-[60] bg-[#1B211D] border border-emerald-500/30 rounded-xl px-4 py-2 text-sm shadow-xl">
+        <div className="fixed bottom-24 md:bottom-6 left-1/2 -translate-x-1/2 z-[60] bg-[#1B211D] border border-emerald-500/30 rounded-xl px-4 py-2 text-sm shadow-xl">
           {toast}
         </div>
       )}

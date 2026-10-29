@@ -1,244 +1,398 @@
 'use client';
 
 // ══════════════════════════════════════════════════════
-// 💰 الدخل والحصص — /venue/revenue
-// متابعة الدخل المحصَّل وحصّتَي النادي والمكان بدقّة.
-// 🔢 كل الأرقام من **لقطات بنود الطلبات** لا من أسعار المنيو الحاليّة —
-//    فتعديل سعرٍ اليوم لا يغيّر تسوية الشهر الماضي.
-// «محصَّل» = فاتورةٌ وُسمت مدفوعة؛ وما عداه مستحقّ لم يُقبض بعد.
+// 💰 الحساب — /venue/revenue · «الجمرة» · إعادة البناء 2026-10-30 (الهاتف أوّلاً)
+// ثلاثة أسئلةٍ يسألها صاحب المكان آخر الليل، بهذا الترتيب:
+//   ١. كم حصّلت؟ وكم منه لي وكم للنادي؟  (الفترة: الليلة · الأسبوع · الشهر)
+//   ٢. كم باقٍ عليّ للنادي؟               (تراكميّ منذ أوّل ليلة — لا يتقيّد بالفترة)
+//   ٣. ماذا لم يُحصَّل بعد؟                (دَينٌ على اللاعبين — نقرةٌ تفتح التحصيل)
+// 🔢 القاعدة المقفلة: الطلبات + فروق الخيارات + تكملة الحدّ الأدنى + الماء للمكان؛
+//    للنادي الدخوليّة وحدها (ناقص خصم مشروب الولاء). الأرقام كلّها من الخادم —
+//    الصفحة تعرض ولا تحسب حصّةً بنفسها، كي لا تختلف الشاشة عن التسوية.
+// 🎨 لون الطرف في المربّع بجانب الاسم، والرقم بلون النصّ (قاعدة الرسوم).
+// تُركَّب أيضاً على /admin/venues/revenue (isHQ) — useVenueApi يضيف locationId.
 // ══════════════════════════════════════════════════════
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { usePathname, useRouter } from 'next/navigation';
 import { useVenue } from '../context';
+import { EM, TX, SHARE, f2, pPlayers, pInvoices, plural, nightLabel, hhmm } from '../ember';
+import { Icon, Sheet, useToast, Toast, Segmented, Btn, Swatch, Amount, Skeleton, PageHead, useVenueApi } from '../ui';
+import { refreshBadges } from '../VenueShell';
 
-interface ActivityRow {
+type Period = 'night' | 'week' | 'month';
+type HStatus = 'pending' | 'confirmed' | 'rejected';
+
+interface Handover {
+  id: number; amount: number; toLabel: string; note: string; status: HStatus;
+  declaredAt: string; declaredByName: string; resolvedAt: string | null; resolvedByName: string; byAdmin: boolean;
+}
+interface Night {
   activityId: number; activityName: string; activityDate: string;
-  gross: number; club: number; venue: number;
-  ordersCount: number; playersCount: number;
-  invoicesIssued: number; invoicesPaid: number;
-  collected: number; outstanding: number; gameFeesCollected: number;
+  collected: number; venue: number; club: number; orders: number; topup: number; water: number;
+  fees: number; loyalty: number; feeCount: number; paidCount: number; freeCount: number; due: number; dueCount: number;
 }
-interface ItemRow { name: string; qty: number; gross: number; club: number; venue: number }
-interface RevenueData {
-  locationName: string;
-  totals: {
-    gross: number; club: number; venue: number; ordersCount: number;
-    collected: number; outstanding: number; gameFeesCollected: number;
-    invoicesIssued: number; invoicesPaid: number;
-  };
-  activities: ActivityRow[];
-  topItems: ItemRow[];
+interface MoneyData {
+  period: Period; range: { from: string; to: string };
+  totals: { collected: number; venue: number; club: number; orders: number; topup: number; water: number; fees: number; loyalty: number; feeCount: number; paidCount: number; freeCount: number };
+  nights: Night[];
+  account: { collected: number; confirmed: number; pending: number; remainingForVenue: number; heldForAdmin: number; handovers: Handover[] };
+  uncollected: { activityId: number; activityName: string; activityDate: string; collected: number; due: number; total: number; paidCount: number; dueCount: number }[];
 }
 
-const jod = (n: number) => `${n.toFixed(2)} د.أ`;
-const iso = (d: Date) => d.toISOString().slice(0, 10);
-
-const PRESETS = [
-  { key: '7', label: 'آخر ٧ أيّام', days: 7 },
-  { key: '30', label: 'آخر ٣٠ يوماً', days: 30 },
-  { key: '90', label: 'آخر ٩٠ يوماً', days: 90 },
+const PERIODS: { value: Period; label: string }[] = [
+  { value: 'night', label: 'الليلة' },
+  { value: 'week', label: 'الأسبوع' },
+  { value: 'month', label: 'الشهر' },
 ];
+const PERIOD_NAME: Record<Period, string> = { night: 'الليلة', week: 'هذا الأسبوع', month: 'هذا الشهر' };
+const RECIPIENTS = ['المدير', 'المحاسب', 'مندوب النادي'];
+
+/** المبلغ كما يكتبه الموظّف: أرقامٌ عربيّة أو لاتينيّة، وفاصلةٌ عربيّة أو نقطة */
+const toNum = (s: string) => parseFloat(String(s || '').trim()
+  .replace(/[٠-٩]/g, d => String('٠١٢٣٤٥٦٧٨٩'.indexOf(d)))
+  .replace(/[٫,]/g, '.'));
+
+/** تاريخ الفعاليّة بنفس أساس nightLabel (حقول UTC) — كي يطابق «الليلة» ما يُكتب بجانبها */
+const nightKey = (d: string) => new Date(d).toISOString().slice(0, 10);
+const ammanToday = () => new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Amman' });
+
+/** «الخميس 29/10 · 23:40» بتوقيت عمّان — وقت التصريح لحظةٌ حقيقيّة لا تاريخ فعاليّة */
+function whenAmman(d: string | null | undefined): string {
+  if (!d) return '';
+  const t = new Date(d);
+  const day = t.toLocaleDateString('ar-JO', { weekday: 'long', timeZone: 'Asia/Amman' });
+  const dm = t.toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit', timeZone: 'Asia/Amman' });
+  return `${day} ${dm} · ${hhmm(t)}`;
+}
+
+const pFree = (n: number) => plural(n, 'حجز مجّانيّ واحد', 'حجزان مجّانيّان', 'حجوزات مجّانيّة', 'حجزاً مجّانيّاً');
+
+/** حبّة حالة التسليم: الشكل (أيقونة) يحمل المعنى مع اللون، لا اللون وحده */
+function HandoverChip({ status }: { status: HStatus }) {
+  const s = status === 'confirmed'
+    ? { icon: 'check' as const, text: 'مؤكَّد', color: TX.good }
+    : status === 'rejected'
+      ? { icon: 'x' as const, text: 'مرفوض', color: TX.bad }
+      : { icon: 'clock' as const, text: 'بانتظار التأكيد', color: TX.amber };
+  return (
+    <span className="flex items-center gap-1.5 font-bold whitespace-nowrap text-[12.5px]" style={{ color: s.color }}>
+      <Icon name={s.icon} size={14} stroke={2.2} />{s.text}
+    </span>
+  );
+}
 
 export default function VenueRevenuePage() {
-  const { locationId, authHeaders, can, isHQ } = useVenue();
-  const [from, setFrom] = useState(iso(new Date(Date.now() - 30 * 864e5)));
-  const [to, setTo] = useState(iso(new Date()));
-  const [data, setData] = useState<RevenueData | null>(null);
+  const { can, isHQ, locationId } = useVenue();
+  const { get, send } = useVenueApi();
+  const router = useRouter();
+  const pathname = usePathname() || '';
+  const { toast, show, hide } = useToast();
+
+  const [period, setPeriod] = useState<Period>('night');
+  const [data, setData] = useState<MoneyData | null>(null);
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState('');
-  const [tab, setTab] = useState<'activities' | 'items'>('activities');
+  const [allHandovers, setAllHandovers] = useState(false);
 
-  const locParam = isHQ && locationId ? `&locationId=${locationId}` : '';
+  // ورقة التسليم
+  const [sheet, setSheet] = useState(false);
+  const [amount, setAmount] = useState('');
+  const [toLabel, setToLabel] = useState(RECIPIENTS[0]);
+  const [note, setNote] = useState('');
+  const [saving, setSaving] = useState(false);
+  const [sheetErr, setSheetErr] = useState('');
 
-  const load = useCallback(() => {
-    if (!locationId) return;
-    setLoading(true); setErr('');
-    fetch(`/api/venue/revenue?from=${from}&to=${to}${locParam}`, { headers: authHeaders })
-      .then(r => r.json())
-      .then(d => { if (d.success) setData(d); else setErr(d.error || 'فشل التحميل'); })
-      .catch(() => setErr('خطأ في الاتصال'))
-      .finally(() => setLoading(false));
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [locationId, from, to]);
+  const allowed = can('finance.view');
+  // 🔴 get عبر مرجع: السياق يُبنى من جديد مع كلّ رسمٍ للغلاف (ساعة الترويسة كلّ ٣٠ث)
+  //    فتتبدّل هويّة get معه — لو كانت في تبعيّات التحميل لأعادت الجلب وومضت الصفحة كلّ ٣٠ث.
+  const getRef = useRef(get);
+  getRef.current = get;
 
-  useEffect(() => { load(); }, [load]);
+  const load = useCallback(async (quiet = false) => {
+    if (!allowed) return;
+    if (!quiet) setLoading(true);
+    const r = await getRef.current(`/api/venue/money?period=${period}`).catch(() => null);
+    if (r?.ok) { setData(r.data as MoneyData); setErr(''); }
+    else if (!quiet) setErr(r?.data?.error || 'تعذّر تحميل الحساب — تحقّق من الاتصال');
+    setLoading(false);
+  }, [period, allowed]);
 
-  const applyPreset = (days: number) => {
-    setFrom(iso(new Date(Date.now() - days * 864e5)));
-    setTo(iso(new Date()));
+  // تحميلٌ عند تغيّر الفترة أو المكان (للإدارة)، وتحديثٌ هادئ كلّ دقيقة والشاشة ظاهرة
+  useEffect(() => { setData(null); load(); }, [load, locationId]);
+  useEffect(() => {
+    const iv = setInterval(() => { if (document.visibilityState === 'visible') load(true); }, 60_000);
+    const onVis = () => { if (document.visibilityState === 'visible') load(true); };
+    document.addEventListener('visibilitychange', onVis);
+    return () => { clearInterval(iv); document.removeEventListener('visibilitychange', onVis); };
+  }, [load]);
+
+  const remaining = data?.account.remainingForVenue ?? 0;
+  const hNum = toNum(amount);
+  const hErr = !(hNum > 0) ? 'اكتب مبلغاً أكبر من صفر'
+    : hNum > remaining + 0.004 ? `أكبر من الباقي عليك (${f2(remaining)})` : '';
+
+  const openSheet = () => { setAmount(f2(remaining)); setToLabel(RECIPIENTS[0]); setNote(''); setSheetErr(''); setSheet(true); };
+  const closeSheet = useCallback(() => { if (!saving) setSheet(false); }, [saving]);
+
+  const record = async () => {
+    if (hErr || saving) return;
+    setSaving(true); setSheetErr('');
+    const r = await send('/api/venue/handovers', 'POST', { amount: Math.round(hNum * 100) / 100, toLabel, note: note.trim() }).catch(() => null);
+    setSaving(false);
+    if (!r?.ok) { setSheetErr(r?.data?.error || 'تعذّر تسجيل التسليم — حاول مرّةً أخرى'); return; }
+    setSheet(false);
+    show(`سُجّل تسليم ${f2(hNum)} د.أ لـ${toLabel} · بانتظار تأكيد الإدارة`);
+    refreshBadges();
+    load(true);
   };
 
-  if (!can('invoices.print')) {
-    return <div className="text-center py-16 text-[#8B9A92] text-sm">ليس لدى حسابك صلاحيّة الاطّلاع على الدخل</div>;
+  // التحصيل من هنا يفتح صفحة التحصيل نفسها — تحت /admin للإدارة كي لا تخرج من لوحتها
+  const openNight = (activityId: number) => {
+    const base = pathname.startsWith('/admin') ? '/admin/venues/invoices' : '/venue/invoices';
+    const loc = isHQ && locationId ? `&locationId=${locationId}` : '';
+    router.push(`${base}?activityId=${activityId}${loc}`);
+  };
+
+  const today = useMemo(() => ammanToday(), [data]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // 🖤 تحت لوحة الإدارة الرماديّة تحمل الصفحة أرضيّتها — الهويّة نفسها في الواجهتين.
+  //    خصائص غلافٍ ثابت لا مكوّنٌ يُعرَّف داخل الدالّة: مكوّنٌ جديد كلّ رسمٍ يعيد
+  //    تركيب ما تحته فيفقد حقل المبلغ تركيزه مع كلّ حرف.
+  const wrap = isHQ
+    ? { className: 'vc-root rounded-3xl p-4', style: { background: EM.ink, color: EM.text } as React.CSSProperties }
+    : { className: '', style: undefined };
+
+  if (!allowed) {
+    return (
+      <div dir="rtl" className={wrap.className} style={wrap.style}>
+        <div className="text-center py-16 text-[14px] leading-relaxed" style={{ color: TX.dim }}>
+          <Icon name="wallet" size={28} color={TX.dim} style={{ display: 'block', margin: '0 auto 10px' }} />
+          ليس لدى حسابك صلاحيّة الحساب — اطلبها من الإدارة
+        </div>
+      </div>
+    );
   }
 
   const t = data?.totals;
-  // نسبة كل طرف من المبيعات — تُحسب هنا لا في الخادم (عرضٌ لا حقيقة)
-  const clubPct = t && t.gross > 0 ? (t.club / t.gross) * 100 : 0;
-  const venuePct = t && t.gross > 0 ? (t.venue / t.gross) * 100 : 0;
-  const collectedPct = t && t.gross > 0 ? Math.min((t.collected / t.gross) * 100, 100) : 0;
+  const acc = data?.account;
+  const collected = t?.collected ?? 0;
+  // عرض شريحة المكان: نسبةٌ من المحصَّل محصورة بين 4 و96 كي تبقى الشريحتان مرئيّتين
+  const venuePct = collected > 0 ? Math.min(96, Math.max(4, Math.round(((t?.venue ?? 0) / collected) * 100))) : 0;
+  const handed = (acc?.confirmed ?? 0) + (acc?.pending ?? 0);
+  const handovers = acc?.handovers ?? [];
+  const shownHandovers = allHandovers ? handovers : handovers.slice(0, 5);
+  const nightName = period === 'night' && data?.nights[0] ? nightLabel(data.nights[0].activityDate) : '';
 
   return (
-    <div className="space-y-4">
-      <div>
-        <h2 className="text-base font-bold">💰 الدخل والحصص</h2>
-        <p className="text-[11px] text-[#8B9A92] mt-0.5">
-          {data?.locationName ? `${data.locationName} • ` : ''}من لقطات الطلبات — لا تتأثّر بتعديل الأسعار لاحقاً
-        </p>
-      </div>
+    <div dir="rtl" className={wrap.className} style={wrap.style}>
+      <div className="flex flex-col gap-[18px]">
+        <PageHead title="الحساب" sub="كم حصّلت، وكم لك، وكم للنادي"
+          side={<div className="shrink-0"><Segmented label="الفترة" size="sm" value={period} onChange={setPeriod} items={PERIODS} /></div>} />
 
-      {/* ── الفترة ── */}
-      <div className="rounded-2xl bg-white/[0.03] border border-white/[0.07] p-3 space-y-2">
-        <div className="flex gap-1.5 flex-wrap">
-          {PRESETS.map(p => (
-            <button key={p.key} onClick={() => applyPreset(p.days)}
-              className="px-3 py-1.5 rounded-lg text-[11px] font-bold bg-white/5 border border-white/10 hover:border-[#D98A2B]/45 transition-colors">
-              {p.label}
-            </button>
-          ))}
-        </div>
-        <div className="flex items-center gap-2">
-          <input type="date" value={from} onChange={e => setFrom(e.target.value)}
-            className="flex-1 bg-[#1B211D] border border-[#232B27] rounded-lg px-2.5 py-1.5 text-xs" />
-          <span className="text-[#5A6862] text-xs">←</span>
-          <input type="date" value={to} onChange={e => setTo(e.target.value)}
-            className="flex-1 bg-[#1B211D] border border-[#232B27] rounded-lg px-2.5 py-1.5 text-xs" />
-        </div>
-      </div>
-
-      {err && <p className="text-rose-400 text-xs bg-rose-500/10 border border-rose-500/20 rounded-lg p-2">{err}</p>}
-
-      {loading ? (
-        <div className="flex justify-center py-16">
-          <div className="w-8 h-8 border-2 border-[#2E3833] border-t-[#D98A2B] rounded-full animate-spin" />
-        </div>
-      ) : !data || data.activities.length === 0 ? (
-        <div className="text-center py-16 rounded-2xl border border-dashed border-[#232B27]">
-          <div className="text-4xl mb-3">💰</div>
-          <p className="text-[#8B9A92] text-sm">لا مبيعات في هذه الفترة</p>
-        </div>
-      ) : (
-        <>
-          {/* ── الحصص ── */}
-          <div className="rounded-2xl bg-white/[0.03] border border-white/[0.07] p-4">
-            <div className="flex items-baseline justify-between mb-3">
-              <span className="text-xs text-[#8B9A92]">مبيعات المنيو</span>
-              <span className="text-lg font-bold tabular-nums">{jod(t!.gross)}</span>
-            </div>
-
-            {/* شريط الحصص */}
-            <div className="flex h-8 rounded-lg overflow-hidden border border-white/10 mb-2">
-              <div className="flex items-center justify-center text-[10px] font-bold text-white"
-                style={{ width: `${Math.max(venuePct, 12)}%`, background: '#2563eb' }}>
-                {venuePct.toFixed(0)}%
-              </div>
-              <div className="flex items-center justify-center text-[10px] font-bold text-white"
-                style={{ width: `${Math.max(clubPct, 12)}%`, background: '#10b981' }}>
-                {clubPct.toFixed(0)}%
-              </div>
-            </div>
-            <div className="grid grid-cols-2 gap-2">
-              <div className="rounded-lg px-3 py-2" style={{ background: 'rgba(37,99,235,0.1)', border: '1px solid rgba(37,99,235,0.25)' }}>
-                <p className="text-[10px] text-blue-300">🏪 حصّة المكان</p>
-                <p className="text-sm font-bold text-blue-400 tabular-nums">{jod(t!.venue)}</p>
-              </div>
-              <div className="rounded-lg px-3 py-2" style={{ background: 'rgba(16,185,129,0.1)', border: '1px solid rgba(16,185,129,0.25)' }}>
-                <p className="text-[10px] text-emerald-300">💰 حصّة النادي</p>
-                <p className="text-sm font-bold text-emerald-400 tabular-nums">{jod(t!.club)}</p>
-              </div>
-            </div>
-            <p className="text-[9px] text-[#5A6862] mt-2">
-              حصّة النادي = مجموع حصص الأصناف المباعة. فروق أسعار الخيارات تعود للمكان.
-            </p>
+        {err && (
+          <div role="alert" className="flex items-center gap-2.5 rounded-[14px] px-3.5 py-2.5 text-[14px]"
+            style={{ background: 'rgba(224,73,43,.10)', border: '1px solid rgba(224,73,43,.35)', color: TX.bad }}>
+            <Icon name="warn" size={18} />
+            <span className="flex-1">{err}</span>
+            <Btn kind="ghost" h={44} onClick={() => load()}><Icon name="refresh" size={16} />أعد المحاولة</Btn>
           </div>
+        )}
 
-          {/* ── التحصيل ── */}
-          <div className="rounded-2xl bg-white/[0.03] border border-white/[0.07] p-4">
-            <div className="flex items-baseline justify-between mb-2">
-              <span className="text-xs text-[#8B9A92]">التحصيل</span>
-              <span className="text-[11px] text-[#8B9A92]">
-                {t!.invoicesPaid}/{t!.invoicesIssued} فاتورة
-              </span>
-            </div>
-            <div className="h-2.5 rounded-full bg-white/5 overflow-hidden mb-2.5">
-              <div className="h-full rounded-full transition-all"
-                style={{ width: `${collectedPct}%`, background: 'linear-gradient(90deg,#10b981,#0d9488)' }} />
-            </div>
-            <div className="grid grid-cols-2 gap-2">
-              <div className="rounded-lg px-3 py-2 bg-emerald-500/[0.08] border border-[#232B27]">
-                <p className="text-[10px] text-emerald-300">✅ محصَّل</p>
-                <p className="text-sm font-bold text-emerald-400 tabular-nums">{jod(t!.collected)}</p>
+        {loading && !data ? (
+          <>
+            <Skeleton h={150} n={1} />
+            <Skeleton h={190} n={1} />
+            <Skeleton h={64} n={2} />
+          </>
+        ) : data && t && acc ? (
+          <>
+            {/* ── ١. الملخّص ── */}
+            <section aria-label="ملخّص التحصيل" className="vc-enter">
+              <div className="text-[13.5px] font-bold" style={{ color: TX.sub }}>
+                حصّلتَ {PERIOD_NAME[period]}
+                {nightName && <span className="font-medium" style={{ color: TX.dim }}> · {nightName}</span>}
               </div>
-              <div className="rounded-lg px-3 py-2 bg-amber-500/[0.08] border border-amber-500/20">
-                <p className="text-[10px] text-amber-300">⏳ مستحقّ</p>
-                <p className="text-sm font-bold text-amber-400 tabular-nums">{jod(t!.outstanding)}</p>
+              <div className="flex items-baseline gap-1.5 mt-0.5">
+                <span className="vc-num font-semibold" style={{ fontSize: 42, letterSpacing: '-0.02em', lineHeight: 1.15 }}>{f2(collected)}</span>
+                <span className="text-[15px]" style={{ color: TX.dim }}>د.أ</span>
               </div>
-            </div>
-            {t!.gameFeesCollected > 0 && (
-              <p className="text-[10px] text-[#8B9A92] mt-2">
-                🎮 منها رسوم لعبة محصَّلة عندك: <span className="text-[#E8EFEA] tabular-nums">{jod(t!.gameFeesCollected)}</span>
-              </p>
-            )}
-          </div>
 
-          {/* ── التفصيل ── */}
-          <div className="flex gap-1.5">
-            <button onClick={() => setTab('activities')}
-              className={`flex-1 py-2 rounded-xl text-xs font-bold border transition-colors ${tab === 'activities' ? 'bg-emerald-500/15 text-emerald-400 border-emerald-500/30' : 'bg-white/5 text-[#8B9A92] border-white/10'}`}>
-              حسب الفعاليّة ({data.activities.length})
-            </button>
-            <button onClick={() => setTab('items')}
-              className={`flex-1 py-2 rounded-xl text-xs font-bold border transition-colors ${tab === 'items' ? 'bg-emerald-500/15 text-emerald-400 border-emerald-500/30' : 'bg-white/5 text-[#8B9A92] border-white/10'}`}>
-              حسب الصنف ({data.topItems.length})
-            </button>
-          </div>
+              {collected > 0 ? (
+                <div role="img" aria-label={`لك ${f2(t.venue)} وللنادي ${f2(t.club)}`} className="flex mt-3.5" style={{ gap: 2, height: 14 }}>
+                  {/* شريحة المكان أوّلاً — في RTL تقع يميناً حيث تبدأ القراءة */}
+                  <div className="vc-seg" style={{ width: `${venuePct}%`, background: SHARE.venue, borderRadius: '0 4px 4px 0' }} />
+                  <div style={{ flex: 1, background: SHARE.club, borderRadius: '4px 0 0 4px' }} />
+                </div>
+              ) : (
+                <>
+                  <div aria-hidden="true" className="mt-3.5" style={{ height: 14, borderRadius: 4, background: EM.line }} />
+                  <div className="text-[13px] mt-2" style={{ color: TX.dim }}>لا شيء محصَّل في هذه الفترة بعد</div>
+                </>
+              )}
 
-          {tab === 'activities' ? (
-            <div className="space-y-2">
-              {data.activities.map(a => (
-                <div key={a.activityId} className="rounded-xl p-3" style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.07)' }}>
-                  <div className="flex items-start justify-between gap-2 mb-1.5">
-                    <div className="min-w-0">
-                      <p className="text-sm font-medium truncate">{a.activityName}</p>
-                      <p className="text-[10px] text-[#8B9A92]">
-                        {new Date(a.activityDate).toLocaleDateString('ar-JO', { weekday: 'short', month: 'short', day: 'numeric' })}
-                        {' • '}{a.ordersCount} طلب • {a.playersCount} لاعب
-                      </p>
+              <div className="mt-1.5 flex flex-col">
+                <div className="flex items-center gap-2.5 py-3" style={{ borderBottom: `1px solid ${EM.line}` }}>
+                  <Swatch color={SHARE.venue} size={12} />
+                  <div className="flex-1 min-w-0">
+                    <div className="text-[15px] font-extrabold">لك</div>
+                    <div className="text-[12.5px]" style={{ color: TX.dim }}>
+                      طلبات <span className="vc-num">{f2(t.orders)}</span> + تكملة حدّ أدنى <span className="vc-num">{f2(t.topup)}</span>
+                      {t.water > 0 && <> + ماء <span className="vc-num">{f2(t.water)}</span></>}
                     </div>
-                    <span className="text-sm font-bold tabular-nums shrink-0">{jod(a.gross)}</span>
                   </div>
-                  <div className="flex gap-3 text-[10px] flex-wrap">
-                    <span className="text-blue-400">🏪 {jod(a.venue)}</span>
-                    <span className="text-emerald-400">💰 {jod(a.club)}</span>
-                    <span className="text-[#8B9A92]">•</span>
-                    <span className="text-emerald-300">✅ محصَّل {jod(a.collected)}</span>
-                    {a.outstanding > 0 && <span className="text-amber-400">⏳ مستحقّ {jod(a.outstanding)}</span>}
-                  </div>
+                  <Amount value={f2(t.venue)} size={20} unit={false} />
                 </div>
-              ))}
-            </div>
-          ) : (
-            <div className="rounded-xl border border-white/[0.07] overflow-hidden">
-              <div className="flex text-[10px] text-[#8B9A92] bg-white/[0.04] px-3 py-1.5">
-                <span className="flex-1">الصنف</span>
-                <span className="w-10 text-center">كمّية</span>
-                <span className="w-16 text-left">مبيعات</span>
-                <span className="w-16 text-left">المكان</span>
-                <span className="w-16 text-left">النادي</span>
+                <div className="flex items-center gap-2.5 py-3">
+                  <Swatch color={SHARE.club} size={12} />
+                  <div className="flex-1 min-w-0">
+                    <div className="text-[15px] font-extrabold">للنادي</div>
+                    <div className="text-[12.5px]" style={{ color: TX.dim }}>
+                      دخوليّة {pPlayers(t.feeCount)}
+                      {t.loyalty > 0 && <> − ولاء <span className="vc-num">{f2(t.loyalty)}</span></>}
+                    </div>
+                  </div>
+                  <Amount value={f2(t.club)} size={20} unit={false} />
+                </div>
               </div>
-              {data.topItems.map((it, i) => (
-                <div key={i} className="flex text-xs px-3 py-2 border-t border-white/[0.05] items-center">
-                  <span className="flex-1 min-w-0 truncate pl-1">{it.name}</span>
-                  <span className="w-10 text-center tabular-nums text-[#8B9A92]">{it.qty}</span>
-                  <span className="w-16 text-left tabular-nums">{it.gross.toFixed(2)}</span>
-                  <span className="w-16 text-left tabular-nums text-blue-400">{it.venue.toFixed(2)}</span>
-                  <span className="w-16 text-left tabular-nums text-emerald-400">{it.club.toFixed(2)}</span>
+            </section>
+
+            {/* ── ٢. حساب النادي — تراكميّ منذ أوّل ليلة ── */}
+            <section aria-label="حساب النادي" className="rounded-[18px] p-4" style={{ background: EM.card, border: `1px solid ${EM.line2}` }}>
+              <div className="flex items-center justify-between gap-2">
+                <h2 className="text-[15.5px] font-extrabold flex items-center gap-2"><Swatch color={SHARE.club} />حساب النادي معك</h2>
+                <div className="text-[12px]" style={{ color: TX.dim }}>منذ أوّل ليلة</div>
+              </div>
+              <div className="flex flex-col gap-2 mt-3 text-[14px]">
+                <div className="flex justify-between gap-3"><span style={{ color: TX.sub }}>دخوليّات حصّلتها</span><span className="vc-num">{f2(acc.collected)}</span></div>
+                <div className="flex justify-between gap-3"><span style={{ color: TX.sub }}>سلّمتها للنادي</span><span className="vc-num">− {f2(handed)}</span></div>
+                <div style={{ height: 1, background: EM.line2 }} />
+                <div className="flex justify-between items-baseline gap-3">
+                  <span className="text-[15px] font-extrabold">باقٍ عليك للنادي</span>
+                  <Amount value={f2(remaining)} size={26} />
+                </div>
+              </div>
+
+              {shownHandovers.map(h => (
+                <div key={h.id} className="vc-enter flex justify-between items-center gap-2 mt-2.5 px-3 py-2.5 rounded-xl text-[13px]" style={{ background: EM.ink2 }}>
+                  <div className="min-w-0">
+                    <div>سلّمتَ <span className="vc-num">{f2(h.amount)}</span> لـ{h.toLabel || 'النادي'}</div>
+                    <div className="text-[12px] mt-0.5" style={{ color: TX.dim }}>
+                      {whenAmman(h.declaredAt)}{h.note ? ` · ${h.note}` : ''}
+                    </div>
+                  </div>
+                  <HandoverChip status={h.status} />
                 </div>
               ))}
-            </div>
-          )}
-        </>
-      )}
+              {handovers.length > 5 && (
+                <button type="button" onClick={() => setAllHandovers(v => !v)} className="vc-press w-full h-11 mt-1 text-[13.5px] font-bold" style={{ color: TX.amberHi }}>
+                  {allHandovers ? 'أخفِ السجلّ القديم' : `اعرض كلّ التسليمات (${handovers.length})`}
+                </button>
+              )}
+
+              <Btn kind="club" full h={48} className="mt-3" style={{ fontSize: 15 }} disabled={remaining <= 0} onClick={openSheet}>
+                سجّل تسليماً للنادي
+              </Btn>
+            </section>
+
+            {/* ── ٣. لم يُحصَّل بعد ── */}
+            <section aria-label="لم يُحصَّل">
+              <h2 className="text-[15.5px] font-extrabold">لم يُحصَّل بعد</h2>
+              <div className="text-[12.5px] mt-0.5" style={{ color: TX.dim }}>فواتير مفتوحة وطلبات بلا فاتورة — كلّها دَينٌ على اللاعبين</div>
+              {data.uncollected.length === 0 ? (
+                <div className="mt-2.5 p-3.5 rounded-[14px] text-[14px] font-bold flex items-center gap-2" style={{ background: 'rgba(37,192,138,.08)', color: TX.good }}>
+                  <Icon name="check" size={18} stroke={2.4} />حُصّل كلّ شيء — لا ديون على اللاعبين
+                </div>
+              ) : data.uncollected.map(u => (
+                <button key={u.activityId} type="button" onClick={() => openNight(u.activityId)}
+                  aria-label={`افتح تحصيل ${nightLabel(u.activityDate)} — ${f2(u.due)} د.أ`}
+                  className="vc-press flex items-center gap-2.5 w-full mt-2.5 px-3 py-2.5 rounded-[14px] text-right"
+                  style={{ minHeight: 58, border: `1px solid ${EM.line2}`, background: EM.ink2, color: 'inherit' }}>
+                  <div className="flex-1 min-w-0">
+                    <div className="text-[14.5px] font-extrabold">{nightKey(u.activityDate) === today ? 'الليلة · ' : ''}{nightLabel(u.activityDate)}</div>
+                    <div className="text-[12.5px]" style={{ color: TX.dim }}>{pPlayers(u.dueCount)}</div>
+                  </div>
+                  <Amount value={f2(u.due)} size={17} unit={false} />
+                  <Icon name="chevron" size={16} color={TX.dim} />
+                </button>
+              ))}
+            </section>
+
+            {/* ── ليلة بليلة ── */}
+            <section aria-label="ليلة بليلة">
+              <h2 className="text-[15.5px] font-extrabold">ليلة بليلة</h2>
+              {data.nights.length === 0 ? (
+                <div className="text-[13.5px] mt-2" style={{ color: TX.dim }}>لا ليالٍ في هذه الفترة</div>
+              ) : (
+                <>
+                  <div className="grid gap-1.5 mt-3 text-[12px] font-bold" style={{ gridTemplateColumns: '1.5fr 1fr 1fr 1fr', color: TX.dim }}>
+                    <span>الليلة</span>
+                    <span className="text-left">حُصّل</span>
+                    <span className="flex items-center justify-end gap-1"><Swatch color={SHARE.venue} size={8} />لك</span>
+                    <span className="flex items-center justify-end gap-1"><Swatch color={SHARE.club} size={8} />للنادي</span>
+                  </div>
+                  {data.nights.map(n => (
+                    <div key={n.activityId} className="py-2.5 mt-2" style={{ borderTop: `1px solid ${EM.line}` }}>
+                      <div className="grid gap-1.5 text-[14px] items-baseline" style={{ gridTemplateColumns: '1.5fr 1fr 1fr 1fr' }}>
+                        <span className="font-extrabold">{nightLabel(n.activityDate)}</span>
+                        <span className="vc-num text-left">{f2(n.collected)}</span>
+                        <span className="vc-num text-left">{f2(n.venue)}</span>
+                        <span className="vc-num text-left">{f2(n.club)}</span>
+                      </div>
+                      <div className="text-[12px] mt-[3px]" style={{ color: TX.dim }}>
+                        {pInvoices(n.paidCount)} · {n.feeCount} دخوليّة{n.freeCount > 0 ? ` · ${pFree(n.freeCount)}` : ''}
+                        {n.due > 0 && <span className="font-bold" style={{ color: TX.amber }}> · لم يُحصَّل <span className="vc-num">{f2(n.due)}</span></span>}
+                      </div>
+                    </div>
+                  ))}
+                </>
+              )}
+            </section>
+
+            <p className="text-[12.5px] leading-[1.7]" style={{ color: TX.dim }}>
+              الطلبات وفروق الخيارات والحدّ الأدنى والماء كلّها لك. للنادي الدخوليّة فقط. الحجز المجّانيّ لا دخوليّة عليه، والدخوليّة التي يدفعها اللاعب للنادي مباشرةً لا تمرّ بصندوقك.
+            </p>
+          </>
+        ) : null}
+      </div>
+
+      {/* ── ورقة التسليم ── */}
+      <Sheet open={sheet} onClose={closeSheet} title="تسليم للنادي"
+        subtitle={<>باقٍ عليك <span className="vc-num">{f2(remaining)}</span> د.أ — تؤكّد الإدارة الاستلام</>}>
+        <label className="block mt-3.5 text-[13px] font-bold" style={{ color: TX.sub }}>
+          المبلغ المسلَّم (د.أ)
+          <input type="text" inputMode="decimal" autoComplete="off" value={amount} onChange={e => setAmount(e.target.value)}
+            aria-invalid={!!hErr} aria-describedby={hErr ? 'ho-err' : undefined}
+            className="vc-num block w-full mt-1.5 px-3.5 rounded-[14px] text-right"
+            style={{ height: 56, fontSize: 24, background: '#0F1311', color: EM.text, border: `1px solid ${hErr ? EM.hot : EM.line2}` }} />
+        </label>
+        {hErr && <div id="ho-err" role="alert" className="mt-1.5 text-[13px] font-bold" style={{ color: TX.bad }}>{hErr}</div>}
+
+        <label className="block mt-3 text-[13px] font-bold" style={{ color: TX.sub }}>
+          لمن سلّمت
+          <select value={toLabel} onChange={e => setToLabel(e.target.value)} className="block w-full mt-1.5 px-3 rounded-xl"
+            style={{ height: 48, fontSize: 16, background: '#0F1311', color: EM.text, border: `1px solid ${EM.line2}` }}>
+            {RECIPIENTS.map(r => <option key={r} value={r}>{r}</option>)}
+          </select>
+        </label>
+
+        <label className="block mt-3 text-[13px] font-bold" style={{ color: TX.sub }}>
+          ملاحظة <span className="font-medium" style={{ color: TX.dim }}>(اختياريّة)</span>
+          <input type="text" value={note} maxLength={300} onChange={e => setNote(e.target.value)} placeholder="مثلاً: سلّمته نقداً آخر الليل"
+            className="block w-full mt-1.5 px-3 rounded-xl"
+            style={{ height: 48, fontSize: 16, background: '#0F1311', color: EM.text, border: `1px solid ${EM.line2}` }} />
+        </label>
+
+        {sheetErr && <div role="alert" className="mt-2.5 text-[13px] font-bold" style={{ color: TX.bad }}>{sheetErr}</div>}
+
+        <button type="button" onClick={record} disabled={!!hErr || saving}
+          className="vc-press w-full mt-4 rounded-[14px] font-extrabold text-[16px] flex items-center justify-center gap-2"
+          style={{ height: 54, background: SHARE.club, color: '#06131E' }}>
+          {saving ? 'جارٍ التسجيل…' : 'سجّل التسليم'}
+        </button>
+      </Sheet>
+
+      <Toast toast={toast} onHide={hide} />
     </div>
   );
 }

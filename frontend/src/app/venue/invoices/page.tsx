@@ -1,523 +1,771 @@
 'use client';
 
 // ══════════════════════════════════════════════════════
-// 🧾 فواتير المنيو والتحصيل — /venue/invoices
-// فاتورةٌ باسم كل لاعب: بطاقةٌ مختصرة تُفتح على تفاصيلها الكاملة.
-// بحثٌ بالاسم · طباعةٌ جماعيّة لكل فواتير الفعاليّة · تسجيل تحصيل ·
-// إسقاط رسوم اللعبة (يجعل حجز اللاعب مجّانيّاً لهذه الفعاليّة تحديداً).
-// الرقم التسلسليّ يثبت من أوّل إصدار؛ إعادة الطباعة لا تستهلك رقماً جديداً.
+// 🧾 التحصيل — /venue/invoices · إعادة البناء 2026-10-30 (الهاتف أوّلاً)
+// الكاشير يقف عند الباب والهاتف بيده: سؤاله الوحيد «من بقي عليه، وكم؟».
+// لذلك الصفحة دفترُ ليلةٍ واحدة: ليالي التحصيل حبوبٌ في الأعلى، ثمّ شريط تقدّم،
+// ثمّ قائمة «لم يُحصَّل» افتراضاً — وكلّ صفٍّ عليه زرّ «حصّل» مباشرةً.
+// التفاصيل والطباعة وإسقاط الدخوليّة في ورقةٍ سفليّة، والتأكيد داخلها بخطوتين
+// (لا confirm() رماديّة)، والتراجع من الإشعار ٦ ثوانٍ لأنّ النقرة الخاطئة واردة.
+// الصفحة نفسها تُركَّب في /admin/venues/invoices للإدارة (isHQ و can()=>true).
 // ══════════════════════════════════════════════════════
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useVenue } from '../context';
+import { EM, TX, SHARE, f2, nightLabel, hhmm, pPlayers, pItems, pInvoices } from '../ember';
+import { Icon, SeatBadge, Sheet, useToast, Toast, Segmented, Btn, Swatch, Amount, Skeleton, PageHead, useVenueApi } from '../ui';
+import { refreshBadges } from '../VenueShell';
+import { getSocket } from '@/lib/socket';
 
-interface Candidate {
-  playerId: number;
-  playerName: string;
-  ordersCount: number;
-  ordersTotal: number;
-  minTopup: number;
-  waterCharge: number;
-  loyaltyDiscount?: number;
-  gameFee: number;
-  grandTotal: number;
-  invoiceNo: number | null;
-  printedAt: string | null;
-  isPaid: boolean;
-  paidAt: string | null;
+// ── الأنواع (مطابقة لردود الخادم) ─────────────────────
+interface Night {
+  activityId: number; activityName: string; activityDate: string;
+  collected: number; due: number; total: number; paidCount: number; dueCount: number;
+}
+
+interface Row {
+  key: string; kind: 'open' | 'paid';
+  playerId: number; playerName: string; seat: number | null; bookingId: number | null;
+  invoiceId: number | null; invoiceNo: number | null; printedAt: string | null;
+  isPaid: boolean; paidAt: string | null; paidById: number | null; paidByName: string;
+  canUndoUntil: string | null;
+  ordersCount: number; ordersTotal: number; minTopup: number; waterCharge: number;
+  loyaltyDiscount: number; gameFee: number; grandTotal: number;
+  isFree: boolean; noInvoice: boolean;
+}
+
+interface Ledger {
+  activity: { id: number; name: string; date: string };
+  gameFeeEnabled: boolean; minChargeEnabled: boolean; minimumCharge: number;
+  autoWaterEnabled: boolean; waterPrice: number;
+  totals: { collected: number; due: number; total: number; paidCount: number; dueCount: number };
+  candidates: Row[];
 }
 
 interface InvoiceLine {
   name: string; quantity: number; unitPrice: number; lineTotal: number;
-  components: { name: string; qty: number; options?: { group: string; value: string }[] }[];
   options: { group: string; value: string }[];
+  components: { name: string; qty: number; options?: { group: string; value: string }[] }[];
 }
 
-interface InvoiceDetail {
-  locationName: string; activityName: string; activityDate: string;
-  playerName: string; lines: InvoiceLine[];
+interface Detail {
+  lines: InvoiceLine[];
   ordersCount: number; ordersTotal: number; minTopup: number; waterCharge: number;
   loyaltyDiscount?: number; loyaltyItemName?: string | null;
   gameFeeApplied: boolean; gameFeeAmount: number; grandTotal: number;
-  invoiceNo: number | null; printedAt: string | null;
+  seat: number | null; invoiceId: number | null; invoiceNo: number | null;
   isPaid: boolean; paidAt: string | null;
   bookingIsPaid: boolean; bookingIsFree: boolean;
+  playerName: string; activityName: string;
 }
 
-const jod = (n: number) => `${n.toFixed(2)} د.أ`;
+type Tab = 'due' | 'paid' | 'all';
+
+// لون مكوّنات الباقة في سطر الفاتورة — نفس درجة شاشة الطلبات في النموذج المعتمد
+// (EM.bundle نفسه داكنٌ على البطاقة بخطٍّ صغير)
+const COMP_TX = '#C2AEEB';
+// رماديّ «الحجز المجّانيّ»: صفرٌ لا يذهب لأحد، فلا يأخذ لون حصّة
+const FREE_SW = '#3A4640';
+
+/** يوم عمّان الحاليّ «YYYY-MM-DD» — الليلة تُقاس بتقويم المكان لا بتقويم الجهاز */
+const ammanToday = () => new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Amman' });
+/** يوم الفعاليّة — بنفس قراءة UTC التي يستعملها nightLabel كي لا يختلف «الليلة» عن التسمية */
+const dayKey = (d: string) => { const t = new Date(d); return isNaN(+t) ? '' : t.toISOString().slice(0, 10); };
+
+/** لوحة المفاتيح العربيّة تكتب «١٢»؛ المقعد مخزّنٌ «12» — نوحّد قبل المقارنة */
+const latinDigits = (s: string) => s.replace(/[٠-٩]/g, d => String(d.charCodeAt(0) - 0x660));
+
+/** سطر التفكيك تحت الاسم: الأجزاء غير الصفريّة وحدها، كي يُقرأ في نظرة */
+function breakdown(r: Row): string {
+  const p: string[] = [];
+  if (r.ordersTotal > 0) p.push(`طلبات ${f2(r.ordersTotal)}`);
+  if (r.waterCharge > 0) p.push(`مياه ${f2(r.waterCharge)}`);
+  if (r.minTopup > 0) p.push(`حدّ أدنى ${f2(r.minTopup)}`);
+  if (r.gameFee > 0) p.push(`دخوليّة ${f2(r.gameFee)}`);
+  if (r.loyaltyDiscount > 0) p.push(`− ولاء ${f2(r.loyaltyDiscount)}`);
+  if (r.isFree) p.push('حجز مجّانيّ');
+  if (r.kind === 'open' && r.noInvoice) p.push('بلا فاتورة');
+  return p.length ? p.join(' · ') : 'لم يطلب شيئاً';
+}
 
 export default function VenueInvoicesPage() {
-  const { locationId, authHeaders, can, isHQ } = useVenue();
-  const [acts, setActs] = useState<{ id: number; name: string; date: string }[]>([]);
+  const { locationId, can } = useVenue();
+  const api = useVenueApi();
+  // 🔴 authHeaders يُبنى من جديد في كلّ رسمٍ للغلاف، فتتغيّر get/send كلّ مرّة.
+  //    لو دخلت تبعيّات المؤثّرات لدار الجلب بلا نهاية — نقرؤها من مرجعٍ ثابت.
+  const apiRef = useRef(api);
+  apiRef.current = api;
+  const { toast, show, hide } = useToast();
+
+  const [nights, setNights] = useState<Night[] | null>(null);
   const [actId, setActId] = useState<number | null>(null);
-  const [candidates, setCandidates] = useState<Candidate[]>([]);
-  const [gameFeeEnabled, setGameFeeEnabled] = useState(false);
-  const [loading, setLoading] = useState(false);
-  const [busyId, setBusyId] = useState<number | null>(null);
-  const [payingId, setPayingId] = useState<number | null>(null);
+  const [ledger, setLedger] = useState<Ledger | null>(null);
+  const [ledgerFor, setLedgerFor] = useState<number | null>(null);
+  const [ledgerErr, setLedgerErr] = useState('');
+  const [tab, setTab] = useState<Tab>('due');
+  const [q, setQ] = useState('');
+
+  // ── ورقة الفاتورة ──
+  const [sheetRow, setSheetRow] = useState<Row | null>(null);
+  const [step, setStep] = useState<'view' | 'confirm'>('view');
+  const [detail, setDetail] = useState<Detail | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [printing, setPrinting] = useState(false);
+  const [waiveOpen, setWaiveOpen] = useState(false);
+  const [reason, setReason] = useState('');
+
+  // ── طباعة الكلّ ──
+  const [printAllOpen, setPrintAllOpen] = useState(false);
   const [printingAll, setPrintingAll] = useState(false);
-  const [toast, setToast] = useState('');
-  const [search, setSearch] = useState('');
-  // الفاتورة المفتوحة تفاصيلها
-  const [openFor, setOpenFor] = useState<Candidate | null>(null);
-  // 💵 ورقة تأكيد التحصيل — تحلّ محلّ confirm() الرماديّة وتعرض المبلغ وتفكيكه
-  const [payFor, setPayFor] = useState<Candidate | null>(null);
-  const [detail, setDetail] = useState<InvoiceDetail | null>(null);
-  const [detailLoading, setDetailLoading] = useState(false);
 
-  const locParam = isHQ && locationId ? `locationId=${locationId}` : '';
-  const withLoc = (url: string) => locParam ? `${url}${url.includes('?') ? '&' : '?'}${locParam}` : url;
-  const flash = (msg: string) => { setToast(msg); setTimeout(() => setToast(''), 3200); };
-
-  useEffect(() => {
-    if (!locationId) return;
-    fetch(withLoc('/api/venue/invoice-activities'), { headers: authHeaders })
-      .then(r => r.json())
-      .then(d => {
-        if (d.success) {
-          setActs(d.activities);
-          if (d.activities.length > 0) setActId(d.activities[0].id);
-        }
-      })
-      .catch(() => {});
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [locationId]);
-
-  const loadCandidates = useCallback(() => {
-    if (!actId) { setCandidates([]); return; }
-    setLoading(true);
-    fetch(withLoc(`/api/venue/invoices/candidates?activityId=${actId}`), { headers: authHeaders })
-      .then(r => r.json())
-      .then(d => {
-        if (d.success) {
-          setCandidates(d.candidates);
-          setGameFeeEnabled(d.gameFeeEnabled);
-          // 🔴 مزامنة البطاقة المفتوحة مع الحيّ: كانت `openFor` نسخةً ملتقَطةً
-          //    وقت الفتح، فبعد إصدار الفاتورة يبقى رقمها null عندها ويخرج
-          //    زرّ الدفع صامتاً — «نقرةٌ ميّتة» تُجبر على الإغلاق وإعادة الفتح
-          setOpenFor(prev => prev ? (d.candidates.find((x: Candidate) => x.playerId === prev.playerId) ?? prev) : prev);
-          setPayFor(prev => prev ? (d.candidates.find((x: Candidate) => x.playerId === prev.playerId) ?? prev) : prev);
-        }
-        else flash(`❌ ${d.error || 'فشل التحميل'}`);
-      })
-      .catch(() => flash('❌ خطأ في الاتصال'))
-      .finally(() => setLoading(false));
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [actId, locationId]);
-
-  useEffect(() => { loadCandidates(); }, [loadCandidates]);
-
-  // ── تفاصيل فاتورة ──
-  const openDetail = async (c: Candidate) => {
-    setOpenFor(c); setDetail(null); setDetailLoading(true);
-    try {
-      const d = await fetch(withLoc(`/api/venue/invoices/${actId}/${c.playerId}`), { headers: authHeaders }).then(r => r.json());
-      if (d.success) setDetail(d.invoice);
-      else flash(`❌ ${d.error || 'تعذّر جلب التفاصيل'}`);
-    } catch { flash('❌ خطأ في الاتصال'); }
-    finally { setDetailLoading(false); }
-  };
-
-  const openPdf = async (c: Candidate) => {
-    if (!actId) return;
-    setBusyId(c.playerId);
-    try {
-      const r = await fetch(withLoc(`/api/venue/invoices/${actId}/${c.playerId}/pdf`), { method: 'POST', headers: authHeaders });
-      if (!r.ok) {
-        const d = await r.json().catch(() => ({}));
-        flash(`❌ ${(d as any).error || 'فشل توليد الفاتورة'}`);
-        return;
-      }
-      const url = URL.createObjectURL(await r.blob());
-      window.open(url, '_blank');
-      setTimeout(() => URL.revokeObjectURL(url), 60000);
-      loadCandidates();
-      if (openFor?.playerId === c.playerId) openDetail(c);
-    } catch { flash('❌ خطأ في الاتصال'); }
-    finally { setBusyId(null); }
-  };
-
-  // 🖨️ طباعة كل فواتير الفعاليّة في مستندٍ واحد
-  const printAll = async () => {
-    if (!actId || candidates.length === 0) return;
-    if (!confirm(`طباعة ${candidates.length} فاتورة لهذه الفعاليّة؟\nسيُثبَّت رقمٌ تسلسليّ لكل فاتورة لم تُصدَر بعد.`)) return;
-    setPrintingAll(true);
-    try {
-      const r = await fetch(withLoc(`/api/venue/invoices/${actId}/print-all`), { headers: authHeaders });
-      if (!r.ok) {
-        const d = await r.json().catch(() => ({}));
-        flash(`❌ ${(d as any).error || 'فشل الطباعة الجماعيّة'}`);
-        return;
-      }
-      const url = URL.createObjectURL(await r.blob());
-      window.open(url, '_blank');
-      setTimeout(() => URL.revokeObjectURL(url), 120000);
-      loadCandidates();
-    } catch { flash('❌ خطأ في الاتصال'); }
-    finally { setPrintingAll(false); }
-  };
-
-  // 💵 التحصيل بنقرةٍ واحدة — الخادم يُصدر رقم الفاتورة إن لم يُصدَر بعد،
-  //    فلا حاجة لطباعة PDF قبله. التأكيد في ورقةٍ سفليّة لا في confirm().
-  const recordPayment = async (c: Candidate) => {
-    if (!actId) return;
-    setPayingId(c.playerId);
-    try {
-      const d = await fetch(withLoc(`/api/venue/invoices/${actId}/${c.playerId}/pay`), { method: 'POST', headers: authHeaders }).then(r => r.json());
-      if (d.success) {
-        setPayFor(null);
-        flash(d.gameFeeSettled > 0
-          ? `✅ حُصّلت الفاتورة #${d.invoiceNo} — وسُجّل حجز ${c.playerName} مدفوعاً`
-          : `✅ حُصّلت الفاتورة #${d.invoiceNo}`);
-        loadCandidates();
-        if (openFor?.playerId === c.playerId) openDetail(c);
-      } else flash(`❌ ${d.error || 'فشل تسجيل التحصيل'}`);
-    } catch { flash('❌ خطأ في الاتصال'); }
-    finally { setPayingId(null); }
-  };
-
-  // 🎮 إسقاط رسوم اللعبة — يحوّل حجز اللاعب إلى مجّانيّ لهذه الفعاليّة
-  const waiveFee = async (c: Candidate, waive: boolean) => {
-    if (!actId) return;
-    const msg = waive
-      ? `إسقاط رسوم اللعبة عن ${c.playerName}؟\nسيصبح حجزه مجّانيّاً في هذه الفعاليّة تحديداً، ويسقط سطر الرسوم من فاتورته.`
-      : `إعادة احتساب رسوم اللعبة على ${c.playerName}؟`;
-    if (!confirm(msg)) return;
-    setPayingId(c.playerId);
-    try {
-      const d = await fetch(withLoc(`/api/venue/invoices/${actId}/${c.playerId}/waive-fee`), {
-        method: 'POST',
-        headers: { ...authHeaders, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ waive }),
-      }).then(r => r.json());
-      if (d.success) {
-        flash(waive ? `✅ أُسقطت رسوم اللعبة عن ${c.playerName}` : `✅ أُعيد احتساب الرسوم على ${c.playerName}`);
-        loadCandidates();
-        if (openFor?.playerId === c.playerId) openDetail(c);
-      } else flash(`❌ ${d.error || 'فشل الإجراء'}`);
-    } catch { flash('❌ خطأ في الاتصال'); }
-    finally { setPayingId(null); }
-  };
-
-  if (!can('invoices.print')) {
-    return <div className="text-center py-16 text-[#8B9A92] text-sm">ليس لدى حسابك صلاحيّة طباعة الفواتير</div>;
-  }
+  // مراجع للمؤقّت والسوكيت: يقرآن آخر حالٍ بلا إعادة اشتراك في كلّ رسم
+  const actIdRef = useRef<number | null>(null);
+  actIdRef.current = actId;
+  const sheetRef = useRef<{ row: Row | null; total: number | null; busy: boolean }>({ row: null, total: null, busy: false });
+  sheetRef.current = { row: sheetRow, total: detail?.grandTotal ?? sheetRow?.grandTotal ?? null, busy };
+  // ?activityId=N من صفحة «الحساب» — يُقرأ مرّةً واحدة؛ window لا useSearchParams
+  // كي لا تحتاج الصفحة حدَّ Suspense في الإنتاج
+  const wantedRef = useRef<number | null | undefined>(undefined);
 
   const canPay = can('payments.record');
-  const q = search.trim().toLowerCase();
-  const visible = q ? candidates.filter(c => c.playerName.toLowerCase().includes(q)) : candidates;
-  const totals = candidates.reduce((s, c) => ({
-    orders: s.orders + c.ordersTotal,
-    grand: s.grand + c.grandTotal,
-    collected: s.collected + (c.isPaid ? c.grandTotal : 0),
-    fees: s.fees + c.gameFee,
-  }), { orders: 0, grand: 0, collected: 0, fees: 0 });
+
+  // ── الجلب ─────────────────────────────────────────
+  const loadNights = useCallback(async () => {
+    try {
+      const r = await apiRef.current.get('/api/venue/collection-nights');
+      if (!r.ok) { setNights(prev => prev ?? []); return; }
+      const list: Night[] = r.data.nights || [];
+      setNights(list);
+      if (actIdRef.current == null) {
+        if (wantedRef.current === undefined) {
+          const v = parseInt(new URLSearchParams(window.location.search).get('activityId') || '', 10);
+          wantedRef.current = Number.isFinite(v) && v > 0 ? v : null;
+        }
+        const pick = wantedRef.current ?? list[0]?.activityId ?? null;
+        if (pick != null) setActId(pick);
+      }
+    } catch { setNights(prev => prev ?? []); }
+  }, []);
+
+  const fetchDetail = useCallback(async (row: Row) => {
+    const id = actIdRef.current;
+    if (!id) return;
+    try {
+      // الفاتورة المحصّلة لقطةٌ ثابتة برقمها؛ المفتوحة تُحسب حيّةً من الطلبات
+      const qs = row.kind === 'paid' && row.invoiceId ? `?invoiceId=${row.invoiceId}` : '';
+      const r = await apiRef.current.get(`/api/venue/invoices/${id}/${row.playerId}${qs}`);
+      // الورقة ربّما أُغلقت أو تبدّلت أثناء الانتظار — لا نكتب تفاصيل لاعبٍ على ورقة غيره
+      if (sheetRef.current.row?.key !== row.key) return;
+      if (r.ok) setDetail(r.data.invoice);
+      else show(r.data?.error || 'تعذّر جلب تفاصيل الفاتورة', { tone: 'bad' });
+    } catch {
+      if (sheetRef.current.row?.key === row.key) show('خطأ في الاتصال', { tone: 'bad' });
+    }
+  }, [show]);
+
+  /**
+   * دفتر الليلة. background = تحديثٌ لم يطلبه الكاشير (مؤقّت/سوكيت): إن تغيّر
+   * مبلغ الورقة المفتوحة نُعيده لخطوة العرض وننبّهه — كي لا يؤكّد مبلغاً قديماً
+   * وصل بعده طلبٌ جديد. بعد أفعاله هو نحن نعيد جلب التفاصيل صراحةً فلا تنبيه.
+   */
+  const loadLedger = useCallback(async (id: number, background = false) => {
+    try {
+      const r = await apiRef.current.get(`/api/venue/invoices/candidates?activityId=${id}`);
+      if (actIdRef.current !== id) return;          // بدّل الليلة أثناء الانتظار
+      if (!r.ok) { if (!background) setLedgerErr(r.data?.error || 'تعذّر تحميل التحصيل'); return; }
+      const L: Ledger = r.data;
+      setLedger(L); setLedgerFor(id); setLedgerErr('');
+
+      const cur = sheetRef.current;
+      if (!cur.row) return;
+      const fresh = L.candidates.find(x => x.key === cur.row!.key);
+      if (fresh) {
+        setSheetRow(fresh);
+        // نقارن بصفّ الدفتر السابق لا بالتفاصيل: مصدران مختلفان قد يفترقان بقرشٍ فيتكرّر التنبيه
+        if (background && !cur.busy && cur.row.kind === 'open' && Math.abs(fresh.grandTotal - cur.row.grandTotal) > 0.004) {
+          setStep('view'); setDetail(null);
+          show(`تغيّر مبلغ ${fresh.playerName} — صار ${f2(fresh.grandTotal)} د.أ`, { tone: 'bad' });
+          fetchDetail(fresh);
+        }
+      } else if (background && !cur.busy && cur.row.kind === 'open') {
+        // حُصّلت من جهازٍ آخر (أو لم يبقَ عليه شيء) — الورقة صارت تعرض شيئاً غير موجود
+        setSheetRow(null);
+        show(`فاتورة ${cur.row.playerName} لم تعد مفتوحة — حُدّثت القائمة`);
+      }
+    } catch {
+      if (!background && actIdRef.current === id) setLedgerErr('خطأ في الاتصال');
+    }
+  }, [fetchDetail, show]);
+
+  // الليالي عند فتح الصفحة أو تبديل المكان (للإدارة)
+  useEffect(() => {
+    if (!locationId) return;
+    setActId(null); actIdRef.current = null; setLedger(null); setLedgerFor(null); setNights(null);
+    loadNights();
+  }, [locationId, loadNights]);
+
+  useEffect(() => { if (actId) loadLedger(actId); }, [actId, loadLedger]);
+
+  // ── التحديث الحيّ: مؤقّت ٣٠ ث + عودة الظهور + سوكيت إن وُجد ──
+  // حساب الكاشير قد لا يكون في غرفة المكان على السوكيت (لا نرسل venue:join هنا
+  // عمداً — الانضمام شأن شاشة الطلبات)، فالمؤقّت هو الضمان والسوكيت تسريع.
+  useEffect(() => {
+    if (!locationId || !actId) return;
+    let deb: ReturnType<typeof setTimeout> | null = null;
+    const refresh = () => {
+      if (document.visibilityState !== 'visible') return;
+      loadLedger(actId, true);
+      loadNights();
+    };
+    // دفعة طلباتٍ متتالية = تحديثٌ واحد
+    const soon = () => { if (deb) clearTimeout(deb); deb = setTimeout(refresh, 400); };
+    const iv = setInterval(refresh, 30_000);
+    document.addEventListener('visibilitychange', refresh);
+    let s: ReturnType<typeof getSocket> | null = null;
+    try {
+      s = getSocket();
+      s.on('fnb:invoice-updated', soon);
+      s.on('fnb:new-order', soon);
+    } catch { s = null; }
+    return () => {
+      clearInterval(iv);
+      if (deb) clearTimeout(deb);
+      document.removeEventListener('visibilitychange', refresh);
+      if (s) { s.off('fnb:invoice-updated', soon); s.off('fnb:new-order', soon); }
+    };
+  }, [locationId, actId, loadLedger, loadNights]);
+
+  // ── الورقة ────────────────────────────────────────
+  const openSheet = (row: Row, confirm: boolean) => {
+    sheetRef.current = { row, total: row.grandTotal, busy: false };
+    setSheetRow(row); setDetail(null); setStep(confirm ? 'confirm' : 'view');
+    setWaiveOpen(false); setReason('');
+    fetchDetail(row);
+  };
+  // مرجعٌ ثابت: Sheet يعيد ربط Esc كلّما تغيّر onClose
+  const closeSheet = useCallback(() => {
+    sheetRef.current = { row: null, total: null, busy: false };
+    setSheetRow(null); setDetail(null); setStep('view'); setWaiveOpen(false); setReason('');
+  }, []);
+
+  const pickNight = (id: number) => {
+    if (id === actId) return;
+    closeSheet();
+    setActId(id); setTab('due'); setQ(''); setLedgerErr('');
+  };
+
+  const reloadAll = async () => {
+    const id = actIdRef.current;
+    if (id) await loadLedger(id);
+    loadNights();
+    refreshBadges();
+  };
+
+  // ── PDF: جلبٌ ← blob ← رابط كائنٍ في لسانٍ جديد (التوكن في الترويسة لا في الرابط) ──
+  const openPdf = async (url: string, method: 'GET' | 'POST'): Promise<boolean> => {
+    // 🍎 النافذة تُفتح **قبل** أوّل await — ما زلنا داخل نقرة المستخدم. فتحها بعد الجلب
+    //    يجعل سفاري الآيفون يعدّها منبثقةً فيحجبها. نملؤها بالـPDF حين يصل.
+    const pre = typeof window !== 'undefined' ? window.open('', '_blank') : null;
+    try {
+      const { withLoc, authHeaders } = apiRef.current;
+      const r = await fetch(withLoc(url), { method, headers: authHeaders });
+      if (!r.ok) {
+        pre?.close();
+        const d = await r.json().catch(() => ({}));
+        show((d as any).error || 'فشل توليد الفاتورة', { tone: 'bad' });
+        return false;
+      }
+      const blobUrl = URL.createObjectURL(await r.blob());
+      const w = pre ?? window.open(blobUrl, '_blank');
+      if (pre) pre.location.href = blobUrl;
+      if (!w) show('المتصفّح منع فتح الفاتورة — اسمح بالنوافذ المنبثقة لهذا الموقع', { tone: 'bad' });
+      setTimeout(() => URL.revokeObjectURL(blobUrl), 120_000);
+      return true;
+    } catch {
+      pre?.close();
+      show('خطأ في الاتصال', { tone: 'bad' });
+      return false;
+    }
+  };
+
+  const printOne = async () => {
+    if (!sheetRow || !actId || printing) return;
+    setPrinting(true);
+    const row = sheetRow;
+    const qs = row.kind === 'paid' && row.invoiceId ? `?invoiceId=${row.invoiceId}` : '';
+    const ok = await openPdf(`/api/venue/invoices/${actId}/${row.playerId}/pdf${qs}`, 'POST');
+    setPrinting(false);
+    // أوّل طباعة لفاتورةٍ مفتوحة تُثبّت رقمها — نُريه في الورقة والقائمة
+    if (ok && row.kind === 'open') { await loadLedger(actId); fetchDetail(row); }
+  };
+
+  const printAll = async () => {
+    if (!actId || printingAll) return;
+    setPrintingAll(true);
+    const ok = await openPdf(`/api/venue/invoices/${actId}/print-all`, 'GET');
+    setPrintingAll(false);
+    setPrintAllOpen(false);
+    if (ok) loadLedger(actId);
+  };
+
+  // ── التحصيل ───────────────────────────────────────
+  const undoPay = async (invoiceId: number, invoiceNo: number | null) => {
+    let msg: { text: string; bad: boolean };
+    try {
+      const r = await apiRef.current.send(`/api/venue/invoices/unpay/${invoiceId}`, 'POST', {});
+      msg = r.ok
+        ? { text: `أُلغي تحصيل الفاتورة #${r.data?.invoiceNo ?? invoiceNo ?? ''} — عادت إلى «لم يُحصَّل»`, bad: false }
+        : { text: r.data?.error || 'تعذّر التراجع عن التحصيل', bad: true };
+    } catch { msg = { text: 'خطأ في الاتصال — لم يُلغَ التحصيل', bad: true }; }
+    await reloadAll();
+    // الإشعار يُخفي نفسه بعد انتهاء دالّة التراجع، فنؤجّل النتيجة خطوةً كي لا تُمحى معه
+    setTimeout(() => show(msg.text, { tone: msg.bad ? 'bad' : 'ok' }), 0);
+  };
+
+  const pay = async () => {
+    if (!sheetRow || !actId || busy || sheetRow.kind !== 'open') return;
+    const row = sheetRow;
+    // المبلغ الذي رآه الكاشير بعينه — الخادم يرفض (409) إن تغيّر بطلبٍ وصل للتوّ
+    const expectedTotal = detail?.grandTotal ?? row.grandTotal;
+    setBusy(true);
+    sheetRef.current = { ...sheetRef.current, busy: true };
+    let r: { ok: boolean; status: number; data: any } | null = null;
+    try { r = await apiRef.current.send(`/api/venue/invoices/${actId}/${row.playerId}/pay`, 'POST', { expectedTotal }); }
+    catch { r = null; }
+    setBusy(false);
+    sheetRef.current = { ...sheetRef.current, busy: false };
+
+    if (!r) { show('خطأ في الاتصال — لم يُسجَّل التحصيل', { tone: 'bad' }); return; }
+    if (!r.ok) {
+      show(r.data?.error || 'فشل تسجيل التحصيل', { tone: 'bad' });
+      if (r.status === 409) {
+        // المبلغ تغيّر: نعيده لخطوة العرض بالمبلغ الجديد — لا تأكيد على رقمٍ لم يره
+        setStep('view'); setDetail(null);
+        await loadLedger(actId);
+        fetchDetail(sheetRef.current.row ?? row);
+        loadNights(); refreshBadges();
+      }
+      return;
+    }
+
+    const d = r.data;
+    closeSheet();
+    await reloadAll();
+    const text = `حُصّلت فاتورة #${d.invoiceNo} · ${f2(d.grandTotal)} د.أ`
+      + (Number(d.gameFeeSettled) > 0 ? ` · منها ${f2(d.gameFeeSettled)} للنادي` : '');
+    // لا تراجع لفاتورةٍ استهلكت مشروب الولاء — الخادم لا يعيد canUndoUntil لها
+    show(text, d.canUndoUntil && d.invoiceId ? { undo: () => undoPay(d.invoiceId, d.invoiceNo), ms: 6000 } : {});
+  };
+
+  // ── إسقاط الدخوليّة / إعادتها ─────────────────────
+  const waive = async (on: boolean) => {
+    if (!sheetRow || !actId || busy) return;
+    const row = sheetRow;
+    const why = reason.trim();
+    if (on && why.length < 3) return;
+    setBusy(true);
+    let r: { ok: boolean; data: any } | null = null;
+    try {
+      r = await apiRef.current.send(`/api/venue/invoices/${actId}/${row.playerId}/waive-fee`, 'POST',
+        on ? { waive: true, reason: why } : { waive: false });
+    } catch { r = null; }
+    setBusy(false);
+    if (!r) { show('خطأ في الاتصال', { tone: 'bad' }); return; }
+    if (!r.ok) { show(r.data?.error || 'فشل الإجراء', { tone: 'bad' }); return; }
+    setWaiveOpen(false); setReason(''); setStep('view');
+    show(on ? `أُسقطت الدخوليّة عن ${row.playerName}` : `أُعيد احتساب الدخوليّة على ${row.playerName}`);
+    await reloadAll();
+    fetchDetail(sheetRef.current.row ?? row);
+  };
+
+  // ── المشتقّات ─────────────────────────────────────
+  const rows = useMemo(() => (ledger && ledgerFor === actId ? ledger.candidates : []), [ledger, ledgerFor, actId]);
+  const openRows = rows.filter(r => r.kind === 'open');
+  const paidRows = rows.filter(r => r.kind === 'paid');
+  const needle = latinDigits(q.trim()).toLowerCase();
+  const base = tab === 'due' ? openRows : tab === 'paid' ? paidRows : rows;
+  const visible = needle
+    ? base.filter(r => r.playerName.toLowerCase().includes(needle) || (r.seat != null && String(r.seat) === needle))
+    : base;
+
+  const today = ammanToday();
+  const curNight = nights?.find(n => n.activityId === actId) ?? null;
+  // ليلةٌ مطلوبة بالرابط ليست في القائمة (أقدم من النافذة) — نضيف حبّتها كي يُرى أين نحن
+  const chips: Night[] = useMemo(() => {
+    const list = nights ?? [];
+    if (actId && !list.some(n => n.activityId === actId) && ledger && ledgerFor === actId) {
+      return [...list, {
+        activityId: actId, activityName: ledger.activity.name, activityDate: ledger.activity.date,
+        ...ledger.totals,
+      }];
+    }
+    return list;
+  }, [nights, actId, ledger, ledgerFor]);
+  // ليلةٌ سابقة فيها مالٌ لم يُحصَّل والكاشير ينظر إلى غيرها — المال المنسيّ لا يُنسى
+  const staleNight = (nights ?? []).find(n => n.activityId !== actId && n.due > 0 && dayKey(n.activityDate) !== today) ?? null;
+
+  const T = ledger && ledgerFor === actId ? ledger.totals : null;
+  const pct = T ? (T.total > 0 ? Math.min(100, Math.max(0, (T.collected / T.total) * 100)) : 100) : 0;
+
+  // ── الحراسات ──────────────────────────────────────
+  if (!can('invoices.print')) {
+    return <div className="text-center py-16 text-[14px]" style={{ color: TX.dim }}>ليس لدى حسابك صلاحيّة التحصيل والفواتير</div>;
+  }
+  if (!locationId) {
+    return <div className="text-center py-16 text-[14px]" style={{ color: TX.dim }}>اختر مكاناً لعرض تحصيله</div>;
+  }
+
+  // ── الورقة: قيمٌ مشتقّة ────────────────────────────
+  const shownTotal = detail?.grandTotal ?? sheetRow?.grandTotal ?? 0;
+  const sheetSub = sheetRow ? (() => {
+    const no = detail?.invoiceNo ?? sheetRow.invoiceNo;
+    const first = sheetRow.kind === 'paid' ? `فاتورة #${no ?? ''}`
+      : no != null ? `فاتورة #${no} صدرت ولم تُحصَّل`
+      : sheetRow.noInvoice ? 'طلب بلا فاتورة — تُصدر عند التحصيل' : 'لم تُصدر بعد';
+    const second = detail ? (detail.lines.length ? pItems(detail.lines.length) : 'بلا طلبات') : null;
+    return second ? `${first} · ${second}` : first;
+  })() : '';
+  const sheetTotals: { label: string; v: string; sw: string }[] = [];
+  if (detail) {
+    if (detail.ordersTotal > 0) sheetTotals.push({ label: 'الطلبات', v: f2(detail.ordersTotal), sw: SHARE.venue });
+    if (detail.waterCharge > 0) sheetTotals.push({ label: 'مياه', v: f2(detail.waterCharge), sw: SHARE.venue });
+    if (detail.minTopup > 0) sheetTotals.push({
+      label: `تكملة الحدّ الأدنى${ledger?.minimumCharge ? ` (${f2(ledger.minimumCharge)})` : ''}`, v: f2(detail.minTopup), sw: SHARE.venue,
+    });
+    if ((detail.loyaltyDiscount || 0) > 0) sheetTotals.push({
+      label: `مشروب بطاقة الولاء${detail.loyaltyItemName ? ` (${detail.loyaltyItemName})` : ''}`, v: `− ${f2(detail.loyaltyDiscount || 0)}`, sw: SHARE.venue,
+    });
+    if (detail.gameFeeApplied && detail.gameFeeAmount > 0) sheetTotals.push({ label: 'دخوليّة اللعبة', v: f2(detail.gameFeeAmount), sw: SHARE.club });
+    if (detail.bookingIsFree) sheetTotals.push({ label: 'الحجز مجّانيّ — بلا دخوليّة', v: '0.00', sw: FREE_SW });
+  }
+  const isOpenRow = sheetRow?.kind === 'open';
+  const canWaive = !!(canPay && isOpenRow && detail && !detail.isPaid && !detail.bookingIsPaid && !detail.bookingIsFree && detail.gameFeeApplied);
+  const canRestore = !!(canPay && isOpenRow && detail && !detail.isPaid && !detail.bookingIsPaid && detail.bookingIsFree);
+  const paidAtShown = detail?.paidAt ?? sheetRow?.paidAt ?? null;
+  const paidNoShown = detail?.invoiceNo ?? sheetRow?.invoiceNo ?? null;
 
   return (
-    <div className="space-y-4">
-      {/* ── الترويسة + اختيار الفعاليّة ── */}
-      <div className="flex items-center justify-between gap-3 flex-wrap">
-        <div>
-          <h2 className="text-base font-bold">🧾 الفواتير والتحصيل</h2>
-          <p className="text-[11px] text-[#8B9A92] mt-0.5">فاتورة A6 لكل لاعب — اضغط البطاقة لتفاصيلها</p>
-        </div>
-        <select
-          value={actId ?? ''}
-          onChange={e => { setActId(parseInt(e.target.value) || null); setOpenFor(null); }}
-          className="bg-[#1B211D] border border-[#232B27] rounded-lg text-xs px-3 py-2 max-w-[220px]"
-        >
-          {acts.length === 0 && <option value="">لا فعاليّات مفعَّلة المنيو مؤخّراً</option>}
-          {acts.map(a => (
-            <option key={a.id} value={a.id}>
-              {a.name} — {new Date(a.date).toLocaleDateString('ar-JO', { month: 'short', day: 'numeric' })}
-            </option>
-          ))}
-        </select>
-      </div>
+    <div className="flex flex-col gap-[14px]">
+      <PageHead title="التحصيل" sub="لكلّ من طلب أو لعب فاتورة" />
 
-      {/* ── ملخّص الفعاليّة ── */}
-      {candidates.length > 0 && (
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-          <Kpi label="فواتير" value={String(candidates.length)} tone="blue" />
-          <Kpi label="الإجماليّ" value={jod(totals.grand)} tone="white" />
-          <Kpi label="محصَّل" value={jod(totals.collected)} tone="green" />
-          <Kpi label="متبقٍّ" value={jod(totals.grand - totals.collected)} tone="amber" />
+      {/* ── الليالي ── */}
+      {nights === null ? (
+        <Skeleton h={44} n={1} />
+      ) : chips.length === 0 ? (
+        <div className="text-center py-12 px-3 text-[14px] leading-relaxed rounded-2xl" style={{ color: TX.dim, border: `1px dashed ${EM.line}` }}>
+          لا ليالٍ مفعَّل فيها المنيو مؤخّراً
+        </div>
+      ) : (
+        <div className="vc-scroll flex gap-2 overflow-x-auto" role="tablist" aria-label="الليلة">
+          {chips.map(n => {
+            const on = n.activityId === actId;
+            const isToday = dayKey(n.activityDate) === today;
+            return (
+              <button key={n.activityId} type="button" role="tab" aria-selected={on} onClick={() => pickNight(n.activityId)}
+                title={n.activityName}
+                className="vc-press shrink-0 flex items-center gap-2 rounded-full px-[14px] text-[14px] font-extrabold whitespace-nowrap"
+                style={{
+                  height: 44,
+                  background: on ? 'rgba(204,127,34,.16)' : EM.ink2,
+                  border: `1px solid ${on ? SHARE.venue : EM.line2}`,
+                  color: on ? TX.amber : TX.sub,
+                }}>
+                {isToday ? `الليلة · ${nightLabel(n.activityDate)}` : nightLabel(n.activityDate)}
+                {n.dueCount > 0 && (
+                  <span className="vc-num inline-flex items-center justify-center rounded-full text-[12px]"
+                    aria-label={`${n.dueCount} لم يُحصَّل`}
+                    style={{ minWidth: 22, height: 22, padding: '0 6px', background: TX.amberHi, color: '#1A1208' }}>
+                    {n.dueCount}
+                  </span>
+                )}
+              </button>
+            );
+          })}
         </div>
       )}
 
-      {gameFeeEnabled && (
-        <p className="text-[11px] text-amber-400/90 bg-amber-500/10 border border-amber-500/20 rounded-lg px-3 py-2">
-          💰 رسوم اللعبة مفعَّلة — تُضاف لفاتورة من لم يدفع حجزه
-          {canPay ? '، ويمكن إسقاطها عن لاعبٍ بعينه من تفاصيل فاتورته' : ''}
-        </p>
-      )}
-
-      {/* ── بحث + طباعة جماعيّة ── */}
-      {candidates.length > 0 && (
-        <div className="flex gap-2">
-          <input
-            value={search} onChange={e => setSearch(e.target.value)}
-            placeholder="🔎 ابحث باسم اللاعب…"
-            className="flex-1 bg-[#1B211D] border border-[#232B27] rounded-xl px-3.5 py-2.5 text-sm focus:outline-none focus:border-[#D98A2B]/50 placeholder:text-[#5A6862]"
-          />
-          <button
-            onClick={printAll} disabled={printingAll}
-            title="طباعة كل فواتير الفعاليّة في مستندٍ واحد"
-            className="px-3.5 rounded-xl text-xs font-bold bg-white/5 border border-white/10 hover:border-[#D98A2B]/45 transition-colors disabled:opacity-50 shrink-0"
-          >
-            {printingAll ? '⏳…' : '🖨️ طباعة الكل'}
+      {/* ── ليلةٌ سابقة لم تُحصَّل ── */}
+      {staleNight && (
+        <div className="vc-enter flex items-center gap-2.5 rounded-xl" role="alert"
+          style={{ padding: '6px 6px 6px 12px', background: 'rgba(224,73,43,.08)', border: '1px solid rgba(224,73,43,.35)' }}>
+          <Icon name="warn" size={18} stroke={2.2} color={TX.bad} />
+          <span className="flex-1 min-w-0 text-[13.5px] font-bold leading-snug py-1.5">
+            ليلة {nightLabel(staleNight.activityDate)} فيها <span className="vc-num">{f2(staleNight.due)}</span> د.أ لم تُحصَّل
+          </span>
+          <button type="button" onClick={() => pickNight(staleNight.activityId)}
+            className="vc-press shrink-0 h-11 px-3.5 rounded-[10px] text-[14px] font-extrabold"
+            style={{ background: 'rgba(255,255,255,.06)', color: TX.bad }}>
+            عرض
           </button>
         </div>
       )}
 
-      {loading ? (
-        <div className="flex justify-center py-16">
-          <div className="w-8 h-8 border-2 border-[#2E3833] border-t-[#D98A2B] rounded-full animate-spin" />
+      {actId != null && (ledgerErr && !T ? (
+        <div className="flex flex-col items-center gap-3 py-12 text-[14px]" style={{ color: TX.dim }}>
+          <span>{ledgerErr}</span>
+          <Btn kind="ghost" h={44} onClick={() => loadLedger(actId)}>
+            <Icon name="refresh" size={18} /> أعد المحاولة
+          </Btn>
         </div>
-      ) : candidates.length === 0 ? (
-        <div className="text-center py-16 rounded-2xl border border-dashed border-[#232B27]">
-          <div className="text-4xl mb-3">🧾</div>
-          <p className="text-[#8B9A92] text-sm">لا طلبات في هذه الفعاليّة بعد</p>
-        </div>
-      ) : visible.length === 0 ? (
-        <div className="text-center py-12 rounded-2xl border border-dashed border-[#232B27]">
-          <p className="text-[#8B9A92] text-sm">لا لاعب بهذا الاسم</p>
-          <button onClick={() => setSearch('')} className="text-emerald-400 text-xs underline mt-2">مسح البحث</button>
-        </div>
+      ) : !T ? (
+        <>
+          <Skeleton h={92} n={1} />
+          <Skeleton h={68} n={4} />
+        </>
       ) : (
-        <div className="space-y-2">
-          {visible.map(c => (
-            <div
-              key={c.playerId}
-              className="w-full text-right rounded-xl p-3.5 flex items-center gap-3"
-              style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.07)' }}
-            >
-              <div className="w-9 h-9 rounded-full bg-emerald-500/15 text-emerald-400 flex items-center justify-center font-bold text-sm shrink-0">
-                {c.playerName[0] || '?'}
+        <>
+          {/* ── التقدّم ── */}
+          <section aria-label="تقدّم التحصيل">
+            <div className="flex items-start justify-between gap-3">
+              <div className="flex items-baseline gap-1.5 min-w-0 flex-wrap">
+                <span className="vc-num font-semibold leading-none" style={{ fontSize: 34 }}>{f2(T.collected)}</span>
+                <span className="text-[14px]" style={{ color: TX.dim }}>من <span className="vc-num">{f2(T.total)}</span> د.أ</span>
               </div>
-              <div className="flex-1 min-w-0">
-                <div className="flex items-center gap-2 flex-wrap">
-                  <p className="text-white text-sm font-medium truncate">{c.playerName}</p>
-                  {c.invoiceNo != null && (
-                    <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-white/5 text-[#8B9A92] border border-white/10 shrink-0">#{c.invoiceNo}</span>
-                  )}
-                  {c.isPaid
-                    ? <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 shrink-0">💵 محصَّلة</span>
-                    : <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-amber-500/10 text-amber-400 border border-amber-500/25 shrink-0">بانتظار التحصيل</span>}
-                </div>
-                <p className="text-[10px] text-[#8B9A92] mt-0.5">
-                  {c.ordersCount} {c.ordersCount === 1 ? 'طلب' : 'طلبات'} • {jod(c.ordersTotal)}
-                  {c.waterCharge > 0 && <span className="text-cyan-400/90"> + مياه {jod(c.waterCharge)}</span>}
-                  {c.minTopup > 0 && <span className="text-sky-400/90"> + حدّ أدنى {jod(c.minTopup)}</span>}
-                  {c.gameFee > 0 && <span className="text-amber-400/90"> + رسوم {jod(c.gameFee)}</span>}
-                  {(c.loyaltyDiscount || 0) > 0 && <span className="text-emerald-400/90"> − 🎟️ ولاء {jod(c.loyaltyDiscount || 0)}</span>}
-                </p>
-              </div>
-              <div className="text-left shrink-0">
-                <p className="text-emerald-400 text-sm font-bold">{jod(c.grandTotal)}</p>
-              </div>
-              {/* 💵 الفعلان صريحان على البطاقة: التحصيل بلا فتح تفاصيل، والتفاصيل عند الحاجة */}
-              <div className="flex items-center gap-1.5 shrink-0">
-                {canPay && !c.isPaid && (
-                  <button
-                    onClick={() => setPayFor(c)} disabled={payingId === c.playerId}
-                    className="px-3 py-2.5 rounded-xl text-[12.5px] font-extrabold disabled:opacity-50"
-                    style={{ background: 'linear-gradient(140deg,#25C08A,#1A9E70)', color: '#04231A' }}
-                  >
-                    {payingId === c.playerId ? '⏳' : '💵 تحصيل'}
-                  </button>
-                )}
-                <button
-                  onClick={() => openDetail(c)}
-                  title="تفاصيل الفاتورة والطباعة"
-                  className="px-3 py-2.5 rounded-xl text-[12.5px] font-bold bg-white/5 border border-white/10 text-[#8B9A92]"
-                >
-                  📄
+              {rows.length > 0 && (
+                <button type="button" onClick={() => setPrintAllOpen(true)} aria-label="طباعة كلّ فواتير الليلة"
+                  className="vc-press shrink-0 h-11 px-3 rounded-xl flex items-center gap-1.5 text-[13.5px] font-bold"
+                  style={{ border: `1px solid ${EM.line2}`, color: TX.sub }}>
+                  <Icon name="printer" size={18} /> طباعة الكلّ
                 </button>
-              </div>
+              )}
             </div>
-          ))}
-        </div>
-      )}
-
-      {/* ══ تفاصيل الفاتورة ══ */}
-      {openFor && (
-        <div className="fixed inset-0 z-[70] bg-black/75 backdrop-blur-sm flex items-end sm:items-center justify-center p-0 sm:p-4"
-          onClick={() => setOpenFor(null)}>
-          <div
-            className="w-full max-w-lg bg-[#161B18] border-t sm:border border-[#232B27] rounded-t-2xl sm:rounded-2xl p-5 max-h-[90vh] overflow-y-auto"
-            onClick={e => e.stopPropagation()}
-          >
-            <div className="flex items-center justify-between mb-3">
-              <div className="min-w-0">
-                <h3 className="text-base font-bold truncate">{openFor.playerName}</h3>
-                {detail && (
-                  <p className="text-[11px] text-[#8B9A92]">
-                    {detail.activityName} • {detail.ordersCount} {detail.ordersCount === 1 ? 'طلب' : 'طلبات'}
-                    {detail.invoiceNo != null && <span> • فاتورة #{detail.invoiceNo}</span>}
-                  </p>
-                )}
-              </div>
-              <button onClick={() => setOpenFor(null)} className="text-[#8B9A92] hover:text-white shrink-0">✕</button>
+            <div role="progressbar" aria-label="نسبة المحصَّل" aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(pct)}
+              className="overflow-hidden rounded-full mt-2.5" style={{ height: 10, background: '#1B211D' }}>
+              <div className="vc-seg h-full rounded-full" style={{ width: `${pct}%`, background: EM.go }} />
             </div>
+            <div className="flex justify-between gap-3 mt-2.5 text-[13.5px]">
+              <span className="font-bold">
+                {T.dueCount > 0
+                  ? <>بقي {pPlayers(T.dueCount)} · <span className="vc-num">{f2(T.due)}</span> د.أ</>
+                  : 'حُصّل من الجميع'}
+              </span>
+              <span style={{ color: TX.dim }}>{T.paidCount > 0 ? `${pInvoices(T.paidCount)} محصّلة` : 'لا شيء محصَّل بعد'}</span>
+            </div>
+          </section>
 
-            {detailLoading || !detail ? (
-              <div className="flex justify-center py-12">
-                <div className="w-7 h-7 border-2 border-[#2E3833] border-t-[#D98A2B] rounded-full animate-spin" />
-              </div>
-            ) : (
-              <>
-                {/* بنود الفاتورة */}
-                <div className="rounded-xl border border-white/[0.07] overflow-hidden mb-3">
-                  <div className="flex text-[10px] text-[#8B9A92] bg-white/[0.04] px-3 py-1.5">
-                    <span className="flex-1">الصنف</span>
-                    <span className="w-10 text-center">كمّية</span>
-                    <span className="w-14 text-center">السعر</span>
-                    <span className="w-16 text-left">المجموع</span>
-                  </div>
-                  {detail.lines.map((l, i) => (
-                    <div key={i} className="px-3 py-2 border-t border-white/[0.05]">
-                      <div className="flex text-xs items-start">
-                        <span className="flex-1 min-w-0 pl-1">{l.name}</span>
-                        <span className="w-10 text-center tabular-nums">{l.quantity}</span>
-                        <span className="w-14 text-center tabular-nums text-[#8B9A92]">{l.unitPrice.toFixed(2)}</span>
-                        <span className="w-16 text-left tabular-nums font-bold">{l.lineTotal.toFixed(2)}</span>
-                      </div>
-                      {l.options.length > 0 && (
-                        <p className="text-[10px] text-amber-300/80 mt-0.5">⚙️ {l.options.map(o => `${o.group}: ${o.value}`).join(' · ')}</p>
+          {/* ── التبويبات ── */}
+          <Segmented<Tab> label="حالة الفاتورة" value={tab} onChange={setTab} items={[
+            { value: 'due', label: <>لم يُحصَّل <span className="vc-num">{openRows.length}</span></> },
+            { value: 'paid', label: <>محصَّل <span className="vc-num">{paidRows.length}</span></> },
+            { value: 'all', label: <>الكلّ <span className="vc-num">{rows.length}</span></> },
+          ]} />
+
+          {/* ── البحث ── */}
+          <label className="flex items-center gap-2 rounded-[14px] px-3.5" style={{ height: 48, background: EM.ink2, border: `1px solid ${EM.line2}` }}>
+            <Icon name="search" size={18} color={TX.dim} />
+            <input type="search" value={q} onChange={e => setQ(e.target.value)}
+              aria-label="بحث باسم اللاعب أو رقم المقعد" placeholder="اسم اللاعب أو رقم مقعده"
+              className="flex-1 min-w-0 bg-transparent border-none outline-none placeholder:text-[#5A6862]"
+              style={{ height: 44, fontSize: 16, color: EM.text }} />
+            {q && (
+              <button type="button" onClick={() => setQ('')} aria-label="مسح البحث"
+                className="vc-press w-11 h-11 flex items-center justify-center rounded-xl shrink-0" style={{ color: TX.dim }}>
+                <Icon name="x" size={16} stroke={2.2} />
+              </button>
+            )}
+          </label>
+
+          {/* ── الصفوف ── */}
+          <div className="flex flex-col gap-2">
+            {visible.map(r => {
+              const paid = r.kind === 'paid';
+              const stateLabel = paid
+                ? `#${r.invoiceNo ?? ''} · ${hhmm(r.paidAt)}`
+                : r.invoiceNo != null ? `#${r.invoiceNo} · لم يُحصَّل` : 'لم يُحصَّل';
+              return (
+                <div key={r.key} className="vc-enter flex items-center gap-2.5 rounded-[14px]"
+                  style={{ padding: '10px 10px 10px 12px', background: EM.card, border: `1px solid ${EM.line}` }}>
+                  <button type="button" onClick={() => openSheet(r, false)} aria-label={`تفاصيل فاتورة ${r.playerName}`}
+                    className="flex-1 min-w-0 flex items-center gap-2.5 text-right bg-transparent" style={{ minHeight: 48, color: 'inherit' }}>
+                    <SeatBadge seat={r.seat} size={38} />
+                    <span className="flex-1 min-w-0 block">
+                      <span className="block text-[15px] font-extrabold truncate">{r.playerName}</span>
+                      <span className="block text-[12.5px] truncate" style={{ color: TX.dim }}>{breakdown(r)}</span>
+                    </span>
+                    <span className="shrink-0 text-left block">
+                      <span className="vc-num block font-semibold" style={{ fontSize: 17 }}>{f2(r.grandTotal)}</span>
+                      {tab !== 'due' && (
+                        <span className="block text-[12px] font-bold whitespace-nowrap" style={{ color: paid ? TX.good : TX.amber }}>
+                          <span className="vc-num">{stateLabel}</span>
+                        </span>
                       )}
-                      {l.components.length > 0 && (
-                        <p className="text-[10px] text-violet-300/70 mt-0.5">
-                          🎁 {l.components.map(c => {
-                            const co = (c.options ?? []).map(o => o.value).join('/');
-                            return `${c.name}${co ? ` (${co})` : ''} ×${c.qty * l.quantity}`;
-                          }).join(' + ')}
-                        </p>
-                      )}
-                    </div>
-                  ))}
-                </div>
-
-                {/* المجاميع */}
-                <div className="rounded-xl bg-white/[0.03] border border-white/[0.07] p-3 space-y-1.5 mb-3">
-                  <Row label="مجموع الطلبات" value={jod(detail.ordersTotal)} />
-                  {detail.waterCharge > 0 && <Row label="مياه ×1" value={jod(detail.waterCharge)} tone="amber" />}
-                  {detail.minTopup > 0 && <Row label="حدّ أدنى للاستهلاك" value={jod(detail.minTopup)} tone="amber" />}
-                  {detail.gameFeeApplied && <Row label="رسوم اللعبة" value={jod(detail.gameFeeAmount)} tone="amber" />}
-                  {(detail.loyaltyDiscount || 0) > 0 && <Row label={`🎟️ مشروب بطاقة الولاء${detail.loyaltyItemName ? ` (${detail.loyaltyItemName})` : ''}`} value={`− ${jod(detail.loyaltyDiscount || 0)}`} />}
-                  <div className="border-t border-white/10 pt-1.5 flex justify-between">
-                    <span className="text-sm font-bold">الإجماليّ</span>
-                    <span className="text-sm font-bold text-emerald-400 tabular-nums">{jod(detail.grandTotal)}</span>
-                  </div>
-                </div>
-
-                {/* حالة الحجز ورسوم اللعبة */}
-                <div className="text-[11px] text-[#8B9A92] mb-3 space-y-1">
-                  {detail.bookingIsFree && <p className="text-emerald-400">🎁 حجز اللاعب مجّانيّ في هذه الفعاليّة — لا رسوم لعبة</p>}
-                  {detail.bookingIsPaid && !detail.bookingIsFree && <p>✅ حجز اللاعب مدفوع مسبقاً — الرسوم حُصّلت من مسارها</p>}
-                  {detail.isPaid && <p className="text-emerald-400">💵 حُصّلت الفاتورة{detail.paidAt ? ` — ${new Date(detail.paidAt).toLocaleString('ar-JO', { hour: '2-digit', minute: '2-digit', month: 'short', day: 'numeric' })}` : ''}</p>}
-                </div>
-
-                {/* الإجراءات */}
-                <div className="space-y-2">
-                  <div className="flex gap-2">
-                    <button
-                      onClick={() => openPdf(openFor)} disabled={busyId === openFor.playerId}
-                      className="flex-1 py-2.5 rounded-xl text-sm font-bold bg-gradient-to-l from-[#D98A2B] to-[#C2751F] text-white disabled:opacity-50"
-                    >
-                      {busyId === openFor.playerId ? '⏳…' : detail.invoiceNo != null ? '🖨️ إعادة طباعة' : '🧾 إصدار فاتورة PDF'}
+                    </span>
+                  </button>
+                  {canPay && !paid && (
+                    <button type="button" onClick={() => openSheet(r, true)} aria-label={`حصّل من ${r.playerName}`}
+                      className="vc-press shrink-0 h-11 px-4 rounded-xl text-[14px] font-extrabold"
+                      style={{ background: EM.go, color: '#04231A' }}>
+                      حصّل
                     </button>
-                    {canPay && !detail.isPaid && (
-                      <button
-                        onClick={() => setPayFor(openFor)} disabled={payingId === openFor.playerId}
-                        className="px-4 py-2.5 rounded-xl text-sm font-bold bg-emerald-500/10 border border-emerald-500/40 text-emerald-300 disabled:opacity-50"
-                      >
-                        {payingId === openFor.playerId ? '⏳…' : '💵 تسجيل الدفع'}
-                      </button>
-                    )}
-                  </div>
-
-                  {/* 🎮 إسقاط رسوم اللعبة — لهذه الفعاليّة تحديداً */}
-                  {canPay && !detail.isPaid && !detail.bookingIsPaid && (
-                    detail.bookingIsFree ? (
-                      <button onClick={() => waiveFee(openFor, false)} disabled={payingId === openFor.playerId}
-                        className="w-full py-2 rounded-xl text-xs bg-white/5 border border-white/10 text-[#8B9A92] disabled:opacity-50">
-                        ↩️ إعادة احتساب رسوم اللعبة
-                      </button>
-                    ) : gameFeeEnabled && detail.gameFeeApplied ? (
-                      <button onClick={() => waiveFee(openFor, true)} disabled={payingId === openFor.playerId}
-                        className="w-full py-2 rounded-xl text-xs bg-amber-500/10 border border-amber-500/30 text-amber-300 disabled:opacity-50">
-                        🎁 إسقاط رسوم اللعبة (يجعل حجزه مجّانيّاً في هذه الفعاليّة)
-                      </button>
-                    ) : null
                   )}
                 </div>
-              </>
+              );
+            })}
+            {visible.length === 0 && (
+              <div className="text-center py-7 px-3 text-[14px] leading-relaxed" style={{ color: TX.dim }}>
+                {needle ? 'لا أحد بهذا الاسم أو المقعد'
+                  : rows.length === 0 ? 'لا طلبات ولا لاعبين في هذه الليلة بعد'
+                  : tab === 'due' ? 'حُصّل من الجميع في هذه الليلة'
+                  : 'لا فواتير محصّلة بعد'}
+              </div>
             )}
           </div>
-        </div>
-      )}
+        </>
+      ))}
 
-      {/* ══ 💵 ورقة تأكيد التحصيل ══ */}
-      {payFor && (
-        <div className="fixed inset-0 z-[90] bg-black/70 backdrop-blur-sm flex items-end sm:items-center justify-center"
-          onClick={() => payingId == null && setPayFor(null)}>
-          <div className="w-full max-w-sm bg-[#161B18] border-t sm:border border-[#2E3833] rounded-t-3xl sm:rounded-2xl p-5"
-            onClick={e => e.stopPropagation()}
-            style={{ paddingBottom: 'calc(20px + env(safe-area-inset-bottom))' }}>
-            <p className="text-[11px] text-[#8B9A92]">تحصيل فاتورة</p>
-            <h4 className="text-base font-bold truncate">{payFor.playerName}</h4>
-            <p className="text-[32px] font-black text-emerald-400 tabular-nums leading-tight mt-2">{jod(payFor.grandTotal)}</p>
-            <p className="text-[11px] text-[#8B9A92] mt-1 leading-relaxed">
-              {payFor.ordersCount} {payFor.ordersCount === 1 ? 'طلب' : 'طلبات'} {jod(payFor.ordersTotal)}
-              {payFor.waterCharge > 0 && <> · مياه {jod(payFor.waterCharge)}</>}
-              {payFor.minTopup > 0 && <> · حدّ أدنى {jod(payFor.minTopup)}</>}
-              {payFor.gameFee > 0 && <> · دخوليّة {jod(payFor.gameFee)}</>}
-              {(payFor.loyaltyDiscount || 0) > 0 && <> · 🎟️ خصم ولاء −{jod(payFor.loyaltyDiscount || 0)}</>}
-            </p>
-            <p className="text-[10.5px] text-[#5A6862] mt-2 leading-relaxed">
-              {payFor.gameFee > 0 && 'سيُسجَّل حجز اللاعب مدفوعاً باسمك. '}
-              {payFor.invoiceNo == null && 'ويُصدَر رقم الفاتورة تلقائيّاً — الطباعة اختياريّة بعدها.'}
-            </p>
-            <div className="flex gap-2 mt-4">
-              <button onClick={() => recordPayment(payFor)} disabled={payingId != null}
-                className="flex-1 py-3 rounded-xl text-sm font-extrabold disabled:opacity-50"
-                style={{ background: 'linear-gradient(140deg,#25C08A,#1A9E70)', color: '#04231A' }}>
-                {payingId != null ? '⏳ يُسجّل…' : '✅ أُقبض المبلغ'}
-              </button>
-              <button onClick={() => setPayFor(null)} disabled={payingId != null}
-                className="px-5 py-3 rounded-xl text-sm bg-white/5 border border-white/10 text-[#8B9A92] disabled:opacity-50">
-                إلغاء
-              </button>
+      {/* ══ ورقة الفاتورة ══ */}
+      <Sheet open={!!sheetRow} onClose={closeSheet}
+        title={sheetRow?.playerName}
+        subtitle={sheetSub}
+        lead={<SeatBadge seat={sheetRow?.seat ?? detail?.seat ?? null} size={40} />}>
+        {sheetRow && (
+          <>
+            {/* البنود والمجاميع */}
+            <div className="mt-3.5 rounded-[14px]" style={{ background: EM.ink2, border: `1px solid ${EM.line}`, padding: '4px 12px' }}>
+              {!detail ? (
+                <div className="py-2.5"><Skeleton h={36} n={3} /></div>
+              ) : (
+                <>
+                  {detail.lines.map((l, i) => {
+                    const opt = l.options.map(o => o.value).join(' · ');
+                    const comps = l.components.map(c => {
+                      const co = (c.options ?? []).map(o => o.value).join('/');
+                      return `${c.name}${co ? ` (${co})` : ''} ×${c.qty * l.quantity}`;
+                    }).join(' + ');
+                    return (
+                      <div key={i} className="flex gap-2 items-baseline text-[14px]" style={{ padding: '9px 0', borderBottom: `1px solid ${EM.line}` }}>
+                        <span className="vc-num" style={{ color: TX.dim, minWidth: 22 }}>×{l.quantity}</span>
+                        <span className="flex-1 min-w-0">
+                          {l.name}
+                          {opt && <span className="block text-[12.5px]" style={{ color: EM.opt }}>{opt}</span>}
+                          {comps && <span className="block text-[12.5px]" style={{ color: COMP_TX }}>{comps}</span>}
+                        </span>
+                        <span className="vc-num">{f2(l.lineTotal)}</span>
+                      </div>
+                    );
+                  })}
+                  {detail.lines.length === 0 && (
+                    <div className="text-[13.5px]" style={{ padding: '10px 0', color: TX.dim, borderBottom: `1px solid ${EM.line}` }}>
+                      لم يطلب شيئاً — لعب الليلة
+                    </div>
+                  )}
+                  {sheetTotals.map(t => (
+                    <div key={t.label} className="flex items-center gap-2 text-[14px]" style={{ padding: '8px 0' }}>
+                      <Swatch color={t.sw} size={8} />
+                      <span className="flex-1 min-w-0" style={{ color: TX.sub }}>{t.label}</span>
+                      <span className="vc-num">{t.v}</span>
+                    </div>
+                  ))}
+                </>
+              )}
+              <div className="flex justify-between items-baseline text-[16px] font-extrabold" style={{ padding: '10px 0 8px', borderTop: `1px solid ${EM.line2}` }}>
+                <span>الإجماليّ</span>
+                <Amount value={f2(shownTotal)} size={22} />
+              </div>
             </div>
-          </div>
+
+            {/* التحصيل بخطوتين — داخل الورقة نفسها */}
+            {isOpenRow && canPay && (step === 'confirm' ? (
+              <div className="vc-enter mt-3.5 rounded-2xl p-3.5" style={{ background: 'rgba(37,192,138,.08)', border: '1px solid rgba(37,192,138,.35)' }}>
+                <div className="text-[16px] font-extrabold">
+                  استلمتَ <span className="vc-num">{f2(shownTotal)}</span> د.أ من {sheetRow.playerName}؟
+                </div>
+                <div className="text-[12.5px] mt-1 leading-relaxed" style={{ color: TX.sub }}>
+                  يُثبَّت رقم الفاتورة وتُغلق على طلباتها. أيّ طلبٍ بعدها يفتح فاتورةً جديدة.
+                  {(detail?.gameFeeApplied ?? sheetRow.gameFee > 0) ? ' ويُسجَّل حجزه مدفوعاً باسمك.' : ''}
+                </div>
+                <div className="flex gap-2 mt-3">
+                  <Btn kind="go" h={52} className="flex-1" style={{ fontSize: 16 }} onClick={pay} disabled={busy}>
+                    {busy ? 'يُسجَّل…' : 'نعم، استلمت'}
+                  </Btn>
+                  <Btn kind="ghost" h={52} style={{ color: TX.sub, fontSize: 15 }} onClick={() => setStep('view')} disabled={busy}>
+                    رجوع
+                  </Btn>
+                </div>
+              </div>
+            ) : (
+              <Btn kind="go" h={54} full className="mt-3.5" style={{ fontSize: 16 }} onClick={() => { setWaiveOpen(false); setStep('confirm'); }} disabled={busy}>
+                حصّل <span className="vc-num">{f2(shownTotal)}</span> د.أ
+              </Btn>
+            ))}
+            {isOpenRow && !canPay && (
+              <div className="mt-3.5 text-[13px]" style={{ color: TX.dim }}>تسجيل التحصيل يحتاج صلاحيّة «تسجيل الدفع»</div>
+            )}
+
+            {!isOpenRow && (
+              <div className="mt-3.5 flex items-center gap-2 rounded-[14px] text-[14px] font-bold"
+                style={{ padding: '12px 14px', background: 'rgba(37,192,138,.08)', color: TX.good }}>
+                <Icon name="check" size={18} stroke={2.4} />
+                <span>
+                  حُصّلت · فاتورة <span className="vc-num">#{paidNoShown ?? ''}</span>
+                  {paidAtShown && <> · <span className="vc-num">{hhmm(paidAtShown)}</span></>}
+                  {sheetRow.paidByName && <span style={{ color: TX.dim, fontWeight: 600 }}> · {sheetRow.paidByName}</span>}
+                </span>
+              </div>
+            )}
+
+            {/* الطباعة والإسقاط */}
+            <div className="flex gap-2 mt-2.5">
+              <Btn kind="ghost" h={48} className="flex-1" style={{ fontSize: 14 }} onClick={printOne} disabled={printing}>
+                <Icon name="printer" size={18} /> {printing ? 'يُجهَّز…' : 'طباعة A6'}
+              </Btn>
+              {canWaive && !waiveOpen && (
+                <Btn kind="ghost" h={48} className="flex-1" style={{ fontSize: 14 }} disabled={busy}
+                  onClick={() => { setStep('view'); setWaiveOpen(true); }}>
+                  إسقاط الدخوليّة…
+                </Btn>
+              )}
+              {canRestore && (
+                <Btn kind="ghost" h={48} className="flex-1" style={{ fontSize: 14 }} disabled={busy} onClick={() => waive(false)}>
+                  إعادة احتساب الدخوليّة
+                </Btn>
+              )}
+            </div>
+
+            {canWaive && waiveOpen && (
+              <div className="vc-enter mt-2.5 rounded-2xl p-3.5" style={{ background: 'rgba(224,73,43,.08)', border: '1px solid rgba(224,73,43,.35)' }}>
+                <label className="block text-[14px] font-extrabold" htmlFor="waive-reason">
+                  إسقاط دخوليّة {sheetRow.playerName} — لماذا؟
+                </label>
+                <input id="waive-reason" value={reason} onChange={e => setReason(e.target.value)} autoFocus maxLength={200}
+                  placeholder="مثلاً: ضيف الإدارة، تعويض عن خطأ…"
+                  className="w-full mt-2 rounded-xl px-3 outline-none placeholder:text-[#5A6862]"
+                  style={{ height: 48, fontSize: 16, background: EM.ink, border: `1px solid ${EM.line2}`, color: EM.text }} />
+                <div className="flex gap-2 mt-2.5">
+                  <Btn kind="danger" h={48} className="flex-1" disabled={busy || reason.trim().length < 3} onClick={() => waive(true)}>
+                    {busy ? 'يُسجَّل…' : 'أسقط الدخوليّة'}
+                  </Btn>
+                  <Btn kind="ghost" h={48} style={{ color: TX.sub }} disabled={busy} onClick={() => { setWaiveOpen(false); setReason(''); }}>
+                    رجوع
+                  </Btn>
+                </div>
+              </div>
+            )}
+            {canWaive && (
+              <div className="text-[12px] mt-2" style={{ color: TX.dim }}>الإسقاط يطلب سبباً، ويُسجَّل باسمك ويظهر للإدارة.</div>
+            )}
+          </>
+        )}
+      </Sheet>
+
+      {/* ══ تأكيد طباعة الكلّ ══ */}
+      <Sheet open={printAllOpen} onClose={() => !printingAll && setPrintAllOpen(false)} maxWidth={440}
+        title={<>طباعة {pInvoices(rows.length)}؟</>}
+        subtitle={curNight ? nightLabel(curNight.activityDate) : undefined}>
+        <div className="text-[14px] mt-2 leading-relaxed" style={{ color: TX.sub }}>
+          تُثبَّت أرقامٌ للفواتير المفتوحة — إعادة الطباعة لاحقاً لا تستهلك أرقاماً جديدة.
         </div>
-      )}
-
-      {toast && (
-        <div className="fixed bottom-20 sm:bottom-6 left-1/2 -translate-x-1/2 z-[95] bg-[#1B211D] border border-emerald-500/30 rounded-xl px-4 py-2 text-sm shadow-xl max-w-[92vw] text-center">
-          {toast}
+        <div className="flex gap-2 mt-4">
+          <Btn kind="primary" h={52} className="flex-1" onClick={printAll} disabled={printingAll}>
+            <Icon name="printer" size={18} /> {printingAll ? 'يُجهَّز الملفّ…' : 'اطبع'}
+          </Btn>
+          <Btn kind="ghost" h={52} style={{ color: TX.sub }} onClick={() => setPrintAllOpen(false)} disabled={printingAll}>
+            رجوع
+          </Btn>
         </div>
-      )}
-    </div>
-  );
-}
+      </Sheet>
 
-function Kpi({ label, value, tone }: { label: string; value: string; tone: 'blue' | 'green' | 'amber' | 'white' }) {
-  const color = tone === 'green' ? '#34d399' : tone === 'amber' ? '#fbbf24' : tone === 'blue' ? '#60a5fa' : '#fff';
-  return (
-    <div className="rounded-xl px-3 py-2 text-center" style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.07)' }}>
-      <p className="text-sm font-bold tabular-nums" style={{ color }}>{value}</p>
-      <p className="text-[10px] text-[#8B9A92] mt-0.5">{label}</p>
-    </div>
-  );
-}
-
-function Row({ label, value, tone }: { label: string; value: string; tone?: 'amber' }) {
-  return (
-    <div className="flex justify-between text-xs">
-      <span className="text-[#8B9A92]">{label}</span>
-      <span className={`tabular-nums ${tone === 'amber' ? 'text-amber-400' : 'text-[#E8EFEA]'}`}>{value}</span>
+      <Toast toast={toast} onHide={hide} />
     </div>
   );
 }

@@ -339,12 +339,12 @@ export default function LocationsPage() {
                     <a href={`/admin/venues/invoices?locationId=${loc.id}`}
                       className="bg-amber-500/[0.06] border border-amber-500/20 rounded-lg p-2 text-center hover:border-amber-500/40 transition">
                       <p className="text-base leading-none mb-1">🧾</p>
-                      <p className="text-[10px] font-bold text-amber-400">الفواتير</p>
+                      <p className="text-[10px] font-bold text-amber-400">التحصيل</p>
                     </a>
                     <a href={`/admin/venues/revenue?locationId=${loc.id}`}
                       className="bg-violet-500/[0.06] border border-violet-500/20 rounded-lg p-2 text-center hover:border-violet-500/40 transition">
                       <p className="text-base leading-none mb-1">💰</p>
-                      <p className="text-[10px] font-bold text-violet-400">الدخل</p>
+                      <p className="text-[10px] font-bold text-violet-400">الحساب</p>
                     </a>
                   </div>
 

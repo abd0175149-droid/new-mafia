@@ -107,7 +107,7 @@ export default function VenueLocationPage() {
   const center = lat !== null && lng !== null ? { lat, lng } : null;
 
   return (
-    <div className="px-3 pb-24 pt-3 max-w-3xl mx-auto" dir="rtl">
+    <div dir="rtl">
 
       <div className="flex items-center gap-3 mb-3">
         <span className="w-9 h-9 rounded-xl grid place-items-center text-base shrink-0"
@@ -130,7 +130,7 @@ export default function VenueLocationPage() {
         {center ? '✓ الموقع مضبوط' : '⚠️ لم يُضبَط موقع هذا المكان بعد — لا يمكن تفعيل السياج على أيّ فعاليّة قبله'}
         {setAt && (
           <span className="mr-auto" style={{ color: EM.faint, fontFamily: MONO }}>
-            {setByName ? `${setByName} · ` : ''}{new Date(setAt).toLocaleString('ar-EG', { dateStyle: 'short', timeStyle: 'short' })}
+            {setByName ? `${setByName} · ` : ''}{new Date(setAt).toLocaleString('ar-JO', { dateStyle: 'short', timeStyle: 'short', timeZone: 'Asia/Amman' })}
           </span>
         )}
       </div>
