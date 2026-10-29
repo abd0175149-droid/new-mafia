@@ -7,7 +7,7 @@
 import { Router, type Request, type Response } from 'express';
 import { eq, and, ne, desc, asc, isNull, inArray, gte, lte, sql } from 'drizzle-orm';
 import { getDB } from '../config/db.js';
-import { menuItems, orders, orderItems, orderInvoices, menuCategories, menuOptionGroups, menuOptionValues, serviceRequests } from '../schemas/fnb.schema.js';
+import { menuItems, orders, orderItems, orderInvoices, menuCategories, menuOptionGroups, menuOptionValues, serviceRequests, venueHandovers, feeWaivers } from '../schemas/fnb.schema.js';
 import { activities, bookings, locations, staff } from '../schemas/admin.schema.js';
 import { sessions, sessionPlayers } from '../schemas/game.schema.js';
 import { players } from '../schemas/player.schema.js';
@@ -16,6 +16,7 @@ import { authenticate, requireVenuePermission } from '../middleware/auth.js';
 import { authenticatePlayer } from '../middleware/player-auth.middleware.js';
 import { sendPushToPlayer, sendPushToLocationStaff, sendPushToAdmins } from '../services/fcm.service.js';
 import { buildInvoiceData, issueInvoiceNumber, invoiceHtml, mergeInvoicePages, playersWhoPlayed, waterItemOf } from '../services/fnb-invoice.service.js';
+import { nightLedger, collectionNights, moneySummary, clubAccount, UNDO_WINDOW_MS } from '../services/fnb-ledger.service.js';
 import { resolveOptionGroups, validateSelections, type ChosenOption } from '../services/fnb-options.service.js';
 import { readSlots, slotItemIds, validateSlotsInput, resolveOrderSlots } from '../services/fnb-bundle.service.js';
 import { gateCheck, saveLastFix, isUsableFix } from '../services/geofence.service.js';
@@ -843,6 +844,11 @@ venueRouter.put('/orders/:id/status', authenticate, requireVenuePermission('orde
     if (!STATUS_FLOW[existing.status]?.includes(status)) {
       return res.status(400).json({ error: `لا يمكن الانتقال من «${existing.status}» إلى «${status}»` });
     }
+    // 🔒 طلبٌ داخل فاتورةٍ محصَّلة لا يُلغى: ثمنه قُبض نقداً، وإلغاؤه كان يُنزل «المبيع»
+    //    ويُبقي «المحصَّل» بلا استرداد مسجَّل (2026-10-30). التسليم والتحضير مسموحان.
+    if (status === 'cancelled' && existing.invoiceId != null) {
+      return res.status(409).json({ error: 'الطلب داخل فاتورةٍ محصَّلة — لا يُلغى. تراجع عن التحصيل أوّلاً إن كان خطأً' });
+    }
 
     // 🔒 الحارس على الحالة القديمة يقفل سباق check-then-update: موظّفان يضغطان
     //    معاً، أو إلغاء اللاعب الذرّيّ يسبق — الثاني يجد 0 صفوف فيُرفض لا يدوس
@@ -896,7 +902,21 @@ venueRouter.get('/invoice-activities', authenticate, requireVenuePermission('inv
   } catch (err: any) { res.status(500).json({ error: err.message }); }
 });
 
-// ── GET /invoices/candidates?activityId= — لاعبو الفعاليّة أصحاب الطلبات مع مجاميعهم ──
+// ── GET /collection-nights — ليالي التحصيل: آخر ٧ أيّام + الأقدم إن بقي فيها مال ──
+venueRouter.get('/collection-nights', authenticate, requireVenuePermission('invoices.print'), async (req: Request, res: Response) => {
+  const db = getDB();
+  if (!db) return res.status(503).json({ error: 'DB unavailable' });
+  const locId = resolveVenueLocation(req, res);
+  if (!locId) return;
+  try {
+    res.json({ success: true, nights: await collectionNights(db, locId) });
+  } catch (err: any) { res.status(500).json({ error: err.message }); }
+});
+
+// ── GET /invoices/candidates?activityId= — دفتر الليلة: سطرٌ لكلّ فاتورةٍ محصَّلة + سطرٌ مفتوح لمن عليه مال ──
+// 🧾 (2026-10-30) اللاعب قد يملك أكثر من فاتورة في الليلة: ما طلبه بعد التحصيل يفتح
+//    فاتورةً جديدة. الحقول القديمة باقية بأسمائها (playerId/grandTotal/isPaid…) فكلّ
+//    مستهلكٍ قديم يجد أوّل سطرٍ للّاعب كما كان.
 venueRouter.get('/invoices/candidates', authenticate, requireVenuePermission('invoices.print'), async (req: Request, res: Response) => {
   const db = getDB();
   if (!db) return res.status(503).json({ error: 'DB unavailable' });
@@ -905,142 +925,24 @@ venueRouter.get('/invoices/candidates', authenticate, requireVenuePermission('in
   const activityId = parseInt(String(req.query.activityId || ''));
   if (!Number.isFinite(activityId)) return res.status(400).json({ error: 'activityId مطلوب' });
   try {
-    const [act] = await db.select({
-      id: activities.id, addGameFee: activities.addGameFeeToBill, basePrice: activities.basePrice,
-    }).from(activities)
-      .where(and(eq(activities.id, activityId), eq(activities.locationId, locId), isNull(activities.deletedAt))).limit(1);
-    if (!act) return res.status(404).json({ error: 'الفعاليّة غير موجودة لهذا المكان' });
-
-    const rows: { playerId: number; playerName: string; bookingId: number | null; ordersCount: number; ordersTotal: string }[] =
-      await db.select({
-        playerId: orders.playerId,
-        playerName: sql<string>`max(${orders.playerName})`,
-        bookingId: sql<number>`max(${orders.bookingId})`,
-        ordersCount: sql<number>`count(*)::int`,
-        ordersTotal: sql<string>`sum(${orders.total})::text`,
-      }).from(orders)
-        .where(and(eq(orders.activityId, activityId), eq(orders.locationId, locId), ne(orders.status, 'cancelled')))
-        .groupBy(orders.playerId);
-
-    // 💳 الحدّ الأدنى: من لعب جولةً على الأقلّ يدخل الفوترة ولو بلا طلبات —
-    //    تكملته تظهر هنا كما ستظهر في فاتورته
-    const [locRow] = await db.select({
-      minChargeEnabled: locations.minChargeEnabled, minimumCharge: locations.minimumCharge,
-      autoWater: locations.autoWater,
-    }).from(locations).where(eq(locations.id, locId)).limit(1);
-    const minCharge = locRow?.minChargeEnabled === true ? parseFloat(locRow.minimumCharge || '0') : 0;
-    // 💧 الماء التلقائيّ: صنفه من المنيو الفعّال، ومن وصله ماءٌ من طلبه يُستثنى
-    const water = locRow?.autoWater === true ? await waterItemOf(db, locId) : null;
-    const waterOwners = water
-      ? new Set(((await db.execute(sql`
-          SELECT DISTINCT o.player_id FROM order_items oi
-          JOIN orders o ON o.id = oi.order_id
-          WHERE o.activity_id = ${activityId} AND o.location_id = ${locId} AND o.status != 'cancelled'
-            AND (oi.name_snapshot = ${water.name}
-                 OR oi.components_snapshot @> ${JSON.stringify([{ name: water.name }])}::jsonb)
-        `)) as any).rows.map((r: any) => Number(r.player_id)))
-      : new Set<number>();
-    const playedIds = (minCharge > 0 || water) ? new Set(await playersWhoPlayed(db, activityId)) : new Set<number>();
-
-    // 🧾 ومن له فاتورةٌ مُصدَرة يبقى مرشّحاً دائماً — فاتورة تكملةٍ محصَّلة
-    //    للاعبٍ بلا طلبات كانت ستختفي من الشاشة لو عُطّل الحدّ لاحقاً
-    const invoicedIds = (await db.select({ playerId: orderInvoices.playerId }).from(orderInvoices)
-      .where(and(eq(orderInvoices.locationId, locId), eq(orderInvoices.activityId, activityId))))
-      .map(i => i.playerId);
-
-    const zeroOrderPlayed = [...new Set([...playedIds, ...invoicedIds])]
-      .filter(pid => !rows.some(r => r.playerId === pid));
-    if (zeroOrderPlayed.length > 0) {
-      const names = await db.select({ id: players.id, name: players.name })
-        .from(players).where(inArray(players.id, zeroOrderPlayed));
-      const bks0 = await db.select({ id: bookings.id, playerId: bookings.playerId })
-        .from(bookings).where(and(
-          eq(bookings.activityId, activityId), inArray(bookings.playerId, zeroOrderPlayed), isNull(bookings.deletedAt)));
-      const bkByPlayer = new Map(bks0.map(b => [b.playerId, b.id]));
-      for (const pid of zeroOrderPlayed) {
-        rows.push({
-          playerId: pid,
-          playerName: names.find(n => n.id === pid)?.name || `لاعب #${pid}`,
-          bookingId: bkByPlayer.get(pid) ?? null,
-          ordersCount: 0,
-          ordersTotal: '0',
-        });
-      }
-    }
-
-    // حالة دفع الحجوزات (لسطر رسوم اللعبة) + الفواتير المُصدَرة سابقاً
-    const bookingIds = rows.map(r => Number(r.bookingId)).filter(Boolean);
-    const bks = bookingIds.length > 0
-      ? await db.select({ id: bookings.id, isPaid: bookings.isPaid, isFree: bookings.isFree })
-          .from(bookings).where(inArray(bookings.id, bookingIds))
-      : [];
-    const bkById = new Map(bks.map(b => [b.id, b]));
-    // 💸 السعر المقفول لكلّ حجز (سعر الدون المبكّر) — رسوم اللعبة تتبعه
-    let lockedFee = new Map<number, { price: number; promoId: number | null }>();
-    try { const { lockedPricesFor } = await import('../services/early-price.service.js'); lockedFee = await lockedPricesFor(bookingIds as number[]); } catch { /* سعر الفعاليّة */ }
-    const invs = await db.select({
-      playerId: orderInvoices.playerId, invoiceNo: orderInvoices.invoiceNo, printedAt: orderInvoices.printedAt,
-      isPaid: orderInvoices.isPaid, paidAt: orderInvoices.paidAt, gameFeeAmount: orderInvoices.gameFeeAmount,
-      minTopup: orderInvoices.minTopup, waterCharge: orderInvoices.waterCharge, loyaltyDiscount: orderInvoices.loyaltyDiscount,
-    }).from(orderInvoices)
-      .where(and(eq(orderInvoices.locationId, locId), eq(orderInvoices.activityId, activityId)));
-    const invByPlayer = new Map(invs.map(i => [i.playerId, i]));
-
-    // 🎟️ خصم مشروب الولاء الحيّ لغير المحصَّلين (لاعبون قلائل — استعلامٌ لكلّ لاعب مقبول)
-    const loyaltyByPlayer = new Map<number, number>();
-    try {
-      const { drinkDiscountFor } = await import('../services/loyalty.service.js');
-      for (const r of rows) {
-        const inv = invByPlayer.get(r.playerId);
-        if (inv?.isPaid) continue;
-        const d = await drinkDiscountFor(db, r.playerId, locId, activityId);
-        if (d.discount > 0) loyaltyByPlayer.set(r.playerId, d.discount);
-      }
-    } catch { /* بلا خصم */ }
-
+    const L = await nightLedger(db, locId, activityId);
+    if (!L) return res.status(404).json({ error: 'الفعاليّة غير موجودة لهذا المكان' });
     res.json({
       success: true,
-      gameFeeEnabled: act.addGameFee === true,
-      minChargeEnabled: minCharge > 0,
-      minimumCharge: minCharge,
-      autoWaterEnabled: water !== null,
-      waterPrice: water?.price ?? 0,
-      candidates: rows.map(r => {
-        const bk = bkById.get(Number(r.bookingId));
-        const gameFee = act.addGameFee === true && bk && bk.isPaid !== true && bk.isFree !== true
-          ? (lockedFee.get(Number(r.bookingId))?.price ?? parseFloat(act.basePrice || '0')) : 0;
-        const ordersTotal = parseFloat(r.ordersTotal || '0');
-        const inv = invByPlayer.get(r.playerId);
-        // فاتورةٌ محصَّلة تُجمَّد على لقطتها (رسوماً وتكملةً وماءً) — الحيّ يُحسب للبقيّة
-        const waterCharge = inv?.isPaid
-          ? parseFloat(inv.waterCharge || '0')
-          : (water && !waterOwners.has(r.playerId) ? water.price : 0);
-        const minTopup = inv?.isPaid
-          ? parseFloat(inv.minTopup || '0')
-          : (playedIds.has(r.playerId) ? Math.max(0, minCharge - (ordersTotal + waterCharge)) : 0);
-        const feeShown = inv?.isPaid ? parseFloat(inv.gameFeeAmount || '0') : gameFee;
-        const loyaltyDiscount = inv?.isPaid ? parseFloat((inv as any).loyaltyDiscount || '0') : (loyaltyByPlayer.get(r.playerId) || 0);
-        return {
-          playerId: r.playerId,
-          playerName: r.playerName,
-          ordersCount: r.ordersCount,
-          ordersTotal,
-          minTopup,
-          waterCharge,
-          loyaltyDiscount,
-          gameFee: feeShown,
-          grandTotal: Math.max(0, ordersTotal + waterCharge + minTopup + feeShown - loyaltyDiscount),
-          invoiceNo: inv?.invoiceNo ?? null,
-          printedAt: inv?.printedAt ?? null,
-          isPaid: inv?.isPaid === true,
-          paidAt: inv?.paidAt ?? null,
-        };
-      }),
+      activity: { id: L.activityId, name: L.activityName, date: L.activityDate },
+      gameFeeEnabled: L.gameFeeEnabled,
+      minChargeEnabled: L.minChargeEnabled,
+      minimumCharge: L.minimumCharge,
+      autoWaterEnabled: L.autoWaterEnabled,
+      waterPrice: L.waterPrice,
+      totals: L.totals,
+      candidates: L.rows,
     });
   } catch (err: any) { res.status(500).json({ error: err.message }); }
 });
 
 // ── GET /invoices/:activityId/:playerId — تفاصيل الفاتورة للعرض (بلا إصدار رقم) ──
+// بلا invoiceId: الفاتورة المفتوحة (ما لم يُقبض). ومع ?invoiceId=: لقطة فاتورةٍ محصَّلة.
 // القراءة لا تستهلك رقماً ولا تختم طباعةً — لذا تُفتح التفاصيل بحرّية.
 // 🔴 القيد الرقميّ (\d+) ضروريّ: بدونه يلتقط هذا المسار «print-all» كمعرّف لاعبٍ
 //    — فكان زرّ طباعة كلّ الفواتير يعيد 400 دائماً (اكتشفه الفحص الشامل 2026-08-10)
@@ -1051,18 +953,20 @@ venueRouter.get('/invoices/:activityId/:playerId(\\d+)', authenticate, requireVe
   if (!locId) return;
   const activityId = parseInt(req.params.activityId);
   const playerId = parseInt(req.params.playerId);
+  const invoiceId = parseInt(String(req.query.invoiceId || ''));
   if (!Number.isFinite(activityId) || !Number.isFinite(playerId)) return res.status(400).json({ error: 'معرّفات غير صالحة' });
   try {
-    const data = await buildInvoiceData(db, locId, activityId, playerId);
+    const data = await buildInvoiceData(db, locId, activityId, playerId, Number.isFinite(invoiceId) ? { invoiceId } : {});
     if ('error' in data) return res.status(404).json({ error: data.error });
 
-    const [inv] = await db.select().from(orderInvoices).where(and(
-      eq(orderInvoices.locationId, locId),
-      eq(orderInvoices.activityId, activityId),
-      eq(orderInvoices.playerId, playerId),
-    )).limit(1);
+    const [inv] = data.snapshotInvoiceId
+      ? await db.select().from(orderInvoices).where(eq(orderInvoices.id, data.snapshotInvoiceId)).limit(1)
+      : await db.select().from(orderInvoices).where(and(
+          eq(orderInvoices.locationId, locId), eq(orderInvoices.activityId, activityId),
+          eq(orderInvoices.playerId, playerId), eq(orderInvoices.isPaid, false),
+        )).limit(1);
 
-    // حالة الحجز — تشرح سبب وجود/غياب سطر رسوم اللعبة
+    // حالة الحجز — تشرح سبب وجود/غياب سطر الدخوليّة
     const [bk] = data.bookingId
       ? await db.select({ isPaid: bookings.isPaid, isFree: bookings.isFree })
           .from(bookings).where(eq(bookings.id, data.bookingId)).limit(1)
@@ -1072,6 +976,7 @@ venueRouter.get('/invoices/:activityId/:playerId(\\d+)', authenticate, requireVe
       success: true,
       invoice: {
         ...data,
+        invoiceId: inv?.id ?? null,
         invoiceNo: inv?.invoiceNo ?? null,
         printedAt: inv?.printedAt ?? null,
         isPaid: inv?.isPaid === true,
@@ -1083,8 +988,8 @@ venueRouter.get('/invoices/:activityId/:playerId(\\d+)', authenticate, requireVe
   } catch (err: any) { res.status(500).json({ error: err.message }); }
 });
 
-// ── POST /invoices/:activityId/:playerId/pdf — إصدار/إعادة طباعة فاتورة A6 (inline PDF) ──
-// يثبّت الرقم التسلسليّ ويسجّل التدقيق ثم يعيد الـPDF مباشرة.
+// ── POST /invoices/:activityId/:playerId/pdf[?invoiceId=] — إصدار/إعادة طباعة فاتورة A6 (inline PDF) ──
+// يثبّت الرقم التسلسليّ ويسجّل التدقيق ثم يعيد الـPDF مباشرة. مع invoiceId تُطبع لقطة المحصَّلة.
 venueRouter.post('/invoices/:activityId/:playerId/pdf', authenticate, requireVenuePermission('invoices.print'), async (req: Request, res: Response) => {
   const db = getDB();
   if (!db) return res.status(503).json({ error: 'DB unavailable' });
@@ -1092,9 +997,10 @@ venueRouter.post('/invoices/:activityId/:playerId/pdf', authenticate, requireVen
   if (!locId) return;
   const activityId = parseInt(req.params.activityId);
   const playerId = parseInt(req.params.playerId);
+  const invoiceId = parseInt(String(req.query.invoiceId || req.body?.invoiceId || ''));
   if (!Number.isFinite(activityId) || !Number.isFinite(playerId)) return res.status(400).json({ error: 'معرّفات غير صالحة' });
   try {
-    const data = await buildInvoiceData(db, locId, activityId, playerId);
+    const data = await buildInvoiceData(db, locId, activityId, playerId, Number.isFinite(invoiceId) ? { invoiceId } : {});
     if ('error' in data) return res.status(404).json({ error: data.error });
 
     const invoiceNo = await issueInvoiceNumber(db, data, req.venueStaff!.id);
@@ -1235,10 +1141,13 @@ venueRouter.get('/revenue', authenticate, requireVenuePermission('invoices.print
   }
 });
 
-// ── POST /invoices/:activityId/:playerId/pay — تحصيل الفاتورة كاملةً ──
+// ── POST /invoices/:activityId/:playerId/pay — تحصيل الفاتورة المفتوحة كاملةً ──
 // 🎯 توحيد 2026-08-06 (القرار 4): الدفع الكامل فقط — لا دفعات جزئيّة.
-// إن حملت الفاتورة سطر رسوم اللعبة يُقلَب الحجز إلى مدفوع داخل المعاملة نفسها،
-// فتدخل الرسوم تقارير الإيراد فوراً بلا خطوة يدويّة في صفحة الحجوزات.
+// إن حملت الفاتورة سطر الدخوليّة يُقلَب الحجز إلى مدفوع داخل المعاملة نفسها،
+// فتدخل الدخوليّة تقارير الإيراد فوراً بلا خطوة يدويّة في صفحة الحجوزات.
+// 🧾 (2026-10-30) التحصيل يختم طلبات الفاتورة بها — ما يُطلب بعده يفتح فاتورةً جديدة
+//    لا يضيع. و expectedTotal (اختياريّ) يمنع قبض مبلغٍ غير الذي رآه الكاشير:
+//    طلبٌ وصل بين فتح الورقة والضغط يغيّر الإجماليّ فيُرفض بـ409 ليراجعه.
 venueRouter.post('/invoices/:activityId/:playerId/pay', authenticate, requireVenuePermission('payments.record'), async (req: Request, res: Response) => {
   const db = getDB();
   if (!db) return res.status(503).json({ error: 'DB unavailable' });
@@ -1249,35 +1158,36 @@ venueRouter.post('/invoices/:activityId/:playerId/pay', authenticate, requireVen
   if (!Number.isFinite(activityId) || !Number.isFinite(playerId)) return res.status(400).json({ error: 'معرّفات غير صالحة' });
 
   try {
-    // المجاميع تُعاد من الطلبات الحاليّة — لا نثق بمجاميع مخزّنة قد تكون قديمة (طلبٌ أُضيف بعد الطباعة)
+    // المجاميع تُعاد من الطلبات المفتوحة الآن — لا نثق بمجاميع مخزّنة قد تكون قديمة
     const data = await buildInvoiceData(db, locId, activityId, playerId);
     if ('error' in data) return res.status(404).json({ error: data.error });
+    if (data.orderIds.length === 0 && data.grandTotal <= 0) {
+      return res.status(400).json({ error: 'لا شيء مستحقّ على هذا اللاعب الآن' });
+    }
+    const expected = req.body?.expectedTotal;
+    if (expected != null && expected !== '' && Number.isFinite(Number(expected))
+      && Math.abs(Number(expected) - data.grandTotal) > 0.004) {
+      return res.status(409).json({ error: 'تغيّر المبلغ للتوّ — وصل طلبٌ جديد. راجع الفاتورة ثمّ حصّل', grandTotal: data.grandTotal });
+    }
 
     const staffId = req.venueStaff!.id;
     const receiverName = req.user?.displayName || req.user?.username || '';
 
-    // 💵 التحصيل يُصدر رقم الفاتورة بنفسه إن لم يُصدَر بعد (قرار 2026-08-12):
-    //    كان يردّ «أصدر الفاتورة أوّلاً» فيفرض على الكاشير فتح PDF في تبويبٍ
-    //    آخر ثمّ العودة — ترتيبٌ لا مبرّر له. الترقيم يبقى تسلسليّاً بنفس
-    //    القفل الاستشاريّ داخل issueInvoiceNumber، والطباعة صارت اختياريّة.
-    let [inv] = await db.select().from(orderInvoices).where(and(
+    // 💵 التحصيل يُصدر رقم الفاتورة بنفسه إن لم يُصدَر بعد (قرار 2026-08-12)
+    const openRow = async () => (await db.select().from(orderInvoices).where(and(
       eq(orderInvoices.locationId, locId),
       eq(orderInvoices.activityId, activityId),
       eq(orderInvoices.playerId, playerId),
-    )).limit(1);
+      eq(orderInvoices.isPaid, false),
+    )).limit(1))[0];
+    let inv = await openRow();
     if (!inv) {
       await issueInvoiceNumber(db, data, staffId);
-      [inv] = await db.select().from(orderInvoices).where(and(
-        eq(orderInvoices.locationId, locId),
-        eq(orderInvoices.activityId, activityId),
-        eq(orderInvoices.playerId, playerId),
-      )).limit(1);
+      inv = await openRow();
       if (!inv) return res.status(500).json({ error: 'تعذّر إصدار رقم الفاتورة' });
     }
-    if (inv.isPaid === true) return res.status(400).json({ error: 'الفاتورة محصَّلة مسبقاً' });
 
-    // 🔒 isPaid=false داخل الشرط: كاشيران يضغطان معاً — الثاني يجد 0 صفوف
-    //    فيُرفض، ولا يضيع اسم من حصّل فعلاً من سجلّ التدقيق
+    // 🔒 isPaid=false داخل الشرط: كاشيران يضغطان معاً — الثاني يجد 0 صفوف فيُرفض
     let paidRow: any = null;
     await db.transaction(async (tx) => {
       const [row] = await tx.update(orderInvoices).set({
@@ -1289,18 +1199,28 @@ venueRouter.post('/invoices/:activityId/:playerId/pay', authenticate, requireVen
         gameFeeApplied: data.gameFeeApplied,
         gameFeeAmount: data.gameFeeAmount.toFixed(2),
         grandTotal: data.grandTotal.toFixed(2),
+        bookingId: data.bookingId,
         isPaid: true, paidAt: new Date(), paidBy: staffId,
       } as any).where(and(eq(orderInvoices.id, inv.id), eq(orderInvoices.isPaid, false))).returning();
       paidRow = row;
       if (!row) return;
 
-      // رسوم اللعبة محصَّلة عند المكان ⇒ الحجز صار مدفوعاً باسم موظّف المكان
+      // 🧾 الطلبات التي حسبناها تُختم بهذه الفاتورة — ما وصل بعد الحساب يبقى مفتوحاً
+      if (data.orderIds.length > 0) {
+        await tx.update(orders).set({ invoiceId: inv.id } as any)
+          .where(and(inArray(orders.id, data.orderIds), isNull(orders.invoiceId)));
+      }
+
+      // الدخوليّة محصَّلة عند المكان ⇒ الحجز صار مدفوعاً باسم موظّف المكان
       if (data.gameFeeApplied && data.gameFeeAmount > 0 && data.bookingId) {
-        await tx.update(bookings).set({
+        const flipped = await tx.update(bookings).set({
           isPaid: true,
           paidAmount: data.gameFeeAmount.toFixed(2),
           receivedBy: receiverName,
-        } as any).where(and(eq(bookings.id, data.bookingId), eq(bookings.isPaid, false)));
+        } as any).where(and(eq(bookings.id, data.bookingId), eq(bookings.isPaid, false))).returning({ id: bookings.id });
+        if (flipped.length > 0) {
+          await tx.update(orderInvoices).set({ feeBookingFlipped: true } as any).where(eq(orderInvoices.id, inv.id));
+        }
       }
     });
     if (!paidRow) return res.status(400).json({ error: 'الفاتورة محصَّلة مسبقاً' });
@@ -1310,11 +1230,19 @@ venueRouter.post('/invoices/:activityId/:playerId/pay', authenticate, requireVen
       try { const { redeemDrinkOnInvoice } = await import('../services/loyalty.service.js'); await redeemDrinkOnInvoice(data.loyaltyRewardId, inv.id, data.loyaltyDiscount, data.loyaltyItemName, staffId); } catch { /* غير حاجب */ }
     }
 
+    // كلّ أجهزة المكان تحدّث شاشة التحصيل
+    const io = req.app.get('io');
+    if (io) io.to(`location:${locId}`).emit('fnb:invoice-updated', { activityId, playerId, invoiceId: inv.id, isPaid: true });
+
+    const paidAt = paidRow.paidAt ? new Date(paidRow.paidAt) : new Date();
     res.json({
       success: true,
+      invoiceId: inv.id,
       invoiceNo: inv.invoiceNo,
       grandTotal: data.grandTotal,
       gameFeeSettled: data.gameFeeApplied ? data.gameFeeAmount : 0,
+      paidAt,
+      canUndoUntil: data.loyaltyDiscount > 0 ? null : new Date(paidAt.getTime() + UNDO_WINDOW_MS).toISOString(),
     });
   } catch (err: any) {
     console.error('❌ fnb invoice pay:', err.message);
@@ -1322,10 +1250,65 @@ venueRouter.post('/invoices/:activityId/:playerId/pay', authenticate, requireVen
   }
 });
 
-// ── POST /invoices/:activityId/:playerId/waive-fee — إسقاط رسوم اللعبة ──
-// يجعل حجز اللاعب **مجّانيّاً لهذه الفعاليّة تحديداً** (bookings.is_free)، فيسقط
-// سطر الرسوم من فاتورته ولا يظهر كمستحقٍّ في التقارير. عمليّة مرئيّة تُسجَّل
-// باسم من نفّذها — لذا تتطلّب صلاحيّة التحصيل لا مجرّد الطباعة.
+// ── POST /invoices/unpay/:invoiceId — ↩️ التراجع عن تحصيلٍ خاطئ (2026-10-30) ──
+// الكاشير ضغط على الاسم الخطأ: يعود خلال مهلةٍ قصيرة بلا تدخّل الإدارة. التراجع يعيد
+// الفاتورة مفتوحةً برقمها، ويفكّ ختم طلباتها، ويعيد الحجز غير مدفوع **فقط إن كان التحصيل
+// هو من قلبه**. لمن حصّلها نفسه داخل المهلة؛ والأدمن في أيّ وقت. فاتورةٌ فيها مشروب
+// ولاءٍ مستهلَك لا تُعاد من الكونسول (المكافأة استُهلكت) — من الإدارة.
+venueRouter.post('/invoices/unpay/:invoiceId', authenticate, requireVenuePermission('payments.record'), async (req: Request, res: Response) => {
+  const db = getDB();
+  if (!db) return res.status(503).json({ error: 'DB unavailable' });
+  const locId = resolveVenueLocation(req, res);
+  if (!locId) return;
+  const invoiceId = parseInt(req.params.invoiceId);
+  if (!Number.isFinite(invoiceId)) return res.status(400).json({ error: 'معرّف غير صالح' });
+  try {
+    const [inv] = await db.select().from(orderInvoices)
+      .where(and(eq(orderInvoices.id, invoiceId), eq(orderInvoices.locationId, locId))).limit(1);
+    if (!inv) return res.status(404).json({ error: 'الفاتورة غير موجودة' });
+    if (inv.isPaid !== true) return res.status(400).json({ error: 'الفاتورة غير محصَّلة' });
+
+    const me = req.venueStaff!;
+    const isAdmin = me.role === 'admin';
+    if (!isAdmin && inv.paidBy !== me.id) return res.status(403).json({ error: 'التراجع لمن حصّلها فقط' });
+    const age = inv.paidAt ? Date.now() - new Date(inv.paidAt).getTime() : Infinity;
+    if (!isAdmin && age > UNDO_WINDOW_MS) return res.status(400).json({ error: 'انتهت مهلة التراجع — راجع الإدارة' });
+    if (parseFloat(String((inv as any).loyaltyDiscount || '0')) > 0 && !isAdmin) {
+      return res.status(400).json({ error: 'فيها مشروب بطاقة ولاء — التراجع من الإدارة' });
+    }
+    const [other] = await db.select({ id: orderInvoices.id }).from(orderInvoices).where(and(
+      eq(orderInvoices.locationId, locId), eq(orderInvoices.activityId, inv.activityId),
+      eq(orderInvoices.playerId, inv.playerId), eq(orderInvoices.isPaid, false))).limit(1);
+    if (other) return res.status(409).json({ error: 'للّاعب فاتورةٌ مفتوحةٌ أخرى الآن — حصّلها أو راجع الإدارة' });
+
+    let undone = false;
+    await db.transaction(async (tx) => {
+      const [row] = await tx.update(orderInvoices).set({
+        isPaid: false, paidAt: null, paidBy: null, unpaidAt: new Date(), unpaidBy: me.id, feeBookingFlipped: false,
+      } as any).where(and(eq(orderInvoices.id, inv.id), eq(orderInvoices.isPaid, true))).returning({ id: orderInvoices.id });
+      if (!row) return;
+      undone = true;
+      await tx.update(orders).set({ invoiceId: null } as any).where(eq(orders.invoiceId, inv.id));
+      if (inv.feeBookingFlipped === true && inv.bookingId) {
+        await tx.update(bookings).set({ isPaid: false, paidAmount: '0', receivedBy: '' } as any)
+          .where(and(eq(bookings.id, inv.bookingId), eq(bookings.isPaid, true)));
+      }
+    });
+    if (!undone) return res.status(409).json({ error: 'تغيّرت الفاتورة للتوّ — حدّث الشاشة' });
+
+    const io = req.app.get('io');
+    if (io) io.to(`location:${locId}`).emit('fnb:invoice-updated', { activityId: inv.activityId, playerId: inv.playerId, invoiceId: inv.id, isPaid: false });
+    res.json({ success: true, invoiceNo: inv.invoiceNo });
+  } catch (err: any) {
+    console.error('❌ fnb invoice unpay:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ── POST /invoices/:activityId/:playerId/waive-fee — إسقاط الدخوليّة ──
+// يجعل حجز اللاعب **مجّانيّاً لهذه الفعاليّة تحديداً** (bookings.is_free)، فيسقط سطر
+// الدخوليّة من فاتورته. الدخوليّة مال النادي: الإسقاط يتطلّب سبباً ويُسجَّل في
+// fee_waivers باسم من نفّذه (2026-10-30) — وتظهر للإدارة.
 venueRouter.post('/invoices/:activityId/:playerId/waive-fee', authenticate, requireVenuePermission('payments.record'), async (req: Request, res: Response) => {
   const db = getDB();
   if (!db) return res.status(503).json({ error: 'DB unavailable' });
@@ -1334,17 +1317,28 @@ venueRouter.post('/invoices/:activityId/:playerId/waive-fee', authenticate, requ
   const activityId = parseInt(req.params.activityId);
   const playerId = parseInt(req.params.playerId);
   const waive = req.body?.waive !== false;   // افتراضاً إسقاط، و false يعيدها
+  const reason = String(req.body?.reason || '').trim().slice(0, 300);
   if (!Number.isFinite(activityId) || !Number.isFinite(playerId)) return res.status(400).json({ error: 'معرّفات غير صالحة' });
+  if (waive && reason.length < 3) return res.status(400).json({ error: 'اكتب سبب إسقاط الدخوليّة' });
 
   try {
-    // الحجز يُستخرج من طلبات اللاعب في هذه الفعاليّة (نفس مصدر الفاتورة)
+    // الحجز: من طلبات اللاعب في الفعاليّة، وإلّا من حجزه مباشرةً (من لعب بلا طلبات)
     const [row] = await db.select({ bookingId: orders.bookingId }).from(orders)
       .where(and(eq(orders.activityId, activityId), eq(orders.locationId, locId), eq(orders.playerId, playerId)))
       .limit(1);
-    if (!row?.bookingId) return res.status(404).json({ error: 'لا حجز مرتبط بطلبات هذا اللاعب' });
+    let bookingId: number | null = row?.bookingId ?? null;
+    if (!bookingId) {
+      const [act] = await db.select({ id: activities.id }).from(activities)
+        .where(and(eq(activities.id, activityId), eq(activities.locationId, locId))).limit(1);
+      if (!act) return res.status(404).json({ error: 'الفعاليّة غير موجودة لهذا المكان' });
+      const [bk0] = await db.select({ id: bookings.id }).from(bookings)
+        .where(and(eq(bookings.activityId, activityId), eq(bookings.playerId, playerId), isNull(bookings.deletedAt))).limit(1);
+      bookingId = bk0?.id ?? null;
+    }
+    if (!bookingId) return res.status(404).json({ error: 'لا حجز لهذا اللاعب في هذه الفعاليّة' });
 
     const [bk] = await db.select({ isPaid: bookings.isPaid }).from(bookings)
-      .where(eq(bookings.id, row.bookingId)).limit(1);
+      .where(eq(bookings.id, bookingId)).limit(1);
     if (!bk) return res.status(404).json({ error: 'الحجز غير موجود' });
     if (waive && bk.isPaid === true) {
       return res.status(400).json({ error: 'الحجز مدفوع مسبقاً — لا يمكن جعله مجّانيّاً' });
@@ -1354,20 +1348,26 @@ venueRouter.post('/invoices/:activityId/:playerId/waive-fee', authenticate, requ
       isFree: waive,
       // مجّانيّ = لا مبلغ مستحقّ؛ وإلغاء المجّانيّة يعيده غير مدفوع
       ...(waive ? { paidAmount: '0' } : {}),
-    } as any).where(eq(bookings.id, row.bookingId));
+    } as any).where(eq(bookings.id, bookingId));
 
-    // فاتورةٌ صادرة تُحدَّث مجاميعها لتوافق الحالة الجديدة
-    const [inv] = await db.select({ id: orderInvoices.id, isPaid: orderInvoices.isPaid }).from(orderInvoices)
-      .where(and(eq(orderInvoices.locationId, locId), eq(orderInvoices.activityId, activityId), eq(orderInvoices.playerId, playerId)))
+    await db.insert(feeWaivers).values({
+      locationId: locId, activityId, playerId, bookingId, waived: waive,
+      reason, staffId: req.venueStaff!.id,
+    } as any);
+
+    // الفاتورة المفتوحة تُحدَّث مجاميعها لتوافق الحالة الجديدة
+    const [inv] = await db.select({ id: orderInvoices.id }).from(orderInvoices)
+      .where(and(eq(orderInvoices.locationId, locId), eq(orderInvoices.activityId, activityId),
+        eq(orderInvoices.playerId, playerId), eq(orderInvoices.isPaid, false)))
       .limit(1);
-    if (inv && inv.isPaid !== true) {
+    if (inv) {
       const data = await buildInvoiceData(db, locId, activityId, playerId);
       if (!('error' in data)) {
         await db.update(orderInvoices).set({
           gameFeeApplied: data.gameFeeApplied,
           gameFeeAmount: data.gameFeeAmount.toFixed(2),
           grandTotal: data.grandTotal.toFixed(2),
-        } as any).where(eq(orderInvoices.id, inv.id));
+        } as any).where(and(eq(orderInvoices.id, inv.id), eq(orderInvoices.isPaid, false)));
       }
     }
 
@@ -1376,8 +1376,7 @@ venueRouter.post('/invoices/:activityId/:playerId/waive-fee', authenticate, requ
 });
 
 // ── GET /invoices/:activityId/print-all — كل فواتير الفعاليّة في PDF واحد ──
-// A6 لكل لاعب متتاليةً — يُطبع دفعةً واحدة بدل فتح فاتورةٍ فاتورة.
-// يثبّت أرقام من لم تُصدَر فاتورته بعد (نفس قفل الترقيم).
+// A6 لكل فاتورة متتاليةً: المفتوحة تُصدَر أرقامها (نفس قفل الترقيم)، والمحصَّلة بلقطاتها.
 venueRouter.get('/invoices/:activityId/print-all', authenticate, requireVenuePermission('invoices.print'), async (req: Request, res: Response) => {
   const db = getDB();
   if (!db) return res.status(503).json({ error: 'DB unavailable' });
@@ -1387,28 +1386,14 @@ venueRouter.get('/invoices/:activityId/print-all', authenticate, requireVenuePer
   if (!Number.isFinite(activityId)) return res.status(400).json({ error: 'معرّف غير صالح' });
 
   try {
-    const rows = await db.selectDistinct({ playerId: orders.playerId }).from(orders)
-      .where(and(eq(orders.activityId, activityId), eq(orders.locationId, locId), ne(orders.status, 'cancelled')));
-    // 💳 مع الحدّ الأدنى: من لعب بلا طلباتٍ له فاتورة تكملةٍ تُطبع مع البقيّة —
-    //    ومن له فاتورةٌ مُصدَرة يُطبع دائماً (لقطته محفوظة ولو تغيّرت الإعدادات)
-    const [locMin] = await db.select({ en: locations.minChargeEnabled, water: locations.autoWater })
-      .from(locations).where(eq(locations.id, locId)).limit(1);
-    const extraIds = new Set<number>(
-      (await db.select({ playerId: orderInvoices.playerId }).from(orderInvoices)
-        .where(and(eq(orderInvoices.locationId, locId), eq(orderInvoices.activityId, activityId))))
-        .map(i => i.playerId));
-    if (locMin?.en === true || locMin?.water === true) {
-      for (const pid of await playersWhoPlayed(db, activityId)) extraIds.add(pid);
-    }
-    for (const pid of extraIds) {
-      if (!rows.some(r => r.playerId === pid)) rows.push({ playerId: pid });
-    }
-    if (rows.length === 0) return res.status(404).json({ error: 'لا فواتير لهذه الفعاليّة' });
+    const L = await nightLedger(db, locId, activityId);
+    if (!L || L.rows.length === 0) return res.status(404).json({ error: 'لا فواتير لهذه الفعاليّة' });
 
     const printedByName = req.user?.displayName || req.user?.username || '';
     const pages: string[] = [];
-    for (const r of rows) {
-      const data = await buildInvoiceData(db, locId, activityId, r.playerId);
+    for (const r of L.rows) {
+      const data = await buildInvoiceData(db, locId, activityId, r.playerId,
+        r.kind === 'paid' && r.invoiceId ? { invoiceId: r.invoiceId } : {});
       if ('error' in data) continue;
       const no = await issueInvoiceNumber(db, data, req.venueStaff!.id);
       pages.push(invoiceHtml(data, no, printedByName));
@@ -1423,6 +1408,52 @@ venueRouter.get('/invoices/:activityId/print-all', authenticate, requireVenuePer
     console.error('❌ fnb print-all:', err.message);
     res.status(500).json({ error: err.message });
   }
+});
+
+// ════════════════════════════════════════════
+// 💰 الحساب — /api/venue/money (2026-10-30)
+// كم حصّل المكان، وكم له، وكم للنادي، والباقي عليه للنادي، وما لم يُحصَّل.
+// صلاحيّةٌ مستقلّة (finance.view): الكاشير يحصّل ولا يرى التسويات.
+// ════════════════════════════════════════════
+venueRouter.get('/money', authenticate, requireVenuePermission('finance.view'), async (req: Request, res: Response) => {
+  const db = getDB();
+  if (!db) return res.status(503).json({ error: 'DB unavailable' });
+  const locId = resolveVenueLocation(req, res);
+  if (!locId) return;
+  const period = ['night', 'week', 'month'].includes(String(req.query.period)) ? String(req.query.period) : 'night';
+  const activityId = parseInt(String(req.query.activityId || ''));
+  try {
+    res.json({ success: true, ...(await moneySummary(db, locId, period, Number.isFinite(activityId) ? activityId : undefined)) });
+  } catch (err: any) {
+    console.error('❌ fnb money:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ── POST /handovers — المكان يصرّح بتسليم دخوليّاتٍ للنادي (تنتظر تأكيد الإدارة) ──
+venueRouter.post('/handovers', authenticate, requireVenuePermission('finance.view'), async (req: Request, res: Response) => {
+  const db = getDB();
+  if (!db) return res.status(503).json({ error: 'DB unavailable' });
+  const locId = resolveVenueLocation(req, res);
+  if (!locId) return;
+  const amount = Math.round(parseFloat(String(req.body?.amount ?? '')) * 100) / 100;
+  const toLabel = String(req.body?.toLabel || '').trim().slice(0, 80);
+  const note = String(req.body?.note || '').trim().slice(0, 300);
+  if (!(amount > 0)) return res.status(400).json({ error: 'اكتب مبلغاً أكبر من صفر' });
+  try {
+    const acc = await clubAccount(db, locId);
+    if (amount > acc.remainingForVenue + 0.004) {
+      return res.status(400).json({ error: `أكبر من الباقي عليك (${acc.remainingForVenue.toFixed(2)})` });
+    }
+    const [h] = await db.insert(venueHandovers).values({
+      locationId: locId, amount: amount.toFixed(2), toLabel, note, status: 'pending', declaredBy: req.venueStaff!.id,
+    } as any).returning();
+    const [loc] = await db.select({ name: locations.name }).from(locations).where(eq(locations.id, locId)).limit(1);
+    sendPushToAdmins('🤝 تسليمٌ بانتظار تأكيدك', `${loc?.name || 'مكان'} يقول إنّه سلّم ${amount.toFixed(2)} د.أ${toLabel ? ` لـ${toLabel}` : ''}`, 'system', {
+      url: '/admin/venue-settlements',
+    }).catch(() => {});
+    res.json({ success: true, handover: h });
+  } catch (err: any) { res.status(500).json({ error: err.message }); }
 });
 
 // ════════════════════════════════════════════
@@ -2053,17 +2084,10 @@ playerFnbRouter.post('/orders/:id/cancel', authenticatePlayer, async (req: Reque
   try {
     // 🔴 قيمة الطلب قد تكون داخل فاتورةٍ حُصِّلت نقداً: إلغاؤه بعدها يجعل المكان
     //    قابضاً ثمن طلبٍ ملغى وتقارير الدخل تسقطه — الإلغاء بعد التحصيل بيد المكان لا اللاعب
-    const [target] = await db.select({ activityId: orders.activityId }).from(orders)
+    //    (2026-10-30) الحارس على الطلب نفسه: ما طُلب بعد التحصيل في فاتورةٍ جديدة يُلغى عاديّاً
+    const [target] = await db.select({ invoiceId: orders.invoiceId }).from(orders)
       .where(and(eq(orders.id, id), eq(orders.playerId, playerId))).limit(1);
-    if (target) {
-      const [paidInv] = await db.select({ id: orderInvoices.id }).from(orderInvoices)
-        .where(and(
-          eq(orderInvoices.activityId, target.activityId),
-          eq(orderInvoices.playerId, playerId),
-          eq(orderInvoices.isPaid, true),
-        )).limit(1);
-      if (paidInv) return res.status(400).json({ error: 'فاتورتك حُصِّلت — راجع المكان لأيّ تعديل' });
-    }
+    if (target?.invoiceId != null) return res.status(400).json({ error: 'فاتورتك حُصِّلت — راجع المكان لأيّ تعديل' });
 
     const [o] = await db.update(orders).set({ status: 'cancelled', statusChangedAt: new Date() } as any)
       .where(and(eq(orders.id, id), eq(orders.playerId, playerId), eq(orders.status, 'new')))

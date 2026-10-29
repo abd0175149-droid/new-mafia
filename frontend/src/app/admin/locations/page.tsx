@@ -107,11 +107,13 @@ export default function LocationsPage() {
     { id: 'menu.manage', label: '📋 إدارة المنيو' },
     { id: 'payments.record', label: '💵 تسجيل التحصيل' },
     { id: 'service.shisha', label: '💨 خدمة الأرجيلة (فحم/تزبيط)' },
+    { id: 'finance.view', label: '💰 الحساب والتسويات' },
+    { id: 'location.geofence', label: '📍 موقع المكان' },
   ];
 
   // 👥 مجموعات صلاحيات جاهزة — أنواع موظّفي المكان (الدور واحد: location_owner)
   const PERM_PRESETS = [
-    { key: 'owner', label: '👑 صاحب المكان', perms: ['orders.receive', 'orders.manage', 'invoices.print', 'menu.manage', 'payments.record', 'service.shisha'] },
+    { key: 'owner', label: '👑 صاحب المكان', perms: ['orders.receive', 'orders.manage', 'invoices.print', 'menu.manage', 'payments.record', 'service.shisha', 'finance.view', 'location.geofence'] },
     { key: 'cashier', label: '💵 كاشير', perms: ['invoices.print', 'payments.record'] },
     { key: 'prep', label: '👨‍🍳 موظّف تحضير', perms: ['orders.receive', 'orders.manage', 'service.shisha'] },
     { key: 'kds', label: '📺 شاشة مطبخ', perms: ['orders.receive'] },

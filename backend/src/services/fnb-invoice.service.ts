@@ -40,6 +40,13 @@ export interface InvoiceData {
   gameFeeApplied: boolean;
   gameFeeAmount: number;
   grandTotal: number;
+  /** الطلبات التي تغطّيها هذه الفاتورة — التحصيل يختمها بها */
+  orderIds: number[];
+  /** مقعد اللاعب (آخر مقعدٍ جلس عليه في الفعاليّة) — للطباعة والبحث */
+  seat: number | null;
+  /** لقطة فاتورةٍ محصَّلة بعينها (لا الجزء المفتوح) — تُطبع بمجاميعها المجمَّدة */
+  snapshotInvoiceId: number | null;
+  paidAt: Date | null;
 }
 
 /** هل لعب اللاعب جولةً واحدة على الأقلّ في هذه الفعاليّة؟ (شرط استحقاق الحدّ الأدنى) */
@@ -92,9 +99,35 @@ export async function playersWhoPlayed(db: Database, activityId: number): Promis
   return rows.map(x => Number(x.player_id)).filter(Number.isFinite);
 }
 
-// يجمع بيانات فاتورة لاعبٍ واحد لفعاليّة واحدة (بلا كتابة)
+/** آخر مقعدٍ جلس عليه اللاعب في الفعاليّة: من طلباته، وإلّا من لعبه */
+export async function seatOf(db: Database, activityId: number, playerId: number): Promise<number | null> {
+  const r: any = await db.execute(sql`
+    SELECT physical_id FROM (
+      SELECT o.physical_id, o.created_at AS t FROM orders o
+       WHERE o.activity_id = ${activityId} AND o.player_id = ${playerId} AND o.physical_id IS NOT NULL
+      UNION ALL
+      SELECT mp.physical_id, m.created_at AS t FROM match_players mp
+        JOIN matches m ON m.id = mp.match_id JOIN sessions s ON s.id = m.session_id
+       WHERE s.activity_id = ${activityId} AND mp.player_id = ${playerId} AND mp.physical_id IS NOT NULL
+    ) x ORDER BY t DESC LIMIT 1
+  `);
+  const v = (r?.rows?.[0] ?? r?.[0])?.physical_id;
+  return v == null ? null : Number(v);
+}
+
+/**
+ * يجمع بيانات فاتورة لاعبٍ واحد لفعاليّة واحدة (بلا كتابة).
+ *
+ * 🧾 فواتير متعدّدة لليلة الواحدة (2026-10-30): الطلبات التي غطّتها فاتورةٌ
+ *    محصَّلة مختومةٌ بها (orders.invoice_id). بلا `invoiceId` تُبنى **الفاتورة
+ *    المفتوحة**: ما لم يُختم بعد. ومع `invoiceId` تُعاد لقطة تلك الفاتورة المحصَّلة
+ *    بمجاميعها المجمَّدة (للعرض وإعادة الطباعة).
+ *    ما سبق تحصيله لا يتكرّر: الماء مرّةً في الليلة، والتكملة بقدر ما بقي من
+ *    الحدّ بعد ما حُصّل، والدخوليّة تسقط وحدها لأنّ الحجز صار مدفوعاً.
+ */
 export async function buildInvoiceData(
   db: Database, locationId: number, activityId: number, playerId: number,
+  opts: { invoiceId?: number } = {},
 ): Promise<InvoiceData | { error: string }> {
   const [act] = await db.select({
     id: activities.id, name: activities.name, date: activities.date,
@@ -110,12 +143,46 @@ export async function buildInvoiceData(
     autoWater: locations.autoWater,
   }).from(locations).where(eq(locations.id, locationId)).limit(1);
 
-  const playerOrders = await db.select().from(orders).where(and(
+  const allInvoices = await db.select().from(orderInvoices).where(and(
+    eq(orderInvoices.locationId, locationId),
+    eq(orderInvoices.activityId, activityId),
+    eq(orderInvoices.playerId, playerId),
+  ));
+
+  // ── لقطة فاتورةٍ محصَّلة بعينها ──
+  if (opts.invoiceId) {
+    const inv = allInvoices.find(i => i.id === opts.invoiceId);
+    if (!inv) return { error: 'الفاتورة غير موجودة لهذا اللاعب' };
+    const snapOrders = await db.select().from(orders).where(and(
+      eq(orders.invoiceId, inv.id), ne(orders.status, 'cancelled')));
+    const snapItems = snapOrders.length > 0
+      ? await db.select().from(orderItems).where(inArray(orderItems.orderId, snapOrders.map(o => o.id)))
+      : [];
+    const [p] = await db.select({ name: players.name }).from(players).where(eq(players.id, playerId)).limit(1);
+    const n = (x: unknown) => parseFloat(String(x ?? '0')) || 0;
+    return {
+      locationId, locationName: loc?.name || '', activityId, activityName: act.name, activityDate: act.date,
+      playerId, playerName: snapOrders[0]?.playerName || p?.name || `لاعب #${playerId}`,
+      bookingId: inv.bookingId ?? null,
+      lines: mergeLines(snapItems), ordersCount: snapOrders.length,
+      ordersTotal: n(inv.ordersTotal), minTopup: n(inv.minTopup), waterCharge: n(inv.waterCharge),
+      loyaltyDiscount: n((inv as any).loyaltyDiscount), loyaltyRewardId: (inv as any).loyaltyRewardId ?? null, loyaltyItemName: null,
+      gameFeeApplied: inv.gameFeeApplied === true, gameFeeAmount: n(inv.gameFeeAmount), grandTotal: n(inv.grandTotal),
+      orderIds: snapOrders.map(o => o.id), seat: await seatOf(db, activityId, playerId),
+      snapshotInvoiceId: inv.id, paidAt: inv.isPaid ? inv.paidAt : null,
+    };
+  }
+
+  const priorPaid = allInvoices.filter(i => i.isPaid === true);
+  const openInvoice = allInvoices.find(i => i.isPaid !== true) ?? null;
+
+  const nightOrders = await db.select().from(orders).where(and(
     eq(orders.activityId, activityId),
     eq(orders.locationId, locationId),
     eq(orders.playerId, playerId),
     ne(orders.status, 'cancelled'),
   ));
+  const playerOrders = nightOrders.filter(o => o.invoiceId == null);
 
   // 💳 الحدّ الأدنى: يستحقّه من لعب جولةً على الأقلّ — فحضورٌ بلا لعبٍ ليس زبون طاولة
   const minCharge = loc?.minChargeEnabled === true ? parseFloat(loc.minimumCharge || '0') : 0;
@@ -123,51 +190,31 @@ export async function buildInvoiceData(
   const water = loc?.autoWater === true ? await waterItemOf(db, locationId) : null;
   const played = (minCharge > 0 || water !== null) ? await playedInActivity(db, activityId, playerId) : false;
 
-  if (playerOrders.length === 0 && !((minCharge > 0 || water !== null) && played)) {
-    // فاتورةٌ سبق إصدارها (تكملة حدٍّ أدنى مثلاً) تبقى قابلةً للعرض وإعادة
-    // الطباعة ولو عُطّلت الميزة لاحقاً — المحصَّلة تُقرأ من لقطتها المجمّدة
-    const [inv] = await db.select({ id: orderInvoices.id }).from(orderInvoices).where(and(
-      eq(orderInvoices.locationId, locationId),
-      eq(orderInvoices.activityId, activityId),
-      eq(orderInvoices.playerId, playerId),
-    )).limit(1);
-    if (!inv) return { error: 'لا طلبات لهذا اللاعب في هذه الفعاليّة' };
+  if (playerOrders.length === 0 && !((minCharge > 0 || water !== null) && played) && !openInvoice) {
+    // فاتورةٌ مفتوحة سبق إصدارها (تكملة حدٍّ أدنى مثلاً) تبقى قابلةً للعرض ولو عُطّلت
+    // الميزة لاحقاً — والمحصَّلة تُفتح بمعرّفها (invoiceId) لا من هنا
+    return { error: priorPaid.length > 0 ? 'لا شيء مستحقّ — فواتيره محصَّلة' : 'لا طلبات لهذا اللاعب في هذه الفعاليّة' };
   }
 
-  const items = playerOrders.length > 0
+  // البنود: المفتوحة للسطور، وكلّ بنود الليلة لمعرفة من وصله ماءٌ من طلبه
+  const nightItems = nightOrders.length > 0
     ? await db.select().from(orderItems)
-        .where(inArray(orderItems.orderId, playerOrders.map(o => o.id)))
+        .where(inArray(orderItems.orderId, nightOrders.map(o => o.id)))
     : [];
+  const openIds = new Set(playerOrders.map(o => o.id));
+  const items = nightItems.filter(it => openIds.has(it.orderId));
 
-  // دمج البنود المتطابقة (نفس الصنف ونفس سعر اللقطة) عبر كل الطلبات
-  const merged = new Map<string, InvoiceLine>();
-  for (const it of items) {
-    const opts = (Array.isArray(it.optionsSnapshot) ? it.optionsSnapshot as any[] : [])
-      .map(o => ({ group: String(o?.group || ''), value: String(o?.value || '') })).filter(o => o.value);
-    // ⚙️ الخيارات جزءٌ من هويّة السطر: «أرجيلة/تفاحتين» و«أرجيلة/عنب» سطران
-    // منفصلان في الفاتورة وإن تساوى سعرهما — الزبون يجب أن يقرأ ما طلبه.
-    const key = `${it.nameSnapshot}|${it.unitPriceSnapshot}|${opts.map(o => `${o.group}:${o.value}`).join(',')}`;
-    const prev = merged.get(key);
-    const unitPrice = parseFloat(it.unitPriceSnapshot);
-    if (prev) { prev.quantity += it.quantity; prev.lineTotal = prev.quantity * unitPrice; }
-    else merged.set(key, {
-      name: it.nameSnapshot, quantity: it.quantity, unitPrice, lineTotal: unitPrice * it.quantity,
-      components: (Array.isArray(it.componentsSnapshot) ? it.componentsSnapshot as any[] : [])
-        .map(c => ({
-          name: String(c?.name || ''), qty: Number(c?.qty) || 1,
-          options: (Array.isArray(c?.options) ? c.options : [])
-            .map((o: any) => ({ group: String(o?.group || ''), value: String(o?.value || '') })).filter((o: any) => o.value),
-        })).filter(c => c.name),
-      options: opts,
-    });
-  }
-  const lines = [...merged.values()];
+  const lines = mergeLines(items);
   const ordersTotal = playerOrders.reduce((s, o) => s + parseFloat(o.total), 0);
+  const nightOrdersTotal = nightOrders.reduce((s, o) => s + parseFloat(o.total), 0);
+  const priorWater = priorPaid.reduce((s, i) => s + (parseFloat(i.waterCharge || '0') || 0), 0);
+  const priorTopup = priorPaid.reduce((s, i) => s + (parseFloat(i.minTopup || '0') || 0), 0);
 
-  // 💧 ماءٌ واحدٌ تلقائيّاً — إلا من وصله ماءٌ من طلبه: مفرداً باسمه أو مكوّناً في عرض
+  // 💧 ماءٌ واحدٌ تلقائيّاً في الليلة — إلا من وصله ماءٌ من طلبه (في أيّ فاتورة):
+  //    مفرداً باسمه أو مكوّناً في عرض. وما حُصّل ماؤه سابقاً لا يُحمَّل ثانيةً.
   let waterCharge = 0;
-  if (water) {
-    const hasWater = items.some(it =>
+  if (water && priorWater === 0) {
+    const hasWater = nightItems.some(it =>
       it.nameSnapshot === water.name ||
       (Array.isArray(it.componentsSnapshot)
         && (it.componentsSnapshot as any[]).some(c => String(c?.name || '') === water.name)));
@@ -184,13 +231,16 @@ export async function buildInvoiceData(
     } catch { /* بلا خصم */ }
   }
 
-  // 💳 التكملة: الماء استهلاكٌ فعليّ فيُحتسب ضمن الحدّ — رسوم اللعبة وحدها خارج المقارنة
-  const minTopup = minCharge > 0 && played ? Math.max(0, minCharge - (ordersTotal + waterCharge)) : 0;
+  // 💳 التكملة على مستوى الليلة: الماء استهلاكٌ فعليّ فيُحتسب ضمن الحدّ — الدخوليّة خارج المقارنة.
+  //    ما حُصّل من تكملةٍ سابقاً يُطرح، فلا يدفع اللاعب الحدّ مرّتين في ليلةٍ واحدة.
+  const nightRequired = minCharge > 0 && played
+    ? Math.max(0, minCharge - (nightOrdersTotal + waterCharge + priorWater)) : 0;
+  const minTopup = Math.max(0, nightRequired - priorTopup);
 
   // هويّة اللاعب وحجزه: من الطلبات إن وُجدت، وإلا من حسابه وحجزه في الفعاليّة
-  let playerName = playerOrders[0]?.playerName || '';
-  let bookingId: number | null = playerOrders[0]?.bookingId ?? null;
-  if (playerOrders.length === 0) {
+  let playerName = playerOrders[0]?.playerName || nightOrders[0]?.playerName || '';
+  let bookingId: number | null = playerOrders[0]?.bookingId ?? nightOrders[0]?.bookingId ?? null;
+  if (nightOrders.length === 0) {
     const [p] = await db.select({ name: players.name }).from(players)
       .where(eq(players.id, playerId)).limit(1);
     playerName = p?.name || `لاعب #${playerId}`;
@@ -235,10 +285,41 @@ export async function buildInvoiceData(
     gameFeeApplied,
     gameFeeAmount,
     grandTotal: Math.max(0, ordersTotal + waterCharge + minTopup + gameFeeAmount - loyaltyDiscount),
+    orderIds: playerOrders.map(o => o.id),
+    seat: await seatOf(db, activityId, playerId),
+    snapshotInvoiceId: null,
+    paidAt: null,
   };
 }
 
-// يثبّت رقم الفاتورة: يعيد الرقم الموجود لنفس (مكان، فعاليّة، لاعب) أو يصدر التالي.
+/** دمج البنود المتطابقة (نفس الصنف ونفس سعر اللقطة ونفس الخيارات) عبر الطلبات */
+function mergeLines(items: (typeof orderItems.$inferSelect)[]): InvoiceLine[] {
+  const merged = new Map<string, InvoiceLine>();
+  for (const it of items) {
+    const opts = (Array.isArray(it.optionsSnapshot) ? it.optionsSnapshot as any[] : [])
+      .map(o => ({ group: String(o?.group || ''), value: String(o?.value || '') })).filter(o => o.value);
+    // ⚙️ الخيارات جزءٌ من هويّة السطر: «أرجيلة/تفاحتين» و«أرجيلة/عنب» سطران
+    // منفصلان في الفاتورة وإن تساوى سعرهما — الزبون يجب أن يقرأ ما طلبه.
+    const key = `${it.nameSnapshot}|${it.unitPriceSnapshot}|${opts.map(o => `${o.group}:${o.value}`).join(',')}`;
+    const prev = merged.get(key);
+    const unitPrice = parseFloat(it.unitPriceSnapshot);
+    if (prev) { prev.quantity += it.quantity; prev.lineTotal = prev.quantity * unitPrice; }
+    else merged.set(key, {
+      name: it.nameSnapshot, quantity: it.quantity, unitPrice, lineTotal: unitPrice * it.quantity,
+      components: (Array.isArray(it.componentsSnapshot) ? it.componentsSnapshot as any[] : [])
+        .map(c => ({
+          name: String(c?.name || ''), qty: Number(c?.qty) || 1,
+          options: (Array.isArray(c?.options) ? c.options : [])
+            .map((o: any) => ({ group: String(o?.group || ''), value: String(o?.value || '') })).filter((o: any) => o.value),
+        })).filter(c => c.name),
+      options: opts,
+    });
+  }
+  return [...merged.values()];
+}
+
+// يثبّت رقم الفاتورة: يعيد رقم الفاتورة **المفتوحة** لنفس (مكان، فعاليّة، لاعب) أو يصدر التالي.
+// المحصَّلة لا تُفتح ثانيةً: طلبٌ بعد التحصيل يأخذ رقماً جديداً.
 // قفل استشاريّ لكل مكان يمنع سباق MAX+1 عند طباعة جهازين معاً.
 export async function issueInvoiceNumber(
   db: Database, data: InvoiceData, printedBy: number,
@@ -246,31 +327,21 @@ export async function issueInvoiceNumber(
   return db.transaction(async (tx) => {
     await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${'fnb_invoice_' + data.locationId}))`);
 
+    // 🔴 لقطةٌ محصَّلة: الختم وحده يُحدَّث — مبالغها مجمَّدة (data بُنيت منها أصلاً)
+    if (data.snapshotInvoiceId) {
+      const [snap] = await tx.update(orderInvoices).set({ printedBy, printedAt: new Date() } as any)
+        .where(eq(orderInvoices.id, data.snapshotInvoiceId)).returning({ no: orderInvoices.invoiceNo });
+      return snap.no;
+    }
+
     const [existing] = await tx.select().from(orderInvoices).where(and(
       eq(orderInvoices.locationId, data.locationId),
       eq(orderInvoices.activityId, data.activityId),
       eq(orderInvoices.playerId, data.playerId),
+      eq(orderInvoices.isPaid, false),
     )).limit(1);
 
     if (existing) {
-      // 🔴 فاتورةٌ محصَّلة لا تُعاد كتابة مبالغها: بعد /pay يصير الحجز مدفوعاً،
-      //    فإعادة البناء تحسب رسوم اللعبة صفراً وتكتبها فوق اللقطة المدفوعة —
-      //    فتختفي الرسوم من تقارير التحصيل وكأنّها لم تُقبض. الختمُ وحده يُحدَّث.
-      if (existing.isPaid === true) {
-        await tx.update(orderInvoices).set({ printedBy, printedAt: new Date() } as any)
-          .where(eq(orderInvoices.id, existing.id));
-        // الورقة المطبوعة تعكس اللقطة المجمَّدة لا الحساب المُعاد — data تُمرَّر
-        // بالمرجع فيقرأ منها invoiceHtml في المسارَين (pdf و print-all)
-        data.ordersTotal = parseFloat(existing.ordersTotal || '0');
-        data.minTopup = parseFloat(existing.minTopup || '0');
-        data.waterCharge = parseFloat(existing.waterCharge || '0');
-        data.loyaltyDiscount = parseFloat((existing as any).loyaltyDiscount || '0');
-        data.loyaltyRewardId = (existing as any).loyaltyRewardId ?? null;
-        data.gameFeeApplied = existing.gameFeeApplied === true;
-        data.gameFeeAmount = parseFloat(existing.gameFeeAmount || '0');
-        data.grandTotal = parseFloat(existing.grandTotal || '0');
-        return existing.invoiceNo;
-      }
       // إعادة طباعة فاتورةٍ غير محصَّلة: نحدّث المجاميع والختم بلا رقم جديد
       await tx.update(orderInvoices).set({
         ordersTotal: data.ordersTotal.toFixed(2),
@@ -340,8 +411,8 @@ const fmt = (n: number) => n.toFixed(2);
 // قالب الفاتورة — A6 (105×148mm) RTL
 export function invoiceHtml(data: InvoiceData, invoiceNo: number, printedByName: string): string {
   const d = new Date();
-  const dateStr = d.toLocaleDateString('ar-JO', { year: 'numeric', month: '2-digit', day: '2-digit' });
-  const timeStr = d.toLocaleTimeString('ar-JO', { hour: '2-digit', minute: '2-digit' });
+  const dateStr = d.toLocaleDateString('ar-JO', { year: 'numeric', month: '2-digit', day: '2-digit', timeZone: 'Asia/Amman' });
+  const timeStr = d.toLocaleTimeString('ar-JO', { hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Amman' });
   const actDate = new Date(data.activityDate).toLocaleDateString('ar-JO', { month: 'short', day: 'numeric', weekday: 'short' });
 
   // سطر الصنف، ويليه سطرٌ ثانويّ للخيارات و/أو مكوّنات الباقة.
@@ -397,6 +468,7 @@ export function invoiceHtml(data: InvoiceData, invoiceNo: number, printedByName:
   .sum { display: flex; justify-content: space-between; padding: .6mm 0; font-size: 10px; }
   .sum.fee { color: #7a4b00; }
   .sum.grand { font-size: 13px; font-weight: 700; border-top: 1.5px solid #111; margin-top: 1.5mm; padding-top: 1.5mm; }
+  .paid { margin-top: 3mm; border: 1.2px dashed #111; border-radius: 1.5mm; text-align: center; font-size: 10.5px; font-weight: 700; padding: 1.5mm; }
   .foot { margin-top: auto; text-align: center; font-size: 7.5px; color: #777; border-top: .5px dashed #bbb; padding-top: 2mm; }
   </style></head><body>
     <div class="head">
@@ -408,7 +480,7 @@ export function invoiceHtml(data: InvoiceData, invoiceNo: number, printedByName:
       <span>${dateStr} • ${timeStr}</span>
     </div>
     <div class="who">
-      <div class="p">${esc(data.playerName)}</div>
+      <div class="p">${esc(data.playerName)}${data.seat != null ? ` &#183; مقعد ${data.seat}` : ''}</div>
       <div class="a">${esc(data.activityName)} — ${actDate} • ${data.ordersCount} ${data.ordersCount === 1 ? 'طلب' : 'طلبات'}</div>
     </div>
     <table>
@@ -419,10 +491,11 @@ export function invoiceHtml(data: InvoiceData, invoiceNo: number, printedByName:
       <div class="sum"><span>مجموع الطلبات</span><span>${fmt(data.ordersTotal)} د.أ</span></div>
       ${data.waterCharge > 0 ? `<div class="sum fee"><span>مياه ×1</span><span>${fmt(data.waterCharge)} د.أ</span></div>` : ''}
       ${data.minTopup > 0 ? `<div class="sum fee"><span>حدّ أدنى للاستهلاك</span><span>${fmt(data.minTopup)} د.أ</span></div>` : ''}
-      ${data.gameFeeApplied ? `<div class="sum fee"><span>رسوم اللعبة</span><span>${fmt(data.gameFeeAmount)} د.أ</span></div>` : ''}
-      ${data.loyaltyDiscount > 0 ? `<div class="sum fee"><span>🎟️ مشروب بطاقة الولاء${data.loyaltyItemName ? ` (${esc(data.loyaltyItemName)})` : ''}</span><span>−${fmt(data.loyaltyDiscount)} د.أ</span></div>` : ''}
+      ${data.gameFeeApplied ? `<div class="sum fee"><span>دخوليّة اللعبة</span><span>${fmt(data.gameFeeAmount)} د.أ</span></div>` : ''}
+      ${data.loyaltyDiscount > 0 ? `<div class="sum fee"><span>مشروب بطاقة الولاء${data.loyaltyItemName ? ` (${esc(data.loyaltyItemName)})` : ''}</span><span>−${fmt(data.loyaltyDiscount)} د.أ</span></div>` : ''}
       <div class="sum grand"><span>الإجماليّ</span><span>${fmt(data.grandTotal)} د.أ</span></div>
     </div>
+    ${data.paidAt ? `<div class="paid">مدفوعة &#183; ${new Date(data.paidAt).toLocaleTimeString('ar-JO', { hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Amman' })}</div>` : ''}
     <div class="foot">أصدرها: ${esc(printedByName)} — شكراً لزيارتكم</div>
   </body></html>`;
 }

@@ -57,6 +57,8 @@ const VENUE_PERMISSIONS = [
   { id: 'service.shisha', label: '💨 خدمة الأرجيلة' },
   // 📍 ضبط نقطة المكان ونصف قطر السياج — من يقف على الباب لا من يدير المنيو
   { id: 'location.geofence', label: '📍 موقع المكان' },
+  // 💰 «الحساب»: كم حصّل المكان وكم للنادي والتسليم — منفصلةٌ كي لا يراها الكاشير
+  { id: 'finance.view', label: '💰 الحساب والتسويات' },
 ];
 
 export default function StaffManagementPage() {

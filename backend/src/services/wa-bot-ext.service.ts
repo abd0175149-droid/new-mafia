@@ -528,8 +528,12 @@ export async function execExtTool(name: string, args: any, ctx: Ctx, h: ExtHelpe
       if (!hit?.location_id) return { found: false, note: 'لا طلبات ولا فعاليّة له خلال آخر 36 ساعة — أخبره بذلك' };
       const { buildInvoiceData } = await import('./fnb-invoice.service.js');
       const inv: any = await buildInvoiceData(db as any, Number(hit.location_id), Number(hit.activity_id), conv.playerId);
-      if (inv?.error) return { found: false, note: `لا فاتورة بعد: ${inv.error}` };
-      const paid: any = await db.execute(sql`SELECT is_paid, invoice_no FROM order_invoices WHERE location_id = ${hit.location_id} AND activity_id = ${hit.activity_id} AND player_id = ${conv.playerId} LIMIT 1`);
+      // الفاتورة المفتوحة أوّلاً — قد يملك اللاعب فاتورةً محصَّلة وأخرى مفتوحة لطلبٍ بعدها (2026-10-30)
+      const paid: any = await db.execute(sql`SELECT is_paid, invoice_no FROM order_invoices WHERE location_id = ${hit.location_id} AND activity_id = ${hit.activity_id} AND player_id = ${conv.playerId} ORDER BY is_paid ASC, id DESC LIMIT 1`);
+      if (inv?.error) {
+        if (rowsOf(paid)[0]?.is_paid) return { found: true, paid: true, invoiceNo: rowsOf(paid)[0].invoice_no, note: 'فاتورته محصَّلة كاملةً — لا شيء مستحقّ عليه الآن' };
+        return { found: false, note: `لا فاتورة بعد: ${inv.error}` };
+      }
       const pr = rowsOf(paid)[0];
       return {
         found: true, activity: inv.activityName, location: inv.locationName,

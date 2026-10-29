@@ -35,7 +35,9 @@ async function main() {
   // ── تنظيف بقايا تشغيلةٍ سابقة ──
   async function cleanup() {
     const acts = await q(sql`SELECT id FROM activities WHERE name LIKE ${'%' + E2E_TAG + '%'}`);
+    await q(sql`DELETE FROM venue_handovers WHERE note = ${E2E_TAG}`);
     for (const a of acts) {
+      await q(sql`DELETE FROM fee_waivers WHERE activity_id = ${a.id}`);
       await q(sql`DELETE FROM service_requests WHERE activity_id = ${a.id}`);
       await q(sql`DELETE FROM order_invoices WHERE activity_id = ${a.id}`);
       await q(sql`DELETE FROM order_items WHERE order_id IN (SELECT id FROM orders WHERE activity_id = ${a.id})`);
@@ -515,6 +517,116 @@ async function main() {
   ok('بعد التعطيل: الحيّة بلا ماء', w999c?.waterCharge === 0, JSON.stringify(w999c));
 
   await q(sql`UPDATE locations SET auto_water = ${waterSaved.aw === true}, min_charge_enabled = ${waterSaved.en === true} WHERE id = ${LOC_TEST}`);
+
+  // ══ ١١ · إعادة بناء الكونسول (2026-10-30) ══
+  // فاتورةٌ جديدة بعد التحصيل · التراجع · رفض المبلغ المتغيّر · حارس الإلغاء ·
+  // سبب الإسقاط وسجلّه · «الحساب» · التسليم وتأكيده · ليالي التحصيل
+  section('١١ · فاتورةٌ بعد التحصيل، التراجع، الحساب والتسليم');
+  await q(sql`UPDATE locations SET auto_water = false, min_charge_enabled = false WHERE id = ${LOC_TEST}`);
+  const [act11] = await q(sql`INSERT INTO activities (name, date, base_price, status, location_id, menu_ordering_enabled, add_game_fee_to_bill)
+    VALUES (${E2E_TAG + ' rebuild'}, NOW(), 3.00, 'planned', ${LOC_TEST}, true, true) RETURNING id`);
+  const [bk11] = await q(sql`INSERT INTO bookings (activity_id, name, phone, count, player_id, created_by, is_paid, is_free)
+    VALUES (${act11.id}, ${player.name}, ${player.phone}, 1, ${player.id}, 'e2e', false, false) RETURNING id`);
+  // غرفةٌ حيّة أحدث تجعل سياق الطلب على هذه الفعاليّة (قاعدة «الغرفة الحيّة هي الحدث»)
+  const [sess11] = await q(sql`INSERT INTO sessions (session_code, session_name, activity_id)
+    VALUES ('E2E11R', ${E2E_TAG + ' rebuild room'}, ${act11.id}) RETURNING id`);
+  await q(sql`INSERT INTO session_players (session_id, player_id, physical_id, player_name)
+    VALUES (${sess11.id}, ${player.id}, 5, ${player.name})`);
+  const orderTea = async () => api('/api/fnb/orders', { method: 'POST', headers: P,
+    body: JSON.stringify({ activityId: act11.id, items: [{ menuItemId: tea.id, quantity: 1 }] }) });
+  r = await orderTea();
+  ok('طلب شاي فعاليّة إعادة البناء', r.body?.success === true, JSON.stringify(r.body));
+  const ledger = async () => (await api(vURL(`/api/venue/invoices/candidates?activityId=${act11.id}`), { headers: A })).body;
+  let L11 = await ledger();
+  let open11 = (L11?.candidates ?? []).find((c: any) => c.playerId === player.id && c.kind === 'open');
+  ok('سطرٌ مفتوح: شاي 1.50 + دخوليّة 3.00 = 4.50، بلا فاتورة بعد', open11?.grandTotal === 4.5 && open11?.noInvoice === true, JSON.stringify(open11));
+
+  r = await api(vURL(`/api/venue/invoices/${act11.id}/${player.id}/pay`), { method: 'POST', headers: A, body: JSON.stringify({ expectedTotal: 9.99 }) });
+  ok('مبلغٌ متوقَّع مختلف يُرفض 409', r.status === 409 && r.body?.grandTotal === 4.5, JSON.stringify(r.body));
+  r = await api(vURL(`/api/venue/invoices/${act11.id}/${player.id}/pay`), { method: 'POST', headers: A, body: JSON.stringify({ expectedTotal: 4.5 }) });
+  ok('التحصيل بالمبلغ المتوقَّع يُقبل ويعيد مهلة التراجع', r.body?.success === true && !!r.body?.canUndoUntil, JSON.stringify(r.body));
+  const inv1Id = r.body?.invoiceId;
+  const [stamp1] = await q(sql`SELECT count(*)::int n FROM orders WHERE activity_id=${act11.id} AND invoice_id=${inv1Id}`);
+  ok('طلبات الفاتورة خُتمت بها', stamp1?.n === 1, JSON.stringify(stamp1));
+  const [inv1] = await q(sql`SELECT fee_booking_flipped FROM order_invoices WHERE id=${inv1Id}`);
+  const [bk11a] = await q(sql`SELECT is_paid FROM bookings WHERE id=${bk11.id}`);
+  ok('الحجز انقلب والفاتورة تذكر أنّها قلبته', bk11a?.is_paid === true && inv1?.fee_booking_flipped === true);
+
+  // حارس الإلغاء: طلبٌ داخل فاتورةٍ محصَّلة لا يلغيه المكان
+  const [paidOrder] = await q(sql`SELECT id FROM orders WHERE invoice_id=${inv1Id} LIMIT 1`);
+  r = await api(vURL(`/api/venue/orders/${paidOrder.id}/status`), { method: 'PUT', headers: A, body: JSON.stringify({ status: 'cancelled' }) });
+  ok('إلغاء طلبٍ محصَّل من المكان يُرفض 409', r.status === 409, JSON.stringify(r.body));
+
+  // 🤝 التسليم: المكان يصرّح والإدارة تؤكّد
+  r = await api(vURL('/api/venue/money?period=night&activityId=' + act11.id), { headers: A });
+  ok('«الحساب» يعمل ويحسب الليلة', r.body?.success === true && r.body?.totals?.collected === 4.5 && r.body?.totals?.club === 3 && r.body?.totals?.venue === 1.5, JSON.stringify(r.body?.totals));
+  const remBefore = Number(r.body?.account?.remainingForVenue ?? 0);
+  r = await api(vURL('/api/venue/handovers'), { method: 'POST', headers: A, body: JSON.stringify({ amount: 0 }) });
+  ok('تسليم صفر يُرفض', r.status === 400);
+  r = await api(vURL('/api/venue/handovers'), { method: 'POST', headers: A, body: JSON.stringify({ amount: remBefore + 100 }) });
+  ok('تسليمٌ أكبر من الباقي يُرفض', r.status === 400, JSON.stringify(r.body));
+  r = await api(vURL('/api/venue/handovers'), { method: 'POST', headers: A, body: JSON.stringify({ amount: 1, toLabel: 'المدير', note: E2E_TAG }) });
+  ok('تصريح تسليم 1.00 يُقبل منتظراً', r.body?.success === true && r.body?.handover?.status === 'pending', JSON.stringify(r.body));
+  const hId = r.body?.handover?.id;
+  r = await api(vURL('/api/venue/money?period=night&activityId=' + act11.id), { headers: A });
+  ok('الباقي للمكان نقص بالمنتظر', Math.abs(Number(r.body?.account?.remainingForVenue) - (remBefore - 1)) < 0.005, JSON.stringify(r.body?.account));
+  r = await api(`/api/admin/venue-settlements/handovers/${hId}/confirm`, { method: 'POST', headers: A });
+  ok('الإدارة تؤكّد الاستلام', r.body?.success === true && r.body?.handover?.status === 'confirmed', JSON.stringify(r.body));
+  r = await api(`/api/admin/venue-settlements/handovers/${hId}/confirm`, { method: 'POST', headers: A });
+  ok('تأكيدٌ مكرّر يُرفض 409', r.status === 409);
+  r = await api('/api/admin/venue-settlements', { headers: A });
+  ok('صفحة التسويات تعمل', r.body?.success === true && Array.isArray(r.body?.venues), JSON.stringify(r.body).slice(0, 200));
+
+  // 🧾 طلبٌ بعد التحصيل يفتح فاتورةً جديدة لا يضيع
+  r = await orderTea();
+  ok('طلبٌ بعد التحصيل يُقبل', r.body?.success === true, JSON.stringify(r.body));
+  L11 = await ledger();
+  const mine = (L11?.candidates ?? []).filter((c: any) => c.playerId === player.id);
+  open11 = mine.find((c: any) => c.kind === 'open');
+  ok('سطرٌ محصَّل وسطرٌ مفتوح بالشاي وحده (1.50، بلا دخوليّة ثانية)',
+    mine.some((c: any) => c.kind === 'paid' && c.grandTotal === 4.5) && open11?.grandTotal === 1.5 && open11?.gameFee === 0, JSON.stringify(mine));
+  r = await api(vURL(`/api/venue/invoices/${act11.id}/${player.id}/pay`), { method: 'POST', headers: A, body: JSON.stringify({ expectedTotal: 1.5 }) });
+  const inv2Id = r.body?.invoiceId;
+  ok('الفاتورة الثانية تُحصَّل برقمٍ جديد', r.body?.success === true && inv2Id && inv2Id !== inv1Id, JSON.stringify(r.body));
+  const [cnt11] = await q(sql`SELECT count(*)::int n FROM order_invoices WHERE activity_id=${act11.id} AND player_id=${player.id}`);
+  ok('فاتورتان للّاعب في الليلة', cnt11?.n === 2);
+  r = await api(vURL(`/api/venue/invoices/${act11.id}/${player.id}/pdf?invoiceId=${inv1Id}`), { method: 'POST', headers: A });
+  ok('إعادة طباعة الفاتورة الأولى بلقطتها تعمل', r.status === 200, `status=${r.status}`);
+
+  // ↩️ التراجع
+  r = await api(vURL(`/api/venue/invoices/unpay/${inv2Id}`), { method: 'POST', headers: A });
+  ok('التراجع عن الثانية يُقبل', r.body?.success === true, JSON.stringify(r.body));
+  const [u2] = await q(sql`SELECT is_paid, unpaid_by FROM order_invoices WHERE id=${inv2Id}`);
+  const [u2o] = await q(sql`SELECT count(*)::int n FROM orders WHERE invoice_id=${inv2Id}`);
+  ok('الثانية عادت مفتوحة وفُكّ ختم طلبها', u2?.is_paid === false && u2?.unpaid_by === adminRow.id && u2o?.n === 0, JSON.stringify([u2, u2o]));
+  const [bk11b] = await q(sql`SELECT is_paid FROM bookings WHERE id=${bk11.id}`);
+  ok('الحجز باقٍ مدفوعاً (الثانية لم تقلبه)', bk11b?.is_paid === true);
+  r = await api(vURL(`/api/venue/invoices/unpay/${inv1Id}`), { method: 'POST', headers: A });
+  ok('التراجع عن الأولى مع فاتورةٍ مفتوحةٍ أخرى يُرفض 409', r.status === 409, JSON.stringify(r.body));
+  r = await api(vURL(`/api/venue/invoices/${act11.id}/${player.id}/pay`), { method: 'POST', headers: A });
+  ok('إعادة تحصيل الثانية', r.body?.success === true && r.body?.invoiceId === inv2Id, JSON.stringify(r.body));
+  r = await api(vURL(`/api/venue/invoices/unpay/${inv1Id}`), { method: 'POST', headers: A });
+  ok('التراجع عن الأولى الآن يُقبل', r.body?.success === true, JSON.stringify(r.body));
+  const [bk11c] = await q(sql`SELECT is_paid, paid_amount FROM bookings WHERE id=${bk11.id}`);
+  ok('الحجز عاد غير مدفوع (الأولى هي من قلبته)', bk11c?.is_paid === false && Number(bk11c?.paid_amount) === 0, JSON.stringify(bk11c));
+  L11 = await ledger();
+  open11 = (L11?.candidates ?? []).find((c: any) => c.playerId === player.id && c.kind === 'open');
+  ok('المفتوح عاد: شاي + دخوليّة = 4.50 برقمه القديم', open11?.grandTotal === 4.5 && open11?.invoiceId === inv1Id, JSON.stringify(open11));
+
+  // 🎁 الإسقاط بسببٍ مسجَّل
+  r = await api(vURL(`/api/venue/invoices/${act11.id}/${player.id}/waive-fee`), { method: 'POST', headers: A, body: JSON.stringify({ waive: true }) });
+  ok('إسقاط الدخوليّة بلا سبب يُرفض', r.status === 400, JSON.stringify(r.body));
+  r = await api(vURL(`/api/venue/invoices/${act11.id}/${player.id}/waive-fee`), { method: 'POST', headers: A, body: JSON.stringify({ waive: true, reason: 'ضيف المالك' }) });
+  const [fw] = await q(sql`SELECT waived, reason, staff_id FROM fee_waivers WHERE activity_id=${act11.id} ORDER BY id DESC LIMIT 1`);
+  ok('الإسقاط بسببٍ يُقبل ويُسجَّل', r.body?.success === true && fw?.waived === true && fw?.reason === 'ضيف المالك' && fw?.staff_id === adminRow.id, JSON.stringify(fw));
+  L11 = await ledger();
+  open11 = (L11?.candidates ?? []).find((c: any) => c.playerId === player.id && c.kind === 'open');
+  ok('بعد الإسقاط: المفتوح شاي وحده 1.50', open11?.grandTotal === 1.5 && open11?.gameFee === 0, JSON.stringify(open11));
+
+  // 🗓️ ليالي التحصيل
+  r = await api(vURL('/api/venue/collection-nights'), { headers: A });
+  const n11 = (r.body?.nights ?? []).find((x: any) => x.activityId === act11.id);
+  ok('ليالي التحصيل تشمل الليلة بمستحقّها', r.body?.success === true && n11?.due === 1.5 && n11?.collected === 1.5, JSON.stringify(n11));
 
   // ══ ٨ · الخلاصة والتنظيف ══
   section('النتيجة');

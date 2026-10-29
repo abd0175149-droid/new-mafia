@@ -68,6 +68,7 @@ import analyticsRoutes from './routes/analytics.routes.js';
 import adminConsentsRoutes from './routes/admin-consents.routes.js';
 import staffActionLogRoutes from './routes/staff-action-log.routes.js';
 import { venueRouter, playerFnbRouter } from './routes/fnb.routes.js';
+import venueSettlementsRoutes from './routes/venue-settlements.routes.js';
 import chipsRoutes from './routes/chips.routes.js';
 import loyaltyRoutes from './routes/loyalty.routes.js';
 import chipsStoreRoutes from './routes/chips-store.routes.js';
@@ -232,6 +233,7 @@ app.use('/api/seating', seatingRoutes);
 app.use('/api/seat-templates', seatTemplatesRoutes);
 app.use('/api/reservations', reservationsRoutes);
 app.use('/api/venue', venueRouter);      // 🏪 كونسول حساب المكان (منيو/طلبات/فواتير)
+app.use('/api/admin/venue-settlements', venueSettlementsRoutes); // 🤝 تسويات الأماكن (admin/manager)
 app.use('/api/fnb', playerFnbRouter);    // 🍽️ طلبات المنيو — جهة اللاعب
 app.use('/api/chips', chipsRoutes);      // 🪙 اقتصاد التشبس (محفظة + دفتر + شحن إداري)
 app.use('/api/loyalty', loyaltyRoutes);  // 🎟️ بطاقة الولاء (ختم الدون)
@@ -1213,6 +1215,43 @@ async function main() {
       // 💧 الماء التلقائيّ على الفواتير (2026-08-11)
       await db.execute(sql`ALTER TABLE locations ADD COLUMN IF NOT EXISTS auto_water BOOLEAN DEFAULT FALSE`);
       await db.execute(sql`ALTER TABLE order_invoices ADD COLUMN IF NOT EXISTS water_charge DECIMAL(10,2) DEFAULT 0`);
+      // 🏪 إعادة بناء الكونسول (2026-10-30): فاتورةٌ جديدة بعد التحصيل، تراجعٌ عن التحصيل،
+      //    تسليم دخوليّات النادي، وسجلّ إسقاط الدخوليّة
+      await db.execute(sql`ALTER TABLE orders ADD COLUMN IF NOT EXISTS invoice_id INTEGER`);
+      await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_orders_open ON orders(activity_id, player_id) WHERE invoice_id IS NULL`);
+      await db.execute(sql`ALTER TABLE order_invoices ADD COLUMN IF NOT EXISTS fee_booking_flipped BOOLEAN DEFAULT false NOT NULL`);
+      await db.execute(sql`ALTER TABLE order_invoices ADD COLUMN IF NOT EXISTS unpaid_at TIMESTAMP`);
+      await db.execute(sql`ALTER TABLE order_invoices ADD COLUMN IF NOT EXISTS unpaid_by INTEGER`);
+      await db.execute(sql`CREATE TABLE IF NOT EXISTS venue_handovers (
+        id SERIAL PRIMARY KEY, location_id INTEGER NOT NULL, amount DECIMAL(10,2) NOT NULL,
+        to_label VARCHAR(80) DEFAULT '', note TEXT DEFAULT '', status VARCHAR(12) DEFAULT 'pending' NOT NULL,
+        declared_by INTEGER, declared_at TIMESTAMP DEFAULT NOW() NOT NULL, resolved_by INTEGER, resolved_at TIMESTAMP)`);
+      await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_venue_handovers_loc ON venue_handovers(location_id, status)`);
+      await db.execute(sql`CREATE TABLE IF NOT EXISTS fee_waivers (
+        id SERIAL PRIMARY KEY, location_id INTEGER NOT NULL, activity_id INTEGER NOT NULL, player_id INTEGER NOT NULL,
+        booking_id INTEGER, waived BOOLEAN NOT NULL, reason TEXT DEFAULT '', staff_id INTEGER,
+        created_at TIMESTAMP DEFAULT NOW() NOT NULL)`);
+      await db.execute(sql`CREATE TABLE IF NOT EXISTS one_time_migrations (key VARCHAR(100) PRIMARY KEY, ran_at TIMESTAMP DEFAULT NOW() NOT NULL)`);
+      // مرّةً واحدة: الطلبات التي غطّتها فاتورةٌ محصَّلة تُختم بها (ما طُلب قبل لحظة التحصيل).
+      // وصاحب المكان (منيو + تحصيل) يُمنح «الحساب» و«موقع المكان» — الثاني كان ناقصاً من القائمة
+      // فلم يظهر تبويبه لمن أُنشئ حسابه من صفحة الأماكن.
+      await db.execute(sql`WITH claim AS (
+          INSERT INTO one_time_migrations (key) VALUES ('venue-console-rebuild-2026-10-30')
+          ON CONFLICT (key) DO NOTHING RETURNING key
+        ), stamp AS (
+          UPDATE orders o SET invoice_id = i.id
+            FROM order_invoices i, claim
+           WHERE i.is_paid = true AND o.invoice_id IS NULL AND o.status <> 'cancelled'
+             AND o.location_id = i.location_id AND o.activity_id = i.activity_id AND o.player_id = i.player_id
+             AND o.created_at <= i.paid_at
+          RETURNING o.id
+        )
+        UPDATE staff s SET permissions = (
+            SELECT jsonb_agg(DISTINCT p) FROM jsonb_array_elements_text(
+              COALESCE(s.permissions, '[]'::jsonb) || '["finance.view","location.geofence"]'::jsonb) p)
+          FROM claim
+         WHERE s.role = 'location_owner'
+           AND s.permissions @> '["menu.manage","payments.record"]'::jsonb`);
       // 🕵️ إشارات مكافحة الغش (2026-08-12) — سلوكٌ مشبوه من جهاز اللاعب أثناء المباراة
       await db.execute(sql`CREATE TABLE IF NOT EXISTS cheat_signals (
         id SERIAL PRIMARY KEY,

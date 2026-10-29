@@ -105,6 +105,10 @@ export const orders = pgTable('orders', {
   // العمودان يمنعان التكرار عبر إعادة تشغيل الخادم، ويُصفَّران عند كلّ انتقال حالة.
   reminderSentAt: timestamp('reminder_sent_at'),
   reminderCount: integer('reminder_count').default(0).notNull(),
+  // 🧾 الفاتورة المحصَّلة التي غطّت هذا الطلب (2026-10-30). فارغٌ = مفتوحٌ لم يُقبض.
+  //    بلا هذا الختم كان الطلب بعد التحصيل يضيع: الفاتورة الوحيدة مدفوعة ولا تُدفع ثانيةً.
+  //    الآن ما بعد التحصيل يفتح فاتورةً جديدة، وما قبله مقفولٌ لا يُلغى من المكان.
+  invoiceId: integer('invoice_id'),
   createdAt: timestamp('created_at').defaultNow().notNull(),
 });
 
@@ -175,4 +179,39 @@ export const orderInvoices = pgTable('order_invoices', {
   isPaid: boolean('is_paid').default(false).notNull(),
   paidAt: timestamp('paid_at'),
   paidBy: integer('paid_by'),                                     // staff.id — من حصّل
+  // ↩️ التحصيل قلب الحجز مدفوعاً؟ التراجع يعيده فقط إن كان هو من قلبه
+  feeBookingFlipped: boolean('fee_booking_flipped').default(false).notNull(),
+  unpaidAt: timestamp('unpaid_at'),                               // آخر تراجعٍ عن التحصيل (تدقيق)
+  unpaidBy: integer('unpaid_by'),
+});
+
+// ── 🤝 تسليم دخوليّات النادي من المكان (2026-10-30) ──
+// الدخوليّة تُقبض في فاتورة المكان فتصير أمانةً عنده للنادي. المكان يصرّح بالتسليم
+// (pending) والإدارة تؤكّد الاستلام (confirmed) أو ترفضه — أو تسجّل استلاماً مباشراً.
+// الباقي عند المكان = Σ(دخوليّة − خصم ولاء) في الفواتير المحصّلة − المسلَّم.
+export const venueHandovers = pgTable('venue_handovers', {
+  id: serial('id').primaryKey(),
+  locationId: integer('location_id').notNull(),
+  amount: decimal('amount', { precision: 10, scale: 2 }).notNull(),
+  toLabel: varchar('to_label', { length: 80 }).default(''),        // لمن سُلِّم (يكتبه المكان)
+  note: text('note').default(''),
+  status: varchar('status', { length: 12 }).default('pending').notNull(), // pending | confirmed | rejected
+  declaredBy: integer('declared_by'),                              // staff.id — من المكان (فارغ إن سجّلته الإدارة)
+  declaredAt: timestamp('declared_at').defaultNow().notNull(),
+  resolvedBy: integer('resolved_by'),                              // staff.id — الإدارة
+  resolvedAt: timestamp('resolved_at'),
+});
+
+// ── 🎁 سجلّ إسقاط الدخوليّة (2026-10-30) ──
+// إسقاط الدخوليّة يُسقط مال النادي — لا يُترك بلا أثر: من أسقطها ولماذا ومتى.
+export const feeWaivers = pgTable('fee_waivers', {
+  id: serial('id').primaryKey(),
+  locationId: integer('location_id').notNull(),
+  activityId: integer('activity_id').notNull(),
+  playerId: integer('player_id').notNull(),
+  bookingId: integer('booking_id'),
+  waived: boolean('waived').notNull(),                             // true إسقاط · false إعادة احتساب
+  reason: text('reason').default(''),
+  staffId: integer('staff_id'),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
 });
