@@ -987,7 +987,7 @@ venueRouter.get('/invoices/candidates', authenticate, requireVenuePermission('in
       candidates: L.rows,
       // 🧾 حالة واتساب لكلّ لاعب: وصلته الفاتورة / الختم / وصلت حوالة / لم تُرسل وسببها
       wa: await import('../services/invoice-wa.service.js').then(m => m.nightWaStatus(activityId)).catch(() => ({})),
-      waEnabled: await import('../services/invoice-wa.service.js').then(m => m.invoiceWaEnabled()).catch(() => false),
+      waEnabled: await import('../services/invoice-wa.service.js').then(m => m.invoiceWaActiveFor(locId)).catch(() => false),
     });
   } catch (err: any) { res.status(500).json({ error: err.message }); }
 });
@@ -1095,7 +1095,7 @@ venueRouter.post('/invoices/:activityId/:playerId/wa-send', authenticate, requir
   if (!Number.isFinite(activityId) || !Number.isFinite(playerId)) return res.status(400).json({ error: 'معرّفات غير صالحة' });
   try {
     const W = await import('../services/invoice-wa.service.js');
-    if (!(await W.invoiceWaEnabled())) return res.status(400).json({ error: 'إرسال الفواتير عبر واتساب مطفأ من الإدارة' });
+    if (!(await W.invoiceWaActiveFor(locId))) return res.status(400).json({ error: 'إرسال الفواتير عبر واتساب مطفأ من الإدارة' });
     const [act] = await db.select({ id: activities.id }).from(activities)
       .where(and(eq(activities.id, activityId), eq(activities.locationId, locId))).limit(1);
     if (!act) return res.status(404).json({ error: 'الفعاليّة غير موجودة لهذا المكان' });

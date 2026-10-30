@@ -59,7 +59,8 @@ export default function InvoiceWaCard() {
         <div className="flex-1 min-w-0">
           <p className="text-white text-sm font-bold">إرسال الفواتير عبر واتساب</p>
           <p className="text-gray-500 text-xs mt-0.5">
-            {s.enabled ? 'يعمل في كلّ الأماكن — فاتورة عند كلّ توصيل، وختم بعد التحصيل' : 'مطفأ — لا يُرسل شيء، والبوت يجيب عن الحساب نصّاً'}
+            {s.enabled ? 'يعمل في كلّ الأماكن — فاتورة عند كلّ توصيل، وختم بعد التحصيل' : 'مطفأ في الأماكن الحقيقيّة — والبوت يجيب عن الحساب نصّاً'}
+            <span className="block text-gray-600">موقع الاختبار يعمل دائماً، ويصل حسابات الموظّفين فقط — للتجربة قبل التشغيل.</span>
             {s.by && <span className="text-gray-600"> · آخر تبديل: {s.by}</span>}
           </p>
         </div>

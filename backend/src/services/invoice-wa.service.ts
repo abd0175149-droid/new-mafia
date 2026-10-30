@@ -82,7 +82,7 @@ export async function invoiceWaStatus(): Promise<any> {
       COUNT(*) FILTER (WHERE kind = 'transfer' AND status = 'sent')::int AS transfers,
       COUNT(*) FILTER (WHERE status = 'failed')::int AS failed
     FROM invoice_wa_jobs WHERE created_at >= NOW() - INTERVAL '14 hours'`)) : [{}];
-  return { enabled: on, by: meta.by || '', at: meta.at || null, channels: { web, cloud }, tonight: t || {} };
+  return { enabled: on, by: meta.by || '', at: meta.at || null, channels: { web, cloud }, tonight: t || {}, testLocationAlwaysOn: true };
 }
 
 // ── التجدول ───────────────────────────────────────────
@@ -90,6 +90,23 @@ async function isTestLocation(db: Database, locId: number): Promise<boolean> {
   if (testHooks.allowTestLocation) return false;
   const [l] = await db.select({ t: locations.isTestLocation }).from(locations).where(eq(locations.id, locId)).limit(1);
   return l?.t === true;
+}
+
+/**
+ * وضع المكان:
+ *   live — مكانٌ حقيقيّ والمفتاح شغّال · off — المفتاح مطفأ
+ *   test — موقع اختبار: يعمل **دائماً** ولو كان المفتاح مطفأً (قرار المالك 2026-10-30: «الاختبار على
+ *          مكان الاختبار، لا ننتظر لعبةً حقيقيّة»)، ويصل **حسابات الموظّفين وحدها** (players.linked_staff_id)
+ *          — استثناءٌ ضيّق من قاعدة «موقع الاختبار لا يصل واتساب» التي وُضعت كي لا يُراسَل عميلٌ حقيقيّ منه.
+ */
+export async function locMode(locId: number): Promise<'live' | 'test' | 'off'> {
+  const db = getDB(); if (!db) return 'off';
+  if (await isTestLocation(db, locId)) return 'test';
+  return (await invoiceWaEnabled()) ? 'live' : 'off';
+}
+/** للمسارات والكونسول: هل يُرسل شيءٌ من هذا المكان الآن؟ */
+export async function invoiceWaActiveFor(locId: number): Promise<boolean> {
+  return (await locMode(locId)) !== 'off';
 }
 
 function emit(locId: number, payload: any): void {
@@ -103,7 +120,7 @@ function emit(locId: number, payload: any): void {
 export async function scheduleOpen(locId: number, activityId: number, playerId: number,
   opts: { kind?: 'open' | 'auto' | 'bot' | 'manual'; delayMs?: number; staffId?: number | null; invoiceId?: number | null; claim?: boolean } = {}): Promise<number | null> {
   const db = getDB(); if (!db) return null;
-  if (!(await invoiceWaEnabled()) || await isTestLocation(db, locId)) return null;
+  if ((await locMode(locId)) === 'off') return null;
   const kind = opts.kind || 'open';
   const due = new Date(Date.now() + (opts.delayMs ?? (kind === 'open' ? OPEN_DEBOUNCE_MS : 0)));
   if (kind === 'open' || kind === 'auto') {
@@ -128,7 +145,7 @@ export async function scheduleOpen(locId: number, activityId: number, playerId: 
 /** «حصّل» ⟵ الختم بعد مهلة التراجع */
 export async function schedulePaidStamp(locId: number, activityId: number, playerId: number, invoiceId: number, staffId: number | null): Promise<void> {
   const db = getDB(); if (!db) return;
-  if (!(await invoiceWaEnabled()) || await isTestLocation(db, locId)) return;
+  if ((await locMode(locId)) === 'off') return;
   // ما كان ينتظر من «مطلوب» لهذه الفاتورة لم يعد صحيحاً — المحصَّل لا يُطالَب به
   await db.execute(sql`UPDATE invoice_wa_jobs SET status = 'cancelled', reason = 'حُصّلت قبل الإرسال'
     WHERE activity_id = ${activityId} AND player_id = ${playerId} AND status = 'pending' AND kind IN ('open', 'auto')`);
@@ -231,9 +248,10 @@ export async function processJob(job: any): Promise<any> {
   const id = Number(job.id);
   const locId = Number(job.location_id), activityId = Number(job.activity_id), playerId = Number(job.player_id);
   try {
-    if (!(await invoiceWaEnabled())) return finish(id, 'skipped', { reason: 'الإرسال مطفأ من الداشبورد' });
-    if (await isTestLocation(db, locId)) return finish(id, 'skipped', { reason: 'موقع اختبار — لا يصل واتساب' });
-    const [pl] = await db.select({ phone: players.phone, name: players.name }).from(players).where(eq(players.id, playerId)).limit(1);
+    const mode = await locMode(locId);
+    if (mode === 'off') return finish(id, 'skipped', { reason: 'الإرسال مطفأ من الداشبورد' });
+    const [pl] = await db.select({ phone: players.phone, name: players.name, staff: players.linkedStaffId }).from(players).where(eq(players.id, playerId)).limit(1);
+    if (mode === 'test' && !pl?.staff) return finish(id, 'skipped', { reason: 'موقع اختبار — يصل حسابات الموظّفين فقط' });
     const phone = normalizeLocalPhone(pl?.phone || '');
     if (!phone) return finish(id, 'failed', { reason: 'لا رقم هاتف صالح للّاعب' });
 
@@ -309,7 +327,8 @@ export async function tick(): Promise<number> {
  */
 export async function sweepAuto(delayMs = 0, onlyActivityId: number | null = null): Promise<number> {
   const db = getDB(); if (!db) return 0;
-  if (!(await invoiceWaEnabled())) return 0;
+  // المفتاح مطفأ ⟵ مواقع الاختبار وحدها (تعمل دائماً لحسابات الموظّفين)
+  const on = await invoiceWaEnabled();
   const cands = rows(await db.execute(sql`
     SELECT a.id AS activity_id, a.location_id, sp.player_id
     FROM session_players sp
@@ -317,7 +336,7 @@ export async function sweepAuto(delayMs = 0, onlyActivityId: number | null = nul
     JOIN activities a ON a.id = s.activity_id
     JOIN locations l ON l.id = a.location_id
     WHERE sp.player_id IS NOT NULL AND a.deleted_at IS NULL
-      AND (${testHooks.allowTestLocation} OR COALESCE(l.is_test_location, false) = false)
+      AND (${testHooks.allowTestLocation} OR COALESCE(l.is_test_location, false) = true OR ${on})
       AND (${onlyActivityId}::int IS NULL OR a.id = ${onlyActivityId}::int)
       AND sp.joined_at > NOW() - INTERVAL '12 hours'
     GROUP BY a.id, a.location_id, sp.player_id
@@ -357,7 +376,7 @@ export async function invoiceForBot(locId: number, activityId: number, playerId:
     paidTotalJOD: Math.round(paid.reduce((s, p) => s + p.total, 0) * 100) / 100,
     remainingJOD: hasOpen ? (open as InvoiceData).grandTotal : 0,
   };
-  if (!(await invoiceWaEnabled())) return { ...summary, imageSent: false, imageNote: 'إرسال الصور مطفأ — أجبه نصّاً بالأرقام' };
+  if ((await locMode(locId)) === 'off') return { ...summary, imageSent: false, imageNote: 'إرسال الصور مطفأ — أجبه نصّاً بالأرقام' };
   const last = paid[paid.length - 1];
   if (!hasOpen && !last) return { ...summary, imageSent: false };
   const jobId = await scheduleOpen(locId, activityId, playerId, hasOpen ? { kind: 'bot', claim: true } : { kind: 'bot', invoiceId: last.id, claim: true });
@@ -410,7 +429,6 @@ const TRANSFER_ACK = 'وصلتنا صورة الحوالة 👍 حوّلناها
 export async function handleTransferImage(conv: any, msg: any): Promise<boolean> {
   const db = getDB(); if (!db) return false;
   if (msg?.type !== 'image' || !msg?.image?.id) return false;
-  if (!(await invoiceWaEnabled())) return false;
   let playerId: number | null = conv?.playerId ?? null;
   if (!playerId) {
     const local = normalizeLocalPhone(conv?.phone || '');
@@ -422,6 +440,7 @@ export async function handleTransferImage(conv: any, msg: any): Promise<boolean>
       AND created_at > NOW() - INTERVAL '16 hours' ORDER BY id DESC LIMIT 1`));
   if (!ctx) return false;
   const locId = Number(ctx.location_id), activityId = Number(ctx.activity_id);
+  if ((await locMode(locId)) === 'off') return false;
   const data = await buildInvoiceData(db, locId, activityId, playerId);
   if ('error' in data || data.grandTotal <= 0 || !data.payment.cliq) return false;
 

@@ -167,11 +167,15 @@ async function main() {
     r = await api(vURL(`/api/venue/invoices/${act.id}/${p1.id}/pay`), { method: 'POST', headers: A, body: JSON.stringify({ expectedTotal: 8.5 }) });
     ok('التحصيل يُقبل', r.body?.success === true, JSON.stringify(r.body));
     const paidId = Number(r.body?.invoiceId);
+    // الخادم نفسه جدول ختماً (موقع الاختبار يعمل دائماً) — يُلغى كي لا يلتقطه عامله؛ نختبر بنسختنا
+    await new Promise(res => setTimeout(res, 300));
+    const srv = await q(sql`UPDATE invoice_wa_jobs SET status = 'cancelled', reason = 'فحص' WHERE invoice_id = ${paidId} AND kind = 'paid' AND status = 'pending' RETURNING id`);
+    ok('مسار التحصيل في الخادم يجدول الختم', srv.length === 1, `n=${srv.length}`);
     await W.schedulePaidStamp(LOC, act.id, p1.id, paidId, null);
-    let st = await q(sql`SELECT id, due_at, status FROM invoice_wa_jobs WHERE invoice_id = ${paidId} AND kind = 'paid'`);
+    let st = await q(sql`SELECT id, due_at, status FROM invoice_wa_jobs WHERE invoice_id = ${paidId} AND kind = 'paid' AND reason <> 'فحص'`);
     ok('الختم ينتظر مهلة التراجع', st.length === 1 && st[0].status === 'pending' && new Date(st[0].due_at).getTime() - Date.now() > 110_000);
     const cancelled = await W.cancelPaidStamp(paidId);
-    st = await q(sql`SELECT status FROM invoice_wa_jobs WHERE invoice_id = ${paidId} AND kind = 'paid'`);
+    st = await q(sql`SELECT status FROM invoice_wa_jobs WHERE invoice_id = ${paidId} AND kind = 'paid' AND reason <> 'فحص'`);
     ok('التراجع يلغي الختم', cancelled === 1 && st[0].status === 'cancelled');
     await W.schedulePaidStamp(LOC, act.id, p1.id, paidId, null);
     const [ps] = await q(sql`SELECT id FROM invoice_wa_jobs WHERE invoice_id = ${paidId} AND kind = 'paid' AND status = 'pending'`);
@@ -267,16 +271,31 @@ async function main() {
     // ══ ٩ · المفتاح وموقع الاختبار والحالة ══
     section('٩ · المفتاح والحراسات');
     W.testHooks.forceEnabled = false;
-    ok('المفتاح مطفأ ⟵ لا جدولة', (await W.scheduleOpen(LOC, act.id, p1.id, {})) === null);
-    W.testHooks.forceEnabled = true;
+    ok('المفتاح مطفأ ⟵ لا جدولة (مكانٌ حقيقيّ)', (await W.scheduleOpen(LOC, act.id, p1.id, {})) === null);
+    // 🧪 موقع الاختبار يعمل والمفتاح مطفأ — لحسابات الموظّفين وحدها
     W.testHooks.allowTestLocation = false;
-    ok('موقع اختبار ⟵ لا جدولة', (await W.scheduleOpen(LOC, act.id, p1.id, {})) === null);
+    ok('موقع اختبار يعمل والمفتاح مطفأ', (await W.locMode(LOC)) === 'test');
+    const tj = await W.scheduleOpen(LOC, act.id, p1.id, { kind: 'manual' });
+    ok('موقع اختبار ⟵ يُجدول والمفتاح مطفأ', !!tj);
+    sent.length = 0;
+    await W.processJob(await claim(tj!));
+    let tr = await job(tj!);
+    ok('لاعبٌ عاديّ في موقع الاختبار ⟵ لا يصله شيء', tr.status === 'skipped' && sent.length === 0 && String(tr.reason).includes('الموظّفين'), tr.reason);
+    await q(sql`UPDATE players SET linked_staff_id = ${adminRow.id} WHERE id = ${p1.id}`);
+    const tj2 = await W.scheduleOpen(LOC, act.id, p1.id, { kind: 'manual' });
+    await W.processJob(await claim(tj2!));
+    tr = await job(tj2!);
+    ok('حساب موظّف في موقع الاختبار ⟵ تصله الفاتورة', tr.status === 'sent' && sent.some(x => x.kind === 'image' && x.to === PH1), tr.reason);
+    await q(sql`UPDATE players SET linked_staff_id = NULL WHERE id = ${p1.id}`);
+    W.testHooks.forceEnabled = true;
     W.testHooks.allowTestLocation = true;
     r = await api(vURL(`/api/venue/invoices/candidates?activityId=${act.id}`), { headers: A });
     ok('«التحصيل» يحمل حالة واتساب لكلّ لاعب', !!r.body?.wa?.[p1.id] && typeof r.body?.waEnabled === 'boolean', JSON.stringify(r.body?.wa?.[p1.id]));
     const flagOn = (await q(sql`SELECT value FROM wa_runtime_flags WHERE key = 'invoice_wa'`))[0]?.value?.enabled === true;
     r = await api(vURL(`/api/venue/invoices/${act.id}/${p1.id}/wa-send`), { method: 'POST', headers: A });
-    ok(flagOn ? '«أعد الإرسال» يقبل والمفتاح شغّال' : '«أعد الإرسال» يُرفض والمفتاح مطفأ', flagOn ? r.status === 400 || r.body?.success === true : r.status === 400, JSON.stringify(r.body));
+    void flagOn;
+    ok('«أعد الإرسال» في موقع الاختبار يُقبل والمفتاح مطفأ', r.body?.success === true, JSON.stringify(r.body));
+    await q(sql`UPDATE invoice_wa_jobs SET status = 'cancelled', reason = 'فحص' WHERE id = ${r.body?.jobId ?? 0} AND status = 'pending'`);
     r = await api('/api/admin/invoice-wa', { headers: A });
     ok('بطاقة الداشبورد تقرأ الحالة', r.body?.success === true && typeof r.body?.enabled === 'boolean' && !!r.body?.channels);
     r = await api('/api/admin/invoice-wa', { method: 'PUT', headers: A, body: JSON.stringify({ enabled: 'yes' }) });
