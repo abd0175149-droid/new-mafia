@@ -12,7 +12,7 @@ import { ageFromDob, ADULT_AGE } from '../services/consent.service.js';
 import { LOCKED_MESSAGE } from '../lib/account-lock.js';
 import { clientIp } from '../middleware/client-ip.js';
 import { touchLastActive, platformFromHeaders } from '../lib/last-active.js';
-import { eq, and, desc, gte } from 'drizzle-orm';
+import { eq, and, desc, gte, inArray } from 'drizzle-orm';
 import { getDB } from '../config/db.js';
 import { players, PLAYER_DEFAULT_PASSWORD, lockedLoginAttempts } from '../schemas/player.schema.js';
 import {
@@ -83,8 +83,20 @@ router.post('/register', async (req: Request, res: Response) => {
     const db = getDB();
     if (!db) return res.status(503).json({ success: false, error: 'قاعدة البيانات غير متوفرة' });
 
-    // تحقق من التكرار
-    const existing = await db.select().from(players).where(eq(players.phone, phone)).limit(1);
+    // 📱 الرقم يُحفظ بصيغته المعتمدة (07XXXXXXXX) — كان يُحفظ كما كُتب فيدخل صاحبه بتلك الكتابة وحدها
+    //    والبوّابة شغّالة ⟵ لا حساب جديد برقمٍ بلا واتساب (تعذّر الفحص ⟵ يمرّ ويُفحص لاحقاً)
+    const G = await import('../services/wa-number-gate.service.js');
+    const canon = G.canonicalPhone(phone);
+    const gateOn = await G.waGateEnabled();
+    if (gateOn && !canon) return res.status(400).json({ success: false, code: 'INVALID_PHONE', error: 'اكتب رقم موبايل صحيحاً — 10 خانات تبدأ بـ 07' });
+    const phoneToSave = canon?.local || String(phone).trim();
+    if (gateOn && canon) {
+      const onWa = await G.checkNow(canon.local);
+      if (onWa === false) return res.status(400).json({ success: false, code: 'NOT_ON_WA', error: `لا يوجد واتساب على ${canon.local} — سجّل برقمك الذي عليه واتساب` });
+    }
+
+    // تحقق من التكرار (بالكتابة كما وردت وبالصيغة المعتمدة)
+    const existing = await db.select().from(players).where(inArray(players.phone, [...new Set([String(phone), phoneToSave])])).limit(1);
     if (existing.length > 0) {
       return res.status(409).json({
         success: false,
@@ -95,7 +107,7 @@ router.post('/register', async (req: Request, res: Response) => {
     // إنشاء الحساب مع مكافأة ترحيبية 200 XP
     const passwordHash = await hashPlayerPassword(password);
     const result = await db.insert(players).values({
-      phone,
+      phone: phoneToSave,
       passwordHash,
       mustChangePassword: false,
       name,
@@ -181,10 +193,16 @@ router.post('/login', rateLimit({ windowMs: 15 * 60 * 1000, max: 120, keyPrefix:
     const db = getDB();
     if (!db) return res.status(503).json({ success: false, error: 'قاعدة البيانات غير متوفرة' });
 
-    const result = await db.select().from(players).where(eq(players.phone, phone)).limit(1);
+    // 📱 الرقم كما كُتب أوّلاً، ثمّ بصيغته المعتمدة — «+962 7 9935 2074» و«0799352074» رقمٌ واحد
+    let result = await db.select().from(players).where(eq(players.phone, phone)).limit(1);
+    if (!result[0]) {
+      const { canonicalPhone } = await import('../services/wa-number-gate.service.js');
+      const c = canonicalPhone(phone);
+      if (c && c.local !== phone) result = await db.select().from(players).where(eq(players.phone, c.local)).limit(1);
+    }
     const player = result[0];
 
-    if (!player) {
+    if (!player || (player as any).mergedIntoId) {
       return res.status(401).json({
         success: false,
         error: 'رقم الهاتف أو كلمة المرور غير صحيحة',
@@ -443,8 +461,16 @@ router.get('/me', authenticatePlayer, async (req: Request, res: Response) => {
       }
     } catch { /* Redis might be unavailable */ }
 
+    // 📱 بوّابة رقم الواتساب — لا تُقطع لعبةٌ جارية ولا مشاهدة (القرار ٢)
+    let waGate: any = null;
+    try {
+      const { gateFor } = await import('../services/wa-number-gate.service.js');
+      waGate = await gateFor({ id: player.id, phone: player.phone }, !!activeGame || !!spectatingGame || frozenGames.length > 0);
+    } catch { /* البوّابة تكميليّة — لا تُسقط /me */ }
+
     return res.json({
       success: true,
+      waGate,
       player: {
         id: player.id,
         playerId: player.id,
@@ -468,6 +494,31 @@ router.get('/me', authenticatePlayer, async (req: Request, res: Response) => {
   } catch (err: any) {
     console.error('❌ Player /me error:', err.message);
     return res.status(500).json({ success: false, error: 'خطأ في جلب البيانات' });
+  }
+});
+
+// ══════════════════════════════════════════════════════
+// 📱 ربط رقم واتساب (بوّابة الرقم 2026-10-30)
+// start: صيغة ⟵ غير مأخوذ ⟵ عليه واتساب (فحصٌ صامت) ⟵ رمز ٦ أرقام عبر واتساب
+// confirm: الرمز ⟵ يُعتمد الرقم رقماً للدخول وتُربط محادثته. نفس رقمه وقد صار عليه واتساب ⟵ بلا رمز
+// ══════════════════════════════════════════════════════
+router.post('/wa-number/start', authenticatePlayer, rateLimit({ windowMs: 15 * 60 * 1000, max: 20, keyPrefix: 'wa-number-start' }), async (req: Request, res: Response) => {
+  try {
+    const { startPhoneChange } = await import('../services/wa-number-gate.service.js');
+    const r = await startPhoneChange(req.playerAccount!.playerId, String(req.body?.phone || ''));
+    return res.json({ success: true, ...r });
+  } catch (e: any) {
+    return res.status(e?.status || 500).json({ success: false, code: e?.code || 'ERROR', error: e?.message || 'تعذّر التحقّق' });
+  }
+});
+
+router.post('/wa-number/confirm', authenticatePlayer, rateLimit({ windowMs: 15 * 60 * 1000, max: 30, keyPrefix: 'wa-number-confirm' }), async (req: Request, res: Response) => {
+  try {
+    const { confirmPhoneChange } = await import('../services/wa-number-gate.service.js');
+    const r = await confirmPhoneChange(req.playerAccount!.playerId, String(req.body?.phone || ''), req.body?.code ? String(req.body.code) : null);
+    return res.json({ success: true, ...r });
+  } catch (e: any) {
+    return res.status(e?.status || 500).json({ success: false, code: e?.code || 'ERROR', error: e?.message || 'تعذّر الاعتماد' });
   }
 });
 

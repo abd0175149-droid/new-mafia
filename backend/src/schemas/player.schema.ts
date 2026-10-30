@@ -58,6 +58,8 @@ export const players = pgTable('players', {
   chipsNameFxItemId: integer('chips_name_fx_item_id'),
   // ── ربط بحساب موظف (Staff) ──
   linkedStaffId: integer('linked_staff_id'),
+  // 🔀 حسابٌ دُمج في آخر (الرقم نفسه مكتوباً بطريقتين — بوّابة رقم الواتساب 2026-10-30). لا دخول به بعد الدمج
+  mergedIntoId: integer('merged_into_id'),
   // ── 🌐 صلاحيّات اللعب عن بُعد ──
   // 📍 إعفاء من سياج الفعاليّة — للاعب الذي لا يُنتج جهازُه قراءة موقع
   // (حالة iOS الموثّقة: إذنٌ ممنوحٌ ومع ذلك لا إحداثيّات أبداً). ليس ثقةً بل اعترافٌ بأنّ

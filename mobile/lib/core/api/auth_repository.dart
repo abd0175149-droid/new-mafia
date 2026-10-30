@@ -1,8 +1,10 @@
+import 'dart:async';
 import 'package:flutter/foundation.dart';
 
 import '../../models/player.dart';
 import '../storage/session_store.dart';
 import 'api_client.dart';
+import '../../app/app_state.dart';
 
 // ══════════════════════════════════════════════════════
 // 🔑 الدخول والجلسة
@@ -78,6 +80,7 @@ class AuthRepository {
       token: token,
       player: PlayerData.fromJson(Map<String, dynamic>.from(playerJson)),
     );
+    unawaited(refresh());   // 📱 بوّابة رقم الواتساب
 
     final bonus = map['welcomeBonus'] ?? map['welcomeBonusAmount'];
     return bonus is num ? bonus.toInt() : (map['welcomeBonusApplied'] == true ? 200 : null);
@@ -140,6 +143,9 @@ class AuthRepository {
         // ارتباطٌ أُزيل من لوحة الإدارة ⇒ تُمحى الصلاحيّة فوراً.
         await _session.clearStaff();
       }
+
+      // 📱 بوّابة رقم الواتساب — تُقرأ مع كلّ تحديثٍ للجلسة
+      AppState.instance.setWaGate(map['waGate']);
 
       final p = map['player'] ?? map['data'] ?? map;
       if (p is Map && p['id'] != null) {

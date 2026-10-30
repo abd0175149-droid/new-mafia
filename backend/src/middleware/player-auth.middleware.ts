@@ -98,10 +98,11 @@ export async function authenticatePlayer(req: Request, res: Response, next: Next
     const [row] = await db.select({
       id: players.id, phone: players.phone, name: players.name,
       deletedAt: players.deletedAt, anonymizedAt: players.anonymizedAt,
-      isLocked: players.isLocked, lastActiveAt: players.lastActiveAt,
+      isLocked: players.isLocked, lastActiveAt: players.lastActiveAt, mergedIntoId: players.mergedIntoId,
     }).from(players).where(eq(players.id, decoded.playerId)).limit(1);
 
-    if (!row || row.anonymizedAt) {
+    // 🔀 حسابٌ دُمج في آخر (بوّابة رقم الواتساب): يخرج ويدخل برقمه فيصل الحساب الباقي
+    if (!row || row.anonymizedAt || row.mergedIntoId) {
       res.status(401).json({ error: 'الحساب لم يعد موجوداً', code: 'ACCOUNT_GONE' });
       return;
     }

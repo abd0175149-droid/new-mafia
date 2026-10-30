@@ -56,6 +56,27 @@ class AppState extends ChangeNotifier {
     notifyListeners();
   }
 
+  // ══════════════════════════════════════════════════════
+  // 📱 بوّابة رقم الواتساب (2026-10-30)
+  // ══════════════════════════════════════════════════════
+  // الخادم يقرّر في `/me` (waGate): المفتاح من الداشبورد، والحالة، ولا تُقطع لعبةٌ جارية.
+  Map<String, dynamic>? _waGate;
+  Map<String, dynamic>? get waGate => _waGate;
+  bool get needsWaNumber => _waGate?['required'] == true;
+
+  void setWaGate(Object? g) {
+    final next = g is Map && g['required'] == true ? Map<String, dynamic>.from(g) : null;
+    if (next == null && _waGate == null) return;
+    _waGate = next;
+    notifyListeners();
+  }
+
+  /// رُبط رقمٌ عليه واتساب ⟵ تُغلق البوّابة فوراً
+  void markWaLinked() {
+    _waGate = null;
+    notifyListeners();
+  }
+
   /// البوّابة تُعرض فوق المحتوى ولا تكون مساراً (§6.2) — فحالتها هنا
   /// لا في الراوتر.
   bool get gatePassed =>

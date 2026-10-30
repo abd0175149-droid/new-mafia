@@ -690,8 +690,12 @@ router.post('/register', async (req: Request, res: Response) => {
     });
 
     if (player) {
+      // 📱 تنبيهٌ للموظّف إن لم يكن على الرقم واتساب — يُحفظ الحساب على أيّ حال (القرار ٤)
+      let waWarning: string | null = null;
+      try { const { staffCreateWarning } = await import('../services/wa-number-gate.service.js'); waWarning = await staffCreateWarning(player.phone); } catch { /* تكميليّ */ }
       return res.json({
         success: true,
+        waWarning,
         player: {
           id: player.id,
           playerId: player.id,

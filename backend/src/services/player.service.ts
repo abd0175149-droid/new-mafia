@@ -17,8 +17,15 @@ export async function findPlayerByPhone(phone: string) {
   const db = getDB();
   if (!db) return null;
 
-  const result = await db.select().from(players).where(eq(players.phone, phone)).limit(1);
-  return result[0] || null;
+  let result = await db.select().from(players).where(eq(players.phone, phone)).limit(1);
+  // 📱 الرقم نفسه بكتابةٍ أخرى (بوّابة رقم الواتساب 2026-10-30): يُحفظ الآن بصيغته المعتمدة
+  if (!result[0]) {
+    const { canonicalPhone } = await import('./wa-number-gate.service.js');
+    const c = canonicalPhone(phone);
+    if (c && c.local !== phone) result = await db.select().from(players).where(eq(players.phone, c.local)).limit(1);
+  }
+  const p = result[0] || null;
+  return p && !(p as any).mergedIntoId ? p : null;
 }
 
 // ── البحث عن لاعب بالـ ID ──────────────────────────
@@ -51,8 +58,14 @@ export async function createPlayer(data: {
     ? await hashPlayerPassword(data.password)
     : null;
 
+  // 📱 الصيغة المعتمدة، وفحصٌ صامت في الخلفيّة — الموظّف لا يُعطَّل على الباب (القرار ٤)،
+  //    واللاعب يُلزم بربط رقم واتساب عند أوّل دخول إن ثبت أنّ رقمه بلا واتساب
+  const { canonicalPhone } = await import('./wa-number-gate.service.js');
+  const canon = canonicalPhone(data.phone);
+  if (canon) { try { const { scheduleChecks } = await import('./wa-transport/number-check.js'); scheduleChecks([canon.local]); } catch { /* تكميليّ */ } }
+
   const result = await db.insert(players).values({
-    phone: data.phone,
+    phone: canon?.local || data.phone,
     passwordHash,
     mustChangePassword: !data.password,
     name: data.name,

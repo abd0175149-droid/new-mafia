@@ -24,6 +24,8 @@ export default function LeaderLobbyView({ gameState, emit, setError, hideOffline
   const [penalizingId, setPenalizingId] = useState<number | null>(null);
   const [penalizingLoading, setPenalizingLoading] = useState(false);
   const [localError, setLocalError] = useState('');
+  // 📱 تنبيه «لا واتساب على هذا الرقم» — الحساب يُحفظ واللاعب يُلزم عند دخوله (بوّابة الرقم 2026-10-30)
+  const [waWarn, setWaWarn] = useState('');
 
   // ── حالات نموذج الإضافة (Multi-step) ──
   // step: phone → register → seat → submitting
@@ -59,6 +61,7 @@ export default function LeaderLobbyView({ gameState, emit, setError, hideOffline
   // Reset form
   const resetAddForm = () => {
     setAddStep('phone');
+    setWaWarn('');
     setAddPhone('');
     setAddName('');
     setAddDob('');
@@ -147,6 +150,7 @@ export default function LeaderLobbyView({ gameState, emit, setError, hideOffline
       const data = await res.json();
       if (data.success) {
         setAddPlayerId(data.player.playerId || data.player.id);
+        setWaWarn(data.waWarning || '');
         setAddStep('seat');
       } else {
         setLocalError(data.error || 'فشل التسجيل');
@@ -500,6 +504,7 @@ export default function LeaderLobbyView({ gameState, emit, setError, hideOffline
             )}
 
             {localError && <p className="text-[#8A0303] text-[10px] font-mono tracking-widest text-center mt-4 uppercase bg-[#8A0303]/10 p-2 rounded">{localError}</p>}
+            {waWarn && addStep === 'seat' && <p role="status" className="text-amber-400 text-xs text-center mt-3 bg-amber-500/10 p-2 rounded leading-relaxed">{waWarn}</p>}
           </motion.div>
         )}
       </AnimatePresence>

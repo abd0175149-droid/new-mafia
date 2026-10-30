@@ -70,6 +70,7 @@ import staffActionLogRoutes from './routes/staff-action-log.routes.js';
 import { venueRouter, playerFnbRouter } from './routes/fnb.routes.js';
 import venueSettlementsRoutes from './routes/venue-settlements.routes.js';
 import invoiceWaRoutes from './routes/invoice-wa.routes.js';
+import waGateRoutes from './routes/wa-gate.routes.js';
 import chipsRoutes from './routes/chips.routes.js';
 import loyaltyRoutes from './routes/loyalty.routes.js';
 import chipsStoreRoutes from './routes/chips-store.routes.js';
@@ -238,6 +239,7 @@ app.use('/api/reservations', reservationsRoutes);
 app.use('/api/venue', venueRouter);      // 🏪 كونسول حساب المكان (منيو/طلبات/فواتير)
 app.use('/api/admin/venue-settlements', venueSettlementsRoutes); // 🤝 تسويات الأماكن (admin/manager)
 app.use('/api/admin/invoice-wa', invoiceWaRoutes);               // 🧾 مفتاح فواتير واتساب (الداشبورد)
+app.use('/api/admin/wa-gate', waGateRoutes);                    // 📱 بوّابة رقم الواتساب (الداشبورد)
 app.use('/api/fnb', playerFnbRouter);    // 🍽️ طلبات المنيو — جهة اللاعب
 app.use('/api/chips', chipsRoutes);      // 🪙 اقتصاد التشبس (محفظة + دفتر + شحن إداري)
 app.use('/api/loyalty', loyaltyRoutes);  // 🎟️ بطاقة الولاء (ختم الدون)
@@ -1245,6 +1247,15 @@ async function main() {
       await db.execute(sql`ALTER TABLE locations ADD COLUMN IF NOT EXISTS cliq_bank VARCHAR(80) DEFAULT '' NOT NULL`);
       await db.execute(sql`ALTER TABLE locations ADD COLUMN IF NOT EXISTS cliq_name VARCHAR(100) DEFAULT '' NOT NULL`);
       await db.execute(sql`ALTER TABLE locations ADD COLUMN IF NOT EXISTS wa_phone VARCHAR(20) DEFAULT '' NOT NULL`);
+      // 📱 بوّابة رقم الواتساب (2026-10-30): رموز تغيير الرقم، سجلّ التغييرات، والحسابات المدموجة
+      await db.execute(sql`ALTER TABLE players ADD COLUMN IF NOT EXISTS merged_into_id INTEGER`);
+      await db.execute(sql`CREATE TABLE IF NOT EXISTS phone_change_otps (
+        id SERIAL PRIMARY KEY, player_id INTEGER NOT NULL, phone VARCHAR(20) NOT NULL, code_hash VARCHAR(64) NOT NULL,
+        attempts INTEGER DEFAULT 0 NOT NULL, expires_at TIMESTAMPTZ NOT NULL, used_at TIMESTAMPTZ, created_at TIMESTAMPTZ DEFAULT NOW() NOT NULL)`);
+      await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_phone_otps_player ON phone_change_otps(player_id, created_at)`);
+      await db.execute(sql`CREATE TABLE IF NOT EXISTS player_phone_changes (
+        id SERIAL PRIMARY KEY, player_id INTEGER NOT NULL, old_phone VARCHAR(30), new_phone VARCHAR(30) NOT NULL,
+        source VARCHAR(20) NOT NULL, details JSONB DEFAULT '{}'::jsonb, created_at TIMESTAMPTZ DEFAULT NOW() NOT NULL)`);
       await db.execute(sql`CREATE TABLE IF NOT EXISTS invoice_wa_jobs (
         id SERIAL PRIMARY KEY, location_id INTEGER NOT NULL, activity_id INTEGER NOT NULL, player_id INTEGER NOT NULL,
         kind VARCHAR(12) NOT NULL, invoice_id INTEGER, invoice_no INTEGER, total DECIMAL(10,2),

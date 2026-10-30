@@ -14,6 +14,8 @@ import '../core/ui/in_app_banner.dart';
 import '../features/gates/birthday_gate.dart';
 import '../features/gates/location_required_gate.dart';
 import '../features/gates/consent_gate.dart';
+import '../features/gates/wa_number_gate.dart';
+import '../core/api/auth_repository.dart';
 import '../features/gates/notification_gate.dart';
 import 'dart:async';
 
@@ -39,7 +41,7 @@ class MafiaApp extends StatefulWidget {
   State<MafiaApp> createState() => _MafiaAppState();
 }
 
-class _MafiaAppState extends State<MafiaApp> {
+class _MafiaAppState extends State<MafiaApp> with WidgetsBindingObserver {
   bool _showWelcome = true;
   late final GoRouter _router = buildRouter(widget.config);
   final _app = AppState.instance;
@@ -48,6 +50,7 @@ class _MafiaAppState extends State<MafiaApp> {
   void initState() {
     super.initState();
     _app.addListener(_onAppState);
+    WidgetsBinding.instance.addObserver(this);
     _app.evaluate();
     // وجهة إشعارٍ أقلع منه التطبيق تصل عبر PushService قبل حسم الجلسة
     PushService.instance.pendingRoute.addListener(_onPushRoute);
@@ -80,8 +83,17 @@ class _MafiaAppState extends State<MafiaApp> {
     } catch (_) { /* الشبكةُ ساقطة — لا نحجب */ }
   }
 
+  /// 📱 العودة للمقدّمة تُعيد قراءة بوّابة رقم الواتساب — لاعبٌ أنهى لعبته تظهر له الآن (القرار ٢)
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed && _app.session == SessionState.authenticated) {
+      unawaited(AuthRepository.instance.refresh());
+    }
+  }
+
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _app.removeListener(_onAppState);
     PushService.instance.pendingRoute.removeListener(_onPushRoute);
     BadgeService.instance.stop();
@@ -190,6 +202,10 @@ class _MafiaAppState extends State<MafiaApp> {
                       onResolved: () { setState(() => _consent = null); unawaited(_checkConsent()); },
                     ),
                   ),
+                // 📱 رقم الواتساب — فوق الميلاد والموافقة وتحت الإصدار: لا يُستعمل التطبيق برقمٍ
+                //    بلا واتساب (الخادم لا يطلبها أثناء لعبةٍ جارية)
+                if (_showWaGate)
+                  Positioned.fill(child: WaNumberGate(gate: _app.waGate!)),
                 if (_blocked != null)
                   Positioned.fill(child: UpdateGate(status: _blocked!)),
                 // 📣 ORDER-3: بانر الإشعار — تحت الضجيج وفوق كلّ شيءٍ آخر،
@@ -218,6 +234,14 @@ class _MafiaAppState extends State<MafiaApp> {
     if (_app.session != SessionState.authenticated) return false;
     final st = LocationService.instance.status;
     if (st == LocationStatus.granted || st == LocationStatus.unknown) return false;
+    final loc = currentLocation ?? '';
+    final path = Uri.tryParse(loc)?.path ?? loc;
+    return !Routes.publicPaths.contains(path);
+  }
+
+  /// 📱 بوّابة رقم الواتساب: للمسجّل حين يطلبها الخادم، خارج المسارات العامّة
+  bool get _showWaGate {
+    if (_app.session != SessionState.authenticated || !_app.needsWaNumber) return false;
     final loc = currentLocation ?? '';
     final path = Uri.tryParse(loc)?.path ?? loc;
     return !Routes.publicPaths.contains(path);
