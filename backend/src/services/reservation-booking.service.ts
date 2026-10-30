@@ -138,3 +138,64 @@ export async function removeBookingForReservation(db: Database, r: ResRow): Prom
   await db.update(bookings).set({ deletedAt: new Date() } as any).where(eq(bookings.id, existing.id));
   return true;
 }
+
+/**
+ * ↩️ الاتّجاه المعاكس: حجزٌ أدخله موظّفٌ بيده (نموذج الحجز في محادثة الواتساب وصفحتَي
+ * الحجوزات والفعاليّات — كلّها POST /api/bookings) كان يُسجَّل في الحجوزات ولا يظهر في
+ * «متابعة الحجوزات»، بينما حجز التطبيق والبوت والعروض يُنشئ صفّيه معاً (طلب المالك 2026-10-30).
+ * فغاب عن التثبيت والحضور ورسائل التأكيد.
+ *
+ * اتّفاقيّة العدّ نفسها أعلاه: صفّ الحجز يُردّ إلى صاحبه count=1 والمرافقون إلى peopleCount،
+ * والوسم appConfirmed إلزاميّ — فمجموع المقاعد يبقى ما أدخله الموظّف بالضبط.
+ * صفّ متابعةٍ قائم للشخص نفسه (أُدخل قبلاً أو حجز من البوت) يُكمَّل ولا يُكرَّر: يُثبَّت
+ * (غير المثبّت وقائمة الانتظار — الموظّف حجز له فعلاً)، ويُربط بحسابه، ولا ينقص عدده.
+ */
+export async function ensureReservationForBooking(
+  db: Database,
+  b: { id: number; activityId: number; name: string; phone: string | null; count: number | null; playerId: number | null },
+  meta: { createdBy: string; contactMethod?: string; notes?: string },
+): Promise<{ result: 'created' | 'updated'; reservationId: number }> {
+  const people = Math.max(1, Number(b.count) || 1);
+  if (people > 1) await db.update(bookings).set({ count: 1 } as any).where(eq(bookings.id, b.id));
+
+  const phone = (b.phone || '').trim();
+  const [ex] = await db.select({ id: reservations.id, status: reservations.status, playerId: reservations.playerId, peopleCount: reservations.peopleCount })
+    .from(reservations)
+    .where(and(
+      eq(reservations.activityId, b.activityId),
+      isNull(reservations.deletedAt),
+      or(
+        b.playerId ? eq(reservations.playerId, b.playerId) : sql`false`,
+        phone ? eq(reservations.phone, phone) : sql`false`,
+      ),
+    ))
+    .orderBy(reservations.id)
+    .limit(1);
+
+  if (ex) {
+    await db.update(reservations).set({
+      appConfirmed: true,
+      appConfirmedAt: new Date(),
+      ...(ex.status === 'pending' || ex.status === 'waitlist' ? { status: 'confirmed' } : {}),
+      ...(!ex.playerId && b.playerId ? { playerId: b.playerId } : {}),
+      ...(people > (ex.peopleCount || 1) ? { peopleCount: people } : {}),
+      updatedAt: new Date(),
+    } as any).where(eq(reservations.id, ex.id));
+    return { result: 'updated', reservationId: ex.id };
+  }
+
+  const [saved] = await db.insert(reservations).values({
+    activityId: b.activityId,
+    contactName: b.name,
+    contactMethod: meta.contactMethod || '',
+    phone,
+    peopleCount: people,
+    playerId: b.playerId,
+    status: 'confirmed',               // حجزه موظّفٌ بيده — مثبّت
+    notes: meta.notes || '',
+    createdBy: meta.createdBy,
+    appConfirmed: true,                // 🔴 صاحبه محسوبٌ في صفّ الحجز
+    appConfirmedAt: new Date(),
+  } as any).returning({ id: reservations.id });
+  return { result: 'created', reservationId: saved.id };
+}

@@ -815,7 +815,8 @@ export default function WhatsAppInboxPage() {
   }, [bkData]);
 
   const submitBooking = useCallback(async (data: any) => {
-    await apiFetch('/api/bookings', { method: 'POST', body: JSON.stringify(data) });
+    // source: يظهر في «متابعة الحجوزات» بوسيلة التواصل «واتساب» (الخادم يُنشئ صفّ المتابعة)
+    await apiFetch('/api/bookings', { method: 'POST', body: JSON.stringify({ ...data, source: 'whatsapp' }) });
     setShowBookingForm(false);
     swalToast('تم إنشاء الحجز ✅', 'success');
     if (selId) apiFetch(`/api/whatsapp/conversations/${selId}/context`).then(setCtx).catch(() => {});

@@ -64,7 +64,7 @@ router.post('/', authenticate, async (req: Request, res: Response) => {
   const db = getDB();
   if (!db) return res.status(503).json({ error: 'قاعدة البيانات غير متوفرة' });
 
-  const { activityId, name, phone, count, isPaid, paidAmount, receivedBy, isFree, notes, offerItems } = req.body;
+  const { activityId, name, phone, count, isPaid, paidAmount, receivedBy, isFree, notes, offerItems, source } = req.body;
   if (!activityId || !name) return res.status(400).json({ error: 'النشاط والاسم مطلوبان' });
 
   const createdByName = req.user?.displayName || req.user?.username || '';
@@ -73,9 +73,16 @@ router.post('/', authenticate, async (req: Request, res: Response) => {
   let finalIsPaid = isPaid || false;
   let finalPaidAmount = String(paidAmount || 0);
 
+  // 🔗 حساب اللاعب بالرقم (بأيّ كتابة) — كي يرى حجزه في التطبيق ويُربط صفّ المتابعة به
+  let linkedPlayer: any = null;
+  if (phone) {
+    const { findPlayerByPhone } = await import('../services/player.service.js');
+    linkedPlayer = await findPlayerByPhone(String(phone).trim()).catch(() => null);
+  }
+
   // التحقق من حساب اللاعب إذا كان مجانياً
   if (phone) {
-    const pRow = await db.select({ isFreeAccount: players.isFreeAccount }).from(players).where(eq(players.phone, phone)).limit(1);
+    const pRow = linkedPlayer ? [{ isFreeAccount: linkedPlayer.isFreeAccount }] : [];
     if (pRow.length > 0 && pRow[0].isFreeAccount) {
       finalIsFree = true;
       finalIsPaid = true; // نعتبره مدفوعاً لأنه مجاني
@@ -94,10 +101,25 @@ router.post('/', authenticate, async (req: Request, res: Response) => {
     isFree: finalIsFree,
     notes: notes || '',
     offerItems: Array.isArray(offerItems) ? offerItems : [],
+    playerId: linkedPlayer?.id ?? null,
     createdBy: createdByName,
   } as any).returning();
 
   const booking = result[0];
+
+  // 📋 «متابعة الحجوزات» (2026-10-30): الحجز اليدويّ يظهر هناك كحجز التطبيق والبوت —
+  //    بعقد العدّ نفسه (ensureReservationForBooking يردّ الحجز لصاحبه والمرافقين للمتابعة)
+  let reservationId: number | null = null;
+  try {
+    const { ensureReservationForBooking } = await import('../services/reservation-booking.service.js');
+    const r = await ensureReservationForBooking(db, booking as any, {
+      createdBy: createdByName,
+      contactMethod: source === 'whatsapp' ? 'واتساب' : '',
+      notes: notes || '',
+    });
+    reservationId = r.reservationId;
+    if ((Number(count) || 1) > 1) (booking as any).count = 1;
+  } catch (e: any) { console.warn('⚠️ booking → reservation mirror:', e?.message); }
 
   // 👥 صديقٌ سجّله صاحبُه برقمه في مجموعة عرض (بلا حساب) وأدخله الموظّف ⟵ يُربط بالمجموعة
   if (phone) {
@@ -120,7 +142,7 @@ router.post('/', authenticate, async (req: Request, res: Response) => {
     } as any);
   }
 
-  res.status(201).json(booking);
+  res.status(201).json({ ...booking, reservationId });
 
   // 🔔 Push للموظفين
   import('../services/fcm.service.js').then(({ sendPushToStaffByPermission }) => {
