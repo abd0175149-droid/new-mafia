@@ -37,6 +37,7 @@ async function main() {
     const acts = await q(sql`SELECT id FROM activities WHERE name LIKE ${'%' + E2E_TAG + '%'}`);
     await q(sql`DELETE FROM venue_handovers WHERE note = ${E2E_TAG}`);
     for (const a of acts) {
+      await q(sql`DELETE FROM match_participants WHERE activity_id = ${a.id}`);
       await q(sql`DELETE FROM fee_waivers WHERE activity_id = ${a.id}`);
       await q(sql`DELETE FROM service_requests WHERE activity_id = ${a.id}`);
       await q(sql`DELETE FROM order_invoices WHERE activity_id = ${a.id}`);
@@ -53,7 +54,7 @@ async function main() {
     const ss = await q(sql`SELECT id FROM sessions WHERE session_name LIKE ${'%' + E2E_TAG + '%'}`);
     for (const s of ss) await q(sql`DELETE FROM session_players WHERE session_id = ${s.id}`);
     await q(sql`DELETE FROM sessions WHERE session_name LIKE ${'%' + E2E_TAG + '%'}`);
-    await q(sql`DELETE FROM players WHERE phone IN ('0700000998', '0700000996')`);
+    await q(sql`DELETE FROM players WHERE phone IN ('0700000998', '0700000996', '0700000995', '0700000994')`);
   }
   await cleanup();
 
@@ -627,6 +628,60 @@ async function main() {
   r = await api(vURL('/api/venue/collection-nights'), { headers: A });
   const n11 = (r.body?.nights ?? []).find((x: any) => x.activityId === act11.id);
   ok('ليالي التحصيل تشمل الليلة بمستحقّها', r.body?.success === true && n11?.due === 1.5 && n11?.collected === 1.5, JSON.stringify(n11));
+
+  // ══ ١٢ · الحاضر بلا طلب، و«لعب» من بداية اللعبة (2026-10-30) ══
+  section('١٢ · الحاضر بلا طلب يظهر في التحصيل، واللعب يُحتسب عند البداية');
+  const [minSaved12] = await q(sql`SELECT min_charge_enabled AS en, minimum_charge AS val, auto_water AS aw FROM locations WHERE id = ${LOC_TEST}`);
+  await q(sql`UPDATE locations SET min_charge_enabled = true, minimum_charge = 3.00, auto_water = false WHERE id = ${LOC_TEST}`);
+  const [act12] = await q(sql`INSERT INTO activities (name, date, base_price, status, location_id, menu_ordering_enabled, add_game_fee_to_bill)
+    VALUES (${E2E_TAG + ' present'}, NOW(), 3.00, 'planned', ${LOC_TEST}, true, true) RETURNING id`);
+  const [p995] = await q(sql`INSERT INTO players (phone, name, password_hash) VALUES ('0700000995', 'جالسٌ لم يطلب', 'x') RETURNING id, phone, name`);
+  const [p994] = await q(sql`INSERT INTO players (phone, name, password_hash) VALUES ('0700000994', 'جالسٌ مجّانيّ', 'x') RETURNING id, phone, name`);
+  await q(sql`INSERT INTO bookings (activity_id, name, phone, count, player_id, created_by, is_paid, is_free)
+    VALUES (${act12.id}, ${p995.name}, ${p995.phone}, 1, ${p995.id}, 'e2e', false, false),
+           (${act12.id}, ${p994.name}, ${p994.phone}, 1, ${p994.id}, 'e2e', false, true)`);
+  const [sess12] = await q(sql`INSERT INTO sessions (session_code, session_name, activity_id)
+    VALUES ('E2E12P', ${E2E_TAG + ' present room'}, ${act12.id}) RETURNING id`);
+  await q(sql`INSERT INTO session_players (session_id, player_id, physical_id, player_name)
+    VALUES (${sess12.id}, ${p995.id}, 4, ${p995.name}), (${sess12.id}, ${p994.id}, 6, ${p994.name})`);
+  const ledger12 = async () => ((await api(vURL(`/api/venue/invoices/candidates?activityId=${act12.id}`), { headers: A })).body?.candidates ?? []) as any[];
+
+  let L12 = await ledger12();
+  let c995 = L12.find(c => c.playerId === p995.id && c.kind === 'open');
+  ok('جالسٌ بلا طلبٍ ولا لعب ⟵ سطرٌ برسم دخوله وحده 3.00', c995?.ordersCount === 0 && c995?.gameFee === 3 && c995?.minTopup === 0 && c995?.grandTotal === 3 && c995?.seat === 4,
+    JSON.stringify(c995));
+  ok('جالسٌ مجّانيّ بلا شيء عليه ⟵ لا سطر', !L12.some(c => c.playerId === p994.id), JSON.stringify(L12.filter(c => c.playerId === p994.id)));
+  const { buildInvoiceData: bid12, playedInActivity: played12 } = await import('../services/fnb-invoice.service.js');
+  let d12: any = await bid12(db, LOC_TEST, act12.id, p995.id);
+  ok('فاتورته تُبنى (دخوليّة 3، بلا حدٍّ أدنى قبل اللعب)', !('error' in d12) && d12.grandTotal === 3 && d12.minTopup === 0 && d12.gameFeeApplied === true, JSON.stringify(d12).slice(0, 160));
+  d12 = await bid12(db, LOC_TEST, act12.id, p994.id);
+  ok('المجّانيّ بلا شيء ⟵ «لا شيء مستحقّ»', 'error' in d12 && /لا شيء مستحقّ/.test(d12.error), JSON.stringify(d12).slice(0, 120));
+  r = await api(vURL(`/api/venue/invoices/${act12.id}/${p995.id}/pdf`), { method: 'POST', headers: A });
+  ok('الموظّف يصدر فاتورة الجالس بلا طلب', r.status === 200, `status=${r.status}`);
+
+  // المسار الحقيقيّ لبداية اللعبة: createMatch يكتب من جلس — قبل أيّ نتيجة
+  ok('قبل اللعبة: لم يلعب', (await played12(db, act12.id, p995.id)) === false);
+  const { createMatch } = await import('../services/match.service.js');
+  const m12 = await createMatch({
+    roomId: 'e2e-room12', roomCode: 'E2E12P', sessionId: sess12.id, activityId: act12.id, round: 1,
+    config: { gameName: E2E_TAG + ' game12', displayPin: '', maxPlayers: 12 },
+    players: [
+      { physicalId: 4, playerId: p995.id, name: p995.name },
+      { physicalId: 6, playerId: p994.id, name: p994.name, seatHeld: true },
+    ],
+  } as any);
+  const parts = await q(sql`SELECT player_id, physical_id, activity_id FROM match_participants WHERE match_id = ${m12}`);
+  ok('بداية اللعبة تكتب الجالس (والمحجوز مؤقّتاً لا)', parts.length === 1 && Number(parts[0].player_id) === p995.id && Number(parts[0].activity_id) === act12.id,
+    JSON.stringify(parts));
+  ok('بعد البداية: «لعب» ولو لم تنتهِ اللعبة', (await played12(db, act12.id, p995.id)) === true);
+  L12 = await ledger12();
+  c995 = L12.find(c => c.playerId === p995.id && c.kind === 'open');
+  ok('والحدّ الأدنى يدخل فاتورته: تكملة 3 + دخوليّة 3 = 6', c995?.minTopup === 3 && c995?.grandTotal === 6, JSON.stringify(c995));
+  const [mp12] = await q(sql`SELECT count(*)::int AS n FROM match_players WHERE match_id = ${m12}`);
+  ok('سجلّ المباراة المحتسبة (الرتبة والنقاط) لم يُكتب بعد', mp12.n === 0);
+  await q(sql`DELETE FROM matches WHERE id = ${m12}`);   // كإلغاءٍ بلا فائز (cancelMatch)
+  ok('أُلغيت اللعبة بعد بدئها ⟵ يبقى «لعب»', (await played12(db, act12.id, p995.id)) === true);
+  await q(sql`UPDATE locations SET min_charge_enabled = ${minSaved12.en === true}, minimum_charge = ${minSaved12.val}, auto_water = ${minSaved12.aw === true} WHERE id = ${LOC_TEST}`);
 
   // ══ ٨ · الخلاصة والتنظيف ══
   section('النتيجة');

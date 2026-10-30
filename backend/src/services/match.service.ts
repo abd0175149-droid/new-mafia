@@ -70,6 +70,17 @@ export async function createMatch(state: GameState): Promise<number | null> {
 
     const matchId = result[0]?.id;
     console.log(`📦 Match #${matchId} created for room ${state.roomId} (season ${seasonId ?? '-'}, city ${cityId ?? '-'})`);
+
+    // 🎲 من جلس في اللعبة عند بدئها — «لعب» للفاتورة والحدّ الأدنى (match_participants في index.ts)
+    const seated = state.players.filter((p: any) => Number(p.playerId) > 0 && !p.seatHeld && !p.frozen);
+    if (matchId && seated.length) {
+      try {
+        await db.execute(sql`INSERT INTO match_participants (match_id, activity_id, session_id, player_id, physical_id)
+          VALUES ${sql.join(seated.map((p: any) =>
+            sql`(${matchId}, ${state.activityId ?? null}, ${state.sessionId ?? null}, ${Number(p.playerId)}, ${p.physicalId ?? null})`), sql`, `)}
+          ON CONFLICT (match_id, player_id) DO NOTHING`);
+      } catch (e: any) { console.warn('⚠️ match_participants:', e.message); }
+    }
     return matchId;
   } catch (err: any) {
     console.error('❌ Failed to create match:', err.message);

@@ -47,6 +47,7 @@ async function main() {
   async function cleanup() {
     const acts = await q(sql`SELECT id FROM activities WHERE name LIKE ${'%' + TAG + '%'}`);
     for (const a of acts) {
+      await q(sql`DELETE FROM match_participants WHERE activity_id = ${a.id}`);
       await q(sql`DELETE FROM invoice_wa_jobs WHERE activity_id = ${a.id}`);
       await q(sql`DELETE FROM order_invoices WHERE activity_id = ${a.id}`);
       await q(sql`DELETE FROM order_items WHERE order_id IN (SELECT id FROM orders WHERE activity_id = ${a.id})`);
@@ -275,6 +276,14 @@ async function main() {
     ok('لعب ولم يطلب ⟵ ملفٌّ تلقائيّ', autos.length === 1 && Number(autos[0].player_id) === p2.id, `n=${n1} ${JSON.stringify(autos.map(a => a.player_id))}`);
     ok('لم يلعب ⟵ ينتظر (لا ملفّ)', !autos.some(a => Number(a.player_id) === p3.id));
     ok('الفحص مرّةً أخرى لا يكرّر', (await W.sweepAuto(600_000, act.id)) === 0);
+    // 🎲 (2026-10-30) لعبةٌ بدأت ولم تنتهِ تكفي — سجلّ البداية وحده، بلا match_players
+    const [mLive] = await q(sql`INSERT INTO matches (session_id, room_id, room_code, game_name, player_count, is_active)
+      VALUES (${sess.id}, 'e2e-iwa2', 'E2EIWA', ${TAG + ' game2'}, 1, true) RETURNING id`);
+    await q(sql`INSERT INTO match_participants (match_id, activity_id, session_id, player_id, physical_id)
+      VALUES (${mLive.id}, ${act.id}, ${sess.id}, ${p3.id}, 8)`);
+    const nLive = await W.sweepAuto(600_000, act.id);
+    const p3auto = await q(sql`SELECT 1 FROM invoice_wa_jobs WHERE activity_id = ${act.id} AND kind = 'auto' AND player_id = ${p3.id}`);
+    ok('جلس في لعبةٍ بدأت ولم تنتهِ ⟵ ملفٌّ تلقائيّ', nLive === 1 && p3auto.length === 1, `n=${nLive}`);
     sent.length = 0;
     await W.processJob(await claim(autos[0].id));
     jr = await job(autos[0].id);

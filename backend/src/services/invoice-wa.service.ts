@@ -350,8 +350,10 @@ export async function sweepAuto(delayMs = 0, onlyActivityId: number | null = nul
        AND NOT EXISTS (SELECT 1 FROM orders o WHERE o.activity_id = a.id AND o.player_id = sp.player_id AND o.status <> 'cancelled')
        AND NOT EXISTS (SELECT 1 FROM invoice_wa_jobs j WHERE j.activity_id = a.id AND j.player_id = sp.player_id
                         AND j.kind IN ('open', 'auto', 'bot', 'manual') AND j.status <> 'cancelled')
-       AND EXISTS (SELECT 1 FROM match_players mp JOIN matches m ON m.id = mp.match_id JOIN sessions s2 ON s2.id = m.session_id
-                    WHERE s2.activity_id = a.id AND mp.player_id = sp.player_id)
+       -- لعب = جلس في لعبةٍ **بدأت** (match_participants) — لا ننتظر نهايتها (2026-10-30)
+       AND (EXISTS (SELECT 1 FROM match_participants mpt WHERE mpt.activity_id = a.id AND mpt.player_id = sp.player_id)
+         OR EXISTS (SELECT 1 FROM match_players mp JOIN matches m ON m.id = mp.match_id JOIN sessions s2 ON s2.id = m.session_id
+                    WHERE s2.activity_id = a.id AND mp.player_id = sp.player_id))
     LIMIT 50`));
   for (const c of cands) await scheduleOpen(Number(c.location_id), Number(c.activity_id), Number(c.player_id), { kind: 'auto', delayMs });
   return cands.length;

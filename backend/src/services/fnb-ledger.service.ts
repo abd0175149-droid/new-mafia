@@ -17,7 +17,7 @@ import type { Database } from '../config/db.js';
 import { orders, orderInvoices, venueHandovers } from '../schemas/fnb.schema.js';
 import { activities, bookings, locations, staff } from '../schemas/admin.schema.js';
 import { players } from '../schemas/player.schema.js';
-import { playersWhoPlayed, waterItemOf } from './fnb-invoice.service.js';
+import { playersWhoPlayed, playersPresent, waterItemOf, SEAT_SOURCES } from './fnb-invoice.service.js';
 
 const n = (x: unknown) => { const v = parseFloat(String(x ?? '0')); return Number.isFinite(v) ? v : 0; };
 const r2 = (x: number) => Math.round(x * 100) / 100;
@@ -98,6 +98,9 @@ export async function nightLedger(db: Database, locId: number, activityId: numbe
     .where(and(eq(orderInvoices.locationId, locId), eq(orderInvoices.activityId, activityId)));
 
   const playedIds = (minCharge > 0 || water) ? new Set(await playersWhoPlayed(db, activityId)) : new Set<number>();
+  // 🎟️ كلّ من جلس في غرف الليلة — يظهر بما عليه (رسم الدخول على الأقلّ) ولو لم يطلب ولم يلعب بعد،
+  //    فيُرسل الموظّف فاتورته لمن يغادر مبكّراً (2026-10-30)
+  const presentIds = new Set(await playersPresent(db, activityId));
 
   // من وصله ماءٌ من طلبه (في أيّ فاتورة) لا يُحمَّل ماءً تلقائيّاً
   const waterOwners = water
@@ -114,6 +117,7 @@ export async function nightLedger(db: Database, locId: number, activityId: numbe
     ...ords.map(o => o.playerId),
     ...invs.map(i => i.playerId),
     ...(minCharge > 0 || water ? [...playedIds] : []),
+    ...presentIds,
   ])];
   if (playerIds.length === 0) {
     return {
@@ -133,14 +137,7 @@ export async function nightLedger(db: Database, locId: number, activityId: numbe
 
   // آخر مقعدٍ لكلّ لاعب — من طلباته وإلّا من لعبه
   const seatRows = rows(await db.execute(sql`
-    SELECT DISTINCT ON (player_id) player_id, physical_id FROM (
-      SELECT o.player_id, o.physical_id, o.created_at AS t FROM orders o
-       WHERE o.activity_id = ${activityId} AND o.physical_id IS NOT NULL
-      UNION ALL
-      SELECT mp.player_id, mp.physical_id, m.created_at AS t FROM match_players mp
-        JOIN matches m ON m.id = mp.match_id JOIN sessions s ON s.id = m.session_id
-       WHERE s.activity_id = ${activityId} AND mp.physical_id IS NOT NULL AND mp.player_id IS NOT NULL
-    ) x ORDER BY player_id, t DESC
+    SELECT DISTINCT ON (player_id) player_id, physical_id FROM (${SEAT_SOURCES(activityId)}) x ORDER BY player_id, t DESC
   `));
   const seatBy = new Map(seatRows.map((x: any) => [Number(x.player_id), Number(x.physical_id)]));
 
@@ -200,7 +197,8 @@ export async function nightLedger(db: Database, locId: number, activityId: numbe
       try { loyalty = (await drinkDiscountFor(db, pid, locId, activityId)).discount || 0; } catch { /* بلا خصم */ }
     }
     const openGrand = Math.max(0, openTotal + waterOpen + topupOpen + fee - loyalty);
-    const hasOpen = openOrders.length > 0 || !!unpaidRow || ((minCharge > 0 || !!water) && played && openGrand > 0);
+    const hasOpen = openOrders.length > 0 || !!unpaidRow || ((minCharge > 0 || !!water) && played && openGrand > 0)
+      || (presentIds.has(pid) && openGrand > 0);
     if (hasOpen) {
       out.push({
         key: `open-${pid}`, kind: 'open', playerId: pid, playerName: name, seat, bookingId,

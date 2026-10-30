@@ -1256,6 +1256,14 @@ async function main() {
       await db.execute(sql`CREATE TABLE IF NOT EXISTS player_phone_changes (
         id SERIAL PRIMARY KEY, player_id INTEGER NOT NULL, old_phone VARCHAR(30), new_phone VARCHAR(30) NOT NULL,
         source VARCHAR(20) NOT NULL, details JSONB DEFAULT '{}'::jsonb, created_at TIMESTAMPTZ DEFAULT NOW() NOT NULL)`);
+      // 🎲 من جلس في لعبةٍ عند بدئها (2026-10-30) — «لعب» للفاتورة والحدّ الأدنى من بداية اللعبة لا نهايتها.
+      //    match_players (الرتبة والنقاط والدور) يبقى عند الاحتساب؛ activity_id هنا مباشرةً فيبقى السجلّ
+      //    ولو أُلغيت المباراة بلا فائز (cancelMatch يحذف صفّها) — جلس ولعب فعلاً.
+      await db.execute(sql`CREATE TABLE IF NOT EXISTS match_participants (
+        id SERIAL PRIMARY KEY, match_id INTEGER NOT NULL, activity_id INTEGER, session_id INTEGER,
+        player_id INTEGER NOT NULL, physical_id INTEGER, created_at TIMESTAMPTZ DEFAULT NOW() NOT NULL,
+        UNIQUE (match_id, player_id))`);
+      await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_match_participants_act ON match_participants(activity_id, player_id)`);
       await db.execute(sql`CREATE TABLE IF NOT EXISTS invoice_wa_jobs (
         id SERIAL PRIMARY KEY, location_id INTEGER NOT NULL, activity_id INTEGER NOT NULL, player_id INTEGER NOT NULL,
         kind VARCHAR(12) NOT NULL, invoice_id INTEGER, invoice_no INTEGER, total DECIMAL(10,2),

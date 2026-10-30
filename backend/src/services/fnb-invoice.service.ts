@@ -70,16 +70,35 @@ export function paymentInfoOf(loc: any): PaymentInfo {
   };
 }
 
+/** «لعب» = جلس في لعبةٍ بدأت (match_participants عند البداية)، أو احتُسبت له مباراة (match_players —
+ *  الأقدم من السجلّ الجديد). من بداية اللعبة لا نهايتها (طلب المالك 2026-10-30). */
+const PLAYED_ROWS = (activityId: number) => sql`
+  SELECT mpt.player_id FROM match_participants mpt WHERE mpt.activity_id = ${activityId}
+  UNION
+  SELECT mp.player_id FROM match_players mp
+    JOIN matches m ON m.id = mp.match_id JOIN sessions s ON s.id = m.session_id
+   WHERE s.activity_id = ${activityId} AND mp.player_id IS NOT NULL`;
+
 /** هل لعب اللاعب جولةً واحدة على الأقلّ في هذه الفعاليّة؟ (شرط استحقاق الحدّ الأدنى) */
 export async function playedInActivity(db: Database, activityId: number, playerId: number): Promise<boolean> {
-  const r: any = await db.execute(sql`
-    SELECT 1 FROM match_players mp
-    JOIN matches m ON m.id = mp.match_id
-    JOIN sessions s ON s.id = m.session_id
-    WHERE s.activity_id = ${activityId} AND mp.player_id = ${playerId}
-    LIMIT 1
-  `);
+  const r: any = await db.execute(sql`SELECT 1 FROM (${PLAYED_ROWS(activityId)}) x WHERE x.player_id = ${playerId} LIMIT 1`);
   return Boolean(r?.rows?.[0] ?? r?.[0]);
+}
+
+/** حاضرٌ في الليلة: جالسٌ في غرفةٍ من غرف الفعاليّة أو لعب فيها — فيُفوتَر برسم دخوله ولو لم يطلب ولم يلعب */
+const PRESENT_ROWS = (activityId: number) => sql`
+  SELECT sp.player_id FROM session_players sp JOIN sessions s ON s.id = sp.session_id
+   WHERE s.activity_id = ${activityId} AND sp.player_id IS NOT NULL
+  UNION ${PLAYED_ROWS(activityId)}`;
+
+export async function presentInActivity(db: Database, activityId: number, playerId: number): Promise<boolean> {
+  const r: any = await db.execute(sql`SELECT 1 FROM (${PRESENT_ROWS(activityId)}) x WHERE x.player_id = ${playerId} LIMIT 1`);
+  return Boolean(r?.rows?.[0] ?? r?.[0]);
+}
+
+export async function playersPresent(db: Database, activityId: number): Promise<number[]> {
+  const r: any = await db.execute(sql`SELECT DISTINCT player_id FROM (${PRESENT_ROWS(activityId)}) x`);
+  return (r?.rows ?? r ?? []).map((x: any) => Number(x.player_id)).filter(Number.isFinite);
 }
 
 /**
@@ -110,27 +129,31 @@ export async function waterItemOf(db: Database, locationId: number):
 
 /** لاعبو الفعاليّة الذين لعبوا جولةً على الأقلّ (معرّفاتهم المميّزة) */
 export async function playersWhoPlayed(db: Database, activityId: number): Promise<number[]> {
-  const r: any = await db.execute(sql`
-    SELECT DISTINCT mp.player_id FROM match_players mp
-    JOIN matches m ON m.id = mp.match_id
-    JOIN sessions s ON s.id = m.session_id
-    WHERE s.activity_id = ${activityId} AND mp.player_id IS NOT NULL
-  `);
+  const r: any = await db.execute(sql`SELECT DISTINCT player_id FROM (${PLAYED_ROWS(activityId)}) x`);
   const rows: any[] = r?.rows ?? r ?? [];
   return rows.map(x => Number(x.player_id)).filter(Number.isFinite);
 }
 
-/** آخر مقعدٍ جلس عليه اللاعب في الفعاليّة: من طلباته، وإلّا من لعبه */
+/** مصادر المقعد لكلّ لاعب: طلباته، ثمّ مقعده عند بدء لعبه، ثمّ مقعده الحاليّ في الغرفة */
+export const SEAT_SOURCES = (activityId: number) => sql`
+  SELECT o.player_id, o.physical_id, o.created_at AS t FROM orders o
+   WHERE o.activity_id = ${activityId} AND o.physical_id IS NOT NULL AND o.player_id IS NOT NULL
+  UNION ALL
+  SELECT mpt.player_id, mpt.physical_id, mpt.created_at AS t FROM match_participants mpt
+   WHERE mpt.activity_id = ${activityId} AND mpt.physical_id IS NOT NULL
+  UNION ALL
+  SELECT mp.player_id, mp.physical_id, m.created_at AS t FROM match_players mp
+    JOIN matches m ON m.id = mp.match_id JOIN sessions s ON s.id = m.session_id
+   WHERE s.activity_id = ${activityId} AND mp.player_id IS NOT NULL AND mp.physical_id IS NOT NULL
+  UNION ALL
+  SELECT sp.player_id, sp.physical_id, sp.joined_at AS t FROM session_players sp
+    JOIN sessions s ON s.id = sp.session_id
+   WHERE s.activity_id = ${activityId} AND sp.player_id IS NOT NULL`;
+
+/** آخر مقعدٍ جلس عليه اللاعب في الفعاليّة: من طلباته، وإلّا من لعبه، وإلّا من مقعده في الغرفة */
 export async function seatOf(db: Database, activityId: number, playerId: number): Promise<number | null> {
   const r: any = await db.execute(sql`
-    SELECT physical_id FROM (
-      SELECT o.physical_id, o.created_at AS t FROM orders o
-       WHERE o.activity_id = ${activityId} AND o.player_id = ${playerId} AND o.physical_id IS NOT NULL
-      UNION ALL
-      SELECT mp.physical_id, m.created_at AS t FROM match_players mp
-        JOIN matches m ON m.id = mp.match_id JOIN sessions s ON s.id = m.session_id
-       WHERE s.activity_id = ${activityId} AND mp.player_id = ${playerId} AND mp.physical_id IS NOT NULL
-    ) x ORDER BY t DESC LIMIT 1
+    SELECT physical_id FROM (${SEAT_SOURCES(activityId)}) x WHERE x.player_id = ${playerId} ORDER BY t DESC LIMIT 1
   `);
   const v = (r?.rows?.[0] ?? r?.[0])?.physical_id;
   return v == null ? null : Number(v);
@@ -214,10 +237,16 @@ export async function buildInvoiceData(
   const water = loc?.autoWater === true ? await waterItemOf(db, locationId) : null;
   const played = (minCharge > 0 || water !== null) ? await playedInActivity(db, activityId, playerId) : false;
 
+  // 🎟️ حاضرٌ بلا طلبٍ ولا لعب (2026-10-30): فاتورته رسم دخوله وحده — كي يُرسلها الموظّف لمن يغادر مبكّراً.
+  //    تُرفض في آخر البناء إن لم يكن عليه شيء.
+  let presenceOnly = false;
   if (playerOrders.length === 0 && !((minCharge > 0 || water !== null) && played) && !openInvoice) {
     // فاتورةٌ مفتوحة سبق إصدارها (تكملة حدٍّ أدنى مثلاً) تبقى قابلةً للعرض ولو عُطّلت
     // الميزة لاحقاً — والمحصَّلة تُفتح بمعرّفها (invoiceId) لا من هنا
-    return { error: priorPaid.length > 0 ? 'لا شيء مستحقّ — فواتيره محصَّلة' : 'لا طلبات لهذا اللاعب في هذه الفعاليّة' };
+    if (!(await presentInActivity(db, activityId, playerId))) {
+      return { error: priorPaid.length > 0 ? 'لا شيء مستحقّ — فواتيره محصَّلة' : 'لا طلبات لهذا اللاعب في هذه الفعاليّة' };
+    }
+    presenceOnly = true;
   }
 
   // البنود: المفتوحة للسطور، وكلّ بنود الليلة لمعرفة من وصله ماءٌ من طلبه
@@ -237,7 +266,8 @@ export async function buildInvoiceData(
   // 💧 ماءٌ واحدٌ تلقائيّاً في الليلة — إلا من وصله ماءٌ من طلبه (في أيّ فاتورة):
   //    مفرداً باسمه أو مكوّناً في عرض. وما حُصّل ماؤه سابقاً لا يُحمَّل ثانيةً.
   let waterCharge = 0;
-  if (water && priorWater === 0) {
+  // (الماء لمن طلب أو لعب أو له فاتورةٌ مفتوحة — لا للحاضر وحده، كدفتر الليلة)
+  if (water && priorWater === 0 && !presenceOnly) {
     const hasWater = nightItems.some(it =>
       it.nameSnapshot === water.name ||
       (Array.isArray(it.componentsSnapshot)
@@ -289,6 +319,11 @@ export async function buildInvoiceData(
     }
   }
 
+  const grandTotal = Math.max(0, ordersTotal + waterCharge + minTopup + gameFeeAmount - loyaltyDiscount);
+  if (presenceOnly && grandTotal <= 0) {
+    return { error: priorPaid.length > 0 ? 'لا شيء مستحقّ — فواتيره محصَّلة' : 'لا شيء مستحقّ على هذا اللاعب بعد' };
+  }
+
   return {
     locationId,
     locationName: loc?.name || '',
@@ -308,7 +343,7 @@ export async function buildInvoiceData(
     loyaltyItemName,
     gameFeeApplied,
     gameFeeAmount,
-    grandTotal: Math.max(0, ordersTotal + waterCharge + minTopup + gameFeeAmount - loyaltyDiscount),
+    grandTotal,
     orderIds: playerOrders.map(o => o.id),
     seat: await seatOf(db, activityId, playerId),
     snapshotInvoiceId: null,
