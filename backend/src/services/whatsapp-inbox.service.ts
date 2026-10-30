@@ -549,6 +549,15 @@ async function handleInboundMessage(db: any, msg: any, contacts: any[], channel:
     return;
   }
 
+  // ── 🧾 «شو حسابي؟» لمن له ليلةٌ اليوم ⟵ ملفّه صورةً مباشرةً بلا نموذج (2026-10-30) ──
+  if (msgType === 'text' && isBotActive(updatedConv) && !opts.suppressBot) {
+    void import('./invoice-wa.service.js')
+      .then(m => m.handleBillQuestion(updatedConv, body))
+      .catch((err: any) => { console.warn('⚠️ invoice-wa bill:', err?.message); return false; })
+      .then(handled => { if (!handled) forwardToBot(updatedConv); });
+    return;
+  }
+
   // ── تمرير للبوت إن كان نشطاً ──
   if (isBotActive(updatedConv) && !opts.suppressBot) {
     forwardToBot(updatedConv);

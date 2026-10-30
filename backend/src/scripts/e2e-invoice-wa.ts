@@ -238,6 +238,24 @@ async function main() {
     ok('كليك مطفأ في المكان ⟵ الصورة للبوت', (await W.handleTransferImage(conv, msg)) === false && sent.length === 0);
     await q(sql`UPDATE locations SET pay_cliq = true WHERE id = ${LOC}`);
     ok('لاعبٌ لم يصله ملفّ ⟵ للبوت', (await W.handleTransferImage({ id: 0, playerId: null, phone: '0799999985' }, msg)) === false);
+    nextRead = { ok: true, isTransfer: true, amount: 2, payee: 'سارة يوسف العلي', method: 'cliq' };
+    sent.length = 0;
+    await W.handleTransferImage(conv, msg);
+    ok('حوالة لاسمٍ آخر ⟵ إنذار «لا يطابق اسم كليك المكان»', !!sent.find(x => x.kind === 'image' && x.body.includes('لا يطابق اسم كليك المكان')), sent.find(x => x.kind === 'image')?.body);
+    ws = await W.nightWaStatus(act.id);
+    ok('الكونسول: حوالة لاسمٍ آخر', ws[p1.id]?.transfer?.payeeMismatch === true);
+    nextRead = { ok: true, isTransfer: true, amount: 99, payee: 'محمد الخطيب', method: 'cliq' };
+    sent.length = 0;
+    await W.handleTransferImage(conv, msg);
+    const ov = sent.find(x => x.kind === 'image')?.body || '';
+    ok('حوالة بأكثر من المطلوب ⟵ إنذار، والاسم الصحيح ✓', ov.includes('أكثر من المطلوب') && ov.includes('محمد الخطيب ✓'), ov);
+
+    // «شو حسابي؟» حتميّ قبل البوت
+    sent.length = 0;
+    ok('«شو حسابي» ⟵ ملفّه مباشرةً (لا بوت)', (await W.handleBillQuestion(conv, 'شو حسابي')) === true && sent.some(x => x.kind === 'image' && x.to === PH1));
+    sent.length = 0;
+    ok('«شو نقاطي» ⟵ للبوت', (await W.handleBillQuestion(conv, 'شو نقاطي')) === false && sent.length === 0);
+    ok('«شو حسابي» بلا ليلةٍ اليوم ⟵ للبوت', (await W.handleBillQuestion({ id: 0, playerId: null, phone: '0799999985' }, 'شو حسابي')) === false);
 
     // ══ ٨ · الساعة والنصف ══
     section('٨ · الملفّ التلقائيّ بعد ٩٠ دقيقة');

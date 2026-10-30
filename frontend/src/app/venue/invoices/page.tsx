@@ -47,7 +47,7 @@ interface Ledger {
 
 interface WaState {
   kind?: string; status?: string; reason?: string; channel?: string | null; invoiceNo?: number | null; at?: string | null;
-  transfer?: { at: string; forwarded: boolean; amountRead: number | null; short: boolean };
+  transfer?: { at: string; forwarded: boolean; amountRead: number | null; short: boolean; over?: boolean; payeeMismatch?: boolean };
 }
 
 /** حالة واتساب على الصفّ — الشكل (أيقونة + كلمة) مع اللون، لا اللون وحده */
@@ -55,7 +55,10 @@ function waPill(r: Row, w: WaState | undefined): { text: string; color: string; 
   if (!w) return null;
   const paid = r.kind === 'paid';
   if (!paid && w.transfer && (!w.at || new Date(w.transfer.at) >= new Date(w.at))) {
-    return w.transfer.short ? { text: 'وصلت حوالة · المبلغ أقلّ', color: TX.bad, icon: 'warn' } : { text: 'وصلت حوالة', color: TX.amber, icon: 'receipt' };
+    if (w.transfer.payeeMismatch) return { text: 'حوالة لاسمٍ غير حساب المكان', color: TX.bad, icon: 'warn' };
+    if (w.transfer.short) return { text: 'وصلت حوالة · المبلغ أقلّ', color: TX.bad, icon: 'warn' };
+    if (w.transfer.over) return { text: 'وصلت حوالة · المبلغ أكثر', color: TX.amber, icon: 'warn' };
+    return { text: 'وصلت حوالة', color: TX.amber, icon: 'receipt' };
   }
   if (paid) {
     if (w.kind !== 'paid' && !(w.kind === 'manual' || w.kind === 'bot')) return null;
