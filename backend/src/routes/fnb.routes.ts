@@ -21,6 +21,7 @@ import { resolveOptionGroups, validateSelections, type ChosenOption } from '../s
 import { readSlots, slotItemIds, validateSlotsInput, resolveOrderSlots } from '../services/fnb-bundle.service.js';
 import { gateCheck, saveLastFix, isUsableFix } from '../services/geofence.service.js';
 import { renderRawHtmlPdf } from '../reports/render/pdf.js';
+import { normalizeLocalPhone } from '../utils/phone.util.js';
 import multer from 'multer';
 import path from 'path';
 import fs from 'fs';
@@ -904,6 +905,13 @@ venueRouter.put('/orders/:id/status', authenticate, requireVenuePermission('orde
     const io = req.app.get('io');
     if (io) io.to(`location:${locId}`).emit('fnb:order-updated', { orderId: id, status, activityId: existing.activityId });
 
+    // 🧾 وُصِّل ⟵ ملفّه المحدّث على واتساب بعد دقيقة هدوء (طلبان متقاربان = صورة واحدة)
+    if (status === 'delivered') {
+      import('../services/invoice-wa.service.js')
+        .then(m => m.scheduleOpen(locId, existing.activityId, existing.playerId, { staffId: req.venueStaff!.id }))
+        .catch(e => console.warn('⚠️ invoice-wa schedule:', e?.message));
+    }
+
     // إشعار اللاعب بحالة طلبه (بوش + جرس)
     const push = PLAYER_STATUS_PUSH[status];
     if (push) {
@@ -977,6 +985,9 @@ venueRouter.get('/invoices/candidates', authenticate, requireVenuePermission('in
       waterPrice: L.waterPrice,
       totals: L.totals,
       candidates: L.rows,
+      // 🧾 حالة واتساب لكلّ لاعب: وصلته الفاتورة / الختم / وصلت حوالة / لم تُرسل وسببها
+      wa: await import('../services/invoice-wa.service.js').then(m => m.nightWaStatus(activityId)).catch(() => ({})),
+      waEnabled: await import('../services/invoice-wa.service.js').then(m => m.invoiceWaEnabled()).catch(() => false),
     });
   } catch (err: any) { res.status(500).json({ error: err.message }); }
 });
@@ -1069,6 +1080,92 @@ venueRouter.post('/invoices/:activityId/:playerId/pdf', authenticate, requireVen
     console.error('❌ fnb invoice pdf:', err.message);
     res.status(500).json({ error: err.message });
   }
+});
+
+// ── POST /invoices/:activityId/:playerId/wa-send[?invoiceId=] — «أعد الإرسال» على واتساب ──
+// المفتوح: ملفّه «مطلوب» الحاليّ · مع invoiceId محصَّلة: ختمها. يمرّ بالطابور نفسه (السجلّ والحالة).
+venueRouter.post('/invoices/:activityId/:playerId/wa-send', authenticate, requireVenuePermission('invoices.print'), async (req: Request, res: Response) => {
+  const db = getDB();
+  if (!db) return res.status(503).json({ error: 'DB unavailable' });
+  const locId = resolveVenueLocation(req, res);
+  if (!locId) return;
+  const activityId = parseInt(req.params.activityId);
+  const playerId = parseInt(req.params.playerId);
+  const invoiceId = parseInt(String(req.query.invoiceId || req.body?.invoiceId || ''));
+  if (!Number.isFinite(activityId) || !Number.isFinite(playerId)) return res.status(400).json({ error: 'معرّفات غير صالحة' });
+  try {
+    const W = await import('../services/invoice-wa.service.js');
+    if (!(await W.invoiceWaEnabled())) return res.status(400).json({ error: 'إرسال الفواتير عبر واتساب مطفأ من الإدارة' });
+    const [act] = await db.select({ id: activities.id }).from(activities)
+      .where(and(eq(activities.id, activityId), eq(activities.locationId, locId))).limit(1);
+    if (!act) return res.status(404).json({ error: 'الفعاليّة غير موجودة لهذا المكان' });
+    if (Number.isFinite(invoiceId)) {
+      const [inv] = await db.select({ id: orderInvoices.id, isPaid: orderInvoices.isPaid }).from(orderInvoices)
+        .where(and(eq(orderInvoices.id, invoiceId), eq(orderInvoices.locationId, locId), eq(orderInvoices.playerId, playerId))).limit(1);
+      if (!inv?.isPaid) return res.status(400).json({ error: 'الفاتورة غير محصَّلة' });
+    }
+    const jobId = await W.scheduleOpen(locId, activityId, playerId, {
+      kind: 'manual', staffId: req.venueStaff!.id, invoiceId: Number.isFinite(invoiceId) ? invoiceId : null,
+    });
+    if (!jobId) return res.status(400).json({ error: 'لا يُرسل من هذا المكان (موقع اختبار)' });
+    res.json({ success: true, jobId });
+  } catch (err: any) { res.status(500).json({ error: err.message }); }
+});
+
+// ════════════════════════════════════════
+// 💳 طرق الدفع في المكان — نقد · بطاقة · كليك (2026-10-30)
+// تُكتب على كلّ ملفٍّ فيه مبلغ مطلوب وفي رسالة واتساب؛ كليك وحده بتفاصيله.
+// وفيه رقم واتساب المكان الذي تصله صور الحوالات.
+// ════════════════════════════════════════
+const paymentRow = (l: any) => ({
+  payCash: l.payCash !== false, payCard: l.payCard === true, payCliq: l.payCliq === true,
+  cliqMethod: l.cliqMethod === 'phone' ? 'phone' : 'alias', cliqValue: l.cliqValue || '', cliqBank: l.cliqBank || '',
+  cliqName: l.cliqName || '', waPhone: l.waPhone || '',
+});
+venueRouter.get('/payment-settings', authenticate, requireVenuePermission('location.geofence'), async (req: Request, res: Response) => {
+  const db = getDB();
+  if (!db) return res.status(503).json({ error: 'DB unavailable' });
+  const locId = resolveVenueLocation(req, res);
+  if (!locId) return;
+  try {
+    const [l] = await db.select().from(locations).where(eq(locations.id, locId)).limit(1);
+    if (!l) return res.status(404).json({ error: 'المكان غير موجود' });
+    res.json({ success: true, payment: paymentRow(l) });
+  } catch (err: any) { res.status(500).json({ error: err.message }); }
+});
+venueRouter.put('/payment-settings', authenticate, requireVenuePermission('location.geofence'), async (req: Request, res: Response) => {
+  const db = getDB();
+  if (!db) return res.status(503).json({ error: 'DB unavailable' });
+  const locId = resolveVenueLocation(req, res);
+  if (!locId) return;
+  const b = req.body || {};
+  const payCash = b.payCash === true, payCard = b.payCard === true, payCliq = b.payCliq === true;
+  const cliqMethod = b.cliqMethod === 'phone' ? 'phone' : 'alias';
+  let cliqValue = String(b.cliqValue || '').trim().slice(0, 60);
+  const cliqBank = String(b.cliqBank || '').trim().slice(0, 80);
+  const cliqName = String(b.cliqName || '').trim().slice(0, 100);
+  const waRaw = String(b.waPhone || '').trim();
+  if (!payCash && !payCard && !payCliq) return res.status(400).json({ error: 'فعّل طريقة دفعٍ واحدة على الأقلّ' });
+  if (payCliq) {
+    if (!cliqValue) return res.status(400).json({ error: cliqMethod === 'phone' ? 'اكتب رقم هاتف كليك' : 'اكتب اسم المستخدم في كليك' });
+    if (cliqMethod === 'phone') {
+      const ph = normalizeLocalPhone(cliqValue);
+      if (!ph) return res.status(400).json({ error: 'رقم هاتف كليك غير صالح — مثل 0791234567' });
+      cliqValue = ph;
+    } else if (!/^[A-Za-z0-9._-]{2,40}$/.test(cliqValue)) {
+      return res.status(400).json({ error: 'اسم المستخدم في كليك أحرفٌ إنجليزيّة وأرقام بلا مسافات' });
+    }
+    if (!cliqBank) return res.status(400).json({ error: 'اكتب اسم البنك' });
+    if (!cliqName) return res.status(400).json({ error: 'اكتب الاسم الذي يظهر عند التحويل' });
+  }
+  const waPhone = waRaw ? normalizeLocalPhone(waRaw) : '';
+  if (waRaw && !waPhone) return res.status(400).json({ error: 'رقم واتساب المكان غير صالح — مثل 0791234567' });
+  try {
+    const [l] = await db.update(locations).set({
+      payCash, payCard, payCliq, cliqMethod, cliqValue, cliqBank, cliqName, waPhone: waPhone || '',
+    } as any).where(eq(locations.id, locId)).returning();
+    res.json({ success: true, payment: paymentRow(l) });
+  } catch (err: any) { res.status(500).json({ error: err.message }); }
 });
 
 // ── POST /invoices/:activityId/:playerId/receipt[?invoiceId=] — إيصال 80مم لطابعة الكاش (HTML يطبع نفسه) ──
@@ -1316,6 +1413,11 @@ venueRouter.post('/invoices/:activityId/:playerId/pay', authenticate, requireVen
     const io = req.app.get('io');
     if (io) io.to(`location:${locId}`).emit('fnb:invoice-updated', { activityId, playerId, invoiceId: inv.id, isPaid: true });
 
+    // 🧾 ختم «القضيّة مُغلقة» على واتساب بعد مهلة التراجع
+    import('../services/invoice-wa.service.js')
+      .then(m => m.schedulePaidStamp(locId, activityId, playerId, inv.id, staffId))
+      .catch(e => console.warn('⚠️ invoice-wa stamp:', e?.message));
+
     const paidAt = paidRow.paidAt ? new Date(paidRow.paidAt) : new Date();
     res.json({
       success: true,
@@ -1377,6 +1479,8 @@ venueRouter.post('/invoices/unpay/:invoiceId', authenticate, requireVenuePermiss
       }
     });
     if (!undone) return res.status(409).json({ error: 'تغيّرت الفاتورة للتوّ — حدّث الشاشة' });
+    // ↩️ لا ختم لتحصيلٍ تُراجع عنه
+    try { const { cancelPaidStamp } = await import('../services/invoice-wa.service.js'); await cancelPaidStamp(inv.id); } catch { /* تكميليّ */ }
 
     const io = req.app.get('io');
     if (io) io.to(`location:${locId}`).emit('fnb:invoice-updated', { activityId: inv.activityId, playerId: inv.playerId, invoiceId: inv.id, isPaid: false });

@@ -539,6 +539,16 @@ async function handleInboundMessage(db: any, msg: any, contacts: any[], channel:
     .then(m => m.onInboundMessage({ id: updatedConv.id, phone: updatedConv.phone, playerId: updatedConv.playerId }))
     .catch((err: any) => console.warn('⚠️ WA reward hook:', err?.message || err));
 
+  // ── 💳 صورة حوالة لفاتورةٍ مفتوحة ⟵ تُقرأ وتُحوَّل للمكان قبل البوت (2026-10-30) ──
+  //    القراءة بالذكاء تأخذ ثوانٍ: لا تُنتظر هنا (الويبهوك يعود فوراً)، والبوت يُمرَّر بعدها إن لم تكن حوالة.
+  if (msgType === 'image') {
+    void import('./invoice-wa.service.js')
+      .then(m => m.handleTransferImage(updatedConv, msg))
+      .catch((err: any) => { console.warn('⚠️ invoice-wa transfer:', err?.message); return false; })
+      .then(handled => { if (!handled && isBotActive(updatedConv) && !opts.suppressBot) forwardToBot(updatedConv); });
+    return;
+  }
+
   // ── تمرير للبوت إن كان نشطاً ──
   if (isBotActive(updatedConv) && !opts.suppressBot) {
     forwardToBot(updatedConv);
@@ -724,7 +734,7 @@ export interface SendMessageInput {
    *  الخادم من ملفٍّ رفعناه، لا من نصٍّ يكتبه المستخدم)، أو `mediaId` من `uploadWaMedia`.
    *  إن جاء الاثنان (البثّ): يُرسَل بالمعرّف، ويُحفظ الرابط في السجلّ ليعرض الانبوكس الصورة.
    *  التعليق يُقصّ عند 1024 حرفاً (حدّ ميتا). */
-  image?: { link?: string; mediaId?: string; caption?: string };
+  image?: { link?: string; mediaId?: string; localPath?: string; caption?: string };
   /** 🎬 فيديو MP4 بتعليق — بنفس قواعد الصورة (رابطنا أو معرّف ميتا، والتعليق ١٠٢٤) */
   video?: { link?: string; mediaId?: string; caption?: string };
   /** outreach = من صفحات الحجوزات/التحليلات/المستكشف — لا يوقف البوت */
@@ -770,7 +780,7 @@ export async function sendMessage(input: SendMessageInput) {
   const hasInteractive = !!input.interactive;
   const hasLocation = !!input.location;
   const hasVideo = !!(input.video && (input.video.link || input.video.mediaId));
-  const hasImage = !hasVideo && !!(input.image && (input.image.link || input.image.mediaId));
+  const hasImage = !hasVideo && !!(input.image && (input.image.link || input.image.mediaId || input.image.localPath));
   const text = (input.text || '').trim();
   if (!hasInteractive && !hasLocation && !hasImage && !hasVideo && !text) throw new Error('لا يوجد محتوى للإرسال');
   // 🖼️ التعليق يُقصّ هنا لا عند ميتا: رفضُها يأتي بعد أن يكون الصفّ قد كُتب في بثٍّ نصفِ منفَّذ
@@ -837,6 +847,11 @@ export async function sendMessage(input: SendMessageInput) {
 
   let saved: any;
   if (channel === 'cloud') {
+    // 🧾 ملفٌّ خاصّ (فاتورة): ميتا لا تصل القرص — يُرفع ويُرسل بالمعرّف، ولا رابط عامّ له
+    if (content.image?.localPath && !content.image.mediaId && !content.image.link) {
+      const mime = /\.png$/i.test(content.image.localPath) ? 'image/png' : 'image/jpeg';
+      content.image = { ...content.image, mediaId: await uploadCloudMedia(content.image.localPath, mime) };
+    }
     // ── ميتا: كما كان حرفيّاً — أرسل ثمّ خزّن ──
     const r = await sendCloud(conv.waPhone, content);
     [saved] = await db

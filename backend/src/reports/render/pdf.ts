@@ -118,6 +118,30 @@ export async function renderRawHtmlPdf(
   }
 }
 
+/**
+ * 🖼️ صورة JPEG لعنصرٍ من HTML (ملفّ الفاتورة لواتساب — 2026-10-30): نفس المتصفّح ونفس القالب،
+ * فتطابق الصورةُ ملفَّ A6 حرفيّاً. ×2.5 تكفي لقراءةٍ واضحة على الهاتف بحجمٍ صغير.
+ */
+export async function renderRawHtmlImage(
+  html: string,
+  opts: { width?: number; scale?: number; selector?: string; quality?: number } = {},
+): Promise<Buffer> {
+  const browser = await getBrowser();
+  const page = await browser.newPage();
+  try {
+    await page.setViewport({ width: opts.width ?? 397, height: 600, deviceScaleFactor: opts.scale ?? 2.5 });
+    await page.setContent(html, { waitUntil: 'load', timeout: 20000 });
+    await page.evaluate('document.fonts && document.fonts.ready').catch(() => {});
+    const el = opts.selector ? await page.$(opts.selector) : null;
+    const shot = el
+      ? await el.screenshot({ type: 'jpeg', quality: opts.quality ?? 88 })
+      : await page.screenshot({ type: 'jpeg', quality: opts.quality ?? 88, fullPage: true });
+    return Buffer.from(shot as any);
+  } finally {
+    await page.close().catch(() => {});
+  }
+}
+
 /** إغلاق المتصفح عند إيقاف الخادم. */
 export async function closePdfBrowser(): Promise<void> {
   if (!browserPromise) return;

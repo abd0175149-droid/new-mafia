@@ -111,6 +111,10 @@ export function buildCloudBody(to: string, c: OutboundContent): any {
         : { link: c.image.link, ...(caption ? { caption } : {}) },
     };
   }
+  // 🧾 صورةٌ خاصّة (فاتورة) في سجلّ الجلسة: لا رابط ولا معرّف — تُحفظ صورةً بتعليقها لا نصّاً فارغاً
+  if (c.image?.localPath) {
+    return { messaging_product: 'whatsapp', to, type: 'image', image: { ...(caption ? { caption } : {}), private: true } };
+  }
   return { messaging_product: 'whatsapp', to, type: 'text', text: { body: (c.text || '').trim() } };
 }
 

@@ -15,8 +15,10 @@ export const CHANNELS: Channel[] = ['cloud', 'web'];
  *   reply  : ردّ على وارد (البوت، الموظّف، النظام)
  *   timely : مقيّد بوقت (تذكير، مقعد متحرّر، تنبيه أدمن، رسالة حجز)
  *   bulk   : جماعيّ (بثّ، متابعة، استبيان، عروض، فئات التحليلات)
+ *   invoice: فواتير المنيو وأختام التحصيل وتحويل الحوالات للمكان (2026-10-30) — **بلا أيّ قيد**
+ *            بقرار المالك: لا سقف ولا ساعات ولا فاصل، ولا تُحسب مع أيّ مسارٍ آخر
  */
-export type Lane = 'reply' | 'timely' | 'bulk';
+export type Lane = 'reply' | 'timely' | 'bulk' | 'invoice';
 
 /** أوضاع التشغيل — تُبدَّل من «الإدارة ← القنوات» بلا نشر */
 export type TransportMode = 'cloud_only' | 'dual' | 'web_primary' | 'web_final';
@@ -59,7 +61,7 @@ export const LINE_FILTERS: LineFilter[] = ['all', 'warm', 'two_way'];
 
 export const DEFAULT_TRANSPORT_SETTINGS: TransportSettings = {
   mode: 'cloud_only',
-  failover: { reply: false, timely: true, bulk: false },
+  failover: { reply: false, timely: true, bulk: false, invoice: true },
   webBot: false,
   webBotKnown: false,
   // سقوفٌ متحفّظة بعد تقييد 2026-10-20: ٤٥–١٢٠ث بدل ١٥–٤٥، وسقفٌ بالساعة، وساعاتٌ أضيق
@@ -79,6 +81,7 @@ export interface OutboundContent {
   text?: string;
   interactive?: any;
   location?: { latitude: number; longitude: number; name?: string; address?: string };
+  /** localPath: ملفٌّ خاصّ على القرص (فاتورة) — ميتا تُرفع له وتُرسل بالمعرّف، والجلسة تقرؤه base64؛ لا رابط عامّ */
   image?: { link?: string; mediaId?: string; localPath?: string; caption?: string };
   /** 🎬 فيديو MP4 بتعليق — مثل الصورة تماماً (رابطنا العامّ أو معرّف ميتا)، حدّ واتساب ١٦ م.ب */
   video?: { link?: string; mediaId?: string; localPath?: string; caption?: string };

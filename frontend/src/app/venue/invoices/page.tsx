@@ -40,6 +40,35 @@ interface Ledger {
   autoWaterEnabled: boolean; waterPrice: number;
   totals: { collected: number; due: number; total: number; paidCount: number; dueCount: number };
   candidates: Row[];
+  /** 🧾 فواتير واتساب: آخر حالة إرسال لكلّ لاعب (2026-10-30) */
+  wa?: Record<number, WaState>;
+  waEnabled?: boolean;
+}
+
+interface WaState {
+  kind?: string; status?: string; reason?: string; channel?: string | null; invoiceNo?: number | null; at?: string | null;
+  transfer?: { at: string; forwarded: boolean; amountRead: number | null; short: boolean };
+}
+
+/** حالة واتساب على الصفّ — الشكل (أيقونة + كلمة) مع اللون، لا اللون وحده */
+function waPill(r: Row, w: WaState | undefined): { text: string; color: string; icon: 'check' | 'clock' | 'warn' | 'receipt' } | null {
+  if (!w) return null;
+  const paid = r.kind === 'paid';
+  if (!paid && w.transfer && (!w.at || new Date(w.transfer.at) >= new Date(w.at))) {
+    return w.transfer.short ? { text: 'وصلت حوالة · المبلغ أقلّ', color: TX.bad, icon: 'warn' } : { text: 'وصلت حوالة', color: TX.amber, icon: 'receipt' };
+  }
+  if (paid) {
+    if (w.kind !== 'paid' && !(w.kind === 'manual' || w.kind === 'bot')) return null;
+    if (w.status === 'sent') return { text: 'وصله الختم', color: TX.good, icon: 'check' };
+    if (w.status === 'pending' || w.status === 'sending') return { text: 'الختم بعد دقيقتين', color: TX.dim, icon: 'clock' };
+    if (w.status === 'failed') return { text: `لم يُرسل الختم — ${w.reason || ''}`, color: TX.bad, icon: 'warn' };
+    return null;
+  }
+  if (w.kind === 'paid') return null;
+  if (w.status === 'sent') return { text: 'وصلته الفاتورة', color: TX.good, icon: 'check' };
+  if (w.status === 'pending' || w.status === 'sending') return { text: 'تُرسل خلال دقيقة', color: TX.dim, icon: 'clock' };
+  if (w.status === 'failed') return { text: `لم تُرسل — ${w.reason || ''}`, color: TX.bad, icon: 'warn' };
+  return null;
 }
 
 interface InvoiceLine {
@@ -226,12 +255,13 @@ export default function VenueInvoicesPage() {
       s = getSocket();
       s.on('fnb:invoice-updated', soon);
       s.on('fnb:new-order', soon);
+      s.on('fnb:invoice-wa', soon);
     } catch { s = null; }
     return () => {
       clearInterval(iv);
       if (deb) clearTimeout(deb);
       document.removeEventListener('visibilitychange', refresh);
-      if (s) { s.off('fnb:invoice-updated', soon); s.off('fnb:new-order', soon); }
+      if (s) { s.off('fnb:invoice-updated', soon); s.off('fnb:new-order', soon); s.off('fnb:invoice-wa', soon); }
     };
   }, [locationId, actId, loadLedger, loadNights]);
 
@@ -298,6 +328,20 @@ export default function VenueInvoicesPage() {
     setPrinting(false);
     // أوّل طباعة لفاتورةٍ مفتوحة تُثبّت رقمها — نُريه في الورقة والقائمة
     if (ok && row.kind === 'open') { await loadLedger(actId); fetchDetail(row); }
+  };
+
+  // 🧾 «أرسل على واتساب» — يمرّ بطابور الخادم نفسه، والحالة تتحدّث بالمقبس
+  const [waBusy, setWaBusy] = useState(false);
+  const waSend = async () => {
+    if (!sheetRow || !actId || waBusy) return;
+    setWaBusy(true);
+    const row = sheetRow;
+    const qs = row.kind === 'paid' && row.invoiceId ? `?invoiceId=${row.invoiceId}` : '';
+    const r = await apiRef.current.send(`/api/venue/invoices/${actId}/${row.playerId}/wa-send${qs}`, 'POST').catch(() => null);
+    setWaBusy(false);
+    if (!r?.ok) { show(r?.data?.error || 'تعذّر الإرسال', { tone: 'bad' }); return; }
+    show(row.kind === 'paid' ? 'يُرسل الختم الآن' : 'تُرسل الفاتورة الآن');
+    loadLedger(actId, true);
   };
 
   const printAll = async () => {
@@ -573,6 +617,7 @@ export default function VenueInvoicesPage() {
               const stateLabel = paid
                 ? `#${r.invoiceNo ?? ''} · ${hhmm(r.paidAt)}`
                 : r.invoiceNo != null ? `#${r.invoiceNo} · لم يُحصَّل` : 'لم يُحصَّل';
+              const wa = ledger?.waEnabled ? waPill(r, ledger.wa?.[r.playerId]) : null;
               return (
                 <div key={r.key} className="vc-enter flex items-center gap-2.5 rounded-[14px]"
                   style={{ padding: '10px 10px 10px 12px', background: EM.card, border: `1px solid ${EM.line}` }}>
@@ -582,6 +627,11 @@ export default function VenueInvoicesPage() {
                     <span className="flex-1 min-w-0 block">
                       <span className="block text-[15px] font-extrabold truncate">{r.playerName}</span>
                       <span className="block text-[12.5px] truncate" style={{ color: TX.dim }}>{breakdown(r)}</span>
+                      {wa && (
+                        <span className="flex items-center gap-1 text-[12px] font-bold truncate" style={{ color: wa.color }}>
+                          <Icon name={wa.icon} size={13} stroke={2.2} /><span className="truncate">{wa.text}</span>
+                        </span>
+                      )}
                     </span>
                     <span className="shrink-0 text-left block">
                       <span className="vc-num block font-semibold" style={{ fontSize: 17 }}>{f2(r.grandTotal)}</span>
@@ -714,6 +764,20 @@ export default function VenueInvoicesPage() {
                 ملفّ A6
               </Btn>
             </div>
+            {/* 🧾 واتساب: حالة آخر إرسال وزرّ الإرسال الآن */}
+            {ledger?.waEnabled && (() => {
+              const w = waPill(sheetRow, ledger.wa?.[sheetRow.playerId]);
+              return (
+                <div className="flex items-center gap-2 mt-2">
+                  <span className="flex-1 min-w-0 flex items-center gap-1.5 text-[13px] font-bold" style={{ color: w?.color || TX.dim }}>
+                    {w ? <><Icon name={w.icon} size={15} stroke={2.2} /><span className="truncate">{w.text}</span></> : 'لم يُرسل له شيء على واتساب بعد'}
+                  </span>
+                  <Btn kind="ghost" h={44} style={{ fontSize: 13.5 }} disabled={waBusy} onClick={waSend}>
+                    {waBusy ? 'يُرسل…' : isOpenRow ? 'أرسل الفاتورة' : 'أرسل الختم'}
+                  </Btn>
+                </div>
+              );
+            })()}
             {/* الإسقاط */}
             <div className="flex gap-2 mt-2 empty:hidden">
               {canWaive && !waiveOpen && (

@@ -69,6 +69,7 @@ import adminConsentsRoutes from './routes/admin-consents.routes.js';
 import staffActionLogRoutes from './routes/staff-action-log.routes.js';
 import { venueRouter, playerFnbRouter } from './routes/fnb.routes.js';
 import venueSettlementsRoutes from './routes/venue-settlements.routes.js';
+import invoiceWaRoutes from './routes/invoice-wa.routes.js';
 import chipsRoutes from './routes/chips.routes.js';
 import loyaltyRoutes from './routes/loyalty.routes.js';
 import chipsStoreRoutes from './routes/chips-store.routes.js';
@@ -171,6 +172,8 @@ app.use(express.json({
   // 💬 التقاط الجسم الخام — لازم للتحقق من توقيع webhook واتساب (X-Hub-Signature-256)
   verify: (req, _res, buf) => { (req as any).rawBody = buf; },
 }));
+// 🔒 uploads/private: صور الفواتير وفيها اسمٌ ومبلغ — تُقرأ من القرص للإرسال ولا تُخدَم لأحد (2026-10-30)
+app.use('/uploads/private', (_req, res) => { res.status(404).end(); });
 app.use('/uploads', express.static('uploads'));
 
 // ── Health Check ────────────────────────────────────
@@ -234,6 +237,7 @@ app.use('/api/seat-templates', seatTemplatesRoutes);
 app.use('/api/reservations', reservationsRoutes);
 app.use('/api/venue', venueRouter);      // 🏪 كونسول حساب المكان (منيو/طلبات/فواتير)
 app.use('/api/admin/venue-settlements', venueSettlementsRoutes); // 🤝 تسويات الأماكن (admin/manager)
+app.use('/api/admin/invoice-wa', invoiceWaRoutes);               // 🧾 مفتاح فواتير واتساب (الداشبورد)
 app.use('/api/fnb', playerFnbRouter);    // 🍽️ طلبات المنيو — جهة اللاعب
 app.use('/api/chips', chipsRoutes);      // 🪙 اقتصاد التشبس (محفظة + دفتر + شحن إداري)
 app.use('/api/loyalty', loyaltyRoutes);  // 🎟️ بطاقة الولاء (ختم الدون)
@@ -1232,6 +1236,26 @@ async function main() {
         booking_id INTEGER, waived BOOLEAN NOT NULL, reason TEXT DEFAULT '', staff_id INTEGER,
         created_at TIMESTAMP DEFAULT NOW() NOT NULL)`);
       await db.execute(sql`CREATE TABLE IF NOT EXISTS one_time_migrations (key VARCHAR(100) PRIMARY KEY, ran_at TIMESTAMP DEFAULT NOW() NOT NULL)`);
+      // 💳 طرق الدفع لكلّ مكان + كليك + رقم واتساب المكان، وسجلّ إرسال الفواتير عبر واتساب (2026-10-30)
+      await db.execute(sql`ALTER TABLE locations ADD COLUMN IF NOT EXISTS pay_cash BOOLEAN DEFAULT TRUE NOT NULL`);
+      await db.execute(sql`ALTER TABLE locations ADD COLUMN IF NOT EXISTS pay_card BOOLEAN DEFAULT FALSE NOT NULL`);
+      await db.execute(sql`ALTER TABLE locations ADD COLUMN IF NOT EXISTS pay_cliq BOOLEAN DEFAULT FALSE NOT NULL`);
+      await db.execute(sql`ALTER TABLE locations ADD COLUMN IF NOT EXISTS cliq_method VARCHAR(10) DEFAULT 'alias' NOT NULL`);
+      await db.execute(sql`ALTER TABLE locations ADD COLUMN IF NOT EXISTS cliq_value VARCHAR(60) DEFAULT '' NOT NULL`);
+      await db.execute(sql`ALTER TABLE locations ADD COLUMN IF NOT EXISTS cliq_bank VARCHAR(80) DEFAULT '' NOT NULL`);
+      await db.execute(sql`ALTER TABLE locations ADD COLUMN IF NOT EXISTS cliq_name VARCHAR(100) DEFAULT '' NOT NULL`);
+      await db.execute(sql`ALTER TABLE locations ADD COLUMN IF NOT EXISTS wa_phone VARCHAR(20) DEFAULT '' NOT NULL`);
+      await db.execute(sql`CREATE TABLE IF NOT EXISTS invoice_wa_jobs (
+        id SERIAL PRIMARY KEY, location_id INTEGER NOT NULL, activity_id INTEGER NOT NULL, player_id INTEGER NOT NULL,
+        kind VARCHAR(12) NOT NULL, invoice_id INTEGER, invoice_no INTEGER, total DECIMAL(10,2),
+        status VARCHAR(12) DEFAULT 'pending' NOT NULL, reason TEXT DEFAULT '', channel VARCHAR(8),
+        due_at TIMESTAMPTZ DEFAULT NOW() NOT NULL, details JSONB DEFAULT '{}'::jsonb, staff_id INTEGER,
+        created_at TIMESTAMPTZ DEFAULT NOW() NOT NULL, sent_at TIMESTAMPTZ)`);
+      await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_invoice_wa_due ON invoice_wa_jobs(due_at) WHERE status = 'pending'`);
+      await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_invoice_wa_night ON invoice_wa_jobs(activity_id, player_id)`);
+      // 🔁 ملفٌّ مفتوحٌ واحد ينتظر الإرسال لكلّ لاعبٍ في الليلة — «وُصِّل» متتالٍ يؤجّل الموعد ولا يضيف رسالة
+      await db.execute(sql`CREATE UNIQUE INDEX IF NOT EXISTS uq_invoice_wa_open_pending ON invoice_wa_jobs(activity_id, player_id)
+        WHERE status = 'pending' AND kind IN ('open', 'auto')`);
       // مرّةً واحدة: الطلبات التي غطّتها فاتورةٌ محصَّلة تُختم بها (ما طُلب قبل لحظة التحصيل).
       // وصاحب المكان (منيو + تحصيل) يُمنح «الحساب» و«موقع المكان» — الثاني كان ناقصاً من القائمة
       // فلم يظهر تبويبه لمن أُنشئ حسابه من صفحة الأماكن.
@@ -2592,6 +2616,8 @@ async function main() {
       await catchUpWeb().catch((e: any) => console.warn('⚠️ WA web catch-up:', e?.message));
     }).catch((e: any) => console.warn('⚠️ WA web health init:', e?.message));
   } catch (e: any) { console.warn('⚠️ WA web init:', e.message); }
+  // ── 🧾 فواتير واتساب: طابورٌ في القاعدة + ماسح الساعة والنصف ──
+  try { const { startInvoiceWa } = await import('./services/invoice-wa.service.js'); startInvoiceWa(app.get('io')); } catch (e: any) { console.warn('⚠️ invoice-wa init:', e.message); }
   try { const { startWaHealthMonitor } = await import('./services/wa-health.service.js'); await startWaHealthMonitor(); } catch (e: any) { console.warn('⚠️ WA health monitor init:', e.message); }
   // ── 🎁 عروضُ الحديث مع البوت: بدءٌ وإنهاءٌ آليّان + مسحُ مصالحةٍ احتياطيّ ──
   //    المسحُ عند الإقلاع ليس ترفاً: سقوطُ الخادم بين إدراج الدفتر والمصالحة

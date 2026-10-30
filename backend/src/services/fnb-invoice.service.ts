@@ -47,6 +47,27 @@ export interface InvoiceData {
   /** لقطة فاتورةٍ محصَّلة بعينها (لا الجزء المفتوح) — تُطبع بمجاميعها المجمَّدة */
   snapshotInvoiceId: number | null;
   paidAt: Date | null;
+  /** 💳 طرق الدفع المفعّلة في المكان — تُكتب على الملفّ المطلوب. كليك وحده بتفاصيله */
+  payment: PaymentInfo;
+}
+
+export interface PaymentInfo {
+  cash: boolean;
+  card: boolean;
+  /** null = كليك غير مفعّل أو ناقص القيمة (لا تُطبع تفاصيلٌ نصفيّة) */
+  cliq: { method: 'alias' | 'phone'; value: string; bank: string; name: string } | null;
+}
+
+/** طرق الدفع من صفّ المكان — كليك يُعرض فقط مفعّلاً وبقيمةٍ مكتوبة */
+export function paymentInfoOf(loc: any): PaymentInfo {
+  const value = String(loc?.cliqValue || '').trim();
+  return {
+    cash: loc?.payCash !== false,
+    card: loc?.payCard === true,
+    cliq: loc?.payCliq === true && value
+      ? { method: loc.cliqMethod === 'phone' ? 'phone' : 'alias', value, bank: String(loc.cliqBank || '').trim(), name: String(loc.cliqName || '').trim() }
+      : null,
+  };
 }
 
 /** هل لعب اللاعب جولةً واحدة على الأقلّ في هذه الفعاليّة؟ (شرط استحقاق الحدّ الأدنى) */
@@ -141,6 +162,8 @@ export async function buildInvoiceData(
     minChargeEnabled: locations.minChargeEnabled,
     minimumCharge: locations.minimumCharge,
     autoWater: locations.autoWater,
+    payCash: locations.payCash, payCard: locations.payCard, payCliq: locations.payCliq,
+    cliqMethod: locations.cliqMethod, cliqValue: locations.cliqValue, cliqBank: locations.cliqBank, cliqName: locations.cliqName,
   }).from(locations).where(eq(locations.id, locationId)).limit(1);
 
   const allInvoices = await db.select().from(orderInvoices).where(and(
@@ -170,6 +193,7 @@ export async function buildInvoiceData(
       gameFeeApplied: inv.gameFeeApplied === true, gameFeeAmount: n(inv.gameFeeAmount), grandTotal: n(inv.grandTotal),
       orderIds: snapOrders.map(o => o.id), seat: await seatOf(db, activityId, playerId),
       snapshotInvoiceId: inv.id, paidAt: inv.isPaid ? inv.paidAt : null,
+      payment: paymentInfoOf(loc),
     };
   }
 
@@ -289,6 +313,7 @@ export async function buildInvoiceData(
     seat: await seatOf(db, activityId, playerId),
     snapshotInvoiceId: null,
     paidAt: null,
+    payment: paymentInfoOf(loc),
   };
 }
 
@@ -385,5 +410,5 @@ export async function issueInvoiceNumber(
 }
 
 // 🗂️ القالب «ملفّ القضيّة» (A6 + إيصال 80مم) في ملفّه — يُعاد تصديره كي تبقى الاستيرادات كما هي
-export { invoiceHtml, mergeInvoicePages, receiptHtml, nightRecordOf } from './fnb-invoice-template.js';
+export { invoiceHtml, mergeInvoicePages, receiptHtml, nightRecordOf, invoiceImageHtml } from './fnb-invoice-template.js';
 export type { NightRecord } from './fnb-invoice-template.js';

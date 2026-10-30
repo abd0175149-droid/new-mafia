@@ -15,6 +15,7 @@ import dynamic from 'next/dynamic';
 import { useVenue } from '../context';
 import { EM, MONO } from '../ember';
 import { useGeolocation } from '@/hooks/useGeolocation';
+import { PaymentSettings } from './PaymentSettings';
 
 // MapLibre يلمس window عند التحميل — لا تُصيَّر على الخادم
 const VenueMap = dynamic(() => import('@/components/VenueMap'), {
@@ -108,6 +109,7 @@ export default function VenueLocationPage() {
 
   return (
     <div dir="rtl">
+      <PaymentSettings />
 
       <div className="flex items-center gap-3 mb-3">
         <span className="w-9 h-9 rounded-xl grid place-items-center text-base shrink-0"

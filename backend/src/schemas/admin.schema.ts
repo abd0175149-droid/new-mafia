@@ -68,6 +68,17 @@ export const locations = pgTable('locations', {
   // 💧 ماءٌ تلقائيّ: كلّ فاتورة لاعبٍ تحمل ماءً واحداً بسعر صنف الماء في المنيو —
   // إلا من طلب ماءً بنفسه أو عرضاً يحويه. يُحتسب ضمن استهلاك الحدّ الأدنى.
   autoWater: boolean('auto_water').default(false),
+  // 💳 طرق الدفع المفعّلة في المكان (2026-10-30) — تُكتب على كلّ ملفٍّ فيه مبلغ مطلوب وفي رسالة
+  //    واتساب. كليك وحده بتفاصيله (طريقة التحويل · القيمة · البنك · الاسم الظاهر للمحوِّل).
+  payCash: boolean('pay_cash').default(true).notNull(),
+  payCard: boolean('pay_card').default(false).notNull(),
+  payCliq: boolean('pay_cliq').default(false).notNull(),
+  cliqMethod: varchar('cliq_method', { length: 10 }).default('alias').notNull(),   // alias | phone
+  cliqValue: varchar('cliq_value', { length: 60 }).default('').notNull(),
+  cliqBank: varchar('cliq_bank', { length: 80 }).default('').notNull(),
+  cliqName: varchar('cliq_name', { length: 100 }).default('').notNull(),
+  // 📲 رقم واتساب المكان — تصله صور الحوالات من رقم الأعمال
+  waPhone: varchar('wa_phone', { length: 20 }).default('').notNull(),
   // 📍 سياج الفعاليّة — نقطة المكان ونصف قطره الافتراضيّ.
   // 🔴 تُضبَط يدويّاً من كونسول المكان لا من map_url: الرابط يحمل زوجَي
   //    إحداثيّات — مركز العرض والدبّوس — ويفترقان ٢٤٥ متراً في أحد مكانينا،

@@ -27,6 +27,8 @@ export function normalizeSettings(raw: any): TransportSettings {
       reply: typeof r.failover?.reply === 'boolean' ? r.failover.reply : d.failover.reply,
       timely: typeof r.failover?.timely === 'boolean' ? r.failover.timely : d.failover.timely,
       bulk: typeof r.failover?.bulk === 'boolean' ? r.failover.bulk : d.failover.bulk,
+      // الفواتير تصل دائماً: البديل مفعّل ولا يُطفأ من الإعدادات (قرار المالك 2026-10-30)
+      invoice: true,
     },
     webBot: typeof r.webBot === 'boolean' ? r.webBot : d.webBot,
     webBotKnown: typeof r.webBotKnown === 'boolean' ? r.webBotKnown : d.webBotKnown,

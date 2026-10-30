@@ -24,7 +24,7 @@ import { renderInteractive, saveMenu } from './menu-emulation.js';
 import * as gw from './openwa.client.js';
 import type { Lane, OutboundContent } from './types.js';
 
-const LANE_PRIORITY: Record<Lane, number> = { reply: 1, timely: 2, bulk: 5 };
+const LANE_PRIORITY: Record<Lane, number> = { reply: 1, invoice: 1, timely: 2, bulk: 5 };
 const MAX_ATTEMPTS = 5;
 const JO_OFFSET_MS = 3 * 3600e3;   // الأردن +3 ثابت (أُلغي التوقيت الصيفيّ 2022)
 
@@ -119,7 +119,7 @@ export async function enqueueWeb(saved: any, conv: any, c: OutboundContent, lane
 // ══════════════════════════════════════════════════════
 let running = false;
 let timer: NodeJS.Timeout | null = null;
-const nextAllowed: Record<Lane, number> = { reply: 0, timely: 0, bulk: 0 };
+const nextAllowed: Record<Lane, number> = { reply: 0, invoice: 0, timely: 0, bulk: 0 };
 /** 🚦 آخر رفضٍ من حاكم البوّابة لكلّ مسار — كان الطابور يسكت ساعاتٍ بلا سبب ظاهر (بثّ #24: «حدّ المحادثات الجديدة» عند البوّابة) */
 interface GatewayRefusal { at: number; rule: string; reason: string; resumeAt: number }
 const lastRefusal: Partial<Record<Lane, GatewayRefusal>> = {};
@@ -331,7 +331,8 @@ async function step(): Promise<void> {
     const s = transportSettings();
     const now = Date.now();
     const { bulkPausedUntil } = await import('./web.health.js');
-    const lanes: Lane[] = ['reply', 'timely', 'bulk'];
+    // invoice بلا سقفٍ ولا فاصل — لا شرط عليه في الحلقة (قرار المالك 2026-10-30)
+    const lanes: Lane[] = ['reply', 'invoice', 'timely', 'bulk'];
     for (const lane of lanes) {
       if (nextAllowed[lane] > now) continue;
       let coldJob = false;
@@ -442,7 +443,7 @@ export function startWebOutbox(): void {
 /** إحصاء الطابور والسقوف للواجهة */
 export async function outboxStats(): Promise<any> {
   const db = getDB();
-  const queued: Record<Lane, number> = { reply: 0, timely: 0, bulk: 0 };
+  const queued: Record<Lane, number> = { reply: 0, invoice: 0, timely: 0, bulk: 0 };
   let coldQueued = 0;
   if (db) {
     const r: any = await db.execute(sql`SELECT lane, COUNT(*)::int AS n, COUNT(*) FILTER (WHERE cold)::int AS c FROM wa_outbox GROUP BY lane`);
@@ -460,7 +461,7 @@ export async function outboxStats(): Promise<any> {
     sentLastHour: bc.lastHour,
     caps: { bulkDaily: Number.isFinite(dayCap) ? dayCap : null, coldDaily: Number.isFinite(coldCap) ? coldCap : null, bulkHourly: s.bulk.hourlyCap },
     warmup: { enabled: s.warmup.enabled, ageDays: Number.isFinite(age) ? age : null, linked: Number.isFinite(age) },
-    next: { reply: null, timely: iso(nextAllowed.timely), bulk: iso(nextAllowed.bulk) },
+    next: { reply: null, invoice: null, timely: iso(nextAllowed.timely), bulk: iso(nextAllowed.bulk) },
   };
 }
 

@@ -295,7 +295,7 @@ export function extToolDeclarations(t: Record<string, any>): any[] {
   // 🍽️ (2026-10-08) كان البوت يحوّل كلّ سؤالٍ عن أسعار الكافيه وعروضه للتطبيق — المعرفة تقول «الأسعار
   //    من الأدوات حصراً» ولا أداةَ تقرأ المنيو. هذه تقرؤه بالدالّة نفسها التي يعرضه بها التطبيق.
   if (t.menu) d.push({ name: 'get_venue_menu', description: 'منيو مكانٍ (الكافيه) كما يراه اللاعب في التطبيق: الأقسام والأصناف بأسعارها، وعروض الكافيه (الباقات) بمكوّناتها وأسعارها، والحدّ الأدنى للاستهلاك إن كان مفعّلاً. استدعِها لأيّ سؤالٍ عن أسعار الأراجيل أو المشروبات أو الأكل أو «شو في بالمنيو» أو «في عروض بالكافيه». المكان بـvenue_name (اسمه كما قاله العميل) أو activity_id أو location_id؛ بلا أيٍّ منها يُستعمل مكانُ حجزه القادم، وإلّا تعود الأماكن لتسأله أيّها.', parameters: O({ venue_name: { type: 'STRING', description: 'اسم المكان كما ذكره العميل: «مزاج افندينا»، «Best View» (اختياريّ)' }, activity_id: { type: 'NUMBER', description: 'فعاليّةٌ في المكان المقصود (اختياريّ)' }, location_id: { type: 'NUMBER', description: 'معرّف المكان من get_locations (اختياريّ)' }, search: { type: 'STRING', description: 'كلمةٌ لتضييق الأصناف: «أرجيلة»، «قهوة»، «أكل» (اختياريّ)' } }) });
-  if (t.invoice) d.push({ name: 'get_my_invoice', description: 'فاتورة العميل نفسه في فعاليّة الليلة أو آخر فعاليّة (خلال 36 ساعة): طلباته من المنيو، الماء، تكملة الحدّ الأدنى، رسم اللعبة، خصم مشروب الولاء، الإجماليّ، وهل حُصّلت. «شو فاتورتي؟ كم عليّ؟».', parameters: O({}) });
+  if (t.invoice) d.push({ name: 'get_my_invoice', description: 'فاتورة العميل نفسه في فعاليّة الليلة أو آخر فعاليّة (خلال 36 ساعة): طلباته من المنيو، الماء، تكملة الحدّ الأدنى، رسم اللعبة، خصم مشروب الولاء، الإجماليّ، ما حُصّل منه وما بقي، وطرق الدفع. «شو فاتورتي؟ كم عليّ؟ بدي اعرف حسابي، بدي امشي». وأيضاً «ليش ضايفين ٢ دينار / شو الحدّ الأدنى». تُرسل له صورة ملفّه تلقائيّاً إن كان الإرسال مفعّلاً.', parameters: O({}) });
   if (t.chips) d.push({ name: 'get_my_chips', description: 'رصيد تشبس العميل وآخر حركاته وما يكفيه رصيده من الخزنة. «كم تشبس معي؟». الشراء من التطبيق فقط.', parameters: O({}) });
   if (t.changePeople) d.push({ name: 'request_change_people', description: 'تعديل عدد الأشخاص في حجزٍ قائم للعميل بدل الإلغاء وإعادة الحجز. تعرض أزرار تأكيد والتنفيذ آليّ بعد ضغطه (قاعدة الـ3 ساعات نفسها، وفحص السعة عند الزيادة).', parameters: O({ activity_id: { type: 'NUMBER', description: 'معرّف الفعاليّة المحجوزة' }, new_count: { type: 'NUMBER', description: 'العدد الجديد (1–12)' } }, ['activity_id', 'new_count']) });
   if (t.schedule) d.push({ name: 'get_tonight_schedule', description: 'جدول الليلة المكتوب لفعاليّة (كم لعبة، متى تبدأ كلّ واحدة، الاستراحات) — لفعاليّة العميل المحجوزة القادمة إن لم يُحدَّد معرّف. الجدول تقديريّ وقد ينزاح.', parameters: O({ activity_id: { type: 'NUMBER', description: 'معرّف الفعاليّة (اختياريّ)' } }) });
@@ -531,17 +531,29 @@ export async function execExtTool(name: string, args: any, ctx: Ctx, h: ExtHelpe
       // الفاتورة المفتوحة أوّلاً — قد يملك اللاعب فاتورةً محصَّلة وأخرى مفتوحة لطلبٍ بعدها (2026-10-30)
       const paid: any = await db.execute(sql`SELECT is_paid, invoice_no FROM order_invoices WHERE location_id = ${hit.location_id} AND activity_id = ${hit.activity_id} AND player_id = ${conv.playerId} ORDER BY is_paid ASC, id DESC LIMIT 1`);
       if (inv?.error) {
-        if (rowsOf(paid)[0]?.is_paid) return { found: true, paid: true, invoiceNo: rowsOf(paid)[0].invoice_no, note: 'فاتورته محصَّلة كاملةً — لا شيء مستحقّ عليه الآن' };
+        if (rowsOf(paid)[0]?.is_paid) {
+          // كلّ شيءٍ محصَّل ⟵ تصله صورة آخر ملفٍّ مغلق («القضيّة مُغلقة»)
+          let wa: any = {};
+          try { const { invoiceForBot } = await import('./invoice-wa.service.js'); wa = await invoiceForBot(Number(hit.location_id), Number(hit.activity_id), conv.playerId); } catch { /* تكميليّ */ }
+          return { ...wa, found: true, paid: true, invoiceNo: rowsOf(paid)[0].invoice_no, note: 'فاتورته محصَّلة كاملةً — لا شيء مستحقّ عليه الآن. إن imageSent=true فقد وصلته صورة ملفّه المغلق.' };
+        }
         return { found: false, note: `لا فاتورة بعد: ${inv.error}` };
       }
       const pr = rowsOf(paid)[0];
+      // 🧾 صورة آخر ملفّ + ما حُصّل وما بقي (فواتير واتساب 2026-10-30)
+      let wa: any = {};
+      try { const { invoiceForBot } = await import('./invoice-wa.service.js'); wa = await invoiceForBot(Number(hit.location_id), Number(hit.activity_id), conv.playerId); } catch { /* تكميليّ */ }
+      const { payMethodsLine } = await import('./fnb-invoice-template.js');
       return {
+        ...wa,
+        paymentMethods: payMethodsLine(inv.payment), cliq: inv.payment?.cliq || null,
+        ...(inv.minTopup > 0 ? { minimumChargeExplain: `تكملة الحدّ الأدنى ${inv.minTopup} د.أ: حدٌّ أدنى يفرضه المكان على كلّ لاعبٍ لعب الليلة ولم تبلغ طلباته من المنيو هذا الحدّ (من لم يطلب شيئاً يدفعه كاملاً). إن طلب الآن من التطبيق ما يبلغه سقطت التكملة وبقي سعر طلبه فقط.` } : {}),
         found: true, activity: inv.activityName, location: inv.locationName,
         lines: inv.lines.map((l: any) => ({ item: l.name, qty: l.quantity, total: l.lineTotal })),
         ordersTotalJOD: inv.ordersTotal, waterJOD: inv.waterCharge, minimumTopupJOD: inv.minTopup,
         gameFeeJOD: inv.gameFeeApplied ? inv.gameFeeAmount : 0, loyaltyDrinkDiscountJOD: inv.loyaltyDiscount || 0,
         grandTotalJOD: inv.grandTotal, paid: !!pr?.is_paid, invoiceNo: pr?.invoice_no ?? null,
-        note: 'اعرضها له بنوداً قصيرة والإجماليّ بوضوح — الأرقام من النظام حرفيّاً بلا أيّ حساب منك. الدفع في المكان. «تكملة الحدّ الأدنى» تظهر فقط لمن لعب ولم تبلغ طلباته الحدّ.',
+        note: 'إن imageSent=true فقد وصلته صورة ملفّه للتوّ: قل له ذلك ولخّص ما حُصّل (paidInvoices) وما بقي (remainingJOD) بسطرين — لا تعِد البنود كلّها. وإلّا اعرضها بنوداً قصيرة والإجماليّ بوضوح. الأرقام من النظام حرفيّاً بلا أيّ حساب منك. إن سأل عن الحدّ الأدنى فاشرح من minimumChargeExplain بلطف واقترح أن يطلب الآن. طرق الدفع من paymentMethods؛ وتفاصيل كليك (cliq) تُكتب كما هي إن طلبها.',
       };
     }
 

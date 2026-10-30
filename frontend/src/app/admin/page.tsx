@@ -6,6 +6,7 @@ import { useAdminScope } from './scope-context';
 import CityBadge, { CityDot, CitySegment } from '@/components/admin/CityBadge';
 import { withCity } from '@/hooks/useCities';
 import { rankName, rankBadge } from '@/lib/ranks';
+import InvoiceWaCard from '@/components/admin/InvoiceWaCard';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || '';
 const CURRENCY = 'د.أ';
@@ -208,6 +209,9 @@ export default function AdminDashboard() {
           <a href="/admin/staff" className="px-3.5 py-2 border border-emerald-700/50 text-emerald-400 rounded-xl text-xs hover:bg-emerald-900/40 hover:text-emerald-300 transition font-bold">👔 الموظفون</a>
         </div>
       </div>
+
+      {/* ── 🧾 فواتير واتساب: تشغيل/إطفاء ── */}
+      <InvoiceWaCard />
 
       {/* ── تنبيه ذكي ── */}
       {bk.unpaid > 0 && (

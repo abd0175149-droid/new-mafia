@@ -65,7 +65,8 @@ function preferenceOrder(conv: ConvRoutingRow, lane: Lane): Channel[] {
   let order: Channel[];
   if (m === 'cloud_only') order = ['cloud'];
   else if (m === 'web_final') order = lane === 'reply' && sticky === 'cloud' ? ['cloud', 'web'] : ['web'];
-  else if (lane === 'reply' || m === 'dual') order = [sticky, other];
+  // 🧾 الفاتورة: آخر رقمٍ حكى منه اللاعب أوّلاً في كلّ وضع (قرار المالك 2026-10-30)، والآخر بديلاً
+  else if (lane === 'reply' || lane === 'invoice' || m === 'dual') order = [sticky, other];
   else order = ['web', 'cloud'];                    // web_primary: ما يبادر به النادي يفضّل رقم الأعمال
   if (pin) order = [pin, ...order.filter(c => c !== pin)];
   return order;

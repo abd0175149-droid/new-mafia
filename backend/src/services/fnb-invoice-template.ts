@@ -12,7 +12,7 @@ import { readFileSync } from 'fs';
 import { fileURLToPath } from 'url';
 import { sql } from 'drizzle-orm';
 import type { Database } from '../config/db.js';
-import type { InvoiceData } from './fnb-invoice.service.js';
+import type { InvoiceData, PaymentInfo } from './fnb-invoice.service.js';
 import { ROLE_NAMES_AR, isMafiaRole } from '../game/roles.js';
 
 const ASSETS = fileURLToPath(new URL('../assets/invoice/', import.meta.url));
@@ -95,6 +95,8 @@ interface View {
   lines: { tag: string; name: string; qty: number; detail: string; total: string }[];
   sums: { label: string; value: string }[];
   total: string; record: NightRecord | null; by: string;
+  /** طرق الدفع — تُكتب على الملفّ المطلوب وحده (المغلق لا يُدفع ثانيةً) */
+  pay: PaymentInfo | null;
 }
 
 function view(data: InvoiceData, invoiceNo: number, printedByName: string, record: NightRecord | null): View {
@@ -123,7 +125,27 @@ function view(data: InvoiceData, invoiceNo: number, printedByName: string, recor
       return { tag: pad(i + 1, 2), name: clean(l.name), qty: l.quantity, detail: detail.join('<br>'), total: fmt(l.lineTotal) };
     }),
     sums, total: fmt(data.grandTotal), record, by: clean(printedByName),
+    pay: !paid && data.grandTotal > 0 && data.payment ? data.payment : null,
   };
+}
+
+/** طرق الدفع بكلمات اللاعب — نقدٌ وبطاقة بلا تفاصيل، وكليك بتفاصيله كاملة */
+export function payMethodsLine(p: PaymentInfo): string {
+  const m: string[] = [];
+  if (p.cash) m.push('نقداً');
+  if (p.card) m.push('بطاقة (فيزا)');
+  if (p.cliq) m.push('كليك');
+  return m.join(' · ');
+}
+const cliqLabel = (c: NonNullable<PaymentInfo['cliq']>) => c.method === 'phone' ? 'رقم الهاتف' : 'اسم المستخدم';
+function payBlock(p: PaymentInfo | null): string {
+  if (!p || (!p.cash && !p.card && !p.cliq)) return '';
+  const over = [p.cash ? 'نقداً' : '', p.card ? 'بطاقة (فيزا)' : ''].filter(Boolean).join(' أو ');
+  return `<div class="pay"><div class="ph">طرق الدفع</div>
+    ${over ? `<div class="pm">${esc(over)} عند الكاشير</div>` : ''}
+    ${p.cliq ? `<div class="cq"><div class="ck">كليك · ${esc(cliqLabel(p.cliq))}</div><div class="cv n">${esc(p.cliq.value)}</div>
+      <div class="cd">${[p.cliq.bank, p.cliq.name ? `يظهر باسم ${p.cliq.name}` : ''].filter(Boolean).map(esc).join(' · ')}</div></div>` : ''}
+  </div>`;
 }
 
 const TAGLINE = 'الليلة انتهت… والحكاية لم تنتهِ';
@@ -175,6 +197,13 @@ body { font-family: "MC Sans","Noto Sans Arabic",sans-serif; color: #1E1914; dir
 .grand .rq { font-size: 19px; }
 .grand .n { font-size: 27px; font-weight: 700; }
 .grand .u { font-size: 11px; font-weight: 800; }
+.pay { margin-top: 9px; border: 1.5px solid #1E1914; border-radius: 4px; padding: 6px 8px; display: flex; flex-direction: column; gap: 3px; break-inside: avoid; }
+.pay .ph { font-size: 10px; font-weight: 900; letter-spacing: .06em; }
+.pay .pm { font-size: 11.5px; font-weight: 700; }
+.pay .cq { border-top: 1px dashed #6B5B45; padding-top: 4px; }
+.pay .ck { font-size: 10.5px; font-weight: 800; }
+.pay .cv { font-size: 16px; font-weight: 700; text-align: right; }
+.pay .cd { font-size: 10.5px; color: #5E5242; }
 .grow { flex: 1; min-height: 12px; }
 .ft { display: flex; align-items: flex-end; justify-content: space-between; gap: 8px; }
 .ft .rq { font-size: 14px; }
@@ -215,6 +244,7 @@ function a6Body(v: View): string {
       ${lines || '<div class="line"><span class="nm" style="color:#5E5242">لا طلبات</span></div>'}
       <div class="sums">${v.sums.map(s => `<div class="sum"><span>${esc(s.label)}</span>${n(s.value)}</div>`).join('')}</div>
       <div class="grand"><span class="rq">${v.paid ? 'الحساب الأخير' : 'المبلغ المطلوب'}</span><span>${n(v.total)} <span class="u">د.أ</span></span></div>
+      ${payBlock(v.pay)}
       <div class="grow"></div>
       <div class="ft">
         <div><div class="rq">${TAGLINE}</div><div class="meta">${n(SITE)}${v.by ? ` · أصدرها ${esc(v.by)}` : ''}</div></div>
@@ -323,6 +353,13 @@ body { font-family: "MC Sans","Noto Sans Arabic",sans-serif; color: #111; direct
 .wanted .amt .n { font-size: 72px; font-weight: 700; letter-spacing: -.03em; line-height: 1.05; }
 .wanted .amt .u { font-size: 24px; font-weight: 800; }
 .wanted .amt .s { font-size: 19px; font-weight: 800; margin-top: 2px; }
+.pay { margin-top: 18px; border: 3px solid #111; border-radius: 6px; padding: 12px 16px; display: flex; flex-direction: column; gap: 6px; }
+.pay .ph { font-size: 17px; font-weight: 900; letter-spacing: .1em; }
+.pay .pm { font-size: 21px; font-weight: 800; }
+.pay .cq { border-top: 2px dashed #111; padding-top: 8px; }
+.pay .ck { font-size: 18px; font-weight: 800; }
+.pay .cv { font-size: 34px; font-weight: 700; text-align: right; }
+.pay .cd { font-size: 18px; }
 .end { margin-top: 30px; display: flex; align-items: center; gap: 18px; }
 .end .rq { font-size: 30px; line-height: 1.35; }
 .end .s { font-size: 17px; margin-top: 2px; }
@@ -414,6 +451,7 @@ function thermalBody(v: View): string {
       <div class="sec"><span class="rq">التهم</span><span class="rule"></span><span class="u">د.أ</span></div>
       ${lines}
       ${sums}
+      ${payBlock(v.pay)}
       <div class="end c"><div>
         <div class="rq">الكاشير يعرف من أنت…</div>
         <div class="s" style="font-weight:700">هذه ليست فاتورة نهائيّة — تُغلق القضيّة عند الدفع</div>${n(SITE)}
@@ -432,3 +470,6 @@ export function receiptHtml(data: InvoiceData, invoiceNo: number, printedByName:
   const auto = `<script>window.addEventListener('load',function(){(document.fonts&&document.fonts.ready||Promise.resolve()).then(function(){setTimeout(function(){window.print()},250)})});</script>`;
   return page(TH_CSS, `${thermalBody(v)}<button class="again" onclick="window.print()">اطبع مرّةً أخرى</button>`, `<title>إيصال ${esc(v.no)}</title>${auto}`);
 }
+
+/** صورة الملفّ لواتساب = ملفّ A6 نفسه تماماً (يُرسم صورةً في pdf.ts) */
+export const invoiceImageHtml = invoiceHtml;
