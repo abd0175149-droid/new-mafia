@@ -249,7 +249,7 @@ export async function collectionNights(db: Database, locId: number): Promise<Nig
                 AND o.status <> 'cancelled' AND o.invoice_id IS NULL) AS has_open
     FROM activities a
     WHERE a.location_id = ${locId} AND a.menu_ordering_enabled = true AND a.deleted_at IS NULL
-      AND COALESCE(a.status, '') <> 'cancelled'
+      AND (a.status IS NULL OR a.status <> 'cancelled')
       AND a.date >= NOW() - INTERVAL '60 days' AND a.date <= NOW() + INTERVAL '1 day'
     ORDER BY a.date DESC
     LIMIT 40
@@ -305,7 +305,7 @@ async function paidByActivity(db: Database, locId: number, from: string, to: str
       (SELECT COUNT(*)::int FROM bookings b WHERE b.activity_id = a.id AND b.deleted_at IS NULL AND b.is_free = true) AS free_count
     FROM activities a
     LEFT JOIN order_invoices i ON i.activity_id = a.id AND i.location_id = ${locId}
-    WHERE a.location_id = ${locId} AND a.deleted_at IS NULL AND COALESCE(a.status, '') <> 'cancelled'
+    WHERE a.location_id = ${locId} AND a.deleted_at IS NULL AND (a.status IS NULL OR a.status <> 'cancelled')
       AND a.date::date BETWEEN ${from}::date AND ${to}::date
     GROUP BY a.id, a.name, a.date
     ORDER BY a.date ASC
@@ -358,7 +358,7 @@ export async function moneySummary(db: Database, locId: number, period: string, 
     if (!actId) {
       const [last] = rows(await db.execute(sql`
         SELECT id FROM activities WHERE location_id = ${locId} AND deleted_at IS NULL
-          AND COALESCE(status, '') <> 'cancelled' AND date <= NOW() + INTERVAL '12 hours'
+          AND (status IS NULL OR status <> 'cancelled') AND date <= NOW() + INTERVAL '12 hours'
         ORDER BY date DESC LIMIT 1`));
       actId = last ? Number(last.id) : undefined;
     }

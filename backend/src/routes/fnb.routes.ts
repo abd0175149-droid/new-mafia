@@ -981,6 +981,20 @@ venueRouter.get('/invoices/candidates', authenticate, requireVenuePermission('in
   } catch (err: any) { res.status(500).json({ error: err.message }); }
 });
 
+// بلا invoiceId وكلّ ما على اللاعب محصَّل: آخر فاتورةٍ محصَّلة له — فإعادة طباعة المحصَّلة
+// وفتح تفاصيلها يعملان من المستهلكين القدامى أيضاً (كانت الفاتورة واحدةً للّيلة)
+async function invoiceDataOrLastPaid(db: NonNullable<ReturnType<typeof getDB>>, locId: number, activityId: number, playerId: number, invoiceId: number) {
+  let data = await buildInvoiceData(db, locId, activityId, playerId, Number.isFinite(invoiceId) ? { invoiceId } : {});
+  if ('error' in data && !Number.isFinite(invoiceId)) {
+    const [last] = await db.select({ id: orderInvoices.id }).from(orderInvoices).where(and(
+      eq(orderInvoices.locationId, locId), eq(orderInvoices.activityId, activityId),
+      eq(orderInvoices.playerId, playerId), eq(orderInvoices.isPaid, true),
+    )).orderBy(desc(orderInvoices.paidAt)).limit(1);
+    if (last) data = await buildInvoiceData(db, locId, activityId, playerId, { invoiceId: last.id });
+  }
+  return data;
+}
+
 // ── GET /invoices/:activityId/:playerId — تفاصيل الفاتورة للعرض (بلا إصدار رقم) ──
 // بلا invoiceId: الفاتورة المفتوحة (ما لم يُقبض). ومع ?invoiceId=: لقطة فاتورةٍ محصَّلة.
 // القراءة لا تستهلك رقماً ولا تختم طباعةً — لذا تُفتح التفاصيل بحرّية.
@@ -996,7 +1010,7 @@ venueRouter.get('/invoices/:activityId/:playerId(\\d+)', authenticate, requireVe
   const invoiceId = parseInt(String(req.query.invoiceId || ''));
   if (!Number.isFinite(activityId) || !Number.isFinite(playerId)) return res.status(400).json({ error: 'معرّفات غير صالحة' });
   try {
-    const data = await buildInvoiceData(db, locId, activityId, playerId, Number.isFinite(invoiceId) ? { invoiceId } : {});
+    const data = await invoiceDataOrLastPaid(db, locId, activityId, playerId, invoiceId);
     if ('error' in data) return res.status(404).json({ error: data.error });
 
     const [inv] = data.snapshotInvoiceId
@@ -1040,7 +1054,7 @@ venueRouter.post('/invoices/:activityId/:playerId/pdf', authenticate, requireVen
   const invoiceId = parseInt(String(req.query.invoiceId || req.body?.invoiceId || ''));
   if (!Number.isFinite(activityId) || !Number.isFinite(playerId)) return res.status(400).json({ error: 'معرّفات غير صالحة' });
   try {
-    const data = await buildInvoiceData(db, locId, activityId, playerId, Number.isFinite(invoiceId) ? { invoiceId } : {});
+    const data = await invoiceDataOrLastPaid(db, locId, activityId, playerId, invoiceId);
     if ('error' in data) return res.status(404).json({ error: data.error });
 
     const invoiceNo = await issueInvoiceNumber(db, data, req.venueStaff!.id);
@@ -1200,7 +1214,8 @@ venueRouter.post('/invoices/:activityId/:playerId/pay', authenticate, requireVen
   try {
     // المجاميع تُعاد من الطلبات المفتوحة الآن — لا نثق بمجاميع مخزّنة قد تكون قديمة
     const data = await buildInvoiceData(db, locId, activityId, playerId);
-    if ('error' in data) return res.status(404).json({ error: data.error });
+    // كلّ شيءٍ محصَّل = دفعٌ مكرّر (400 كما كان) — لا «غير موجود»
+    if ('error' in data) return res.status(data.error.includes('محصَّلة') ? 400 : 404).json({ error: data.error.includes('محصَّلة') ? 'الفاتورة محصَّلة مسبقاً' : data.error });
     if (data.orderIds.length === 0 && data.grandTotal <= 0) {
       return res.status(400).json({ error: 'لا شيء مستحقّ على هذا اللاعب الآن' });
     }
