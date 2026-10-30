@@ -399,6 +399,107 @@ export async function moneySummary(db: Database, locId: number, period: string, 
   return { period, range, totals, nights, account, uncollected };
 }
 
+/**
+ * الفعاليّات التي مرّت — قائمة الاختيار في «الحساب» (2026-10-30).
+ * مجاميع المحصَّل من اللقطات (رخيصة)، وعلامة «فيها مالٌ مفتوح» بفحص وجودٍ لا بالدفتر.
+ */
+export async function pastNights(db: Database, locId: number) {
+  const list = rows(await db.execute(sql`
+    SELECT a.id, a.name, a.date,
+      COALESCE(SUM(i.grand_total) FILTER (WHERE i.is_paid), 0)::numeric AS collected,
+      COUNT(i.id) FILTER (WHERE i.is_paid)::int AS paid_count,
+      (SELECT COUNT(*)::int FROM orders o WHERE o.activity_id = a.id AND o.location_id = ${locId} AND o.status <> 'cancelled') AS orders_count,
+      (EXISTS (SELECT 1 FROM order_invoices u WHERE u.activity_id = a.id AND u.location_id = ${locId} AND NOT u.is_paid)
+        OR EXISTS (SELECT 1 FROM orders o WHERE o.activity_id = a.id AND o.location_id = ${locId}
+                     AND o.status <> 'cancelled' AND o.invoice_id IS NULL)) AS has_open
+    FROM activities a
+    LEFT JOIN order_invoices i ON i.activity_id = a.id AND i.location_id = ${locId}
+    WHERE a.location_id = ${locId} AND a.deleted_at IS NULL AND (a.status IS NULL OR a.status <> 'cancelled')
+      AND a.date <= NOW() + INTERVAL '12 hours' AND a.date >= NOW() - INTERVAL '180 days'
+    GROUP BY a.id, a.name, a.date
+    ORDER BY a.date DESC
+    LIMIT 80
+  `));
+  return list.map((x: any) => ({
+    activityId: Number(x.id), activityName: x.name, activityDate: x.date,
+    collected: r2(n(x.collected)), paidCount: Number(x.paid_count) || 0,
+    ordersCount: Number(x.orders_count) || 0, hasOpen: x.has_open === true,
+  }));
+}
+
+/**
+ * حساب فعاليّةٍ واحدة كاملاً: الملخّص والتقسيم، وكلّ فاتورة، وما لم يُحصَّل،
+ * والأصناف المباعة، والملغى، والمجّانيّات المسقطة، وعدد من حجز ومن لعب.
+ * نفس مصادر «الحساب» و«الفواتير» — لا رقم يُحسب هنا بقاعدةٍ ثانية.
+ */
+export async function nightAccount(db: Database, locId: number, activityId: number) {
+  const L = await nightLedger(db, locId, activityId);
+  if (!L) return null;
+  const [d] = rows(await db.execute(sql`SELECT date::date::text AS d FROM activities WHERE id = ${activityId}`));
+  const [p] = (await paidByActivity(db, locId, d.d, d.d)).filter((x: any) => Number(x.id) === activityId);
+
+  const items = rows(await db.execute(sql`
+    SELECT oi.name_snapshot AS name, SUM(oi.quantity)::int AS qty,
+           SUM(oi.unit_price_snapshot * oi.quantity)::numeric AS amount
+    FROM order_items oi JOIN orders o ON o.id = oi.order_id
+    WHERE o.activity_id = ${activityId} AND o.location_id = ${locId} AND o.status <> 'cancelled'
+    GROUP BY oi.name_snapshot
+    ORDER BY amount DESC, qty DESC
+  `)).map((x: any) => ({ name: x.name, qty: Number(x.qty) || 0, amount: r2(n(x.amount)) }));
+
+  const [cx] = rows(await db.execute(sql`
+    SELECT COUNT(*)::int AS cnt, COALESCE(SUM(total), 0)::numeric AS total
+    FROM orders WHERE activity_id = ${activityId} AND location_id = ${locId} AND status = 'cancelled'`));
+
+  // آخر قرارٍ لكلّ لاعب هو النافذ: إسقاطٌ ثمّ إعادة احتساب = لا إسقاط
+  const waivers = rows(await db.execute(sql`
+    SELECT * FROM (
+      SELECT DISTINCT ON (w.player_id) w.player_id, w.waived, w.reason, w.created_at,
+             COALESCE(p.name, '') AS player_name, COALESCE(NULLIF(s.display_name, ''), s.username, '') AS staff_name
+      FROM fee_waivers w
+      LEFT JOIN players p ON p.id = w.player_id
+      LEFT JOIN staff s ON s.id = w.staff_id
+      WHERE w.activity_id = ${activityId} AND w.location_id = ${locId}
+      ORDER BY w.player_id, w.created_at DESC
+    ) x WHERE x.waived = true ORDER BY x.created_at
+  `)).map((x: any) => ({
+    playerId: Number(x.player_id), playerName: x.player_name, reason: x.reason || '',
+    staffName: x.staff_name, at: x.created_at,
+  }));
+
+  const [bk] = rows(await db.execute(sql`
+    SELECT COUNT(*)::int AS booked,
+      COUNT(*) FILTER (WHERE b.is_free = true)::int AS free,
+      COUNT(*) FILTER (WHERE b.is_paid = true AND COALESCE(b.is_free, false) = false AND b.paid_amount > 0
+        AND b.id NOT IN (SELECT booking_id FROM order_invoices
+                          WHERE is_paid = true AND game_fee_applied = true AND booking_id IS NOT NULL))::int AS direct
+    FROM bookings b WHERE b.activity_id = ${activityId} AND b.deleted_at IS NULL`));
+  const played = (await playersWhoPlayed(db, activityId)).length;
+
+  const ordersT = r2(n(p?.orders)), topup = r2(n(p?.topup)), water = r2(n(p?.water));
+  const fees = r2(n(p?.fees)), loyalty = r2(n(p?.loyalty));
+  return {
+    activity: { id: L.activityId, name: L.activityName, date: L.activityDate },
+    rules: {
+      gameFeeEnabled: L.gameFeeEnabled, minChargeEnabled: L.minChargeEnabled, minimumCharge: L.minimumCharge,
+      autoWaterEnabled: L.autoWaterEnabled, waterPrice: L.waterPrice,
+    },
+    totals: {
+      collected: r2(n(p?.collected)), venue: r2(ordersT + topup + water), club: r2(fees - loyalty),
+      orders: ordersT, topup, water, fees, loyalty,
+      feeCount: Number(p?.fee_count) || 0, paidCount: Number(p?.paid_count) || 0,
+      due: L.totals.due, dueCount: L.totals.dueCount,
+    },
+    counts: {
+      booked: Number(bk?.booked) || 0, played, free: Number(bk?.free) || 0, directPaid: Number(bk?.direct) || 0,
+      cancelledOrders: Number(cx?.cnt) || 0, cancelledTotal: r2(n(cx?.total)),
+    },
+    rows: L.rows,
+    items,
+    waivers,
+  };
+}
+
 /** تسويات كلّ الأماكن — صفحة الإدارة */
 export async function settlementsOverview(db: Database, from: string, to: string) {
   const locs = rows(await db.execute(sql`

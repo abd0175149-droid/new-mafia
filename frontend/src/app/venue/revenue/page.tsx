@@ -19,8 +19,10 @@ import { useVenue } from '../context';
 import { EM, TX, SHARE, f2, pPlayers, pInvoices, plural, nightLabel, hhmm } from '../ember';
 import { Icon, Sheet, useToast, Toast, Segmented, Btn, Swatch, Amount, Skeleton, PageHead, useVenueApi } from '../ui';
 import { refreshBadges } from '../VenueShell';
+import { MoneySplit } from './MoneySplit';
+import { EventAccount } from './EventAccount';
 
-type Period = 'night' | 'week' | 'month';
+type Period = 'night' | 'week' | 'month' | 'event';
 type HStatus = 'pending' | 'confirmed' | 'rejected';
 
 interface Handover {
@@ -44,8 +46,9 @@ const PERIODS: { value: Period; label: string }[] = [
   { value: 'night', label: 'الليلة' },
   { value: 'week', label: 'الأسبوع' },
   { value: 'month', label: 'الشهر' },
+  { value: 'event', label: 'فعاليّة' },
 ];
-const PERIOD_NAME: Record<Period, string> = { night: 'الليلة', week: 'هذا الأسبوع', month: 'هذا الشهر' };
+const PERIOD_NAME: Record<Period, string> = { night: 'الليلة', week: 'هذا الأسبوع', month: 'هذا الشهر', event: '' };
 const RECIPIENTS = ['المدير', 'المحاسب', 'مندوب النادي'];
 
 /** المبلغ كما يكتبه الموظّف: أرقامٌ عربيّة أو لاتينيّة، وفاصلةٌ عربيّة أو نقطة */
@@ -94,6 +97,8 @@ export default function VenueRevenuePage() {
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState('');
   const [allHandovers, setAllHandovers] = useState(false);
+  // «فعاليّة»: ليلةٌ يختارها صاحب المكان — أو التي نقرها في «ليلة بليلة»
+  const [pickId, setPickId] = useState<number | null>(null);
 
   // ورقة التسليم
   const [sheet, setSheet] = useState(false);
@@ -110,7 +115,7 @@ export default function VenueRevenuePage() {
   getRef.current = get;
 
   const load = useCallback(async (quiet = false) => {
-    if (!allowed) return;
+    if (!allowed || period === 'event') { setLoading(false); return; }
     if (!quiet) setLoading(true);
     const r = await getRef.current(`/api/venue/money?period=${period}`).catch(() => null);
     if (r?.ok) { setData(r.data as MoneyData); setErr(''); }
@@ -177,8 +182,6 @@ export default function VenueRevenuePage() {
   const t = data?.totals;
   const acc = data?.account;
   const collected = t?.collected ?? 0;
-  // عرض شريحة المكان: نسبةٌ من المحصَّل محصورة بين 4 و96 كي تبقى الشريحتان مرئيّتين
-  const venuePct = collected > 0 ? Math.min(96, Math.max(4, Math.round(((t?.venue ?? 0) / collected) * 100))) : 0;
   const handed = (acc?.confirmed ?? 0) + (acc?.pending ?? 0);
   const handovers = acc?.handovers ?? [];
   const shownHandovers = allHandovers ? handovers : handovers.slice(0, 5);
@@ -187,8 +190,9 @@ export default function VenueRevenuePage() {
   return (
     <div dir="rtl" className={wrap.className} style={wrap.style}>
       <div className="flex flex-col gap-[18px]">
-        <PageHead title="الحساب" sub="كم حصّلت، وكم لك، وكم للنادي"
-          side={<div className="shrink-0"><Segmented label="الفترة" size="sm" value={period} onChange={setPeriod} items={PERIODS} /></div>} />
+        <PageHead title="الحساب" sub="كم حصّلت، وكم لك، وكم للنادي" />
+        {/* أربع حبّات لا تتّسع بجانب العنوان على الهاتف — صفٌّ مستقلّ بعرض الشاشة */}
+        <Segmented label="الفترة" value={period} onChange={p => { if (p !== 'event') setPickId(null); setPeriod(p); }} items={PERIODS} />
 
         {err && (
           <div role="alert" className="flex items-center gap-2.5 rounded-[14px] px-3.5 py-2.5 text-[14px]"
@@ -199,7 +203,9 @@ export default function VenueRevenuePage() {
           </div>
         )}
 
-        {loading && !data ? (
+        {period === 'event' ? (
+          <EventAccount key={locationId ?? 'own'} pickId={pickId} onOpenNight={openNight} />
+        ) : loading && !data ? (
           <>
             <Skeleton h={150} n={1} />
             <Skeleton h={190} n={1} />
@@ -218,43 +224,7 @@ export default function VenueRevenuePage() {
                 <span className="text-[15px]" style={{ color: TX.dim }}>د.أ</span>
               </div>
 
-              {collected > 0 ? (
-                <div role="img" aria-label={`لك ${f2(t.venue)} وللنادي ${f2(t.club)}`} className="flex mt-3.5" style={{ gap: 2, height: 14 }}>
-                  {/* شريحة المكان أوّلاً — في RTL تقع يميناً حيث تبدأ القراءة */}
-                  <div className="vc-seg" style={{ width: `${venuePct}%`, background: SHARE.venue, borderRadius: '0 4px 4px 0' }} />
-                  <div style={{ flex: 1, background: SHARE.club, borderRadius: '4px 0 0 4px' }} />
-                </div>
-              ) : (
-                <>
-                  <div aria-hidden="true" className="mt-3.5" style={{ height: 14, borderRadius: 4, background: EM.line }} />
-                  <div className="text-[13px] mt-2" style={{ color: TX.dim }}>لا شيء محصَّل في هذه الفترة بعد</div>
-                </>
-              )}
-
-              <div className="mt-1.5 flex flex-col">
-                <div className="flex items-center gap-2.5 py-3" style={{ borderBottom: `1px solid ${EM.line}` }}>
-                  <Swatch color={SHARE.venue} size={12} />
-                  <div className="flex-1 min-w-0">
-                    <div className="text-[15px] font-extrabold">لك</div>
-                    <div className="text-[12.5px]" style={{ color: TX.dim }}>
-                      طلبات <span className="vc-num">{f2(t.orders)}</span> + تكملة حدّ أدنى <span className="vc-num">{f2(t.topup)}</span>
-                      {t.water > 0 && <> + ماء <span className="vc-num">{f2(t.water)}</span></>}
-                    </div>
-                  </div>
-                  <Amount value={f2(t.venue)} size={20} unit={false} />
-                </div>
-                <div className="flex items-center gap-2.5 py-3">
-                  <Swatch color={SHARE.club} size={12} />
-                  <div className="flex-1 min-w-0">
-                    <div className="text-[15px] font-extrabold">للنادي</div>
-                    <div className="text-[12.5px]" style={{ color: TX.dim }}>
-                      دخوليّة {pPlayers(t.feeCount)}
-                      {t.loyalty > 0 && <> − ولاء <span className="vc-num">{f2(t.loyalty)}</span></>}
-                    </div>
-                  </div>
-                  <Amount value={f2(t.club)} size={20} unit={false} />
-                </div>
-              </div>
+              <MoneySplit t={t} />
             </section>
 
             {/* ── ٢. حساب النادي — تراكميّ منذ أوّل ليلة ── */}
@@ -332,7 +302,9 @@ export default function VenueRevenuePage() {
                     <span className="flex items-center justify-end gap-1"><Swatch color={SHARE.club} size={8} />للنادي</span>
                   </div>
                   {data.nights.map(n => (
-                    <div key={n.activityId} className="py-2.5 mt-2" style={{ borderTop: `1px solid ${EM.line}` }}>
+                    <button key={n.activityId} type="button" onClick={() => { setPickId(n.activityId); setPeriod('event'); window.scrollTo({ top: 0 }); }}
+                      aria-label={`اعرض حساب ${nightLabel(n.activityDate)} كاملاً`}
+                      className="vc-press block w-full text-right py-2.5 mt-2" style={{ borderTop: `1px solid ${EM.line}`, color: 'inherit' }}>
                       <div className="grid gap-1.5 text-[14px] items-baseline" style={{ gridTemplateColumns: '1.5fr 1fr 1fr 1fr' }}>
                         <span className="font-extrabold">{nightLabel(n.activityDate)}</span>
                         <span className="vc-num text-left">{f2(n.collected)}</span>
@@ -342,8 +314,9 @@ export default function VenueRevenuePage() {
                       <div className="text-[12px] mt-[3px]" style={{ color: TX.dim }}>
                         {pInvoices(n.paidCount)} · {n.feeCount} دخوليّة{n.freeCount > 0 ? ` · ${pFree(n.freeCount)}` : ''}
                         {n.due > 0 && <span className="font-bold" style={{ color: TX.amber }}> · لم يُحصَّل <span className="vc-num">{f2(n.due)}</span></span>}
+                        <span className="font-bold" style={{ color: TX.amberHi }}> · التفاصيل</span>
                       </div>
-                    </div>
+                    </button>
                   ))}
                 </>
               )}

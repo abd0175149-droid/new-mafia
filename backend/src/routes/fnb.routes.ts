@@ -16,7 +16,7 @@ import { authenticate, requireVenuePermission } from '../middleware/auth.js';
 import { authenticatePlayer } from '../middleware/player-auth.middleware.js';
 import { sendPushToPlayer, sendPushToLocationStaff, sendPushToAdmins } from '../services/fcm.service.js';
 import { buildInvoiceData, issueInvoiceNumber, invoiceHtml, mergeInvoicePages, playersWhoPlayed, waterItemOf } from '../services/fnb-invoice.service.js';
-import { nightLedger, collectionNights, moneySummary, clubAccount, UNDO_WINDOW_MS } from '../services/fnb-ledger.service.js';
+import { nightLedger, collectionNights, moneySummary, clubAccount, pastNights, nightAccount, UNDO_WINDOW_MS } from '../services/fnb-ledger.service.js';
 import { resolveOptionGroups, validateSelections, type ChosenOption } from '../services/fnb-options.service.js';
 import { readSlots, slotItemIds, validateSlotsInput, resolveOrderSlots } from '../services/fnb-bundle.service.js';
 import { gateCheck, saveLastFix, isUsableFix } from '../services/geofence.service.js';
@@ -1481,6 +1481,35 @@ venueRouter.get('/money', authenticate, requireVenuePermission('finance.view'), 
     res.json({ success: true, ...(await moneySummary(db, locId, period, Number.isFinite(activityId) ? activityId : undefined)) });
   } catch (err: any) {
     console.error('❌ fnb money:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ── GET /money/nights — الفعاليّات التي مرّت (قائمة الاختيار) ──
+venueRouter.get('/money/nights', authenticate, requireVenuePermission('finance.view'), async (req: Request, res: Response) => {
+  const db = getDB();
+  if (!db) return res.status(503).json({ error: 'DB unavailable' });
+  const locId = resolveVenueLocation(req, res);
+  if (!locId) return;
+  try {
+    res.json({ success: true, nights: await pastNights(db, locId) });
+  } catch (err: any) { res.status(500).json({ error: err.message }); }
+});
+
+// ── GET /money/night?activityId= — حساب فعاليّةٍ واحدة كاملاً ──
+venueRouter.get('/money/night', authenticate, requireVenuePermission('finance.view'), async (req: Request, res: Response) => {
+  const db = getDB();
+  if (!db) return res.status(503).json({ error: 'DB unavailable' });
+  const locId = resolveVenueLocation(req, res);
+  if (!locId) return;
+  const activityId = parseInt(String(req.query.activityId || ''));
+  if (!Number.isFinite(activityId)) return res.status(400).json({ error: 'اختر فعاليّة' });
+  try {
+    const acc = await nightAccount(db, locId, activityId);
+    if (!acc) return res.status(404).json({ error: 'الفعاليّة غير موجودة لهذا المكان' });
+    res.json({ success: true, ...acc });
+  } catch (err: any) {
+    console.error('❌ fnb money/night:', err.message);
     res.status(500).json({ error: err.message });
   }
 });
