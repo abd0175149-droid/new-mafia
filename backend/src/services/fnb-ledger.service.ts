@@ -22,6 +22,10 @@ import { playersWhoPlayed, waterItemOf } from './fnb-invoice.service.js';
 const n = (x: unknown) => { const v = parseFloat(String(x ?? '0')); return Number.isFinite(v) ? v : 0; };
 const r2 = (x: number) => Math.round(x * 100) / 100;
 const rows = (r: any): any[] => r?.rows ?? r ?? [];
+/** تاريخ الفعاليّة من استعلامٍ خام يصل نصّاً بلا منطقة («2026-10-29 16:30:00») — والعمود UTC.
+ *  بلا هذا يقرؤه متصفّح الهاتف بتوقيت عمّان (الساعة تتأخّر ٣) أو يرفضه سفاري القديم. */
+const isoUtc = (d: unknown): string => d instanceof Date ? d.toISOString()
+  : typeof d === 'string' && !/[zZ]|[+-]\d\d:?\d\d$/.test(d) ? d.replace(' ', 'T') + 'Z' : String(d ?? '');
 
 /** مهلة التراجع عن التحصيل — التوست يعرض الزرّ ٦ ثوانٍ، والخادم يتسامح دقيقتين */
 export const UNDO_WINDOW_MS = 120_000;
@@ -377,7 +381,7 @@ export async function moneySummary(db: Database, locId: number, period: string, 
   for (const x of nightsRows) {
     const L = await nightLedger(db, locId, Number(x.id));
     nights.push({
-      activityId: Number(x.id), activityName: x.name, activityDate: x.date,
+      activityId: Number(x.id), activityName: x.name, activityDate: isoUtc(x.date),
       collected: r2(n(x.collected)),
       venue: r2(n(x.orders) + n(x.topup) + n(x.water)),
       club: r2(n(x.fees) - n(x.loyalty)),
@@ -421,7 +425,7 @@ export async function pastNights(db: Database, locId: number) {
     LIMIT 80
   `));
   return list.map((x: any) => ({
-    activityId: Number(x.id), activityName: x.name, activityDate: x.date,
+    activityId: Number(x.id), activityName: x.name, activityDate: isoUtc(x.date),
     collected: r2(n(x.collected)), paidCount: Number(x.paid_count) || 0,
     ordersCount: Number(x.orders_count) || 0, hasOpen: x.has_open === true,
   }));
@@ -540,7 +544,7 @@ export async function settlementsOverview(db: Database, from: string, to: string
     }
     const account = await clubAccount(db, locId);
     const nightsDetail = acts.map((x: any) => ({
-      activityId: Number(x.id), activityName: x.name, activityDate: x.date,
+      activityId: Number(x.id), activityName: x.name, activityDate: isoUtc(x.date),
       collected: r2(n(x.collected)), venue: r2(n(x.orders) + n(x.topup) + n(x.water)), club: r2(n(x.fees) - n(x.loyalty)),
       feeCount: Number(x.fee_count) || 0, paidCount: Number(x.paid_count) || 0, freeCount: Number(x.free_count) || 0,
     }));
