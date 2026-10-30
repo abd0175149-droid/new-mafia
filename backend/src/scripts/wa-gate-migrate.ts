@@ -76,7 +76,9 @@ async function main() {
     JOIN information_schema.tables t ON t.table_name = c.table_name AND t.table_schema = c.table_schema
     WHERE c.table_schema = 'public' AND t.table_type = 'BASE TABLE' AND c.table_name <> 'players'
       AND (c.column_name ~ 'player_id$' OR c.column_name IN ('follower_id', 'followee_id', 'followed_id'))
-      AND c.column_name !~ 'session_player_id$'`));
+      AND c.column_name !~ 'session_player_id$'
+      -- دفتر التشبس للإضافة فقط (مُشغِّلٌ يمنع التعديل): الرصيد يُنقل بقيدين جديدين لا بتعديل التاريخ
+      AND c.table_name <> 'chips_ledger'`));
 
   for (const m of merges) {
     const S = Number(m.source.id), T = Number(m.target.id);
@@ -98,6 +100,20 @@ async function main() {
             dropped[`${c.table_name}.${c.column_name}`] = (dropped[`${c.table_name}.${c.column_name}`] || 0) + 1;
           }
         }
+      }
+      // 💰 رصيد التشبس: قيدٌ يُخرجه من المصدر وقيدٌ يُدخله للهدف (التاريخ كما هو)
+      const [sb] = rows(await tx.execute(sql`SELECT chips_balance AS b FROM players WHERE id = ${S} FOR UPDATE`));
+      const bal = Number(sb?.b || 0);
+      if (bal !== 0) {
+        const [tb] = rows(await tx.execute(sql`SELECT chips_balance AS b FROM players WHERE id = ${T} FOR UPDATE`));
+        const tAfter = Number(tb?.b || 0) + bal;
+        await tx.execute(sql`INSERT INTO chips_ledger (player_id, amount, balance_after, reason, ref_type, ref_id, idempotency_key, note)
+          VALUES (${S}, ${-bal}, 0, 'merge_out', 'player', ${String(T)}, ${`merge:${S}:${T}:out`}, 'دمج حسابٍ مكرّر (الرقم نفسه) — بوّابة رقم الواتساب')`);
+        await tx.execute(sql`INSERT INTO chips_ledger (player_id, amount, balance_after, reason, ref_type, ref_id, idempotency_key, note)
+          VALUES (${T}, ${bal}, ${tAfter}, 'merge_in', 'player', ${String(S)}, ${`merge:${S}:${T}:in`}, 'دمج حسابٍ مكرّر (الرقم نفسه) — بوّابة رقم الواتساب')`);
+        await tx.execute(sql`UPDATE players SET chips_balance = 0 WHERE id = ${S}`);
+        await tx.execute(sql`UPDATE players SET chips_balance = ${tAfter} WHERE id = ${T}`);
+        moved['chips_balance'] = bal;
       }
       await tx.execute(sql`UPDATE players SET phone = ${'merged:' + S}, merged_into_id = ${T}, deleted_at = NOW() WHERE id = ${S}`);
       await tx.execute(sql`UPDATE players SET phone = ${m.canon} WHERE id = ${T}`);
