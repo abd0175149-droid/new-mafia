@@ -1589,7 +1589,13 @@ export default function LeaderPage() {
           const confirmed = await swalHtmlConfirm(title, html, isDead
             ? { infoOnly: true, confirmText: 'إغلاق' }               // ميت أصلاً → زر إغلاق فقط، بلا إقصاء
             : { confirmText: '⚡ إقصاء إداري', cancelText: 'إغلاق', danger: true });
-          if (confirmed && !isDead) {
+          // 🛑 الإقصاء لا يُنفَّذ من ضغطةٍ واحدة (طلب المالك 2026-10-30): زرّ الإقصاء في نافذة التنبيه
+          //    قريبٌ من «إغلاق» والتنبيهات تتتابع بسرعة — تأكيدٌ ثانٍ صريح بالاسم والمقعد، والتركيز على «تراجع»
+          const sure = confirmed && !isDead && await swalConfirm(
+            `سيُقصى ${d.name} (مقعد #${Number(d.physicalId) || '؟'}) من اللعبة الآن ويُكشف دوره على الشاشة.\nلا يمكن التراجع عن الإقصاء.`,
+            { title: 'تأكيد الإقصاء الإداري', confirmText: 'نعم، أقصِه', cancelText: 'تراجع', danger: true },
+          );
+          if (sure) {
             try {
               const res: any = await emit('admin:eliminate', { roomId: d.roomId, physicalId: d.physicalId });
               const revealedRole = res?.role || d.role || 'UNKNOWN';

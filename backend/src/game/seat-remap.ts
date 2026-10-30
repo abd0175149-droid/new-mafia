@@ -178,3 +178,53 @@ export function validateRenumberChanges(
   }
   return null;
 }
+
+// ── ➕ إضافة مقاعد فارغة بعد مقعدٍ معيّن (2026-10-30) ──
+// «أضف ٤ بعد ١٠»: كلّ رقمٍ بعد ١٠ (لاعبٌ أو متفرّج) يُزاح ٤ — ١١ ⟵ ١٥ وتبقى ١١–١٤ فارغة —
+// والسعة تكبر بالقدر نفسه. التخطيط نقيّ (يسبق رصد القرار الجاري)، والتطبيق يعدّل الحالة.
+export const MAX_ROOM_SEATS = 50;
+
+export type SeatInsertPlan = {
+  after: number; count: number; oldMax: number; newMax: number;
+  changes: Array<{ oldPhysicalId: number; newPhysicalId: number }>;
+};
+
+export function planSeatInsert(state: any, afterSeat: unknown, countIn: unknown): SeatInsertPlan | { error: string } {
+  const after = Math.floor(Number(afterSeat));
+  const count = Math.floor(Number(countIn));
+  const spectators: any[] = Array.isArray(state?.spectators) ? state.spectators : [];
+  const taken = [...(state?.players || []), ...spectators]
+    .map((p: any) => Number(p?.physicalId))
+    .filter((n) => Number.isFinite(n) && n > 0);
+  const oldMax = Number(state?.config?.maxPlayers) || 0;
+  const top = Math.max(oldMax, ...taken);
+  if (!Number.isFinite(after) || after < 0 || after > top) return { error: `رقم المقعد يجب أن يكون بين 0 و ${top}` };
+  if (!Number.isFinite(count) || count < 1) return { error: 'عدد المقاعد يجب أن يكون 1 أو أكثر' };
+  const newMax = top + count;
+  if (newMax > MAX_ROOM_SEATS) {
+    return { error: `أقصى سعة ${MAX_ROOM_SEATS} مقعداً — يمكن إضافة ${Math.max(0, MAX_ROOM_SEATS - top)} فقط` };
+  }
+  const changes = [...new Set(taken.filter((n) => n > after))]
+    .sort((a, b) => a - b)
+    .map((n) => ({ oldPhysicalId: n, newPhysicalId: n + count }));
+  return { after, count, oldMax, newMax, changes };
+}
+
+/** يطبّق الخطّة: ربطٌ عميق للاعبين والمتفرّجين وكلّ البنى، ثمّ أرقام الكراسي (التثبيت والأبواب) التي لا
+ *  يمرّ بها الجوّال — الكرسيّ الذي كان ١٢ صار ١٦ ومن ثُبّت عليه يبقى عليه — ثمّ السعة (يدويّة: لا يعيدها القالب). */
+export function applySeatInsert(state: any, plan: SeatInsertPlan): Map<number, number> {
+  const idMap = new Map<number, number>(plan.changes.map((c) => [c.oldPhysicalId, c.newPhysicalId]));
+  remapPhysicalIds(state, idMap);
+  if (Array.isArray(state.spectators)) {
+    state.spectators.sort((a: any, b: any) => (a.physicalId ?? 0) - (b.physicalId ?? 0));
+  }
+  const shift = (n: number) => (n > plan.after ? n + plan.count : n);
+  if (Array.isArray(state.pinnedSeats)) {
+    state.pinnedSeats = state.pinnedSeats.map((pin: any) =>
+      Number.isFinite(Number(pin?.seatNumber)) ? { ...pin, seatNumber: shift(Number(pin.seatNumber)) } : pin);
+  }
+  if (Array.isArray(state.doorSeats)) state.doorSeats = state.doorSeats.map((n: any) => shift(Number(n)));
+  state.config.maxPlayers = plan.newMax;
+  state.config.maxPlayersManual = true;
+  return idMap;
+}

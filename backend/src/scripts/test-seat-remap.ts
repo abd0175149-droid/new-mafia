@@ -11,7 +11,7 @@
 // تشغيل: npx tsx src/scripts/test-seat-remap.ts
 // ══════════════════════════════════════════════════════
 
-import { remapPhysicalIds, validateRenumberChanges } from '../game/seat-remap.js';
+import { remapPhysicalIds, validateRenumberChanges, planSeatInsert, applySeatInsert } from '../game/seat-remap.js';
 
 let pass = 0, fail = 0;
 const failures: string[] = [];
@@ -362,6 +362,60 @@ section('8) 🎲 كسر التعادل بالتباعد — الواصلون م�
   const recent2 = [1, 7];
   const best2 = empties.filter(e => e !== 7).slice().sort((x, y) => minDist(y, recent2) - minDist(x, recent2))[0];
   check('الثالث يبتعد عن الاثنين معاً (4)', best2 === 4, `اختار ${best2}`);
+}
+
+section('9) ➕ إضافة مقاعد فارغة بعد مقعد — مثال المالك: ٤ بعد ١٠');
+{
+  const st: any = {
+    roomId: 'r9', phase: 'DAY_DISCUSSION',
+    config: { maxPlayers: 16 },
+    players: [8, 10, 11, 12, 14, 16].map((n) => ({ physicalId: n, name: `ل${n}`, playerId: 900 + n })),
+    spectators: [{ physicalId: 13, name: 'متفرّج' }],
+    discussionState: { currentSpeakerId: 11, speakingQueue: [10, 11, 16], hasSpoken: [8] },
+    votingState: { playerVotes: { 12: 11, 8: 16 } },
+    dynamicNightState: { actions: { '14:SNIPE': 10, '8:PROTECT': 16 } },
+    pinnedSeats: [{ seatNumber: 9, playerId: 1 }, { seatNumber: 12, playerId: 912 }],
+    doorSeats: [1, 10, 11],
+    reservedTailSeats: 2,
+  };
+  const plan = planSeatInsert(st, 10, 4);
+  check('الخطّة صالحة', !('error' in plan), JSON.stringify(plan));
+  if (!('error' in plan)) {
+    check('تُزاح المقاعد بعد ١٠ فقط (لاعبون ومتفرّج)', plan.changes.map((c) => c.oldPhysicalId).join(',') === '11,12,13,14,16',
+      plan.changes.map((c) => c.oldPhysicalId).join(','));
+    check('السعة ١٦ ← ٢٠', plan.oldMax === 16 && plan.newMax === 20, `${plan.oldMax}→${plan.newMax}`);
+    const stBefore = JSON.stringify(st);
+    check('التخطيط لا يعدّل الحالة', JSON.stringify(st) === stBefore);
+    applySeatInsert(st, plan);
+    const seats = st.players.map((p: any) => `${p.name}:${p.physicalId}`).join(',');
+    check('١١ ← ١٥ و١٦ ← ٢٠، و٨ و١٠ ثابتان', seats === 'ل8:8,ل10:10,ل11:15,ل12:16,ل14:18,ل16:20', seats);
+    const occupied = new Set(st.players.map((p: any) => p.physicalId).concat(st.spectators.map((s: any) => s.physicalId)));
+    check('المقاعد ١١–١٤ فارغة', [11, 12, 13, 14].every((n) => !occupied.has(n)));
+    check('المتفرّج ١٣ ← ١٧', st.spectators[0].physicalId === 17);
+    check('الدور والطابور يتبعان', st.discussionState.currentSpeakerId === 15
+      && st.discussionState.speakingQueue.join(',') === '10,15,20' && st.discussionState.hasSpoken.join(',') === '8');
+    // القيم أرقامُ مرشّحين (فهرس) لا مقاعد — المفاتيح وحدها تتبع
+    check('مفاتيح الأصوات تتبع (القيم فهارس مرشّحين)', JSON.stringify(st.votingState.playerVotes) === JSON.stringify({ 8: 16, 16: 11 }),
+      JSON.stringify(st.votingState.playerVotes));
+    check('أفعال الليل (مقعد:قدرة) تتبع', JSON.stringify(st.dynamicNightState.actions) === JSON.stringify({ '18:SNIPE': 10, '8:PROTECT': 20 }),
+      JSON.stringify(st.dynamicNightState.actions));
+    check('التثبيت يتبع الكرسيّ (١٢ ← ١٦) و٩ ثابت', st.pinnedSeats.map((p: any) => p.seatNumber).join(',') === '9,16');
+    check('مقاعد الباب تُزاح بعد ١٠ فقط', st.doorSeats.join(',') === '1,10,15');
+    check('السعة صارت يدويّة ٢٠', st.config.maxPlayers === 20 && st.config.maxPlayersManual === true);
+  }
+
+  const st2: any = { config: { maxPlayers: 12 }, players: [1, 2, 3].map((n) => ({ physicalId: n })) };
+  const atStart = planSeatInsert(st2, 0, 2);
+  check('«في البداية» (٠) يزيح الجميع', !('error' in atStart) && atStart.changes.map((c) => c.newPhysicalId).join(',') === '3,4,5');
+  const atEnd = planSeatInsert(st2, 12, 3);
+  check('بعد آخر مقعد: لا إزاحة والسعة تكبر', !('error' in atEnd) && atEnd.changes.length === 0 && atEnd.newMax === 15);
+  const overflow = planSeatInsert({ config: { maxPlayers: 48 }, players: [] }, 5, 3);
+  check('تجاوز ٥٠ مرفوض برسالة', 'error' in overflow && /يمكن إضافة 2/.test(overflow.error), JSON.stringify(overflow));
+  check('عددٌ صفر مرفوض', 'error' in planSeatInsert(st2, 3, 0));
+  check('مقعدٌ خارج الغرفة مرفوض', 'error' in planSeatInsert(st2, 40, 1));
+  // لاعبٌ جالس فوق السعة (رُفعت يدويّاً ثمّ خُفّضت) — السعة الجديدة تحسب منه لا من maxPlayers
+  const beyond = planSeatInsert({ config: { maxPlayers: 10 }, players: [{ physicalId: 14 }] }, 3, 2);
+  check('السعة الجديدة = أعلى مقعدٍ مشغول + العدد', !('error' in beyond) && beyond.newMax === 16);
 }
 
 console.log(`\n══════════════════════════════════════`);

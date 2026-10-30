@@ -21,7 +21,7 @@ import { generateRolesDynamic } from '../game/dynamic-role-generator.js';
 import { getGameState, setGameState, deleteGameState } from '../config/redis.js';
 import { createMatch, finalizeIfDecided } from '../services/match.service.js';
 import { createSession, addPlayerToSession, getSessionPlayers, removePlayerFromSession, closeSession, unlinkSessionFromActivity, deleteSession, remapSessionPlayerSeats, updateSessionMaxPlayers } from '../services/session.service.js';
-import { remapPhysicalIds, validateRenumberChanges } from '../game/seat-remap.js';
+import { remapPhysicalIds, validateRenumberChanges, planSeatInsert, applySeatInsert } from '../game/seat-remap.js';
 import { resolveSeatClaim, SEAT_CLAIM_ERRORS } from './seat-claim.js';
 import { mergeActivityPins } from '../game/seat-merge.js';
 import { dealLockedList } from '../game/deal-engine.js';
@@ -3059,6 +3059,97 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
       } catch { /* غير حاجب */ }
 
       callback({ success: true, swapped: !!occupant, occupantName: occupant?.name || null });
+      } finally {
+        seatMoveInFlight.delete(data.roomId);
+      }
+    } catch (err: any) {
+      seatMoveInFlight.delete(data.roomId);
+      callback({ success: false, error: err.message });
+    }
+  });
+
+  // ── ➕ إضافة مقاعد فارغة بعد مقعدٍ معيّن (طلب المالك 2026-10-30) ──
+  // «أضف ٤ بعد ١٠»: كلّ من رقمه بعد ١٠ (لاعبون ومتفرّجون) يُزاح ٤، فيصير ١١ ⟵ ١٥ وتبقى ١١–١٤ فارغة،
+  // وتكبر السعة بالقدر نفسه. عقد النقل نفسه: قفل السرّ، رصد القرار الجاري، ربطٌ عميق، DB، أجهزة.
+  socket.on('room:insert-seats', async (data: {
+    roomId: string;
+    afterSeat: number;          // ٠ = قبل المقعد ١
+    count: number;
+    confirmHazard?: boolean;
+  }, callback) => {
+    try {
+      if (socket.data.role !== 'leader') return callback({ success: false, error: 'Only leader' });
+      if (!toolsUnlocked(socket)) {
+        return callback({ success: false, code: 'TOOLS_LOCKED', error: 'تعذّر تنفيذ الإضافة — مشكلة مؤقتة، حاول لاحقاً' });
+      }
+      if (seatMoveInFlight.has(data.roomId)) {
+        return callback({ success: false, error: 'هناك عملية نقل جارية — انتظر لحظة' });
+      }
+      seatMoveInFlight.add(data.roomId);
+      try {
+      const state = await getRoom(data.roomId);
+      if (!state) return callback({ success: false, error: 'Room not found' });
+
+      const plan = planSeatInsert(state, data.afterSeat, data.count);
+      if ('error' in plan) return callback({ success: false, error: plan.error });
+      const { after, count, oldMax, newMax, changes } = plan;
+
+      const hazard = changes.length ? detectSeatMoveHazard(state) : null;
+      if (hazard?.blocking) return callback({ success: false, code: 'HAZARD_BLOCKED', error: hazard.message });
+      if (hazard && !data.confirmHazard) {
+        return callback({ success: false, code: 'HAZARD_CONFIRM', hazard: hazard.kind, error: hazard.message });
+      }
+
+      const idMap = applySeatInsert(state, plan);
+      await setGameState(data.roomId, state);
+      const room = activeRooms.get(data.roomId);
+      if (room) room.maxPlayers = newMax;
+
+      if (state.sessionId) {
+        await remapSessionPlayerSeats(state.sessionId, changes);
+        await updateSessionMaxPlayers(state.sessionId, newMax);
+      }
+      await remapMafiaChatSeats(data.roomId, idMap);
+
+      // الأجهزة: هويّة كلّ سوكِت لاعبٍ ومتفرّجٍ مُزاح (المطابقة قبل التعديل كي لا تُطابَق مرّتين)
+      const [roomSockets, specSockets] = await Promise.all([
+        io.in(data.roomId).fetchSockets(),
+        io.in(spectatorRoom(data.roomId)).fetchSockets(),
+      ]);
+      const moved: Array<{ sk: any; oldId: number; newId: number }> = [];
+      for (const sk of roomSockets) {
+        const id = sk.data?.physicalId;
+        if (sk.data?.role === 'player' && idMap.has(id)) moved.push({ sk, oldId: id, newId: idMap.get(id)! });
+      }
+      for (const sk of specSockets) {
+        const id = sk.data?.physicalId;
+        if (idMap.has(id)) sk.data.physicalId = idMap.get(id);
+      }
+      for (const m of moved) {
+        m.sk.data.physicalId = m.newId;
+        m.sk.emit('player:seat-changed', { oldPhysicalId: m.oldId, newPhysicalId: m.newId });
+      }
+
+      io.to(data.roomId).emit('room:seats-remapped', {
+        map: Object.fromEntries(idMap), swapped: false, bulk: true, at: Date.now(),
+      });
+      io.to(data.roomId).emit('room:config-updated', { maxPlayers: newMax });
+      await emitStateSanitized(io, data.roomId, 'game:state-sync', state);
+      if (moved.length) {
+        try { await republishAfterSeatMove(io, data.roomId, state, moved.map(m => m.newId)); } catch {}
+      }
+
+      console.log(`🪑 Insert ${count} seat(s) after #${after} [${state.phase}]: ${changes.length} shifted, capacity ${oldMax} → ${newMax}`);
+      try {
+        const { logStaffAction } = await import('../services/staff-action-log.service.js');
+        logStaffAction({
+          staffId: socket.data.authStaff?.id, staffUsername: socket.data.authStaff?.username, staffRole: socket.data.authStaff?.role,
+          source: 'socket', action: 'socket:insert-seats',
+          details: { roomId: data.roomId, phase: state.phase, after, count, shifted: changes, oldMax, newMax, hazard: hazard?.kind || null },
+        });
+      } catch { /* غير حاجب */ }
+
+      callback({ success: true, shifted: changes.length, maxPlayers: newMax });
       } finally {
         seatMoveInFlight.delete(data.roomId);
       }

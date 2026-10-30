@@ -37,12 +37,14 @@ export interface SeatMoveApi {
   beginMove: (physicalId: number) => void;
   cancelMove: () => void;
   moveTo: (toSeat: number) => void;
+  /** ➕ يُدخل `count` مقاعد فارغة بعد `after` (٠ = في البداية) ويُزيح من بعدها — true عند النجاح */
+  insertSeats: (after: number, count: number) => Promise<boolean>;
 }
 
 const INERT: SeatMoveApi = {
   enabled: false, movingId: null, busy: false, remapVersion: 0, seats: [], emptySeats: [],
   occupantOf: () => null, beginMove: () => { /* لا مزوّد */ }, cancelMove: () => { /* لا مزوّد */ },
-  moveTo: () => { /* لا مزوّد */ },
+  moveTo: () => { /* لا مزوّد */ }, insertSeats: async () => false,
 };
 
 const SeatMoveCtx = createContext<SeatMoveApi>(INERT);
@@ -63,7 +65,12 @@ export function SeatMoveConsumer({ children }: { children: (sm: SeatMoveApi) => 
 
 type ToastTone = 'ok' | 'blocked' | 'error';
 interface ToastState { id: number; text: string; tone: ToastTone; undo?: { from: number; to: number } }
-interface HazardPrompt { from: number; to: number; message: string; moverName: string }
+/** ➕ عمليّة «أضف مقاعد» المؤجّلة (تأكيد خطر أو فتح السرّ) — بدلاً من نقلةٍ من/إلى */
+interface PendingInsert { after: number; count: number }
+interface HazardPrompt { from: number; to: number; message: string; moverName: string; insert?: PendingInsert }
+
+/** «مقعد واحد / مقعدان / ٣ مقاعد / ١١ مقعداً» */
+export const seatsWord = (n: number) => (n === 1 ? 'مقعد واحد' : n === 2 ? 'مقعدان' : n <= 10 ? `${n} مقاعد` : `${n} مقعداً`);
 
 /** مقعد «محجوز مؤقتاً» — يشغل الرقم لكنه ليس لاعباً حاضراً (لا يصلح مصدراً ولا وجهة). */
 const isHeld = (p: any) => !!p?.seatHeld;
@@ -84,7 +91,7 @@ export function SeatMoveProvider({
   const [hazard, setHazard] = useState<HazardPrompt | null>(null);
   const [toast, setToast] = useState<ToastState | null>(null);
   // 🔒 مطالبة السرّ في مكانها — تحمل النقلة المؤجّلة لتُعاد تلقائياً بعد الفتح
-  const [unlock, setUnlock] = useState<{ from: number; to: number; confirmHazard?: boolean; error: string } | null>(null);
+  const [unlock, setUnlock] = useState<{ from: number; to: number; confirmHazard?: boolean; error: string; insert?: PendingInsert } | null>(null);
   const [unlockCode, setUnlockCode] = useState('');
   const busyRef = useRef(false);
   const toastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -161,9 +168,52 @@ export function SeatMoveProvider({
     }
   }, [roomId, emit, bySeat, showToast]);
 
-  // مرجع حيّ لـrunMove — تستدعيه مطالبة السرّ بعد الفتح بلا اعتماد دائري
+  // ── ➕ إضافة مقاعد فارغة: نفس مسارَي التأكيد والسرّ، بلا «تراجع» (العكس حذفُ مقاعد) ──
+  const runInsert = useCallback(async (after: number, count: number, confirmHazard?: boolean): Promise<boolean> => {
+    if (!roomId || busyRef.current) return false;
+    busyRef.current = true;
+    setBusy(true);
+    try {
+      const res: any = await emit('room:insert-seats', {
+        roomId, afterSeat: after, count,
+        ...(confirmHazard ? { confirmHazard: true } : {}),
+      });
+      setHazard(null);
+      setMovingId(null);
+      setRemapVersion((v) => v + 1);
+      const shifted = Number(res?.shifted) || 0;
+      showToast(
+        `أُضيف ${seatsWord(count)} ${after > 0 ? `بعد المقعد ${after}` : 'في البداية'}${shifted ? ` — أُزيح ${shifted} بمقدار ${count}` : ''}`,
+        'ok',
+      );
+      return true;
+    } catch (err: any) {
+      const r = err?.response;
+      const insert = { after, count };
+      if (r?.code === 'HAZARD_CONFIRM') {
+        setHazard({ from: 0, to: 0, moverName: '', insert, message: r.error || 'هناك قرارٌ جارٍ — أكّد التنفيذ' });
+      } else if (r?.code === 'HAZARD_BLOCKED') {
+        setHazard(null);
+        showToast(r.error || 'تعذّرت الإضافة الآن', 'blocked');
+      } else if (r?.code === 'TOOLS_LOCKED') {
+        setHazard(null);
+        setUnlock({ from: 0, to: 0, confirmHazard, insert, error: '' });
+      } else {
+        setHazard(null);
+        showToast(err?.message || 'فشلت إضافة المقاعد', 'error');
+      }
+      return false;
+    } finally {
+      busyRef.current = false;
+      setBusy(false);
+    }
+  }, [roomId, emit, showToast]);
+
+  // مرجع حيّ لـrunMove/runInsert — تستدعيهما مطالبة السرّ بعد الفتح بلا اعتماد دائري
   const runMoveRef = useRef<typeof runMove | null>(null);
   runMoveRef.current = runMove;
+  const runInsertRef = useRef<typeof runInsert | null>(null);
+  runInsertRef.current = runInsert;
 
   // 🔒 فتح الأدوات ثم إعادة النقلة المؤجّلة تلقائياً — الليدر يكتب السرّ مرّة ويكمل عمله
   const submitUnlock = useCallback(async () => {
@@ -176,7 +226,8 @@ export function SeatMoveProvider({
         const pending = unlock;
         setUnlock(null);
         setUnlockCode('');
-        await runMoveRef.current?.(pending.from, pending.to, pending.confirmHazard);
+        if (pending.insert) await runInsertRef.current?.(pending.insert.after, pending.insert.count, pending.confirmHazard);
+        else await runMoveRef.current?.(pending.from, pending.to, pending.confirmHazard);
       } else {
         setUnlockCode('');
         setUnlock((u) => (u ? { ...u, error: 'رقم غير صحيح' } : u));
@@ -243,8 +294,8 @@ export function SeatMoveProvider({
 
   const api = useMemo<SeatMoveApi>(() => ({
     enabled: !!roomId, movingId, busy, remapVersion, seats, emptySeats,
-    occupantOf, beginMove, cancelMove, moveTo,
-  }), [roomId, movingId, busy, remapVersion, seats, emptySeats, occupantOf, beginMove, cancelMove, moveTo]);
+    occupantOf, beginMove, cancelMove, moveTo, insertSeats: runInsert,
+  }), [roomId, movingId, busy, remapVersion, seats, emptySeats, occupantOf, beginMove, cancelMove, moveTo, runInsert]);
 
   return (
     <SeatMoveCtx.Provider value={api}>
@@ -266,7 +317,10 @@ export function SeatMoveProvider({
           >
             <p className="text-[#C5A059] text-[13px] font-bold mb-1">🔒 أدخل الرقم السرّي لتعديل المقاعد</p>
             <p className="text-[#8a8172] text-[11px] mb-3">
-              نقل «{bySeat.get(unlock.from)?.name || `#${unlock.from}`}» إلى المقعد <b className="font-mono">{unlock.to}</b> — يبقى مفتوحاً ١٠ دقائق
+              {unlock.insert
+                ? <>إضافة {seatsWord(unlock.insert.count)} {unlock.insert.after > 0 ? <>بعد المقعد <b className="font-mono">{unlock.insert.after}</b></> : 'في البداية'}</>
+                : <>نقل «{bySeat.get(unlock.from)?.name || `#${unlock.from}`}» إلى المقعد <b className="font-mono">{unlock.to}</b></>}
+              {' '}— يبقى مفتوحاً ١٠ دقائق
             </p>
             <div className="flex gap-2">
               <input
@@ -285,7 +339,7 @@ export function SeatMoveProvider({
                 onClick={() => { void submitUnlock(); }}
                 className="px-4 py-2.5 rounded-xl bg-[#C5A059]/20 border border-[#C5A059] text-[#C5A059] text-xs font-bold hover:bg-[#C5A059]/30 transition-colors disabled:opacity-40"
               >
-                فتح ونقل
+                {unlock.insert ? 'فتح وأضف' : 'فتح ونقل'}
               </button>
               <button
                 type="button"
@@ -309,13 +363,18 @@ export function SeatMoveProvider({
           >
             <p className="text-amber-300 text-[13px] font-bold leading-relaxed mb-1">{hazard.message}</p>
             <p className="text-[#9a8f7d] text-[11px] mb-3">
-              «{hazard.moverName}» — من <b className="font-mono">{hazard.from}</b> إلى <b className="font-mono">{hazard.to}</b>
+              {hazard.insert
+                ? <>إضافة {seatsWord(hazard.insert.count)} {hazard.insert.after > 0 ? <>بعد المقعد <b className="font-mono">{hazard.insert.after}</b></> : 'في البداية'} — كلّ من بعدها يُزاح</>
+                : <>«{hazard.moverName}» — من <b className="font-mono">{hazard.from}</b> إلى <b className="font-mono">{hazard.to}</b></>}
             </p>
             <div className="flex gap-2">
               <button
                 type="button"
                 disabled={busy}
-                onClick={() => { void runMove(hazard.from, hazard.to, true); }}
+                onClick={() => {
+                  if (hazard.insert) void runInsert(hazard.insert.after, hazard.insert.count, true);
+                  else void runMove(hazard.from, hazard.to, true);
+                }}
                 className="flex-[2] py-2.5 rounded-xl bg-amber-500/20 border border-amber-500 text-amber-200 text-xs font-bold hover:bg-amber-500/30 transition-colors disabled:opacity-40"
               >
                 {busy ? '...' : '⚡ نفّذ الآن'}
@@ -472,18 +531,36 @@ export function SeatMoveChip({ physicalId, className = '' }: { physicalId: numbe
 // 🪑 لوحة المقاعد العائمة — متاحة في **كل** المراحل (الطُرق الليلية/النهارية
 // لا تعرض شبكة مقاعد كاملة، فهذه اللوحة هي مدخل النقل الموحّد أثناء اللعب).
 // لمستان: مقعد مشغول = المصدر، ثم أي مقعد آخر = الوجهة.
+// ➕ وضع «إضافة مقاعد»: لمسة على مقعد = تُضاف المقاعد بعده، ومن بعده يُزاح بالعدد نفسه.
 // ══════════════════════════════════════════════════════════════════════════
+const MAX_SEATS = 50;   // سقف الخادم (room:insert-seats)
+
 export function SeatMoveBoardToggle({ label = '🪑 المقاعد' }: { label?: string }) {
   const sm = useSeatMove();
   const [open, setOpen] = useState(false);
+  const [inserting, setInserting] = useState(false);
+  const [insAfter, setInsAfter] = useState<number | null>(null);
+  const [insCount, setInsCount] = useState(1);
 
-  // ESC يُغلق اللوحة متى لم تكن هناك عملية نقل جارية (النقل يلتقط ESC أولاً)
+  const room = Math.max(0, MAX_SEATS - sm.seats.length);
+  const count = Math.min(Math.max(1, insCount), Math.max(1, room));
+  const shiftedSeats = insAfter === null ? [] : sm.seats.filter((s) => s > insAfter && sm.occupantOf(s));
+  const closeInsert = useCallback(() => { setInserting(false); setInsAfter(null); setInsCount(1); }, []);
+  const submitInsert = async () => {
+    if (insAfter === null || !room) return;
+    if (await sm.insertSeats(insAfter, count)) closeInsert();
+  };
+
+  // ESC يُغلق وضع الإضافة ثم اللوحة، متى لم تكن هناك عملية نقل جارية (النقل يلتقط ESC أولاً)
   useEffect(() => {
     if (!open) return;
-    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape' && sm.movingId === null) setOpen(false); };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape' || sm.movingId !== null) return;
+      if (inserting) closeInsert(); else setOpen(false);
+    };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [open, sm.movingId]);
+  }, [open, sm.movingId, inserting, closeInsert]);
 
   if (!sm.enabled) return null;
 
@@ -517,15 +594,30 @@ export function SeatMoveBoardToggle({ label = '🪑 المقاعد' }: { label?:
             <div className="flex items-center justify-between mb-2">
               <div className="flex flex-col">
                 <span className="text-white text-xs font-bold" style={{ fontFamily: 'Amiri, serif' }}>
-                  🪑 نقل / تبادل المقاعد
+                  {inserting ? '➕ إضافة مقاعد فارغة' : '🪑 نقل / تبادل المقاعد'}
                 </span>
                 <span className="text-[9px] text-[#808080] font-mono leading-tight">
-                  {sm.movingId === null
-                    ? 'المس مقعد اللاعب لبدء النقل'
-                    : `اختر الوجهة لـ«${sm.occupantOf(sm.movingId)?.name || `#${sm.movingId}`}» — فارغ = نقل، مشغول = تبديل`}
+                  {inserting
+                    ? 'المس المقعد الذي تُضاف المقاعد بعده'
+                    : sm.movingId === null
+                      ? 'المس مقعد اللاعب لبدء النقل'
+                      : `اختر الوجهة لـ«${sm.occupantOf(sm.movingId)?.name || `#${sm.movingId}`}» — فارغ = نقل، مشغول = تبديل`}
                 </span>
               </div>
               <div className="flex items-center gap-1">
+                {sm.movingId === null && (
+                  <button
+                    type="button"
+                    onClick={() => (inserting ? closeInsert() : setInserting(true))}
+                    className={`text-[10px] px-2 py-1.5 rounded border transition-colors ${
+                      inserting
+                        ? 'bg-zinc-800 border-zinc-600 text-zinc-300 hover:bg-zinc-700'
+                        : 'border-emerald-500/40 text-emerald-300 hover:bg-emerald-500/15'
+                    }`}
+                  >
+                    {inserting ? '✕ إلغاء الإضافة' : '➕ إضافة مقاعد'}
+                  </button>
+                )}
                 {sm.movingId !== null && (
                   <button
                     type="button"
@@ -537,7 +629,7 @@ export function SeatMoveBoardToggle({ label = '🪑 المقاعد' }: { label?:
                 )}
                 <button
                   type="button"
-                  onClick={() => { sm.cancelMove(); setOpen(false); }}
+                  onClick={() => { sm.cancelMove(); closeInsert(); setOpen(false); }}
                   className="w-6 h-6 rounded text-[#808080] hover:text-white text-sm leading-none"
                   aria-label="إغلاق"
                 >
@@ -546,10 +638,53 @@ export function SeatMoveBoardToggle({ label = '🪑 المقاعد' }: { label?:
               </div>
             </div>
 
-            <div className="grid grid-cols-5 gap-1.5 max-h-[46vh] overflow-y-auto pl-1">
+            <div className={`grid grid-cols-5 gap-1.5 overflow-y-auto pl-1 ${inserting ? 'max-h-[34vh]' : 'max-h-[46vh]'}`}>
+              {inserting && (
+                <button
+                  type="button"
+                  onClick={() => setInsAfter(0)}
+                  className={`col-span-5 h-9 rounded-lg border text-[11px] font-bold transition-colors ${
+                    insAfter === 0
+                      ? 'border-emerald-400 bg-emerald-500/20 text-emerald-200'
+                      : 'border-dashed border-emerald-500/40 text-emerald-300/80 hover:bg-emerald-500/10'
+                  }`}
+                >
+                  في البداية (قبل المقعد ١)
+                </button>
+              )}
               {sm.seats.map((seat) => {
                 const occ = sm.occupantOf(seat);
                 const held = isHeld(occ);
+                if (inserting) {
+                  const isAnchor = insAfter === seat;
+                  const shifts = insAfter !== null && seat > insAfter && !!occ;
+                  return (
+                    <button
+                      key={seat}
+                      type="button"
+                      disabled={sm.busy}
+                      onClick={() => setInsAfter(seat)}
+                      title={occ ? occ.name : 'مقعد فارغ'}
+                      className={`h-[52px] rounded-lg border px-1 flex flex-col items-center justify-center transition-colors disabled:opacity-30 ${
+                        isAnchor
+                          ? 'border-emerald-400 bg-emerald-500/20 text-emerald-100 ring-2 ring-emerald-400/60'
+                          : shifts
+                            ? 'border-amber-500/50 bg-amber-500/10 text-amber-100'
+                            : occ
+                              ? 'border-[#2a2a2a] bg-[#0e0e0e] text-white hover:border-emerald-500/60'
+                              : 'border-dashed border-[#2a2a2a] text-[#555] hover:border-emerald-500/50'
+                      }`}
+                    >
+                      <span className="font-mono font-black text-sm leading-none">
+                        {seat}
+                        {shifts && <span className="text-amber-300 text-[10px]"> ←{seat + count}</span>}
+                      </span>
+                      <span className="mt-1 w-full truncate text-center text-[9px] leading-tight opacity-90">
+                        {held ? '🔒 محجوز' : occ ? occ.name : '—'}
+                      </span>
+                    </button>
+                  );
+                }
                 const isSource = sm.movingId === seat;
                 const picking = sm.movingId !== null;
                 // في الوضع الخامل: المصادر هي المقاعد المشغولة الحاضرة فقط.
@@ -585,6 +720,55 @@ export function SeatMoveBoardToggle({ label = '🪑 المقاعد' }: { label?:
                 );
               })}
             </div>
+
+            {inserting && (
+              <div className="mt-2.5 rounded-xl border border-emerald-500/30 bg-emerald-950/20 p-2.5">
+                <div className="flex items-center gap-2">
+                  <span className="text-[11px] text-emerald-200 font-bold">العدد</span>
+                  <button
+                    type="button"
+                    aria-label="أقلّ"
+                    disabled={count <= 1}
+                    onClick={() => setInsCount(Math.max(1, count - 1))}
+                    className="w-10 h-10 rounded-lg border border-emerald-500/40 text-emerald-200 text-lg leading-none disabled:opacity-30"
+                  >
+                    −
+                  </button>
+                  <span className="w-8 text-center font-mono font-black text-white text-base tabular-nums">{count}</span>
+                  <button
+                    type="button"
+                    aria-label="أكثر"
+                    disabled={count >= room}
+                    onClick={() => setInsCount(Math.min(room, count + 1))}
+                    className="w-10 h-10 rounded-lg border border-emerald-500/40 text-emerald-200 text-lg leading-none disabled:opacity-30"
+                  >
+                    +
+                  </button>
+                  <button
+                    type="button"
+                    disabled={insAfter === null || !room || sm.busy}
+                    onClick={() => { void submitInsert(); }}
+                    className="flex-1 h-10 rounded-lg bg-emerald-500/20 border border-emerald-500 text-emerald-200 text-xs font-bold hover:bg-emerald-500/30 transition-colors disabled:opacity-40"
+                  >
+                    {sm.busy ? '...' : `أضف ${seatsWord(count)}`}
+                  </button>
+                </div>
+                <p className="mt-2 text-[11px] leading-relaxed text-[#a3a3a3]">
+                  {!room
+                    ? `الغرفة بلغت أقصى سعة (${MAX_SEATS} مقعداً)`
+                    : insAfter === null
+                      ? 'المس مقعداً في الشبكة لتحديد مكان الإضافة'
+                      : <>
+                          {insAfter > 0 ? <>بعد المقعد <b className="font-mono text-white">{insAfter}</b>: </> : 'في البداية: '}
+                          {count > 1 ? 'المقاعد' : 'المقعد'} <b className="font-mono text-white">{insAfter + 1}{count > 1 ? `–${insAfter + count}` : ''}</b> {count > 1 ? 'فارغة' : 'فارغ'}
+                          {shiftedSeats.length
+                            ? <>، و{shiftedSeats.length === 1 ? 'لاعبٌ واحد يُزاح' : `${shiftedSeats.length} لاعبين يُزاحون`} بمقدار {count} (#{shiftedSeats[0]} ← #{shiftedSeats[0] + count})</>
+                            : '، ولا لاعب بعدها'}
+                          . السعة {sm.seats.length} ← {sm.seats.length + count}.
+                        </>}
+                </p>
+              </div>
+            )}
           </motion.div>
         )}
       </AnimatePresence>
