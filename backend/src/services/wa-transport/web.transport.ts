@@ -129,7 +129,11 @@ const REFUSAL_AR: Record<string, string> = {
   breaker: 'قاطع البوّابة بعد إخفاقاتٍ متتالية',
 };
 
-function kick(): void { setImmediate(() => { void step(); }); }
+// 🔒 العامل يعمل في عمليّة الخادم وحدها (startWebOutbox). سكربتٌ يُشغَّل بـtsx داخل الحاوية يستورد
+//    هذا الملفّ ويُدخل رسائله الطابور، لكنّ kick() فيه كان يشغّل عاملاً ثانياً يلتقط الصفّ نفسه مع عامل
+//    الخادم — فخرجت صورٌ مرّتين لرقم المالك في الاختبار الحيّ (2026-10-30). الآن: يُدخل ولا يُرسل.
+let workerOn = false;
+function kick(): void { if (workerOn) setImmediate(() => { void step(); }); }
 
 const rand = (a: number, b: number) => a + Math.random() * Math.max(0, b - a);
 
@@ -336,7 +340,7 @@ async function step(): Promise<void> {
     for (const lane of lanes) {
       if (nextAllowed[lane] > now) continue;
       let coldJob = false;
-      let jobSql = sql`SELECT * FROM wa_outbox WHERE lane = ${lane} AND not_before <= NOW() ORDER BY priority ASC, message_id ASC LIMIT 1`;
+      let jobSql = sql`SELECT * FROM wa_outbox WHERE lane = ${lane} AND not_before <= NOW() AND (lease_until IS NULL OR lease_until < NOW()) ORDER BY priority ASC, message_id ASC LIMIT 1`;
 
       if (lane === 'bulk') {
         if (bulkPausedUntil() > now) continue;
@@ -353,9 +357,9 @@ async function step(): Promise<void> {
         const coldFull = counts.coldToday >= coldCap;
         // نفضّل الدافئ (من راسلنا) أوّلاً؛ والبارد يُؤخَّر لغدٍ إن امتلأ سقفه
         if (coldFull) {
-          jobSql = sql`SELECT * FROM wa_outbox WHERE lane = 'bulk' AND cold = false AND not_before <= NOW() ORDER BY priority ASC, message_id ASC LIMIT 1`;
+          jobSql = sql`SELECT * FROM wa_outbox WHERE lane = 'bulk' AND cold = false AND not_before <= NOW() AND (lease_until IS NULL OR lease_until < NOW()) ORDER BY priority ASC, message_id ASC LIMIT 1`;
         } else {
-          jobSql = sql`SELECT * FROM wa_outbox WHERE lane = 'bulk' AND not_before <= NOW() ORDER BY cold ASC, priority ASC, message_id ASC LIMIT 1`;
+          jobSql = sql`SELECT * FROM wa_outbox WHERE lane = 'bulk' AND not_before <= NOW() AND (lease_until IS NULL OR lease_until < NOW()) ORDER BY cold ASC, priority ASC, message_id ASC LIMIT 1`;
         }
       }
       if (lane === 'timely' && (await sentToday('timely')) >= s.timely.serviceDailyCap) { nextAllowed.timely = now + 15 * 60e3; continue; }
@@ -368,7 +372,10 @@ async function step(): Promise<void> {
         continue;
       }
       coldJob = !!job.cold;
-      await db.execute(sql`UPDATE wa_outbox SET lease_until = NOW() + INTERVAL '2 minutes', attempts = attempts + 1 WHERE message_id = ${job.message_id}`);
+      // 🔒 حجزٌ ذرّيّ: عاملٌ آخر سبق إليه ⟵ لا يُرسل مرّتين (كان التحديث بلا شرط والاختيار لا ينظر للحجز)
+      const claimed: any = await db.execute(sql`UPDATE wa_outbox SET lease_until = NOW() + INTERVAL '2 minutes', attempts = attempts + 1
+        WHERE message_id = ${job.message_id} AND (lease_until IS NULL OR lease_until < NOW()) RETURNING message_id`);
+      if (!(claimed?.rows ?? claimed ?? []).length) continue;
       // ⏱️ وقت الرسالة = لحظة خروجها لا لحظة دخولها الطابور: الجماعيّ ينتظر ساعاتٍ وأيّاماً (التسخين)، ووقتُ
       //    الدخول كان يضعها في الخيط قبل ردودٍ وصلت بعدها، ويخرجها من نافذة مطابقة الصدى (٣ دقائق)
       await db.update(waMessages).set({ status: 'sending', createdAt: sql`NOW()` } as any).where(and(eq(waMessages.id, job.message_id), eq(waMessages.status, 'queued')));
@@ -394,7 +401,7 @@ async function step(): Promise<void> {
           // والمقيّد بوقت فلا يُحبسان ساعاتٍ خلف حدٍّ استهلكه البثّ — العميل ينتظر جواباً: إعادةٌ خلال دقيقتين
           const asked = Math.max(60, Number(ge.body?.retryAfterSeconds) || 300);
           const after = lane === 'bulk' ? Math.min(6 * 3600, asked) : Math.min(120, asked);
-          await db.execute(sql`UPDATE wa_outbox SET attempts = GREATEST(attempts - 1, 0), not_before = NOW() + (${after} * INTERVAL '1 second'), last_error = ${String(ge.message).slice(0, 300)} WHERE message_id = ${job.message_id}`);
+          await db.execute(sql`UPDATE wa_outbox SET attempts = GREATEST(attempts - 1, 0), lease_until = NULL, not_before = NOW() + (${after} * INTERVAL '1 second'), last_error = ${String(ge.message).slice(0, 300)} WHERE message_id = ${job.message_id}`);
           nextAllowed[lane] = Date.now() + after * 1000;
           // حاكم البوّابة يردّ code=SEND_PACING_LIMITED بلا اسم القاعدة — تُعرف من نصّه
           const gm = String(ge.body?.message || ge.message || '');
@@ -413,7 +420,7 @@ async function step(): Promise<void> {
         } else if ((job.attempts + 1) >= MAX_ATTEMPTS) {
           await finalizeFailure(job.message_id, `تعذّر الإرسال بعد ${MAX_ATTEMPTS} محاولات: ${e?.message || ''}`);
         } else {
-          await db.execute(sql`UPDATE wa_outbox SET not_before = NOW() + (${(job.attempts + 1) * 30} * INTERVAL '1 second'), last_error = ${String(e?.message || '').slice(0, 300)} WHERE message_id = ${job.message_id}`);
+          await db.execute(sql`UPDATE wa_outbox SET lease_until = NULL, not_before = NOW() + (${(job.attempts + 1) * 30} * INTERVAL '1 second'), last_error = ${String(e?.message || '').slice(0, 300)} WHERE message_id = ${job.message_id}`);
         }
         await db.update(waMessages).set({ status: 'queued' } as any).where(and(eq(waMessages.id, job.message_id), eq(waMessages.status, 'sending')));
       }
@@ -428,6 +435,7 @@ async function step(): Promise<void> {
 
 export function startWebOutbox(): void {
   if (timer || !webConfigured()) return;
+  workerOn = true;
   // تدرّج التسخين يُحسب من عمر ربط الجلسة (web.health) — يُربط هنا لتفادي الاستيراد الدائريّ
   import('./web.health.js').then(m => bindWebSessionAge(m.webSessionAgeDays)).catch(() => {});
   // ⏱ الدفعات «يُرسَل» تُحدَّث كلّ دقيقة وتُغلق متى فرغ طابورها
@@ -471,6 +479,7 @@ export async function outboxStats(): Promise<any> {
  * ولا يمسّ المحتجَز يدويّاً (HELD) ولا صفوفاً أجّلها غير البوّابة.
  */
 export async function resumeBulkNow(): Promise<{ released: number }> {
+  // (يُستدعى من مسارات الخادم — العامل يعمل هناك)
   nextAllowed.bulk = 0;
   delete lastRefusal.bulk;
   let released = 0;
