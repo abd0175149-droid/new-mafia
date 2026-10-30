@@ -40,7 +40,11 @@ const SHOW_ITEMS = 8;
 
 /** «الخميس 29/10 · 20:00» — تاريخ الفعاليّة بأساس nightLabel ووقتها بتوقيت عمّان */
 const whenNight = (d: string) => `${nightLabel(d)} · ${hhmm(d)}`;
-const monthKey = (d: string) => new Date(d).toLocaleDateString('ar-JO', { month: 'long', year: 'numeric', timeZone: 'UTC' });
+/** «تشرين الأوّل 2026» — السنة بأرقامٍ لاتينيّة كباقي الكونسول */
+const monthKey = (d: string) => {
+  const t = new Date(d);
+  return `${t.toLocaleDateString('ar-JO', { month: 'long', timeZone: 'UTC' })} ${t.getUTCFullYear()}`;
+};
 
 /** تفصيل سطر الفاتورة بكلماتٍ قصيرة: «طلبات 7.00 · دخوليّة 3.00» */
 function rowParts(r: Row): string {

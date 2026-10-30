@@ -419,7 +419,7 @@ export async function pastNights(db: Database, locId: number) {
     FROM activities a
     LEFT JOIN order_invoices i ON i.activity_id = a.id AND i.location_id = ${locId}
     WHERE a.location_id = ${locId} AND a.deleted_at IS NULL AND (a.status IS NULL OR a.status <> 'cancelled')
-      AND a.date <= NOW() + INTERVAL '12 hours' AND a.date >= NOW() - INTERVAL '180 days'
+      AND a.date <= NOW() AND a.date >= NOW() - INTERVAL '180 days'   -- بدأت فعلاً: فعاليّة الليلة تظهر من ساعة بدئها
     GROUP BY a.id, a.name, a.date
     ORDER BY a.date DESC
     LIMIT 80
