@@ -71,6 +71,7 @@ import { venueRouter, playerFnbRouter } from './routes/fnb.routes.js';
 import venueSettlementsRoutes from './routes/venue-settlements.routes.js';
 import invoiceWaRoutes from './routes/invoice-wa.routes.js';
 import waGateRoutes from './routes/wa-gate.routes.js';
+import resConfirmRoutes from './routes/res-confirm.routes.js';
 import chipsRoutes from './routes/chips.routes.js';
 import loyaltyRoutes from './routes/loyalty.routes.js';
 import chipsStoreRoutes from './routes/chips-store.routes.js';
@@ -240,6 +241,7 @@ app.use('/api/venue', venueRouter);      // 🏪 كونسول حساب المك�
 app.use('/api/admin/venue-settlements', venueSettlementsRoutes); // 🤝 تسويات الأماكن (admin/manager)
 app.use('/api/admin/invoice-wa', invoiceWaRoutes);               // 🧾 مفتاح فواتير واتساب (الداشبورد)
 app.use('/api/admin/wa-gate', waGateRoutes);                    // 📱 بوّابة رقم الواتساب (الداشبورد)
+app.use('/api/admin/res-confirm', resConfirmRoutes);             // 📋 رسالة تثبيت الحجز التلقائيّة (الداشبورد)
 app.use('/api/fnb', playerFnbRouter);    // 🍽️ طلبات المنيو — جهة اللاعب
 app.use('/api/chips', chipsRoutes);      // 🪙 اقتصاد التشبس (محفظة + دفتر + شحن إداري)
 app.use('/api/loyalty', loyaltyRoutes);  // 🎟️ بطاقة الولاء (ختم الدون)
@@ -1264,6 +1266,15 @@ async function main() {
         player_id INTEGER NOT NULL, physical_id INTEGER, created_at TIMESTAMPTZ DEFAULT NOW() NOT NULL,
         UNIQUE (match_id, player_id))`);
       await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_match_participants_act ON match_participants(activity_id, player_id)`);
+      // 📋 رسالة تثبيت الحجز (2026-10-30): مهمّةٌ لكلّ (مرجع، فعاليّة) — res:<حجز متابعة> أو mem:<عضو مجموعة>
+      await db.execute(sql`CREATE TABLE IF NOT EXISTS reservation_confirm_jobs (
+        id SERIAL PRIMARY KEY, ref VARCHAR(40) NOT NULL, reservation_id INTEGER, member_id INTEGER, activity_id INTEGER NOT NULL,
+        via VARCHAR(16) DEFAULT '' NOT NULL, status VARCHAR(12) DEFAULT 'pending' NOT NULL, reason TEXT DEFAULT '' NOT NULL,
+        due_at TIMESTAMPTZ DEFAULT NOW() NOT NULL, attempts INTEGER DEFAULT 0 NOT NULL, channel VARCHAR(8),
+        wa_message_id INTEGER, staff_name VARCHAR(100) DEFAULT '' NOT NULL, phone VARCHAR(40),
+        created_at TIMESTAMPTZ DEFAULT NOW() NOT NULL, sent_at TIMESTAMPTZ, UNIQUE (ref, activity_id))`);
+      await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_res_confirm_due ON reservation_confirm_jobs(status, due_at)`);
+      await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_res_confirm_res ON reservation_confirm_jobs(reservation_id)`);
       await db.execute(sql`CREATE TABLE IF NOT EXISTS invoice_wa_jobs (
         id SERIAL PRIMARY KEY, location_id INTEGER NOT NULL, activity_id INTEGER NOT NULL, player_id INTEGER NOT NULL,
         kind VARCHAR(12) NOT NULL, invoice_id INTEGER, invoice_no INTEGER, total DECIMAL(10,2),
@@ -2637,6 +2648,7 @@ async function main() {
   } catch (e: any) { console.warn('⚠️ WA web init:', e.message); }
   // ── 🧾 فواتير واتساب: طابورٌ في القاعدة + ماسح الساعة والنصف ──
   try { const { startInvoiceWa } = await import('./services/invoice-wa.service.js'); startInvoiceWa(app.get('io')); } catch (e: any) { console.warn('⚠️ invoice-wa init:', e.message); }
+  try { const { startResConfirm } = await import('./services/reservation-confirm.service.js'); startResConfirm(); } catch (e: any) { console.warn('⚠️ res-confirm init:', e.message); }
   try { const { startWaHealthMonitor } = await import('./services/wa-health.service.js'); await startWaHealthMonitor(); } catch (e: any) { console.warn('⚠️ WA health monitor init:', e.message); }
   // ── 🎁 عروضُ الحديث مع البوت: بدءٌ وإنهاءٌ آليّان + مسحُ مصالحةٍ احتياطيّ ──
   //    المسحُ عند الإقلاع ليس ترفاً: سقوطُ الخادم بين إدراج الدفتر والمصالحة

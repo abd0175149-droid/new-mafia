@@ -158,10 +158,16 @@ function bulkWindowDelayMs(): number {
   return target - Date.now();
 }
 
-async function sentToday(lane: Lane): Promise<number> {
+/** رسائل تثبيت الحجز (reservation-confirm.service) — في المسار المقيّد بوقت بسقفٍ مستقلّ */
+export const CONFIRM_KIND = 'res_confirm';
+
+/** kind: 'confirm' = رسائل التثبيت وحدها · 'service' = المقيّد بوقت بدونها (سقف الخدمة) · بلا = المسار كلّه */
+async function sentToday(lane: Lane, kind?: 'confirm' | 'service'): Promise<number> {
   const db = getDB(); if (!db) return 0;
+  const kindSql = kind === 'confirm' ? sql`AND payload->>'kind' = ${CONFIRM_KIND}`
+    : kind === 'service' ? sql`AND COALESCE(payload->>'kind', '') <> ${CONFIRM_KIND}` : sql``;
   const r: any = await db.execute(sql`SELECT COUNT(*)::int AS n FROM wa_messages
-    WHERE channel = 'web' AND direction = 'out' AND payload->>'_lane' = ${lane}
+    WHERE channel = 'web' AND direction = 'out' AND payload->>'_lane' = ${lane} ${kindSql}
       AND (payload->>'_sentAt')::timestamptz >= ${joNow().dayStartUtc.toISOString()}::timestamptz`);
   return Number((r?.rows ?? r ?? [])[0]?.n || 0);
 }
@@ -362,7 +368,18 @@ async function step(): Promise<void> {
           jobSql = sql`SELECT * FROM wa_outbox WHERE lane = 'bulk' AND not_before <= NOW() AND (lease_until IS NULL OR lease_until < NOW()) ORDER BY cold ASC, priority ASC, message_id ASC LIMIT 1`;
         }
       }
-      if (lane === 'timely' && (await sentToday('timely')) >= s.timely.serviceDailyCap) { nextAllowed.timely = now + 15 * 60e3; continue; }
+      if (lane === 'timely') {
+        // 📨 سقفان في المسار نفسه: الخدمة (تذكيرات وتنبيهات) ورسائل تثبيت الحجز — امتلاء أحدهما لا يوقف الآخر
+        const serviceFull = (await sentToday('timely', 'service')) >= s.timely.serviceDailyCap;
+        const confirmFull = (await sentToday('timely', 'confirm')) >= s.timely.confirmDailyCap;
+        if (serviceFull && confirmFull) { nextAllowed.timely = now + 15 * 60e3; continue; }
+        if (serviceFull || confirmFull) {
+          const want = serviceFull ? sql`m.payload->>'kind' = ${CONFIRM_KIND}` : sql`COALESCE(m.payload->>'kind', '') <> ${CONFIRM_KIND}`;
+          jobSql = sql`SELECT o.* FROM wa_outbox o JOIN wa_messages m ON m.id = o.message_id
+            WHERE o.lane = 'timely' AND o.not_before <= NOW() AND (o.lease_until IS NULL OR o.lease_until < NOW()) AND ${want}
+            ORDER BY o.priority ASC, o.message_id ASC LIMIT 1`;
+        }
+      }
 
       const r: any = await db.execute(jobSql);
       const job = (r?.rows ?? r ?? [])[0];
@@ -458,14 +475,14 @@ export async function outboxStats(): Promise<any> {
     for (const x of (r?.rows ?? r ?? [])) { if (x.lane in queued) queued[x.lane as Lane] = Number(x.n); if (x.lane === 'bulk') coldQueued = Number(x.c || 0); }
   }
   const s = transportSettings();
-  const [bc, t, rp] = await Promise.all([bulkCounts(), sentToday('timely'), sentToday('reply')]);
+  const [bc, t, cf, rp] = await Promise.all([bulkCounts(), sentToday('timely', 'service'), sentToday('timely', 'confirm'), sentToday('reply')]);
   const iso = (n: number) => (n > Date.now() ? new Date(n).toISOString() : null);
   const age = webSessionAge();
   const dayCap = bulkDayCap();
   const coldCap = s.warmup.enabled ? Math.min(s.cold.dailyCap, warmupCap(s.warmup.coldSchedule)) : s.cold.dailyCap;
   return {
     queued: { ...queued, coldBulk: coldQueued },
-    sentToday: { reply: rp, timely: t, bulk: bc.today, coldBulk: bc.coldToday },
+    sentToday: { reply: rp, timely: t, confirm: cf, bulk: bc.today, coldBulk: bc.coldToday },
     sentLastHour: bc.lastHour,
     caps: { bulkDaily: Number.isFinite(dayCap) ? dayCap : null, coldDaily: Number.isFinite(coldCap) ? coldCap : null, bulkHourly: s.bulk.hourlyCap },
     warmup: { enabled: s.warmup.enabled, ageDays: Number.isFinite(age) ? age : null, linked: Number.isFinite(age) },

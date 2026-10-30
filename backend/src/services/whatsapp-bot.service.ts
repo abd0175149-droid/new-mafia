@@ -1818,10 +1818,18 @@ async function execTool(name: string, args: any, ctx: ToolCtx): Promise<any> {
         } catch (e: any) { console.warn('⚠️ WA reminder offer:', e.message); }
       }
 
+      // 📋 رسالة التثبيت (المكان والخريطة والموعد والبرنامج والقواعد) تخرج من النظام بعد ردّك بثوانٍ —
+      //    فالردّ قصير لا يكرّرها (قرار المالك 2026-10-30). المفتاح مطفأ ⟵ الردّ الكامل كما كان.
+      const { scheduleReservationConfirm } = await import('./reservation-confirm.service.js');
+      const tplFollows = (await scheduleReservationConfirm(saved.id, 'bot')).scheduled;
+      const costPart = totalCost > 0 ? ` واذكر التكلفة إلزامياً: ${totalCost} د.أ${people > 1 ? ` (${people} × ${unitCost})` : ''}` : '';
       return {
         success: true,
         reservation: { id: saved.id, activity: act.name, dateText: fmtJo(act.date), people, unitPriceJOD: unitCost, totalJOD: totalCost },
-        note: `الحجز مؤكد ومسجّل — أبلغ العميل بالتفاصيل${totalCost > 0 ? ` واذكر التكلفة إلزامياً: ${totalCost} د.أ${people > 1 ? ` (${people} × ${unitCost})` : ''}` : ''} وذكّره أن الدفع في المكان.${epNote}${offerReminder ? ' (أُرسل للعميل عرض تذكير قبل اللعبة بساعة عبر أزرار — لا داعي لذكره نصّاً).' : ''}`,
+        note: (tplFollows
+          ? `الحجز مؤكد ومسجّل. سيصل العميلَ من النظام مباشرةً بعد ردّك رسالةُ تثبيتٍ مفصّلة فيها المكان والخريطة والموعد وبرنامج الليلة والقواعد — فاكتب ردّاً قصيراً: «تمّ ✅ ثبّتنا حجزك»${costPart}، وذكّره أن الدفع في المكان، وقل إنّ التفاصيل كاملة بالرسالة التالية. لا تكرّر الموعد ولا المكان.`
+          : `الحجز مؤكد ومسجّل — أبلغ العميل بالتفاصيل${costPart} وذكّره أن الدفع في المكان.`)
+          + `${epNote}${offerReminder ? ' (أُرسل للعميل عرض تذكير قبل اللعبة بساعة عبر أزرار — لا داعي لذكره نصّاً).' : ''}`,
       };
     }
 
@@ -3579,12 +3587,16 @@ ${rows.length} حجزاً × ${unit2} د.أ = *${total2} د.أ*
         const epLine = epA.applied ? `\n💸 بسعر الدون المبكّر: ${epA.price} د.أ للشخص بدل ${epA.base}${pl?.id ? ' (بلا ختم ولاء على هالزيارة)' : ''}.`
           : epA.penalized ? `\n⛔ بالسعر العاديّ — عليه غياب سابق عن «${epA.penalized.activityName}».` : '';
         const over = av.remaining < p.people ? `\n⚠️ الحجز تجاوز السعة (كان المتبقي ${av.remaining}).` : '';
+        // 📋 المحجوز له تصله رسالة التثبيت بعد مهلة التراجع (لا الأدمن)
+        const { scheduleReservationConfirm } = await import('./reservation-confirm.service.js');
+        const cf = await scheduleReservationConfirm(savedRes.id, 'admin', conv.displayName || 'أدمن البوت');
+        const confirmLine = cf.scheduled ? '\n📋 بتوصله رسالة التثبيت بالتفاصيل كاملة خلال دقيقتين.' : '';
         const mirrorLine = pl?.id
           ? (mirrored
             ? `\n🔗 مربوط ببطاقة «${pl.name}» — بتنحسبله نقاطه وبيظهر بتفاصيل النشاط.`
             : `\n🔗 مربوط ببطاقة «${pl.name}» — وله صفّ بتفاصيل النشاط أصلاً.`)
           : '\n📄 الرقم مش مربوط بحساب لاعب — انحجز كضيف (بيظهر بمتابعة الحجوزات فقط).';
-        await sendMessage({ conversationId: convId, text: `تمّ ✅ انحجز «${pl?.name || p.name}» (${p.phone}) — ${p.people} أشخاص في «${act?.name || ''}» ${act ? `(${fmtJo(act.date)})` : ''}.${over}${mirrorLine}${epLine}`, source: 'system' });
+        await sendMessage({ conversationId: convId, text: `تمّ ✅ انحجز «${pl?.name || p.name}» (${p.phone}) — ${p.people} أشخاص في «${act?.name || ''}» ${act ? `(${fmtJo(act.date)})` : ''}.${over}${mirrorLine}${epLine}${confirmLine}`, source: 'system' });
         console.log(`🔒 WA bot ADMIN add-booking act=${p.actId} phone=${p.phone} people=${p.people} by conv ${convId}`);
         void auditBot(conv, 'wa:booking-add', { phone: p.phone, people: p.people, overCapacity: av.remaining < p.people }, { activityId: p.actId, targetName: p.name });
         return;
@@ -3631,6 +3643,8 @@ ${rows.length} حجزاً × ${unit2} د.أ = *${total2} د.أ*
           movedMirror = upd.length;
         }
         await onReservationMoved(res.id);   // 💸 السعر المبكّر يُعاد تقييمه على الفعاليّة الجديدة لحظة النقل
+        // 📋 موعدٌ ومكانٌ جديدان ⟵ رسالة تثبيت للفعاليّة الجديدة إن كان مثبّتاً (والمنتظر للقديمة يسقط)
+        import('./reservation-confirm.service.js').then(m => m.scheduleReservationConfirm(res.id, 'move', conv.displayName || 'أدمن البوت')).catch(() => {});
         const mirrorNote = movedMirror ? `\n(نُقل معه ${movedMirror} حجز تطبيق)` : '';
         await sendMessage({ conversationId: convId, text: `تمّ ✅ نُقل حجز ${p.phone} (${res.peopleCount} أشخاص) من «${fromAct?.name || ''}» إلى «${toAct?.name || ''}» ${toAct ? `(${fmtJo(toAct.date)})` : ''}.${mirrorNote}`, source: 'system' });
         console.log(`🔒 WA bot ADMIN move-booking res=${res.id} ${p.fromId}→${p.toId} by conv ${convId}`);
@@ -3928,6 +3942,7 @@ async function performCancellation(convId: number, reservationId: number) {
   // ≥3 ساعات — إلغاء تلقائي (حذف ناعم كما يفعل النظام)
   await db.update(reservations).set({ deletedAt: new Date() } as any).where(eq(reservations.id, r.id));
   void onReservationDeleted(r.id);   // 🎟️ مجموعةُ عرضٍ على هذا الحجز تبطل، وحجوزاتُ أصحابه تبقى مستقلّة
+  import('./reservation-confirm.service.js').then(m => m.cancelReservationConfirm(r.id, 'ألغاه العميل قبل الإرسال')).catch(() => {});
   void onReservationCancelled(r.id, { byCustomer: true });   // 💸 إلغاءٌ في آخر ٦ ساعات = غياب؛ وغيابٌ استهلكه يعود قائماً
   // إلغاء فعلي من كل القنوات: إن كان الحجز مربوطاً بحجز تطبيق (مرآة أو مترقٍّ)
   // يُلغى حجز التطبيق أيضاً — وإلا بقي العميل محسوباً بالمقاعد وحاجزاً بالتطبيق

@@ -8,6 +8,7 @@ import { withCity } from '@/hooks/useCities';
 import { rankName, rankBadge } from '@/lib/ranks';
 import InvoiceWaCard from '@/components/admin/InvoiceWaCard';
 import WaGateCard from '@/components/admin/WaGateCard';
+import ResConfirmCard from '@/components/admin/ResConfirmCard';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || '';
 const CURRENCY = 'د.أ';
@@ -214,6 +215,7 @@ export default function AdminDashboard() {
       {/* ── 🧾 فواتير واتساب: تشغيل/إطفاء ── */}
       <InvoiceWaCard />
       <WaGateCard />
+      <ResConfirmCard />
 
       {/* ── تنبيه ذكي ── */}
       {bk.unpaid > 0 && (

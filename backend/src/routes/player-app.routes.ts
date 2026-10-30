@@ -407,8 +407,9 @@ router.post('/book', authenticatePlayer, requireConsent, async (req: Request, re
           ),
         ))
         .limit(1);
+      let confirmResId: number | null = null;
       if (existingRes.length === 0) {
-        await db.insert(reservations).values({
+        const [ins] = await db.insert(reservations).values({
           activityId,
           contactName: player.name,
           phone: player.phone || '',
@@ -419,7 +420,8 @@ router.post('/book', authenticatePlayer, requireConsent, async (req: Request, re
           createdBy: 'player-app',
           appConfirmed: true,
           appConfirmedAt: new Date(),
-        } as any);
+        } as any).returning({ id: reservations.id });
+        confirmResId = ins?.id ?? null;
       } else {
         const ex = existingRes[0];
         await db.update(reservations).set({
@@ -432,6 +434,12 @@ router.post('/book', authenticatePlayer, requireConsent, async (req: Request, re
           updatedAt: new Date(),
         } as any).where(eq(reservations.id, ex.id));
         console.log(`📱 Reservation #${ex.id} app-confirmed by player booking (activity ${activityId})`);
+        confirmResId = ex.id;
+      }
+      // 📋 رسالة التثبيت فوراً (القرار ١) — حجزٌ بقي على قائمة الانتظار لا يُرسل له (الجدولة تفحص الحالة)
+      if (confirmResId) {
+        const { scheduleReservationConfirm } = await import('../services/reservation-confirm.service.js');
+        await scheduleReservationConfirm(confirmResId, 'app');
       }
     } catch (e: any) {
       console.warn('⚠️ auto-reservation on player booking failed:', e?.message);

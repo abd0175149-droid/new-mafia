@@ -1125,7 +1125,10 @@ export async function handleExtButton(conv: any, btnId: string, h: ExtHelpers): 
     const [saved] = await db.update(reservations).set({ status: 'confirmed', notes: sql`COALESCE(${reservations.notes}, '') || ' · ✅ ثُبّت من قائمة الانتظار عبر البوت'`, updatedAt: new Date() } as any).where(eq(reservations.id, r.id)).returning();
     await h.mirrorReservation(db, saved, '🤖 بوت واتساب').catch(() => {});
     const [a] = await db.select({ name: activities.name, date: activities.date }).from(activities).where(eq(activities.id, Number(r.activityId))).limit(1);
-    await say(`تمّ ✅ حجزك مؤكَّد في «${a?.name || ''}» — ${a ? h.fmtJo(a.date) : ''} لـ${r.peopleCount} أشخاص. الدفع بالمكان 🎭`, 'bot');
+    // 📋 رسالة التثبيت تتبع هذا الردّ بثوانٍ (المفتاح مطفأ ⟵ الردّ وحده كما كان)
+    const { scheduleReservationConfirm } = await import('./reservation-confirm.service.js');
+    const tplFollows = (await scheduleReservationConfirm(r.id, 'wl_take')).scheduled;
+    await say(`تمّ ✅ حجزك مؤكَّد في «${a?.name || ''}» — ${a ? h.fmtJo(a.date) : ''} لـ${r.peopleCount} أشخاص. الدفع بالمكان 🎭${tplFollows ? '\nالتفاصيل كاملة بالرسالة الجاية 👇' : ''}`, 'bot');
     h.notifyAdmins('✅ تثبيت من قائمة الانتظار عبر البوت', `${conv.displayName || conv.phone} — ${a?.name || ''}`, { conversationId: conv.id, url: '/admin/reservations' }).catch(() => {});
     return true;
   }

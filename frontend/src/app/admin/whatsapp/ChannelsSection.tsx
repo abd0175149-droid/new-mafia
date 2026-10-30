@@ -212,6 +212,9 @@ export default function ChannelsSection({ apiFetch }: { apiFetch: Fetcher }) {
                   <div className="text-[11px] text-gray-500">{LANE_AR[l]}</div>
                   <div className="text-white font-bold tabular-nums">{ob.sentToday[l]}{l === 'bulk' ? ` / ${ob.caps?.bulkDaily ?? s.bulk.dailyCap}` : l === 'timely' ? ` / ${s.timely.serviceDailyCap}` : ''}</div>
                   <div className="text-[11px] text-gray-500">اليوم · في الطابور {ob.queued[l]}</div>
+                  {l === 'timely' && ob.sentToday.confirm != null && (
+                    <div className="text-[11px] text-gray-500">تثبيت الحجز <span className="tabular-nums">{ob.sentToday.confirm} / {s.timely.confirmDailyCap ?? 300}</span></div>
+                  )}
                 </div>
               ))}
             </div>
@@ -251,6 +254,7 @@ export default function ChannelsSection({ apiFetch }: { apiFetch: Fetcher }) {
         <div className="flex flex-wrap items-center gap-x-4 gap-y-2 text-gray-300">
           <span>المقيّد بوقت: تباعد <input type="number" min={0} value={draft.timely.gapMinSec} onChange={e => set('timely.gapMinSec', Number(e.target.value))} className={inp + ' w-16'} /> – <input type="number" min={0} value={draft.timely.gapMaxSec} onChange={e => set('timely.gapMaxSec', Number(e.target.value))} className={inp + ' w-16'} /> ث</span>
           <span>سقفه اليوميّ <input type="number" min={0} value={draft.timely.serviceDailyCap} onChange={e => set('timely.serviceDailyCap', Number(e.target.value))} className={inp + ' w-20'} /></span>
+          <span>ورسائل تثبيت الحجز بسقفٍ مستقلّ <input type="number" min={0} value={draft.timely.confirmDailyCap ?? 300} onChange={e => set('timely.confirmDailyCap', Number(e.target.value))} className={inp + ' w-20'} /></span>
           <span>المتابعة لا تتجاوز <input type="number" min={1} value={draft.followupMaxAgeHours} onChange={e => set('followupMaxAgeHours', Number(e.target.value))} className={inp + ' w-16'} /> ساعة من آخر رسالة</span>
         </div>
       </div>

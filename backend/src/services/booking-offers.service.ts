@@ -597,6 +597,11 @@ export async function commitGroup(p: {
     L.push('⚠️ العرض اكتمل للتوّ قبل التثبيت — مجموعتك مسجّلة بالسعر العاديّ.');
   }
   L.push('📱 أصحابك بيوصلهم إشعار يأكّدوا فيه، واللي ما عنده حساب بيرتبط لحالو أوّل ما يحجز من التطبيق بنفس الرقم.');
+  // 📋 رسالة التثبيت لصاحب المجموعة بعد هذا الردّ بثوانٍ (القرار ٧) — وكلّ صاحبٍ تصله لحظة قبوله
+  try {
+    const { scheduleReservationConfirm } = await import('./reservation-confirm.service.js');
+    if ((await scheduleReservationConfirm(result.resId, 'group')).scheduled) L.push('📋 تفاصيل الليلة كاملة بالرسالة الجاية 👇');
+  } catch { /* تكميليّ */ }
   void p.h.notifyAdmins('👥 مجموعة حجز من البوت', `${ownerName} — ${pplAr(plan.people)} — ${act.name}${result.offerId ? ` · 🎁 ${best!.name}` : ''}`, { url: `/admin/activities/${act.id}` }).catch(() => {});
   return { ok: true, text: L.join('\n'), groupId: result.groupId };
 }
@@ -664,6 +669,8 @@ async function acceptMember(m: any): Promise<void> {
   // 🎟️ أكّد بنفسه ⟵ يُحتسب ختماً كحجز التطبيق (loyalty.service يقرأ created_by عند العرض)
   if (m.bookingId) await db.update(bookings).set({ createdBy: 'player-app' } as any).where(and(eq(bookings.id, m.bookingId), eq(bookings.createdBy, GROUP_BOOKING_TAG)));
   void tellOwner(m.groupId, `✅ ${m.name} أكّد إنّه جاي معك.`);
+  // 📋 قبل الدعوة ⟵ رسالة التثبيت باسمه (القرار ٧)
+  import('./reservation-confirm.service.js').then(x => x.scheduleMemberConfirm(Number(m.id))).catch(() => {});
 }
 export async function inviteInfo(token: string): Promise<any | null> {
   const db = getDB(); if (!db || !/^[a-f0-9]{24,48}$/.test(token)) return null;

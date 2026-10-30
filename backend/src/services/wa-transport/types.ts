@@ -35,7 +35,8 @@ export interface TransportSettings {
   webBotKnown: boolean;
   /** سقوف طابور الجلسة الجماعيّ: سقف يوميّ + سقف بالساعة + تباعد + ساعات العمل */
   bulk: { dailyCap: number; hourlyCap: number; gapMinSec: number; gapMaxSec: number; from: string; to: string };
-  timely: { gapMinSec: number; gapMaxSec: number; serviceDailyCap: number };
+  /** confirmDailyCap: رسائل تثبيت الحجز تُعدّ وحدها ولا تأكل من سقف الخدمة (قرار المالك 2026-10-30) */
+  timely: { gapMinSec: number; gapMaxSec: number; serviceDailyCap: number; confirmDailyCap: number };
   /** المحادثة الباردة (لم يراسلنا صاحبها على رقم الأعمال قطّ) — أخطر ما يُحظر عليه الرقم،
    *  فسقفها أصغر وتباعدها أوسع، وتُنثر على أيّام بدل أن تُرسل دفعةً واحدة. */
   cold: { dailyCap: number; gapMinSec: number; gapMaxSec: number };
@@ -66,7 +67,7 @@ export const DEFAULT_TRANSPORT_SETTINGS: TransportSettings = {
   webBotKnown: false,
   // سقوفٌ متحفّظة بعد تقييد 2026-10-20: ٤٥–١٢٠ث بدل ١٥–٤٥، وسقفٌ بالساعة، وساعاتٌ أضيق
   bulk: { dailyCap: 150, hourlyCap: 20, gapMinSec: 45, gapMaxSec: 120, from: '10:00', to: '22:00' },
-  timely: { gapMinSec: 5, gapMaxSec: 15, serviceDailyCap: 120 },
+  timely: { gapMinSec: 5, gapMaxSec: 15, serviceDailyCap: 120, confirmDailyCap: 300 },
   cold: { dailyCap: 20, gapMinSec: 120, gapMaxSec: 300 },
   warmup: { enabled: true, schedule: [20, 30, 40, 60, 90, 120, 160, 200, 250], coldSchedule: [10, 15, 20, 25, 30, 40, 50], warmExempt: false },
   longPause: { everyN: 12, seconds: 240 },

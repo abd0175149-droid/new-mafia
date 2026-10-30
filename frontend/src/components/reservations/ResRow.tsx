@@ -153,6 +153,20 @@ export default function ResRow({ r, onOpen, onAttend }: {
             {((r as any).waStatus === 'queued' || (r as any).waStatus === 'sending') && <span className="text-[11px]" title="رسالة الحجز في طابور رقم الأعمال">⏱</span>}
             {(r as any).waStatus === 'read' && <span className="text-[11px] text-sky-400 tracking-[-2px]" title="قرأ رسالة الحجز">✓✓</span>}
             {(r as any).waStatus === 'failed' && <span className="text-[11px] text-rose-400" title="تعذّر إرسال رسالة الحجز">✗</span>}
+            {/* 📋 رسالة التثبيت التلقائيّة: مجدولة متى · تعذّرت ولماذا (أُرسلت = شارة «✓» أعلاه) */}
+            {(() => {
+              const j = (r as any).confirmJob;
+              if (!j || isWaSent(r)) return null;
+              if (j.status === 'pending' || j.status === 'sending') {
+                const t = j.dueAt ? new Date(j.dueAt).toLocaleTimeString('ar-JO', { hour: 'numeric', minute: '2-digit' }) : '';
+                return <span className="text-[10.5px] px-1.5 py-px rounded-full border font-bold text-sky-300 border-sky-500/40" title="رسالة التثبيت مجدولة — فكّ التثبيت قبلها يلغيها">⏱ {t}</span>;
+              }
+              if (j.status === 'failed' || j.status === 'skipped') {
+                return <span className={`text-[10.5px] px-1.5 py-px rounded-full border font-bold ${j.status === 'failed' ? 'text-rose-300 border-rose-500/40' : 'text-amber-300 border-amber-500/40'}`}
+                  title={`رسالة التثبيت: ${j.reason || (j.status === 'failed' ? 'تعذّرت' : 'لم تُرسل')}`}>✗ {j.reason || 'لم تُرسل'}</span>;
+              }
+              return null;
+            })()}
             {r.appConfirmed && <span className="text-[11px]" title="تأكّد من التطبيق">📱</span>}
             {/* 📇 له محادثة مع خطّ الأعمال — إرساله إليه ليس محادثةً باردة */}
             {((r as any).lineStatus === 'two_way' || (r as any).lineStatus === 'has_chat') && (

@@ -44,6 +44,7 @@ export function normalizeSettings(raw: any): TransportSettings {
       gapMinSec: num(r.timely?.gapMinSec, d.timely.gapMinSec, 0, 120),
       gapMaxSec: Math.max(num(r.timely?.gapMinSec, d.timely.gapMinSec, 0, 120), num(r.timely?.gapMaxSec, d.timely.gapMaxSec, 0, 300)),
       serviceDailyCap: num(r.timely?.serviceDailyCap, d.timely.serviceDailyCap, 0, 5000),
+      confirmDailyCap: num(r.timely?.confirmDailyCap, d.timely.confirmDailyCap, 0, 5000),
     },
     cold: {
       dailyCap: num(r.cold?.dailyCap, d.cold.dailyCap, 0, 2000),

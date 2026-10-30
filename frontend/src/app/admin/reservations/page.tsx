@@ -19,7 +19,7 @@
 // ⚠️ لا قدرةَ حُذفت — كلُّ فعلٍ كان موجوداً له موضعٌ جديد.
 // ══════════════════════════════════════════════════════
 
-import { useCallback, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
 import { motion, AnimatePresence } from 'framer-motion';
 import { saveFile, isIOS, isStandalone } from '@/lib/saveFile';
@@ -125,7 +125,9 @@ const RES_VARS: TemplateVar<ResVars>[] = [
 //
 // 🔴 والوقتُ لا يُكتب رقماً هنا (١٥ دقيقة مثلاً): تلك سياسةٌ يملكها المالك،
 //    فتُترك نصّاً في القالب يُعدَّل من زرّ «القالب» بلا لمس شيفرة.
-const RES_TPL_DEFAULT = [
+// 🔴 النصّ نفسه في backend/src/services/reservation-confirm.service.ts (DEFAULT_TPL) — يتغيّران معاً.
+//    (2026-10-30) الختام «يُرجى الردّ… لتثبيت الحجز نهائيّاً» ناقض رسالةً تخرج تلقائيّاً لأنّ الحجز ثُبّت فعلاً.
+const RES_TPL_BODY = [
   'مرحباً {الاسم} 👋',
   'نؤكّد حجزك في «{الفعالية}» لعدد {العدد}.',
   '📍 المكان: {المكان}',
@@ -144,8 +146,8 @@ const RES_TPL_DEFAULT = [
   '🎙️ تعليمات الليدر',
   'الليدر يدير الجولة، وقرارُه أثناء اللعب نهائيّ — والنقاشُ بعد انتهائها.',
   '',
-  'يُرجى الردّ على هذه الرسالة لتثبيت الحجز نهائيّاً. بانتظارك! 🎭',
-].join(String.fromCharCode(10));
+];
+const RES_TPL_DEFAULT = [...RES_TPL_BODY, 'إذا تغيّرت خطّتك ردّ على هذه الرسالة وبنرتّبها معك. بانتظارك! 🎭'].join(String.fromCharCode(10));
 
 const TPL_KEY = 'reservations_wa_template';
 
@@ -161,6 +163,8 @@ const TPL_KEY = 'reservations_wa_template';
 //    صامتاً. وما خالفها كلَّها صياغةٌ يملكها صاحبُها — لا تُدهس، بل يُنبَّه.
 // ══════════════════════════════════════════════════════
 const RES_TPL_LEGACY: string[] = [
+  // نسخةُ ما قبل ٣٠ تشرين الأوّل — الختام القديم «لتثبيت الحجز نهائيّاً»
+  [...RES_TPL_BODY, 'يُرجى الردّ على هذه الرسالة لتثبيت الحجز نهائيّاً. بانتظارك! 🎭'].join(String.fromCharCode(10)),
   // الأصليّ — قبل إضافة نقاط التنظيم
   [
     'مرحباً {الاسم} 👋',
@@ -223,10 +227,48 @@ export default function ReservationsPage() {
   const direct = useWaDirect();
   const [dsend, setDsend] = useState<{ items: DirectItem[]; title: string; label: string } | null>(null);
 
-  const [tpl, setTpl] = useState(initialTpl);
-  /** قالبٌ صاغه صاحبُه ويختلف عن الافتراضيّ الحاليّ — يُنبَّه ولا يُدهس */
+  // ══════════════════════════════════════════════════════
+  // 📝 القالب مشتركٌ في الخادم (2026-10-30): كان على جهاز كلّ موظّف، فيرسل جهازان نصّين مختلفين
+  //    ولا يعرفه الخادم ليرسله وحده عند التثبيت. التعديل للأدمن، ويُحفظ تلقائيّاً بعد التوقّف عن الكتابة.
+  //    قالبٌ قديم على هذا الجهاز يخالف المشترك يُعرض مرّةً واحدة: يُعتمد أو يُتجاهل — لا يُرسل بعدها.
+  // ══════════════════════════════════════════════════════
+  const isAdmin = useMemo(() => { try { return JSON.parse(localStorage.getItem('user') || '{}')?.role === 'admin'; } catch { return false; } }, []);
+  const [tpl, setTpl] = useState(RES_TPL_DEFAULT);
+  const [deviceTpl, setDeviceTpl] = useState<string | null>(null);
+  const [autoOn, setAutoOn] = useState(false);
+  const [tplSave, setTplSave] = useState<'' | 'saving' | 'saved' | 'error'>('');
+  const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => {
+    let alive = true;
+    (async () => {
+      try {
+        const { apiFetch } = await import('@/hooks/useReservations');
+        const d = await apiFetch('/api/reservations/confirm-template');
+        if (!alive || !d?.text) return;
+        setTpl(d.text);
+        setAutoOn(!!d.autoEnabled);
+        const local = initialTpl();
+        if (local.trim() !== d.text.trim() && local.trim() !== RES_TPL_DEFAULT.trim()) setDeviceTpl(local);
+      } catch { if (alive) setTpl(initialTpl()); }   // الخادم لا يردّ ⟵ آخر ما على الجهاز
+    })();
+    return () => { alive = false; if (saveTimer.current) clearTimeout(saveTimer.current); };
+  }, []);
+  /** قالبٌ يختلف عن الافتراضيّ الحاليّ — يُنبَّه الأدمن ولا يُدهس */
   const tplCustomised = tpl.trim() !== RES_TPL_DEFAULT.trim();
-  const saveTpl = (v: string) => { setTpl(v); try { localStorage.setItem(TPL_KEY, v); } catch { /* لا شيء */ } };
+  const forgetDeviceTpl = () => { setDeviceTpl(null); try { localStorage.removeItem(TPL_KEY); } catch { /* لا شيء */ } };
+  const saveTpl = (v: string) => {
+    setTpl(v);
+    if (!isAdmin) return;
+    if (saveTimer.current) clearTimeout(saveTimer.current);
+    setTplSave('saving');
+    saveTimer.current = setTimeout(async () => {
+      try {
+        const { apiFetch } = await import('@/hooks/useReservations');
+        await apiFetch('/api/reservations/confirm-template', { method: 'PUT', body: JSON.stringify({ text: v }) });
+        setTplSave('saved');
+      } catch { setTplSave('error'); }
+    }, 800);
+  };
 
   const single = R.activityId && R.activityId !== 'all';
 
@@ -657,10 +699,32 @@ export default function ReservationsPage() {
       </Sheet>
 
       <Sheet open={showTpl} onClose={() => setShowTpl(false)}>
-        <SheetHead title="قالب رسالة التأكيد" />
+        <SheetHead title="قالب رسالة التأكيد"
+          sub={autoOn ? 'قالبٌ واحد للجميع — يخرج تلقائيّاً لكلّ حجزٍ يُثبَّت، ويرسله زرّ الواتساب يدويّاً' : 'قالبٌ واحد للجميع — يرسله زرّ الواتساب'} />
+        {deviceTpl && (
+          <div className="rounded-2xl px-3.5 py-3 mb-2.5 text-right"
+            style={{ background: 'rgba(96,165,250,.08)', border: '1px solid rgba(96,165,250,.35)' }}>
+            <b className="block text-[13.5px] text-sky-300">على هذا الجهاز قالبٌ قديم يختلف عن المشترك</b>
+            <span className="block text-[11.5px] text-gray-400 mt-0.5">
+              {isAdmin ? 'القالب صار واحداً للجميع في الخادم. اجعل قالبك هو المشترك، أو تجاهله.' : 'القالب صار واحداً للجميع ويعدّله الأدمن — قالب هذا الجهاز لم يعد يُستعمل.'}
+            </span>
+            <div className="flex gap-2 mt-2">
+              {isAdmin && (
+                <button onClick={() => { saveTpl(deviceTpl); forgetDeviceTpl(); }}
+                  className="px-3 py-2 rounded-xl text-[12.5px] font-bold bg-sky-500/20 border border-sky-400/60 text-sky-200">
+                  اجعله القالب المشترك
+                </button>
+              )}
+              <button onClick={forgetDeviceTpl}
+                className="px-3 py-2 rounded-xl text-[12.5px] font-bold bg-white/5 border border-white/15 text-gray-300">
+                {isAdmin ? 'تجاهله' : 'حسناً'}
+              </button>
+            </div>
+          </div>
+        )}
         {/* 🔴 لا يُدهس قالبٌ صاغه صاحبُه — لكنّه لا يُترك يجهل أنّ الافتراضيّ
             تطوّر. التنبيهُ يجعل الترقيةَ اختياراً معروضاً لا سرّاً. */}
-        {tplCustomised && (
+        {isAdmin && tplCustomised && (
           <button
             onClick={() => saveTpl(RES_TPL_DEFAULT)}
             className="w-full text-right rounded-2xl px-3.5 py-3 mb-2.5"
@@ -674,13 +738,27 @@ export default function ReservationsPage() {
             </span>
           </button>
         )}
-        <MessageTemplateEditor<ResVars>
-          titleAr="💬 النصّ الذي يرسله زرّ الواتساب"
-          value={tpl} onChange={saveTpl} onReset={() => saveTpl(RES_TPL_DEFAULT)}
-          vars={RES_VARS}
-          preview={fillTemplate(tpl, RES_VARS, previewRow.data)}
-          previewOfAr={previewRow.labelAr}
-        />
+        {isAdmin ? (
+          <>
+            <MessageTemplateEditor<ResVars>
+              titleAr="💬 رسالة تثبيت الحجز"
+              value={tpl} onChange={saveTpl} onReset={() => saveTpl(RES_TPL_DEFAULT)}
+              vars={RES_VARS}
+              preview={fillTemplate(tpl, RES_VARS, previewRow.data)}
+              previewOfAr={previewRow.labelAr}
+            />
+            <p role="status" className={`text-[11.5px] mt-2 ${tplSave === 'error' ? 'text-red-400' : 'text-gray-500'}`}>
+              {tplSave === 'saving' ? 'يُحفظ…' : tplSave === 'saved' ? '✓ حُفظ — صار القالب المشترك لكلّ الطاقم' : tplSave === 'error' ? 'تعذّر الحفظ — تحقّق من الاتصال وعدّل حرفاً لإعادة المحاولة' : 'يُحفظ تلقائيّاً بعد التوقّف عن الكتابة'}
+            </p>
+          </>
+        ) : (
+          <div>
+            <p className="text-[12px] text-gray-500 mb-2">القالب مشترك ويعدّله الأدمن. هكذا يصل اللاعب ({previewRow.labelAr}):</p>
+            <pre className="whitespace-pre-wrap text-[12.5px] leading-relaxed rounded-xl bg-black/30 border border-white/10 p-3 text-gray-200" dir="rtl">
+              {fillTemplate(tpl, RES_VARS, previewRow.data)}
+            </pre>
+          </div>
+        )}
       </Sheet>
     </div>
   );

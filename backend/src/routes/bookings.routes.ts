@@ -119,6 +119,9 @@ router.post('/', authenticate, async (req: Request, res: Response) => {
     });
     reservationId = r.reservationId;
     if ((Number(count) || 1) > 1) (booking as any).count = 1;
+    // 📋 رسالة التثبيت بعد مهلة التراجع (حذف الحجز خلالها يلغيها)
+    const { scheduleReservationConfirm } = await import('../services/reservation-confirm.service.js');
+    await scheduleReservationConfirm(r.reservationId, 'manual', createdByName);
   } catch (e: any) { console.warn('⚠️ booking → reservation mirror:', e?.message); }
 
   // 👥 صديقٌ سجّله صاحبُه برقمه في مجموعة عرض (بلا حساب) وأدخله الموظّف ⟵ يُربط بالمجموعة

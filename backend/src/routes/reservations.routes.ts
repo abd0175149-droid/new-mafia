@@ -9,7 +9,7 @@ import { eq, desc, and, isNull, inArray, sql } from 'drizzle-orm';
 import { getDB } from '../config/db.js';
 import { reservations, activities, locations } from '../schemas/admin.schema.js';
 import { players } from '../schemas/player.schema.js';
-import { authenticate } from '../middleware/auth.js';
+import { authenticate, authorize } from '../middleware/auth.js';
 
 const RANK_ORDER: Record<string, number> = { GODFATHER: 5, UNDERBOSS: 4, CAPO: 3, SOLDIER: 2, INFORMANT: 1 };
 
@@ -63,8 +63,41 @@ router.get('/', authenticate, async (req: Request, res: Response) => {
       const map = await lineStatusOf([...new Set(locals)]);
       rows.forEach((r: any) => { const l = normalizeLocalPhone(r.phone); r.lineStatus = (l && map.get(l)) || 'unknown'; });
     } catch { /* تكميليّ */ }
+    // 📋 رسالة التثبيت التلقائيّة: مجدولة متى · أُرسلت · تعذّرت ولماذا
+    try {
+      const { confirmJobsFor } = await import('../services/reservation-confirm.service.js');
+      const jobs = await confirmJobsFor(rows.map((r: any) => Number(r.id)));
+      rows.forEach((r: any) => { const j = jobs.get(Number(r.id)); if (j) r.confirmJob = j; });
+    } catch { /* تكميليّ */ }
   } catch { /* العلامات تكميليّة */ }
   res.json(rows);
+});
+
+// ══════════════════════════════════════════════════════
+// 📝 قالب رسالة التثبيت — واحدٌ للجميع في الخادم (2026-10-30، القرار ٣)
+// كان محفوظاً في متصفّح كلّ موظّف، فيرسل جهازان نصّين مختلفين ولا يعرفه الخادم ليرسله وحده.
+// القراءة لكلّ الطاقم (الإرسال اليدويّ يملؤه في الصفحة)، والتعديل للأدمن.
+// ══════════════════════════════════════════════════════
+router.get('/confirm-template', authenticate, async (_req: Request, res: Response) => {
+  try {
+    const S = await import('../services/reservation-confirm.service.js');
+    const t = await S.getTemplate();
+    res.json({ success: true, ...t, defaultText: S.DEFAULT_TPL, autoEnabled: await S.resConfirmEnabled() });
+  } catch (err: any) { res.status(500).json({ error: err.message }); }
+});
+router.put('/confirm-template', authenticate, authorize('admin'), async (req: Request, res: Response) => {
+  try {
+    const S = await import('../services/reservation-confirm.service.js');
+    const by = req.user?.displayName || req.user?.username || '';
+    if (req.body?.reset === true) await S.setTemplate(null, by);
+    else {
+      const text = String(req.body?.text ?? '').replace(/\r\n/g, '\n').trim();
+      if (!text) return res.status(400).json({ error: 'القالب فارغ' });
+      if (text.length > 4000) return res.status(400).json({ error: 'القالب أطول من 4000 حرف' });
+      await S.setTemplate(text, by);
+    }
+    res.json({ success: true, ...(await S.getTemplate()), defaultText: S.DEFAULT_TPL });
+  } catch (err: any) { res.status(500).json({ error: err.message }); }
 });
 
 // POST /api/reservations
@@ -260,6 +293,15 @@ router.put('/:id', authenticate, async (req: Request, res: Response) => {
     }
   }
 
+  // 📋 رسالة التثبيت: الانتقال إلى «مثبَّت» يجدولها (بعد مهلة التراجع)، والخروج منه يلغي المنتظر.
+  //    وتصحيحُ رقمِ حجزٍ مثبَّت تعذّرت رسالته يعيد المحاولة (الجدولة تتجاهل ما أُرسل أو ينتظر).
+  try {
+    const C = await import('../services/reservation-confirm.service.js');
+    const staffName = req.user?.displayName || req.user?.username || '';
+    if (nowConfirmed && (!wasConfirmed || (phone !== undefined && phone !== existing[0].phone))) await C.scheduleReservationConfirm(row.id, 'page', staffName);
+    else if (!nowConfirmed && wasConfirmed) await C.cancelReservationConfirm(row.id, 'فُكّ التثبيت قبل الإرسال');
+  } catch (e: any) { console.warn('⚠️ res-confirm on PUT:', e?.message); }
+
   res.json({ ...row, bookingSync, notified });
 });
 
@@ -285,6 +327,7 @@ router.delete('/:id', authenticate, async (req: Request, res: Response) => {
   }
 
   await db.update(reservations).set({ deletedAt: new Date() } as any).where(eq(reservations.id, id));
+  import('../services/reservation-confirm.service.js').then(m => m.cancelReservationConfirm(id, 'حُذف الحجز قبل الإرسال')).catch(() => {});
   // 👥 مجموعةُ عرضٍ على هذا الحجز تبطل، وحجوزاتُ أصحابه تبقى مستقلّة
   import('../services/booking-offers.service.js').then(m => m.onReservationDeleted(id)).catch(() => {});
   // 💸 حذفُ الموظّف ليس إلغاءً متأخّراً من العميل — لكن غيابٌ استهلكه هذا الحجز يعود قائماً
