@@ -421,9 +421,12 @@ export async function settlementsOverview(db: Database, from: string, to: string
       FROM orders o JOIN activities a ON a.id = o.activity_id
       WHERE o.location_id = ${locId} AND o.status <> 'cancelled' AND a.date::date BETWEEN ${from}::date AND ${to}::date`));
     const [lastInv] = rows(await db.execute(sql`SELECT MAX(paid_at) AS t FROM order_invoices WHERE location_id = ${locId} AND is_paid`));
-    // المستحقّ من الليالي التي فيها مالٌ مفتوح فقط (فحصٌ رخيص قبل الدفتر)
+    // المستحقّ من الليالي التي فيها مالٌ مفتوح فقط (فحصٌ رخيص قبل الدفتر).
+    // 🔴 مكانٌ لا يحصّل بالنظام (مزاج: طلباتٌ تُسجَّل بلا فواتير منذ آب) لا «مستحقّ» له هنا:
+    //    كلّ طلباته ستبدو ديناً وهي محصَّلةٌ نقداً خارج النظام — فتتضخّم خانة الإدارة بلا معنى.
+    const invoicesInRange = acts.some((x: any) => (Number(x.paid_count) || 0) > 0);
     let due = 0; let dueNoInvoice = 0;
-    for (const a of acts) {
+    for (const a of invoicesInRange ? acts : []) {
       const [chk] = rows(await db.execute(sql`
         SELECT EXISTS (SELECT 1 FROM order_invoices i WHERE i.activity_id = ${a.id} AND i.location_id = ${locId} AND NOT i.is_paid)
             OR EXISTS (SELECT 1 FROM orders o WHERE o.activity_id = ${a.id} AND o.location_id = ${locId} AND o.status <> 'cancelled' AND o.invoice_id IS NULL)
