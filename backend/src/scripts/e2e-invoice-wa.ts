@@ -16,8 +16,8 @@ import { buildInvoiceData, invoiceHtml, receiptHtml } from '../services/fnb-invo
 const BASE = 'http://localhost:4000';
 const LOC = 3;
 const TAG = 'E2E-INVOICE-WA';
-const PH1 = '0700000989', PH2 = '0700000988', PH3 = '0700000987';
-const VENUE_PH = '0700000986';
+const PH1 = '0799999989', PH2 = '0799999988', PH3 = '0799999987';   // صيغةٌ صالحة لا مالك لها (فُحص) — والمرسِل مستبدَل
+const VENUE_PH = '0799999986';
 
 let pass = 0, fail = 0;
 const failures: string[] = [];
@@ -93,7 +93,7 @@ async function main() {
     ok('اسم مستخدم بمسافة يُرفض', r.status === 400, JSON.stringify(r.body));
     r = await api(vURL('/api/venue/payment-settings'), { method: 'PUT', headers: A, body: JSON.stringify({ payCash: true, payCliq: true, cliqMethod: 'alias', cliqValue: 'MAFIAHUB', cliqBank: '', cliqName: 'y' }) });
     ok('كليك بلا بنك يُرفض', r.status === 400, JSON.stringify(r.body));
-    r = await api(vURL('/api/venue/payment-settings'), { method: 'PUT', headers: A, body: JSON.stringify({ payCash: true, payCard: true, payCliq: true, cliqMethod: 'phone', cliqValue: '962791112233', cliqBank: 'البنك العربي', cliqName: 'محمد الخطيب', waPhone: '+962 70 000 0986' }) });
+    r = await api(vURL('/api/venue/payment-settings'), { method: 'PUT', headers: A, body: JSON.stringify({ payCash: true, payCard: true, payCliq: true, cliqMethod: 'phone', cliqValue: '962791112233', cliqBank: 'البنك العربي', cliqName: 'محمد الخطيب', waPhone: '+962 79 999 9986' }) });
     ok('الحفظ يقبل ويطبّع الرقمين', r.body?.success === true && r.body.payment.cliqValue === '0791112233' && r.body.payment.waPhone === VENUE_PH, JSON.stringify(r.body));
     r = await api(vURL('/api/venue/payment-settings'), { headers: A });
     ok('القراءة تعيد المحفوظ', r.body?.payment?.payCard === true && r.body?.payment?.cliqMethod === 'phone');
@@ -233,7 +233,7 @@ async function main() {
     nextRead = { ok: true, isTransfer: true, amount: 2, payee: '', method: 'cliq' };
     ok('كليك مطفأ في المكان ⟵ الصورة للبوت', (await W.handleTransferImage(conv, msg)) === false && sent.length === 0);
     await q(sql`UPDATE locations SET pay_cliq = true WHERE id = ${LOC}`);
-    ok('لاعبٌ لم يصله ملفّ ⟵ للبوت', (await W.handleTransferImage({ id: 0, playerId: null, phone: '0700000985' }, msg)) === false);
+    ok('لاعبٌ لم يصله ملفّ ⟵ للبوت', (await W.handleTransferImage({ id: 0, playerId: null, phone: '0799999985' }, msg)) === false);
 
     // ══ ٨ · الساعة والنصف ══
     section('٨ · الملفّ التلقائيّ بعد ٩٠ دقيقة');
