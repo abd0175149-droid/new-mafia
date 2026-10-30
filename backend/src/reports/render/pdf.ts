@@ -104,6 +104,8 @@ export async function renderRawHtmlPdf(
   const page = await browser.newPage();
   try {
     await page.setContent(html, { waitUntil: 'load', timeout: 20000 });
+    // الخطوط المضمَّنة (فاتورة «ملفّ القضيّة») تُفكّ بعد load أحياناً — بلا انتظارها يُطبع البديل
+    await page.evaluate('document.fonts && document.fonts.ready').catch(() => {});
     const pdf = await page.pdf({
       format: opts.format || 'A6',
       landscape: opts.landscape === true,

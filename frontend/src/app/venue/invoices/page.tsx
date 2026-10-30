@@ -288,12 +288,13 @@ export default function VenueInvoicesPage() {
     }
   };
 
-  const printOne = async () => {
+  // kind: 'pdf' ملفّ A6 للمشاركة · 'receipt' إيصال 80مم يفتح نافذة الطباعة بنفسه (طابعة الكاش)
+  const printOne = async (kind: 'pdf' | 'receipt' = 'pdf') => {
     if (!sheetRow || !actId || printing) return;
     setPrinting(true);
     const row = sheetRow;
     const qs = row.kind === 'paid' && row.invoiceId ? `?invoiceId=${row.invoiceId}` : '';
-    const ok = await openPdf(`/api/venue/invoices/${actId}/${row.playerId}/pdf${qs}`, 'POST');
+    const ok = await openPdf(`/api/venue/invoices/${actId}/${row.playerId}/${kind}${qs}`, 'POST');
     setPrinting(false);
     // أوّل طباعة لفاتورةٍ مفتوحة تُثبّت رقمها — نُريه في الورقة والقائمة
     if (ok && row.kind === 'open') { await loadLedger(actId); fetchDetail(row); }
@@ -704,11 +705,17 @@ export default function VenueInvoicesPage() {
               </div>
             )}
 
-            {/* الطباعة والإسقاط */}
+            {/* الطباعة: إيصال طابعة الكاش أوّلاً (الأكثر استعمالاً)، وملفّ A6 للمشاركة */}
             <div className="flex gap-2 mt-2.5">
-              <Btn kind="ghost" h={48} className="flex-1" style={{ fontSize: 14 }} onClick={printOne} disabled={printing}>
-                <Icon name="printer" size={18} /> {printing ? 'يُجهَّز…' : 'طباعة A6'}
+              <Btn kind="ghost" h={48} className="flex-1" style={{ fontSize: 14 }} onClick={() => printOne('receipt')} disabled={printing}>
+                <Icon name="printer" size={18} /> {printing ? 'يُجهَّز…' : 'إيصال الكاشير'}
               </Btn>
+              <Btn kind="ghost" h={48} style={{ fontSize: 14 }} onClick={() => printOne('pdf')} disabled={printing}>
+                ملفّ A6
+              </Btn>
+            </div>
+            {/* الإسقاط */}
+            <div className="flex gap-2 mt-2 empty:hidden">
               {canWaive && !waiveOpen && (
                 <Btn kind="ghost" h={48} className="flex-1" style={{ fontSize: 14 }} disabled={busy}
                   onClick={() => { setStep('view'); setWaiveOpen(true); }}>

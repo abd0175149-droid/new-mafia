@@ -15,7 +15,7 @@ import { staffFcmTokens } from '../schemas/notification.schema.js';
 import { authenticate, requireVenuePermission } from '../middleware/auth.js';
 import { authenticatePlayer } from '../middleware/player-auth.middleware.js';
 import { sendPushToPlayer, sendPushToLocationStaff, sendPushToAdmins } from '../services/fcm.service.js';
-import { buildInvoiceData, issueInvoiceNumber, invoiceHtml, mergeInvoicePages, playersWhoPlayed, waterItemOf } from '../services/fnb-invoice.service.js';
+import { buildInvoiceData, issueInvoiceNumber, invoiceHtml, mergeInvoicePages, receiptHtml, nightRecordOf, playersWhoPlayed, waterItemOf } from '../services/fnb-invoice.service.js';
 import { nightLedger, collectionNights, moneySummary, clubAccount, pastNights, nightAccount, UNDO_WINDOW_MS } from '../services/fnb-ledger.service.js';
 import { resolveOptionGroups, validateSelections, type ChosenOption } from '../services/fnb-options.service.js';
 import { readSlots, slotItemIds, validateSlotsInput, resolveOrderSlots } from '../services/fnb-bundle.service.js';
@@ -1059,13 +1059,40 @@ venueRouter.post('/invoices/:activityId/:playerId/pdf', authenticate, requireVen
 
     const invoiceNo = await issueInvoiceNumber(db, data, req.venueStaff!.id);
     const printedByName = req.user?.displayName || req.user?.username || '';
-    const pdf = await renderRawHtmlPdf(invoiceHtml(data, invoiceNo, printedByName), { format: 'A6' });
+    const record = await nightRecordOf(db, activityId, playerId).catch(() => null);
+    const pdf = await renderRawHtmlPdf(invoiceHtml(data, invoiceNo, printedByName, record), { format: 'A6' });
 
     res.setHeader('Content-Type', 'application/pdf');
     res.setHeader('Content-Disposition', `inline; filename*=UTF-8''${encodeURIComponent(`invoice-${invoiceNo}`)}.pdf`);
     res.send(pdf);
   } catch (err: any) {
     console.error('❌ fnb invoice pdf:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ── POST /invoices/:activityId/:playerId/receipt[?invoiceId=] — إيصال 80مم لطابعة الكاش (HTML يطبع نفسه) ──
+// نفس تثبيت الرقم والختم كالـPDF؛ الصفحة تنتظر خطوطها المضمَّنة ثمّ تفتح نافذة الطباعة.
+venueRouter.post('/invoices/:activityId/:playerId/receipt', authenticate, requireVenuePermission('invoices.print'), async (req: Request, res: Response) => {
+  const db = getDB();
+  if (!db) return res.status(503).json({ error: 'DB unavailable' });
+  const locId = resolveVenueLocation(req, res);
+  if (!locId) return;
+  const activityId = parseInt(req.params.activityId);
+  const playerId = parseInt(req.params.playerId);
+  const invoiceId = parseInt(String(req.query.invoiceId || req.body?.invoiceId || ''));
+  if (!Number.isFinite(activityId) || !Number.isFinite(playerId)) return res.status(400).json({ error: 'معرّفات غير صالحة' });
+  try {
+    const data = await invoiceDataOrLastPaid(db, locId, activityId, playerId, invoiceId);
+    if ('error' in data) return res.status(404).json({ error: data.error });
+    const invoiceNo = await issueInvoiceNumber(db, data, req.venueStaff!.id);
+    const printedByName = req.user?.displayName || req.user?.username || '';
+    const record = await nightRecordOf(db, activityId, playerId).catch(() => null);
+    res.setHeader('Content-Type', 'text/html; charset=utf-8');
+    res.setHeader('Cache-Control', 'no-store');
+    res.send(receiptHtml(data, invoiceNo, printedByName, record));
+  } catch (err: any) {
+    console.error('❌ fnb invoice receipt:', err.message);
     res.status(500).json({ error: err.message });
   }
 });
@@ -1451,7 +1478,7 @@ venueRouter.get('/invoices/:activityId/print-all', authenticate, requireVenuePer
         r.kind === 'paid' && r.invoiceId ? { invoiceId: r.invoiceId } : {});
       if ('error' in data) continue;
       const no = await issueInvoiceNumber(db, data, req.venueStaff!.id);
-      pages.push(invoiceHtml(data, no, printedByName));
+      pages.push(invoiceHtml(data, no, printedByName, await nightRecordOf(db, activityId, r.playerId).catch(() => null)));
     }
     if (pages.length === 0) return res.status(404).json({ error: 'لا فواتير لهذه الفعاليّة' });
 
