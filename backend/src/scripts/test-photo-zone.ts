@@ -296,9 +296,11 @@ section('6) حرّاس بنيويّون');
 {
   const here = dirname(fileURLToPath(import.meta.url));
   const back = readFileSync(join(here, '../game/seating/photo-zone.ts'), 'utf8');
-  const front = readFileSync(join(here, '../../../frontend/src/lib/photoZone.ts'), 'utf8');
+  // صورة الخادم بلا مجلّد الواجهة — المطابقة تُفحص حيث يوجد المستودع كاملاً
+  let front: string | null = null;
+  try { front = readFileSync(join(here, '../../../frontend/src/lib/photoZone.ts'), 'utf8'); } catch { console.log('  ⏭️  نسخة الواجهة غير موجودة هنا (حاوية الخادم) — تُفحص في المستودع'); }
   const body = (s: string) => s.slice(s.indexOf('export interface PhotoZoneCtx')).replace(/\r\n/g, '\n').trim();
-  check('نسخة الواجهة (lib/photoZone.ts) مطابقة حرفيّاً للخادم', body(back) === body(front));
+  if (front !== null) check('نسخة الواجهة (lib/photoZone.ts) مطابقة حرفيّاً للخادم', body(back) === body(front));
 
   const state = {
     roomId: 'r', phase: 'LOBBY', photoZone: { on: true, anchor: 3, pending: 1 },
