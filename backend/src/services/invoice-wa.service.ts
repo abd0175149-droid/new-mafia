@@ -335,7 +335,7 @@ export async function processJob(job: any): Promise<any> {
         const paid = rows(await db.execute(sql`SELECT i.invoice_no AS no, i.grand_total AS total,
             CASE WHEN vp.payer_player_id IS DISTINCT FROM i.player_id THEN vp.payer_name END AS payer
           FROM order_invoices i LEFT JOIN venue_payments vp ON vp.id = i.payment_id
-          WHERE i.location_id = ${locId} AND i.activity_id = ${activityId} AND i.player_id = ${playerId} AND i.is_paid ORDER BY i.paid_at`));
+          WHERE i.location_id = ${locId} AND i.activity_id = ${activityId} AND i.player_id = ${playerId} AND i.is_paid AND COALESCE(i.pay_method, '') NOT IN ('debt', 'loss') ORDER BY i.paid_at`));
         cap = `حسابك الليلة يا ${firstName(pl?.name || data.playerName)}:\n${paid.map((p: any) => paidLine({ no: Number(p.no), total: n(p.total), payer: p.payer || null })).join('\n')}\n\n✅ لا شيء عليك الآن.`;
       }
       const sent = await sender.image(phone, file, cap, { invoiceWa: id });
@@ -356,7 +356,7 @@ export async function processJob(job: any): Promise<any> {
     const paidBefore = rows(await db.execute(sql`SELECT i.invoice_no AS no, i.grand_total AS total,
         CASE WHEN vp.payer_player_id IS DISTINCT FROM i.player_id THEN vp.payer_name END AS payer
       FROM order_invoices i LEFT JOIN venue_payments vp ON vp.id = i.payment_id
-      WHERE i.location_id = ${locId} AND i.activity_id = ${activityId} AND i.player_id = ${playerId} AND i.is_paid ORDER BY i.paid_at`))
+      WHERE i.location_id = ${locId} AND i.activity_id = ${activityId} AND i.player_id = ${playerId} AND i.is_paid AND COALESCE(i.pay_method, '') NOT IN ('debt', 'loss') ORDER BY i.paid_at`))
       .map((x: any) => ({ no: Number(x.no), total: n(x.total), payer: x.payer || null }));
     const caption = openCaption(job.kind, data, no, { updated: !!prev, name: pl?.name || '', paidBefore });
     const file = await saveImage(await sender.render(invoiceImageHtml(data, no, '', record)));
@@ -444,7 +444,7 @@ export function startInvoiceWa(ioRef: any): void {
 export async function invoiceForBot(locId: number, activityId: number, playerId: number): Promise<any> {
   const db = getDB(); if (!db) return { imageSent: false };
   const paid = rows(await db.execute(sql`SELECT id, invoice_no AS no, grand_total AS total FROM order_invoices
-    WHERE location_id = ${locId} AND activity_id = ${activityId} AND player_id = ${playerId} AND is_paid ORDER BY paid_at`))
+    WHERE location_id = ${locId} AND activity_id = ${activityId} AND player_id = ${playerId} AND is_paid AND COALESCE(pay_method, '') NOT IN ('debt', 'loss') ORDER BY paid_at`))
     .map((x: any) => ({ id: Number(x.id), no: Number(x.no), total: n(x.total) }));
   const open = await buildInvoiceData(db, locId, activityId, playerId);
   const hasOpen = !('error' in open) && open.grandTotal > 0;

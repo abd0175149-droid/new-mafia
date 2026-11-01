@@ -815,6 +815,27 @@ const ORDERS_LOOKBACK_HOURS = 24;
 const pushBlackoutWarnedAt = new Map<number, number>();
 
 // ── GET /orders — طلبات المكان (آخر 24 ساعة افتراضاً، أو فعاليّة محدّدة) ──
+// ── GET /prep-stats?activityId= — ⏱️ زمن تحضير الطلبات لليلة (أقلّ/متوسّط/أعلى) ──
+// بلا activityId: ليلة آخر طلبٍ في المكان خلال ١٦ ساعة (الليلة الجارية)
+venueRouter.get('/prep-stats', authenticate, requireVenuePermission('orders.receive'), async (req: Request, res: Response) => {
+  const db = getDB();
+  if (!db) return res.status(503).json({ error: 'DB unavailable' });
+  const locId = resolveVenueLocation(req, res);
+  if (!locId) return;
+  try {
+    let activityId = parseInt(String(req.query.activityId || ''));
+    if (!Number.isFinite(activityId)) {
+      const [last] = await db.select({ a: orders.activityId }).from(orders)
+        .where(and(eq(orders.locationId, locId), gte(orders.createdAt, new Date(Date.now() - 16 * 3600e3))))
+        .orderBy(desc(orders.createdAt)).limit(1);
+      if (!last) return res.json({ success: true, activityId: null, count: 0, minSec: null, maxSec: null, avgSec: null });
+      activityId = last.a;
+    }
+    const { prepStats } = await import('../services/fnb-ledger.service.js');
+    res.json({ success: true, activityId, ...(await prepStats(db, locId, activityId)) });
+  } catch (err: any) { res.status(500).json({ error: err.message }); }
+});
+
 venueRouter.get('/orders', authenticate, requireVenuePermission('orders.receive'), async (req: Request, res: Response) => {
   const db = getDB();
   if (!db) return res.status(503).json({ error: 'DB unavailable' });
@@ -1459,6 +1480,80 @@ venueRouter.post('/payments/:paymentId/receipt', authenticate, requireVenuePermi
   }
 });
 
+// ── POST /invoices/:activityId/:playerId/writeoff — 🧾 «لم يدفع» بسبب (2026-11-01) ──
+// body: { kind: 'debt'|'loss', reason, expectedTotal } — الكاشير يسجّلها بسببٍ إلزاميّ؛ تُغلق الفاتورة بلا مال.
+// «دين عليه» يظهر في زيارته القادمة ليُسدَّد، و«خسارة» تُغلق نهائيّاً. التراجع كالتحصيل (المهلة لمن سجّلها، والأدمن دائماً).
+venueRouter.post('/invoices/:activityId/:playerId/writeoff', authenticate, requireVenuePermission('payments.record'), async (req: Request, res: Response) => {
+  const db = getDB();
+  if (!db) return res.status(503).json({ error: 'DB unavailable' });
+  const locId = resolveVenueLocation(req, res);
+  if (!locId) return;
+  const activityId = parseInt(req.params.activityId);
+  const playerId = parseInt(req.params.playerId);
+  if (!Number.isFinite(activityId) || !Number.isFinite(playerId)) return res.status(400).json({ error: 'معرّفات غير صالحة' });
+  const kind = String(req.body?.kind || '');
+  const reason = String(req.body?.reason || '').trim();
+  try {
+    const { collectInvoices } = await import('../services/fnb-pay.service.js');
+    const expected = req.body?.expectedTotal;
+    const r = await collectInvoices(db, {
+      locId, activityId, staffId: req.venueStaff!.id, receiverName: req.user?.displayName || req.user?.username || '',
+      method: 'cash', payer: null, writeoff: { kind: kind as any, reason },
+      items: [{ playerId, expectedTotal: expected != null && expected !== '' ? Number(expected) : null }],
+    });
+    if (!r.ok) { const f = r as CollectFail; return res.status(f.code === 'CHANGED' ? 409 : f.status).json({ error: f.error, code: f.code }); }
+    const inv = r.invoices[0];
+    const io = req.app.get('io');
+    if (io) io.to(`location:${locId}`).emit('fnb:invoice-updated', { activityId, playerId, invoiceId: inv.invoiceId, isPaid: true });
+    try {
+      const { logStaffAction } = await import('../services/staff-action-log.service.js');
+      logStaffAction({ staffId: req.venueStaff!.id, staffUsername: req.user?.username, staffRole: req.user?.role, source: 'venue',
+        action: 'fnb:invoice-writeoff', details: { locId, activityId, playerId, invoiceId: inv.invoiceId, kind, reason, total: inv.grandTotal } });
+    } catch { /* غير حاجب */ }
+    res.json({ success: true, invoiceId: inv.invoiceId, invoiceNo: inv.invoiceNo, grandTotal: inv.grandTotal, kind, canUndoUntil: r.canUndoUntil });
+  } catch (err: any) {
+    console.error('❌ fnb invoice writeoff:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ── POST /debts/:invoiceId/settle — 💳 تسديد دينٍ من ليلةٍ سابقة · /debts/:invoiceId/unsettle — تراجع ──
+venueRouter.post('/debts/:invoiceId/settle', authenticate, requireVenuePermission('payments.record'), async (req: Request, res: Response) => {
+  const db = getDB();
+  if (!db) return res.status(503).json({ error: 'DB unavailable' });
+  const locId = resolveVenueLocation(req, res);
+  if (!locId) return;
+  const invoiceId = parseInt(req.params.invoiceId);
+  if (!Number.isFinite(invoiceId)) return res.status(400).json({ error: 'معرّف غير صالح' });
+  try {
+    const { settleDebt } = await import('../services/fnb-pay.service.js');
+    const r = await settleDebt(db, { locId, invoiceId, method: (req.body?.method || 'cash') as any, staffId: req.venueStaff!.id, receiverName: req.user?.displayName || req.user?.username || '' });
+    if (!r.ok) { const f = r as { status: number; error: string }; return res.status(f.status).json({ error: f.error }); }
+    const io = req.app.get('io');
+    if (io) io.to(`location:${locId}`).emit('fnb:invoice-updated', { activityId: r.activityId, playerId: r.playerId, invoiceId, isPaid: true });
+    res.json({ success: true, invoiceId, invoiceNo: r.invoiceNo, grandTotal: r.total, canUndoUntil: r.canUndoUntil });
+  } catch (err: any) {
+    console.error('❌ fnb settle debt:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+venueRouter.post('/debts/:invoiceId/unsettle', authenticate, requireVenuePermission('payments.record'), async (req: Request, res: Response) => {
+  const db = getDB();
+  if (!db) return res.status(503).json({ error: 'DB unavailable' });
+  const locId = resolveVenueLocation(req, res);
+  if (!locId) return;
+  const invoiceId = parseInt(req.params.invoiceId);
+  if (!Number.isFinite(invoiceId)) return res.status(400).json({ error: 'معرّف غير صالح' });
+  try {
+    const { unsettleDebt } = await import('../services/fnb-pay.service.js');
+    const r = await unsettleDebt(db, { locId, invoiceId, me: req.venueStaff! as any });
+    if (!r.ok) { const f = r as { status: number; error: string }; return res.status(f.status).json({ error: f.error }); }
+    res.json({ success: true });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // ── POST /invoices/unpay-payment/:paymentId — ↩️ التراجع عن دفعةٍ كاملة ──
 venueRouter.post('/invoices/unpay-payment/:paymentId', authenticate, requireVenuePermission('payments.record'), async (req: Request, res: Response) => {
   const db = getDB();
@@ -1520,7 +1615,7 @@ venueRouter.post('/invoices/unpay/:invoiceId', authenticate, requireVenuePermiss
     let undone = false;
     await db.transaction(async (tx) => {
       const [row] = await tx.update(orderInvoices).set({
-        isPaid: false, paidAt: null, paidBy: null, unpaidAt: new Date(), unpaidBy: me.id, feeBookingFlipped: false, payMethod: null,
+        isPaid: false, paidAt: null, paidBy: null, unpaidAt: new Date(), unpaidBy: me.id, feeBookingFlipped: false, payMethod: null, writeoffReason: null, debtSettledAt: null, debtSettledBy: null, compAmount: '0',
       } as any).where(and(eq(orderInvoices.id, inv.id), eq(orderInvoices.isPaid, true))).returning({ id: orderInvoices.id });
       if (!row) return;
       undone = true;

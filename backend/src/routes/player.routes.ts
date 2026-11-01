@@ -210,6 +210,33 @@ router.post('/:id/toggle-test', authenticate, adminOnly, async (req: Request, re
   }
 });
 
+// ── POST /api/player/:id/toggle-full-comp — 🎁 ضيافة كاملة (Admin only، 2026-11-01) ──
+// مافيا + طلبات المكان مجّاناً: الفاتورة تظهر ببنودها والمستحقّ صفر، والمكان يتحمّل القيمة.
+// غير «الحساب المجاني» (toggle-free) الذي يُسقط دخوليّة المافيا وحدها.
+router.post('/:id/toggle-full-comp', authenticate, adminOnly, async (req: Request, res: Response) => {
+  try {
+    const playerId = parseInt(req.params.id);
+    if (!playerId || isNaN(playerId)) return res.status(400).json({ success: false, error: 'معرّف غير صالح' });
+    const db = getDB();
+    if (!db) return res.status(503).json({ success: false, error: 'DB unavailable' });
+    const [player] = await db.select({ id: playersTable.id, fullComp: playersTable.fullComp })
+      .from(playersTable).where(eq(playersTable.id, playerId)).limit(1);
+    if (!player) return res.status(404).json({ success: false, error: 'اللاعب غير موجود' });
+    const newValue = !player.fullComp;
+    const by = (req as any).user?.displayName || (req as any).user?.username || '';
+    await db.update(playersTable).set({ fullComp: newValue, fullCompBy: by, fullCompAt: new Date() } as any).where(eq(playersTable.id, playerId));
+    try {
+      const { logStaffAction } = await import('../services/staff-action-log.service.js');
+      logStaffAction({ staffId: (req as any).user?.id, staffUsername: (req as any).user?.username, staffRole: (req as any).user?.role, source: 'admin',
+        action: 'player:full-comp', details: { playerId, fullComp: newValue } });
+    } catch { /* غير حاجب */ }
+    console.log(`🎁 Player #${playerId} fullComp → ${newValue} by ${by}`);
+    return res.json({ success: true, fullComp: newValue });
+  } catch (err: any) {
+    return res.status(500).json({ success: false, error: err.message });
+  }
+});
+
 // ── POST /api/player/:id/toggle-free — تبديل حالة الحساب المجاني (Admin only) ──
 router.post('/:id/toggle-free', authenticate, adminOnly, async (req: Request, res: Response) => {
   try {

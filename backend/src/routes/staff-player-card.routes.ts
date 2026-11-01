@@ -58,7 +58,7 @@ router.get(
       const p = one(await db.execute(sql`
         SELECT id, name, phone, gender, dob, avatar_url, created_at,
                is_locked, locked_reason, locked_at, locked_by,
-               is_test_account, is_free_account, must_change_password,
+               is_test_account, is_free_account, full_comp, must_change_password,
                linked_staff_id, geofence_exempt, geofence_exempt_reason,
                lifetime_matches, total_matches, chips_balance
         FROM players WHERE id = ${playerId} AND deleted_at IS NULL
@@ -86,6 +86,7 @@ router.get(
         createdAt: p.created_at,
         isTestAccount: !!p.is_test_account,
         isFreeAccount: !!p.is_free_account,
+        fullComp: !!p.full_comp,
         mustChangePassword: !!p.must_change_password,
         lifetimeMatches: p.lifetime_matches ?? 0,
         seasonMatches: p.total_matches ?? 0,

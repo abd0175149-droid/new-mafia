@@ -259,6 +259,7 @@ export default function PlayerCardPage() {
           <div className="flex flex-wrap gap-1.5 mt-1.5">
             {id.isMinor && <Badge tone="rose">قاصر</Badge>}
             {id.isFreeAccount && <Badge tone="amber">مجّانيّ</Badge>}
+            {id.fullComp && <Badge tone="amber">ضيافة كاملة</Badge>}
             {id.isTestAccount && <Badge tone="gray">اختبار</Badge>}
             {id.mustChangePassword && <Badge tone="amber">كلمةُ السرّ ١٢٣٤ الآن</Badge>}
             {id.linkedStaffId && <Badge tone="rose">يفتح لوحةَ الإدارة</Badge>}
@@ -419,6 +420,10 @@ export default function PlayerCardPage() {
             </Btn>
             <Btn onClick={() => act('free', () => api(`/api/player/${playerId}/toggle-free`, { method: 'POST' }), 'بُدّلت حالةُ المجّانيّ')} busy={busy === 'free'}>
               {id.isFreeAccount ? 'ألغِ المجّانيّ' : 'اجعله مجّانيّاً'}
+            </Btn>
+            {/* 🎁 غير «المجّانيّ» (الدخوليّة وحدها): مافيا + طلبات المكان — الفاتورة تظهر وقيمتها صفر */}
+            <Btn onClick={() => act('comp', () => api(`/api/player/${playerId}/toggle-full-comp`, { method: 'POST' }), id.fullComp ? 'أُلغيت الضيافة الكاملة' : 'صار ضيافةً كاملة: المافيا وطلبات المكان مجّاناً')} busy={busy === 'comp'}>
+              {id.fullComp ? 'ألغِ الضيافة الكاملة' : 'ضيافة كاملة (مافيا + المكان)'}
             </Btn>
             <Btn onClick={exemptGeo} busy={busy === 'geo'}>
               {geo.exempt ? 'ألغِ إعفاءَ السياج' : 'أعفِه من السياج'}

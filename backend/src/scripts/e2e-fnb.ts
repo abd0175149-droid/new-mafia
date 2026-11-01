@@ -56,7 +56,7 @@ async function main() {
     const ss = await q(sql`SELECT id FROM sessions WHERE session_name LIKE ${'%' + E2E_TAG + '%'}`);
     for (const s of ss) await q(sql`DELETE FROM session_players WHERE session_id = ${s.id}`);
     await q(sql`DELETE FROM sessions WHERE session_name LIKE ${'%' + E2E_TAG + '%'}`);
-    await q(sql`DELETE FROM players WHERE phone IN ('0700000998', '0700000996', '0700000995', '0700000994', '0700000993', '0700000992', '0700000991', '0700000990')`);
+    await q(sql`DELETE FROM players WHERE phone IN ('0700000998', '0700000996', '0700000995', '0700000994', '0700000993', '0700000992', '0700000991', '0700000990', '0700000989', '0700000988', '0700000987')`);
   }
   await cleanup();
 
@@ -758,6 +758,89 @@ async function main() {
   r = await api(vURL(`/api/venue/money/night?activityId=${act13.id}`), { headers: A });
   const bm = r.body?.byMethod;
   ok('الحساب: نقداً ٣ (فادي) · فيزا ٣ (ليث) · كليك ٦ (الدفعة)', bm?.cash === 3 && bm?.card === 3 && bm?.cliq === 6, JSON.stringify(bm));
+
+  // ══ ١٤ · ضيافة كاملة، «لم يدفع» بسبب، الدين في الزيارة القادمة، زمن التحضير (2026-11-01) ══
+  section('١٤ · ضيافة كاملة · لم يدفع · الدين القادم · زمن التحضير');
+  const [act14] = await q(sql`INSERT INTO activities (name, date, base_price, status, location_id, menu_ordering_enabled, add_game_fee_to_bill)
+    VALUES (${E2E_TAG + ' comp'}, NOW() - INTERVAL '2 hours', 3.00, 'planned', ${LOC_TEST}, true, true) RETURNING id`);
+  const gK = await mkP('0700000989', 'ضيف المالك'), gW = await mkP('0700000988', 'غادر بلا دفع'), gL = await mkP('0700000987', 'خسارة الليلة');
+  await q(sql`UPDATE players SET full_comp = true WHERE id = ${gK.id}`);
+  for (const p of [gK, gW, gL]) await q(sql`INSERT INTO bookings (activity_id, name, phone, count, player_id, created_by, is_paid, is_free)
+    VALUES (${act14.id}, ${p.name}, '', 1, ${p.id}, 'e2e', false, false)`);
+  const [sess14] = await q(sql`INSERT INTO sessions (session_code, session_name, activity_id) VALUES ('E2E14C', ${E2E_TAG + ' comp room'}, ${act14.id}) RETURNING id`);
+  let s14 = 1;
+  for (const p of [gK, gW, gL]) await q(sql`INSERT INTO session_players (session_id, player_id, physical_id, player_name) VALUES (${sess14.id}, ${p.id}, ${s14++}, ${p.name})`);
+  // طلب شايٍ للضيف عبر مسار اللاعب الحقيقيّ
+  const kTok = generatePlayerToken({ playerId: gK.id, phone: '0700000989', name: gK.name });
+  r = await api('/api/fnb/orders', { method: 'POST', headers: { Authorization: `Bearer ${kTok}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ activityId: act14.id, items: [{ menuItemId: tea.id, quantity: 2 }] }) });
+  ok('الضيف يطلب شايين', r.body?.success === true, JSON.stringify(r.body).slice(0, 120));
+  const L14 = async (a = act14.id) => ((await api(vURL(`/api/venue/invoices/candidates?activityId=${a}`), { headers: A })).body?.candidates ?? []) as any[];
+  let c14 = await L14();
+  const cK = c14.find(c => c.playerId === gK.id && c.kind === 'open');
+  ok('ضيافة كاملة: سطرٌ بقيمة صفر وقيمة الضيافة ظاهرة', cK?.fullComp === true && cK?.grandTotal === 0 && cK?.compAmount === 3 && cK?.gameFee === 0, JSON.stringify(cK));
+  r = await api(vURL(`/api/venue/invoices/${act14.id}/${gK.id}`), { headers: A });
+  ok('فاتورته تُظهر البنود والمستحقّ صفر', r.body?.invoice?.lines?.length === 1 && r.body?.invoice?.grandTotal === 0 && r.body?.invoice?.compAmount === 3, JSON.stringify(r.body?.invoice).slice(0, 160));
+  r = await api(vURL(`/api/venue/invoices/${act14.id}/${gK.id}/pay`), { method: 'POST', headers: A, body: JSON.stringify({ expectedTotal: 0 }) });
+  const [invK] = await q(sql`SELECT is_paid, grand_total, comp_amount FROM order_invoices WHERE activity_id = ${act14.id} AND player_id = ${gK.id}`);
+  ok('الكاشير يغلقها بصفر وتُحفظ قيمة الضيافة', r.body?.success === true && invK?.is_paid && invK?.grand_total === '0.00' && invK?.comp_amount === '3.00', JSON.stringify(invK));
+  const [bkK] = await q(sql`SELECT is_paid FROM bookings WHERE activity_id = ${act14.id} AND player_id = ${gK.id}`);
+  ok('ولا دخوليّة عليه (الحجز لم يُقلب مدفوعاً بمال)', bkK?.is_paid === false);
+
+  // لم يدفع
+  r = await api(vURL(`/api/venue/invoices/${act14.id}/${gW.id}/writeoff`), { method: 'POST', headers: A, body: JSON.stringify({ kind: 'debt', reason: '' }) });
+  ok('«لم يدفع» بلا سبب ⟵ يُرفض', r.status === 400);
+  r = await api(vURL(`/api/venue/invoices/${act14.id}/${gW.id}/writeoff`), { method: 'POST', headers: A, body: JSON.stringify({ kind: 'debt', reason: 'غادر قبل الحساب', expectedTotal: 3 }) });
+  ok('«دين عليه» بسبب ⟵ يُقبل', r.body?.success === true && r.body?.kind === 'debt', JSON.stringify(r.body));
+  const debtInv = r.body?.invoiceId;
+  r = await api(vURL(`/api/venue/invoices/${act14.id}/${gL.id}/writeoff`), { method: 'POST', headers: A, body: JSON.stringify({ kind: 'loss', reason: 'لا يُعرف رقمه' }) });
+  ok('«خسارة» بسبب ⟵ يُقبل', r.body?.success === true);
+  c14 = await L14();
+  ok('في التحصيل: صفّا «لم يدفع» بسببيهما، لا «بقي»', c14.filter(c => c.kind === 'writeoff').length === 2 && !c14.some(c => c.kind === 'open' && (c.playerId === gW.id || c.playerId === gL.id))
+    && c14.find(c => c.playerId === gW.id)?.writeoffReason === 'غادر قبل الحساب');
+  const [bkW] = await q(sql`SELECT is_paid FROM bookings WHERE activity_id = ${act14.id} AND player_id = ${gW.id}`);
+  ok('حجز صاحب الدين بقي غير مدفوع', bkW?.is_paid === false);
+  r = await api(vURL(`/api/venue/money/night?activityId=${act14.id}`), { headers: A });
+  ok('الحساب: المحصَّل صفر، الدين ٣ والخسارة ٣ بأسبابهما، والضيافة ٣ ليست دخلاً للمكان',
+    r.body?.totals?.collected === 0 && r.body?.uncollected?.debt === 3 && r.body?.uncollected?.loss === 3 && r.body?.uncollected?.list?.length === 2
+    && r.body?.totals?.comp === 3 && r.body?.totals?.venue === 0, JSON.stringify({ t: r.body?.totals, u: r.body?.uncollected && { d: r.body.uncollected.debt, l: r.body.uncollected.loss } }));
+
+  // الزيارة القادمة: الدين يظهر ويُسدَّد
+  const [act14b] = await q(sql`INSERT INTO activities (name, date, base_price, status, location_id, menu_ordering_enabled, add_game_fee_to_bill)
+    VALUES (${E2E_TAG + ' next visit'}, NOW(), 3.00, 'planned', ${LOC_TEST}, true, false) RETURNING id`);
+  const [sess14b] = await q(sql`INSERT INTO sessions (session_code, session_name, activity_id) VALUES ('E2E14N', ${E2E_TAG + ' next room'}, ${act14b.id}) RETURNING id`);
+  await q(sql`INSERT INTO session_players (session_id, player_id, physical_id, player_name) VALUES (${sess14b.id}, ${gW.id}, 3, ${gW.name}), (${sess14b.id}, ${gL.id}, 4, ${gL.name})`);
+  // كي يظهر الحاضر بلا مستحقّ الليلة يكفي أن يكون له دين — نجعل للّيلة دخوليّة صفراً، فالدين وحده يُظهره
+  const c14b = await L14(act14b.id);
+  const dW = c14b.find(c => c.kind === 'debt' && c.playerId === gW.id);
+  ok('في زيارته القادمة: دينه يظهر بسببه وليلته', !!dW && dW.grandTotal === 3 && dW.writeoffReason === 'غادر قبل الحساب' && !!dW.debtFrom, JSON.stringify(dW));
+  ok('الخسارة لا تُطالَب', !c14b.some(c => c.kind === 'debt' && c.playerId === gL.id));
+  r = await api(vURL(`/api/venue/debts/${debtInv}/settle`), { method: 'POST', headers: A, body: JSON.stringify({ method: 'cliq' }) });
+  const [setl] = await q(sql`SELECT pay_method, debt_settled_at FROM order_invoices WHERE id = ${debtInv}`);
+  const [bkW2] = await q(sql`SELECT is_paid FROM bookings WHERE activity_id = ${act14.id} AND player_id = ${gW.id}`);
+  ok('التسديد ⟵ «كليك»، وحجز ليلته صار مدفوعاً', r.body?.success === true && setl?.pay_method === 'cliq' && !!setl?.debt_settled_at && bkW2?.is_paid === true, JSON.stringify(setl));
+  r = await api(vURL(`/api/venue/money/night?activityId=${act14.id}`), { headers: A });
+  ok('ليلة الدين صار محصَّلها ٣ (كليك) ولم يبقَ دين', r.body?.totals?.collected === 3 && r.body?.byMethod?.cliq === 3 && r.body?.uncollected?.debt === 0, JSON.stringify(r.body?.byMethod));
+  ok('ولا يظهر ديناً بعدها', !(await L14(act14b.id)).some(c => c.kind === 'debt' && c.playerId === gW.id));
+  r = await api(vURL(`/api/venue/debts/${debtInv}/unsettle`), { method: 'POST', headers: A });
+  const [uns] = await q(sql`SELECT pay_method FROM order_invoices WHERE id = ${debtInv}`);
+  const [bkW3] = await q(sql`SELECT is_paid FROM bookings WHERE activity_id = ${act14.id} AND player_id = ${gW.id}`);
+  ok('التراجع عن التسديد ⟵ دينٌ كما كان', r.body?.success === true && uns?.pay_method === 'debt' && bkW3?.is_paid === false);
+  r = await api(vURL(`/api/venue/invoices/unpay/${debtInv}`), { method: 'POST', headers: A });
+  const [reop] = await q(sql`SELECT is_paid, pay_method, writeoff_reason FROM order_invoices WHERE id = ${debtInv}`);
+  ok('«أعد فتحها» ⟵ فاتورةٌ مفتوحة بلا سبب', r.body?.success === true && reop?.is_paid === false && reop?.pay_method === null && reop?.writeoff_reason === null, JSON.stringify(reop));
+
+  // زمن التحضير: من الوصول إلى التسليم
+  const [oK] = await q(sql`SELECT id FROM orders WHERE activity_id = ${act14.id} AND player_id = ${gK.id} LIMIT 1`);
+  await q(sql`UPDATE orders SET status = 'delivered', created_at = NOW() - INTERVAL '20 minutes', status_changed_at = NOW() - INTERVAL '15 minutes' WHERE id = ${oK.id}`);
+  const [bkKid] = await q(sql`SELECT id FROM bookings WHERE activity_id = ${act14.id} AND player_id = ${gK.id}`);
+  await q(sql`INSERT INTO orders (activity_id, location_id, player_id, player_name, booking_id, total, status, created_at, status_changed_at)
+    VALUES (${act14.id}, ${LOC_TEST}, ${gK.id}, ${gK.name}, ${bkKid.id}, 1.50, 'delivered', NOW() - INTERVAL '30 minutes', NOW() - INTERVAL '15 minutes'),
+           (${act14.id}, ${LOC_TEST}, ${gK.id}, ${gK.name}, ${bkKid.id}, 1.50, 'cancelled', NOW() - INTERVAL '50 minutes', NOW())`);
+  r = await api(vURL(`/api/venue/prep-stats?activityId=${act14.id}`), { headers: A });
+  ok('زمن التحضير: الأسرع ٥ د، الأبطأ ١٥ د، المتوسّط ١٠ د (الملغى لا يدخل)', r.body?.count === 2 && r.body?.minSec === 300 && r.body?.maxSec === 900 && r.body?.avgSec === 600, JSON.stringify(r.body));
+  r = await api(vURL(`/api/venue/money/night?activityId=${act14.id}`), { headers: A });
+  ok('وفي «الحساب» للفعاليّة نفسها', r.body?.prep?.count === 2 && r.body?.prep?.avgSec === 600, JSON.stringify(r.body?.prep));
   await q(sql`UPDATE locations SET min_charge_enabled = ${minSaved12.en === true}, minimum_charge = ${minSaved12.val}, auto_water = ${minSaved12.aw === true} WHERE id = ${LOC_TEST}`);
 
   // ══ ٨ · الخلاصة والتنظيف ══

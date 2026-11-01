@@ -186,6 +186,12 @@ export const orderInvoices = pgTable('order_invoices', {
   // 💵 (2026-11-01) كيف دُفعت: cash | card | cliq — ومن دفع إن دفعها غيرُ صاحبها (venue_payments)
   payMethod: varchar('pay_method', { length: 8 }),
   paymentId: integer('payment_id'),
+  // 🎁 ضيافة كاملة (2026-11-01): قيمة ما قُدّم مجّاناً لحساب «ضيافة كاملة» — يتحمّلها المكان، لا تُحسب دخلاً
+  compAmount: decimal('comp_amount', { precision: 10, scale: 2 }).default('0'),
+  // 🧾 لم تُحصَّل (2026-11-01): pay_method = debt | loss والسبب إلزاميّ؛ الدين يُسدَّد لاحقاً فيأخذ طريقةً حقيقيّة
+  writeoffReason: text('writeoff_reason'),
+  debtSettledAt: timestamp('debt_settled_at'),
+  debtSettledBy: integer('debt_settled_by'),
 });
 
 // ── 👥 دفعةٌ تغلق عدّة فواتير (2026-11-01) ──

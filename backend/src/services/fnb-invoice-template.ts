@@ -118,6 +118,7 @@ function view(data: InvoiceData, invoiceNo: number, printedByName: string, recor
   if (data.minTopup > 0) sums.push({ label: 'تكملة الحدّ الأدنى', value: fmt(data.minTopup) });
   if (data.gameFeeApplied) sums.push({ label: 'دخوليّة اللعبة', value: fmt(data.gameFeeAmount) });
   if (data.loyaltyDiscount > 0) sums.push({ label: `مشروب بطاقة الولاء${data.loyaltyItemName ? ` (${clean(data.loyaltyItemName)})` : ''}`, value: `−${fmt(data.loyaltyDiscount)}` });
+  if ((data.compAmount || 0) > 0) sums.push({ label: 'ضيافة كاملة', value: `−${fmt(data.compAmount || 0)}` });
   return {
     no: `#${pad(invoiceNo, 4)}`, paid,
     when: dayDate(new Date(data.activityDate)), start: hm(new Date(data.activityDate)), time: hm(at),

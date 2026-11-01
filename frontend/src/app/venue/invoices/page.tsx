@@ -29,7 +29,7 @@ interface Night {
 }
 
 interface Row {
-  key: string; kind: 'open' | 'paid';
+  key: string; kind: 'open' | 'paid' | 'writeoff' | 'debt';
   playerId: number; playerName: string; seat: number | null; bookingId: number | null;
   invoiceId: number | null; invoiceNo: number | null; printedAt: string | null;
   isPaid: boolean; paidAt: string | null; paidById: number | null; paidByName: string;
@@ -38,6 +38,8 @@ interface Row {
   loyaltyDiscount: number; gameFee: number; grandTotal: number;
   isFree: boolean; noInvoice: boolean;
   payMethod: string | null; paymentId: number | null; paidForBy: string | null; groupId: number | null;
+  /** 🎁 ضيافة كاملة · 🧾 لم يدفع (السبب) · 💳 دينٌ من ليلة سابقة (تاريخها) */
+  fullComp?: boolean; compAmount?: number; writeoffReason?: string | null; debtFrom?: string | null;
 }
 
 interface Ledger {
@@ -74,6 +76,8 @@ const METHOD_AR: Record<string, string> = { cash: 'كاش', card: 'فيزا', cl
 /** آخر تحصيل — شريط «تراجع» وشاشة «تمّ» */
 interface LastPay {
   invoiceId: number | null; paymentId: number | null; playerId: number;
+  /** تسديد دينٍ قديم — التراجع من /debts/:id/unsettle */
+  debt?: boolean;
   payer: string; others: string[]; total: number; method: Method; change: number;
   until: number | null; invoiceNo: number | null;
 }
@@ -162,6 +166,11 @@ export default function VenueInvoicesPage() {
   const [reason, setReason] = useState('');
   const [printing, setPrinting] = useState(false);
   const [waBusy, setWaBusy] = useState(false);
+  // 🧾 «لم يدفع» · 💳 تسديد دينٍ قديم
+  const [woOpen, setWoOpen] = useState(false);
+  const [woKind, setWoKind] = useState<'debt' | 'loss' | null>(null);
+  const [woReason, setWoReason] = useState('');
+  const [debtKey, setDebtKey] = useState<string | null>(null);
 
   // ── بعد الدفع ──
   const [last, setLast] = useState<LastPay | null>(null);
@@ -270,7 +279,9 @@ export default function VenueInvoicesPage() {
   // ── المشتقّات ─────────────────────────────────────
   const rows = useMemo(() => (ledger && ledgerFor === actId ? ledger.candidates : []), [ledger, ledgerFor, actId]);
   const openRows = useMemo(() => rows.filter(r => r.kind === 'open').sort((a, b) => (a.seat ?? 999) - (b.seat ?? 999)), [rows]);
-  const paidRows = useMemo(() => rows.filter(r => r.kind === 'paid'), [rows]);
+  const paidRows = useMemo(() => rows.filter(r => r.kind === 'paid' || r.kind === 'writeoff'), [rows]);
+  const debtRows = useMemo(() => rows.filter(r => r.kind === 'debt'), [rows]);
+  const debtRow = debtKey ? debtRows.find(r => r.key === debtKey) ?? null : null;
   const openBy = useMemo(() => new Map(openRows.map(r => [r.playerId, r])), [openRows]);
   const T = ledger && ledgerFor === actId ? ledger.totals : null;
   const today = ammanToday();
@@ -279,12 +290,15 @@ export default function VenueInvoicesPage() {
 
   const primary = payId != null ? openBy.get(payId) ?? null : null;
   const selIds = payId != null ? [payId, ...friends] : [];
-  const total = r2(selIds.reduce((s, id) => s + (seen[id] ?? openBy.get(id)?.grandTotal ?? 0), 0));
+  const total = debtRow ? debtRow.grandTotal : r2(selIds.reduce((s, id) => s + (seen[id] ?? openBy.get(id)?.grandTotal ?? 0), 0));
   const short = method === 'cash' && given != null && given < total - 0.004;
   const change = method === 'cash' && given != null ? r2(given - total) : 0;
 
   // 🔔 المبلغ تغيّر أو شخصٌ حُصّل من جهازٍ آخر والكاشير على شاشة الدفع ⟵ تنبيهٌ يقفل الزرّ حتّى يقرّ بالجديد
   useEffect(() => {
+    if (viewRef.current === 'pay' && !busyRef.current && debtKey && !debtRows.some(r => r.key === debtKey)) {
+      setView('list'); setDebtKey(null); show('سُدّد هذا الدين للتوّ من جهازٍ آخر'); return;
+    }
     if (viewRef.current !== 'pay' || busyRef.current || payId == null) return;
     if (!openBy.has(payId)) {
       setView('list'); setPayId(null);
@@ -309,6 +323,7 @@ export default function VenueInvoicesPage() {
   // ── الأفعال ───────────────────────────────────────
   const openPay = (r: Row) => {
     if (!canPay) return;
+    setDebtKey(null); setWoOpen(false); setWoKind(null); setWoReason('');
     setPayId(r.playerId); setFriends([]); setShowFriends(false); setPayer(r.playerId); setOtherName('');
     setMethod('cash'); setGiven(null); setGivenText(''); setSeen({ [r.playerId]: r.grandTotal });
     setPayAlert(null); setMoreOpen(false); setItemsOpen(false); setDetail(null); setWaiveOpen(false); setReason('');
@@ -316,7 +331,14 @@ export default function VenueInvoicesPage() {
     window.scrollTo({ top: 0 });
     fetchDetail(r.playerId, null, setDetail);
   };
-  const backToList = () => { setView('list'); setPayId(null); setQ(''); window.scrollTo({ top: 0 }); };
+  const backToList = () => { setView('list'); setPayId(null); setDebtKey(null); setQ(''); window.scrollTo({ top: 0 }); };
+  /** 💳 دينٌ من ليلةٍ سابقة — شاشة الدفع نفسها بلا أصحابٍ ولا خيارات */
+  const openDebt = (r: Row) => {
+    if (!canPay) return;
+    setDebtKey(r.key); setPayId(null); setFriends([]); setShowFriends(false);
+    setMethod('cash'); setGiven(null); setGivenText(''); setPayAlert(null); setMoreOpen(false);
+    setView('pay'); window.scrollTo({ top: 0 });
+  };
 
   const toggleFriend = (id: number) => {
     setFriends(f => f.includes(id) ? f.filter(x => x !== id) : [...f, id]);
@@ -343,7 +365,50 @@ export default function VenueInvoicesPage() {
     setSeen(s); setPayAlert(null);
   };
 
+  /** 💳 تسديد الدين القديم */
+  const payDebt = async () => {
+    if (!debtRow || busy || short) return;
+    setBusy(true);
+    const r = await apiRef.current.send(`/api/venue/debts/${debtRow.invoiceId}/settle`, 'POST', { method }).catch(() => null);
+    setBusy(false);
+    if (!r?.ok) { await reloadAll(); show(r?.data?.error || 'تعذّر تسجيل الدفع', { tone: 'bad' }); return; }
+    setLast({
+      invoiceId: debtRow.invoiceId, paymentId: null, playerId: debtRow.playerId, debt: true,
+      payer: debtRow.playerName, others: [], total: debtRow.grandTotal, method,
+      change: method === 'cash' && given != null ? r2(given - debtRow.grandTotal) : 0,
+      until: r.data?.canUndoUntil ? new Date(r.data.canUndoUntil).getTime() : null, invoiceNo: debtRow.invoiceNo,
+    });
+    setView('done'); setDebtKey(null); window.scrollTo({ top: 0 });
+    reloadAll();
+  };
+
+  /** 🧾 «لم يدفع» بسبب — دين عليه أو خسارة */
+  const writeoff = async () => {
+    if (!actId || payId == null || busy || !woKind || woReason.trim().length < 3) return;
+    setBusy(true);
+    const name = openBy.get(payId)?.playerName || '';
+    const r = await apiRef.current.send(`/api/venue/invoices/${actId}/${payId}/writeoff`, 'POST', { kind: woKind, reason: woReason.trim(), expectedTotal: seen[payId] }).catch(() => null);
+    setBusy(false);
+    if (!r?.ok) {
+      await reloadAll();
+      if (r?.status === 409) { setPayAlert(r.data?.error || 'تغيّر المبلغ للتوّ — راجع'); setWoOpen(false); }
+      else show(r?.data?.error || 'تعذّر التسجيل', { tone: 'bad' });
+      return;
+    }
+    const inv = r.data?.invoiceId;
+    setWoOpen(false); setWoKind(null); setWoReason('');
+    backToList();
+    reloadAll();
+    show(`سُجّلت فاتورة ${name} «${woKind === 'debt' ? 'دين عليه' : 'خسارة'}»`, inv && r.data?.canUndoUntil ? {
+      undo: async () => {
+        const u = await apiRef.current.send(`/api/venue/invoices/unpay/${inv}`, 'POST', {}).catch(() => null);
+        if (!u?.ok) show(u?.data?.error || 'تعذّر التراجع', { tone: 'bad' }); else { show('أُعيدت الفاتورة مفتوحة'); reloadAll(); }
+      }, ms: 8000,
+    } : {});
+  };
+
   const pay = async () => {
+    if (debtRow) return payDebt();
     if (!actId || payId == null || busy || payAlert || short) return;
     if (friends.length && payer === 'other' && !otherName.trim()) { show('اكتب اسم من دفع', { tone: 'bad' }); return; }
     setBusy(true);
@@ -388,9 +453,11 @@ export default function VenueInvoicesPage() {
     const L = last;
     let r: { ok: boolean; data: any } | null = null;
     try {
-      r = L.paymentId
-        ? await apiRef.current.send(`/api/venue/invoices/unpay-payment/${L.paymentId}`, 'POST', {})
-        : await apiRef.current.send(`/api/venue/invoices/unpay/${L.invoiceId}`, 'POST', {});
+      r = L.debt
+        ? await apiRef.current.send(`/api/venue/debts/${L.invoiceId}/unsettle`, 'POST', {})
+        : L.paymentId
+          ? await apiRef.current.send(`/api/venue/invoices/unpay-payment/${L.paymentId}`, 'POST', {})
+          : await apiRef.current.send(`/api/venue/invoices/unpay/${L.invoiceId}`, 'POST', {});
     } catch { r = null; }
     if (!r?.ok) { show(r?.data?.error || 'تعذّر التراجع', { tone: 'bad' }); return; }
     setLast(null);
@@ -545,11 +612,96 @@ export default function VenueInvoicesPage() {
     );
   }
 
+  // ── كيف دفع؟ / كم أعطاك؟ — مشتركٌ بين الدفع وتسديد الدين ──
+  const notesFor = [5, 10, 20, 50, 100].filter(n => n >= total).slice(0, 4);
+  const methodCash = (
+    <>
+        {/* كيف دفع؟ */}
+        <span className="text-[15px] font-bold" style={{ color: TX.dim }}>كيف دفع؟</span>
+        <div className="grid grid-cols-3 gap-2">
+          {METHODS.map(m => (
+            <button key={m.v} type="button" aria-pressed={method === m.v} onClick={() => { setMethod(m.v); setGiven(null); setGivenText(''); }}
+              className="vc-press rounded-2xl text-[18px] font-extrabold" style={{ minHeight: 60,
+                ...(method === m.v ? { background: '#E9F5EF', color: '#0B2A1F' } : { background: EM.card, border: `1px solid ${EM.line2}`, color: EM.text }) }}>
+              {m.label}
+            </button>
+          ))}
+        </div>
+
+        {/* كم أعطاك؟ — النظام يحسب الباقي */}
+        {method === 'cash' && (
+          <>
+            <span className="text-[15px] font-bold" style={{ color: TX.dim }}>كم أعطاك؟</span>
+            <div className="flex flex-wrap gap-2">
+              {[{ v: total, label: 'بالضبط' }, ...notesFor.filter(n => Math.abs(n - total) > 0.004).map(n => ({ v: n, label: String(n) }))].map(o => (
+                <button key={o.label} type="button" aria-pressed={given === o.v && !givenText} onClick={() => { setGiven(o.v); setGivenText(''); }}
+                  className={`vc-press flex-1 rounded-2xl text-[18px] font-extrabold ${o.label === 'بالضبط' ? '' : 'vc-num'}`} style={{ minHeight: 56, minWidth: 64,
+                    ...(given === o.v && !givenText ? { background: '#E9F5EF', color: '#0B2A1F' } : { background: EM.card, border: `1px solid ${EM.line2}`, color: EM.text }) }}>
+                  {o.label}
+                </button>
+              ))}
+            </div>
+            <input value={givenText} inputMode="decimal" placeholder="مبلغٌ آخر" aria-label="مبلغٌ آخر أعطاك إيّاه"
+              onChange={e => { const t = latinDigits(e.target.value); setGivenText(e.target.value); const v = parseFloat(t); setGiven(Number.isFinite(v) ? v : null); }}
+              className="w-full rounded-2xl px-4 outline-none placeholder:text-[#5A6862] vc-num"
+              style={{ height: 56, fontSize: 18, background: EM.ink, border: `1px solid ${EM.line2}`, color: EM.text }} />
+            {given != null && (
+              change > 0.004 ? (
+                <div className="rounded-2xl py-3 px-4 text-center text-[18px] font-bold" style={{ background: '#2C2310', border: `1px solid ${TX.amberHi}`, color: TX.amber }}>
+                  أرجِع له<span className="vc-num block" style={{ fontSize: 36 }}>{f2(change)}</span>
+                </div>
+              ) : short ? (
+                <div className="rounded-2xl py-3 px-4 text-center text-[17px] font-bold" style={{ background: '#34160F', border: '1px solid #E0492B', color: TX.bad }}>
+                  ناقص<span className="vc-num block" style={{ fontSize: 36 }}>{f2(r2(total - given))}</span>اطلب منه الباقي قبل «تمّ الدفع»
+                </div>
+              ) : (
+                <div className="rounded-2xl py-3 px-4 text-center text-[18px] font-bold" style={{ background: '#0F2A1F', border: `1px solid ${EM.go}`, color: TX.good }}>المبلغ بالضبط ✓</div>
+              )
+            )}
+          </>
+        )}
+
+    </>
+  );
+
+  // ══════════════════ 💳 تسديد دينٍ من ليلةٍ سابقة ══════════════════
+  if (view === 'pay' && debtRow) {
+    return (
+      <div className="flex flex-col gap-3.5 pb-8 max-w-[560px] mx-auto w-full">
+        <div className="flex items-center gap-3">
+          <button type="button" onClick={backToList} aria-label="رجوع إلى القائمة"
+            className="vc-press w-12 h-12 rounded-2xl flex items-center justify-center shrink-0"
+            style={{ border: `1px solid ${EM.line2}`, background: EM.card, color: TX.sub }}>
+            <Icon name="chevron" size={22} stroke={2.2} style={{ transform: 'scaleX(-1)' }} />
+          </button>
+          <SeatBadge seat={debtRow.seat} size={52} />
+          <div className="flex-1 min-w-0">
+            <div className="text-[22px] font-extrabold leading-tight truncate">{debtRow.playerName}</div>
+            <div className="text-[14px]" style={{ color: TX.amber }}>دينٌ من ليلة {debtRow.debtFrom ? nightLabel(debtRow.debtFrom) : 'سابقة'}</div>
+          </div>
+        </div>
+        <div className="text-center pt-1">
+          <div className="text-[16px]" style={{ color: TX.dim }}>عليه من قبل</div>
+          <div className="vc-num font-semibold leading-none mt-1" style={{ fontSize: 54 }}>{f2(total)}</div>
+        </div>
+        {debtRow.writeoffReason && (
+          <div className="rounded-2xl px-4 py-3 text-[15px]" style={{ background: EM.ink2, border: `1px solid ${EM.line}`, color: TX.sub }}>
+            سبب عدم الدفع يومها: {debtRow.writeoffReason}
+          </div>
+        )}
+        {methodCash}
+        <Btn kind="go" full style={{ ...big, minHeight: 66, fontSize: 21 }} onClick={pay} disabled={busy || short}>
+          {busy ? 'يُسجَّل…' : <>✓ سدّد الدين <span className="vc-num">{f2(total)}</span></>}
+        </Btn>
+        <Toast toast={toast} onHide={hide} />
+      </div>
+    );
+  }
+
   // ══════════════════ شاشة «ادفع» ══════════════════
   if (view === 'pay' && primary) {
-    const others = openRows.filter(r => r.playerId !== payId);
+    const others = openRows.filter(r => r.playerId !== payId && !r.fullComp);
     const lines = plainLines(primary);
-    const notes = [5, 10, 20, 50, 100].filter(n => n >= total).slice(0, 4);
     const canWaive = !!(detail && !detail.isPaid && !detail.bookingIsPaid && !detail.bookingIsFree && detail.gameFeeApplied);
     const canRestore = !!(detail && !detail.isPaid && !detail.bookingIsPaid && detail.bookingIsFree);
     const wa = ledger?.waEnabled ? waPill(primary, ledger.wa?.[primary.playerId]) : null;
@@ -576,9 +728,14 @@ export default function VenueInvoicesPage() {
         )}
 
         <div className="text-center pt-1">
-          <div className="text-[16px]" style={{ color: TX.dim }}>{friends.length ? `المجموع عن ${selIds.length} أشخاص` : 'عليه'}</div>
+          <div className="text-[16px]" style={{ color: TX.dim }}>{primary.fullComp ? 'ضيافة كاملة' : friends.length ? `المجموع عن ${selIds.length} أشخاص` : 'عليه'}</div>
           <div className="vc-num font-semibold leading-none mt-1" style={{ fontSize: 54 }}>{f2(total)}</div>
         </div>
+        {primary.fullComp && (
+          <div className="rounded-2xl px-4 py-3 text-[16px] font-bold text-center" style={{ background: 'rgba(37,192,138,.08)', border: `1px solid ${EM.go}`, color: TX.good }}>
+            🎁 ضيافة كاملة — لا يُدفع شيء. قيمة ما طلبه <span className="vc-num">{f2(primary.compAmount || 0)}</span> يتحمّلها المكان.
+          </div>
+        )}
 
         {/* ما عليه — بكلماتٍ عاديّة، والأصناف عند الطلب */}
         <div className="rounded-2xl" style={{ background: EM.ink2, border: `1px solid ${EM.line}`, padding: '2px 14px' }}>
@@ -611,7 +768,7 @@ export default function VenueInvoicesPage() {
         </div>
 
         {/* 👥 يدفع عن أصحابه */}
-        {others.length > 0 && (
+        {others.length > 0 && !primary.fullComp && (
           <Btn kind="ghost" h={56} style={{ fontSize: 16 }} onClick={() => setShowFriends(s => !s)}>
             <Icon name="users" size={20} /> {showFriends ? 'إخفاء القائمة' : friends.length ? `يدفع عن ${friends.length} — عدّل` : 'يدفع عن أصحابه؟'}
           </Btn>
@@ -663,53 +820,10 @@ export default function VenueInvoicesPage() {
           </div>
         )}
 
-        {/* كيف دفع؟ */}
-        <span className="text-[15px] font-bold" style={{ color: TX.dim }}>كيف دفع؟</span>
-        <div className="grid grid-cols-3 gap-2">
-          {METHODS.map(m => (
-            <button key={m.v} type="button" aria-pressed={method === m.v} onClick={() => { setMethod(m.v); setGiven(null); setGivenText(''); }}
-              className="vc-press rounded-2xl text-[18px] font-extrabold" style={{ minHeight: 60,
-                ...(method === m.v ? { background: '#E9F5EF', color: '#0B2A1F' } : { background: EM.card, border: `1px solid ${EM.line2}`, color: EM.text }) }}>
-              {m.label}
-            </button>
-          ))}
-        </div>
-
-        {/* كم أعطاك؟ — النظام يحسب الباقي */}
-        {method === 'cash' && (
-          <>
-            <span className="text-[15px] font-bold" style={{ color: TX.dim }}>كم أعطاك؟</span>
-            <div className="flex flex-wrap gap-2">
-              {[{ v: total, label: 'بالضبط' }, ...notes.filter(n => Math.abs(n - total) > 0.004).map(n => ({ v: n, label: String(n) }))].map(o => (
-                <button key={o.label} type="button" aria-pressed={given === o.v && !givenText} onClick={() => { setGiven(o.v); setGivenText(''); }}
-                  className={`vc-press flex-1 rounded-2xl text-[18px] font-extrabold ${o.label === 'بالضبط' ? '' : 'vc-num'}`} style={{ minHeight: 56, minWidth: 64,
-                    ...(given === o.v && !givenText ? { background: '#E9F5EF', color: '#0B2A1F' } : { background: EM.card, border: `1px solid ${EM.line2}`, color: EM.text }) }}>
-                  {o.label}
-                </button>
-              ))}
-            </div>
-            <input value={givenText} inputMode="decimal" placeholder="مبلغٌ آخر" aria-label="مبلغٌ آخر أعطاك إيّاه"
-              onChange={e => { const t = latinDigits(e.target.value); setGivenText(e.target.value); const v = parseFloat(t); setGiven(Number.isFinite(v) ? v : null); }}
-              className="w-full rounded-2xl px-4 outline-none placeholder:text-[#5A6862] vc-num"
-              style={{ height: 56, fontSize: 18, background: EM.ink, border: `1px solid ${EM.line2}`, color: EM.text }} />
-            {given != null && (
-              change > 0.004 ? (
-                <div className="rounded-2xl py-3 px-4 text-center text-[18px] font-bold" style={{ background: '#2C2310', border: `1px solid ${TX.amberHi}`, color: TX.amber }}>
-                  أرجِع له<span className="vc-num block" style={{ fontSize: 36 }}>{f2(change)}</span>
-                </div>
-              ) : short ? (
-                <div className="rounded-2xl py-3 px-4 text-center text-[17px] font-bold" style={{ background: '#34160F', border: '1px solid #E0492B', color: TX.bad }}>
-                  ناقص<span className="vc-num block" style={{ fontSize: 36 }}>{f2(r2(total - given))}</span>اطلب منه الباقي قبل «تمّ الدفع»
-                </div>
-              ) : (
-                <div className="rounded-2xl py-3 px-4 text-center text-[18px] font-bold" style={{ background: '#0F2A1F', border: `1px solid ${EM.go}`, color: TX.good }}>المبلغ بالضبط ✓</div>
-              )
-            )}
-          </>
-        )}
+        {!primary.fullComp && methodCash}
 
         <Btn kind="go" full style={{ ...big, minHeight: 66, fontSize: 21 }} onClick={pay} disabled={busy || !!payAlert || short}>
-          {busy ? 'يُسجَّل…' : <>✓ تمّ الدفع <span className="vc-num">{f2(total)}</span></>}
+          {busy ? 'يُسجَّل…' : primary.fullComp ? '✓ أغلق الفاتورة (ضيافة)' : <>✓ تمّ الدفع <span className="vc-num">{f2(total)}</span></>}
         </Btn>
 
         {/* خيارات أخرى — النادر لا يزاحم الدفع */}
@@ -726,6 +840,34 @@ export default function VenueInvoicesPage() {
               <div className="flex items-center gap-2">
                 <span className="flex-1 min-w-0 text-[14px] font-bold truncate" style={{ color: wa?.color || TX.dim }}>{wa ? wa.text : 'لم يُرسل له شيء على واتساب'}</span>
                 <Btn kind="ghost" h={52} style={{ fontSize: 15 }} disabled={waBusy} onClick={() => waSend(primary.playerId, null, false)}>{waBusy ? 'يُرسل…' : 'أرسل الفاتورة'}</Btn>
+              </div>
+            )}
+            {!primary.fullComp && total > 0 && !woOpen && (
+              <Btn kind="ghost" h={52} style={{ fontSize: 15, color: TX.bad }} disabled={busy} onClick={() => { setWoOpen(true); setWaiveOpen(false); }}>لم يدفع — سجّلها…</Btn>
+            )}
+            {woOpen && (
+              <div className="rounded-2xl p-3.5 flex flex-col gap-2.5" style={{ background: 'rgba(224,73,43,.08)', border: '1px solid rgba(224,73,43,.35)' }}>
+                <span className="text-[15px] font-extrabold">{primary.playerName} لم يدفع <span className="vc-num">{f2(total)}</span> — كيف تُسجَّل؟</span>
+                <div className="grid grid-cols-2 gap-2">
+                  {([['debt', 'دين عليه', 'يظهر في زيارته القادمة ليدفعه'], ['loss', 'خسارة', 'تُغلق ولا يُطالَب بها']] as const).map(([k, l, d]) => (
+                    <button key={k} type="button" aria-pressed={woKind === k} onClick={() => setWoKind(k)}
+                      className="vc-press rounded-2xl text-right px-3 py-2.5" style={{ minHeight: 64,
+                        ...(woKind === k ? { background: '#E9F5EF', color: '#0B2A1F' } : { background: EM.card, border: `1px solid ${EM.line2}`, color: EM.text }) }}>
+                      <span className="block text-[16px] font-extrabold">{l}</span>
+                      <span className="block text-[12.5px]" style={{ opacity: .8 }}>{d}</span>
+                    </button>
+                  ))}
+                </div>
+                <label className="text-[14px] font-bold" htmlFor="wo-reason">لماذا لم يدفع؟</label>
+                <input id="wo-reason" value={woReason} onChange={e => setWoReason(e.target.value)} maxLength={200}
+                  placeholder="مثلاً: غادر قبل الحساب، يدفع غداً…"
+                  className="w-full rounded-xl px-3 outline-none placeholder:text-[#5A6862]"
+                  style={{ height: 52, fontSize: 16, background: EM.ink, border: `1px solid ${EM.line2}`, color: EM.text }} />
+                <div className="flex gap-2">
+                  <Btn kind="danger" h={52} className="flex-1" disabled={busy || !woKind || woReason.trim().length < 3} onClick={writeoff}>{busy ? 'يُسجَّل…' : 'سجّلها'}</Btn>
+                  <Btn kind="ghost" h={52} style={{ color: TX.sub }} disabled={busy} onClick={() => { setWoOpen(false); setWoKind(null); setWoReason(''); }}>رجوع</Btn>
+                </div>
+                <span className="text-[12.5px]" style={{ color: TX.dim }}>يُسجَّل باسمك مع السبب ويظهر للإدارة في «الحساب».</span>
               </div>
             )}
             {canWaive && !waiveOpen && <Btn kind="ghost" h={52} style={{ fontSize: 15 }} disabled={busy} onClick={() => setWaiveOpen(true)}>إسقاط دخول اللعبة…</Btn>}
@@ -824,7 +966,9 @@ export default function VenueInvoicesPage() {
                     <span className="block text-[18px] font-extrabold truncate">{r.playerName}</span>
                     {wa && <span className="flex items-center gap-1 text-[13px] font-bold truncate" style={{ color: wa.color }}><Icon name={wa.icon} size={14} stroke={2.2} /><span className="truncate">{wa.text}</span></span>}
                   </span>
-                  <span className="vc-num font-semibold shrink-0" style={{ fontSize: 22 }}>{f2(r.grandTotal)}</span>
+                  {r.fullComp
+                    ? <span className="shrink-0 text-[15px] font-extrabold rounded-full px-3 py-1" style={{ background: 'rgba(37,192,138,.12)', color: TX.good }}>🎁 ضيافة</span>
+                    : <span className="vc-num font-semibold shrink-0" style={{ fontSize: 22 }}>{f2(r.grandTotal)}</span>}
                   <Icon name="chevron" size={20} color={TX.dim} />
                 </button>
               );
@@ -834,6 +978,30 @@ export default function VenueInvoicesPage() {
             )}
             {rows.length === 0 && <div className="text-center py-8 text-[16px]" style={{ color: TX.dim }}>لا طلبات ولا لاعبين في هذه الليلة بعد</div>}
           </div>
+
+          {debtRows.length > 0 && (
+            <section aria-label="ديون من ليالٍ سابقة" className="flex flex-col gap-2 mt-1">
+              <span className="text-[16px] font-extrabold" style={{ color: TX.amber }}>
+                ديون من ليالٍ سابقة · <span className="vc-num">{f2(debtRows.reduce((s, r) => s + r.grandTotal, 0))}</span>
+              </span>
+              {debtRows.map(r => (
+                <button key={r.key} type="button" onClick={() => openDebt(r)} disabled={!canPay}
+                  aria-label={`${r.playerName}، دينٌ ${f2(r.grandTotal)}`}
+                  className="vc-press flex items-center gap-3 rounded-[18px] text-right"
+                  style={{ minHeight: 72, padding: '10px 12px', background: 'rgba(204,127,34,.07)', border: '1px solid rgba(204,127,34,.4)', color: 'inherit' }}>
+                  <SeatBadge seat={r.seat} size={50} />
+                  <span className="flex-1 min-w-0">
+                    <span className="block text-[17px] font-extrabold truncate">{r.playerName}</span>
+                    <span className="block text-[13px] truncate" style={{ color: TX.amber }}>
+                      من ليلة {r.debtFrom ? nightLabel(r.debtFrom) : 'سابقة'}{r.writeoffReason ? ` — ${r.writeoffReason}` : ''}
+                    </span>
+                  </span>
+                  <span className="vc-num font-semibold shrink-0" style={{ fontSize: 21, color: TX.amber }}>{f2(r.grandTotal)}</span>
+                  <Icon name="chevron" size={20} color={TX.dim} />
+                </button>
+              ))}
+            </section>
+          )}
 
           {paidRows.length > 0 && (
             <button type="button" onClick={() => setPaidOpen(o => !o)} className="vc-press rounded-2xl text-[16px] font-bold"
@@ -847,11 +1015,13 @@ export default function VenueInvoicesPage() {
               <SeatBadge seat={r.seat} size={44} />
               <span className="flex-1 min-w-0">
                 <span className="block text-[16px] font-bold truncate">{r.playerName}</span>
-                <span className="block text-[13px] truncate" style={{ color: TX.dim }}>
-                  {hhmm(r.paidAt)}{r.payMethod ? ` · ${METHOD_AR[r.payMethod]}` : ''}{r.paidForBy ? ` · دفعها ${r.paidForBy}` : ''}
+                <span className="block text-[13px] truncate" style={{ color: r.kind === 'writeoff' ? TX.bad : TX.dim }}>
+                  {r.kind === 'writeoff'
+                    ? `لم يدفع · ${r.payMethod === 'debt' ? 'دين عليه' : 'خسارة'}${r.writeoffReason ? ` — ${r.writeoffReason}` : ''}`
+                    : <>{hhmm(r.paidAt)}{r.payMethod ? ` · ${METHOD_AR[r.payMethod]}` : ''}{r.paidForBy ? ` · دفعها ${r.paidForBy}` : ''}{r.fullComp ? ' · ضيافة' : ''}</>}
                 </span>
               </span>
-              <span className="vc-num shrink-0" style={{ fontSize: 18, color: TX.good }}>{f2(r.grandTotal)}</span>
+              <span className="vc-num shrink-0" style={{ fontSize: 18, color: r.kind === 'writeoff' ? TX.bad : TX.good }}>{f2(r.grandTotal)}</span>
             </button>
           ))}
         </>
@@ -882,7 +1052,7 @@ export default function VenueInvoicesPage() {
 
       {/* ══ فاتورة محصّلة ══ */}
       <Sheet open={!!paidSheet} onClose={() => setPaidSheet(null)} title={paidSheet?.playerName}
-        subtitle={paidSheet ? `#${paidSheet.invoiceNo ?? ''} · ${hhmm(paidSheet.paidAt)}${paidSheet.payMethod ? ` · ${METHOD_AR[paidSheet.payMethod]}` : ''}${paidSheet.paidForBy ? ` · دفعها ${paidSheet.paidForBy}` : ''}` : undefined}
+        subtitle={paidSheet ? `#${paidSheet.invoiceNo ?? ''} · ${hhmm(paidSheet.paidAt)}${paidSheet.payMethod && METHOD_AR[paidSheet.payMethod] ? ` · ${METHOD_AR[paidSheet.payMethod]}` : ''}${paidSheet.paidForBy ? ` · دفعها ${paidSheet.paidForBy}` : ''}` : undefined}
         lead={<SeatBadge seat={paidSheet?.seat ?? null} size={44} />}>
         {paidSheet && (
           <div className="flex flex-col gap-2.5 mt-3">
@@ -898,9 +1068,20 @@ export default function VenueInvoicesPage() {
                 </div>
               ))}
               <div className="flex justify-between text-[18px] font-extrabold" style={{ padding: '10px 0', borderTop: `1px solid ${EM.line2}` }}>
-                <span>المدفوع</span><span className="vc-num">{f2(paidSheet.grandTotal)}</span>
+                <span>{paidSheet.kind === 'writeoff' ? 'لم يُدفع' : 'المدفوع'}</span><span className="vc-num">{f2(paidSheet.grandTotal)}</span>
               </div>
             </div>
+            {paidSheet.kind === 'writeoff' && (
+              <div className="rounded-2xl px-4 py-3 text-[15px] flex flex-col gap-2" style={{ background: 'rgba(224,73,43,.08)', border: '1px solid rgba(224,73,43,.35)' }}>
+                <span className="font-bold" style={{ color: TX.bad }}>لم يدفع · {paidSheet.payMethod === 'debt' ? 'دين عليه — يظهر في زيارته القادمة' : 'خسارة'}</span>
+                {paidSheet.writeoffReason && <span style={{ color: TX.sub }}>السبب: {paidSheet.writeoffReason}{paidSheet.paidByName ? ` · سجّلها ${paidSheet.paidByName}` : ''}</span>}
+                <Btn kind="ghost" h={52} style={{ fontSize: 15 }} onClick={async () => {
+                  const u = await apiRef.current.send(`/api/venue/invoices/unpay/${paidSheet.invoiceId}`, 'POST', {}).catch(() => null);
+                  if (!u?.ok) { show(u?.data?.error || 'تعذّر — إعادة الفتح بعد المهلة للإدارة', { tone: 'bad' }); return; }
+                  setPaidSheet(null); show('أُعيدت الفاتورة مفتوحة'); reloadAll();
+                }}>↩ أعد فتحها للتحصيل</Btn>
+              </div>
+            )}
             <Btn kind="ghost" h={52} style={{ fontSize: 15 }} disabled={printing} onClick={() => printFor(paidSheet.playerId, paidSheet.invoiceId, 'receipt')}>
               <Icon name="printer" size={18} /> اطبع إيصالاً
             </Btn>

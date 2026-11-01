@@ -19,6 +19,8 @@ import { buildInvoiceData, issueInvoiceNumber, type InvoiceData } from './fnb-in
 import { UNDO_WINDOW_MS } from './fnb-ledger.service.js';
 
 export type PayMethod = 'cash' | 'card' | 'cliq';
+/** 🧾 لم تُحصَّل (2026-11-01): دينٌ عليه يُسدَّد في زيارته القادمة، أو خسارة — والسبب إلزاميّ */
+export type WriteoffKind = 'debt' | 'loss';
 export const PAY_METHODS: PayMethod[] = ['cash', 'card', 'cliq'];
 export const PAY_METHOD_AR: Record<string, string> = { cash: 'كاش', card: 'فيزا', cliq: 'كليك' };
 /** أقصى فواتير في دفعةٍ واحدة */
@@ -44,12 +46,17 @@ const r2 = (x: number) => Math.round((Number(x) || 0) * 100) / 100;
 export async function collectInvoices(db: Database, p: {
   locId: number; activityId: number; items: CollectItem[]; staffId: number; receiverName: string;
   method: PayMethod; payer: { playerId: number | null; name: string } | null;
+  /** تسجيل «لم تُحصَّل» بدل التحصيل: تُغلق الفاتورة بلا مال ولا يُقلب الحجز مدفوعاً */
+  writeoff?: { kind: WriteoffKind; reason: string } | null;
 }): Promise<CollectResult> {
   const seen = new Set<number>();
   const items = p.items.filter(i => Number.isFinite(i.playerId) && !seen.has(i.playerId) && seen.add(i.playerId));
   if (!items.length) return { ok: false, status: 400, code: 'INVALID', error: 'لم يُختر أحد' };
   if (items.length > MAX_GROUP) return { ok: false, status: 400, code: 'INVALID', error: `أقصى ${MAX_GROUP} فاتورة في دفعةٍ واحدة` };
-  if (!PAY_METHODS.includes(p.method)) return { ok: false, status: 400, code: 'INVALID', error: 'طريقة دفعٍ غير معروفة' };
+  if (!p.writeoff && !PAY_METHODS.includes(p.method)) return { ok: false, status: 400, code: 'INVALID', error: 'طريقة دفعٍ غير معروفة' };
+  if (p.writeoff && (!['debt', 'loss'].includes(p.writeoff.kind) || String(p.writeoff.reason || '').trim().length < 3)) {
+    return { ok: false, status: 400, code: 'INVALID', error: 'اكتب سبب عدم التحصيل' };
+  }
 
   // ① المجاميع تُعاد من الطلبات المفتوحة الآن — لا نثق بمجاميع مخزّنة قد تكون قديمة
   const prepared: { item: CollectItem; data: InvoiceData }[] = [];
@@ -107,15 +114,17 @@ export async function collectInvoices(db: Database, p: {
           ordersTotal: data.ordersTotal.toFixed(2), minTopup: data.minTopup.toFixed(2), waterCharge: data.waterCharge.toFixed(2),
           loyaltyDiscount: data.loyaltyDiscount.toFixed(2), loyaltyRewardId: data.loyaltyRewardId,
           gameFeeApplied: data.gameFeeApplied, gameFeeAmount: data.gameFeeAmount.toFixed(2), grandTotal: data.grandTotal.toFixed(2),
-          bookingId: data.bookingId, isPaid: true, paidAt, paidBy: p.staffId, payMethod: p.method, paymentId,
+          bookingId: data.bookingId, isPaid: true, paidAt, paidBy: p.staffId, payMethod: p.writeoff ? p.writeoff.kind : p.method, paymentId,
+          compAmount: (data.compAmount || 0).toFixed(2),
+          writeoffReason: p.writeoff ? String(p.writeoff.reason).trim().slice(0, 300) : null,
         } as any).where(and(eq(orderInvoices.id, inv.id), eq(orderInvoices.isPaid, false))).returning({ id: orderInvoices.id });
         if (!row) throw new GoneError(data.playerId, data.playerName);
         // 🧾 الطلبات التي حسبناها تُختم بهذه الفاتورة — ما وصل بعد الحساب يبقى مفتوحاً
         if (data.orderIds.length > 0) {
           await tx.update(orders).set({ invoiceId: inv.id } as any).where(and(inArray(orders.id, data.orderIds), isNull(orders.invoiceId)));
         }
-        // الدخوليّة محصَّلة عند المكان ⇒ الحجز صار مدفوعاً باسم موظّف المكان
-        if (data.gameFeeApplied && data.gameFeeAmount > 0 && data.bookingId) {
+        // الدخوليّة محصَّلة عند المكان ⇒ الحجز صار مدفوعاً باسم موظّف المكان (لا عند «لم تُحصَّل»)
+        if (!p.writeoff && data.gameFeeApplied && data.gameFeeAmount > 0 && data.bookingId) {
           const flipped = await tx.update(bookings).set({
             isPaid: true, paidAmount: data.gameFeeAmount.toFixed(2), receivedBy: p.receiverName,
           } as any).where(and(eq(bookings.id, data.bookingId), eq(bookings.isPaid, false))).returning({ id: bookings.id });
@@ -199,4 +208,50 @@ export async function paymentOf(db: Database, paymentId: number | null | undefin
   const invs = await db.select({ id: orderInvoices.id, playerId: orderInvoices.playerId, invoiceNo: orderInvoices.invoiceNo, grandTotal: orderInvoices.grandTotal })
     .from(orderInvoices).where(eq(orderInvoices.paymentId, paymentId));
   return { ...pay, invoices: invs };
+}
+
+/**
+ * 💳 تسديد دينٍ قديم (2026-11-01): فاتورةٌ سُجّلت «دين عليه» في ليلةٍ سابقة يدفعها في زيارته.
+ * تأخذ طريقة دفعٍ حقيقيّة فتدخل المحصَّل (على ليلتها الأصليّة)، ويُقلب حجزها مدفوعاً إن حملت الدخوليّة.
+ */
+export async function settleDebt(db: Database, p: { locId: number; invoiceId: number; method: PayMethod; staffId: number; receiverName: string }):
+  Promise<{ ok: true; invoiceNo: number; total: number; playerId: number; activityId: number; canUndoUntil: string } | { ok: false; status: number; error: string }> {
+  if (!PAY_METHODS.includes(p.method)) return { ok: false, status: 400, error: 'طريقة دفعٍ غير معروفة' };
+  const [inv] = await db.select().from(orderInvoices).where(and(eq(orderInvoices.id, p.invoiceId), eq(orderInvoices.locationId, p.locId))).limit(1);
+  if (!inv) return { ok: false, status: 404, error: 'الفاتورة غير موجودة' };
+  if ((inv as any).payMethod !== 'debt') return { ok: false, status: 400, error: 'ليست ديناً قائماً — ربّما سُدّد للتوّ' };
+  let done = false;
+  await db.transaction(async (tx) => {
+    const [row] = await tx.update(orderInvoices).set({ payMethod: p.method, debtSettledAt: new Date(), debtSettledBy: p.staffId } as any)
+      .where(and(eq(orderInvoices.id, inv.id), eq(orderInvoices.payMethod, 'debt'))).returning({ id: orderInvoices.id });
+    if (!row) return;
+    done = true;
+    const fee = parseFloat(String(inv.gameFeeAmount || '0')) || 0;
+    if (inv.gameFeeApplied && fee > 0 && inv.bookingId) {
+      const flipped = await tx.update(bookings).set({ isPaid: true, paidAmount: fee.toFixed(2), receivedBy: p.receiverName } as any)
+        .where(and(eq(bookings.id, inv.bookingId), eq(bookings.isPaid, false))).returning({ id: bookings.id });
+      if (flipped.length) await tx.update(orderInvoices).set({ feeBookingFlipped: true } as any).where(eq(orderInvoices.id, inv.id));
+    }
+  });
+  if (!done) return { ok: false, status: 409, error: 'سُدّد هذا الدين للتوّ من جهازٍ آخر' };
+  return { ok: true, invoiceNo: inv.invoiceNo, total: parseFloat(String(inv.grandTotal || '0')) || 0, playerId: inv.playerId, activityId: inv.activityId,
+    canUndoUntil: new Date(Date.now() + UNDO_WINDOW_MS).toISOString() };
+}
+
+/** ↩️ تراجعٌ عن تسديد دين: يعود «دين عليه» كما كان (لمن سدّده خلال المهلة، والأدمن دائماً) */
+export async function unsettleDebt(db: Database, p: { locId: number; invoiceId: number; me: { id: number; role: string } }):
+  Promise<{ ok: true } | { ok: false; status: number; error: string }> {
+  const [inv] = await db.select().from(orderInvoices).where(and(eq(orderInvoices.id, p.invoiceId), eq(orderInvoices.locationId, p.locId))).limit(1);
+  const at = (inv as any)?.debtSettledAt as Date | null;
+  if (!inv || !at) return { ok: false, status: 400, error: 'ليس ديناً مسدَّداً' };
+  const isAdmin = p.me.role === 'admin';
+  if (!isAdmin && (inv as any).debtSettledBy !== p.me.id) return { ok: false, status: 403, error: 'التراجع لمن سدّده فقط' };
+  if (!isAdmin && Date.now() - new Date(at).getTime() > UNDO_WINDOW_MS) return { ok: false, status: 400, error: 'انتهت مهلة التراجع — راجع الإدارة' };
+  await db.transaction(async (tx) => {
+    await tx.update(orderInvoices).set({ payMethod: 'debt', debtSettledAt: null, debtSettledBy: null, feeBookingFlipped: false } as any).where(eq(orderInvoices.id, inv.id));
+    if (inv.feeBookingFlipped === true && inv.bookingId) {
+      await tx.update(bookings).set({ isPaid: false, paidAmount: '0', receivedBy: '' } as any).where(and(eq(bookings.id, inv.bookingId), eq(bookings.isPaid, true)));
+    }
+  });
+  return { ok: true };
 }

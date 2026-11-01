@@ -32,7 +32,8 @@ export const UNDO_WINDOW_MS = 120_000;
 
 export interface LedgerRow {
   key: string;
-  kind: 'open' | 'paid';
+  /** open لم يُحصَّل · paid محصَّل · writeoff «لم يدفع» (دين/خسارة) · debt دينٌ قائم من ليلةٍ سابقة */
+  kind: 'open' | 'paid' | 'writeoff' | 'debt';
   playerId: number;
   playerName: string;
   seat: number | null;
@@ -61,6 +62,12 @@ export interface LedgerRow {
   paidForBy: string | null;
   /** 👥 المفتوحة: مجموعته في «جيب صحابك» — زرّ «مجموعته» في الدفع يختارها معاً */
   groupId: number | null;
+  /** 🎁 ضيافة كاملة: المستحقّ صفر وcompAmount قيمة ما قُدّم (يتحمّلها المكان) */
+  fullComp: boolean;
+  compAmount: number;
+  /** 🧾 «لم يدفع»: السبب، ولصفّ الدين القديم تاريخ ليلته */
+  writeoffReason: string | null;
+  debtFrom: Date | null;
 }
 
 export interface NightLedger {
@@ -73,7 +80,8 @@ export interface NightLedger {
   autoWaterEnabled: boolean;
   waterPrice: number;
   rows: LedgerRow[];
-  totals: { collected: number; due: number; total: number; paidCount: number; dueCount: number };
+  totals: { collected: number; due: number; total: number; paidCount: number; dueCount: number;
+    writtenOff?: { debt: number; loss: number; count: number }; oldDebt?: number; comp?: number };
 }
 
 /**
@@ -134,8 +142,10 @@ export async function nightLedger(db: Database, locId: number, activityId: numbe
     };
   }
 
-  const names = new Map((await db.select({ id: players.id, name: players.name })
-    .from(players).where(inArray(players.id, playerIds))).map(p => [p.id, p.name]));
+  const pRows = await db.select({ id: players.id, name: players.name, fullComp: players.fullComp })
+    .from(players).where(inArray(players.id, playerIds));
+  const names = new Map(pRows.map(p => [p.id, p.name]));
+  const compIds = new Set(pRows.filter(p => p.fullComp === true).map(p => p.id));
   const bks = await db.select({ id: bookings.id, playerId: bookings.playerId, isPaid: bookings.isPaid, isFree: bookings.isFree })
     .from(bookings).where(and(eq(bookings.activityId, activityId), inArray(bookings.playerId, playerIds), isNull(bookings.deletedAt)));
   const bkById = new Map(bks.map(b => [b.id, b]));
@@ -187,8 +197,9 @@ export async function nightLedger(db: Database, locId: number, activityId: numbe
 
     for (const i of paid) {
       const paidAt = i.paidAt ? new Date(i.paidAt) : null;
+      const wo = (i as any).payMethod === 'debt' || (i as any).payMethod === 'loss';
       out.push({
-        key: `paid-${i.id}`, kind: 'paid', playerId: pid, playerName: name, seat, bookingId: i.bookingId ?? bookingId,
+        key: `paid-${i.id}`, kind: wo ? 'writeoff' : 'paid', playerId: pid, playerName: name, seat, bookingId: i.bookingId ?? bookingId,
         invoiceId: i.id, invoiceNo: i.invoiceNo, printedAt: i.printedAt, isPaid: true, paidAt,
         paidById: i.paidBy ?? null, paidByName: (i.paidBy && staffNames.get(i.paidBy)) || '',
         canUndoUntil: paidAt && now - paidAt.getTime() < UNDO_WINDOW_MS ? new Date(paidAt.getTime() + UNDO_WINDOW_MS).toISOString() : null,
@@ -199,6 +210,8 @@ export async function nightLedger(db: Database, locId: number, activityId: numbe
         payMethod: (i as any).payMethod ?? null, paymentId: (i as any).paymentId ?? null,
         paidForBy: (() => { const pay = (i as any).paymentId ? payById.get(Number((i as any).paymentId)) : null; return pay && pay.payer !== pid ? pay.name : null; })(),
         groupId: null,
+        fullComp: n((i as any).compAmount) > 0, compAmount: n((i as any).compAmount),
+        writeoffReason: (i as any).writeoffReason ?? null, debtFrom: null,
       });
     }
 
@@ -218,26 +231,50 @@ export async function nightLedger(db: Database, locId: number, activityId: numbe
     if (openOrders.length > 0 && drinkDiscountFor) {
       try { loyalty = (await drinkDiscountFor(db, pid, locId, activityId)).discount || 0; } catch { /* بلا خصم */ }
     }
-    const openGrand = Math.max(0, openTotal + waterOpen + topupOpen + fee - loyalty);
-    const hasOpen = openOrders.length > 0 || !!unpaidRow || ((minCharge > 0 || !!water) && played && openGrand > 0)
-      || (presentIds.has(pid) && openGrand > 0);
+    // 🎁 ضيافة كاملة: البنود بأسعارها والمستحقّ صفر — لا دخوليّة ولا حدّ ولا ماء ولا ولاء (كبناء الفاتورة)
+    const comp = compIds.has(pid);
+    const openGrand = comp ? 0 : Math.max(0, openTotal + waterOpen + topupOpen + fee - loyalty);
+    const hasOpen = comp ? (openOrders.length > 0 || !!unpaidRow)
+      : (openOrders.length > 0 || !!unpaidRow || ((minCharge > 0 || !!water) && played && openGrand > 0)
+        || (presentIds.has(pid) && openGrand > 0));
     if (hasOpen) {
       out.push({
         key: `open-${pid}`, kind: 'open', playerId: pid, playerName: name, seat, bookingId,
         invoiceId: unpaidRow?.id ?? null, invoiceNo: unpaidRow?.invoiceNo ?? null, printedAt: unpaidRow?.printedAt ?? null,
         isPaid: false, paidAt: null, paidById: null, paidByName: '', canUndoUntil: null,
-        ordersCount: openOrders.length, ordersTotal: r2(openTotal), minTopup: r2(topupOpen), waterCharge: r2(waterOpen),
-        loyaltyDiscount: r2(loyalty), gameFee: r2(fee), grandTotal: r2(openGrand),
+        ordersCount: openOrders.length, ordersTotal: r2(openTotal), minTopup: comp ? 0 : r2(topupOpen), waterCharge: comp ? 0 : r2(waterOpen),
+        loyaltyDiscount: comp ? 0 : r2(loyalty), gameFee: comp ? 0 : r2(fee), grandTotal: r2(openGrand),
         isFree: bk?.isFree === true, noInvoice: !unpaidRow,
         payMethod: null, paymentId: null, paidForBy: null, groupId: groupOf.get(pid) ?? null,
+        fullComp: comp, compAmount: comp ? r2(openTotal) : 0, writeoffReason: null, debtFrom: null,
       });
     }
   }
 
-  // المفتوح أوّلاً بالمقعد ثمّ الاسم، ثمّ المحصَّل بالأحدث
+  // 💳 ديونٌ قائمة من لياليٍ سابقة على من حضر الليلة — تُسدَّد الآن (قرار المالك: «دين عليه» يظهر في زيارته القادمة)
+  const debtRows = playerIds.length ? rows(await db.execute(sql`
+    SELECT i.id, i.player_id, i.invoice_no, i.grand_total, i.writeoff_reason, i.paid_at, a.date AS act_date
+    FROM order_invoices i JOIN activities a ON a.id = i.activity_id
+    WHERE i.location_id = ${locId} AND i.pay_method = 'debt' AND i.activity_id <> ${activityId}
+      AND i.player_id IN (${sql.join(playerIds.map(x => sql`${x}`), sql`, `)})
+    ORDER BY a.date`)) : [];
+  for (const d of debtRows) {
+    const pid = Number(d.player_id);
+    out.push({
+      key: `debt-${d.id}`, kind: 'debt', playerId: pid, playerName: names.get(pid) || `لاعب #${pid}`, seat: seatBy.get(pid) ?? null,
+      bookingId: null, invoiceId: Number(d.id), invoiceNo: Number(d.invoice_no), printedAt: null, isPaid: false, paidAt: d.paid_at,
+      paidById: null, paidByName: '', canUndoUntil: null, ordersCount: 0, ordersTotal: 0, minTopup: 0, waterCharge: 0,
+      loyaltyDiscount: 0, gameFee: 0, grandTotal: n(d.grand_total), isFree: false, noInvoice: false,
+      payMethod: 'debt', paymentId: null, paidForBy: null, groupId: null, fullComp: false, compAmount: 0,
+      writeoffReason: d.writeoff_reason ?? null, debtFrom: d.act_date,
+    });
+  }
+
+  // المفتوح أوّلاً بالمقعد ثمّ الاسم، ثمّ الديون القديمة، ثمّ المحصَّل بالأحدث، ثمّ «لم يدفع»
+  const ORDER: Record<string, number> = { open: 0, debt: 1, paid: 2, writeoff: 3 };
   out.sort((a, b) => {
-    if (a.kind !== b.kind) return a.kind === 'open' ? -1 : 1;
-    if (a.kind === 'paid') return (b.paidAt?.getTime() ?? 0) - (a.paidAt?.getTime() ?? 0);
+    if (a.kind !== b.kind) return ORDER[a.kind] - ORDER[b.kind];
+    if (a.kind === 'paid' || a.kind === 'writeoff') return (b.paidAt?.getTime() ?? 0) - (a.paidAt?.getTime() ?? 0);
     return (a.seat ?? 999) - (b.seat ?? 999) || a.playerName.localeCompare(b.playerName, 'ar');
   });
 
@@ -252,6 +289,14 @@ export async function nightLedger(db: Database, locId: number, activityId: numbe
       collected: r2(collected), due: r2(due), total: r2(collected + due),
       paidCount: out.filter(x => x.kind === 'paid').length,
       dueCount: out.filter(x => x.kind === 'open' && x.grandTotal > 0).length,
+      // 🧾 «لم يدفع» الليلة (لا تدخل المحصَّل ولا المستحقّ) · 💳 ديونٌ قديمة على حاضري الليلة
+      writtenOff: {
+        debt: r2(out.filter(x => x.kind === 'writeoff' && x.payMethod === 'debt').reduce((s, x) => s + x.grandTotal, 0)),
+        loss: r2(out.filter(x => x.kind === 'writeoff' && x.payMethod === 'loss').reduce((s, x) => s + x.grandTotal, 0)),
+        count: out.filter(x => x.kind === 'writeoff').length,
+      },
+      oldDebt: r2(out.filter(x => x.kind === 'debt').reduce((s, x) => s + x.grandTotal, 0)),
+      comp: r2(out.filter(x => x.fullComp).reduce((s, x) => s + x.compAmount, 0)),
     },
   };
 }
@@ -315,18 +360,22 @@ export function periodRange(period: string): { from: string; to: string } {
   return { from: today, to: today };
 }
 
+/** 🧾 «محصَّل» = مدفوعة فعلاً: لا «دين عليه» قائم ولا «خسارة» (2026-11-01) — كلّ مجموع مالٍ يمرّ من هنا */
+const COLLECTED = sql`i.is_paid AND COALESCE(i.pay_method, '') NOT IN ('debt', 'loss')`;
+
 /** مجاميع الفواتير المحصّلة لكلّ فعاليّة في المدى (تاريخ الفعاليّة) */
 async function paidByActivity(db: Database, locId: number, from: string, to: string) {
   return rows(await db.execute(sql`
     SELECT a.id, a.name, a.date,
-      COALESCE(SUM(i.grand_total) FILTER (WHERE i.is_paid), 0)::numeric AS collected,
-      COALESCE(SUM(i.orders_total) FILTER (WHERE i.is_paid), 0)::numeric AS orders,
-      COALESCE(SUM(i.min_topup) FILTER (WHERE i.is_paid), 0)::numeric AS topup,
-      COALESCE(SUM(i.water_charge) FILTER (WHERE i.is_paid), 0)::numeric AS water,
-      COALESCE(SUM(i.game_fee_amount) FILTER (WHERE i.is_paid), 0)::numeric AS fees,
-      COALESCE(SUM(i.loyalty_discount) FILTER (WHERE i.is_paid), 0)::numeric AS loyalty,
-      COUNT(i.id) FILTER (WHERE i.is_paid AND i.game_fee_applied AND i.game_fee_amount > 0)::int AS fee_count,
-      COUNT(i.id) FILTER (WHERE i.is_paid)::int AS paid_count,
+      COALESCE(SUM(i.grand_total) FILTER (WHERE ${COLLECTED}), 0)::numeric AS collected,
+      COALESCE(SUM(i.orders_total) FILTER (WHERE ${COLLECTED}), 0)::numeric AS orders,
+      COALESCE(SUM(i.comp_amount) FILTER (WHERE ${COLLECTED}), 0)::numeric AS comp,
+      COALESCE(SUM(i.min_topup) FILTER (WHERE ${COLLECTED}), 0)::numeric AS topup,
+      COALESCE(SUM(i.water_charge) FILTER (WHERE ${COLLECTED}), 0)::numeric AS water,
+      COALESCE(SUM(i.game_fee_amount) FILTER (WHERE ${COLLECTED}), 0)::numeric AS fees,
+      COALESCE(SUM(i.loyalty_discount) FILTER (WHERE ${COLLECTED}), 0)::numeric AS loyalty,
+      COUNT(i.id) FILTER (WHERE ${COLLECTED} AND i.game_fee_applied AND i.game_fee_amount > 0)::int AS fee_count,
+      COUNT(i.id) FILTER (WHERE ${COLLECTED})::int AS paid_count,
       (SELECT COUNT(*)::int FROM bookings b WHERE b.activity_id = a.id AND b.deleted_at IS NULL AND b.is_free = true) AS free_count
     FROM activities a
     LEFT JOIN order_invoices i ON i.activity_id = a.id AND i.location_id = ${locId}
@@ -340,8 +389,8 @@ async function paidByActivity(db: Database, locId: number, from: string, to: str
 /** حساب النادي مع المكان منذ أوّل ليلة: دخوليّاتٌ (− خصم ولاء) حصّلها، والمسلَّم */
 export async function clubAccount(db: Database, locId: number) {
   const [c] = rows(await db.execute(sql`
-    SELECT COALESCE(SUM(game_fee_amount - COALESCE(loyalty_discount, 0)), 0)::numeric AS club
-    FROM order_invoices WHERE location_id = ${locId} AND is_paid = true
+    SELECT COALESCE(SUM(i.game_fee_amount - COALESCE(i.loyalty_discount, 0)), 0)::numeric AS club
+    FROM order_invoices i WHERE i.location_id = ${locId} AND ${COLLECTED}
   `));
   const hs = await db.select().from(venueHandovers)
     .where(eq(venueHandovers.locationId, locId)).orderBy(desc(venueHandovers.declaredAt)).limit(30);
@@ -404,7 +453,7 @@ export async function moneySummary(db: Database, locId: number, period: string, 
     nights.push({
       activityId: Number(x.id), activityName: x.name, activityDate: isoUtc(x.date),
       collected: r2(n(x.collected)),
-      venue: r2(n(x.orders) + n(x.topup) + n(x.water)),
+      venue: r2(n(x.orders) - n(x.comp) + n(x.topup) + n(x.water)),
       club: r2(n(x.fees) - n(x.loyalty)),
       orders: r2(n(x.orders)), topup: r2(n(x.topup)), water: r2(n(x.water)),
       fees: r2(n(x.fees)), loyalty: r2(n(x.loyalty)),
@@ -431,8 +480,8 @@ export async function moneySummary(db: Database, locId: number, period: string, 
 export async function pastNights(db: Database, locId: number) {
   const list = rows(await db.execute(sql`
     SELECT a.id, a.name, a.date,
-      COALESCE(SUM(i.grand_total) FILTER (WHERE i.is_paid), 0)::numeric AS collected,
-      COUNT(i.id) FILTER (WHERE i.is_paid)::int AS paid_count,
+      COALESCE(SUM(i.grand_total) FILTER (WHERE ${COLLECTED}), 0)::numeric AS collected,
+      COUNT(i.id) FILTER (WHERE ${COLLECTED})::int AS paid_count,
       (SELECT COUNT(*)::int FROM orders o WHERE o.activity_id = a.id AND o.location_id = ${locId} AND o.status <> 'cancelled') AS orders_count,
       (EXISTS (SELECT 1 FROM order_invoices u WHERE u.activity_id = a.id AND u.location_id = ${locId} AND NOT u.is_paid)
         OR EXISTS (SELECT 1 FROM orders o WHERE o.activity_id = a.id AND o.location_id = ${locId}
@@ -501,16 +550,25 @@ export async function nightAccount(db: Database, locId: number, activityId: numb
     FROM bookings b WHERE b.activity_id = ${activityId} AND b.deleted_at IS NULL`));
   const played = (await playersWhoPlayed(db, activityId)).length;
 
-  const ordersT = r2(n(p?.orders)), topup = r2(n(p?.topup)), water = r2(n(p?.water));
+  const ordersT = r2(n(p?.orders)), topup = r2(n(p?.topup)), water = r2(n(p?.water)), comp = r2(n(p?.comp));
   const fees = r2(n(p?.fees)), loyalty = r2(n(p?.loyalty));
   // 💵 كيف دُفع المحصَّل (2026-11-01) — كم يجب أن يكون في الدرج نقداً. «غير مسجَّل» = حُصّل قبل تسجيل الطريقة
   const [bm] = rows(await db.execute(sql`SELECT
       COALESCE(SUM(grand_total) FILTER (WHERE pay_method = 'cash'), 0) AS cash,
       COALESCE(SUM(grand_total) FILTER (WHERE pay_method = 'card'), 0) AS card,
       COALESCE(SUM(grand_total) FILTER (WHERE pay_method = 'cliq'), 0) AS cliq,
-      COALESCE(SUM(grand_total) FILTER (WHERE pay_method IS NULL), 0) AS unknown
+      COALESCE(SUM(grand_total) FILTER (WHERE pay_method IS NULL), 0) AS unknown,
+      COALESCE(SUM(grand_total) FILTER (WHERE pay_method = 'debt'), 0) AS debt,
+      COALESCE(SUM(grand_total) FILTER (WHERE pay_method = 'loss'), 0) AS loss
     FROM order_invoices WHERE activity_id = ${activityId} AND location_id = ${locId} AND is_paid = true`));
   const byMethod = { cash: r2(n(bm?.cash)), card: r2(n(bm?.card)), cliq: r2(n(bm?.cliq)), unknown: r2(n(bm?.unknown)) };
+  // 🧾 «لم يدفع»: الأسماء والأسباب ومن سجّلها
+  const writeoffs = rows(await db.execute(sql`SELECT i.id, i.player_id, pl.name, i.grand_total, i.pay_method, i.writeoff_reason, i.paid_at, s.display_name AS staff
+    FROM order_invoices i LEFT JOIN players pl ON pl.id = i.player_id LEFT JOIN staff s ON s.id = i.paid_by
+    WHERE i.activity_id = ${activityId} AND i.location_id = ${locId} AND i.is_paid AND i.pay_method IN ('debt', 'loss')
+    ORDER BY i.paid_at`)).map((x: any) => ({ invoiceId: Number(x.id), playerId: Number(x.player_id), playerName: x.name || '', total: r2(n(x.grand_total)),
+      kind: x.pay_method, reason: x.writeoff_reason || '', at: x.paid_at, staffName: x.staff || '' }));
+  const uncollected = { debt: r2(n(bm?.debt)), loss: r2(n(bm?.loss)), list: writeoffs };
   return {
     activity: { id: L.activityId, name: L.activityName, date: L.activityDate },
     rules: {
@@ -518,12 +576,14 @@ export async function nightAccount(db: Database, locId: number, activityId: numb
       autoWaterEnabled: L.autoWaterEnabled, waterPrice: L.waterPrice,
     },
     totals: {
-      collected: r2(n(p?.collected)), venue: r2(ordersT + topup + water), club: r2(fees - loyalty),
-      orders: ordersT, topup, water, fees, loyalty,
+      collected: r2(n(p?.collected)), venue: r2(ordersT - comp + topup + water), club: r2(fees - loyalty),
+      orders: r2(ordersT - comp), comp, topup, water, fees, loyalty,
       feeCount: Number(p?.fee_count) || 0, paidCount: Number(p?.paid_count) || 0,
       due: L.totals.due, dueCount: L.totals.dueCount,
     },
     byMethod,
+    uncollected,
+    prep: await prepStats(db, locId, activityId),
     counts: {
       booked: Number(bk?.booked) || 0, played, free: Number(bk?.free) || 0, directPaid: Number(bk?.direct) || 0,
       cancelledOrders: Number(cx?.cnt) || 0, cancelledTotal: r2(n(cx?.total)),
@@ -575,7 +635,7 @@ export async function settlementsOverview(db: Database, from: string, to: string
     const account = await clubAccount(db, locId);
     const nightsDetail = acts.map((x: any) => ({
       activityId: Number(x.id), activityName: x.name, activityDate: isoUtc(x.date),
-      collected: r2(n(x.collected)), venue: r2(n(x.orders) + n(x.topup) + n(x.water)), club: r2(n(x.fees) - n(x.loyalty)),
+      collected: r2(n(x.collected)), venue: r2(n(x.orders) - n(x.comp) + n(x.topup) + n(x.water)), club: r2(n(x.fees) - n(x.loyalty)),
       feeCount: Number(x.fee_count) || 0, paidCount: Number(x.paid_count) || 0, freeCount: Number(x.free_count) || 0,
     }));
     const box = nightsDetail.reduce((s, x) => s + x.collected, 0);
@@ -608,3 +668,18 @@ export async function settlementsOverview(db: Database, from: string, to: string
 }
 
 export { ammanToday, addDays };
+
+/**
+ * ⏱️ زمن تحضير الطلبات لليلة واحدة (2026-11-01): من لحظة وصول الطلب (created_at) — لا من «بدء التحضير» —
+ * إلى لحظة «سُلّم». «سُلّم» حالةٌ نهائيّة لا يُخرج منها، فـstatus_changed_at للمسلَّم = لحظة التسليم بالضبط،
+ * والإحصاء صحيحٌ لليالٍ سبقت هذه الميزة أيضاً. الملغى لا يدخل.
+ */
+export async function prepStats(db: Database, locId: number, activityId: number): Promise<{ count: number; minSec: number | null; maxSec: number | null; avgSec: number | null }> {
+  const [x] = rows(await db.execute(sql`SELECT COUNT(*)::int AS n,
+      MIN(s)::int AS mn, MAX(s)::int AS mx, ROUND(AVG(s))::int AS av
+    FROM (SELECT EXTRACT(EPOCH FROM (status_changed_at - created_at)) AS s FROM orders
+          WHERE location_id = ${locId} AND activity_id = ${activityId} AND status = 'delivered'
+            AND status_changed_at IS NOT NULL AND status_changed_at >= created_at) t`));
+  const count = Number(x?.n) || 0;
+  return { count, minSec: count ? Number(x.mn) : null, maxSec: count ? Number(x.mx) : null, avgSec: count ? Number(x.av) : null };
+}

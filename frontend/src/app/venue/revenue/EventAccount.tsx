@@ -35,6 +35,10 @@ interface Account {
   waivers: { playerId: number; playerName: string; reason: string; staffName: string; at: string }[];
   /** 💵 كيف دُفع المحصَّل (2026-11-01) — «غير مسجَّل» لما حُصّل قبل تسجيل الطريقة */
   byMethod?: { cash: number; card: number; cliq: number; unknown: number };
+  /** 🧾 لم يدفع (دين عليه / خسارة) بأسبابها — 2026-11-01 */
+  uncollected?: { debt: number; loss: number; list: { invoiceId: number; playerName: string; total: number; kind: 'debt' | 'loss'; reason: string; staffName: string; at: string }[] };
+  /** ⏱️ زمن التحضير: من وصول الطلب إلى التسليم */
+  prep?: { count: number; minSec: number | null; maxSec: number | null; avgSec: number | null };
 }
 
 const SHOW_ROWS = 10;
@@ -188,7 +192,46 @@ export function EventAccount({ pickId, onOpenNight }: { pickId: number | null; o
                 {acc.byMethod.unknown > 0 && <span style={{ color: TX.dim }}>غير مسجَّلة الطريقة <span className="vc-num">{f2(acc.byMethod.unknown)}</span></span>}
               </div>
             )}
+            {(t as any).comp > 0 && (
+              <div className="mt-2 text-[14px] font-bold" style={{ color: TX.sub }}>
+                🎁 ضيافة كاملة (يتحمّلها المكان، لا تُحسب دخلاً) <span className="vc-num" style={{ color: TX.amber }}>{f2((t as any).comp)}</span>
+              </div>
+            )}
           </section>
+
+          {/* ── ⏱️ زمن التحضير ── */}
+          {acc.prep && acc.prep.count > 0 && (
+            <section aria-label="زمن تحضير الطلبات" className="rounded-[16px] p-3.5" style={{ background: EM.card, border: `1px solid ${EM.line}` }}>
+              <div className="text-[14px] font-extrabold">⏱ زمن تحضير الطلبات <span className="text-[12.5px] font-normal" style={{ color: TX.dim }}>— {acc.prep.count} طلب، من الوصول إلى التسليم</span></div>
+              <div className="grid grid-cols-3 gap-2 mt-2.5 text-center">
+                {([['الأسرع', acc.prep.minSec, TX.good], ['المتوسّط', acc.prep.avgSec, EM.text], ['الأبطأ', acc.prep.maxSec, TX.bad]] as const).map(([l, v, c]) => (
+                  <div key={l} className="rounded-xl py-2" style={{ background: EM.ink2 }}>
+                    <div className="text-[12px] font-bold" style={{ color: TX.dim }}>{l}</div>
+                    <div className="vc-num text-[20px] font-semibold" style={{ color: c }}>{v == null ? '—' : v < 60 ? `${v} ث` : `${Math.round(v / 60)} د`}</div>
+                  </div>
+                ))}
+              </div>
+            </section>
+          )}
+
+          {/* ── 🧾 لم يدفع ── */}
+          {acc.uncollected && acc.uncollected.list.length > 0 && (
+            <section aria-label="فواتير لم تُحصَّل" className="rounded-[16px] p-3.5" style={{ background: 'rgba(224,73,43,.06)', border: '1px solid rgba(224,73,43,.3)' }}>
+              <div className="text-[14px] font-extrabold" style={{ color: TX.bad }}>
+                لم تُحصَّل — دين <span className="vc-num">{f2(acc.uncollected.debt)}</span> · خسارة <span className="vc-num">{f2(acc.uncollected.loss)}</span>
+              </div>
+              <div className="flex flex-col gap-1.5 mt-2">
+                {acc.uncollected.list.map(w => (
+                  <div key={w.invoiceId} className="text-[13.5px] flex gap-2 items-baseline">
+                    <span className="font-bold shrink-0">{w.playerName}</span>
+                    <span className="vc-num shrink-0">{f2(w.total)}</span>
+                    <span className="shrink-0" style={{ color: w.kind === 'debt' ? TX.amber : TX.bad }}>{w.kind === 'debt' ? 'دين عليه' : 'خسارة'}</span>
+                    <span className="min-w-0" style={{ color: TX.dim }}>— {w.reason}{w.staffName ? ` · ${w.staffName}` : ''}</span>
+                  </div>
+                ))}
+              </div>
+            </section>
+          )}
 
           {/* ── ٢. ما بقي ── */}
           {t.due > 0 ? (

@@ -1240,6 +1240,15 @@ async function main() {
         created_at TIMESTAMP DEFAULT NOW() NOT NULL, undone_at TIMESTAMP, undone_by INTEGER)`);
       await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_venue_payments_act ON venue_payments(activity_id)`);
       await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_order_invoices_payment ON order_invoices(payment_id)`);
+      // 🎁 ضيافة كاملة · 🧾 فواتير لم تُحصَّل (دين/خسارة) — 2026-11-01
+      await db.execute(sql`ALTER TABLE order_invoices ADD COLUMN IF NOT EXISTS comp_amount DECIMAL(10,2) DEFAULT 0`);
+      await db.execute(sql`ALTER TABLE order_invoices ADD COLUMN IF NOT EXISTS writeoff_reason TEXT`);
+      await db.execute(sql`ALTER TABLE order_invoices ADD COLUMN IF NOT EXISTS debt_settled_at TIMESTAMP`);
+      await db.execute(sql`ALTER TABLE order_invoices ADD COLUMN IF NOT EXISTS debt_settled_by INTEGER`);
+      await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_order_invoices_debt ON order_invoices(location_id, player_id) WHERE pay_method = 'debt'`);
+      await db.execute(sql`ALTER TABLE players ADD COLUMN IF NOT EXISTS full_comp BOOLEAN DEFAULT false NOT NULL`);
+      await db.execute(sql`ALTER TABLE players ADD COLUMN IF NOT EXISTS full_comp_by VARCHAR(100)`);
+      await db.execute(sql`ALTER TABLE players ADD COLUMN IF NOT EXISTS full_comp_at TIMESTAMP`);
       await db.execute(sql`CREATE TABLE IF NOT EXISTS venue_handovers (
         id SERIAL PRIMARY KEY, location_id INTEGER NOT NULL, amount DECIMAL(10,2) NOT NULL,
         to_label VARCHAR(80) DEFAULT '', note TEXT DEFAULT '', status VARCHAR(12) DEFAULT 'pending' NOT NULL,

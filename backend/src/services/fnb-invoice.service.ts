@@ -53,6 +53,9 @@ export interface InvoiceData {
   payMethod?: string | null;
   paymentId?: number | null;
   paidByName?: string | null;
+  /** 🎁 ضيافة كاملة: البنود ظاهرة بأسعارها، والمستحقّ صفر — compAmount قيمة ما قُدّم (يتحمّلها المكان) */
+  fullComp?: boolean;
+  compAmount?: number;
 }
 
 export interface PaymentInfo {
@@ -232,6 +235,7 @@ export async function buildInvoiceData(
       payMethod: inv.isPaid ? ((inv as any).payMethod ?? null) : null,
       paymentId: inv.isPaid ? ((inv as any).paymentId ?? null) : null,
       paidByName: inv.isPaid && (inv as any).paymentId ? await payerNameOf(db, Number((inv as any).paymentId), playerId) : null,
+      compAmount: n((inv as any).compAmount), fullComp: n((inv as any).compAmount) > 0,
     };
   }
 
@@ -334,7 +338,16 @@ export async function buildInvoiceData(
     }
   }
 
-  const grandTotal = Math.max(0, ordersTotal + waterCharge + minTopup + gameFeeAmount - loyaltyDiscount);
+  // 🎁 ضيافة كاملة (2026-11-01): مافيا + طلبات المكان مجّاناً — البنود تبقى ظاهرة بأسعارها والمستحقّ صفر.
+  //    لا دخوليّة ولا حدّ أدنى ولا ماء ولا مشروب ولاءٍ يُستهلك. المكان يتحمّل القيمة (قرار المالك).
+  const [cp] = await db.select({ fullComp: players.fullComp }).from(players).where(eq(players.id, playerId)).limit(1);
+  const fullComp = cp?.fullComp === true;
+  if (fullComp) {
+    waterCharge = 0; loyaltyDiscount = 0; loyaltyRewardId = null; loyaltyItemName = null;
+    gameFeeApplied = false; gameFeeAmount = 0;
+  }
+  const minTopupFinal = fullComp ? 0 : minTopup;
+  const grandTotal = fullComp ? 0 : Math.max(0, ordersTotal + waterCharge + minTopup + gameFeeAmount - loyaltyDiscount);
   if (presenceOnly && grandTotal <= 0) {
     return { error: priorPaid.length > 0 ? 'لا شيء مستحقّ — فواتيره محصَّلة' : 'لا شيء مستحقّ على هذا اللاعب بعد' };
   }
@@ -351,7 +364,7 @@ export async function buildInvoiceData(
     lines,
     ordersCount: playerOrders.length,
     ordersTotal,
-    minTopup,
+    minTopup: minTopupFinal,
     waterCharge,
     loyaltyDiscount,
     loyaltyRewardId,
@@ -359,6 +372,8 @@ export async function buildInvoiceData(
     gameFeeApplied,
     gameFeeAmount,
     grandTotal,
+    fullComp,
+    compAmount: fullComp ? ordersTotal : 0,
     orderIds: playerOrders.map(o => o.id),
     seat: await seatOf(db, activityId, playerId),
     snapshotInvoiceId: null,

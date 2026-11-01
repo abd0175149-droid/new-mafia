@@ -223,6 +223,14 @@ export default function VenueOrdersPage() {
 
   useEffect(() => { load(); loadSvc(); loadRooms(); }, [load, loadSvc, loadRooms]);
 
+  // ⏱️ زمن تحضير الليلة (2026-11-01): من وصول الطلب إلى «سُلّم» — أقلّ / متوسّط / أعلى. يُعاد مع كلّ تغيّرٍ في الطلبات
+  const [prep, setPrep] = useState<{ count: number; minSec: number | null; maxSec: number | null; avgSec: number | null } | null>(null);
+  const deliveredCount = ordersList.filter(o => o.status === 'delivered').length;
+  useEffect(() => {
+    if (!locationId) return;
+    apiRef.current.get('/api/venue/prep-stats').then(({ ok, data }) => { if (ok && data.success) setPrep(data); }).catch(() => {});
+  }, [locationId, deliveredCount]);
+
   // ── سوكيت: انضمام لغرفة المكان + استقبال لحظيّ ──
   useEffect(() => {
     if (!locationId) return;
@@ -599,6 +607,20 @@ export default function VenueOrdersPage() {
     </h2>
   );
 
+  // ⏱️ شريط زمن التحضير — أعلى الصفحة في الشاشتين
+  const mins = (sec: number | null) => (sec == null ? '—' : sec < 60 ? `${sec} ث` : `${Math.round(sec / 60)} د`);
+  const prepStrip = prep && prep.count > 0 ? (
+    <section aria-label="زمن تحضير الطلبات الليلة" className="rounded-[14px] px-3.5 py-2.5 flex items-center gap-3 flex-wrap"
+      style={{ background: EM.card, border: `1px solid ${EM.line}` }}>
+      <span className="text-[13.5px] font-bold" style={{ color: TX.sub }}>⏱ زمن التحضير الليلة <span className="font-normal" style={{ color: TX.dim }}>({prep.count} طلب، من الوصول إلى التسليم)</span></span>
+      <span className="flex gap-4 mr-auto">
+        <span className="text-center"><span className="block text-[11.5px] font-bold" style={{ color: TX.dim }}>الأسرع</span><span className="vc-num text-[18px] font-semibold" style={{ color: TX.good }}>{mins(prep.minSec)}</span></span>
+        <span className="text-center"><span className="block text-[11.5px] font-bold" style={{ color: TX.dim }}>المتوسّط</span><span className="vc-num text-[18px] font-semibold">{mins(prep.avgSec)}</span></span>
+        <span className="text-center"><span className="block text-[11.5px] font-bold" style={{ color: TX.dim }}>الأبطأ</span><span className="vc-num text-[18px] font-semibold" style={{ color: TX.bad }}>{mins(prep.maxSec)}</span></span>
+      </span>
+    </section>
+  ) : null;
+
   // ══════════════ 🖥️ الشاشة العريضة: شاشة البار ══════════════
   if (wide) {
     const col = (title: string, dot: string, list: VOrder[]) => {
@@ -627,6 +649,7 @@ export default function VenueOrdersPage() {
     return (
       <div className="flex flex-col gap-3.5">
         {banners}
+        {prepStrip}
         {offlineNote}
         {loading ? <Skeleton h={180} n={2} /> : (
           <div className="grid gap-4 items-start" style={{ gridTemplateColumns: 'repeat(2, minmax(0, 1fr)) 300px' }}>
@@ -693,6 +716,7 @@ export default function VenueOrdersPage() {
   return (
     <div className="flex flex-col gap-3.5">
       {banners}
+      {prepStrip}
       {serviceSection(false)}
 
       {/* ── المؤشّرات: فلاتر تبديل لا عدّادات فحسب ── */}

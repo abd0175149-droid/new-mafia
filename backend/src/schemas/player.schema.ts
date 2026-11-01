@@ -46,6 +46,10 @@ export const players = pgTable('players', {
   lastActiveAt: timestamp('last_active_at'),
   isTestAccount: boolean('is_test_account').default(false),
   isFreeAccount: boolean('is_free_account').default(false),
+  // 🎁 ضيافة كاملة (2026-11-01): مافيا + طلبات المكان مجّاناً — غير isFreeAccount (الدخوليّة وحدها). يضبطه الأدمن
+  fullComp: boolean('full_comp').default(false).notNull(),
+  fullCompBy: varchar('full_comp_by', { length: 100 }),
+  fullCompAt: timestamp('full_comp_at'),
   welcomeBonusApplied: boolean('welcome_bonus_applied').default(false),
   genderConstraint: varchar('gender_constraint', { length: 20 }).default('NONE'),
   // ── 🪙 اقتصاد التشبس Chips ──
