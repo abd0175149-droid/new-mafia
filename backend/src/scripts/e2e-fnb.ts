@@ -729,7 +729,7 @@ async function main() {
   ok('إيصال عمر يقول «دفعها سامر»', r.status === 200, `status=${r.status}`);
   const recB = await (await fetch(BASE + vURL(`/api/venue/invoices/${act13.id}/${gB.id}/receipt?invoiceId=${pB?.invoiceId}`), { method: 'POST', headers: A })).text();
   ok('… والنصّ فيه اسم الدافع والطريقة', recB.includes('دفعها سامر') && recB.includes('كاش'));
-  const recP = await (await fetch(BASE + vURL(`/api/venue/invoices/payment/${payId}/receipt`), { method: 'POST', headers: A })).text();
+  const recP = await (await fetch(BASE + vURL(`/api/venue/payments/${payId}/receipt`), { method: 'POST', headers: A })).text();
   ok('إيصال الدفعة الواحد بالاسمين والمجموع', recP.includes('عمر الصاحب') && recP.includes('سامر الدافع') && recP.includes('6.00'));
 
   // التراجع

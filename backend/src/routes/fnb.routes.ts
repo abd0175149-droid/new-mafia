@@ -1427,8 +1427,8 @@ venueRouter.post('/invoices/:activityId/pay-group', authenticate, requireVenuePe
   }
 });
 
-// ── POST /invoices/payment/:paymentId/receipt — 🧾 إيصال الدفعة 80مم (يطبع نفسه) ──
-venueRouter.post('/invoices/payment/:paymentId/receipt', authenticate, requireVenuePermission('invoices.print'), async (req: Request, res: Response) => {
+// ── POST /payments/:paymentId/receipt — (مسارٌ مستقلّ: /invoices/payment/… يلتقطه مسار إيصال اللاعب أوّلاً) 🧾 إيصال الدفعة 80مم (يطبع نفسه) ──
+venueRouter.post('/payments/:paymentId/receipt', authenticate, requireVenuePermission('invoices.print'), async (req: Request, res: Response) => {
   const db = getDB();
   if (!db) return res.status(503).json({ error: 'DB unavailable' });
   const locId = resolveVenueLocation(req, res);

@@ -433,7 +433,7 @@ export default function VenueInvoicesPage() {
   const printLast = async () => {
     if (!last || printing) return;
     setPrinting(true);
-    if (last.paymentId) await openDoc(`/api/venue/invoices/payment/${last.paymentId}/receipt`, 'POST');
+    if (last.paymentId) await openDoc(`/api/venue/payments/${last.paymentId}/receipt`, 'POST');
     else if (actId) await openDoc(`/api/venue/invoices/${actId}/${last.playerId}/receipt${last.invoiceId ? `?invoiceId=${last.invoiceId}` : ''}`, 'POST');
     setPrinting(false);
   };
@@ -534,7 +534,12 @@ export default function VenueInvoicesPage() {
           <Icon name="printer" size={20} /> {printing ? 'يُجهَّز…' : 'اطبع إيصالاً'}
         </Btn>
         <Btn kind="go" full style={{ ...big, minHeight: 64, fontSize: 20 }} onClick={backToList}>التالي</Btn>
-        {undoBar}
+        {/* هنا في مكانه لا عائماً — العائم كان يغطّي «اطبع إيصالاً» */}
+        {last.until && remaining > 0 && (
+          <Btn kind="ghost" full style={{ ...big, fontSize: 16, color: TX.amber }} onClick={undo}>
+            ↩ تراجع عن الدفع <span className="vc-num">{Math.floor(remaining / 60)}:{String(remaining % 60).padStart(2, '0')}</span>
+          </Btn>
+        )}
         <Toast toast={toast} onHide={hide} />
       </div>
     );
@@ -677,7 +682,7 @@ export default function VenueInvoicesPage() {
             <div className="flex flex-wrap gap-2">
               {[{ v: total, label: 'بالضبط' }, ...notes.filter(n => Math.abs(n - total) > 0.004).map(n => ({ v: n, label: String(n) }))].map(o => (
                 <button key={o.label} type="button" aria-pressed={given === o.v && !givenText} onClick={() => { setGiven(o.v); setGivenText(''); }}
-                  className="vc-press flex-1 rounded-2xl text-[18px] font-extrabold vc-num" style={{ minHeight: 56, minWidth: 64,
+                  className={`vc-press flex-1 rounded-2xl text-[18px] font-extrabold ${o.label === 'بالضبط' ? '' : 'vc-num'}`} style={{ minHeight: 56, minWidth: 64,
                     ...(given === o.v && !givenText ? { background: '#E9F5EF', color: '#0B2A1F' } : { background: EM.card, border: `1px solid ${EM.line2}`, color: EM.text }) }}>
                   {o.label}
                 </button>
