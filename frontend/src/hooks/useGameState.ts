@@ -223,6 +223,7 @@ export function useGameState() {
     forceJoin?: boolean,
     ticketNumber?: string,
     preferredSeat?: number,
+    photoConsent?: boolean,
   ) => {
     setLoading(true);
     setError(null);
@@ -231,7 +232,11 @@ export function useGameState() {
       //    ولا تُطلب أبداً في مسار العودة (room:rejoin-player) — من سقط اتّصاله
       //    وسط اللعبة لا يُطالَب بقراءة GPS ليعود إلى مقعده.
       const fix = await freshFixForGate();
-      const res = await emit('room:auto-join', { roomId, name, phone, playerId, gender, dob, forceJoin, ticketNumber, preferredSeat, fix });
+      // 📸 جواب «تقبل التصوير؟» يُرسل فقط إن سُئل اللاعب وأجاب
+      const res = await emit('room:auto-join', {
+        roomId, name, phone, playerId, gender, dob, forceJoin, ticketNumber, preferredSeat, fix,
+        ...(typeof photoConsent === 'boolean' ? { photoConsent } : {}),
+      });
       return res; // يحتوي على assignedSeat, gameName, constraintViolation
     } catch (err: any) {
       setError(err.message);

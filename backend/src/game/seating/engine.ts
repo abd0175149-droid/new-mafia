@@ -16,6 +16,7 @@ import type {
   PinnedSeat,
 } from './types.js';
 import { getCircularNeighborSeats, minCircularDistance } from './types.js';
+import { zoneRank, segmentsOf, noPhotoSeatsOf } from './photo-zone.js';
 
 // ── تطبيع رقم الهاتف ──
 function normalizePhone(phone: string): string {
@@ -134,8 +135,9 @@ export function allocateSeatWithConstraints(params: {
   const constraints = resolveConstraints(seatingConfig);
   const activeConstraints = constraints.filter(c => c.enabled);
 
-  // إذا لا قيود مفعّلة → عشوائي
-  if (activeConstraints.length === 0) {
+  // إذا لا قيود مفعّلة → عشوائي (إلّا إن كانت زاوية التصوير مفعّلة: الجمع ليس قيداً في القائمة)
+  const zone = context.photoZone;
+  if (activeConstraints.length === 0 && !zone) {
     if (preferredSeat && allEmpty.includes(preferredSeat)) {
       return { seat: preferredSeat, constraintViolation: false, violations: [], score: 1.0 };
     }
@@ -150,7 +152,7 @@ export function allocateSeatWithConstraints(params: {
   const frontFull = frontSeats.length === 0;
 
   // ── تقييم كل مقعد فارغ ──
-  type ScoredSeat = { seat: number; totalScore: number; hardFail: boolean; violations: string[]; spread: number };
+  type ScoredSeat = { seat: number; totalScore: number; hardFail: boolean; violations: string[]; spread: number; zone: number };
   const scored: ScoredSeat[] = [];
 
   // 🎲 ترتيبٌ عشوائيّ للمدخلات: فرزُ JS مستقرّ، فالمقاعد المتساوية تماماً في كلّ
@@ -173,14 +175,17 @@ export function allocateSeatWithConstraints(params: {
       hardFail,
       violations,
       spread: minCircularDistance(seat, context.spreadFromSeats, maxPlayers),
+      zone: zone ? zoneRank(seat, newPlayer.noPhoto === true, occupiedSeats, zone, maxPlayers) : 0,
     });
   }
 
   // ترتيب: الأفضل أولاً (غير الفاشلين → الأعلى نقاطاً → الأبعد عن مقاعد التباعد)
   // ⚠️ لا تُعِد كسر التعادل إلى `a.seat - b.seat`: كان يُجلس كلَّ من يصل في اللحظة
   //    نفسها (الأصدقاء) في مقاعد متتالية 1,2,3 حتماً — وهو سببُ إعادة التوزيع اليدويّة.
+  // 📸 الزاوية بعد الصلبة مباشرةً وقبل كلّ نقاط القواعد الليّنة (قرار مقفل ٤)
   scored.sort((a, b) => {
     if (a.hardFail !== b.hardFail) return a.hardFail ? 1 : -1;
+    if (a.zone !== b.zone) return a.zone - b.zone;
     if (b.totalScore !== a.totalScore) return b.totalScore - a.totalScore;
     if (b.spread !== a.spread) return b.spread - a.spread; // الأبعد أوّلاً
     return 0; // تعادلٌ تامّ → يحسمه الترتيب العشوائيّ المستقرّ
@@ -276,6 +281,12 @@ export function reshuffleSeating(params: {
   let bestArrangement: Map<number, PlayerSeatData> | null = null;
   let bestScore = -Infinity;
   let bestViolations: string[] = [];
+  // 📸 عدد قطع الكتلة يسبق مجموع النقاط في المفاضلة بين المحاولات
+  const zone = context.photoZone;
+  let bestSegments = Infinity;
+  const zoneFirst = (list: PlayerSeatData[]) => zone
+    ? [...list.filter(p => p.noPhoto === true), ...list.filter(p => p.noPhoto !== true)]
+    : list;
 
   // ── عدة محاولات بترتيب مختلف ──
   const MAX_ATTEMPTS = 50;
@@ -283,7 +294,8 @@ export function reshuffleSeating(params: {
   const pins = context.pinnedSeats ?? [];
 
   for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
-    const candidatePlayers = attempt === 0 ? sortedPlayers : shuffle(sortedPlayers);
+    // 📸 الرافضون أوّلاً: تُبنى الكتلة عند مرساتها ثمّ يُوزَّع الباقون حولها
+    const candidatePlayers = zoneFirst(attempt === 0 ? sortedPlayers : shuffle(sortedPlayers));
     // المقاعد المقفلة تدخل التقييم شاغلةً منذ البداية ولا تُمنح لأحد
     const arrangement = new Map<number, PlayerSeatData>(lockedSeats);
     let totalScore = 0;
@@ -314,11 +326,14 @@ export function reshuffleSeating(params: {
       let bestSeat = allEmpty[0];
       let bestSeatScore = -Infinity;
       let bestSeatViolations: string[] = [];
+      let bestSeatZone = Infinity;
 
       // ترتيب عشوائيّ + مقارنة صارمة ⇒ التعادل يُحسم عشوائيّاً لا بأصغر رقم
       for (const seat of shuffle(allEmpty)) {
         const result = evaluateSeat(arrangement, seat, player, constraints, context);
-        if (result.totalScore > bestSeatScore) {
+        const zr = zone ? zoneRank(seat, player.noPhoto === true, arrangement, zone, maxPlayers) : 0;
+        if (zr < bestSeatZone || (zr === bestSeatZone && result.totalScore > bestSeatScore)) {
+          bestSeatZone = zr;
           bestSeatScore = result.totalScore;
           bestSeat = seat;
           bestSeatViolations = result.violations;
@@ -330,7 +345,9 @@ export function reshuffleSeating(params: {
       violations.push(...bestSeatViolations);
     }
 
-    if (success && totalScore > bestScore) {
+    const segs = zone ? segmentsOf(noPhotoSeatsOf(arrangement), maxPlayers).length : 0;
+    if (success && (segs < bestSegments || (segs === bestSegments && totalScore > bestScore))) {
+      bestSegments = segs;
       bestScore = totalScore;
       bestArrangement = arrangement;
       bestViolations = violations;
@@ -419,24 +436,53 @@ function evaluateSeat(
 }
 
 /**
- * بناء القيود من الإعدادات (مع دعم الوضع القديم)
+ * بناء القيود من الإعدادات (مع دعم الوضع القديم).
+ *
+ * 🔴 دمجٌ مع الافتراضيّ، لا استبدال (2026-11-01): كانت أيّ قائمةٍ غير فارغة تحلّ محلّ
+ *    القيود الافتراضيّة كلّها. فحين يحقن الجلوس قيدَ الباب وحده (قالبٌ بأبواب) أو
+ *    زوجاً ممنوعاً واحداً، تسقط «أبعد الأصحاب» و«الجدد» و«قيد الجنس» و«العقوبة» بصمت،
+ *    وقالبُ الفعاليّة الأسبوعيّ كان بلا «الأصحاب» ولا «قيد الجنس» للسبب نفسه.
+ *    الآن: الافتراضيّ أساس، وكلّ نوعٍ مذكور يُغلّب بإعداده (بما فيه الإطفاء الصريح)،
+ *    وأزواج NO_ADJACENT_PAIRS تُجمع من كلّ المصادر (الإعداد + الحقل القديم + المحقون).
  */
-function resolveConstraints(config: SeatingConfig | null): SeatingConstraint[] {
-  if (!config) return buildDefaultConstraints();
-
-  // الوضع الجديد
-  if (config.engineEnabled && config.constraints && config.constraints.length > 0) {
-    return buildConstraints(config.constraints);
+export function resolveConstraintConfigs(config: SeatingConfig | null): ConstraintConfig[] {
+  const base = new Map<string, ConstraintConfig>();
+  for (const c of buildDefaultConstraints()) {
+    base.set(c.type, { type: c.type, enabled: c.enabled, priority: c.priority, params: {} });
   }
+  if (!config) return Array.from(base.values());
 
-  // الوضع القديم → تحويل
-  if (config.genderSeparation !== undefined || (config.noAdjacentPairs && config.noAdjacentPairs.length > 0)) {
-    const migrated = migrateOldConstraints({
-      genderSeparation: config.genderSeparation,
-      noAdjacentPairs: config.noAdjacentPairs,
+  const pairs: any[] = [];
+  const take = (c: ConstraintConfig) => {
+    if (!c || !c.type) return;
+    if (c.type === 'NO_ADJACENT_PAIRS') pairs.push(...((c.params?.pairs as any[]) || []));
+    const prev = base.get(c.type);
+    base.set(c.type, {
+      type: c.type,
+      enabled: c.enabled ?? prev?.enabled ?? true,
+      priority: c.priority ?? prev?.priority ?? 5,
+      params: { ...(prev?.params || {}), ...(c.params || {}) },
     });
-    return buildConstraints(migrated);
-  }
+  };
 
-  return buildDefaultConstraints();
+  // الوضع القديم أوّلاً (فصل الجنسين + الأزواج)، ثمّ قائمة المحرّك فوقه
+  if (config.genderSeparation !== undefined || (config.noAdjacentPairs && config.noAdjacentPairs.length > 0)) {
+    for (const c of migrateOldConstraints({ genderSeparation: config.genderSeparation, noAdjacentPairs: config.noAdjacentPairs })) {
+      // migrateOldConstraints يعيد الافتراضيّ أيضاً — يكفي ما يخصّ الوضع القديم
+      if (c.type === 'NO_ADJACENT_PAIRS' || c.type === 'GENDER_SEPARATION') take(c);
+    }
+  }
+  if (config.constraints && config.constraints.length > 0) for (const c of config.constraints) take(c);
+
+  const nap = base.get('NO_ADJACENT_PAIRS');
+  if (nap) {
+    nap.params = { ...(nap.params || {}), pairs };
+    // زوجٌ ممنوع موجود ⇒ القيد مفعّل مهما قالت القائمة (قيدٌ صلب من صفحة اللاعبين)
+    if (pairs.length > 0) nap.enabled = true;
+  }
+  return Array.from(base.values());
+}
+
+function resolveConstraints(config: SeatingConfig | null): SeatingConstraint[] {
+  return buildConstraints(resolveConstraintConfigs(config));
 }

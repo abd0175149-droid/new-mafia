@@ -300,14 +300,30 @@ router.post('/door-assign', authenticate, leaderOrAbove, async (req: Request, re
     // شواغل الطاولة: اللاعبون + المتفرّجون + المقاعد المثبَّتة لغير هذا الشخص
     const occupants = (state.players || []).map((p: any) => ({
       physicalId: p.physicalId, phone: p.phone, gender: p.gender || null,
-      seatHeld: !!p.seatHeld, playerId: p.playerId ?? null, name: p.name,
+      seatHeld: !!p.seatHeld, playerId: p.playerId ?? null, name: p.name, noPhoto: p.noPhoto === true,
     }));
     for (const sp of (state.spectators || [])) {
       if (sp.physicalId > 0 && !occupants.some((o: any) => o.physicalId === sp.physicalId)) {
         occupants.push({ physicalId: sp.physicalId, phone: sp.phone, gender: sp.gender || null,
-          seatHeld: false, playerId: sp.playerId ?? null, name: sp.name });
+          seatHeld: false, playerId: sp.playerId ?? null, name: sp.name, noPhoto: sp.noPhoto === true });
       }
     }
+
+    // 📸 زاوية بلا تصوير: الباب لا يسأل — جواب حسابه، وغير المجيب بلا تصوير (القرار ٢).
+    //    والجنس من الحساب لا «MALE» ثابتاً: قيد جنس اللاعب كان أعمى عند الباب.
+    const pz = await import('../services/photo-zone.service.js');
+    const zoneCtx = await pz.zoneCtxFor(state).catch(() => null);
+    let accId: number | null = playerId ? Number(playerId) : null;
+    let accGender = 'MALE';
+    if (!accId && phone) accId = (await pz.readPhotoConsentByPhone(phone)).playerId;
+    if (accId) {
+      try {
+        const gr: any = await db.execute(sql`SELECT gender FROM players WHERE id = ${accId} LIMIT 1`);
+        const g = (gr.rows || gr || [])[0];
+        if (g?.gender) accGender = String(g.gender);
+      } catch {}
+    }
+    const doorNoPhoto = zoneCtx ? pz.effectiveNoPhoto(await pz.readPhotoConsent(accId)) : false;
 
     // قيود الفعاليّة + أوزان التقارب (الوصول المتزامن أثقلها)
     let constraints: any = null;
@@ -333,13 +349,14 @@ router.post('/door-assign', authenticate, leaderOrAbove, async (req: Request, re
       maxPlayers: state.config.maxPlayers,
       players: occupants as any,
       constraints: constraints as any,
-      newPlayer: { phone: phone || '', gender: 'MALE', playerId: playerId ?? null, name: name || '' },
+      newPlayer: { phone: phone || '', gender: accGender, playerId: accId ?? playerId ?? null, name: name || '', noPhoto: doorNoPhoto },
       pinnedSeats: pins,
       reservedTailSeats: state.reservedTailSeats || 0,
       doorSeats: state.doorSeats || [],
       affinityPairs,
       // يبتعد عن آخر ثلاثة جالسين — من وصلوا معاً لا يجلسون معاً
-      spreadFromSeats: (state.players || []).slice(-3).map((p: any) => p.physicalId),
+      spreadFromSeats: (await import('../game/state.js')).lastArrivalSeats(state.players || []),
+      photoZone: zoneCtx || undefined,
     });
 
     // يُثبَّت للشخص في الفعاليّة كي لا يأخذه غيره قبل وصوله إلى الطاولة

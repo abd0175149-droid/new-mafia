@@ -667,6 +667,131 @@ class GameSessionController extends ChangeNotifier with WidgetsBindingObserver {
   bool get isRemote => _isRemote;
   bool get allowPlayerInvites => _allowPlayerInvites;
 
+  // ── 📸 زاوية بلا تصوير ──
+  // `photoZoneOn` من الحالة المُسقَطة (`game:state-sync` · `game:phase-changed`
+  // · `game:get-state`) لا من الاستطلاع: `room:get-my-state` لا يحمله.
+  bool _photoZoneOn = false;
+  bool? _myNoPhoto;
+  bool get photoZoneOn => _photoZoneOn;
+  bool get myNoPhoto => _myNoPhoto ?? false;
+
+  /// السؤال المعروض الآن في خطوة `photoConsent`.
+  PhotoConsentAsk? _photoAsk;
+  PhotoConsentAsk? get photoAsk => _photoAsk;
+
+  // جوابُ الدخول الجاري مربوطٌ بغرفته: إعادة المحاولة (تذكرة · تأكيد) لا تعيد
+  // السؤال، والدخول الناجح يمحوه فيُسأل في الدخول الجديد التالي.
+  String? _photoRoom;
+  bool _photoResolved = false;
+  bool? _photoAnswer;
+  ({bool forceJoin, String? ticket, String? roomIdOverride})? _photoPending;
+
+  bool photoResolvedFor(String room) => _photoRoom == room && _photoResolved;
+  bool? photoAnswerFor(String room) => _photoRoom == room ? _photoAnswer : null;
+
+  /// `null` = لا سؤال (مطفأة أو فشل الطلب) — لا يُحجب الدخول أبداً.
+  /// `roomId` يُرسَل متى عُرف: غرف موقع الاختبار مفعّلةٌ دائماً ولو أُطفئ المفتاح العامّ.
+  Future<PhotoConsentAsk?> fetchPhotoConsent([String? roomId]) async {
+    try {
+      // سقفٌ قصير: شبكةٌ بطيئة لا تؤخّر الدخول ٢٥ ثانية من أجل سؤال
+      return PhotoConsentAsk.tryParse(await ApiClient.instance
+          .get('/api/player-app/photo-consent',
+              query: (roomId ?? '').isEmpty ? null : {'roomId': roomId})
+          .timeout(const Duration(seconds: 6)));
+    } catch (_) {
+      return null;
+    }
+  }
+
+  void openPhotoAsk(
+    String room,
+    PhotoConsentAsk ask, {
+    required ({bool forceJoin, String? ticket, String? roomIdOverride}) pending,
+  }) {
+    _photoRoom = room;
+    _photoResolved = false;
+    _photoAnswer = null;
+    _photoAsk = ask;
+    _photoPending = pending;
+    _step = GameStep.photoConsent;
+    notifyListeners();
+  }
+
+  /// بلا سؤال لهذه الغرفة — ولا يُرسل الحقل.
+  void skipPhotoAsk(String room) {
+    _photoRoom = room;
+    _photoResolved = true;
+    _photoAnswer = null;
+    _photoAsk = null;
+    _photoPending = null;
+  }
+
+  /// يُسجّل الجواب ويُعيد النداء المؤجَّل ليُستأنف.
+  ({bool forceJoin, String? ticket, String? roomIdOverride})? answerPhotoAsk(
+      bool consent) {
+    final p = _photoPending;
+    _photoAnswer = consent;
+    _photoResolved = true;
+    _photoAsk = null;
+    _photoPending = null;
+    return p;
+  }
+
+  /// بعد نجاح الانضمام: علَمي من الردّ (وجوده يعني أنّ الزاوية مفعّلة).
+  void endPhotoJoin(Map? ack) {
+    _photoRoom = null;
+    _photoResolved = false;
+    _photoAnswer = null;
+    if (ack != null && ack['noPhoto'] is bool) {
+      _photoZoneOn = true;
+      _myNoPhoto = ack['noPhoto'] as bool;
+    }
+  }
+
+  void _readPhotoZone(Map st) {
+    final v = parsePhotoZone(st, _physicalId);
+    _photoZoneOn = v.on;
+    if (v.noPhoto != null) _myNoPhoto = v.noPhoto;
+  }
+
+  /// بذرةٌ بعد الدخول/العودة — البثّ التالي قد يتأخّر حتّى يدخل غيره.
+  Future<void> _seedPhotoZone() async {
+    if (_roomId.isEmpty) return;
+    final res = await SocketService.instance
+        .ask('game:get-state', {'roomId': _roomId});
+    final st = res?['state'];
+    if (res?['success'] != true || st is! Map || st['players'] is! List) return;
+    final was = (_photoZoneOn, _myNoPhoto);
+    _readPhotoZone(st);
+    if (was != (_photoZoneOn, _myNoPhoto)) notifyListeners();
+  }
+
+  /// تغيير الرأي من داخل الغرفة — لا يُنقل اللاعب، ويُبلَّغ الموجّه.
+  /// يُعيد رسالةً للعرض.
+  Future<({bool ok, String message})> setPhotoConsent(bool consent) async {
+    final res = await SocketService.instance.ask('room:set-photo-consent', {
+      'roomId': _roomId,
+      'photoConsent': consent,
+    });
+    if (res == null) {
+      return (ok: false, message: 'تعذّر الاتصال — تحقّق من شبكتك');
+    }
+    if (res['success'] != true) {
+      if (res['code'] == 'DISABLED') {
+        _photoZoneOn = false;
+        notifyListeners();
+      }
+      return (ok: false, message: '${res['error'] ?? 'تعذّر الحفظ'}');
+    }
+    if (res['noPhoto'] is bool) _myNoPhoto = res['noPhoto'] as bool;
+    notifyListeners();
+    // القاصر الطالب للتصوير يبقى بلا تصوير
+    if (consent && res['isMinor'] == true && _myNoPhoto == true) {
+      return (ok: true, message: 'تحت ١٨: بموافقة وليّ الأمر عبر الموجّه');
+    }
+    return (ok: true, message: 'أُبلغ الموجّه — قد ينقلك لمقعدٍ آخر');
+  }
+
   /// بيانات المراحل التي ترسمها ملفّات أخرى (٢٤ · ٢٥ · ٢٧).
   Map<String, dynamic> _phaseData = const {};
   Map<String, dynamic> get phaseData => _phaseData;
@@ -872,6 +997,7 @@ class GameSessionController extends ChangeNotifier with WidgetsBindingObserver {
     _step = GameStep.done;
     notifyListeners();
     _startPolling();
+    unawaited(_seedPhotoZone());
   }
 
   /// غرفةٌ نشطة من `/api/player-auth/me` — المرحلة الثانية من الاستعادة.
@@ -1183,6 +1309,7 @@ class GameSessionController extends ChangeNotifier with WidgetsBindingObserver {
     notifyListeners();
     _startPolling();
     _armSafetyNet();
+    unawaited(_seedPhotoZone());
     return RejoinResult.ok;
   }
 
@@ -2127,7 +2254,11 @@ class GameSessionController extends ChangeNotifier with WidgetsBindingObserver {
 
     _on('game:state-sync', (d) {
       if (d is! Map) return;
-      if (d['players'] is List) _roster = _players(d['players']);
+      if (d['players'] is List) {
+        _roster = _players(d['players']);
+        // 📸 إسقاطٌ كامل: غيابُ `photoZoneOn` يعني مطفأة
+        _readPhotoZone(d);
+      }
       final cfg = d['config'];
       if (cfg is Map) {
         if (cfg['isRemote'] is bool) _isRemote = cfg['isRemote'] as bool;
@@ -2156,6 +2287,9 @@ class GameSessionController extends ChangeNotifier with WidgetsBindingObserver {
     _on('game:phase-changed', (d) {
       if (d is! Map) return;
       final cfg = d['state'] is Map ? (d['state'] as Map)['config'] : null;
+      if (d['state'] is Map && (d['state'] as Map)['players'] is List) {
+        _readPhotoZone(d['state'] as Map);
+      }
       if (cfg is Map) {
         if (cfg['isRemote'] is bool) _isRemote = cfg['isRemote'] as bool;
         if (cfg['allowPlayerInvites'] is bool) {
@@ -2570,6 +2704,8 @@ class GameSessionController extends ChangeNotifier with WidgetsBindingObserver {
     _gameOverData = null; _gameOver = null;
     _assassinContracts = null;
     _voteHistory = const [];
+    _photoZoneOn = false;
+    _myNoPhoto = null;
     _guard.clear();
   }
 
@@ -2903,6 +3039,8 @@ class GameSessionController extends ChangeNotifier with WidgetsBindingObserver {
     VotingState? voting,
     int? myVote,
     GameStep? step,
+    bool? photoZoneOn,
+    bool? myNoPhoto,
   }) {
     if (roomId != null) _roomId = roomId;
     if (physicalId != null) _physicalId = physicalId;
@@ -2935,6 +3073,8 @@ class GameSessionController extends ChangeNotifier with WidgetsBindingObserver {
     if (voting != null) _voting = voting;
     if (myVote != null) _myVote = myVote;
     if (step != null) _step = step;
+    if (photoZoneOn != null) _photoZoneOn = photoZoneOn;
+    if (myNoPhoto != null) _myNoPhoto = myNoPhoto;
   }
 
   /// انتقالُ مرحلةٍ حقيقيّ عبر `_applyPhase` — لفحص قواعد التنظيف نفسها
@@ -3001,6 +3141,13 @@ class GameSessionController extends ChangeNotifier with WidgetsBindingObserver {
     _eliminated = const [];
     _revealedRoles = const {};
     _tied = const [];
+    _photoZoneOn = false;
+    _myNoPhoto = null;
+    _photoAsk = null;
+    _photoRoom = null;
+    _photoResolved = false;
+    _photoAnswer = null;
+    _photoPending = null;
   }
 
   /// 🔒 إعلانُ فتح معرض المافيا — **الترتيب لا يُبدَّل**:

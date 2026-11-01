@@ -272,6 +272,9 @@ section('5) 🛡️ الحارس البنيويّ: لا محرّك لعبةٍ ي
     const txt = readFileSync(abs, 'utf8');
     // نتجاهل تعريف النوع نفسه في state.ts
     if (rel.replace(/\\/g, '/').endsWith('src/game/state.ts')) return;
+    // وأداةُ الترقيم: «أضف مقاعد» تُزيح المتفرّجين مع اللاعبين وإلّا تصادمت المقاعد —
+    // تقرأ مقاعدهم لتنقلها ولا تُدخلهم أيّ طابورٍ أو معادلة (a4dd9ac)
+    if (rel.replace(/\\/g, '/').endsWith('src/game/seat-remap.ts')) return;
     if (/\.spectators\b|getSpectators\s*\(/.test(txt)) offenders.push(rel);
   };
   ROOTS.forEach(scan);

@@ -17,6 +17,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import dynamic from 'next/dynamic';
 import SeatMapRing, { type RingSeat } from '@/components/SeatMapRing';
+import { usePhotoZone } from './PhotoZonePanel';
 import { checkSeatConflicts } from '@/lib/seatConflicts';
 import { computeRectLayout, type Sides, type Numbering, type RectDoor } from '@/lib/rectLayout';
 import type { LiveSeat } from '@/components/SeatTemplate3DEditor';
@@ -69,7 +70,10 @@ export default function ArrivalsPanel({ roomId, gameState, emit, on }: Props) {
   const [preview, setPreview] = useState<null | {
     changes: Array<{ from: number; to: number; name: string }>;
     violationsBefore: number; violationsAfter: number;
+    zone?: { segmentsBefore: number; segmentsAfter: number; labelAfter: string };
   }>(null);
+  // 📸 تظليل الزاوية بلا تصوير على الخريطة
+  const pz = usePhotoZone(gameState);
   const [pairPick, setPairPick] = useState<number[]>([]);
 
   // 📐 موضعُ اللوحة يُحسب من موقع الزرّ ويُقصّ داخل النافذة.
@@ -335,7 +339,7 @@ export default function ArrivalsPanel({ roomId, gameState, emit, on }: Props) {
 
   const doPreview = () => act(async () => {
     const res = await emit('room:reshuffle-seats', { roomId, dryRun: true });
-    setPreview({ changes: res.changes || [], violationsBefore: res.violationsBefore ?? 0, violationsAfter: res.violationsAfter ?? 0 });
+    setPreview({ changes: res.changes || [], violationsBefore: res.violationsBefore ?? 0, violationsAfter: res.violationsAfter ?? 0, zone: res.zone });
   });
 
   const doApply = () => act(async () => {
@@ -617,6 +621,11 @@ export default function ArrivalsPanel({ roomId, gameState, emit, on }: Props) {
                         doorSeats={gameState?.doorSeats || []}
                         size={340}
                         onSeatClick={onSeatClick}
+                        {...(pz ? {
+                          zoneSeats: pz.report.zone,
+                          noPhotoSeats: ([] as number[]).concat(...pz.report.segments),
+                          anchorSeat: pz.ctx.anchor,
+                        } : {})}
                       />
                       <p className="text-[11px] text-[#8f98ab] mt-1 mb-2">
                         {layoutTried && !layout
@@ -642,6 +651,11 @@ export default function ArrivalsPanel({ roomId, gameState, emit, on }: Props) {
                           تجاورات: <b className="text-[#ff8d90]">{preview.violationsBefore}</b> ← <b className="text-[#7fe08f]">{preview.violationsAfter}</b>
                           {' · '}يتحرّك {preview.changes.length}
                         </div>
+                        {preview.zone && (
+                          <div className="text-[11.5px] mb-1.5" style={{ color: preview.zone.segmentsAfter <= 1 ? '#7fe08f' : '#ff8d90' }}>
+                            📵 الزاوية: {preview.zone.segmentsBefore <= 1 ? 'متّصلة' : `${preview.zone.segmentsBefore} قطع`} ← {preview.zone.segmentsAfter <= 1 ? `متّصلة ✓ ${preview.zone.labelAfter}` : `${preview.zone.segmentsAfter} قطع`}
+                          </div>
+                        )}
                         <div className="max-h-[120px] overflow-auto mb-2">
                           {preview.changes.length === 0 && <p className="text-[11.5px] text-[#5f6779]">لا تغيير مقترح.</p>}
                           {preview.changes.map((c, i) => (

@@ -9,6 +9,7 @@ import { rankName, rankBadge } from '@/lib/ranks';
 import InvoiceWaCard from '@/components/admin/InvoiceWaCard';
 import WaGateCard from '@/components/admin/WaGateCard';
 import ResConfirmCard from '@/components/admin/ResConfirmCard';
+import PhotoZoneCard from '@/components/admin/PhotoZoneCard';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || '';
 const CURRENCY = 'د.أ';
@@ -216,6 +217,7 @@ export default function AdminDashboard() {
       <InvoiceWaCard />
       <WaGateCard />
       <ResConfirmCard />
+      <PhotoZoneCard />
 
       {/* ── تنبيه ذكي ── */}
       {bk.unpaid > 0 && (

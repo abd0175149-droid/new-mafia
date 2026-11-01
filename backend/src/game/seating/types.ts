@@ -17,6 +17,8 @@ export interface PlayerSeatData {
   originSeat?: number;         // المقعد قبل إعادة الترتيب (يملؤه المحرّك الدُفعيّ)
   seatHeld?: boolean;
   genderConstraint?: string;
+  /** 📸 لا يقبل التصوير — يجلس في الزاوية (photo-zone.ts) */
+  noPhoto?: boolean;
 }
 
 // ── نتيجة تقييم القيد ──────────────────────────────
@@ -71,6 +73,13 @@ export interface EvaluationContext {
    * الذيل (−2.0) إلى مكافأة (+2.0).
    */
   preferTailSeats?: boolean;
+
+  /**
+   * 📸 زاوية بلا تصوير (2026-11-01): حين تُضبط، رتبة الزاوية تسبق كلّ نقاط القواعد
+   * الليّنة وتأتي بعد الصلبة وحدها — الرافض يلتصق بالكتلة والقابل يبتعد عنها.
+   * غيابها = السلوك القديم حرفيّاً.
+   */
+  photoZone?: { anchor: number; pending: number };
 }
 
 // ── واجهة القيد (Strategy Pattern) ─────────────────

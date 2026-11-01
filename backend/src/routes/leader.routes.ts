@@ -133,7 +133,7 @@ router.get('/state/:roomId', requireLeader, async (req: Request, res: Response) 
 // ── POST /api/leader/force-add-player ──
 router.post('/force-add-player', requireLeader, async (req: Request, res: Response) => {
   try {
-    const { roomId, physicalId, name, phone, dob, gender, playerId } = req.body;
+    const { roomId, physicalId, name, phone, dob, gender, playerId, noPhoto } = req.body;
 
     if (!roomId || physicalId === undefined || !name) {
       return res.status(400).json({ success: false, error: 'بيانات غير مكتملة' });
@@ -182,8 +182,23 @@ router.post('/force-add-player', requireLeader, async (req: Request, res: Respon
       }
     }
 
+    // 📸 زاوية بلا تصوير: جواب الليدر (سأله) أو جواب حسابه، وإلّا بلا تصوير (القرار ٢)
+    const pz = await import('../services/photo-zone.service.js');
+    const zoneCur = await getRoom(roomId);
+    const zoneCtx = zoneCur ? await pz.zoneCtxFor(zoneCur).catch(() => null) : null;
+    let addNoPhoto: boolean | undefined;
+    if (zoneCtx) {
+      const acc = await pz.readPhotoConsent(resolvedPlayerId);
+      if (typeof noPhoto === 'boolean') {
+        addNoPhoto = noPhoto;
+        if (resolvedPlayerId && !acc.isMinor) {
+          try { await pz.recordPhotoConsent(resolvedPlayerId, !noPhoto, 'leader', { roomId, staffId: (req as any).user?.id ?? null }); } catch { /* */ }
+        }
+      } else addNoPhoto = pz.effectiveNoPhoto(acc);
+    }
+
     const state = await addPlayer(roomId, Number(physicalId), name, phone || '0700000000', resolvedPlayerId, 'leader');
-    await updatePlayer(roomId, Number(physicalId), { dob, gender });
+    await updatePlayer(roomId, Number(physicalId), { dob, gender, ...(addNoPhoto !== undefined ? { noPhoto: addNoPhoto } : {}) });
 
     // حفظ اللاعب في الـ Session (PostgreSQL)
     const fullState = await getRoom(roomId);
@@ -205,9 +220,10 @@ router.post('/force-add-player', requireLeader, async (req: Request, res: Respon
         maxPlayers: state.config.maxPlayers,
         gender: gender || 'MALE',
       });
+      if (zoneCtx) { try { await pz.afterZoneSeatIO(io, roomId, zoneCtx, addNoPhoto ? Number(physicalId) : null, name); } catch { /* */ } }
     }
 
-    return res.json({ success: true });
+    return res.json({ success: true, ...(addNoPhoto !== undefined ? { noPhoto: addNoPhoto } : {}) });
   } catch (err: any) {
     return res.status(400).json({ success: false, error: err.message });
   }

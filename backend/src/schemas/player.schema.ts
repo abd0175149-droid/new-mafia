@@ -50,6 +50,10 @@ export const players = pgTable('players', {
   fullComp: boolean('full_comp').default(false).notNull(),
   fullCompBy: varchar('full_comp_by', { length: 100 }),
   fullCompAt: timestamp('full_comp_at'),
+  // 📸 زاوية بلا تصوير (2026-11-01): null = لم يُسأل بعد · true = يقبل التصوير · false = لا يقبل.
+  //    يُسأل عند كلّ دخولٍ لغرفة وجوابُه السابق مختارٌ مسبقاً. القاصر بلا تصوير دائماً (photo-zone.service).
+  photoConsent: boolean('photo_consent'),
+  photoConsentAt: timestamp('photo_consent_at'),
   welcomeBonusApplied: boolean('welcome_bonus_applied').default(false),
   genderConstraint: varchar('gender_constraint', { length: 20 }).default('NONE'),
   // ── 🪙 اقتصاد التشبس Chips ──

@@ -34,6 +34,12 @@ interface Props {
   showNextEmpty?: boolean;
   onSeatClick?: (seat: number) => void;
   compact?: boolean;
+  /** 📸 زاوية بلا تصوير (الليدر وحده — الشاشة لا تمرّرها): المقاعد المتوقَّعة تُظلَّل */
+  zoneSeats?: number[];
+  /** 📸 مقاعد الرافضين — حلقة برتقاليّة */
+  noPhotoSeats?: number[];
+  /** ⚓ أوّل كرسيّ في الزاوية */
+  anchorSeat?: number;
 }
 
 const COLORS: Record<RingSeat['state'], { fill: string; stroke: string; text: string }> = {
@@ -49,6 +55,7 @@ const COLORS: Record<RingSeat['state'], { fill: string; stroke: string; text: st
 export default function SeatMapRing({
   maxPlayers, seats, conflicts = [], doorSeats = [], size = 420,
   showNextEmpty = false, onSeatClick, compact = false,
+  zoneSeats = [], noPhotoSeats = [], anchorSeat,
 }: Props) {
   const n = Math.max(1, maxPlayers);
   const cx = size / 2;
@@ -88,18 +95,23 @@ export default function SeatMapRing({
         const c = COLORS[s.state];
         const [x, y] = pos(seat);
         const isDoor = doorSeats.includes(seat);
+        const inZone = zoneSeats.includes(seat);
+        const noPhoto = noPhotoSeats.includes(seat);
         return (
           <g key={seat}
             onClick={onSeatClick ? () => onSeatClick(seat) : undefined}
             style={{ cursor: onSeatClick ? 'pointer' : 'default' }}>
+            {inZone && (
+              <circle cx={x} cy={y} r={seatR + 6} fill="rgba(249,115,22,0.10)" stroke="rgba(249,115,22,0.35)" strokeWidth={1} strokeDasharray="3 3" />
+            )}
             {s.state === 'empty' && (
               <circle cx={x} cy={y} r={seatR + 4} fill="none" stroke={c.stroke} strokeWidth={1} opacity={0.35}>
                 <animate attributeName="opacity" values="0.35;0.05;0.35" dur="2.4s" repeatCount="indefinite" />
               </circle>
             )}
             <circle cx={x} cy={y} r={seatR}
-              fill={c.fill} stroke={s.isSpeaking ? '#C5A059' : c.stroke}
-              strokeWidth={s.isSpeaking ? 3 : (s.isMe ? 3 : 1.8)}
+              fill={c.fill} stroke={s.isSpeaking ? '#C5A059' : noPhoto ? '#f97316' : c.stroke}
+              strokeWidth={s.isSpeaking ? 3 : (s.isMe || noPhoto ? 3 : 1.8)}
               strokeDasharray={s.state === 'empty' || s.state === 'spectator' ? '4 3' : undefined} />
             <text x={x} y={y + seatR * 0.33} textAnchor="middle"
               style={{ fontFamily: 'Amiri, serif', fontWeight: 900, fontSize: seatR * 0.95, fill: c.text }}>
@@ -110,6 +122,9 @@ export default function SeatMapRing({
                 style={{ fontFamily: 'Tajawal, sans-serif', fontSize: 9.5, fill: '#8f98ab' }}>
                 {String(s.name).trim().split(/\s+/)[0].slice(0, 9)}
               </text>
+            )}
+            {anchorSeat === seat && (
+              <text x={x} y={y + seatR + (compact ? 10 : 24)} textAnchor="middle" style={{ fontSize: seatR * 0.6 }}>⚓</text>
             )}
             {isDoor && (
               <text x={x} y={y - seatR - 5} textAnchor="middle" style={{ fontSize: seatR * 0.7 }}>🚪</text>

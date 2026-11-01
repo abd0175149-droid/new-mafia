@@ -162,6 +162,45 @@ router.get('/whatsapp-group', authenticatePlayer, async (req: Request, res: Resp
 });
 
 // ══════════════════════════════════════════════════════
+// 📸 «تقبل التصوير؟» — جواب اللاعب (2026-11-01)
+// ══════════════════════════════════════════════════════
+// الويب وفلاتر يسألان قبل كلّ دخولٍ لغرفة بجوابه السابق مختاراً مسبقاً. enabled=false ⟵ لا سؤال.
+// القاصر: بلا تصوير دائماً (يُعرض له تنبيه بدل السؤال)، وحسابه لا يُكتب عليه «يقبل».
+router.get('/photo-consent', authenticatePlayer, async (req: Request, res: Response) => {
+  try {
+    const playerId = (req as any).player?.playerId ?? (req as any).player?.id;
+    const pz = await import('../services/photo-zone.service.js');
+    // ?roomId= ⟵ غرفة موقع الاختبار تعمل ولو كان المفتاح مطفأً
+    let enabled = await pz.photoZoneEnabled();
+    const roomId = String(req.query.roomId || '').trim();
+    if (!enabled && roomId) {
+      const { getRoom } = await import('../game/state.js');
+      const st = await getRoom(roomId).catch(() => null);
+      if (st) enabled = await pz.zoneEnabledFor(st);
+    }
+    const a = await pz.readPhotoConsent(playerId);
+    res.json({ success: true, enabled, consent: a.consent, isMinor: a.isMinor });
+  } catch (err: any) {
+    // لا يُحجب الدخول بعطلٍ هنا: بلا سؤال، والخادم يطبّق الافتراضيّ الآمن عند الانضمام
+    res.json({ success: true, enabled: false, consent: null, isMinor: false, error: err.message });
+  }
+});
+
+router.put('/photo-consent', authenticatePlayer, async (req: Request, res: Response) => {
+  if (typeof req.body?.consent !== 'boolean') return res.status(400).json({ error: 'consent مطلوب (true/false)' });
+  try {
+    const playerId = (req as any).player?.playerId ?? (req as any).player?.id;
+    const pz = await import('../services/photo-zone.service.js');
+    const a = await pz.readPhotoConsent(playerId);
+    if (a.isMinor && req.body.consent === true) {
+      return res.status(409).json({ error: 'تحت ١٨ سنة: التصوير بموافقة وليّ الأمر — اطلبها من الموجّه', code: 'MINOR' });
+    }
+    await pz.recordPhotoConsent(playerId, req.body.consent, 'profile');
+    res.json({ success: true, consent: req.body.consent, isMinor: a.isMinor });
+  } catch (err: any) { res.status(500).json({ error: err.message }); }
+});
+
+// ══════════════════════════════════════════════════════
 // 💬 رابط بوت «الدون» — من الخادم لا من العميلين
 // ══════════════════════════════════════════════════════
 // كان رقم ميتا مكتوباً في الويب وفلاتر، فتغييره يحتاج إصدار APK. صار الخادم يقرّر.

@@ -72,6 +72,7 @@ import venueSettlementsRoutes from './routes/venue-settlements.routes.js';
 import invoiceWaRoutes from './routes/invoice-wa.routes.js';
 import waGateRoutes from './routes/wa-gate.routes.js';
 import resConfirmRoutes from './routes/res-confirm.routes.js';
+import photoZoneRoutes from './routes/photo-zone.routes.js';
 import chipsRoutes from './routes/chips.routes.js';
 import loyaltyRoutes from './routes/loyalty.routes.js';
 import chipsStoreRoutes from './routes/chips-store.routes.js';
@@ -242,6 +243,7 @@ app.use('/api/admin/venue-settlements', venueSettlementsRoutes); // 🤝 تسو�
 app.use('/api/admin/invoice-wa', invoiceWaRoutes);               // 🧾 مفتاح فواتير واتساب (الداشبورد)
 app.use('/api/admin/wa-gate', waGateRoutes);                    // 📱 بوّابة رقم الواتساب (الداشبورد)
 app.use('/api/admin/res-confirm', resConfirmRoutes);             // 📋 رسالة تثبيت الحجز التلقائيّة (الداشبورد)
+app.use('/api/admin/photo-zone', photoZoneRoutes);              // 📸 زاوية بلا تصوير (الداشبورد)
 app.use('/api/fnb', playerFnbRouter);    // 🍽️ طلبات المنيو — جهة اللاعب
 app.use('/api/chips', chipsRoutes);      // 🪙 اقتصاد التشبس (محفظة + دفتر + شحن إداري)
 app.use('/api/loyalty', loyaltyRoutes);  // 🎟️ بطاقة الولاء (ختم الدون)
@@ -1249,6 +1251,14 @@ async function main() {
       await db.execute(sql`ALTER TABLE players ADD COLUMN IF NOT EXISTS full_comp BOOLEAN DEFAULT false NOT NULL`);
       await db.execute(sql`ALTER TABLE players ADD COLUMN IF NOT EXISTS full_comp_by VARCHAR(100)`);
       await db.execute(sql`ALTER TABLE players ADD COLUMN IF NOT EXISTS full_comp_at TIMESTAMP`);
+      // 📸 زاوية بلا تصوير — جواب اللاعب + سجلّ كلّ تغيير (2026-11-01)
+      await db.execute(sql`ALTER TABLE players ADD COLUMN IF NOT EXISTS photo_consent BOOLEAN`);
+      await db.execute(sql`ALTER TABLE players ADD COLUMN IF NOT EXISTS photo_consent_at TIMESTAMP`);
+      await db.execute(sql`CREATE TABLE IF NOT EXISTS photo_consent_log (
+        id SERIAL PRIMARY KEY, player_id INTEGER NOT NULL, consent BOOLEAN NOT NULL,
+        source VARCHAR(20) NOT NULL, room_id VARCHAR(60), staff_id INTEGER,
+        created_at TIMESTAMP DEFAULT NOW() NOT NULL)`);
+      await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_photo_consent_log_player ON photo_consent_log(player_id, created_at DESC)`);
       await db.execute(sql`CREATE TABLE IF NOT EXISTS venue_handovers (
         id SERIAL PRIMARY KEY, location_id INTEGER NOT NULL, amount DECIMAL(10,2) NOT NULL,
         to_label VARCHAR(80) DEFAULT '', note TEXT DEFAULT '', status VARCHAR(12) DEFAULT 'pending' NOT NULL,

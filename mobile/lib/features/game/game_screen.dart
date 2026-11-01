@@ -19,6 +19,7 @@ import 'join_flow.dart';
 import '../voice/remote_voice.dart';
 import '../voice/voice_service.dart';
 import 'lobby_view.dart';
+import 'photo_consent_view.dart';
 import 'spectator_table.dart';
 import 'vote_history_view.dart';
 
@@ -235,6 +236,13 @@ class _GameScreenState extends State<GameScreen> {
                     error: _c.apiError),
                 GameStep.spectating => _SpectatingView(controller: _c),
                 GameStep.ticket => _ticketStep(),
+                // 📸 سؤال التصوير — ودجةٌ مضمّنة في القشرة لا حوار
+                GameStep.photoConsent when _c.photoAsk != null =>
+                  PhotoConsentQuestion(
+                    ask: _c.photoAsk!,
+                    busy: _c.busy,
+                    onContinue: (v) => unawaited(_c.submitPhotoConsent(v)),
+                  ),
                 GameStep.done || GameStep.rejoined => LobbyView(controller: _c),
                 // خطوات المصادقة تصل مع الملفّ ٠٥ — الحساب هنا مسجَّلٌ أصلاً
                 _ => const _Spinner(label: 'جارٍ…'),

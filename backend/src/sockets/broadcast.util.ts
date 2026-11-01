@@ -135,6 +135,8 @@ export function projectStateFor(state: any, viewerSeat: number | null): any {
     if (silenceHidden.has(Number(p.physicalId))) q.isSilenced = false;
     if (viewerSeat != null && p.physicalId === viewerSeat) {
       q.phone = p.phone ?? null;
+      // 📸 علمه هو وحده — علم غيره يكشف من رفض التصوير (الموجّه يراه كاملاً)
+      if (p.noPhoto !== undefined) q.noPhoto = p.noPhoto === true;
       // 👥 الأصغرُ المتحوّل يرى دورَه القديم حتّى يُعلن موتُ أخيه
       q.role = started ? announcedRoleOf(state, p) : null;
     } else {
@@ -179,6 +181,8 @@ export function projectStateFor(state: any, viewerSeat: number | null): any {
   }
 
   if (state.phase === 'GAME_OVER') out.winner = state.winner ?? null;
+  // 📸 الهاتف يعرض «التصوير: …» في الغرفة حين تكون الزاوية مفعّلة — بلا المرساة ولا المقاعد
+  if (state.photoZone?.on) out.photoZoneOn = true;
   return out;
 }
 

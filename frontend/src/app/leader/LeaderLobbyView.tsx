@@ -5,6 +5,8 @@ import { motion, AnimatePresence } from 'framer-motion';
 import MafiaCard from '@/components/MafiaCard';
 import { useSeatMove, SeatMoveTargets } from './SeatMove';
 import { swalConfirm } from '@/lib/swal';
+import { NoPhotoBadge, usePhotoZone } from './PhotoZonePanel';
+import { zoneRank } from '@/lib/photoZone';
 
 interface LeaderLobbyViewProps {
 
@@ -38,6 +40,9 @@ export default function LeaderLobbyView({ gameState, emit, setError, hideOffline
   const [addPlayerId, setAddPlayerId] = useState<number | null>(null);
   const [addLoading, setAddLoading] = useState(false);
   const [playerFound, setPlayerFound] = useState(false);
+  // 📸 سأل الليدر «يقبل التصوير؟» — null = لم يسأل (الخادم يأخذ جواب حسابه، وإلّا بلا تصوير)
+  const [addNoPhoto, setAddNoPhoto] = useState<boolean | null>(null);
+  const pz = usePhotoZone(gameState);
 
   // ── حالة تعديل اسم اللاعب ──
   const [editingId, setEditingId] = useState<number | null>(null);
@@ -70,6 +75,7 @@ export default function LeaderLobbyView({ gameState, emit, setError, hideOffline
     setAddPlayerId(null);
     setAddLoading(false);
     setPlayerFound(false);
+    setAddNoPhoto(null);
     setLocalError('');
   };
 
@@ -186,6 +192,7 @@ export default function LeaderLobbyView({ gameState, emit, setError, hideOffline
           dob: addDob,
           gender: addGender,
           playerId: addPlayerId,
+          ...(pz && addNoPhoto !== null ? { noPhoto: addNoPhoto } : {}),
         }),
       });
       const response = await result.json();
@@ -246,6 +253,15 @@ export default function LeaderLobbyView({ gameState, emit, setError, hideOffline
   const occupiedSeats = gameState.players.map((p: any) => p.physicalId);
   const availableSeats = Array.from({ length: gameState.config.maxPlayers }, (_, i) => i + 1)
     .filter(num => !occupiedSeats.includes(num));
+  // 📸 المقعد الأنسب حسب جواب التصوير — نفس رتبة المحرّك (الرافض يلتصق بالكتلة، القابل خارجها)
+  const zoneSet = new Set(pz?.report.zone || []);
+  const suggestedSeat = (() => {
+    if (!pz || addNoPhoto === null || availableSeats.length === 0) return null;
+    const occ = new Map<number, { noPhoto?: boolean }>();
+    for (const p of gameState.players || []) occ.set(Number(p.physicalId), { noPhoto: p.noPhoto === true });
+    for (const sp of gameState.spectators || []) if (sp.physicalId > 0) occ.set(Number(sp.physicalId), { noPhoto: sp.noPhoto === true });
+    return availableSeats.slice().sort((a, b) => zoneRank(a, addNoPhoto, occ, pz.ctx, pz.n) - zoneRank(b, addNoPhoto, occ, pz.ctx, pz.n) || a - b)[0];
+  })();
 
   return (
     <div className="mb-12">
@@ -462,6 +478,26 @@ export default function LeaderLobbyView({ gameState, emit, setError, hideOffline
                   )}
                 </div>
 
+                {/* 📸 «يقبل التصوير؟» — يحدّد المقعد المقترح (زاوية بلا تصوير) */}
+                {pz && (
+                  <div className="rounded-lg border border-orange-500/25 bg-orange-500/5 p-3 space-y-2">
+                    <p className="text-[12px] text-orange-200 font-bold">📸 يقبل التصوير؟</p>
+                    <div className="grid grid-cols-2 gap-2">
+                      <button type="button" onClick={() => setAddNoPhoto(false)}
+                        className={`h-11 rounded-lg border text-[12px] font-bold ${addNoPhoto === false ? 'border-emerald-400 bg-emerald-500/15 text-emerald-200' : 'border-[#2a2a2a] text-zinc-400'}`}>
+                        ✓ نعم
+                      </button>
+                      <button type="button" onClick={() => setAddNoPhoto(true)}
+                        className={`h-11 rounded-lg border text-[12px] font-bold ${addNoPhoto === true ? 'border-orange-400 bg-orange-500/15 text-orange-200' : 'border-[#2a2a2a] text-zinc-400'}`}>
+                        📵 لا
+                      </button>
+                    </div>
+                    <p className="text-[11px] text-zinc-500">
+                      {addNoPhoto === null ? 'إن لم تسأله يؤخذ جواب حسابه، وإلّا يُعامَل بلا تصوير.' : suggestedSeat ? `المقعد المقترح: ${suggestedSeat}` : ''}
+                    </p>
+                  </div>
+                )}
+
                 <label className="block text-[9px] font-mono text-[#808080] tracking-[0.2em] uppercase mb-2">
                   SELECT SEAT *
                 </label>
@@ -470,13 +506,18 @@ export default function LeaderLobbyView({ gameState, emit, setError, hideOffline
                     <button
                       key={num}
                       onClick={() => setAddSeat(String(num))}
-                      className={`h-12 rounded-lg font-mono font-bold text-lg transition-all border ${
+                      className={`relative h-12 rounded-lg font-mono font-bold text-lg transition-all border ${
                         addSeat === String(num)
                           ? 'bg-[#C5A059]/20 border-[#C5A059] text-[#C5A059] shadow-[0_0_10px_rgba(197,160,89,0.2)]'
-                          : 'bg-[#0c0c0c] border-[#2a2a2a] text-zinc-500 hover:border-zinc-600 hover:text-zinc-300'
+                          : suggestedSeat === num
+                            ? 'bg-emerald-500/10 border-emerald-500/60 text-emerald-200'
+                            : zoneSet.has(num)
+                              ? 'bg-orange-500/5 border-orange-500/40 text-orange-200/80'
+                              : 'bg-[#0c0c0c] border-[#2a2a2a] text-zinc-500 hover:border-zinc-600 hover:text-zinc-300'
                       }`}
                     >
                       {num}
+                      {zoneSet.has(num) && <span className="absolute top-0.5 left-1 text-[9px]">📵</span>}
                     </button>
                   ))}
                 </div>
@@ -575,8 +616,9 @@ export default function LeaderLobbyView({ gameState, emit, setError, hideOffline
 
                 {/* 🏷️ شاراتُ الحالة — كانت isConnected/frozen/seatHeld تصل في كلّ بثّ
                     ولا تُرسَم في أيّ شاشة، فيكتشف الليدر الغياب حين يُنادى الاسم. */}
-                {(player.frozen || player.seatHeld || player.isConnected === false) && (
+                {(player.frozen || player.seatHeld || player.isConnected === false || (pz && player.noPhoto)) && (
                   <div className="absolute top-1 left-1 z-20 flex flex-col gap-0.5 items-start">
+                    {pz && <NoPhotoBadge on={player.noPhoto === true} />}
                     {player.frozen && (
                       <span className="px-1.5 py-0.5 rounded text-[9px] font-bold"
                         style={{ background: 'rgba(76,141,255,.18)', border: '1px solid rgba(76,141,255,.5)', color: '#9cc0ff' }}>

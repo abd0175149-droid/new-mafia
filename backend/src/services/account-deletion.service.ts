@@ -199,6 +199,8 @@ export async function anonymizePlayer(playerId: number): Promise<void> {
   await db.execute(sql`DELETE FROM cheat_signals WHERE player_id = ${id}`);
   await db.execute(sql`DELETE FROM cheat_reviews WHERE player_id = ${id}`);
   await db.execute(sql`DELETE FROM blocked_pairs WHERE player1_id = ${id} OR player2_id = ${id}`);
+  // 📸 سجلّ جواب التصوير — تفضيلٌ شخصيّ لا قيمة له بلا صاحبه
+  await db.execute(sql`DELETE FROM photo_consent_log WHERE player_id = ${id}`);
 
   // 6) الأجهزة والإشعارات
   await db.execute(sql`DELETE FROM player_fcm_tokens WHERE player_id = ${id}`);

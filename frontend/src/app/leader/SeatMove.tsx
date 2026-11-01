@@ -18,6 +18,7 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useRef, use
 import type { ReactNode } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
 import FixedLayer from '@/components/FixedLayer';
+import { breaksZone, zoneReport, type ZoneOccupant } from '@/lib/photoZone';
 
 
 export type SeatMoveEmit = (event: string, payload: any) => Promise<any>;
@@ -39,12 +40,14 @@ export interface SeatMoveApi {
   moveTo: (toSeat: number) => void;
   /** ➕ يُدخل `count` مقاعد فارغة بعد `after` (٠ = في البداية) ويُزيح من بعدها — true عند النجاح */
   insertSeats: (after: number, count: number) => Promise<boolean>;
+  /** 📸 الزاوية بلا تصوير (null = مطفأة): المقاعد المتوقَّعة ومقاعد الرافضين — للتظليل */
+  zone: { seats: Set<number>; noPhoto: Set<number> } | null;
 }
 
 const INERT: SeatMoveApi = {
   enabled: false, movingId: null, busy: false, remapVersion: 0, seats: [], emptySeats: [],
   occupantOf: () => null, beginMove: () => { /* لا مزوّد */ }, cancelMove: () => { /* لا مزوّد */ },
-  moveTo: () => { /* لا مزوّد */ }, insertSeats: async () => false,
+  moveTo: () => { /* لا مزوّد */ }, insertSeats: async () => false, zone: null,
 };
 
 const SeatMoveCtx = createContext<SeatMoveApi>(INERT);
@@ -67,7 +70,8 @@ type ToastTone = 'ok' | 'blocked' | 'error';
 interface ToastState { id: number; text: string; tone: ToastTone; undo?: { from: number; to: number } }
 /** ➕ عمليّة «أضف مقاعد» المؤجّلة (تأكيد خطر أو فتح السرّ) — بدلاً من نقلةٍ من/إلى */
 interface PendingInsert { after: number; count: number }
-interface HazardPrompt { from: number; to: number; message: string; moverName: string; insert?: PendingInsert }
+// zone = تنبيه الزاوية بلا تصوير من الواجهة (قبل الخادم) · zoneOk = أُكّد فلا يُعاد السؤال
+interface HazardPrompt { from: number; to: number; message: string; moverName: string; insert?: PendingInsert; zone?: boolean; zoneOk?: boolean }
 
 /** «مقعد واحد / مقعدان / ٣ مقاعد / ١١ مقعداً» */
 export const seatsWord = (n: number) => (n === 1 ? 'مقعد واحد' : n === 2 ? 'مقعدان' : n <= 10 ? `${n} مقاعد` : `${n} مقعداً`);
@@ -76,10 +80,14 @@ export const seatsWord = (n: number) => (n === 1 ? 'مقعد واحد' : n === 2
 const isHeld = (p: any) => !!p?.seatHeld;
 
 export function SeatMoveProvider({
-  roomId, players, maxPlayers, emit, on, children,
+  roomId, players, spectators, photoZone, maxPlayers, emit, on, children,
 }: {
   roomId?: string;
   players: any[];
+  /** 👁️ متفرّجو الحلقة — تحتاجهم الزاوية (يجلسون على كراسيها) */
+  spectators?: any[];
+  /** 📸 state.photoZone — حين تكون مفعّلة يُنبَّه قبل نقلٍ يقطع الكتلة */
+  photoZone?: { on?: boolean; anchor?: number; pending?: number } | null;
   maxPlayers?: number;
   emit: SeatMoveEmit;
   on: SeatMoveOn;
@@ -91,7 +99,7 @@ export function SeatMoveProvider({
   const [hazard, setHazard] = useState<HazardPrompt | null>(null);
   const [toast, setToast] = useState<ToastState | null>(null);
   // 🔒 مطالبة السرّ في مكانها — تحمل النقلة المؤجّلة لتُعاد تلقائياً بعد الفتح
-  const [unlock, setUnlock] = useState<{ from: number; to: number; confirmHazard?: boolean; error: string; insert?: PendingInsert } | null>(null);
+  const [unlock, setUnlock] = useState<{ from: number; to: number; confirmHazard?: boolean; error: string; insert?: PendingInsert; zoneOk?: boolean } | null>(null);
   const [unlockCode, setUnlockCode] = useState('');
   const busyRef = useRef(false);
   const toastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -111,6 +119,32 @@ export function SeatMoveProvider({
   const emptySeats = useMemo(() => seats.filter((s) => !bySeat.has(s)), [seats, bySeat]);
   const occupantOf = useCallback((seat: number) => bySeat.get(seat) || null, [bySeat]);
 
+  // ── 📸 الزاوية بلا تصوير: الحساب نفسه الذي يجريه الخادم (نسخة حرفيّة) ──
+  const zoneCtx = useMemo(
+    () => (photoZone?.on ? { anchor: Number(photoZone.anchor) || 1, pending: Number(photoZone.pending) || 0 } : null),
+    [photoZone?.on, photoZone?.anchor, photoZone?.pending],
+  );
+  const zoneOcc = useMemo(() => {
+    const m = new Map<number, ZoneOccupant>();
+    for (const p of players || []) m.set(Number(p.physicalId), { noPhoto: p.noPhoto === true, locked: !!(p.seatHeld || p.frozen), name: p.name });
+    for (const sp of spectators || []) if (sp?.physicalId > 0 && !m.has(Number(sp.physicalId))) m.set(Number(sp.physicalId), { noPhoto: sp.noPhoto === true, locked: true, name: sp.name });
+    return m;
+  }, [players, spectators]);
+  const zone = useMemo(() => {
+    if (!zoneCtx) return null;
+    const rep = zoneReport(zoneOcc, zoneCtx, seats.length || 1);
+    const noPhoto = new Set<number>();
+    zoneOcc.forEach((o, s) => { if (o.noPhoto) noPhoto.add(s); });
+    return { seats: new Set(rep.zone), noPhoto };
+  }, [zoneCtx, zoneOcc, seats.length]);
+  /** نصّ التنبيه إن قطع هذا التغيير الكتلة، وإلّا null */
+  const zoneBreak = useCallback((map: Map<number, number>, n: number): string | null => {
+    if (!zoneCtx) return null;
+    const r = breaksZone(zoneOcc, map, zoneCtx, n);
+    if (!r.broken) return null;
+    return `📵 هذا يقطع زاوية بلا تصوير (${r.before <= 1 ? 'قطعة واحدة' : `${r.before} قطع`} ⟵ ${r.after} قطع) — متأكّد؟`;
+  }, [zoneCtx, zoneOcc]);
+
   const showToast = useCallback((text: string, tone: ToastTone, undo?: { from: number; to: number }) => {
     if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
     const next: ToastState = { id: Date.now(), text, tone, undo };
@@ -124,9 +158,15 @@ export function SeatMoveProvider({
   useEffect(() => () => { if (toastTimerRef.current) clearTimeout(toastTimerRef.current); }, []);
 
   // ── التنفيذ الفعلي: لا مودال في الحالة الشائعة، ومسار تأكيد واحد للمخاطر ──
-  const runMove = useCallback(async (from: number, to: number, confirmHazard?: boolean) => {
+  const runMove = useCallback(async (from: number, to: number, confirmHazard?: boolean, zoneOk?: boolean) => {
     if (!roomId || busyRef.current) return;
     const moverName = bySeat.get(from)?.name || `#${from}`;
+    if (!zoneOk) {
+      const map = new Map<number, number>([[from, to]]);
+      if (bySeat.has(to)) map.set(to, from);
+      const w = zoneBreak(map, seats.length);
+      if (w) { setHazard({ from, to, moverName, message: w, zone: true }); return; }
+    }
     busyRef.current = true;
     setBusy(true);
     try {
@@ -147,7 +187,7 @@ export function SeatMoveProvider({
     } catch (err: any) {
       const r = err?.response;
       if (r?.code === 'HAZARD_CONFIRM') {
-        setHazard({ from, to, moverName, message: r.error || 'هناك قرارٌ جارٍ — أكّد التنفيذ' });
+        setHazard({ from, to, moverName, message: r.error || 'هناك قرارٌ جارٍ — أكّد التنفيذ', zoneOk: true });
       } else if (r?.code === 'HAZARD_BLOCKED') {
         setHazard(null);
         setMovingId(null);
@@ -157,7 +197,7 @@ export function SeatMoveProvider({
         // (مدخل الفتح الآخر — الضغطة المطوّلة على كود الغرفة — يعيش في شاشة إدارة الغرفة
         //  وحدها، فكان الليدر أثناء اللعب يصطدم بجدارٍ بلا مخرج.)
         setHazard(null);
-        setUnlock({ from, to, confirmHazard, error: '' });
+        setUnlock({ from, to, confirmHazard, error: '', zoneOk: true });
       } else {
         setHazard(null);                // يبقى وضع اختيار الوجهة ليعيد المحاولة بلمسة واحدة
         showToast(err?.message || 'فشل نقل المقعد', 'error');
@@ -166,11 +206,18 @@ export function SeatMoveProvider({
       busyRef.current = false;
       setBusy(false);
     }
-  }, [roomId, emit, bySeat, showToast]);
+  }, [roomId, emit, bySeat, showToast, zoneBreak, seats.length]);
 
   // ── ➕ إضافة مقاعد فارغة: نفس مسارَي التأكيد والسرّ، بلا «تراجع» (العكس حذفُ مقاعد) ──
-  const runInsert = useCallback(async (after: number, count: number, confirmHazard?: boolean): Promise<boolean> => {
+  const runInsert = useCallback(async (after: number, count: number, confirmHazard?: boolean, zoneOk?: boolean): Promise<boolean> => {
     if (!roomId || busyRef.current) return false;
+    if (!zoneOk) {
+      // كلّ مقعدٍ بعد نقطة الإدراج يُزاح بالعدد نفسه — إدراجٌ داخل الكتلة يفتح فجوةً فيها
+      const map = new Map<number, number>();
+      zoneOcc.forEach((_o, s) => { if (s > after) map.set(s, s + count); });
+      const w = zoneBreak(map, seats.length + count);
+      if (w) { setHazard({ from: 0, to: 0, moverName: '', insert: { after, count }, message: w, zone: true }); return false; }
+    }
     busyRef.current = true;
     setBusy(true);
     try {
@@ -191,13 +238,13 @@ export function SeatMoveProvider({
       const r = err?.response;
       const insert = { after, count };
       if (r?.code === 'HAZARD_CONFIRM') {
-        setHazard({ from: 0, to: 0, moverName: '', insert, message: r.error || 'هناك قرارٌ جارٍ — أكّد التنفيذ' });
+        setHazard({ from: 0, to: 0, moverName: '', insert, message: r.error || 'هناك قرارٌ جارٍ — أكّد التنفيذ', zoneOk: true });
       } else if (r?.code === 'HAZARD_BLOCKED') {
         setHazard(null);
         showToast(r.error || 'تعذّرت الإضافة الآن', 'blocked');
       } else if (r?.code === 'TOOLS_LOCKED') {
         setHazard(null);
-        setUnlock({ from: 0, to: 0, confirmHazard, insert, error: '' });
+        setUnlock({ from: 0, to: 0, confirmHazard, insert, error: '', zoneOk: true });
       } else {
         setHazard(null);
         showToast(err?.message || 'فشلت إضافة المقاعد', 'error');
@@ -207,7 +254,7 @@ export function SeatMoveProvider({
       busyRef.current = false;
       setBusy(false);
     }
-  }, [roomId, emit, showToast]);
+  }, [roomId, emit, showToast, zoneBreak, zoneOcc, seats.length]);
 
   // مرجع حيّ لـrunMove/runInsert — تستدعيهما مطالبة السرّ بعد الفتح بلا اعتماد دائري
   const runMoveRef = useRef<typeof runMove | null>(null);
@@ -226,8 +273,8 @@ export function SeatMoveProvider({
         const pending = unlock;
         setUnlock(null);
         setUnlockCode('');
-        if (pending.insert) await runInsertRef.current?.(pending.insert.after, pending.insert.count, pending.confirmHazard);
-        else await runMoveRef.current?.(pending.from, pending.to, pending.confirmHazard);
+        if (pending.insert) await runInsertRef.current?.(pending.insert.after, pending.insert.count, pending.confirmHazard, pending.zoneOk);
+        else await runMoveRef.current?.(pending.from, pending.to, pending.confirmHazard, pending.zoneOk);
       } else {
         setUnlockCode('');
         setUnlock((u) => (u ? { ...u, error: 'رقم غير صحيح' } : u));
@@ -294,8 +341,8 @@ export function SeatMoveProvider({
 
   const api = useMemo<SeatMoveApi>(() => ({
     enabled: !!roomId, movingId, busy, remapVersion, seats, emptySeats,
-    occupantOf, beginMove, cancelMove, moveTo, insertSeats: runInsert,
-  }), [roomId, movingId, busy, remapVersion, seats, emptySeats, occupantOf, beginMove, cancelMove, moveTo, runInsert]);
+    occupantOf, beginMove, cancelMove, moveTo, insertSeats: runInsert, zone,
+  }), [roomId, movingId, busy, remapVersion, seats, emptySeats, occupantOf, beginMove, cancelMove, moveTo, runInsert, zone]);
 
   return (
     <SeatMoveCtx.Provider value={api}>
@@ -359,9 +406,9 @@ export function SeatMoveProvider({
             initial={{ opacity: 0, y: 14 }}
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: 14 }}
-            className="fixed bottom-4 left-1/2 -translate-x-1/2 z-[130] w-[min(94vw,30rem)] rounded-2xl border border-amber-500/50 bg-[#1a1206]/95 backdrop-blur-md shadow-2xl p-4"
+            className={`fixed bottom-4 left-1/2 -translate-x-1/2 z-[130] w-[min(94vw,30rem)] rounded-2xl border backdrop-blur-md shadow-2xl p-4 ${hazard.zone ? 'border-orange-500/60 bg-[#1a0f06]/95' : 'border-amber-500/50 bg-[#1a1206]/95'}`}
           >
-            <p className="text-amber-300 text-[13px] font-bold leading-relaxed mb-1">{hazard.message}</p>
+            <p className={`text-[13px] font-bold leading-relaxed mb-1 ${hazard.zone ? 'text-orange-200' : 'text-amber-300'}`}>{hazard.message}</p>
             <p className="text-[#9a8f7d] text-[11px] mb-3">
               {hazard.insert
                 ? <>إضافة {seatsWord(hazard.insert.count)} {hazard.insert.after > 0 ? <>بعد المقعد <b className="font-mono">{hazard.insert.after}</b></> : 'في البداية'} — كلّ من بعدها يُزاح</>
@@ -372,8 +419,10 @@ export function SeatMoveProvider({
                 type="button"
                 disabled={busy}
                 onClick={() => {
-                  if (hazard.insert) void runInsert(hazard.insert.after, hazard.insert.count, true);
-                  else void runMove(hazard.from, hazard.to, true);
+                  // تنبيه الزاوية لا يمسّ مخاطر الخادم: يُرسل بلا confirmHazard فيسأل الخادم إن لزم
+                  const ch = hazard.zone ? undefined : true;
+                  if (hazard.insert) void runInsert(hazard.insert.after, hazard.insert.count, ch, true);
+                  else void runMove(hazard.from, hazard.to, ch, true);
                 }}
                 className="flex-[2] py-2.5 rounded-xl bg-amber-500/20 border border-amber-500 text-amber-200 text-xs font-bold hover:bg-amber-500/30 transition-colors disabled:opacity-40"
               >
@@ -698,6 +747,7 @@ export function SeatMoveBoardToggle({ label = '🪑 المقاعد' }: { label?:
                     onClick={() => (picking ? sm.moveTo(seat) : sm.beginMove(seat))}
                     title={held ? 'مقعد محجوز مؤقتاً' : occ ? occ.name : 'مقعد فارغ'}
                     className={`h-[52px] rounded-lg border px-1 flex flex-col items-center justify-center transition-colors disabled:opacity-30 disabled:cursor-not-allowed ${
+                      sm.zone?.seats.has(seat) && !isSource ? 'ring-1 ring-orange-500/40 ' : ''}${
                       isSource
                         ? 'border-sky-400 bg-sky-500/25 text-sky-100 ring-2 ring-sky-400/60'
                         : picking
@@ -709,7 +759,9 @@ export function SeatMoveBoardToggle({ label = '🪑 المقاعد' }: { label?:
                               : 'border-dashed border-[#2a2a2a] text-[#555]')
                     }`}
                   >
-                    <span className="font-mono font-black text-sm leading-none">{seat}</span>
+                    <span className="font-mono font-black text-sm leading-none">
+                      {seat}{sm.zone?.noPhoto.has(seat) && <span className="text-[10px]"> 📵</span>}
+                    </span>
                     <span className="mt-1 w-full truncate text-center text-[9px] leading-tight opacity-90">
                       {held ? '🔒 محجوز' : occ ? occ.name : picking ? 'فارغ' : '—'}
                     </span>

@@ -53,6 +53,8 @@ function EditorInner() {
   const [pinned, setPinned] = useState<Record<string, PinVal>>({}); // key: r:side:idx (مستطيل) أو s:seatNum (دائري/صفوف)
   const [isDefault, setIsDefault] = useState(false);
   const [totalSeats, setTotalSeats] = useState(20);
+  // 📸 مرساة «زاوية بلا تصوير»: أوّل كرسيّ في الجانب البعيد عن الكاميرا — الرافضون يجلسون منه للأمام
+  const [noPhotoAnchor, setNoPhotoAnchor] = useState<number | null>(null);
 
   const [viewMode, setViewMode] = useState(false);
   const [selectedSeat, setSelectedSeat] = useState<number | null>(null);
@@ -87,6 +89,7 @@ function EditorInner() {
     apiFetch(`/api/seat-templates/${editId}`).then(({ template: t }) => {
       setName(t.name); setLayoutType((t.layoutType as any) || 'rectangle');
       setReservedTailCount(t.reservedTailCount); setIsDefault(t.isDefault); setTotalSeats(t.totalSeats);
+      { const a = Number(t.layoutConfig?.noPhotoAnchor); setNoPhotoAnchor(Number.isFinite(a) && a >= 1 ? a : null); }
       if (t.layoutType === 'rectangle' && t.layoutConfig?.shape === 'rectangle') {
         const lc = t.layoutConfig;
         setSides(lc.sides);
@@ -240,11 +243,15 @@ function EditorInner() {
           const seat = layout.seats.find(s => s.side === side && s.sideIndex === Number(idxStr));
           if (seat) pinnedSeats.push({ seatNumber: seat.seatNum, playerId: v.playerId, phone: v.phone, playerName: v.playerName });
         });
-        layoutConfig = { shape: 'rectangle', sides, numbering, doors, doorSeats: layout.doorSeats };
+        layoutConfig = { shape: 'rectangle', sides, numbering, doors, doorSeats: layout.doorSeats, ...(noPhotoAnchor ? { noPhotoAnchor } : {}) };
         seatPositions = seatsTo2D(layout.seats);
       } else {
         Object.entries(pinned).forEach(([k, v]) => { if (k.startsWith('s:')) { const n = Number(k.slice(2)); if (n <= totalSeats) pinnedSeats.push({ seatNumber: n, playerId: v.playerId, phone: v.phone, playerName: v.playerName }); } });
+        // القوالب غير المستطيلة بلا تخطيط — المرساة وحدها تُحفظ فيه
+        if (noPhotoAnchor) layoutConfig = { noPhotoAnchor };
       }
+      // مرساةٌ خارج عدد الكراسي (بعد تصغير القالب) تسقط بدل أن تشير لكرسيٍّ غير موجود
+      if (layoutConfig?.noPhotoAnchor && layoutConfig.noPhotoAnchor > effectiveTotal) delete layoutConfig.noPhotoAnchor;
       const body = { name, layoutType, totalSeats: effectiveTotal, reservedTailCount, pinnedSeats, seatPositions, layoutConfig, isDefault };
       if (editId) await apiFetch(`/api/seat-templates/${editId}`, { method: 'PUT', body: JSON.stringify(body) });
       else await apiFetch('/api/seat-templates', { method: 'POST', body: JSON.stringify(body) });
@@ -346,6 +353,12 @@ function EditorInner() {
                 ) : (
                   <>
                     <div className="flex items-center justify-between"><h4 className="text-sm font-bold text-white">🪑 مقعد #{selectedSeat}</h4><button onClick={clearSel} className="text-gray-500 hover:text-white">✕</button></div>
+                    <button
+                      onClick={() => setNoPhotoAnchor(a => (a === selectedSeat ? null : selectedSeat))}
+                      className={`w-full py-2 rounded-lg text-xs font-bold border ${noPhotoAnchor === selectedSeat ? 'bg-orange-500/20 border-orange-500/40 text-orange-300' : 'bg-orange-500/5 border-orange-500/20 text-orange-300/80 hover:bg-orange-500/15'}`}
+                    >
+                      {noPhotoAnchor === selectedSeat ? '📵 مرساة الزاوية بلا تصوير — المس للإلغاء' : '📵 اجعله مرساة الزاوية بلا تصوير'}
+                    </button>
                     {isRect && (
                       <div className="grid grid-cols-1 gap-1.5">
                         <button onClick={startNumberingHere} className="py-2 rounded-lg text-xs font-bold bg-blue-500/10 border border-blue-500/25 text-blue-300 hover:bg-blue-500/20">① بدء الترقيم من هذا المقعد</button>
@@ -376,6 +389,12 @@ function EditorInner() {
               </motion.div>
             )}
           </AnimatePresence>
+
+          <div className="bg-gray-800/40 border border-gray-700/30 rounded-xl p-4 space-y-1">
+            <p className="text-[11px] text-orange-300 font-bold">📵 زاوية بلا تصوير: {noPhotoAnchor ? <>تبدأ من المقعد <span className="font-mono">{noPhotoAnchor}</span> وتمتدّ مع الترقيم</> : 'من المقعد ١ (افتراضيّ)'}</p>
+            <p className="text-[10px] text-gray-500">اختر أوّل كرسيّ في الجانب البعيد عن الكاميرا: انقره ← «اجعله مرساة». الليدر يقدر يغيّرها للّيلة.</p>
+            {noPhotoAnchor && <button onClick={() => setNoPhotoAnchor(null)} className="text-[10px] text-gray-500 hover:text-white">↺ عُد للمقعد ١</button>}
+          </div>
 
           {(Object.keys(pinned).length > 0 || doorCount > 0) && (
             <div className="bg-gray-800/40 border border-gray-700/30 rounded-xl p-4 space-y-2">

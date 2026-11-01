@@ -5,7 +5,7 @@
 // ══════════════════════════════════════════════════════
 
 import type { SeatingConstraint, PlayerSeatData, EvaluationContext, ConstraintResult } from '../types.js';
-import { getSeatsWithinDistance, circularDistance } from '../types.js';
+import { getSeatsWithinDistance, circularDistance, normalizeSeatPhone } from '../types.js';
 
 interface BlockedPair {
   player1Phone: string;
@@ -14,10 +14,9 @@ interface BlockedPair {
   player2Name: string;
 }
 
-function normalizePhone(phone: string): string {
-  if (!phone) return '';
-  return phone.startsWith('0') ? phone : '0' + phone;
-}
+// 🔴 التطبيع الموحَّد (يزيل +962/00962): نسخة «أضف 0» القديمة كانت تُسقط زوجاً
+//    مسجّلاً بصيغةٍ دوليّة فيجلس الممنوعان متجاورَين بلا أيّ مخالفة.
+const normalizePhone = (phone: string): string => normalizeSeatPhone(phone);
 
 export class NoAdjacentPairsConstraint implements SeatingConstraint {
   type = 'NO_ADJACENT_PAIRS';
@@ -50,6 +49,8 @@ export class NoAdjacentPairsConstraint implements SeatingConstraint {
     }
 
     const normalizedPlayerPhone = normalizePhone(player.phone);
+    // بلا هاتف لا طرفَ في أيّ زوج — وإلّا طابق الفارغُ الفارغَ في زوجٍ ناقص
+    if (!normalizedPlayerPhone) return { satisfied: true, score: 1.0 };
 
     // فحص كل المقاعد ضمن مسافة minDistance
     const nearbySeats = getSeatsWithinDistance(candidateSeat, context.maxPlayers, this.minDistance);

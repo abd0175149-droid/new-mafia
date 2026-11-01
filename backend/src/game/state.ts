@@ -53,6 +53,21 @@ export interface Player {
   cardRevealed?: boolean;
   disabledUntilRound?: number;   // 🧙‍♀️ الراوند الأخير للتعطيل (ضمناً)
   disabledRoleName?: string;     // 🧙‍♀️ اسم الدور المعطّل (للعرض)
+  // 📸 لا يقبل التصوير — يجلس في «زاوية بلا تصوير» (photo-zone). سرٌّ عن بقيّة الهواتف:
+  //    الموجّه يراه، وصاحبه وحده من الهواتف (projectStateFor).
+  noPhoto?: boolean;
+  // 🕐 لحظة الجلوس — «آخر الواصلين» لكسر التعادل بالتباعد. players مرتّبة بالمقعد،
+  //    فـslice(-3) كانت «أعلى ثلاثة أرقام» لا آخر ثلاثة وصلوا.
+  seatedAt?: number;
+}
+
+/** مقاعد آخر `k` واصلين (من لا لحظة له يُعدّ أقدم) */
+export function lastArrivalSeats(players: Array<{ physicalId: number; seatedAt?: number }>, k = 3): number[] {
+  return players
+    .map((p, i) => ({ seat: p.physicalId, t: p.seatedAt ?? 0, i }))
+    .sort((a, b) => (b.t - a.t) || (b.i - a.i))
+    .slice(0, k)
+    .map(x => x.seat);
 }
 
 /**
@@ -81,6 +96,7 @@ export interface Spectator {
   cosmetics?: { frame?: any; title?: any; nameFx?: any } | null;
   joinedAt: number;            // لحظة الوصول (لترتيب قائمة الانتظار وحساب التقارب)
   addedBy: 'self' | 'leader';
+  noPhoto?: boolean;           // 📸 يُورَّث للاعب عند الترقية
 }
 
 export enum CandidateType {
@@ -721,6 +737,7 @@ async function addPlayerUnlocked(
     isSilenced: false,
     justificationCount: 0,
     addedBy,
+    seatedAt: Date.now(),
   };
 
   state.players.push(player);
@@ -735,7 +752,7 @@ async function addPlayerUnlocked(
 export async function updatePlayer(
   roomId: string,
   physicalId: number,
-  updates: Partial<Pick<Player, 'name' | 'physicalId' | 'dob' | 'gender' | 'avatarUrl' | 'rankTier' | 'cosmetics'>>
+  updates: Partial<Pick<Player, 'name' | 'physicalId' | 'dob' | 'gender' | 'avatarUrl' | 'rankTier' | 'cosmetics' | 'noPhoto'>>
 ): Promise<GameState> {
   // 🔒 نفس القفل: يقرأ ويكتب، ويجب ألّا يتقاطع مع إضافةٍ جارية
   return withRoomLock(roomId, () => updatePlayerUnlocked(roomId, physicalId, updates));
@@ -744,7 +761,7 @@ export async function updatePlayer(
 async function updatePlayerUnlocked(
   roomId: string,
   physicalId: number,
-  updates: Partial<Pick<Player, 'name' | 'physicalId' | 'dob' | 'gender' | 'avatarUrl' | 'rankTier' | 'cosmetics'>>
+  updates: Partial<Pick<Player, 'name' | 'physicalId' | 'dob' | 'gender' | 'avatarUrl' | 'rankTier' | 'cosmetics' | 'noPhoto'>>
 ): Promise<GameState> {
   console.log(`[State] updatePlayer ➡️ Start for physicalId ${physicalId} with updates:`, updates);
   const state = await getGameState(roomId);

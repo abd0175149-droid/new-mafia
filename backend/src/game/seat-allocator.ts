@@ -41,13 +41,15 @@ export interface SeatPlayer {
   rankTier?: string;
   hasPenalty?: boolean;
   genderConstraint?: string;
+  /** 📸 لا يقبل التصوير */
+  noPhoto?: boolean;
 }
 
 export interface AllocateParams {
   maxPlayers: number;
   players: SeatPlayer[];
   constraints: SeatConstraints | null;
-  newPlayer: { phone: string; gender: string; playerId?: number | null; name?: string; totalMatches?: number; activityCount?: number; rankRR?: number; rankTier?: string; genderConstraint?: string };
+  newPlayer: { phone: string; gender: string; playerId?: number | null; name?: string; totalMatches?: number; activityCount?: number; rankRR?: number; rankTier?: string; genderConstraint?: string; noPhoto?: boolean };
   preferredSeat?: number;
   // ── سياق المحرك الذكي ──
   penaltyNeighborHistory?: Map<string, number>;
@@ -63,6 +65,8 @@ export interface AllocateParams {
   spreadFromSeats?: number[];
   /** 👁️ للمتفرّج: يُفضَّل الذيل والأبعد عن الأحياء */
   preferTailSeats?: boolean;
+  /** 📸 زاوية بلا تصوير — حين تُضبط يعمل المحرّك الذكيّ ولو بلا قيود */
+  photoZone?: { anchor: number; pending: number };
 }
 
 // ── دالة الجوار الدائري (مربع) ──
@@ -96,7 +100,8 @@ export function allocateSeat(params: AllocateParams): { seat: number; constraint
     (constraints?.constraints && constraints.constraints.length > 0) ||
     params.penaltyNeighborHistory ||
     (params.pinnedSeats && params.pinnedSeats.length > 0) ||
-    (params.doorSeats && params.doorSeats.length > 0);
+    (params.doorSeats && params.doorSeats.length > 0) ||
+    !!params.photoZone;
 
   if (useNewEngine) {
     // تحويل بيانات اللاعبين للصيغة الجديدة
@@ -115,6 +120,7 @@ export function allocateSeat(params: AllocateParams): { seat: number; constraint
         physicalId: p.physicalId,
         seatHeld: p.seatHeld,
         genderConstraint: p.genderConstraint || 'NONE',
+        noPhoto: p.noPhoto === true,
       });
     }
 
@@ -128,6 +134,7 @@ export function allocateSeat(params: AllocateParams): { seat: number; constraint
       rankRR: newPlayer.rankRR ?? 0,
       rankTier: newPlayer.rankTier || 'INFORMANT',
       genderConstraint: newPlayer.genderConstraint || 'NONE',
+      noPhoto: newPlayer.noPhoto === true,
     };
 
     const seatingConfig: SeatingConfig = {
@@ -149,6 +156,7 @@ export function allocateSeat(params: AllocateParams): { seat: number; constraint
       affinityPairs: params.affinityPairs,
       spreadFromSeats: params.spreadFromSeats,
       preferTailSeats: params.preferTailSeats,
+      photoZone: params.photoZone,
     };
 
     const result = allocateSeatWithConstraints({

@@ -28,7 +28,8 @@ import { CollapsibleVoteHistory } from './VoteHistoryPanel';
 import OrderPanel, { type OrderPanelHandle } from './OrderPanel';
 import { IcoPlate } from './fnb/icons';
 import TeamBar from './TeamBar';
-type Step = 'code' | 'phone' | 'login' | 'register' | 'change_password' | 'ticket' | 'auto_joining' | 'done' | 'rejoined' | 'spectating';
+import PhotoConsentChip from './PhotoConsentChip';
+type Step = 'code' | 'phone' | 'login' | 'register' | 'change_password' | 'ticket' | 'photo_consent' | 'auto_joining' | 'done' | 'rejoined' | 'spectating';
 
 interface PlayerFlowProps {
   initialRoomCode?: string;
@@ -337,6 +338,15 @@ export default function PlayerFlow({ initialRoomCode = '', inviteFlag = false, i
     targetGameName: string;
   } | null>(null);
   const [joinConfirmation, setJoinConfirmation] = useState<{message: string} | null>(null);
+  // 📸 زاوية بلا تصوير: سؤال قبل كلّ دخولٍ جديد (لا عند العودة لمقعدٍ محجوز)
+  const [photoAsk, setPhotoAsk] = useState<{ roomId: string; isMinor: boolean; args: [boolean, string | undefined, string] } | null>(null);
+  const [photoChoice, setPhotoChoice] = useState<boolean | null>(null);
+  const photoAnswerRef = useRef<{ roomId: string; consent?: boolean } | null>(null); // جواب هذه المحاولة — يُعاد استعماله في إعادة المحاولة
+  const photoGateBusyRef = useRef(false);
+  const photoSubmitRef = useRef(false);
+  const lastStableStepRef = useRef<Step>('code');
+  const [photoZoneOn, setPhotoZoneOn] = useState(false);
+  const [myNoPhoto, setMyNoPhoto] = useState(false);
   // 📨 تأكيد الدعوة قبل الانضمام: يُعرض عند فتح إشعار دعوة (?invite=1)
   const [inviteConfirmed, setInviteConfirmed] = useState(false);
   const [invitePrompt, setInvitePrompt] = useState<{ roomName: string; inviterName: string } | null>(null);
@@ -613,6 +623,28 @@ export default function PlayerFlow({ initialRoomCode = '', inviteFlag = false, i
       setRejoinLoading(false);
     }
   }, [isConnected, emit, tokenChecked]);
+
+  // 📸 آخر خطوةٍ ثابتة (للرجوع من سؤال التصوير)، وبداية الدخول تمسح جواب المحاولة السابقة
+  useEffect(() => {
+    if (step !== 'auto_joining' && step !== 'photo_consent') lastStableStepRef.current = step;
+    if (step === 'code' || step === 'phone') { photoAnswerRef.current = null; setPhotoZoneOn(false); setMyNoPhoto(false); }
+  }, [step]);
+
+  // 📸 حالة الزاوية عند دخول الغرفة/العودة — البثّ قد يسبق تسجيل المستمع فلا نعتمد عليه وحده
+  useEffect(() => {
+    if ((step !== 'done' && step !== 'rejoined') || !emit || !roomId) return;
+    let alive = true;
+    emit('game:get-state', { roomId })
+      .then((r: any) => {
+        const st = r?.state;
+        if (!alive || !st || !Array.isArray(st.players)) return;
+        setPhotoZoneOn(st.photoZoneOn === true);
+        const me = st.players.find((p: any) => String(p.physicalId) === String(physicalId));
+        if (me) setMyNoPhoto(me.noPhoto === true);
+      })
+      .catch(() => {});
+    return () => { alive = false; };
+  }, [step, emit, roomId, physicalId]);
 
   // ── 🍽️ سياق الطلب: هل يظهر زرّ المنيو داخل الغرفة؟ ──
   // الخادم وحده يقرّر (حجزٌ إلزاميّ + نافذة الفعاليّة)، فنكتفي بسؤاله مرّةً عند
@@ -1188,6 +1220,10 @@ export default function PlayerFlow({ initialRoomCode = '', inviteFlag = false, i
         if (stateMaxPenalties !== maxPenalties) {
           setMaxPenalties(stateMaxPenalties);
         }
+
+        // 📸 الزاوية مفعّلة؟ وعلمي أنا (الإسقاط لا يحمل علم غيري)
+        setPhotoZoneOn(state.photoZoneOn === true);
+        setMyNoPhoto(me.noPhoto === true);
       } else {
         // اللاعب مش موجود بالـ state → ممكن اتطرد
         // بس ما نمسح الجلسة هون عشان ممكن يكون state-sync لغرفة ثانية
@@ -2335,6 +2371,50 @@ export default function PlayerFlow({ initialRoomCode = '', inviteFlag = false, i
     }
   };
 
+  // ── 📸 قراءة جواب التصوير المحفوظ — أيّ فشل = لا سؤال (لا نعطّل الدخول) ──
+  const fetchPhotoConsent = async (forRoomId?: string): Promise<{ consent: boolean | null; isMinor: boolean } | null> => {
+    const t = playerToken || getSavedToken();
+    if (!t) return null;
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), 5000);
+    try {
+      // ?roomId= ⟵ غرفة موقع الاختبار تعمل ولو كان المفتاح مطفأً
+      const q = forRoomId ? `?roomId=${encodeURIComponent(forRoomId)}` : '';
+      const r = await fetch(`/api/player-app/photo-consent${q}`, { headers: { Authorization: `Bearer ${t}` }, signal: ctrl.signal });
+      const d = await r.json();
+      if (!d?.success || d.enabled !== true) return null;
+      return { consent: typeof d.consent === 'boolean' ? d.consent : null, isMinor: d.isMinor === true };
+    } catch {
+      return null;
+    } finally {
+      clearTimeout(timer);
+    }
+  };
+
+  const submitPhotoConsent = () => {
+    if (!photoAsk || photoSubmitRef.current) return;
+    const consent = photoAsk.isMinor ? false : photoChoice;
+    if (consent === null) return;
+    photoSubmitRef.current = true;
+    photoAnswerRef.current = { roomId: photoAsk.roomId, consent };
+    const [f, t, r] = photoAsk.args;
+    setPhotoAsk(null);
+    handleAutoJoin(f, t, r);
+  };
+
+  // رجوع من السؤال: للتذكرة أو تسجيل الدخول إن جاء منهما، وإلّا لبداية الدخول
+  const backFromPhotoConsent = () => {
+    photoAnswerRef.current = null;
+    setPhotoAsk(null);
+    const prev = lastStableStepRef.current;
+    setStep(prev === 'ticket' || prev === 'login' ? prev : (initialRoomCode ? 'phone' : 'code'));
+  };
+
+  const showPhotoToast = (message: string, type: 'success' | 'warning' | 'info') => {
+    setActiveToast({ message, type });
+    setTimeout(() => setActiveToast(prev => prev && prev.message === message ? null : prev), 5000);
+  };
+
   // ── الخطوة 4: الانضمام التلقائي للعبة ──
   const handleAutoJoin = async (forceJoin: boolean = false, ticket?: string, roomIdOverride?: string) => {
     if (!displayName) return;
@@ -2345,6 +2425,28 @@ export default function PlayerFlow({ initialRoomCode = '', inviteFlag = false, i
     }
     setApiError('');
     setStep('auto_joining');
+
+    // 📸 سؤال التصوير — مرّةً لكلّ دخول؛ إعادة المحاولة (تذكرة/تأكيد) تستعمل الجواب نفسه
+    let photoConsent: boolean | undefined;
+    const cachedPhoto = photoAnswerRef.current;
+    if (cachedPhoto && cachedPhoto.roomId === effectiveRoomId) {
+      photoConsent = cachedPhoto.consent;
+    } else {
+      if (photoGateBusyRef.current) return; // نداءٌ آخر يسأل الآن
+      photoGateBusyRef.current = true;
+      let ask: { consent: boolean | null; isMinor: boolean } | null = null;
+      try { ask = await fetchPhotoConsent(effectiveRoomId); } finally { photoGateBusyRef.current = false; }
+      if (ask) {
+        photoSubmitRef.current = false;
+        setPhotoChoice(ask.isMinor ? false : ask.consent);
+        setPhotoAsk({ roomId: effectiveRoomId, isMinor: ask.isMinor, args: [forceJoin, ticket, effectiveRoomId] });
+        setStep('photo_consent');
+        return;
+      }
+      // الميزة مطفأة أو فشل النداء → لا سؤال ولا حقل
+      photoAnswerRef.current = { roomId: effectiveRoomId };
+    }
+
     try {
       const dateOfBirth = dobYear && dobMonth && dobDay
         ? `${dobYear}-${dobMonth.padStart(2, '0')}-${dobDay.padStart(2, '0')}`
@@ -2353,7 +2455,9 @@ export default function PlayerFlow({ initialRoomCode = '', inviteFlag = false, i
       
       // ⚠️ لا نرسل preferredSeat — الباكإند يوزع عشوائياً دائماً عند auto-join
       // العودة لنفس الرقم تُعالج عبر 'room:rejoin-player' وليس 'room:auto-join'
-      const res = await joinRoom(effectiveRoomId, displayName, phone, playerId || undefined, genderUpper, dateOfBirth, forceJoin, ticket || ticketNumber || undefined, undefined);
+      const res = await joinRoom(effectiveRoomId, displayName, phone, playerId || undefined, genderUpper, dateOfBirth, forceJoin, ticket || ticketNumber || undefined, undefined, photoConsent);
+      photoAnswerRef.current = null; // دخلنا — الدخول القادم يسأل من جديد
+      if (typeof res?.noPhoto === 'boolean') { setPhotoZoneOn(true); setMyNoPhoto(res.noPhoto); }
 
       const assignedSeat = res?.assignedSeat;
       if (assignedSeat) {
@@ -3140,6 +3244,66 @@ export default function PlayerFlow({ initialRoomCode = '', inviteFlag = false, i
             </motion.div>
           )}
 
+          {/* ── 📸 خطوة: سؤال التصوير (قبل كلّ دخولٍ جديد) ── */}
+          {step === 'photo_consent' && photoAsk && (
+            <motion.div key="photo_consent" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
+              {photoAsk.isMinor ? (
+                <div className="text-center mb-6 border-b border-[#2a2a2a]/40 pb-6">
+                  <div className="text-4xl mb-3">📵</div>
+                  <h2 className="text-2xl font-black mb-2 text-white" style={{ fontFamily: 'Amiri, serif' }}>ستجلس في زاوية بلا تصوير</h2>
+                  <p className="text-[#9a9a9a] text-[14px] leading-relaxed" style={{ fontFamily: 'Amiri, serif' }}>لأنّ عمرك تحت ١٨ سنة — التصوير بموافقة وليّ أمرك عبر الموجّه.</p>
+                </div>
+              ) : (
+                <>
+                  <div className="text-center mb-6 border-b border-[#2a2a2a]/40 pb-6">
+                    <h2 className="text-2xl font-black mb-2 text-white" style={{ fontFamily: 'Amiri, serif' }}>📸 نصوّر الليلة لصفحات النادي</h2>
+                    <p className="text-[#9a9a9a] text-[14px] leading-relaxed" style={{ fontFamily: 'Amiri, serif' }}>تقبل أن تظهر في الصور والفيديو؟ إن لم تقبل نُجلسك في زاوية لا تُصوَّر.</p>
+                  </div>
+                  <div className="space-y-3 mb-6" role="radiogroup">
+                    {([
+                      { v: true, label: '✓ نعم، لا مانع', on: 'bg-emerald-900/25 border-emerald-500/60 text-emerald-300' },
+                      { v: false, label: '📵 لا، أفضّل ما أظهر', on: 'bg-sky-900/25 border-sky-500/60 text-sky-300' },
+                    ] as const).map(o => (
+                      <button
+                        key={String(o.v)}
+                        type="button"
+                        role="radio"
+                        aria-checked={photoChoice === o.v}
+                        onClick={() => setPhotoChoice(o.v)}
+                        className={`w-full min-h-[56px] px-4 rounded-xl border-2 text-[16px] font-bold transition-all ${
+                          photoChoice === o.v ? o.on : 'bg-black/40 border-[#2a2a2a] text-[#bdbdbd] hover:border-[#555]'
+                        }`}
+                        style={{ fontFamily: 'Amiri, serif' }}
+                      >
+                        {o.label}
+                      </button>
+                    ))}
+                  </div>
+                </>
+              )}
+
+              <button
+                onClick={submitPhotoConsent}
+                disabled={!photoAsk.isMinor && photoChoice === null}
+                className="btn-premium w-full min-h-[48px] !text-[15px] disabled:opacity-50 !rounded-lg"
+              >
+                <span>متابعة</span>
+              </button>
+
+              {!photoAsk.isMinor && (
+                <p className="text-[#808080] text-[12.5px] text-center mt-4" style={{ fontFamily: 'Amiri, serif' }}>جوابك محفوظ وتقدر تغيّره من الغرفة أيّ وقت.</p>
+              )}
+
+              <button
+                type="button"
+                onClick={backFromPhotoConsent}
+                className="w-full min-h-[44px] mt-2 text-[#808080] text-[13px] hover:text-[#C5A059] transition-colors"
+              >
+                رجوع
+              </button>
+            </motion.div>
+          )}
+
           {/* ── خطوة: جاري تخصيص المقعد ── */}
           {step === 'auto_joining' && (
             <motion.div key="auto_joining" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="text-center py-10">
@@ -3274,6 +3438,18 @@ export default function PlayerFlow({ initialRoomCode = '', inviteFlag = false, i
                   <span className="text-sm">🚪</span> خروج
                 </button>
               </div>
+
+              {/* 📸 التصوير — فقط حين تكون الزاوية مفعّلة في الغرفة */}
+              {photoZoneOn && roomId && (
+                <PhotoConsentChip
+                  roomId={roomId}
+                  noPhoto={myNoPhoto}
+                  emit={emit}
+                  onChanged={setMyNoPhoto}
+                  onToast={showPhotoToast}
+                  className="mb-2"
+                />
+              )}
 
               {/* 🔍 DEBUG BAR (مؤقت — للتشخيص) */}
               {!isRemote && (
@@ -3750,6 +3926,18 @@ export default function PlayerFlow({ initialRoomCode = '', inviteFlag = false, i
                   <span className="text-sm">🚪</span> خروج
                 </button>
               </div>
+
+              {/* 📸 التصوير — فقط حين تكون الزاوية مفعّلة في الغرفة */}
+              {photoZoneOn && roomId && (
+                <PhotoConsentChip
+                  roomId={roomId}
+                  noPhoto={myNoPhoto}
+                  emit={emit}
+                  onChanged={setMyNoPhoto}
+                  onToast={showPhotoToast}
+                  className="mb-2"
+                />
+              )}
 
               {/* 🔍 DEBUG BAR (مؤقت — للتشخيص) */}
               {!isRemote && (

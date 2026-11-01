@@ -152,6 +152,26 @@ extension JoinFlow on GameSessionController {
       return;
     }
 
+    // 📸 «تقبل التصوير؟» قبل أوّل نداءٍ لهذه الغرفة. العودة لمقعدٍ قائم تمرّ
+    //    بالاستعادة فلا تصل هنا. مطفأة أو فشل الطلب ⇒ بلا سؤال وبلا الحقل.
+    if (!photoResolvedFor(target)) {
+      setStep(GameStep.autoJoining);
+      clearApiError();
+      setBusy(true);
+      final ask = await fetchPhotoConsent(target);
+      setBusy(false);
+      if (ask != null) {
+        openPhotoAsk(target, ask, pending: (
+          forceJoin: forceJoin,
+          ticket: ticket,
+          roomIdOverride: roomIdOverride,
+        ));
+        return;
+      }
+      skipPhotoAsk(target);
+    }
+    final photo = photoAnswerFor(target);
+
     setStep(GameStep.autoJoining);
     setBusy(true);
     clearApiError();
@@ -169,11 +189,13 @@ extension JoinFlow on GameSessionController {
       if (player?.gender != null) 'gender': player!.gender,
       'forceJoin': forceJoin,
       if (t.isNotEmpty) 'ticketNumber': t,
+      if (photo != null) 'photoConsent': photo,
     });
     setBusy(false);
 
     // 👁️ وصل واللعبة جارية → متفرّج بمقعدٍ محجوز (كان يُرفض ويبقى سبينر أبديّ)
     if (res != null && res['success'] == true && res['spectator'] == true) {
+      endPhotoJoin(res);
       await applySpectator(
         roomId: target,
         seat: (res['assignedSeat'] as num?)?.toInt() ?? 0,
@@ -186,6 +208,7 @@ extension JoinFlow on GameSessionController {
     }
 
     if (res != null && res['success'] != false && res['assignedSeat'] != null) {
+      endPhotoJoin(res);
       await applyJoined(
         roomId: target,
         seat: (res['assignedSeat'] as num).toInt(),
@@ -215,6 +238,16 @@ extension JoinFlow on GameSessionController {
             : 'حدث خطأ في الانضمام')
         : err);
     setStep(isTicketError || requireTicket ? GameStep.ticket : GameStep.autoJoining);
+  }
+
+  /// 📸 «متابعة» في سؤال التصوير — يُستأنف النداء المؤجَّل بالجواب.
+  Future<void> submitPhotoConsent(bool consent) async {
+    final p = answerPhotoAsk(consent);
+    await autoJoin(
+      forceJoin: p?.forceJoin ?? false,
+      ticket: p?.ticket,
+      roomIdOverride: p?.roomIdOverride,
+    );
   }
 
   /// 6.6 — تبديل الغرفة: **يُجمَّد المقعد القديم أوّلاً** فيبقى محجوزاً

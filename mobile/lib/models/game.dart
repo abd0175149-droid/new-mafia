@@ -26,6 +26,9 @@ enum GameStep {
   ticket,
   autoJoining,
 
+  /// 📸 سؤال «تقبل التصوير؟» قبل نداء الانضمام — لكلّ دخولٍ جديد لا للعودة.
+  photoConsent,
+
   /// انضمامٌ جديد هذه الجلسة.
   done,
 
@@ -1441,4 +1444,45 @@ class PenaltyAlert {
 
   /// المتبقّي قبل الإقصاء — صفرٌ يعني أن هذه هي الأخيرة.
   int get remaining => (max - penalties).clamp(0, max);
+}
+
+// ══════════════════════════════════════════════════════
+// 📸 زاوية بلا تصوير
+// ══════════════════════════════════════════════════════
+/// ردّ `GET /api/player-app/photo-consent` — `null` من [tryParse] يعني «لا سؤال»
+/// (الميزة مطفأة أو الردّ تالف): الدخول لا يُحجب بسببها أبداً.
+class PhotoConsentAsk {
+  const PhotoConsentAsk({this.consent, this.isMinor = false});
+
+  /// الجواب المحفوظ: true يقبل · false يرفض · null لم يُجب بعد.
+  final bool? consent;
+
+  /// تحت ١٨: لا سؤال — يجلس بلا تصوير، والسماح بموافقة وليّه عبر الموجّه.
+  final bool isMinor;
+
+  static PhotoConsentAsk? tryParse(dynamic r) {
+    if (r is! Map || r['success'] == false || r['enabled'] != true) return null;
+    final c = r['consent'];
+    return PhotoConsentAsk(
+      consent: c is bool ? c : null,
+      isMinor: r['isMinor'] == true,
+    );
+  }
+}
+
+/// من الحالة المُسقَطة: هل الزاوية مفعّلة، وعلَمي أنا (الخادم يرسله لصاحبه وحده).
+/// `noPhoto == null` ⇒ مقعدي ليس في القائمة — لا يُغيَّر المعروف.
+({bool on, bool? noPhoto}) parsePhotoZone(Map state, int mySeat) {
+  final on = state['photoZoneOn'] == true;
+  bool? mine;
+  final players = state['players'];
+  if (mySeat > 0 && players is List) {
+    for (final p in players.whereType<Map>()) {
+      if (_i(p['physicalId']) == mySeat) {
+        mine = p['noPhoto'] == true;
+        break;
+      }
+    }
+  }
+  return (on: on, noPhoto: mine);
 }

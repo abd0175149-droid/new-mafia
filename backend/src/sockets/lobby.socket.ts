@@ -11,10 +11,11 @@ import {
   verifyDisplayToken, displayAuthEnforced, pinAttemptKeyFromSocket, pinLockState, recordPinFailure, clearPinFailures, pinEquals, mintDisplayToken,
 } from '../services/display-auth.service.js';
 import { projectDisplayState } from '../services/display-state.projection.js';
-import { createRoom, addPlayer, updatePlayer, updateRoom, getRoom, getRoomByCode, bindRole, unbindRole, setPhase, Phase, presentPlayers, getSpectators, findSpectator } from '../game/state.js';
+import { lastArrivalSeats, createRoom, addPlayer, updatePlayer, updateRoom, getRoom, getRoomByCode, bindRole, unbindRole, setPhase, Phase, presentPlayers, getSpectators, findSpectator } from '../game/state.js';
 import type { Spectator } from '../game/state.js';
 import { allocateSeat } from '../game/seat-allocator.js';
 import { reshuffleSeating } from '../game/seating/engine.js';
+import { zoneRank } from '../game/seating/photo-zone.js';
 import type { SeatConstraints } from '../game/seat-allocator.js';
 import { generateRoles, validateRoleDistribution, Role, getTeamCounts, isMafiaRole, MAFIA_ROLES, ROLE_NAMES_AR } from '../game/roles.js';
 import { generateRolesDynamic } from '../game/dynamic-role-generator.js';
@@ -37,7 +38,7 @@ import { sendPushToPlayer } from '../services/fcm.service.js';
 import { getDB } from '../config/db.js';
 import { matchPlayers, cheatSignals } from '../schemas/game.schema.js';
 import { eq, sql, and } from 'drizzle-orm';
-import { emitStateSanitized, emitPhaseChangedSanitized, emitTrustedOnly, spectatorRoom, stripSecrets, publicJustification, publicPendingResolution } from './broadcast.util.js';
+import { emitStateSanitized, emitPhaseChangedSanitized, emitTrustedOnly, emitLeaderAndDisplay, spectatorRoom, stripSecrets, publicJustification, publicPendingResolution } from './broadcast.util.js';
 import { buildAffinityPairs, loadPairRules, mergeRulesIntoAffinity, mergeGlobalBlockedPairs, upsertPairRule } from '../services/seat-affinity.service.js';
 import { personKey, pairKey } from '../game/seating/types.js';
 import { publicTeamCounts, unrevealedDeadSeats, phoneMafiaTeam, phoneAlive, announcedRoleOf } from '../game/public-counts.js';
@@ -518,6 +519,9 @@ async function loadSeatTemplateIntoState(state: any): Promise<boolean> {
     state.doors = doors;
     state.doorSeats = doorSeats;
     state.seatLayout = seatLayout;
+    // 📸 مرساة «زاوية بلا تصوير» من القالب (أوّل كرسيّ في الجانب البعيد عن الكاميرا)
+    const npA = Number(layout?.noPhotoAnchor);
+    if (Number.isFinite(npA) && npA >= 1) state.photoAnchorTemplate = Math.floor(npA); else delete state.photoAnchorTemplate;
     console.log(`📐 [template] Preloaded seat template #${actRow.seat_template_id} into room ${state.roomId}: ${pinnedSeats.length} pinned (${activityPins.length} من تخصيص النشاط), ${reservedTailSeats} tail, ${doorSeats.length} doorSeats`);
     return true;
   } catch (e: any) {
@@ -590,6 +594,10 @@ async function resyncSeatTemplate(state: any): Promise<{
   state.reservedTailSeats = newTail;
   state.doors = newDoors;
   state.doorSeats = newDoorSeats;
+  {
+    const npA = Number(layout?.noPhotoAnchor);
+    if (Number.isFinite(npA) && npA >= 1) state.photoAnchorTemplate = Math.floor(npA); else delete state.photoAnchorTemplate;
+  }
   state.seatLayout = (layout && layout.shape === 'rectangle' && layout.sides)
     ? { shape: 'rectangle', sides: layout.sides, numbering: layout.numbering || { start: null, direction: 'cw' }, doors: newDoors, totalSeats: newTotal }
     : null;
@@ -1232,6 +1240,7 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
     forceJoin?: boolean;
     preferredSeat?: number;
     fix?: any;                 // 📍 قراءة موقع طازجة — سياج الفعاليّة
+    photoConsent?: boolean;    // 📸 جوابه على «تقبل التصوير؟» (العميل الجديد يسأل قبل كلّ دخول)
   }, callback) => {
     try {
       const state = await getRoom(data.roomId);
@@ -1320,6 +1329,30 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
         }
       }
 
+      // ══ 📸 زاوية بلا تصوير: جوابه الآن أو المحفوظ، والقاصر وغير المجيب بلا تصوير ══
+      // الهويّة من التوكن وحده (كبوّابة السند): جوابٌ في جسمٍ مزوَّر لا يكتب على حساب غيره.
+      const zoneCtx = await (await import('../services/photo-zone.service.js')).zoneCtxFor(state).catch(() => null);
+      let joinNoPhoto = false;
+      if (zoneCtx) {
+        const pz = await import('../services/photo-zone.service.js');
+        const authId: number | undefined = (socket.data as any)?.authPlayer?.playerId;
+        const stored = await pz.readPhotoConsent(authId);
+        const answer = typeof data.photoConsent === 'boolean' ? data.photoConsent : stored.consent;
+        // القاصر لا يُكتب على حسابه «يقبل» — التصوير بموافقة وليّه عبر الليدر (القرار ٧)
+        if (authId && typeof data.photoConsent === 'boolean' && !(stored.isMinor && data.photoConsent)) {
+          try { await pz.recordPhotoConsent(authId, data.photoConsent, 'join', { roomId: data.roomId }); } catch (e: any) { console.warn('⚠️ photo consent save:', e.message); }
+        }
+        joinNoPhoto = pz.effectiveNoPhoto({ consent: answer, isMinor: stored.isMinor });
+      }
+      /** العائد لمقعده: إن أجاب الآن بغير ما في الغرفة يُحدَّث العلم ويُنبَّه الليدر (لا نقل) */
+      const syncReturnNoPhoto = async (pl: any): Promise<boolean> => {
+        if (!zoneCtx || !pl || typeof data.photoConsent !== 'boolean') return false;
+        if ((pl.noPhoto === true) === joinNoPhoto) return false;
+        pl.noPhoto = joinNoPhoto;
+        void notifyPhotoZone(state.roomId, state, joinNoPhoto ? 'changed' : 'changed-ok', pl.physicalId, pl.name);
+        return true;
+      };
+
       // ══ بوّابة «اللعبة بدأت»: عودةٌ لمقعده، أو دخولٌ متفرّجاً (لا رفض) ══
       const isGameStarted = state.phase !== 'LOBBY' && state.phase !== 'ROLE_GENERATION';
       // 👁️ يُضبط للوافد الجديد أثناء لعبةٍ جارية: يكمل كلّ البوّابات (التذكرة،
@@ -1351,6 +1384,7 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
             existingPlayer.isConnected = true;
             stateChanged = true;
           }
+          if (await syncReturnNoPhoto(existingPlayer)) stateChanged = true;
           if (stateChanged) {
             await setGameState(data.roomId, state);
             await emitStateSanitized(io, data.roomId, 'game:state-sync', state);
@@ -1740,6 +1774,7 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
         heldPlayer.heldUntil = undefined;
         heldPlayer.isConnected = true;
         heldPlayer.name = data.name || heldPlayer.name;
+        await syncReturnNoPhoto(heldPlayer);
         await setGameState(data.roomId, state);
 
         socket.join(data.roomId);
@@ -1827,7 +1862,8 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
       }
 
       // التحقق من تفعيل المحرك الذكي (أو وجود قالب مقاعد نشط للفعالية)
-      const engineEnabled = (constraints && (constraints as any).engineEnabled) || hasTemplate;
+      // 📸 الزاوية تحتاج المحرّك ولو بلا قالبٍ ولا قيود (الوضع القديم عشوائيّ لا يجمع أحداً)
+      const engineEnabled = (constraints && (constraints as any).engineEnabled) || hasTemplate || !!zoneCtx;
 
       if (engineEnabled) {
         // ── 🚀 إثراء دفعي لبيانات اللاعبين الحاليين ──
@@ -1882,6 +1918,7 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
             rankRR: dbp?.rankRR || 0,
             rankTier: dbp?.rankTier || 'INFORMANT',
             genderConstraint: dbp?.genderConstraint || 'NONE',
+            noPhoto: (p as any).noPhoto === true,
           };
         });
 
@@ -1983,6 +2020,7 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
             rankTier: sp.rankTier || 'INFORMANT',
             hasPenalty: false,
             genderConstraint: 'NONE',
+            noPhoto: (sp as any).noPhoto === true,
           } as any);
         }
 
@@ -2027,6 +2065,7 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
           rankRR: 0,
           rankTier: 'INFORMANT',
           genderConstraint: 'NONE',
+          noPhoto: joinNoPhoto,
         };
 
         if (data.playerId && db) {
@@ -2094,7 +2133,7 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
         //    وللاعب العاديّ = آخر ثلاثة واصلين (يكسر تجاور من وصلوا معاً).
         const spreadFromSeats = joinAsSpectator
           ? state.players.filter((p: any) => p.isAlive !== false).map((p: any) => p.physicalId)
-          : state.players.slice(-3).map((p: any) => p.physicalId);
+          : lastArrivalSeats(state.players as any);
 
         const { seat: assignedSeatResult, constraintViolation: cvResult, violations: vioResult } = allocateSeat({
           maxPlayers: state.config.maxPlayers,
@@ -2111,6 +2150,7 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
           affinityPairs,
           spreadFromSeats,
           preferTailSeats: joinAsSpectator,
+          photoZone: zoneCtx || undefined,
         });
         var assignedSeat = assignedSeatResult;
         var constraintViolation = cvResult;
@@ -2193,9 +2233,13 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
           cosmetics: look.cosmetics,
           joinedAt: Date.now(),
           addedBy: 'self',
+          ...(zoneCtx ? { noPhoto: joinNoPhoto } : {}),
         };
         (fresh as any).spectators.push(spec);
         await setGameState(data.roomId, fresh);
+        if (zoneCtx && seat > 0) {
+          try { await afterZoneSeat(data.roomId, zoneCtx, joinNoPhoto ? seat : null, data.name); } catch {}
+        }
 
         // 📝 القرار المقفل ٢: يُسجّل في session_players والحضور فوراً،
         //    ولا يُحسب في السعة إلّا عند الترقية. حدّ F&B سليم لأنّ أساسه «لعب مباراة».
@@ -2298,6 +2342,7 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
                 phone: src?.phone || '',
                 gender: src?.gender || null,
                 seatHeld: false,
+                noPhoto: (src as any)?.noPhoto === true || getSpectators(fresh).some(sp => sp.physicalId === t && (sp as any).noPhoto === true),
               } as any);
             }
           }
@@ -2315,7 +2360,8 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
             reservedTailSeats: reservedTailFromTemplate,
             doorSeats: doorSeatsFromTemplate,
             affinityPairs,
-            spreadFromSeats: fresh.players.slice(-3).map((p: any) => p.physicalId),
+            spreadFromSeats: lastArrivalSeats(fresh.players as any),
+            photoZone: zoneCtx || undefined,
           });
           if (!retry.seat || takenNow.has(retry.seat)) {
             return callback({ success: false, error: 'لا مقعد شاغر — القاعة ممتلئة' });
@@ -2433,6 +2479,14 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
         room.playerCount = presentPlayers(addedState).length;
       }
 
+      // 📸 العلم على اللاعب + المرساة والمنتظرون للّيدر + تنبيه إن جلس خارج الكتلة
+      if (zoneCtx) {
+        try {
+          await updatePlayer(data.roomId, actualPhysicalId, { noPhoto: joinNoPhoto });
+          await afterZoneSeat(data.roomId, zoneCtx, joinNoPhoto ? actualPhysicalId : null, data.name);
+        } catch (e: any) { console.warn('⚠️ photo zone stamp:', e.message); }
+      }
+
       // جلب الحالة المحدثة بعد كل التعديلات
       const updatedState = await getRoom(data.roomId);
       const finalPlayer = updatedState?.players.find((p: any) => p.physicalId === actualPhysicalId);
@@ -2467,6 +2521,7 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
         assignedSeat: actualPhysicalId,
         gameName: addedState.config.gameName,
         constraintViolation,
+        ...(zoneCtx ? { noPhoto: joinNoPhoto } : {}),
       });
       // 🎟️ صاحب بطاقة ولاء مكتملة لم يُحتفَ به بعد → تحيّة «دخول الدون» على شاشة القاعة (مرّة لكلّ بطاقة)
       {
@@ -3228,6 +3283,16 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
     return { ok: true };
   }
 
+  // ══ 📸 زاوية بلا تصوير — تنبيهات الليدر (المنطق في photo-zone.service) ══
+  async function notifyPhotoZone(roomId: string, state: any, kind: 'outside' | 'changed' | 'changed-ok', seat: number, name?: string) {
+    const { notifyPhotoZoneIO } = await import('../services/photo-zone.service.js');
+    await notifyPhotoZoneIO(io, roomId, state, kind, seat, name);
+  }
+  async function afterZoneSeat(roomId: string, ctx: { anchor: number; pending: number }, noPhotoSeat: number | null, name?: string) {
+    const { afterZoneSeatIO } = await import('../services/photo-zone.service.js');
+    await afterZoneSeatIO(io, roomId, ctx, noPhotoSeat, name);
+  }
+
   /** يبني بيانات الجلوس المُثراة + سياق التقييم لغرفةٍ كاملة (مشترك بين الاقتراح والتحذيرات). */
   async function buildSeatingContextFor(state: any) {
     const db = getDB();
@@ -3253,6 +3318,7 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
         rankRR: d?.rankRR || 0, rankTier: d?.rankTier || 'INFORMANT',
         hasPenalty: (p.penalties || 0) > 0, physicalId: p.physicalId,
         seatHeld: !!p.seatHeld, genderConstraint: d?.genderConstraint || 'NONE',
+        noPhoto: p.noPhoto === true,
       };
     };
 
@@ -3282,10 +3348,18 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
     //    المحرّكُ زوجاً ممنوعاً متجاورَين وهو يظنّ نفسه محسناً.
     seatingConfig = await mergeGlobalBlockedPairs(seatingConfig);
 
+    // 📸 «رتّب» يبني الكتلة أوّلاً عند مرساتها ثمّ يوزّع الباقين (القرار ٧)
+    let photoZone: { anchor: number; pending: number } | undefined;
+    try {
+      const { zoneCtxFor } = await import('../services/photo-zone.service.js');
+      photoZone = (await zoneCtxFor(state)) || undefined;
+    } catch {}
+
     return {
       toSeatData,
       seatingConfig,
       context: {
+        photoZone,
         maxPlayers: state.config.maxPlayers,
         sessionId: state.sessionId,
         penaltyNeighborHistory: new Map<string, number>(),
@@ -3395,6 +3469,7 @@ async function readSeatLayoutOnly(activityId: any): Promise<any> {
             playerId: sp.playerId ?? null, phone: sp.phone || '', name: sp.name,
             gender: sp.gender || 'MALE', totalMatches: 0, activityCount: 0,
             rankRR: 0, rankTier: 'INFORMANT', physicalId: sp.physicalId, genderConstraint: 'NONE',
+            noPhoto: (sp as any).noPhoto === true,
           });
         }
       }
@@ -3419,11 +3494,27 @@ async function readSeatLayoutOnly(activityId: any): Promise<any> {
         return { from: c.oldPhysicalId, to: c.newPhysicalId, name: pl?.name || '' };
       });
 
+      // 📸 الكتلة قبل الترتيب وبعده — تُعرض في المعاينة («مقطّعة ٣ ⟵ متّصلة ✓»)
+      let zone: any = undefined;
+      if ((context as any).photoZone) {
+        try {
+          const { zoneOccupancy } = await import('../services/photo-zone.service.js');
+          const { breaksZone, zoneReport } = await import('../game/seating/photo-zone.js');
+          const occ = zoneOccupancy(state);
+          const map = new Map<number, number>(changes.map(c => [c.oldPhysicalId, c.newPhysicalId]));
+          const z = breaksZone(occ, map, (context as any).photoZone, state.config.maxPlayers);
+          const moved = new Map<number, any>();
+          for (const [seat, o] of occ) moved.set(map.get(seat) ?? seat, o);
+          zone = { segmentsBefore: z.before, segmentsAfter: z.after, labelAfter: zoneReport(moved, (context as any).photoZone, state.config.maxPlayers).label };
+        } catch {}
+      }
+
       if (data.dryRun !== false) {
         return callback({
           success: true, dryRun: true, changes: preview,
           violationsBefore: before, violationsAfter: result.violations.length,
           score: Number(result.totalScore.toFixed(2)),
+          ...(zone ? { zone } : {}),
         });
       }
 
@@ -3440,6 +3531,149 @@ async function readSeatLayoutOnly(activityId: any): Promise<any> {
     } catch (err: any) {
       callback({ success: false, error: err.message });
     }
+  });
+
+  // ══════════════════════════════════════════════════════
+  // 📸 زاوية بلا تصوير — أحداث اللاعب والليدر (2026-11-01)
+  // ══════════════════════════════════════════════════════
+
+  /** شاغل المقعد (لاعب أو متفرّج) */
+  const zoneSeatOwner = (state: any, seat: number): any =>
+    state.players.find((p: any) => p.physicalId === seat) || getSpectators(state).find((sp: any) => sp.physicalId === seat) || null;
+
+  // ── اللاعب يغيّر رأيه من داخل الغرفة: يُحفظ في حسابه ويُعلَّم في الغرفة، ولا يُنقل (القرار ٦) ──
+  socket.on('room:set-photo-consent', async (data: { roomId: string; photoConsent: boolean }, callback?: Function) => {
+    const cb = typeof callback === 'function' ? callback : () => {};
+    try {
+      if (typeof data?.photoConsent !== 'boolean') return cb({ success: false, error: 'photoConsent مطلوب' });
+      const pz = await import('../services/photo-zone.service.js');
+      const stZ = await getRoom(data.roomId);
+      if (!stZ || !(await pz.zoneEnabledFor(stZ))) return cb({ success: false, code: 'DISABLED', error: 'الميزة غير مفعّلة' });
+      const authId: number | undefined = (socket.data as any)?.authPlayer?.playerId;
+      // 🔒 المقعد من المقبس نفسه (عُيّن عند الانضمام) — لا من الجسم
+      const seat = Number(socket.data?.physicalId) || 0;
+      if (socket.data?.roomId !== data.roomId || !seat) return cb({ success: false, error: 'لست في هذه الغرفة' });
+      const stored = await pz.readPhotoConsent(authId);
+      if (authId && !(stored.isMinor && data.photoConsent)) await pz.recordPhotoConsent(authId, data.photoConsent, 'room', { roomId: data.roomId });
+      const noPhoto = pz.effectiveNoPhoto({ consent: data.photoConsent, isMinor: stored.isMinor });
+      const { withRoomLock } = await import('../game/state.js');
+      const res = await withRoomLock(data.roomId, async () => {
+        const st = await getRoom(data.roomId);
+        if (!st) return null;
+        const owner = zoneSeatOwner(st, seat);
+        if (!owner) return null;
+        const changed = (owner.noPhoto === true) !== noPhoto;
+        owner.noPhoto = noPhoto;
+        if (changed) await setGameState(data.roomId, st);
+        return { st, owner, changed };
+      });
+      if (!res) return cb({ success: false, error: 'لم يُعثر على مقعدك' });
+      if (res.changed) {
+        await emitStateSanitized(io, data.roomId, 'game:state-sync', res.st);
+        await notifyPhotoZone(data.roomId, res.st, noPhoto ? 'changed' : 'changed-ok', seat, res.owner.name);
+      }
+      cb({ success: true, noPhoto, isMinor: stored.isMinor });
+    } catch (e: any) { cb({ success: false, error: e.message }); }
+  });
+
+  // ── الليدر يعلّم لاعباً (أو متفرّجاً) — للّيلة، ويُحفظ في حساب البالغ ──
+  socket.on('room:set-no-photo', async (data: { roomId: string; physicalId: number; noPhoto: boolean }, callback?: Function) => {
+    const cb = typeof callback === 'function' ? callback : () => {};
+    try {
+      if (socket.data.role !== 'leader') return cb({ success: false, error: 'Only leader' });
+      if (typeof data?.noPhoto !== 'boolean') return cb({ success: false, error: 'noPhoto مطلوب' });
+      const { withRoomLock } = await import('../game/state.js');
+      const res = await withRoomLock(data.roomId, async () => {
+        const st = await getRoom(data.roomId);
+        if (!st) return null;
+        const owner = zoneSeatOwner(st, Number(data.physicalId));
+        if (!owner) return null;
+        owner.noPhoto = data.noPhoto;
+        await setGameState(data.roomId, st);
+        return { st, owner };
+      });
+      if (!res) return cb({ success: false, error: 'المقعد فارغ' });
+      if (res.owner.playerId) {
+        const pz = await import('../services/photo-zone.service.js');
+        const acc = await pz.readPhotoConsent(res.owner.playerId);
+        // القاصر: قرار الليدر للّيلة وحدها (وليّه حاضر مثلاً) — لا يُكتب على حسابه
+        if (!acc.isMinor) { try { await pz.recordPhotoConsent(res.owner.playerId, !data.noPhoto, 'leader', { roomId: data.roomId, staffId: socket.data.authStaff?.id ?? null }); } catch {} }
+      }
+      await emitStateSanitized(io, data.roomId, 'game:state-sync', res.st);
+      if (data.noPhoto) await notifyPhotoZone(data.roomId, res.st, 'outside', Number(data.physicalId), res.owner.name);
+      cb({ success: true });
+    } catch (e: any) { cb({ success: false, error: e.message }); }
+  });
+
+  // ── ⚓ مرساة الزاوية للّيلة (null = عُد لمرساة القالب) ──
+  socket.on('room:set-photo-anchor', async (data: { roomId: string; anchor: number | null }, callback?: Function) => {
+    const cb = typeof callback === 'function' ? callback : () => {};
+    try {
+      if (socket.data.role !== 'leader') return cb({ success: false, error: 'Only leader' });
+      const pz = await import('../services/photo-zone.service.js');
+      const { withRoomLock } = await import('../game/state.js');
+      const n0 = Number((await getRoom(data.roomId))?.config?.maxPlayers) || 27;
+      const a = Number(data.anchor);
+      if (data.anchor != null && !(Number.isFinite(a) && a >= 1 && a <= n0)) return cb({ success: false, error: 'رقم مقعد غير صالح' });
+      const st = await withRoomLock(data.roomId, async () => {
+        const cur: any = await getRoom(data.roomId);
+        if (!cur) return null;
+        if (data.anchor == null) delete cur.photoAnchor;
+        else cur.photoAnchor = Math.floor(a);
+        await setGameState(data.roomId, cur);
+        return cur;
+      });
+      if (!st) return cb({ success: false, error: 'Room not found' });
+      // المنتظرون يُعاد عدّهم، والختم تحت القفل نفسه (afterZoneSeatIO) ثمّ البثّ
+      pz.forgetPending(data.roomId);
+      const ctx = await pz.zoneCtxFor(st);
+      if (ctx) await pz.afterZoneSeatIO(io, data.roomId, ctx, null);
+      const fresh = await getRoom(data.roomId);
+      if (fresh) await emitStateSanitized(io, data.roomId, 'game:state-sync', fresh);
+      cb({ success: true, anchor: pz.anchorOf(fresh || st) });
+    } catch (e: any) { cb({ success: false, error: e.message }); }
+  });
+
+  // ── 🧩 إصلاح الكتلة بلمسة: ينقل رافضاً خارجها إلى طرفها (تبديلٌ مع قابل إن لزم) ──
+  // يعيد الخادم حساب الاقتراح بنفسه ولا يثق بأرقام العميل — ثمّ عقد النقل الكامل.
+  // مثل «افصل» و«رتّب»: بلا سرّ في نوافذ الروستر، وبالسرّ أثناء اللعب (القرار المقفل ٥).
+  socket.on('room:photo-zone-fix', async (data: { roomId: string; physicalId?: number; confirmHazard?: boolean }, callback?: Function) => {
+    const cb = typeof callback === 'function' ? callback : () => {};
+    try {
+      if (socket.data.role !== 'leader') return cb({ success: false, error: 'Only leader' });
+      const state = await getRoom(data.roomId);
+      if (!state) return cb({ success: false, error: 'Room not found' });
+      const inPlay = state.phase !== Phase.LOBBY && state.phase !== Phase.ROLE_GENERATION && state.phase !== Phase.GAME_OVER;
+      if (inPlay && !toolsUnlocked(socket)) return cb({ success: false, code: 'TOOLS_LOCKED', error: 'الأدوات مقفلة — أدخل الرقم السرّي' });
+      if (seatMoveInFlight.has(data.roomId)) return cb({ success: false, error: 'هناك عملية نقل جارية — أعد المحاولة' });
+
+      const pz = await import('../services/photo-zone.service.js');
+      const { suggestFix } = await import('../game/seating/photo-zone.js');
+      const ctx = await pz.zoneCtxFor(state);
+      if (!ctx) return cb({ success: false, code: 'DISABLED', error: 'الميزة غير مفعّلة' });
+      const n = state.config.maxPlayers;
+      const occ = pz.zoneOccupancy(state);
+      const report = pz.roomZoneReport(state, ctx);
+      const from = Number(data.physicalId) || report.outside[0] || 0;
+      if (!from || !report.outside.includes(from)) return cb({ success: true, applied: 0, report });
+      // المتفرّج لا ينقله applySeatChanges (مقعده محجوز) — يُصلح بعد ترقيته
+      const specSeats = new Set(getSpectators(state).map(sp => sp.physicalId));
+      if (specSeats.has(from)) return cb({ success: false, code: 'SPECTATOR', error: 'متفرّج — يُصلح مقعده عند دخوله اللعبة' });
+      const fix = suggestFix(from, occ, ctx, n, (s) => !specSeats.has(s));
+      if (!fix) return cb({ success: false, code: 'NO_FIX', error: 'لا مقعد ملاصق للزاوية يمكن تحريره — انقل يدويّاً', report });
+
+      const changes = fix.swapWith
+        ? [{ oldPhysicalId: fix.from, newPhysicalId: fix.to }, { oldPhysicalId: fix.to, newPhysicalId: fix.from }]
+        : [{ oldPhysicalId: fix.from, newPhysicalId: fix.to }];
+      seatMoveInFlight.add(data.roomId);
+      let res;
+      try {
+        res = await applySeatChanges(data.roomId, changes, { action: 'socket:photo-zone-fix', reason: 'photo-zone', confirmHazard: data.confirmHazard });
+      } finally { seatMoveInFlight.delete(data.roomId); }
+      if (!res.ok) return cb({ success: false, code: (res as any).code, error: (res as any).error });
+      const after = await getRoom(data.roomId);
+      cb({ success: true, applied: changes.length, fix, report: after ? pz.roomZoneReport(after, ctx) : null });
+    } catch (e: any) { cb({ success: false, error: e.message }); }
   });
 
   // ── ✂️ «افصل هذين» (S5 · القرار المقفل ٤: الافتراضيّ «دائم») ──
@@ -3534,9 +3768,23 @@ async function readSeatLayoutOnly(activityId: any): Promise<any> {
         ]);
         const cap = state.config.maxPlayers;
         let best = 0, bestDist = -1;
+        // 📸 الزاوية أوّلاً: الرافض يُفصل **داخل** الكتلة (على بُعد مقعدين على الأقلّ)، والقابل خارجها
+        const zp = (state as any).photoZone?.on ? (state as any).photoZone : null;
+        let bestZone = Infinity;
+        const occ = new Map<number, { noPhoto?: boolean }>();
+        if (zp) {
+          for (const pp of state.players as any[]) if (pp.physicalId !== b.physicalId) occ.set(pp.physicalId, { noPhoto: pp.noPhoto === true });
+          for (const sp of getSpectators(state)) occ.set(sp.physicalId, { noPhoto: (sp as any).noPhoto === true });
+        }
         for (let seat = 1; seat <= cap; seat++) {
           if (taken.has(seat)) continue;
           const d = Math.min(Math.abs(seat - a.physicalId), cap - Math.abs(seat - a.physicalId));
+          if (zp) {
+            if (d < 2) continue;      // الفصل نفسه أوّلاً: لا وجهة ملاصقة للأوّل
+            const zr = zoneRank(seat, (b as any).noPhoto === true, occ, { anchor: Number(zp.anchor) || 1, pending: Number(zp.pending) || 0 }, cap);
+            if (zr < bestZone || (zr === bestZone && d > bestDist)) { bestZone = zr; bestDist = d; best = seat; }
+            continue;
+          }
           if (d > bestDist) { bestDist = d; best = seat; }
         }
         if (best > 0) {
@@ -3604,6 +3852,7 @@ async function readSeatLayoutOnly(activityId: any): Promise<any> {
         rankTier: spec.rankTier ?? look?.rankTier ?? null,
         cosmetics: spec.cosmetics ?? look?.cosmetics ?? null,
         isConnected: true, penalties: 0,
+        ...((spec as any).noPhoto !== undefined ? { noPhoto: (spec as any).noPhoto === true } : {}),
       } as any);
       state.players.sort((a: any, b: any) => a.physicalId - b.physicalId);
       (state as any).spectators = getSpectators(state).filter(sp => sp.physicalId !== data.physicalId);
@@ -3716,6 +3965,7 @@ async function readSeatLayoutOnly(activityId: any): Promise<any> {
     phone: string;
     dob: string;
     gender: string;
+    noPhoto?: boolean;        // 📸 سأله الليدر — غيابه = جواب حسابه إن عُرف، وإلّا بلا تصوير (القرار ٢)
   }, callback) => {
     try {
       console.log(`[Backend-Socket] room:force-add-player 📥 Received request from leader for room ${data.roomId}`, data);
@@ -3742,6 +3992,23 @@ async function readSeatLayoutOnly(activityId: any): Promise<any> {
         });
       }
 
+      // 📸 جواب التصوير لمن يضيفه الليدر يدويّاً
+      const pz = await import('../services/photo-zone.service.js');
+      const forceZone = preState ? await pz.zoneCtxFor(preState).catch(() => null) : null;
+      let forceNoPhoto: boolean | undefined;
+      if (forceZone) {
+        const acc = await pz.readPhotoConsentByPhone(data.phone);
+        if (typeof data.noPhoto === 'boolean') {
+          // القاصر بلا تصوير ما لم يقرّر الليدر غير ذلك صراحةً — والحساب لا يُكتب لقاصر
+          forceNoPhoto = data.noPhoto;
+          if (acc.playerId && !acc.isMinor) {
+            try { await pz.recordPhotoConsent(acc.playerId, !data.noPhoto, 'leader', { roomId: data.roomId, staffId: socket.data.authStaff?.id ?? null }); } catch {}
+          }
+        } else {
+          forceNoPhoto = pz.effectiveNoPhoto(acc);
+        }
+      }
+
       // ══ 🔒 حارس المرحلة ══
       // addPlayer بلا حارسٍ أصلاً، والواجهة تُخفي الزرّ فقط — فإن نُفّذ أثناء لعبةٍ
       // جارية دخل «حيٌّ بلا دور» إلى players: يظهر على الشاشة، ويدخل قوائم الأهداف
@@ -3758,8 +4025,10 @@ async function readSeatLayoutOnly(activityId: any): Promise<any> {
           avatarUrl: null, rankTier: null, cosmetics: null,
           joinedAt: Date.now(),
           addedBy: 'leader',
+          ...(forceNoPhoto !== undefined ? { noPhoto: forceNoPhoto } : {}),
         });
         await setGameState(data.roomId, preState);
+        if (forceZone) { try { await afterZoneSeat(data.roomId, forceZone, forceNoPhoto ? data.physicalId : null, data.name); } catch {} }
         await emitTrustedOnly(io, data.roomId, 'room:spectator-joined', {
           physicalId: data.physicalId, name: data.name,
           firstName: String(data.name || '').trim().split(/\s+/)[0] || data.name,
@@ -3780,7 +4049,8 @@ async function readSeatLayoutOnly(activityId: any): Promise<any> {
       const state = await addPlayer(data.roomId, data.physicalId, data.name, data.phone);
       
       console.log(`[Backend-Socket] ➡️ Calling updatePlayer for dob/gender: ${data.dob}, ${data.gender}`);
-      await updatePlayer(data.roomId, data.physicalId, { dob: data.dob, gender: data.gender });
+      await updatePlayer(data.roomId, data.physicalId, { dob: data.dob, gender: data.gender, ...(forceNoPhoto !== undefined ? { noPhoto: forceNoPhoto } : {}) });
+      if (forceZone) { try { await afterZoneSeat(data.roomId, forceZone, forceNoPhoto ? data.physicalId : null, data.name); } catch {} }
 
       const room = activeRooms.get(data.roomId);
       if (room) {
@@ -6223,13 +6493,22 @@ async function readSeatLayoutOnly(activityId: any): Promise<any> {
       const taken = new Set<number>(state.players.map((pp: any) => pp.physicalId));
       const cap = state.config?.maxPlayers || 27;
       const leftover: any[] = [];
+      // 📸 بديل «أوّل فارغ» يحترم الزاوية: الرافض إلى طرف الكتلة، والقابل خارجها
+      const zoneOn = !!(state as any).photoZone?.on;
+      const pickFree = (noPhoto: boolean): number => {
+        const free: number[] = [];
+        for (let i = 1; i <= cap; i++) if (!taken.has(i)) free.push(i);
+        if (!free.length) return 0;
+        if (!zoneOn) return free[0];
+        const occ = new Map<number, { noPhoto?: boolean }>();
+        for (const pp of state.players as any[]) occ.set(pp.physicalId, { noPhoto: pp.noPhoto === true });
+        const ctx = { anchor: Number((state as any).photoZone.anchor) || 1, pending: Number((state as any).photoZone.pending) || 0 };
+        return free.slice().sort((a, b) => zoneRank(a, noPhoto, occ, ctx, cap) - zoneRank(b, noPhoto, occ, ctx, cap) || a - b)[0];
+      };
       for (const sp of specs.slice().sort((a: any, b: any) => (a.joinedAt || 0) - (b.joinedAt || 0))) {
-        // مقعده المحجوز إن بقي حرّاً، وإلّا أوّل مقعدٍ فارغ
+        // مقعده المحجوز إن بقي حرّاً، وإلّا أوّل مقعدٍ فارغ (أو طرف الزاوية للرافض)
         let seat = sp.physicalId;
-        if (!seat || seat > cap || taken.has(seat)) {
-          seat = 0;
-          for (let i = 1; i <= cap; i++) if (!taken.has(i)) { seat = i; break; }
-        }
+        if (!seat || seat > cap || taken.has(seat)) seat = pickFree(sp.noPhoto === true);
         if (!seat) { leftover.push(sp); continue; }   // الغرفة ممتلئة — يبقى منتظراً
         taken.add(seat);
         state.players.push({
@@ -6249,6 +6528,7 @@ async function readSeatLayoutOnly(activityId: any): Promise<any> {
           cosmetics: sp.cosmetics ?? null,
           isConnected: true,
           penalties: 0,
+          ...(sp.noPhoto !== undefined ? { noPhoto: sp.noPhoto === true } : {}),
         });
         promoted.push({ physicalId: seat, name: sp.name, playerId: sp.playerId ?? null, phone: sp.phone ?? null });
       }

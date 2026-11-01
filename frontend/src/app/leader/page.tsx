@@ -12,6 +12,7 @@ import LeaderRoleConfigurator from './LeaderRoleConfigurator';
 import LeaderRoleBinding from './LeaderRoleBinding';
 import LeaderNightView from './LeaderNightView';
 import { SeatMoveProvider, SeatMoveConsumer, SeatMoveTargets, SeatMoveBoardToggle } from './SeatMove';
+import PhotoZoneToggle from './PhotoZonePanel';
 import { AntiCheatProvider, AntiCheatToggle } from './AntiCheatWatch';
 import { AttendanceMapToggle } from './AttendanceMap';
 import ArrivalsPanel from './ArrivalsPanel';
@@ -465,8 +466,9 @@ export default function LeaderPage() {
   // Session mode — عرض صفحة الغرفة (Session) بدل اللعبة
   const [inSession, setInSession] = useState(false);
   const [showSessionAddForm, setShowSessionAddForm] = useState(false);
-  const [sessionAddForm, setSessionAddForm] = useState<{name: string; physicalId: string; phone: string; gender: string}>({
-    name: '', physicalId: '', phone: '', gender: 'MALE',
+  // noPhoto: null = لم يُسأل (الخادم يأخذ جواب حسابه وإلّا بلا تصوير)
+  const [sessionAddForm, setSessionAddForm] = useState<{name: string; physicalId: string; phone: string; gender: string; noPhoto?: boolean | null}>({
+    name: '', physicalId: '', phone: '', gender: 'MALE', noPhoto: null,
   });
 
   // ── حالة تعديل اسم اللاعب (Session View) ──
@@ -2484,7 +2486,7 @@ export default function LeaderPage() {
   // ══════════════════════════════════════════════════
   if (gameState && inSession) {
     return (
-      <SeatMoveProvider roomId={gameState.roomId} players={gameState.players} maxPlayers={gameState.config.maxPlayers} emit={emit} on={on}>
+      <SeatMoveProvider roomId={gameState.roomId} players={gameState.players} spectators={(gameState as any).spectators} photoZone={(gameState as any).photoZone} maxPlayers={gameState.config.maxPlayers} emit={emit} on={on}>
       <AntiCheatProvider roomId={gameState.roomId} on={on} soundOn={() => leaderSoundOnRef.current}>
       <div className="display-bg min-h-screen font-sans relative overflow-hidden blood-vignette selection:bg-[#8A0303] selection:text-white flex flex-col">
         <div className="relative z-10 w-full h-full flex flex-col flex-1">
@@ -2526,6 +2528,8 @@ export default function LeaderPage() {
               {birthdayBtn}
               {/* 🪑 لوحة نقل/تبادل المقاعد — متاحة في كل المراحل */}
               <SeatMoveBoardToggle />
+              {/* 📵 زاوية بلا تصوير — حالة الكتلة والإصلاح وشاشة المصوّر (كلّ المراحل) */}
+              <PhotoZoneToggle gameState={gameState} emit={emit} on={on} />
               {/* 🕵️ لوحة المراقبة — متاحة في كل المراحل (على جهاز الليدر وحده) */}
               <AntiCheatToggle />
               <AttendanceMapToggle roomId={gameState.roomId} />
@@ -2696,6 +2700,7 @@ export default function LeaderPage() {
                             name: sessionAddForm.name,
                             phone: normalizedPhone,
                             gender: sessionAddForm.gender,
+                            ...(typeof sessionAddForm.noPhoto === 'boolean' ? { noPhoto: sessionAddForm.noPhoto } : {}),
                           }),
                         });
                         const data = await res.json();
@@ -2792,6 +2797,19 @@ export default function LeaderPage() {
                         </div>
                       </div>
                     </div>
+                    {/* 📸 زاوية بلا تصوير — يظهر حين تكون مفعّلة */}
+                    {(gameState as any).photoZone?.on && (
+                      <div className="flex gap-2 items-center">
+                        <span className="text-[11px] text-orange-200 shrink-0">📸 يقبل التصوير؟</span>
+                        {([['نعم', false], ['📵 لا', true]] as const).map(([label, v]) => (
+                          <button key={label} type="button"
+                            onClick={() => setSessionAddForm(prev => ({ ...prev, noPhoto: prev.noPhoto === v ? null : v }))}
+                            className={`flex-1 h-11 text-xs border transition-all ${sessionAddForm.noPhoto === v ? 'border-orange-400 text-orange-200 bg-orange-500/10' : 'border-[#2a2a2a] text-[#777]'}`}>
+                            {label}
+                          </button>
+                        ))}
+                      </div>
+                    )}
                     <button
                       type="submit"
                       className="w-full py-3 bg-[#C5A059]/10 border border-[#C5A059]/40 text-[#C5A059] text-xs font-mono uppercase tracking-widest hover:bg-[#C5A059]/20 transition-all"
@@ -3791,7 +3809,7 @@ export default function LeaderPage() {
   // ══════════════════════════════════════════════════
   if (gameState) {
     return (
-      <SeatMoveProvider roomId={gameState.roomId} players={gameState.players} maxPlayers={gameState.config.maxPlayers} emit={emit} on={on}>
+      <SeatMoveProvider roomId={gameState.roomId} players={gameState.players} spectators={(gameState as any).spectators} photoZone={(gameState as any).photoZone} maxPlayers={gameState.config.maxPlayers} emit={emit} on={on}>
       <AntiCheatProvider roomId={gameState.roomId} on={on} soundOn={() => leaderSoundOnRef.current}>
       <div className="display-bg min-h-screen font-sans relative overflow-hidden blood-vignette selection:bg-[#8A0303] selection:text-white flex flex-col">
         <div className="relative z-10 w-full h-full flex flex-col flex-1">
@@ -3837,6 +3855,8 @@ export default function LeaderPage() {
               {birthdayBtn}
               {/* 🪑 لوحة نقل/تبادل المقاعد — متاحة في كل المراحل (لمستان بلا كتابة) */}
               <SeatMoveBoardToggle />
+              {/* 📵 زاوية بلا تصوير — حالة الكتلة والإصلاح وشاشة المصوّر (كلّ المراحل) */}
+              <PhotoZoneToggle gameState={gameState} emit={emit} on={on} />
               {/* 🕵️ لوحة المراقبة — متاحة في كل المراحل (على جهاز الليدر وحده) */}
               <AntiCheatToggle />
               <AttendanceMapToggle roomId={gameState.roomId} />

@@ -22,6 +22,7 @@ import 'night_view.dart';
 import 'voting_view.dart';
 import '../../core/socket/socket_service.dart';
 import 'my_tasks_sheet.dart';
+import 'photo_consent_view.dart';
 import 'roles_deck_sheet.dart';
 import '../voice/confrontation_controls.dart';
 import '../voice/voice_service.dart';
@@ -54,6 +55,14 @@ class LobbyView extends StatelessWidget {
 
     return Column(mainAxisSize: MainAxisSize.min, children: [
       _Toolbar(controller: c),
+      // 📸 حالتي في زاوية التصوير — في اللوبي وأثناء اللعب، حين تُفعَّل وحدها
+      if (c.photoZoneOn) ...[
+        const SizedBox(height: 10),
+        Align(
+          alignment: AlignmentDirectional.centerStart,
+          child: PhotoStatusChip(controller: c),
+        ),
+      ],
       const SizedBox(height: 12),
 
       // 🎭 شريط الفرق — للحيّ والمُقصى معاً، ويختفي قبل توزيع الأدوار
