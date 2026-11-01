@@ -16,7 +16,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   isConfirmed, isPending, matchesSearch, attendOrder, countRows, needsWa,
-  type ResCounts,
+  type ResCounts, genderSplit,
 } from '@/lib/reservation-status';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || '';
@@ -30,6 +30,8 @@ export interface Reservation {
   phone: string | null;
   peopleCount: number | null;
   playerId: number | null;
+  /** ♂♀ جنس صاحب الحجز من حسابه — null لغير المربوط */
+  playerGender?: string | null;
   status: string | null;
   appConfirmed: boolean | null;
   appConfirmedAt: string | null;
@@ -87,6 +89,8 @@ export function useReservations() {
   const [status, setStatus] = useState<StatusFilter>('all');
   const [attend, setAttend] = useState<AttendFilter>('all');
   const [wa, setWa] = useState<WaFilter>('all');
+  /** ♂♀ مرشِّح الجنس: الحجز الذي فيه شخصٌ من هذا الجنس */
+  const [gender, setGender] = useState<'all' | 'male' | 'female' | 'unknown'>('all');
 
   const inflight = useRef(false);
 
@@ -193,10 +197,11 @@ export function useReservations() {
       if (attend === 'noShow' && r.attended !== false) return false;
       if (attend === 'unmarked' && r.attended != null) return false;
       if (wa === 'needs' && !needsWa(r)) return false;
+      if (gender !== 'all' && genderSplit(r)[gender] === 0) return false;
       return matchesSearch(r, search);
     })
     .sort((a, b) => attendOrder(a) - attendOrder(b)),
-  [scoped, status, attend, wa, search]);
+  [scoped, status, attend, wa, gender, search]);
 
   const counts: ResCounts = useMemo(() => countRows(scoped), [scoped]);
   const pendingRows = useMemo(() => scoped.filter(isPending), [scoped]);
@@ -310,7 +315,7 @@ export function useReservations() {
     activityOptions, activity, location, activityName,
     // مرشِّحات
     activityId, setActivityId, search, setSearch,
-    status, setStatus, attend, setAttend, wa, setWa,
+    status, setStatus, attend, setAttend, wa, setWa, gender, setGender,
     // أفعال
     fetchAll, setAttendance, setConfirmed, markWaSent, updateRow, removeRow, createRow,
   };

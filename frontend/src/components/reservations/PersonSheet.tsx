@@ -189,6 +189,11 @@ export default function PersonSheet({
               sub="يُزيل علامةَ الإرسال ويُعيده إلى «لم تُرسل»"
               onClick={() => onWaClear(row)} />
           )}
+          {/* 👤 ملفّ اللاعب مباشرة (2026-11-01) */}
+          {row.playerId
+            ? <ActionRow icon="👤" title="افتح ملفّ اللاعب" sub="حجوزاته، لعبه، حسابه"
+                onClick={() => { window.location.href = `/admin/players/${row.playerId}`; }} />
+            : <ActionRow icon="👤" title="لا ملفّ للاعب" sub="الحجز غير مربوط بحساب" disabled />}
           {row.phone && (
             <ActionRow icon="📞" title="اتّصال" sub={row.phone}
               onClick={() => { window.location.href = `tel:${row.phone}`; }} />

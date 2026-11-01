@@ -120,13 +120,25 @@ export interface ResCounts {
   attended: number; noShow: number; unmarked: number;
   /** له رقمٌ ولم تُرسل له رسالةٌ يدويّة بعد */
   needsWa: number;
+  /** ♂♀ الأشخاص بالجنس (2026-11-01): صاحب الحجز من حسابه، وغير المربوط والمرافقون «غير محدّد» */
+  male: number; female: number; unknownGender: number;
+}
+
+/** أشخاص الحجز بالجنس — مجموعها = عدد الأشخاص */
+export function genderSplit(r: any): { male: number; female: number; unknown: number } {
+  const people = Math.max(1, Number(r?.peopleCount) || 1);
+  const g = r?.playerId ? String(r?.playerGender || '').toUpperCase() : '';
+  const owner = g === 'MALE' ? 'male' : g === 'FEMALE' ? 'female' : 'unknown';
+  const out = { male: 0, female: 0, unknown: people - 1 };
+  out[owner as 'male' | 'female' | 'unknown'] += 1;
+  return out;
 }
 
 /** عدٌّ واحدٌ لكلّ الأرقام المعروضة — فلا يختلف رقمان على شاشةٍ واحدة */
 export function countRows(rows: any[]): ResCounts {
   const c: ResCounts = {
     total: 0, people: 0, confirmed: 0, pending: 0, waitlist: 0,
-    attended: 0, noShow: 0, unmarked: 0, needsWa: 0,
+    attended: 0, noShow: 0, unmarked: 0, needsWa: 0, male: 0, female: 0, unknownGender: 0,
   };
   for (const r of rows) {
     c.total++;
@@ -135,6 +147,8 @@ export function countRows(rows: any[]): ResCounts {
     if (s === 'confirmed') c.confirmed++; else if (s === 'waitlist') c.waitlist++; else c.pending++;
     if (r?.attended === true) c.attended++; else if (r?.attended === false) c.noShow++; else c.unmarked++;
     if (needsWa(r)) c.needsWa++;
+    const gs = genderSplit(r);
+    c.male += gs.male; c.female += gs.female; c.unknownGender += gs.unknown;
   }
   return c;
 }

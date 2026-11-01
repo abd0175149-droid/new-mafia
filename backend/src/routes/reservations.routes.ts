@@ -63,6 +63,14 @@ router.get('/', authenticate, async (req: Request, res: Response) => {
       const map = await lineStatusOf([...new Set(locals)]);
       rows.forEach((r: any) => { const l = normalizeLocalPhone(r.phone); r.lineStatus = (l && map.get(l)) || 'unknown'; });
     } catch { /* تكميليّ */ }
+    // ♂♀ جنس صاحب الحجز من حسابه (2026-11-01) — غير المربوط ومرافقوه «غير محدّد» في الواجهة
+    try {
+      const pids = [...new Set(rows.map((r: any) => Number(r.playerId)).filter(x => Number.isFinite(x) && x > 0))];
+      if (pids.length) {
+        const g = new Map((await db.select({ id: players.id, gender: players.gender }).from(players).where(inArray(players.id, pids))).map(p => [p.id, p.gender]));
+        rows.forEach((r: any) => { if (r.playerId) r.playerGender = g.get(Number(r.playerId)) || null; });
+      }
+    } catch { /* تكميليّ */ }
     // 📋 رسالة التثبيت التلقائيّة: مجدولة متى · أُرسلت · تعذّرت ولماذا
     try {
       const { confirmJobsFor } = await import('../services/reservation-confirm.service.js');

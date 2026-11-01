@@ -507,6 +507,23 @@ export default function ReservationsPage() {
               )}
             </div>
 
+            {/* ♂♀ الحاجزون بالجنس — وهي مرشِّحاتٌ أيضاً (2026-11-01) */}
+            <div role="group" aria-label="الحاجزون بالجنس" className="grid grid-cols-3 gap-1.5">
+              {([['male', '♂ ذكور', c.male, '#60a5fa'], ['female', '♀ إناث', c.female, '#f472b6'], ['unknown', 'غير محدّد', c.unknownGender, '#9ca3af']] as const).map(([k, label, n, color]) => {
+                const on = R.gender === k;
+                return (
+                  <button key={k} type="button" aria-pressed={on} onClick={() => R.setGender(on ? 'all' : k)}
+                    className="h-14 rounded-xl flex flex-col items-center justify-center leading-tight"
+                    style={on
+                      ? { background: color + '26', border: `1.5px solid ${color}`, color }
+                      : { background: 'rgba(255,255,255,.04)', border: '1px solid rgba(255,255,255,.08)', color: '#d1d5db' }}>
+                    <span className="text-[18px] font-extrabold tabular-nums" style={{ color: on ? color : '#fff' }}>{ar(n)}</span>
+                    <span className="text-[12px] font-bold" style={{ color: on ? color : '#9ca3af' }}>{label}</span>
+                  </button>
+                );
+              })}
+            </div>
+
             <div className="flex gap-1.5 overflow-x-auto pb-0.5" style={{ scrollbarWidth: 'none' }}>
               {chips.map(ch => {
                 const on = ch.kind === 'status' ? R.status === ch.k
