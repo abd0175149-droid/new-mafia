@@ -38,6 +38,8 @@ async function main() {
     await q(sql`DELETE FROM venue_handovers WHERE note = ${E2E_TAG}`);
     for (const a of acts) {
       await q(sql`DELETE FROM match_participants WHERE activity_id = ${a.id}`);
+      await q(sql`DELETE FROM venue_payments WHERE activity_id = ${a.id}`);
+      await q(sql`DELETE FROM invoice_wa_jobs WHERE activity_id = ${a.id}`);
       await q(sql`DELETE FROM fee_waivers WHERE activity_id = ${a.id}`);
       await q(sql`DELETE FROM service_requests WHERE activity_id = ${a.id}`);
       await q(sql`DELETE FROM order_invoices WHERE activity_id = ${a.id}`);
@@ -54,7 +56,7 @@ async function main() {
     const ss = await q(sql`SELECT id FROM sessions WHERE session_name LIKE ${'%' + E2E_TAG + '%'}`);
     for (const s of ss) await q(sql`DELETE FROM session_players WHERE session_id = ${s.id}`);
     await q(sql`DELETE FROM sessions WHERE session_name LIKE ${'%' + E2E_TAG + '%'}`);
-    await q(sql`DELETE FROM players WHERE phone IN ('0700000998', '0700000996', '0700000995', '0700000994')`);
+    await q(sql`DELETE FROM players WHERE phone IN ('0700000998', '0700000996', '0700000995', '0700000994', '0700000993', '0700000992', '0700000991', '0700000990')`);
   }
   await cleanup();
 
@@ -681,6 +683,81 @@ async function main() {
   ok('سجلّ المباراة المحتسبة (الرتبة والنقاط) لم يُكتب بعد', mp12.n === 0);
   await q(sql`DELETE FROM matches WHERE id = ${m12}`);   // كإلغاءٍ بلا فائز (cancelMatch)
   ok('أُلغيت اللعبة بعد بدئها ⟵ يبقى «لعب»', (await played12(db, act12.id, p995.id)) === true);
+  await q(sql`UPDATE locations SET min_charge_enabled = ${minSaved12.en === true}, minimum_charge = ${minSaved12.val}, auto_water = ${minSaved12.aw === true} WHERE id = ${LOC_TEST}`);
+
+  // ══ ١٣ · طريقة الدفع والدفع عن الأصحاب (2026-11-01) ══
+  section('١٣ · طريقة الدفع والدفع عن الأصحاب');
+  await q(sql`UPDATE locations SET min_charge_enabled = false, auto_water = false WHERE id = ${LOC_TEST}`);
+  const [act13] = await q(sql`INSERT INTO activities (name, date, base_price, status, location_id, menu_ordering_enabled, add_game_fee_to_bill)
+    VALUES (${E2E_TAG + ' group pay'}, NOW(), 3.00, 'planned', ${LOC_TEST}, true, true) RETURNING id`);
+  const mkP = async (phone: string, name: string) => (await q(sql`INSERT INTO players (phone, name, password_hash) VALUES (${phone}, ${name}, 'x') RETURNING id, name`))[0];
+  const gA = await mkP('0700000993', 'سامر الدافع'), gB = await mkP('0700000992', 'عمر الصاحب'), gC = await mkP('0700000991', 'فادي'), gD = await mkP('0700000990', 'ليث');
+  for (const p of [gA, gB, gC, gD]) await q(sql`INSERT INTO bookings (activity_id, name, phone, count, player_id, created_by, is_paid, is_free)
+    VALUES (${act13.id}, ${p.name}, '', 1, ${p.id}, 'e2e', false, false)`);
+  const [sess13] = await q(sql`INSERT INTO sessions (session_code, session_name, activity_id) VALUES ('E2E13G', ${E2E_TAG + ' group room'}, ${act13.id}) RETURNING id`);
+  let seat13 = 1;
+  for (const p of [gA, gB, gC, gD]) await q(sql`INSERT INTO session_players (session_id, player_id, physical_id, player_name) VALUES (${sess13.id}, ${p.id}, ${seat13++}, ${p.name})`);
+  const L13 = async () => ((await api(vURL(`/api/venue/invoices/candidates?activityId=${act13.id}`), { headers: A })).body?.candidates ?? []) as any[];
+  const groupPay = (body: any) => api(vURL(`/api/venue/invoices/${act13.id}/pay-group`), { method: 'POST', headers: A, body: JSON.stringify(body) });
+
+  // فرديّ بطريقة دفع
+  r = await api(vURL(`/api/venue/invoices/${act13.id}/${gD.id}/pay`), { method: 'POST', headers: A, body: JSON.stringify({ expectedTotal: 3, method: 'card' }) });
+  ok('تحصيلٌ فرديّ «فيزا» يُقبل', r.body?.success === true && r.body?.method === 'card', JSON.stringify(r.body));
+  const [invD] = await q(sql`SELECT pay_method, payment_id FROM order_invoices WHERE activity_id = ${act13.id} AND player_id = ${gD.id}`);
+  ok('الطريقة محفوظة مع الفاتورة، بلا دفعة', invD?.pay_method === 'card' && invD?.payment_id === null, JSON.stringify(invD));
+
+  // مبلغٌ تغيّر ⟵ لا شيء يُقبض
+  r = await groupPay({ items: [{ playerId: gA.id, expectedTotal: 3 }, { playerId: gB.id, expectedTotal: 2 }], payerPlayerId: gA.id, method: 'cash' });
+  const [paidCnt0] = await q(sql`SELECT count(*)::int AS n FROM order_invoices WHERE activity_id = ${act13.id} AND is_paid AND player_id IN (${gA.id}, ${gB.id})`);
+  ok('مبلغٌ تغيّر ⟵ 409 باسم صاحبه ولا يُقبض شيء', r.status === 409 && r.body?.code === 'CHANGED' && r.body?.changed?.[0]?.playerId === gB.id && paidCnt0.n === 0, JSON.stringify(r.body));
+
+  // الدفعة
+  r = await groupPay({ items: [{ playerId: gA.id, expectedTotal: 3 }, { playerId: gB.id, expectedTotal: 3 }], payerPlayerId: gA.id, method: 'cash' });
+  const payId = r.body?.paymentId;
+  ok('سامر يدفع عنه وعن عمر ⟵ دفعةٌ واحدة بـ٦٫٠٠', r.body?.success === true && r.body?.total === 6 && r.body?.invoices?.length === 2 && !!payId, JSON.stringify(r.body));
+  const invs13 = await q(sql`SELECT player_id, is_paid, pay_method, payment_id, invoice_no FROM order_invoices WHERE activity_id = ${act13.id} AND player_id IN (${gA.id}, ${gB.id})`);
+  ok('كلّ صاحبٍ بفاتورته ورقمها، محصّلة «كاش» ومربوطة بالدفعة', invs13.length === 2 && invs13.every((x: any) => x.is_paid && x.pay_method === 'cash' && x.payment_id === payId) && invs13[0].invoice_no !== invs13[1].invoice_no, JSON.stringify(invs13));
+  const bks13 = await q(sql`SELECT player_id, is_paid FROM bookings WHERE activity_id = ${act13.id} AND player_id IN (${gA.id}, ${gB.id})`);
+  ok('دخول اللعبة لكلٍّ منهما صار مدفوعاً', bks13.every((x: any) => x.is_paid === true));
+  const [vp] = await q(sql`SELECT payer_player_id, payer_name, method, total, invoice_count FROM venue_payments WHERE id = ${payId}`);
+  ok('سجلّ الدفعة: الدافع والطريقة والمجموع', vp?.payer_player_id === gA.id && vp?.method === 'cash' && vp?.total === '6.00' && vp?.invoice_count === 2, JSON.stringify(vp));
+  let rows13 = await L13();
+  const pB = rows13.find(c => c.playerId === gB.id && c.kind === 'paid');
+  const pA = rows13.find(c => c.playerId === gA.id && c.kind === 'paid');
+  ok('في التحصيل: عمر «دفعها سامر»، وسامر بلا', pB?.paidForBy === gA.name && pB?.payMethod === 'cash' && pA?.paidForBy === null, JSON.stringify([pA?.paidForBy, pB?.paidForBy]));
+  r = await api(vURL(`/api/venue/invoices/${act13.id}/${gB.id}/receipt?invoiceId=${pB?.invoiceId}`), { method: 'POST', headers: A });
+  ok('إيصال عمر يقول «دفعها سامر»', r.status === 200, `status=${r.status}`);
+  const recB = await (await fetch(BASE + vURL(`/api/venue/invoices/${act13.id}/${gB.id}/receipt?invoiceId=${pB?.invoiceId}`), { method: 'POST', headers: A })).text();
+  ok('… والنصّ فيه اسم الدافع والطريقة', recB.includes('دفعها سامر') && recB.includes('كاش'));
+  const recP = await (await fetch(BASE + vURL(`/api/venue/invoices/payment/${payId}/receipt`), { method: 'POST', headers: A })).text();
+  ok('إيصال الدفعة الواحد بالاسمين والمجموع', recP.includes('عمر الصاحب') && recP.includes('سامر الدافع') && recP.includes('6.00'));
+
+  // التراجع
+  r = await api(vURL(`/api/venue/invoices/unpay/${pB?.invoiceId}`), { method: 'POST', headers: A });
+  ok('تراجعٌ عن فاتورةٍ من دفعة وحدها ⟵ يُرفض', r.status === 409 && r.body?.code === 'IN_PAYMENT', JSON.stringify(r.body));
+  r = await api(vURL(`/api/venue/invoices/unpay-payment/${payId}`), { method: 'POST', headers: A });
+  const back = await q(sql`SELECT is_paid, payment_id, pay_method FROM order_invoices WHERE activity_id = ${act13.id} AND player_id IN (${gA.id}, ${gB.id})`);
+  const bkBack = await q(sql`SELECT is_paid FROM bookings WHERE activity_id = ${act13.id} AND player_id IN (${gA.id}, ${gB.id})`);
+  ok('التراجع عن الدفعة كلّها ⟵ الفاتورتان مفتوحتان والحجزان غير مدفوعين', r.body?.success === true && back.every((x: any) => !x.is_paid && x.payment_id === null && x.pay_method === null) && bkBack.every((x: any) => x.is_paid === false), JSON.stringify(back));
+  const [vpU] = await q(sql`SELECT undone_at FROM venue_payments WHERE id = ${payId}`);
+  ok('الدفعة موسومةٌ «تراجع»', !!vpU?.undone_at);
+
+  // فاتورةٌ حُصّلت من جهازٍ آخر ⟵ الدفعة كلّها تُرفض
+  r = await api(vURL(`/api/venue/invoices/${act13.id}/${gC.id}/pay`), { method: 'POST', headers: A, body: JSON.stringify({ expectedTotal: 3 }) });
+  r = await groupPay({ items: [{ playerId: gA.id, expectedTotal: 3 }, { playerId: gC.id, expectedTotal: 3 }], payerPlayerId: gA.id, method: 'cash' });
+  const [aStill] = await q(sql`SELECT is_paid FROM order_invoices WHERE activity_id = ${act13.id} AND player_id = ${gA.id}`);
+  ok('صاحبٌ حُصّل للتوّ ⟵ 409 «GONE» وسامر يبقى مفتوحاً', r.status === 409 && r.body?.code === 'GONE' && aStill?.is_paid === false, JSON.stringify(r.body));
+
+  // «شخصٌ آخر» يدفع
+  r = await groupPay({ items: [{ playerId: gA.id, expectedTotal: 3 }, { playerId: gB.id, expectedTotal: 3 }], payerName: 'أبو سامر', method: 'cliq' });
+  ok('«شخصٌ آخر» باسمٍ يُكتب يدفع عنهما', r.body?.success === true && r.body?.payerName === 'أبو سامر', JSON.stringify(r.body));
+  r = await groupPay({ items: [{ playerId: gA.id }], method: 'cash' });
+  ok('بلا دافع ⟵ يُرفض', r.status === 400);
+
+  // «الحساب»: كيف دُفع
+  r = await api(vURL(`/api/venue/money/night?activityId=${act13.id}`), { headers: A });
+  const bm = r.body?.byMethod;
+  ok('الحساب: نقداً ٣ (فادي) · فيزا ٣ (ليث) · كليك ٦ (الدفعة)', bm?.cash === 3 && bm?.card === 3 && bm?.cliq === 6, JSON.stringify(bm));
   await q(sql`UPDATE locations SET min_charge_enabled = ${minSaved12.en === true}, minimum_charge = ${minSaved12.val}, auto_water = ${minSaved12.aw === true} WHERE id = ${LOC_TEST}`);
 
   // ══ ٨ · الخلاصة والتنظيف ══

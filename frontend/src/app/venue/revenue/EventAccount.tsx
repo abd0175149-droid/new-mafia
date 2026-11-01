@@ -33,6 +33,8 @@ interface Account {
   rows: Row[];
   items: { name: string; qty: number; amount: number }[];
   waivers: { playerId: number; playerName: string; reason: string; staffName: string; at: string }[];
+  /** 💵 كيف دُفع المحصَّل (2026-11-01) — «غير مسجَّل» لما حُصّل قبل تسجيل الطريقة */
+  byMethod?: { cash: number; card: number; cliq: number; unknown: number };
 }
 
 const SHOW_ROWS = 10;
@@ -178,6 +180,14 @@ export function EventAccount({ pickId, onOpenNight }: { pickId: number | null; o
             </div>
             <div className="text-[12.5px] mt-0.5" style={{ color: TX.dim }}>{t.paidCount === 0 ? 'لا فواتير محصّلة' : pInvoices(t.paidCount)}</div>
             <MoneySplit t={t} emptyText="لم يُحصَّل شيءٌ في هذه الليلة" />
+            {acc.byMethod && t.collected > 0 && (
+              <div className="flex flex-wrap gap-x-4 gap-y-1 mt-2.5 text-[14px] font-bold" aria-label="كيف دُفع">
+                <span>نقداً في الدرج <span className="vc-num" style={{ color: TX.amber }}>{f2(acc.byMethod.cash)}</span></span>
+                {acc.byMethod.card > 0 && <span style={{ color: TX.sub }}>فيزا <span className="vc-num">{f2(acc.byMethod.card)}</span></span>}
+                {acc.byMethod.cliq > 0 && <span style={{ color: TX.sub }}>كليك <span className="vc-num">{f2(acc.byMethod.cliq)}</span></span>}
+                {acc.byMethod.unknown > 0 && <span style={{ color: TX.dim }}>غير مسجَّلة الطريقة <span className="vc-num">{f2(acc.byMethod.unknown)}</span></span>}
+              </div>
+            )}
           </section>
 
           {/* ── ٢. ما بقي ── */}

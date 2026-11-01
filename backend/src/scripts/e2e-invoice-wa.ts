@@ -49,6 +49,7 @@ async function main() {
     for (const a of acts) {
       await q(sql`DELETE FROM match_participants WHERE activity_id = ${a.id}`);
       await q(sql`DELETE FROM invoice_wa_jobs WHERE activity_id = ${a.id}`);
+      await q(sql`DELETE FROM venue_payments WHERE activity_id = ${a.id}`);
       await q(sql`DELETE FROM order_invoices WHERE activity_id = ${a.id}`);
       await q(sql`DELETE FROM order_items WHERE order_id IN (SELECT id FROM orders WHERE activity_id = ${a.id})`);
       await q(sql`DELETE FROM orders WHERE activity_id = ${a.id}`);
@@ -294,6 +295,39 @@ async function main() {
     d = await buildInvoiceData(db, LOC, act.id, p2.id);
     ok('طلبٌ بعده يُسقط الحدّ: 2.50 + 3 = 5.50', d.grandTotal === 5.5 && d.minTopup === 0, `${d.grandTotal} ${d.minTopup}`);
     void p2ord;
+
+    // ══ ٨′ · الدفع عن الأصحاب (2026-11-01) ══
+    section('٨′ · الدفع عن الأصحاب على واتساب');
+    {
+      const { collectInvoices } = await import('../services/fnb-pay.service.js');
+      const [stf] = await q(sql`SELECT id FROM staff WHERE role='admin' ORDER BY id LIMIT 1`);
+      const gp = await collectInvoices(db, { locId: LOC, activityId: act.id, staffId: stf.id, receiverName: 'فحص', method: 'cash',
+        payer: { playerId: p2.id, name: p2.name }, items: [{ playerId: p2.id }, { playerId: p3.id }] }) as any;
+      ok('p2 يدفع عنه وعن p3', gp.ok === true && gp.invoices?.length === 2, JSON.stringify(gp).slice(0, 160));
+      sent.length = 0;
+      for (const inv of gp.invoices || []) {
+        await W.schedulePaidStamp(LOC, act.id, inv.playerId, inv.invoiceId, null);
+        const [pj] = await q(sql`SELECT id FROM invoice_wa_jobs WHERE invoice_id = ${inv.invoiceId} AND kind = 'paid' AND status = 'pending' ORDER BY id DESC LIMIT 1`);
+        await W.processJob(await claim(pj.id));
+      }
+      const toP2 = sent.find(x => x.kind === 'image' && x.body.includes('عنك وعن'));
+      const toP3 = sent.find(x => x.kind === 'image' && x.body.includes('دفعه عنك'));
+      ok('الدافع: ملخّصٌ بالمجموع ومن دفع عنهم', !!toP2 && toP2.body.includes(gp.total.toFixed(2)), sent.map(x => x.body).join(' | ').slice(0, 300));
+      ok('الصاحب: «حسابك الليلة مدفوع — دفعه عنك»', !!toP3);
+      // دافعٌ دفع عن غيره فقط ⟵ ملخّصٌ نصّيّ بلا «عنك»
+      await addOrder(p3.id, p3.name, (await q(sql`SELECT id FROM bookings WHERE player_id = ${p3.id} AND activity_id = ${act.id}`))[0].id, 'قهوة', 1.5);
+      const gp2 = await collectInvoices(db, { locId: LOC, activityId: act.id, staffId: stf.id, receiverName: 'فحص', method: 'cliq',
+        payer: { playerId: p1.id, name: p1.name }, items: [{ playerId: p3.id }] }) as any;
+      ok('p1 يدفع عن p3 وحده', gp2.ok === true, JSON.stringify(gp2).slice(0, 160));
+      sent.length = 0;
+      await W.schedulePayerSummary(LOC, act.id, gp2.paymentId, null);
+      const [sj] = await q(sql`SELECT id FROM invoice_wa_jobs WHERE kind = 'paysum' AND status = 'pending' AND (details->>'paymentId')::int = ${gp2.paymentId}`);
+      ok('ملخّص الدافع مجدول', !!sj);
+      if (sj) await W.processJob(await claim(sj.id));
+      const sum = sent.find(x => x.kind === 'text');
+      ok('نصّه «عن: …» لا «عنك وعن»، بطريقة الدفع', !!sum && sum.body.includes(' عن: ') && !sum.body.includes('عنك وعن') && sum.body.includes('كليك'), sum?.body);
+      ok('التراجع يلغي ملخّص الدافع المنتظر', await (async () => { await W.schedulePayerSummary(LOC, act.id, gp2.paymentId, null); return (await W.cancelPayerSummary(gp2.paymentId)) === 1; })());
+    }
 
     // ══ ٩ · المفتاح وموقع الاختبار والحالة ══
     section('٩ · المفتاح والحراسات');

@@ -1,19 +1,24 @@
 'use client';
 
 // ══════════════════════════════════════════════════════
-// 🧾 التحصيل — /venue/invoices · إعادة البناء 2026-10-30 (الهاتف أوّلاً)
-// الكاشير يقف عند الباب والهاتف بيده: سؤاله الوحيد «من بقي عليه، وكم؟».
-// لذلك الصفحة دفترُ ليلةٍ واحدة: ليالي التحصيل حبوبٌ في الأعلى، ثمّ شريط تقدّم،
-// ثمّ قائمة «لم يُحصَّل» افتراضاً — وكلّ صفٍّ عليه زرّ «حصّل» مباشرةً.
-// التفاصيل والطباعة وإسقاط الدخوليّة في ورقةٍ سفليّة، والتأكيد داخلها بخطوتين
-// (لا confirm() رماديّة)، والتراجع من الإشعار ٦ ثوانٍ لأنّ النقرة الخاطئة واردة.
+// 🧾 التحصيل — /venue/invoices · «تحصيل بلمستين» (2026-11-01، التصوّر المعتمد)
+//   https://claude.ai/artifact/XTYdBUEsr7infzd6izWKp8 · والدفع عن الأصحاب: https://claude.ai/artifact/8yuFEpGS9h6UcsBPH3dJT8
+//
+// الكاشير يقف على الكاش والهاتف بيده، ومهاراته محدودة: يحتاج ثلاثة أشياء فقط —
+// من بقي عليه، وكم، وكم يُرجع له من الكاش. لذلك ثلاث شاشات لا أوراق فوق أوراق:
+//   ١ القائمة: «بقي على ٧ · ٤٥٫٧٥»، البحث برقم المقعد، وكلّ شخصٍ سطرٌ واحد (المقعد كبيراً، الاسم، المبلغ)
+//      والسطر كلّه هدف اللمس — لا زرّ «حصّل» على كلّ سطرٍ يُضغط على الجار بالخطأ.
+//   ٢ ادفع: المبلغ كبيراً بكلماتٍ عاديّة، «يدفع عن أصحابه؟»، كاش/فيزا/كليك، «كم أعطاك؟» ⟵ «أرجِع له»
+//      أو «ناقص» (يقفل الدفع)، ثمّ «✓ تمّ الدفع» مرّةً واحدة — بلا نافذة تأكيد: التراجع بدلها.
+//   ٣ تمّ: الباقي مرّةً أخرى، «اطبع إيصالاً»، «التالي». وشريط «تراجع» بعدّادٍ ظاهر طوال المهلة (دقيقتان).
+// النادر خلف «خيارات»: الليالي، طباعة الكلّ، الطباعة قبل الدفع، واتساب، إسقاط دخول اللعبة.
 // الصفحة نفسها تُركَّب في /admin/venues/invoices للإدارة (isHQ و can()=>true).
 // ══════════════════════════════════════════════════════
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useVenue } from '../context';
-import { EM, TX, SHARE, f2, nightLabel, hhmm, pPlayers, pItems, pInvoices } from '../ember';
-import { Icon, SeatBadge, Sheet, useToast, Toast, Segmented, Btn, Swatch, Amount, Skeleton, PageHead, useVenueApi } from '../ui';
+import { EM, TX, f2, nightLabel, hhmm } from '../ember';
+import { Icon, SeatBadge, Sheet, useToast, Toast, Btn, Skeleton, useVenueApi } from '../ui';
 import { refreshBadges } from '../VenueShell';
 import { getSocket } from '@/lib/socket';
 
@@ -32,15 +37,13 @@ interface Row {
   ordersCount: number; ordersTotal: number; minTopup: number; waterCharge: number;
   loyaltyDiscount: number; gameFee: number; grandTotal: number;
   isFree: boolean; noInvoice: boolean;
+  payMethod: string | null; paymentId: number | null; paidForBy: string | null; groupId: number | null;
 }
 
 interface Ledger {
   activity: { id: number; name: string; date: string };
-  gameFeeEnabled: boolean; minChargeEnabled: boolean; minimumCharge: number;
-  autoWaterEnabled: boolean; waterPrice: number;
   totals: { collected: number; due: number; total: number; paidCount: number; dueCount: number };
   candidates: Row[];
-  /** 🧾 فواتير واتساب: آخر حالة إرسال لكلّ لاعب (2026-10-30) */
   wa?: Record<number, WaState>;
   waEnabled?: boolean;
 }
@@ -50,7 +53,50 @@ interface WaState {
   transfer?: { at: string; forwarded: boolean; amountRead: number | null; short: boolean; over?: boolean; payeeMismatch?: boolean };
 }
 
-/** حالة واتساب على الصفّ — الشكل (أيقونة + كلمة) مع اللون، لا اللون وحده */
+interface InvoiceLine {
+  name: string; quantity: number; unitPrice: number; lineTotal: number;
+  options: { group: string; value: string }[];
+  components: { name: string; qty: number; options?: { group: string; value: string }[] }[];
+}
+
+interface Detail {
+  lines: InvoiceLine[];
+  grandTotal: number; gameFeeApplied: boolean; gameFeeAmount: number;
+  seat: number | null; invoiceId: number | null; invoiceNo: number | null;
+  isPaid: boolean; paidAt: string | null;
+  bookingIsPaid: boolean; bookingIsFree: boolean;
+}
+
+type Method = 'cash' | 'card' | 'cliq';
+const METHODS: { v: Method; label: string }[] = [{ v: 'cash', label: 'كاش' }, { v: 'card', label: 'فيزا' }, { v: 'cliq', label: 'كليك' }];
+const METHOD_AR: Record<string, string> = { cash: 'كاش', card: 'فيزا', cliq: 'كليك' };
+
+/** آخر تحصيل — شريط «تراجع» وشاشة «تمّ» */
+interface LastPay {
+  invoiceId: number | null; paymentId: number | null; playerId: number;
+  payer: string; others: string[]; total: number; method: Method; change: number;
+  until: number | null; invoiceNo: number | null;
+}
+
+/** يوم عمّان الحاليّ «YYYY-MM-DD» — الليلة تُقاس بتقويم المكان لا بتقويم الجهاز */
+const ammanToday = () => new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Amman' });
+const dayKey = (d: string) => { const t = new Date(d); return isNaN(+t) ? '' : t.toISOString().slice(0, 10); };
+/** لوحة المفاتيح العربيّة تكتب «١٢»؛ المقعد مخزّنٌ «12» — نوحّد قبل المقارنة */
+const latinDigits = (s: string) => s.replace(/[٠-٩]/g, d => String(d.charCodeAt(0) - 0x660)).replace(/٫/g, '.');
+const r2 = (n: number) => Math.round(n * 100) / 100;
+
+/** ما عليه بكلماتٍ عاديّة — لا «حدّ أدنى · بلا فاتورة» */
+function plainLines(r: Row): { label: string; v: number }[] {
+  const out: { label: string; v: number }[] = [];
+  if (r.ordersTotal > 0) out.push({ label: 'مشروبات وأكل', v: r.ordersTotal });
+  if (r.waterCharge > 0) out.push({ label: 'مياه', v: r.waterCharge });
+  if (r.minTopup > 0) out.push({ label: 'باقي الحدّ الأدنى', v: r.minTopup });
+  if (r.loyaltyDiscount > 0) out.push({ label: 'مشروب بطاقة الولاء', v: -r.loyaltyDiscount });
+  if (r.gameFee > 0) out.push({ label: 'دخول اللعبة', v: r.gameFee });
+  return out;
+}
+
+/** حالة واتساب على الصفّ — الشكل (أيقونة + كلمة) مع اللون */
 function waPill(r: Row, w: WaState | undefined): { text: string; color: string; icon: 'check' | 'clock' | 'warn' | 'receipt' } | null {
   if (!w) return null;
   const paid = r.kind === 'paid';
@@ -74,57 +120,13 @@ function waPill(r: Row, w: WaState | undefined): { text: string; color: string; 
   return null;
 }
 
-interface InvoiceLine {
-  name: string; quantity: number; unitPrice: number; lineTotal: number;
-  options: { group: string; value: string }[];
-  components: { name: string; qty: number; options?: { group: string; value: string }[] }[];
-}
-
-interface Detail {
-  lines: InvoiceLine[];
-  ordersCount: number; ordersTotal: number; minTopup: number; waterCharge: number;
-  loyaltyDiscount?: number; loyaltyItemName?: string | null;
-  gameFeeApplied: boolean; gameFeeAmount: number; grandTotal: number;
-  seat: number | null; invoiceId: number | null; invoiceNo: number | null;
-  isPaid: boolean; paidAt: string | null;
-  bookingIsPaid: boolean; bookingIsFree: boolean;
-  playerName: string; activityName: string;
-}
-
-type Tab = 'due' | 'paid' | 'all';
-
-// لون مكوّنات الباقة في سطر الفاتورة — نفس درجة شاشة الطلبات في النموذج المعتمد
-// (EM.bundle نفسه داكنٌ على البطاقة بخطٍّ صغير)
-const COMP_TX = '#C2AEEB';
-// رماديّ «الحجز المجّانيّ»: صفرٌ لا يذهب لأحد، فلا يأخذ لون حصّة
-const FREE_SW = '#3A4640';
-
-/** يوم عمّان الحاليّ «YYYY-MM-DD» — الليلة تُقاس بتقويم المكان لا بتقويم الجهاز */
-const ammanToday = () => new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Amman' });
-/** يوم الفعاليّة — بنفس قراءة UTC التي يستعملها nightLabel كي لا يختلف «الليلة» عن التسمية */
-const dayKey = (d: string) => { const t = new Date(d); return isNaN(+t) ? '' : t.toISOString().slice(0, 10); };
-
-/** لوحة المفاتيح العربيّة تكتب «١٢»؛ المقعد مخزّنٌ «12» — نوحّد قبل المقارنة */
-const latinDigits = (s: string) => s.replace(/[٠-٩]/g, d => String(d.charCodeAt(0) - 0x660));
-
-/** سطر التفكيك تحت الاسم: الأجزاء غير الصفريّة وحدها، كي يُقرأ في نظرة */
-function breakdown(r: Row): string {
-  const p: string[] = [];
-  if (r.ordersTotal > 0) p.push(`طلبات ${f2(r.ordersTotal)}`);
-  if (r.waterCharge > 0) p.push(`مياه ${f2(r.waterCharge)}`);
-  if (r.minTopup > 0) p.push(`حدّ أدنى ${f2(r.minTopup)}`);
-  if (r.gameFee > 0) p.push(`دخوليّة ${f2(r.gameFee)}`);
-  if (r.loyaltyDiscount > 0) p.push(`− ولاء ${f2(r.loyaltyDiscount)}`);
-  if (r.isFree) p.push('حجز مجّانيّ');
-  if (r.kind === 'open' && r.noInvoice) p.push('بلا فاتورة');
-  return p.length ? p.join(' · ') : 'لم يطلب شيئاً';
-}
+// ── أزرار الصفحة: كبيرة، والضغط ظاهر ─────────────────────
+const big = { minHeight: 56, borderRadius: 16, fontSize: 17, fontWeight: 800 } as const;
 
 export default function VenueInvoicesPage() {
   const { locationId, can } = useVenue();
   const api = useVenueApi();
-  // 🔴 authHeaders يُبنى من جديد في كلّ رسمٍ للغلاف، فتتغيّر get/send كلّ مرّة.
-  //    لو دخلت تبعيّات المؤثّرات لدار الجلب بلا نهاية — نقرؤها من مرجعٍ ثابت.
+  // 🔴 authHeaders يُبنى من جديد في كلّ رسمٍ للغلاف، فتتغيّر get/send كلّ مرّة — نقرؤها من مرجعٍ ثابت
   const apiRef = useRef(api);
   apiRef.current = api;
   const { toast, show, hide } = useToast();
@@ -134,30 +136,44 @@ export default function VenueInvoicesPage() {
   const [ledger, setLedger] = useState<Ledger | null>(null);
   const [ledgerFor, setLedgerFor] = useState<number | null>(null);
   const [ledgerErr, setLedgerErr] = useState('');
-  const [tab, setTab] = useState<Tab>('due');
   const [q, setQ] = useState('');
-
-  // ── ورقة الفاتورة ──
-  const [sheetRow, setSheetRow] = useState<Row | null>(null);
-  const [step, setStep] = useState<'view' | 'confirm'>('view');
-  const [detail, setDetail] = useState<Detail | null>(null);
-  const [busy, setBusy] = useState(false);
-  const [printing, setPrinting] = useState(false);
-  const [waiveOpen, setWaiveOpen] = useState(false);
-  const [reason, setReason] = useState('');
-
-  // ── طباعة الكلّ ──
-  const [printAllOpen, setPrintAllOpen] = useState(false);
+  const [byName, setByName] = useState(false);
+  const [paidOpen, setPaidOpen] = useState(false);
+  const [optionsOpen, setOptionsOpen] = useState(false);
   const [printingAll, setPrintingAll] = useState(false);
 
-  // مراجع للمؤقّت والسوكيت: يقرآن آخر حالٍ بلا إعادة اشتراك في كلّ رسم
+  // ── شاشة الدفع ──
+  const [view, setView] = useState<'list' | 'pay' | 'done'>('list');
+  const [payId, setPayId] = useState<number | null>(null);          // صاحب الشاشة (playerId)
+  const [friends, setFriends] = useState<number[]>([]);             // من يدفع عنهم
+  const [showFriends, setShowFriends] = useState(false);
+  const [payer, setPayer] = useState<number | 'other' | null>(null);
+  const [otherName, setOtherName] = useState('');
+  const [method, setMethod] = useState<Method>('cash');
+  const [given, setGiven] = useState<number | null>(null);
+  const [givenText, setGivenText] = useState('');
+  const [seen, setSeen] = useState<Record<number, number>>({});     // المبلغ الذي رآه الكاشير لكلّ شخص
+  const [payAlert, setPayAlert] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [moreOpen, setMoreOpen] = useState(false);
+  const [itemsOpen, setItemsOpen] = useState(false);
+  const [detail, setDetail] = useState<Detail | null>(null);
+  const [waiveOpen, setWaiveOpen] = useState(false);
+  const [reason, setReason] = useState('');
+  const [printing, setPrinting] = useState(false);
+  const [waBusy, setWaBusy] = useState(false);
+
+  // ── بعد الدفع ──
+  const [last, setLast] = useState<LastPay | null>(null);
+  const [tick, setTick] = useState(0);
+  const [paidSheet, setPaidSheet] = useState<Row | null>(null);
+  const [paidDetail, setPaidDetail] = useState<Detail | null>(null);
+
   const actIdRef = useRef<number | null>(null);
   actIdRef.current = actId;
-  const sheetRef = useRef<{ row: Row | null; total: number | null; busy: boolean }>({ row: null, total: null, busy: false });
-  sheetRef.current = { row: sheetRow, total: detail?.grandTotal ?? sheetRow?.grandTotal ?? null, busy };
-  // ?activityId=N من صفحة «الحساب» — يُقرأ مرّةً واحدة؛ window لا useSearchParams
-  // كي لا تحتاج الصفحة حدَّ Suspense في الإنتاج
   const wantedRef = useRef<number | null | undefined>(undefined);
+  const viewRef = useRef(view); viewRef.current = view;
+  const busyRef = useRef(busy); busyRef.current = busy;
 
   const canPay = can('payments.record');
 
@@ -179,57 +195,26 @@ export default function VenueInvoicesPage() {
     } catch { setNights(prev => prev ?? []); }
   }, []);
 
-  const fetchDetail = useCallback(async (row: Row) => {
-    const id = actIdRef.current;
-    if (!id) return;
-    try {
-      // الفاتورة المحصّلة لقطةٌ ثابتة برقمها؛ المفتوحة تُحسب حيّةً من الطلبات
-      const qs = row.kind === 'paid' && row.invoiceId ? `?invoiceId=${row.invoiceId}` : '';
-      const r = await apiRef.current.get(`/api/venue/invoices/${id}/${row.playerId}${qs}`);
-      // الورقة ربّما أُغلقت أو تبدّلت أثناء الانتظار — لا نكتب تفاصيل لاعبٍ على ورقة غيره
-      if (sheetRef.current.row?.key !== row.key) return;
-      if (r.ok) setDetail(r.data.invoice);
-      else show(r.data?.error || 'تعذّر جلب تفاصيل الفاتورة', { tone: 'bad' });
-    } catch {
-      if (sheetRef.current.row?.key === row.key) show('خطأ في الاتصال', { tone: 'bad' });
-    }
-  }, [show]);
-
-  /**
-   * دفتر الليلة. background = تحديثٌ لم يطلبه الكاشير (مؤقّت/سوكيت): إن تغيّر
-   * مبلغ الورقة المفتوحة نُعيده لخطوة العرض وننبّهه — كي لا يؤكّد مبلغاً قديماً
-   * وصل بعده طلبٌ جديد. بعد أفعاله هو نحن نعيد جلب التفاصيل صراحةً فلا تنبيه.
-   */
   const loadLedger = useCallback(async (id: number, background = false) => {
     try {
       const r = await apiRef.current.get(`/api/venue/invoices/candidates?activityId=${id}`);
-      if (actIdRef.current !== id) return;          // بدّل الليلة أثناء الانتظار
+      if (actIdRef.current !== id) return;
       if (!r.ok) { if (!background) setLedgerErr(r.data?.error || 'تعذّر تحميل التحصيل'); return; }
-      const L: Ledger = r.data;
-      setLedger(L); setLedgerFor(id); setLedgerErr('');
-
-      const cur = sheetRef.current;
-      if (!cur.row) return;
-      const fresh = L.candidates.find(x => x.key === cur.row!.key);
-      if (fresh) {
-        setSheetRow(fresh);
-        // نقارن بصفّ الدفتر السابق لا بالتفاصيل: مصدران مختلفان قد يفترقان بقرشٍ فيتكرّر التنبيه
-        if (background && !cur.busy && cur.row.kind === 'open' && Math.abs(fresh.grandTotal - cur.row.grandTotal) > 0.004) {
-          setStep('view'); setDetail(null);
-          show(`تغيّر مبلغ ${fresh.playerName} — صار ${f2(fresh.grandTotal)} د.أ`, { tone: 'bad' });
-          fetchDetail(fresh);
-        }
-      } else if (background && !cur.busy && cur.row.kind === 'open') {
-        // حُصّلت من جهازٍ آخر (أو لم يبقَ عليه شيء) — الورقة صارت تعرض شيئاً غير موجود
-        setSheetRow(null);
-        show(`فاتورة ${cur.row.playerName} لم تعد مفتوحة — حُدّثت القائمة`);
-      }
+      setLedger(r.data); setLedgerFor(id); setLedgerErr('');
     } catch {
       if (!background && actIdRef.current === id) setLedgerErr('خطأ في الاتصال');
     }
-  }, [fetchDetail, show]);
+  }, []);
 
-  // الليالي عند فتح الصفحة أو تبديل المكان (للإدارة)
+  const fetchDetail = useCallback(async (playerId: number, invoiceId: number | null, set: (d: Detail | null) => void) => {
+    const id = actIdRef.current; if (!id) return;
+    try {
+      const qs = invoiceId ? `?invoiceId=${invoiceId}` : '';
+      const r = await apiRef.current.get(`/api/venue/invoices/${id}/${playerId}${qs}`);
+      if (r.ok) set(r.data.invoice);
+    } catch { /* التفاصيل تكميليّة */ }
+  }, []);
+
   useEffect(() => {
     if (!locationId) return;
     setActId(null); actIdRef.current = null; setLedger(null); setLedgerFor(null); setNights(null);
@@ -239,8 +224,6 @@ export default function VenueInvoicesPage() {
   useEffect(() => { if (actId) loadLedger(actId); }, [actId, loadLedger]);
 
   // ── التحديث الحيّ: مؤقّت ٣٠ ث + عودة الظهور + سوكيت إن وُجد ──
-  // حساب الكاشير قد لا يكون في غرفة المكان على السوكيت (لا نرسل venue:join هنا
-  // عمداً — الانضمام شأن شاشة الطلبات)، فالمؤقّت هو الضمان والسوكيت تسريع.
   useEffect(() => {
     if (!locationId || !actId) return;
     let deb: ReturnType<typeof setTimeout> | null = null;
@@ -249,7 +232,6 @@ export default function VenueInvoicesPage() {
       loadLedger(actId, true);
       loadNights();
     };
-    // دفعة طلباتٍ متتالية = تحديثٌ واحد
     const soon = () => { if (deb) clearTimeout(deb); deb = setTimeout(refresh, 400); };
     const iv = setInterval(refresh, 30_000);
     document.addEventListener('visibilitychange', refresh);
@@ -268,36 +250,157 @@ export default function VenueInvoicesPage() {
     };
   }, [locationId, actId, loadLedger, loadNights]);
 
-  // ── الورقة ────────────────────────────────────────
-  const openSheet = (row: Row, confirm: boolean) => {
-    sheetRef.current = { row, total: row.grandTotal, busy: false };
-    setSheetRow(row); setDetail(null); setStep(confirm ? 'confirm' : 'view');
-    setWaiveOpen(false); setReason('');
-    fetchDetail(row);
-  };
-  // مرجعٌ ثابت: Sheet يعيد ربط Esc كلّما تغيّر onClose
-  const closeSheet = useCallback(() => {
-    sheetRef.current = { row: null, total: null, busy: false };
-    setSheetRow(null); setDetail(null); setStep('view'); setWaiveOpen(false); setReason('');
-  }, []);
+  // عدّاد شريط التراجع
+  useEffect(() => {
+    if (!last?.until) return;
+    const iv = setInterval(() => {
+      setTick(t => t + 1);
+      if (Date.now() >= (last.until as number)) { setLast(null); clearInterval(iv); }
+    }, 1000);
+    return () => clearInterval(iv);
+  }, [last]);
 
-  const pickNight = (id: number) => {
-    if (id === actId) return;
-    closeSheet();
-    setActId(id); setTab('due'); setQ(''); setLedgerErr('');
-  };
-
-  const reloadAll = async () => {
+  const reloadAll = useCallback(async () => {
     const id = actIdRef.current;
     if (id) await loadLedger(id);
     loadNights();
     refreshBadges();
+  }, [loadLedger, loadNights]);
+
+  // ── المشتقّات ─────────────────────────────────────
+  const rows = useMemo(() => (ledger && ledgerFor === actId ? ledger.candidates : []), [ledger, ledgerFor, actId]);
+  const openRows = useMemo(() => rows.filter(r => r.kind === 'open').sort((a, b) => (a.seat ?? 999) - (b.seat ?? 999)), [rows]);
+  const paidRows = useMemo(() => rows.filter(r => r.kind === 'paid'), [rows]);
+  const openBy = useMemo(() => new Map(openRows.map(r => [r.playerId, r])), [openRows]);
+  const T = ledger && ledgerFor === actId ? ledger.totals : null;
+  const today = ammanToday();
+  const curNight = nights?.find(n => n.activityId === actId) ?? null;
+  const staleNight = (nights ?? []).find(n => n.activityId !== actId && n.due > 0 && dayKey(n.activityDate) !== today) ?? null;
+
+  const primary = payId != null ? openBy.get(payId) ?? null : null;
+  const selIds = payId != null ? [payId, ...friends] : [];
+  const total = r2(selIds.reduce((s, id) => s + (seen[id] ?? openBy.get(id)?.grandTotal ?? 0), 0));
+  const short = method === 'cash' && given != null && given < total - 0.004;
+  const change = method === 'cash' && given != null ? r2(given - total) : 0;
+
+  // 🔔 المبلغ تغيّر أو شخصٌ حُصّل من جهازٍ آخر والكاشير على شاشة الدفع ⟵ تنبيهٌ يقفل الزرّ حتّى يقرّ بالجديد
+  useEffect(() => {
+    if (viewRef.current !== 'pay' || busyRef.current || payId == null) return;
+    if (!openBy.has(payId)) {
+      setView('list'); setPayId(null);
+      show('حُصّل للتوّ من جهازٍ آخر — حُدّثت القائمة');
+      return;
+    }
+    const gone = friends.filter(id => !openBy.has(id));
+    if (gone.length) {
+      setFriends(f => f.filter(id => openBy.has(id)));
+      setPayAlert('حُصّل أحد الأصحاب للتوّ من جهازٍ آخر — أُزيل من القائمة. راجع المجموع.');
+      setGiven(null); setGivenText('');
+      return;
+    }
+    const changed = selIds.filter(id => seen[id] != null && Math.abs((openBy.get(id)?.grandTotal ?? 0) - seen[id]) > 0.004);
+    if (changed.length) {
+      setPayAlert(changed.map(id => `طلبٌ جديد وصل لـ${openBy.get(id)!.playerName} — صار ${f2(openBy.get(id)!.grandTotal)} بدل ${f2(seen[id])}`).join(' · '));
+      setGiven(null); setGivenText('');
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [openBy]);
+
+  // ── الأفعال ───────────────────────────────────────
+  const openPay = (r: Row) => {
+    if (!canPay) return;
+    setPayId(r.playerId); setFriends([]); setShowFriends(false); setPayer(r.playerId); setOtherName('');
+    setMethod('cash'); setGiven(null); setGivenText(''); setSeen({ [r.playerId]: r.grandTotal });
+    setPayAlert(null); setMoreOpen(false); setItemsOpen(false); setDetail(null); setWaiveOpen(false); setReason('');
+    setView('pay');
+    window.scrollTo({ top: 0 });
+    fetchDetail(r.playerId, null, setDetail);
+  };
+  const backToList = () => { setView('list'); setPayId(null); setQ(''); window.scrollTo({ top: 0 }); };
+
+  const toggleFriend = (id: number) => {
+    setFriends(f => f.includes(id) ? f.filter(x => x !== id) : [...f, id]);
+    setSeen(s => { const n = { ...s }; if (friends.includes(id)) delete n[id]; else n[id] = openBy.get(id)?.grandTotal ?? 0; return n; });
+    if (payer === id && friends.includes(id)) setPayer(payId);
+    setGiven(null); setGivenText('');
+  };
+  const groupMates = primary?.groupId ? openRows.filter(r => r.playerId !== payId && r.groupId === primary.groupId) : [];
+  const toggleGroup = () => {
+    const ids = groupMates.map(r => r.playerId);
+    const all = ids.every(id => friends.includes(id));
+    if (all) {
+      setFriends(f => f.filter(id => !ids.includes(id)));
+      setSeen(s => { const n = { ...s }; ids.forEach(id => delete n[id]); return n; });
+    } else {
+      setFriends(f => [...f, ...ids.filter(id => !f.includes(id))]);
+      setSeen(s => { const n = { ...s }; ids.forEach(id => { if (n[id] == null) n[id] = openBy.get(id)?.grandTotal ?? 0; }); return n; });
+    }
+    setGiven(null); setGivenText('');
+  };
+  const ackAlert = () => {
+    const s: Record<number, number> = {};
+    selIds.forEach(id => { const r = openBy.get(id); if (r) s[id] = r.grandTotal; });
+    setSeen(s); setPayAlert(null);
   };
 
-  // ── PDF: جلبٌ ← blob ← رابط كائنٍ في لسانٍ جديد (التوكن في الترويسة لا في الرابط) ──
-  const openPdf = async (url: string, method: 'GET' | 'POST'): Promise<boolean> => {
-    // 🍎 النافذة تُفتح **قبل** أوّل await — ما زلنا داخل نقرة المستخدم. فتحها بعد الجلب
-    //    يجعل سفاري الآيفون يعدّها منبثقةً فيحجبها. نملؤها بالـPDF حين يصل.
+  const pay = async () => {
+    if (!actId || payId == null || busy || payAlert || short) return;
+    if (friends.length && payer === 'other' && !otherName.trim()) { show('اكتب اسم من دفع', { tone: 'bad' }); return; }
+    setBusy(true);
+    const ids = selIds;
+    const names = ids.map(id => openBy.get(id)?.playerName || '');
+    let r: { ok: boolean; status: number; data: any } | null = null;
+    try {
+      r = friends.length === 0
+        ? await apiRef.current.send(`/api/venue/invoices/${actId}/${payId}/pay`, 'POST', { expectedTotal: seen[payId], method })
+        : await apiRef.current.send(`/api/venue/invoices/${actId}/pay-group`, 'POST', {
+            items: ids.map(id => ({ playerId: id, expectedTotal: seen[id] })), method,
+            ...(payer === 'other' ? { payerName: otherName.trim() } : { payerPlayerId: payer ?? payId }),
+          });
+    } catch { r = null; }
+    setBusy(false);
+    if (!r) { show('خطأ في الاتصال — لم يُسجَّل شيء', { tone: 'bad' }); return; }
+    if (!r.ok) {
+      await reloadAll();
+      if (r.status === 409 || r.data?.code === 'CHANGED' || r.data?.code === 'GONE') {
+        setPayAlert(r.data?.error || 'تغيّر شيءٌ للتوّ — راجع المجموع');
+        setGiven(null); setGivenText('');
+      } else {
+        show(r.data?.error || 'تعذّر تسجيل الدفع', { tone: 'bad' });
+      }
+      return;
+    }
+    const d = r.data;
+    const payerName = friends.length === 0 ? names[0] : (payer === 'other' ? otherName.trim() : (openBy.get(payer as number)?.playerName || names[0]));
+    setLast({
+      invoiceId: d.invoiceId ?? null, paymentId: d.paymentId ?? null, playerId: payId,
+      payer: payerName, others: names.filter(n => n !== payerName), total: friends.length ? d.total : d.grandTotal,
+      method, change: method === 'cash' && given != null ? r2(given - total) : 0,
+      until: d.canUndoUntil ? new Date(d.canUndoUntil).getTime() : null, invoiceNo: d.invoiceNo ?? null,
+    });
+    setView('done'); setPayId(null);
+    window.scrollTo({ top: 0 });
+    reloadAll();
+  };
+
+  const undo = async () => {
+    if (!last) return;
+    const L = last;
+    let r: { ok: boolean; data: any } | null = null;
+    try {
+      r = L.paymentId
+        ? await apiRef.current.send(`/api/venue/invoices/unpay-payment/${L.paymentId}`, 'POST', {})
+        : await apiRef.current.send(`/api/venue/invoices/unpay/${L.invoiceId}`, 'POST', {});
+    } catch { r = null; }
+    if (!r?.ok) { show(r?.data?.error || 'تعذّر التراجع', { tone: 'bad' }); return; }
+    setLast(null);
+    if (viewRef.current === 'done') setView('list');
+    show(`أُلغي الدفع — عاد ${L.others.length ? `${L.payer} وأصحابه` : L.payer} إلى «بقي عليهم»`);
+    reloadAll();
+  };
+
+  // ── PDF/إيصال: النافذة تُفتح قبل أوّل await (سفاري الآيفون يحجبها بعده) ──
+  const openDoc = async (url: string, method: 'GET' | 'POST'): Promise<boolean> => {
     const pre = typeof window !== 'undefined' ? window.open('', '_blank') : null;
     try {
       const { withLoc, authHeaders } = apiRef.current;
@@ -305,13 +408,13 @@ export default function VenueInvoicesPage() {
       if (!r.ok) {
         pre?.close();
         const d = await r.json().catch(() => ({}));
-        show((d as any).error || 'فشل توليد الفاتورة', { tone: 'bad' });
+        show((d as any).error || 'تعذّرت الطباعة', { tone: 'bad' });
         return false;
       }
       const blobUrl = URL.createObjectURL(await r.blob());
       const w = pre ?? window.open(blobUrl, '_blank');
       if (pre) pre.location.href = blobUrl;
-      if (!w) show('المتصفّح منع فتح الفاتورة — اسمح بالنوافذ المنبثقة لهذا الموقع', { tone: 'bad' });
+      if (!w) show('المتصفّح منع فتح النافذة — اسمح بالنوافذ المنبثقة لهذا الموقع', { tone: 'bad' });
       setTimeout(() => URL.revokeObjectURL(blobUrl), 120_000);
       return true;
     } catch {
@@ -320,525 +423,491 @@ export default function VenueInvoicesPage() {
       return false;
     }
   };
-
-  // kind: 'pdf' ملفّ A6 للمشاركة · 'receipt' إيصال 80مم يفتح نافذة الطباعة بنفسه (طابعة الكاش)
-  const printOne = async (kind: 'pdf' | 'receipt' = 'pdf') => {
-    if (!sheetRow || !actId || printing) return;
+  const printFor = async (playerId: number, invoiceId: number | null, kind: 'receipt' | 'pdf') => {
+    if (!actId || printing) return;
     setPrinting(true);
-    const row = sheetRow;
-    const qs = row.kind === 'paid' && row.invoiceId ? `?invoiceId=${row.invoiceId}` : '';
-    const ok = await openPdf(`/api/venue/invoices/${actId}/${row.playerId}/${kind}${qs}`, 'POST');
+    await openDoc(`/api/venue/invoices/${actId}/${playerId}/${kind}${invoiceId ? `?invoiceId=${invoiceId}` : ''}`, 'POST');
     setPrinting(false);
-    // أوّل طباعة لفاتورةٍ مفتوحة تُثبّت رقمها — نُريه في الورقة والقائمة
-    if (ok && row.kind === 'open') { await loadLedger(actId); fetchDetail(row); }
-  };
-
-  // 🧾 «أرسل على واتساب» — يمرّ بطابور الخادم نفسه، والحالة تتحدّث بالمقبس
-  const [waBusy, setWaBusy] = useState(false);
-  const waSend = async () => {
-    if (!sheetRow || !actId || waBusy) return;
-    setWaBusy(true);
-    const row = sheetRow;
-    const qs = row.kind === 'paid' && row.invoiceId ? `?invoiceId=${row.invoiceId}` : '';
-    const r = await apiRef.current.send(`/api/venue/invoices/${actId}/${row.playerId}/wa-send${qs}`, 'POST').catch(() => null);
-    setWaBusy(false);
-    if (!r?.ok) { show(r?.data?.error || 'تعذّر الإرسال', { tone: 'bad' }); return; }
-    show(row.kind === 'paid' ? 'يُرسل الختم الآن' : 'تُرسل الفاتورة الآن');
     loadLedger(actId, true);
   };
-
+  const printLast = async () => {
+    if (!last || printing) return;
+    setPrinting(true);
+    if (last.paymentId) await openDoc(`/api/venue/invoices/payment/${last.paymentId}/receipt`, 'POST');
+    else if (actId) await openDoc(`/api/venue/invoices/${actId}/${last.playerId}/receipt${last.invoiceId ? `?invoiceId=${last.invoiceId}` : ''}`, 'POST');
+    setPrinting(false);
+  };
+  const waSend = async (playerId: number, invoiceId: number | null, paid: boolean) => {
+    if (!actId || waBusy) return;
+    setWaBusy(true);
+    const r = await apiRef.current.send(`/api/venue/invoices/${actId}/${playerId}/wa-send${invoiceId ? `?invoiceId=${invoiceId}` : ''}`, 'POST').catch(() => null);
+    setWaBusy(false);
+    if (!r?.ok) { show(r?.data?.error || 'تعذّر الإرسال', { tone: 'bad' }); return; }
+    show(paid ? 'يُرسل الختم الآن' : 'تُرسل الفاتورة الآن');
+    loadLedger(actId, true);
+  };
   const printAll = async () => {
     if (!actId || printingAll) return;
     setPrintingAll(true);
-    const ok = await openPdf(`/api/venue/invoices/${actId}/print-all`, 'GET');
+    const ok = await openDoc(`/api/venue/invoices/${actId}/print-all`, 'GET');
     setPrintingAll(false);
-    setPrintAllOpen(false);
-    if (ok) loadLedger(actId);
+    if (ok) { setOptionsOpen(false); loadLedger(actId); }
   };
-
-  // ── التحصيل ───────────────────────────────────────
-  const undoPay = async (invoiceId: number, invoiceNo: number | null) => {
-    let msg: { text: string; bad: boolean };
-    try {
-      const r = await apiRef.current.send(`/api/venue/invoices/unpay/${invoiceId}`, 'POST', {});
-      msg = r.ok
-        ? { text: `أُلغي تحصيل الفاتورة #${r.data?.invoiceNo ?? invoiceNo ?? ''} — عادت إلى «لم يُحصَّل»`, bad: false }
-        : { text: r.data?.error || 'تعذّر التراجع عن التحصيل', bad: true };
-    } catch { msg = { text: 'خطأ في الاتصال — لم يُلغَ التحصيل', bad: true }; }
-    await reloadAll();
-    // الإشعار يُخفي نفسه بعد انتهاء دالّة التراجع، فنؤجّل النتيجة خطوةً كي لا تُمحى معه
-    setTimeout(() => show(msg.text, { tone: msg.bad ? 'bad' : 'ok' }), 0);
-  };
-
-  const pay = async () => {
-    if (!sheetRow || !actId || busy || sheetRow.kind !== 'open') return;
-    const row = sheetRow;
-    // المبلغ الذي رآه الكاشير بعينه — الخادم يرفض (409) إن تغيّر بطلبٍ وصل للتوّ
-    const expectedTotal = detail?.grandTotal ?? row.grandTotal;
-    setBusy(true);
-    sheetRef.current = { ...sheetRef.current, busy: true };
-    let r: { ok: boolean; status: number; data: any } | null = null;
-    try { r = await apiRef.current.send(`/api/venue/invoices/${actId}/${row.playerId}/pay`, 'POST', { expectedTotal }); }
-    catch { r = null; }
-    setBusy(false);
-    sheetRef.current = { ...sheetRef.current, busy: false };
-
-    if (!r) { show('خطأ في الاتصال — لم يُسجَّل التحصيل', { tone: 'bad' }); return; }
-    if (!r.ok) {
-      show(r.data?.error || 'فشل تسجيل التحصيل', { tone: 'bad' });
-      if (r.status === 409) {
-        // المبلغ تغيّر: نعيده لخطوة العرض بالمبلغ الجديد — لا تأكيد على رقمٍ لم يره
-        setStep('view'); setDetail(null);
-        await loadLedger(actId);
-        fetchDetail(sheetRef.current.row ?? row);
-        loadNights(); refreshBadges();
-      }
-      return;
-    }
-
-    const d = r.data;
-    closeSheet();
-    await reloadAll();
-    const text = `حُصّلت فاتورة #${d.invoiceNo} · ${f2(d.grandTotal)} د.أ`
-      + (Number(d.gameFeeSettled) > 0 ? ` · منها ${f2(d.gameFeeSettled)} للنادي` : '');
-    // لا تراجع لفاتورةٍ استهلكت مشروب الولاء — الخادم لا يعيد canUndoUntil لها
-    show(text, d.canUndoUntil && d.invoiceId ? { undo: () => undoPay(d.invoiceId, d.invoiceNo), ms: 6000 } : {});
-  };
-
-  // ── إسقاط الدخوليّة / إعادتها ─────────────────────
   const waive = async (on: boolean) => {
-    if (!sheetRow || !actId || busy) return;
-    const row = sheetRow;
+    if (!actId || payId == null || busy) return;
     const why = reason.trim();
     if (on && why.length < 3) return;
     setBusy(true);
-    let r: { ok: boolean; data: any } | null = null;
-    try {
-      r = await apiRef.current.send(`/api/venue/invoices/${actId}/${row.playerId}/waive-fee`, 'POST',
-        on ? { waive: true, reason: why } : { waive: false });
-    } catch { r = null; }
+    const r = await apiRef.current.send(`/api/venue/invoices/${actId}/${payId}/waive-fee`, 'POST', on ? { waive: true, reason: why } : { waive: false }).catch(() => null);
     setBusy(false);
-    if (!r) { show('خطأ في الاتصال', { tone: 'bad' }); return; }
-    if (!r.ok) { show(r.data?.error || 'فشل الإجراء', { tone: 'bad' }); return; }
-    setWaiveOpen(false); setReason(''); setStep('view');
-    show(on ? `أُسقطت الدخوليّة عن ${row.playerName}` : `أُعيد احتساب الدخوليّة على ${row.playerName}`);
+    if (!r?.ok) { show(r?.data?.error || 'فشل الإجراء', { tone: 'bad' }); return; }
+    setWaiveOpen(false); setReason('');
+    show(on ? 'أُسقط دخول اللعبة' : 'أُعيد احتساب دخول اللعبة');
     await reloadAll();
-    fetchDetail(sheetRef.current.row ?? row);
-  };
-
-  // ── المشتقّات ─────────────────────────────────────
-  const rows = useMemo(() => (ledger && ledgerFor === actId ? ledger.candidates : []), [ledger, ledgerFor, actId]);
-  const openRows = rows.filter(r => r.kind === 'open');
-  const paidRows = rows.filter(r => r.kind === 'paid');
-  const needle = latinDigits(q.trim()).toLowerCase();
-  const base = tab === 'due' ? openRows : tab === 'paid' ? paidRows : rows;
-  const visible = needle
-    ? base.filter(r => r.playerName.toLowerCase().includes(needle) || (r.seat != null && String(r.seat) === needle))
-    : base;
-
-  const today = ammanToday();
-  const curNight = nights?.find(n => n.activityId === actId) ?? null;
-  // ليلةٌ مطلوبة بالرابط ليست في القائمة (أقدم من النافذة) — نضيف حبّتها كي يُرى أين نحن
-  const chips: Night[] = useMemo(() => {
-    const list = nights ?? [];
-    if (actId && !list.some(n => n.activityId === actId) && ledger && ledgerFor === actId) {
-      return [...list, {
-        activityId: actId, activityName: ledger.activity.name, activityDate: ledger.activity.date,
-        ...ledger.totals,
-      }];
+    // المبلغ تغيّر بفعله هو — نعتمده بلا تنبيه
+    const id = actIdRef.current;
+    if (id) {
+      const fresh = await apiRef.current.get(`/api/venue/invoices/candidates?activityId=${id}`);
+      const row = fresh.ok ? (fresh.data.candidates as Row[]).find(x => x.kind === 'open' && x.playerId === payId) : null;
+      if (row) setSeen(s => ({ ...s, [payId]: row.grandTotal })); else backToList();
     }
-    return list;
-  }, [nights, actId, ledger, ledgerFor]);
-  // ليلةٌ سابقة فيها مالٌ لم يُحصَّل والكاشير ينظر إلى غيرها — المال المنسيّ لا يُنسى
-  const staleNight = (nights ?? []).find(n => n.activityId !== actId && n.due > 0 && dayKey(n.activityDate) !== today) ?? null;
-
-  const T = ledger && ledgerFor === actId ? ledger.totals : null;
-  const pct = T ? (T.total > 0 ? Math.min(100, Math.max(0, (T.collected / T.total) * 100)) : 100) : 0;
+    fetchDetail(payId, null, setDetail);
+  };
+  const pickNight = (id: number) => {
+    setOptionsOpen(false);
+    if (id === actId) return;
+    setView('list'); setPayId(null);
+    setActId(id); setQ(''); setLedgerErr(''); setPaidOpen(false);
+  };
+  const openPaid = (r: Row) => { setPaidSheet(r); setPaidDetail(null); fetchDetail(r.playerId, r.invoiceId, setPaidDetail); };
 
   // ── الحراسات ──────────────────────────────────────
   if (!can('invoices.print')) {
-    return <div className="text-center py-16 text-[14px]" style={{ color: TX.dim }}>ليس لدى حسابك صلاحيّة التحصيل والفواتير</div>;
+    return <div className="text-center py-16 text-[15px]" style={{ color: TX.dim }}>ليس لدى حسابك صلاحيّة التحصيل والفواتير</div>;
   }
   if (!locationId) {
-    return <div className="text-center py-16 text-[14px]" style={{ color: TX.dim }}>اختر مكاناً لعرض تحصيله</div>;
+    return <div className="text-center py-16 text-[15px]" style={{ color: TX.dim }}>اختر مكاناً لعرض تحصيله</div>;
   }
 
-  // ── الورقة: قيمٌ مشتقّة ────────────────────────────
-  const shownTotal = detail?.grandTotal ?? sheetRow?.grandTotal ?? 0;
-  const sheetSub = sheetRow ? (() => {
-    const no = detail?.invoiceNo ?? sheetRow.invoiceNo;
-    const first = sheetRow.kind === 'paid' ? `فاتورة #${no ?? ''}`
-      : no != null ? `فاتورة #${no} صدرت ولم تُحصَّل`
-      : sheetRow.noInvoice ? 'طلب بلا فاتورة — تُصدر عند التحصيل' : 'لم تُصدر بعد';
-    const second = detail ? (detail.lines.length ? pItems(detail.lines.length) : 'بلا طلبات') : null;
-    return second ? `${first} · ${second}` : first;
-  })() : '';
-  const sheetTotals: { label: string; v: string; sw: string }[] = [];
-  if (detail) {
-    if (detail.ordersTotal > 0) sheetTotals.push({ label: 'الطلبات', v: f2(detail.ordersTotal), sw: SHARE.venue });
-    if (detail.waterCharge > 0) sheetTotals.push({ label: 'مياه', v: f2(detail.waterCharge), sw: SHARE.venue });
-    if (detail.minTopup > 0) sheetTotals.push({
-      label: `تكملة الحدّ الأدنى${ledger?.minimumCharge ? ` (${f2(ledger.minimumCharge)})` : ''}`, v: f2(detail.minTopup), sw: SHARE.venue,
-    });
-    if ((detail.loyaltyDiscount || 0) > 0) sheetTotals.push({
-      label: `مشروب بطاقة الولاء${detail.loyaltyItemName ? ` (${detail.loyaltyItemName})` : ''}`, v: `− ${f2(detail.loyaltyDiscount || 0)}`, sw: SHARE.venue,
-    });
-    if (detail.gameFeeApplied && detail.gameFeeAmount > 0) sheetTotals.push({ label: 'دخوليّة اللعبة', v: f2(detail.gameFeeAmount), sw: SHARE.club });
-    if (detail.bookingIsFree) sheetTotals.push({ label: 'الحجز مجّانيّ — بلا دخوليّة', v: '0.00', sw: FREE_SW });
+  const isToday = curNight ? dayKey(curNight.activityDate) === today : true;
+  const needle = latinDigits(q.trim()).toLowerCase();
+  const visible = needle
+    ? openRows.filter(r => byName ? r.playerName.toLowerCase().includes(needle) : (r.seat != null && String(r.seat).startsWith(needle)))
+    : openRows;
+  const remaining = last?.until ? Math.max(0, Math.ceil((last.until - Date.now()) / 1000)) : 0;
+  void tick;
+
+  const undoBar = last && last.until && remaining > 0 && view !== 'pay' ? (
+    <div role="status" className="vc-enter fixed z-[70] left-3 right-3 sm:left-auto sm:right-6 sm:w-[420px] flex items-center gap-2.5"
+      style={{ bottom: 'calc(88px + env(safe-area-inset-bottom))', padding: '8px 8px 8px 14px', borderRadius: 16,
+        background: '#11291F', border: `1px solid ${EM.go}`, boxShadow: '0 10px 28px rgba(0,0,0,.55)' }} dir="rtl">
+      <span className="flex-1 min-w-0 text-[15px] font-bold truncate">
+        {last.payer}{last.others.length ? ` +${last.others.length}` : ''} · <span className="vc-num">{f2(last.total)}</span>
+      </span>
+      <button type="button" onClick={undo} className="vc-press shrink-0 h-12 px-4 rounded-xl text-[15px] font-extrabold flex items-center gap-2"
+        style={{ background: 'rgba(255,255,255,.08)', color: TX.amber }}>
+        ↩ تراجع <span className="vc-num">{Math.floor(remaining / 60)}:{String(remaining % 60).padStart(2, '0')}</span>
+      </button>
+    </div>
+  ) : null;
+
+  // ══════════════════ شاشة «تمّ» ══════════════════
+  if (view === 'done' && last) {
+    return (
+      <div className="flex flex-col items-center gap-4 text-center pt-8 pb-24 max-w-[460px] mx-auto w-full">
+        <div className="flex items-center justify-center rounded-full" style={{ width: 96, height: 96, background: EM.go }}>
+          <Icon name="check" size={56} stroke={2.6} color="#04231A" />
+        </div>
+        <h2 className="text-[28px] font-extrabold m-0">تمّ الدفع</h2>
+        <p className="text-[17px] m-0 leading-relaxed" style={{ color: TX.sub }}>
+          {last.payer} دفع <span className="vc-num font-bold" style={{ color: EM.text }}>{f2(last.total)}</span> {METHOD_AR[last.method]}
+          {last.others.length > 0 && <><br />عنه وعن: {last.others.join('، ')}</>}
+        </p>
+        {last.change > 0 && (
+          <div className="w-full rounded-2xl py-3 px-4 text-[18px] font-bold" style={{ background: '#2C2310', border: `1px solid ${TX.amberHi}`, color: TX.amber }}>
+            لا تنسَ: أرجِع له
+            <span className="vc-num block" style={{ fontSize: 36 }}>{f2(last.change)}</span>
+          </div>
+        )}
+        {!last.until && <p className="text-[14px] m-0" style={{ color: TX.dim }}>فيها مشروب بطاقة ولاء — التراجع عنها من الإدارة.</p>}
+        <Btn kind="ghost" full style={{ ...big, fontSize: 16 }} onClick={printLast} disabled={printing}>
+          <Icon name="printer" size={20} /> {printing ? 'يُجهَّز…' : 'اطبع إيصالاً'}
+        </Btn>
+        <Btn kind="go" full style={{ ...big, minHeight: 64, fontSize: 20 }} onClick={backToList}>التالي</Btn>
+        {undoBar}
+        <Toast toast={toast} onHide={hide} />
+      </div>
+    );
   }
-  const isOpenRow = sheetRow?.kind === 'open';
-  const canWaive = !!(canPay && isOpenRow && detail && !detail.isPaid && !detail.bookingIsPaid && !detail.bookingIsFree && detail.gameFeeApplied);
-  const canRestore = !!(canPay && isOpenRow && detail && !detail.isPaid && !detail.bookingIsPaid && detail.bookingIsFree);
-  const paidAtShown = detail?.paidAt ?? sheetRow?.paidAt ?? null;
-  const paidNoShown = detail?.invoiceNo ?? sheetRow?.invoiceNo ?? null;
 
-  return (
-    <div className="flex flex-col gap-[14px]">
-      <PageHead title="التحصيل" sub="لكلّ من طلب أو لعب فاتورة" />
-
-      {/* ── الليالي ── */}
-      {nights === null ? (
-        <Skeleton h={44} n={1} />
-      ) : chips.length === 0 ? (
-        <div className="text-center py-12 px-3 text-[14px] leading-relaxed rounded-2xl" style={{ color: TX.dim, border: `1px dashed ${EM.line}` }}>
-          لا ليالٍ مفعَّل فيها المنيو مؤخّراً
-        </div>
-      ) : (
-        <div className="vc-scroll flex gap-2 overflow-x-auto" role="tablist" aria-label="الليلة">
-          {chips.map(n => {
-            const on = n.activityId === actId;
-            const isToday = dayKey(n.activityDate) === today;
-            return (
-              <button key={n.activityId} type="button" role="tab" aria-selected={on} onClick={() => pickNight(n.activityId)}
-                title={n.activityName}
-                className="vc-press shrink-0 flex items-center gap-2 rounded-full px-[14px] text-[14px] font-extrabold whitespace-nowrap"
-                style={{
-                  height: 44,
-                  background: on ? 'rgba(204,127,34,.16)' : EM.ink2,
-                  border: `1px solid ${on ? SHARE.venue : EM.line2}`,
-                  color: on ? TX.amber : TX.sub,
-                }}>
-                {isToday ? `الليلة · ${nightLabel(n.activityDate)}` : nightLabel(n.activityDate)}
-                {n.dueCount > 0 && (
-                  <span className="vc-num inline-flex items-center justify-center rounded-full text-[12px]"
-                    aria-label={`${n.dueCount} لم يُحصَّل`}
-                    style={{ minWidth: 22, height: 22, padding: '0 6px', background: TX.amberHi, color: '#1A1208' }}>
-                    {n.dueCount}
-                  </span>
-                )}
-              </button>
-            );
-          })}
-        </div>
-      )}
-
-      {/* ── ليلةٌ سابقة لم تُحصَّل ── */}
-      {staleNight && (
-        <div className="vc-enter flex items-center gap-2.5 rounded-xl" role="alert"
-          style={{ padding: '6px 6px 6px 12px', background: 'rgba(224,73,43,.08)', border: '1px solid rgba(224,73,43,.35)' }}>
-          <Icon name="warn" size={18} stroke={2.2} color={TX.bad} />
-          <span className="flex-1 min-w-0 text-[13.5px] font-bold leading-snug py-1.5">
-            ليلة {nightLabel(staleNight.activityDate)} فيها <span className="vc-num">{f2(staleNight.due)}</span> د.أ لم تُحصَّل
-          </span>
-          <button type="button" onClick={() => pickNight(staleNight.activityId)}
-            className="vc-press shrink-0 h-11 px-3.5 rounded-[10px] text-[14px] font-extrabold"
-            style={{ background: 'rgba(255,255,255,.06)', color: TX.bad }}>
-            عرض
+  // ══════════════════ شاشة «ادفع» ══════════════════
+  if (view === 'pay' && primary) {
+    const others = openRows.filter(r => r.playerId !== payId);
+    const lines = plainLines(primary);
+    const notes = [5, 10, 20, 50, 100].filter(n => n >= total).slice(0, 4);
+    const canWaive = !!(detail && !detail.isPaid && !detail.bookingIsPaid && !detail.bookingIsFree && detail.gameFeeApplied);
+    const canRestore = !!(detail && !detail.isPaid && !detail.bookingIsPaid && detail.bookingIsFree);
+    const wa = ledger?.waEnabled ? waPill(primary, ledger.wa?.[primary.playerId]) : null;
+    return (
+      <div className="flex flex-col gap-3.5 pb-8 max-w-[560px] mx-auto w-full">
+        <div className="flex items-center gap-3">
+          <button type="button" onClick={backToList} aria-label="رجوع إلى القائمة"
+            className="vc-press w-12 h-12 rounded-2xl flex items-center justify-center shrink-0"
+            style={{ border: `1px solid ${EM.line2}`, background: EM.card, color: TX.sub }}>
+            <Icon name="chevron" size={22} stroke={2.2} style={{ transform: 'scaleX(-1)' }} />
           </button>
+          <SeatBadge seat={primary.seat} size={52} />
+          <div className="flex-1 min-w-0">
+            <div className="text-[22px] font-extrabold leading-tight truncate">{primary.playerName}</div>
+            <div className="text-[14px]" style={{ color: TX.dim }}>{primary.seat != null ? `المقعد ${primary.seat}` : 'بلا مقعد'}</div>
+          </div>
         </div>
-      )}
 
-      {actId != null && (ledgerErr && !T ? (
-        <div className="flex flex-col items-center gap-3 py-12 text-[14px]" style={{ color: TX.dim }}>
-          <span>{ledgerErr}</span>
-          <Btn kind="ghost" h={44} onClick={() => loadLedger(actId)}>
-            <Icon name="refresh" size={18} /> أعد المحاولة
-          </Btn>
+        {payAlert && (
+          <div role="alert" className="rounded-2xl p-3.5 flex flex-col gap-2.5" style={{ background: '#34160F', border: '1px solid #E0492B' }}>
+            <span className="text-[16px] font-bold leading-relaxed" style={{ color: '#FBD3C8' }}>{payAlert}</span>
+            <Btn kind="ghost" h={52} style={{ fontSize: 16, color: EM.text }} onClick={ackAlert}>فهمت — المبلغ الجديد {f2(selIds.reduce((s, id) => s + (openBy.get(id)?.grandTotal ?? 0), 0))}</Btn>
+          </div>
+        )}
+
+        <div className="text-center pt-1">
+          <div className="text-[16px]" style={{ color: TX.dim }}>{friends.length ? `المجموع عن ${selIds.length} أشخاص` : 'عليه'}</div>
+          <div className="vc-num font-semibold leading-none mt-1" style={{ fontSize: 54 }}>{f2(total)}</div>
         </div>
-      ) : !T ? (
-        <>
-          <Skeleton h={92} n={1} />
-          <Skeleton h={68} n={4} />
-        </>
-      ) : (
-        <>
-          {/* ── التقدّم ── */}
-          <section aria-label="تقدّم التحصيل">
-            <div className="flex items-start justify-between gap-3">
-              <div className="flex items-baseline gap-1.5 min-w-0 flex-wrap">
-                <span className="vc-num font-semibold leading-none" style={{ fontSize: 34 }}>{f2(T.collected)}</span>
-                <span className="text-[14px]" style={{ color: TX.dim }}>من <span className="vc-num">{f2(T.total)}</span> د.أ</span>
-              </div>
-              {rows.length > 0 && (
-                <button type="button" onClick={() => setPrintAllOpen(true)} aria-label="طباعة كلّ فواتير الليلة"
-                  className="vc-press shrink-0 h-11 px-3 rounded-xl flex items-center gap-1.5 text-[13.5px] font-bold"
-                  style={{ border: `1px solid ${EM.line2}`, color: TX.sub }}>
-                  <Icon name="printer" size={18} /> طباعة الكلّ
+
+        {/* ما عليه — بكلماتٍ عاديّة، والأصناف عند الطلب */}
+        <div className="rounded-2xl" style={{ background: EM.ink2, border: `1px solid ${EM.line}`, padding: '2px 14px' }}>
+          {friends.length === 0 ? (
+            <>
+              {lines.map(l => (
+                <div key={l.label} className="flex justify-between gap-3 text-[16px]" style={{ padding: '10px 0', borderBottom: `1px solid ${EM.line}` }}>
+                  <span>{l.label}</span><span className="vc-num">{l.v < 0 ? '− ' : ''}{f2(Math.abs(l.v))}</span>
+                </div>
+              ))}
+              {primary.isFree && <div className="text-[15px]" style={{ padding: '10px 0', color: TX.dim, borderBottom: `1px solid ${EM.line}` }}>حجزٌ مجّانيّ — بلا دخول لعبة</div>}
+              {primary.ordersTotal > 0 && (
+                <button type="button" onClick={() => setItemsOpen(o => !o)} className="w-full text-right text-[15px] font-bold" style={{ padding: '11px 0', color: TX.sub }}>
+                  {itemsOpen ? '▾' : '‹'} شو طلب؟
                 </button>
               )}
+              {itemsOpen && (detail ? detail.lines.map((l, i) => (
+                <div key={i} className="flex gap-2 text-[15px]" style={{ padding: '8px 0', borderTop: `1px solid ${EM.line}` }}>
+                  <span className="vc-num" style={{ color: TX.dim, minWidth: 26 }}>×{l.quantity}</span>
+                  <span className="flex-1 min-w-0">{l.name}{l.options.length > 0 && <span className="block text-[13px]" style={{ color: TX.dim }}>{l.options.map(o => o.value).join(' · ')}</span>}</span>
+                  <span className="vc-num">{f2(l.lineTotal)}</span>
+                </div>
+              )) : <div className="py-2"><Skeleton h={30} n={2} /></div>)}
+            </>
+          ) : selIds.map(id => (
+            <div key={id} className="flex justify-between gap-3 text-[16px]" style={{ padding: '10px 0', borderBottom: `1px solid ${EM.line}` }}>
+              <span className="truncate">{openBy.get(id)?.playerName}</span><span className="vc-num">{f2(seen[id] ?? 0)}</span>
             </div>
-            <div role="progressbar" aria-label="نسبة المحصَّل" aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(pct)}
-              className="overflow-hidden rounded-full mt-2.5" style={{ height: 10, background: '#1B211D' }}>
-              <div className="vc-seg h-full rounded-full" style={{ width: `${pct}%`, background: EM.go }} />
-            </div>
-            <div className="flex justify-between gap-3 mt-2.5 text-[13.5px]">
-              <span className="font-bold">
-                {T.dueCount > 0
-                  ? <>بقي {pPlayers(T.dueCount)} · <span className="vc-num">{f2(T.due)}</span> د.أ</>
-                  : 'حُصّل من الجميع'}
-              </span>
-              <span style={{ color: TX.dim }}>{T.paidCount > 0 ? `${pInvoices(T.paidCount)} محصّلة` : 'لا شيء محصَّل بعد'}</span>
-            </div>
-          </section>
+          ))}
+        </div>
 
-          {/* ── التبويبات ── */}
-          <Segmented<Tab> label="حالة الفاتورة" value={tab} onChange={setTab} items={[
-            { value: 'due', label: <>لم يُحصَّل <span className="vc-num">{openRows.length}</span></> },
-            { value: 'paid', label: <>محصَّل <span className="vc-num">{paidRows.length}</span></> },
-            { value: 'all', label: <>الكلّ <span className="vc-num">{rows.length}</span></> },
-          ]} />
-
-          {/* ── البحث ── */}
-          <label className="flex items-center gap-2 rounded-[14px] px-3.5" style={{ height: 48, background: EM.ink2, border: `1px solid ${EM.line2}` }}>
-            <Icon name="search" size={18} color={TX.dim} />
-            <input type="search" value={q} onChange={e => setQ(e.target.value)}
-              aria-label="بحث باسم اللاعب أو رقم المقعد" placeholder="اسم اللاعب أو رقم مقعده"
-              className="flex-1 min-w-0 bg-transparent border-none outline-none placeholder:text-[#5A6862]"
-              style={{ height: 44, fontSize: 16, color: EM.text }} />
-            {q && (
-              <button type="button" onClick={() => setQ('')} aria-label="مسح البحث"
-                className="vc-press w-11 h-11 flex items-center justify-center rounded-xl shrink-0" style={{ color: TX.dim }}>
-                <Icon name="x" size={16} stroke={2.2} />
+        {/* 👥 يدفع عن أصحابه */}
+        {others.length > 0 && (
+          <Btn kind="ghost" h={56} style={{ fontSize: 16 }} onClick={() => setShowFriends(s => !s)}>
+            <Icon name="users" size={20} /> {showFriends ? 'إخفاء القائمة' : friends.length ? `يدفع عن ${friends.length} — عدّل` : 'يدفع عن أصحابه؟'}
+          </Btn>
+        )}
+        {showFriends && (
+          <div className="flex flex-col gap-2">
+            {groupMates.length > 0 && (
+              <button type="button" onClick={toggleGroup} aria-pressed={groupMates.every(r => friends.includes(r.playerId))}
+                className="vc-press self-start h-11 px-4 rounded-full text-[15px] font-extrabold"
+                style={groupMates.every(r => friends.includes(r.playerId))
+                  ? { background: EM.go, color: '#04231A' } : { background: EM.ink2, border: `1px solid ${EM.line2}`, color: EM.text }}>
+                👥 مجموعته ({groupMates.length})
               </button>
             )}
-          </label>
-
-          {/* ── الصفوف ── */}
-          <div className="flex flex-col gap-2">
-            {visible.map(r => {
-              const paid = r.kind === 'paid';
-              const stateLabel = paid
-                ? `#${r.invoiceNo ?? ''} · ${hhmm(r.paidAt)}`
-                : r.invoiceNo != null ? `#${r.invoiceNo} · لم يُحصَّل` : 'لم يُحصَّل';
-              const wa = ledger?.waEnabled ? waPill(r, ledger.wa?.[r.playerId]) : null;
+            {others.map(r => {
+              const on = friends.includes(r.playerId);
               return (
-                <div key={r.key} className="vc-enter flex items-center gap-2.5 rounded-[14px]"
-                  style={{ padding: '10px 10px 10px 12px', background: EM.card, border: `1px solid ${EM.line}` }}>
-                  <button type="button" onClick={() => openSheet(r, false)} aria-label={`تفاصيل فاتورة ${r.playerName}`}
-                    className="flex-1 min-w-0 flex items-center gap-2.5 text-right bg-transparent" style={{ minHeight: 48, color: 'inherit' }}>
-                    <SeatBadge seat={r.seat} size={38} />
-                    <span className="flex-1 min-w-0 block">
-                      <span className="block text-[15px] font-extrabold truncate">{r.playerName}</span>
-                      <span className="block text-[12.5px] truncate" style={{ color: TX.dim }}>{breakdown(r)}</span>
-                      {wa && (
-                        <span className="flex items-center gap-1 text-[12px] font-bold truncate" style={{ color: wa.color }}>
-                          <Icon name={wa.icon} size={13} stroke={2.2} /><span className="truncate">{wa.text}</span>
-                        </span>
-                      )}
-                    </span>
-                    <span className="shrink-0 text-left block">
-                      <span className="vc-num block font-semibold" style={{ fontSize: 17 }}>{f2(r.grandTotal)}</span>
-                      {tab !== 'due' && (
-                        <span className="block text-[12px] font-bold whitespace-nowrap" style={{ color: paid ? TX.good : TX.amber }}>
-                          <span className="vc-num">{stateLabel}</span>
-                        </span>
-                      )}
-                    </span>
-                  </button>
-                  {canPay && !paid && (
-                    <button type="button" onClick={() => openSheet(r, true)} aria-label={`حصّل من ${r.playerName}`}
-                      className="vc-press shrink-0 h-11 px-4 rounded-xl text-[14px] font-extrabold"
-                      style={{ background: EM.go, color: '#04231A' }}>
-                      حصّل
-                    </button>
-                  )}
-                </div>
+                <button key={r.key} type="button" role="checkbox" aria-checked={on} onClick={() => toggleFriend(r.playerId)}
+                  className="vc-press flex items-center gap-3 rounded-2xl text-right"
+                  style={{ minHeight: 64, padding: '8px 12px', background: on ? '#173A2E' : EM.card, border: `1px solid ${on ? EM.go : EM.line}`, color: 'inherit' }}>
+                  <span className="flex items-center justify-center rounded-lg shrink-0" style={{ width: 30, height: 30, border: `2px solid ${on ? EM.go : TX.dim}`, background: on ? EM.go : 'transparent' }}>
+                    {on && <Icon name="check" size={18} stroke={3} color="#04231A" />}
+                  </span>
+                  <SeatBadge seat={r.seat} size={42} />
+                  <span className="flex-1 min-w-0 text-[17px] font-bold truncate">{r.playerName}</span>
+                  <span className="vc-num text-[18px] shrink-0">{f2(r.grandTotal)}</span>
+                </button>
               );
             })}
-            {visible.length === 0 && (
-              <div className="text-center py-7 px-3 text-[14px] leading-relaxed" style={{ color: TX.dim }}>
-                {needle ? 'لا أحد بهذا الاسم أو المقعد'
-                  : rows.length === 0 ? 'لا طلبات ولا لاعبين في هذه الليلة بعد'
-                  : tab === 'due' ? 'حُصّل من الجميع في هذه الليلة'
-                  : 'لا فواتير محصّلة بعد'}
-              </div>
+          </div>
+        )}
+        {friends.length > 0 && (
+          <div className="flex flex-col gap-2">
+            <span className="text-[15px] font-bold" style={{ color: TX.dim }}>من دفع؟</span>
+            <div className="flex flex-wrap gap-2">
+              {[...selIds.map(id => ({ v: id as number | 'other', label: openBy.get(id)?.playerName || '' })), { v: 'other' as const, label: 'شخصٌ آخر' }].map(o => (
+                <button key={String(o.v)} type="button" aria-pressed={payer === o.v} onClick={() => setPayer(o.v)}
+                  className="vc-press h-11 px-4 rounded-full text-[15px] font-bold"
+                  style={payer === o.v ? { background: '#E9F5EF', color: '#0B2A1F' } : { background: EM.ink2, border: `1px solid ${EM.line2}`, color: EM.text }}>
+                  {o.label}
+                </button>
+              ))}
+            </div>
+            {payer === 'other' && (
+              <input value={otherName} onChange={e => setOtherName(e.target.value)} placeholder="اسم من دفع" aria-label="اسم من دفع" maxLength={60}
+                className="w-full rounded-2xl px-4 outline-none placeholder:text-[#5A6862]"
+                style={{ height: 56, fontSize: 17, background: EM.ink, border: `1px solid ${EM.line2}`, color: EM.text }} />
             )}
           </div>
-        </>
-      ))}
+        )}
 
-      {/* ══ ورقة الفاتورة ══ */}
-      <Sheet open={!!sheetRow} onClose={closeSheet}
-        title={sheetRow?.playerName}
-        subtitle={sheetSub}
-        lead={<SeatBadge seat={sheetRow?.seat ?? detail?.seat ?? null} size={40} />}>
-        {sheetRow && (
+        {/* كيف دفع؟ */}
+        <span className="text-[15px] font-bold" style={{ color: TX.dim }}>كيف دفع؟</span>
+        <div className="grid grid-cols-3 gap-2">
+          {METHODS.map(m => (
+            <button key={m.v} type="button" aria-pressed={method === m.v} onClick={() => { setMethod(m.v); setGiven(null); setGivenText(''); }}
+              className="vc-press rounded-2xl text-[18px] font-extrabold" style={{ minHeight: 60,
+                ...(method === m.v ? { background: '#E9F5EF', color: '#0B2A1F' } : { background: EM.card, border: `1px solid ${EM.line2}`, color: EM.text }) }}>
+              {m.label}
+            </button>
+          ))}
+        </div>
+
+        {/* كم أعطاك؟ — النظام يحسب الباقي */}
+        {method === 'cash' && (
           <>
-            {/* البنود والمجاميع */}
-            <div className="mt-3.5 rounded-[14px]" style={{ background: EM.ink2, border: `1px solid ${EM.line}`, padding: '4px 12px' }}>
-              {!detail ? (
-                <div className="py-2.5"><Skeleton h={36} n={3} /></div>
+            <span className="text-[15px] font-bold" style={{ color: TX.dim }}>كم أعطاك؟</span>
+            <div className="flex flex-wrap gap-2">
+              {[{ v: total, label: 'بالضبط' }, ...notes.filter(n => Math.abs(n - total) > 0.004).map(n => ({ v: n, label: String(n) }))].map(o => (
+                <button key={o.label} type="button" aria-pressed={given === o.v && !givenText} onClick={() => { setGiven(o.v); setGivenText(''); }}
+                  className="vc-press flex-1 rounded-2xl text-[18px] font-extrabold vc-num" style={{ minHeight: 56, minWidth: 64,
+                    ...(given === o.v && !givenText ? { background: '#E9F5EF', color: '#0B2A1F' } : { background: EM.card, border: `1px solid ${EM.line2}`, color: EM.text }) }}>
+                  {o.label}
+                </button>
+              ))}
+            </div>
+            <input value={givenText} inputMode="decimal" placeholder="مبلغٌ آخر" aria-label="مبلغٌ آخر أعطاك إيّاه"
+              onChange={e => { const t = latinDigits(e.target.value); setGivenText(e.target.value); const v = parseFloat(t); setGiven(Number.isFinite(v) ? v : null); }}
+              className="w-full rounded-2xl px-4 outline-none placeholder:text-[#5A6862] vc-num"
+              style={{ height: 56, fontSize: 18, background: EM.ink, border: `1px solid ${EM.line2}`, color: EM.text }} />
+            {given != null && (
+              change > 0.004 ? (
+                <div className="rounded-2xl py-3 px-4 text-center text-[18px] font-bold" style={{ background: '#2C2310', border: `1px solid ${TX.amberHi}`, color: TX.amber }}>
+                  أرجِع له<span className="vc-num block" style={{ fontSize: 36 }}>{f2(change)}</span>
+                </div>
+              ) : short ? (
+                <div className="rounded-2xl py-3 px-4 text-center text-[17px] font-bold" style={{ background: '#34160F', border: '1px solid #E0492B', color: TX.bad }}>
+                  ناقص<span className="vc-num block" style={{ fontSize: 36 }}>{f2(r2(total - given))}</span>اطلب منه الباقي قبل «تمّ الدفع»
+                </div>
               ) : (
-                <>
-                  {detail.lines.map((l, i) => {
-                    const opt = l.options.map(o => o.value).join(' · ');
-                    const comps = l.components.map(c => {
-                      const co = (c.options ?? []).map(o => o.value).join('/');
-                      return `${c.name}${co ? ` (${co})` : ''} ×${c.qty * l.quantity}`;
-                    }).join(' + ');
-                    return (
-                      <div key={i} className="flex gap-2 items-baseline text-[14px]" style={{ padding: '9px 0', borderBottom: `1px solid ${EM.line}` }}>
-                        <span className="vc-num" style={{ color: TX.dim, minWidth: 22 }}>×{l.quantity}</span>
-                        <span className="flex-1 min-w-0">
-                          {l.name}
-                          {opt && <span className="block text-[12.5px]" style={{ color: EM.opt }}>{opt}</span>}
-                          {comps && <span className="block text-[12.5px]" style={{ color: COMP_TX }}>{comps}</span>}
-                        </span>
-                        <span className="vc-num">{f2(l.lineTotal)}</span>
-                      </div>
-                    );
-                  })}
-                  {detail.lines.length === 0 && (
-                    <div className="text-[13.5px]" style={{ padding: '10px 0', color: TX.dim, borderBottom: `1px solid ${EM.line}` }}>
-                      لم يطلب شيئاً — لعب الليلة
-                    </div>
-                  )}
-                  {sheetTotals.map(t => (
-                    <div key={t.label} className="flex items-center gap-2 text-[14px]" style={{ padding: '8px 0' }}>
-                      <Swatch color={t.sw} size={8} />
-                      <span className="flex-1 min-w-0" style={{ color: TX.sub }}>{t.label}</span>
-                      <span className="vc-num">{t.v}</span>
-                    </div>
-                  ))}
-                </>
-              )}
-              <div className="flex justify-between items-baseline text-[16px] font-extrabold" style={{ padding: '10px 0 8px', borderTop: `1px solid ${EM.line2}` }}>
-                <span>الإجماليّ</span>
-                <Amount value={f2(shownTotal)} size={22} />
-              </div>
-            </div>
-
-            {/* التحصيل بخطوتين — داخل الورقة نفسها */}
-            {isOpenRow && canPay && (step === 'confirm' ? (
-              <div className="vc-enter mt-3.5 rounded-2xl p-3.5" style={{ background: 'rgba(37,192,138,.08)', border: '1px solid rgba(37,192,138,.35)' }}>
-                <div className="text-[16px] font-extrabold">
-                  استلمتَ <span className="vc-num">{f2(shownTotal)}</span> د.أ من {sheetRow.playerName}؟
-                </div>
-                <div className="text-[12.5px] mt-1 leading-relaxed" style={{ color: TX.sub }}>
-                  يُثبَّت رقم الفاتورة وتُغلق على طلباتها. أيّ طلبٍ بعدها يفتح فاتورةً جديدة.
-                  {(detail?.gameFeeApplied ?? sheetRow.gameFee > 0) ? ' ويُسجَّل حجزه مدفوعاً باسمك.' : ''}
-                </div>
-                <div className="flex gap-2 mt-3">
-                  <Btn kind="go" h={52} className="flex-1" style={{ fontSize: 16 }} onClick={pay} disabled={busy}>
-                    {busy ? 'يُسجَّل…' : 'نعم، استلمت'}
-                  </Btn>
-                  <Btn kind="ghost" h={52} style={{ color: TX.sub, fontSize: 15 }} onClick={() => setStep('view')} disabled={busy}>
-                    رجوع
-                  </Btn>
-                </div>
-              </div>
-            ) : (
-              <Btn kind="go" h={54} full className="mt-3.5" style={{ fontSize: 16 }} onClick={() => { setWaiveOpen(false); setStep('confirm'); }} disabled={busy}>
-                حصّل <span className="vc-num">{f2(shownTotal)}</span> د.أ
-              </Btn>
-            ))}
-            {isOpenRow && !canPay && (
-              <div className="mt-3.5 text-[13px]" style={{ color: TX.dim }}>تسجيل التحصيل يحتاج صلاحيّة «تسجيل الدفع»</div>
-            )}
-
-            {!isOpenRow && (
-              <div className="mt-3.5 flex items-center gap-2 rounded-[14px] text-[14px] font-bold"
-                style={{ padding: '12px 14px', background: 'rgba(37,192,138,.08)', color: TX.good }}>
-                <Icon name="check" size={18} stroke={2.4} />
-                <span>
-                  حُصّلت · فاتورة <span className="vc-num">#{paidNoShown ?? ''}</span>
-                  {paidAtShown && <> · <span className="vc-num">{hhmm(paidAtShown)}</span></>}
-                  {sheetRow.paidByName && <span style={{ color: TX.dim, fontWeight: 600 }}> · {sheetRow.paidByName}</span>}
-                </span>
-              </div>
-            )}
-
-            {/* الطباعة: إيصال طابعة الكاش أوّلاً (الأكثر استعمالاً)، وملفّ A6 للمشاركة */}
-            <div className="flex gap-2 mt-2.5">
-              <Btn kind="ghost" h={48} className="flex-1" style={{ fontSize: 14 }} onClick={() => printOne('receipt')} disabled={printing}>
-                <Icon name="printer" size={18} /> {printing ? 'يُجهَّز…' : 'إيصال الكاشير'}
-              </Btn>
-              <Btn kind="ghost" h={48} style={{ fontSize: 14 }} onClick={() => printOne('pdf')} disabled={printing}>
-                ملفّ A6
-              </Btn>
-            </div>
-            {/* 🧾 واتساب: حالة آخر إرسال وزرّ الإرسال الآن */}
-            {ledger?.waEnabled && (() => {
-              const w = waPill(sheetRow, ledger.wa?.[sheetRow.playerId]);
-              return (
-                <div className="flex items-center gap-2 mt-2">
-                  <span className="flex-1 min-w-0 flex items-center gap-1.5 text-[13px] font-bold" style={{ color: w?.color || TX.dim }}>
-                    {w ? <><Icon name={w.icon} size={15} stroke={2.2} /><span className="truncate">{w.text}</span></> : 'لم يُرسل له شيء على واتساب بعد'}
-                  </span>
-                  <Btn kind="ghost" h={44} style={{ fontSize: 13.5 }} disabled={waBusy} onClick={waSend}>
-                    {waBusy ? 'يُرسل…' : isOpenRow ? 'أرسل الفاتورة' : 'أرسل الختم'}
-                  </Btn>
-                </div>
-              );
-            })()}
-            {/* الإسقاط */}
-            <div className="flex gap-2 mt-2 empty:hidden">
-              {canWaive && !waiveOpen && (
-                <Btn kind="ghost" h={48} className="flex-1" style={{ fontSize: 14 }} disabled={busy}
-                  onClick={() => { setStep('view'); setWaiveOpen(true); }}>
-                  إسقاط الدخوليّة…
-                </Btn>
-              )}
-              {canRestore && (
-                <Btn kind="ghost" h={48} className="flex-1" style={{ fontSize: 14 }} disabled={busy} onClick={() => waive(false)}>
-                  إعادة احتساب الدخوليّة
-                </Btn>
-              )}
-            </div>
-
-            {canWaive && waiveOpen && (
-              <div className="vc-enter mt-2.5 rounded-2xl p-3.5" style={{ background: 'rgba(224,73,43,.08)', border: '1px solid rgba(224,73,43,.35)' }}>
-                <label className="block text-[14px] font-extrabold" htmlFor="waive-reason">
-                  إسقاط دخوليّة {sheetRow.playerName} — لماذا؟
-                </label>
-                <input id="waive-reason" value={reason} onChange={e => setReason(e.target.value)} autoFocus maxLength={200}
-                  placeholder="مثلاً: ضيف الإدارة، تعويض عن خطأ…"
-                  className="w-full mt-2 rounded-xl px-3 outline-none placeholder:text-[#5A6862]"
-                  style={{ height: 48, fontSize: 16, background: EM.ink, border: `1px solid ${EM.line2}`, color: EM.text }} />
-                <div className="flex gap-2 mt-2.5">
-                  <Btn kind="danger" h={48} className="flex-1" disabled={busy || reason.trim().length < 3} onClick={() => waive(true)}>
-                    {busy ? 'يُسجَّل…' : 'أسقط الدخوليّة'}
-                  </Btn>
-                  <Btn kind="ghost" h={48} style={{ color: TX.sub }} disabled={busy} onClick={() => { setWaiveOpen(false); setReason(''); }}>
-                    رجوع
-                  </Btn>
-                </div>
-              </div>
-            )}
-            {canWaive && (
-              <div className="text-[12px] mt-2" style={{ color: TX.dim }}>الإسقاط يطلب سبباً، ويُسجَّل باسمك ويظهر للإدارة.</div>
+                <div className="rounded-2xl py-3 px-4 text-center text-[18px] font-bold" style={{ background: '#0F2A1F', border: `1px solid ${EM.go}`, color: TX.good }}>المبلغ بالضبط ✓</div>
+              )
             )}
           </>
         )}
+
+        <Btn kind="go" full style={{ ...big, minHeight: 66, fontSize: 21 }} onClick={pay} disabled={busy || !!payAlert || short}>
+          {busy ? 'يُسجَّل…' : <>✓ تمّ الدفع <span className="vc-num">{f2(total)}</span></>}
+        </Btn>
+
+        {/* خيارات أخرى — النادر لا يزاحم الدفع */}
+        <button type="button" onClick={() => setMoreOpen(o => !o)} className="text-right text-[16px] font-bold py-2" style={{ color: TX.sub }}>
+          {moreOpen ? '▾' : '‹'} خيارات أخرى
+        </button>
+        {moreOpen && (
+          <div className="flex flex-col gap-2">
+            <Btn kind="ghost" h={52} style={{ fontSize: 15 }} disabled={printing} onClick={() => printFor(primary.playerId, null, 'receipt')}>
+              <Icon name="printer" size={18} /> اطبع الفاتورة قبل الدفع
+            </Btn>
+            <Btn kind="ghost" h={52} style={{ fontSize: 15 }} disabled={printing} onClick={() => printFor(primary.playerId, null, 'pdf')}>ملفّ للمشاركة (A6)</Btn>
+            {ledger?.waEnabled && (
+              <div className="flex items-center gap-2">
+                <span className="flex-1 min-w-0 text-[14px] font-bold truncate" style={{ color: wa?.color || TX.dim }}>{wa ? wa.text : 'لم يُرسل له شيء على واتساب'}</span>
+                <Btn kind="ghost" h={52} style={{ fontSize: 15 }} disabled={waBusy} onClick={() => waSend(primary.playerId, null, false)}>{waBusy ? 'يُرسل…' : 'أرسل الفاتورة'}</Btn>
+              </div>
+            )}
+            {canWaive && !waiveOpen && <Btn kind="ghost" h={52} style={{ fontSize: 15 }} disabled={busy} onClick={() => setWaiveOpen(true)}>إسقاط دخول اللعبة…</Btn>}
+            {canRestore && <Btn kind="ghost" h={52} style={{ fontSize: 15 }} disabled={busy} onClick={() => waive(false)}>إعادة احتساب دخول اللعبة</Btn>}
+            {canWaive && waiveOpen && (
+              <div className="rounded-2xl p-3.5" style={{ background: 'rgba(224,73,43,.08)', border: '1px solid rgba(224,73,43,.35)' }}>
+                <label className="block text-[15px] font-extrabold" htmlFor="waive-reason">لماذا يُسقط دخول اللعبة عن {primary.playerName}؟</label>
+                <input id="waive-reason" value={reason} onChange={e => setReason(e.target.value)} autoFocus maxLength={200}
+                  placeholder="مثلاً: ضيف الإدارة، تعويض عن خطأ…"
+                  className="w-full mt-2 rounded-xl px-3 outline-none placeholder:text-[#5A6862]"
+                  style={{ height: 52, fontSize: 16, background: EM.ink, border: `1px solid ${EM.line2}`, color: EM.text }} />
+                <div className="flex gap-2 mt-2.5">
+                  <Btn kind="danger" h={52} className="flex-1" disabled={busy || reason.trim().length < 3} onClick={() => waive(true)}>{busy ? 'يُسجَّل…' : 'أسقطه'}</Btn>
+                  <Btn kind="ghost" h={52} style={{ color: TX.sub }} disabled={busy} onClick={() => { setWaiveOpen(false); setReason(''); }}>رجوع</Btn>
+                </div>
+                <div className="text-[13px] mt-2" style={{ color: TX.dim }}>يُسجَّل باسمك ويظهر للإدارة.</div>
+              </div>
+            )}
+          </div>
+        )}
+        <Toast toast={toast} onHide={hide} />
+      </div>
+    );
+  }
+
+  // ══════════════════ القائمة ══════════════════
+  return (
+    <div className="flex flex-col gap-3 pb-28 max-w-[640px] mx-auto w-full">
+      <div className="flex items-center gap-3">
+        <div className="flex-1 min-w-0">
+          <h1 className="text-[24px] font-extrabold leading-tight m-0">التحصيل</h1>
+          <div className="text-[14px]" style={{ color: isToday ? TX.dim : TX.amber }}>
+            {curNight ? (isToday ? 'الليلة' : `ليلة ${nightLabel(curNight.activityDate)} — ليست الليلة`) : ' '}
+          </div>
+        </div>
+        <button type="button" onClick={() => setOptionsOpen(true)} aria-label="خيارات: الليالي وطباعة الكلّ"
+          className="vc-press w-12 h-12 rounded-2xl flex items-center justify-center shrink-0 text-[22px] font-extrabold"
+          style={{ border: `1px solid ${EM.line2}`, background: EM.card, color: TX.sub }}>⋯</button>
+      </div>
+
+      {staleNight && (
+        <button type="button" onClick={() => pickNight(staleNight.activityId)} role="alert"
+          className="vc-press flex items-center gap-2.5 rounded-2xl text-right"
+          style={{ padding: '10px 12px', background: 'rgba(224,73,43,.08)', border: '1px solid rgba(224,73,43,.35)', color: 'inherit' }}>
+          <Icon name="warn" size={20} stroke={2.2} color={TX.bad} />
+          <span className="flex-1 min-w-0 text-[15px] font-bold leading-snug">
+            ليلة {nightLabel(staleNight.activityDate)} فيها <span className="vc-num">{f2(staleNight.due)}</span> لم تُحصَّل
+          </span>
+          <span className="text-[15px] font-extrabold shrink-0" style={{ color: TX.bad }}>عرض</span>
+        </button>
+      )}
+
+      {nights !== null && nights.length === 0 && (
+        <div className="text-center py-12 px-3 text-[16px] rounded-2xl" style={{ color: TX.dim, border: `1px dashed ${EM.line}` }}>لا ليالٍ مفعَّل فيها المنيو مؤخّراً</div>
+      )}
+
+      {actId != null && (ledgerErr && !T ? (
+        <div className="flex flex-col items-center gap-3 py-12 text-[16px]" style={{ color: TX.dim }}>
+          <span>{ledgerErr}</span>
+          <Btn kind="ghost" h={52} onClick={() => loadLedger(actId)}><Icon name="refresh" size={18} /> أعد المحاولة</Btn>
+        </div>
+      ) : !T ? (
+        <Skeleton h={74} n={5} />
+      ) : (
+        <>
+          {/* سؤال الكاشير: من بقي؟ */}
+          <div className="flex items-baseline justify-between gap-3 px-0.5">
+            <span className="text-[20px] font-extrabold">{openRows.length ? `بقي على ${openRows.length}` : 'حُصّل من الجميع ✓'}</span>
+            {openRows.length > 0 && <span className="vc-num font-semibold" style={{ fontSize: 24, color: TX.amber }}>{f2(T.due)}</span>}
+          </div>
+
+          {openRows.length > 0 && (
+            <label className="flex items-center gap-2 rounded-2xl px-3.5" style={{ height: 60, background: EM.ink2, border: `1px solid ${EM.line2}` }}>
+              <Icon name="search" size={20} color={TX.dim} />
+              <input value={q} onChange={e => setQ(e.target.value)} inputMode={byName ? 'text' : 'numeric'}
+                aria-label={byName ? 'ابحث بالاسم' : 'ابحث برقم المقعد'} placeholder={byName ? 'اكتب الاسم' : 'رقم المقعد'}
+                className="flex-1 min-w-0 bg-transparent border-none outline-none placeholder:text-[#5A6862]"
+                style={{ height: 52, fontSize: 19, fontWeight: 600, color: EM.text }} />
+              <button type="button" onClick={() => { setByName(b => !b); setQ(''); }}
+                className="vc-press h-11 px-3.5 rounded-xl text-[14px] font-bold shrink-0" style={{ background: EM.card, border: `1px solid ${EM.line2}`, color: TX.sub }}>
+                {byName ? 'بالمقعد' : 'بالاسم'}
+              </button>
+            </label>
+          )}
+
+          <div className="flex flex-col gap-2">
+            {visible.map(r => {
+              const wa = ledger?.waEnabled ? waPill(r, ledger.wa?.[r.playerId]) : null;
+              return (
+                <button key={r.key} type="button" onClick={() => openPay(r)} disabled={!canPay}
+                  aria-label={`${r.playerName}، المقعد ${r.seat ?? '—'}، عليه ${f2(r.grandTotal)}`}
+                  className="vc-press flex items-center gap-3 rounded-[18px] text-right"
+                  style={{ minHeight: 76, padding: '10px 12px', background: EM.card, border: `1px solid ${EM.line}`, color: 'inherit' }}>
+                  <SeatBadge seat={r.seat} size={54} />
+                  <span className="flex-1 min-w-0">
+                    <span className="block text-[18px] font-extrabold truncate">{r.playerName}</span>
+                    {wa && <span className="flex items-center gap-1 text-[13px] font-bold truncate" style={{ color: wa.color }}><Icon name={wa.icon} size={14} stroke={2.2} /><span className="truncate">{wa.text}</span></span>}
+                  </span>
+                  <span className="vc-num font-semibold shrink-0" style={{ fontSize: 22 }}>{f2(r.grandTotal)}</span>
+                  <Icon name="chevron" size={20} color={TX.dim} />
+                </button>
+              );
+            })}
+            {openRows.length > 0 && visible.length === 0 && (
+              <div className="text-center py-6 text-[16px]" style={{ color: TX.dim }}>{byName ? 'لا أحد بهذا الاسم' : 'لا أحد بهذا المقعد'} — جرّب {byName ? 'رقم المقعد' : 'الاسم'}</div>
+            )}
+            {rows.length === 0 && <div className="text-center py-8 text-[16px]" style={{ color: TX.dim }}>لا طلبات ولا لاعبين في هذه الليلة بعد</div>}
+          </div>
+
+          {paidRows.length > 0 && (
+            <button type="button" onClick={() => setPaidOpen(o => !o)} className="vc-press rounded-2xl text-[16px] font-bold"
+              style={{ height: 56, border: `1px dashed ${EM.line2}`, color: TX.sub }}>
+              {paidOpen ? '▾' : '‹'} المحصّل الليلة ({paidRows.length}) · <span className="vc-num">{f2(T.collected)}</span>
+            </button>
+          )}
+          {paidOpen && paidRows.map(r => (
+            <button key={r.key} type="button" onClick={() => openPaid(r)} className="vc-press flex items-center gap-3 rounded-[18px] text-right"
+              style={{ minHeight: 64, padding: '8px 12px', background: EM.ink2, border: `1px solid ${EM.line}`, color: 'inherit' }}>
+              <SeatBadge seat={r.seat} size={44} />
+              <span className="flex-1 min-w-0">
+                <span className="block text-[16px] font-bold truncate">{r.playerName}</span>
+                <span className="block text-[13px] truncate" style={{ color: TX.dim }}>
+                  {hhmm(r.paidAt)}{r.payMethod ? ` · ${METHOD_AR[r.payMethod]}` : ''}{r.paidForBy ? ` · دفعها ${r.paidForBy}` : ''}
+                </span>
+              </span>
+              <span className="vc-num shrink-0" style={{ fontSize: 18, color: TX.good }}>{f2(r.grandTotal)}</span>
+            </button>
+          ))}
+        </>
+      ))}
+
+      {/* ══ خيارات: الليالي وطباعة الكلّ ══ */}
+      <Sheet open={optionsOpen} onClose={() => !printingAll && setOptionsOpen(false)} title="خيارات" maxWidth={460}>
+        <div className="flex flex-col gap-2 mt-3">
+          <span className="text-[14px] font-bold" style={{ color: TX.dim }}>الليلة</span>
+          {(nights ?? []).map(n => {
+            const on = n.activityId === actId;
+            return (
+              <button key={n.activityId} type="button" onClick={() => pickNight(n.activityId)} aria-pressed={on}
+                className="vc-press flex items-center gap-3 rounded-2xl text-right"
+                style={{ minHeight: 56, padding: '8px 14px', background: on ? 'rgba(37,192,138,.1)' : EM.ink2, border: `1px solid ${on ? EM.go : EM.line2}`, color: 'inherit' }}>
+                <span className="flex-1 text-[16px] font-bold">{dayKey(n.activityDate) === today ? `الليلة · ${nightLabel(n.activityDate)}` : nightLabel(n.activityDate)}</span>
+                {n.dueCount > 0 && <span className="text-[14px] font-bold" style={{ color: TX.amber }}>بقي {n.dueCount}</span>}
+              </button>
+            );
+          })}
+          {rows.length > 0 && (
+            <Btn kind="ghost" h={56} style={{ fontSize: 16, marginTop: 8 }} onClick={printAll} disabled={printingAll}>
+              <Icon name="printer" size={18} /> {printingAll ? 'يُجهَّز الملفّ…' : `اطبع كلّ فواتير الليلة (${rows.length})`}
+            </Btn>
+          )}
+        </div>
       </Sheet>
 
-      {/* ══ تأكيد طباعة الكلّ ══ */}
-      <Sheet open={printAllOpen} onClose={() => !printingAll && setPrintAllOpen(false)} maxWidth={440}
-        title={<>طباعة {pInvoices(rows.length)}؟</>}
-        subtitle={curNight ? nightLabel(curNight.activityDate) : undefined}>
-        <div className="text-[14px] mt-2 leading-relaxed" style={{ color: TX.sub }}>
-          تُثبَّت أرقامٌ للفواتير المفتوحة — إعادة الطباعة لاحقاً لا تستهلك أرقاماً جديدة.
-        </div>
-        <div className="flex gap-2 mt-4">
-          <Btn kind="primary" h={52} className="flex-1" onClick={printAll} disabled={printingAll}>
-            <Icon name="printer" size={18} /> {printingAll ? 'يُجهَّز الملفّ…' : 'اطبع'}
-          </Btn>
-          <Btn kind="ghost" h={52} style={{ color: TX.sub }} onClick={() => setPrintAllOpen(false)} disabled={printingAll}>
-            رجوع
-          </Btn>
-        </div>
+      {/* ══ فاتورة محصّلة ══ */}
+      <Sheet open={!!paidSheet} onClose={() => setPaidSheet(null)} title={paidSheet?.playerName}
+        subtitle={paidSheet ? `#${paidSheet.invoiceNo ?? ''} · ${hhmm(paidSheet.paidAt)}${paidSheet.payMethod ? ` · ${METHOD_AR[paidSheet.payMethod]}` : ''}${paidSheet.paidForBy ? ` · دفعها ${paidSheet.paidForBy}` : ''}` : undefined}
+        lead={<SeatBadge seat={paidSheet?.seat ?? null} size={44} />}>
+        {paidSheet && (
+          <div className="flex flex-col gap-2.5 mt-3">
+            <div className="rounded-2xl" style={{ background: EM.ink2, border: `1px solid ${EM.line}`, padding: '2px 14px' }}>
+              {plainLines(paidSheet).map(l => (
+                <div key={l.label} className="flex justify-between gap-3 text-[16px]" style={{ padding: '10px 0', borderBottom: `1px solid ${EM.line}` }}>
+                  <span>{l.label}</span><span className="vc-num">{l.v < 0 ? '− ' : ''}{f2(Math.abs(l.v))}</span>
+                </div>
+              ))}
+              {paidDetail?.lines.map((l, i) => (
+                <div key={i} className="flex gap-2 text-[14px]" style={{ padding: '7px 0', color: TX.sub }}>
+                  <span className="vc-num" style={{ minWidth: 26 }}>×{l.quantity}</span><span className="flex-1 min-w-0">{l.name}</span><span className="vc-num">{f2(l.lineTotal)}</span>
+                </div>
+              ))}
+              <div className="flex justify-between text-[18px] font-extrabold" style={{ padding: '10px 0', borderTop: `1px solid ${EM.line2}` }}>
+                <span>المدفوع</span><span className="vc-num">{f2(paidSheet.grandTotal)}</span>
+              </div>
+            </div>
+            <Btn kind="ghost" h={52} style={{ fontSize: 15 }} disabled={printing} onClick={() => printFor(paidSheet.playerId, paidSheet.invoiceId, 'receipt')}>
+              <Icon name="printer" size={18} /> اطبع إيصالاً
+            </Btn>
+            <Btn kind="ghost" h={52} style={{ fontSize: 15 }} disabled={printing} onClick={() => printFor(paidSheet.playerId, paidSheet.invoiceId, 'pdf')}>ملفّ للمشاركة (A6)</Btn>
+            {ledger?.waEnabled && (
+              <Btn kind="ghost" h={52} style={{ fontSize: 15 }} disabled={waBusy} onClick={() => waSend(paidSheet.playerId, paidSheet.invoiceId, true)}>{waBusy ? 'يُرسل…' : 'أرسل الختم على واتساب'}</Btn>
+            )}
+          </div>
+        )}
       </Sheet>
 
+      {undoBar}
       <Toast toast={toast} onHide={hide} />
     </div>
   );

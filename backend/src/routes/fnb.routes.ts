@@ -17,6 +17,7 @@ import { authenticatePlayer } from '../middleware/player-auth.middleware.js';
 import { sendPushToPlayer, sendPushToLocationStaff, sendPushToAdmins } from '../services/fcm.service.js';
 import { buildInvoiceData, issueInvoiceNumber, invoiceHtml, mergeInvoicePages, receiptHtml, nightRecordOf, playersWhoPlayed, waterItemOf } from '../services/fnb-invoice.service.js';
 import { nightLedger, collectionNights, moneySummary, clubAccount, pastNights, nightAccount, UNDO_WINDOW_MS } from '../services/fnb-ledger.service.js';
+import type { CollectFail } from '../services/fnb-pay.service.js';
 import { resolveOptionGroups, validateSelections, type ChosenOption } from '../services/fnb-options.service.js';
 import { readSlots, slotItemIds, validateSlotsInput, resolveOrderSlots } from '../services/fnb-bundle.service.js';
 import { gateCheck, saveLastFix, isUsableFix } from '../services/geofence.service.js';
@@ -1336,100 +1337,150 @@ venueRouter.post('/invoices/:activityId/:playerId/pay', authenticate, requireVen
   if (!Number.isFinite(activityId) || !Number.isFinite(playerId)) return res.status(400).json({ error: 'معرّفات غير صالحة' });
 
   try {
-    // المجاميع تُعاد من الطلبات المفتوحة الآن — لا نثق بمجاميع مخزّنة قد تكون قديمة
-    const data = await buildInvoiceData(db, locId, activityId, playerId);
-    // كلّ شيءٍ محصَّل = دفعٌ مكرّر (400 كما كان) — لا «غير موجود»
-    if ('error' in data) return res.status(data.error.includes('محصَّلة') ? 400 : 404).json({ error: data.error.includes('محصَّلة') ? 'الفاتورة محصَّلة مسبقاً' : data.error });
-    if (data.orderIds.length === 0 && data.grandTotal <= 0) {
-      return res.status(400).json({ error: 'لا شيء مستحقّ على هذا اللاعب الآن' });
-    }
+    // 💵 مسار التحصيل الواحد (fnb-pay.service) — التحصيل الفرديّ دفعةٌ من فاتورةٍ واحدة بلا سجلّ دفعة
+    const { collectInvoices } = await import('../services/fnb-pay.service.js');
     const expected = req.body?.expectedTotal;
-    if (expected != null && expected !== '' && Number.isFinite(Number(expected))
-      && Math.abs(Number(expected) - data.grandTotal) > 0.004) {
-      return res.status(409).json({ error: 'تغيّر المبلغ للتوّ — وصل طلبٌ جديد. راجع الفاتورة ثمّ حصّل', grandTotal: data.grandTotal });
-    }
-
-    const staffId = req.venueStaff!.id;
-    const receiverName = req.user?.displayName || req.user?.username || '';
-
-    // 💵 التحصيل يُصدر رقم الفاتورة بنفسه إن لم يُصدَر بعد (قرار 2026-08-12)
-    const openRow = async () => (await db.select().from(orderInvoices).where(and(
-      eq(orderInvoices.locationId, locId),
-      eq(orderInvoices.activityId, activityId),
-      eq(orderInvoices.playerId, playerId),
-      eq(orderInvoices.isPaid, false),
-    )).limit(1))[0];
-    let inv = await openRow();
-    if (!inv) {
-      await issueInvoiceNumber(db, data, staffId);
-      inv = await openRow();
-      if (!inv) return res.status(500).json({ error: 'تعذّر إصدار رقم الفاتورة' });
-    }
-
-    // 🔒 isPaid=false داخل الشرط: كاشيران يضغطان معاً — الثاني يجد 0 صفوف فيُرفض
-    let paidRow: any = null;
-    await db.transaction(async (tx) => {
-      const [row] = await tx.update(orderInvoices).set({
-        ordersTotal: data.ordersTotal.toFixed(2),
-        minTopup: data.minTopup.toFixed(2),
-        waterCharge: data.waterCharge.toFixed(2),
-        loyaltyDiscount: data.loyaltyDiscount.toFixed(2),
-        loyaltyRewardId: data.loyaltyRewardId,
-        gameFeeApplied: data.gameFeeApplied,
-        gameFeeAmount: data.gameFeeAmount.toFixed(2),
-        grandTotal: data.grandTotal.toFixed(2),
-        bookingId: data.bookingId,
-        isPaid: true, paidAt: new Date(), paidBy: staffId,
-      } as any).where(and(eq(orderInvoices.id, inv.id), eq(orderInvoices.isPaid, false))).returning();
-      paidRow = row;
-      if (!row) return;
-
-      // 🧾 الطلبات التي حسبناها تُختم بهذه الفاتورة — ما وصل بعد الحساب يبقى مفتوحاً
-      if (data.orderIds.length > 0) {
-        await tx.update(orders).set({ invoiceId: inv.id } as any)
-          .where(and(inArray(orders.id, data.orderIds), isNull(orders.invoiceId)));
-      }
-
-      // الدخوليّة محصَّلة عند المكان ⇒ الحجز صار مدفوعاً باسم موظّف المكان
-      if (data.gameFeeApplied && data.gameFeeAmount > 0 && data.bookingId) {
-        const flipped = await tx.update(bookings).set({
-          isPaid: true,
-          paidAmount: data.gameFeeAmount.toFixed(2),
-          receivedBy: receiverName,
-        } as any).where(and(eq(bookings.id, data.bookingId), eq(bookings.isPaid, false))).returning({ id: bookings.id });
-        if (flipped.length > 0) {
-          await tx.update(orderInvoices).set({ feeBookingFlipped: true } as any).where(eq(orderInvoices.id, inv.id));
-        }
-      }
+    const r = await collectInvoices(db, {
+      locId, activityId, staffId: req.venueStaff!.id,
+      receiverName: req.user?.displayName || req.user?.username || '',
+      method: (req.body?.method || 'cash') as any, payer: null,
+      items: [{ playerId, expectedTotal: expected != null && expected !== '' ? Number(expected) : null }],
     });
-    if (!paidRow) return res.status(400).json({ error: 'الفاتورة محصَّلة مسبقاً' });
-
-    // 🎟️ مشروب الولاء استُخدم فعلاً مع التحصيل
-    if (data.loyaltyRewardId && data.loyaltyDiscount > 0) {
-      try { const { redeemDrinkOnInvoice } = await import('../services/loyalty.service.js'); await redeemDrinkOnInvoice(data.loyaltyRewardId, inv.id, data.loyaltyDiscount, data.loyaltyItemName, staffId); } catch { /* غير حاجب */ }
+    if (!r.ok) {
+      const f = r as CollectFail;
+      // الردود القديمة كما هي: 409 بالمبلغ الجديد · 400 «محصَّلة»/«لا شيء مستحقّ» · 404 ما عداها
+      if (f.code === 'CHANGED') return res.status(409).json({ error: 'تغيّر المبلغ للتوّ — وصل طلبٌ جديد. راجع الفاتورة ثمّ حصّل', grandTotal: f.changed?.[0]?.to });
+      if (f.code === 'GONE') return res.status(400).json({ error: 'الفاتورة محصَّلة مسبقاً' });
+      if (f.code === 'NOTHING') {
+        if (f.error.includes('محصَّلة')) return res.status(400).json({ error: 'الفاتورة محصَّلة مسبقاً' });
+        if (f.error.includes('لا شيء مستحقّ')) return res.status(400).json({ error: 'لا شيء مستحقّ على هذا اللاعب الآن' });
+        return res.status(404).json({ error: f.error });
+      }
+      return res.status(f.status).json({ error: f.error });
     }
-
-    // كلّ أجهزة المكان تحدّث شاشة التحصيل
-    const io = req.app.get('io');
-    if (io) io.to(`location:${locId}`).emit('fnb:invoice-updated', { activityId, playerId, invoiceId: inv.id, isPaid: true });
-
-    // 🧾 ختم «القضيّة مُغلقة» على واتساب بعد مهلة التراجع
-    import('../services/invoice-wa.service.js')
-      .then(m => m.schedulePaidStamp(locId, activityId, playerId, inv.id, staffId))
-      .catch(e => console.warn('⚠️ invoice-wa stamp:', e?.message));
-
-    const paidAt = paidRow.paidAt ? new Date(paidRow.paidAt) : new Date();
+    const inv = r.invoices[0];
+    afterCollect(req, locId, activityId, r);
     res.json({
-      success: true,
-      invoiceId: inv.id,
-      invoiceNo: inv.invoiceNo,
-      grandTotal: data.grandTotal,
-      gameFeeSettled: data.gameFeeApplied ? data.gameFeeAmount : 0,
-      paidAt,
-      canUndoUntil: data.loyaltyDiscount > 0 ? null : new Date(paidAt.getTime() + UNDO_WINDOW_MS).toISOString(),
+      success: true, invoiceId: inv.invoiceId, invoiceNo: inv.invoiceNo, grandTotal: inv.grandTotal,
+      gameFeeSettled: inv.gameFeeSettled, paidAt: r.paidAt, canUndoUntil: r.canUndoUntil, method: r.method,
     });
   } catch (err: any) {
     console.error('❌ fnb invoice pay:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+/** بعد كلّ تحصيل: كلّ أجهزة المكان تحدّث شاشتها، وختم «القضيّة مُغلقة» على واتساب بعد مهلة التراجع */
+function afterCollect(req: Request, locId: number, activityId: number, r: { invoices: { playerId: number; invoiceId: number }[]; paymentId: number | null }) {
+  const io = req.app.get('io');
+  for (const inv of r.invoices) {
+    if (io) io.to(`location:${locId}`).emit('fnb:invoice-updated', { activityId, playerId: inv.playerId, invoiceId: inv.invoiceId, isPaid: true, paymentId: r.paymentId });
+    import('../services/invoice-wa.service.js')
+      .then(m => m.schedulePaidStamp(locId, activityId, inv.playerId, inv.invoiceId, req.venueStaff!.id))
+      .catch(e => console.warn('⚠️ invoice-wa stamp:', e?.message));
+  }
+  // 👥 دافعٌ دفع عن أصحابه فقط (لا فاتورة له في الدفعة) ⟵ ملخّصٌ نصّيّ له وحده
+  if (r.paymentId) {
+    import('../services/invoice-wa.service.js')
+      .then(m => m.schedulePayerSummary(locId, activityId, r.paymentId!, req.venueStaff!.id))
+      .catch(e => console.warn('⚠️ invoice-wa payer summary:', e?.message));
+  }
+}
+
+// ── POST /invoices/:activityId/pay-group — 👥 دفعةٌ تغلق عدّة فواتير (2026-11-01) ──
+// body: { items:[{playerId, expectedTotal}], payerPlayerId?, payerName?, method }
+// كلّ شيءٍ أو لا شيء: مبلغٌ تغيّر أو فاتورةٌ حُصّلت من جهازٍ آخر ⟵ 409 بالأسماء، ولا يُقبض شيء.
+venueRouter.post('/invoices/:activityId/pay-group', authenticate, requireVenuePermission('payments.record'), async (req: Request, res: Response) => {
+  const db = getDB();
+  if (!db) return res.status(503).json({ error: 'DB unavailable' });
+  const locId = resolveVenueLocation(req, res);
+  if (!locId) return;
+  const activityId = parseInt(req.params.activityId);
+  if (!Number.isFinite(activityId)) return res.status(400).json({ error: 'معرّف غير صالح' });
+  const items = Array.isArray(req.body?.items) ? req.body.items.map((x: any) => ({
+    playerId: parseInt(String(x?.playerId)), expectedTotal: x?.expectedTotal != null && x.expectedTotal !== '' ? Number(x.expectedTotal) : null,
+  })).filter((x: any) => Number.isFinite(x.playerId)) : [];
+  if (items.length < 1) return res.status(400).json({ error: 'اختر فاتورةً واحدة على الأقلّ' });
+
+  try {
+    // الدافع: لاعبٌ من الليلة (اسمه من حسابه)، أو «شخصٌ آخر» باسمٍ يُكتب
+    const payerPlayerId = Number.isFinite(parseInt(String(req.body?.payerPlayerId))) ? parseInt(String(req.body.payerPlayerId)) : null;
+    let payerName = String(req.body?.payerName || '').trim().slice(0, 150);
+    if (payerPlayerId) {
+      const [pl] = await db.select({ name: players.name }).from(players).where(eq(players.id, payerPlayerId)).limit(1);
+      if (!pl) return res.status(400).json({ error: 'الدافع غير موجود' });
+      payerName = pl.name || payerName;
+    }
+    if (!payerName) return res.status(400).json({ error: 'اكتب اسم من دفع' });
+
+    const { collectInvoices } = await import('../services/fnb-pay.service.js');
+    const r = await collectInvoices(db, {
+      locId, activityId, staffId: req.venueStaff!.id, receiverName: req.user?.displayName || req.user?.username || '',
+      method: (req.body?.method || 'cash') as any, payer: { playerId: payerPlayerId, name: payerName }, items,
+    });
+    if (!r.ok) return res.status((r as CollectFail).status).json({ error: (r as CollectFail).error, code: (r as CollectFail).code, changed: (r as CollectFail).changed || [], gone: (r as CollectFail).gone || [] });
+    afterCollect(req, locId, activityId, r);
+    res.json({ success: true, paymentId: r.paymentId, total: r.total, method: r.method, payerName: r.payerName, invoices: r.invoices, paidAt: r.paidAt, canUndoUntil: r.canUndoUntil });
+  } catch (err: any) {
+    console.error('❌ fnb invoice pay-group:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ── POST /invoices/payment/:paymentId/receipt — 🧾 إيصال الدفعة 80مم (يطبع نفسه) ──
+venueRouter.post('/invoices/payment/:paymentId/receipt', authenticate, requireVenuePermission('invoices.print'), async (req: Request, res: Response) => {
+  const db = getDB();
+  if (!db) return res.status(503).json({ error: 'DB unavailable' });
+  const locId = resolveVenueLocation(req, res);
+  if (!locId) return;
+  const paymentId = parseInt(req.params.paymentId);
+  if (!Number.isFinite(paymentId)) return res.status(400).json({ error: 'معرّف غير صالح' });
+  try {
+    const { paymentOf } = await import('../services/fnb-pay.service.js');
+    const pay = await paymentOf(db, paymentId);
+    if (!pay || pay.locationId !== locId) return res.status(404).json({ error: 'الدفعة غير موجودة' });
+    if (pay.undoneAt) return res.status(400).json({ error: 'أُلغيت هذه الدفعة' });
+    const [act] = await db.select({ date: activities.date }).from(activities).where(eq(activities.id, pay.activityId)).limit(1);
+    const [loc] = await db.select({ name: locations.name }).from(locations).where(eq(locations.id, locId)).limit(1);
+    const names = new Map((pay.invoices.length ? await db.select({ id: players.id, name: players.name }).from(players)
+      .where(inArray(players.id, pay.invoices.map(i => i.playerId))) : []).map(p => [p.id, p.name]));
+    const { paymentReceiptHtml } = await import('../services/fnb-invoice.service.js');
+    res.setHeader('Content-Type', 'text/html; charset=utf-8');
+    res.setHeader('Cache-Control', 'no-store');
+    res.send(paymentReceiptHtml({
+      paymentId, venue: loc?.name || '', activityDate: act?.date || pay.createdAt, paidAt: pay.createdAt,
+      payer: pay.payerName, method: pay.method, total: parseFloat(String(pay.total)) || 0,
+      by: req.user?.displayName || req.user?.username || '',
+      invoices: pay.invoices.map(i => ({ no: i.invoiceNo, name: names.get(i.playerId) || `لاعب #${i.playerId}`, total: parseFloat(String(i.grandTotal ?? '0')) || 0 })),
+    }));
+  } catch (err: any) {
+    console.error('❌ fnb payment receipt:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ── POST /invoices/unpay-payment/:paymentId — ↩️ التراجع عن دفعةٍ كاملة ──
+venueRouter.post('/invoices/unpay-payment/:paymentId', authenticate, requireVenuePermission('payments.record'), async (req: Request, res: Response) => {
+  const db = getDB();
+  if (!db) return res.status(503).json({ error: 'DB unavailable' });
+  const locId = resolveVenueLocation(req, res);
+  if (!locId) return;
+  const paymentId = parseInt(req.params.paymentId);
+  if (!Number.isFinite(paymentId)) return res.status(400).json({ error: 'معرّف غير صالح' });
+  try {
+    const { undoPayment } = await import('../services/fnb-pay.service.js');
+    const r = await undoPayment(db, { locId, paymentId, me: req.venueStaff! as any });
+    if (!r.ok) { const f = r as { status: number; error: string }; return res.status(f.status).json({ error: f.error }); }
+    try {
+      const W = await import('../services/invoice-wa.service.js');
+      for (const i of r.invoices) await W.cancelPaidStamp(i.invoiceId);
+      await W.cancelPayerSummary(paymentId);
+    } catch { /* تكميليّ */ }
+    const io = req.app.get('io');
+    for (const i of r.invoices) if (io) io.to(`location:${locId}`).emit('fnb:invoice-updated', { activityId: r.activityId, playerId: i.playerId, invoiceId: i.invoiceId, isPaid: false });
+    res.json({ success: true, invoices: r.invoices });
+  } catch (err: any) {
+    console.error('❌ fnb unpay-payment:', err.message);
     res.status(500).json({ error: err.message });
   }
 });
@@ -1451,6 +1502,7 @@ venueRouter.post('/invoices/unpay/:invoiceId', authenticate, requireVenuePermiss
       .where(and(eq(orderInvoices.id, invoiceId), eq(orderInvoices.locationId, locId))).limit(1);
     if (!inv) return res.status(404).json({ error: 'الفاتورة غير موجودة' });
     if (inv.isPaid !== true) return res.status(400).json({ error: 'الفاتورة غير محصَّلة' });
+    if ((inv as any).paymentId) return res.status(409).json({ error: 'هذه الفاتورة جزء من دفعة — التراجع عن الدفعة كلّها', code: 'IN_PAYMENT', paymentId: (inv as any).paymentId });
 
     const me = req.venueStaff!;
     const isAdmin = me.role === 'admin';
@@ -1468,7 +1520,7 @@ venueRouter.post('/invoices/unpay/:invoiceId', authenticate, requireVenuePermiss
     let undone = false;
     await db.transaction(async (tx) => {
       const [row] = await tx.update(orderInvoices).set({
-        isPaid: false, paidAt: null, paidBy: null, unpaidAt: new Date(), unpaidBy: me.id, feeBookingFlipped: false,
+        isPaid: false, paidAt: null, paidBy: null, unpaidAt: new Date(), unpaidBy: me.id, feeBookingFlipped: false, payMethod: null,
       } as any).where(and(eq(orderInvoices.id, inv.id), eq(orderInvoices.isPaid, true))).returning({ id: orderInvoices.id });
       if (!row) return;
       undone = true;

@@ -183,6 +183,27 @@ export const orderInvoices = pgTable('order_invoices', {
   feeBookingFlipped: boolean('fee_booking_flipped').default(false).notNull(),
   unpaidAt: timestamp('unpaid_at'),                               // آخر تراجعٍ عن التحصيل (تدقيق)
   unpaidBy: integer('unpaid_by'),
+  // 💵 (2026-11-01) كيف دُفعت: cash | card | cliq — ومن دفع إن دفعها غيرُ صاحبها (venue_payments)
+  payMethod: varchar('pay_method', { length: 8 }),
+  paymentId: integer('payment_id'),
+});
+
+// ── 👥 دفعةٌ تغلق عدّة فواتير (2026-11-01) ──
+// لاعبٌ يدفع عنه وعن أصحابه: كلّ صاحبٍ يحتفظ بفاتورته ورقمها وحسابه، والدفعة تربطها وتقول من دفع وكيف.
+// كلّ شيءٍ أو لا شيء، والتراجع للدفعة كلّها (لمن حصّلها خلال المهلة، والأدمن دائماً).
+export const venuePayments = pgTable('venue_payments', {
+  id: serial('id').primaryKey(),
+  locationId: integer('location_id').notNull(),
+  activityId: integer('activity_id').notNull(),
+  payerPlayerId: integer('payer_player_id'),                      // لاعبٌ من الليلة — أو null لـ«شخصٍ آخر»
+  payerName: varchar('payer_name', { length: 150 }).default('').notNull(),
+  method: varchar('method', { length: 8 }).default('cash').notNull(),
+  total: decimal('total', { precision: 10, scale: 2 }).notNull(),
+  invoiceCount: integer('invoice_count').notNull(),
+  staffId: integer('staff_id'),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+  undoneAt: timestamp('undone_at'),
+  undoneBy: integer('undone_by'),
 });
 
 // ── 🤝 تسليم دخوليّات النادي من المكان (2026-10-30) ──

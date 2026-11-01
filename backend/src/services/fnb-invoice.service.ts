@@ -49,6 +49,10 @@ export interface InvoiceData {
   paidAt: Date | null;
   /** 💳 طرق الدفع المفعّلة في المكان — تُكتب على الملفّ المطلوب. كليك وحده بتفاصيله */
   payment: PaymentInfo;
+  /** 💵 (2026-11-01) المحصَّلة: كيف دُفعت (cash|card|cliq)، ورقم الدفعة واسم من دفعها إن دفعها غيرُ صاحبها */
+  payMethod?: string | null;
+  paymentId?: number | null;
+  paidByName?: string | null;
 }
 
 export interface PaymentInfo {
@@ -78,6 +82,14 @@ const PLAYED_ROWS = (activityId: number) => sql`
   SELECT mp.player_id FROM match_players mp
     JOIN matches m ON m.id = mp.match_id JOIN sessions s ON s.id = m.session_id
    WHERE s.activity_id = ${activityId} AND mp.player_id IS NOT NULL`;
+
+/** اسم من دفع الفاتورة — null إن دفعها صاحبها بنفسه */
+async function payerNameOf(db: Database, paymentId: number, playerId: number): Promise<string | null> {
+  const r: any = await db.execute(sql`SELECT payer_player_id, payer_name FROM venue_payments WHERE id = ${paymentId} LIMIT 1`);
+  const p = (r?.rows ?? r ?? [])[0];
+  if (!p || Number(p.payer_player_id) === playerId) return null;
+  return String(p.payer_name || '') || null;
+}
 
 /** هل لعب اللاعب جولةً واحدة على الأقلّ في هذه الفعاليّة؟ (شرط استحقاق الحدّ الأدنى) */
 export async function playedInActivity(db: Database, activityId: number, playerId: number): Promise<boolean> {
@@ -217,6 +229,9 @@ export async function buildInvoiceData(
       orderIds: snapOrders.map(o => o.id), seat: await seatOf(db, activityId, playerId),
       snapshotInvoiceId: inv.id, paidAt: inv.isPaid ? inv.paidAt : null,
       payment: paymentInfoOf(loc),
+      payMethod: inv.isPaid ? ((inv as any).payMethod ?? null) : null,
+      paymentId: inv.isPaid ? ((inv as any).paymentId ?? null) : null,
+      paidByName: inv.isPaid && (inv as any).paymentId ? await payerNameOf(db, Number((inv as any).paymentId), playerId) : null,
     };
   }
 
@@ -445,5 +460,5 @@ export async function issueInvoiceNumber(
 }
 
 // 🗂️ القالب «ملفّ القضيّة» (A6 + إيصال 80مم) في ملفّه — يُعاد تصديره كي تبقى الاستيرادات كما هي
-export { invoiceHtml, mergeInvoicePages, receiptHtml, nightRecordOf, invoiceImageHtml } from './fnb-invoice-template.js';
+export { invoiceHtml, mergeInvoicePages, receiptHtml, nightRecordOf, invoiceImageHtml, paymentReceiptHtml } from './fnb-invoice-template.js';
 export type { NightRecord } from './fnb-invoice-template.js';

@@ -55,6 +55,12 @@ export interface LedgerRow {
   isFree: boolean;
   /** طلبٌ مفتوح لم تُصدَر له فاتورة بعد (تُصدَر عند التحصيل) */
   noInvoice: boolean;
+  /** 💵 (2026-11-01) المحصَّلة: cash | card | cliq، ورقم الدفعة، واسم من دفعها إن لم يكن صاحبها */
+  payMethod: string | null;
+  paymentId: number | null;
+  paidForBy: string | null;
+  /** 👥 المفتوحة: مجموعته في «جيب صحابك» — زرّ «مجموعته» في الدفع يختارها معاً */
+  groupId: number | null;
 }
 
 export interface NightLedger {
@@ -154,6 +160,19 @@ export async function nightLedger(db: Database, locId: number, activityId: numbe
   let drinkDiscountFor: ((...a: any[]) => Promise<{ discount: number }>) | null = null;
   try { ({ drinkDiscountFor } = await import('./loyalty.service.js') as any); } catch { /* بلا ولاء */ }
 
+  // 👥 من دفع عن غيره (الدفعات الحيّة) ومجموعات «جيب صحابك» في الليلة
+  const payRows = rows(await db.execute(sql`SELECT id, payer_player_id, payer_name FROM venue_payments
+    WHERE activity_id = ${activityId} AND location_id = ${locId} AND undone_at IS NULL`));
+  const payById = new Map(payRows.map((x: any) => [Number(x.id), { payer: x.payer_player_id ? Number(x.payer_player_id) : null, name: String(x.payer_name || '') }]));
+  const groupRows = rows(await db.execute(sql`
+    SELECT g.id AS gid, g.owner_player_id AS pid FROM booking_groups g
+     WHERE g.activity_id = ${activityId} AND g.status <> 'void' AND g.owner_player_id IS NOT NULL
+    UNION
+    SELECT m.group_id AS gid, m.player_id AS pid FROM booking_group_members m JOIN booking_groups g ON g.id = m.group_id
+     WHERE g.activity_id = ${activityId} AND g.status <> 'void' AND m.player_id IS NOT NULL AND m.status IN ('booked', 'joined')`));
+  const groupOf = new Map<number, number>();
+  for (const x of groupRows) if (!groupOf.has(Number(x.pid))) groupOf.set(Number(x.pid), Number(x.gid));
+
   const now = Date.now();
   const out: LedgerRow[] = [];
   for (const pid of playerIds) {
@@ -177,6 +196,9 @@ export async function nightLedger(db: Database, locId: number, activityId: numbe
         ordersTotal: n(i.ordersTotal), minTopup: n(i.minTopup), waterCharge: n(i.waterCharge),
         loyaltyDiscount: n((i as any).loyaltyDiscount), gameFee: n(i.gameFeeAmount), grandTotal: n(i.grandTotal),
         isFree: bk?.isFree === true, noInvoice: false,
+        payMethod: (i as any).payMethod ?? null, paymentId: (i as any).paymentId ?? null,
+        paidForBy: (() => { const pay = (i as any).paymentId ? payById.get(Number((i as any).paymentId)) : null; return pay && pay.payer !== pid ? pay.name : null; })(),
+        groupId: null,
       });
     }
 
@@ -207,6 +229,7 @@ export async function nightLedger(db: Database, locId: number, activityId: numbe
         ordersCount: openOrders.length, ordersTotal: r2(openTotal), minTopup: r2(topupOpen), waterCharge: r2(waterOpen),
         loyaltyDiscount: r2(loyalty), gameFee: r2(fee), grandTotal: r2(openGrand),
         isFree: bk?.isFree === true, noInvoice: !unpaidRow,
+        payMethod: null, paymentId: null, paidForBy: null, groupId: groupOf.get(pid) ?? null,
       });
     }
   }
@@ -480,6 +503,14 @@ export async function nightAccount(db: Database, locId: number, activityId: numb
 
   const ordersT = r2(n(p?.orders)), topup = r2(n(p?.topup)), water = r2(n(p?.water));
   const fees = r2(n(p?.fees)), loyalty = r2(n(p?.loyalty));
+  // 💵 كيف دُفع المحصَّل (2026-11-01) — كم يجب أن يكون في الدرج نقداً. «غير مسجَّل» = حُصّل قبل تسجيل الطريقة
+  const [bm] = rows(await db.execute(sql`SELECT
+      COALESCE(SUM(grand_total) FILTER (WHERE pay_method = 'cash'), 0) AS cash,
+      COALESCE(SUM(grand_total) FILTER (WHERE pay_method = 'card'), 0) AS card,
+      COALESCE(SUM(grand_total) FILTER (WHERE pay_method = 'cliq'), 0) AS cliq,
+      COALESCE(SUM(grand_total) FILTER (WHERE pay_method IS NULL), 0) AS unknown
+    FROM order_invoices WHERE activity_id = ${activityId} AND location_id = ${locId} AND is_paid = true`));
+  const byMethod = { cash: r2(n(bm?.cash)), card: r2(n(bm?.card)), cliq: r2(n(bm?.cliq)), unknown: r2(n(bm?.unknown)) };
   return {
     activity: { id: L.activityId, name: L.activityName, date: L.activityDate },
     rules: {
@@ -492,6 +523,7 @@ export async function nightAccount(db: Database, locId: number, activityId: numb
       feeCount: Number(p?.fee_count) || 0, paidCount: Number(p?.paid_count) || 0,
       due: L.totals.due, dueCount: L.totals.dueCount,
     },
+    byMethod,
     counts: {
       booked: Number(bk?.booked) || 0, played, free: Number(bk?.free) || 0, directPaid: Number(bk?.direct) || 0,
       cancelledOrders: Number(cx?.cnt) || 0, cancelledTotal: r2(n(cx?.total)),

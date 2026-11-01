@@ -180,7 +180,13 @@ export function paymentText(p: PaymentInfo): string {
   return t;
 }
 
-export function openCaption(kind: string, d: InvoiceData, no: number, opts: { updated?: boolean; name?: string; paidBefore?: { no: number; total: number }[] } = {}): string {
+/** سطر فاتورةٍ محصَّلة في «شو حسابي» — ومن دفعها إن دفعها غيره (2026-11-01) */
+function paidLine(p: { no: number; total: number; payer?: string | null }): string {
+  const file = `ملفّ #${String(p.no).padStart(4, '0')} (مغلق)`;
+  return p.payer ? `• دفعه عنك ${firstName(p.payer) || p.payer} ${f2(p.total)} د.أ — ${file}` : `• حصّلنا منك ${f2(p.total)} د.أ — ${file}`;
+}
+
+export function openCaption(kind: string, d: InvoiceData, no: number, opts: { updated?: boolean; name?: string; paidBefore?: { no: number; total: number; payer?: string | null }[] } = {}): string {
   const first = firstName(opts.name || d.playerName);
   const file = `#${String(no).padStart(4, '0')}`;
   const total = f2(d.grandTotal);
@@ -189,7 +195,7 @@ export function openCaption(kind: string, d: InvoiceData, no: number, opts: { up
     head = `🕵️ ${first}، هذا ملفّك الليلة ${file} — المطلوب ${total} د.أ.`;
     if (d.minTopup > 0) head += `\nفيه ${f2(d.minTopup)} د.أ تكملةُ حدٍّ أدنى يفرضه المكان على كلّ لاعب. اطلب الآن من التطبيق وتُستبدل بطلبك.`;
   } else if (kind === 'bot' || kind === 'manual') {
-    const paid = (opts.paidBefore || []).map(p => `• حصّلنا منك ${f2(p.total)} د.أ — ملفّ #${String(p.no).padStart(4, '0')} (مغلق)`);
+    const paid = (opts.paidBefore || []).map(paidLine);
     head = paid.length
       ? `حسابك الليلة يا ${first}:\n${paid.join('\n')}\n• الباقي ${total} د.أ — ملفّ ${file}`
       : `ملفّك الليلة ${file} — المطلوب ${total} د.أ.`;
@@ -200,6 +206,52 @@ export function openCaption(kind: string, d: InvoiceData, no: number, opts: { up
   }
   const pay = paymentText(d.payment);
   return pay ? `${head}\n\n${pay}` : head;
+}
+
+// ── 👥 الدفعة الجماعيّة ──
+const METHOD_AR: Record<string, string> = { cash: 'كاش', card: 'فيزا', cliq: 'كليك' };
+type GroupPay = { id: number; payerPlayerId: number | null; payerName: string; method: string; total: string; invoices: { id: number; playerId: number; invoiceNo: number; grandTotal: string | null; name: string }[] };
+
+async function groupPaymentOfInvoice(db: Database, invoiceId: number): Promise<GroupPay | null> {
+  const [inv] = rows(await db.execute(sql`SELECT payment_id FROM order_invoices WHERE id = ${invoiceId}`));
+  return inv?.payment_id ? groupPayment(db, Number(inv.payment_id)) : null;
+}
+async function groupPayment(db: Database, paymentId: number): Promise<GroupPay | null> {
+  const [p] = rows(await db.execute(sql`SELECT * FROM venue_payments WHERE id = ${paymentId} AND undone_at IS NULL`));
+  if (!p) return null;
+  const invs = rows(await db.execute(sql`SELECT i.id, i.player_id, i.invoice_no, i.grand_total, pl.name FROM order_invoices i
+    LEFT JOIN players pl ON pl.id = i.player_id WHERE i.payment_id = ${paymentId} AND i.is_paid ORDER BY i.invoice_no`));
+  return { id: Number(p.id), payerPlayerId: p.payer_player_id ? Number(p.payer_player_id) : null, payerName: p.payer_name, method: p.method, total: p.total,
+    invoices: invs.map((x: any) => ({ id: Number(x.id), playerId: Number(x.player_id), invoiceNo: Number(x.invoice_no), grandTotal: x.grand_total, name: String(x.name || '') })) };
+}
+/** للدافع: المجموع ومن دفع عنهم */
+export function payerCaption(pay: GroupPay, payerId: number): string {
+  const others = pay.invoices.filter(i => i.playerId !== payerId).map(i => firstName(i.name));
+  const list = pay.invoices.map(i => `• ${firstName(i.name)} — ملفّ #${String(i.invoiceNo).padStart(4, '0')} · ${f2(n(i.grandTotal))}`).join('\n');
+  const self = pay.invoices.some(i => i.playerId === payerId);
+  const who = !others.length ? '' : self ? ` عنك وعن: ${others.join('، ')}` : ` عن: ${others.join('، ')}`;
+  return `✅ تمّ تحصيل ${f2(n(pay.total))} د.أ ${METHOD_AR[pay.method] || ''}${who}.\n${list}\nشكراً، نراك في الليلة القادمة.`;
+}
+/** لصاحبٍ دفع عنه غيره */
+export function friendCaption(d: InvoiceData, no: number, name: string, payerName: string): string {
+  return `✅ حسابك الليلة مدفوع يا ${firstName(name || d.playerName)} — دفعه عنك ${firstName(payerName) || payerName}.\nملفّك #${String(no).padStart(4, '0')} · ${f2(d.grandTotal)} د.أ — أُغلقت القضيّة.`;
+}
+
+/** دافعٌ دفع عن أصحابه ولا فاتورة له في الدفعة ⟵ ملخّصٌ نصّيّ بعد مهلة التراجع */
+export async function schedulePayerSummary(locId: number, activityId: number, paymentId: number, staffId: number | null): Promise<void> {
+  const db = getDB(); if (!db) return;
+  if ((await locMode(locId)) === 'off') return;
+  const pay = await groupPayment(db, paymentId);
+  if (!pay?.payerPlayerId || pay.invoices.some(i => i.playerId === pay.payerPlayerId)) return;
+  await db.execute(sql`INSERT INTO invoice_wa_jobs (location_id, activity_id, player_id, kind, due_at, staff_id, details)
+    VALUES (${locId}, ${activityId}, ${pay.payerPlayerId}, 'paysum', ${new Date(Date.now() + PAID_DELAY_MS).toISOString()}::timestamptz, ${staffId},
+      ${JSON.stringify({ paymentId })}::jsonb)`);
+}
+export async function cancelPayerSummary(paymentId: number): Promise<number> {
+  const db = getDB(); if (!db) return 0;
+  const r = rows(await db.execute(sql`UPDATE invoice_wa_jobs SET status = 'cancelled', reason = 'تراجع الكاشير عن الدفعة'
+    WHERE kind = 'paysum' AND status = 'pending' AND (details->>'paymentId')::int = ${paymentId} RETURNING id`));
+  return r.length;
 }
 
 export function paidCaption(d: InvoiceData, no: number, name?: string): string {
@@ -255,6 +307,14 @@ export async function processJob(job: any): Promise<any> {
     const phone = normalizeLocalPhone(pl?.phone || '');
     if (!phone) return finish(id, 'failed', { reason: 'لا رقم هاتف صالح للّاعب' });
 
+    // 👥 ملخّص الدافع (لا فاتورة له في الدفعة) — نصٌّ لا صورة
+    if (job.kind === 'paysum') {
+      const pay = await groupPayment(db, Number(job.details?.paymentId));
+      if (!pay) return finish(id, 'cancelled', { reason: 'أُلغيت الدفعة' });
+      await sender.text(phone, payerCaption(pay, playerId), { invoiceWa: id });
+      return finish(id, 'sent', { total: n(pay.total) });
+    }
+
     const record = await nightRecordOf(db, activityId, playerId).catch(() => null);
     const paidMode = job.kind === 'paid' || (job.kind === 'bot' && job.invoice_id) || (job.kind === 'manual' && job.invoice_id);
 
@@ -266,10 +326,17 @@ export async function processJob(job: any): Promise<any> {
       const no = Number(inv?.invoice_no) || 0;
       const file = await saveImage(await sender.render(invoiceImageHtml(data, no, '', record)));
       let cap = paidCaption(data, no, pl?.name || '');
+      // 👥 من دفعة (2026-11-01): الدافع يصله ملخّصٌ بأسماء من دفع عنهم، وكلّ صاحبٍ «دفعه عنك فلان»
+      const pay = job.kind === 'paid' ? await groupPaymentOfInvoice(db, Number(job.invoice_id)) : null;
+      if (pay && pay.invoices.length > 1 || (pay && pay.payerPlayerId !== playerId)) {
+        cap = pay!.payerPlayerId === playerId ? payerCaption(pay!, playerId) : friendCaption(data, no, pl?.name || '', pay!.payerName);
+      }
       if (job.kind === 'bot') {
-        const paid = rows(await db.execute(sql`SELECT invoice_no AS no, grand_total AS total FROM order_invoices
-          WHERE location_id = ${locId} AND activity_id = ${activityId} AND player_id = ${playerId} AND is_paid ORDER BY paid_at`));
-        cap = `حسابك الليلة يا ${firstName(pl?.name || data.playerName)}:\n${paid.map((p: any) => `• حصّلنا منك ${f2(n(p.total))} د.أ — ملفّ #${String(p.no).padStart(4, '0')} (مغلق)`).join('\n')}\n\n✅ لا شيء عليك الآن.`;
+        const paid = rows(await db.execute(sql`SELECT i.invoice_no AS no, i.grand_total AS total,
+            CASE WHEN vp.payer_player_id IS DISTINCT FROM i.player_id THEN vp.payer_name END AS payer
+          FROM order_invoices i LEFT JOIN venue_payments vp ON vp.id = i.payment_id
+          WHERE i.location_id = ${locId} AND i.activity_id = ${activityId} AND i.player_id = ${playerId} AND i.is_paid ORDER BY i.paid_at`));
+        cap = `حسابك الليلة يا ${firstName(pl?.name || data.playerName)}:\n${paid.map((p: any) => paidLine({ no: Number(p.no), total: n(p.total), payer: p.payer || null })).join('\n')}\n\n✅ لا شيء عليك الآن.`;
       }
       const sent = await sender.image(phone, file, cap, { invoiceWa: id });
       return finish(id, 'sent', { channel: sent.channel, invoiceNo: no, total: data.grandTotal });
@@ -286,9 +353,11 @@ export async function processJob(job: any): Promise<any> {
     const no = await issueInvoiceNumber(db, data, (job.staff_id ?? null) as any);
     const [prev] = rows(await db.execute(sql`SELECT 1 FROM invoice_wa_jobs WHERE activity_id = ${activityId} AND player_id = ${playerId}
       AND invoice_no = ${no} AND status = 'sent' AND kind IN ('open', 'auto', 'bot', 'manual') AND id <> ${id} LIMIT 1`));
-    const paidBefore = rows(await db.execute(sql`SELECT invoice_no AS no, grand_total AS total FROM order_invoices
-      WHERE location_id = ${locId} AND activity_id = ${activityId} AND player_id = ${playerId} AND is_paid ORDER BY paid_at`))
-      .map((x: any) => ({ no: Number(x.no), total: n(x.total) }));
+    const paidBefore = rows(await db.execute(sql`SELECT i.invoice_no AS no, i.grand_total AS total,
+        CASE WHEN vp.payer_player_id IS DISTINCT FROM i.player_id THEN vp.payer_name END AS payer
+      FROM order_invoices i LEFT JOIN venue_payments vp ON vp.id = i.payment_id
+      WHERE i.location_id = ${locId} AND i.activity_id = ${activityId} AND i.player_id = ${playerId} AND i.is_paid ORDER BY i.paid_at`))
+      .map((x: any) => ({ no: Number(x.no), total: n(x.total), payer: x.payer || null }));
     const caption = openCaption(job.kind, data, no, { updated: !!prev, name: pl?.name || '', paidBefore });
     const file = await saveImage(await sender.render(invoiceImageHtml(data, no, '', record)));
     const sent = await sender.image(phone, file, caption, { invoiceWa: id });

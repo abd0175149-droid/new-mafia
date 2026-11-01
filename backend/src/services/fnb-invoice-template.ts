@@ -97,6 +97,17 @@ interface View {
   total: string; record: NightRecord | null; by: string;
   /** طرق الدفع — تُكتب على الملفّ المطلوب وحده (المغلق لا يُدفع ثانيةً) */
   pay: PaymentInfo | null;
+  /** المحصَّل: «كاش» أو «كاش · دفعها سامر — دفعة #12» */
+  settled: string | null;
+}
+
+const METHOD_AR: Record<string, string> = { cash: 'كاش', card: 'فيزا', cliq: 'كليك' };
+function settledLine(data: InvoiceData): string | null {
+  if (!data.paidAt) return null;
+  const parts: string[] = [];
+  if (data.payMethod && METHOD_AR[data.payMethod]) parts.push(METHOD_AR[data.payMethod]);
+  if (data.paidByName) parts.push(`دفعها ${clean(data.paidByName)}${data.paymentId ? ` — دفعة #${data.paymentId}` : ''}`);
+  return parts.length ? parts.join(' · ') : null;
 }
 
 function view(data: InvoiceData, invoiceNo: number, printedByName: string, record: NightRecord | null): View {
@@ -126,6 +137,7 @@ function view(data: InvoiceData, invoiceNo: number, printedByName: string, recor
     }),
     sums, total: fmt(data.grandTotal), record, by: clean(printedByName),
     pay: !paid && data.grandTotal > 0 && data.payment ? data.payment : null,
+    settled: settledLine(data),
   };
 }
 
@@ -238,6 +250,7 @@ function a6Body(v: View): string {
       <div class="facts">
         <div class="fact"><b>المشتبه به</b><span class="lead"></span><span class="val"><b>${esc(v.player)}</b>${v.seat ? ` · مقعد ${n(v.seat)}` : ''}</span></div>
         <div class="fact"><b>الليلة</b><span class="lead"></span><span class="val">${v.when} · ${n(v.start)}</span></div>
+        ${v.settled ? `<div class="fact"><b>السداد</b><span class="lead"></span><span class="val">${esc(v.settled)}</span></div>` : ''}
         ${rec}
       </div>
       <div class="sec"><span class="rq">المضبوطات</span><span class="rule"></span><span class="u">د.أ</span></div>
@@ -408,6 +421,7 @@ function thermalBody(v: View): string {
           <div class="fact"><b>المشتبه به</b><span class="lead"></span><span class="big">${esc(v.player)}</span></div>
           ${v.seat ? `<div class="fact"><b>المقعد</b><span class="lead"></span>${n(v.seat)}</div>` : ''}
           <div class="fact"><b>الليلة</b><span class="lead"></span><span>${v.when}</span></div>
+          ${v.settled ? `<div class="fact"><b>السداد</b><span class="lead"></span><span>${esc(v.settled)}</span></div>` : ''}
         </div>
         ${rec}
         <div class="sec"><span class="rq">المضبوطات</span><span class="rule"></span><span class="u">د.أ</span></div>
@@ -469,6 +483,46 @@ export function receiptHtml(data: InvoiceData, invoiceNo: number, printedByName:
   const v = view(data, invoiceNo, printedByName, record);
   const auto = `<script>window.addEventListener('load',function(){(document.fonts&&document.fonts.ready||Promise.resolve()).then(function(){setTimeout(function(){window.print()},250)})});</script>`;
   return page(TH_CSS, `${thermalBody(v)}<button class="again" onclick="window.print()">اطبع مرّةً أخرى</button>`, `<title>إيصال ${esc(v.no)}</title>${auto}`);
+}
+
+/**
+ * 👥 إيصال دفعة 80مم (2026-11-01): من دفع عن أصحابه يأخذ ورقةً واحدة بأسماء الملفّات والمجموع.
+ * كلّ ملفٍّ بقي لصاحبه برقمه — هذه الورقة تجمعها فقط.
+ */
+export function paymentReceiptHtml(p: {
+  paymentId: number; venue: string; activityDate: Date; paidAt: Date; payer: string; method: string; total: number; by: string;
+  invoices: { no: number; name: string; total: number }[];
+}): string {
+  const lines = p.invoices.map((i, k) => `
+    <div class="line"><div class="tag">${pad(k + 1, 2)}</div>
+      <div class="nm"><b>${esc(clean(i.name) || '—')}</b><div class="dt">ملفّ ${n('#' + pad(i.no, 4))}</div></div>
+      <div class="tt">${fmt(i.total)}</div></div>`).join('');
+  const body = `<div class="doc">
+      <div class="bar">سرّيّ للغاية · دفعة واحدة عن عدّة ملفّات</div>
+      <div class="in">
+        <div class="brand"><img src="${seal()}" alt=""><div class="rq">نادي المافيا</div><div class="en"><i></i><span>MAFIA CLUB</span><i></i></div></div>
+        <div class="scene">
+          <i style="top:0;right:0;border-width:4px 4px 0 0"></i><i style="top:0;left:0;border-width:4px 0 0 4px"></i>
+          <i style="bottom:0;right:0;border-width:0 4px 4px 0"></i><i style="bottom:0;left:0;border-width:0 0 4px 4px"></i>
+          <div class="k">مسرح الأحداث</div><div class="v">${esc(clean(p.venue) || 'نادي المافيا')}</div>
+        </div>
+        <div class="facts">
+          <div class="fact"><b>دفعة رقم</b><span class="lead"></span>${n('#' + p.paymentId)}</div>
+          <div class="fact"><b>دفعها</b><span class="lead"></span><span class="big">${esc(clean(p.payer))}</span></div>
+          <div class="fact"><b>الطريقة</b><span class="lead"></span><span>${esc(METHOD_AR[p.method] || p.method)}</span></div>
+          <div class="fact"><b>الليلة</b><span class="lead"></span><span>${dayDate(new Date(p.activityDate))}</span></div>
+        </div>
+        <div class="sec"><span class="rq">الملفّات المسدَّدة</span><span class="rule"></span><span class="u">د.أ</span></div>
+        ${lines}
+        <div class="grand"><span class="rq">المجموع المقبوض</span><span>${n(fmt(p.total))} <span class="u">د.أ</span></span></div>
+        <div class="closed"><div><div>
+          <div class="k">CASE CLOSED</div><div class="rq">القضايا مُغلقة</div>
+          <div class="s">سُدِّدت · ${n(hm(new Date(p.paidAt)))}${p.by ? ` · ${esc(clean(p.by))}` : ''}</div>
+        </div></div></div>
+      </div>
+    </div>`;
+  const auto = `<script>window.addEventListener('load',function(){(document.fonts&&document.fonts.ready||Promise.resolve()).then(function(){setTimeout(function(){window.print()},250)})});</script>`;
+  return page(TH_CSS, `${body}<button class="again" onclick="window.print()">اطبع مرّةً أخرى</button>`, `<title>إيصال دفعة #${p.paymentId}</title>${auto}`);
 }
 
 /** صورة الملفّ لواتساب = ملفّ A6 نفسه تماماً (يُرسم صورةً في pdf.ts) */
