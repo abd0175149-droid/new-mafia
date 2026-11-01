@@ -225,7 +225,9 @@ export async function nightLedger(db: Database, locId: number, activityId: numbe
     const waterOpen = water && priorWater === 0 && !waterOwners.has(pid) && (openOrders.length > 0 || played || !!unpaidRow) ? water.price : 0;
     const required = minCharge > 0 && played ? Math.max(0, minCharge - (nightTotal + waterOpen + priorWater)) : 0;
     const topupOpen = Math.max(0, required - priorTopup);
-    const fee = act.addGameFee === true && bk && bk.isPaid !== true && bk.isFree !== true
+    // الدخوليّة مرّةً في الليلة: فاتورة «لم يدفع» حملتها ⟵ لا تُحسب ثانيةً على حجزه غير المدفوع
+    const feeWrittenOff = paid.some(i => i.gameFeeApplied === true && ['debt', 'loss'].includes(String((i as any).payMethod)));
+    const fee = act.addGameFee === true && !feeWrittenOff && bk && bk.isPaid !== true && bk.isFree !== true
       ? (lockedFee.get(bk.id)?.price ?? n(act.basePrice)) : 0;
     let loyalty = 0;
     if (openOrders.length > 0 && drinkDiscountFor) {

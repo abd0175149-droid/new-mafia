@@ -326,7 +326,9 @@ export async function buildInvoiceData(
   // رسوم اللعبة: مفعَّلة على الفعاليّة + للحجز غير المدفوع فقط (المدفوع حُصّل من مساره)
   let gameFeeApplied = false;
   let gameFeeAmount = 0;
-  if (act.addGameFee === true && bookingId) {
+  // 🧾 الدخوليّة مرّةً في الليلة: فاتورةٌ سُجّلت «لم يدفع» حملتها تُبقي الحجز غير مدفوع — فلا تُحسب ثانيةً
+  const feeWrittenOff = priorPaid.some(i => i.gameFeeApplied === true && ['debt', 'loss'].includes(String((i as any).payMethod)));
+  if (act.addGameFee === true && bookingId && !feeWrittenOff) {
     const [bk] = await db.select({ isPaid: bookings.isPaid, isFree: bookings.isFree })
       .from(bookings).where(eq(bookings.id, bookingId)).limit(1);
     if (bk && bk.isPaid !== true && bk.isFree !== true) {
