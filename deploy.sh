@@ -341,6 +341,8 @@ ALTER TABLE locations  ADD COLUMN IF NOT EXISTS geofence_set_by INTEGER;
 ALTER TABLE locations  ADD COLUMN IF NOT EXISTS geofence_set_at TIMESTAMP;
 ALTER TABLE activities ADD COLUMN IF NOT EXISTS geofence_enabled BOOLEAN DEFAULT false;
 ALTER TABLE activities ADD COLUMN IF NOT EXISTS geofence_radius_m INTEGER;
+-- 🖐️ اختيار المقعد اليدويّ لكلّ فعاليّة (مطفأ افتراضاً)
+ALTER TABLE activities ADD COLUMN IF NOT EXISTS manual_seat_selection BOOLEAN DEFAULT false;
 CREATE TABLE IF NOT EXISTS player_last_fix (
   player_id   INTEGER PRIMARY KEY,
   latitude    NUMERIC(9,6) NOT NULL,

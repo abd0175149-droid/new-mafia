@@ -16,6 +16,8 @@ import type { Spectator } from '../game/state.js';
 import { allocateSeat } from '../game/seat-allocator.js';
 import { reshuffleSeating } from '../game/seating/engine.js';
 import { zoneRank } from '../game/seating/photo-zone.js';
+import { resolveManualSeat, freeSeatsFor, exitDisposition, isSeatFail } from '../game/seating/manual-seat.js';
+import { isManualSeatActivity, stampManualSeats } from '../services/manual-seat.service.js';
 import type { SeatConstraints } from '../game/seat-allocator.js';
 import { generateRoles, validateRoleDistribution, Role, getTeamCounts, isMafiaRole, MAFIA_ROLES, ROLE_NAMES_AR } from '../game/roles.js';
 import { generateRolesDynamic } from '../game/dynamic-role-generator.js';
@@ -456,6 +458,17 @@ async function fetchAppearance(playerId: number | null | undefined): Promise<{
       cosmetics: cosmetics ?? null,
     };
   } catch { return empty; }
+}
+
+/**
+ * 🖐️ قرار الليدر بمقعد لاعبٍ يبقى بعد مغادرته: يُختم على من نقله الليدر (نقلاً أو
+ * تبديلاً أو ترقيماً أو ترتيباً أو إضافةً يدويّة). يُختم في كلّ الأوضاع ولا يُقرأ إلّا في
+ * وضع اختيار المقعد اليدويّ (exitDisposition) — فتفعيلُه لاحقاً لا يُضيّع قراراً سابقاً.
+ * يُستدعى **بعد** remapPhysicalIds فالأرقام هنا هي المقاعد الجديدة.
+ */
+function markLeaderSeated(state: any, seats: Iterable<number>): void {
+  const set = new Set<number>(seats);
+  for (const p of (state?.players || [])) if (set.has(p.physicalId)) p.leaderSeat = true;
 }
 
 async function loadSeatTemplateIntoState(state: any): Promise<boolean> {
@@ -1241,6 +1254,8 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
     preferredSeat?: number;
     fix?: any;                 // 📍 قراءة موقع طازجة — سياج الفعاليّة
     photoConsent?: boolean;    // 📸 جوابه على «تقبل التصوير؟» (العميل الجديد يسأل قبل كلّ دخول)
+    supportsSeatChoice?: boolean;   // 🖐️ العميل يعرض حقل «رقم المقعد» — العميل القديم يُوزَّع آليّاً كما كان
+    chosenSeat?: number | string;   // 🖐️ الرقم الذي كتبه اللاعب
   }, callback) => {
     try {
       const state = await getRoom(data.roomId);
@@ -1437,6 +1452,7 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
       // ── 1. جلب constraints + requireTicket من DB (السعة تُحسم لاحقاً من القالب/الافتراضي) ──
       let constraints: SeatConstraints | null = null;
       let requireTicket = false;
+      let manualSeatMode = false;   // 🖐️ activities.manual_seat_selection
       if (state.activityId) {
         try {
           const { getDB } = await import('../config/db.js');
@@ -1448,10 +1464,12 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
               requireTicket: activities.requireTicket,
               seatConstraints: activities.seatConstraints,
               basePrice: activities.basePrice,
+              manualSeatSelection: activities.manualSeatSelection,
             }).from(activities).where(eq(activities.id, state.activityId)).limit(1);
 
             if (act) {
               requireTicket = act.requireTicket ?? false;
+              manualSeatMode = act.manualSeatSelection === true;
               constraints = act.seatConstraints as SeatConstraints | null;
               // ملاحظة: السعة لا تُحسم من maxCapacity — بل من قالب المقاعد (totalSeats) إن وُجد،
               // وإلا تبقى السعة الحالية (افتراضي 27 عند الإنشاء، أو ما عدّله الليدر). مفصولة عن الحجز.
@@ -1811,6 +1829,30 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
         });
       }
 
+      // ══ 🖐️ اختيار المقعد اليدويّ: اللاعب يكتب الرقم والخادم يتحقّق أنّه متاح ══
+      // بعد كلّ البوّابات وبعد العودة لمقعدٍ محجوز — من حُفظ له مقعده (نقله الليدر) لا يُسأل.
+      // المثبَّت له مقعدٌ من الطاقم يجلس فيه بلا سؤال. بلا قيودٍ ولا محرّك: الاختيار للّاعب.
+      // العميل القديم (بلا supportsSeatChoice) يُوزَّع آليّاً كما كان — كي لا يعلق على شاشةٍ لا يفهمها.
+      const seatChoiceFail = (r: { code: string; error: string; maxPlayers: number; freeSeats: number[] }) => callback({
+        success: false, code: r.code, error: r.error,
+        seatChoice: { maxPlayers: r.maxPlayers, freeSeats: r.freeSeats },
+      });
+      const seatJoiner = { playerId: data.playerId ?? socket.data.authPlayer?.playerId ?? null, phone: data.phone ?? null, name: data.name };
+      let manualSeat: number | null = null;
+      let manualSeatVia: 'choice' | 'pin' | null = null;
+      if (manualSeatMode && data.supportsSeatChoice === true) {
+        // حالةٌ طازجة: بين أوّل القراءة وهنا استعلاماتُ البوّابات، وقد جلس غيره أو ثُبّت مقعد
+        const seatState = (await getRoom(data.roomId)) || state;
+        const r = resolveManualSeat(seatState, seatJoiner, data.chosenSeat);
+        if (!isSeatFail(r)) {
+          manualSeat = r.seat;
+          manualSeatVia = r.via;
+        } else if (!(r.code === 'ROOM_FULL' && joinAsSpectator)) {
+          // (المتفرّج في قاعةٍ ممتلئة ينتظر بلا رقم كما في التوزيع الآليّ)
+          return seatChoiceFail(r);
+        }
+      }
+
       // ── 5. تخصيص مقعد جديد (لا يوجد مقعد محجوز) ──
       // جلب بيانات اللاعبين الموسّعة للمحرك الذكي
       let penaltyNeighborHistory: Map<string, number> | undefined;
@@ -1865,7 +1907,12 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
       // 📸 الزاوية تحتاج المحرّك ولو بلا قالبٍ ولا قيود (الوضع القديم عشوائيّ لا يجمع أحداً)
       const engineEnabled = (constraints && (constraints as any).engineEnabled) || hasTemplate || !!zoneCtx;
 
-      if (engineEnabled) {
+      if (manualSeat !== null) {
+        // 🖐️ المقعد الذي اختاره (أو ثبّته الطاقم) — لا محرّك ولا إثراء
+        var assignedSeat = manualSeat;
+        var constraintViolation = false;
+        var seatViolations: string[] = [];
+      } else if (engineEnabled) {
         // ── 🚀 إثراء دفعي لبيانات اللاعبين الحاليين ──
         // كان استعلامَين لكل لاعب جالس (N+1: انضمام واحد = 30-50+ استعلاماً وثوانٍ انتظار)
         // → الآن استعلامان إجمالاً مهما كان عدد الجالسين.
@@ -2207,6 +2254,13 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
           ...getSpectators(fresh).map(sp => sp.physicalId),
         ]);
         let seat = assignedSeat;
+        if (manualSeat !== null && taken.has(seat)) {
+          // 🖐️ سبقه أحدٌ إلى الرقم نفسه — لا نختار عنه بديلاً
+          const again = resolveManualSeat(fresh, seatJoiner, seat);
+          return seatChoiceFail(isSeatFail(again)
+            ? again
+            : { code: 'SEAT_TAKEN', error: `المقعد ${seat} محجوز — اختر رقماً آخر`, maxPlayers: fresh.config.maxPlayers, freeSeats: freeSeatsFor(fresh, seatJoiner) });
+        }
         if (taken.has(seat)) {
           let alt = 0;
           for (let i = fresh.config.maxPlayers; i >= 1; i--) if (!taken.has(i)) { alt = i; break; }
@@ -2323,6 +2377,16 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
           break;
         } catch (e: any) {
           const seatTaken = /الرقم \d+ مسجل مسبقاً/.test(String(e?.message || ''));
+          if (seatTaken && manualSeat !== null) {
+            // 🖐️ سبقه أحدٌ إلى الرقم نفسه — يختار من جديد، لا ننقله إلى مقعدٍ لم يطلبه
+            const fresh = await getRoom(data.roomId);
+            const free = fresh ? freeSeatsFor(fresh, seatJoiner) : [];
+            return seatChoiceFail({
+              code: free.length ? 'SEAT_TAKEN' : 'ROOM_FULL',
+              error: free.length ? `المقعد ${assignedSeat} أُخذ للتوّ — اختر رقماً آخر` : 'لا مقعد شاغر — القاعة ممتلئة',
+              maxPlayers: fresh?.config.maxPlayers ?? state.config.maxPlayers, freeSeats: free,
+            });
+          }
           if (!seatTaken || attempt === MAX_SEAT_RETRIES) throw e;
 
           const fresh = await getRoom(data.roomId);
@@ -2522,6 +2586,7 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
         gameName: addedState.config.gameName,
         constraintViolation,
         ...(zoneCtx ? { noPhoto: joinNoPhoto } : {}),
+        ...(manualSeatVia ? { seatVia: manualSeatVia } : {}),
       });
       // 🎟️ صاحب بطاقة ولاء مكتملة لم يُحتفَ به بعد → تحيّة «دخول الدون» على شاشة القاعة (مرّة لكلّ بطاقة)
       {
@@ -2885,6 +2950,7 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
       // 🔁 إعادة ربط شاملة: players + كل البنى المرتبطة برقم المقعد
       // (أصوات التصويت، التوائم، السفّاح، الشرطية، النقاش، القنبلة، أهداف الليل…)
       remapPhysicalIds(state, idMap);
+      markLeaderSeated(state, idMap.values());
 
       await setGameState(data.roomId, state);
 
@@ -3059,6 +3125,7 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
       const idMap = new Map<number, number>(changes.map(c => [c.oldPhysicalId, c.newPhysicalId]));
       // 🔁 إعادة ربط شاملة (players + الأصوات/التوائم/السفّاح/الشرطية…)
       remapPhysicalIds(state, idMap);
+      markLeaderSeated(state, idMap.values());
       await setGameState(data.roomId, state);
 
       // 🗄️ مزامنة قاعدة البيانات
@@ -3247,6 +3314,7 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
 
     const idMap = new Map<number, number>(actual.map(c => [c.oldPhysicalId, c.newPhysicalId]));
     remapPhysicalIds(state, idMap);
+    markLeaderSeated(state, idMap.values());
     await setGameState(roomId, state);
     if (state.sessionId) { try { await remapSessionPlayerSeats(state.sessionId, actual); } catch {} }
 
@@ -4049,7 +4117,8 @@ async function readSeatLayoutOnly(activityId: any): Promise<any> {
       const state = await addPlayer(data.roomId, data.physicalId, data.name, data.phone);
       
       console.log(`[Backend-Socket] ➡️ Calling updatePlayer for dob/gender: ${data.dob}, ${data.gender}`);
-      await updatePlayer(data.roomId, data.physicalId, { dob: data.dob, gender: data.gender, ...(forceNoPhoto !== undefined ? { noPhoto: forceNoPhoto } : {}) });
+      // 🖐️ leaderSeat: الليدر اختار له هذا المقعد بيده — يُحفظ له إن غادر (اختيار المقعد اليدويّ)
+      await updatePlayer(data.roomId, data.physicalId, { dob: data.dob, gender: data.gender, leaderSeat: true, ...(forceNoPhoto !== undefined ? { noPhoto: forceNoPhoto } : {}) });
       if (forceZone) { try { await afterZoneSeat(data.roomId, forceZone, forceNoPhoto ? data.physicalId : null, data.name); } catch {} }
 
       const room = activeRooms.get(data.roomId);
@@ -6172,6 +6241,61 @@ async function readSeatLayoutOnly(activityId: any): Promise<any> {
       // ═══ Seat Hold: حجز المقعد لمدة 10 دقائق بدل الحذف الفوري ═══
       const HOLD_DURATION_MS = 10 * 60 * 1000; // 10 دقائق
 
+      // 🖐️ اختيار المقعد اليدويّ: من غادر من جهازه يُفرَّغ مقعده فوراً بلا حجز —
+      //    إلّا من نقله الليدر: قراره يبقى، فيُحفظ له مقعده بلا مهلة حتى يعود
+      //    (أو يفكّه الليدر من زرّ المقعد المحجوز / تنبيه الغائبين عند بدء اللعبة).
+      const manualSeats = await isManualSeatActivity((state as any).activityId);
+      // 🔐 فكّ ربط كلّ سوكِتٍ بمقعد المغادر: «السوكِت المربوط بالمقعد يحتفظ به» (seat-claim)
+      //    — فلو بقي الربط ثمّ جلس غيره على الرقم لقرأ هاتفُ المغادر دورَه. عودتُه بهويّته لا بسوكِته.
+      const unbindExitedSeat = async () => {
+        const bound = await io.in(data.roomId).fetchSockets();
+        for (const sk of bound) {
+          if ((sk as any).data?.role === 'player' && (sk as any).data?.physicalId === playerPhysId) {
+            (sk as any).data.physicalId = undefined;
+            (sk as any).data.roomId = undefined;
+            sk.leave(data.roomId);
+          }
+        }
+        if (socket.data.roomId === data.roomId) {
+          socket.data.physicalId = undefined;
+          socket.data.roomId = undefined;
+        }
+      };
+
+      if (state.phase === 'LOBBY' && manualSeats) {
+        const { withRoomLock } = await import('../game/state.js');
+        const disposition = exitDisposition(player);
+        const after = await withRoomLock(data.roomId, async () => {
+          const fresh = await getRoom(data.roomId);
+          if (!fresh) return null;
+          const idx = fresh.players.findIndex((p: any) => p.physicalId === playerPhysId);
+          if (idx === -1) return fresh;
+          if (disposition === 'hold') {
+            fresh.players[idx].seatHeld = true;
+            fresh.players[idx].heldUntil = undefined;   // بلا مهلة — قرار الليدر لا ينتهي بالوقت
+            fresh.players[idx].isConnected = false;
+          } else {
+            fresh.players.splice(idx, 1);
+          }
+          await setGameState(data.roomId, fresh);
+          return fresh;
+        });
+        if (!after) return callback({ success: false, error: 'Room not found' });
+
+        if (disposition === 'free') {
+          await unbindExitedSeat();
+          console.log(`🖐️ Manual seats: #${playerPhysId} (${playerName}) left — seat freed in room ${data.roomId}`);
+        } else {
+          console.log(`🖐️ Manual seats: #${playerPhysId} (${playerName}) left — seat kept (leader-assigned) in room ${data.roomId}`);
+        }
+
+        await emitStateSanitized(io, data.roomId, 'game:state-sync', after);
+        socket.leave(data.roomId);
+        const mRoom = activeRooms.get(data.roomId);
+        if (mRoom) mRoom.playerCount = presentPlayers(after).length;
+        return callback({ success: true, seatFreed: disposition === 'free' });
+      }
+
       // إذا اللعبة في مرحلة LOBBY فقط → نحجز المقعد
       // في مراحل أخرى (أثناء اللعبة) → نحذف فوراً
       if (state.phase === 'LOBBY') {
@@ -6222,7 +6346,10 @@ async function readSeatLayoutOnly(activityId: any): Promise<any> {
         const exitingPlayer = state.players[playerIndex];
         exitingPlayer.frozen = true;
         exitingPlayer.isConnected = false;
+        // 🖐️ الدور مربوطٌ بالمقعد فلا يُفرَّغ وسط اللعبة؛ يُعلَّم ليُفرَّغ عند العودة للّوبي (resetRoomState)
+        if (manualSeats) (exitingPlayer as any).leftRoom = true;
         await setGameState(data.roomId, state);
+        if (manualSeats) await unbindExitedSeat();
         console.log(`🚪 Player #${playerPhysId} (${playerName}) froze & exited room ${data.roomId} (in-game, role preserved: ${exitingPlayer.role})`);
       }
 
@@ -6466,6 +6593,18 @@ async function readSeatLayoutOnly(activityId: any): Promise<any> {
       activePlayers = activePlayers.filter((p: any) => !p.penaltyKicked);
     }
 
+    // 🖐️ اختيار المقعد اليدويّ: من غادر من جهازه وسط اللعبة ولم يعد يُفرَّغ مقعده الآن
+    //    (لم يكن يُفرَّغ وسطها لأنّ الدور مربوطٌ بالمقعد) — ومن نقله الليدر يُحفظ له.
+    //    `manualSeats` يختمه المُستدعي من الفعاليّة قبل النداء (stampManualSeats).
+    const manualKept = new Set<number>();
+    if (state.manualSeats === true) {
+      activePlayers = activePlayers.filter((p: any) => {
+        if (!(p.frozen && p.leftRoom)) return true;
+        if (exitDisposition(p) === 'hold') { manualKept.add(p.physicalId); return true; }
+        return false;
+      });
+    }
+
     state.players = activePlayers.map((p: any) => ({
       ...p,
       isAlive: true,
@@ -6480,8 +6619,9 @@ async function readSeatLayoutOnly(activityId: any): Promise<any> {
       // ❄️ أعلام الغياب لا تُورَّث: من جُمّد في لعبةٍ سابقة كان يبقى مجمّداً
       //    في اللوبي الجديد: الشاشة تُخفيه وقياسُ الأدوار يعدّه — شبحٌ بلا سبب ظاهر.
       frozen: false,
-      seatHeld: false,
+      seatHeld: manualKept.has(p.physicalId),
       heldUntil: undefined,
+      leftRoom: undefined,
     }));
 
     // ══ 👁️ ترقية المتفرّجين إلى لاعبين — نقطة الاختناق الوحيدة ══
@@ -6625,6 +6765,7 @@ async function readSeatLayoutOnly(activityId: any): Promise<any> {
 
       // ⚖️ تمرير الاختيار كما ورد (قد يكون undefined) — عندئذٍ يحكم إعداد الغرفة penaltyScope.
       // كان `?? true` يصفّر العقوبات دائماً لأي عميل لا يرسل العلم، فيُبطل إعداد «room».
+      await stampManualSeats(state);   // 🖐️ يقرأه resetRoomState
       resetRoomState(state, [], data.resetPenalties);
       await finishPromotions(state);
       await deriveNextGameAt(state);
@@ -6801,6 +6942,7 @@ async function readSeatLayoutOnly(activityId: any): Promise<any> {
 
       // إعادة تعيين الحالة باستخدام الدالة المشتركة
       // ⚖️ بلا `?? true`: العميل الذي لا يرسل العلم يترك القرار لإعداد الغرفة penaltyScope
+      await stampManualSeats(state);   // 🖐️ يقرأه resetRoomState
       resetRoomState(state, excludeIds, data.resetPenalties);
       await finishPromotions(state);
       await deriveNextGameAt(state);

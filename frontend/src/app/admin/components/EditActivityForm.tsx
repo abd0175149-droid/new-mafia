@@ -79,6 +79,8 @@ export default function EditActivityForm({ activity, locations, onSubmit, onCanc
 
   // ── نظام التذاكر ──
   const [requireTicket, setRequireTicket] = useState(activity.requireTicket || false);
+  // 🖐️ اختيار المقعد اليدويّ
+  const [manualSeatSelection, setManualSeatSelection] = useState(activity.manualSeatSelection || false);
   // 🍽️ طلبات المنيو
   const [menuOrderingEnabled, setMenuOrderingEnabled] = useState(activity.menuOrderingEnabled || false);
   // 📍 سياج الفعاليّة
@@ -146,6 +148,7 @@ export default function EditActivityForm({ activity, locations, onSubmit, onCanc
     if (driveLink !== (activity.driveLink || '')) return true;
     if (JSON.stringify(enabledOfferIds) !== JSON.stringify(activity.enabledOfferIds || [])) return true;
     if (requireTicket !== (activity.requireTicket || false)) return true;
+    if (manualSeatSelection !== (activity.manualSeatSelection || false)) return true;
     if (seatTemplateId !== (activity.seatTemplateId ? String(activity.seatTemplateId) : '')) return true;
     if (menuOrderingEnabled !== (activity.menuOrderingEnabled || false)) return true;
     if (geofenceEnabled !== (activity.geofenceEnabled || false)) return true;
@@ -166,6 +169,7 @@ export default function EditActivityForm({ activity, locations, onSubmit, onCanc
         enabledOfferIds: hasOffers ? enabledOfferIds : [],
         maxCapacity: Number(maxCapacity) || 20,
         difficulty, driveLink, requireTicket,
+        manualSeatSelection,
         seatTemplateId: seatTemplateId ? Number(seatTemplateId) : null,
         menuOrderingEnabled,
         addGameFeeToBill: menuOrderingEnabled && addGameFeeToBill,
@@ -257,6 +261,22 @@ export default function EditActivityForm({ activity, locations, onSubmit, onCanc
             {!loadingTemplates && templates.length === 0 && (
               <p className="text-xs text-gray-500 mt-1.5">لا توجد قوالب — أنشئ قالباً من صفحة قوالب المقاعد أولاً.</p>
             )}
+          </div>
+          {/* 🖐️ اختيار المقعد اليدويّ — اللاعب يكتب رقم مقعده عند الدخول */}
+          <div onClick={() => setManualSeatSelection((v: boolean) => !v)}
+            className={`flex items-center justify-between p-4 rounded-xl border cursor-pointer transition-all select-none ${manualSeatSelection ? 'bg-sky-500/10 border-sky-500/30' : 'bg-gray-900/40 border-gray-700/30'}`}>
+            <div className="flex items-center gap-3">
+              <span className="text-2xl">{manualSeatSelection ? '🖐️' : '🎲'}</span>
+              <div>
+                <p className="text-sm font-medium text-white">{manualSeatSelection ? 'اختيار المقاعد اليدويّ' : 'توزيع المقاعد تلقائيّاً'}</p>
+                <p className="text-xs text-gray-500 mt-0.5">{manualSeatSelection
+                  ? 'عند الدخول يكتب اللاعب رقم المقعد المتاح الذي يريده، ومن يغادر من جهازه يُفرَّغ مقعده فوراً — ومن نقله الليدر يعود لمقعده'
+                  : 'النظام يختار المقعد عند الدخول حسب القالب والقيود'}</p>
+              </div>
+            </div>
+            <div className={`relative w-11 h-6 rounded-full transition-colors shrink-0 ${manualSeatSelection ? 'bg-sky-500' : 'bg-gray-600'}`}>
+              <div className={`absolute top-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform ${manualSeatSelection ? 'translate-x-5' : 'translate-x-0.5'}`} />
+            </div>
           </div>
           {selectedTemplate ? (
             <div className="bg-emerald-500/10 border border-emerald-500/20 rounded-xl p-3 text-xs text-emerald-300 space-y-1.5">

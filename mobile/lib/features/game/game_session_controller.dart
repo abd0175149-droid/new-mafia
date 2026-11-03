@@ -675,6 +675,55 @@ class GameSessionController extends ChangeNotifier with WidgetsBindingObserver {
   bool get photoZoneOn => _photoZoneOn;
   bool get myNoPhoto => _myNoPhoto ?? false;
 
+  // ── 🖐️ اختيار المقعد اليدويّ ──
+  // الرقم مربوطٌ بغرفته ويُرسل مع نداء الانضمام نفسه، فإعادة المحاولة (تذكرة ·
+  // تأكيد الغرفة الأخرى) تحمله كما هو، والدخول الناجح يمحوه.
+  SeatChoiceAsk? _seatAsk;
+  SeatChoiceAsk? get seatAsk => _seatAsk;
+  String? _seatRoom;
+  String? _chosenSeat;
+  ({bool forceJoin, String? ticket, String? roomIdOverride})? _seatPending;
+
+  String? chosenSeatFor(String room) => _seatRoom == room ? _chosenSeat : null;
+
+  void openSeatAsk(
+    String room,
+    SeatChoiceAsk ask, {
+    required ({bool forceJoin, String? ticket, String? roomIdOverride}) pending,
+  }) {
+    _seatRoom = room;
+    _chosenSeat = null;
+    _seatAsk = ask;
+    _seatPending = pending;
+    _step = GameStep.seatChoice;
+    notifyListeners();
+  }
+
+  /// يحفظ الرقم ويُعيد النداء المؤجَّل ليُستأنف.
+  ({bool forceJoin, String? ticket, String? roomIdOverride})? answerSeatAsk(
+      String seat) {
+    _chosenSeat = seat.trim();
+    return _seatPending;
+  }
+
+  /// بعد نجاح الانضمام — أو الرجوع من الخطوة.
+  void endSeatChoice() {
+    _seatAsk = null;
+    _seatRoom = null;
+    _chosenSeat = null;
+    _seatPending = null;
+  }
+
+  /// «رجوع» من خطوة المقعد: لا انضمام — إلى شاشة الرمز.
+  void cancelSeatChoice() {
+    endSeatChoice();
+    _photoRoom = null;
+    _photoResolved = false;
+    _photoAnswer = null;
+    _step = GameStep.code;
+    notifyListeners();
+  }
+
   /// السؤال المعروض الآن في خطوة `photoConsent`.
   PhotoConsentAsk? _photoAsk;
   PhotoConsentAsk? get photoAsk => _photoAsk;
@@ -3148,6 +3197,7 @@ class GameSessionController extends ChangeNotifier with WidgetsBindingObserver {
     _photoResolved = false;
     _photoAnswer = null;
     _photoPending = null;
+    endSeatChoice();
   }
 
   /// 🔒 إعلانُ فتح معرض المافيا — **الترتيب لا يُبدَّل**:

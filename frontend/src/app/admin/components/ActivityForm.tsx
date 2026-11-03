@@ -34,6 +34,7 @@ export default function ActivityForm({ locations, onSubmit, onCancel }: Activity
   const [locTouched, setLocTouched] = useState(false);
   const { season } = useActiveSeason();
   const [requireTicket, setRequireTicket] = useState(false);
+  const [manualSeatSelection, setManualSeatSelection] = useState(false);
   const [seatTemplateId, setSeatTemplateId] = useState<string>('');
   const [seatTemplates, setSeatTemplates] = useState<any[]>([]);
   // 🍽️ طلبات المنيو
@@ -122,6 +123,7 @@ export default function ActivityForm({ locations, onSubmit, onCancel }: Activity
         status: 'planned',
         maxCapacity: Number(maxCapacity) || 20,
         difficulty, driveLink, sendNotification, notifyScope, requireTicket,
+        manualSeatSelection,
         seatTemplateId: seatTemplateId ? Number(seatTemplateId) : null,
         menuOrderingEnabled,
         addGameFeeToBill: menuOrderingEnabled && addGameFeeToBill,
@@ -280,6 +282,23 @@ export default function ActivityForm({ locations, onSubmit, onCancel }: Activity
           </div>
           <div className={`relative w-11 h-6 rounded-full transition-colors shrink-0 ${sendNotification ? 'bg-amber-500' : 'bg-gray-600'}`}>
             <div className={`absolute top-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform ${sendNotification ? 'translate-x-5' : 'translate-x-0.5'}`} />
+          </div>
+        </div>
+
+        {/* 🖐️ اختيار المقعد اليدويّ — اللاعب يكتب رقم مقعده عند الدخول */}
+        <div onClick={() => setManualSeatSelection((v: boolean) => !v)}
+          className={`flex items-center justify-between p-4 rounded-xl border cursor-pointer transition-all select-none ${manualSeatSelection ? 'bg-sky-500/10 border-sky-500/30' : 'bg-gray-900/40 border-gray-700/30'}`}>
+          <div className="flex items-center gap-3">
+            <span className="text-2xl">{manualSeatSelection ? '🖐️' : '🎲'}</span>
+            <div>
+              <p className="text-sm font-medium text-white">{manualSeatSelection ? 'اختيار المقاعد اليدويّ' : 'توزيع المقاعد تلقائيّاً'}</p>
+              <p className="text-xs text-gray-500 mt-0.5">{manualSeatSelection
+                ? 'عند الدخول يكتب اللاعب رقم المقعد المتاح الذي يريده، ومن يغادر من جهازه يُفرَّغ مقعده فوراً — ومن نقله الليدر يعود لمقعده'
+                : 'النظام يختار المقعد عند الدخول حسب القالب والقيود'}</p>
+            </div>
+          </div>
+          <div className={`relative w-11 h-6 rounded-full transition-colors shrink-0 ${manualSeatSelection ? 'bg-sky-500' : 'bg-gray-600'}`}>
+            <div className={`absolute top-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform ${manualSeatSelection ? 'translate-x-5' : 'translate-x-0.5'}`} />
           </div>
         </div>
 

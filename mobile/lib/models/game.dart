@@ -29,6 +29,9 @@ enum GameStep {
   /// 📸 سؤال «تقبل التصوير؟» قبل نداء الانضمام — لكلّ دخولٍ جديد لا للعودة.
   photoConsent,
 
+  /// 🖐️ فعاليّةٌ باختيار المقعد اليدويّ: اللاعب يكتب رقم الكرسي والخادم يتحقّق.
+  seatChoice,
+
   /// انضمامٌ جديد هذه الجلسة.
   done,
 
@@ -1466,6 +1469,40 @@ class PhotoConsentAsk {
     return PhotoConsentAsk(
       consent: c is bool ? c : null,
       isMinor: r['isMinor'] == true,
+    );
+  }
+}
+
+/// 🖐️ طلب «رقم المقعد» من الخادم (`SEAT_CHOICE_REQUIRED` · `SEAT_TAKEN` · …).
+class SeatChoiceAsk {
+  const SeatChoiceAsk({
+    required this.maxPlayers,
+    required this.freeSeats,
+    this.error,
+  });
+
+  final int maxPlayers;
+
+  /// المتاح لحظة الردّ — تلميحٌ لا وعد؛ الخادم يحكم عند الإرسال.
+  final List<int> freeSeats;
+
+  /// سبب رفض الرقم السابق — null عند أوّل طلب.
+  final String? error;
+
+  static const codes = {'SEAT_CHOICE_REQUIRED', 'SEAT_INVALID', 'SEAT_TAKEN', 'ROOM_FULL'};
+
+  /// `null` ⇒ ليس طلب مقعد (خطأٌ آخر يُعرض كالعادة).
+  static SeatChoiceAsk? tryParse(dynamic res) {
+    if (res is! Map || res['success'] == true) return null;
+    final sc = res['seatChoice'];
+    if (sc is! Map || !codes.contains(res['code'])) return null;
+    final free = sc['freeSeats'];
+    return SeatChoiceAsk(
+      maxPlayers: (sc['maxPlayers'] as num?)?.toInt() ?? 0,
+      freeSeats: free is List
+          ? free.whereType<num>().map((n) => n.toInt()).toList()
+          : const [],
+      error: res['code'] == 'SEAT_CHOICE_REQUIRED' ? null : '${res['error'] ?? ''}',
     );
   }
 }

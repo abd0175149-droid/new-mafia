@@ -135,6 +135,8 @@ export const activities = pgTable('activities', {
   seatTemplateId: integer('seat_template_id'),           // ربط بقالب مقاعد
   // 🪑 تخصيص مقاعد مؤقّت لهذا النشاط فقط (لا يمسّ القالب المشترك) — يُدمج فوق pinnedSeats القالب عند تحميل الروم
   seatAssignments: jsonb('seat_assignments').default([]), // [{ seatNumber, playerId?, phone?, playerName }]
+  // 🖐️ اختيار المقعد اليدويّ: اللاعب يكتب رقم مقعده عند الدخول، ومن يغادر من جهازه يُفرَّغ مقعده فوراً
+  manualSeatSelection: boolean('manual_seat_selection').default(false),
   // 🗓️ برنامج الليلة — خطّةٌ تُكتب لا سجلٌّ يُشتقّ من الغرف.
   // الغرفُ تُنشأ ليلتَها وقد لا تُنشأ، والكشفُ يُطبع قبلها ليعرف الناسُ متى يحضرون،
   // فلا يصحّ أن يعتمد على شيءٍ يُولد بعده. عمودٌ واحد لا جدولٌ جديد.

@@ -224,6 +224,7 @@ export function useGameState() {
     ticketNumber?: string,
     preferredSeat?: number,
     photoConsent?: boolean,
+    chosenSeat?: string,
   ) => {
     setLoading(true);
     setError(null);
@@ -236,6 +237,9 @@ export function useGameState() {
       const res = await emit('room:auto-join', {
         roomId, name, phone, playerId, gender, dob, forceJoin, ticketNumber, preferredSeat, fix,
         ...(typeof photoConsent === 'boolean' ? { photoConsent } : {}),
+        // 🖐️ نعرض حقل «رقم المقعد» إن كانت الفعاليّة باختيارٍ يدويّ — الخادم يطلبه بـSEAT_CHOICE_REQUIRED
+        supportsSeatChoice: true,
+        ...(chosenSeat ? { chosenSeat } : {}),
       });
       return res; // يحتوي على assignedSeat, gameName, constraintViolation
     } catch (err: any) {

@@ -962,7 +962,7 @@ router.post('/', authenticate, async (req: Request, res: Response) => {
   const db = getDB();
   if (!db) return res.status(503).json({ error: 'قاعدة البيانات غير متوفرة' });
 
-  const { name, date, description, basePrice, status, locationId, driveLink, enabledOfferIds, isLocked, sendNotification, maxCapacity, requireTicket, seatConstraints, seatTemplateId, menuOrderingEnabled, addGameFeeToBill, geofenceEnabled, geofenceRadiusM, notifyScope } = req.body;
+  const { name, date, description, basePrice, status, locationId, driveLink, enabledOfferIds, isLocked, sendNotification, maxCapacity, requireTicket, seatConstraints, seatTemplateId, menuOrderingEnabled, addGameFeeToBill, geofenceEnabled, geofenceRadiusM, notifyScope, manualSeatSelection } = req.body;
   if (!name || !date) return res.status(400).json({ error: 'الاسم والتاريخ مطلوبان' });
   // 🏙️ المكان إلزاميّ: فعاليّةٌ بلا مكان = مباراةٌ بلا مدينة = بلا رتبة
   const locIdNum = parseInt(String(locationId));
@@ -993,6 +993,7 @@ router.post('/', authenticate, async (req: Request, res: Response) => {
     addGameFeeToBill: menuOrderingEnabled === true && addGameFeeToBill === true,
     geofenceEnabled: geofenceEnabled === true,
     geofenceRadiusM: Number.isFinite(parseInt(String(geofenceRadiusM))) ? parseInt(String(geofenceRadiusM)) : null,
+    manualSeatSelection: manualSeatSelection === true,   // 🖐️ اللاعب يختار رقم مقعده عند الدخول
     createdBy: req.user?.id || null, // 👤 مُنشئ الفعالية (للتمييز عن بقية الأدمن لاحقاً)
   } as any).returning();
 
@@ -1378,7 +1379,7 @@ router.put('/:id', authenticate, async (req: Request, res: Response) => {
   if (!db) return res.status(503).json({ error: 'قاعدة البيانات غير متوفرة' });
 
   const id = parseInt(req.params.id);
-  const { name, date, description, basePrice, status, locationId, driveLink, enabledOfferIds, isLocked, sessionId, maxCapacity, difficulty, requireTicket, seatConstraints, seatTemplateId, menuOrderingEnabled, addGameFeeToBill, receivedBy, geofenceEnabled, geofenceRadiusM, gameSchedule } = req.body;
+  const { name, date, description, basePrice, status, locationId, driveLink, enabledOfferIds, isLocked, sessionId, maxCapacity, difficulty, requireTicket, seatConstraints, seatTemplateId, menuOrderingEnabled, addGameFeeToBill, receivedBy, geofenceEnabled, geofenceRadiusM, gameSchedule, manualSeatSelection } = req.body;
 
   const updates: any = {};
   if (receivedBy !== undefined) updates.receivedBy = String(receivedBy ?? '').slice(0, 100);
@@ -1419,6 +1420,8 @@ router.put('/:id', authenticate, async (req: Request, res: Response) => {
     if (err) return res.status(400).json({ error: err, code: 'NO_VENUE_POINT' });
   }
   if (geofenceEnabled !== undefined) updates.geofenceEnabled = geofenceEnabled === true;
+  // 🖐️ يسري على الغرف الحيّة من أوّل انضمامٍ أو مغادرةٍ بعده (تُقرأ من الفعاليّة لا من لقطة)
+  if (manualSeatSelection !== undefined) updates.manualSeatSelection = manualSeatSelection === true;
   if (geofenceRadiusM !== undefined) {
     const r = parseInt(String(geofenceRadiusM));
     updates.geofenceRadiusM = Number.isFinite(r) && r >= 50 && r <= 2000 ? r : null;

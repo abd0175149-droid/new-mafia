@@ -833,7 +833,8 @@ export default function LeaderLobbyView({ gameState, emit, setError, hideOffline
                       <div>
                         <p className="text-white text-sm font-medium">{player.name}</p>
                         <p className="text-[#808080] text-[10px] font-mono">
-                          {player.phone || 'بدون رقم'} • متبقي ~{remainingMin} دقيقة
+                          {/* 🖐️ بلا مهلة = نقله الليدر في فعاليّةٍ باختيارٍ يدويّ — محفوظٌ حتى يعود أو يُفكّ */}
+                          {player.phone || 'بدون رقم'} • {player.heldUntil ? `متبقي ~${remainingMin} دقيقة` : 'محفوظ بقرار الليدر'}
                         </p>
                       </div>
                     </div>

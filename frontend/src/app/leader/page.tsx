@@ -3025,7 +3025,7 @@ export default function LeaderPage() {
                               <div className="w-8 h-8 rounded-full bg-amber-500/10 border border-amber-500/30 flex items-center justify-center font-mono font-bold text-amber-400 text-sm">{hp.physicalId}</div>
                               <div>
                                 <p className="text-white text-xs font-medium">{hp.name}</p>
-                                <p className="text-[#808080] text-[9px] font-mono">متبقي ~{remainMin} د</p>
+                                <p className="text-[#808080] text-[9px] font-mono">{hp.heldUntil ? `متبقي ~${remainMin} د` : 'محفوظ بقرار الليدر'}</p>
                               </div>
                             </div>
                             <button

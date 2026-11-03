@@ -190,12 +190,28 @@ extension JoinFlow on GameSessionController {
       'forceJoin': forceJoin,
       if (t.isNotEmpty) 'ticketNumber': t,
       if (photo != null) 'photoConsent': photo,
+      // 🖐️ نعرض حقل «رقم المقعد» إن كانت الفعاليّة باختيارٍ يدويّ
+      'supportsSeatChoice': true,
+      if (chosenSeatFor(target) != null) 'chosenSeat': chosenSeatFor(target),
     });
     setBusy(false);
+
+    // 🖐️ الخادم يطلب رقم المقعد — أو يرفض الرقم مع السبب وقائمة المتاح
+    final seatAsk = SeatChoiceAsk.tryParse(res);
+    if (seatAsk != null) {
+      clearApiError();
+      openSeatAsk(target, seatAsk, pending: (
+        forceJoin: forceJoin,
+        ticket: ticket,
+        roomIdOverride: roomIdOverride,
+      ));
+      return;
+    }
 
     // 👁️ وصل واللعبة جارية → متفرّج بمقعدٍ محجوز (كان يُرفض ويبقى سبينر أبديّ)
     if (res != null && res['success'] == true && res['spectator'] == true) {
       endPhotoJoin(res);
+      endSeatChoice();
       await applySpectator(
         roomId: target,
         seat: (res['assignedSeat'] as num?)?.toInt() ?? 0,
@@ -209,6 +225,7 @@ extension JoinFlow on GameSessionController {
 
     if (res != null && res['success'] != false && res['assignedSeat'] != null) {
       endPhotoJoin(res);
+      endSeatChoice();
       await applyJoined(
         roomId: target,
         seat: (res['assignedSeat'] as num).toInt(),
@@ -243,6 +260,17 @@ extension JoinFlow on GameSessionController {
   /// 📸 «متابعة» في سؤال التصوير — يُستأنف النداء المؤجَّل بالجواب.
   Future<void> submitPhotoConsent(bool consent) async {
     final p = answerPhotoAsk(consent);
+    await autoJoin(
+      forceJoin: p?.forceJoin ?? false,
+      ticket: p?.ticket,
+      roomIdOverride: p?.roomIdOverride,
+    );
+  }
+
+  /// 🖐️ «اجلس في هذا المقعد» — يُستأنف النداء المؤجَّل بالرقم، والخادم يحكم.
+  Future<void> submitSeatChoice(String seat) async {
+    if (seat.trim().isEmpty) return;
+    final p = answerSeatAsk(seat);
     await autoJoin(
       forceJoin: p?.forceJoin ?? false,
       ticket: p?.ticket,

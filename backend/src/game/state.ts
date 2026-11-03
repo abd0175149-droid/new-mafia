@@ -59,6 +59,11 @@ export interface Player {
   // 🕐 لحظة الجلوس — «آخر الواصلين» لكسر التعادل بالتباعد. players مرتّبة بالمقعد،
   //    فـslice(-3) كانت «أعلى ثلاثة أرقام» لا آخر ثلاثة وصلوا.
   seatedAt?: number;
+  // 🖐️ اختيار المقعد اليدويّ (activities.manual_seat_selection):
+  //    leaderSeat = نقله الليدر/أجلسه بيده ⇒ إن غادر يُحفظ مقعده له ويعود إليه.
+  //    leftRoom   = غادر من جهازه وسط اللعبة ⇒ يُفرَّغ مقعده عند العودة للّوبي إن لم يعد.
+  leaderSeat?: boolean;
+  leftRoom?: boolean;
 }
 
 /** مقاعد آخر `k` واصلين (من لا لحظة له يُعدّ أقدم) */
@@ -752,7 +757,7 @@ async function addPlayerUnlocked(
 export async function updatePlayer(
   roomId: string,
   physicalId: number,
-  updates: Partial<Pick<Player, 'name' | 'physicalId' | 'dob' | 'gender' | 'avatarUrl' | 'rankTier' | 'cosmetics' | 'noPhoto'>>
+  updates: Partial<Pick<Player, 'name' | 'physicalId' | 'dob' | 'gender' | 'avatarUrl' | 'rankTier' | 'cosmetics' | 'noPhoto' | 'leaderSeat'>>
 ): Promise<GameState> {
   // 🔒 نفس القفل: يقرأ ويكتب، ويجب ألّا يتقاطع مع إضافةٍ جارية
   return withRoomLock(roomId, () => updatePlayerUnlocked(roomId, physicalId, updates));
@@ -761,7 +766,7 @@ export async function updatePlayer(
 async function updatePlayerUnlocked(
   roomId: string,
   physicalId: number,
-  updates: Partial<Pick<Player, 'name' | 'physicalId' | 'dob' | 'gender' | 'avatarUrl' | 'rankTier' | 'cosmetics' | 'noPhoto'>>
+  updates: Partial<Pick<Player, 'name' | 'physicalId' | 'dob' | 'gender' | 'avatarUrl' | 'rankTier' | 'cosmetics' | 'noPhoto' | 'leaderSeat'>>
 ): Promise<GameState> {
   console.log(`[State] updatePlayer ➡️ Start for physicalId ${physicalId} with updates:`, updates);
   const state = await getGameState(roomId);

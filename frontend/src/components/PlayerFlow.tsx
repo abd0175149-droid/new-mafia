@@ -29,7 +29,7 @@ import OrderPanel, { type OrderPanelHandle } from './OrderPanel';
 import { IcoPlate } from './fnb/icons';
 import TeamBar from './TeamBar';
 import PhotoConsentChip from './PhotoConsentChip';
-type Step = 'code' | 'phone' | 'login' | 'register' | 'change_password' | 'ticket' | 'photo_consent' | 'auto_joining' | 'done' | 'rejoined' | 'spectating';
+type Step = 'code' | 'phone' | 'login' | 'register' | 'change_password' | 'ticket' | 'photo_consent' | 'seat_choice' | 'auto_joining' | 'done' | 'rejoined' | 'spectating';
 
 interface PlayerFlowProps {
   initialRoomCode?: string;
@@ -347,6 +347,11 @@ export default function PlayerFlow({ initialRoomCode = '', inviteFlag = false, i
   const lastStableStepRef = useRef<Step>('code');
   const [photoZoneOn, setPhotoZoneOn] = useState(false);
   const [myNoPhoto, setMyNoPhoto] = useState(false);
+  // 🖐️ اختيار المقعد اليدويّ: الخادم يطلب الرقم (SEAT_CHOICE_REQUIRED) ويردّ بالمتاح
+  const [seatAsk, setSeatAsk] = useState<{ roomId: string; maxPlayers: number; freeSeats: number[]; args: [boolean, string | undefined, string] } | null>(null);
+  const [seatInput, setSeatInput] = useState('');
+  const [seatError, setSeatError] = useState('');
+  const chosenSeatRef = useRef<{ roomId: string; seat: string } | null>(null);
   // 📨 تأكيد الدعوة قبل الانضمام: يُعرض عند فتح إشعار دعوة (?invite=1)
   const [inviteConfirmed, setInviteConfirmed] = useState(false);
   const [invitePrompt, setInvitePrompt] = useState<{ roomName: string; inviterName: string } | null>(null);
@@ -626,7 +631,7 @@ export default function PlayerFlow({ initialRoomCode = '', inviteFlag = false, i
 
   // 📸 آخر خطوةٍ ثابتة (للرجوع من سؤال التصوير)، وبداية الدخول تمسح جواب المحاولة السابقة
   useEffect(() => {
-    if (step !== 'auto_joining' && step !== 'photo_consent') lastStableStepRef.current = step;
+    if (step !== 'auto_joining' && step !== 'photo_consent' && step !== 'seat_choice') lastStableStepRef.current = step;
     if (step === 'code' || step === 'phone') { photoAnswerRef.current = null; setPhotoZoneOn(false); setMyNoPhoto(false); }
   }, [step]);
 
@@ -2410,6 +2415,27 @@ export default function PlayerFlow({ initialRoomCode = '', inviteFlag = false, i
     setStep(prev === 'ticket' || prev === 'login' ? prev : (initialRoomCode ? 'phone' : 'code'));
   };
 
+  // ── 🖐️ رقم المقعد: يُرسل مع النداء نفسه (التذكرة والتأكيد كما هما) والخادم يحكم ──
+  const submitSeatChoice = () => {
+    if (!seatAsk) return;
+    const v = seatInput.trim();
+    if (!v) { setSeatError('اكتب رقم المقعد'); return; }
+    chosenSeatRef.current = { roomId: seatAsk.roomId, seat: v };
+    setSeatError('');
+    const [f, t, r] = seatAsk.args;
+    handleAutoJoin(f, t, r);
+  };
+
+  const backFromSeatChoice = () => {
+    chosenSeatRef.current = null;
+    photoAnswerRef.current = null;
+    setSeatAsk(null);
+    setSeatInput('');
+    setSeatError('');
+    const prev = lastStableStepRef.current;
+    setStep(prev === 'ticket' || prev === 'login' ? prev : (initialRoomCode ? 'phone' : 'code'));
+  };
+
   const showPhotoToast = (message: string, type: 'success' | 'warning' | 'info') => {
     setActiveToast({ message, type });
     setTimeout(() => setActiveToast(prev => prev && prev.message === message ? null : prev), 5000);
@@ -2455,8 +2481,12 @@ export default function PlayerFlow({ initialRoomCode = '', inviteFlag = false, i
       
       // ⚠️ لا نرسل preferredSeat — الباكإند يوزع عشوائياً دائماً عند auto-join
       // العودة لنفس الرقم تُعالج عبر 'room:rejoin-player' وليس 'room:auto-join'
-      const res = await joinRoom(effectiveRoomId, displayName, phone, playerId || undefined, genderUpper, dateOfBirth, forceJoin, ticket || ticketNumber || undefined, undefined, photoConsent);
+      const chosen = chosenSeatRef.current?.roomId === effectiveRoomId ? chosenSeatRef.current.seat : undefined;
+      const res = await joinRoom(effectiveRoomId, displayName, phone, playerId || undefined, genderUpper, dateOfBirth, forceJoin, ticket || ticketNumber || undefined, undefined, photoConsent, chosen);
       photoAnswerRef.current = null; // دخلنا — الدخول القادم يسأل من جديد
+      chosenSeatRef.current = null;
+      setSeatAsk(null);
+      setSeatInput('');
       if (typeof res?.noPhoto === 'boolean') { setPhotoZoneOn(true); setMyNoPhoto(res.noPhoto); }
 
       const assignedSeat = res?.assignedSeat;
@@ -2499,6 +2529,22 @@ export default function PlayerFlow({ initialRoomCode = '', inviteFlag = false, i
       const errMsg = err.message || err.response?.error || '';
       // إذا الخطأ متعلق بالتذكرة → نعرض شاشة إدخال التذكرة مباشرة
       const isTicketError = errMsg.includes('التذكرة') || errMsg.includes('ticket');
+      // 🖐️ الفعاليّة باختيارٍ يدويّ: اطلب الرقم، أو أعِد الطلب مع سبب الرفض وقائمة المتاح
+      const seatCode = err.response?.code;
+      if (err.response?.seatChoice && ['SEAT_CHOICE_REQUIRED', 'SEAT_INVALID', 'SEAT_TAKEN', 'ROOM_FULL'].includes(seatCode)) {
+        const sc = err.response.seatChoice;
+        setSeatAsk({
+          roomId: effectiveRoomId,
+          maxPlayers: Number(sc.maxPlayers) || 0,
+          freeSeats: Array.isArray(sc.freeSeats) ? sc.freeSeats : [],
+          args: [forceJoin, ticket, effectiveRoomId],
+        });
+        setSeatError(seatCode === 'SEAT_CHOICE_REQUIRED' ? '' : errMsg);
+        if (seatCode !== 'SEAT_CHOICE_REQUIRED') setSeatInput('');
+        setApiError('');
+        setStep('seat_choice');
+        return;
+      }
       if (err.response?.requiresConfirmation) {
         setJoinConfirmation({ message: err.response.error });
         setStep(isTicketError || requireTicket ? 'ticket' : 'auto_joining');
@@ -3297,6 +3343,71 @@ export default function PlayerFlow({ initialRoomCode = '', inviteFlag = false, i
               <button
                 type="button"
                 onClick={backFromPhotoConsent}
+                className="w-full min-h-[44px] mt-2 text-[#808080] text-[13px] hover:text-[#C5A059] transition-colors"
+              >
+                رجوع
+              </button>
+            </motion.div>
+          )}
+
+          {/* ── 🖐️ خطوة: اختيار رقم المقعد (فعاليّة باختيارٍ يدويّ) ── */}
+          {step === 'seat_choice' && seatAsk && (
+            <motion.div key="seat_choice" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
+              <div className="text-center mb-6 border-b border-[#2a2a2a]/40 pb-6">
+                <div className="text-4xl mb-3">🪑</div>
+                <h2 className="text-2xl font-black mb-2 text-white" style={{ fontFamily: 'Amiri, serif' }}>اختر رقم مقعدك</h2>
+                <p className="text-[#9a9a9a] text-[14px] leading-relaxed" style={{ fontFamily: 'Amiri, serif' }}>
+                  اكتب رقم الكرسي الذي تريد الجلوس عليه{seatAsk.maxPlayers ? ` (من 1 إلى ${seatAsk.maxPlayers})` : ''}
+                </p>
+              </div>
+
+              <form onSubmit={e => { e.preventDefault(); submitSeatChoice(); }} className="mb-4">
+                <input
+                  type="text"
+                  inputMode="numeric"
+                  autoFocus
+                  value={seatInput}
+                  onChange={e => { setSeatInput(e.target.value.replace(/[^\d٠-٩۰-۹]/g, '').slice(0, 3)); setSeatError(''); }}
+                  placeholder="رقم المقعد"
+                  dir="ltr"
+                  aria-label="رقم المقعد"
+                  className="w-full px-5 py-4 bg-black/40 border border-[#2a2a2a] rounded-xl text-center text-white text-3xl font-mono tracking-[0.2em] placeholder-[#333] placeholder:text-xl placeholder:tracking-normal focus:outline-none focus:border-[#C5A059]/50 focus:shadow-[0_0_15px_rgba(197,160,89,0.15)] transition-all"
+                />
+              </form>
+
+              {seatError && <p className="text-[#e05252] text-[13px] text-center mb-4 bg-[#8A0303]/10 p-2 rounded" style={{ fontFamily: 'Amiri, serif' }}>{seatError}</p>}
+
+              {seatAsk.freeSeats.length > 0 && (
+                <div className="mb-5">
+                  <p className="text-[#808080] text-[12.5px] text-center mb-2" style={{ fontFamily: 'Amiri, serif' }}>المقاعد المتاحة الآن:</p>
+                  <div className="flex flex-wrap justify-center gap-2" dir="ltr">
+                    {seatAsk.freeSeats.map(n => (
+                      <button
+                        key={n}
+                        type="button"
+                        onClick={() => { setSeatInput(String(n)); setSeatError(''); }}
+                        className={`min-w-[44px] min-h-[44px] px-2 rounded-lg border text-[15px] font-mono font-bold transition-all ${
+                          seatInput === String(n) ? 'bg-[#C5A059]/20 border-[#C5A059] text-[#C5A059]' : 'bg-black/40 border-[#2a2a2a] text-[#bdbdbd] hover:border-[#555]'
+                        }`}
+                      >
+                        {n}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              <button
+                onClick={submitSeatChoice}
+                disabled={!seatInput.trim() || loading || seatAsk.freeSeats.length === 0}
+                className="btn-premium w-full min-h-[48px] !text-[15px] disabled:opacity-50 !rounded-lg"
+              >
+                <span>{loading ? 'جارٍ التحقق...' : 'اجلس في هذا المقعد'}</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={backFromSeatChoice}
                 className="w-full min-h-[44px] mt-2 text-[#808080] text-[13px] hover:text-[#C5A059] transition-colors"
               >
                 رجوع
