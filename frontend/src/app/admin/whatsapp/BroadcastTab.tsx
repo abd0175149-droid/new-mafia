@@ -106,6 +106,7 @@ export default function BroadcastTab({ apiFetch }: { apiFetch: Fetcher }) {
   const [testRcpts, setTestRcpts] = useState<Array<{ name: string; phone: string }> | null>(null);
   // 🧭 رحلة البثّ: العرض (بثّ جديد/السجلّ)، الخطوة، والأقسام المطويّة
   const rootRef = useRef<HTMLDivElement>(null);
+  const stepAnchorRef = useRef<HTMLDivElement>(null);
   const [view, setView] = useState<'compose' | 'history'>('compose');
   const [step, setStep] = useState<Step>(1);
   const [advOpen, setAdvOpen] = useState(false);
@@ -311,7 +312,7 @@ export default function BroadcastTab({ apiFetch }: { apiFetch: Fetcher }) {
       swalToast(`بدأ البثّ إلى ${r.total}`, 'success');
       setBody(''); setTplId(null); setExcluded(new Set()); setExB([]); setImg(null); setTested(null); setPlayedIds([]);
       setStep(1); setRcptOpen(false); setRcptQ('');
-      rootRef.current?.scrollTo({ top: 0, behavior: 'smooth' });
+      scrollFlowTop();
       await load(); loadTpls();
     } catch (e: any) {
       if (e.code === 'TEST_REQUIRED') setTested(null);   // انتهت صلاحيّة الاختبار أو تغيّر المحتوى عند الخادم
@@ -354,10 +355,19 @@ export default function BroadcastTab({ apiFetch }: { apiFetch: Fetcher }) {
   const audienceOk = !(needsActivity && !activityId) && !missingPlayed;
   const messageOk = body.trim().length >= 5 && body.length <= bodyMax && !imgBusy && !(actVarsUsed && !activityId);
   const canReach = (s: Step) => s === 1 || (s === 2 ? audienceOk : audienceOk && messageOk);
+  // أعلى الرحلة: على الحاسوب يتمرّر صندوق التبويب، وعلى الهاتف النافذة نفسها (تحت شريط الإدارة الثابت)
+  const scrollFlowTop = () => requestAnimationFrame(() => {
+    const el = rootRef.current;
+    if (!el) return;
+    if (getComputedStyle(el).overflowY !== 'visible' && el.scrollHeight > el.clientHeight + 1) { el.scrollTo({ top: 0, behavior: 'smooth' }); return; }
+    const anchor = stepAnchorRef.current || el;
+    const top = anchor.getBoundingClientRect().top + window.scrollY - (window.innerWidth < 768 ? 64 : 0);
+    window.scrollTo({ top: Math.max(0, top), behavior: 'smooth' });
+  });
   const go = (s: Step) => {
     if (!canReach(s)) return;
     setStep(s);
-    requestAnimationFrame(() => rootRef.current?.scrollTo({ top: 0, behavior: 'smooth' }));
+    scrollFlowTop();
   };
   const pickAct = (id: number | null) => { setActivityId(id); setExcluded(new Set()); };
   const advancedCount = (channel !== 'all' ? 1 : 0) + (line ? 1 : 0) + (exB.length ? 1 : 0);
@@ -387,7 +397,7 @@ export default function BroadcastTab({ apiFetch }: { apiFetch: Fetcher }) {
     }
     if (step === 2) {
       if (imgBusy) return 'يُرفع الوسيط…';
-      if (body.trim().length < 5) return 'اكتب الرسالة (٥ أحرف على الأقلّ)';
+      if (body.trim().length < 5) return 'اكتب الرسالة (5 أحرف على الأقلّ)';
       if (body.length > bodyMax) return `النصّ أطول من ${bodyMax}`;
       if (actVarsUsed && !activityId) return 'النصّ فيه متغيّرات فعاليّة — اختر الفعاليّة';
       return `${body.length} / ${bodyMax} حرفاً`;
@@ -530,7 +540,7 @@ export default function BroadcastTab({ apiFetch }: { apiFetch: Fetcher }) {
                   </button>
                 ))}
               </div>
-              <p className="text-[12px] text-gray-500 mt-1.5">ميتا: لمن راسلنا خلال ٢٤ ساعة فقط. رقم الأعمال: بلا نافذة، بطابورٍ متباعد.</p>
+              <p className="text-[12px] text-gray-500 mt-1.5">ميتا: لمن راسلنا خلال 24 ساعة فقط. رقم الأعمال: بلا نافذة، بطابورٍ متباعد.</p>
             </div>
           )}
           {showLine && (
@@ -546,7 +556,7 @@ export default function BroadcastTab({ apiFetch }: { apiFetch: Fetcher }) {
                 <div className="mt-2.5">
                   <div className="text-[12px] text-gray-500 mb-1.5">راسَلنا خلال:</div>
                   <div className="flex flex-wrap gap-1.5">
-                    {([['', 'أيّ وقت'], ['7', '٧ أيّام'], ['30', '٣٠ يوماً'], ['90', '٩٠ يوماً']] as const).map(([k, l]) => (
+                    {([['', 'أيّ وقت'], ['7', '7 أيّام'], ['30', '30 يوماً'], ['90', '90 يوماً']] as const).map(([k, l]) => (
                       <button key={k || 'any'} type="button" onClick={() => { setLineSince(k); setExcluded(new Set()); }}
                         className={`min-h-[40px] px-3 rounded-xl text-[12.5px] font-bold border ${lineSince === k ? 'bg-emerald-500/10 text-emerald-300 border-emerald-500/40' : 'border-gray-800 text-gray-400'}`}>{l}</button>
                     ))}
@@ -589,7 +599,7 @@ export default function BroadcastTab({ apiFetch }: { apiFetch: Fetcher }) {
       <Disclosure title="ℹ️ كيف يعمل البثّ؟" open={helpOpen} onToggle={() => setHelpOpen(v => !v)}>
         <ul className="text-[13px] leading-relaxed text-gray-300 space-y-1.5 list-disc pr-4">
           <li>رسالةٌ واحدة (نصّ، أو صورة/فيديو بتعليق) لكلّ من في الجمهور.</li>
-          <li><b>ميتا</b>: لمن راسلنا خلال آخر ٢٤ ساعة فقط. <b>رقم الأعمال</b>: بلا نافذة، بطابورٍ متباعد وسقفٍ يوميّ من «القنوات».</li>
+          <li><b>ميتا</b>: لمن راسلنا خلال آخر 24 ساعة فقط. <b>رقم الأعمال</b>: بلا نافذة، بطابورٍ متباعد وسقفٍ يوميّ من «القنوات».</li>
           <li>لا يصل لمن كتب «إيقاف». السقف {status?.maxTargets ?? 300} مستلم للبثّ الواحد.</li>
           <li>الاختبار على هواتف الإداريّين <b>إلزاميّ</b> قبل كلّ إرسال.</li>
         </ul>
@@ -779,7 +789,7 @@ export default function BroadcastTab({ apiFetch }: { apiFetch: Fetcher }) {
           {testRcpts === null ? '…' : testRcpts.length ? <b className="text-gray-200">{testRcpts.map(r => r.name).join('، ')}</b> : <span className="text-rose-300">لا أرقام إداريّين مربوطة</span>}
         </p>
         {testedOk && <p className="text-[12.5px] text-emerald-300">خرج {new Date(tested!.at).toLocaleTimeString('ar-JO', { hour: 'numeric', minute: '2-digit' })} — راجعوه على هواتفكم ثمّ اضغط «أرسل».</p>}
-        {tested && !testedOk && <p className="text-[12.5px] text-amber-300">⚠️ تغيّرت الرسالة بعد الاختبار (أو مضى عليه ١٢ ساعة) — اختبر من جديد.</p>}
+        {tested && !testedOk && <p className="text-[12.5px] text-amber-300">⚠️ تغيّرت الرسالة بعد الاختبار (أو مضى عليه 12 ساعة) — اختبر من جديد.</p>}
         {testedOk && tested!.sentTo.some(x => !x.ok) && (
           <p className="text-[12px] text-amber-300/90">{tested!.sentTo.filter(x => !x.ok).map(x => `${x.name}: ${x.error}`).join(' · ')}</p>
         )}
@@ -804,7 +814,7 @@ export default function BroadcastTab({ apiFetch }: { apiFetch: Fetcher }) {
         : { label: sending ? '⏳ جاري البدء…' : `📢 أرسل إلى ${targets.length}`, disabled: !canSend, onClick: send, tone: 'amber' };
 
   return (
-    <div ref={rootRef} className="flex-1 min-h-0 overflow-y-auto" dir="rtl">
+    <div ref={rootRef} className="flex-1 md:min-h-0 md:overflow-y-auto" dir="rtl">
       <div className="max-w-3xl mx-auto px-0.5 pt-1 space-y-3">
         {liveStrip}
 
@@ -823,8 +833,9 @@ export default function BroadcastTab({ apiFetch }: { apiFetch: Fetcher }) {
           </div>
         ) : (
           <>
-            {/* رأس الخطوات */}
-            <div className="sticky top-0 z-20 -mx-0.5 px-0.5 pt-1 pb-2 bg-[#0b0b0d]/95 backdrop-blur">
+            {/* رأس الخطوات — لاصقٌ تحت شريط الإدارة على الهاتف */}
+            <div ref={stepAnchorRef} />
+            <div className="sticky top-[var(--admin-top,0px)] md:top-0 z-20 -mx-0.5 px-0.5 pt-1 pb-2 bg-[#0b0b0d]/95 backdrop-blur">
               <ol className="grid grid-cols-3 gap-1.5">
                 {STEPS.map(s => {
                   const on = step === s.n;
@@ -931,7 +942,7 @@ const VARS: Array<{ token: string; label: string }> = [
 function StepTitle({ n, title, sub }: { n: number; title: string; sub?: string }) {
   return (
     <div>
-      <div className="text-[12px] font-bold text-amber-400/80">الخطوة {n} من ٣</div>
+      <div className="text-[12px] font-bold text-amber-400/80">الخطوة {n} من 3</div>
       <h2 className="text-[19px] font-black text-white leading-tight">{title}</h2>
       {sub && <p className="text-[13px] text-gray-400 mt-0.5">{sub}</p>}
     </div>

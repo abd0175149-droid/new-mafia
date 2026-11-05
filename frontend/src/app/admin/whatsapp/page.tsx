@@ -863,8 +863,12 @@ export default function WhatsAppInboxPage() {
   const paneHidden = (p: 'list' | 'chat' | 'info') =>
     `${mobilePane === p ? 'flex' : 'hidden'} md:flex`;
 
+  // 📢 البثّ على الهاتف: الصفحة كلّها تتمرّر (رأس الصفحة وشريط الصحّة والأقسام تصعد بعيداً)
+  //    بدل صندوقٍ ثابت الارتفاع يأكل نصف الشاشة — وشريطا خطوات البثّ لاصقان بالنافذة.
+  const castFlow = mainTab === 'admin' && adminSec === 'cast';
+
   return (
-    <div className="h-[calc(100dvh-1rem)] md:h-[calc(100dvh-2rem)] flex flex-col" dir="rtl">
+    <div className={`${castFlow ? 'min-h-[calc(100dvh-1rem)]' : 'h-[calc(100dvh-1rem)]'} md:h-[calc(100dvh-2rem)] flex flex-col`} dir="rtl">
       {/* ═══ رأس الصفحة + تبويبات ═══ */}
       <div className="flex items-center gap-3 px-1 pb-3 flex-wrap">
         <h1 className="text-xl font-bold text-white flex items-center gap-2">
@@ -895,7 +899,7 @@ export default function WhatsAppInboxPage() {
 
       {/* ═══ الإدارة: شريطٌ جانبيّ يجمع الأقسام بمعناها ═══ */}
       {mainTab === 'admin' && (
-        <div className="flex-1 min-h-0 grid grid-cols-1 md:grid-cols-[190px_1fr] gap-0 overflow-hidden">
+        <div className={`flex-1 min-h-0 grid grid-cols-1 md:grid-cols-[190px_1fr] gap-0 ${castFlow ? 'md:overflow-hidden' : 'overflow-hidden'}`}>
           <div className="border-l border-gray-800 p-2 flex md:flex-col gap-1 overflow-x-auto md:overflow-x-visible">
             {([
               ['sep', 'الدون'],
@@ -921,7 +925,7 @@ export default function WhatsAppInboxPage() {
               >{l}</button>
             ))}
           </div>
-          <div className="min-h-0 overflow-y-auto p-2 flex flex-col gap-3">
+          <div className={`${castFlow ? 'md:min-h-0 md:overflow-y-auto' : 'min-h-0 overflow-y-auto'} p-2 flex flex-col gap-3`}>
             {adminSec === 'perf' && (
               <PerformanceTab apiFetch={apiFetch} onOpenConv={(id: number) => { setMainTab('chat'); openConv(id); }} />
             )}
