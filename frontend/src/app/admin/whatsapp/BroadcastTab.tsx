@@ -10,9 +10,10 @@ import { getSocket } from '@/lib/socket';
 import Swal from 'sweetalert2';
 import { swalAlert, swalConfirm, swalToast } from '@/lib/swal';
 import BroadcastHistory from './BroadcastHistory';
+import PlayedActivityPicker from './PlayedActivityPicker';
 
 type Fetcher = (path: string, opts?: RequestInit) => Promise<any>;
-type Filter = 'all' | 'players' | 'visitors' | 'booked_upcoming' | 'activity' | 'not_booked_activity';
+type Filter = 'all' | 'players' | 'visitors' | 'booked_upcoming' | 'activity' | 'not_booked_activity' | 'played';
 interface Tpl { id: number; name: string; body: string; usedCount: number }
 interface Target { id: number; phone: string; name: string; isPlayer: boolean; rank: string; windowClosesAt: string | null; via?: 'cloud' | 'web' | null }
 
@@ -23,6 +24,7 @@ const FILTERS: Array<{ key: Filter; label: string }> = [
   { key: 'booked_upcoming', label: 'لهم حجز قادم' },
   { key: 'activity', label: 'حاجزو فعاليّة محدّدة' },
   { key: 'not_booked_activity', label: 'لم يحجزوا بعد في فعاليّة' },
+  { key: 'played', label: '🎲 لعبوا معنا في فعاليّة سابقة' },
 ];
 const API_URL = process.env.NEXT_PUBLIC_API_URL || '';   // `/uploads` من الخادم؛ البادئة للتطوير (النشر يتركها فارغةً ويحوّل next.config)
 // 📇 فلتر خطّ الأعمال: مَن نراسله ابتداءً — '' يتبع الافتراضيّ العامّ من «القنوات»
@@ -80,6 +82,9 @@ export default function BroadcastTab({ apiFetch }: { apiFetch: Fetcher }) {
   const since = line === 'two_way' ? lineSince : '';
   const [aud, setAud] = useState<any>(null);
   const [activityId, setActivityId] = useState<number | null>(null);
+  // 🎲 «لعبوا معنا»: الفعاليّات السابقة المختارة، و«ولم يحجزوا بعد في» الفعاليّة القادمة (activityId)
+  const [playedIds, setPlayedIds] = useState<number[]>([]);
+  const [playedNotBooked, setPlayedNotBooked] = useState(true);
   const [rows, setRows] = useState<Target[]>([]);
   const [activities, setActivities] = useState<Array<{ id: number; name: string; date: string; venue?: string; when?: string }>>([]);
   const [status, setStatus] = useState<any>(null);
@@ -220,14 +225,15 @@ export default function BroadcastTab({ apiFetch }: { apiFetch: Fetcher }) {
 
   const load = useCallback(async () => {
     try {
-      const qs = `filter=${filter}${(filter === 'activity' || filter === 'not_booked_activity') && activityId ? `&activityId=${activityId}` : ''}`;
+      const qs = `filter=${filter}${(filter === 'activity' || filter === 'not_booked_activity') && activityId ? `&activityId=${activityId}` : ''}`
+        + (filter === 'played' ? `&played=${playedIds.join(',')}${activityId && playedNotBooked ? `&activityId=${activityId}&notBooked=1` : ''}` : '');
       const d = await apiFetch(`/api/whatsapp/open-window-broadcast/audience?${qs}&channel=${channel}${line ? `&line=${line}` : ''}${since ? `&lineSince=${encodeURIComponent(since)}` : ''}${exB.length ? `&excludeBroadcasts=${exB.join(',')}` : ''}`);
       setAud(d);
       setRows(d.rows || []); setStatus(d.status || null); setHistory(d.history || []); setActivities(d.activities || []);
       setErr(null); setHistoryTick(t => t + 1);
     } catch (e: any) { setErr(e.message); }
     setLoading(false);
-  }, [apiFetch, filter, activityId, exB, channel, line, since]);
+  }, [apiFetch, filter, activityId, exB, channel, line, since, playedIds, playedNotBooked]);
 
   useEffect(() => { setLoading(true); load(); }, [load]);
   // أثناء بثٍّ جارٍ: حدّث العدّادات كلّ 5 ثوانٍ، وعند انتهائه فوراً
@@ -247,6 +253,7 @@ export default function BroadcastTab({ apiFetch }: { apiFetch: Fetcher }) {
   const sample = targets[0];
   const act = activities.find(a => a.id === activityId);
   const missingActivity = (needsActivity || ACT_VARS.test(body)) && !activityId;
+  const missingPlayed = filter === 'played' && playedIds.length === 0;
   // الفاصل يسقط إن استُثني مستلمو كلّ بثوث آخر 12 ساعة (الخادم يعيد الفحص)
   const recentIds = history.filter(h => Date.now() - new Date(h.createdAt).getTime() < 12 * 3600e3).map(h => h.id as number);
   const coversRecent = recentIds.length > 0 && recentIds.every(id => exB.includes(id));
@@ -278,7 +285,7 @@ export default function BroadcastTab({ apiFetch }: { apiFetch: Fetcher }) {
     }
     setTesting(false);
   };
-  const canSend = testedOk && !blockedReason && !sending && !imgBusy && !missingActivity && targets.length > 0 && body.trim().length >= 5 && body.length <= bodyMax;
+  const canSend = testedOk && !blockedReason && !sending && !imgBusy && !missingActivity && !missingPlayed && targets.length > 0 && body.trim().length >= 5 && body.length <= bodyMax;
 
   const send = async () => {
     const ok = await swalConfirm(
@@ -288,9 +295,9 @@ export default function BroadcastTab({ apiFetch }: { apiFetch: Fetcher }) {
     if (!ok) return;
     setSending(true);
     try {
-      const r = await apiFetch('/api/whatsapp/open-window-broadcast', { method: 'POST', body: JSON.stringify({ body, filter, channel, lineFilter: line || undefined, lineSince: since || undefined, activityId, templateId: currentTpl && !tplDirty ? currentTpl.id : null, excludeBroadcastIds: exB, excludeIds: Array.from(excluded), appendOptout: footer, imageUrl: img?.kind === 'image' ? img.url : null, videoUrl: img?.kind === 'video' ? img.url : null }) });
+      const r = await apiFetch('/api/whatsapp/open-window-broadcast', { method: 'POST', body: JSON.stringify({ body, filter, channel, lineFilter: line || undefined, lineSince: since || undefined, activityId, ...(filter === 'played' ? { playedActivityIds: playedIds, playedNotBooked: playedNotBooked && !!activityId } : {}), templateId: currentTpl && !tplDirty ? currentTpl.id : null, excludeBroadcastIds: exB, excludeIds: Array.from(excluded), appendOptout: footer, imageUrl: img?.kind === 'image' ? img.url : null, videoUrl: img?.kind === 'video' ? img.url : null }) });
       swalToast(`بدأ البثّ إلى ${r.total}`, 'success');
-      setBody(''); setTplId(null); setExcluded(new Set()); setExB([]); setImg(null); setTested(null);
+      setBody(''); setTplId(null); setExcluded(new Set()); setExB([]); setImg(null); setTested(null); setPlayedIds([]);
       await load(); loadTpls();
     } catch (e: any) {
       if (e.code === 'TEST_REQUIRED') setTested(null);   // انتهت صلاحيّة الاختبار أو تغيّر المحتوى عند الخادم
@@ -446,7 +453,27 @@ export default function BroadcastTab({ apiFetch }: { apiFetch: Fetcher }) {
                   className={`px-3 py-1.5 rounded-xl text-xs font-bold border ${filter === f.key ? 'bg-amber-500/10 text-amber-400 border-amber-500/40' : 'border-gray-800 text-gray-400 hover:text-white'}`}>{f.label}</button>
               ))}
             </div>
-            {(needsActivity || ACT_VARS.test(body)) && (
+            {filter === 'played' && (
+              <div className="space-y-2">
+                <PlayedActivityPicker apiFetch={apiFetch} value={playedIds} onChange={ids => { setPlayedIds(ids); setExcluded(new Set()); }} />
+                {/* الفعاليّة القادمة: لمتغيّرات النصّ، وشرط «لم يحجزوا فيها بعد» */}
+                <div className="rounded-xl border border-gray-800 bg-gray-950/60 p-3 space-y-2">
+                  <div className="text-xs font-bold text-gray-300">الفعاليّة القادمة التي تدعوهم إليها <span className="font-normal text-gray-500">(اختياريّ)</span></div>
+                  <select value={activityId ?? ''} onChange={e => { setActivityId(e.target.value ? Number(e.target.value) : null); setExcluded(new Set()); }}
+                    className="w-full bg-gray-950 border border-gray-800 rounded-xl px-3 py-2 text-sm text-white">
+                    <option value="">— بلا فعاليّة قادمة —</option>
+                    {activities.map(a => <option key={a.id} value={a.id}>{a.name} · {fmt(a.date)}</option>)}
+                  </select>
+                  {activityId && (
+                    <label className="flex items-center gap-2 min-h-[40px] text-[12.5px] text-gray-300 cursor-pointer">
+                      <input type="checkbox" checked={playedNotBooked} onChange={e => { setPlayedNotBooked(e.target.checked); setExcluded(new Set()); }} className="w-4 h-4 accent-amber-500" />
+                      فقط من <b className="text-white">لم يحجز بعد</b> في «{act?.name}»
+                    </label>
+                  )}
+                </div>
+              </div>
+            )}
+            {filter !== 'played' && (needsActivity || ACT_VARS.test(body)) && (
               <select value={activityId ?? ''} onChange={e => { setActivityId(e.target.value ? Number(e.target.value) : null); setExcluded(new Set()); }}
                 className="w-full bg-gray-950 border border-gray-800 rounded-xl px-3 py-2 text-sm text-white">
                 <option value="">— اختر الفعاليّة —</option>
@@ -549,6 +576,7 @@ export default function BroadcastTab({ apiFetch }: { apiFetch: Fetcher }) {
             )}
 
             {missingActivity && <p className="text-xs text-amber-300 font-bold">اختر الفعاليّة أوّلاً.</p>}
+            {missingPlayed && <p className="text-xs text-amber-300 font-bold">اختر فعاليّةً سابقة واحدة على الأقلّ.</p>}
 
             {/* ── 🧪 الاختبار الإلزاميّ: من رقم الأعمال إلى الإداريّين ── */}
             <div className={`rounded-xl border p-3 space-y-2 ${testedOk ? 'border-emerald-500/30 bg-emerald-500/5' : 'border-sky-500/30 bg-sky-500/5'}`}>

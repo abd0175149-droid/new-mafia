@@ -722,8 +722,20 @@ router.get('/open-window-broadcast/audience', authenticate, adminOnly, async (re
   try {
     const B = await import('../services/whatsapp-broadcast.service.js');
     const ch = ['cloud', 'web'].includes(String(req.query.channel)) ? (String(req.query.channel) as any) : 'all';
-    const aud = await B.previewAudience({ filter: String(req.query.filter || 'all') as any, activityId: req.query.activityId ? Number(req.query.activityId) : null, excludeBroadcastIds: String(req.query.excludeBroadcasts || '').split(',').map(Number).filter(Boolean), channel: ch, lineFilter: ['all','warm','two_way'].includes(String(req.query.line)) ? req.query.line as any : undefined, lineSince: req.query.lineSince ? String(req.query.lineSince) : null });
+    const aud = await B.previewAudience({ filter: String(req.query.filter || 'all') as any, activityId: req.query.activityId ? Number(req.query.activityId) : null, playedActivityIds: String(req.query.played || '').split(',').map(Number).filter(Boolean), playedNotBooked: req.query.notBooked === '1', excludeBroadcastIds: String(req.query.excludeBroadcasts || '').split(',').map(Number).filter(Boolean), channel: ch, lineFilter: ['all','warm','two_way'].includes(String(req.query.line)) ? req.query.line as any : undefined, lineSince: req.query.lineSince ? String(req.query.lineSince) : null });
     res.json({ ...aud, status: await B.broadcastStatus(), history: await B.listBroadcasts(15), activities: await B.upcomingActivities() });
+  } catch (e: any) { res.status(500).json({ error: e.message }); }
+});
+// 🗂️ منتقي «لعبوا معنا»: الفعاليّات السابقة بصفحات + بحث + تصفية بالمكان (?q&location&before&ids=1,2)
+router.get('/open-window-broadcast/past-activities', authenticate, adminOnly, async (req: Request, res: Response) => {
+  try {
+    const B = await import('../services/whatsapp-broadcast.service.js');
+    res.json({ success: true, ...(await B.pastActivities({
+      q: req.query.q ? String(req.query.q) : '',
+      locationId: req.query.location ? Number(req.query.location) : null,
+      before: req.query.before ? String(req.query.before) : null,
+      ids: String(req.query.ids || '').split(',').map(Number).filter(Boolean),
+    })) });
   } catch (e: any) { res.status(500).json({ error: e.message }); }
 });
 // 📡 البثوث الجارية: يُرسل أم متوقّف ولماذا، وآخر رسالةٍ خرجت ومتى يستأنف
@@ -770,9 +782,9 @@ router.post('/open-window-broadcast', authenticate, adminOnly, async (req: Reque
   try {
     const B = await import('../services/whatsapp-broadcast.service.js');
     const u: any = (req as any).user;
-    const r = await B.startBroadcast({ body: req.body?.body, imageUrl: req.body?.imageUrl ?? null, videoUrl: req.body?.videoUrl ?? null, filter: req.body?.filter || 'all', activityId: req.body?.activityId ?? null, excludeIds: Array.isArray(req.body?.excludeIds) ? req.body.excludeIds : [], templateId: req.body?.templateId ? Number(req.body.templateId) : null, excludeBroadcastIds: Array.isArray(req.body?.excludeBroadcastIds) ? req.body.excludeBroadcastIds.map(Number) : [], appendOptout: req.body?.appendOptout !== false, channel: ['cloud', 'web'].includes(req.body?.channel) ? req.body.channel : 'all', lineFilter: ['all','warm','two_way'].includes(String(req.body?.lineFilter)) ? req.body.lineFilter : undefined, lineSince: req.body?.lineSince ? String(req.body.lineSince) : null, createdBy: u?.displayName || u?.username || '' });
+    const r = await B.startBroadcast({ body: req.body?.body, imageUrl: req.body?.imageUrl ?? null, videoUrl: req.body?.videoUrl ?? null, filter: req.body?.filter || 'all', activityId: req.body?.activityId ?? null, playedActivityIds: Array.isArray(req.body?.playedActivityIds) ? req.body.playedActivityIds.map(Number) : [], playedNotBooked: req.body?.playedNotBooked === true, excludeIds: Array.isArray(req.body?.excludeIds) ? req.body.excludeIds : [], templateId: req.body?.templateId ? Number(req.body.templateId) : null, excludeBroadcastIds: Array.isArray(req.body?.excludeBroadcastIds) ? req.body.excludeBroadcastIds.map(Number) : [], appendOptout: req.body?.appendOptout !== false, channel: ['cloud', 'web'].includes(req.body?.channel) ? req.body.channel : 'all', lineFilter: ['all','warm','two_way'].includes(String(req.body?.lineFilter)) ? req.body.lineFilter : undefined, lineSince: req.body?.lineSince ? String(req.body.lineSince) : null, createdBy: u?.displayName || u?.username || '' });
     if (!r.ok) return res.status(400).json({ error: r.error, code: r.code });
-    try { const { logStaffAction } = await import('../services/staff-action-log.service.js'); void logStaffAction({ staffId: u?.id, staffUsername: u?.username, staffRole: u?.role, source: 'rest', action: 'rest:wa-broadcast', category: 'WHATSAPP_ADMIN', labelAr: 'بثّ واتساب للنوافذ المفتوحة', details: { broadcastId: r.id, targets: r.total, filter: req.body?.filter || 'all', body: String(req.body?.body || '').slice(0, 200) } }); } catch { /* غير حاجب */ }
+    try { const { logStaffAction } = await import('../services/staff-action-log.service.js'); void logStaffAction({ staffId: u?.id, staffUsername: u?.username, staffRole: u?.role, source: 'rest', action: 'rest:wa-broadcast', category: 'WHATSAPP_ADMIN', labelAr: 'بثّ واتساب للنوافذ المفتوحة', details: { broadcastId: r.id, targets: r.total, filter: req.body?.filter || 'all', playedActivityIds: req.body?.playedActivityIds || undefined, activityId: req.body?.activityId ?? undefined, body: String(req.body?.body || '').slice(0, 200) } }); } catch { /* غير حاجب */ }
     res.json({ success: true, id: r.id, total: r.total });
   } catch (e: any) { res.status(500).json({ error: e.message }); }
 });

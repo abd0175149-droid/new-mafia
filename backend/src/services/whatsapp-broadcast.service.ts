@@ -36,10 +36,44 @@ const WINDOW_MARGIN = "23 hours 45 minutes";
 const OPTOUT_FOOTER = '\n\n— لإيقاف هذه الرسائل أرسل: إيقاف';
 const RANK_AR: Record<string, string> = { INFORMANT: 'مُخبر', SOLDIER: 'جندي', CAPO: 'كابو', UNDERBOSS: 'ساعد الزعيم', GODFATHER: 'العرّاب' };
 
-export type AudienceFilter = 'all' | 'players' | 'visitors' | 'booked_upcoming' | 'activity' | 'not_booked_activity';
+export type AudienceFilter = 'all' | 'players' | 'visitors' | 'booked_upcoming' | 'activity' | 'not_booked_activity' | 'played';
 export interface AudienceQuery { filter: AudienceFilter; activityId?: number | null; excludeIds?: number[]; excludeBroadcastIds?: number[]; channel?: 'all' | Channel; lineFilter?: LineFilter;
+  /** 🎲 «لعبوا معنا»: لعب في **أيٍّ** من هذه الفعاليّات السابقة */
+  playedActivityIds?: number[] | null;
+  /** مع «لعبوا معنا» وactivityId: ولم يحجز بعد في تلك الفعاليّة. بلا العلم تبقى activityId لمتغيّرات النصّ وحدها */
+  playedNotBooked?: boolean;
   /** مع «راسلَنا» وحده: أيّامٌ («30») أو تاريخ («2026-10-01») — انظر lineSinceSql */
   lineSince?: string | null }
+
+export const PLAYED_MAX_ACTIVITIES = 60;
+
+/** معرّفات فعاليّاتٍ صالحة للبثّ عنها: أعدادٌ صحيحة، بلا تكرار، وبلا موقع اختبار */
+async function cleanPlayedIds(db: any, ids: unknown): Promise<number[]> {
+  const raw = Array.isArray(ids) ? ids : [];
+  const nums = Array.from(new Set(raw.map(Number).filter(n => Number.isInteger(n) && n > 0))).slice(0, PLAYED_MAX_ACTIVITIES);
+  if (!nums.length) return [];
+  const r: any = await db.execute(sql`SELECT a.id FROM activities a
+     WHERE a.id = ANY(${`{${nums.join(',')}}`}::int[]) AND a.deleted_at IS NULL AND ${sql.raw(notTestActivitySql('a'))}`);
+  const ok = new Set(rowsOf(r).map((x: any) => Number(x.id)));
+  return nums.filter(n => ok.has(n));
+}
+
+/**
+ * 🎲 «لعب» في أيٍّ من الفعاليّات — التعريف نفسه في الفاتورة والحدّ الأدنى (fnb-invoice PLAYED_ROWS):
+ * جلس في لعبةٍ بدأت (match_participants، منذ 2026-10-30) أو احتُسبت له مباراة (match_players — الأقدم).
+ * الهويّة بالحساب: حساب المحادثة نفسه، أو حسابٌ هاتفه هاتف المحادثة (محادثةٌ لم تُربط بحسابها بعد).
+ */
+const playedAnySql = (ids: number[]) => {
+  const lit = `{${ids.join(',')}}`;
+  return sql`EXISTS (SELECT 1 FROM players pp
+      WHERE (pp.id = c.player_id OR pp.phone = c.phone)
+        AND (EXISTS (SELECT 1 FROM match_participants mpt WHERE mpt.player_id = pp.id AND mpt.activity_id = ANY(${lit}::int[]))
+          OR EXISTS (SELECT 1 FROM match_players mp JOIN matches m ON m.id = mp.match_id JOIN sessions s ON s.id = m.session_id
+                      WHERE mp.player_id = pp.id AND s.activity_id = ANY(${lit}::int[]))))`;
+};
+
+/** لم يحجز بعد في فعاليّة — لا في الحجوزات (عدا الملغاة) ولا في حجوزات التطبيق، بالرقم أو بحساب اللاعب */
+const notBookedSql = (activityId: number) => sql`NOT EXISTS (SELECT 1 FROM reservations r WHERE r.deleted_at IS NULL AND r.activity_id = ${activityId} AND COALESCE(r.status, '') <> 'cancelled' AND (r.phone = c.phone OR (c.player_id IS NOT NULL AND r.player_id = c.player_id))) AND NOT EXISTS (SELECT 1 FROM bookings b WHERE b.deleted_at IS NULL AND b.activity_id = ${activityId} AND (b.phone = c.phone OR (c.player_id IS NOT NULL AND b.player_id = c.player_id)))`;
 
 const stopFlags = new Set<number>();
 let running: number | null = null;
@@ -49,6 +83,7 @@ export async function previewAudience(q: AudienceQuery) {
   // 🧪 موقع اختبار: فعاليّةٌ هناك بلا جمهور — لا معاينة ولا بثّ
   if (q.activityId && await isTestActivity(db, q.activityId)) return { total: 0, rows: [] as any[], capped: false };
   const f = q.filter || 'all';
+  const playedIds = f === 'played' ? await cleanPlayedIds(db, q.playedActivityIds) : [];
   // 📇 فلتر خطّ الأعمال: على من يخرج عبر رقم الأعمال وحده (ميتا لها نافذتها). all ⟵ بلا قيد
   // 🔴 كان الإعفاء بقناة آخر وارد (c.channel = 'cloud') لا بالقناة التي سيخرج منها فعلاً: في «مزدوج»
   //    من آخر وارده على ميتا ونافذته مغلقة يخرج عبر رقم الأعمال — فكان يمرّ بلا فلتر (٧٩٦ بدل من راسلَنا).
@@ -62,8 +97,12 @@ export async function previewAudience(q: AudienceQuery) {
     : f === 'booked_upcoming' ? sql`AND (EXISTS (SELECT 1 FROM reservations r JOIN activities a ON a.id = r.activity_id WHERE r.deleted_at IS NULL AND a.date > NOW() AND ${sql.raw(notTestActivitySql('a'))} AND (r.phone = c.phone OR (c.player_id IS NOT NULL AND r.player_id = c.player_id))) OR EXISTS (SELECT 1 FROM bookings b JOIN activities a ON a.id = b.activity_id WHERE b.deleted_at IS NULL AND a.date > NOW() AND ${sql.raw(notTestActivitySql('a'))} AND (b.phone = c.phone OR (c.player_id IS NOT NULL AND b.player_id = c.player_id))))`
     : f === 'activity' && q.activityId ? sql`AND (EXISTS (SELECT 1 FROM reservations r WHERE r.deleted_at IS NULL AND r.activity_id = ${Number(q.activityId)} AND (r.phone = c.phone OR (c.player_id IS NOT NULL AND r.player_id = c.player_id))) OR EXISTS (SELECT 1 FROM bookings b WHERE b.deleted_at IS NULL AND b.activity_id = ${Number(q.activityId)} AND (b.phone = c.phone OR (c.player_id IS NOT NULL AND b.player_id = c.player_id))))`
     // من نافذته مفتوحة ولم يحجز بعد في فعاليّة بعينها — لا في الحجوزات ولا في حجوزات التطبيق، بالرقم أو بحساب اللاعب
-    : f === 'not_booked_activity' && q.activityId ? sql`AND NOT EXISTS (SELECT 1 FROM reservations r WHERE r.deleted_at IS NULL AND r.activity_id = ${Number(q.activityId)} AND COALESCE(r.status, '') <> 'cancelled' AND (r.phone = c.phone OR (c.player_id IS NOT NULL AND r.player_id = c.player_id))) AND NOT EXISTS (SELECT 1 FROM bookings b WHERE b.deleted_at IS NULL AND b.activity_id = ${Number(q.activityId)} AND (b.phone = c.phone OR (c.player_id IS NOT NULL AND b.player_id = c.player_id)))`
-    : (f === 'activity' || f === 'not_booked_activity') ? sql`AND false`   // فلتر فعاليّة بلا فعاليّة مختارة ⟵ لا أحد (لا «الكلّ» بالخطأ)
+    : f === 'not_booked_activity' && q.activityId ? sql`AND ${notBookedSql(Number(q.activityId))}`
+    // 🎲 لعب معنا في أيٍّ من الفعاليّات المختارة — ومع فعاليّةٍ قادمة: ولم يحجز فيها بعد
+    : f === 'played' && playedIds.length ? (q.activityId && q.playedNotBooked === true
+        ? sql`AND ${playedAnySql(playedIds)} AND ${notBookedSql(Number(q.activityId))}`
+        : sql`AND ${playedAnySql(playedIds)}`)
+    : (f === 'activity' || f === 'not_booked_activity' || f === 'played') ? sql`AND false`   // فلتر فعاليّة بلا فعاليّة مختارة ⟵ لا أحد (لا «الكلّ» بالخطأ)
     : sql``;
   // استثناء من وصلهم بثّ سابق: من جدول المستلمين، ومن رسائل البثّ ضمن زمن ذلك البثّ (للبثوث الأقدم من الجدول)
   const exB = (q.excludeBroadcastIds || []).map(Number).filter(n => Number.isInteger(n) && n > 0).slice(0, 10);
@@ -312,7 +351,8 @@ export async function startBroadcast(input: AudienceQuery & { body: string; crea
     }
   }
   // الوسيط يُسجَّل سطراً أوّلَ في النصّ المحفوظ (🖼️ صورة · 🎬 فيديو) ويُفصل عند العرض
-  const [row] = await db.insert(waBroadcasts).values({ body: imgRel ? `🖼️ ${imgRel}\n${body}` : vidRel ? `🎬 ${vidRel}\n${body}` : body, templateId: input.templateId || null, totalTargets: targets.length, status: 'running', createdBy: input.createdBy, origin: 'inbox', lane: 'bulk' } as any).returning();
+  const audienceLabel = input.filter === 'played' ? await playedLabel(db, input.playedActivityIds, input.playedNotBooked === true ? input.activityId : null) : '';
+  const [row] = await db.insert(waBroadcasts).values({ body: imgRel ? `🖼️ ${imgRel}\n${body}` : vidRel ? `🎬 ${vidRel}\n${body}` : body, templateId: input.templateId || null, totalTargets: targets.length, status: 'running', createdBy: input.createdBy, origin: 'inbox', lane: 'bulk', audienceLabel } as any).returning();
   if (input.templateId) await db.update(waMessageTemplates).set({ usedCount: sql`COALESCE(${waMessageTemplates.usedCount}, 0) + 1` } as any).where(eq(waMessageTemplates.id, Number(input.templateId))).catch(() => {});
   running = row.id;
   const withFooter = input.appendOptout !== false;
@@ -361,6 +401,75 @@ export function fmtWhen(d: any): string {
   const day = dt.toLocaleDateString('ar-JO', { weekday: 'long', day: 'numeric', month: 'long', timeZone: 'Asia/Amman', numberingSystem: 'latn' } as any);
   const tm = dt.toLocaleTimeString('ar-JO', { hour: 'numeric', minute: '2-digit', timeZone: 'Asia/Amman', numberingSystem: 'latn' } as any);
   return `${day} · ${tm}`;
+}
+
+/** وصفٌ مقروء لجمهور «لعبوا معنا» يُحفظ مع البثّ فيُفهم من السجلّ لمن ذهب */
+async function playedLabel(db: any, ids: unknown, notBookedId?: number | null): Promise<string> {
+  const clean = await cleanPlayedIds(db, ids);
+  if (!clean.length) return '';
+  const r: any = await db.execute(sql`SELECT id, name FROM activities WHERE id = ANY(${`{${clean.join(',')}}`}::int[]) ORDER BY date DESC`);
+  const names = rowsOf(r).map((x: any) => String(x.name || `#${x.id}`));
+  let label = `لعبوا في: ${names.slice(0, 4).join('، ')}${names.length > 4 ? ` و${names.length - 4} أخرى` : ''}`;
+  if (notBookedId) {
+    const n: any = await db.execute(sql`SELECT name FROM activities WHERE id = ${Number(notBookedId)} LIMIT 1`);
+    const nm = rowsOf(n)[0]?.name;
+    if (nm) label += ` · ولم يحجزوا في: ${nm}`;
+  }
+  return label.slice(0, 300);
+}
+
+/**
+ * 🗂️ الفعاليّات السابقة لمنتقي «لعبوا معنا» — الأحدث أوّلاً بصفحات (المؤشّر = تاريخ آخر صفّ)،
+ * مع عدد من لعب فيها، وبحثٌ بالاسم أو المكان، وتصفيةٌ بالمكان. الفعاليّة بلا لاعبين لا تُعرض
+ * (ملغاة أو لم تُلعب): لا جمهور وراءها. والمعرّفات المطلوبة (`ids`) تُعاد دائماً كي تبقى رقاقات
+ * المختار مقروءةً ولو لم تكن في الصفحة الحاليّة.
+ */
+export async function pastActivities(opts: { q?: string; locationId?: number | null; before?: string | null; limit?: number; ids?: number[] }) {
+  const db = getDB(); if (!db) return { activities: [], locations: [], hasMore: false };
+  const limit = Math.min(Math.max(Number(opts.limit) || 30, 5), 60);
+  const q = String(opts.q || '').trim().slice(0, 60);
+  const loc = Number(opts.locationId) > 0 ? Number(opts.locationId) : null;
+  const before = opts.before && !Number.isNaN(Date.parse(opts.before)) ? new Date(opts.before).toISOString() : null;
+  const ids = (opts.ids || []).map(Number).filter(n => Number.isInteger(n) && n > 0).slice(0, PLAYED_MAX_ACTIVITIES);
+  const idsLit = `{${ids.join(',')}}`;
+  const played = sql`(SELECT COUNT(*) FROM (
+        SELECT mpt.player_id FROM match_participants mpt WHERE mpt.activity_id = a.id
+        UNION
+        SELECT mp.player_id FROM match_players mp JOIN matches m ON m.id = mp.match_id JOIN sessions s ON s.id = m.session_id
+         WHERE s.activity_id = a.id AND mp.player_id IS NOT NULL) x)`;
+  const page: any = await db.execute(sql`
+    SELECT * FROM (
+      SELECT a.id, a.name, a.date, a.location_id, l.name AS venue, ${played}::int AS played
+        FROM activities a LEFT JOIN locations l ON l.id = a.location_id
+       WHERE a.deleted_at IS NULL AND a.date < NOW()
+         AND ${sql.raw(notTestLocationSql('l'))}
+         ${loc ? sql`AND a.location_id = ${loc}` : sql``}
+         ${before ? sql`AND a.date < ${before}::timestamptz` : sql``}
+         ${q ? sql`AND (a.name ILIKE ${'%' + q + '%'} OR l.name ILIKE ${'%' + q + '%'})` : sql``}
+       ORDER BY a.date DESC LIMIT ${limit * 3}
+    ) t WHERE t.played > 0 ORDER BY t.date DESC LIMIT ${limit + 1}`);
+  const rows = rowsOf(page);
+  const hasMore = rows.length > limit;
+  const map = (x: any) => ({ id: Number(x.id), name: x.name, date: x.date, venue: x.venue || '', locationId: x.location_id ? Number(x.location_id) : null, played: Number(x.played) || 0 });
+  const list = rows.slice(0, limit).map(map);
+  // المختار خارج الصفحة — بلا شروط البحث كي لا تختفي رقاقته
+  let selected: any[] = [];
+  if (ids.length) {
+    const s2: any = await db.execute(sql`SELECT a.id, a.name, a.date, a.location_id, l.name AS venue, ${played}::int AS played
+        FROM activities a LEFT JOIN locations l ON l.id = a.location_id WHERE a.id = ANY(${idsLit}::int[])`);
+    selected = rowsOf(s2).map(map);
+  }
+  // أماكن لها فعاليّاتٌ سابقة — للتصفية السريعة (الأكثر فعاليّاتٍ أوّلاً)
+  const locs: any = await db.execute(sql`SELECT l.id, l.name, COUNT(*)::int AS n FROM activities a JOIN locations l ON l.id = a.location_id
+      WHERE a.deleted_at IS NULL AND a.date < NOW() AND ${sql.raw(notTestLocationSql('l'))}
+      GROUP BY l.id, l.name ORDER BY n DESC, l.name LIMIT 20`);
+  return {
+    activities: list,
+    selected,
+    locations: rowsOf(locs).map((x: any) => ({ id: Number(x.id), name: x.name, count: Number(x.n) })),
+    hasMore,
+    nextBefore: hasMore && list.length ? new Date(list[list.length - 1].date).toISOString() : null,
+  };
 }
 
 export async function upcomingActivities() {
