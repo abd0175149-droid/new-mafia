@@ -360,10 +360,10 @@ export default function BroadcastTab({ apiFetch }: { apiFetch: Fetcher }) {
   const scrollFlowTop = () => setTimeout(() => requestAnimationFrame(() => {
     const el = rootRef.current;
     if (!el) return;
-    if (getComputedStyle(el).overflowY !== 'visible' && el.scrollHeight > el.clientHeight + 1) { el.scrollTo({ top: 0, behavior: 'smooth' }); return; }
+    if (getComputedStyle(el).overflowY !== 'visible' && el.scrollHeight > el.clientHeight + 1) { el.scrollTo({ top: 0 }); return; }
     const anchor = stepAnchorRef.current || el;
     const top = anchor.getBoundingClientRect().top + window.scrollY - (window.innerWidth < 768 ? 64 : 0);
-    window.scrollTo({ top: Math.max(0, top), behavior: 'smooth' });
+    window.scrollTo({ top: Math.max(0, top) });   // فوريّ: تبديل خطوة لا تنقّلٌ داخلها
   }), 0);
   const go = (s: Step) => {
     if (!canReach(s)) return;
