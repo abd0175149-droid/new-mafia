@@ -360,10 +360,11 @@ export default function BroadcastTab({ apiFetch }: { apiFetch: Fetcher }) {
   const scrollFlowTop = () => setTimeout(() => requestAnimationFrame(() => {
     const el = rootRef.current;
     if (!el) return;
-    if (getComputedStyle(el).overflowY !== 'visible' && el.scrollHeight > el.clientHeight + 1) { el.scrollTo({ top: 0 }); return; }
+    if (getComputedStyle(el).overflowY !== 'visible' && el.scrollHeight > el.clientHeight + 1) { el.scrollTo({ top: 0, behavior: 'instant' as ScrollBehavior }); return; }
     const anchor = stepAnchorRef.current || el;
     const top = anchor.getBoundingClientRect().top + window.scrollY - (window.innerWidth < 768 ? 64 : 0);
-    window.scrollTo({ top: Math.max(0, top) });   // فوريّ: تبديل خطوة لا تنقّلٌ داخلها
+    // 'instant' صراحةً: الموقع يضبط scroll-behavior: smooth على html، والتمرير الناعم يُلغى مع إعادة الرسم
+    window.scrollTo({ top: Math.max(0, top), behavior: 'instant' as ScrollBehavior });
   }), 0);
   const go = (s: Step) => {
     if (!canReach(s)) return;
