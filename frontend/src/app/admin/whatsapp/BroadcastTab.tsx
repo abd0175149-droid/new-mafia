@@ -356,14 +356,15 @@ export default function BroadcastTab({ apiFetch }: { apiFetch: Fetcher }) {
   const messageOk = body.trim().length >= 5 && body.length <= bodyMax && !imgBusy && !(actVarsUsed && !activityId);
   const canReach = (s: Step) => s === 1 || (s === 2 ? audienceOk : audienceOk && messageOk);
   // أعلى الرحلة: على الحاسوب يتمرّر صندوق التبويب، وعلى الهاتف النافذة نفسها (تحت شريط الإدارة الثابت)
-  const scrollFlowTop = () => requestAnimationFrame(() => {
+  // بعد أن تُرسم الخطوة الجديدة (قد تكون أقصر) — وإلّا حُسب الموضع على الخطوة القديمة
+  const scrollFlowTop = () => setTimeout(() => requestAnimationFrame(() => {
     const el = rootRef.current;
     if (!el) return;
     if (getComputedStyle(el).overflowY !== 'visible' && el.scrollHeight > el.clientHeight + 1) { el.scrollTo({ top: 0, behavior: 'smooth' }); return; }
     const anchor = stepAnchorRef.current || el;
     const top = anchor.getBoundingClientRect().top + window.scrollY - (window.innerWidth < 768 ? 64 : 0);
     window.scrollTo({ top: Math.max(0, top), behavior: 'smooth' });
-  });
+  }), 0);
   const go = (s: Step) => {
     if (!canReach(s)) return;
     setStep(s);
