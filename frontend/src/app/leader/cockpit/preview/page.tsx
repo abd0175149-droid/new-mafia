@@ -51,7 +51,8 @@ function CockpitPreview() {
   const sp = useSearchParams();
   const phase = sp.get('phase') || 'LOBBY';
   const one = sp.get('one');
-  const [gs, setGs] = useState<any>(() => fixture(phase));
+  // حالةٌ حقيقيّة تُحقن للفحص (Playwright: window.__COCKPIT_STATE__) — وإلّا البيانات الافتراضيّة
+  const [gs, setGs] = useState<any>(() => (typeof window !== 'undefined' && (window as any).__COCKPIT_STATE__) || fixture(phase));
   const [failed, setFailed] = useState<string | null>(null);
   const emit = async (_e: string, _d: any) => ({ success: true });
   const on = () => () => {};
