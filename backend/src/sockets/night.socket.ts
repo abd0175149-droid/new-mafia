@@ -29,6 +29,9 @@ import { emitStateSanitized, emitPhaseChangedSanitized, emitLeaderOnly, emitMorn
 import { emitGameOver } from './broadcast.util.js';
 import { addPhoneHold, armPhoneHolds, flushPhoneHolds, dropPhoneHolds, HOLD_MS } from './phone-hold.js';
 import { publicTeamCounts, seatsRevealedBy } from '../game/public-counts.js';
+import {
+  initAssassinStates, assassinRecipients, assassinContractsPayload, anyAssassinWon, markAssassinFirstNightPassed,
+} from '../game/assassin-engine.js';
 
 // ── ترتيب الطابور الإجباري (حسب الإجراء وليس الدور) ──
 // الخانة 0: اغتيال (وراثة: شيخ → حرباية → قص → مافيا عادي)
@@ -153,6 +156,13 @@ function findPlayerSocket(io: Server, roomId: string, physicalId: number) {
       }
     }
   };
+}
+
+// ── 🔪🔪 عقودُ كلّ سفّاحٍ إلى هاتفه — المتنافسُ عقودُه، والشريكُ العقودُ المشتركة ──
+function emitAssassinContracts(io: Server, roomId: string, state: any, extra?: Record<string, unknown>) {
+  for (const { seat, state: a } of assassinRecipients(state)) {
+    findPlayerSocket(io, roomId, seat).emit('assassin:contracts-update', assassinContractsPayload(a, extra));
+  }
 }
 
 // ── إيجاد socket الليدر ──
@@ -565,22 +575,37 @@ export function registerNightEvents(io: Server, socket: Socket) {
       const state = await resetNightActions(data.roomId);
       // 🔪 عقودُ السفّاح كما يعرفها الآن — تُعرض له حتّى نهاية ملخّص الصباح: عقدٌ يتجدّد عند
       //    الحسم يعني أنّ هدفاً مات، قبل أن تُعرض أحداثُ الليل على الشاشة
+      //    🔪🔪 لقطةٌ لكلّ مقعدِ سفّاح (المتنافسون لكلٍّ عقودُه) — `{ [seat]: snapshot }`
       if (state.assassinState) {
-        (state as any).assassinShownContracts = JSON.parse(JSON.stringify({
-          contracts: state.assassinState.contracts,
-          completedCount: state.assassinState.completedCount,
-          totalRequired: state.assassinState.totalRequired,
-        }));
+        const shown: Record<number, any> = {};
+        for (const { seat, state: a } of assassinRecipients(state)) {
+          shown[seat] = JSON.parse(JSON.stringify({
+            contracts: a.contracts,
+            completedCount: a.completedCount,
+            totalRequired: a.totalRequired,
+            ...(a.memberSeats && a.memberSeats.length > 1 ? { partnerSeats: a.memberSeats } : {}),
+          }));
+        }
+        (state as any).assassinShownContracts = shown;
         await setGameState(data.roomId, state);
       }
       // تصفير خطوة الليل السابقة
       state.currentNightStep = null;
       state.nightComplete = false;
 
+      // 🃏 كرتٌ مكرَّر ⇒ الوضعُ الآليّ مقفل (محرّكُه يعطي كلَّ دورٍ خطوةً واحدة فتصير النسخةُ
+      //    الثانية طُعماً بلا أثر). الاعتمادُ يحوّله يدويّاً أصلاً — وهذا حارسٌ لحالةٍ أقدم منه.
+      if (state.config.duplicateRoles && state.config.nightMode === 'auto' && !state.config.isRemote) {
+        state.config.nightMode = 'manual';
+        await setGameState(data.roomId, state);
+        console.log(`🃏 [night:start] duplicate roles — auto night locked, switched to manual (room ${data.roomId})`);
+      }
+
       // ── فحص: هل الطبيب ميت والممرضة حية؟ ──
-      const doctor = state.players.find((p: any) => p.role === Role.DOCTOR);
+      // 🃏 بطبيبين: الممرّضةُ تصحو حين يموت **كلُّ** طبيب، لا أوّلُهما
+      const doctors = state.players.filter((p: any) => p.role === Role.DOCTOR);
       const nurse = state.players.find((p: any) => p.role === Role.NURSE && p.isAlive);
-      const nurseAvailable = doctor && !doctor.isAlive && !!nurse;
+      const nurseAvailable = doctors.length > 0 && doctors.every((d: any) => !d.isAlive) && !!nurse;
 
       // ═══════════════════════════════════════
       // 🔀 AUTO MODE
@@ -616,36 +641,14 @@ export function registerNightEvents(io: Server, socket: Socket) {
         // 🔪 تهيئة حالة السفّاح (أول ليلة → تهيئة جديدة دائماً، حتى لو فيه بقايا من لعبة سابقة)
         const isFirstNight = state.round <= 1;
         if (!state.assassinState || isFirstNight) {
-          const { initAssassinState } = await import('../game/assassin-engine.js');
-          const assassinState = initAssassinState(state);
-          if (assassinState) {
-            state.assassinState = assassinState;
+          const inited = initAssassinStates(state);
+          if (inited.length) {
             await setGameState(data.roomId, state);
-            console.log(`🔪 [Auto] Assassin initialized: ${assassinState.totalRequired} contracts`);
-
-            // إرسال العقود للاعب السفّاح
-            const assassinSock = findPlayerSocket(io, data.roomId, assassinState.assassinPhysicalId);
-            if (assassinSock) {
-              assassinSock.emit('assassin:contracts-update', {
-                contracts: assassinState.contracts,
-                currentIndex: assassinState.currentContractIndex,
-                completedCount: assassinState.completedCount,
-                totalRequired: assassinState.totalRequired,
-              });
-            }
-          }
-        } else {
-          // 🔪 إرسال تحديث العقود كل ليلة (Auto Mode)
-          const assassinSock = findPlayerSocket(io, data.roomId, state.assassinState.assassinPhysicalId);
-          if (assassinSock) {
-            assassinSock.emit('assassin:contracts-update', {
-              contracts: state.assassinState.contracts,
-              currentIndex: state.assassinState.currentContractIndex,
-              completedCount: state.assassinState.completedCount,
-              totalRequired: state.assassinState.totalRequired,
-            });
+            console.log(`🔪 [Auto] Assassin initialized: ${inited.length} state(s), ${inited[0].totalRequired} contracts`);
           }
         }
+        // 🔪 العقودُ لكلّ سفّاح — أوّلَ ليلةٍ وكلَّ ليلة (Auto Mode)
+        emitAssassinContracts(io, data.roomId, state);
 
         // 👥 تهيئة حالة التوأمين (أول ليلة فقط)
         if (isFirstNight && !state.twinState) {
@@ -687,41 +690,13 @@ export function registerNightEvents(io: Server, socket: Socket) {
           // 🔪 تهيئة حالة السفّاح (أول ليلة → تهيئة جديدة دائماً)
           const isFirstNightDyn = state.round <= 1;
           if (!state.assassinState || isFirstNightDyn) {
-            const { initAssassinState } = await import('../game/assassin-engine.js');
-            const assassinState = initAssassinState(state);
-            if (assassinState) {
-              state.assassinState = assassinState;
-              console.log(`🔪 Assassin initialized: ${assassinState.totalRequired} contracts`);
-
-              // 🔪 إرسال العقود للاعب السفّاح
-              const allSockets = await io.in(data.roomId).fetchSockets();
-              for (const s of allSockets) {
-                if (s.data.role === 'player' && s.data.physicalId === assassinState.assassinPhysicalId) {
-                  s.emit('assassin:contracts-update', {
-                    contracts: assassinState.contracts,
-                    currentIndex: assassinState.currentContractIndex,
-                    completedCount: assassinState.completedCount,
-                    totalRequired: assassinState.totalRequired,
-                  });
-                  break;
-                }
-              }
-            }
-          } else {
-            // 🔪 إرسال تحديث العقود كل ليلة (ليس أول ليلة فقط)
-            const allSockets = await io.in(data.roomId).fetchSockets();
-            for (const s of allSockets) {
-              if (s.data.role === 'player' && s.data.physicalId === state.assassinState.assassinPhysicalId) {
-                s.emit('assassin:contracts-update', {
-                  contracts: state.assassinState.contracts,
-                  currentIndex: state.assassinState.currentContractIndex,
-                  completedCount: state.assassinState.completedCount,
-                  totalRequired: state.assassinState.totalRequired,
-                });
-                break;
-              }
+            const inited = initAssassinStates(state);
+            if (inited.length) {
+              console.log(`🔪 Assassin initialized: ${inited.length} state(s) (${state.config.assassinMode || 'RIVALS'}), ${inited[0].totalRequired} contracts`);
             }
           }
+          // 🔪 العقودُ لكلّ سفّاح — أوّلَ ليلةٍ وكلَّ ليلة (المتنافسون لكلٍّ عقودُه)
+          emitAssassinContracts(io, data.roomId, state);
 
           // 👥 تهيئة حالة التوأمين (أول ليلة فقط)
           if (isFirstNightDyn && !state.twinState) {
@@ -1193,9 +1168,8 @@ export function registerNightEvents(io: Server, socket: Socket) {
       const state = await getGameState(data.roomId);
       if (!state) return callback({ success: false, error: 'Room not found' });
 
-      // التحقق أن الطبيب ميت
-      const doctor = state.players.find((p: any) => p.role === Role.DOCTOR);
-      if (doctor && doctor.isAlive) {
+      // التحقق أن الطبيب ميت — 🃏 كلُّ طبيبٍ إن تكرّر الكرت
+      if (state.players.some((p: any) => p.role === Role.DOCTOR && p.isAlive)) {
         return callback({ success: false, error: 'الطبيب لا يزال حياً' });
       }
 
@@ -1252,8 +1226,8 @@ export function registerNightEvents(io: Server, socket: Socket) {
         const winResult = await checkWinConditionDynamic(state);
         let pendingWinner: string | null = null;
 
-        // 🔪 فحص فوز السفّاح (أكمل العقود)
-        if (state.assassinState?.won && !state.winner) {
+        // 🔪 فحص فوز السفّاح (أكمل العقود) — أيُّ سفّاحٍ أكمل عقودَه
+        if (anyAssassinWon(state) && !state.winner) {
           pendingWinner = 'ASSASSIN';
           state.winner = 'ASSASSIN';
           state.pendingWinner = 'ASSASSIN';
@@ -1265,9 +1239,7 @@ export function registerNightEvents(io: Server, socket: Socket) {
 
         // 🔪 تحديث firstNightPassed بعد أول ليلة
         if (state.assassinState) {
-          if (!state.assassinState.firstNightPassed) {
-            state.assassinState.firstNightPassed = true;
-          }
+          markAssassinFirstNightPassed(state);
           const { regenerateDeadContracts } = await import('../game/assassin-engine.js');
           const regen = regenerateDeadContracts(state);
           if (regen.changed) {
@@ -1549,12 +1521,7 @@ export function registerNightEvents(io: Server, socket: Socket) {
         // 🔪 عقودُ السفّاح الحقيقيّة تصل هاتفَه الآن (حُبست منذ بدء الليل)
         if ((state as any).assassinShownContracts) {
           delete (state as any).assassinShownContracts;
-          if (state.assassinState) findPlayerSocket(io, data.roomId, state.assassinState.assassinPhysicalId)?.emit('assassin:contracts-update', {
-            contracts: state.assassinState.contracts,
-            currentIndex: 0,
-            completedCount: state.assassinState.completedCount,
-            totalRequired: state.assassinState.totalRequired,
-          });
+          emitAssassinContracts(io, data.roomId, state, { currentIndex: 0 });
         }
         await setGameState(data.roomId, state);
 
@@ -1817,6 +1784,7 @@ export function registerNightEvents(io: Server, socket: Socket) {
       state.pendingWinner = null;
       state.performanceTracking = null;
       state.assassinState = null;
+      state.assassinRivals = null;         // 🔪🔪 السفّاحون المتنافسون
       state.twinState = null;              // 👥 تصفير حالة التوأمين
       state.luckyDraw = null;              // 🎁 تصفير سحب الهدايا
       state.voteHistory = null;            // 🗳️ سجلّ تصويت اللعبة المُعادة

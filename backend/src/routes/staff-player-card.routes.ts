@@ -15,6 +15,7 @@
 //    واحدٌ مناسب — وحجبُ الاستبيان سقط من السلسلة بقرار المالك.
 // ══════════════════════════════════════════════════════
 
+import { wonFromRow } from '../game/win-attribution.js';
 import { Router, Request, Response } from 'express';
 import { entryPriceSql } from '../services/early-price.service.js';
 import { sql } from 'drizzle-orm';
@@ -257,18 +258,14 @@ router.get(
       let lastMatches: Row[] = [];
       if (role !== 'accountant') {
         lastMatches = rows(await db.execute(sql`
-          SELECT mp.role, mp.survived_to_end, m.winner, m.created_at
+          SELECT mp.role, mp.survived_to_end, m.winner, mp.won, m.created_at
           FROM match_players mp JOIN matches m ON m.id = mp.match_id
           WHERE mp.player_id = ${playerId} AND m.winner IS NOT NULL
           ORDER BY mp.id DESC LIMIT 3
         `)).map(r => {
           const team = teamOfRole(r.role);
           // الفوزُ رباعيٌّ — انظر عقودَ البيانات
-          const won = r.winner === 'MAFIA' ? team === 'MAFIA'
-            : r.winner === 'CITIZEN' ? team === 'CITIZEN'
-            : r.winner === 'JESTER' ? r.role === 'JESTER'
-            : r.winner === 'ASSASSIN' ? r.role === 'ASSASSIN'
-            : false;
+          const won = wonFromRow({ role: r.role, winner: r.winner, won: r.won, team });
           return { role: r.role, team, won, survived: !!r.survived_to_end, at: r.created_at };
         });
       }
@@ -445,7 +442,7 @@ async function buildSection(db: any, key: string, id: number, p: Row, isAdmin: b
            WHERE b.player_id = ${id} AND b.deleted_at IS NULL) AS first_night
       `));
       const hist = rows(await db.execute(sql`
-        SELECT m.created_at::date AS d, mp.role, m.winner, mp.survived_to_end,
+        SELECT m.created_at::date AS d, mp.role, m.winner, mp.won, mp.survived_to_end,
                COALESCE(mp.penalty_count, 0)::int AS pen
         FROM match_players mp JOIN matches m ON m.id = mp.match_id
         WHERE mp.player_id = ${id} AND m.winner IS NOT NULL
@@ -458,10 +455,7 @@ async function buildSection(db: any, key: string, id: number, p: Row, isAdmin: b
         if (!n) { if (nights.length >= 3) continue; n = { date: d, matches: [] }; nights.push(n); }
         const team = teamOfRole(r.role);
         // الفوزُ رباعيٌّ — انظر عقودَ البيانات
-        const won = r.winner === 'MAFIA' ? team === 'MAFIA'
-          : r.winner === 'CITIZEN' ? team === 'CITIZEN'
-          : r.winner === 'JESTER' ? r.role === 'JESTER'
-          : r.winner === 'ASSASSIN' ? r.role === 'ASSASSIN' : false;
+        const won = wonFromRow({ role: r.role, winner: r.winner, won: r.won, team });
         n.matches.push({
           role: r.role, won, winner: r.winner,
           survived: !!r.survived_to_end, penalty: r.pen > 0,

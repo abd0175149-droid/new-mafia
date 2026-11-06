@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Role, ROLE_NAMES, ROLE_ICONS, MAFIA_ROLES, NEUTRAL_ROLES } from '@/lib/constants';
+import { analyzeDuplicates, DUPLICABLE_ROLES, FILLER_ROLES, SINGLE_ROLE_REASON, DUPLICATE_BEHAVIOR, type AssassinMode } from '@/lib/role-duplicates';
 
 interface LeaderRoleConfiguratorProps {
   gameState: any;
@@ -20,6 +21,9 @@ export default function LeaderRoleConfigurator({ gameState, emit, setError, hide
   const [jesterSurviveRounds, setJesterSurviveRounds] = useState(2);      // 🤡 عدد جولات نجاة المهرج
   const [witchDisableRounds, setWitchDisableRounds] = useState(3);        // 🧙‍♀️ عدد راوندات تعطيل الساحرة
   const [phoenixRebirths, setPhoenixRebirths] = useState(1);             // 🔥 رصيد نهوض العنقاء
+  // 🃏 الكروت المكرّرة: نمطُ السفّاحين حين يتعدّدون + سؤالُ التأكيد قبل الاعتماد
+  const [assassinMode, setAssassinMode] = useState<AssassinMode>(gameState?.config?.assassinMode === 'PARTNERS' ? 'PARTNERS' : 'RIVALS');
+  const [dupAsk, setDupAsk] = useState(false);
   // 🗣️ غرفة تشاور المافيا السرّية — خيار الليدر عند بداية كل جولة (يتذكّر آخر اختيار من config)
   const [mafiaChatOn, setMafiaChatOn] = useState<boolean>(gameState?.config?.mafiaChatEnabled === true);
   const [chatToggleBusy, setChatToggleBusy] = useState(false);
@@ -158,7 +162,15 @@ export default function LeaderRoleConfigurator({ gameState, emit, setError, hide
     setRoles(newRoles);
   };
 
-  const handleConfirm = async () => {
+  const handleConfirm = async (duplicatesConfirmed = false) => {
+    // 🃏 الممنوعُ يُوقف هنا، والمسموحُ يُسأل عنه أوّلاً — والخادمُ يحكم بالقاعدة نفسها
+    const d = analyzeDuplicates(roles);
+    if (d.blocked.length) {
+      setError(`كرتٌ لا يتكرّر: ${d.blocked.map(b => ROLE_NAMES[b.role as Role] || b.role).join('، ')}`);
+      return;
+    }
+    if (d.allowed.length && !duplicatesConfirmed) { setDupAsk(true); return; }
+    setDupAsk(false);
     try {
       setLoading(true);
       await emit('setup:roles-confirmed', {
@@ -169,10 +181,15 @@ export default function LeaderRoleConfigurator({ gameState, emit, setError, hide
         jesterSurviveRounds: roles.includes(Role.JESTER) ? jesterSurviveRounds : undefined,
         witchDisableRounds: roles.includes(Role.WITCH) ? witchDisableRounds : undefined,
         phoenixRebirths: roles.includes(Role.PHOENIX) ? phoenixRebirths : undefined,
+        supportsDuplicatePrompt: true,
+        confirmDuplicates: duplicatesConfirmed,
+        assassinMode: roles.filter(r => r === Role.ASSASSIN).length >= 2 ? assassinMode : undefined,
       });
     } catch (err: any) {
-      setError(err.message);
       setLoading(false);
+      // الخادمُ رأى تكراراً لم يُؤكَّد (توزيعٌ تغيّر بين الحساب والإرسال) — اسأل بدل الخطأ
+      if (err?.response?.code === 'DUPLICATE_ROLES') { setDupAsk(true); return; }
+      setError(err.message);
     }
   };
 
@@ -188,6 +205,9 @@ export default function LeaderRoleConfigurator({ gameState, emit, setError, hide
   const hasPhoenixInRoles = roles.includes(Role.PHOENIX);
   const hasAssassinInRoles = roles.includes(Role.ASSASSIN);
   const hasTwinsInRoles = roles.includes(Role.OLDER_BROTHER) && roles.includes(Role.YOUNGER_BROTHER);
+  const dup = analyzeDuplicates(roles);
+  const assassinCount = roles.filter(r => r === Role.ASSASSIN).length;
+  const nameOf = (r: string) => ROLE_NAMES[r as Role] || r;
   const playerCount = gameState.players.filter((p: any) => p.isAlive !== false).length;
 
   // تحديد أي قسم فيه dropdown مفتوح لرفع z-index ديناميكياً
@@ -233,6 +253,12 @@ export default function LeaderRoleConfigurator({ gameState, emit, setError, hide
                     <span className="text-xl grayscale opacity-70 w-6 text-center">{ROLE_ICONS[role]}</span>
                     <span className="font-mono text-xs text-[#C5A059] flex-1">{ROLE_NAMES[role]}</span>
                     {NEUTRAL_ROLES.includes(role) && <span className="text-[8px] text-amber-400 font-mono">محايد</span>}
+                    {/* 🃏 الكرتُ موجودٌ في خانةٍ أخرى: «تكرار» إن جاز، و«نسخة واحدة» إن لم يَجُز */}
+                    {r !== role && !FILLER_ROLES.has(role) && roles.includes(role) && (
+                      DUPLICABLE_ROLES.has(role)
+                        ? <span className="text-[8px] text-sky-300 font-mono" title="سيُطلب تأكيدك قبل الاعتماد">تكرار</span>
+                        : <span className="text-[8px] text-red-400 font-mono" title={SINGLE_ROLE_REASON[role] || ''}>نسخة واحدة</span>
+                    )}
                   </div>
                 ))}
               </div>
@@ -553,11 +579,112 @@ export default function LeaderRoleConfigurator({ gameState, emit, setError, hide
         </div>
       </div>
 
+      {/* 🃏 الكروت المكرّرة — تنبيهٌ حيّ قبل الاعتماد */}
+      {(dup.allowed.length > 0 || dup.blocked.length > 0) && (
+        <div className="space-y-3" dir="rtl">
+          {dup.blocked.length > 0 && (
+            <div className="p-4 rounded-xl border border-red-500/40 bg-red-500/10">
+              <p className="text-red-300 text-sm font-bold">⛔ كروتٌ لا تتكرّر — غيّر النسخة الزائدة لتعتمد</p>
+              <ul className="mt-2 space-y-1">
+                {dup.blocked.map(b => (
+                  <li key={b.role} className="text-red-200/80 text-xs">
+                    <span className="font-bold">{ROLE_ICONS[b.role as Role]} {nameOf(b.role)} ×{b.count}</span> — {b.reason}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+          {dup.allowed.length > 0 && (
+            <div className="p-4 rounded-xl border border-sky-400/40 bg-sky-500/10">
+              <p className="text-sky-200 text-sm font-bold">🃏 في التوزيع كروتٌ مكرّرة — سيُطلب تأكيدك</p>
+              <ul className="mt-2 space-y-1.5">
+                {dup.allowed.map(a => (
+                  <li key={a.role} className="text-sky-100/80 text-xs leading-relaxed">
+                    <span className="font-bold">{ROLE_ICONS[a.role as Role]} {nameOf(a.role)} ×{a.count}</span> — {DUPLICATE_BEHAVIOR[a.role]}
+                  </li>
+                ))}
+              </ul>
+              <p className="mt-2 text-sky-200/60 text-[11px]">🌙 الوضع الآليّ لليل يُقفل لهذه اللعبة — الليل بـ«الليلة الواحدة» أو الطابور اليدويّ.</p>
+            </div>
+          )}
+          {assassinCount >= 2 && (
+            <div className="p-4 rounded-xl border border-red-500/30 bg-red-500/5">
+              <p className="text-red-300 text-sm font-bold">🔪🔪 {assassinCount} سفّاحين — ما العلاقة بينهم؟</p>
+              <div className="mt-3 grid grid-cols-1 sm:grid-cols-2 gap-2">
+                {([
+                  ['RIVALS', '⚔️ متنافسون', 'لكلٍّ عقودُه على هاتفه. قتلُه يُحتسب لعقوده هو، وأوّلُ من يُكمل عقودَه يفوز وحده.'],
+                  ['PARTNERS', '🤝 شركاء', 'عقودٌ مشتركة يراها الجميع. قتلُ أيٍّ منهم يُكملها، ويفوزون معاً — حتّى من مات منهم.'],
+                ] as [AssassinMode, string, string][]).map(([mode, label, desc]) => (
+                  <button
+                    key={mode}
+                    onClick={() => setAssassinMode(mode)}
+                    className={`text-right p-3 rounded-lg border transition-colors ${
+                      assassinMode === mode ? 'border-red-400/70 bg-red-500/15' : 'border-[#2a2a2a] bg-black/30 hover:border-red-500/40'
+                    }`}
+                  >
+                    <span className={`block text-sm font-bold ${assassinMode === mode ? 'text-red-200' : 'text-gray-400'}`}>{assassinMode === mode ? '● ' : '○ '}{label}</span>
+                    <span className="block mt-1 text-[11px] text-gray-400 leading-relaxed">{desc}</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
       <div className="text-center mt-12 mb-6">
-        <button onClick={handleConfirm} className="btn-premium px-12 py-5 w-full md:w-auto min-w-[300px]">
+        <button
+          onClick={() => handleConfirm(false)}
+          disabled={dup.blocked.length > 0}
+          className="btn-premium px-12 py-5 w-full md:w-auto min-w-[300px] disabled:opacity-40 disabled:cursor-not-allowed"
+        >
           <span className="text-white text-xs tracking-[0.3em] font-bold">CONFIRM OP_DISTRIBUTION</span>
         </button>
       </div>
+
+      {/* 🃏 سؤالُ التأكيد — لا يُعتمد توزيعٌ فيه تكرارٌ إلّا من هنا */}
+      <AnimatePresence>
+        {dupAsk && (
+          <motion.div
+            initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+            className="fixed inset-0 z-[100] bg-black/80 backdrop-blur-sm flex items-center justify-center p-4"
+            onClick={() => setDupAsk(false)}
+          >
+            <motion.div
+              initial={{ scale: 0.95, y: 10 }} animate={{ scale: 1, y: 0 }} exit={{ scale: 0.95, y: 10 }}
+              className="w-full max-w-md bg-[#0c0c0c] border border-sky-400/40 rounded-2xl p-6 shadow-2xl"
+              dir="rtl"
+              onClick={e => e.stopPropagation()}
+            >
+              <h3 className="text-lg font-black text-white" style={{ fontFamily: 'Amiri, serif' }}>🃏 تأكيد الكروت المكرّرة</h3>
+              <p className="mt-2 text-sm text-gray-400">في هذه اللعبة أكثرُ من نسخةٍ من:</p>
+              <ul className="mt-3 space-y-2">
+                {dup.allowed.map(a => (
+                  <li key={a.role} className="p-3 rounded-lg bg-sky-500/10 border border-sky-400/20">
+                    <span className="block text-sm font-bold text-sky-100">{ROLE_ICONS[a.role as Role]} {nameOf(a.role)} ×{a.count}</span>
+                    <span className="block mt-1 text-xs text-sky-100/70 leading-relaxed">
+                      {a.role === 'ASSASSIN'
+                        ? (assassinMode === 'PARTNERS' ? '🤝 شركاء — عقودٌ مشتركة ويفوزون معاً' : '⚔️ متنافسون — لكلٍّ عقودُه وأوّلُ من يُكملها يفوز وحده')
+                        : DUPLICATE_BEHAVIOR[a.role]}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+              <p className="mt-3 text-xs text-gray-500">🌙 الوضع الآليّ لليل يُقفل لهذه اللعبة.</p>
+              <div className="mt-5 flex gap-2">
+                <button
+                  onClick={() => handleConfirm(true)}
+                  className="flex-1 py-3 rounded-xl bg-sky-500/20 border border-sky-400/50 text-sky-100 font-bold text-sm hover:bg-sky-500/30"
+                >نعم، اعتمد التوزيع</button>
+                <button
+                  onClick={() => setDupAsk(false)}
+                  className="px-4 py-3 rounded-xl bg-[#1a1a1a] border border-[#333] text-gray-300 text-sm hover:border-[#555]"
+                >رجوع للتعديل</button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
     </div>
   );

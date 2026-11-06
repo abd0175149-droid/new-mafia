@@ -371,6 +371,12 @@ export default function LeaderNightView({ gameState, emit, setError }: LeaderNig
   }, [gameState.round]);
 
   const nightStep = gameState.nightStep;
+  // 🔪🔪 عقودُ سفّاح هذه الخطوة بعينه — المتنافسون لكلٍّ عقودُه (الأوّل في assassinState والباقون في assassinRivals)
+  const stepAssassin = (() => {
+    const all = [gameState.assassinState, ...(gameState.assassinRivals || [])].filter(Boolean);
+    const seat = nightStep?.performerPhysicalId;
+    return all.find((a: any) => (a.memberSeats?.length ? a.memberSeats : [a.assassinPhysicalId]).includes(seat)) || gameState.assassinState || null;
+  })();
   const nightComplete = gameState.nightComplete;
   const morningEvents = gameState.morningEvents || [];
   const meta = nightStep ? (ACTION_META[nightStep.role] || ACTION_META.GODFATHER) : null;
@@ -1265,13 +1271,13 @@ export default function LeaderNightView({ gameState, emit, setError }: LeaderNig
         </motion.div>
 
         {/* 🔪 عقود السفّاح — تظهر فقط في خطوة ASSASSINATE أو ASSASSIN */}
-        {(nightStep.role === 'ASSASSINATE' || nightStep.role === 'ASSASSIN') && gameState.assassinState && (
+        {(nightStep.role === 'ASSASSINATE' || nightStep.role === 'ASSASSIN') && stepAssassin && (
           <div className="mb-5 border border-[#6b21a8]/30 rounded-xl p-4 bg-[#0d0015]/60">
             <div className="flex items-center gap-2 mb-3">
               <span className="text-lg">🗡️</span>
               <h4 className="text-sm font-black text-[#a78bfa]" style={{ fontFamily: 'Amiri, serif' }}>عقود الاغتيال</h4>
               <span className="text-[9px] font-mono text-[#6b21a8] bg-[#6b21a8]/10 px-2 py-0.5 rounded-full border border-[#6b21a8]/30">
-                {gameState.assassinState.completedCount}/{gameState.assassinState.totalRequired}
+                {stepAssassin.completedCount}/{stepAssassin.totalRequired}
               </span>
             </div>
             {/* شريط التقدم */}
@@ -1279,15 +1285,15 @@ export default function LeaderNightView({ gameState, emit, setError }: LeaderNig
               <div
                 className="h-full rounded-full transition-all duration-700"
                 style={{
-                  width: `${(gameState.assassinState.completedCount / gameState.assassinState.totalRequired) * 100}%`,
+                  width: `${(stepAssassin.completedCount / stepAssassin.totalRequired) * 100}%`,
                   background: 'linear-gradient(90deg, #6b21a8, #a78bfa)',
                 }}
               />
             </div>
             {/* قائمة العقود */}
             <div className="space-y-1.5">
-              {gameState.assassinState.contracts.map((contract: any, i: number) => {
-                const isCurrent = i === gameState.assassinState.currentContractIndex && !contract.completed;
+              {stepAssassin.contracts.map((contract: any, i: number) => {
+                const isCurrent = i === stepAssassin.currentContractIndex && !contract.completed;
                 const isCompleted = contract.completed;
                 return (
                   <div

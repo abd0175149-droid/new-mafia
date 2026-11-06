@@ -8,12 +8,13 @@
 // وطابعة الكاش لا يُضمن أن تصل الإنترنت — فالقالب لا يجلب شيئاً من الخارج.
 // ══════════════════════════════════════════════════════
 
+import { wonFromRow } from '../game/win-attribution.js';
 import { readFileSync } from 'fs';
 import { fileURLToPath } from 'url';
 import { sql } from 'drizzle-orm';
 import type { Database } from '../config/db.js';
 import type { InvoiceData, PaymentInfo } from './fnb-invoice.service.js';
-import { ROLE_NAMES_AR, isMafiaRole } from '../game/roles.js';
+import { ROLE_NAMES_AR } from '../game/roles.js';
 
 const ASSETS = fileURLToPath(new URL('../assets/invoice/', import.meta.url));
 
@@ -51,26 +52,22 @@ export interface NightRecord { games: number; wins: number; lastRole: string | n
  */
 export async function nightRecordOf(db: Database, activityId: number, playerId: number): Promise<NightRecord | null> {
   const r: any = await db.execute(sql`
-    SELECT mp.role, m.winner FROM match_players mp
+    SELECT mp.role, m.winner, mp.won FROM match_players mp
     JOIN matches m ON m.id = mp.match_id
     JOIN sessions s ON s.id = m.session_id
     WHERE s.activity_id = ${activityId} AND mp.player_id = ${playerId}
       AND m.is_active = false AND m.winner IS NOT NULL AND m.deleted_at IS NULL
     ORDER BY m.created_at, m.id
   `);
-  const rows: { role: string; winner: string }[] = r?.rows ?? r ?? [];
+  const rows: { role: string; winner: string; won: boolean | null }[] = r?.rows ?? r ?? [];
   if (rows.length === 0) return null;
-  const won = (role: string, winner: string) => {
-    if (role === 'JESTER') return winner === 'JESTER';
-    if (role === 'ASSASSIN') return winner === 'ASSASSIN';
-    if (winner === 'JESTER' || winner === 'ASSASSIN') return false;
-    return (winner === 'MAFIA') === isMafiaRole(role as any);
-  };
+  // 🃏 المخزَّنُ أوّلاً — مهرّجٌ مكرَّر لم تطرده المدينة خاسرٌ وإن فاز «المهرّج»
+  const won = (x: { role: string; winner: string; won: boolean | null }) => wonFromRow(x);
   const known = rows.filter(x => (ROLE_NAMES_AR as Record<string, string>)[x.role]);
   const last = known[known.length - 1];
   return {
     games: rows.length,
-    wins: rows.filter(x => won(x.role, x.winner)).length,
+    wins: rows.filter(won).length,
     lastRole: last ? (ROLE_NAMES_AR as Record<string, string>)[last.role] : null,
   };
 }

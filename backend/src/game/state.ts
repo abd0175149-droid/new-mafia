@@ -266,6 +266,11 @@ export interface AssassinContract {
 
 export interface AssassinState {
   assassinPhysicalId: number;
+  /**
+   * 🔪 مَن يملك هذه العقود. غائبٌ = صاحبُها `assassinPhysicalId` وحده (لعبةٌ بسفّاحٍ واحد).
+   * الشركاءُ يتقاسمون حالةً واحدة بكلّ مقاعدهم؛ المتنافسون لكلٍّ حالتُه (`assassinRivals`).
+   */
+  memberSeats?: number[];
   contracts: AssassinContract[];
   currentContractIndex: number;   // العقد الحالي (0-based)
   completedCount: number;
@@ -314,6 +319,10 @@ export interface GameConfig {
   penaltyScope?: 'game' | 'room'; // مستوى العقوبات: 'game' = تصفير كل لعبة / 'room' = تستمر طول الغرفة (الافتراضي 'room')
   bombEnabled?: boolean;          // 💣 هل قدرة القنبلة لشيخ المافيا مفعلة (الافتراضي true)
   assassinContractCount?: number;  // 🔪 عدد عقود السفّاح (الافتراضي 4، المدى 2-6)
+  /** 🔪 نمطُ السفّاحين حين يتعدّدون — يختاره الليدر قبل التوزيع (الافتراضي RIVALS). */
+  assassinMode?: 'RIVALS' | 'PARTNERS';
+  /** 🃏 في التوزيع المعتمد كرتٌ مميّزٌ مكرَّر — يُقفل الوضع الآليّ لليل والمحرّكَ القديم. */
+  duplicateRoles?: boolean;
    jesterSurviveRounds?: number;    // 🤡 جولات نجاة المهرج (الافتراضي 2)
   phoenixRebirths?: number;        // 🔥 مرّات نهوض العنقاء (الافتراضي 1) — يُضبط في صفحة اختيار الأدوار
   maxConsecutiveMafiaGames?: number; // ♟️ الحد الأقصى لتكرار المافيا المتتالية (الافتراضي 3)
@@ -484,6 +493,11 @@ export interface GameState {
   } | null;
   // 🔪 حالة السفّاح (عقود الاغتيال)
   assassinState?: AssassinState | null;
+  /**
+   * 🔪 السفّاحون المتنافسون بعد الأوّل — لكلٍّ عقودُه. الأوّلُ يبقى في `assassinState`
+   * فلا يتغيّر شيءٌ في لعبةٍ بسفّاحٍ واحد. اقرأهم معاً عبر `allAssassinStates`.
+   */
+  assassinRivals?: AssassinState[] | null;
   // 🧙‍♀️ أهداف الساحرة السابقة (منع التكرار)
   witchPreviousTargets?: number[];
   // 👥 حالة التوأمين

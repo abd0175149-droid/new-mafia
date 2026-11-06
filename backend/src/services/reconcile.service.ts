@@ -138,6 +138,7 @@ export async function reconcileSeasonProgression(
     abilityCorrect: matchPlayers.abilityCorrect,
     xpEarned: matchPlayers.xpEarned,
     rrChange: matchPlayers.rrChange,
+    won: matchPlayers.won,
     matchId: matchPlayers.matchId,
     winner: matches.winner,
     seasonId: matches.seasonId,
@@ -245,6 +246,7 @@ export async function reconcileSeasonProgression(
       abilityIncorrectCount: r.abilityCorrect === false ? 1 : 0,
       teamEliminationBonus: 0,
       assassinContractsCompleted: (r.role === 'ASSASSIN' && r.winner === 'ASSASSIN') ? 4 : 0,
+      neutralWon: r.won ?? null,   // 🃏 المخزَّن عند الختم — مهرّجٌ مكرَّر لم يُطرد خاسر
     }, cfg);
 
     const won = basePts.won;

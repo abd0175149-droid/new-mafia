@@ -49,13 +49,13 @@ async function main() {
 
   section('3) بوابة السفّاح (ASSASSINATE تتطلّب مرور أول ليلة وعدم الفوز)');
   {
-    let s = st([P(15, Role.ASSASSIN)], { assassinState: { firstNightPassed: false, won: false } });
+    let s = st([P(15, Role.ASSASSIN)], { assassinState: { assassinPhysicalId: 15, firstNightPassed: false, won: false } });
     check('أول ليلة (firstNightPassed=false): لا ASSASSINATE', !(await buildNightQueue(s)).some((x: any) => x.abilityId === 'ASSASSINATE'));
 
-    s = st([P(15, Role.ASSASSIN)], { assassinState: { firstNightPassed: true, won: false } });
+    s = st([P(15, Role.ASSASSIN)], { assassinState: { assassinPhysicalId: 15, firstNightPassed: true, won: false } });
     check('بعد أول ليلة: ASSASSINATE تظهر', (await buildNightQueue(s)).some((x: any) => x.abilityId === 'ASSASSINATE'));
 
-    s = st([P(15, Role.ASSASSIN)], { assassinState: { firstNightPassed: true, won: true } });
+    s = st([P(15, Role.ASSASSIN)], { assassinState: { assassinPhysicalId: 15, firstNightPassed: true, won: true } });
     check('بعد الفوز بالعقود: لا ASSASSINATE (اكتفى)', !(await buildNightQueue(s)).some((x: any) => x.abilityId === 'ASSASSINATE'));
   }
 

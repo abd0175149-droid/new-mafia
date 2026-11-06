@@ -12,6 +12,8 @@ import { isMafiaRole, teamOfRole } from '../game/roles.js';
 import { computeMatchReward, computeMatchBreakdown, applyProgressionConfig, buildDisplayBreakdown, RANK_NAMES_AR } from './progression.service.js';
 import { getProgressionConfig, DEFAULT_CONFIG } from '../routes/progression-settings.routes.js';
 import type { GameState } from '../game/state.js';
+import { neutralWinnerSeats, didPlayerWin } from '../game/win-attribution.js';
+import { assassinStateFor } from '../game/assassin-engine.js';
 
 // 🧪 هل الغرفة في موقع اختبار؟ — من مكان فعاليّتها، أو من مكانها الصريح (غرفة «بدون نشاط» بمكان)
 export async function isTestScope(state: GameState): Promise<boolean> {
@@ -160,7 +162,16 @@ export async function finalizeMatch(state: GameState): Promise<void> {
       } catch { /* المعزّز ميزة — لا يعطّل الاحتساب */ }
     }
 
+    // 🏆 مَن فاز بعينه — المحايدُ المكرَّر بمقعده (المهرّجُ المطرود وحده · السفّاحُ صاحبُ العقود)
+    let neutralSeats: Set<number> | null = null;
+    try {
+      const { getRoleDefs } = await import('../game/definition-service.js');
+      neutralSeats = neutralWinnerSeats(state, await getRoleDefs());
+    } catch (e: any) { console.warn(`⚠️ [finalizeMatch] neutral winners #${state.matchId}:`, e?.message); }
+
     const playerRows = state.players.map(p => {
+      const won = didPlayerWin(state, { physicalId: p.physicalId, role: p.role as string }, neutralSeats);
+      const isNeutralRole = p.role === 'JESTER' || p.role === 'ASSASSIN';
       const elimEntry = tracking.eliminationLog.find(e => e.physicalId === p.physicalId);
       const roundsSurvived = elimEntry ? Math.max(0, elimEntry.round - 1) : totalRounds;
       const dealOutcome = tracking.dealOutcomes.find(d => d.initiatorPhysicalId === p.physicalId);
@@ -212,7 +223,10 @@ export async function finalizeMatch(state: GameState): Promise<void> {
         abilityCorrectCount,
         abilityIncorrectCount,
         teamEliminationBonus: teamElimBonus,
-        assassinContractsCompleted: state.assassinState?.completedCount || 0,
+        // 🔪🔪 عقودُ هذا السفّاح بعينه (المتنافسون لكلٍّ عقودُه، والشركاءُ عقودٌ مشتركة)
+        assassinContractsCompleted: assassinStateFor(state, p.physicalId)?.completedCount
+          ?? (p.role === 'ASSASSIN' ? state.assassinState?.completedCount || 0 : 0),
+        neutralWon: isNeutralRole ? won : null,
       };
       const { xpEarned: baseXp, rrChange } = computeMatchReward(rewardOpts, cfg);
       // 🧮 تفصيل النقاط المُجمّد (مكوّنات مُسمّاة تطابق المجموع) — للعرض الدقيق لاحقاً
@@ -261,6 +275,7 @@ export async function finalizeMatch(state: GameState): Promise<void> {
         penaltyRRDeduction: isTestGame ? 0 : penaltyRR,
         bombRRChange: isTestGame ? 0 : bombRR,
         rewardBreakdown: isTestGame ? null : breakdown,
+        won,
       };
     });
 
@@ -320,11 +335,8 @@ export async function finalizeMatch(state: GameState): Promise<void> {
       for (const row of playerRows) {
         if (!row.playerId) { console.warn(`📊 [finalizeMatch] ⚠️ Player #${row.physicalId} (${row.playerName}) has NO playerId — progression SKIPPED`); continue; }
         try {
-          const pIsMafia = isMafiaRole(row.role as any);
-          const won = row.role === 'ASSASSIN' ? state.winner === 'ASSASSIN'
-            : row.role === 'JESTER' ? state.winner === 'JESTER'
-            : (state.winner === 'ASSASSIN' || state.winner === 'JESTER') ? false
-            : (state.winner === 'MAFIA' && pIsMafia) || (state.winner === 'CITIZEN' && !pIsMafia);
+          // 🏆 الفوزُ المختوم أعلاه (المحايدُ بمقعده)
+          const won = !!row.won;
           const res = await applySeasonStats(row.playerId, seasonId, cityId, row.xpEarned || 0, row.rrChange || 0, {
             won, survived: !!row.survivedToEnd, dealInitiated: !!row.dealInitiated, dealSuccess: !!row.dealSuccess,
           });
@@ -362,11 +374,8 @@ export async function finalizeMatch(state: GameState): Promise<void> {
         isRegularSeason: !!isRegular,
         isTestMatch: isTestGame,
         players: playerRows.map(row => {
-          const pIsMafia = isMafiaRole(row.role as any);
-          const won = row.role === 'ASSASSIN' ? state.winner === 'ASSASSIN'
-            : row.role === 'JESTER' ? state.winner === 'JESTER'
-            : (state.winner === 'ASSASSIN' || state.winner === 'JESTER') ? false
-            : (state.winner === 'MAFIA' && pIsMafia) || (state.winner === 'CITIZEN' && !pIsMafia);
+          // 🏆 الفوزُ المختوم أعلاه (المحايدُ بمقعده)
+          const won = !!row.won;
           return {
             playerId: row.playerId,
             rrChange: row.rrChange || 0,
@@ -400,11 +409,8 @@ export async function finalizeMatch(state: GameState): Promise<void> {
         const winnersList = playerRows
           .filter(row => {
             if (!row.playerId) return false;
-            const pIsMafia = isMafiaRole(row.role as any);
-            return row.role === 'ASSASSIN' ? state.winner === 'ASSASSIN'
-              : row.role === 'JESTER' ? state.winner === 'JESTER'
-              : (state.winner === 'ASSASSIN' || state.winner === 'JESTER') ? false
-              : (state.winner === 'MAFIA' && pIsMafia) || (state.winner === 'CITIZEN' && !pIsMafia);
+            // 🏆 الفوزُ المختوم أعلاه (المحايدُ بمقعده)
+            return !!row.won;
           })
           .map(row => ({ playerId: row.playerId as number, name: row.playerName, physicalId: row.physicalId }));
 

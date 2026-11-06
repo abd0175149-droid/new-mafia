@@ -18,6 +18,7 @@
 import type { GameState, Player } from './state.js';
 import { Role, MAFIA_KILL_PRIORITY } from './roles.js';
 import { getAbilitiesForRole, getAbilityDefs } from './definition-service.js';
+import { canSeatAssassinate } from './assassin-engine.js';
 
 /** فعلٌ واحدٌ في الليلة: مقعدٌ × قدرة. */
 export interface NightSlot {
@@ -85,10 +86,8 @@ export async function buildNightPlan(state: GameState): Promise<NightSlot[]> {
     for (const a of await getAbilitiesForRole(roleId)) {
       if (a.id === 'KILL') continue;                       // للحامل وحده أعلاه
       if (roleId === 'NURSE' && a.id === 'PROTECT' && !state.nurseActivated) continue;
-      if (roleId === 'ASSASSIN' && a.id === 'ASSASSINATE') {
-        if (!state.assassinState?.firstNightPassed) continue;
-        if (state.assassinState?.won) continue;
-      }
+      // 🔪 بالمقعد: لكلّ سفّاحٍ عقودُه وحالتُه (المتنافسون) — أوّلَ ليلةٍ لا قتل، ومَن أكمل عقودَه لا يقتل
+      if (roleId === 'ASSASSIN' && a.id === 'ASSASSINATE' && !canSeatAssassinate(state, p.physicalId)) continue;
       push(p.physicalId, a.id);
     }
   }

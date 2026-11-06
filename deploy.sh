@@ -343,6 +343,8 @@ ALTER TABLE activities ADD COLUMN IF NOT EXISTS geofence_enabled BOOLEAN DEFAULT
 ALTER TABLE activities ADD COLUMN IF NOT EXISTS geofence_radius_m INTEGER;
 -- 🖐️ اختيار المقعد اليدويّ لكلّ فعاليّة (مطفأ افتراضاً)
 ALTER TABLE activities ADD COLUMN IF NOT EXISTS manual_seat_selection BOOLEAN DEFAULT false;
+-- 🏆 فوزُ اللاعب بعينه (يُختم عند نهاية المباراة) — المحايدُ المكرَّر يفوز بمقعده لا بدوره؛ null = مباراةٌ قديمة تُشتقّ
+ALTER TABLE match_players ADD COLUMN IF NOT EXISTS won BOOLEAN;
 CREATE TABLE IF NOT EXISTS player_last_fix (
   player_id   INTEGER PRIMARY KEY,
   latitude    NUMERIC(9,6) NOT NULL,

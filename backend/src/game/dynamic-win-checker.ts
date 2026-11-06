@@ -6,6 +6,7 @@
 import type { GameState } from './state.js';
 import { getAlivePlayers } from './state.js';
 import { getRoleDefs, type RoleDef } from './definition-service.js';
+import { assassinStateFor } from './assassin-engine.js';
 
 export interface NeutralResult {
   physicalId: number;
@@ -123,12 +124,15 @@ export function evaluateNeutralWins(state: GameState, allRoles: RoleDef[]): Neut
       }
 
       // 🔪 إكمال عقود الاغتيال (السفّاح)
+      // 🔪🔪 بعقود هذا المقعد: المتنافسُ بعقوده هو، والشريكُ بالعقود المشتركة.
       case 'COMPLETE_CONTRACTS': {
-        if (state.assassinState) {
-          won = state.assassinState.completedCount >= state.assassinState.totalRequired;
+        const mine = assassinStateFor(state, player.physicalId);
+        const shared = !!(mine?.memberSeats && mine.memberSeats.length > 1);
+        if (mine) {
+          won = mine.completedCount >= mine.totalRequired;
         }
-        // السفّاح يخسر إذا مات
-        if (!player.isAlive) {
+        // السفّاح يخسر إذا مات — إلّا شريكاً أكمل شريكُه العقودَ المشتركة (يفوزون معاً)
+        if (!player.isAlive && !shared) {
           won = false;
         }
         break;

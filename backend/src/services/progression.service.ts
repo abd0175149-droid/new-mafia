@@ -179,13 +179,15 @@ export function computeMatchReward(opts: {
   abilityIncorrectCount: number;
   teamEliminationBonus: number;
   assassinContractsCompleted: number;
+  /** 🃏 فوزُ هذا المحايد بعينه (مهرّجٌ أو سفّاحٌ مكرَّر). غائبٌ = فوزُ فريقه كما كان. */
+  neutralWon?: boolean | null;
 }, cfg?: any): { xpEarned: number; rrChange: number; won: boolean } {
   const c = cfg || DEFAULT_CONFIG;
   const role = opts.role;
 
   // 🤡 المهرّج
   if (role === 'JESTER') {
-    const won = opts.winner === 'JESTER';
+    const won = opts.neutralWon ?? (opts.winner === 'JESTER');
     return {
       won,
       xpEarned: Math.max(0, won ? (c.xp?.jesterWin ?? 50) : (c.xp?.jesterLoss ?? 0)),
@@ -195,7 +197,7 @@ export function computeMatchReward(opts: {
 
   // 🔪 السفّاح
   if (role === 'ASSASSIN') {
-    const won = opts.winner === 'ASSASSIN';
+    const won = opts.neutralWon ?? (opts.winner === 'ASSASSIN');
     const contracts = opts.assassinContractsCompleted || 0;
     const xp = Math.max(0, (won ? (c.xp?.assassinWin ?? 80) : (c.xp?.assassinLoss ?? 10)) + contracts * (c.xp?.assassinContractComplete ?? 15));
     const rr = (won ? (c.rr?.assassinWin ?? 30) : (c.rr?.assassinLoss ?? -15)) + contracts * (c.rr?.assassinContractComplete ?? 10);
@@ -256,6 +258,7 @@ export function computeMatchBreakdown(opts: {
   pulseWins?: number; pulseVindicatedCount?: number; pulseCorrectVotes?: number;
   abilityCorrectCount: number; abilityIncorrectCount: number; teamEliminationBonus: number;
   assassinContractsCompleted: number;
+  neutralWon?: boolean | null;
 }, cfg?: any): { won: boolean; team: 'MAFIA' | 'CITIZEN' | 'NEUTRAL'; xp: Record<string, number>; rr: Record<string, number> } {
   const c = cfg || DEFAULT_CONFIG;
   const cx = c.xp || DEFAULT_CONFIG.xp;
@@ -263,13 +266,13 @@ export function computeMatchBreakdown(opts: {
   const role = opts.role;
 
   if (role === 'JESTER') {
-    const won = opts.winner === 'JESTER';
+    const won = opts.neutralWon ?? (opts.winner === 'JESTER');
     return { won, team: 'NEUTRAL',
       xp: { neutralResult: Math.max(0, won ? (cx.jesterWin ?? 50) : (cx.jesterLoss ?? 0)) },
       rr: { neutralResult: won ? (cr.jesterWin ?? 30) : (cr.jesterLoss ?? -10) } };
   }
   if (role === 'ASSASSIN') {
-    const won = opts.winner === 'ASSASSIN';
+    const won = opts.neutralWon ?? (opts.winner === 'ASSASSIN');
     const k = opts.assassinContractsCompleted || 0;
     return { won, team: 'NEUTRAL',
       xp: { neutralResult: Math.max(0, won ? (cx.assassinWin ?? 80) : (cx.assassinLoss ?? 10)), contracts: k * (cx.assassinContractComplete ?? 15) },
@@ -381,6 +384,7 @@ export function buildDisplayBreakdown(row: any, cfg?: any): {
       abilityIncorrectCount: row.abilityUsed && row.abilityCorrect === false ? 1 : 0,
       teamEliminationBonus: 0, // غير معروف من الحقول → يلتقطه بند التسوية
       assassinContractsCompleted: 0,
+      neutralWon: row.won ?? null,   // 🃏 المخزَّن عند الختم (المحايدُ المكرَّر بمقعده)
     }, cfg);
     comp = b;
   }

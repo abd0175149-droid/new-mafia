@@ -189,7 +189,7 @@ async function main() {
   section('6) اغتيال السفّاح');
   {
     // السفّاح يغتال (assassinState مفعّل، أول ليلة مرّت)
-    const s = mkState([P(15, Role.ASSASSIN), P(7, Role.CITIZEN)], { assassinState: { firstNightPassed: true, completedCount: 0, totalRequired: 4, won: false, contracts: [] } });
+    const s = mkState([P(15, Role.ASSASSIN), P(7, Role.CITIZEN)], { assassinState: { assassinPhysicalId: 15, firstNightPassed: true, completedCount: 0, totalRequired: 4, won: false, contracts: [] } });
     const ev = await resolveNightDynamic(s, night([{ ab: 'ASSASSINATE', by: 15, t: 7 }]));
     check('اغتيال السفّاح: حدث ASSASSIN_KILL', !!evType(ev, 'ASSASSIN_KILL'));
     check('اغتيال السفّاح: الهدف مات', alive(s, 7) === false);
@@ -263,12 +263,12 @@ async function main() {
   section('10) السفّاح (COMPLETE_CONTRACTS)');
   {
     // أكمل العقود وهو حي → فوز السفّاح
-    let s = mkState([P(15, Role.ASSASSIN), P(7, Role.CITIZEN), P(1, Role.GODFATHER)], { assassinState: { completedCount: 4, totalRequired: 4, won: true, firstNightPassed: true, contracts: [] } });
+    let s = mkState([P(15, Role.ASSASSIN), P(7, Role.CITIZEN), P(1, Role.GODFATHER)], { assassinState: { assassinPhysicalId: 15, completedCount: 4, totalRequired: 4, won: true, firstNightPassed: true, contracts: [] } });
     let w = await checkWinConditionDynamic(s);
     check('السفّاح أكمل العقود → فوز السفّاح', w.mainWinner === 'ASSASSIN');
 
     // لم يكمل → لا فوز سفّاح (اللعبة بمنطق الفريقين)
-    s = mkState([P(15, Role.ASSASSIN), P(1, Role.GODFATHER), P(7, Role.CITIZEN), P(8, Role.DOCTOR)], { assassinState: { completedCount: 1, totalRequired: 4, won: false, firstNightPassed: true, contracts: [] } });
+    s = mkState([P(15, Role.ASSASSIN), P(1, Role.GODFATHER), P(7, Role.CITIZEN), P(8, Role.DOCTOR)], { assassinState: { assassinPhysicalId: 15, completedCount: 1, totalRequired: 4, won: false, firstNightPassed: true, contracts: [] } });
     w = await checkWinConditionDynamic(s);
     check('السفّاح لم يكمل → ليس فوز سفّاح', w.mainWinner !== 'ASSASSIN');
   }
@@ -301,7 +301,7 @@ async function main() {
 
     // السفّاح والمافيا يستهدفان نفس اللاعب (مواطن بلا عقد مطابق) → الهدف يموت مرة،
     // وحدث السفّاح يُعرض بوضوح كهدف مشترك (لا عقد لأن الدور لا يطابق)
-    s = mkState([P(1, Role.GODFATHER), P(15, Role.ASSASSIN), P(7, Role.CITIZEN)], { assassinState: { firstNightPassed: true, completedCount: 0, totalRequired: 4, won: false, contracts: [] } });
+    s = mkState([P(1, Role.GODFATHER), P(15, Role.ASSASSIN), P(7, Role.CITIZEN)], { assassinState: { assassinPhysicalId: 15, firstNightPassed: true, completedCount: 0, totalRequired: 4, won: false, contracts: [] } });
     ev = await resolveNightDynamic(s, night([{ ab: 'KILL', by: 1, t: 7 }, { ab: 'ASSASSINATE', by: 15, t: 7 }]));
     check('سفّاح+مافيا نفس الهدف: الهدف مات', alive(s, 7) === false);
     check('سفّاح+مافيا نفس الهدف: حدث ASSASSIN_KILL معروض للوضوح', !!evType(ev, 'ASSASSIN_KILL'));
@@ -309,7 +309,7 @@ async function main() {
     check('سفّاح+مافيا نفس الهدف (مواطن): لا عقد مطابق', evType(ev, 'ASSASSIN_KILL')?.extra?.contractCompleted === false);
 
     // ✅ أولوية السفّاح: لو كان الهدف المشترك دوراً ضمن العقد → يُحتسب العقد رغم اغتيال المافيا
-    s = mkState([P(1, Role.GODFATHER), P(15, Role.ASSASSIN), P(8, Role.SILENCER)], { assassinState: { firstNightPassed: true, completedCount: 0, totalRequired: 1, won: false, contracts: [{ id: 1, type: 'KILL_ROLE', targetRole: 'SILENCER', completed: false }] } });
+    s = mkState([P(1, Role.GODFATHER), P(15, Role.ASSASSIN), P(8, Role.SILENCER)], { assassinState: { assassinPhysicalId: 15, firstNightPassed: true, completedCount: 0, totalRequired: 1, won: false, contracts: [{ id: 1, type: 'KILL_ROLE', targetRole: 'SILENCER', completed: false }] } });
     ev = await resolveNightDynamic(s, night([{ ab: 'KILL', by: 1, t: 8 }, { ab: 'ASSASSINATE', by: 15, t: 8 }]));
     check('أولوية السفّاح: الهدف (المُسكِت) مات', alive(s, 8) === false);
     check('أولوية السفّاح: العقد أُنجز رغم اغتيال المافيا لنفس الهدف', evType(ev, 'ASSASSIN_KILL')?.extra?.contractCompleted === true);
@@ -317,7 +317,7 @@ async function main() {
     check('أولوية السفّاح: السفّاح فاز (أنجز العقد الوحيد)', s.assassinState?.won === true);
 
     // ✅ أولوية السفّاح على القناص: نفس الهدف يُقنص ويُغتال → العقد يُحتسب للسفّاح
-    s = mkState([P(9, Role.SNIPER), P(15, Role.ASSASSIN), P(8, Role.SILENCER)], { assassinState: { firstNightPassed: true, completedCount: 0, totalRequired: 1, won: false, contracts: [{ id: 1, type: 'KILL_ROLE', targetRole: 'SILENCER', completed: false }] } });
+    s = mkState([P(9, Role.SNIPER), P(15, Role.ASSASSIN), P(8, Role.SILENCER)], { assassinState: { assassinPhysicalId: 15, firstNightPassed: true, completedCount: 0, totalRequired: 1, won: false, contracts: [{ id: 1, type: 'KILL_ROLE', targetRole: 'SILENCER', completed: false }] } });
     ev = await resolveNightDynamic(s, night([{ ab: 'SNIPE', by: 9, t: 8 }, { ab: 'ASSASSINATE', by: 15, t: 8 }]));
     check('أولوية السفّاح/القناص: الهدف مات', alive(s, 8) === false);
     check('أولوية السفّاح/القناص: العقد أُنجز رغم القنص', evType(ev, 'ASSASSIN_KILL')?.extra?.contractCompleted === true);

@@ -18,6 +18,7 @@ import { applySheriffRevenge } from './sheriff-revenge.js';
 import { applyPhoenix, isPhoenixDisabled, BURNING_ABILITIES, PHOENIX_SUPERSEDED, type PhoenixAttempt } from './phoenix-engine.js';
 import { checkPolicewomanTrigger } from './night-resolver.js';
 import { killHolderSeat } from './night-plan.js';
+import { canSeatAssassinate, assassinStateFor, checkContractCompletion, completeContract, checkAssassinWin } from './assassin-engine.js';
 
 // ── أنواع ────────────────────────────────────────────
 
@@ -94,10 +95,8 @@ export async function buildNightQueue(state: GameState): Promise<{abilityId: str
         }
 
         // 🔪 السفّاح: ممنوع القتل أول ليلة
-        if (roleId === 'ASSASSIN' && ability.id === 'ASSASSINATE') {
-          if (!state.assassinState?.firstNightPassed) continue;
-          if (state.assassinState?.won) continue; // أكمل العقود
-        }
+        // 🔪 بالمقعد — لكلّ سفّاحٍ حالتُه (أوّلَ ليلةٍ لا قتل، ومَن أكمل عقودَه لا يقتل)
+        if (roleId === 'ASSASSIN' && ability.id === 'ASSASSINATE' && !canSeatAssassinate(state, player.physicalId)) continue;
 
         queue.push({
           abilityId: ability.id,
@@ -357,8 +356,10 @@ export async function resolveNightDynamic(
         // 🔪 فحص: هل المنفذ هو السفّاح؟
         const performer = state.players.find(p => p.physicalId === action.performerPhysicalId);
         const isAssassinAction = performer?.role === 'ASSASSIN';
+        // 🔪🔪 عقودُ هذا السفّاح بعينه — المتنافسون لا يُكمل أحدُهم عقودَ الآخر
+        const myAssassin = isAssassinAction ? assassinStateFor(state, action.performerPhysicalId) : null;
 
-        if (isAssassinAction && state.assassinState) {
+        if (isAssassinAction && myAssassin) {
           // ── منطق السفّاح (أولوية: يُحتسب العقد حتى لو استهدف القناص و/أو المافيا نفس اللاعب) ──
           const mafiaKillAction = actions.find(a =>
             a.abilityId === 'KILL' && a.targetPhysicalId === action.targetPhysicalId && !cancelledActions.has(actionKey(a))
@@ -380,14 +381,14 @@ export async function resolveNightDynamic(
             && (state.phoenixState?.rebirthsLeft ?? 0) > 0;
 
           // ✅ فحص إنجاز العقد — أولوية السفّاح: لا يُلغى الإنجاز عند مشاركة الهدف مع القناص/المافيا
-          const { checkContractCompletion, completeContract, checkAssassinWin } = await import('./assassin-engine.js');
+          const seat = action.performerPhysicalId;
           const result = willRebirth
             ? { completed: false, contractId: -1, contractIndex: -1 }
-            : checkContractCompletion(state, target.physicalId, false);
+            : checkContractCompletion(state, target.physicalId, false, seat);
           let assassinWon = false;
           if (result.completed) {
-            completeContract(state, result.contractIndex, state.round || 1);
-            if (checkAssassinWin(state)) { state.assassinState!.won = true; assassinWon = true; }
+            completeContract(state, result.contractIndex, state.round || 1, seat);
+            if (checkAssassinWin(state, seat)) { myAssassin.won = true; assassinWon = true; }
           }
 
           events.push({

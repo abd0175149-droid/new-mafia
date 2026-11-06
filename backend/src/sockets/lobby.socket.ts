@@ -35,6 +35,8 @@ import { initTwinState, getSiblingInfoFor } from '../game/twin-engine.js';
 import { initMayorState, mayorVoteWeight, configuredMayorWeight } from '../game/mayor-engine.js';
 import { initPhoenixState } from '../game/phoenix-engine.js';
 import { oneNightResumeFor } from './night-one.socket.js';
+import { assassinStateFor, assassinContractsPayload } from '../game/assassin-engine.js';
+import { analyzeDuplicates, isAssassinMode } from '../game/role-duplicates.js';
 import { getProgressionConfig } from '../routes/progression-settings.routes.js';
 import { sendPushToPlayer } from '../services/fcm.service.js';
 import { getDB } from '../config/db.js';
@@ -408,13 +410,11 @@ export async function republishAfterSeatMove(
         sibling: getSiblingInfoFor(state, seat),
       });
 
-      // 🔪 عقود السفّاح
-      if (state.assassinState?.assassinPhysicalId === seat) {
-        target.emit('assassin:contracts-update', {
-          contracts: state.assassinState.contracts,
-          completedCount: state.assassinState.completedCount,
-          totalRequired: state.assassinState.totalRequired,
-        });
+      // 🔪 عقود السفّاح — عقودُ هذا المقعد بعينه (المتنافسون لكلٍّ عقودُه)
+      const mineA = assassinStateFor(state, seat);
+      if (mineA) {
+        const { currentIndex: _ci, ...payload } = assassinContractsPayload(mineA);
+        target.emit('assassin:contracts-update', payload);
       }
     }
 
@@ -2727,13 +2727,9 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
 
       // جمع عقود السفّاح إذا اللاعب هو السفّاح
       let assassinContractsData: any = null;
-      if (shouldShowRole && player.role === 'ASSASSIN' && state.assassinState) {
-        assassinContractsData = {
-          contracts: state.assassinState.contracts,
-          currentIndex: state.assassinState.currentContractIndex,
-          completedCount: state.assassinState.completedCount,
-          totalRequired: state.assassinState.totalRequired,
-        };
+      const myAssassin = assassinStateFor(state, player.physicalId);
+      if (shouldShowRole && player.role === 'ASSASSIN' && myAssassin) {
+        assassinContractsData = assassinContractsPayload(myAssassin);
       }
 
       callback({
@@ -5109,6 +5105,9 @@ async function readSeatLayoutOnly(activityId: any): Promise<any> {
         return done({ success: false, error: 'تعارف المافيا يُطبَّق عند ربط الأدوار — يُضبط بين الألعاب' });
       if (state.phase === Phase.NIGHT && data.nightMode)
         return done({ success: false, error: 'لا يتبدّل نمط الليل والليلُ جارٍ — غيّره في النهار ليسري على الليلة التالية' });
+      // 🃏 كرتٌ مكرَّر في هذه اللعبة ⇒ الوضعُ الآليّ مقفل حتّى نهايتها
+      if (!betweenGames && data.nightMode === 'auto' && state.config.duplicateRoles)
+        return done({ success: false, code: 'DUPLICATE_ROLES_LOCK', error: 'في اللعبة كرتٌ مكرَّر — الوضع الآليّ مقفل حتّى نهايتها. استعمل «الليلة الواحدة» أو الطابور اليدويّ' });
 
       const c = state.config;
       if (typeof data.gameName === 'string' && data.gameName.trim()) c.gameName = data.gameName.trim().slice(0, 60);
@@ -5172,6 +5171,12 @@ async function readSeatLayoutOnly(activityId: any): Promise<any> {
       }
       const state = await getRoom(data.roomId);
       if (!state) return callback({ success: false, error: 'Room not found' });
+
+      // 🃏 المحرّكُ القديم مفهرسٌ بالدور — نسختان من كرتٍ فيه تمحو إحداهما الأخرى
+      const midGame = state.phase !== Phase.LOBBY && state.phase !== Phase.GAME_OVER;
+      if (!data.useDynamicEngine && midGame && state.config.duplicateRoles) {
+        return callback({ success: false, code: 'DUPLICATE_ROLES_LOCK', error: 'في اللعبة كرتٌ مكرَّر — المحرّك القديم لا يدعمه' });
+      }
 
       state.config.useDynamicEngine = data.useDynamicEngine;
       await updateRoom(data.roomId, { config: state.config });
@@ -5312,6 +5317,9 @@ async function readSeatLayoutOnly(activityId: any): Promise<any> {
     witchDisableRounds?: number;       // 🧙‍♀️ راوندات تعطيل الساحرة
     mayorVoteWeight?: number;          // 🎩 وزن صوت العمدة بعد الكشف
     phoenixRebirths?: number;          // 🔥 رصيد نهوض العنقاء
+    confirmDuplicates?: boolean;       // 🃏 الليدر أكّد الكروت المكرّرة
+    supportsDuplicatePrompt?: boolean; // 🃏 العميل يعرض سؤال التأكيد (تفاوضٌ — العميل القديم يُبلَّغ بالتحديث)
+    assassinMode?: 'RIVALS' | 'PARTNERS'; // 🔪🔪 نمط السفّاحين حين يتعدّدون
   }, callback) => {
     try {
       if (socket.data.role !== 'leader') {
@@ -5326,6 +5334,38 @@ async function readSeatLayoutOnly(activityId: any): Promise<any> {
       if (!validation.valid) {
         return callback({ success: false, error: validation.error });
       }
+
+      // 🃏 الكروت المكرّرة (قرار المالك 2026-11-06): الممنوعُ يُرفض، والمسموحُ لا يُعتمد إلّا بتأكيد الليدر
+      const dup = analyzeDuplicates(data.roles);
+      const nameOf = (r: string) => (ROLE_NAMES_AR as Record<string, string>)[r] || r;
+      if (dup.blocked.length) {
+        return callback({
+          success: false, code: 'DUPLICATE_ROLES_BLOCKED', duplicates: dup,
+          error: `كرتٌ لا يتكرّر: ${dup.blocked.map(d => `${nameOf(d.role)} (${d.reason})`).join(' · ')}`,
+        });
+      }
+      if (dup.allowed.length && state.config.isRemote) {
+        return callback({ success: false, code: 'DUPLICATE_ROLES_REMOTE', duplicates: dup, error: 'الغرف عن بُعد لا تدعم الكروت المكرّرة' });
+      }
+      if (dup.allowed.length && !data.confirmDuplicates) {
+        return callback({
+          success: false, code: 'DUPLICATE_ROLES', duplicates: dup,
+          error: data.supportsDuplicatePrompt
+            ? `في التوزيع كروتٌ مكرّرة: ${dup.allowed.map(d => `${nameOf(d.role)} ×${d.count}`).join(' · ')} — أكّدها`
+            : 'في التوزيع كرتٌ مكرّر — حدّث صفحة الليدر (Ctrl+F5) ليظهر سؤال التأكيد',
+        });
+      }
+      state.config.duplicateRoles = dup.allowed.length > 0;
+      let nightModeSwitched = false;
+      if (state.config.duplicateRoles) {
+        // المحرّكُ القديم والوضعُ الآليّ مفهرسان بالدور — النسخةُ الثانية تصير بلا أثر فيهما
+        state.config.useDynamicEngine = true;
+        if (state.config.nightMode === 'auto') { state.config.nightMode = 'manual'; nightModeSwitched = true; }
+      }
+      // 🔪🔪 نمطُ السفّاحين — يُحفظ حين يتعدّدون، ويُمحى بغيرهم كي لا يرثه توزيعٌ لاحق
+      const assassinCount = data.roles.filter(r => (r as string) === 'ASSASSIN').length;
+      if (assassinCount >= 2) state.config.assassinMode = isAssassinMode(data.assassinMode) ? data.assassinMode : 'RIVALS';
+      else delete state.config.assassinMode;
 
       // 🔪 حفظ إعدادات الأدوار المحايدة في config
       if (data.assassinContractCount !== undefined) {
@@ -5355,7 +5395,10 @@ async function readSeatLayoutOnly(activityId: any): Promise<any> {
         roles: data.roles,
       });
 
-      callback({ success: true });
+      if (state.config.duplicateRoles) {
+        console.log(`🃏 Duplicate roles confirmed in ${data.roomId}: ${dup.allowed.map(d => `${d.role}×${d.count}`).join(', ')}${assassinCount >= 2 ? ` · assassins ${state.config.assassinMode}` : ''}${nightModeSwitched ? ' · night auto→manual' : ''}`);
+      }
+      callback({ success: true, nightModeSwitched, duplicateRoles: state.config.duplicateRoles });
     } catch (err: any) {
       callback({ success: false, error: err.message });
     }
@@ -5776,15 +5819,16 @@ async function readSeatLayoutOnly(activityId: any): Promise<any> {
         pendingResolution: state.phase === 'DAY_ELIMINATION' ? publicPendingResolution(state) || null : null,
         // عقود السفّاح
         //    🔪 من بدء الليل حتّى نهاية ملخّص الصباح: العقودُ كما كانت عند البدء (night:start)
-        assassinContracts: (shouldShowRole && player.role === 'ASSASSIN' && state.assassinState) ? ((state as any).assassinShownContracts ? {
-          ...(state as any).assassinShownContracts,
-          currentIndex: state.assassinState.currentContractIndex || 0,
-        } : {
-          contracts: state.assassinState.contracts,
-          currentIndex: state.assassinState.currentContractIndex || 0,
-          completedCount: state.assassinState.completedCount,
-          totalRequired: state.assassinState.totalRequired,
-        }) : null,
+        //    🔪🔪 بالمقعد: اللقطةُ `{ [seat]: … }` (والشكلُ القديم — لقطةٌ واحدة — للعبةٍ بدأت قبله)
+        assassinContracts: (() => {
+          const mine = assassinStateFor(state, player.physicalId);
+          if (!(shouldShowRole && player.role === 'ASSASSIN' && mine)) return null;
+          const shown: any = (state as any).assassinShownContracts;
+          const snap = shown ? (shown.contracts ? shown : shown[player.physicalId]) : null;
+          return snap
+            ? { ...snap, currentIndex: mine.currentContractIndex || 0 }
+            : assassinContractsPayload(mine);
+        })(),
         // 👥 تعارف الأخوين (إعادة التسليم عند جلب الحالة الكاملة)
         sibling: shouldShowRole ? getSiblingInfoFor(state, player.physicalId) : null,
         // نتيجة اللعبة
@@ -6724,6 +6768,7 @@ async function readSeatLayoutOnly(activityId: any): Promise<any> {
     state.withdrawalState = null;
     state.performanceTracking = null;
     delete state.assassinState;
+    delete state.assassinRivals;
     delete state.dynamicNightState;
     // 👥 تصفير رابطة التوأمين — مهم عند إعادة استخدام نفس الغرفة للعبة جديدة، وإلا بقيت حالة
     // اللعبة السابقة (مقاعد/أعلام قديمة) فلا يُعاد التهيئة ولا يتحوّل التوأم ولا تظهر بطاقة التعارف.

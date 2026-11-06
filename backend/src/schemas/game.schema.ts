@@ -119,6 +119,8 @@ export const matchPlayers = pgTable('match_players', {
   bombRRChange: integer('bomb_rr_change').default(0),
   // 🧮 تفصيل النقاط المُجمّد وقت المباراة (للعرض الدقيق في الملف الشخصي)
   rewardBreakdown: jsonb('reward_breakdown'),
+  // 🏆 فاز هذا اللاعب بعينه؟ يُختم عند نهاية المباراة (المحايدُ المكرَّر بمقعده). null = مباراةٌ قبل العمود
+  won: boolean('won'),
 });
 
 // ── Surveys (التقييمات بعد المباراة) ─────────────────

@@ -103,6 +103,7 @@ interface GameState {
   counted?: boolean;
   // 🔪 Assassin
   assassinState?: any;
+  assassinRivals?: any[] | null;   // 🔪🔪 المتنافسون بعد الأوّل
   // 💣 Bomb
   pendingBomb?: any;
   pendingAshCurse?: any;   // 🜂 نافذةُ لعنة الرماد — للموجّه وحده
@@ -606,6 +607,7 @@ export default function LeaderPage() {
             morningEvents: data.state.morningEvents || [],
             pendingWinner: data.state.pendingWinner || null,
             assassinState: data.state.assassinState || null,
+            assassinRivals: data.state.assassinRivals || null,   // 🔪🔪 السفّاحون المتنافسون
             pendingBomb: data.state.pendingBomb || null,
             // 🜂 لعنةُ الرماد — تصمد لتحديث الصفحة كالقنبلة
             pendingAshCurse: data.state.pendingAshCurse || null,
@@ -889,6 +891,7 @@ export default function LeaderPage() {
         players: state.players,
         phase: state.phase || prev.phase,
         assassinState: state.assassinState || prev.assassinState,
+        assassinRivals: state.assassinRivals || (state.assassinState ? null : prev.assassinRivals),
         // 📐 مقاعد القالب + السعة — لتحديث «المقاعد المثبّتة» فوراً عند إعادة المزامنة من القالب
         config: state.config ? { ...prev.config, ...state.config } : prev.config,
         pinnedSeats: state.pinnedSeats ?? prev.pinnedSeats,
@@ -1441,6 +1444,7 @@ export default function LeaderPage() {
           revealedData: undefined,
           withdrawalState: null,
           assassinState: undefined,
+          assassinRivals: undefined,
           round: 1,
         } as any;
       });

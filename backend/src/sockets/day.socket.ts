@@ -1072,26 +1072,25 @@ export function registerDayEvents(io: Server, socket: Socket) {
       }
 
       const currentState = await getGameState(data.roomId);
-      let assassinHoldEmit: PhoneHoldEmit | null = null;
+      const assassinHoldEmits: PhoneHoldEmit[] = [];
 
       // 🔪 تجديد عقود السفّاح إذا خرج لاعب مستهدف
       if (currentState?.assassinState) {
-        const { regenerateDeadContracts } = await import('../game/assassin-engine.js');
+        const { regenerateDeadContracts, assassinSeatsOf, assassinContractsPayload } = await import('../game/assassin-engine.js');
         const regen = regenerateDeadContracts(currentState);
         if (regen.changed) {
           await setGameState(data.roomId, currentState);
           console.log(`🔄 Assassin contracts updated after elimination: ${regen.changeLog.join(', ')}`);
           // 📱 عقدٌ تجدّد = هدفٌ خرج: يصل هاتفَ السفّاح مع قلب البطاقة لا قبله (يُضاف لحبس الكشف أدناه)
-          assassinHoldEmit = {
-            event: 'assassin:contracts-update', toSeat: currentState.assassinState.assassinPhysicalId,
-            payload: {
-              contracts: currentState.assassinState.contracts,
-              currentIndex: 0,
-              completedCount: currentState.assassinState.completedCount,
-              totalRequired: currentState.assassinState.totalRequired,
-              changeLog: regen.changeLog,
-            },
-          };
+          //    🔪🔪 لكلّ سفّاحٍ تغيّرت عقودُه — ولكلّ شريكٍ في العقود المشتركة
+          for (const a of regen.changedStates) {
+            for (const seat of assassinSeatsOf(a)) {
+              assassinHoldEmits.push({
+                event: 'assassin:contracts-update', toSeat: seat,
+                payload: assassinContractsPayload(a, { currentIndex: 0, changeLog: regen.changeLog }),
+              });
+            }
+          }
           // إشعار الليدر
           await emitTrustedOnly(io, data.roomId, 'game:state-sync', currentState);
         }
@@ -1128,7 +1127,7 @@ export function registerDayEvents(io: Server, socket: Socket) {
         //    ودورُ الأصغر المتحوّل وعقودُ السفّاح (قرار المالك 2026-10-09)
         addPhoneHold(currentState, {
           id: `day:${currentState.round}:${Date.now()}`, seats: eliminatedIds, voteReveal: true,
-          emits: [{ event: 'day:elimination-revealed', payload: revealPayload }, ...(assassinHoldEmit ? [assassinHoldEmit] : [])],
+          emits: [{ event: 'day:elimination-revealed', payload: revealPayload }, ...assassinHoldEmits],
           fallbackMs: HOLD_MS.day(eliminatedIds.length),
         });
         if (currentState.heldBombResult) {

@@ -191,6 +191,7 @@ export async function explore(db: Database, rawLens: any): Promise<ExplorerResul
              a.location_id AS lid, lo.name AS lname,
              mp.survived_to_end, COALESCE(mp.penalty_count,0) AS penalty_count,
              CASE
+               WHEN mp.won IS NOT NULL THEN mp.won   -- 🃏 المخزَّن عند الختم (المحايدُ المكرَّر بمقعده)
                WHEN m.winner IS NULL THEN false
                WHEN m.winner::text = 'CITIZEN'  AND rd.team::text = 'CITIZEN' THEN true
                WHEN m.winner::text = 'MAFIA'    AND rd.team::text = 'MAFIA'   THEN true

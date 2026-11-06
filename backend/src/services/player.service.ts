@@ -4,6 +4,7 @@
 // + دعم المصادقة وهجرة الحسابات القديمة
 // ══════════════════════════════════════════════════════
 
+import { wonFromRow } from '../game/win-attribution.js';
 import { eq, sql, desc, and, isNull } from 'drizzle-orm';
 import { normGender } from '../utils/gender.util.js';
 import { teamOfRole } from '../game/roles.js';
@@ -168,6 +169,7 @@ export async function getPlayerProfile(playerId: number) {
         survived: matchPlayers.survivedToEnd,
         survivedToEnd: matchPlayers.survivedToEnd,
         matchWinner: matches.winner,
+        won: matchPlayers.won,
         seasonId: matches.seasonId,
         cityId: matches.cityId,
         matchDate: matches.createdAt,
@@ -204,6 +206,7 @@ export async function getPlayerProfile(playerId: number) {
           survived: matchPlayers.survivedToEnd,
           survivedToEnd: matchPlayers.survivedToEnd,
           matchWinner: matches.winner,
+          won: matchPlayers.won,
           seasonId: matches.seasonId,
           cityId: matches.cityId,
           matchDate: matches.createdAt,
@@ -283,11 +286,8 @@ export async function getPlayerProfile(playerId: number) {
     // 🔴 والفوزُ رباعيٌّ لا ثنائيّ: `matches.winner` في القاعدة له أربع قيم
     //    (MAFIA · CITIZEN · JESTER · ASSASSIN). المقارنةُ الثنائيّة كانت تقرأ
     //    كلَّ فائزٍ محايدٍ خاسراً — ٤٣ فوزاً محايداً لا يُحتسب أصلاً.
-    const won = m.matchWinner === 'MAFIA' ? isMafia
-      : m.matchWinner === 'CITIZEN' ? team === 'CITIZEN'
-      : m.matchWinner === 'JESTER' ? m.role === 'JESTER'
-      : m.matchWinner === 'ASSASSIN' ? m.role === 'ASSASSIN'
-      : false;
+    //    🃏 والمخزَّنُ أوّلاً: مهرّجٌ مكرَّر لم تطرده المدينة خاسرٌ وإن فاز «المهرّج».
+    const won = wonFromRow({ role: m.role, winner: m.matchWinner, won: m.won, team });
 
     if (won) {
       if (isMafia) mafiaWins++;
