@@ -28,6 +28,8 @@ import { CollapsibleVoteHistory } from './VoteHistoryPanel';
 import OrderPanel, { type OrderPanelHandle } from './OrderPanel';
 import { IcoPlate } from './fnb/icons';
 import TeamBar from './TeamBar';
+import PlayerRoom, { useFaceOf, type SheriffResult } from './player-room/PlayerRoom';
+import { PlayerRoomBoundary } from './player-room/Boundary';
 import PhotoConsentChip from './PhotoConsentChip';
 type Step = 'code' | 'phone' | 'login' | 'register' | 'change_password' | 'ticket' | 'photo_consent' | 'seat_choice' | 'auto_joining' | 'done' | 'rejoined' | 'spectating';
 
@@ -360,6 +362,11 @@ export default function PlayerFlow({ initialRoomCode = '', inviteFlag = false, i
   const [tokenChecked, setTokenChecked] = useState(false);
   const [roster, setRoster] = useState<any[]>([]);
   const [isRemote, setIsRemote] = useState(false); // 🌐 غرفة عن بُعد → أظهر طاولة الطور للاعب
+  // 📱 شاشة اللاعب الجديدة (2026-11-06) — مفتاحٌ عامّ من الداشبورد لكلّ الغرف، والحضوريّة وحدها
+  const [playerUiV2, setPlayerUiV2] = useState(false);
+  const [playerUiForcedOff, setPlayerUiForcedOff] = useState(false); // فشلُ الرسم على جهازٍ ما ⇒ الواجهة الحاليّة
+  // 🕵️ نتائج تحقيق الشريف — كانت تصل الهاتف ولا شيء يستقبلها. تُحبس حتى «رسالة الليل»
+  const [sheriffResults, setSheriffResults] = useState<SheriffResult[]>([]);
   const [allowPlayerInvites, setAllowPlayerInvites] = useState(false); // 📨 القائد سمح للاعبين بدعوة أصدقائهم
   const [showInvite, setShowInvite] = useState(false); // 📨 مودال إرسال الدعوة
   const [voiceMaps, setVoiceMaps] = useState<{ videoByPid: Record<number, MediaStreamTrack | null>; audioByPid: Record<number, boolean> }>({ videoByPid: {}, audioByPid: {} });
@@ -1851,8 +1858,45 @@ export default function PlayerFlow({ initialRoomCode = '', inviteFlag = false, i
     };
   }, [step, emit, roomId, playerId, phone, physicalId, displayName, assignedRole, isPlayerDead, votingPlayersInfo]);
 
-  // ── Auto-Vote on Self ──
+  // 📱 هل نرسم الواجهة الجديدة؟ (المفتاح العامّ + غرفة حضوريّة + داخل الغرفة + لم يفشل الرسم)
+  const faceOf = useFaceOf();
+  const v2Active = playerUiV2 && !playerUiForcedOff && !isRemote && (step === 'done' || step === 'rejoined');
+
+  // 📱 المفتاح يُقرأ عند الفتح ثمّ كلّ دقيقة — بلا إعادة فتح الصفحة
   useEffect(() => {
+    let alive = true;
+    const load = () => fetch(`${process.env.NEXT_PUBLIC_API_URL || ''}/api/player-ui`, { cache: 'no-store' })
+      .then(r => r.json()).then(d => { if (alive && d?.success) setPlayerUiV2(d.enabled === true); }).catch(() => {});
+    load();
+    const t = setInterval(load, 60000);
+    return () => { alive = false; clearInterval(t); };
+  }, []);
+
+  // 🕵️ نتيجة التحقيق — تُحفظ للغرفة كي تصمد بعد التحديث
+  useEffect(() => {
+    if (!roomId) return;
+    try { const raw = localStorage.getItem(`mafia_sheriff_${roomId}`); if (raw) setSheriffResults(JSON.parse(raw)); } catch { /* لا شيء */ }
+  }, [roomId]);
+  useEffect(() => {
+    if (!on || !roomId) return;
+    const off = on('night:sheriff-result', (d: any) => {
+      if (!d || d.targetPhysicalId == null) return;
+      setSheriffResults(prev => {
+        const round = Number(d.round ?? phasePollData?.round ?? 1);
+        const next = [...prev.filter(x => x.round !== round), { round, result: d.result === 'MAFIA' ? 'MAFIA' : 'CITIZEN', targetPhysicalId: Number(d.targetPhysicalId), targetName: d.targetName || '' } as SheriffResult]
+          .sort((a, b) => a.round - b.round);
+        try { localStorage.setItem(`mafia_sheriff_${roomId}`, JSON.stringify(next)); } catch { /* لا شيء */ }
+        return next;
+      });
+    });
+    return () => { if (typeof off === 'function') off(); };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [on, roomId]);
+
+  // ── Auto-Vote on Self ──
+  // 📱 الواجهة الجديدة: لا تصويتَ تلقائيّ — من لم يصوّت فلا صوت له (كان يصوّت على نفسه أو على أوّل مرشّح)
+  useEffect(() => {
+    if (v2Active) return;
     if (votingCountdown === 0 && myVote === null && !isPlayerDead && emit && roomId && gamePhase === 'DAY_VOTING') {
       const myPhysId = parseInt(physicalId);
       let voteIndex = votingCandidates.findIndex(c => c.targetPhysicalId === myPhysId);
@@ -2580,7 +2624,9 @@ export default function PlayerFlow({ initialRoomCode = '', inviteFlag = false, i
   };
 
   return (
-    <div className={`min-h-screen flex flex-col items-center font-sans relative overflow-hidden selection:bg-[#8A0303] selection:text-white ${isRemote ? 'justify-start p-2 pt-3 pb-24 bg-[#050505] remote-vignette' : 'justify-center p-4 sm:p-6 display-bg blood-vignette'}`}>
+    <div className={v2Active
+      ? 'min-h-screen font-sans relative overflow-x-hidden selection:bg-[#8A0303] selection:text-white display-bg blood-vignette'
+      : `min-h-screen flex flex-col items-center font-sans relative overflow-hidden selection:bg-[#8A0303] selection:text-white ${isRemote ? 'justify-start p-2 pt-3 pb-24 bg-[#050505] remote-vignette' : 'justify-center p-4 sm:p-6 display-bg blood-vignette'}`}>
       {/* ── Dynamic Toast Notification Overlay ── */}
       <AnimatePresence>
         {activeToast && (
@@ -2771,7 +2817,7 @@ export default function PlayerFlow({ initialRoomCode = '', inviteFlag = false, i
 
       {/* 🎩 برومبت قرار العمدة — يصل لهاتف العمدة وحده (اللعب عن بُعد) */}
       <AnimatePresence>
-        {mayorPrompt && (
+        {mayorPrompt && !v2Active && (
           <motion.div
             initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
             className="fixed inset-0 z-[85] flex items-center justify-center p-4 bg-black/90 backdrop-blur-md" dir="rtl"
@@ -2900,6 +2946,57 @@ export default function PlayerFlow({ initialRoomCode = '', inviteFlag = false, i
             العودة للشاشة الرئيسية
           </button>
         </motion.div>
+      ) : v2Active ? (
+        <PlayerRoomBoundary onFail={() => setPlayerUiForcedOff(true)}>
+          <PlayerRoom host={{
+            roomCode, gameName,
+            seat: parseInt(physicalId) || 0, displayName, gender: gender === 'female' ? 'FEMALE' : gender === 'male' ? 'MALE' : undefined,
+            avatarUrl: avatarUrl || null, rankTier: myRankTier || undefined, cosmetics: myCosmetics,
+            role: assignedRole, isDead: isPlayerDead, phase: gamePhase, round: phasePollData?.round ?? null,
+            teamCounts, roster: (roster.length > 0 ? roster : votingPlayersInfo) as any,
+            watermark: `${displayName || 'لاعب'} · مقعد ${physicalId} · ${roomCode} · ${new Date().toTimeString().slice(0, 5)}`,
+            oneNight, oneNightSent, submitOneNight,
+            nightAsk: nightActionRequired as any, nightCountdown: nightActionCountdown, nightSubmitted: nightActionSubmitted,
+            submitNightAction: async (target: number | null) => {
+              if (!emit || nightActionSubmitted || !nightActionRequired) return;
+              setNightActionSubmitted(true);
+              if (nightCountdownRef.current) clearInterval(nightCountdownRef.current);
+              await emit('player:night-action', { roomId, actionType: nightActionRequired.actionType, targetPhysicalId: target }).catch(() => {});
+              setTimeout(() => setNightActionRequired(null), 1500);
+            },
+            candidates: votingCandidates, playersInfo: votingPlayersInfo, myVote, playerVotes: playerVotes as any,
+            votingCountdown, voteSubmitting,
+            castVote: (index: number) => {
+              if (isPlayerDead || voteSubmitting || myVote === index) return;
+              if (votingCountdown !== null && votingCountdown <= 0) return;
+              setVoteSubmitting(true);
+              emit('player:cast-vote', { roomId, physicalId: parseInt(physicalId), candidateIndex: index })
+                .then((res: any) => { if (res?.success) { setMyVote(index); setLastVoteTime(Date.now()); if (navigator.vibrate) navigator.vibrate(60); } })
+                .catch(() => {}).finally(() => setVoteSubmitting(false));
+            },
+            mafiaTeam: assignedRole && (MAFIA_ROLES as unknown as string[]).includes(assignedRole) ? (mafiaTeam as any) : [],
+            sibling: assignedRole && (MAFIA_ROLES as unknown as string[]).includes(assignedRole) ? sibling : null,
+            assassinContracts: assignedRole === 'ASSASSIN' ? assassinContracts : null,
+            sheriffResults: assignedRole === 'SHERIFF' ? sheriffResults : [],
+            cartCount: fnbOpen.count || 0,
+            openRoles: openRolesDeck,
+            openNotes: () => setIsNotepadOpen(true),
+            openOrder: () => { if (fnbReady) setIsOrderOpen(true); else showPhotoToast('المنيو غير متاح الآن في هذه الغرفة', 'info'); },
+            closeOrder: () => { if (isOrderOpen) { if (orderPanelRef.current) orderPanelRef.current.requestClose(); else setIsOrderOpen(false); } },
+            onGalleryOpen: () => { import('@/lib/socket').then(m => m.getSocket().emit('player:mafia-gallery-open', { roomId })).catch(() => {}); },
+            requestTasksOpen,
+            leave: handleLogout,
+            phaseView: (
+              <PlayerPhaseView
+                gamePhase={gamePhase} physicalId={physicalId} assignedRole={assignedRole} isPlayerDead={isPlayerDead}
+                on={on} emit={emit} myVote={myVote} votingCandidates={votingCandidates} votingPlayersInfo={votingPlayersInfo}
+                pollData={phasePollData} roomId={roomId} isRemote={false} v2
+                avatarOf={(pid: number) => ((roster.find((p: any) => p.physicalId === pid) || votingPlayersInfo.find((p: any) => p.physicalId === pid)) as any)?.avatarUrl || null}
+                faceOf={faceOf}
+              />
+            ),
+          }} />
+        </PlayerRoomBoundary>
       ) : (
         <>
           {/* ── Title: MAFIA CLUB + Logo (مخفيّ عن بُعد — واجهة ملء الشاشة بلا لوجو) ── */}
@@ -4497,7 +4594,7 @@ export default function PlayerFlow({ initialRoomCode = '', inviteFlag = false, i
 
       {/* ── تنبيه جلونج — اقلب الكارد لمعرفة دورك ── */}
       <AnimatePresence>
-        {roleAlert && !cardFlipped && assignedRole && (
+        {roleAlert && !cardFlipped && assignedRole && !v2Active && (
           <motion.div
             initial={{ opacity: 0, scale: 0.9, y: 30 }}
             animate={{ opacity: 1, scale: 1, y: 0 }}
@@ -4675,7 +4772,7 @@ export default function PlayerFlow({ initialRoomCode = '', inviteFlag = false, i
       />
 
       {/* ── زر شركاء المافيا العائم (موجود كشكل للجميع لتجنب كشف الدور) ── */}
-      {assignedRole !== null && gamePhase !== 'GAME_OVER' && (step === 'done' || step === 'rejoined') && (
+      {assignedRole !== null && gamePhase !== 'GAME_OVER' && (step === 'done' || step === 'rejoined') && !v2Active && (
         <button
           onClick={() => {
             // 🕵️ تنبيه لحظي لليدر بأن اللاعب فتح/حاول فتح قائمة التعرف (fire-and-forget)
@@ -4693,7 +4790,7 @@ export default function PlayerFlow({ initialRoomCode = '', inviteFlag = false, i
       )}
 
       {/* Player Notepad FAB — فوق البوتوم بار */}
-      {(step === 'done' || step === 'rejoined') && (
+      {(step === 'done' || step === 'rejoined') && !v2Active && (
         <button
           onClick={() => setIsNotepadOpen(true)}
           style={{ bottom: 'calc(var(--nav-h) + 24px)' }}
@@ -4707,7 +4804,7 @@ export default function PlayerFlow({ initialRoomCode = '', inviteFlag = false, i
       {/* 🍽️ زرّ الطلب من المكان — داخل الغرفة حيث يطلب اللاعب فعلاً.
           يظهر فقط إذا أعاد /api/fnb/context سياقاً (حجزٌ + نافذة الطلب)،
           فلا يزحم الشاشة في الغرف التي لا منيو فيها. */}
-      {(step === 'done' || step === 'rejoined') && fnbReady && (
+      {(step === 'done' || step === 'rejoined') && fnbReady && !v2Active && (
         <button
           onClick={() => setIsOrderOpen(true)}
           style={{ bottom: 'calc(var(--nav-h) + 88px)', background: '#151006', border: '2px solid rgba(197,160,89,0.8)', boxShadow: '0 0 20px rgba(197,160,89,0.35)', color: '#e7cf8d' }}
@@ -4754,6 +4851,7 @@ export default function PlayerFlow({ initialRoomCode = '', inviteFlag = false, i
         /* 🪑 يتغيّر بعد إعادة ترتيب المقاعد: يُجبر المفكرة على إعادة قراءة دلوها
            المُرحَّل وإعادة جلب سجلّ التشاور (كلاهما أُعيد ترقيمه) */
         remapNonce={notepadRemapNonce}
+        uniform={v2Active}
         chatVisible={
           // 🗣️ تبويب التشاور: مافيا حيّ + الغرفة مفعّلة من الليدر + مرحلة لعب فعلية.
           // يُحسب على جهاز اللاعب نفسه فقط (لا يُبثّ شيء)؛ والسيرفر يتحقق سيادياً على كل عملية.
@@ -4770,7 +4868,7 @@ export default function PlayerFlow({ initialRoomCode = '', inviteFlag = false, i
           🔴 حارسان: المُقصى لا ليلَ له، والطورُ يجب أن يكون NIGHT — حمولةٌ
              متأخّرةٌ بعد انتهاء الليل كانت ستُبقي الشاشةَ مفتوحةً على لا شيء.
           ══════════════════════════════════════════════════ */}
-      {!isPlayerDead && oneNight && gamePhase === 'NIGHT' && (
+      {!isPlayerDead && oneNight && gamePhase === 'NIGHT' && !v2Active && (
         <div className="fixed inset-0 z-[200] bg-gradient-to-b from-[#0a0812] via-[#070510] to-[#000]"
           style={{ fontFamily: 'Amiri, serif' }}>
           <div className="h-full safe-area-inset">
@@ -4786,7 +4884,7 @@ export default function PlayerFlow({ initialRoomCode = '', inviteFlag = false, i
 
       {/* ══ Auto Night: شاشة الإجراء الليلي — تصميم مطابق للتصويت ══ */}
       {/* 🔴 حارس العرض الأخير: مُقصى ← لا قائمة اختيار مهما حملته الحالة */}
-      {!isPlayerDead && nightActionRequired && !nightActionSubmitted && (
+      {!isPlayerDead && nightActionRequired && !nightActionSubmitted && !v2Active && (
         <div className="fixed inset-0 z-[200] bg-gradient-to-b from-[#0a0812] via-[#070510] to-[#000]" style={{ fontFamily: 'Amiri, serif' }}>
           <div className="flex flex-col h-full safe-area-inset">
             {/* Header */}
@@ -4985,7 +5083,7 @@ export default function PlayerFlow({ initialRoomCode = '', inviteFlag = false, i
              ارتفاعُه ٦٤ في z-50) فيحجبه — وهذا ما رآه المالك في الشاشة.
           🔴 وفوق طبقة الليل (200) وتحت اللوحتين (300) — لا يغطّي ما يفتحه.
           ══════════════════════════════════════════════════ */}
-      {(step === 'done' || step === 'rejoined') && gamePhase !== 'GAME_OVER'
+      {(step === 'done' || step === 'rejoined') && gamePhase !== 'GAME_OVER' && !v2Active
         && !isPlayerDead && !!nightActionRequired && !nightActionSubmitted
         && !rolesModalOpen && !tasksOpen && (
         <div className="fixed z-[240] flex gap-2 pointer-events-none"

@@ -23,6 +23,8 @@ interface PlayerNotepadProps {
   // 🪑 يتغيّر عند إعادة ترتيب المقاعد: الدلو رُحِّل في PlayerFlow وسجلّ التشاور
   // أُعيد ترقيمه على الخادم → نُعيد قراءة الاثنين بدل الإبقاء على نسخةٍ بأرقام قديمة
   remapNonce?: number;
+  /** 📱 الواجهة الجديدة: تبويب التشاور ظاهرٌ للجميع والفتح على «إضافة» دائماً — كي لا يُعرف المافيا من شكل المفكّرة */
+  uniform?: boolean;
 }
 
 const SUSPICION_CONFIG = {
@@ -33,7 +35,7 @@ const SUSPICION_CONFIG = {
 };
 
 export default function PlayerNotepad({
-  roomId, myPhysicalId, players, isOpen, onClose, onNotesChange, chatVisible = false, remapNonce = 0,
+  roomId, myPhysicalId, players, isOpen, onClose, onNotesChange, chatVisible = false, remapNonce = 0, uniform = false,
 }: PlayerNotepadProps) {
   const storageKey = `mafia_notes_${roomId}_${myPhysicalId}`;
 
@@ -98,12 +100,12 @@ export default function PlayerNotepad({
 
   // إن اختفى التأهيل (موت/تعطيل الليدر) والمستخدم على تبويب التشاور → عُد للإضافة
   useEffect(() => {
-    if (!chatVisible && activeTab === 'chat') setActiveTab('add');
-  }, [chatVisible, activeTab]);
+    if (!chatVisible && !uniform && activeTab === 'chat') setActiveTab('add');
+  }, [chatVisible, activeTab, uniform]);
 
   // 🗣️ زر المفكرة هو «باب الغرفة»: عند الفتح، المافيا المؤهّل يدخل مباشرة على تبويب التشاور
   useEffect(() => {
-    if (isOpen) setActiveTab(chatVisible ? 'chat' : 'add');
+    if (isOpen) setActiveTab(chatVisible && !uniform ? 'chat' : 'add');
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isOpen]);
 
@@ -305,7 +307,7 @@ export default function PlayerNotepad({
               🗳️ التصويت
             </button>
             {/* 🗣️ تبويب التشاور — يظهر فقط على أجهزة المافيا الأحياء عندما تكون الغرفة مفعّلة */}
-            {chatVisible && (
+            {(chatVisible || uniform) && (
               <button
                 onClick={() => setActiveTab('chat')}
                 className={`relative flex-1 py-2 rounded-xl text-sm font-bold transition-all ${
@@ -315,7 +317,7 @@ export default function PlayerNotepad({
                 }`}
               >
                 🗣️ التشاور
-                {chatUnread && activeTab !== 'chat' && (
+                {chatUnread && !uniform && activeTab !== 'chat' && (
                   <span className="absolute top-1 left-2 w-2 h-2 rounded-full bg-red-500 animate-pulse" />
                 )}
               </button>
@@ -567,6 +569,10 @@ export default function PlayerNotepad({
             )}
 
             {/* ══ 🗣️ تبويب التشاور السرّي (مافيا أحياء فقط) ══ */}
+            {/* 📱 الواجهة الجديدة لمن ليس في التشاور: نفس الصفحة الفارغة التي يراها المافيا بلا رسائل */}
+            {activeTab === 'chat' && !chatVisible && uniform && (
+              <div className="text-center py-16 opacity-40"><div className="text-5xl mb-3">🤫</div><p className="text-gray-400 text-sm">لا رسائل بعد</p></div>
+            )}
             {activeTab === 'chat' && chatVisible && (
               <div className="flex flex-col h-full">
                 {/* قائمة الرسائل */}

@@ -29,11 +29,17 @@ interface PlayerPhaseViewProps {
   } | null;
   roomId?: string;
   isRemote?: boolean; // 🌐 عن بُعد: نُخفي عناصر النقاش المكرّرة (الحلقة تعرضها)
+  /** 📱 شاشة اللاعب الجديدة (2026-11-06): الترويسة تعرض اسم المرحلة، والمتحدّث صورتُه داخل حلقة الوقت */
+  v2?: boolean;
+  /** صورة اللاعب بمقعده — للمتحدّث في الواجهة الجديدة */
+  avatarOf?: (physicalId: number) => string | null | undefined;
+  /** صورة وجه الكرت للدور — لكرت المُقصى في الواجهة الجديدة */
+  faceOf?: (roleId: string) => string | null | undefined;
 }
 
 export default function PlayerPhaseView({
   gamePhase, physicalId, assignedRole, isPlayerDead, on, emit,
-  myVote, votingCandidates, votingPlayersInfo, pollData, roomId, isRemote
+  myVote, votingCandidates, votingPlayersInfo, pollData, roomId, isRemote, v2, avatarOf, faceOf
 }: PlayerPhaseViewProps) {
   // ── حالة النقاش ──
   const [discussionState, setDiscussionState] = useState<any>(null);
@@ -722,7 +728,7 @@ export default function PlayerPhaseView({
 
     return (
       <motion.div initial={{ opacity: 0, y: 15 }} animate={{ opacity: 1, y: 0 }} className="py-4">
-        {!isRemote && (
+        {!isRemote && !v2 && (
         <div className="text-center mb-4">
           <div className="text-3xl mb-2">🎤</div>
           <h3 className="text-lg font-bold text-[#C5A059]" style={{ fontFamily: 'Amiri, serif' }}>مرحلة النقاش</h3>
@@ -752,8 +758,38 @@ export default function PlayerPhaseView({
           )}
         </AnimatePresence>
 
+        {/* 📱 الواجهة الجديدة: صورة المتحدّث داخل حلقة وقته */}
+        {v2 && !isRemote && (speakerInfo ? (() => {
+          const C = 333;
+          const frac = discCountdown !== null && isSpeaking ? Math.max(0, Math.min(1, discCountdown / totalTime)) : 1;
+          const av = avatarOf?.(speakerInfo.physicalId);
+          const col = discCountdown !== null && isSpeaking && discCountdown <= 5 ? '#ef4444' : discCountdown !== null && isSpeaking && discCountdown <= 10 ? '#f59e0b' : '#C5A059';
+          return (
+            <div key={currentSpeaker} className="pr-hero mx-1 mb-4">
+              <div className="relative mx-auto mb-2" style={{ width: 116, height: 116 }}>
+                <svg viewBox="0 0 116 116" className="absolute inset-0 w-full h-full -rotate-90" aria-hidden>
+                  <circle cx="58" cy="58" r="53" fill="none" stroke="#1f1c18" strokeWidth="3.2" />
+                  <circle cx="58" cy="58" r="53" fill="none" stroke={col} strokeWidth="3.2" strokeLinecap="round"
+                    strokeDasharray={C} strokeDashoffset={(C * (1 - frac)).toFixed(1)} style={{ transition: 'stroke-dashoffset 1s linear, stroke .3s' }} />
+                </svg>
+                <span className="absolute rounded-full overflow-hidden bg-[#1a1a1a] grid place-items-center" style={{ inset: 10 }}>
+                  {av ? <img src={av} alt="" className="w-full h-full object-cover" /> : <span className="text-2xl font-black text-[#C5A059]">#{speakerInfo.physicalId}</span>}
+                </span>
+                <span className="absolute left-1/2 -translate-x-1/2 bottom-0.5 min-w-[30px] h-6 px-2 rounded-full bg-black border border-[#C5A059] text-[#C5A059] font-mono font-black text-[12.5px] grid place-items-center">{speakerInfo.physicalId}</span>
+              </div>
+              <p className="text-white font-extrabold text-[19px]">{speakerInfo.name || `لاعب #${speakerInfo.physicalId}`}</p>
+              <p className="text-[#C5A059] text-[13px] mt-0.5">
+                {timeUp ? 'انتهى الوقت' : isSpeaking ? 'يتحدّث الآن' : 'بالانتظار'}
+                {discCountdown !== null && isSpeaking && <> · <span className="font-mono font-black text-white">{Math.max(0, discCountdown)}</span></>}
+              </p>
+            </div>
+          );
+        })() : (
+          <div className="text-center text-[#8a8a8a] text-sm py-4">بانتظار بدء النقاش...</div>
+        ))}
+
         {/* المتكلم الحالي + التايمر — مخفيّ عن بُعد (الحلقة تعرض المتحدّث والعدّاد) */}
-        {!isRemote && (speakerInfo ? (
+        {!isRemote && !v2 && (speakerInfo ? (
           <motion.div
             key={currentSpeaker}
             initial={{ scale: 0.9, opacity: 0 }}
@@ -1016,10 +1052,12 @@ export default function PlayerPhaseView({
           )
         ) : (
         <>
+        {!v2 && (
         <div className="text-center mb-4">
           <div className="text-3xl mb-2">⚖️</div>
           <h3 className="text-lg font-bold text-[#C5A059]" style={{ fontFamily: 'Amiri, serif' }}>مرحلة التبرير</h3>
         </div>
+        )}
 
         {/* كروت المتهمين */}
         {accused.map((a: any) => {
@@ -1194,9 +1232,14 @@ export default function PlayerPhaseView({
                 <span className="text-2xl font-black text-red-400">#{pid}</span>
               </div>
               <p className="text-white font-bold text-lg">{info?.name || `لاعب #${pid}`}</p>
+              {eliminationRevealed && rev && v2 && faceOf?.(rev.role) && (
+                <motion.img initial={{ opacity: 0, rotateY: 180 }} animate={{ opacity: 1, rotateY: 0 }} transition={{ duration: 0.9 }}
+                  src={faceOf(rev.role) as string} alt={(ROLE_NAMES as any)[rev.role] || rev.role}
+                  className="mx-auto mt-3 rounded-xl border-2 border-[#C5A059]/55" style={{ width: 170 }} />
+              )}
               {eliminationRevealed && rev && (
-                <motion.p initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="text-[#C5A059] text-sm font-mono mt-2 tracking-wider">
-                  {rev.role}
+                <motion.p initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="text-[#C5A059] text-[15px] font-bold mt-2" style={{ fontFamily: 'Amiri, serif' }}>
+                  {(ROLE_NAMES as any)[rev.role] || rev.role}
                 </motion.p>
               )}
               {rev?.cause === 'GODFATHER_BOMB' && (

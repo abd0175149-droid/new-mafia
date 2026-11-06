@@ -1,0 +1,135 @@
+/* ══════════════════════════════════════════════════════
+   📱 شاشة اللاعب الجديدة (2026-11-06) — تطويرٌ للتصميم الحاليّ بنفس الهويّة:
+   الأسود والذهبيّ والأحمر و Amiri، بترويسةٍ مدمجة وبطاقة مرحلةٍ واحدة الشكل.
+   ══════════════════════════════════════════════════════ */
+
+.pr-root { min-height: 100vh; min-height: 100dvh; position: relative; overflow-x: hidden; }
+.pr-top { position: sticky; top: 0; z-index: 40; display: flex; align-items: center; gap: 10px;
+  padding: calc(env(safe-area-inset-top, 0px) + 8px) 14px 10px; background: rgba(5,5,5,.88);
+  -webkit-backdrop-filter: blur(14px); backdrop-filter: blur(14px); border-bottom: 1px solid #1c1c1c; }
+.pr-seat { width: 50px; flex: none; border-radius: 12px; border: 1.5px solid rgba(197,160,89,.45);
+  background: linear-gradient(160deg, rgba(197,160,89,.16), rgba(197,160,89,.03)); text-align: center; padding: 3px 0 2px; }
+.pr-seat small { display: block; font-size: 10px; color: #c9b07a; line-height: 1.3; }
+.pr-seat b { display: block; font-family: 'JetBrains Mono', monospace; font-weight: 800; font-size: 21px; line-height: 1.05; color: #C5A059; }
+.pr-tt { flex: 1; min-width: 0; }
+.pr-tt b { display: block; font-family: Amiri, serif; font-weight: 700; font-size: 20px; line-height: 1.2; color: #C5A059;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.pr-tt small { display: block; font-size: 11.5px; color: #8a8a8a; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.pr-tm { height: 34px; min-width: 62px; padding: 0 10px; display: grid; place-items: center; border-radius: 10px; border: 1px solid #2a2a2a;
+  background: #0c0c0c; font-family: 'JetBrains Mono', monospace; font-weight: 800; font-size: 15px; color: #fff; direction: ltr; }
+.pr-tm.hot { background: #8A0303; border-color: #450a0a; }
+
+.pr-flow { position: relative; padding: 14px 14px calc(var(--nav-h, 64px) + 24px); display: flex; flex-direction: column; gap: 12px; max-width: 520px; margin: 0 auto; }
+.pr-teams { display: flex; justify-content: center; gap: 14px; font-size: 12.5px; color: #8b9490; }
+.pr-teams span { display: flex; align-items: center; gap: 5px; }
+.pr-teams b { color: #fff; font-size: 14px; }
+.pr-teams i { width: 7px; height: 7px; border-radius: 50%; display: inline-block; }
+.pr-dead { text-align: center; font-size: 13px; color: #fca5a5; border: 1px solid rgba(239,68,68,.25); background: rgba(127,29,29,.12); border-radius: 12px; padding: 8px; }
+
+.pr-hero { position: relative; border-radius: 20px; padding: 22px 18px 20px; text-align: center;
+  background: linear-gradient(180deg, #100d09, #0a0a0a 70%); border: 1px solid #2a2a2a; box-shadow: 0 18px 36px rgba(0,0,0,.6); }
+.pr-hero::before { content: ''; position: absolute; top: 0; left: 18%; right: 18%; height: 1px; background: linear-gradient(90deg, transparent, rgba(197,160,89,.7), transparent); }
+.pr-hero > svg.ic { width: 38px; height: 38px; color: #C5A059; display: block; margin: 0 auto 8px; }
+.pr-hero h2 { margin: 0; font-family: Amiri, serif; font-weight: 700; font-size: 26px; line-height: 1.3; color: #C5A059; text-wrap: balance; }
+.pr-hero > p { margin: 6px auto 0; max-width: 32ch; font-size: 14px; line-height: 1.65; color: #a3a3a3; text-wrap: pretty; }
+.pr-cnt { display: inline-block; margin-top: 10px; padding: 4px 14px; border-radius: 999px; border: 1px solid #2a2a2a; background: #0c0c0c;
+  font-family: 'JetBrains Mono', monospace; font-weight: 800; font-size: 16px; color: #fff; }
+.pr-cnt.hot { background: #8A0303; border-color: #450a0a; }
+
+/* الضغط المطوّل */
+.pr-hold { position: relative; width: 100%; border-radius: 16px; padding: 14px; border: 1px dashed rgba(197,160,89,.45); background: rgba(197,160,89,.06);
+  text-align: center; cursor: pointer; min-height: 74px; }
+.pr-hold > b { display: block; font-family: Amiri, serif; font-size: 18px; color: #C5A059; }
+.pr-hold > small { display: block; font-size: 12px; color: #8a8a8a; }
+.pr-hold-ring { position: absolute; top: 10px; inset-inline-start: 10px; width: 22px; height: 22px; }
+.pr-hold-ring circle { fill: none; stroke-width: 3; }
+.pr-hold-ring .tr { stroke: #2a2a2a; }
+.pr-hold-ring .pg { stroke: #C5A059; stroke-dasharray: 56.5; stroke-dashoffset: 56.5; transform: rotate(-90deg); transform-origin: 12px 12px; }
+.pr-hold.is-holding .pr-hold-ring .pg { stroke-dashoffset: 0; transition: stroke-dashoffset .2s linear; }
+.pr-hold-in { position: absolute; left: 0; right: 0; top: 0; min-height: 100%; z-index: 40; border-radius: 16px; background: #0d0a05;
+  border: 1px solid #C5A059; padding: 14px; text-align: start; overflow: hidden; }
+.pr-hold-in p { margin: 4px 0; color: #efe9dc; font-size: 14px; line-height: 1.65; font-family: Amiri, serif; }
+.pr-pk { font-size: 11.5px; color: #8a8a8a; font-weight: 700; }
+
+/* التصويت */
+.pr-vg { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.pr-vc { position: relative; border-radius: 16px; padding: 12px 8px 10px; text-align: center; background: #0f0f0f; border: 1.5px solid #222;
+  display: flex; flex-direction: column; align-items: center; gap: 4px; min-width: 0; }
+.pr-vc.mine { border-color: #C5A059; background: linear-gradient(180deg, rgba(197,160,89,.14), rgba(197,160,89,.03)); }
+.pr-vc:disabled { opacity: .6; }
+.pr-av { position: relative; width: 58px; height: 58px; border-radius: 50%; overflow: hidden; background: #1a1a1a; border: 2px solid rgba(197,160,89,.4); flex: none; }
+.pr-av img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.pr-av .id { position: absolute; bottom: -1px; inset-inline-start: -1px; min-width: 22px; height: 22px; border-radius: 11px; background: #000; border: 1px solid #C5A059;
+  color: #C5A059; font-family: 'JetBrains Mono', monospace; font-size: 11px; font-weight: 800; display: grid; place-items: center; padding: 0 4px; }
+.pr-vc b { font-size: 14.5px; color: #fff; max-width: 100%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.pr-vb { width: 80%; height: 4px; border-radius: 2px; background: #1f1f1f; overflow: hidden; }
+.pr-vb i { display: block; height: 100%; background: #ef4444; }
+.pr-vn { font-size: 12.5px; color: #f87171; font-weight: 800; }
+.pr-voters { display: flex; flex-wrap: wrap; gap: 4px; justify-content: center; }
+.pr-voters span { font-size: 11px; padding: 1px 6px; border-radius: 6px; background: rgba(138,3,3,.2); border: 1px solid rgba(138,3,3,.4); color: #fca5a5; font-family: 'JetBrains Mono', monospace; }
+.pr-me { position: absolute; top: 6px; inset-inline-end: 8px; font-size: 11px; color: #C5A059; }
+
+/* الليل */
+.pr-night { position: fixed; inset: 0; z-index: 200; display: flex; flex-direction: column; font-family: Amiri, serif;
+  background: linear-gradient(to bottom, #0a0812, #070510, #000); padding-top: env(safe-area-inset-top, 0px); }
+.pr-night .hd { display: flex; align-items: center; gap: 8px; padding: 12px 16px; border-bottom: 1px solid #221f1a; }
+.pr-night .hd b { flex: 1; font-size: 16px; color: #C5A059; }
+.pr-night .hd .tm { font-family: 'JetBrains Mono', monospace; font-size: 15px; color: #7e7466; } .pr-night .hd .tm.hot { color: #ef4444; }
+.pr-night .q { padding: 14px 16px 4px; } .pr-night .q b { display: block; font-size: 19px; color: #efe9dc; font-weight: 700; }
+.pr-night .q small { display: block; color: #9b9182; font-size: 13.5px; line-height: 1.6; font-family: Tajawal, sans-serif; }
+.pr-tgts { flex: 1; overflow-y: auto; padding: 8px 16px; display: flex; flex-direction: column; gap: 7px; overscroll-behavior: contain; }
+.pr-tg { display: flex; align-items: center; gap: 12px; border-radius: 12px; padding: 8px 12px; border: 1px solid #221f1a; background: #111010; text-align: start; width: 100%; }
+.pr-tg.sel { border-color: #C5A059; background: rgba(197,160,89,.08); }
+.pr-tg .pr-av { width: 44px; height: 44px; border-width: 1px; } .pr-tg .pr-av img { filter: grayscale(1); }
+.pr-tg .n { flex: 1; font-size: 16px; color: #efe9dc; font-family: Tajawal, sans-serif; font-weight: 700; }
+.pr-tg .i { font-family: 'JetBrains Mono', monospace; font-size: 12px; color: #7e7466; }
+.pr-tg .ck { width: 22px; color: #C5A059; font-size: 18px; }
+.pr-night .ft { padding: 10px 16px calc(env(safe-area-inset-bottom, 0px) + 66px); border-top: 1px solid #221f1a; font-family: Tajawal, sans-serif; }
+.pr-night .gbtn { width: 100%; min-height: 50px; border-radius: 12px; background: #C5A059; color: #0a0a0b; font-weight: 900; font-size: 16px; }
+.pr-night .gbtn:disabled { background: #2a2620; color: #7e7466; }
+.pr-night .skip { display: block; margin: 8px auto 0; color: #9b9182; font-size: 13.5px; text-decoration: underline; text-underline-offset: 4px; min-height: 36px; }
+.pr-night .ft small { display: block; text-align: center; color: #6f675b; font-size: 12px; margin-top: 2px; }
+.pr-night .done { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; gap: 6px; padding: 20px; }
+.pr-night .done b { font-size: 22px; color: #efe9dc; } .pr-night .done small { color: #9b9182; font-size: 14px; font-family: Tajawal, sans-serif; }
+.pr-ref { position: fixed; left: 12px; right: 12px; bottom: calc(env(safe-area-inset-bottom, 0px) + 12px); z-index: 240; display: flex; gap: 8px; }
+.pr-ref button { flex: 1; min-height: 44px; border-radius: 12px; font-weight: 800; font-size: 14px; }
+.pr-ref .r1 { background: rgba(21,19,16,.92); border: 1px solid #2b2621; color: #c5a059; } .pr-ref .r2 { background: #c5a059; color: #0a0a0b; }
+
+/* اللوحات */
+.pr-scrim { position: fixed; inset: 0; z-index: 290; background: rgba(0,0,0,.7); }
+.pr-sheet { position: fixed; left: 0; right: 0; bottom: 0; z-index: 300; max-height: 88dvh; display: flex; flex-direction: column; border-radius: 24px 24px 0 0;
+  background: #0a0a0b; border-top: 1px solid #2b2621; max-width: 560px; margin: 0 auto; }
+.pr-sheet .hd { display: flex; align-items: center; gap: 10px; padding: 14px 16px; background: #0d0c0b; border-radius: 24px 24px 0 0; border-bottom: 1px solid #1d1a16; }
+.pr-sheet .hd h4 { flex: 1; margin: 0; font-family: Amiri, serif; font-size: 21px; color: #efe9dc; }
+.pr-sheet .hd button { width: 40px; height: 40px; border-radius: 10px; border: 1px solid #2b2621; color: #bdb5a6; font-size: 18px; }
+.pr-sheet .bd { overflow-y: auto; padding: 14px 16px calc(env(safe-area-inset-bottom, 0px) + 20px); display: flex; flex-direction: column; gap: 12px; overscroll-behavior: contain; }
+.pr-hub { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+.pr-hub button { position: relative; min-height: 92px; border-radius: 16px; border: 1px solid #2b2621; background: #111010; display: flex; flex-direction: column;
+  align-items: center; justify-content: center; gap: 8px; }
+.pr-hub button svg { width: 28px; height: 28px; color: #C5A059; }
+.pr-hub button.tm svg { color: #ef4444; }
+.pr-hub button.x svg, .pr-hub button.x b { color: #f87171; }
+.pr-hub b { font-size: 14px; color: #e5ddd0; }
+.pr-hub i { position: absolute; top: 8px; left: 8px; min-width: 17px; height: 17px; border-radius: 9px; background: #8A0303; color: #fff; font-style: normal; font-size: 10.5px; font-weight: 800; display: grid; place-items: center; }
+.pr-gal { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+.pr-gal .pr-hold { min-height: 150px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px; padding: 10px 6px; }
+.pr-gal .bk { width: 56px; height: 78px; border-radius: 8px; border: 1px solid rgba(197,160,89,.45); background: #14100a; display: grid; place-items: center;
+  color: rgba(197,160,89,.6); font-family: Amiri, serif; font-size: 26px; }
+.pr-gal .pr-hold-in { text-align: center; padding: 8px 6px; }
+.pr-blk { border-radius: 12px; padding: 12px; background: #111010; border: 1px solid #1f1c18; margin-top: 8px; }
+.pr-blk h5 { margin: 0 0 6px; font-size: 13px; color: #c5a059; }
+.pr-blk p, .pr-blk li { margin: 0; color: #d8d0c2; font-size: 14px; line-height: 1.65; font-family: Amiri, serif; }
+.pr-cbar { height: 6px; border-radius: 3px; background: #1a0505; border: 1px solid rgba(138,3,3,.25); overflow: hidden; margin: 2px 0 8px; }
+.pr-cbar i { display: block; height: 100%; background: linear-gradient(90deg, #8A0303, #dc2626); }
+.pr-ct { display: flex; align-items: center; gap: 10px; padding: 6px 0; border-top: 1px solid #1f1c18; }
+.pr-ct span { width: 26px; height: 26px; flex: none; border-radius: 50%; display: grid; place-items: center; border: 1.5px solid #8A0303; color: #f87171; font-family: 'JetBrains Mono', monospace; font-size: 12px; font-weight: 800; }
+.pr-ct p { margin: 0; }
+.pr-ct.ok span { border-color: rgba(34,197,94,.5); color: #4ade80; } .pr-ct.ok p { color: #4ade80; text-decoration: line-through; }
+.pr-hbtn { position: relative; width: 100%; min-height: 52px; border-radius: 12px; background: #7f1d1d; color: #fff; font-weight: 800; overflow: hidden; }
+.pr-hbtn .fill { position: absolute; inset: 0; background: rgba(255,255,255,.2); transform: scaleX(0); transform-origin: right; }
+.pr-hbtn span { position: relative; }
+.pr-gbtn { width: 100%; min-height: 48px; border-radius: 12px; border: 1px solid #2b2621; color: #d8d0c2; font-weight: 700; }
+
+@media (prefers-reduced-motion: reduce) {
+  .pr-hold.is-holding .pr-hold-ring .pg { transition: none; }
+}

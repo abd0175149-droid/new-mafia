@@ -1292,6 +1292,21 @@ export function registerNightEvents(io: Server, socket: Socket) {
           neutralResults: winResult.neutralResults, // 🧩 نتائج المحايدين
         });
 
+        // 🕵️ نتيجةُ التحقيق لهاتف الشريف — في الليلة الواحدة لم تكن تصله إطلاقاً
+        //    (المسار الوحيد الذي يرسلها كان طابورَ الليل الآليّ). تُرسل لحظةَ الحسم،
+        //    والهاتف (الواجهة الجديدة) يحبسها حتى «رسالة الليل» في الصباح للجميع معاً.
+        for (const ev of events as any[]) {
+          if (ev?.type !== 'SHERIFF_RESULT') continue;
+          const performer = (ev.extra?.performerPhysicalId as number) ?? ev.performerPhysicalId;
+          if (performer == null) continue;
+          findPlayerSocket(io, data.roomId, performer).emit('night:sheriff-result', {
+            result: ev.extra?.result === 'MAFIA' ? 'MAFIA' : 'CITIZEN',
+            targetPhysicalId: ev.targetPhysicalId,
+            targetName: ev.targetName || '',
+            round: state.round || 1,
+          });
+        }
+
         // 👥 إشعار المافيا/الأصغر إن حدث تحوّل
         notifyTwinTransform(io, data.roomId, state);
         await setGameState(data.roomId, state);

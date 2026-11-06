@@ -3,6 +3,8 @@
 import { usePathname } from 'next/navigation';
 import Link from 'next/link';
 import { motion } from 'framer-motion';
+import { useEffect, useState } from 'react';
+import { useRoomBus, requestHub } from './player-room/roomBus';
 
 const tabs = [
   { href: '/player/home', label: 'الرئيسية', icon: 'home' },
@@ -57,8 +59,41 @@ function TabIcon({ icon, active }: { icon: string; active: boolean }) {
   }
 }
 
+// 🎮 داخل الغرفة (الواجهة الجديدة): زرّ المنتصف يصبح «اللعبة» — حلقةُ وقت المرحلة حوله،
+//    ولمسةٌ تفتح أدوات اللعبة. شريطٌ سفليّ واحد (قرار المالك 2026-11-06).
+function GameHubButton() {
+  const bus = useRoomBus();
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => { if (!bus.endsAt) return; const t = setInterval(() => setNow(Date.now()), 1000); return () => clearInterval(t); }, [bus.endsAt]);
+  const C = 175.9;
+  const left = bus.endsAt ? Math.max(0, (bus.endsAt - now) / 1000) : 0;
+  const frac = bus.endsAt && bus.totalSec ? Math.min(1, left / bus.totalSec) : 0;
+  const hot = bus.endsAt && left <= 10;
+  return (
+    <button type="button" onClick={() => requestHub()} aria-label="أدوات اللعبة" className="flex flex-col items-center relative" style={{ marginTop: '-20px' }}>
+      <motion.span whileTap={{ scale: 0.9 }} className="flex items-center justify-center rounded-full relative"
+        style={{ width: 56, height: 56, background: 'linear-gradient(135deg, #e2c57c, #8a6a2a)', border: '2px solid rgba(197,160,89,0.6)', boxShadow: '0 4px 15px rgba(0,0,0,0.5)' }}>
+        {bus.endsAt ? (
+          <svg viewBox="0 0 60 60" aria-hidden className="absolute" style={{ inset: -5, width: 66, height: 66, transform: 'rotate(-90deg)' }}>
+            <circle cx="30" cy="30" r="28" fill="none" stroke={hot ? '#ef4444' : '#C5A059'} strokeWidth="2.5" strokeLinecap="round"
+              strokeDasharray={C} strokeDashoffset={(C * (1 - frac)).toFixed(1)} style={{ transition: 'stroke-dashoffset 1s linear' }} />
+          </svg>
+        ) : null}
+        <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="#1a1206" strokeWidth="2" strokeLinecap="round" aria-hidden>
+          <path d="M5 5h5v5H5zM14 5h5v5h-5zM5 14h5v5H5zM14 14h5v5h-5z" />
+        </svg>
+        {bus.cart > 0 && (
+          <span className="absolute -top-1 -left-1 min-w-[17px] h-[17px] px-1 rounded-full bg-[#8A0303] text-white text-[10px] font-bold flex items-center justify-center">{bus.cart}</span>
+        )}
+      </motion.span>
+      <span className="text-[11px] mt-1" style={{ color: '#C5A059' }}>اللعبة</span>
+    </button>
+  );
+}
+
 export default function BottomNav() {
   const pathname = usePathname();
+  const bus = useRoomBus();
 
   return (
     <nav className="fixed bottom-0 left-0 right-0 z-50" style={{
@@ -70,6 +105,10 @@ export default function BottomNav() {
       <div className="flex items-end justify-around max-w-lg mx-auto px-2" style={{ height: 'var(--nav-content-h)' }}>
         {tabs.map((tab) => {
           const isActive = pathname === tab.href || (tab.href === '/player/home' && pathname === '/player');
+
+          if (tab.isCenter && bus.active) {
+            return <GameHubButton key={tab.href} />;
+          }
 
           if (tab.isCenter) {
             return (
