@@ -54,7 +54,20 @@ function CockpitPreview() {
   // حالةٌ حقيقيّة تُحقن للفحص (Playwright: window.__COCKPIT_STATE__) — وإلّا البيانات الافتراضيّة
   const [gs, setGs] = useState<any>(() => (typeof window !== 'undefined' && (window as any).__COCKPIT_STATE__) || fixture(phase));
   const [failed, setFailed] = useState<string | null>(null);
-  const emit = async (_e: string, _d: any) => ({ success: true });
+  // ⚔️ ?conf=1 — مواجهاتٌ وهميّة (معلّقة · مقبولة · جارية) لفحص العرض
+  const emit = async (e: string, _d: any) => {
+    if (e === 'day:get-confrontations' && sp.get('conf')) {
+      const t = Date.now();
+      const base = { round: 1, createdAt: t - 5000, respondBy: t + 20000, stageSeconds: 60 };
+      return { success: true, round: 1, enabled: true, perPlayer: 1, maxPerRound: 3, respondSeconds: 25, stageSeconds: 60, used: {}, pulseEnabled: true, serverTime: t,
+        confrontations: [
+          { ...base, id: 'c1', requesterPhysicalId: 2, targetPhysicalId: 5, status: 'PENDING' },
+          { ...base, id: 'c2', requesterPhysicalId: 6, targetPhysicalId: 8, status: 'ACCEPTED', acceptedBy: 'TARGET' },
+          ...(sp.get('conf') === 'live' ? [{ ...base, id: 'c3', requesterPhysicalId: 1, targetPhysicalId: 9, status: 'LIVE', stageStartedAt: t - 10000, pulse: { req: 3, tgt: 2, eligible: 8, quorum: true, winner: null, winnerPhysicalId: null, loserPhysicalId: null, pct: 60 } }] : []),
+        ] };
+    }
+    return { success: true };
+  };
   const on = () => () => {};
   const host: CockpitHost = useMemo(() => ({
     alerts: [{ kind: 'gallery', physicalId: 8, name: 'هند', role: 'CITIZEN', teamAr: 'المدينة', at: Date.now() - 60000 }],

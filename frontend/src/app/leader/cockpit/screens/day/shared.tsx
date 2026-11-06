@@ -118,3 +118,33 @@ export function PenalizedRow() {
     </Section>
   );
 }
+
+/**
+ * 🤝⚔️ زوجٌ من لاعبَين: الطالب بالأخضر ← المطلوب بالأحمر — رقمٌ كبير واسمٌ تحته.
+ * يُستعمل للاتفاقيّات والمواجهات معاً فيُقرأ اتّجاه الطلب بنظرة.
+ */
+export function PairCard({ from, to, fromLabel, toLabel, note, right, children, live }: {
+  from: number; to: number; fromLabel: ReactNode; toLabel: ReactNode;
+  note?: ReactNode; right?: ReactNode; children?: ReactNode; live?: boolean;
+}) {
+  const { gameState } = useCockpit();
+  const side = (pid: number, label: ReactNode, cls: string, lbl: string) => (
+    <div className={`min-w-0 flex-1 rounded-xl border py-1.5 text-center ${cls}`}>
+      <small className={`block text-[12px] font-bold ${lbl}`}>{label}</small>
+      <b className="block text-[24px] font-extrabold leading-tight tabular-nums text-white">{pid}</b>
+      <span className="block truncate px-1 text-[13px] text-[#efe8da]">{nameAt(gameState, pid)}</span>
+    </div>
+  );
+  return (
+    <div className={`flex flex-col gap-1.5 rounded-[14px] border p-2 ${live ? 'border-[#C5A059] bg-[#C5A059]/5' : 'border-[#2a241c] bg-[#16130f]'}`}>
+      <div className="flex items-center gap-1.5">
+        {side(from, fromLabel, 'border-[#43b27f] bg-[#43b27f]/15', 'text-[#99dcba]')}
+        <span aria-hidden className="shrink-0 text-[22px] font-bold text-[#9a8f7e]">←</span>
+        {side(to, toLabel, 'border-[#d0474c] bg-[#d0474c]/15', 'text-[#f2a6a9]')}
+        {right}
+      </div>
+      {note && <small className="px-1 text-[12.5px] text-[#9a8f7e]">{note}</small>}
+      {children}
+    </div>
+  );
+}

@@ -7,9 +7,9 @@
 //   ConfFull:     بعد آخر متحدّث (البدء/± المدّة/الإغلاق/الإلغاء + الإعدادات + طلبٌ نيابةً)
 // ══════════════════════════════════════════════════════
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { BottomSheet, Chip, Chips, Hint, ListRow, Section, SeatGrid, SetRow, Stepper, Switch, seatCells, useCockpit } from '../../kit';
+import { BottomSheet, Chip, Chips, Hint, Section, SeatGrid, SetRow, Stepper, Switch, seatCells, useCockpit } from '../../kit';
 import { STATUS_AR, type ConfItem, type ConfPayload } from '../../../LeaderConfrontationPanel';
-import { AdjRow, MiniBtn, nameAt } from './shared';
+import { AdjRow, MiniBtn, PairCard, nameAt } from './shared';
 
 export interface ConfApi {
   conf: ConfPayload | null;
@@ -86,22 +86,12 @@ const secsLeft = (deadline: number, now: number) => Math.max(0, Math.ceil((deadl
 
 /** المواجهة الجارية — الطرفان، العدّاد، النبض، ± المدّة، إغلاق/إلغاء */
 function ConfLive({ c, api }: { c: ConfItem; api: ConfApi }) {
-  const { gameState } = useCockpit();
   const left = c.stageStartedAt ? secsLeft(c.stageStartedAt + c.stageSeconds * 1000, api.now) : c.stageSeconds;
   const ps = api.conf?.pulseEnabled !== false ? c.pulse : null;
   const tot = ps ? ps.req + ps.tgt : 0;
   const share = ps && tot ? ps.req / tot : 0.5;
   return (
-    <div className="rounded-[14px] border border-[#C5A059] bg-[#C5A059]/5 p-2.5 flex flex-col gap-2">
-      <div className="grid grid-cols-2 gap-2">
-        {[{ pid: c.requesterPhysicalId, l: 'الطالب' }, { pid: c.targetPhysicalId, l: 'المستهدَف' }].map(s => (
-          <div key={s.l} className="rounded-xl border border-[#C5A059]/60 bg-[#C5A059]/10 py-1.5 text-center">
-            <small className="block text-[12px] text-[#9a8f7e]">{s.l}</small>
-            <b className="block text-[22px] tabular-nums leading-tight">{s.pid}</b>
-            <span className="block truncate px-1 text-[13px]">{nameAt(gameState, s.pid)}</span>
-          </div>
-        ))}
-      </div>
+    <PairCard live from={c.requesterPhysicalId} to={c.targetPhysicalId} fromLabel="⚔️ طلب المواجهة" toLabel="🎯 المواجهة معه">
       <div className="text-center">
         {c.timeUp
           ? <b className="text-[18px] text-[#ffc2c4]">⏱ انتهى الوقت — أغلقها لختم النبض</b>
@@ -110,11 +100,11 @@ function ConfLive({ c, api }: { c: ConfItem; api: ConfApi }) {
       {ps && (
         <div className="rounded-xl border border-[#2a241c] bg-black/30 p-2">
           <div className="flex justify-between text-[12.5px] tabular-nums">
-            <span className="text-[#C5A059]">الطالب {ps.req}</span>
+            <span className="text-[#99dcba]">الطالب {ps.req}</span>
             <span className="text-[#9a8f7e]">صوّت {tot} من {ps.eligible}{ps.quorum ? ' ✓ نصاب' : ' — دون النصاب'}</span>
             <span className="text-[#f2a6a9]">{ps.tgt} المستهدَف</span>
           </div>
-          <div className="relative mt-2 h-3 rounded-full bg-gradient-to-l from-[#C5A059] via-[#3a2a10] to-[#d0474c]">
+          <div className="relative mt-2 h-3 rounded-full bg-gradient-to-l from-[#43b27f] via-[#2a2418] to-[#d0474c]">
             <div className="absolute -top-1 h-5 w-5 rounded-full bg-white shadow transition-all" style={{ right: `calc(${(share * 100).toFixed(1)}% - 10px)` }} />
           </div>
         </div>
@@ -124,17 +114,15 @@ function ConfLive({ c, api }: { c: ConfItem; api: ConfApi }) {
         <MiniBtn tone={c.timeUp ? 'ok' : 'gold'} disabled={!!api.busy} onClick={() => api.act(c.id, 'end')}>🔒 أغلق المواجهة{c.timeUp ? ' واختم النبض' : ''}</MiniBtn>
         <MiniBtn tone="red" disabled={!!api.busy} onClick={() => api.act(c.id, 'cancel')}>✕ ألغِها</MiniBtn>
       </div>
-    </div>
+    </PairCard>
   );
 }
 
 function PendingRow({ c, api }: { c: ConfItem; api: ConfApi }) {
-  const { gameState } = useCockpit();
   return (
-    <ListRow n="⚔️"
-      title={<>{c.requesterPhysicalId} {nameAt(gameState, c.requesterPhysicalId)} يطلب مواجهة {c.targetPhysicalId} {nameAt(gameState, c.targetPhysicalId)}</>}
-      sub={c.timedOut ? '⏰ انقضت مهلة الردّ — القرار لك' : `بانتظار ردّ المستهدَف — ${secsLeft(c.respondBy, api.now)} ث`}
-      right={<span className="flex gap-1.5 shrink-0">
+    <PairCard from={c.requesterPhysicalId} to={c.targetPhysicalId} fromLabel="⚔️ طلب المواجهة" toLabel="🎯 المواجهة معه"
+      note={c.timedOut ? '⏰ انقضت مهلة الردّ — القرار لك' : `بانتظار ردّ المستهدَف — ${secsLeft(c.respondBy, api.now)} ث`}
+      right={<span className="flex flex-col gap-1.5 shrink-0">
         <MiniBtn tone="ok" disabled={!!api.busy} onClick={() => api.act(c.id, 'approve')}>قبول</MiniBtn>
         <MiniBtn ariaLabel="رفض" disabled={!!api.busy} onClick={() => api.act(c.id, 'decline')}>✕</MiniBtn>
       </span>} />
@@ -143,7 +131,6 @@ function PendingRow({ c, api }: { c: ConfItem; api: ConfApi }) {
 
 /** أثناء النقاش: الطلبات المعلّقة + المقبولة بانتظار نهاية النقاش */
 export function ConfRequests({ api }: { api: ConfApi }) {
-  const { gameState } = useCockpit();
   const { list } = api;
   if (!api.enabled && list.length === 0) return null;
   const pending = list.filter(c => c.status === 'PENDING');
@@ -155,9 +142,8 @@ export function ConfRequests({ api }: { api: ConfApi }) {
       {live && <ConfLive c={live} api={api} />}
       {pending.map(c => <PendingRow key={c.id} c={c} api={api} />)}
       {accepted.map(c => (
-        <ListRow key={c.id} n="⚔️"
-          title={<>{c.requesterPhysicalId} {nameAt(gameState, c.requesterPhysicalId)} و{c.targetPhysicalId} {nameAt(gameState, c.targetPhysicalId)}</>}
-          sub={`${c.acceptedBy === 'LEADER' ? 'قُبلت نيابةً' : 'قبِلها المستهدَف'} — تُنفَّذ بعد آخر متحدّث`}
+        <PairCard key={c.id} from={c.requesterPhysicalId} to={c.targetPhysicalId} fromLabel="⚔️ طلب المواجهة" toLabel="🎯 المواجهة معه"
+          note={`${c.acceptedBy === 'LEADER' ? 'قُبلت نيابةً' : 'قبِلها المستهدَف'} — تُنفَّذ بعد آخر متحدّث`}
           right={<MiniBtn ariaLabel="إلغاء المواجهة" disabled={!!api.busy} onClick={() => api.act(c.id, 'cancel')}>✕</MiniBtn>} />
       ))}
     </>
@@ -166,7 +152,6 @@ export function ConfRequests({ api }: { api: ConfApi }) {
 
 /** بعد آخر متحدّث: اللوحة الكاملة */
 export function ConfFull({ api }: { api: ConfApi }) {
-  const { gameState } = useCockpit();
   const { list, conf } = api;
   const [stageSecs, setStageSecs] = useState<number | null>(null);
   const [showSettings, setShowSettings] = useState(false);
@@ -202,10 +187,9 @@ export function ConfFull({ api }: { api: ConfApi }) {
       {live && <ConfLive c={live} api={api} />}
       {pending.map(c => <PendingRow key={c.id} c={c} api={api} />)}
       {accepted.map(c => (
-        <ListRow key={c.id} n="⚔️"
-          title={<>{c.requesterPhysicalId} {nameAt(gameState, c.requesterPhysicalId)} و{c.targetPhysicalId} {nameAt(gameState, c.targetPhysicalId)}</>}
-          sub={`${c.acceptedBy === 'LEADER' ? 'قُبلت نيابةً' : 'قبِلها المستهدَف'} — ${stage} ث للطرفين`}
-          right={<span className="flex gap-1.5 shrink-0">
+        <PairCard key={c.id} from={c.requesterPhysicalId} to={c.targetPhysicalId} fromLabel="⚔️ طلب المواجهة" toLabel="🎯 المواجهة معه"
+          note={`${c.acceptedBy === 'LEADER' ? 'قُبلت نيابةً' : 'قبِلها المستهدَف'} — ${stage} ث للطرفين`}
+          right={<span className="flex flex-col gap-1.5 shrink-0">
             {!live && <MiniBtn tone="gold" disabled={!!api.busy} onClick={() => api.act(c.id, 'start', stageSecs ? { seconds: stageSecs } : {})}>ابدأها</MiniBtn>}
             <MiniBtn ariaLabel="إلغاء المواجهة" disabled={!!api.busy} onClick={() => api.act(c.id, 'cancel')}>✕</MiniBtn>
           </span>} />

@@ -11,7 +11,7 @@ import {
   ActionBar, BigTimer, BottomSheet, Hint, ListRow, Section, Seg, SeatGrid, Status, seatCells, useCockpit,
 } from '../../kit';
 import { ConfFull, ConfRequests, useConfrontations } from './Confront';
-import { AdjRow, MiniBtn, TeamCounts, aliveOf, nameAt, playerAt } from './shared';
+import { AdjRow, MiniBtn, PairCard, TeamCounts, aliveOf, nameAt, playerAt } from './shared';
 
 export default function Discussion() {
   const { gameState } = useCockpit();
@@ -183,26 +183,12 @@ function DealRows() {
   );
 }
 
-// ── 🤝 بطاقة اتفاقيّة: مَن طلبها بالأخضر ← مَن هي عليه بالأحمر — رقمٌ كبير واسمٌ تحته ──
+// ── 🤝 بطاقة اتفاقيّة: مَن طلبها بالأخضر ← مَن هي عليه بالأحمر ──
 function DealCard({ d, note }: { d: any; note: string }) {
   const { gameState, emit, run } = useCockpit();
-  const side = (pid: number, label: string, cls: string, lbl: string) => (
-    <div className={`min-w-0 flex-1 rounded-xl border py-1.5 text-center ${cls}`}>
-      <small className={`block text-[12px] font-bold ${lbl}`}>{label}</small>
-      <b className="block text-[24px] font-extrabold leading-tight tabular-nums text-white">{pid}</b>
-      <span className="block truncate px-1 text-[13px] text-[#efe8da]">{nameAt(gameState, pid)}</span>
-    </div>
-  );
   return (
-    <div className="flex flex-col gap-1.5 rounded-[14px] border border-[#2a241c] bg-[#16130f] p-2">
-      <div className="flex items-center gap-1.5">
-        {side(d.initiatorPhysicalId, '🤝 طلب الديل', 'border-[#43b27f] bg-[#43b27f]/15', 'text-[#99dcba]')}
-        <span aria-hidden className="shrink-0 text-[22px] font-bold text-[#9a8f7e]">←</span>
-        {side(d.targetPhysicalId, '🎯 الديل عليه', 'border-[#d0474c] bg-[#d0474c]/15', 'text-[#f2a6a9]')}
-        <MiniBtn ariaLabel="حذف الاتفاقيّة" onClick={() => run(() => emit('day:remove-deal', { roomId: gameState.roomId, dealId: d.id }), 'حُذفت الاتفاقيّة')}>✕</MiniBtn>
-      </div>
-      <small className="px-1 text-[12.5px] text-[#9a8f7e]">{note}</small>
-    </div>
+    <PairCard from={d.initiatorPhysicalId} to={d.targetPhysicalId} fromLabel="🤝 طلب الديل" toLabel="🎯 الديل عليه" note={note}
+      right={<MiniBtn ariaLabel="حذف الاتفاقيّة" onClick={() => run(() => emit('day:remove-deal', { roomId: gameState.roomId, dealId: d.id }), 'حُذفت الاتفاقيّة')}>✕</MiniBtn>} />
   );
 }
 
