@@ -349,16 +349,39 @@ function PenaltySheet({ open, onClose }: { open: boolean; onClose: () => void })
   const cells = seatCells(gameState).filter(c => c.player);
   const p = sel != null ? (gameState.players || []).find((x: any) => x.physicalId === sel) : null;
   const max = gameState?.config?.maxPenalties ?? 3;
+  // 🎭 كشف الأدوار من قائمة العقوبات (كما في الواجهة القديمة): يبدأ مخفيّاً مع كلّ فتح،
+  //    وكلّ كشفٍ يُوثَّق في سجلّ العمليّات (ui:penalty-role-reveal) مرّةً لكلّ لاعب لكلّ فتح.
+  const [reveal, setReveal] = useState(false);
+  const loggedRef = useRef<Set<number>>(new Set());
   // 📋 توثيق فتح قائمة العقوبات (كما في الواجهة القديمة — يقرؤه سجلّ العمليّات)
   useEffect(() => {
     if (open) import('@/lib/socket').then((m) => { try { m.getSocket().emit('ui:penalty-menu-open', { roomId: gameState?.roomId }); } catch { /* */ } }).catch(() => {});
+    else { setReveal(false); loggedRef.current = new Set(); }
   }, [open, gameState?.roomId]);
+  const logReveal = (list: any[]) => {
+    const fresh = list.filter((x: any) => x?.role && !loggedRef.current.has(x.physicalId));
+    if (!fresh.length) return;
+    fresh.forEach((x: any) => loggedRef.current.add(x.physicalId));
+    import('@/lib/socket').then((m) => {
+      const sk = m.getSocket();
+      fresh.forEach((x: any) => { try { sk.emit('ui:penalty-role-reveal', { roomId: gameState?.roomId, physicalId: x.physicalId, role: x.role }); } catch { /* */ } });
+    }).catch(() => {});
+  };
+  const toggleReveal = () => {
+    const next = !reveal;
+    setReveal(next);
+    if (next) logReveal(cells.map(c => c.player));
+  };
+  const hasRoles = cells.some(c => c.player?.role);
   return (
     <BottomSheet open={open} title={p ? `عقوبة على ${p.physicalId} ${p.name}` : 'عقوبة'} onClose={() => { setSel(null); onClose(); }}>
       {!p ? (
         <>
-          <Hint>المس المقعد. {max} عقوبات = طرد من اللعبة.</Hint>
-          <SeatGrid cells={cells} onSeat={(c) => setSel(c.seat)} />
+          <div className="flex items-center gap-2">
+            <Hint className="flex-1">المس المقعد. {max} عقوبات = طرد من اللعبة.</Hint>
+            {hasRoles && <Chip on={reveal} onClick={toggleReveal}>{reveal ? '🙈 أخفِ الأدوار' : '👁 اكشف الأدوار'}</Chip>}
+          </div>
+          <SeatGrid cells={cells} showRoles={reveal} onSeat={(c) => { if (c.player?.role) logReveal([c.player]); setSel(c.seat); }} />
         </>
       ) : (
         <>
