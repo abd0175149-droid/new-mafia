@@ -173,36 +173,49 @@ function Finished({ conf }: { conf: ConfApi }) {
 
 // ── 🤝 أثناء النقاش: صفوف الاتفاقيّات المسجّلة (كصفوف المواجهات المقبولة) — لا شيء إن لم تُسجَّل ──
 function DealRows() {
-  const { gameState, emit, run } = useCockpit();
+  const { gameState } = useCockpit();
   const deals: any[] = gameState.votingState?.deals || [];
   if (!deals.length) return null;
   return (
     <>
-      {deals.map((d: any) => (
-        <ListRow key={d.id} n="🤝"
-          title={<>{d.initiatorPhysicalId} {nameAt(gameState, d.initiatorPhysicalId)} ← {d.targetPhysicalId} {nameAt(gameState, d.targetPhysicalId)}</>}
-          sub={`اتفاقيّة ${deals.indexOf(d) + 1}/3 — تُضاف للتصويت بعد آخر متحدّث`}
-          right={<MiniBtn ariaLabel="حذف الاتفاقيّة" onClick={() => run(() => emit('day:remove-deal', { roomId: gameState.roomId, dealId: d.id }), 'حُذفت الاتفاقيّة')}>✕</MiniBtn>} />
-      ))}
+      {deals.map((d: any, i: number) => <DealCard key={d.id} d={d} note={`اتفاقيّة ${i + 1}/3 — تُضاف للتصويت بعد آخر متحدّث`} />)}
     </>
+  );
+}
+
+// ── 🤝 بطاقة اتفاقيّة: مَن طلبها بالأخضر ← مَن هي عليه بالأحمر — رقمٌ كبير واسمٌ تحته ──
+function DealCard({ d, note }: { d: any; note: string }) {
+  const { gameState, emit, run } = useCockpit();
+  const side = (pid: number, label: string, cls: string, lbl: string) => (
+    <div className={`min-w-0 flex-1 rounded-xl border py-1.5 text-center ${cls}`}>
+      <small className={`block text-[12px] font-bold ${lbl}`}>{label}</small>
+      <b className="block text-[24px] font-extrabold leading-tight tabular-nums text-white">{pid}</b>
+      <span className="block truncate px-1 text-[13px] text-[#efe8da]">{nameAt(gameState, pid)}</span>
+    </div>
+  );
+  return (
+    <div className="flex flex-col gap-1.5 rounded-[14px] border border-[#2a241c] bg-[#16130f] p-2">
+      <div className="flex items-center gap-1.5">
+        {side(d.initiatorPhysicalId, '🤝 طلب الديل', 'border-[#43b27f] bg-[#43b27f]/15', 'text-[#99dcba]')}
+        <span aria-hidden className="shrink-0 text-[22px] font-bold text-[#9a8f7e]">←</span>
+        {side(d.targetPhysicalId, '🎯 الديل عليه', 'border-[#d0474c] bg-[#d0474c]/15', 'text-[#f2a6a9]')}
+        <MiniBtn ariaLabel="حذف الاتفاقيّة" onClick={() => run(() => emit('day:remove-deal', { roomId: gameState.roomId, dealId: d.id }), 'حُذفت الاتفاقيّة')}>✕</MiniBtn>
+      </div>
+      <small className="px-1 text-[12.5px] text-[#9a8f7e]">{note}</small>
+    </div>
   );
 }
 
 // ── 🤝 الاتفاقيّات ──
 function Deals() {
-  const { gameState, emit, run } = useCockpit();
+  const { gameState } = useCockpit();
   const [open, setOpen] = useState(false);
   const deals: any[] = gameState.votingState?.deals || [];
   const round = gameState.round || 0;
   const full = deals.length >= 3;
   return (
     <Section title="🤝 الاتفاقيّات" aside={round <= 1 ? '🔒 من الجولة الثانية' : `${deals.length}/3 هذه الجولة`}>
-      {deals.map((d: any) => (
-        <ListRow key={d.id} n="🤝"
-          title={<>{d.initiatorPhysicalId} {nameAt(gameState, d.initiatorPhysicalId)} ← {d.targetPhysicalId} {nameAt(gameState, d.targetPhysicalId)}</>}
-          sub="إن كان المستهدَف مواطناً خرج المبادر معه"
-          right={<MiniBtn tone="red" ariaLabel="حذف الاتفاقيّة" onClick={() => run(() => emit('day:remove-deal', { roomId: gameState.roomId, dealId: d.id }), 'حُذفت الاتفاقيّة')}>✕</MiniBtn>} />
-      ))}
+      {deals.map((d: any) => <DealCard key={d.id} d={d} note="إن كان المستهدَف مواطناً خرج المبادر معه" />)}
       {round > 1 && deals.length === 0 && <Hint>لا اتفاقيّات في هذه الجولة.</Hint>}
       {round > 1 && !full && <MiniBtn tone="gold" onClick={() => setOpen(true)}>+ تسجيل اتفاقيّة نيابةً عن لاعب</MiniBtn>}
       <DealSheet open={open} onClose={() => setOpen(false)} />
