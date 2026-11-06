@@ -42,6 +42,7 @@ function Setup({ conf }: { conf: ConfApi }) {
       <Status meta={`${alive.length} أحياء${silenced.length ? ` · ${silenced.length} مُسكَت` : ''}`} />
       <TeamCounts />
       <ConfRequests api={conf} />
+      <DealRows />
       <Section title="من يبدأ" aside={startSeat ? `${startSeat} ${nameAt(gameState, startSeat)}` : ''}>
         <SeatGrid cells={cells}
           mark={(c) => ({ selected: c.seat === startSeat, disabled: c.player?.isAlive === false })}
@@ -129,6 +130,8 @@ function Active({ conf }: { conf: ConfApi }) {
       </div>
       {/* ⚔️ طلبات المواجهة — تحت أزرار الوقت دائماً فلا تدفعها */}
       <ConfRequests api={conf} />
+      {/* 🤝 الاتفاقيّات المسجّلة — بمنطق المواجهات نفسه: صفٌّ لكلٍّ منها تحت أزرار الوقت */}
+      <DealRows />
       <ActionBar
         primary={{
           label: nextId != null ? `التالي ← ${nextId} ${nameAt(gameState, nextId)}` : 'أنهِ النقاش',
@@ -164,6 +167,23 @@ function Finished({ conf }: { conf: ConfApi }) {
           },
         }}
         secondary={{ label: 'رجوع للنقاش', onPress: () => run(() => emit('day:prev-speaker', { roomId })) }} />
+    </>
+  );
+}
+
+// ── 🤝 أثناء النقاش: صفوف الاتفاقيّات المسجّلة (كصفوف المواجهات المقبولة) — لا شيء إن لم تُسجَّل ──
+function DealRows() {
+  const { gameState, emit, run } = useCockpit();
+  const deals: any[] = gameState.votingState?.deals || [];
+  if (!deals.length) return null;
+  return (
+    <>
+      {deals.map((d: any) => (
+        <ListRow key={d.id} n="🤝"
+          title={<>{d.initiatorPhysicalId} {nameAt(gameState, d.initiatorPhysicalId)} ← {d.targetPhysicalId} {nameAt(gameState, d.targetPhysicalId)}</>}
+          sub={`اتفاقيّة ${deals.indexOf(d) + 1}/3 — تُضاف للتصويت بعد آخر متحدّث`}
+          right={<MiniBtn ariaLabel="حذف الاتفاقيّة" onClick={() => run(() => emit('day:remove-deal', { roomId: gameState.roomId, dealId: d.id }), 'حُذفت الاتفاقيّة')}>✕</MiniBtn>} />
+      ))}
     </>
   );
 }

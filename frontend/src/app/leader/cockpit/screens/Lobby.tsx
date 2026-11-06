@@ -45,12 +45,17 @@ export default function LobbyScreen() {
   const [addSeat, setAddSeat] = useState<number | null>(null);
   const [excluded, setExcluded] = useState<number[]>([]);
   const [busy, setBusy] = useState(false);
+  // ☑️ تحديدٌ متعدّد للطرد — بعد نهاية لعبةٍ يُخرَج من غادروا دفعةً واحدة بدل مقعدٍ مقعد
+  const [picking, setPicking] = useState(false);
+  const [picked, setPicked] = useState<number[]>([]);
+  const [kicking, setKicking] = useState(false);
 
   // 🧹 بعد أيّ إعادة ترقيم: لا يبقى اختيارٌ يشير إلى مقعدٍ قديم
   useEffect(() => {
     if (!sm.remapVersion) return;
     setSheet(null);
     setExcluded([]);
+    setPicked([]);
   }, [sm.remapVersion]);
 
   // المستبعَد الذي غادر أو طُرد لا يبقى في القائمة
@@ -61,6 +66,9 @@ export default function LobbyScreen() {
   const waiting = spectators.filter((s) => s && s.status !== 'admitted');
   const startCount = present.length - excludedLive.length;
   const maxPlayers = Number(cfg.maxPlayers) || 0;
+  const seatedIds = new Set(players.filter((p) => !p.seatHeld).map((p) => Number(p.physicalId)));
+  const pickedLive = picked.filter((n) => seatedIds.has(n));
+  const offline = players.filter((p) => !p.seatHeld && (p.isConnected === false || p.frozen)).map((p) => Number(p.physicalId));
 
   // ── الأفعال ──
   const toggleExclude = (seat: number) => {
@@ -99,8 +107,28 @@ export default function LobbyScreen() {
     else toast(`حُدّث من القالب — ${r.pinned || 0} مقعد مثبّت${r.capacityWarning ? ` · ${r.capacityWarning}` : ''}`);
   };
 
+  const togglePick = (seat: number) => setPicked((prev) => (prev.includes(seat) ? prev.filter((x) => x !== seat) : [...prev, seat]));
+  const stopPicking = () => { setPicking(false); setPicked([]); };
+
+  // واحداً تلو الآخر: room:kick-player يقرأ الحالة ويكتبها، فالتوازي يُرجع مطروداً بكتابةٍ متأخّرة
+  const kickPicked = async () => {
+    if (kicking || !pickedLive.length) return;
+    setKicking(true);
+    const seats = pickedLive.slice().sort((a, b) => a - b);
+    const failed: number[] = [];
+    for (const seat of seats) {
+      try { await emit('room:kick-player', { roomId, physicalId: seat }); }
+      catch { failed.push(seat); }
+    }
+    setKicking(false);
+    const ok = seats.length - failed.length;
+    if (failed.length) { setPicked(failed); toast(`خرج ${ok} — تعذّر طرد ${failed.join('، ')}`, { tone: 'red', ms: 7000 }); }
+    else { stopPicking(); toast(`خرج ${ok} من الغرفة`); }
+  };
+
   const onSeat = (c: SeatCellData) => {
     if (sm.movingId != null) { sm.moveTo(c.seat); return; }
+    if (picking) { if (c.player) togglePick(c.seat); return; }
     if (c.player) { setSheet({ kind: 'player', seat: c.seat }); return; }
     if (c.held) { setSheet({ kind: 'held', seat: c.seat }); return; }
     if (c.spectator) { setSheet({ kind: 'spectator', seat: c.seat }); return; }
@@ -114,6 +142,11 @@ export default function LobbyScreen() {
     if (moving) {
       m.selected = sm.movingId === c.seat;
       m.disabled = sm.busy || (!!c.spectator && !c.player) || !!c.held;
+      return m;
+    }
+    if (picking) {
+      m.disabled = !c.player || kicking;
+      if (c.player && pickedLive.includes(c.seat)) { m.target = true; m.topLeft = '✓'; }
       return m;
     }
     if (c.player && excludedLive.includes(c.seat)) { m.ghost = true; m.label = 'مستبعد'; m.topLeft = '🚫'; }
@@ -187,8 +220,28 @@ export default function LobbyScreen() {
       )}
 
       {/* ── المقاعد ── */}
-      <Section title="المقاعد" aside={sm.movingId != null ? undefined : 'المس مقعداً لأفعاله'}>
+      <Section title="المقاعد" aside={sm.movingId != null ? undefined : picking ? 'المس من يخرج' : (players.length > 0
+        ? <button type="button" onClick={() => setPicking(true)} className="min-h-[44px] px-2 text-[13px] font-bold text-[#C5A059]">☑️ تحديد للطرد</button>
+        : 'المس مقعداً لأفعاله')}>
         <div data-seat-move="1" className="flex flex-col gap-2.5">
+          {picking && sm.movingId == null && (
+            <div className="flex flex-col gap-2 rounded-[13px] border border-[#d0474c]/60 bg-[#d0474c]/10 px-3 py-2.5">
+              <span className="text-[14px]">حدّد اللاعبين الذين يخرجون من الغرفة — <b className="tabular-nums">{pickedLive.length}</b> محدّد</span>
+              <Chips>
+                {offline.length > 0 && <TapChip onClick={() => setPicked((prev) => Array.from(new Set([...prev, ...offline])))}>○ غير المتّصلين ({offline.length})</TapChip>}
+                {pickedLive.length > 0 && <TapChip onClick={() => setPicked([])}>ألغِ التحديد</TapChip>}
+                <TapChip onClick={stopPicking}>إنهاء</TapChip>
+              </Chips>
+              {pickedLive.length > 0 && (
+                <>
+                  <Hint>{pickedLive.slice().sort((a, b) => a - b).map((n) => `${n} ${players.find((x) => Number(x.physicalId) === n)?.name || ''}`).join(' · ')}</Hint>
+                  <HoldButton disabled={kicking} className="w-full min-h-[52px]" onHold={() => void kickPicked()}>
+                    {kicking ? 'جارٍ الإخراج…' : `اضغط مطوّلاً: أخرِج ${pickedLive.length} من الغرفة`}
+                  </HoldButton>
+                </>
+              )}
+            </div>
+          )}
           {sm.movingId != null && (
             <div className="flex items-center gap-2 rounded-[13px] border border-[#C5A059]/60 bg-[#C5A059]/10 px-3 py-2">
               <span className="flex-1 text-[14px]">نقل <b>{sm.movingId}</b> {players.find((p) => Number(p.physicalId) === sm.movingId)?.name || ''} — المس الوجهة: فارغ = نقل، مشغول = تبديل</span>

@@ -38,7 +38,7 @@ function fixture(phase: string): any {
       { type: 'SILENCED', targetPhysicalId: 4, targetName: 'ليلى' },
     ] : [],
     discussionState: phase === 'DAY_DISCUSSION' ? { status: 'SPEAKING', speakingQueue: alive, currentSpeakerId: alive[2], hasSpoken: alive.slice(0, 2), startTime: now - 12000, timeRemaining: 45, isFinished: false } : null,
-    votingState: phase === 'DAY_VOTING' ? { candidates: alive.map(id => ({ targetPhysicalId: id, votes: id === 9 ? 4 : id === 2 ? 2 : 0, type: 'PLAYER' })), playerVotes: { 1: 9, 3: 2, 4: 9, 5: 9, 6: 2, 8: 9 }, leaderProxyVotes: {}, totalVotesCast: 6, votingStartTime: now - 8000, durationSeconds: 30, deals: [], tieBreakerLevel: 0, hiddenPlayersFromVoting: [] } : { deals: [] },
+    votingState: phase === 'DAY_VOTING' ? { candidates: alive.map(id => ({ targetPhysicalId: id, votes: id === 9 ? 4 : id === 2 ? 2 : 0, type: 'PLAYER' })), playerVotes: { 1: 9, 3: 2, 4: 9, 5: 9, 6: 2, 8: 9 }, leaderProxyVotes: {}, totalVotesCast: 6, votingStartTime: now - 8000, durationSeconds: 30, deals: [], tieBreakerLevel: 0, hiddenPlayersFromVoting: [] } : { deals: phase === 'DAY_DISCUSSION' ? [{ id: 'd1', initiatorPhysicalId: 4, targetPhysicalId: 7 }] : [] },
     justificationData: phase === 'DAY_JUSTIFICATION' ? { accused: [{ targetPhysicalId: 9, votes: 6 }], candidates: [{ targetPhysicalId: 9, votes: 6 }], canJustifyList: [9], topVotes: 6, resultType: 'SINGLE', maxJustifications: 2, leaderProxyVotes: {} } : null,
     pendingResolution: phase === 'DAY_ELIMINATION' ? { eliminated: [9], revealedRoles: [{ physicalId: 9, role: 'CHAMELEON' }], winResult: 'GAME_CONTINUES' } : null,
     mayorState: { mayorPhysicalId: 10, revealed: false },
