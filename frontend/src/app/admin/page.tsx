@@ -10,6 +10,7 @@ import InvoiceWaCard from '@/components/admin/InvoiceWaCard';
 import WaGateCard from '@/components/admin/WaGateCard';
 import ResConfirmCard from '@/components/admin/ResConfirmCard';
 import PhotoZoneCard from '@/components/admin/PhotoZoneCard';
+import LeaderCockpitCard from '@/components/admin/LeaderCockpitCard';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || '';
 const CURRENCY = 'د.أ';
@@ -218,6 +219,7 @@ export default function AdminDashboard() {
       <WaGateCard />
       <ResConfirmCard />
       <PhotoZoneCard />
+      <LeaderCockpitCard />
 
       {/* ── تنبيه ذكي ── */}
       {bk.unpaid > 0 && (

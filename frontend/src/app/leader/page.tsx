@@ -228,17 +228,31 @@ export default function LeaderPage() {
   const [mafiaChatUnread, setMafiaChatUnread] = useState(0);
   const [showMafiaChatModal, setShowMafiaChatModal] = useState(false);
   const [showSettingsModal, setShowSettingsModal] = useState(false);   // ⚙️ إعدادات اللعبة (كلّ المراحل)
-  // 🎛️ القمرة — الواجهة الجديدة للهاتف، اختياريّة حتى يجرّبها المالك (تُحفظ على الجهاز)
-  const [cockpitOn, setCockpitOn] = useState(false);
+  // 🎛️ القمرة — يحدّدها مفتاحٌ واحد من الداشبورد لكلّ الغرف والأجهزة (قرار المالك 2026-11-06:
+  //    لا زرّ في واجهة الليدر). تُقرأ عند الفتح وكلّ دقيقة. «الواجهة القديمة» من داخل القمرة
+  //    أو خطأُ رسمٍ فيها يُعيدان هذا الجهاز للقديمة حتى تحديث الصفحة — لا يمسّان المفتاح.
+  const [cockpitFlag, setCockpitFlag] = useState(false);
+  const [cockpitForcedOff, setCockpitForcedOff] = useState(false);
+  const cockpitOn = cockpitFlag && !cockpitForcedOff;
   const cockpitRef = useRef(false);
+  cockpitRef.current = cockpitOn;
   const [cockpitAlerts, setCockpitAlerts] = useState<CockpitAlert[]>([]);
   useEffect(() => {
-    try { const v = localStorage.getItem('leader_cockpit') === '1'; setCockpitOn(v); cockpitRef.current = v; } catch { /* */ }
-  }, []);
-  const setCockpit = (v: boolean) => {
-    setCockpitOn(v); cockpitRef.current = v;
-    try { localStorage.setItem('leader_cockpit', v ? '1' : '0'); } catch { /* */ }
-  };
+    let alive = true;
+    const load = async () => {
+      try {
+        const t = localStorage.getItem('leader_token') || localStorage.getItem('token') || '';
+        if (!t) return;
+        const r = await fetch('/api/leader-ui', { headers: { Authorization: `Bearer ${t}` } });
+        const d = await r.json().catch(() => null);
+        if (alive && d?.success) setCockpitFlag(d.enabled === true);
+      } catch { /* آخر حالة */ }
+    };
+    load();
+    const iv = setInterval(load, 60000);
+    return () => { alive = false; clearInterval(iv); };
+  }, [isAuthenticated]);
+  const setCockpit = (v: boolean) => { if (!v) setCockpitForcedOff(true); };
   const showMafiaChatModalRef = useRef(false);
   useEffect(() => {
     showMafiaChatModalRef.current = showMafiaChatModal;
@@ -2667,12 +2681,6 @@ export default function LeaderPage() {
             </div>
             <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
               {/* 🎁 زر اختيار رابح — مشترك (كلّ المراحل) */}
-              <button
-                onClick={() => setCockpit(true)}
-                className="text-[#110d08] bg-[#C5A059] text-[11px] font-bold px-3 py-1.5 rounded-lg"
-              >
-                ✨ القمرة الجديدة
-              </button>
               {luckyDrawBtn}
               {/* 🎂 زر عيد الميلاد — مشترك أيضاً */}
               {birthdayBtn}
@@ -4000,12 +4008,6 @@ export default function LeaderPage() {
             {/* Right: Action Buttons */}
             <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
               {/* 🎁 زر اختيار رابح — مشترك (كلّ المراحل) */}
-              <button
-                onClick={() => setCockpit(true)}
-                className="text-[#110d08] bg-[#C5A059] text-[11px] font-bold px-3 py-1.5 rounded-lg"
-              >
-                ✨ القمرة الجديدة
-              </button>
               {luckyDrawBtn}
               {/* 🎂 زر عيد الميلاد — مشترك أيضاً */}
               {birthdayBtn}
