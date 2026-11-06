@@ -59,8 +59,14 @@ const mmss = (sec: number) =>
 
 type Tab = 'arrivals' | 'map' | 'night';
 
-export default function ArrivalsPanel({ roomId, gameState, emit, on }: Props) {
-  const [open, setOpen] = useState(false);
+export default function ArrivalsPanel({ roomId, gameState, emit, on, ctlOpen, onCtlClose }: Props & { ctlOpen?: boolean; onCtlClose?: () => void }) {
+  // 🎛️ تحكّمٌ خارجيّ اختياريّ (القمرة تفتح اللوحة من «الأدوات» وتُخفي زرّها)
+  const [openS, setOpenS] = useState(false);
+  const open = ctlOpen ?? openS;
+  const setOpen = (v: boolean | ((x: boolean) => boolean)) => {
+    const nv = typeof v === 'function' ? v(open) : v;
+    if (ctlOpen !== undefined) { if (!nv) onCtlClose?.(); } else setOpenS(nv);
+  };
   const [tab, setTab] = useState<Tab>('arrivals');
   const [busy, setBusy] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
@@ -413,6 +419,7 @@ export default function ArrivalsPanel({ roomId, gameState, emit, on }: Props) {
     <div data-arrivals className="relative inline-block">
       <button
         ref={btnRef}
+        data-ctl-hidden={ctlOpen !== undefined ? '1' : undefined}
         onClick={() => setOpen(o => !o)}
         className="px-3 py-1.5 rounded-lg text-xs font-bold border transition-colors"
         style={{

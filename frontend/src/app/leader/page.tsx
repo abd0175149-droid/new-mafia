@@ -24,6 +24,9 @@ import SoundMixer from './SoundMixer';
 import OneNightReview from './OneNightReview';
 import FixedLayer from '@/components/FixedLayer';
 import GameSettingsModal from './GameSettingsModal';
+import Cockpit from './cockpit/Cockpit';
+import CockpitBoundary from './cockpit/Boundary';
+import type { CockpitAlert, CockpitHost } from './cockpit/host';
 
 // 🏙️ تصنيفٌ لكلّ مدينة — أختامٌ ومساعدات محليّة لهذه الصفحة (أسماء المدن من الخادم وحده)
 const CITY_STAMP = 'inline-flex items-center gap-1.5 border border-[#C5A059]/35 bg-[#C5A059]/10 text-[#C5A059] text-[11px] px-2.5 py-1';
@@ -225,6 +228,17 @@ export default function LeaderPage() {
   const [mafiaChatUnread, setMafiaChatUnread] = useState(0);
   const [showMafiaChatModal, setShowMafiaChatModal] = useState(false);
   const [showSettingsModal, setShowSettingsModal] = useState(false);   // ⚙️ إعدادات اللعبة (كلّ المراحل)
+  // 🎛️ القمرة — الواجهة الجديدة للهاتف، اختياريّة حتى يجرّبها المالك (تُحفظ على الجهاز)
+  const [cockpitOn, setCockpitOn] = useState(false);
+  const cockpitRef = useRef(false);
+  const [cockpitAlerts, setCockpitAlerts] = useState<CockpitAlert[]>([]);
+  useEffect(() => {
+    try { const v = localStorage.getItem('leader_cockpit') === '1'; setCockpitOn(v); cockpitRef.current = v; } catch { /* */ }
+  }, []);
+  const setCockpit = (v: boolean) => {
+    setCockpitOn(v); cockpitRef.current = v;
+    try { localStorage.setItem('leader_cockpit', v ? '1' : '0'); } catch { /* */ }
+  };
   const showMafiaChatModalRef = useRef(false);
   useEffect(() => {
     showMafiaChatModalRef.current = showMafiaChatModal;
@@ -1683,6 +1697,8 @@ export default function LeaderPage() {
       if (!d || d.roomId !== gameState.roomId) return;
       // 🔔 صوت تنبيه فوري — على جهاز الليدر فقط (لا يُبثّ لشاشة العرض حتى لا ينكشف التنبيه في القاعة)
       if (leaderSoundOnRef.current) playLocalSound('leader_gallery_alert');
+      // 🎛️ في القمرة: الجرس وشريطٌ قصير — لا نافذةً تغطّي الشاشة
+      if (cockpitRef.current) { setCockpitAlerts(prev => [{ kind: 'gallery' as const, ...d, at: d.at || Date.now() }, ...prev].slice(0, 60)); return; }
       // إسقاط التكرار: نفس اللاعب لا يتكدس في الطابور
       if (!galleryAlertQueueRef.current.some((q: any) => q.physicalId === d.physicalId && !q.kind)) {
         galleryAlertQueueRef.current.push(d);
@@ -1695,6 +1711,7 @@ export default function LeaderPage() {
     const offTasksAlert = on('leader:my-tasks-alert', (d: any) => {
       if (!d || d.roomId !== gameState.roomId) return;
       if (leaderSoundOnRef.current) playLocalSound('leader_gallery_alert');
+      if (cockpitRef.current) { setCockpitAlerts(prev => [{ kind: 'tasks' as const, ...d, at: d.at || Date.now() }, ...prev].slice(0, 60)); return; }
       if (!galleryAlertQueueRef.current.some((q: any) => q.physicalId === d.physicalId && q.kind === 'tasks')) {
         galleryAlertQueueRef.current.push({ ...d, kind: 'tasks' });
       }
@@ -2493,6 +2510,124 @@ export default function LeaderPage() {
   // ══════════════════════════════════════════════════
   // صفحة الغرفة (Session View)
   // ══════════════════════════════════════════════════
+  if (gameState && cockpitOn) {
+    const rid = gameState.roomId;
+    const resetLocal = (res: any) => setGameState((prev: any) => prev ? {
+      ...prev, phase: 'LOBBY', winner: undefined, rolesPool: [], votingState: undefined, discussionState: undefined,
+      players: (res?.players || prev.players).map((p: any) => ({ ...p, isAlive: true, isSilenced: false, role: null })),
+    } : prev);
+    const askResetPenalties = async (excluded: number[]) => {
+      const scope = (gameState.config as any)?.penaltyScope || 'room';
+      const has = gameState.players.some((p: any) => (p.penalties || 0) > 0 && !excluded.includes(p.physicalId));
+      if (!has || scope !== 'room') return true;
+      return await swalConfirm('⚖️ يوجد لاعبون عليهم عقوبات من اللعبة السابقة.<br/><br/>صفّرها لبدايةٍ جديدة، أو أبقِها (مستوى الغرفة)؟',
+        { title: 'العقوبات', confirmText: 'صفّرها', cancelText: 'أبقِها' });
+    };
+    const host: CockpitHost = {
+      alerts: cockpitAlerts,
+      dismissAlert: (i) => setCockpitAlerts(prev => prev.filter((_, k) => k !== i)),
+      clearAlerts: () => setCockpitAlerts([]),
+      gameTimer: gameTimerData ? { remaining: gameTimerRemaining, expired: !!gameTimerData.expired } : null,
+      oneNight: {
+        running: oneNight, progress: oneNightProgress, roster: oneNightRoster, review: oneNightReview, busy: oneNightBusy,
+        start: async (seconds) => { await emit('night:one-start', { roomId: rid, durationSeconds: seconds }); },
+        close: async () => { await emit('night:one-close', { roomId: rid }); },
+        apply: async (overrides) => {
+          setOneNightBusy(true);
+          try {
+            await emit('night:one-apply', { roomId: rid, overrides });
+            await emit('night:resolve', { roomId: rid });
+            setOneNightReview(null);
+            setOneNightProgress(null);
+          } finally { setOneNightBusy(false); }
+        },
+      },
+      policewomanChoice: (gameState as any).policewomanChoice || null,
+      setPolicewomanChoice: (v) => setGameState((prev: any) => prev ? { ...prev, policewomanChoice: v } : prev),
+      mafiaChatUnread,
+      soundOn: leaderSoundOn,
+      open: {
+        luckyDraw: openLuckyDraw,
+        birthday: openBirthday,
+        settings: () => setShowSettingsModal(true),
+        mixer: () => setMixerOpen(true),
+        rename: () => window.dispatchEvent(new CustomEvent('cockpit:open-names')),
+        mafiaChat: openMafiaChatModal,
+      },
+      toggleSound: () => setLeaderSoundOn((v) => {
+        const nv = !v;
+        setLocalMuted(!nv);
+        try { localStorage.setItem('leader-sound-on', nv ? '1' : '0'); } catch { /* */ }
+        return nv;
+      }),
+      reflow: gameState.activityId ? handleReflowSchedule : undefined,
+      adjustGameTimer: async (minutes) => { await emit('game:adjust-game-timer', { roomId: rid, deltaMinutes: minutes }); },
+      terminate: async () => {
+        const res = await emit('room:reset-to-lobby', { roomId: rid });
+        if (res?.success) resetLocal(res);
+        setExcludedPlayers([]); setShowExcludeUI(false);
+      },
+      deleteRoom: async () => {
+        const res = await emit('room:delete-room', { roomId: rid });
+        if (res?.success) { setGameState(null); setInSession(false); fetchActiveGames(); fetchHistory(); }
+      },
+      closeEvent: async () => {
+        const res = await emit('room:close-event', { roomId: rid });
+        if (res?.success) { setGameState(null); setInSession(false); }
+      },
+      leave: () => { setGameState(null); setInSession(false); setSelectedMatch(null); fetchActiveGames(); fetchHistory(); },
+      startGeneration: async (excluded = []) => {
+        if (gameState.players.length - excluded.length < 6) throw new Error('يجب إضافة 6 لاعبين على الأقل');
+        const resetPenalties = await askResetPenalties(excluded);
+        if (excluded.length > 0) {
+          const res = await emit('room:new-game', { roomId: rid, excludePlayerIds: excluded, resetPenalties });
+          if (res?.success) setGameState((prev: any) => prev ? { ...prev, players: (res.players || []).map((p: any) => ({ ...p, isAlive: true, isSilenced: false, role: null })), winner: undefined, phase: 'LOBBY' } : prev);
+        }
+        await startGeneration(rid);
+        setExcludedPlayers([]); setShowExcludeUI(false); setInSession(false);
+      },
+      newGame: async (excluded) => {
+        const resetPenalties = await askResetPenalties(excluded);
+        if (excluded.length > 0) {
+          const res = await emit('room:new-game', { roomId: rid, excludePlayerIds: excluded, resetPenalties });
+          if (res?.success) setGameState((prev: any) => prev ? { ...prev, players: (res.players || []).map((p: any) => ({ ...p, isAlive: true, isSilenced: false, role: null })), winner: undefined, phase: 'LOBBY' } : prev);
+        } else {
+          const res = await emit('room:reset-to-lobby', { roomId: rid, resetPenalties });
+          if (res?.success) resetLocal(res);
+        }
+        setExcludedPlayers([]); setShowExcludeUI(false); setInSession(true);
+      },
+      adminEliminate: async (physicalId) => {
+        const p = gameState.players.find((x: any) => x.physicalId === physicalId);
+        if (!p) return;
+        const res = await emit('admin:eliminate', { roomId: rid, physicalId });
+        if (!res?.success) throw new Error(res?.error || 'فشل الإقصاء');
+        setGameState((prev: any) => prev ? { ...prev, players: prev.players.map((pl: any) => pl.physicalId === physicalId ? { ...pl, isAlive: false } : pl) } : prev);
+        const role = res.role || p.role || 'UNKNOWN';
+        setAdminRevealData({ physicalId, name: p.name, role });
+        emit('admin:reveal-eliminated', { roomId: rid, physicalId, playerName: p.name, role }).catch(() => {});
+      },
+      adminReveal: adminRevealData,
+      dismissAdminReveal: () => { setAdminRevealData(null); emit('admin:dismiss-reveal', { roomId: rid }).catch(() => {}); },
+      showClassic: () => setCockpit(false),
+    };
+    return (
+      <SeatMoveProvider roomId={gameState.roomId} players={gameState.players} spectators={(gameState as any).spectators} photoZone={(gameState as any).photoZone} maxPlayers={gameState.config.maxPlayers} emit={emit} on={on}>
+      <AntiCheatProvider roomId={gameState.roomId} on={on} soundOn={() => leaderSoundOnRef.current}>
+        <CockpitBoundary onFail={(m) => { setCockpit(false); swalToast('تعذّر عرض القمرة — عُدنا للواجهة القديمة. ' + m.slice(0, 80), 'error'); }}>
+          <Cockpit gameState={gameState} setGameState={setGameState as any} emit={emit} on={on} host={host} />
+        </CockpitBoundary>
+        {/* النوافذ المشتركة تبقى من الصفحة — تُفتح من «الأدوات» */}
+        <FixedLayer>{soundMixerPanel}</FixedLayer>
+        {mafiaChatModal}
+        {settingsModal}
+        {luckyDrawModal}
+        {birthdayModal}
+      </AntiCheatProvider>
+      </SeatMoveProvider>
+    );
+  }
+
   if (gameState && inSession) {
     return (
       <SeatMoveProvider roomId={gameState.roomId} players={gameState.players} spectators={(gameState as any).spectators} photoZone={(gameState as any).photoZone} maxPlayers={gameState.config.maxPlayers} emit={emit} on={on}>
@@ -2532,6 +2667,12 @@ export default function LeaderPage() {
             </div>
             <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
               {/* 🎁 زر اختيار رابح — مشترك (كلّ المراحل) */}
+              <button
+                onClick={() => setCockpit(true)}
+                className="text-[#110d08] bg-[#C5A059] text-[11px] font-bold px-3 py-1.5 rounded-lg"
+              >
+                ✨ القمرة الجديدة
+              </button>
               {luckyDrawBtn}
               {/* 🎂 زر عيد الميلاد — مشترك أيضاً */}
               {birthdayBtn}
@@ -3859,6 +4000,12 @@ export default function LeaderPage() {
             {/* Right: Action Buttons */}
             <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
               {/* 🎁 زر اختيار رابح — مشترك (كلّ المراحل) */}
+              <button
+                onClick={() => setCockpit(true)}
+                className="text-[#110d08] bg-[#C5A059] text-[11px] font-bold px-3 py-1.5 rounded-lg"
+              >
+                ✨ القمرة الجديدة
+              </button>
               {luckyDrawBtn}
               {/* 🎂 زر عيد الميلاد — مشترك أيضاً */}
               {birthdayBtn}

@@ -52,8 +52,14 @@ const ago = (t: number | null, now: number) => {
 };
 const dist = (d: number | null) => d === null ? '—' : (d >= 1000 ? `${(d / 1000).toFixed(1)} km` : `${d} m`);
 
-export function AttendanceMapToggle({ roomId, label = '🗺️ الحضور' }: { roomId?: string; label?: string }) {
-  const [open, setOpen] = useState(false);
+export function AttendanceMapToggle({ roomId, label = '🗺️ الحضور', ctlOpen, onCtlClose }: { roomId?: string; label?: string; ctlOpen?: boolean; onCtlClose?: () => void }) {
+  // 🎛️ تحكّمٌ خارجيّ اختياريّ (القمرة تفتح اللوحة من «الأدوات» وتُخفي زرّها)
+  const [openS, setOpenS] = useState(false);
+  const open = ctlOpen ?? openS;
+  const setOpen = (v: boolean | ((x: boolean) => boolean)) => {
+    const nv = typeof v === 'function' ? v(open) : v;
+    if (ctlOpen !== undefined) { if (!nv) onCtlClose?.(); } else setOpenS(nv);
+  };
   const [venue, setVenue] = useState<{ name: string; lat: number; lng: number; radiusM: number; enabled: boolean } | null>(null);
   const [players, setPlayers] = useState<MapPlayer[]>([]);
   const [sel, setSel] = useState<number | null>(null);
@@ -137,7 +143,7 @@ export function AttendanceMapToggle({ roomId, label = '🗺️ الحضور' }: 
 
   return (
     <>
-      <button onClick={() => setOpen(v => !v)}
+      <button data-ctl-hidden={ctlOpen !== undefined ? '1' : undefined} onClick={() => setOpen(v => !v)}
         className={`rounded-xl border px-2.5 py-1.5 text-[11px] font-bold transition-colors ${
           open ? 'border-[#C5A059] bg-[#C5A059]/12 text-[#C5A059]' : 'border-zinc-700 bg-zinc-900/60 text-zinc-300 hover:text-white'
         }`}>

@@ -689,9 +689,15 @@ function EpisodeTimeline({ episodes, spanStart, spanEnd }: { episodes: AbsenceEp
 // 🕵️ الزرّ الدائم في الرأس + اللوحة — يُركَّب في **كلّ** رؤوس الليدر
 // ══════════════════════════════════════════════════════════════════════════
 
-export function AntiCheatToggle({ label = '🕵️ المراقبة' }: { label?: string }) {
+export function AntiCheatToggle({ label = '🕵️ المراقبة', ctlOpen, onCtlClose }: { label?: string; ctlOpen?: boolean; onCtlClose?: () => void }) {
   const ac = useAntiCheat();
-  const [open, setOpen] = useState(false);
+  // 🎛️ تحكّمٌ خارجيّ اختياريّ (القمرة تفتح اللوحة من «الأدوات» وتُخفي زرّها)
+  const [openS, setOpenS] = useState(false);
+  const open = ctlOpen ?? openS;
+  const setOpen = (v: boolean | ((x: boolean) => boolean)) => {
+    const nv = typeof v === 'function' ? v(open) : v;
+    if (ctlOpen !== undefined) { if (!nv) onCtlClose?.(); } else setOpenS(nv);
+  };
   const [tab, setTab] = useState<'players' | 'together'>('players');
 
   useEffect(() => {
@@ -726,6 +732,7 @@ export function AntiCheatToggle({ label = '🕵️ المراقبة' }: { label?
       <button
         type="button"
         data-anticheat="1"
+        data-ctl-hidden={ctlOpen !== undefined ? '1' : undefined}
         onClick={() => setOpen((v) => !v)}
         title="سجلّ المراقبة — غيابات اللاعبين عن التطبيق وتزامنها"
         className={`relative flex items-center gap-1.5 text-[10px] font-mono uppercase tracking-[0.15em] transition-colors border px-3 py-1.5 ${

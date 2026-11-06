@@ -64,9 +64,15 @@ export function NoPhotoBadge({ on }: { on?: boolean }) {
 
 interface Alert { id: number; text: string; seat: number; outside: boolean }
 
-export default function PhotoZoneToggle({ gameState, emit, on }: { gameState: any; emit: Emit; on: On }) {
+export default function PhotoZoneToggle({ gameState, emit, on, ctlOpen, onCtlClose }: { gameState: any; emit: Emit; on: On; ctlOpen?: boolean; onCtlClose?: () => void }) {
   const pz = usePhotoZone(gameState);
-  const [open, setOpen] = useState(false);
+  // 🎛️ تحكّمٌ خارجيّ اختياريّ (القمرة تفتح اللوحة من «الأدوات» وتُخفي زرّها)
+  const [openS, setOpenS] = useState(false);
+  const open = ctlOpen ?? openS;
+  const setOpen = (v: boolean | ((x: boolean) => boolean)) => {
+    const nv = typeof v === 'function' ? v(open) : v;
+    if (ctlOpen !== undefined) { if (!nv) onCtlClose?.(); } else setOpenS(nv);
+  };
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState('');
   const [alert, setAlert] = useState<Alert | null>(null);
@@ -138,6 +144,7 @@ export default function PhotoZoneToggle({ gameState, emit, on }: { gameState: an
     <>
       <button
         type="button"
+        data-ctl-hidden={ctlOpen !== undefined ? '1' : undefined}
         onClick={() => setOpen(v => !v)}
         title="زاوية بلا تصوير"
         className={`text-[10px] font-mono tracking-[0.1em] transition-colors border px-3 py-1.5 ${

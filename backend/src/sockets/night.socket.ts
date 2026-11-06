@@ -549,7 +549,9 @@ export function registerNightEvents(io: Server, socket: Socket) {
     callback?.({ success: true });
   });
 
-  socket.on('night:start', async (data: { roomId: string }, callback) => {
+  // 🌙 `oneNight`: القمرة تختار طريقة الليل عند حلوله — يُجهَّز الليل كاملاً (السفّاح، التوأمان،
+  //    الجولة) ولا يُبنى الطابور ولا تُبثّ خطوتُه للشاشة؛ يتبعه `night:one-start` مباشرةً.
+  socket.on('night:start', async (data: { roomId: string; oneNight?: boolean }, callback) => {
     try {
       if (socket.data.authStaff && socket.data.role !== 'player') socket.data.role = 'leader'; // 🔒 لا ترقيةَ لمقبسٍ جالسٍ لاعباً
       if (socket.data.role !== 'leader') {
@@ -707,6 +709,16 @@ export function registerNightEvents(io: Server, socket: Socket) {
             }
           }
 
+          if (data.oneNight) {
+            delete (state as any).dynamicQueue;
+            delete (state as any).dynamicQueueIndex;
+            state.currentNightStep = null;
+            state.round += 1;
+            await setGameState(data.roomId, state);
+            console.log(`🌙 Night prepared for one-night (room ${data.roomId}, round ${state.round})`);
+            return callback({ success: true, round: state.round, nurseAvailable: false, isDynamic: true, oneNight: true });
+          }
+
           const queue = await buildNightQueue(state);
           // حفظ الطابور الديناميكي في state
           (state as any).dynamicQueue = queue;
@@ -783,7 +795,7 @@ export function registerNightEvents(io: Server, socket: Socket) {
 
 
   // ── بدء طابور الليل (بعد قرار الممرضة) ──────────
-  socket.on('night:begin-queue', async (data: { roomId: string; activateNurse: boolean }, callback) => {
+  socket.on('night:begin-queue', async (data: { roomId: string; activateNurse: boolean; oneNight?: boolean }, callback) => {
     try {
       if (socket.data.role !== 'leader') {
         return callback({ success: false, error: 'Only leader' });
@@ -803,6 +815,13 @@ export function registerNightEvents(io: Server, socket: Socket) {
       io.to(data.roomId).emit('display:night-started');
 
       await setGameState(data.roomId, state);
+
+      // 🌙 الليلة الواحدة بعد قرار الممرّضة — لا طابور، يتبعها night:one-start
+      if (data.oneNight) {
+        if (!state.dynamicNightState) state.dynamicNightState = createDynamicNightState();
+        await setGameState(data.roomId, state);
+        return callback({ success: true, mode: 'one' });
+      }
 
       // ═══ فحص النمط: Auto أم Manual ═══
       if (state.config.nightMode === 'auto') {
