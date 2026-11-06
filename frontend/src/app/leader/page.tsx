@@ -1135,12 +1135,27 @@ export default function LeaderPage() {
     });
 
     // Justification Timer Started
+    // ⏱️ القمرة تقرأ justificationData.timer (كما يحفظه الخادم) — كان البثّ يُحفظ في
+    //    justificationTimer وحده، فبقي عدّاد التبرير واقفاً حتى تحديث الصفحة (2026-11-07).
     const offJustTimerStarted = on('day:justification-timer-started', (data: any) => {
       setGameState(prev => {
         if (!prev) return prev;
+        const jd = (prev as any).justificationData;
         return {
           ...prev,
           justificationTimer: data,
+          ...(jd ? { justificationData: { ...jd, timer: data, timerFinished: false } } : {}),
+        } as any;
+      });
+    });
+    const offJustTimerStopped = on('day:justification-timer-stopped', () => {
+      setGameState(prev => {
+        if (!prev) return prev;
+        const jd = (prev as any).justificationData;
+        return {
+          ...prev,
+          justificationTimer: null,
+          ...(jd ? { justificationData: { ...jd, timer: null, timerFinished: true } } : {}),
         } as any;
       });
     });
@@ -1778,6 +1793,7 @@ export default function LeaderPage() {
       offVoteUpdate();
       offJustificationStarted();
       offJustTimerStarted();
+      offJustTimerStopped();
       offEliminationPending();
       offBombResult();
       offAshWindow();
