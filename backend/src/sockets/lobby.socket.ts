@@ -1289,6 +1289,27 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
       //    محجوبين بها في اللحظة نفسِها بلا مفتاحٍ يفكّها. الاستبيانُ تذكيرٌ
       //    بإشعارٍ الآن، لا حاجزٌ عند الباب.
 
+      // ── 🪪 الاسم من الحساب لا من الجهاز ──
+      // صاحب التوكن معروف ⇒ اسمه في الغرفة اسمُ حسابه. الاسم الذي يرسله الجهاز قد
+      // يكون لغيره (حادثة 2026-11-06: جوّال مجدلاوي حمل اسم حازم بعد طرده، ودخل به).
+      {
+        const authId: number | undefined = (socket.data as any)?.authPlayer?.playerId;
+        const nameDb = authId ? getDB() : null;
+        if (authId && nameDb && (data.playerId == null || Number(data.playerId) === Number(authId))) {
+          try {
+            const { players: playersTable } = await import('../schemas/player.schema.js');
+            const [row] = await nameDb.select({ name: playersTable.name }).from(playersTable).where(eq(playersTable.id, authId)).limit(1);
+            const dbName = (row?.name || '').trim();
+            if (dbName && dbName !== data.name) {
+              if (data.name) console.log(`🪪 Join name corrected from account #${authId}: "${data.name}" → "${dbName}"`);
+              data.name = dbName;
+            }
+          } catch (e: any) {
+            console.warn('⚠️ join name lookup failed:', e.message);
+          }
+        }
+      }
+
       // ── بوّابةُ السند: ميلادٌ ← وليُّ أمرٍ ← موافقة ──
       //
       // 🔴 الهويّةُ من **التوكن** لا من جسم العميل: `data.playerId` يرسله
@@ -2641,8 +2662,15 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
         const secretsLive = !!state.rolesConfirmed
           || (state.phase !== Phase.LOBBY && state.phase !== Phase.ROLE_GENERATION && state.phase !== Phase.ROLE_BINDING);
         const isPureGuest = !!seatOccupant && !seatOccupant.phone && !seatOccupant.playerId;
+        // 🔴 جهازٌ يحمل هويّةً (حساب/هاتف) لم تُطابق أحداً ⇒ صاحبها ليس في الغرفة (طُرد/غادر).
+        //    المقعد المحفوظ عنده صار لغيره — إعطاؤه إيّاه سلّمه اسمَ الشاغل الجديد
+        //    (حادثة 2026-11-06: طُرد مجدلاوي من ١٧ وجلس حازم مكانه، فعاد جوّال مجدلاوي
+        //    «حازم» ودخل بعدها باسمه). المقعد ملاذٌ لمن لا هويّة له وحده.
+        const requesterHasIdentity = !!(socket.data?.authPlayer?.playerId || data.playerId || data.phone);
+        const occupantIdentified = !!seatOccupant && !!(seatOccupant.playerId || seatOccupant.phone);
+        const seatBelongsToOther = requesterHasIdentity && occupantIdentified;
 
-        if (seatOccupant && (!secretsLive || isPureGuest)) {
+        if (seatOccupant && !seatBelongsToOther && (!secretsLive || isPureGuest)) {
           player = seatOccupant;
           console.log(`♻️ Rejoin by seat #${data.physicalId} (${secretsLive ? 'pure guest' : 'pre-roles'}) — no person identity available`);
         } else {
