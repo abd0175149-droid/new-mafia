@@ -1931,6 +1931,15 @@ async function execTool(name: string, args: any, ctx: ToolCtx): Promise<any> {
       if (!conv.playerId) {
         return { linked: false, note: 'رقم هذه المحادثة غير مربوط بأي حساب لاعب — اعرض على العميل التحويل للإدارة أو إنشاء حساب من التطبيق' };
       }
+      // 🔐 حصراً من الرقم المسجّل بالحساب نفسه (قرار المالك 2026-11-06): محادثةٌ رُبطت بحسابٍ
+      //    برقمٍ آخر (رمز التحقّق) لا تعيد كلمة سرّه — كلٌّ يعيدها من رقمه المسجّل
+      {
+        const { samePhone } = await import('../utils/phone.util.js');
+        const [own] = await db.select({ phone: players.phone }).from(players).where(eq(players.id, conv.playerId)).limit(1);
+        if (!own || !samePhone(own.phone, conv.phone)) {
+          return { allowed: false, note: 'الحساب المربوط بهذه المحادثة مسجّلٌ برقمٍ آخر — إعادة كلمة السرّ متاحة فقط من الرقم المسجّل بالحساب نفسه. اطلب منه مراسلتنا من ذلك الرقم، أو اعرض التحويل للإدارة.' };
+        }
+      }
       if (dryRun) {
         ctx.interactives.push({ kind: 'buttons', preview: 'أزرار تأكيد إعادة تعيين كلمة السر (تجريبي)' });
         return { sent: true, dryRun: true, note: '(ساحة اختبار — لا إعادة تعيين حقيقية)' };
@@ -3865,6 +3874,21 @@ async function performPasswordReset(convId: number) {
     return;
   }
 
+  // 🔐 الحارس عند التنفيذ لا عند الأزرار وحدها: رقمُ المرسل = رقمُ الحساب المسجّل حصراً
+  {
+    const { samePhone } = await import('../utils/phone.util.js');
+    const [own] = await db.select({ phone: players.phone }).from(players).where(eq(players.id, conv.playerId)).limit(1);
+    if (!own || !samePhone(own.phone, conv.phone)) {
+      await sendMessage({
+        conversationId: convId,
+        text: 'إعادة كلمة السرّ بتصير فقط من الرقم المسجّل بحسابك 🙏 راسلنا من رقمك المسجّل، أو بحوّلك للإدارة.',
+        source: 'system',
+      }).catch(() => {});
+      console.warn(`🔐 WA bot: password reset REFUSED — conv ${convId} phone ≠ player #${conv.playerId} phone`);
+      return;
+    }
+  }
+
   // كلمة سر رقمية من 6 خانات — سهلة الإدخال، وتُستبدل إلزامياً بعد أول دخول
   const newPassword = String(crypto.randomInt(100000, 1000000));
   const passwordHash = await bcrypt.hash(newPassword, 10);
@@ -3882,7 +3906,7 @@ async function performPasswordReset(convId: number) {
 
   await sendMessage({
     conversationId: convId,
-    text: `تم إعادة تعيين كلمة السر ✅\n\n🔐 كلمة السر الجديدة: ${newPassword}\n\nادخل للتطبيق برقمك + هذه الكلمة، ورح يطلب منك تغييرها فوراً بعد الدخول لأمان حسابك.`,
+    text: `تم إعادة تعيين كلمة السر ✅\n\n🔐 كلمة السر الجديدة: ${newPassword}\n\nادخل برقمك + هذه الكلمة من هون:\n${playerLoginUrl()}\n\nورح يطلب منك تغييرها فوراً بعد الدخول لأمان حسابك.`,
     source: 'system',
   });
   console.log(`🔐 WA bot: password reset for player #${updated.id} (conv ${convId})`);
