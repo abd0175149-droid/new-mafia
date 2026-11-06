@@ -206,9 +206,10 @@ export default function PlayerConfrontation({ roomId, emit, on, myId, players, r
       )}
 
       {/* ── طبقة اختيار المستهدَف ── */}
+      {/* 🔴 فوق الشريط السفليّ (z-50) — كان يحجب زرّ التسجيل أسفل اللوحة */}
       {sheet && (
-        <div className="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm flex items-end" onClick={() => setSheet(false)}>
-          <div className="w-full bg-[#0c0b09] border-t border-[#1f1a12] rounded-t-2xl p-4 max-h-[82%] overflow-auto" onClick={e => e.stopPropagation()}>
+        <div className="fixed inset-0 z-[320] bg-black/70 backdrop-blur-sm flex items-end" onClick={() => setSheet(false)}>
+          <div className="w-full bg-[#0c0b09] border-t border-[#1f1a12] rounded-t-2xl p-4 max-h-[85dvh] overflow-auto overscroll-contain" style={{ paddingBottom: "calc(env(safe-area-inset-bottom, 0px) + 24px)" }} onClick={e => e.stopPropagation()}>
             <div className="flex items-center justify-between mb-3">
               <span className="text-sm text-[#ffccd5] font-bold" style={{ fontFamily: 'Amiri, serif' }}>⚔️ طلب مواجهة <span className="text-[10px] font-mono text-[#808080]">(رصيدك {budget}/{conf.perPlayer})</span></span>
               <button onClick={() => setSheet(false)} className="text-[#808080] text-lg leading-none">✕</button>

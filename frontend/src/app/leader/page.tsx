@@ -1829,6 +1829,14 @@ export default function LeaderPage() {
     };
   }, [on, emit, gameState?.roomId]);
 
+  // ── ⏱️ مؤقّت اللعبة من الحالة نفسها — كان يُقرأ من حدث تبدّل المرحلة وحده، فتحديثُ
+  //    الصفحة وسط اللعبة يُخفيه حتى المرحلة التالية (حادثة 2026-11-06) ──
+  const srvGameTimer = (gameState as any)?.gameTimer as { totalSeconds: number; startedAt: number; expired: boolean } | null | undefined;
+  useEffect(() => {
+    if (!srvGameTimer || srvGameTimer.expired) return;
+    setGameTimerData(prev => prev && prev.startedAt === srvGameTimer.startedAt && prev.totalSeconds === srvGameTimer.totalSeconds ? prev : srvGameTimer);
+  }, [srvGameTimer?.startedAt, srvGameTimer?.totalSeconds, srvGameTimer?.expired]); // eslint-disable-line react-hooks/exhaustive-deps
+
   // ── ⏱️ عداد تنازلي لمؤقت اللعبة ──
   useEffect(() => {
     if (!gameTimerData || gameTimerData.expired) return;

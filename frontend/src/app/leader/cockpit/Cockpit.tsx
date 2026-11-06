@@ -200,8 +200,41 @@ export default function Cockpit({ gameState, setGameState, emit, on, host }: Pro
   );
 }
 
+// ══════════ ⏱ وقت اللعبة ══════════
+// كان في الواجهة القديمة وحدها (حادثة 2026-11-06). بلا مؤقّت: الإضافة تشغّله من الآن.
+// الإنقاص لا يتجاوز الباقي — إنقاصٌ يُنهي اللعبة فوراً لا يُعرض زرّاً.
+function GameTimerSheet({ open, onClose }: { open: boolean; onClose: () => void }) {
+  const { run } = useCockpit();
+  const host = useHost();
+  const t = host.gameTimer;
+  const left = t && !t.expired ? Math.floor(t.remaining) : null;
+  const clock = (x: number) => `${Math.floor(x / 60)}:${String(Math.floor(x % 60)).padStart(2, '0')}`;
+  const adj = (m: number) => run(() => host.adjustGameTimer(m), m > 0 ? `⏱ +${m} د` : `⏱ ${m} د`);
+  const steps = left == null ? [15, 30, 45, 60] : [5, 10];
+  return (
+    <BottomSheet open={open} title="⏱ وقت اللعبة" onClose={onClose}>
+      <div className="rounded-2xl border border-[#2a241c] bg-[#0e0c0a] p-4 text-center">
+        {left == null
+          ? <p className="m-0 text-[15px] text-[#ddd5c6]">هذه اللعبة بلا مؤقّت. اختر مدّةً تبدأ من الآن — وعند انتهائها تنتهي اللعبة على الوقت.</p>
+          : <><span className="block text-[12.5px] text-[#9a8f7e]">الباقي</span><b className="block text-[40px] leading-tight font-extrabold tabular-nums text-white" dir="ltr">{clock(left)}</b></>}
+      </div>
+      <div className="grid grid-cols-2 gap-2">
+        {steps.map(m => (
+          <button key={`p${m}`} type="button" onClick={() => adj(m)}
+            className="min-h-[52px] rounded-[14px] border border-[#43b27f]/55 bg-[#16130f] text-[16px] font-extrabold text-[#99dcba]">{left == null ? `${m} دقيقة` : `+${m} د`}</button>
+        ))}
+        {left != null && [5, 10].map(m => (
+          <button key={`m${m}`} type="button" disabled={left <= m * 60 + 30} onClick={() => adj(-m)}
+            className="min-h-[52px] rounded-[14px] border border-[#d0474c]/50 bg-[#16130f] text-[16px] font-extrabold text-[#f2a6a9] disabled:opacity-30">−{m} د</button>
+        ))}
+      </div>
+      {left != null && <p className="m-0 text-[12.5px] text-[#9a8f7e]">الإنقاص معطّل حين يقلّ الباقي عنه — كي لا تنتهي اللعبة بلمسة.</p>}
+    </BottomSheet>
+  );
+}
+
 // ══════════ لوح الأدوات ══════════
-type ToolKey = 'names' | 'seats' | 'arrivals' | 'photo' | 'monitor' | 'attendance' | 'penalty' | 'admin' | 'end' | 'close' | 'delete' | null;
+type ToolKey = 'names' | 'seats' | 'arrivals' | 'photo' | 'monitor' | 'attendance' | 'penalty' | 'admin' | 'end' | 'close' | 'delete' | 'timer' | null;
 
 function ToolsSheet({ open, onClose }: { open: boolean; onClose: () => void }) {
   return (
@@ -235,6 +268,7 @@ function ToolsGrid({ onPick }: { onPick: () => void }) {
         <Tile icon="🪑" label="المقاعد" onClick={() => pick('seats')} />
         <Tile icon="🚶" label="الوصول" badge={specCount} onClick={() => pick('arrivals')} />
         <Tile icon="⚖️" label="عقوبة" onClick={() => pick('penalty')} />
+        {inGame && <Tile icon="⏱" label="وقت اللعبة" onClick={() => pick('timer')} />}
       </div>
       <p className="m-0 text-[12.5px] font-bold text-[#9a8f7e]">القاعة</p>
       <div className="grid grid-cols-3 gap-2">
@@ -261,6 +295,7 @@ function ToolsGrid({ onPick }: { onPick: () => void }) {
       </div>
 
       <SeatsSheet open={tool === 'seats'} onClose={() => setTool(null)} />
+      <GameTimerSheet open={tool === 'timer'} onClose={() => setTool(null)} />
       <PenaltySheet open={tool === 'penalty'} onClose={() => setTool(null)} />
       <AdminSheet open={tool === 'admin'} onClose={() => setTool(null)} />
       <ConfirmHoldSheet open={tool === 'end'} onClose={() => setTool(null)} title="إنهاء اللعبة"

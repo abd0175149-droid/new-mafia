@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { motion } from 'framer-motion';
 import { useEffect, useState } from 'react';
 import { useRoomBus, requestHub } from './player-room/roomBus';
+import { useVisibleViewport } from '@/hooks/useVisibleViewport';
 
 const tabs = [
   { href: '/player/home', label: 'الرئيسية', icon: 'home' },
@@ -94,9 +95,14 @@ function GameHubButton() {
 export default function BottomNav() {
   const pathname = usePathname();
   const bus = useRoomBus();
+  // 📱 آيفون: بعد التمرير/لوحة المفاتيح قد ينزاح المنظور المرئيّ فيطفو الشريط فوق أسفل الشاشة
+  //    (شكوى المالك 2026-11-06) — نُعيده لأسفل الجزء الظاهر، ونُخفيه ما دامت اللوحة مفتوحة.
+  const vp = useVisibleViewport();
 
   return (
     <nav className="fixed bottom-0 left-0 right-0 z-50" style={{
+      transform: vp.keyboard ? 'translateY(110%)' : vp.shiftBottom ? `translateY(${vp.shiftBottom}px)` : undefined,
+      pointerEvents: vp.keyboard ? 'none' : undefined,
       background: 'linear-gradient(180deg, rgba(10,10,10,0.95) 0%, rgba(5,5,5,1) 100%)',
       borderTop: '1px solid rgba(251,191,36,0.15)',
       backdropFilter: 'blur(20px)',

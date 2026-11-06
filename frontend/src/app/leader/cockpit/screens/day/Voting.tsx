@@ -8,7 +8,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useSeatMove } from '../../../SeatMove';
 import { candidateCounts } from '@/lib/voteCounts';
-import { ActionBar, Chip, Chips, Hint, Section, SeatGrid, Status, seatCells, useCockpit, useDeadline, useLocalCountdown } from '../../kit';
+import { ActionBar, Chip, Chips, Hint, PendingSeats, Section, SeatGrid, Status, seatCells, useCockpit, useDeadline, useLocalCountdown } from '../../kit';
 import { MiniBtn, TeamCounts, aliveOf, nameAt } from './shared';
 
 export default function Voting() {
@@ -91,11 +91,13 @@ export default function Voting() {
   const cells = seatCells(gameState).filter(c => c.player);
   const deals = candidates.filter((c: any) => c.type === 'DEAL');
   const votedEntries = Object.entries(playerVotes);
-  const remaining = alive.filter(p => playerVotes[p.physicalId] === undefined).length;
+  const pendingSeats = alive.filter(p => playerVotes[p.physicalId] === undefined).map(p => Number(p.physicalId)).sort((a, b) => a - b);
+  const remaining = pendingSeats.length;
 
   return (
     <>
       <Status meta={`صوّت ${totalVotes} من ${alive.length}${weighted !== totalVotes ? ` · ${weighted} صوت` : ''}`} clock={clockLeft != null ? { left: clockLeft } : null} />
+      <PendingSeats title="لم يصوّت بعد" seats={pendingSeats} nameOf={(n) => nameAt(gameState, n)} doneLabel="وصلت أصوات الجميع — «احسم التصويت»" />
       <TeamCounts />
       {(isMayorRevote || level > 0) && (
         <Chips>
@@ -123,13 +125,13 @@ export default function Voting() {
               need: !!p?.isAlive && !voted,
               count: cand ? Number(cand.votes) || 0 : 0,
               ghost: !!p?.isAlive && !cand && voter != null && seat !== voter,
-              dot: p?.isAlive ? (voted ? 'ok' : 'off') : undefined,
+              done: !!p?.isAlive && voted && voter !== seat,
               topRight: cand?.type === 'DEAL' ? '🤝' : seat === mayorRevealedId ? '🎩' : proxy ? '✋' : undefined,
               disabled: !p?.isAlive,
             };
           }}
           onSeat={(c) => onSeat(c.seat)} />
-        <Hint>الرقم الأحمر = الأصوات (موزونة) · 🤝 هدف اتفاقيّة · ✋ صوّتَّ عنه بالوكالة · ● أخضر = صوّت.</Hint>
+        <Hint>⏳ أزرق = لم يصوّت · ✓ أخضر = صوّت · الرقم الأحمر = الأصوات (موزونة) · 🤝 هدف اتفاقيّة · ✋ صوّتَّ عنه بالوكالة.</Hint>
       </Section>
 
       {deals.length > 0 && (

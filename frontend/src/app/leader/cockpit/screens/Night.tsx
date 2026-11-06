@@ -10,7 +10,7 @@
 //    مفتوحة يبني الليلة من الصفر ويمحو ما اختاره اللاعبون.
 // ══════════════════════════════════════════════════════
 import { useEffect, useRef, useState } from 'react';
-import { ActionBar, Chip, Chips, Hint, Section, SeatGrid, Status, seatCells, useCockpit, useDeadline } from '../kit';
+import { ActionBar, Chip, Chips, Hint, PendingSeats, Section, SeatGrid, Status, seatCells, useCockpit, useDeadline } from '../kit';
 import { useHost } from '../host';
 import ReviewView, { type ReviewRow } from './night/Review';
 import { QueueCompleteView, QueueStepView, SheriffSheet } from './night/Queue';
@@ -81,11 +81,16 @@ function RunningView() {
       <Status meta={`الليلة الواحدة · أرسل ${done} من ${total}`} clock={on.running?.deadline ? { left } : null} />
       <ActionBar primary={{ label: 'أنهِ المهلة وراجِع', disabled: on.busy, onPress: () => run(() => on.close()) }} />
 
-      <Section title="من أرسل" aside="لا يظهر ماذا اختار">
+      {roster.length > 0 && (
+        <PendingSeats title="لم يُرسل بعد" seats={pending.map(r => Number(r.seat)).sort((a, b) => a - b)}
+          nameOf={(n) => bySeat.get(n)?.name || ''} doneLabel="أرسل الجميع — «أنهِ المهلة وراجِع»" />
+      )}
+
+      <Section title="من أرسل" aside="✓ أرسل · ⏳ ينتظر — لا يظهر ماذا اختار">
         <SeatGrid cells={seatCells(gameState)}
           mark={(c) => {
             const r = bySeat.get(c.seat);
-            return r ? { dot: r.submitted ? 'ok' : 'off' } : { disabled: true };
+            return r ? (r.submitted ? { done: true } : { need: true }) : { disabled: true };
           }} />
         <Chips>
           <Chip tone="ok">أرسل {done}</Chip>

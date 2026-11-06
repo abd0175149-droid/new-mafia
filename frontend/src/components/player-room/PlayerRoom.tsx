@@ -46,7 +46,9 @@ export interface RoomHost {
   openTasksFromNight?: () => void;
   // التصويت
   candidates: any[]; playersInfo: any[]; myVote: number | null; playerVotes: Record<string, number>;
-  votingCountdown: number | null; voteSubmitting: boolean; castVote: (index: number) => void;
+  votingCountdown: number | null; voteSubmitting: boolean;
+  /** يعيد null عند القبول، أو سبب الرفض ليُعرض للاعب */
+  castVote: (index: number) => Promise<string | null> | void;
   // الخاصّ
   mafiaTeam: { physicalId: number; name: string; role: string; avatarUrl?: string | null }[];
   sibling: any; assassinContracts: any; sheriffResults: SheriffResult[];
@@ -195,26 +197,40 @@ function NightAsk({ host }: { host: RoomHost }) {
 
 // ══ التصويت — شبكةٌ من عمودين، اللمسة تصوّت والتغيير حتّى الإغلاق ══
 function VoteGrid({ host }: { host: RoomHost }) {
-  const { candidates, playersInfo, myVote, playerVotes, votingCountdown, isDead, seat, voteSubmitting } = host;
-  const open = votingCountdown === null || votingCountdown > 0;
+  const { candidates, playersInfo, playerVotes, votingCountdown, isDead, seat, voteSubmitting } = host;
+  // 🔴 الصوت المعتمد هو ما يحمله الخادم (playerVotes) — المحلّيّ يُفقد بعد إعادة الاتصال
+  const srv = (playerVotes || {})[String(seat)];
+  const myVote: number | null = srv !== undefined && srv !== null ? Number(srv) : host.myVote;
+  const [err, setErr] = useState<string | null>(null);
+  const [sendingI, setSendingI] = useState<number | null>(null);
+  useEffect(() => { setErr(null); }, [candidates.length]);
+  // 🔴 العدّاد للعرض فقط: الخادم يقبل الأصوات حتّى يحسم الليدر أو يُنهي الوقت
+  const timeUp = votingCountdown !== null && votingCountdown <= 0;
   const top = Math.max(1, ...candidates.map((c: any) => c.votes || 0));
   const info = (pid: number) => playersInfo.find((p: any) => p.physicalId === pid) || host.roster.find(p => p.physicalId === pid);
   const status = isDead ? 'مشاهدة فقط — أنت مُقصى'
-    : !open ? (myVote !== null ? 'تم التصويت — أُغلق' : 'لم تصوّت — لا صوت لك هذه المرّة')
+    : sendingI !== null ? 'يُرسَل صوتك…'
+    : timeUp ? (myVote !== null ? 'انتهى الوقت — صوتك محسوب' : 'انتهى الوقت — صوّت الآن قبل أن يحسم الليدر')
     : myVote !== null ? 'صوتك مُرسَل · تغيّره حتّى يُغلق التصويت' : 'المس من تشكّ فيه — والتغيير مسموح حتّى الإغلاق';
+  const vote = async (i: number) => {
+    if (isDead || sendingI !== null || myVote === i) return;
+    setErr(null); setSendingI(i);
+    try { const r = await host.castVote(i); if (r) setErr(r); } finally { setSendingI(null); }
+  };
   return (
     <>
       <section className="pr-hero">{EI.ballot}<h2>من تُقصي؟</h2><p>{status}</p>
-        {votingCountdown !== null && open && <span className={`pr-cnt ${votingCountdown <= 10 ? 'hot' : ''}`}>{mmss(votingCountdown)}</span>}</section>
+        {votingCountdown !== null && !timeUp && <span className={`pr-cnt ${votingCountdown <= 10 ? 'hot' : ''}`}>{mmss(votingCountdown)}</span>}
+        {err && <p className="pr-err" role="alert">⚠️ {err}</p>}</section>
       <div className="pr-vg">
         {candidates.map((c: any, i: number) => {
           const pid = c.targetPhysicalId; const p = info(pid);
           const voters = Object.entries(playerVotes || {}).filter(([, idx]) => idx === i).map(([v]) => v);
           const self = pid === seat;
-          const disabled = isDead || !open || self || voteSubmitting || myVote === i;
           return (
-            <button key={c.id ?? i} type="button" className={`pr-vc ${myVote === i ? 'mine' : ''}`} disabled={isDead || !open || self}
-              onClick={() => { if (!disabled) host.castVote(i); }}>
+            <button key={c.id ?? i} type="button" className={`pr-vc ${myVote === i ? 'mine' : ''} ${sendingI === i ? 'sending' : ''}`} disabled={isDead || self}
+              aria-busy={sendingI === i || undefined}
+              onClick={() => { if (self) { setErr('لا يمكنك التصويت لنفسك'); return; } if (!voteSubmitting) vote(i); }}>
               <Avatar p={p as any} seat={pid} />
               <b>{(p as any)?.name || `لاعب #${pid}`}</b>
               {c.type === 'DEAL' && <span className="text-[11.5px] text-[#d9c79a]">🤝 ديل من #{c.initiatorPhysicalId}</span>}
@@ -330,7 +346,7 @@ export default function PlayerRoom({ host }: { host: RoomHost & { openTasksFromN
       <section className="pr-hero">
         {has ? EI.cards : EI.shield}
         <h2>{has ? 'تم تعيين مهمّتك' : phase === 'ROLE_GENERATION' ? 'جاري تجهيز الأدوار' : 'اكتمل التشفير'}</h2>
-        <p>{has ? 'غطِّ الشاشة بكفّك واضغط البطاقة مطوّلاً. ارفع إصبعك فتنقلب.' : 'ضع هاتفك أمامك وتابع شاشة القاعة — يوزّع الليدر الأدوار بعد قليل.'}</p>
+        <p>{has ? 'غطِّ الشاشة بكفّك واضغط البطاقة مطوّلاً فتنقلب — والمسها مرّةً لتعيدها.' : 'ضع هاتفك أمامك وتابع شاشة القاعة — يوزّع الليدر الأدوار بعد قليل.'}</p>
         <div className="mt-4">
           <PeekCard seat={host.seat} name={host.displayName} role={host.role} gender={host.gender} avatarUrl={host.avatarUrl}
             watermark={host.watermark} rankTier={host.rankTier} cosmetics={host.cosmetics} peekable={has} />
@@ -403,8 +419,8 @@ export default function PlayerRoom({ host }: { host: RoomHost & { openTasksFromN
             <div className="text-center py-8"><div className="text-4xl mb-3">☠️</div><p className="text-[14px] text-[#cdc3af]">{tasksBlocked || 'انتهت جولتُك — لا تُفتح المهامّ بعد الإقصاء.'}</p></div>
           ) : (
             <>
-              <HoldReveal title="دورك ومهامّك" watermark={host.watermark}>{() => <TasksBody host={host} guide={guide} />}</HoldReveal>
-              <p className="pr-pk text-center">الشكل واحدٌ لكلّ الأدوار — والمحتوى تحت إصبعك فقط</p>
+              <HoldReveal title="دورك ومهامّك" panelTitle="📋 مهامّي" watermark={host.watermark}>{() => <TasksBody host={host} guide={guide} />}</HoldReveal>
+              <p className="pr-pk text-center">الشكل واحدٌ لكلّ الأدوار — تُفتح في أعلى الشاشة وتُغلق بـ«إخفاء»</p>
             </>
           )}
         </Sheet>
@@ -421,14 +437,22 @@ export default function PlayerRoom({ host }: { host: RoomHost & { openTasksFromN
               <p className="text-center text-[#cdc3af] text-[14px] py-6">لا يُفتح الفريق بعد الإقصاء.</p>
             ) : (
               <>
-                <p className="text-center text-[#d8d0c2] text-[14px]" style={{ fontFamily: 'Amiri, serif' }}>في اللعبة {n} من المافيا الأحياء. اضغط مطوّلاً على أيّ بطاقة.</p>
+                <p className="text-center text-[#d8d0c2] text-[14px]" style={{ fontFamily: 'Amiri, serif' }}>في اللعبة {n} من المافيا الأحياء. اضغط مطوّلاً على أيّ بطاقة — تُفتح في أعلى الشاشة.</p>
                 <div className="pr-gal">
                   {Array.from({ length: n }, (_, i) => (
-                    <HoldReveal key={i} title="بطاقة" hint="" watermark={host.watermark} compact>
+                    <HoldReveal key={i} title={`بطاقة ${i + 1}`} hint="" panelTitle="🔴 الفريق السرّيّ" watermark={host.watermark} compact>
                       {() => {
                         const m = members[i];
-                        if (!m) return <><span className="pr-pk">ملفٌّ مغلق</span><p style={{ fontSize: 12.5 }}>تُكشف الهويّة حين يُقصى صاحبها</p></>;
-                        return <><Avatar p={m as any} seat={m.physicalId} /><p style={{ fontSize: 13, margin: '6px 0 0' }}><b>{m.physicalId === host.seat ? 'أنت' : m.name}</b></p></>;
+                        if (!m) return <div className="pr-mem"><span className="pr-pk">ملفٌّ مغلق</span><p>تُكشف الهويّة حين يُقصى صاحبها</p></div>;
+                        const rn = guide.find((x: any) => x.id === m.role)?.nameAr;
+                        return (
+                          <div className="pr-mem">
+                            <span className="pr-av pr-av-lg">{m.avatarUrl ? <img src={m.avatarUrl} alt="" /> : <span className="grid place-items-center w-full h-full text-[#C5A059] font-black text-[28px]">#{m.physicalId}</span>}</span>
+                            <b className="seat">مقعد {m.physicalId}</b>
+                            <b className="nm">{m.physicalId === host.seat ? 'أنت' : m.name}</b>
+                            {rn && <span className="rl">{rn}</span>}
+                          </div>
+                        );
                       }}
                     </HoldReveal>
                   ))}

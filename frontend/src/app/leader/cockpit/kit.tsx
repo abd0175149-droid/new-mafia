@@ -170,6 +170,24 @@ export function Chip({ children, tone, on, onClick, className = '' }: { children
 }
 export function Chips({ children }: { children: ReactNode }) { return <div className="flex flex-wrap gap-1.5">{children}</div>; }
 
+/** ⏳ «لم يُرسل بعد / لم يصوّت بعد» — أرقام المقاعد كبيرةً في أعلى الشاشة، لا نقاطٌ صغيرة تُقرأ بالتدقيق. */
+export function PendingSeats({ title, seats, nameOf, doneLabel }: { title: string; seats: number[]; nameOf?: (seat: number) => string; doneLabel: string }) {
+  if (!seats.length) return <section className="rounded-2xl border border-[#43b27f]/55 bg-[#43b27f]/[.08] px-3 py-2.5 text-[15px] font-bold text-[#99dcba]">✓ {doneLabel}</section>;
+  return (
+    <section className="rounded-2xl border border-[#63afd9] bg-[#63afd9]/[.10] p-3 flex flex-col gap-2">
+      <h3 className="m-0 text-[15px] font-bold text-[#cfe8f6]">⏳ {title} <span className="tabular-nums">({seats.length})</span></h3>
+      <div className="flex flex-wrap gap-1.5">
+        {seats.map(n => (
+          <span key={n} className="min-w-[44px] rounded-xl border border-[#63afd9]/70 bg-[#0e0c0a] px-2 py-1 text-center">
+            <b className="block text-[20px] font-extrabold leading-tight tabular-nums text-white">{n}</b>
+            {nameOf && <span className="block max-w-[76px] truncate text-[11px] text-[#a9d4ee]">{nameOf(n)}</span>}
+          </span>
+        ))}
+      </div>
+    </section>
+  );
+}
+
 export function Seg<T extends string | number>({ value, options, onChange, vertical }: {
   value: T; options: Array<{ v: T; l: ReactNode; sub?: ReactNode }>; onChange: (v: T) => void; vertical?: boolean;
 }) {
@@ -266,6 +284,8 @@ export interface SeatMark {
   tone?: Team | null;         // لون الدور حين يُعرض
   topLeft?: ReactNode; topRight?: ReactNode;
   dot?: 'ok' | 'off';
+  /** انتهى (أرسل/صوّت): إطارٌ أخضر وعلامة ✓ — ونقيضه `need` (أزرق مضيء ⏳) */
+  done?: boolean;
   count?: number;             // عدد أصوات
   disabled?: boolean;
 }
@@ -304,7 +324,8 @@ export function SeatGrid({ cells, onSeat, mark, showRoles }: {
         if (!p && !c.held && !c.spectator) st = 'border-dashed border-[#2a241c] bg-transparent text-[#9a8f7e]';
         if (c.held) st = 'border-[#dba640]/60 bg-[#16130f]';
         if (c.spectator && !p) st = 'border-[#63afd9]/40 bg-[#16130f]';
-        if (m.need) st = 'border-[#63afd9]/75 bg-[#16130f] shadow-[0_0_0_2px_rgba(99,175,217,.18)]';
+        if (m.done) st = 'border-[#43b27f]/55 bg-[#43b27f]/[.07]';
+        if (m.need) st = 'border-[#63afd9] bg-[#63afd9]/[.12] shadow-[0_0_0_2px_rgba(99,175,217,.3)]';
         if (m.target) st = 'border-[#d0474c]/75 bg-[#d0474c]/10';
         if (m.selected) st = 'border-[#C5A059] bg-[#C5A059]/20 shadow-[inset_0_0_0_1px_#C5A059]';
         const dim = m.dim || (p && p.isAlive === false);
@@ -322,7 +343,9 @@ export function SeatGrid({ cells, onSeat, mark, showRoles }: {
             {(m.topRight ?? (p?.noPhoto ? '📵' : null)) && <span className="absolute top-1 right-[5px] text-[11px] leading-none">{m.topRight ?? '📵'}</span>}
             {tl && <span className="absolute top-1 left-[5px] text-[11px] leading-none">{tl}</span>}
             {!!p?.penalties && <span className="absolute bottom-1 left-[5px] flex gap-0.5">{Array.from({ length: Math.min(5, p.penalties) }).map((_, i) => <i key={i} className="block w-1.5 h-1.5 rounded-full bg-[#dba640]" />)}</span>}
-            {m.dot && <span className={`mt-0.5 w-[7px] h-[7px] rounded-full ${m.dot === 'ok' ? 'bg-[#43b27f]' : 'bg-[#4a4136]'}`} />}
+            {m.done ? <span className="mt-0.5 text-[12px] font-extrabold leading-none text-[#6fd3a2]">✓</span>
+              : m.need ? <span className="mt-0.5 text-[11px] leading-none">⏳</span>
+              : m.dot && <span className={`mt-0.5 w-[7px] h-[7px] rounded-full ${m.dot === 'ok' ? 'bg-[#43b27f]' : 'bg-[#4a4136]'}`} />}
             {!!m.count && <span className="absolute bottom-[3px] right-1 bg-[#d0474c] text-white rounded-lg text-[11.5px] font-extrabold px-[5px] leading-[17px] tabular-nums">{m.count}</span>}
           </button>
         );

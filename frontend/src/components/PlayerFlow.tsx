@@ -2966,13 +2966,20 @@ export default function PlayerFlow({ initialRoomCode = '', inviteFlag = false, i
             },
             candidates: votingCandidates, playersInfo: votingPlayersInfo, myVote, playerVotes: playerVotes as any,
             votingCountdown, voteSubmitting,
-            castVote: (index: number) => {
-              if (isPlayerDead || voteSubmitting || myVote === index) return;
-              if (votingCountdown !== null && votingCountdown <= 0) return;
+            // 🔴 الخادم وحده يغلق التصويت (حسم الليدر/«أنهِ الوقت») — العدّاد المحلّيّ لا يمنع،
+            //    وكلّ رفضٍ يعود بسببه ليُعرض للاعب بدل أن «يعلق» الصوت بصمت.
+            castVote: async (index: number) => {
+              if (isPlayerDead) return 'أنت مُقصى — لا صوت لك';
+              if (voteSubmitting) return null;
               setVoteSubmitting(true);
-              emit('player:cast-vote', { roomId, physicalId: parseInt(physicalId), candidateIndex: index })
-                .then((res: any) => { if (res?.success) { setMyVote(index); setLastVoteTime(Date.now()); if (navigator.vibrate) navigator.vibrate(60); } })
-                .catch(() => {}).finally(() => setVoteSubmitting(false));
+              try {
+                const res: any = await emit('player:cast-vote', { roomId, physicalId: parseInt(physicalId), candidateIndex: index });
+                if (res?.success) { setMyVote(index); setLastVoteTime(Date.now()); if (navigator.vibrate) navigator.vibrate(60); return null; }
+                return res?.error || 'لم يُقبل الصوت — حاول ثانيةً';
+              } catch (e: any) {
+                const m: string = e?.message || '';
+                return /Timeout|قطع الاتصال|not initialized/i.test(m) ? 'الاتصال ضعيف — لم يصل صوتك، المس ثانيةً' : (m || 'لم يُقبل الصوت — حاول ثانيةً');
+              } finally { setVoteSubmitting(false); }
             },
             mafiaTeam: assignedRole && (MAFIA_ROLES as unknown as string[]).includes(assignedRole) ? (mafiaTeam as any) : [],
             sibling: assignedRole && (MAFIA_ROLES as unknown as string[]).includes(assignedRole) ? sibling : null,

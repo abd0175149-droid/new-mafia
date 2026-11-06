@@ -146,8 +146,17 @@ export async function adjustGameTimer(
 ): Promise<{ success: boolean; newRemaining: number; error?: string }> {
   const state = await getGameState(roomId);
   if (!state) return { success: false, newRemaining: 0, error: 'Room not found' };
-  if (!state.gameTimer || state.gameTimer.expired) {
-    return { success: false, newRemaining: 0, error: 'No active game timer' };
+  if (state.gameTimer?.expired) {
+    return { success: false, newRemaining: 0, error: 'انتهى وقت اللعبة' };
+  }
+  // ⏱️ لعبةٌ بدأت بلا مؤقّت (المؤقّت مطفأ في الإعدادات) ⇒ إضافة دقائق تُنشئه الآن
+  //    (حادثة 2026-11-06: لعبةٌ حيّة بلا وقت ولا طريقة لتشغيله من الواجهة).
+  if (!state.gameTimer) {
+    if (deltaMinutes <= 0) return { success: false, newRemaining: 0, error: 'لا مؤقّت للعبة — أضِف دقائق لتشغيله' };
+    if (state.phase === Phase.LOBBY || state.phase === Phase.GAME_OVER) {
+      return { success: false, newRemaining: 0, error: 'لا لعبة جارية' };
+    }
+    state.gameTimer = { totalSeconds: 0, startedAt: Date.now(), expired: false };
   }
 
   // حساب المتبقي الفعلي
