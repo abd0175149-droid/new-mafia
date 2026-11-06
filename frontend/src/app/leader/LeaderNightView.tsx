@@ -379,6 +379,9 @@ export default function LeaderNightView({ gameState, emit, setError }: LeaderNig
   })();
   const nightComplete = gameState.nightComplete;
   const morningEvents = gameState.morningEvents || [];
+  // 🔴 «عُرض» من الخادم (event.revealed) لا من ذاكرة الصفحة وحدها: بعد التحديث كان زرّ النهار
+  //    يُقفل حتى يُعاد بثُّ كلّ حدثٍ على شاشة القاعة
+  const wasShown = (i: number) => revealedEvents.has(i) || morningEvents[i]?.revealed === true;
   const meta = nightStep ? (ACTION_META[nightStep.role] || ACTION_META.GODFATHER) : null;
 
   // تحديد الهدف في وضع الأوتو
@@ -800,7 +803,7 @@ export default function LeaderNightView({ gameState, emit, setError }: LeaderNig
 
     const allRevealed = displayableEvents.every((_: any, i: number) => {
       const originalIndex = morningEvents.findIndex((e: any) => e === displayableEvents[i]);
-      return revealedEvents.has(originalIndex);
+      return wasShown(originalIndex);
     });
 
     return renderContent(
@@ -842,7 +845,7 @@ export default function LeaderNightView({ gameState, emit, setError }: LeaderNig
               <div className="space-y-3 mb-4">
                 {morningEvents.map((event: any, index: number) => {
                   const evMeta = EVENT_META[event.type] || { icon: '❓', title: event.type, color: 'text-[#808080]', displayable: true };
-                  const isRevealed = revealedEvents.has(index);
+                  const isRevealed = wasShown(index);
                   const isSheriff = event.type === 'SHERIFF_RESULT';
                   const isBlocked = event.type === 'ASSASSINATION_BLOCKED';
 

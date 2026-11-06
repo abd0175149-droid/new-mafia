@@ -16,11 +16,13 @@ export default function LeaderRoleConfigurator({ gameState, emit, setError, hide
   const [roles, setRoles] = useState<Role[]>([]);
   const [loading, setLoading] = useState(true);
   const [openDropdown, setOpenDropdown] = useState<number | null>(null);
-  const [assassinContractCount, setAssassinContractCount] = useState(4);  // 🔪 عدد عقود السفّاح
-  const [mayorVoteWeight, setMayorVoteWeight] = useState(2);              // 🎩 وزن صوت العمدة بعد كشفه
-  const [jesterSurviveRounds, setJesterSurviveRounds] = useState(2);      // 🤡 عدد جولات نجاة المهرج
-  const [witchDisableRounds, setWitchDisableRounds] = useState(3);        // 🧙‍♀️ عدد راوندات تعطيل الساحرة
-  const [phoenixRebirths, setPhoenixRebirths] = useState(1);             // 🔥 رصيد نهوض العنقاء
+  // 🔴 من إعدادات الغرفة لا من قيمٍ ثابتة: كانت تبدأ ٤/٢/٢/٣/١ فتمحو عند الاعتماد ما ضبطه الليدر في ⚙️
+  const cfg0 = gameState?.config || {};
+  const [assassinContractCount, setAssassinContractCount] = useState<number>(cfg0.assassinContractCount ?? 4);  // 🔪 عدد عقود السفّاح
+  const [mayorVoteWeight, setMayorVoteWeight] = useState<number>(cfg0.mayorVoteWeight ?? 2);              // 🎩 وزن صوت العمدة بعد كشفه
+  const [jesterSurviveRounds, setJesterSurviveRounds] = useState<number>(cfg0.jesterSurviveRounds ?? 2);      // 🤡 عدد جولات نجاة المهرج
+  const [witchDisableRounds, setWitchDisableRounds] = useState<number>(cfg0.witchDisableRounds ?? 3);        // 🧙‍♀️ عدد راوندات تعطيل الساحرة
+  const [phoenixRebirths, setPhoenixRebirths] = useState<number>(cfg0.phoenixRebirths ?? 1);             // 🔥 رصيد نهوض العنقاء
   // 🃏 الكروت المكرّرة: نمطُ السفّاحين حين يتعدّدون + سؤالُ التأكيد قبل الاعتماد
   const [assassinMode, setAssassinMode] = useState<AssassinMode>(gameState?.config?.assassinMode === 'PARTNERS' ? 'PARTNERS' : 'RIVALS');
   const [dupAsk, setDupAsk] = useState(false);
@@ -488,7 +490,7 @@ export default function LeaderRoleConfigurator({ gameState, emit, setError, hide
                   >−</button>
                   <span className="text-amber-300 font-mono font-bold w-6 text-center">{jesterSurviveRounds}</span>
                   <button 
-                    onClick={() => setJesterSurviveRounds(Math.min(6, jesterSurviveRounds + 1))}
+                    onClick={() => setJesterSurviveRounds(Math.min(5, jesterSurviveRounds + 1))}
                     className="w-7 h-7 rounded bg-amber-500/10 text-amber-400 hover:bg-amber-500/20 text-sm font-bold transition-colors"
                   >+</button>
                 </div>

@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useMemo } from 'react';
 import { motion } from 'framer-motion';
-import { Role, ROLE_NAMES, ROLE_ICONS } from '@/lib/constants';
+import { Role, ROLE_NAMES, ROLE_ICONS, MAFIA_ROLES } from '@/lib/constants';
 
 interface LeaderRoleBindingProps {
   gameState: any;
@@ -239,8 +239,8 @@ export default function LeaderRoleBinding({ gameState, emit, setError }: LeaderR
   const citizenRoles = roleSlots.filter(s => s.role === Role.CITIZEN);
   const unassignedSpecial = specialRoles.filter(s => s.assignedPlayerId === null);
 
-  const isMafiaRole = (role: Role) =>
-    [Role.GODFATHER, Role.SILENCER, Role.CHAMELEON, Role.MAFIA_REGULAR].includes(role);
+  // 🔴 من المصدر الموحّد: القائمة المنسوخة كانت تُسقط الساحرة والأخ الأكبر فتُلوَّنان مواطنَين
+  const isMafiaRole = (role: Role) => MAFIA_ROLES.includes(role);
 
   const alivePlayers = (gameState.players || [])
     .filter((p: any) => p.isAlive !== false)

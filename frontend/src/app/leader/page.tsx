@@ -115,6 +115,11 @@ interface GameState {
   luckyDrawHistory?: number[]; // 🎁 رابحو الغرفة (لاستبعادهم اختيارياً)
 }
 
+// 🏆 الفائزُ رباعيّ: كان سجلّ الغرف يكتب فوز المهرّج والسفّاح «المدينة»
+function winnerLabelAr(w: string | null | undefined): string {
+  return w === 'MAFIA' ? '🩸 فوز المافيا' : w === 'JESTER' ? '🤡 فوز المهرّج' : w === 'ASSASSIN' ? '🔪 فوز السفّاح' : w === 'CITIZEN' ? '⚖️ فوز المدينة' : '—';
+}
+
 export default function LeaderPage() {
   const router = useRouter();
   const { emit, on, isConnected } = useSocket();
@@ -3528,7 +3533,7 @@ export default function LeaderPage() {
                         <span className={`text-sm font-bold ${
                           isMafiaWin ? 'text-[#8A0303]' : 'text-[#2E5C31]'
                         }`}>
-                          {isMafiaWin ? '🩸 المافيا' : '⚖️ المدينة'}
+                          {winnerLabelAr(match.winner)}
                         </span>
 
                         {/* المدة */}
@@ -4336,7 +4341,7 @@ export default function LeaderPage() {
                           try {
                             const r = await emit('night:one-start', {
                               roomId: gameState.roomId,
-                              durationSeconds: customNightTimer || 60,
+                              durationSeconds: 60,   // 🔴 مدّةُ الليلة الواحدة مستقلّة — شرائح 15/20/30 للطابور الآليّ كانت تكتب فوقها
                             });
                             if (!r?.success) setError(r?.error || 'تعذّر بدء الليلة');
                           } catch (e: any) { setError(e.message); }
@@ -4879,8 +4884,9 @@ export default function LeaderPage() {
                             type="number"
                             min="5"
                             max="60"
-                            value={(gameState.config as any).autoNightTime || 15}
-                            onChange={async (e) => {
+                            defaultValue={(gameState.config as any).autoNightTime || 15}
+                            // 🔴 عند الخروج من الحقل لا مع كلّ حرف — كان «20» يرسل 2 ثمّ 20
+                            onBlur={async (e) => {
                               const val = parseInt(e.target.value);
                               if (!isNaN(val) && val >= 5) {
                                 await emit('game:set-night-mode', { roomId: gameState.roomId, mode: 'auto', autoTimeSeconds: val });
@@ -5337,7 +5343,7 @@ export default function LeaderPage() {
               {activityCityGroups.map((g) => {
                 const opts = g.rows.map((a: any) => (
                   <option key={a.id} value={a.id}>
-                    {a.name}{a.locationName ? ` — ${joinPlace(a.locationName, a.cityName)}` : ''} — {new Date(a.date).toLocaleDateString('ar-SA', { month: 'short', day: 'numeric' })}
+                    {a.name}{a.locationName ? ` — ${joinPlace(a.locationName, a.cityName)}` : ''} — {new Date(a.date).toLocaleDateString('ar-JO-u-nu-latn', { month: 'short', day: 'numeric' })}
                   </option>
                 ));
                 return g.label ? <optgroup key={g.key} label={`🏙️ ${g.label}`}>{opts}</optgroup> : opts;
@@ -5445,7 +5451,7 @@ export default function LeaderPage() {
             <div className="space-y-3">
               {closedSessions.map((s: any) => {
                 const totalMins = s.totalDuration ? Math.floor(s.totalDuration / 60) : 0;
-                const dt = s.lastMatchAt ? new Date(s.lastMatchAt).toLocaleDateString('ar-SA', { month: 'short', day: 'numeric' }) : '';
+                const dt = s.lastMatchAt ? new Date(s.lastMatchAt).toLocaleDateString('ar-JO-u-nu-latn', { month: 'short', day: 'numeric' }) : '';
                 const isExpanded = selectedMatch?.sessionId === s.id;
 
                 return (
@@ -5530,7 +5536,7 @@ export default function LeaderPage() {
                                   <div key={m.id} className="grid grid-cols-[50px_1fr_70px_70px] items-center px-3 py-2 border-b border-[#1a1a1a] hover:bg-[#0a0a0a] transition-colors">
                                     <span className="text-[#C5A059] font-mono text-xs">#{m.id}</span>
                                     <span className={`text-xs font-mono font-bold uppercase ${isMafiaWin ? 'text-[#8A0303]' : 'text-[#2E5C31]'}`}>
-                                      {isMafiaWin ? '🩸 MAFIA' : '⚖️ CITIZENS'}
+                                      {winnerLabelAr(m.winner)}
                                     </span>
                                     <span className="text-[#808080] font-mono text-xs text-center">
                                       {m.durationSeconds ? `${mins}:${secs.toString().padStart(2, '0')}` : '--:--'}
@@ -5590,7 +5596,7 @@ export default function LeaderPage() {
                       ? 'text-[#8A0303] border-[#8A0303]/40 bg-[#8A0303]/10'
                       : 'text-[#C5A059] border-[#C5A059]/40 bg-[#C5A059]/10'
                   }`}>
-                    {selectedMatch.winner === 'MAFIA' ? '🔴 فوز المافيا' : '🟡 فوز المدينة'}
+                    {winnerLabelAr(selectedMatch.winner)}
                   </span>
                 </div>
 

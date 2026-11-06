@@ -2190,8 +2190,8 @@ export default function LeaderDayView({ gameState, emit, setError }: LeaderDayVi
 
         {/* ═══ Card Instructions ═══ */}
         <div className="text-center py-2 border-b border-[#1a1a1a]">
-          <p className="text-[9px] font-mono text-[#555] tracking-widest">
-            TAP = +1 &nbsp;•&nbsp; DOUBLE TAP = -1 &nbsp;•&nbsp; SWIPE = REVEAL
+          <p className="text-[12px] text-[#888] leading-relaxed px-2">
+            اختر المصوّت من الشريط ثمّ المس المرشّح &nbsp;•&nbsp; المس صوت الوكالة البرتقاليّ لإلغائه &nbsp;•&nbsp; اسحب الكرت جانبيّاً لكشف الدور
           </p>
         </div>
 

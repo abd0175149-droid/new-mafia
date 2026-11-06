@@ -5106,7 +5106,9 @@ async function readSeatLayoutOnly(activityId: any): Promise<any> {
 
       if (!betweenGames && typeof data.gameTimerMinutes === 'number')
         return done({ success: false, error: 'مؤقّت اللعبة يُضبط بين الألعاب — أثناء اللعب عدّله من شريط المؤقّت (±)' });
-      if (!betweenGames && typeof data.allowMafiaReveal === 'boolean')
+      // 🔴 يُطبَّق عند تأكيد الربط — فيجوز حتى تلك اللحظة (كما يسمح زرّ صفحة الربط نفسه)
+      const beforeReveal = betweenGames || ((state.phase === Phase.ROLE_GENERATION || state.phase === Phase.ROLE_BINDING) && !(state as any).rolesConfirmed);
+      if (!beforeReveal && typeof data.allowMafiaReveal === 'boolean')
         return done({ success: false, error: 'تعارف المافيا يُطبَّق عند ربط الأدوار — يُضبط بين الألعاب' });
       if (state.phase === Phase.NIGHT && data.nightMode)
         return done({ success: false, error: 'لا يتبدّل نمط الليل والليلُ جارٍ — غيّره في النهار ليسري على الليلة التالية' });

@@ -27,6 +27,7 @@ export default function GameSettingsModal({ gameState, emit, onConfig, onClose, 
   const phase = gameState?.phase;
   const betweenGames = BETWEEN.includes(phase);
   const isNight = phase === 'NIGHT';
+  const beforeReveal = betweenGames || ((phase === 'ROLE_GENERATION' || phase === 'ROLE_BINDING') && !gameState?.rolesConfirmed);
   const isRemote = c.isRemote === true;
   const [busy, setBusy] = useState<string | null>(null);
   const [savedKey, setSavedKey] = useState<string | null>(null);
@@ -183,8 +184,9 @@ export default function GameSettingsModal({ gameState, emit, onConfig, onClose, 
             <Row label="مؤقّت اللعبة" k="gameTimerMinutes" hint={betweenGames ? '0 = بلا مؤقّت' : 'أثناء اللعب عدّله من شريط المؤقّت (±)'}>
               <Num k="gameTimerMinutes" value={c.gameTimerEnabled ? (c.gameTimerMinutes ?? 30) : 0} min={0} max={180} step={15} unit="د" disabled={!betweenGames} />
             </Row>
-            <Row label="تعارف المافيا عند الربط" k="allowMafiaReveal" hint={betweenGames ? 'يعرف المافيا بعضهم عند كشف الكروت' : 'يُطبَّق عند ربط الأدوار — يُضبط بين الألعاب'}>
-              <Toggle k="allowMafiaReveal" value={c.allowMafiaReveal === true} disabled={!betweenGames} />
+            {/* 🔴 الافتراضُ مفعّل كما في الخادم وصفحة الربط (كان يُعرض مطفأً حين لا قيمة) */}
+            <Row label="تعارف المافيا عند الربط" k="allowMafiaReveal" hint={beforeReveal ? 'يعرف المافيا بعضهم عند كشف الكروت' : 'طُبّق عند ربط الأدوار — يُضبط قبل الربط القادم'}>
+              <Toggle k="allowMafiaReveal" value={c.allowMafiaReveal !== false} disabled={!beforeReveal} />
             </Row>
           </Section>
 

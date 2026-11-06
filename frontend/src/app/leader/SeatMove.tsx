@@ -116,8 +116,16 @@ export function SeatMoveProvider({
     return Array.from({ length: count }, (_, i) => i + 1);
   }, [maxPlayers, players]);
 
-  const emptySeats = useMemo(() => seats.filter((s) => !bySeat.has(s)), [seats, bySeat]);
-  const occupantOf = useCallback((seat: number) => bySeat.get(seat) || null, [bySeat]);
+  // 🔴 مقعدُ المتفرّج مشغولٌ بجسد — لا يُعرض فارغاً ولا يُنقل إليه أحد
+  const spectatorSeats = useMemo(() => new Set((spectators || []).map((sp: any) => Number(sp?.physicalId)).filter((n: number) => n > 0)), [spectators]);
+  const emptySeats = useMemo(() => seats.filter((s) => !bySeat.has(s) && !spectatorSeats.has(s)), [seats, bySeat, spectatorSeats]);
+  // المتفرّج يظهر شاغلاً مقفلاً (لا مصدرَ ولا وجهة) — كي لا تعرضه اللوحة «—» فارغاً
+  const spectatorBySeat = useMemo(() => {
+    const m = new Map<number, any>();
+    for (const sp of spectators || []) if (sp?.physicalId > 0) m.set(Number(sp.physicalId), { ...sp, spectator: true, seatHeld: true });
+    return m;
+  }, [spectators]);
+  const occupantOf = useCallback((seat: number) => bySeat.get(seat) || spectatorBySeat.get(seat) || null, [bySeat, spectatorBySeat]);
 
   // ── 📸 الزاوية بلا تصوير: الحساب نفسه الذي يجريه الخادم (نسخة حرفيّة) ──
   const zoneCtx = useMemo(
@@ -729,7 +737,7 @@ export function SeatMoveBoardToggle({ label = '🪑 المقاعد' }: { label?:
                         {shifts && <span className="text-amber-300 text-[10px]"> ←{seat + count}</span>}
                       </span>
                       <span className="mt-1 w-full truncate text-center text-[9px] leading-tight opacity-90">
-                        {held ? '🔒 محجوز' : occ ? occ.name : '—'}
+                        {held ? (occ?.spectator ? '👁 متفرّج' : '🔒 محجوز') : occ ? occ.name : '—'}
                       </span>
                     </button>
                   );

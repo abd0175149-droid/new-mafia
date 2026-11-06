@@ -250,7 +250,11 @@ export default function LeaderLobbyView({ gameState, emit, setError, hideOffline
   };
 
   // المقاعد المتاحة
-  const occupiedSeats = gameState.players.map((p: any) => p.physicalId);
+  // 🔴 والمتفرّجون يشغلون مقاعدهم: كان النموذج يعرض مقعدَ المتفرّج فارغاً فيُجلَس فيه لاعبٌ ثانٍ
+  const occupiedSeats = [
+    ...gameState.players.map((p: any) => p.physicalId),
+    ...((gameState as any).spectators || []).map((sp: any) => sp.physicalId).filter((n: number) => n > 0),
+  ];
   const availableSeats = Array.from({ length: gameState.config.maxPlayers }, (_, i) => i + 1)
     .filter(num => !occupiedSeats.includes(num));
   // 📸 المقعد الأنسب حسب جواب التصوير — نفس رتبة المحرّك (الرافض يلتصق بالكتلة، القابل خارجها)
@@ -911,8 +915,9 @@ export default function LeaderLobbyView({ gameState, emit, setError, hideOffline
                     type="number"
                     min="5"
                     max="60"
-                    value={(gameState.config as any).autoNightTime || 15}
-                    onChange={async (e) => {
+                    defaultValue={(gameState.config as any).autoNightTime || 15}
+                    // 🔴 عند الخروج من الحقل لا مع كلّ حرف — كان «20» يرسل 2 ثمّ 20
+                    onBlur={async (e) => {
                       const val = parseInt(e.target.value);
                       if (!isNaN(val) && val >= 5) {
                         await emit('game:set-night-mode', { roomId: gameState.roomId, mode: 'auto', autoTimeSeconds: val });
