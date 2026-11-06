@@ -188,6 +188,16 @@ export default function GameSettingsModal({ gameState, emit, onConfig, onClose, 
             </Row>
           </Section>
 
+          <Section title="🕵️ المراقبة">
+            <Row label="تنبيه «التعرّف على المافيا»" k="alertMafiaGallery" hint="نافذة وصوت على جهازك كلّما فتح لاعبٌ قائمة التعرّف — رقمه واسمه ودوره">
+              <Toggle k="alertMafiaGallery" value={c.alertMafiaGallery !== false} />
+            </Row>
+            <Row label="تنبيه «مهامّي»" k="alertMyTasks" hint="نافذة وصوت كلّما فتح لاعبٌ شاشة مهامّ دوره">
+              <Toggle k="alertMyTasks" value={c.alertMyTasks !== false} />
+            </Row>
+            <p className="text-[#666] text-[10px] leading-relaxed">الإطفاء يوقف النافذة والصوت عندك فقط — الفتحاتُ تبقى مسجّلة في سجلّ العمليّات، وحرسُ «الغياب بعد رؤية السرّ» يبقى يعمل.</p>
+          </Section>
+
           <Section title="📝 الغرفة">
             <Row label="اسم اللعبة" k="gameName">
               <input

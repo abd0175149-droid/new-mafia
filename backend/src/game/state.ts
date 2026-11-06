@@ -321,6 +321,10 @@ export interface GameConfig {
   assassinContractCount?: number;  // 🔪 عدد عقود السفّاح (الافتراضي 4، المدى 2-6)
   /** 🔪 نمطُ السفّاحين حين يتعدّدون — يختاره الليدر قبل التوزيع (الافتراضي RIVALS). */
   assassinMode?: 'RIVALS' | 'PARTNERS';
+  /** 🕵️ تنبيهُ الليدر حين يفتح لاعبٌ «التعرّف على المافيا» (غائب = مفعّل). السجلّ والحرسُ يعملان دائماً. */
+  alertMafiaGallery?: boolean;
+  /** 🕵️ تنبيهُ الليدر حين يفتح لاعبٌ «مهامّي» (غائب = مفعّل). */
+  alertMyTasks?: boolean;
   /** 🃏 في التوزيع المعتمد كرتٌ مميّزٌ مكرَّر — يُقفل الوضع الآليّ لليل والمحرّكَ القديم. */
   duplicateRoles?: boolean;
    jesterSurviveRounds?: number;    // 🤡 جولات نجاة المهرج (الافتراضي 2)

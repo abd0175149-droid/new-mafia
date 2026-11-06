@@ -4229,7 +4229,9 @@ async function readSeatLayoutOnly(activityId: any): Promise<any> {
       const teamAr = mafia ? 'المافيا' : team === 'NEUTRAL' ? 'محايد' : 'المواطنون';
 
       // بثّ موجّه لسوكتات الليدر حصراً — الحمولة تحمل الدور فلا تُبثّ للغرفة (المسار الساخن أولاً)
-      const allSockets = await io.in(roomId).fetchSockets();
+      // 🕵️ الليدر أطفأ هذا التنبيه من إعدادات الغرفة ⇒ لا نافذة ولا صوت. الختمُ أعلاه والسجلُّ أدناه باقيان.
+      const alertOn = state.config?.alertMafiaGallery !== false;
+      const allSockets = alertOn ? await io.in(roomId).fetchSockets() : [];
       for (const s of allSockets) {
         if ((s as any).data?.role === 'leader') {
           s.emit('leader:mafia-gallery-alert', {
@@ -4346,7 +4348,8 @@ async function readSeatLayoutOnly(activityId: any): Promise<any> {
         const team = mafia ? 'MAFIA' : (player.role === 'JESTER' || player.role === 'ASSASSIN') ? 'NEUTRAL' : 'CITIZEN';
         const teamAr = mafia ? 'المافيا' : team === 'NEUTRAL' ? 'محايد' : 'المواطنون';
 
-        const allSockets = await io.in(roomId).fetchSockets();
+        // 🕵️ التنبيه مطفأ من إعدادات الغرفة ⇒ لا نافذة عند الليدر؛ السجلُّ أدناه باقٍ
+        const allSockets = state.config?.alertMyTasks !== false ? await io.in(roomId).fetchSockets() : [];
         for (const s of allSockets) {
           if ((s as any).data?.role === 'leader') {
             s.emit('leader:my-tasks-alert', {
@@ -5090,6 +5093,8 @@ async function readSeatLayoutOnly(activityId: any): Promise<any> {
     witchDisableRounds?: number;
     jesterSurviveRounds?: number;
     allowMafiaReveal?: boolean;
+    alertMafiaGallery?: boolean;   // 🕵️ تنبيه فتح «التعرّف على المافيا»
+    alertMyTasks?: boolean;        // 🕵️ تنبيه فتح «مهامّي»
   }, callback) => {
     const done = (r: any) => { if (typeof callback === 'function') callback(r); };
     try {
@@ -5136,6 +5141,9 @@ async function readSeatLayoutOnly(activityId: any): Promise<any> {
       if (typeof data.witchDisableRounds === 'number') c.witchDisableRounds = Math.min(6, Math.max(1, Math.floor(data.witchDisableRounds)));
       if (typeof data.jesterSurviveRounds === 'number') c.jesterSurviveRounds = Math.min(5, Math.max(1, Math.floor(data.jesterSurviveRounds)));
       if (typeof data.allowMafiaReveal === 'boolean') c.allowMafiaReveal = data.allowMafiaReveal;
+      // 🕵️ تنبيهاتُ المراقبة — تسري فوراً في أيّ طور (الحرسُ وسجلُّ العمليّات يبقيان يعملان)
+      if (typeof data.alertMafiaGallery === 'boolean') c.alertMafiaGallery = data.alertMafiaGallery;
+      if (typeof data.alertMyTasks === 'boolean') c.alertMyTasks = data.alertMyTasks;
 
       await updateRoom(data.roomId, { config: c });
       // بثّ الحالة الكاملة المُعقّمة → واجهة المضيف تحدّث فوراً عبر مستمع game:state-updated
