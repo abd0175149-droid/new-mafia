@@ -1136,7 +1136,8 @@ function DisplayPageContent() {
   //    كان يوجّه إلى /player/join?code=XXXX ظنّاً أنّ الرابط العميق أوفر خطوةً
   //    على الماسح؛ لكنّ الوجهة العمليّة هي الدخول، ومنه يمضي اللاعب.
   //    لا تُعِد الرابطَ العميق إلّا بطلبٍ صريح.
-  const joinUrl = 'https://club-mafia.grade.sbs/player/login';
+  // 🌐 رمزُ الدخول يتبع النطاق الذي فُتحت عليه الشاشة (كان grade.sbs حرفيّاً فسقط معه)
+  const joinUrl = (typeof window !== 'undefined' ? window.location.origin : 'https://club-mafia.grade.sbs') + '/player/login';
 
   // ⏱️ عدّاد الجولة القادمة
   useEffect(() => {

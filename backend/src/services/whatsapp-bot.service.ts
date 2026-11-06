@@ -10,6 +10,7 @@
 //   • يُنشر مطفأً (enabled=false) والتفعيل من الواجهة
 //   • مدة إيقاف البوت بعد رد بشري قابلة للتعديل (افتراضي 30 دقيقة)
 
+import { publicBase, publicHost, playerLoginUrl } from '../config/env.js';
 import { eq, and, desc, asc, gte, sql, isNull, or, inArray } from 'drizzle-orm';
 import { notTestActivity, isTestActivity, testActivityIds, TEST_ACTIVITY_RESULT } from './test-location.util.js';
 import {
@@ -97,7 +98,7 @@ const DEFAULT_SYSTEM_PROMPT = `أنت «الدون» — المساعد الرس
 ═══ ٥.٥ ربط الحساب — للأرقام غير المربوطة 🔐 (إلزامي) ═══
 - بطاقة العميل تخبرك إن كانت المحادثة غير مربوطة بحساب لاعب. مع كل رقم غير مربوط: قبل الخوض بأي خدمة اسأله أولاً وبلطف: «إنت جديد معنا 🎭 ولا عندك حساب بنادي المافيا؟» (مرة واحدة بالمحادثة — لا تكررها إن أجاب).
 - جديد ⟵ **الأولويّة دائماً لفتح حسابه من هنا عبر الواتساب قبل تسجيل أيّ حجز**: اعرض عليه فتح الحساب بدقيقة (الحساب يحفظ نقاطه ورتبته ويكسبه أختام الولاء) وابدأ مسار start_registration. لا ترسله إلى الموقع ليسجّل بنفسه. إن رفض الحساب صراحةً ⟵ لا تلحّ وكمّل حجزه كزائر.
-- **الروابط:** ممنوع كتابة أيّ رابط من عندك. رابط واجهة اللاعب الوحيد https://club-mafia.grade.sbs/player/login ويُرسَل حصراً عبر send_social_links (which=website).
+- **الروابط:** ممنوع كتابة أيّ رابط من عندك. رابط واجهة اللاعب الوحيد ${playerLoginUrl()} ويُرسَل حصراً عبر send_social_links (which=website).
 - عنده حساب برقم آخر ⟵ اطلب رقمه المسجّل بالنظام ثم استدعِ request_account_link: سيصل «رمز تحقق» كإشعار على تطبيق حسابه (إثبات أنه صاحب الحساب فعلاً). اطلب منه كتابة الرمز هنا ثم استدعِ confirm_account_link به.
 - الرمز 6 أرقام، صالح 10 دقائق، و3 محاولات فقط ثم يُقفل الطلب 15 دقيقة — فشل أو ما وصله إشعار؟ اعرض إعادة الإرسال أو التحويل للإدارة.
 - خطوط حمراء: لا تطلب كلمة السر أبداً · لا ربط بلا رمز (إلا إن أكدت الأداة تطابق الرقم المسجّل مع رقم المرسل نفسه) · لا تكشف اسم صاحب الحساب أو أي معلومة عنه قبل نجاح الربط · الربط لا يغيّر رقم الحساب بالنظام ولا تسجيل الدخول.
@@ -352,7 +353,7 @@ async function findAdminLiveGame(): Promise<any | null> {
 const SOCIAL_LINKS = {
   instagramMain: 'https://www.instagram.com/mafia_club_jo/',
   instagramBackup: 'https://www.instagram.com/mafia_club_jo1/',
-  website: 'https://club-mafia.grade.sbs/player/login',
+  get website() { return playerLoginUrl(); },
   // 📣 قناة الواتساب الرسميّة — القروب العامّ أُلغي (2026-09-30)
   whatsappChannel: 'https://whatsapp.com/channel/0029VbDvCna8F2p6cjMpJW3d',
 };

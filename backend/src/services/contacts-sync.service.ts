@@ -16,6 +16,7 @@
 //   • الأجهزة: اسم مستخدم + كلمة سرّ عشوائيّة لكلّ هاتف (bcrypt)، تُلغى من الداشبورد.
 // ══════════════════════════════════════════════════════
 
+import { publicBase, publicHost, playerLoginUrl } from '../config/env.js';
 import crypto from 'crypto';
 import bcrypt from 'bcryptjs';
 import { sql } from 'drizzle-orm';
@@ -140,7 +141,7 @@ export function uidFor(phoneKey: string): string {
 // 👥 جمع الأشخاص من النظام
 // ══════════════════════════════════════════════════════
 const RANK_AR: Record<string, string> = { INFORMANT: 'مُخبر', SOLDIER: 'جندي', CAPO: 'كابو', UNDERBOSS: 'أندربوس', GODFATHER: 'الأب الروحي' };
-const baseUrl = () => String(env.PUBLIC_URL || 'https://club-mafia.grade.sbs').replace(/\/$/, '');
+const baseUrl = () => publicBase();
 function period(): string { const d = new Date(Date.now() + 3 * H); return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}`; }
 const cleanName = (s: any) => String(s || '').replace(/\s+/g, ' ').trim().slice(0, 80);
 

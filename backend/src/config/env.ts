@@ -63,3 +63,10 @@ if (!env.WA_TOKEN || !env.WA_PHONE_NUMBER_ID) {
 if (!env.WA_APP_SECRET) {
   console.warn('⚠️ [ENV] WA_APP_SECRET غير مضبوط — لن يتم التحقق من توقيع webhook واتساب (يُنصح بضبطه في الإنتاج).');
 }
+
+// 🌐 العنوان العامّ الوحيد لكلّ رابطٍ يخرج للناس (البوت، الفواتير، جهات الاتصال…).
+//    كان النطاق مكتوباً حرفيّاً في عدّة ملفّات، فلمّا سقط grade.sbs (2026-11-06) صار
+//    تبديلُ النطاق يعني تعديل الشيفرة. الآن: PUBLIC_URL في .env وإعادة تشغيل.
+export const publicBase = (): string => (env.PUBLIC_URL || 'https://club-mafia.grade.sbs').replace(/\/+$/, '');
+export const publicHost = (): string => publicBase().replace(/^https?:\/\//, '');
+export const playerLoginUrl = (): string => `${publicBase()}/player/login`;

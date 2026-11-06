@@ -13,6 +13,7 @@
 // مسموح والموافقة على الشروط تبقى عند أوّل دخول فعليّ للتطبيق (بوّابة الموافقة القائمة).
 // ══════════════════════════════════════════════════════
 
+import { publicBase, publicHost, playerLoginUrl } from '../config/env.js';
 import { eq, and, isNull, sql, desc } from 'drizzle-orm';
 import crypto from 'crypto';
 import bcrypt from 'bcryptjs';
@@ -28,7 +29,8 @@ import { transportSettings } from './wa-transport/settings.js';
 const rowsOf = (r: any): any[] => r?.rows ?? (Array.isArray(r) ? r : []);
 const GRAPH = 'https://graph.facebook.com/v20.0';
 const GEMINI = 'https://generativelanguage.googleapis.com/v1beta';
-const APP_LOGIN_URL = 'https://club-mafia.grade.sbs/player/login';
+// 🌐 من PUBLIC_URL — يتبع النطاق الفعّال
+const APP_LOGIN_URL = playerLoginUrl();
 // 📣 قناة الواتساب الرسميّة (القروب العامّ أُلغي 2026-09-30) — تُرسل مع ترحيب الحساب الجديد
 const WA_CHANNEL_LINK = 'https://whatsapp.com/channel/0029VbDvCna8F2p6cjMpJW3d';
 const CHANGE_CUTOFF_MS = 3 * 3600e3;

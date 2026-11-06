@@ -8,6 +8,7 @@
 // وطابعة الكاش لا يُضمن أن تصل الإنترنت — فالقالب لا يجلب شيئاً من الخارج.
 // ══════════════════════════════════════════════════════
 
+import { publicBase, publicHost, playerLoginUrl } from '../config/env.js';
 import { wonFromRow } from '../game/win-attribution.js';
 import { readFileSync } from 'fs';
 import { fileURLToPath } from 'url';
@@ -159,7 +160,7 @@ function payBlock(p: PaymentInfo | null): string {
 }
 
 const TAGLINE = 'الليلة انتهت… والحكاية لم تنتهِ';
-const SITE = 'club-mafia.grade.sbs';
+const SITE = publicHost();
 const RED = '#9E1B22';
 
 // ══════════════════════════════════════════════════════

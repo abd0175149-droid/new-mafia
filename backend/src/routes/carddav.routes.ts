@@ -11,6 +11,7 @@
 // بجهازٍ من الداشبورد. الكتابة (PUT/DELETE/…) مرفوضة: الدفتر مرآةٌ للنظام.
 // ══════════════════════════════════════════════════════
 
+import { publicBase, publicHost, playerLoginUrl } from '../config/env.js';
 import express, { Router, type Request, type Response } from 'express';
 import {
   authDevice, touchDevice, refreshCards, currentVersion, liveCards, cardsByUid, changesSince,
@@ -26,7 +27,7 @@ const HOME = '/api/carddav/addressbooks/';
 const BOOK = '/api/carddav/addressbooks/mc/';
 const principalOf = (u: string) => `${PRINCIPALS}${u}/`;
 const cardHref = (uid: string) => `${BOOK}${uid}.vcf`;
-const baseUrl = () => String(env.PUBLIC_URL || 'https://club-mafia.grade.sbs').replace(/\/$/, '');
+const baseUrl = () => publicBase();
 const syncToken = (v: number) => `${baseUrl()}/api/carddav/sync/${v}`;
 
 const NS_D = 'DAV:', NS_CARD = 'urn:ietf:params:xml:ns:carddav', NS_CS = 'http://calendarserver.org/ns/';

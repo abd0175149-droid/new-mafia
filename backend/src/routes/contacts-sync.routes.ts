@@ -5,6 +5,7 @@
 // واحدة لـ٣٠ دقيقة — الرمز هو الصلاحيّة)، وتنزيل الدفتر كلّه vCard احتياطاً،
 // وآخر طلبات الهاتف للتشخيص.
 
+import { publicBase, publicHost, playerLoginUrl } from '../config/env.js';
 import { Router, type Request, type Response } from 'express';
 import { authenticate, adminOnly } from '../middleware/auth.js';
 import {
@@ -16,7 +17,7 @@ import { env } from '../config/env.js';
 
 const router = Router();
 const actorOf = (req: Request) => String((req as any).user?.displayName || (req as any).user?.username || 'أدمن');
-const baseUrl = () => String(env.PUBLIC_URL || 'https://club-mafia.grade.sbs').replace(/\/$/, '');
+const baseUrl = () => publicBase();
 async function audit(req: Request, action: string, labelAr: string, details: any) {
   try {
     const { logStaffAction } = await import('../services/staff-action-log.service.js');
