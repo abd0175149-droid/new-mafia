@@ -1666,6 +1666,15 @@ class GameSessionController extends ChangeNotifier with WidgetsBindingObserver {
 
     _setPhase(GamePhase.map(res['phase']), fromSocket: false);
 
+    // 🕵️ عدّاد الفرق كان يصل الهاتفَ مع تغيّر المرحلة وحده، فمن أعاد الفتح وسط
+    //    الجولة بقي بلا رقمٍ حتّى المرحلة التالية — وخانات معرض المافيا تُرسم
+    //    به. يُملأ الفراغ فقط: الرقم القائم تملكه البثوث (وحبس الهواتف)، والكتابة
+    //    فوقه كلّ دورة كانت ستُرجّح العدّاد بين مصدرين.
+    if (_teamMafia == null && res['teamCounts'] is Map) {
+      _readTeamCounts(res['teamCounts']);
+      changed = true;
+    }
+
     // التصويت — محروسٌ بالحارس نفسه
     if (!_overrideActive) {
       final vs = res['votingState'];

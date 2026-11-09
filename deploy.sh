@@ -239,6 +239,8 @@ sleep 5
 MIGRATION_LOG="$(mktemp)"
 if docker compose exec -T database psql -U "$DB_USER" -d "$DB_NAME" -v ON_ERROR_STOP=1 <<'SQL' >"$MIGRATION_LOG" 2>&1
 ALTER TABLE players ADD COLUMN IF NOT EXISTS email VARCHAR(200);
+-- 🎛️ قيمُ الليدر الافتراضيّة لتجهيز اللعبة — تتبع حسابه في كلّ الغرف (2026-11-09)
+ALTER TABLE staff ADD COLUMN IF NOT EXISTS game_defaults JSONB;
 ALTER TABLE players ADD COLUMN IF NOT EXISTS avatar_url TEXT;
 ALTER TABLE players ADD COLUMN IF NOT EXISTS xp INTEGER DEFAULT 0;
 ALTER TABLE players ADD COLUMN IF NOT EXISTS level INTEGER DEFAULT 1;

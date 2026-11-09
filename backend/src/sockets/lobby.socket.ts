@@ -41,6 +41,7 @@ import { getProgressionConfig } from '../routes/progression-settings.routes.js';
 import { sendPushToPlayer } from '../services/fcm.service.js';
 import { getDB } from '../config/db.js';
 import { matchPlayers, cheatSignals } from '../schemas/game.schema.js';
+import { staff as staffTable } from '../schemas/admin.schema.js';
 import { eq, sql, and } from 'drizzle-orm';
 import { emitStateSanitized, emitPhaseChangedSanitized, emitTrustedOnly, emitLeaderAndDisplay, spectatorRoom, stripSecrets, publicJustification, publicPendingResolution } from './broadcast.util.js';
 import { buildAffinityPairs, loadPairRules, mergeRulesIntoAffinity, mergeGlobalBlockedPairs, upsertPairRule } from '../services/seat-affinity.service.js';
@@ -5100,6 +5101,31 @@ async function readSeatLayoutOnly(activityId: any): Promise<any> {
   //   - gameTimerMinutes: المؤقّت يعمل بمحرّكه (game:adjust-game-timer للتعديل الحيّ)
   //   - allowMafiaReveal: يُطبَّق عند ربط الأدوار فقط
   //   - nightMode: لا يتبدّل والليلُ جارٍ (تدفّق الليل يقرأه عند كلّ خطوة)
+  // 🎛️ قيمُ تجهيز اللعبة الافتراضيّة — لحساب الليدر لا للغرفة (قرار المالك 2026-11-09)
+  socket.on('leader:get-game-defaults', async (_data: unknown, callback) => {
+    const done = (r: any) => { if (typeof callback === 'function') callback(r); };
+    try {
+      const staffId = Number(socket.data.authStaff?.id);
+      if (socket.data.role !== 'leader' || !staffId) return done({ success: false, error: 'Only leader' });
+      const db = getDB();
+      const [row] = await db.select({ d: staffTable.gameDefaults }).from(staffTable).where(eq(staffTable.id, staffId)).limit(1);
+      done({ success: true, defaults: (row?.d && typeof row.d === 'object') ? row.d : null });
+    } catch (err: any) { done({ success: false, error: err.message }); }
+  });
+  socket.on('leader:save-game-defaults', async (data: { defaults?: Record<string, unknown> }, callback) => {
+    const done = (r: any) => { if (typeof callback === 'function') callback(r); };
+    try {
+      const staffId = Number(socket.data.authStaff?.id);
+      if (socket.data.role !== 'leader' || !staffId) return done({ success: false, error: 'Only leader' });
+      const d = data?.defaults;
+      if (!d || typeof d !== 'object' || Array.isArray(d) || JSON.stringify(d).length > 4000) return done({ success: false, error: 'قيمٌ غير صالحة' });
+      const db = getDB();
+      await db.update(staffTable).set({ gameDefaults: d } as any).where(eq(staffTable.id, staffId));
+      console.log(`🎛️ staff ${staffId} saved game defaults`);
+      done({ success: true });
+    } catch (err: any) { done({ success: false, error: err.message }); }
+  });
+
   socket.on('room:update-settings', async (data: {
     roomId: string;
     gameName?: string;
@@ -5123,6 +5149,10 @@ async function readSeatLayoutOnly(activityId: any): Promise<any> {
     allowMafiaReveal?: boolean;
     alertMafiaGallery?: boolean;   // 🕵️ تنبيه فتح «التعرّف على المافيا»
     alertMyTasks?: boolean;        // 🕵️ تنبيه فتح «مهامّي»
+    nightKind?: 'one' | 'queue';   // 🌙 طريقة الليل للّعبة كلّها
+    nightSeconds?: number;
+    nurseAuto?: boolean;           // 💉 الممرّضة تتولّى بلا سؤال
+    setupPlan?: Record<string, unknown>; // 🎛️ خطّة التجهيز
   }, callback) => {
     const done = (r: any) => { if (typeof callback === 'function') callback(r); };
     try {
@@ -5174,6 +5204,10 @@ async function readSeatLayoutOnly(activityId: any): Promise<any> {
       // 🕵️ تنبيهاتُ المراقبة — تسري فوراً في أيّ طور (الحرسُ وسجلُّ العمليّات يبقيان يعملان)
       if (typeof data.alertMafiaGallery === 'boolean') c.alertMafiaGallery = data.alertMafiaGallery;
       if (typeof data.alertMyTasks === 'boolean') c.alertMyTasks = data.alertMyTasks;
+      if (data.nightKind === 'one' || data.nightKind === 'queue') c.nightKind = data.nightKind;
+      if (typeof data.nightSeconds === 'number') c.nightSeconds = Math.min(180, Math.max(30, Math.floor(data.nightSeconds)));
+      if (typeof data.nurseAuto === 'boolean') c.nurseAuto = data.nurseAuto;
+      if (data.setupPlan && typeof data.setupPlan === 'object' && !Array.isArray(data.setupPlan) && JSON.stringify(data.setupPlan).length <= 4000) c.setupPlan = data.setupPlan;
 
       await updateRoom(data.roomId, { config: c });
       // بثّ الحالة الكاملة المُعقّمة → واجهة المضيف تحدّث فوراً عبر مستمع game:state-updated

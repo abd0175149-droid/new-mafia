@@ -160,7 +160,7 @@ export default function Reveal() {
           onPress: async () => { setBusy(true); await run(() => emit('game:confirm-end', { roomId })); setBusy(false); },
         }} />
       ) : (
-        <ActionBar primary={{ label: `ابدأ الليل · الجولة ${nextRound}`, disabled: night.busy, onPress: night.open }} />
+        <ActionBar primary={{ label: `ابدأ الليل · الجولة ${nextRound}`, disabled: night.busy, onPress: night.open, sub: night.kind === 'one' ? `🌙 آليّ · ${night.secs} ث` : '🧭 يدويّ · الطابور' }} />
       )}
     </>
   );

@@ -6,15 +6,18 @@
 // كلُّ ربطٍ يدويّ «مثبّت» تلقائيّاً فلا يمسّه التوزيع العشوائيّ (lockedPhysicalIds).
 // فعلٌ رئيسٌ واحد يتقدّم: وزّع الباقي ⟵ أرسل الأدوار (setup:confirm-roles) ⟵ ابدأ اللعبة (setup:binding-complete).
 // بعد binding-complete ينتقل الخادم إلى DAY_DISCUSSION (الجولة 1) — اللعبة تبدأ بالنهار لا بالليل.
+// 🎲 الخطوة ٤ من ٤: الأدوار تُوزَّع عشوائيّاً وحدها عند الدخول (قرار المالك 2026-11-09)، والتعديلُ كما كان.
+// تعارفُ المافيا وحدُّ التكرار المتتالي انتقلا إلى صفحة «اللعبة».
 // ⚠️ الخادم لا يبثّ الحالة بعد bind/unbind/random — الحالةُ هنا محلّيّة كما في المكوّن القديم.
 // ══════════════════════════════════════════════════════
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Role } from '@/lib/constants';
 import {
   ActionBar, Status, Section, Chips, Hint, Btn, BottomSheet, SeatGrid, seatCells, ListRow,
   SetRow, Switch, Stepper, useCockpit, teamOf, roleName, roleIcon, type SeatCellData, type SeatMark,
 } from '../kit';
 import { TapChip, errMsg } from './setup/ui';
+import { StepRail } from './Setup';
 
 interface Slot { key: number; role: Role; seat: number | null }
 
@@ -75,6 +78,18 @@ export default function BindingScreen() {
   const unboundSpecial = special.filter((s) => s.seat == null);
   const unboundAll = slots.filter((s) => s.seat == null);
   const pickSlot = pick != null ? slots[pick] : null;
+
+  // 🎲 توزيعٌ عشوائيّ تلقائيّ مرّةً لكلّ حوض — حين لا ربطَ بعد ولم تُرسل الأدوار
+  const autoDealt = useRef<string>('');
+  useEffect(() => {
+    if (!pool.length || confirmed || busy) return;
+    if (autoDealt.current === poolKey) return;
+    // المقاعدُ المربوطة مسبقاً (تحديث الصفحة، أو ربطٌ قبل الدخول) تُقرأ من اللاعبين لا من الحالة المحلّيّة
+    if (Object.keys(assign).length > 0 || players.some((p) => !!p?.role)) { autoDealt.current = poolKey; return; }
+    autoDealt.current = poolKey;
+    void randomAssign();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [poolKey, pool.length, confirmed, assign]);
 
   // ── الربط ──
   const bindSeat = async (slot: Slot, seat: number) => {
@@ -158,7 +173,7 @@ export default function BindingScreen() {
       setAssign(a);
       setLocked((l) => new Set(Array.from(l).filter((s) => a[s] != null)));
       setConfirmed(false); setRandomDone(true); setPick(null);
-      toast(`وُزّع الباقي — ${lockedPhysicalIds.length} مثبّت يدويّاً. راجِع ثمّ أرسل`);
+      toast(lockedPhysicalIds.length ? `وُزّع عشوائيّاً — ${lockedPhysicalIds.length} مثبّت بقي مكانه. راجِع ثمّ أرسل` : 'وُزّعت الأدوار عشوائيّاً — راجِع ثمّ أرسل');
     } finally { setBusy(false); }
   };
 
@@ -181,24 +196,6 @@ export default function BindingScreen() {
   };
 
   const openCards = () => { window.open(`/leader/cards?roomId=${roomId}`, '_blank'); };
-
-  // ── الإعدادات قبل الإرسال ──
-  const [reveal, setReveal] = useState<boolean>(cfg.allowMafiaReveal !== false);
-  const [maxConsec, setMaxConsec] = useState<number>(cfg.maxConsecutiveMafiaGames ?? 3);
-  useEffect(() => { setReveal(cfg.allowMafiaReveal !== false); }, [cfg.allowMafiaReveal]);
-  useEffect(() => { setMaxConsec(cfg.maxConsecutiveMafiaGames ?? 3); }, [cfg.maxConsecutiveMafiaGames]);
-
-  const toggleReveal = async (v: boolean) => {
-    setReveal(v);
-    const r = await run(() => emit('room:update-mafia-reveal', { roomId, allowMafiaReveal: v }));
-    if (!r) setReveal(!v);
-  };
-  const changeConsec = async (v: number) => {
-    const prev = maxConsec;
-    setMaxConsec(v);
-    const r = await run(() => emit('room:update-max-consecutive-mafia', { roomId, maxConsecutiveMafiaGames: v }));
-    if (!r) setMaxConsec(prev);
-  };
 
   // ── الشبكة ──
   const cells = seatCells(gameState);
@@ -243,7 +240,7 @@ export default function BindingScreen() {
   const primary = stage === 'random'
     ? { label: busy ? '…' : 'وزّع الباقي عشوائيّاً', onPress: randomAssign, disabled: busy || pool.length === 0, sub: `${unboundAll.length} بلا دور · المثبّت يبقى` }
     : stage === 'send'
-      ? { label: busy ? '…' : 'أرسل الأدوار للاعبين', onPress: sendRoles, disabled: busy || unboundSpecial.length > 0 }
+      ? { label: busy ? '…' : 'أرسل الأدوار للهواتف', onPress: sendRoles, disabled: busy || unboundSpecial.length > 0, hold: true, sub: `اضغط مطوّلاً · ${slots.length} دوراً${locked.size ? ` · ${locked.size} مثبّت` : ''}` }
       : { label: busy ? '…' : 'ابدأ اللعبة', onPress: startGame, disabled: busy, hold: true, sub: 'اضغط مطوّلاً · تبدأ بنقاش الجولة 1' };
   const secondary = stage === 'random'
     ? (Object.keys(assign).length ? { label: 'مسح', onPress: clearAll, disabled: busy } : undefined)
@@ -254,6 +251,7 @@ export default function BindingScreen() {
   return (
     <>
       <Status meta={meta} />
+      <StepRail step={4} />
       <ActionBar primary={primary} secondary={secondary} />
 
       <Hint>
@@ -296,15 +294,6 @@ export default function BindingScreen() {
       <Section title={pickSlot ? `مقعد ${roleName(pickSlot.role)}` : 'المقاعد'} aside={Object.keys(assign).length ? `${Object.keys(assign).length} مربوط` : undefined}>
         <SeatGrid cells={cells} onSeat={onSeat} mark={mark} />
         {randomDone && !confirmed && <Hint>✓ وُزّع عشوائيّاً — «أعد الخلط» يعيد غير المثبّت.</Hint>}
-      </Section>
-
-      <Section title="قبل الإرسال">
-        <SetRow title="تعارف المافيا" sub="يرى المافيا بعضهم عند كشف الكروت">
-          <Switch checked={reveal} onChange={(v) => void toggleReveal(v)} label="تعارف المافيا" />
-        </SetRow>
-        <SetRow title="أقصى تكرارٍ متتالٍ للمافيا" sub="من لعب مافيا هذا العدد متتالياً لا يأخذها عشوائيّاً · 0 = بلا حدّ">
-          <Stepper value={maxConsec} min={0} max={10} onChange={(v) => void changeConsec(v)} />
-        </SetRow>
       </Section>
 
       {confirmed && (

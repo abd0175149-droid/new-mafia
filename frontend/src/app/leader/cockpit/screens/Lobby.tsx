@@ -18,6 +18,8 @@ import { useSeatMove } from '../../SeatMove';
 import { usePhotoZone } from '../../PhotoZonePanel';
 import AddPlayerSheet from './setup/AddPlayerSheet';
 import { SheetError, TapChip, inputCls, errMsg } from './setup/ui';
+import { SetupForm, StepRail } from './Setup';
+import { applyPlan, initialPlan, useAccountDefaults, type SetupPlan } from '../setupPlan';
 
 const MIN_PLAYERS = 6;
 
@@ -49,6 +51,15 @@ export default function LobbyScreen() {
   const [picking, setPicking] = useState(false);
   const [picked, setPicked] = useState<number[]>([]);
   const [kicking, setKicking] = useState(false);
+  // 🎛️ الخطوة ١ «المقاعد» ⟵ الخطوة ٢ «اللعبة» — كلاهما في اللوبي، فالرجوع حرّ
+  const [stage, setStage] = useState<'seats' | 'setup'>('seats');
+  const account = useAccountDefaults(emit);
+  const [plan, setPlan] = useState<SetupPlan | null>(null);
+  useEffect(() => {
+    if (plan || !account.loaded) return;
+    setPlan(initialPlan(cfg, account.defaults));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [account.loaded]);
 
   // 🧹 بعد أيّ إعادة ترقيم: لا يبقى اختيارٌ يشير إلى مقعدٍ قديم
   useEffect(() => {
@@ -85,6 +96,7 @@ export default function LobbyScreen() {
     if (startCount < MIN_PLAYERS) { toast(`يلزم ${MIN_PLAYERS} لاعبين على الأقلّ — لديك ${startCount}`, { tone: 'red' }); return; }
     setBusy(true);
     try {
+      if (plan) await applyPlan(emit, roomId, plan, { withTimer: true });
       await host.startGeneration(excludedLive.length ? excludedLive : undefined);
       setExcluded([]);
     } catch (e: any) {
@@ -111,10 +123,10 @@ export default function LobbyScreen() {
   const stopPicking = () => { setPicking(false); setPicked([]); };
 
   // واحداً تلو الآخر: room:kick-player يقرأ الحالة ويكتبها، فالتوازي يُرجع مطروداً بكتابةٍ متأخّرة
-  const kickPicked = async () => {
-    if (kicking || !pickedLive.length) return;
+  const kickSeats = async (list: number[]) => {
+    if (kicking || !list.length) return;
     setKicking(true);
-    const seats = pickedLive.slice().sort((a, b) => a - b);
+    const seats = list.slice().sort((a, b) => a - b);
     const failed: number[] = [];
     for (const seat of seats) {
       try { await emit('room:kick-player', { roomId, physicalId: seat }); }
@@ -122,9 +134,10 @@ export default function LobbyScreen() {
     }
     setKicking(false);
     const ok = seats.length - failed.length;
-    if (failed.length) { setPicked(failed); toast(`خرج ${ok} — تعذّر طرد ${failed.join('، ')}`, { tone: 'red', ms: 7000 }); }
+    if (failed.length) { setPicked(failed); setPicking(true); toast(`خرج ${ok} — تعذّر طرد ${failed.join('، ')}`, { tone: 'red', ms: 7000 }); }
     else { stopPicking(); toast(`خرج ${ok} من الغرفة`); }
   };
+  const kickPicked = () => kickSeats(pickedLive);
 
   const onSeat = (c: SeatCellData) => {
     if (sm.movingId != null) { sm.moveTo(c.seat); return; }
@@ -154,37 +167,70 @@ export default function LobbyScreen() {
     return m;
   };
 
-  // ── ملخّص الإعدادات (للقراءة — اللمس يفتح الإعدادات) ──
-  const timerChip = cfg.gameTimerEnabled ? `⏱️ ${cfg.gameTimerMinutes ?? 30} د` : '⏱️ بلا مؤقّت';
-  const penChip = `⚖️ ${cfg.maxPenalties ?? 3} عقوبات · ${cfg.penaltyScope === 'game' ? 'لكلّ لعبة' : 'للغرفة'}`;
-  const bombChip = cfg.bombEnabled === false ? '💣 القنبلة مطفأة' : '💣 القنبلة مفعّلة';
+  const saveDefaults = async () => {
+    if (!plan) return;
+    try { await account.save(plan); toast('💾 صارت قيمك الافتراضيّة في كلّ الغرف'); }
+    catch (e: any) { toast(errMsg(e, 'تعذّر حفظ القيم'), { tone: 'red' }); }
+  };
+
+  // 🚪 من غادر (انقطع أو جُمّد) — شريطٌ يظهر وحده، وضغطةٌ واحدة تُخرجهم
+  const departed = offline.filter((n) => !excludedLive.includes(n));
 
   const meta = `${gameState?.roomCode || ''} · ${present.length} جالس${heldList.length ? ` · ${heldList.length} محجوز` : ''}${waiting.length ? ` · ${waiting.length} ينتظر` : ''}`;
   const zoneOk = pz?.report.contiguous !== false;
 
+  if (stage === 'setup') {
+    return (
+      <>
+        <Status meta={meta} />
+        <StepRail step={2} onStep={() => setStage('seats')} />
+        <ActionBar
+          primary={{
+            label: busy ? '…' : 'التالي: راجع الكروت',
+            onPress: start,
+            disabled: busy || !plan || startCount < MIN_PLAYERS,
+            sub: startCount < MIN_PLAYERS ? `يلزم ${MIN_PLAYERS} لاعبين على الأقلّ` : excludedLive.length ? `يغادر ${excludedLive.length} مستبعَد عند البدء` : `${startCount} لاعباً`,
+          }}
+          secondary={{ label: 'رجوع', onPress: () => setStage('seats') }}
+        />
+        {plan
+          ? <SetupForm plan={plan} onChange={setPlan} n={startCount} saved={account.saved} accountDefaults={account.defaults} onSaveDefaults={() => void saveDefaults()} />
+          : <Hint>تُحمَّل قيمك…</Hint>}
+      </>
+    );
+  }
+
   return (
     <>
       <Status meta={meta} />
+      <StepRail step={1} />
       <ActionBar
         primary={{
-          label: `ابدأ توزيع الأدوار (${startCount})`,
-          onPress: start,
-          disabled: busy || startCount < MIN_PLAYERS,
-          sub: startCount < MIN_PLAYERS ? `يلزم ${MIN_PLAYERS} لاعبين على الأقلّ` : excludedLive.length ? `يغادر ${excludedLive.length} مستبعَد عند البدء` : undefined,
+          label: 'التالي: إعداد اللعبة',
+          onPress: () => {
+            if (startCount < MIN_PLAYERS) { toast(`يلزم ${MIN_PLAYERS} لاعبين على الأقلّ — لديك ${startCount}`, { tone: 'red' }); return; }
+            setStage('setup');
+          },
+          disabled: startCount < MIN_PLAYERS,
+          sub: startCount < MIN_PLAYERS ? `يلزم ${MIN_PLAYERS} لاعبين على الأقلّ` : `${startCount} لاعباً${departed.length ? ' · أخرِج من غادر أوّلاً' : ''}`,
         }}
         secondary={!isRemote ? { label: '+ لاعب', onPress: () => { setAddSeat(null); setAddOpen(true); } } : undefined}
       />
 
-      {/* ── الإعدادات بلمحة ── */}
-      {!isRemote && (
-        <Chips>
-          <TapChip onClick={host.open.settings}>{timerChip}</TapChip>
-          <TapChip onClick={host.open.settings}>{penChip}</TapChip>
-          <TapChip onClick={host.open.settings}>{bombChip}</TapChip>
-          {cfg.mafiaChatEnabled === true && <TapChip onClick={host.open.settings}>💬 دردشة المافيا</TapChip>}
-          {cfg.confrontationEnabled === true && <TapChip onClick={host.open.settings}>⚔️ المواجهة</TapChip>}
-          <TapChip tone="g" onClick={host.open.settings}>⚙️ الإعدادات</TapChip>
-        </Chips>
+      {/* ── 🚪 من غادر الغرفة — يظهر وحده ── */}
+      {!picking && sm.movingId == null && departed.length > 0 && (
+        <Section tone="red" title={`🚪 غادروا الغرفة (${departed.length})`}>
+          <Chips>
+            {departed.slice().sort((a, b) => a - b).map((n) => {
+              const p = players.find((x) => Number(x.physicalId) === n);
+              return <Chip key={n} tone="m"><b className="tabular-nums">{n}</b> {p?.name || ''}</Chip>;
+            })}
+          </Chips>
+          <HoldButton disabled={kicking} className="w-full min-h-[52px]" onHold={() => void kickSeats(departed)}>
+            {kicking ? 'جارٍ الإخراج…' : departed.length === 1 ? 'اضغط مطوّلاً: أخرِج المغادر' : `اضغط مطوّلاً: أخرِجهم (${departed.length})`}
+          </HoldButton>
+          <Hint>من انقطع اتّصاله أو جُمّد. من يعود قبل الضغط يختفي من القائمة.</Hint>
+        </Section>
       )}
 
       {/* ── الغرفة: الرمز والرقم السرّيّ والمكان ── */}
@@ -220,7 +266,7 @@ export default function LobbyScreen() {
       )}
 
       {/* ── المقاعد ── */}
-      <Section title="المقاعد" aside={sm.movingId != null ? undefined : picking ? 'المس من يخرج' : (players.length > 0
+      <Section title="تأكّد أنّ كلّ وجهٍ على رقمه" aside={sm.movingId != null ? undefined : picking ? 'المس من يخرج' : (players.length > 0
         ? <button type="button" onClick={() => setPicking(true)} className="min-h-[44px] px-2 text-[13px] font-bold text-[#C5A059]">☑️ تحديد للطرد</button>
         : 'المس مقعداً لأفعاله')}>
         <div data-seat-move="1" className="flex flex-col gap-2.5">
@@ -251,7 +297,7 @@ export default function LobbyScreen() {
           {cells.length === 0 ? (
             <Hint>لا مقاعد بعد — زِد العدد أدناه.</Hint>
           ) : (
-            <SeatGrid cells={cells} onSeat={onSeat} mark={mark} />
+            <SeatGrid cells={cells} onSeat={onSeat} mark={mark} faces />
           )}
         </div>
         {players.length === 0 && <Hint>لا لاعبين بعد. شارك رمز الغرفة <b dir="ltr">{gameState?.roomCode}</b> أو أضِف لاعباً.</Hint>}
@@ -414,6 +460,8 @@ function PlayerSheet({ sheet, onClose, setMode, excluded, onToggleExclude, photo
             {p.phone && <Chip><span dir="ltr">{p.phone}</span></Chip>}
             {isEx && <Chip tone="m">🚫 مستبعَد من هذه اللعبة</Chip>}
           </Chips>
+          <HoldButton disabled={busy} className="w-full min-h-[56px]" onHold={() => void kick()}>اضغط مطوّلاً: أخرجه ليعود برقمه الصحيح</HoldButton>
+          <Hint>يخرج من الغرفة ويعيد الدخول من هاتفه برقمه.</Hint>
           {moveEnabled && <Btn tone="gold" className="w-full min-h-[50px]" onClick={() => onMove(seat)}>⇄ نقل أو تبديل</Btn>}
           <div className="flex gap-2">
             <Btn className="flex-1" onClick={() => setMode('rename')}>✏️ الاسم</Btn>
@@ -425,7 +473,6 @@ function PlayerSheet({ sheet, onClose, setMode, excluded, onToggleExclude, photo
               {isEx ? '↩ أعِده لهذه اللعبة' : '🚫 استبعده من هذه اللعبة'}
             </Btn>
           </div>
-          <HoldButton disabled={busy} className="w-full min-h-[52px]" onHold={() => void kick()}>اضغط مطوّلاً: اطرده من الغرفة</HoldButton>
         </>
       )}
     </BottomSheet>

@@ -158,3 +158,29 @@
   .pr-hold.is-holding .pr-hold-ring .pg { transition: none; }
   .pr-vc.sending { animation: none; }
 }
+
+/* 🔴 الفريق السرّيّ — زرٌّ واحد يُضغط باستمرار، والشبكة تتّسع بلا تمرير */
+.pr-team { position: fixed; inset: 0; z-index: 330; display: flex; flex-direction: column; gap: 8px; background: #050505;
+  padding: calc(env(safe-area-inset-top, 0px) + 10px) 12px calc(env(safe-area-inset-bottom, 0px) + 12px);
+  user-select: none; -webkit-user-select: none; -webkit-touch-callout: none; }
+.pr-team-hd { flex: none; display: flex; align-items: center; gap: 10px; }
+.pr-team-hd h4 { flex: 1; margin: 0; font-family: Amiri, serif; font-size: 21px; color: #C5A059; text-align: center; }
+.pr-team-hd button { width: 44px; height: 44px; border: 1px solid #2a2a2a; background: #0c0c0c; color: #cdc3af; font-size: 18px; }
+.pr-team-note { flex: none; margin: 0; text-align: center; color: #cdc3af; font-size: 14px; }
+.pr-team-grid { position: relative; flex: 1; min-height: 0; display: grid; gap: 6px; overflow: hidden; }
+.pr-tc { container-type: size; min-width: 0; min-height: 0; overflow: hidden; display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: 3px; padding: 5px; text-align: center; background: #0c0c0c; border: 1px solid #2a2a2a; box-shadow: inset 0 0 0 3px #050505, inset 0 0 0 4px #2a2a2a; }
+.pr-tc > * { flex-shrink: 0; max-width: 100%; }
+.pr-tc img, .pr-tc .ph { width: min(36cqh, 52cqw); aspect-ratio: 1; border-radius: 50%; object-fit: cover; border: 2px solid #8A0303; }
+.pr-tc .ph { display: grid; place-items: center; color: #C5A059; font-weight: 900; font-size: min(10cqh, 12cqw); background: #14100a; }
+.pr-tc .st { font-family: 'JetBrains Mono', monospace; font-weight: 800; color: #fff; line-height: 1; font-size: min(18cqh, 24cqw); }
+.pr-tc .nm { font-weight: 700; color: #efe8da; line-height: 1.15; font-size: min(11cqh, 13cqw); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pr-tc .rl { color: #f2a6a9; line-height: 1.15; font-size: min(9.5cqh, 11.5cqw); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pr-tc.me img, .pr-tc.me .ph { border-color: #C5A059; }
+.pr-tc.me .nm { color: #C5A059; }
+.pr-tc.idle { color: #2a2a2a; font-size: min(9cqh, 11cqw); }
+.pr-tc.shut .nm { color: #8a8a8a; }
+.pr-team-btn { flex: none; min-height: 88px; border: 1px solid #8A0303; background: linear-gradient(#8A0303, #5c0202); color: #fff;
+  font-weight: 800; font-size: 17px; line-height: 1.35; touch-action: none; -webkit-touch-callout: none; }
+.pr-team-btn small { display: block; font-weight: 500; font-size: 12.5px; opacity: .85; }
+.pr-team-btn.on { background: #2a0101; border-color: #5c0202; }

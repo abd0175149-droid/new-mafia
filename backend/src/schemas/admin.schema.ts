@@ -110,6 +110,8 @@ export const staff = pgTable('staff', {
   isPartner: boolean('is_partner').default(false),
   isActive: boolean('is_active').default(true),
   locationId: integer('location_id').references(() => locations.id, { onDelete: 'set null' }),
+  // 🎛️ قيمُ تجهيز اللعبة الافتراضيّة لهذا الليدر — كلُّ غرفةٍ يفتحها تبدأ بها
+  gameDefaults: jsonb('game_defaults'),
   createdAt: timestamp('created_at').defaultNow().notNull(),
   deletedAt: timestamp('deleted_at'),
 });

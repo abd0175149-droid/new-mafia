@@ -16,6 +16,7 @@
 
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import './room.css';
+import SecretWatermark from '../SecretWatermark';
 import HoldReveal from './HoldReveal';
 import PeekCard from './PeekCard';
 import { setRoomBus, clearRoomBus, setHubOpener } from './roomBus';
@@ -247,6 +248,79 @@ function VoteGrid({ host }: { host: RoomHost }) {
 }
 
 // ══ اللوحات ══
+// ══════════ 🔴 الفريق السرّيّ — زرٌّ واحد يُضغط باستمرار (قرار المالك 2026-11-09) ══════════
+// الإبهام على زرٍّ أسفل الشاشة، والفريق كلّه فوقه في شبكةٍ تتّسع بلا تمرير. الخانات بعدد المافيا الأحياء
+// المعلَن — العددُ نفسه على كلّ هاتف؛ ومن ليس مافيا يرى «ملفٌّ مغلق». الهويّات تُرسم ما دام الإصبع على
+// الزرّ فقط، وتُمحى عند الرفع أو الانزلاق خارجه أو مغادرة التطبيق. كلُّ ضغطةٍ تُنبّه الليدر كما كان الفتح.
+const teamCols = (n: number) => (n <= 3 ? 1 : n <= 6 ? 2 : 3);
+function TeamHold({ n, members, guide, watermark, onPress, onClose, dead }: {
+  n: number;
+  members: { physicalId: number; name: string; role: string; avatarUrl?: string | null; me?: boolean }[];
+  guide: any[]; watermark: string; onPress: () => void; onClose: () => void; dead: boolean;
+}) {
+  const [held, setHeld] = useState(false);
+  const lastPing = useRef(0);
+  useEffect(() => {
+    const off = () => setHeld(false);
+    const vis = () => { if (document.visibilityState !== 'visible') off(); };
+    addEventListener('pointerup', off); addEventListener('pointercancel', off); addEventListener('blur', off);
+    document.addEventListener('visibilitychange', vis);
+    const k = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
+    addEventListener('keydown', k);
+    return () => {
+      removeEventListener('pointerup', off); removeEventListener('pointercancel', off); removeEventListener('blur', off);
+      document.removeEventListener('visibilitychange', vis); removeEventListener('keydown', k);
+    };
+  }, [onClose]);
+  const press = (e: React.PointerEvent) => {
+    e.preventDefault();
+    // اللمس يأسر المؤشّر على الزرّ ضمناً — نحرّره كي يُخفى الفريق إن انزلق الإصبع خارجه
+    try { (e.currentTarget as Element).releasePointerCapture?.(e.pointerId); } catch { /* */ }
+    setHeld(true);
+    // تنبيهُ الليدر مع كلّ كشف — بلا إغراقٍ إن تكرّر الضغط في الثانيتين نفسها
+    if (Date.now() - lastPing.current > 2000) { lastPing.current = Date.now(); onPress(); }
+  };
+  const c = teamCols(n), rows = Math.ceil(n / c);
+  return (
+    <div className="pr-team" role="dialog" aria-modal="true" aria-label="الفريق السرّيّ" dir="rtl" onContextMenu={(e) => e.preventDefault()}>
+      <div className="pr-team-hd">
+        <h4>🔴 الفريق السرّيّ</h4>
+        <button type="button" onClick={onClose} aria-label="إغلاق">✕</button>
+      </div>
+      {dead ? (
+        <p className="pr-team-note">لا يُفتح الفريق بعد الإقصاء.</p>
+      ) : (
+        <>
+          <p className="pr-team-note">في اللعبة {n} من المافيا الأحياء</p>
+          <div className="pr-team-grid" style={{ gridTemplateColumns: `repeat(${c}, minmax(0,1fr))`, gridTemplateRows: `repeat(${rows}, minmax(0,1fr))` }}>
+            {Array.from({ length: n }, (_, i) => {
+              if (!held) return <div key={i} className="pr-tc idle" aria-hidden>●</div>;
+              const m = members[i];
+              if (!m) return <div key={i} className="pr-tc shut"><span className="nm">ملفٌّ مغلق</span></div>;
+              const rn = guide.find((x: any) => x.id === m.role)?.nameAr;
+              return (
+                <div key={i} className={`pr-tc${m.me ? ' me' : ''}`}>
+                  {m.avatarUrl ? <img src={m.avatarUrl} alt="" /> : <span className="ph">#{m.physicalId}</span>}
+                  <span className="st">{m.physicalId}</span>
+                  <span className="nm">{m.me ? 'أنت' : m.name}</span>
+                  {rn && <span className="rl">{rn}</span>}
+                </div>
+              );
+            })}
+            {held && <SecretWatermark label={watermark} opacity={0.08} />}
+          </div>
+          <button type="button" className={`pr-team-btn${held ? ' on' : ''}`}
+            onPointerDown={press} onPointerLeave={() => setHeld(false)}
+            onKeyDown={(e) => { if ((e.key === ' ' || e.key === 'Enter') && !held) { e.preventDefault(); setHeld(true); onPress(); } }}
+            onKeyUp={() => setHeld(false)}>
+            اضغط مع الاستمرار لكشف الفريق<small>ارفع إصبعك فيُخفى · يراه الجميع بالشكل نفسه</small>
+          </button>
+        </>
+      )}
+    </div>
+  );
+}
+
 function Sheet({ title, onClose, children }: { title: string; onClose: () => void; children: ReactNode }) {
   useEffect(() => { const k = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); }; addEventListener('keydown', k); return () => removeEventListener('keydown', k); }, [onClose]);
   return (
@@ -331,7 +405,7 @@ export default function PlayerRoom({ host }: { host: RoomHost & { openTasksFromN
     setSheet('tasks'); setTasksBlocked(null);
     try { const r = await host.requestTasksOpen(); if (!r.ok) setTasksBlocked(r.error || 'تعذّر الفتح'); } catch { /* الشبكة لا تقفل */ }
   };
-  const openGallery = () => { host.onGalleryOpen(); setSheet('gal'); };
+  const openGallery = () => { setSheet('gal'); };
   const hostX = { ...host, openTasksFromNight: openTasks };
 
   const timerSecs = timing ? ('at' in timing && timing.at ? Math.max(0, (timing.at - Date.now()) / 1000) : (timing as any).secs) : null;
@@ -426,43 +500,15 @@ export default function PlayerRoom({ host }: { host: RoomHost & { openTasksFromN
         </Sheet>
       )}
 
-      {sheet === 'gal' && (() => {
-        const n = Math.max(1, tc?.mafiaAlive ?? 0);
-        const members = isMafiaRole(host.role)
-          ? [{ physicalId: host.seat, name: host.displayName, role: host.role as string, avatarUrl: host.avatarUrl }, ...host.mafiaTeam.filter(m => m.physicalId !== host.seat)]
-          : [];
-        return (
-          <Sheet title="🔴 الفريق السرّيّ" onClose={() => setSheet(null)}>
-            {host.isDead ? (
-              <p className="text-center text-[#cdc3af] text-[14px] py-6">لا يُفتح الفريق بعد الإقصاء.</p>
-            ) : (
-              <>
-                <p className="text-center text-[#d8d0c2] text-[14px]" style={{ fontFamily: 'Amiri, serif' }}>في اللعبة {n} من المافيا الأحياء. اضغط مطوّلاً على أيّ بطاقة — تُفتح في أعلى الشاشة.</p>
-                <div className="pr-gal">
-                  {Array.from({ length: n }, (_, i) => (
-                    <HoldReveal key={i} title={`بطاقة ${i + 1}`} hint="" panelTitle="🔴 الفريق السرّيّ" watermark={host.watermark} compact>
-                      {() => {
-                        const m = members[i];
-                        if (!m) return <div className="pr-mem"><span className="pr-pk">ملفٌّ مغلق</span><p>تُكشف الهويّة حين يُقصى صاحبها</p></div>;
-                        const rn = guide.find((x: any) => x.id === m.role)?.nameAr;
-                        return (
-                          <div className="pr-mem">
-                            <span className="pr-av pr-av-lg">{m.avatarUrl ? <img src={m.avatarUrl} alt="" /> : <span className="grid place-items-center w-full h-full text-[#C5A059] font-black text-[28px]">#{m.physicalId}</span>}</span>
-                            <b className="seat">مقعد {m.physicalId}</b>
-                            <b className="nm">{m.physicalId === host.seat ? 'أنت' : m.name}</b>
-                            {rn && <span className="rl">{rn}</span>}
-                          </div>
-                        );
-                      }}
-                    </HoldReveal>
-                  ))}
-                </div>
-                <p className="pr-pk text-center">يراه الجميع بالشكل نفسه · فتحه يُنبّه الليدر</p>
-              </>
-            )}
-          </Sheet>
-        );
-      })()}
+      {sheet === 'gal' && (
+        <TeamHold
+          n={Math.max(1, tc?.mafiaAlive ?? 0)}
+          members={isMafiaRole(host.role)
+            ? [{ physicalId: host.seat, name: host.displayName, role: host.role as string, avatarUrl: host.avatarUrl, me: true }, ...host.mafiaTeam.filter(m => m.physicalId !== host.seat)]
+            : []}
+          guide={guide} watermark={host.watermark} dead={host.isDead}
+          onPress={host.onGalleryOpen} onClose={() => setSheet(null)} />
+      )}
 
       {sheet === 'leave' && <LeaveSheet seat={host.seat} onClose={() => setSheet(null)} onLeave={host.leave} />}
     </div>

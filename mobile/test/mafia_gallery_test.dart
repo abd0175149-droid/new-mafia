@@ -184,54 +184,259 @@ void main() {
     });
   });
 
-  group('الواجهات الأربع', () {
-    testWidgets('مواطنٌ بلا فريق يرى الملفّ التمويهيّ لا فراغاً', (t) async {
-      // 🔒 الفراغ نفسه تسريب: من يفتح ولا يرى شيئاً يَعلم أنّه ليس مافيا.
-      await t.pumpWidget(_wrap(const MafiaTeamGallery()));
-      expect(find.text('ملف استخباراتي'), findsOneWidget);
-      expect(find.text('لا تكشف دورك حتى لو ضُغط عليك'), findsOneWidget);
-      expect(find.text('شركاؤك'), findsNothing);
+
+  // ══════════════════════════════════════════════════════
+  // 🖐️ «اضغط مع الاستمرار» — زرٌّ واحد يكشف الفريق كلّه
+  // ══════════════════════════════════════════════════════
+  group('🖐️ الكشف بالضغط المستمرّ', () {
+    final hold = find.byKey(const ValueKey('gallery-hold-button'));
+    Finder slots() => find.byWidgetPredicate((w) =>
+        w.key is ValueKey<String> &&
+        (w.key as ValueKey<String>).value.startsWith('gallery-slot-'));
+
+    const me = MafiaMate(physicalId: 2, name: 'عمر', role: 'GODFATHER');
+    const mates = [
+      MafiaMate(physicalId: 9, name: 'سامي', role: 'CHAMELEON'),
+      MafiaMate(physicalId: 4, name: 'زيد', role: 'WITCH'),
+    ];
+
+    Future<TestGesture> press(WidgetTester t) async {
+      final g = await t.startGesture(t.getCenter(hold));
+      await t.pump();
+      return g;
+    }
+
+    testWidgets('بلا ضغطٍ: N خانةً فارغة ولا هويّة في الشجرة', (t) async {
+      await t.pumpWidget(_wrap(const MafiaTeamGallery(
+          team: mates, self: me, mafiaAlive: 3)));
+      expect(slots(), findsNWidgets(3));
+      expect(hold, findsOneWidget);
+      for (final s in ['عمر', 'سامي', 'زيد', 'أنت', 'الساحرة', '4', '9',
+          'ملفٌّ مغلق']) {
+        expect(find.text(s), findsNothing, reason: s);
+      }
     });
 
-    testWidgets('المافيا يرى شبكة الشركاء بأسمائهم وأدوارهم', (t) async {
-      await t.pumpWidget(_wrap(const MafiaTeamGallery(team: [
-        MafiaMate(physicalId: 4, name: 'زيد', role: 'WITCH'),
-        MafiaMate(physicalId: 9, name: 'سامي', role: 'CHAMELEON'),
-      ])));
-      expect(find.text('شركاؤك'), findsOneWidget);
-      expect(find.text('2 في الفريق'), findsOneWidget);
+    testWidgets('أثناء الضغط يُكشف الفريق كلّه، وبالرفع يُخفى', (t) async {
+      await t.pumpWidget(_wrap(const MafiaTeamGallery(
+          team: mates, self: me, mafiaAlive: 3)));
+      final g = await press(t);
+      expect(find.text('أنت'), findsOneWidget);
       expect(find.text('زيد'), findsOneWidget);
+      expect(find.text('سامي'), findsOneWidget);
       expect(find.text('الساحرة'), findsOneWidget);
       expect(find.text('حرباية المافيا'), findsOneWidget);
-      expect(find.text('ملف استخباراتي'), findsNothing);
+      expect(find.text('شيخ المافيا'), findsOneWidget);
+      expect(find.text('ملفٌّ مغلق'), findsNothing);
+      // ترتيب المقاعد: 2 ثمّ 4 ثمّ 9 (عمودٌ واحد ⇒ من الأعلى للأسفل)
+      final y2 = t.getTopLeft(find.text('أنت')).dy;
+      final y4 = t.getTopLeft(find.text('زيد')).dy;
+      final y9 = t.getTopLeft(find.text('سامي')).dy;
+      expect(y2 < y4 && y4 < y9, isTrue);
+
+      await g.up();
+      await t.pump();
+      expect(find.text('زيد'), findsNothing);
+      expect(find.text('أنت'), findsNothing);
+      expect(slots(), findsNWidgets(3));
     });
 
-    testWidgets('لوحة رابط الدم تعلو الواجهة المختارة', (t) async {
+    testWidgets('🔒 المواطن يرى الشاشة نفسها: N خانةً و«ملفٌّ مغلق» تحت الضغط',
+        (t) async {
+      await t.pumpWidget(_wrap(const MafiaTeamGallery(mafiaAlive: 3)));
+      expect(slots(), findsNWidgets(3));
+      expect(hold, findsOneWidget);
+      final g = await press(t);
+      expect(find.text('ملفٌّ مغلق'), findsNWidgets(3));
+      expect(find.text('أنت'), findsNothing);
+      await g.up();
+      await t.pump();
+      expect(find.text('ملفٌّ مغلق'), findsNothing);
+    });
+
+    testWidgets('🔒 مافيا بلا قائمة (الكشف مطفأ) = مواطن: لا «أنت»', (t) async {
+      await t.pumpWidget(_wrap(const MafiaTeamGallery(self: me, mafiaAlive: 2)));
+      final g = await press(t);
+      expect(find.text('ملفٌّ مغلق'), findsNWidgets(2));
+      expect(find.text('أنت'), findsNothing);
+      expect(find.text('عمر'), findsNothing);
+      await g.up();
+    });
+
+    testWidgets('من لم يُرسله الخادم خانتُه «ملفٌّ مغلق»؛ والفائض لا يُرسم',
+        (t) async {
+      await t.pumpWidget(_wrap(const MafiaTeamGallery(
+          team: [MafiaMate(physicalId: 4, name: 'زيد', role: 'WITCH')],
+          self: me,
+          mafiaAlive: 4)));
+      var g = await press(t);
+      expect(find.text('ملفٌّ مغلق'), findsNWidgets(2));
+      expect(find.text('زيد'), findsOneWidget);
+      await g.up();
+
+      await t.pumpWidget(_wrap(const MafiaTeamGallery(
+          key: ValueKey('b'), team: mates, self: me, mafiaAlive: 2)));
+      expect(slots(), findsNWidgets(2));
+      g = await press(t);
+      expect(find.text('أنت'), findsOneWidget);
+      expect(find.text('زيد'), findsOneWidget);
+      expect(find.text('سامي'), findsNothing);
+      await g.up();
+    });
+
+    testWidgets('عدّادٌ لم يصل ⇒ عددٌ ثابت لا طولُ القائمة', (t) async {
+      await t.pumpWidget(_wrap(const MafiaTeamGallery(team: mates, self: me)));
+      expect(slots(), findsNWidgets(kGalleryFallbackSlots));
+      await t.pumpWidget(
+          _wrap(const MafiaTeamGallery(key: ValueKey('c'))));
+      expect(slots(), findsNWidgets(kGalleryFallbackSlots));
+    });
+
+    test('الأعمدة: ١–٣ ⇒ ١، ٤–٦ ⇒ ٢، ٧–٩ ⇒ ٣، وما فوق ⇒ ٤', () {
+      expect([1, 2, 3].map(galleryColumnsFor), everyElement(1));
+      expect([4, 5, 6].map(galleryColumnsFor), everyElement(2));
+      expect([7, 8, 9].map(galleryColumnsFor), everyElement(3));
+      expect([10, 16].map(galleryColumnsFor), everyElement(4));
+    });
+
+    testWidgets('🔔 الإنذار مع كلّ ضغطة؛ و`false` يمنع الكشف', (t) async {
+      var calls = 0;
+      var allow = true;
+      await t.pumpWidget(_wrap(MafiaTeamGallery(
+        team: mates,
+        self: me,
+        mafiaAlive: 3,
+        onRevealStart: () {
+          calls++;
+          return allow;
+        },
+      )));
+      expect(calls, 0); // الفتح وحده لا يُنذر
+      var g = await press(t);
+      await g.up();
+      g = await press(t);
+      await g.up();
+      expect(calls, 2);
+      allow = false;
+      g = await press(t);
+      expect(calls, 3);
+      expect(find.text('زيد'), findsNothing);
+      await g.up();
+    });
+
+    testWidgets('انزلاق الإصبع خارج الزرّ يُخفي', (t) async {
+      await t.pumpWidget(_wrap(const MafiaTeamGallery(
+          team: mates, self: me, mafiaAlive: 3)));
+      final g = await press(t);
+      expect(find.text('زيد'), findsOneWidget);
+      await g.moveBy(const Offset(0, -200));
+      await t.pump();
+      expect(find.text('زيد'), findsNothing);
+      await g.up();
+    });
+
+    testWidgets('إلغاء اللمسة يُخفي', (t) async {
+      await t.pumpWidget(_wrap(const MafiaTeamGallery(
+          team: mates, self: me, mafiaAlive: 3)));
+      final g = await press(t);
+      expect(find.text('زيد'), findsOneWidget);
+      await g.cancel();
+      await t.pump();
+      expect(find.text('زيد'), findsNothing);
+    });
+
+    testWidgets('مغادرة التطبيق (inactive) تُخفي', (t) async {
+      await t.pumpWidget(_wrap(const MafiaTeamGallery(
+          team: mates, self: me, mafiaAlive: 3)));
+      final g = await press(t);
+      expect(find.text('زيد'), findsOneWidget);
+      t.binding.handleAppLifecycleStateChanged(AppLifecycleState.inactive);
+      await t.pump();
+      expect(find.text('زيد'), findsNothing);
+      t.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+      await g.up();
+    });
+
+    testWidgets('🔒 ٩ خانات على ٣٦٠×٦٤٠ بلا فيضٍ ولا تمرير', (t) async {
+      t.view.physicalSize = const Size(360, 640);
+      t.view.devicePixelRatio = 1;
+      addTearDown(t.view.reset);
+      const longName = 'عبد الرحمن بن عبد العزيز الطويل جداً';
+      await t.pumpWidget(_wrap(MafiaTeamGallery(
+        team: [
+          for (var i = 2; i <= 9; i++)
+            MafiaMate(
+                physicalId: i * 3, name: '$longName $i', role: 'MAFIA_REGULAR'),
+        ],
+        self: const MafiaMate(physicalId: 1, name: longName, role: 'OLDER_BROTHER'),
+        mafiaAlive: 9,
+        sibling: const SiblingInfo(
+            physicalId: 26, name: longName, role: 'YOUNGER_BROTHER'),
+        watermark: 'عمر · مقعد 1 · ABC · 21:00',
+      )));
+      expect(slots(), findsNWidgets(9));
+      expect(find.byType(Scrollable), findsNothing);
+      final g = await press(t);
+      expect(t.takeException(), isNull);
+      expect(find.text('أنت'), findsOneWidget);
+      expect(find.text('مافيا عادي'), findsNWidgets(8));
+      expect(find.byType(Scrollable), findsNothing);
+      // كلّ الخانات داخل الشاشة، والزرّ تحتها
+      final btnTop = t.getTopLeft(hold).dy;
+      for (final e in slots().evaluate()) {
+        final r = t.getRect(find.byWidget(e.widget));
+        expect(r.bottom <= btnTop, isTrue);
+        expect(r.left >= 0 && r.right <= 360, isTrue);
+      }
+      await g.up();
+      await t.pump();
+      expect(t.takeException(), isNull);
+    });
+
+    testWidgets('🔒 ٩ خاناتٍ مغلقة على ٣٦٠×٦٤٠ بلا فيض', (t) async {
+      t.view.physicalSize = const Size(360, 640);
+      t.view.devicePixelRatio = 1;
+      addTearDown(t.view.reset);
+      await t.pumpWidget(_wrap(const MafiaTeamGallery(mafiaAlive: 9)));
+      final g = await press(t);
+      expect(t.takeException(), isNull);
+      expect(find.text('ملفٌّ مغلق'), findsNWidgets(9));
+      await g.up();
+    });
+
+    testWidgets('لوحة رابط الدم: تحت الضغط وحده، فوق الشبكة', (t) async {
       await t.pumpWidget(_wrap(const MafiaTeamGallery(
         team: [MafiaMate(physicalId: 4, name: 'زيد', role: 'WITCH')],
-        sibling: SiblingInfo(
-            physicalId: 6, name: 'ليث', role: 'YOUNGER_BROTHER'),
+        self: me,
+        mafiaAlive: 2,
+        sibling: SiblingInfo(physicalId: 6, name: 'ليث', role: 'YOUNGER_BROTHER'),
       )));
+      expect(find.text('رابط الدم'), findsNothing);
+      final g = await press(t);
       expect(find.text('رابط الدم'), findsOneWidget);
-      expect(find.text('شركاؤك'), findsOneWidget);
-      final blood = t.getTopLeft(find.text('رابط الدم')).dy;
-      final team = t.getTopLeft(find.text('شركاؤك')).dy;
-      expect(blood, lessThan(team));
+      expect(find.text('ليث'), findsOneWidget);
+      expect(t.getTopLeft(find.text('رابط الدم')).dy,
+          lessThan(t.getTopLeft(find.text('زيد')).dy));
+      await g.up();
     });
 
     testWidgets('الأخ المتوفّى يُعلَّم — لا يُخفى', (t) async {
       await t.pumpWidget(_wrap(const MafiaTeamGallery(
+        mafiaAlive: 2,
         sibling: SiblingInfo(
             physicalId: 6,
             name: 'ليث',
             role: 'YOUNGER_BROTHER',
             isAlive: false),
       )));
+      final g = await press(t);
       expect(find.text('الأخ الأصغر (متوفّى)'), findsOneWidget);
+      await g.up();
     });
 
-    testWidgets('السفّاح يرى عقوده وتقدّمها', (t) async {
+    testWidgets('السفّاح: الخانات نفسها، وعقوده تحت الضغط', (t) async {
       await t.pumpWidget(_wrap(const MafiaTeamGallery(
+        mafiaAlive: 3,
         isAssassin: true,
         contracts: AssassinContracts(
           contracts: [
@@ -246,17 +451,25 @@ void main() {
           totalRequired: 2,
         ),
       )));
+      expect(slots(), findsNWidgets(3));
+      expect(find.text('عقود الاغتيال'), findsNothing);
+      final g = await press(t);
       await t.pump(const Duration(milliseconds: 900));
       expect(find.text('عقود الاغتيال'), findsOneWidget);
       expect(find.text('1/2 عقود مُنجزة'), findsOneWidget);
       expect(find.text('أُنجز في الجولة 2'), findsOneWidget);
       expect(find.text('اقتل صاحب هذا الدور!'), findsOneWidget);
+      await g.up();
+      await t.pump();
+      expect(find.text('عقود الاغتيال'), findsNothing);
     });
 
-    testWidgets('سفّاحٌ بلا عقودٍ بعد يقع على التمويه لا على شاشةٍ فارغة',
-        (t) async {
-      await t.pumpWidget(_wrap(const MafiaTeamGallery(isAssassin: true)));
-      expect(find.text('ملف استخباراتي'), findsOneWidget);
+    testWidgets('سفّاحٌ بلا عقودٍ بعد يرى ما يراه المواطن', (t) async {
+      await t.pumpWidget(_wrap(
+          const MafiaTeamGallery(isAssassin: true, mafiaAlive: 3)));
+      final g = await press(t);
+      expect(find.text('ملفٌّ مغلق'), findsNWidgets(3));
+      await g.up();
     });
   });
 }

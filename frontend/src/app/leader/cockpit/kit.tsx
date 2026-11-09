@@ -11,6 +11,7 @@
 import { createContext, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import { Role, ROLE_NAMES, ROLE_ICONS, MAFIA_ROLES, NEUTRAL_ROLES } from '@/lib/constants';
+import { avatarThumb } from '@/lib/avatar';
 
 // ── الألوان (مطابقة للنموذج) ──
 export const C = {
@@ -305,11 +306,13 @@ export function seatCells(gameState: any): SeatCellData[] {
   return cells;
 }
 
-export function SeatGrid({ cells, onSeat, mark, showRoles }: {
+export function SeatGrid({ cells, onSeat, mark, showRoles, faces }: {
   cells: SeatCellData[];
   onSeat?: (c: SeatCellData) => void;
   mark?: (c: SeatCellData) => SeatMark | null | undefined;
   showRoles?: boolean;
+  /** 🙂 صورةُ اللاعب على مقعده — لمطابقة الوجه بالرقم من نظرة (اللوبي) */
+  faces?: boolean;
 }) {
   const { peek, wide } = useCockpit();
   return (
@@ -338,7 +341,13 @@ export function SeatGrid({ cells, onSeat, mark, showRoles }: {
         return (
           <button key={c.seat} type="button" aria-label={label} disabled={m.disabled || !onSeat} onClick={() => onSeat?.(c)}
             className={`${base} ${st} ${dim ? 'opacity-30' : ''} ${m.ghost ? 'opacity-45' : ''} disabled:cursor-default`}>
-            <b className="text-[21px] font-extrabold leading-none tabular-nums">{c.seat}</b>
+            {faces && p && (() => {
+              const src = avatarThumb(p.avatarUrl);
+              return src
+                ? <img src={src} alt="" loading="lazy" className={`mb-0.5 w-9 h-9 rounded-full object-cover border border-[#2a241c] ${p.isConnected === false || p.frozen ? 'grayscale opacity-60' : ''}`} />
+                : <span aria-hidden className="mb-0.5 grid w-9 h-9 place-items-center rounded-full border border-[#2a241c] bg-[#1a1612] text-[13px] text-[#9a8f7e]">{String(p.name || '?').trim().charAt(0)}</span>;
+            })()}
+            <b className={`${faces && p ? 'text-[17px]' : 'text-[21px]'} font-extrabold leading-none tabular-nums`}>{c.seat}</b>
             <span className={`max-w-full truncate px-0.5 ${nameCls} ${toneCls}`}>{name}</span>
             {(m.topRight ?? (p?.noPhoto ? '📵' : null)) && <span className="absolute top-1 right-[5px] text-[11px] leading-none">{m.topRight ?? '📵'}</span>}
             {tl && <span className="absolute top-1 left-[5px] text-[11px] leading-none">{tl}</span>}

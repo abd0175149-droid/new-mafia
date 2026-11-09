@@ -572,17 +572,39 @@ class _GameScreenState extends State<GameScreen> {
       );
 
   void _openGallery() {
-    // ① الإعلان أوّلاً ② المُقصى لا يرى — التفاصيل في المتحكّم
-    if (!_c.announceGalleryOpen()) return;
+    // المُقصى لا يُفتح له المعرض — ومحاولتُه تُبلَّغ الليدر (التفاصيل في المتحكّم)
+    if (_c.isPlayerDead) {
+      _c.announceGalleryOpen();
+      return;
+    }
     // 🕵️ شاشةٌ سريّة: تفعيل الحماية الأصليّة + علامةٌ مائيّة، والإطفاء عند الإغلاق
     _c.enterSecretScreen();
+    final team = _c.galleryTeam;
+    final me = _c.physicalId;
     unawaited(showMafiaGallery(
       context,
-      team: _c.galleryTeam,
+      team: team,
+      // خانة «أنت» — مع فريقٍ فقط (المعرض يتحقّق كذلك)
+      self: team.isEmpty
+          ? null
+          : MafiaMate(
+              physicalId: me,
+              name: _c.displayName,
+              role: _c.assignedRole ?? '',
+              avatarUrl: _c.roster
+                  .where((p) => p.physicalId == me)
+                  .firstOrNull
+                  ?.avatarUrl,
+            ),
+      // 🔒 عدد الخانات = عدد المافيا الأحياء المعلَن — واحدٌ على كلّ هاتف
+      mafiaAlive: _c.teamMafia,
       sibling: _c.gallerySibling,
       isAssassin: _c.isAssassin,
       contracts: _c.assassinContracts,
       watermark: _c.secretWatermarkLabel,
+      // 🔔 إنذار الليدر مع بداية كلّ ضغطة كشف (لا مع الفتح)؛ ومن أُقصي
+      //    والمعرض مفتوح يُنذَر عنه ولا يُكشف له شيء
+      onRevealStart: _c.announceGalleryOpen,
     ).whenComplete(_c.leaveSecretScreen));
   }
 
