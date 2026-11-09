@@ -30,7 +30,11 @@ class Destination {
   /// للداخليّ: `path + query`. للخارجيّ: رابط مطلق. للـnone: فارغ.
   final String value;
 
-  static const _host = 'club-mafia.grade.sbs';
+  static const _host = 'club.masaros.net';
+
+  /// 🌐 مضيفات قديمة لا تزال روابطها في إشعاراتٍ ورسائل مرسَلة — تُعامَل
+  ///    كمضيفنا وتُحوَّل إلى `_host` (سقط grade.sbs في 2026-11-06).
+  static const _legacyHosts = {'club-mafia.grade.sbs'};
 
   /// المسارات التي يملكها التطبيق. ما عداها واجهات ويب.
   static const _ownedPrefixes = ['/player/', '/join/'];
@@ -51,7 +55,7 @@ class Destination {
       // 🔴 مضيفٌ غريب لا يُوجَّه داخلياً أبداً مهما شابه مسارُه مساراتنا.
       //    وجهة الإشعار يكتبها موظّف من لوحة الإدارة؛ بلا هذا الشرط يصير
       //    حقل نصٍّ في لوحة تحكّم بوّابةَ فتحٍ داخل التطبيق.
-      if (uri.host != _host) return Destination(DestinationKind.external, s);
+      if (uri.host != _host && !_legacyHosts.contains(uri.host)) return Destination(DestinationKind.external, s);
 
       final path = uri.path.isEmpty ? '/' : uri.path;
       return classify(uri.hasQuery ? '$path?${uri.query}' : path);

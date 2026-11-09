@@ -54,7 +54,7 @@ void main() {
       // كلتاهما على الإنتاج بقرار المالك (2026-08-02): staging متأخّرة
       // 365 كوميت ولا أحد يستعملها. الفحص يثبّت القرار كي لا يُقرأ
       // التطابق خطأً نسخٍ ولصق ويُصلَح إلى خادم ميّت.
-      expect(AppConfig.prod.baseUrl, 'https://club-mafia.grade.sbs');
+      expect(AppConfig.prod.baseUrl, 'https://club.masaros.net');
       expect(AppConfig.dev.baseUrl, AppConfig.prod.baseUrl);
     });
 
@@ -74,8 +74,8 @@ void main() {
 
     test('حلّ روابط الرفوعات: النسبيّ يُلحق والمطلق يمرّ كما هو', () {
       const c = AppConfig.prod;
-      expect(c.resolveUpload('/uploads/a.png'), 'https://club-mafia.grade.sbs/uploads/a.png');
-      expect(c.resolveUpload('uploads/a.png'), 'https://club-mafia.grade.sbs/uploads/a.png');
+      expect(c.resolveUpload('/uploads/a.png'), 'https://club.masaros.net/uploads/a.png');
+      expect(c.resolveUpload('uploads/a.png'), 'https://club.masaros.net/uploads/a.png');
       expect(c.resolveUpload('https://cdn.example/a.png'), 'https://cdn.example/a.png');
       expect(c.resolveUpload(null), '');
       expect(c.resolveUpload(''), '');

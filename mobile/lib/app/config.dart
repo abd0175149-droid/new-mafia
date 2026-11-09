@@ -42,13 +42,13 @@ class AppConfig {
   static const dev = AppConfig(
     flavor: Flavor.dev,
     appName: 'Mafia Club Dev',
-    baseUrl: 'https://club-mafia.grade.sbs',
+    baseUrl: 'https://club.masaros.net',
   );
 
   static const prod = AppConfig(
     flavor: Flavor.prod,
     appName: 'Mafia Club',
-    baseUrl: 'https://club-mafia.grade.sbs',
+    baseUrl: 'https://club.masaros.net',
   );
 
   /// 🔗 حلّ روابط الرفوعات — البوّابة الوحيدة.

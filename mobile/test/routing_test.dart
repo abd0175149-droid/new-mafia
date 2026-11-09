@@ -19,14 +19,17 @@ void main() {
       expect(kind('https://evil.com/player/home'), DestinationKind.external);
       expect(kind('https://evil.com/join/ABCD'), DestinationKind.external);
       // ومضيفٌ يبدأ باسمنا وليس هو
-      expect(kind('https://club-mafia.grade.sbs.evil.com/player/home'),
+      expect(kind('https://club.masaros.net.evil.com/player/home'),
           DestinationKind.external);
     });
 
     test('مضيفنا يُجرَّد إلى مسارٍ داخليّ', () {
-      expect(kind('https://club-mafia.grade.sbs/player/home'), DestinationKind.internal);
-      expect(value('https://club-mafia.grade.sbs/player/games?activityId=7'),
+      expect(kind('https://club.masaros.net/player/home'), DestinationKind.internal);
+      expect(value('https://club.masaros.net/player/games?activityId=7'),
           '/player/games?activityId=7');
+      // روابط النطاق القديم في إشعاراتٍ مرسَلة تبقى داخليّة
+      expect(kind('https://club-mafia.grade.sbs/player/home'), DestinationKind.internal);
+      expect(value('/venue/orders'), 'https://club.masaros.net/venue/orders');
     });
 
     test('مخطّط غير http يذهب للنظام لا للراوتر', () {
@@ -45,7 +48,7 @@ void main() {
     test('واجهاتنا الأخرى تُفتح في المتصفّح لا داخل التطبيق', () {
       // إشعار `new_order` يصل للموظّفين ووجهته لوحة المبيعات
       expect(kind('/venue/orders'), DestinationKind.ourWebOnly);
-      expect(value('/venue/orders'), 'https://club-mafia.grade.sbs/venue/orders');
+      expect(value('/venue/orders'), 'https://club.masaros.net/venue/orders');
       expect(kind('/admin/reports'), DestinationKind.ourWebOnly);
       expect(kind('/leader'), DestinationKind.ourWebOnly);
     });
@@ -83,7 +86,7 @@ void main() {
   });
 
   test('المضيف المستعمل في المصنّف هو مضيف الإنتاج', () {
-    expect(appHost, 'club-mafia.grade.sbs');
+    expect(appHost, 'club.masaros.net');
   });
 
   group('مكدّس شاشات الغطاء', _popsToHomeTests);

@@ -76,7 +76,7 @@
                 <category android:name="android.intent.category.LAUNCHER"/>
             </intent-filter>
 
-            <!-- App Links: رمز QR على الطاولة يفتح https://club-mafia.grade.sbs/join/CODE
+            <!-- App Links: رمز QR على الطاولة يفتح https://club.masaros.net/join/CODE
                  مباشرةً في التطبيق. autoVerify يحتاج /.well-known/assetlinks.json
                  مخدوماً ببصمة SHA-256 من حساب Google Play — حتى ذلك الحين يفتح
                  الرابط في المتصفّح كالمعتاد ولا يُكسر شيء. -->
@@ -84,6 +84,9 @@
                 <action android:name="android.intent.action.VIEW"/>
                 <category android:name="android.intent.category.DEFAULT"/>
                 <category android:name="android.intent.category.BROWSABLE"/>
+                <data android:scheme="https"
+                      android:host="club.masaros.net"
+                      android:pathPrefix="/join/"/>
                 <data android:scheme="https"
                       android:host="club-mafia.grade.sbs"
                       android:pathPrefix="/join/"/>

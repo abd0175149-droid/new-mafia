@@ -36,7 +36,7 @@ void main() {
     });
 
     test('مضيفنا يبقى داخلياً — الروابط الاجتماعيّة لا تُغيّر القاعدة', () {
-      final d = Destination.classify('https://club-mafia.grade.sbs/player/home');
+      final d = Destination.classify('https://club.masaros.net/player/home');
       expect(d.kind, DestinationKind.internal,
           reason: 'خلطُ التصنيف يفتح شاشات التطبيق في المتصفّح');
     });
