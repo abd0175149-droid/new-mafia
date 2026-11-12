@@ -210,7 +210,8 @@ function GameTimerSheet({ open, onClose }: { open: boolean; onClose: () => void 
   const left = t && !t.expired ? Math.floor(t.remaining) : null;
   const clock = (x: number) => `${Math.floor(x / 60)}:${String(Math.floor(x % 60)).padStart(2, '0')}`;
   const adj = (m: number) => run(() => host.adjustGameTimer(m), m > 0 ? `⏱ +${m} د` : `⏱ ${m} د`);
-  const steps = left == null ? [15, 30, 45, 60] : [5, 10];
+  // دقيقةٌ واحدة للضبط الدقيق، و٥ و١٠ للقفزات — زيادةً ونقصاً (صفٌّ لكلٍّ منهما)
+  const steps = left == null ? [15, 30, 45, 60] : [1, 5, 10];
   return (
     <BottomSheet open={open} title="⏱ وقت اللعبة" onClose={onClose}>
       <div className="rounded-2xl border border-[#2a241c] bg-[#0e0c0a] p-4 text-center">
@@ -218,12 +219,12 @@ function GameTimerSheet({ open, onClose }: { open: boolean; onClose: () => void 
           ? <p className="m-0 text-[15px] text-[#ddd5c6]">هذه اللعبة بلا مؤقّت. اختر مدّةً تبدأ من الآن — وعند انتهائها تنتهي اللعبة على الوقت.</p>
           : <><span className="block text-[12.5px] text-[#9a8f7e]">الباقي</span><b className="block text-[40px] leading-tight font-extrabold tabular-nums text-white" dir="ltr">{clock(left)}</b></>}
       </div>
-      <div className="grid grid-cols-2 gap-2">
+      <div className={`grid ${left == null ? 'grid-cols-2' : 'grid-cols-3'} gap-2`}>
         {steps.map(m => (
           <button key={`p${m}`} type="button" onClick={() => adj(m)}
             className="min-h-[52px] rounded-[14px] border border-[#43b27f]/55 bg-[#16130f] text-[16px] font-extrabold text-[#99dcba]">{left == null ? `${m} دقيقة` : `+${m} د`}</button>
         ))}
-        {left != null && [5, 10].map(m => (
+        {left != null && [1, 5, 10].map(m => (
           <button key={`m${m}`} type="button" disabled={left <= m * 60 + 30} onClick={() => adj(-m)}
             className="min-h-[52px] rounded-[14px] border border-[#d0474c]/50 bg-[#16130f] text-[16px] font-extrabold text-[#f2a6a9] disabled:opacity-30">−{m} د</button>
         ))}
