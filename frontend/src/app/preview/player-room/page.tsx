@@ -29,7 +29,9 @@ function Preview() {
   const playerVotes: Record<string, number> = { 1: 3, 3: 3, 4: 3, 8: 3, 7: 0, 12: 0, 10: 1, ...(myVote !== null ? { [seat]: myVote } : {}) };
   const mafiaRoles = ['GODFATHER', 'MAFIA_REGULAR', 'SILENCER', 'CHAMELEON', 'WITCH', 'OLDER_BROTHER'];
   const isMafia = mafiaRoles.includes(role);
-  const steps = [{ abilityId: role === 'CITIZEN' ? null : 'X', ask: '-', canSkip: role === 'SNIPER', targets: roster.filter(p => p.physicalId !== seat && !(isMafia && [3, 9].includes(p.physicalId))) }];
+  // كما يرسلها الخادم: النفسُ مسموحةٌ لمن تسمح قدرتُه بها وحده (الحماية والإسكات)
+  const selfOk = ['DOCTOR', 'NURSE', 'SILENCER'].includes(role);
+  const steps = [{ abilityId: role === 'CITIZEN' ? null : 'X', ask: '-', canSkip: role === 'SNIPER', targets: roster.filter(p => (selfOk || p.physicalId !== seat) && !(isMafia && [3, 9].includes(p.physicalId))) }];
 
   return (
     <div className="min-h-screen font-sans relative overflow-x-hidden display-bg blood-vignette" style={{ paddingBottom: 'calc(var(--nav-h) + 16px)' }}>

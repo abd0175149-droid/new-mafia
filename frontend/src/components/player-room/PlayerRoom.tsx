@@ -145,12 +145,22 @@ function NightAsk({ host }: { host: RoomHost }) {
 
   if (!mode) return null;
   const step = mode === 'one' ? oneNight!.steps[Math.min(stepI, oneNight!.steps.length - 1)] : null;
+  // ما يُفعَّل: قائمةُ الخادم لقدرتك وحدها — وهي التي تقرّر هل نفسُك هدفٌ مسموح
+  // (الطبيب والممرّضة والمُسكِت: نعم؛ الشريف والقنّاص والقاتل ومَن لا قدرةَ له: لا).
   const allowed = new Set<number>((mode === 'one' ? step!.targets : nightAsk!.availableTargets).map(t => t.physicalId));
-  // 🔴 القائمة نفسها للجميع: كلّ الأحياء عدا نفسك — لا ما يسمح به دورك وحده.
-  //    الهدف غير المسموح (شريك المافيا مثلاً) يُلمس فلا يحدث شيء، والشكل لا يتغيّر.
+  // 🔴 خطوةُ التمويه في الطابور الآليّ تحمل كلَّ الأحياء ونفسَك معهم، ولا قدرةَ وراءها:
+  //    فنفسُك فيها لا تُفعَّل، كي لا يعني لمسُ النفس شيئاً إلّا حيث تسمح به قدرةٌ حقيقيّة.
+  if (mode === 'auto' && nightAsk!.isDecoy) allowed.delete(seat);
+  // 🔴 القائمة نفسها للجميع: كلّ الأحياء **وأنت بينهم** — لا ما يسمح به دورك وحده.
+  //    الهدف غير المسموح (شريك المافيا، أو نفسُك حين لا تسمح قدرتك) يُلمس فلا يحدث شيء،
+  //    والشكل لا يتغيّر. كانت النفسُ محذوفةً من رسم الجميع، فلم يجد الطبيبُ اسمَه ليحمي
+  //    نفسَه مع أنّ الخادم يسمح به (قرار المالك 2026-08-28) — قرار المالك 2026-11-12.
   const listed: Person[] = ((roster.length ? roster : (mode === "one" ? step!.targets : nightAsk!.availableTargets)) as Person[])
-    .filter(p => p.physicalId !== seat && p.isAlive !== false)
-    .sort((a, b) => a.physicalId - b.physicalId);
+    .filter(p => p.isAlive !== false);
+  if (seat && !listed.some(p => p.physicalId === seat)) {
+    listed.push({ physicalId: seat, name: host.displayName, avatarUrl: host.avatarUrl });
+  }
+  listed.sort((a, b) => a.physicalId - b.physicalId);
   const canSkip = role === 'SNIPER' && (mode === 'one' ? !!step!.canSkip : !!nightAsk!.canSkip && !nightAsk!.isDecoy);
 
   const confirm = async (target: number | null) => {
@@ -178,7 +188,7 @@ function NightAsk({ host }: { host: RoomHost }) {
               {listed.map(p => (
                 <button key={p.physicalId} type="button" className={`pr-tg ${pick === p.physicalId ? 'sel' : ''}`}
                   onClick={() => { if (allowed.has(p.physicalId)) setPick(p.physicalId); }}>
-                  <Avatar p={p} seat={p.physicalId} /><span className="n">{p.name}</span><span className="i">#{p.physicalId}</span><span className="ck">{pick === p.physicalId ? '✓' : ''}</span>
+                  <Avatar p={p} seat={p.physicalId} /><span className="n">{p.name}{p.physicalId === seat && <em className="me"> · أنت</em>}</span><span className="i">#{p.physicalId}</span><span className="ck">{pick === p.physicalId ? '✓' : ''}</span>
                 </button>
               ))}
             </div>
