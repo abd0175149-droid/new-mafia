@@ -3,7 +3,7 @@
 // شريط صحّة واتساب — حالة الرقمين في سطر واحد، يتمدّد إلى لوحة فيها السبب وروابط ميتا (أدمن فقط)
 // السطر في رأس الصفحة واللوحة تحته، فالمكوّن خطّاف يعيد القطعتين.
 import { useCallback, useEffect, useState, type ReactNode } from 'react';
-import { ChevronDown, ChevronUp, Lock, TriangleAlert, Info, RefreshCw, BellRing, ExternalLink } from 'lucide-react';
+import { ChevronLeft, Lock, TriangleAlert, Info, RefreshCw, BellRing, ExternalLink } from 'lucide-react';
 import { swalConfirm, swalToast } from '@/lib/swal';
 import { Banner } from './wa-ui';
 
@@ -19,7 +19,7 @@ const MODE_AR: Record<string, string> = { cloud_only: 'ميتا وحدها', dua
 export function useWaHealth(apiFetch: Fetcher, onOpenChannels: () => void): { strip: ReactNode; panel: ReactNode; webIssue: string | null; webReady: boolean } {
   const [h, setH] = useState<any>(null);
   const [c, setC] = useState<any>(null);
-  const [open, setOpen] = useState(false);
+  const open = true;
   const [busy, setBusy] = useState(false);
 
   const load = useCallback(async (force = false) => {
@@ -42,8 +42,8 @@ export function useWaHealth(apiFetch: Fetcher, onOpenChannels: () => void): { st
   const metaLvl: Lvl = h ? (LEVEL[h.level] || 'off') : 'off';
   const locked = !!h?.sendingLocked;
   const lvl: Lvl = locked || metaLvl === 'danger' || web?.locked ? 'danger' : (metaLvl === 'warn' || !webOk) ? 'warn' : metaLvl === 'off' && !web ? 'off' : 'ok';
-  const bad = lvl === 'danger' || lvl === 'warn';
-  const shown = open || bad;
+  // السطر في الرأس يفتح «الأرقام»؛ اللوحة تُرسم هناك كاملة دائماً
+  const shown = true;
 
   const resume = async () => {
     if (!(await swalConfirm('رفع قفل الإرسال يدويّاً؟\nافعل ذلك فقط بعد التأكّد من صفحات ميتا أنّ المشكلة انتهت.', { confirmText: 'ارفع القفل', icon: 'warning' }))) return;
@@ -51,13 +51,13 @@ export function useWaHealth(apiFetch: Fetcher, onOpenChannels: () => void): { st
   };
 
   const strip = (
-    <button type="button" className={`wa-health${lvl === 'danger' ? ' danger' : lvl === 'warn' ? ' warn' : ''}`} aria-expanded={shown} onClick={() => setOpen(o => !o)}>
+    <button type="button" className={`wa-health${lvl === 'danger' ? ' danger' : lvl === 'warn' ? ' warn' : ''}`} onClick={onOpenChannels} title="افتح الأرقام للتفاصيل">
       <i className={`wa-dot${lvl === 'off' ? '' : ` ${lvl}`}`} />
       <span className="trunc grow">
         <b>{locked ? 'الإرسال من رقم ميتا مقفل' : h ? h.summary : 'رقم ميتا: لا بيانات'}</b>
         {web && <span className="wa-only-desk"> · رقم الأعمال: {WEB_STATUS_AR[web.status] || web.status}{web.locked ? ' — مقفل' : ''}</span>}
       </span>
-      <span className="end">{h?.checkedAt && <span className="wa-only-desk">{ago(h.checkedAt)}</span>}{shown && open ? <ChevronUp /> : <ChevronDown />}</span>
+      <span className="end">{h?.checkedAt && <span className="wa-only-desk">{ago(h.checkedAt)}</span>}<ChevronLeft /></span>
     </button>
   );
 
@@ -67,7 +67,7 @@ export function useWaHealth(apiFetch: Fetcher, onOpenChannels: () => void): { st
         <Banner tone="danger" icon={<Lock />} action="ارفع القفل يدويّاً" onAction={resume}><b>سبب القفل:</b> {h.sendingLocked}</Banner>
       )}
       {h?.issues?.map((x: string, i: number) => <Banner key={'i' + i} tone="warn" icon={<TriangleAlert />}>{x}</Banner>)}
-      {webIssue && <Banner tone="warn" icon={<TriangleAlert />} action="افتح الأرقام" onAction={onOpenChannels}>{webIssue}.</Banner>}
+      {webIssue && <Banner tone="warn" icon={<TriangleAlert />}>{webIssue}.</Banner>}
       {open && h?.notes?.map((x: string, i: number) => <Banner key={'n' + i} icon={<Info />}>{x} <span className="muted">— معروف، لا يمنع العمل.</span></Banner>)}
       {open && (
         <div className="wa-grid3" style={{ gap: '0 var(--space-6)' }}>
@@ -100,7 +100,6 @@ export function useWaHealth(apiFetch: Fetcher, onOpenChannels: () => void): { st
       <div className="row" style={{ flexWrap: 'wrap' }}>
         <button type="button" className="wa-btn sm" disabled={busy} onClick={async () => { setBusy(true); await load(true); setBusy(false); }}><RefreshCw />{busy ? 'يفحص…' : 'افحص الآن'}</button>
         <button type="button" className="wa-btn sm ghost" onClick={async () => { try { const r = await apiFetch('/api/whatsapp/health/test-alert', { method: 'POST' }); swalToast(`أُرسل إشعار تجريبيّ إلى ${r.players} أدمن — افحص هاتفك`, 'info'); } catch (e: any) { swalToast(e.message, 'error'); } }}><BellRing />جرّب التنبيه</button>
-        {web && <button type="button" className="wa-btn sm ghost" onClick={onOpenChannels}>الأرقام</button>}
         <span className="muted grow" style={{ font: '500 12px/16px var(--font-sans)' }}>يُفحص تلقائيّاً كلّ 10 دقائق، وأيّ تغيّر يصلك إشعاراً على التطبيق.</span>
       </div>
     </div>

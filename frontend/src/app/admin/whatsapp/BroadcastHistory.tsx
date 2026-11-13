@@ -207,6 +207,13 @@ export default function BroadcastHistory({ apiFetch, refreshKey, onReuse }: {
             style={{ padding: 'var(--space-2) var(--space-4)', font: '700 12px/16px var(--font-sans)', borderBottom: '1px solid var(--line)' }}>
             <span>البثّ</span><span>الرسالة</span><span>الإرسال</span><span>القراءة</span><span />
           </div>
+          <div className="wa-legend" aria-label="مفتاح ألوان شريط القراءة">
+            <span><i style={{ background: 'var(--info)' }} />قرأها</span>
+            <span><i style={{ background: 'var(--ink-3)' }} />وصلت</span>
+            <span><i style={{ background: 'var(--warn)' }} />لم تصل</span>
+            <span><i style={{ background: 'var(--ch-web)' }} />في الطابور</span>
+            <span><i style={{ background: 'var(--danger)' }} />رُفضت</span>
+          </div>
           <div>
             {data.rows.map(r => {
               const st = STATUS[r.status] || { label: r.status };

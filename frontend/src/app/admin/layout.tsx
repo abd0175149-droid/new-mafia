@@ -311,7 +311,7 @@ export default function AdminLayout({ children }: { children: ReactNode }) {
       {isMobile && (
         // 🔴 التطبيقُ المثبَّت على آيفون يرسم تحت شريط الحالة (black-translucent): بلا حاشيته
         //    كان الشريطُ كلّه — زرُّ القائمة واسمُ النادي — تحت الساعة فلا تُفتح القائمة.
-        <div className="fixed top-0 left-0 right-0 bg-gray-900/90 backdrop-blur-xl border-b border-gray-800/50 z-[54] flex items-center px-4 gap-3"
+        <div data-admin-topbar className="fixed top-0 left-0 right-0 bg-gray-900/90 backdrop-blur-xl border-b border-gray-800/50 z-[54] flex items-center px-4 gap-3"
           style={{ paddingTop: 'env(safe-area-inset-top, 0px)', height: 'calc(56px + env(safe-area-inset-top, 0px))', transform: vp.shiftTop ? `translateY(${vp.shiftTop}px)` : undefined }}>
           <button
             onClick={() => setSidebarOpen(!sidebarOpen)}

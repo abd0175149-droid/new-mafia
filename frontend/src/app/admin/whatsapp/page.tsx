@@ -28,7 +28,7 @@ import {
   MessageSquare, Settings, Bell, BellOff, Search, ChevronRight, ChevronLeft, User, Bot, Megaphone, Info, Trash2,
   Image as ImageIcon, VenetianMask, Sparkles, Send, X, Link2, Unlink, Copy, CalendarPlus, ExternalLink, Cloud, Smartphone,
   Clock, Lock, TriangleAlert, EyeOff, Ban, BookOpen, Activity, Ticket, Gift, Shuffle, Contact, Download, CirclePause,
-  CornerUpLeft, Headset, PanelLeft, Video, NotebookPen, Pencil, Minus, Plus, Check, FlaskConical, SlidersHorizontal, type LucideIcon,
+  CornerUpLeft, Headset, PanelLeft, Video, NotebookPen, Pencil, Minus, Plus, Check, FlaskConical, SlidersHorizontal, WifiOff, type LucideIcon,
 } from 'lucide-react';
 import './wa.css';
 
@@ -712,6 +712,19 @@ export default function WhatsAppInboxPage() {
   }, [messages]);
 
   const vv = useVisibleViewport();
+  const [offline, setOffline] = useState(false);
+  useEffect(() => {
+    const sync = () => setOffline(!navigator.onLine);
+    sync();
+    window.addEventListener('online', sync); window.addEventListener('offline', sync);
+    return () => { window.removeEventListener('online', sync); window.removeEventListener('offline', sync); };
+  }, []);
+  // 📱 داخل محادثة أو قسم: شريط الصفحة يكفي، فيُخفى شريط لوحة الإدارة (wa.css ← body.wa-immersive)
+  const immersive = mainTab === 'chat' ? mobilePane !== 'list' : secOpen;
+  useEffect(() => {
+    document.body.classList.toggle('wa-immersive', immersive);
+    return () => document.body.classList.remove('wa-immersive');
+  }, [immersive]);
   const health = useWaHealth(apiFetch, () => { setMainTab('admin'); setAdminSec('numbers'); setNumSub('channels'); setSecOpen(true); });
   // «تمّ التعامل»: يُسقط شارة التحويل للإدارة بعد أن ردّ الموظّف
   const attentionDone = useCallback(async () => {
@@ -768,7 +781,7 @@ export default function WhatsAppInboxPage() {
           {muted ? <BellOff /> : <Bell />}
         </button>
       </div>
-      {health.panel}
+      {offline && <Banner flat tone="danger" icon={<WifiOff />}>لا اتّصال بالإنترنت — ما تراه قد يكون قديماً، والإرسال متوقّف حتّى يعود الاتّصال.</Banner>}
 
       {/* ═══ الإدارة ═══ */}
       {mainTab !== 'chat' && (
@@ -832,7 +845,7 @@ export default function WhatsAppInboxPage() {
             {adminSec === 'numbers' && (
               <>
                 <Seg block label="الأرقام" value={numSub} onChange={setNumSub} options={[['channels', 'القنوات'], ['roster', 'جهات الخطّ']] as const} />
-                {numSub === 'channels' ? <ChannelsSection apiFetch={apiFetch} /> : <LineContactsSection apiFetch={apiFetch} onOpenPhone={openByPhone} />}
+                {numSub === 'channels' ? <>{health.panel}<ChannelsSection apiFetch={apiFetch} /></> : <LineContactsSection apiFetch={apiFetch} onOpenPhone={openByPhone} />}
               </>
             )}
           </div>
@@ -1374,7 +1387,7 @@ export default function WhatsAppInboxPage() {
       {/* ═══ الحجز الجديد — لوح سفليّ على الهاتف، نافذة على الحاسوب ═══ */}
       {mainTab === 'chat' && showBookingForm && bkData && conv && (
         <Pop wide onClose={() => setShowBookingForm(false)} label="حجز جديد">
-          <BookingForm
+          <div className="wa-legacy"><BookingForm
             activities={bkData.activities}
             locations={bkData.locations}
             staffList={bkData.staffList}
@@ -1384,7 +1397,7 @@ export default function WhatsAppInboxPage() {
             username={user?.username}
             initialName={conv.displayName || ''}
             initialPhone={conv.phone || ''}
-          />
+          /></div>
         </Pop>
       )}
     </div>
