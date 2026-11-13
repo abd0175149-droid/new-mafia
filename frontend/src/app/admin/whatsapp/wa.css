@@ -248,7 +248,7 @@
 .wa-panes { flex: 1; min-height: 0; display: grid; grid-template-columns: var(--pane-list) minmax(0, 1fr) var(--pane-info); border: 1px solid var(--line); border-radius: var(--radius-lg); overflow: hidden; background: var(--bg-100); position: relative; }
 .wa-pane { display: flex; flex-direction: column; min-height: 0; min-width: 0; }
 .wa-pane + .wa-pane { border-inline-start: 1px solid var(--line); }
-.wa-pane .tools { padding: var(--space-3); display: flex; flex-direction: column; gap: var(--space-3); border-bottom: 1px solid var(--line); flex: none; }
+.wa-pane > .tools { padding: var(--space-3); display: flex; flex-direction: column; gap: var(--space-3); border-bottom: 1px solid var(--line); flex: none; }
 .wa-pane.chat .wa-thread { flex: 1; min-height: 0; overflow-y: auto; }
 .wa-pane.info { background: var(--bg-100); }
 .wa-sec { padding: var(--space-4); border-bottom: 1px solid var(--line); display: flex; flex-direction: column; gap: var(--space-3); }

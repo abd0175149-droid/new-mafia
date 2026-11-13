@@ -80,7 +80,7 @@ export function winTone(h: number): { tone: WinTone; group: string } {
 
 export function fmtTime(d: any) {
   if (!d) return '';
-  return new Date(d).toLocaleTimeString('ar-JO', { hour: 'numeric', minute: '2-digit' });
+  return new Date(d).toLocaleTimeString('ar-JO-u-nu-latn', { hour: 'numeric', minute: '2-digit' });
 }
 export function fmtWhen(d: any) {
   if (!d) return '';
@@ -89,7 +89,7 @@ export function fmtWhen(d: any) {
   if (dt.toDateString() === today.toDateString()) return fmtTime(dt);
   const yest = new Date(today); yest.setDate(today.getDate() - 1);
   if (dt.toDateString() === yest.toDateString()) return 'أمس';
-  return dt.toLocaleDateString('ar-JO', { day: 'numeric', month: 'short' });
+  return dt.toLocaleDateString('ar-JO-u-nu-latn', { day: 'numeric', month: 'short' });
 }
 export function fmtDay(d: any) {
   const dt = new Date(d);
@@ -97,7 +97,7 @@ export function fmtDay(d: any) {
   if (dt.toDateString() === today.toDateString()) return 'اليوم';
   const yest = new Date(today); yest.setDate(today.getDate() - 1);
   if (dt.toDateString() === yest.toDateString()) return 'أمس';
-  return dt.toLocaleDateString('ar-JO', { weekday: 'long', day: 'numeric', month: 'long' });
+  return dt.toLocaleDateString('ar-JO-u-nu-latn', { weekday: 'long', day: 'numeric', month: 'long' });
 }
 export function intlPhone(local: string) { return local ? '+962 ' + local.slice(1) : ''; }
 // ══════════════════════════════════════════════════════

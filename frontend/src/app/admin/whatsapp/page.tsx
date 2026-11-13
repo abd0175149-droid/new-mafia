@@ -891,7 +891,7 @@ export default function WhatsAppInboxPage() {
                       <ConvAvatar c={c} ch={cWeb ? 'web' : 'cloud'} />
                       <span className="grow">
                         <span className="top">
-                          <span className="name">{convName(c)}</span>
+                          <span className="name" dir="auto" style={{ textAlign: 'start' }}>{convName(c)}</span>
                           <span className="when">{fmtWhen(c.lastMessageAt)}</span>
                         </span>
                         <span className="bot">
@@ -903,7 +903,7 @@ export default function WhatsAppInboxPage() {
                         {/* النافذة تظهر حين تهمّ فقط: تقترب من الإغلاق أو أُغلقت */}
                         {!cWeb && left <= 4 && (
                           <span className="win">
-                            {left > 0 ? <><Meter pct={(left / 4) * 100} tone={tn.tone === 'warn' ? 'warn' : 'danger'} /><span className="ltr" style={{ color: TONE_VAR[tn.tone], fontSize: 12 }}>{fmtLeft(left)}</span></>
+                            {left > 0 ? <><Meter pct={(left / 4) * 100} tone={tn.tone === 'warn' ? 'warn' : 'danger'} /><span style={{ color: TONE_VAR[tn.tone], fontSize: 12, flex: 'none' }}>{fmtLeft(left)}</span></>
                               : <span>النافذة مغلقة</span>}
                           </span>
                         )}
@@ -974,7 +974,7 @@ export default function WhatsAppInboxPage() {
               ) : (
                 <div className={`wa-winline ${winT.tone}`}>
                   {winH > 0 ? <Clock className="s" /> : <Lock className="s" />}
-                  <span>{winH > 0 ? <>النافذة تُغلق بعد <span className="ltr">{fmtLeft(winH)}</span></> : 'النافذة مغلقة'}</span>
+                  <span>{winH > 0 ? <>النافذة تُغلق بعد {fmtLeft(winH)}</> : 'النافذة مغلقة'}</span>
                   {winH > 0 ? <Meter pct={(winH / 24) * 100} tone={winT.tone === 'ok' ? undefined : winT.tone === 'warn' ? 'warn' : 'danger'} /> : <span className="grow" />}
                   <span className="rest wa-only-desk">آخر رسالة منه {fmtWhen(lastInView)}</span>
                 </div>
