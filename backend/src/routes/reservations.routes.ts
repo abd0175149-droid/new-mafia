@@ -78,7 +78,85 @@ router.get('/', authenticate, async (req: Request, res: Response) => {
       rows.forEach((r: any) => { const j = jobs.get(Number(r.id)); if (j) r.confirmJob = j; });
     } catch { /* تكميليّ */ }
   } catch { /* العلامات تكميليّة */ }
+  // 🕘 متابعة الوصول: etaAt/etaSource/etaNote/followupSentAt/declinedAt/declinedVia أعمدةٌ في الصفّ،
+  //    وعلامة تسليم رسالة المتابعة تُشتقّ من صفّ رسالتها
+  try {
+    const { attachFollowupStatus } = await import('../services/arrival-followup.service.js');
+    await attachFollowupStatus(rows as any[]);
+  } catch { rows.forEach((r: any) => { if (r.followupStatus === undefined) r.followupStatus = null; }); }
   res.json(rows);
+});
+
+// ══════════════════════════════════════════════════════
+// 🕘 متابعة الوصول — «متى توصل؟» لمن لم يصل بعد
+//
+// 🔴 كلّها قبل `/:id`: ‏PUT /followup/settings كان سيقع في PUT /:id لو تأخّر تعريفه.
+// 🔴 «حضر» لا يُكتب من هنا أبداً: هذه المسارات تكتب الموعد المتوقّع وختم المتابعة والتراجع فقط.
+// ══════════════════════════════════════════════════════
+router.get('/followup/settings', authenticate, async (_req: Request, res: Response) => {
+  try {
+    const S = await import('../services/arrival-followup.service.js');
+    res.json({ ...(await S.getArrivalSettings()), defaultTemplate: S.DEFAULT_ARRIVAL_TEMPLATE });
+  } catch (err: any) { res.status(500).json({ error: err.message }); }
+});
+
+router.put('/followup/settings', authenticate, authorize('admin'), async (req: Request, res: Response) => {
+  try {
+    const S = await import('../services/arrival-followup.service.js');
+    const body = req.body?.arrivalFollowup && typeof req.body.arrivalFollowup === 'object' ? req.body.arrivalFollowup : (req.body || {});
+    if (body.template !== undefined && String(body.template).length > 1000) return res.status(400).json({ error: 'القالب أطول من 1000 حرف' });
+    const by = req.user?.displayName || req.user?.username || '';
+    res.json({ ...(await S.setArrivalSettings(body, by)), defaultTemplate: S.DEFAULT_ARRIVAL_TEMPLATE });
+  } catch (err: any) { res.status(500).json({ error: err.message }); }
+});
+
+router.get('/followup/preview', authenticate, async (req: Request, res: Response) => {
+  const activityId = parseInt(String(req.query.activityId || ''));
+  if (!Number.isFinite(activityId)) return res.status(400).json({ error: 'معرّف الفعاليّة مطلوب' });
+  try {
+    const S = await import('../services/arrival-followup.service.js');
+    const out = await S.previewFollowup(activityId);
+    if (!out) return res.status(404).json({ error: 'الفعاليّة غير موجودة' });
+    res.json(out);
+  } catch (err: any) { res.status(500).json({ error: err.message }); }
+});
+
+router.post('/followup', authenticate, async (req: Request, res: Response) => {
+  const activityId = parseInt(String(req.body?.activityId ?? ''));
+  const ids = Array.isArray(req.body?.reservationIds) ? req.body.reservationIds.map((x: any) => Number(x)).filter((x: number) => Number.isFinite(x) && x > 0) : [];
+  if (!Number.isFinite(activityId)) return res.status(400).json({ error: 'معرّف الفعاليّة مطلوب' });
+  if (!ids.length) return res.status(400).json({ error: 'لا مستلمين' });
+  if (ids.length > 300) return res.status(400).json({ error: 'الحدّ 300 مستلماً للدفعة الواحدة' });
+  const text = req.body?.text != null ? String(req.body.text) : '';
+  if (text.length > 1000) return res.status(400).json({ error: 'الرسالة أطول من 1000 حرف' });
+  try {
+    const S = await import('../services/arrival-followup.service.js');
+    const out = await S.sendArrivalFollowup({
+      activityId, reservationIds: ids, text, force: req.body?.force === true,
+      actor: 'staff', staffId: req.user?.id, staffName: req.user?.displayName || req.user?.username || '',
+    });
+    res.json(out);
+  } catch (err: any) { res.status(err?.status || 500).json({ error: err.message }); }
+});
+
+router.get('/events', authenticate, async (req: Request, res: Response) => {
+  const activityId = parseInt(String(req.query.activityId || ''));
+  if (!Number.isFinite(activityId)) return res.status(400).json({ error: 'معرّف الفعاليّة مطلوب' });
+  try {
+    const S = await import('../services/arrival-followup.service.js');
+    res.json(await S.listReservationEvents(activityId, parseInt(String(req.query.limit || '50')) || 50));
+  } catch (err: any) { res.status(500).json({ error: err.message }); }
+});
+
+router.post('/events/:id/undo', authenticate, async (req: Request, res: Response) => {
+  const id = parseInt(req.params.id);
+  if (!Number.isFinite(id)) return res.status(400).json({ error: 'معرّفٌ غير صالح' });
+  try {
+    const S = await import('../services/arrival-followup.service.js');
+    const out = await S.undoReservationEvent(id, req.user?.displayName || req.user?.username || '');
+    if (!out.ok) return res.status(out.status || 400).json({ error: out.error });
+    res.json(out.row);
+  } catch (err: any) { res.status(500).json({ error: err.message }); }
 });
 
 // ══════════════════════════════════════════════════════
@@ -240,8 +318,33 @@ router.put('/:id', authenticate, async (req: Request, res: Response) => {
   if (attended !== undefined) updates.attended = attended;
   if (playerId !== undefined) updates.playerId = playerId === null ? null : Number(playerId);
 
+  // 🕘 موعد الوصول المتوقّع (etaAt / etaNote) + نسبةُ «لم يحضر» للموظّف — وما يُسجَّل في سجلّ المتابعة
+  let arrivalEvents: Array<{ kind: any; detail: any }> = [];
+  try {
+    const { staffArrivalPatch } = await import('../services/arrival-followup.service.js');
+    const ap = staffArrivalPatch(existing[0], req.body);
+    Object.assign(updates, ap.updates);
+    arrivalEvents = ap.events;
+  } catch (e: any) {
+    if (e?.status === 400) return res.status(400).json({ error: e.message });
+    console.warn('⚠️ arrival patch on PUT:', e?.message);
+  }
+
   const result = await db.update(reservations).set(updates).where(eq(reservations.id, id)).returning();
   const row = result[0];
+
+  // 📋 سجلّ المتابعة + إشارةٌ لحظيّة لكلّ من يفتح الصفحة (أيّ تغييرٍ في الحضور/الموعد/الاعتذار)
+  try {
+    const A = await import('../services/arrival-followup.service.js');
+    const staffNm = req.user?.displayName || req.user?.username || '';
+    for (const ev of arrivalEvents) {
+      await A.logReservationEvent({ reservationId: id, activityId: row.activityId, actor: 'staff', actorName: staffNm, kind: ev.kind, detail: ev.detail });
+    }
+    await A.attachFollowupStatus([row as any]);
+    const touched = arrivalEvents.length > 0 || req.body?.etaNote !== undefined
+      || (attended !== undefined && attended !== existing[0].attended);
+    if (touched) A.emitReservationsChanged(row.activityId);
+  } catch (e: any) { console.warn('⚠️ arrival log on PUT:', e?.message); }
 
   // 💸🚫 «حضر» من الموظّف يلغي غيابه ويعيد السعر المبكّر إلى الحجز الذي استهلكه (إن لم يُدفع)،
   //      وتعديل العدد يعيد تقييم المقاعد المبكّرة
@@ -510,6 +613,8 @@ router.post('/mark-attendance-from-games', authenticate, async (req: Request, re
       RETURNING r.id
     `);
     const marked = (result.rows ? result.rows.length : (Array.isArray(result) ? result.length : (result.rowCount ?? 0)));
+    // 📋 إشارةٌ لحظيّة لصفحة المتابعة (للفعاليّة المحدَّدة؛ «الكلّ» يلتقطه سحب الصفحة الدوريّ)
+    if (marked && activityId) import('../services/arrival-followup.service.js').then(m => m.emitReservationsChanged(activityId)).catch(() => {});
     res.json({ success: true, marked });
   } catch (err: any) {
     console.error('❌ mark-attendance-from-games:', err.message);

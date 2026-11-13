@@ -113,6 +113,7 @@ export async function collectInvoices(db: Database, p: {
         const [row] = await tx.update(orderInvoices).set({
           ordersTotal: data.ordersTotal.toFixed(2), minTopup: data.minTopup.toFixed(2), waterCharge: data.waterCharge.toFixed(2),
           loyaltyDiscount: data.loyaltyDiscount.toFixed(2), loyaltyRewardId: data.loyaltyRewardId,
+          serviceRate: data.serviceRate.toFixed(2), serviceAmount: data.serviceAmount.toFixed(2),
           gameFeeApplied: data.gameFeeApplied, gameFeeAmount: data.gameFeeAmount.toFixed(2), grandTotal: data.grandTotal.toFixed(2),
           bookingId: data.bookingId, isPaid: true, paidAt, paidBy: p.staffId, payMethod: p.writeoff ? p.writeoff.kind : p.method, paymentId,
           compAmount: (data.compAmount || 0).toFixed(2),

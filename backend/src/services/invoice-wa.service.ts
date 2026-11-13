@@ -204,6 +204,8 @@ export function openCaption(kind: string, d: InvoiceData, no: number, opts: { up
   } else {
     head = `🕵️ ${first}، طلبك وصل الطاولة.\nملفّك ${file} — المطلوب ${total} د.أ`;
   }
+  // 🧾 ضريبة الخدمة داخلةٌ في المطلوب — تُذكر بنسبتها كي لا يستغرب الفرق عن مجموع طلبه
+  if ((d.serviceAmount || 0) > 0) head += `\nيشمل ضريبة خدمة ${Math.round((d.serviceRate || 0) * 100) / 100}% (${f2(d.serviceAmount)} د.أ).`;
   const pay = paymentText(d.payment);
   return pay ? `${head}\n\n${pay}` : head;
 }

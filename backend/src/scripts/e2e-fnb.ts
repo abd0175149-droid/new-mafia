@@ -434,8 +434,9 @@ async function main() {
 
   // ══ ١٠ · الماء التلقائيّ ══
   section('١٠ · الماء التلقائيّ على الفواتير');
-  const [waterSaved] = await q(sql`SELECT auto_water AS aw, min_charge_enabled AS en FROM locations WHERE id = ${LOC_TEST}`);
-  await q(sql`UPDATE locations SET auto_water = true, min_charge_enabled = false WHERE id = ${LOC_TEST}`);
+  const [waterSaved] = await q(sql`SELECT auto_water AS aw, min_charge_enabled AS en, minimum_charge AS val, service_rate AS sr FROM locations WHERE id = ${LOC_TEST}`);
+  // 🧾 ضريبة الخدمة صفرٌ في فحوص الماء — تُفعَّل في فقرتها أدناه ثمّ تُعاد
+  await q(sql`UPDATE locations SET auto_water = true, min_charge_enabled = false, service_rate = 0 WHERE id = ${LOC_TEST}`);
 
   // فعاليّة نظيفة + غرفة حيّة جديدة: انضمام 999 و996 إليها الأحدث يجعل سياق
   // طلبيهما عليها (قاعدة «الغرفة الحيّة» بأحدث جلوس) — و998 لعب بلا طلبات
@@ -495,6 +496,30 @@ async function main() {
     ok('طلب ماءً بنفسه → التلقائيّ يسقط والإجماليّ 2.00', w999b?.waterCharge === 0 && w999b?.grandTotal === 2, JSON.stringify(w999b));
   }
 
+  // ── 🧾 ضريبة الخدمة (2026-11-13): 8% على (الطلبات + الماء − الولاء) — لا على التكملة ولا الدخوليّة ──
+  //   الحدّ الأدنى 3.00 مفعَّلٌ هنا ليُثبت أنّ التكملة خارج الأساس وأنّ مقارنة الحدّ لم تتغيّر.
+  //   998: لعب بلا طلبات → ماء 0.50 + تكملة 2.50 + خدمة 0.04 (8% من 0.50 فقط) = 3.04
+  //   999: لعب وطلب 2.00 → تكملة 1.00 + خدمة 0.16 = 3.16 · 996: طلب 1.50 ولم يلعب → خدمة 0.12 = 1.62
+  await q(sql`UPDATE locations SET service_rate = 8, min_charge_enabled = true, minimum_charge = 3.00 WHERE id = ${LOC_TEST}`);
+  const cs8 = await api(vURL(`/api/venue/invoices/candidates?activityId=${act10.id}`), { headers: A });
+  const s8: any[] = cs8.body?.candidates ?? [];
+  const s999 = s8.find(c => c.playerId === player.id);
+  const s998 = s8.find(c => c.playerId === p998.id);
+  const s996 = s8.find(c => c.playerId === p996.id);
+  ok('نسبة ضريبة الخدمة في استجابة الدفتر (8)', cs8.body?.serviceRate === 8, JSON.stringify(cs8.body?.serviceRate));
+  ok('ماءٌ + تكملة: الخدمة على الماء وحده (0.04) والتكملة كما هي (2.50) ⟵ 3.04',
+    s998?.waterCharge === 0.5 && s998?.minTopup === 2.5 && s998?.serviceAmount === 0.04 && s998?.serviceRate === 8 && s998?.grandTotal === 3.04, JSON.stringify(s998));
+  ok('طلبات 2.00 + تكملة 1.00: خدمة 0.16 ⟵ 3.16',
+    s999?.minTopup === 1 && s999?.serviceAmount === 0.16 && s999?.grandTotal === 3.16, JSON.stringify(s999));
+  ok('طلب 1.50 ولم يلعب: خدمة 0.12 ⟵ 1.62', s996?.minTopup === 0 && s996?.serviceAmount === 0.12 && s996?.grandTotal === 1.62, JSON.stringify(s996));
+  const d8 = await api(vURL(`/api/venue/invoices/${act10.id}/${player.id}`), { headers: A });
+  ok('تفاصيل الفاتورة تحمل سطر الخدمة والإجماليّ نفسه',
+    d8.body?.invoice?.serviceRate === 8 && d8.body?.invoice?.serviceAmount === 0.16 && d8.body?.invoice?.grandTotal === 3.16, JSON.stringify(d8.body?.invoice).slice(0, 200));
+  await q(sql`UPDATE locations SET service_rate = 0, min_charge_enabled = false WHERE id = ${LOC_TEST}`);
+  const cs0 = await api(vURL(`/api/venue/invoices/candidates?activityId=${act10.id}`), { headers: A });
+  const z998 = (cs0.body?.candidates ?? []).find((c: any) => c.playerId === p998.id);
+  ok('النسبة صفر ⟵ لا سطر خدمة والإجماليّ كما كان (0.50)', z998?.serviceAmount === 0 && z998?.grandTotal === 0.5, JSON.stringify(z998));
+
   // إصدار فاتورة 998 وتحصيلها ثم تعطيل الميزة: اللقطة تصمد
   r = await api(vURL(`/api/venue/invoices/${act10.id}/${p998.id}/pdf`), { method: 'POST', headers: A });
   ok('فاتورة الماء وحده تصدر', r.status === 200, `status=${r.status}`);
@@ -506,8 +531,21 @@ async function main() {
   // 💵 التحصيل المباشر بلا إصدار PDF مسبق (2026-08-12): الخادم يُصدر الرقم بنفسه
   //    — كان يردّ «أصدر الفاتورة أوّلاً» فيفرض تبويب PDF قبل كلّ قبض
   const before996 = (await q(sql`SELECT count(*)::int n FROM order_invoices WHERE activity_id=${act10.id} AND player_id=${p996.id}`))[0].n;
+  // 🧾 996 يُحصَّل والنسبة 8% — لقطته تحتفظ بها بعد تصفير نسبة المكان
+  await q(sql`UPDATE locations SET service_rate = 8 WHERE id = ${LOC_TEST}`);
   r = await api(vURL(`/api/venue/invoices/${act10.id}/${p996.id}/pay`), { method: 'POST', headers: A });
-  const [inv996] = await q(sql`SELECT invoice_no, is_paid FROM order_invoices WHERE activity_id=${act10.id} AND player_id=${p996.id}`);
+  const [inv996] = await q(sql`SELECT invoice_no, is_paid, service_rate, service_amount, grand_total FROM order_invoices WHERE activity_id=${act10.id} AND player_id=${p996.id}`);
+  ok('لقطة المحصَّلة: خدمة 8.00% = 0.12 والإجماليّ 1.62',
+    inv996?.service_rate === '8.00' && inv996?.service_amount === '0.12' && inv996?.grand_total === '1.62' && r.body?.grandTotal === 1.62, JSON.stringify([inv996, r.body]));
+  await q(sql`UPDATE locations SET service_rate = 0 WHERE id = ${LOC_TEST}`);
+  const snap996 = await api(vURL(`/api/venue/invoices/${act10.id}/${p996.id}`), { headers: A });
+  ok('بعد تصفير النسبة: المحصَّلة مجمَّدة على خدمتها (8% · 0.12)',
+    snap996.body?.invoice?.isPaid === true && snap996.body?.invoice?.serviceRate === 8 && snap996.body?.invoice?.serviceAmount === 0.12, JSON.stringify(snap996.body?.invoice).slice(0, 200));
+  // 💰 الخدمة للمكان كاملةً: «للمكان» = ماء 998 (0.50) + طلبات 996 (1.50) + خدمته (0.12) = 2.12 · «للنادي» 0
+  const acc10 = await api(vURL(`/api/venue/money/night?activityId=${act10.id}`), { headers: A });
+  const t10 = acc10.body?.totals ?? {};
+  ok('الحساب: الخدمة 0.12 داخل «للمكان» (2.12) وخارج «للنادي» (0)',
+    t10.service === 0.12 && t10.venue === 2.12 && t10.club === 0 && t10.collected === 2.12, JSON.stringify(t10));
   ok('تحصيلٌ بلا إصدارٍ مسبق يُصدر الرقم ويقبض',
     before996 === 0 && r.body?.success === true && Number(inv996?.invoice_no) > 0 && inv996?.is_paid === true,
     JSON.stringify([before996, r.body, inv996]));
@@ -519,7 +557,8 @@ async function main() {
   ok('بعد التعطيل: المحصَّلة مجمَّدة على مائها', w998b?.isPaid === true && w998b?.waterCharge === 0.5, JSON.stringify(w998b));
   ok('بعد التعطيل: الحيّة بلا ماء', w999c?.waterCharge === 0, JSON.stringify(w999c));
 
-  await q(sql`UPDATE locations SET auto_water = ${waterSaved.aw === true}, min_charge_enabled = ${waterSaved.en === true} WHERE id = ${LOC_TEST}`);
+  await q(sql`UPDATE locations SET auto_water = ${waterSaved.aw === true}, min_charge_enabled = ${waterSaved.en === true},
+    minimum_charge = ${waterSaved.val}, service_rate = ${waterSaved.sr ?? 0} WHERE id = ${LOC_TEST}`);
 
   // ══ ١١ · إعادة بناء الكونسول (2026-10-30) ══
   // فاتورةٌ جديدة بعد التحصيل · التراجع · رفض المبلغ المتغيّر · حارس الإلغاء ·

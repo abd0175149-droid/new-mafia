@@ -169,6 +169,9 @@ export const orderInvoices = pgTable('order_invoices', {
   // 🎟️ خصم مشروب الولاء (لقطة) ومرجع المكافأة
   loyaltyDiscount: decimal('loyalty_discount', { precision: 10, scale: 2 }).default('0'),
   loyaltyRewardId: integer('loyalty_reward_id'),
+  // 🧾 ضريبة الخدمة (لقطة): النسبة التي صدرت بها الفاتورة ومبلغها — للمكان كاملةً، داخلةٌ في grand_total
+  serviceRate: decimal('service_rate', { precision: 5, scale: 2 }).default('0'),
+  serviceAmount: decimal('service_amount', { precision: 10, scale: 2 }).default('0'),
   gameFeeApplied: boolean('game_fee_applied').default(false),
   gameFeeAmount: decimal('game_fee_amount', { precision: 10, scale: 2 }).default('0'),
   grandTotal: decimal('grand_total', { precision: 10, scale: 2 }).default('0'),

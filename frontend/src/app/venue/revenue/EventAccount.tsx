@@ -21,12 +21,13 @@ interface Row {
   invoiceNo: number | null; paidAt: string | null; paidByName: string;
   ordersCount: number; ordersTotal: number; minTopup: number; waterCharge: number;
   loyaltyDiscount: number; gameFee: number; grandTotal: number; isFree: boolean; noInvoice: boolean;
+  serviceRate?: number; serviceAmount?: number;
 }
 interface Account {
   activity: { id: number; name: string; date: string };
   rules: { gameFeeEnabled: boolean; minChargeEnabled: boolean; minimumCharge: number; autoWaterEnabled: boolean; waterPrice: number };
   totals: {
-    collected: number; venue: number; club: number; orders: number; topup: number; water: number;
+    collected: number; venue: number; club: number; orders: number; topup: number; water: number; service?: number;
     fees: number; loyalty: number; feeCount: number; paidCount: number; due: number; dueCount: number;
   };
   counts: { booked: number; played: number; free: number; directPaid: number; cancelledOrders: number; cancelledTotal: number };
@@ -60,6 +61,7 @@ function rowParts(r: Row): string {
   if (r.waterCharge > 0) p.push(`ماء ${f2(r.waterCharge)}`);
   if (r.gameFee > 0) p.push(`دخوليّة ${f2(r.gameFee)}`);
   if (r.loyaltyDiscount > 0) p.push(`− ولاء ${f2(r.loyaltyDiscount)}`);
+  if ((r.serviceAmount ?? 0) > 0) p.push(`ضريبة خدمة ${Math.round((r.serviceRate ?? 0) * 100) / 100}% ${f2(r.serviceAmount ?? 0)}`);
   if (r.isFree) p.push('حجز مجّانيّ');
   return p.join(' · ');
 }

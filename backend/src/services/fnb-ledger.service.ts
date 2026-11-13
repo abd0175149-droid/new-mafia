@@ -3,6 +3,7 @@
 //
 // نموذج المال (قرارات المالك المقفلة 2026-10-30):
 //   • الطلبات وفروق الخيارات وتكملة الحدّ الأدنى والماء ⟵ للمكان كاملةً.
+//   • ضريبة الخدمة (2026-11-13) ⟵ للمكان كاملةً: تدخل «للمكان» ولا تدخل حساب النادي إطلاقاً.
 //   • دخوليّة اللعبة ⟵ للنادي (وخصم مشروب الولاء على حسابه). حصّة النادي من المنيو صفر.
 //   • ما في صندوق المكان = الفواتير المحصّلة = للمكان + للنادي.
 //   • باقٍ على المكان للنادي = دخوليّاتٌ حصّلها − ما سلّمه (تراكميّ، لا يتبع الفترة).
@@ -17,7 +18,7 @@ import type { Database } from '../config/db.js';
 import { orders, orderInvoices, venueHandovers } from '../schemas/fnb.schema.js';
 import { activities, bookings, locations, staff } from '../schemas/admin.schema.js';
 import { players } from '../schemas/player.schema.js';
-import { playersWhoPlayed, playersPresent, waterItemOf, SEAT_SOURCES } from './fnb-invoice.service.js';
+import { playersWhoPlayed, playersPresent, waterItemOf, SEAT_SOURCES, serviceRateOf, serviceChargeOf } from './fnb-invoice.service.js';
 
 const n = (x: unknown) => { const v = parseFloat(String(x ?? '0')); return Number.isFinite(v) ? v : 0; };
 const r2 = (x: number) => Math.round(x * 100) / 100;
@@ -51,6 +52,9 @@ export interface LedgerRow {
   minTopup: number;
   waterCharge: number;
   loyaltyDiscount: number;
+  /** 🧾 ضريبة الخدمة: النسبة (٪) والمبلغ — المحصَّلة من لقطتها، والمفتوحة بنسبة المكان الآن */
+  serviceRate: number;
+  serviceAmount: number;
   gameFee: number;
   grandTotal: number;
   isFree: boolean;
@@ -79,6 +83,8 @@ export interface NightLedger {
   minimumCharge: number;
   autoWaterEnabled: boolean;
   waterPrice: number;
+  /** 🧾 نسبة ضريبة الخدمة في المكان الآن (٪) — صفر = بلا */
+  serviceRate: number;
   rows: LedgerRow[];
   totals: { collected: number; due: number; total: number; paidCount: number; dueCount: number;
     writtenOff?: { debt: number; loss: number; count: number }; oldDebt?: number; comp?: number };
@@ -98,7 +104,9 @@ export async function nightLedger(db: Database, locId: number, activityId: numbe
 
   const [locRow] = await db.select({
     minChargeEnabled: locations.minChargeEnabled, minimumCharge: locations.minimumCharge, autoWater: locations.autoWater,
+    serviceRate: locations.serviceRate,
   }).from(locations).where(eq(locations.id, locId)).limit(1);
+  const serviceRate = serviceRateOf(locRow?.serviceRate);
   const minCharge = locRow?.minChargeEnabled === true ? n(locRow.minimumCharge) : 0;
   const water = locRow?.autoWater === true ? await waterItemOf(db, locId) : null;
 
@@ -137,7 +145,7 @@ export async function nightLedger(db: Database, locId: number, activityId: numbe
     return {
       activityId, activityName: act.name, activityDate: act.date,
       gameFeeEnabled: act.addGameFee === true, minChargeEnabled: minCharge > 0, minimumCharge: minCharge,
-      autoWaterEnabled: water !== null, waterPrice: water?.price ?? 0, rows: [],
+      autoWaterEnabled: water !== null, waterPrice: water?.price ?? 0, serviceRate, rows: [],
       totals: { collected: 0, due: 0, total: 0, paidCount: 0, dueCount: 0 },
     };
   }
@@ -205,7 +213,9 @@ export async function nightLedger(db: Database, locId: number, activityId: numbe
         canUndoUntil: paidAt && now - paidAt.getTime() < UNDO_WINDOW_MS ? new Date(paidAt.getTime() + UNDO_WINDOW_MS).toISOString() : null,
         ordersCount: pOrders.filter(o => o.invoiceId === i.id).length,
         ordersTotal: n(i.ordersTotal), minTopup: n(i.minTopup), waterCharge: n(i.waterCharge),
-        loyaltyDiscount: n((i as any).loyaltyDiscount), gameFee: n(i.gameFeeAmount), grandTotal: n(i.grandTotal),
+        loyaltyDiscount: n((i as any).loyaltyDiscount),
+        serviceRate: n((i as any).serviceRate), serviceAmount: n((i as any).serviceAmount),
+        gameFee: n(i.gameFeeAmount), grandTotal: n(i.grandTotal),
         isFree: bk?.isFree === true, noInvoice: false,
         payMethod: (i as any).payMethod ?? null, paymentId: (i as any).paymentId ?? null,
         paidForBy: (() => { const pay = (i as any).paymentId ? payById.get(Number((i as any).paymentId)) : null; return pay && pay.payer !== pid ? pay.name : null; })(),
@@ -235,7 +245,9 @@ export async function nightLedger(db: Database, locId: number, activityId: numbe
     }
     // 🎁 ضيافة كاملة: البنود بأسعارها والمستحقّ صفر — لا دخوليّة ولا حدّ ولا ماء ولا ولاء (كبناء الفاتورة)
     const comp = compIds.has(pid);
-    const openGrand = comp ? 0 : Math.max(0, openTotal + waterOpen + topupOpen + fee - loyalty);
+    // 🧾 ضريبة الخدمة: نفس دالّة الفاتورة — على (الطلبات + الماء − الولاء) فقط، لا على التكملة ولا الدخوليّة
+    const serviceOpen = comp ? 0 : serviceChargeOf(serviceRate, openTotal, waterOpen, loyalty);
+    const openGrand = comp ? 0 : r2(Math.max(0, openTotal + waterOpen + topupOpen + fee - loyalty) + serviceOpen);
     const hasOpen = comp ? (openOrders.length > 0 || !!unpaidRow)
       : (openOrders.length > 0 || !!unpaidRow || ((minCharge > 0 || !!water) && played && openGrand > 0)
         || (presentIds.has(pid) && openGrand > 0));
@@ -245,7 +257,9 @@ export async function nightLedger(db: Database, locId: number, activityId: numbe
         invoiceId: unpaidRow?.id ?? null, invoiceNo: unpaidRow?.invoiceNo ?? null, printedAt: unpaidRow?.printedAt ?? null,
         isPaid: false, paidAt: null, paidById: null, paidByName: '', canUndoUntil: null,
         ordersCount: openOrders.length, ordersTotal: r2(openTotal), minTopup: comp ? 0 : r2(topupOpen), waterCharge: comp ? 0 : r2(waterOpen),
-        loyaltyDiscount: comp ? 0 : r2(loyalty), gameFee: comp ? 0 : r2(fee), grandTotal: r2(openGrand),
+        loyaltyDiscount: comp ? 0 : r2(loyalty),
+        serviceRate: comp ? 0 : serviceRate, serviceAmount: serviceOpen,
+        gameFee: comp ? 0 : r2(fee), grandTotal: r2(openGrand),
         isFree: bk?.isFree === true, noInvoice: !unpaidRow,
         payMethod: null, paymentId: null, paidForBy: null, groupId: groupOf.get(pid) ?? null,
         fullComp: comp, compAmount: comp ? r2(openTotal) : 0, writeoffReason: null, debtFrom: null,
@@ -266,7 +280,7 @@ export async function nightLedger(db: Database, locId: number, activityId: numbe
       key: `debt-${d.id}`, kind: 'debt', playerId: pid, playerName: names.get(pid) || `لاعب #${pid}`, seat: seatBy.get(pid) ?? null,
       bookingId: null, invoiceId: Number(d.id), invoiceNo: Number(d.invoice_no), printedAt: null, isPaid: false, paidAt: d.paid_at,
       paidById: null, paidByName: '', canUndoUntil: null, ordersCount: 0, ordersTotal: 0, minTopup: 0, waterCharge: 0,
-      loyaltyDiscount: 0, gameFee: 0, grandTotal: n(d.grand_total), isFree: false, noInvoice: false,
+      loyaltyDiscount: 0, serviceRate: 0, serviceAmount: 0, gameFee: 0, grandTotal: n(d.grand_total), isFree: false, noInvoice: false,
       payMethod: 'debt', paymentId: null, paidForBy: null, groupId: null, fullComp: false, compAmount: 0,
       writeoffReason: d.writeoff_reason ?? null, debtFrom: d.act_date,
     });
@@ -285,7 +299,7 @@ export async function nightLedger(db: Database, locId: number, activityId: numbe
   return {
     activityId, activityName: act.name, activityDate: act.date,
     gameFeeEnabled: act.addGameFee === true, minChargeEnabled: minCharge > 0, minimumCharge: minCharge,
-    autoWaterEnabled: water !== null, waterPrice: water?.price ?? 0,
+    autoWaterEnabled: water !== null, waterPrice: water?.price ?? 0, serviceRate,
     rows: out,
     totals: {
       collected: r2(collected), due: r2(due), total: r2(collected + due),
@@ -374,6 +388,7 @@ async function paidByActivity(db: Database, locId: number, from: string, to: str
       COALESCE(SUM(i.comp_amount) FILTER (WHERE ${COLLECTED}), 0)::numeric AS comp,
       COALESCE(SUM(i.min_topup) FILTER (WHERE ${COLLECTED}), 0)::numeric AS topup,
       COALESCE(SUM(i.water_charge) FILTER (WHERE ${COLLECTED}), 0)::numeric AS water,
+      COALESCE(SUM(i.service_amount) FILTER (WHERE ${COLLECTED}), 0)::numeric AS service,
       COALESCE(SUM(i.game_fee_amount) FILTER (WHERE ${COLLECTED}), 0)::numeric AS fees,
       COALESCE(SUM(i.loyalty_discount) FILTER (WHERE ${COLLECTED}), 0)::numeric AS loyalty,
       COUNT(i.id) FILTER (WHERE ${COLLECTED} AND i.game_fee_applied AND i.game_fee_amount > 0)::int AS fee_count,
@@ -388,7 +403,8 @@ async function paidByActivity(db: Database, locId: number, from: string, to: str
   `));
 }
 
-/** حساب النادي مع المكان منذ أوّل ليلة: دخوليّاتٌ (− خصم ولاء) حصّلها، والمسلَّم */
+/** حساب النادي مع المكان منذ أوّل ليلة: دخوليّاتٌ (− خصم ولاء) حصّلها، والمسلَّم.
+ *  🧾 ضريبة الخدمة لا تدخل هنا: مال المكان كاملاً — لا يُطالَب المكان بتسليم شيءٍ منها. */
 export async function clubAccount(db: Database, locId: number) {
   const [c] = rows(await db.execute(sql`
     SELECT COALESCE(SUM(i.game_fee_amount - COALESCE(i.loyalty_discount, 0)), 0)::numeric AS club
@@ -455,9 +471,9 @@ export async function moneySummary(db: Database, locId: number, period: string, 
     nights.push({
       activityId: Number(x.id), activityName: x.name, activityDate: isoUtc(x.date),
       collected: r2(n(x.collected)),
-      venue: r2(n(x.orders) - n(x.comp) + n(x.topup) + n(x.water)),
+      venue: r2(n(x.orders) - n(x.comp) + n(x.topup) + n(x.water) + n(x.service)),
       club: r2(n(x.fees) - n(x.loyalty)),
-      orders: r2(n(x.orders)), topup: r2(n(x.topup)), water: r2(n(x.water)),
+      orders: r2(n(x.orders)), topup: r2(n(x.topup)), water: r2(n(x.water)), service: r2(n(x.service)),
       fees: r2(n(x.fees)), loyalty: r2(n(x.loyalty)),
       feeCount: Number(x.fee_count) || 0, paidCount: Number(x.paid_count) || 0, freeCount: Number(x.free_count) || 0,
       due: L?.totals.due ?? 0, dueCount: L?.totals.dueCount ?? 0,
@@ -466,7 +482,7 @@ export async function moneySummary(db: Database, locId: number, period: string, 
   const sum = (k: string) => r2(nights.reduce((s, x: any) => s + (x[k] as number), 0));
   const totals = {
     collected: sum('collected'), venue: sum('venue'), club: sum('club'),
-    orders: sum('orders'), topup: sum('topup'), water: sum('water'), fees: sum('fees'), loyalty: sum('loyalty'),
+    orders: sum('orders'), topup: sum('topup'), water: sum('water'), service: sum('service'), fees: sum('fees'), loyalty: sum('loyalty'),
     feeCount: nights.reduce((s, x) => s + x.feeCount, 0), paidCount: nights.reduce((s, x) => s + x.paidCount, 0),
     freeCount: nights.reduce((s, x) => s + x.freeCount, 0),
   };
@@ -553,6 +569,7 @@ export async function nightAccount(db: Database, locId: number, activityId: numb
   const played = (await playersWhoPlayed(db, activityId)).length;
 
   const ordersT = r2(n(p?.orders)), topup = r2(n(p?.topup)), water = r2(n(p?.water)), comp = r2(n(p?.comp));
+  const service = r2(n(p?.service));
   const fees = r2(n(p?.fees)), loyalty = r2(n(p?.loyalty));
   // 💵 كيف دُفع المحصَّل (2026-11-01) — كم يجب أن يكون في الدرج نقداً. «غير مسجَّل» = حُصّل قبل تسجيل الطريقة
   const [bm] = rows(await db.execute(sql`SELECT
@@ -575,11 +592,11 @@ export async function nightAccount(db: Database, locId: number, activityId: numb
     activity: { id: L.activityId, name: L.activityName, date: L.activityDate },
     rules: {
       gameFeeEnabled: L.gameFeeEnabled, minChargeEnabled: L.minChargeEnabled, minimumCharge: L.minimumCharge,
-      autoWaterEnabled: L.autoWaterEnabled, waterPrice: L.waterPrice,
+      autoWaterEnabled: L.autoWaterEnabled, waterPrice: L.waterPrice, serviceRate: L.serviceRate,
     },
     totals: {
-      collected: r2(n(p?.collected)), venue: r2(ordersT - comp + topup + water), club: r2(fees - loyalty),
-      orders: r2(ordersT - comp), comp, topup, water, fees, loyalty,
+      collected: r2(n(p?.collected)), venue: r2(ordersT - comp + topup + water + service), club: r2(fees - loyalty),
+      orders: r2(ordersT - comp), comp, topup, water, service, fees, loyalty,
       feeCount: Number(p?.fee_count) || 0, paidCount: Number(p?.paid_count) || 0,
       due: L.totals.due, dueCount: L.totals.dueCount,
     },
@@ -637,7 +654,8 @@ export async function settlementsOverview(db: Database, from: string, to: string
     const account = await clubAccount(db, locId);
     const nightsDetail = acts.map((x: any) => ({
       activityId: Number(x.id), activityName: x.name, activityDate: isoUtc(x.date),
-      collected: r2(n(x.collected)), venue: r2(n(x.orders) - n(x.comp) + n(x.topup) + n(x.water)), club: r2(n(x.fees) - n(x.loyalty)),
+      collected: r2(n(x.collected)), venue: r2(n(x.orders) - n(x.comp) + n(x.topup) + n(x.water) + n(x.service)), club: r2(n(x.fees) - n(x.loyalty)),
+      service: r2(n(x.service)),
       feeCount: Number(x.fee_count) || 0, paidCount: Number(x.paid_count) || 0, freeCount: Number(x.free_count) || 0,
     }));
     const box = nightsDetail.reduce((s, x) => s + x.collected, 0);
@@ -646,6 +664,7 @@ export async function settlementsOverview(db: Database, from: string, to: string
       locationId: locId, name: l.name, nights: acts.length,
       box: r2(box),
       venue: r2(nightsDetail.reduce((s, x) => s + x.venue, 0)),
+      service: r2(nightsDetail.reduce((s, x) => s + x.service, 0)),
       clubVia: r2(nightsDetail.reduce((s, x) => s + x.club, 0)),
       direct: r2(n(direct?.amount)), directCount: Number(direct?.cnt) || 0,
       due: r2(due), dueNoInvoice: r2(dueNoInvoice),
@@ -663,6 +682,7 @@ export async function settlementsOverview(db: Database, from: string, to: string
     direct: r2(venues.reduce((s, v) => s + v.direct, 0)),
     held: r2(venues.reduce((s, v) => s + Math.max(0, v.held), 0)),
     venue: r2(venues.reduce((s, v) => s + v.venue, 0)),
+    service: r2(venues.reduce((s, v) => s + v.service, 0)),
     due: r2(venues.reduce((s, v) => s + v.due, 0)),
     dueNoInvoice: r2(venues.reduce((s, v) => s + v.dueNoInvoice, 0)),
   };

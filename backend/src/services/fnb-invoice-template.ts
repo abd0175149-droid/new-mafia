@@ -108,6 +108,9 @@ function settledLine(data: InvoiceData): string | null {
   return parts.length ? parts.join(' · ') : null;
 }
 
+/** النسبة بلا أصفارٍ زائدة: 8 لا 8.00، و7.5 كما هي */
+const pct = (x: number) => String(Math.round((Number(x) || 0) * 100) / 100);
+
 function view(data: InvoiceData, invoiceNo: number, printedByName: string, record: NightRecord | null): View {
   const paid = !!data.paidAt;
   const at = paid ? new Date(data.paidAt as Date) : new Date();
@@ -116,6 +119,8 @@ function view(data: InvoiceData, invoiceNo: number, printedByName: string, recor
   if (data.minTopup > 0) sums.push({ label: 'تكملة الحدّ الأدنى', value: fmt(data.minTopup) });
   if (data.gameFeeApplied) sums.push({ label: 'دخوليّة اللعبة', value: fmt(data.gameFeeAmount) });
   if (data.loyaltyDiscount > 0) sums.push({ label: `مشروب بطاقة الولاء${data.loyaltyItemName ? ` (${clean(data.loyaltyItemName)})` : ''}`, value: `−${fmt(data.loyaltyDiscount)}` });
+  // 🧾 ضريبة الخدمة: على الطلبات والماء (بعد مشروب الولاء) — سطرٌ مستقلّ بنسبته
+  if ((data.serviceAmount || 0) > 0) sums.push({ label: `ضريبة خدمة ${pct(data.serviceRate)}%`, value: fmt(data.serviceAmount) });
   if ((data.compAmount || 0) > 0) sums.push({ label: 'ضيافة كاملة', value: `−${fmt(data.compAmount || 0)}` });
   return {
     no: `#${pad(invoiceNo, 4)}`, paid,

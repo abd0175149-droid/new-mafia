@@ -51,14 +51,14 @@ venueRouter.get('/me', authenticate, async (req: Request, res: Response) => {
       const [loc] = await db.select({
         id: locations.id, name: locations.name,
         minChargeEnabled: locations.minChargeEnabled, minimumCharge: locations.minimumCharge,
-        autoWater: locations.autoWater, latitude: locations.latitude, radius: locations.geofenceRadiusM,
+        autoWater: locations.autoWater, serviceRate: locations.serviceRate, latitude: locations.latitude, radius: locations.geofenceRadiusM,
       }).from(locations).where(eq(locations.id, row.locationId)).limit(1);
       // 📋 قواعد الفاتورة للاطّلاع في ورقة «المكان» — تضبطها الإدارة لا الكونسول
       location = loc ? {
         id: loc.id, name: loc.name,
         rules: {
           minChargeEnabled: loc.minChargeEnabled === true, minimumCharge: parseFloat(loc.minimumCharge || '0'),
-          autoWater: loc.autoWater === true, geofenceSet: loc.latitude != null, geofenceRadiusM: loc.radius ?? null,
+          autoWater: loc.autoWater === true, serviceRate: parseFloat(loc.serviceRate || '0') || 0, geofenceSet: loc.latitude != null, geofenceRadiusM: loc.radius ?? null,
         },
       } : null;
     }
@@ -1005,6 +1005,7 @@ venueRouter.get('/invoices/candidates', authenticate, requireVenuePermission('in
       minimumCharge: L.minimumCharge,
       autoWaterEnabled: L.autoWaterEnabled,
       waterPrice: L.waterPrice,
+      serviceRate: L.serviceRate,
       totals: L.totals,
       candidates: L.rows,
       // 🧾 حالة واتساب لكلّ لاعب: وصلته الفاتورة / الختم / وصلت حوالة / لم تُرسل وسببها
@@ -1699,6 +1700,8 @@ venueRouter.post('/invoices/:activityId/:playerId/waive-fee', authenticate, requ
         await db.update(orderInvoices).set({
           gameFeeApplied: data.gameFeeApplied,
           gameFeeAmount: data.gameFeeAmount.toFixed(2),
+          serviceRate: data.serviceRate.toFixed(2),
+          serviceAmount: data.serviceAmount.toFixed(2),
           grandTotal: data.grandTotal.toFixed(2),
         } as any).where(and(eq(orderInvoices.id, inv.id), eq(orderInvoices.isPaid, false)));
       }

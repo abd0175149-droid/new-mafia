@@ -9,6 +9,8 @@ import { Swatch, Amount } from '../ui';
 export interface SplitTotals {
   collected: number; venue: number; club: number;
   orders: number; topup: number; water: number; loyalty: number; feeCount: number;
+  /** 🧾 ضريبة الخدمة المحصَّلة — للمكان كاملةً (داخلةٌ في venue) */
+  service?: number;
 }
 
 export function MoneySplit({ t, emptyText = 'لا شيء محصَّل في هذه الفترة بعد' }: { t: SplitTotals; emptyText?: string }) {
@@ -38,6 +40,7 @@ export function MoneySplit({ t, emptyText = 'لا شيء محصَّل في هذ�
             <div className="text-[12.5px]" style={{ color: TX.dim }}>
               طلبات <span className="vc-num">{f2(t.orders)}</span> + تكملة حدّ أدنى <span className="vc-num">{f2(t.topup)}</span>
               {t.water > 0 && <> + ماء <span className="vc-num">{f2(t.water)}</span></>}
+              {(t.service ?? 0) > 0 && <> + ضريبة خدمة <span className="vc-num">{f2(t.service ?? 0)}</span></>}
             </div>
           </div>
           <Amount value={f2(t.venue)} size={20} unit={false} />

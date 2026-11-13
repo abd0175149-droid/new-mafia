@@ -37,6 +37,10 @@ export interface InvoiceData {
   loyaltyDiscount: number;
   loyaltyRewardId: number | null;
   loyaltyItemName: string | null;
+  /** 🧾 ضريبة الخدمة: نسبة المكان (٪) ومبلغها — على (الطلبات + الماء − مشروب الولاء) فقط، للمكان كاملةً.
+   *  صفر إن لم يضبطها المكان أو كان اللاعب ضيافةً كاملة. داخلةٌ في grandTotal. */
+  serviceRate: number;
+  serviceAmount: number;
   gameFeeApplied: boolean;
   gameFeeAmount: number;
   grandTotal: number;
@@ -63,6 +67,21 @@ export interface PaymentInfo {
   card: boolean;
   /** null = كليك غير مفعّل أو ناقص القيمة (لا تُطبع تفاصيلٌ نصفيّة) */
   cliq: { method: 'alias' | 'phone'; value: string; bank: string; name: string } | null;
+}
+
+/**
+ * 🧾 ضريبة الخدمة (قرار المالك 2026-11-13) — المصدر الوحيد للمعادلة (الفاتورة والدفتر يناديانها):
+ *   الأساس = الطلبات + الماء التلقائيّ − خصم مشروب الولاء (لا يقلّ عن صفر).
+ *   خارج الأساس: تكملة الحدّ الأدنى والدخوليّة. المبلغ = الأساس × النسبة ÷ 100 مقرّباً لخانتين.
+ */
+export function serviceRateOf(raw: unknown): number {
+  const v = parseFloat(String(raw ?? '0'));
+  return Number.isFinite(v) && v > 0 ? Math.min(v, 100) : 0;
+}
+export function serviceChargeOf(rate: number, ordersTotal: number, waterCharge: number, loyaltyDiscount: number): number {
+  if (!(rate > 0)) return 0;
+  const base = Math.max(0, ordersTotal + waterCharge - loyaltyDiscount);
+  return Math.round((base * rate / 100 + Number.EPSILON) * 100) / 100;
 }
 
 /** طرق الدفع من صفّ المكان — كليك يُعرض فقط مفعّلاً وبقيمةٍ مكتوبة */
@@ -200,6 +219,7 @@ export async function buildInvoiceData(
     minChargeEnabled: locations.minChargeEnabled,
     minimumCharge: locations.minimumCharge,
     autoWater: locations.autoWater,
+    serviceRate: locations.serviceRate,
     payCash: locations.payCash, payCard: locations.payCard, payCliq: locations.payCliq,
     cliqMethod: locations.cliqMethod, cliqValue: locations.cliqValue, cliqBank: locations.cliqBank, cliqName: locations.cliqName,
   }).from(locations).where(eq(locations.id, locationId)).limit(1);
@@ -228,6 +248,8 @@ export async function buildInvoiceData(
       lines: mergeLines(snapItems), ordersCount: snapOrders.length,
       ordersTotal: n(inv.ordersTotal), minTopup: n(inv.minTopup), waterCharge: n(inv.waterCharge),
       loyaltyDiscount: n((inv as any).loyaltyDiscount), loyaltyRewardId: (inv as any).loyaltyRewardId ?? null, loyaltyItemName: null,
+      // 🧾 المحصَّلة تحتفظ بالنسبة التي صدرت بها — تغيير نسبة المكان لاحقاً لا يمسّها
+      serviceRate: n((inv as any).serviceRate), serviceAmount: n((inv as any).serviceAmount),
       gameFeeApplied: inv.gameFeeApplied === true, gameFeeAmount: n(inv.gameFeeAmount), grandTotal: n(inv.grandTotal),
       orderIds: snapOrders.map(o => o.id), seat: await seatOf(db, activityId, playerId),
       snapshotInvoiceId: inv.id, paidAt: inv.isPaid ? inv.paidAt : null,
@@ -349,7 +371,12 @@ export async function buildInvoiceData(
     gameFeeApplied = false; gameFeeAmount = 0;
   }
   const minTopupFinal = fullComp ? 0 : minTopup;
-  const grandTotal = fullComp ? 0 : Math.max(0, ordersTotal + waterCharge + minTopup + gameFeeAmount - loyaltyDiscount);
+  // 🧾 ضريبة الخدمة: على ما طُلب من الكافيه فعلاً (طلبات + ماء − مشروب الولاء) — لا على التكملة ولا الدخوليّة.
+  //    ليست استهلاكاً: لا تدخل مقارنة الحدّ الأدنى أعلاه. الضيافة الكاملة بلا ضريبة خدمة.
+  const serviceRate = fullComp ? 0 : serviceRateOf(loc?.serviceRate);
+  const serviceAmount = fullComp ? 0 : serviceChargeOf(serviceRate, ordersTotal, waterCharge, loyaltyDiscount);
+  const grandTotal = fullComp ? 0
+    : Math.round((Math.max(0, ordersTotal + waterCharge + minTopup + gameFeeAmount - loyaltyDiscount) + serviceAmount) * 100) / 100;
   if (presenceOnly && grandTotal <= 0) {
     return { error: priorPaid.length > 0 ? 'لا شيء مستحقّ — فواتيره محصَّلة' : 'لا شيء مستحقّ على هذا اللاعب بعد' };
   }
@@ -371,6 +398,8 @@ export async function buildInvoiceData(
     loyaltyDiscount,
     loyaltyRewardId,
     loyaltyItemName,
+    serviceRate,
+    serviceAmount,
     gameFeeApplied,
     gameFeeAmount,
     grandTotal,
@@ -441,6 +470,8 @@ export async function issueInvoiceNumber(
         waterCharge: data.waterCharge.toFixed(2),
         loyaltyDiscount: data.loyaltyDiscount.toFixed(2),
         loyaltyRewardId: data.loyaltyRewardId,
+        serviceRate: data.serviceRate.toFixed(2),
+        serviceAmount: data.serviceAmount.toFixed(2),
         gameFeeApplied: data.gameFeeApplied,
         gameFeeAmount: data.gameFeeAmount.toFixed(2),
         grandTotal: data.grandTotal.toFixed(2),
@@ -467,6 +498,8 @@ export async function issueInvoiceNumber(
       waterCharge: data.waterCharge.toFixed(2),
       loyaltyDiscount: data.loyaltyDiscount.toFixed(2),
       loyaltyRewardId: data.loyaltyRewardId,
+      serviceRate: data.serviceRate.toFixed(2),
+      serviceAmount: data.serviceAmount.toFixed(2),
       gameFeeApplied: data.gameFeeApplied,
       gameFeeAmount: data.gameFeeAmount.toFixed(2),
       grandTotal: data.grandTotal.toFixed(2),

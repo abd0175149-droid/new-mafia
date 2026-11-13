@@ -1,11 +1,9 @@
 'use client';
 
 // ══════════════════════════════════════════════════════
-// 📋 صفُّ حجزٍ واحد — ٧٦ بكسل بدل ١٧٥
+// 📋 صفُّ حجزٍ واحد — ٧٦ بكسل على الهاتف، ٦٠ في أعمدة الحاسوب
 //
-// 🔴 الاسمُ لا يُقصّ: كان يتقاسم السطر مع خمس شاراتٍ كلُّها `whitespace-nowrap`،
-//    وهو وحده يملك `truncate` — فقُصّ «عبدالرزاق الخطيب» إلى «عبدا…».
-//    الشاراتُ نزلت سطراً، والحالةُ صارت شريطاً لونيّاً عند الحافّة.
+// 🔴 الاسمُ وحده على سطره فلا يُقصّ بسبب الشارات — الشاراتُ في السطر الثاني.
 //
 // 🔴 السحبُ لتعليم الحضور (قرار المالك):
 //    • السحبُ يبدأ فقط بعد تجاوز عتبةٍ **أفقيّةٍ أوضح من العموديّة** — وإلّا
@@ -13,36 +11,62 @@
 //    • ويُلغى إن غلبت الحركةُ العموديّة، فيعود الصفّ ولا يُعلَّم شيء.
 //    • والاتّجاهُ منطقيٌّ في RTL: السحبُ إلى **اليسار** (باتّجاه التقدّم) = حضر،
 //      وإلى **اليمين** (رجوعاً) = لم يحضر.
-//    • ولمن لا يعرف السحب: النقرةُ تفتح ورقةً فيها الزرّان كبيرَين.
+//    • ولمن لا يعرف السحب: النقرةُ تفتح بطاقةً فيها الزرّان كبيرَين.
+//
+// ⏱ طرفُ الصفّ يقول أين صاحبه الآن: شريحةُ وقت الوصول لمن في الطريق (حمراء إن
+//    تجاوز وقته)، وحالةُ رسالة المتابعة لمن لم يردّ، وعلامةٌ لمن وصل أو اعتذر.
 // ══════════════════════════════════════════════════════
 
 import { useRef, useState } from 'react';
 import { motion } from 'framer-motion';
-import { RES_COLORS, rowAccent, statusMeta, resStatus, isWaSent, waAgo } from '@/lib/reservation-status';
+import {
+  Armchair, BellOff, BookUser, Check, CheckCheck, Clock, Smartphone, StickyNote, X,
+} from 'lucide-react';
+import { statusMeta, resStatus, isWaSent, waAgo } from '@/lib/reservation-status';
+import { Badge } from '@/app/admin/whatsapp/wa-ui';
 import type { Reservation } from '@/hooks/useReservations';
+import { arrivalGroup, etaLabel, followupState, hm, num, peopleLabel } from './arrival';
 
 const AR = ['٠', '١', '٢', '٣', '٤', '٥', '٦', '٧', '٨', '٩'];
+/** أرقام عربيّة — باقية لوضع الباب الذي يستوردها */
 export const ar = (v: any) => String(v ?? 0).replace(/[0-9]/g, d => AR[+d]);
+/** يردّ أيّ رقمٍ عربيّ إلى لاتينيّ (دوالّ المكتبة المشتركة تكتب بالعربيّة) */
+export const latin = (s: string) => String(s ?? '').replace(/[٠-٩]/g, d => String(AR.indexOf(d)));
 
 /** المسافةُ التي يُعتدّ بها فعلاً */
 const TRIGGER = 84;
 /** عتبةُ البدء — أفقيٌّ أوضحُ من عموديٍّ بمرّةٍ ونصف قبل أن نأخذ الإيماءة */
 const START = 12;
 
-export default function ResRow({ r, onOpen, onAttend }: {
+export const initial = (name: string | null | undefined) => (String(name || '').trim()[0] || '+');
+
+export default function ResRow({ r, now, onOpen, onAttend, dense, selected, swipe = true, arrival = true }: {
   r: Reservation;
+  /** اللحظة الحاليّة — تتجدّد كلّ ٣٠ث من الصفحة فتبقى «بعد ١٠ د» و«تأخّر» صحيحتين */
+  now: number;
   onOpen: (r: Reservation) => void;
   onAttend: (id: number, v: boolean | null) => void;
+  /** صفّ أعمدة الحاسوب: أقصر وبلا سحب */
+  dense?: boolean;
+  selected?: boolean;
+  swipe?: boolean;
+  /** false: لا شريحة وقت ولا حالة متابعة */
+  arrival?: boolean;
 }) {
   const [dx, setDx] = useState(0);
   const st = resStatus(r);
   const meta = statusMeta(r);
-  const accent = rowAccent(r);
+  // بلا مجموعات وصول («كلّ الفعاليّات»): وقتُ فعاليّةٍ مضت لا يُقرأ «متأخّراً» اليوم — تبقى علامة الحضور وحدها
+  const g0 = arrivalGroup(r);
+  const group = arrival || g0 === 'arrived' || g0 === 'declined' ? g0 : 'other';
+  const eta = group === 'onway' ? etaLabel(r.etaAt, now) : null;
+  const fu = group === 'silent' ? followupState(r) : null;
 
   const start = useRef<{ x: number; y: number } | null>(null);
   const axis = useRef<'none' | 'x' | 'y'>('none');
 
   const onDown = (e: React.PointerEvent) => {
+    if (!swipe) return;
     start.current = { x: e.clientX, y: e.clientY };
     axis.current = 'none';
   };
@@ -71,28 +95,36 @@ export default function ResRow({ r, onOpen, onAttend }: {
     start.current = null; axis.current = 'none'; setDx(0);
   };
 
-  const revealHere = dx < 0;
+  const revealYes = dx < 0;
   const armed = Math.abs(dx) >= TRIGGER;
 
+  // ── السطر الثاني: العدد · من أين جاء الوقت أو ما حال المتابعة ──
+  const people = peopleLabel(r.peopleCount);
+  let context: string | null = null;
+  if (group === 'onway') {
+    const quote = r.etaNote ? `«${r.etaNote}»` : null;
+    context = r.etaSource === 'bot' ? (quote || 'سجّله الدون من ردّه') : (quote || 'سجّله موظّف');
+  } else if (group === 'silent') {
+    context = fu ? fu.text : 'لم تُرسل له متابعة';
+  } else if (group === 'declined' && r.declinedAt) {
+    context = r.declinedVia === 'followup' ? `اعتذر للدون ${hm(r.declinedAt)}` : `لن يحضر · ${hm(r.declinedAt)}`;
+  }
+
+  const waSt = (r as any).waStatus as string | undefined;
+  const job = (r as any).confirmJob as { status?: string; dueAt?: string; reason?: string } | undefined;
+  const line = (r as any).lineStatus as string | undefined;
+
   return (
-    <div className="relative select-none" style={{ touchAction: 'pan-y' }}>
+    <div className="res-swipe">
       {/* ما يظهر خلف الصفّ أثناء السحب */}
       {dx !== 0 && (
-        <div
-          className="absolute inset-0 rounded-2xl flex items-center px-5 text-[15px] font-extrabold"
-          style={{
-            background: revealHere ? `${RES_COLORS.attended}22` : `${RES_COLORS.noShow}22`,
-            border: `1px solid ${(revealHere ? RES_COLORS.attended : RES_COLORS.noShow)}${armed ? '99' : '44'}`,
-            color: revealHere ? RES_COLORS.attended : RES_COLORS.noShow,
-            justifyContent: revealHere ? 'flex-start' : 'flex-end',
-          }}
-        >
-          {revealHere ? '✓ حضر' : '✕ لم يحضر'}
+        <div className={`res-reveal ${revealYes ? 'yes' : 'no'}${armed ? ' armed' : ''}`}>
+          {revealYes ? <><Check /> حضر</> : <><X /> لم يحضر</>}
         </div>
       )}
 
       <motion.button
-        layout
+        type="button"
         onPointerDown={onDown}
         onPointerMove={onMove}
         onPointerUp={onUp}
@@ -100,99 +132,64 @@ export default function ResRow({ r, onOpen, onAttend }: {
         onClick={() => { if (axis.current !== 'x' && dx === 0) onOpen(r); }}
         animate={{ x: dx }}
         transition={dx === 0 ? { type: 'spring', stiffness: 520, damping: 38 } : { duration: 0 }}
-        className="relative w-full flex items-center gap-2.5 rounded-2xl px-3 py-2.5 text-right"
-        style={{
-          minHeight: 76,
-          background: 'rgba(255,255,255,.03)',
-          border: '1px solid rgba(255,255,255,.07)',
-        }}
+        aria-current={selected ? 'true' : undefined}
+        className={`res-row${dense ? ' dense' : ''}${eta?.late ? ' late' : ''}`}
       >
-        <span className="self-stretch w-1 rounded-full shrink-0" style={{ background: accent }} />
+        <span className={`wa-avatar sm${r.playerId ? ' linked' : ''}`} aria-hidden="true">{initial(r.contactName)}</span>
 
-        <span className="flex-1 min-w-0">
-          {/* الاسمُ وحده على سطره — لا شيء يزاحمه */}
-          <span className="block text-[16px] font-bold text-white truncate leading-tight">{r.contactName}</span>
-          <span className="flex items-center gap-1.5 mt-1 flex-wrap">
-            {r.phone && (
-              <span className="text-[11.5px] text-gray-500 font-mono" dir="ltr">{r.phone}</span>
-            )}
-            {(r.peopleCount ?? 1) > 1 && (
-              <span className="text-[11.5px] text-gray-500">· {ar(r.peopleCount)} أشخاص</span>
-            )}
-            {/* 🪑 مجموعةٌ انطوت: حجزَ لأصدقائه ثمّ حجز كلٌّ منهم لنفسه من التطبيق، فطُوي
-                عددُه إلى واحد لئلّا يُعدّوا مرّتين. الرقم الأصليّ يبقى هنا ظاهراً. */}
+        <span className="t">
+          <span className="nm">{r.contactName || <span className="ltr">{r.phone}</span>}</span>
+          <span className="sub">
+            <span>{people}</span>
+            {context && <span>· {context}</span>}
+            {!dense && r.phone && r.contactName && <span className="ltr">{r.phone}</span>}
+            {/* مجموعةٌ انطوت: حجزَ لأصدقائه ثمّ حجز كلٌّ منهم لنفسه، فطُوي عددُه إلى واحد. الرقم الأصليّ يبقى ظاهراً. */}
             {(r.companionsCollapsed ?? 0) > 0 && (
-              <span
-                className="text-[10.5px] px-1.5 py-px rounded-full border font-bold text-sky-300 border-sky-500/40"
-                title="كان حاجزاً لمجموعة، وانطوى عددُه بعد أن حجز أصدقاؤه لأنفسهم — الرقم الأصليّ محفوظ"
-              >
-                🪑 كان {ar(1 + (r.companionsCollapsed ?? 0))}
-              </span>
+              <Badge tone="info" title="كان حاجزاً لمجموعة، وانطوى عددُه بعد أن حجز أصدقاؤه لأنفسهم — الرقم الأصليّ محفوظ">
+                <Armchair /> كان {num(1 + (r.companionsCollapsed ?? 0))}
+              </Badge>
             )}
-            {st !== 'confirmed' && (
-              <span
-                className="text-[10.5px] px-1.5 py-px rounded-full border font-bold"
-                style={{ color: meta.color, borderColor: meta.color + '66' }}
-              >
-                {meta.short}
-              </span>
-            )}
-            {/* 💬 أُرسلت له رسالةٌ يدويّة — الوقتُ جزءٌ من الشارة، فـ«أُرسلت»
-                وحدها لا تُميّز رسالةَ اليوم من رسالةِ الأسبوع الماضي. */}
+            {st !== 'confirmed' && <Badge tone={st === 'waitlist' ? 'violet' : 'gold'}>{meta.short}</Badge>}
+            {/* رسالة يدويّة أُرسلت — الوقتُ جزءٌ من الشارة: «أُرسلت» وحدها لا تميّز اليوم من الأسبوع الماضي */}
             {isWaSent(r) && (
-              <span
-                className="text-[10.5px] px-1.5 py-px rounded-full border font-bold flex items-center gap-1"
-                style={{ color: RES_COLORS.waSent, borderColor: RES_COLORS.waSent + '55' }}
-                title={`رسالةُ واتساب${r.waSentBy ? ' — ' + r.waSentBy : ''}`}
-              >
-                <span>✓</span>
-                <span className="tabular-nums">{waAgo(r.waSentAt)}</span>
-              </span>
+              <Badge tone="ok" title={`رسالةُ واتساب${r.waSentBy ? ' — ' + r.waSentBy : ''}`}>
+                <Check /> {latin(waAgo(r.waSentAt))}
+              </Badge>
             )}
-            {/* 📤 رسالةٌ من النظام: في الطابور / قُرئت */}
-            {((r as any).waStatus === 'queued' || (r as any).waStatus === 'sending') && <span className="text-[11px]" title="رسالة الحجز في طابور رقم الأعمال">⏱</span>}
-            {(r as any).waStatus === 'read' && <span className="text-[11px] text-sky-400 tracking-[-2px]" title="قرأ رسالة الحجز">✓✓</span>}
-            {(r as any).waStatus === 'failed' && <span className="text-[11px] text-rose-400" title="تعذّر إرسال رسالة الحجز">✗</span>}
-            {/* 📋 رسالة التثبيت التلقائيّة: مجدولة متى · تعذّرت ولماذا (أُرسلت = شارة «✓» أعلاه) */}
-            {(() => {
-              const j = (r as any).confirmJob;
-              if (!j || isWaSent(r)) return null;
-              if (j.status === 'pending' || j.status === 'sending') {
-                const t = j.dueAt ? new Date(j.dueAt).toLocaleTimeString('ar-JO', { hour: 'numeric', minute: '2-digit' }) : '';
-                return <span className="text-[10.5px] px-1.5 py-px rounded-full border font-bold text-sky-300 border-sky-500/40" title="رسالة التثبيت مجدولة — فكّ التثبيت قبلها يلغيها">⏱ {t}</span>;
-              }
-              if (j.status === 'failed' || j.status === 'skipped') {
-                return <span className={`text-[10.5px] px-1.5 py-px rounded-full border font-bold ${j.status === 'failed' ? 'text-rose-300 border-rose-500/40' : 'text-amber-300 border-amber-500/40'}`}
-                  title={`رسالة التثبيت: ${j.reason || (j.status === 'failed' ? 'تعذّرت' : 'لم تُرسل')}`}>✗ {j.reason || 'لم تُرسل'}</span>;
-              }
-              return null;
-            })()}
-            {r.appConfirmed && <span className="text-[11px]" title="تأكّد من التطبيق">📱</span>}
-            {/* 📇 له محادثة مع خطّ الأعمال — إرساله إليه ليس محادثةً باردة */}
-            {((r as any).lineStatus === 'two_way' || (r as any).lineStatus === 'has_chat') && (
-              <span className="text-[10.5px] px-1.5 py-px rounded-full border font-bold text-emerald-300 border-emerald-500/40"
-                title={(r as any).lineStatus === 'two_way' ? 'راسَلنا على خطّ الأعمال — ليست محادثةً باردة' : 'له محادثة سابقة على خطّ الأعمال'}>📇</span>
+            {/* رسالة من النظام: في الطابور / قُرئت / تعذّرت */}
+            {(waSt === 'queued' || waSt === 'sending') && <span title="رسالة الحجز في طابور رقم الأعمال"><Clock /></span>}
+            {waSt === 'read' && <span className="info" title="قرأ رسالة الحجز"><CheckCheck /></span>}
+            {waSt === 'failed' && <span className="danger" title="تعذّر إرسال رسالة الحجز"><X /></span>}
+            {/* رسالة التثبيت التلقائيّة: مجدولة متى · تعذّرت ولماذا */}
+            {job && !isWaSent(r) && (job.status === 'pending' || job.status === 'sending') && (
+              <Badge tone="info" title="رسالة التثبيت مجدولة — فكّ التثبيت قبلها يلغيها">
+                <Clock /> <span className="ltr">{hm(job.dueAt)}</span>
+              </Badge>
             )}
-            {r.remindOptIn === false && (
-              <span className="text-[11px]" title="طلب عدم إرسال تذكيرات">🔕</span>
+            {job && !isWaSent(r) && (job.status === 'failed' || job.status === 'skipped') && (
+              <Badge tone={job.status === 'failed' ? 'danger' : 'warn'}
+                title={`رسالة التثبيت: ${job.reason || (job.status === 'failed' ? 'تعذّرت' : 'لم تُرسل')}`}>
+                <X /> {job.reason || 'لم تُرسل'}
+              </Badge>
             )}
-            {r.notes && <span className="text-[11px]" title={r.notes}>💬</span>}
+            {r.appConfirmed && <span title="تأكّد من التطبيق"><Smartphone /></span>}
+            {/* له محادثة مع خطّ الأعمال — إرساله إليه ليس محادثةً باردة */}
+            {(line === 'two_way' || line === 'has_chat') && (
+              <span className="ok" title={line === 'two_way' ? 'راسَلنا على خطّ الأعمال — ليست محادثةً باردة' : 'له محادثة سابقة على خطّ الأعمال'}><BookUser /></span>
+            )}
+            {r.remindOptIn === false && <span title="طلب عدم إرسال تذكيرات"><BellOff /></span>}
+            {r.notes && <span title={r.notes}><StickyNote /></span>}
           </span>
         </span>
 
-        {/* علامةُ الحضور — ٤٤ بكسل، تُقرأ بالرمز لا باللون وحده */}
-        <span
-          className="w-11 h-11 shrink-0 rounded-xl flex items-center justify-center text-[17px] border-[1.5px]"
-          style={
-            r.attended === true
-              ? { borderColor: RES_COLORS.attended, background: RES_COLORS.attended + '1f', color: RES_COLORS.attended }
-              : r.attended === false
-              ? { borderColor: RES_COLORS.noShow, background: RES_COLORS.noShow + '1a', color: RES_COLORS.noShow }
-              : { borderColor: 'rgba(255,255,255,.14)', color: '#4b5563' }
-          }
-        >
-          {r.attended === true ? '✓' : r.attended === false ? '✕' : '○'}
-        </span>
+        {(eta || fu || group === 'arrived' || group === 'declined') && (
+          <span className="end">
+            {eta && <span className={`res-eta${eta.late ? ' late' : ''}`}>{eta.text}</span>}
+            {fu && <Badge tone={fu.tone}>{fu.short}</Badge>}
+            {group === 'arrived' && <span className="res-mark yes" title="حضر"><Check /></span>}
+            {group === 'declined' && <span className="res-mark no" title="لم يحضر"><X /></span>}
+          </span>
+        )}
       </motion.button>
     </div>
   );

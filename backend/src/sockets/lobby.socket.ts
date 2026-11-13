@@ -77,15 +77,31 @@ export async function markArrivalAttended(
     const digits = String(phone || '').replace(/\D/g, '');
     const tail = digits.length >= 9 ? digits.slice(-9) : '';
     if (!playerId && !tail) return;
-    await db.execute(sql`
-      UPDATE reservations SET attended = TRUE
-      WHERE activity_id = ${activityId}
-        AND (attended IS NULL OR attended = FALSE)
-        AND (
-          (${playerId}::int IS NOT NULL AND player_id = ${playerId}::int)
-          OR (${tail} <> '' AND RIGHT(REGEXP_REPLACE(COALESCE(phone, ''), '\\D', '', 'g'), 9) = ${tail})
-        )
+    // 🕘 حضورٌ فعليّ يمحو اعتذاراً سابقاً (declined_*) — من قال «مش جاي» ثمّ دخل الغرفة حاضرٌ لا معتذر.
+    //    القيمُ السابقة تُعاد من الاستعلام نفسه ليُسجَّل المحوُ في سجلّ المتابعة.
+    const upd: any = await db.execute(sql`
+      WITH prev AS (
+        SELECT id, declined_at, declined_via FROM reservations
+        WHERE activity_id = ${activityId}
+          AND (attended IS NULL OR attended = FALSE)
+          AND (
+            (${playerId}::int IS NOT NULL AND player_id = ${playerId}::int)
+            OR (${tail} <> '' AND RIGHT(REGEXP_REPLACE(COALESCE(phone, ''), '\\D', '', 'g'), 9) = ${tail})
+          )
+        FOR UPDATE
+      )
+      UPDATE reservations r SET attended = TRUE, declined_at = NULL, declined_via = NULL
+      FROM prev WHERE r.id = prev.id
+      RETURNING r.id, prev.declined_via,
+                to_char(prev.declined_at, 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS declined_at
     `);
+    const changed: any[] = upd?.rows ?? (Array.isArray(upd) ? upd : []);
+    if (changed.length) {
+      // 📋 صفحة متابعة الحجوزات تتحدّث لحظيّاً (كانت تنتظر سحب الثلاثين ثانية)
+      void import('../services/arrival-followup.service.js')
+        .then(m => m.onArrivalMarked(activityId, changed.map(c => ({ id: Number(c.id), declinedAt: c.declined_at || null, declinedVia: c.declined_via || null }))))
+        .catch(() => {});
+    }
   } catch (e: any) {
     console.warn('⚠️ markArrivalAttended skipped:', e.message);
   }

@@ -23,6 +23,14 @@ async function parseCityId(raw: unknown): Promise<{ cityId: number } | { error: 
   return { cityId: id };
 }
 
+// 🧾 ضريبة الخدمة ٪: رقمٌ بين 0 و30 بخانتين عشريّتين على الأكثر — null = مرفوض
+function parseServiceRate(raw: unknown): string | null {
+  const t = String(raw ?? '').trim();
+  if (!/^\d{1,2}(\.\d{1,2})?$/.test(t)) return null;
+  const v = parseFloat(t);
+  return Number.isFinite(v) && v >= 0 && v <= 30 ? v.toFixed(2) : null;
+}
+
 // Helper: generate username from location name
 function generateUsername(name: string): string {
   return name.toLowerCase().replace(/[^a-z0-9]/g, '').slice(0, 15) || 'location';
@@ -71,6 +79,9 @@ router.post('/', authenticate, managerOrAbove, async (req: Request, res: Respons
   const cityRes = await parseCityId(req.body.cityId);
   if ('error' in cityRes) return res.status(400).json(cityRes);
 
+  const newServiceRate = req.body.serviceRate === undefined ? '0.00' : parseServiceRate(req.body.serviceRate);
+  if (newServiceRate === null) return res.status(400).json({ error: 'ضريبة الخدمة بين 0 و30 بخانتين عشريّتين على الأكثر' });
+
   const result = await db.insert(locations).values({
     name,
     // 🏙️ المدينة — إلزاميّة (مواقع الاختبار أيضاً؛ استثناؤها من الرانك بعلم isTestLocation كما هو)
@@ -91,6 +102,8 @@ router.post('/', authenticate, managerOrAbove, async (req: Request, res: Respons
     autoWater: req.body.autoWater === true,
     minimumCharge: Number.isFinite(parseFloat(String(req.body.minimumCharge))) && parseFloat(String(req.body.minimumCharge)) >= 0
       ? parseFloat(String(req.body.minimumCharge)).toFixed(2) : '2.00',
+    // 🧾 ضريبة الخدمة ٪ — 0 = بلا (الافتراضيّ)
+    serviceRate: newServiceRate,
   } as any).returning();
 
   const locationId = result[0].id;
@@ -209,6 +222,13 @@ router.put('/:id', authenticate, managerOrAbove, async (req: Request, res: Respo
     const v = parseFloat(String(req.body.minimumCharge));
     if (!Number.isFinite(v) || v < 0) return res.status(400).json({ error: 'الحدّ الأدنى غير صالح' });
     patch.minimumCharge = v.toFixed(2);
+  }
+  // 🧾 ضريبة الخدمة ٪: 0–30 بخانتين عشريّتين على الأكثر — 0 = بلا. تسري على الفواتير المفتوحة والقادمة؛
+  //    المحصَّلة مجمَّدةٌ بلقطتها.
+  if (req.body.serviceRate !== undefined) {
+    const sr = parseServiceRate(req.body.serviceRate);
+    if (sr === null) return res.status(400).json({ error: 'ضريبة الخدمة بين 0 و30 بخانتين عشريّتين على الأكثر' });
+    patch.serviceRate = sr;
   }
 
   await db.update(locations).set(patch as any).where(eq(locations.id, id));

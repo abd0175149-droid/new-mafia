@@ -14,6 +14,8 @@
 // ══════════════════════════════════════════════════════
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { swalAlert } from '@/lib/swal';
+import { getSocket } from '@/lib/socket';
 import {
   isConfirmed, isPending, matchesSearch, attendOrder, countRows, needsWa,
   type ResCounts, genderSplit,
@@ -47,6 +49,17 @@ export interface Reservation {
   createdBy: string | null;
   createdAt: string | null;
   deletedAt: string | null;
+  // ── وقت الوصول والمتابعة (2026-11) — الخادم قد لا يرسلها بعد، فكلّها اختياريّة وتُعامَل null ──
+  /** متى قال إنّه يصل (ISO) */
+  etaAt?: string | null;
+  /** من سجّل الوقت: موظّف أو الدون من ردّ العميل */
+  etaSource?: 'staff' | 'bot' | null;
+  /** كلمات العميل كما كتبها، أو ملاحظة الموظّف */
+  etaNote?: string | null;
+  followupSentAt?: string | null;
+  followupStatus?: 'queued' | 'sent' | 'delivered' | 'read' | 'failed' | null;
+  declinedAt?: string | null;
+  declinedVia?: string | null;
 }
 
 export interface Activity {
@@ -66,7 +79,8 @@ export async function apiFetch(path: string, opts?: RequestInit) {
   });
   if (!res.ok) {
     const err = await res.json().catch(() => ({}));
-    throw new Error(err.error || `API error ${res.status}`);
+    // `status` على الخطأ: الصفحة تُخفي الميزة التي لم تصل الخادم بعد (404) بدل أن تتعطّل
+    throw Object.assign(new Error(err.error || `API error ${res.status}`), { status: res.status });
   }
   return res.json();
 }
@@ -76,7 +90,9 @@ export type StatusFilter = 'all' | 'confirmed' | 'pending' | 'waitlist';
 /** مرشِّحُ رسالةِ الواتساب اليدويّة — «مَن لم أراسله بعد» */
 export type WaFilter = 'all' | 'needs';
 
-export function useReservations() {
+/** `live`: اشتراك في حدث السوكيت `reservations:changed` — الاستطلاع كلّ ٣٠ث يبقى احتياطاً */
+export function useReservations(opts?: { live?: boolean }) {
+  const live = !!opts?.live;
   const [reservations, setReservations] = useState<Reservation[]>([]);
   const [activities, setActivities] = useState<Activity[]>([]);
   const [locations, setLocations] = useState<Loc[]>([]);
@@ -93,6 +109,8 @@ export function useReservations() {
   const [gender, setGender] = useState<'all' | 'male' | 'female' | 'unknown'>('all');
 
   const inflight = useRef(false);
+  /** يزيد مع كلّ تغيير يبلّغ به الخادم — الصفحة تعيد به جلب ما يخصّها (سجلّ الدون) */
+  const [liveTick, setLiveTick] = useState(0);
 
   const fetchAll = useCallback(async (scope?: string) => {
     if (inflight.current) return;
@@ -135,6 +153,22 @@ export function useReservations() {
     return () => { stop(); document.removeEventListener('visibilitychange', onVis); };
   }, [fetchAll]);
 
+  // ── تحديث لحظيّ: الخادم يبلّغ بتغيّر حجوزات فعاليّة ⟵ جلب فوريّ إن كانت هي المعروضة ──
+  useEffect(() => {
+    if (!live || !activityId) return;
+    let s: ReturnType<typeof getSocket>;
+    try { s = getSocket(); } catch { return; }
+    const onChanged = (p: any) => {
+      const id = Number(p?.activityId);
+      if (activityId !== 'all' && Number.isFinite(id) && id > 0 && id !== Number(activityId)) return;
+      if (document.visibilityState !== 'visible') return;   // العودة للصفحة تجلب وحدها
+      fetchAll();
+      setLiveTick(t => t + 1);
+    };
+    s.on('reservations:changed', onChanged);
+    return () => { s.off('reservations:changed', onChanged); };
+  }, [live, activityId, fetchAll]);
+
   // ── الفعاليّات المعروضة في القائمة ──
   // 🔴 `withRes` من الخادم لا من `reservations`: الصفوفُ المحمَّلة صارت صفوفَ
   //    الفعاليّة المختارة وحدها، فاستنتاجُها منها يُخفي كلَّ فعاليّةٍ منتهيةٍ سواها.
@@ -172,7 +206,10 @@ export function useReservations() {
     const upcoming = dated
       .filter(a => at(a) >= end)
       .sort((x, y) => at(x) - at(y))[0];
-    const pick = today || upcoming;
+    // رابط من لوحة التحكّم أو الأنشطة: ?activityId= يسبق الاختيار التلقائيّ
+    let asked: Activity | undefined;
+    try { const q = new URLSearchParams(window.location.search).get('activityId'); if (q) asked = activityOptions.find(x => String(x.id) === q); } catch { /* بلا رابط */ }
+    const pick = asked || today || upcoming;
     if (!pick) return;
 
     autoPicked.current = true;
@@ -230,7 +267,7 @@ export function useReservations() {
       return true;
     } catch (err: any) {
       setReservations(p => p.map(r => (r.id === id ? { ...r, attended: prev } : r)));
-      alert('فشل تحديث الحضور: ' + (err?.message || ''));
+      swalAlert('فشل تحديث الحضور: ' + (err?.message || ''), 'error');
       return false;
     }
   }, [reservations]);
@@ -250,14 +287,14 @@ export function useReservations() {
       // نتيجةُ المزامنة كانت تُعاد وتُهمَل، فيظنّ الموظّف أنّ حجزاً أُنشئ
       // بينما الرقمُ غير مربوطٍ بحساب (يُحتسب ضمن «لاعبون جدد»).
       if (res?.bookingSync === 'unlinked') {
-        alert('ثُبّت الحجز ✅\n\nلكنّ الرقم غير مربوطٍ بحساب لاعب، فلا يظهر صفٌّ باسمه —\nيُحتسب ضمن «لاعبون جدد» في تفاصيل الفعاليّة.');
+        swalAlert('ثُبّت الحجز.\n\nلكنّ الرقم غير مربوطٍ بحساب لاعب، فلا يظهر صفٌّ باسمه —\nيُحتسب ضمن «لاعبون جدد» في تفاصيل الفعاليّة.', 'info');
       } else if (res?.bookingSync === 'error') {
-        alert('⚠️ ثُبّت الحجز لكنْ تعذّر إنشاء حجز الفعاليّة. راجع تفاصيل الفعاليّة.');
+        swalAlert('ثُبّت الحجز لكنْ تعذّر إنشاء حجز الفعاليّة. راجع تفاصيل الفعاليّة.', 'warning');
       }
       return true;
     } catch (err: any) {
       setReservations(p => p.map(x => (x.id === r.id ? { ...x, status: prev } : x)));
-      alert('فشل تغيير الحالة: ' + (err?.message || ''));
+      swalAlert('فشل تغيير الحالة: ' + (err?.message || ''), 'error');
       return false;
     }
   }, []);
@@ -293,6 +330,31 @@ export function useReservations() {
     }
   }, [reservations]);
 
+  /**
+   * ⏱ وقت الوصول — يضبطه الموظّف بضغطة (أو يمسحه بـ null). تحديث فوريّ ثمّ إرسال، والفشل يُرجع السابق.
+   * لا علاقة له بـ«وصل»: الوصول يقرّره الباب والغرفة والموظّف فقط.
+   */
+  const setEta = useCallback(async (id: number, etaAt: string | null, etaNote?: string | null) => {
+    const prev = reservations.find(r => r.id === id);
+    setReservations(p => p.map(r => (r.id === id
+      ? { ...r, etaAt, etaSource: etaAt ? 'staff' : null, ...(etaNote !== undefined ? { etaNote } : etaAt ? {} : { etaNote: null }) }
+      : r)));
+    try {
+      await apiFetch(`/api/reservations/${id}`, {
+        method: 'PUT',
+        body: JSON.stringify(etaNote !== undefined ? { etaAt, etaNote } : { etaAt }),
+      });
+      fetchAll();
+      return true;
+    } catch (err: any) {
+      setReservations(p => p.map(r => (r.id === id
+        ? { ...r, etaAt: prev?.etaAt ?? null, etaSource: prev?.etaSource ?? null, etaNote: prev?.etaNote ?? null }
+        : r)));
+      swalAlert('تعذّر حفظ وقت الوصول: ' + (err?.message || ''), 'error');
+      return false;
+    }
+  }, [reservations, fetchAll]);
+
   const updateRow = useCallback(async (id: number, patch: Record<string, any>) => {
     await apiFetch(`/api/reservations/${id}`, { method: 'PUT', body: JSON.stringify(patch) });
     await fetchAll();
@@ -317,6 +379,7 @@ export function useReservations() {
     activityId, setActivityId, search, setSearch,
     status, setStatus, attend, setAttend, wa, setWa, gender, setGender,
     // أفعال
-    fetchAll, setAttendance, setConfirmed, markWaSent, updateRow, removeRow, createRow,
+    fetchAll, setAttendance, setConfirmed, markWaSent, setEta, updateRow, removeRow, createRow,
+    liveTick,
   };
 }

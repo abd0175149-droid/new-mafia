@@ -280,6 +280,9 @@ export default function VenueShell({ children }: { children: React.ReactNode }) 
               ? <><span className="vc-num">{(rules.minimumCharge ?? 0).toFixed(2)}</span> لكلّ من لعب</>
               : <span style={{ color: TX.dim }}>مطفأ</span>)}
             {row('ماء تلقائيّ على الفاتورة', rules?.autoWater ? 'مفعَّل' : <span style={{ color: TX.dim }}>مطفأ</span>)}
+            {row('ضريبة خدمة', (rules?.serviceRate ?? 0) > 0
+              ? <><span className="vc-num">{Math.round((rules?.serviceRate ?? 0) * 100) / 100}%</span> على الطلبات والماء</>
+              : <span style={{ color: TX.dim }}>بلا</span>)}
             {row('دخوليّة اللعبة', <span style={{ color: TX.sub }}>تُضبط لكلّ ليلة</span>, true)}
           </div>
 

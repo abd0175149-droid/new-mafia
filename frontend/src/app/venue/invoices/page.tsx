@@ -36,6 +36,8 @@ interface Row {
   canUndoUntil: string | null;
   ordersCount: number; ordersTotal: number; minTopup: number; waterCharge: number;
   loyaltyDiscount: number; gameFee: number; grandTotal: number;
+  /** 🧾 ضريبة الخدمة: النسبة ٪ والمبلغ — داخلةٌ في grandTotal */
+  serviceRate?: number; serviceAmount?: number;
   isFree: boolean; noInvoice: boolean;
   payMethod: string | null; paymentId: number | null; paidForBy: string | null; groupId: number | null;
   /** 🎁 ضيافة كاملة · 🧾 لم يدفع (السبب) · 💳 دينٌ من ليلة سابقة (تاريخها) */
@@ -96,6 +98,7 @@ function plainLines(r: Row): { label: string; v: number }[] {
   if (r.waterCharge > 0) out.push({ label: 'مياه', v: r.waterCharge });
   if (r.minTopup > 0) out.push({ label: 'باقي الحدّ الأدنى', v: r.minTopup });
   if (r.loyaltyDiscount > 0) out.push({ label: 'مشروب بطاقة الولاء', v: -r.loyaltyDiscount });
+  if ((r.serviceAmount ?? 0) > 0) out.push({ label: `ضريبة خدمة ${r2(r.serviceRate ?? 0)}%`, v: r.serviceAmount ?? 0 });
   if (r.gameFee > 0) out.push({ label: 'دخول اللعبة', v: r.gameFee });
   return out;
 }

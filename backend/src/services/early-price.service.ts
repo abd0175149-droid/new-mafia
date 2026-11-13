@@ -411,7 +411,7 @@ export async function judgeNoShows(activityId: number, opts?: { force?: boolean 
       return { judged: true, strikes: 0 };
     }
     const cand: any = await db.execute(sql`
-      SELECT r.id, r.player_id, r.phone FROM reservations r
+      SELECT r.id, r.player_id, r.phone, r.declined_via FROM reservations r
        WHERE r.activity_id = ${activityId} AND r.deleted_at IS NULL AND r.status <> 'waitlist'
          AND r.attended IS DISTINCT FROM TRUE AND ${OWN_TAGS_SQL}
          AND NOT EXISTS (
@@ -430,8 +430,13 @@ export async function judgeNoShows(activityId: number, opts?: { force?: boolean 
       if (!rowsOf(ins).length) continue;
       n++;
       await db.execute(sql`UPDATE reservations SET attended = FALSE WHERE id = ${c.id} AND attended IS NULL`);
-      void notifyStrike({ playerId: c.player_id ?? null, phone: ph, activityName: act.name, kind: 'no_show' });
+      // 🕘 من اعتذر عبر متابعة الوصول (وأكّد بالزرّ) يبقى عليه الغياب كما هو، لكن بلا رسالة
+      //    «حجزت وما حضرت» (واتساب وإشعار): هو من أخبرنا، وتوبيخُه بعدها إهانةٌ لا إعلام.
+      if (c.declined_via !== 'followup') {
+        void notifyStrike({ playerId: c.player_id ?? null, phone: ph, activityName: act.name, kind: 'no_show' });
+      }
     }
+    if (n) void import('./arrival-followup.service.js').then(m => m.emitReservationsChanged(activityId)).catch(() => {});
     await db.update(activities).set({ noShowJudgedAt: new Date() } as any).where(eq(activities.id, activityId));
     if (n) console.log(`🚫 early-price: ${n} no-show(s) for activity #${activityId}`);
     return { judged: true, strikes: n };

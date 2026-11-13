@@ -1,0 +1,117 @@
+/* ══════════════════════════════════════════════════════
+   لوحة التحكّم + «مفاتيح النظام» — أصناف خاصّة بالصفحتين (dash-*)
+   كلّ شيء تحت عنصر يحمل الصنف wa، وبرموز wa.css وحدها (لا ألوان صريحة).
+   ══════════════════════════════════════════════════════ */
+
+.dash { display: flex; flex-direction: column; gap: var(--space-5); padding-bottom: var(--space-8); }
+
+/* ── الرأس: تحيّة + تاريخ + نطاق المدينة ── */
+.dash-h { display: flex; align-items: center; gap: var(--space-3); flex-wrap: wrap; }
+.dash-h h1 { margin: 0; font: 600 28px/36px var(--font-display); color: var(--ink); }
+.dash-h p { margin: 0; font: 400 14px/22px var(--font-sans); color: var(--ink-3); }
+.dash-h .acts { margin-inline-start: auto; display: flex; align-items: center; gap: var(--space-2); max-width: 100%; overflow-x: auto; }
+
+/* ── الغرف النشطة ── */
+.dash-lives { display: flex; flex-direction: column; gap: var(--space-2); }
+.dash-live { display: flex; align-items: center; gap: var(--space-4); padding: var(--space-4); border-radius: var(--radius-lg); background: var(--ok-soft); border: 1px solid var(--ok); }
+.dash-live .pulse { width: 12px; height: 12px; border-radius: 50%; background: var(--ok); flex: none; animation: dash-pulse 1.8s ease-out infinite; }
+.dash-live .ttl { font: 700 18px/26px var(--font-sans); color: var(--ink); }
+.dash-live .sub { font: 500 13px/20px var(--font-sans); color: var(--ink-2); }
+.dash-live .btns { display: flex; align-items: center; gap: var(--space-2); flex: none; }
+.dash-live .enter { min-width: 180px; }
+.dash-live a.wa-btn { text-decoration: none; color: var(--ink); }
+@keyframes dash-pulse {
+  0% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--ok) 45%, transparent); }
+  100% { box-shadow: 0 0 0 10px transparent; }
+}
+.dash .dash-quiet { display: flex; align-items: center; gap: var(--space-2); min-height: var(--hit); padding: 0 var(--space-4); border-radius: var(--radius-md); background: var(--bg-100); border: 1px solid var(--line); color: var(--ink-2); font: 500 14px/20px var(--font-sans); text-decoration: none; }
+.dash-quiet b { color: var(--ink); font-weight: 700; }
+.dash-quiet .end { margin-inline-start: auto; display: flex; align-items: center; color: var(--ink-3); }
+
+/* ── الشبكة: عمودان على الحاسوب، وعمود واحد بترتيب الهاتف ── */
+.dash-grid { display: grid; grid-template-columns: minmax(0, 1.5fr) minmax(0, 1fr); gap: var(--space-5); align-items: start; }
+.dash-col { display: flex; flex-direction: column; gap: var(--space-5); min-width: 0; }
+.dash-flush { padding: 0; overflow: hidden; }
+.dash-flush > h3 { padding: var(--space-4) var(--space-4) 0; }
+.dash a.wa-btn { text-decoration: none; }
+.dash a.wa-btn:not(.primary):not(.send) { color: var(--ink); }
+.dash a.wa-btn.primary { color: var(--on-gold); }
+.dash a.wa-btn.ghost { color: var(--ink-2); }
+
+/* ── «الليلة» ── */
+.dash-kpis { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: var(--space-3); }
+.dash-kpis.three { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.dash-kpis .of { font-size: 14px; color: var(--ink-3); }
+.dash-acts { display: flex; align-items: center; gap: var(--space-2); flex-wrap: wrap; margin-top: var(--space-4); }
+
+/* ── «هذا الأسبوع» ── */
+.dash-row { display: flex; align-items: center; gap: var(--space-4); padding: var(--space-3) var(--space-4); border-top: 1px solid var(--line); min-height: 72px; color: var(--ink); text-decoration: none; transition: background .15s; }
+.dash-row:first-of-type { border-top: 0; }
+.dash-row:hover { background: var(--bg-200); }
+.dash .dash-row { color: var(--ink); }
+.dash-date { width: 56px; flex: none; border-radius: var(--radius-md); background: var(--bg-200); text-align: center; padding: 6px 0; }
+.dash-date b { display: block; font: 600 20px/24px var(--font-mono); }
+.dash-date span { display: block; font: 500 12px/16px var(--font-sans); color: var(--ink-3); }
+.dash-row .nm { display: block; font: 700 15px/22px var(--font-sans); }
+.dash-row .meta { display: block; font: 500 12px/16px var(--font-sans); color: var(--ink-3); }
+.dash-fill { width: 160px; flex: none; }
+.dash-fill .cap { font: 500 12px/16px var(--font-sans); color: var(--ink-3); margin-top: 4px; }
+
+/* ── «يحتاج نظرك» ── */
+.dash .wa-menu > a { color: var(--ink); min-height: 56px; padding-block: var(--space-2); }
+.dash .wa-menu > a:hover { background: var(--bg-200); }
+.dash-ic-danger { color: var(--danger); } .dash-ic-warn { color: var(--warn); } .dash-ic-ok { color: var(--ok); } .dash-ic-info { color: var(--info); }
+.dash-calm { padding: var(--space-4); color: var(--ink-3); font: 500 14px/22px var(--font-sans); }
+
+/* ── المال ── */
+.dash-net { border-top: 1px solid var(--line); padding-top: var(--space-2); margin-top: var(--space-1); }
+.dash-net > span:first-child { color: var(--ink); font-weight: 700; }
+.dash-net b { font-size: 20px; }
+.dash-pos { color: var(--ok); } .dash-neg { color: var(--danger); }
+.dash-note { font: 500 12px/18px var(--font-sans); color: var(--ink-3); margin-top: var(--space-2); }
+.dash-cur { font: 500 12px/16px var(--font-sans); color: var(--ink-3); margin-inline-start: 4px; }
+
+/* ── مفاتيح النظام ── */
+.dash-sw { max-width: 880px; }
+.dash-sw .wa-setting { align-items: flex-start; }
+.dash-sw-ctl { display: flex; flex-direction: column; align-items: center; gap: var(--space-1); flex: none; min-width: 56px; padding-top: 2px; }
+.dash-sw-ctl .wa-toggle::before { content: ""; position: absolute; inset: -9px -4px; }   /* هدف اللمس 44 */
+.dash-sw-ctl small { font: 500 12px/16px var(--font-sans); color: var(--ink-3); white-space: nowrap; }
+.dash-sw-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-top: var(--space-2); }
+.dash-sw-more { display: block; margin-top: var(--space-2); font: 400 13px/20px var(--font-sans); color: var(--ink-3); }
+.dash-sw-err { display: block; margin-top: var(--space-2); font: 500 13px/20px var(--font-sans); color: var(--danger); }
+.dash .dash-sw-link { display: inline-flex; align-items: center; gap: var(--space-1); min-height: var(--hit); padding: 0; margin-top: var(--space-1); border: 0; background: none; color: var(--ink-2); font: 500 13px/20px var(--font-sans); cursor: pointer; text-align: start; text-decoration: none; }
+.dash-sw-link b { color: var(--ink); }
+.dash-sw-list { display: block; max-height: 288px; overflow-y: auto; margin-top: var(--space-2); border: 1px solid var(--line); border-radius: var(--radius-sm); }
+.dash .dash-sw-list > a { display: flex; align-items: center; gap: var(--space-2); min-height: var(--hit); padding: 0 var(--space-3); border-bottom: 1px solid var(--line); color: var(--ink); font: 500 13px/20px var(--font-sans); text-decoration: none; }
+.dash-sw-list > a:last-child { border-bottom: 0; }
+.dash-sw-list > a:hover { background: var(--bg-200); }
+
+@media (max-width: 1023px) {
+  .dash-grid { display: flex; flex-direction: column; }
+  .dash-col { display: contents; }
+  .dash-o1 { order: 1; } .dash-o2 { order: 2; } .dash-o3 { order: 3; } .dash-o4 { order: 4; }
+}
+
+@media (max-width: 767px) {
+  .dash { gap: var(--space-4); }
+  .dash-h h1 { font-size: 22px; line-height: 30px; }
+  .dash-h .acts { margin-inline-start: 0; width: 100%; }
+  .dash-live { flex-direction: column; align-items: stretch; gap: var(--space-3); }
+  .dash-live .head { display: flex; align-items: center; gap: var(--space-3); }
+  .dash-live .ttl { font-size: 16px; line-height: 22px; }
+  .dash-live .btns { flex-direction: column-reverse; align-items: stretch; }
+  .dash-live .enter { min-width: 0; width: 100%; }
+  .dash-kpis, .dash-kpis.three { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--space-2); }
+  .dash-acts > .wa-btn { flex: 1; }
+  .dash-acts > .wa-btn.ghost { flex-basis: 100%; }
+  .dash-row { gap: var(--space-3); min-height: 64px; flex-wrap: wrap; }
+  .dash-fill { width: 100%; order: 5; padding-inline-start: 68px; }
+  .dash-sw .wa-setting { gap: var(--space-3); }
+}
+
+@media (min-width: 768px) {
+  .dash-live .head { display: contents; }
+}
+
+@media (prefers-reduced-motion: reduce) { .dash-live .pulse { animation: none; } }

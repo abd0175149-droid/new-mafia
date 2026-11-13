@@ -599,6 +599,11 @@ io.on('connection', (socket) => {
   if (socket.data?.authStaff?.role === 'admin') {
     socket.join('wa:inbox');
   }
+  // 📋 غرفة متابعة الحجوزات — كلّ موظّفٍ موثَّق (admin/manager/leader، من io.use أعلاه).
+  //    الحمولة إشارةٌ فقط ({ activityId }) والصفحة تسحب بياناتها بطلبها الموثَّق.
+  if (socket.data?.authStaff) {
+    socket.join('staff:reservations');
+  }
 
   // 🪙 غرفة اللاعب الخاصة — قناة لحظية شخصية (الرصيد/المشتريات/الإشعارات).
   // تُشتق من توكن اللاعب الموثّق في io.use أعلاه، فلا يمكن لأحد الانضمام لغرفة غيره.
@@ -850,6 +855,30 @@ async function main() {
       // ── 🪑 طيُّ مجموعات المتابعة (علاج العدّ المزدوج) ──
       await db.execute(sql`ALTER TABLE reservations ADD COLUMN IF NOT EXISTS companions_collapsed INTEGER DEFAULT 0`);
       await db.execute(sql`ALTER TABLE reservations ADD COLUMN IF NOT EXISTS companions_collapsed_at TIMESTAMP`);
+      // ── 🕘 متابعة الوصول: موعد الوصول المتوقّع + رسالة المتابعة + اعتذار العميل + سجلّ بتراجع ──
+      await db.execute(sql`ALTER TABLE reservations ADD COLUMN IF NOT EXISTS eta_at TIMESTAMP`);
+      await db.execute(sql`ALTER TABLE reservations ADD COLUMN IF NOT EXISTS eta_source VARCHAR(8)`);
+      await db.execute(sql`ALTER TABLE reservations ADD COLUMN IF NOT EXISTS eta_note TEXT`);
+      await db.execute(sql`ALTER TABLE reservations ADD COLUMN IF NOT EXISTS followup_sent_at TIMESTAMP`);
+      await db.execute(sql`ALTER TABLE reservations ADD COLUMN IF NOT EXISTS followup_message_id INTEGER`);
+      await db.execute(sql`ALTER TABLE reservations ADD COLUMN IF NOT EXISTS declined_at TIMESTAMP`);
+      await db.execute(sql`ALTER TABLE reservations ADD COLUMN IF NOT EXISTS declined_via VARCHAR(12)`);
+      await db.execute(sql`ALTER TABLE wa_bot_settings ADD COLUMN IF NOT EXISTS arrival_followup JSONB DEFAULT '{}'::jsonb`);
+      await db.execute(sql`
+        CREATE TABLE IF NOT EXISTS reservation_events (
+          id SERIAL PRIMARY KEY,
+          reservation_id INTEGER NOT NULL,
+          activity_id INTEGER,
+          at TIMESTAMP NOT NULL DEFAULT NOW(),
+          actor VARCHAR(8) NOT NULL,
+          actor_name VARCHAR(100) DEFAULT '',
+          kind VARCHAR(20) NOT NULL,
+          detail JSONB DEFAULT '{}'::jsonb,
+          quote TEXT,
+          undone_at TIMESTAMP
+        )`);
+      await db.execute(sql`CREATE INDEX IF NOT EXISTS reservation_events_activity_idx ON reservation_events (activity_id, id DESC)`);
+      await db.execute(sql`CREATE INDEX IF NOT EXISTS reservation_events_res_idx ON reservation_events (reservation_id, id DESC)`);
       // ── ⏱️ متابعة المحادثات الصامتة قبل الحجز ──
       await db.execute(sql`ALTER TABLE wa_bot_settings ADD COLUMN IF NOT EXISTS followup JSONB DEFAULT '{}'::jsonb`);
       await db.execute(sql`ALTER TABLE wa_bot_settings ADD COLUMN IF NOT EXISTS restyle JSONB DEFAULT '{}'::jsonb`);
@@ -1252,6 +1281,10 @@ async function main() {
       await db.execute(sql`ALTER TABLE order_invoices ADD COLUMN IF NOT EXISTS debt_settled_at TIMESTAMP`);
       await db.execute(sql`ALTER TABLE order_invoices ADD COLUMN IF NOT EXISTS debt_settled_by INTEGER`);
       await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_order_invoices_debt ON order_invoices(location_id, player_id) WHERE pay_method = 'debt'`);
+      // 🧾 ضريبة الخدمة لكلّ مكان (2026-11-13): نسبةٌ على المكان (0 = بلا)، ولقطتها ومبلغها على الفاتورة
+      await db.execute(sql`ALTER TABLE locations ADD COLUMN IF NOT EXISTS service_rate DECIMAL(5,2) DEFAULT 0`);
+      await db.execute(sql`ALTER TABLE order_invoices ADD COLUMN IF NOT EXISTS service_rate DECIMAL(5,2) DEFAULT 0`);
+      await db.execute(sql`ALTER TABLE order_invoices ADD COLUMN IF NOT EXISTS service_amount DECIMAL(10,2) DEFAULT 0`);
       await db.execute(sql`ALTER TABLE players ADD COLUMN IF NOT EXISTS full_comp BOOLEAN DEFAULT false NOT NULL`);
       await db.execute(sql`ALTER TABLE players ADD COLUMN IF NOT EXISTS full_comp_by VARCHAR(100)`);
       await db.execute(sql`ALTER TABLE players ADD COLUMN IF NOT EXISTS full_comp_at TIMESTAMP`);
@@ -2692,6 +2725,8 @@ async function main() {
   try { const { startAbsenceJobs } = await import('./services/absence-penalty.service.js'); startAbsenceJobs(); } catch (e: any) { console.warn('⚠️ absence jobs init:', e.message); }
   // ── ⏱️ متابعةُ من راسلنا ولم يحجز — ماسحٌ يقرأ القاعدة، فلا تُضيّع إعادةُ التشغيل متابعةً ولا تُكرّرها ──
   try { const { startFollowupScheduler } = await import('./services/wa-followup.service.js'); startFollowupScheduler(); } catch (e: any) { console.warn('⚠️ WA follow-up scheduler init:', e.message); }
+  // ── 🕘 متابعة الوصول — التذكير اللطيف لمن تأخّر عن موعده + المتابعة الآليّة + ردودٌ لم تُفهم ──
+  try { const { startArrivalFollowupScheduler } = await import('./services/arrival-followup.service.js'); startArrivalFollowupScheduler(); } catch (e: any) { console.warn('⚠️ arrival follow-up scheduler init:', e.message); }
   // ── 🎟️ مجدول بطاقة الولاء — انتهاء المكافآت، الاختيار التلقائيّ، التذكيرات ──
   try {
     const { startLoyaltyScheduler } = await import('./services/loyalty.service.js');

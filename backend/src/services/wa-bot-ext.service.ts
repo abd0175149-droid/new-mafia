@@ -554,6 +554,11 @@ export async function execExtTool(name: string, args: any, ctx: Ctx, h: ExtHelpe
         lines: inv.lines.map((l: any) => ({ item: l.name, qty: l.quantity, total: l.lineTotal })),
         ordersTotalJOD: inv.ordersTotal, waterJOD: inv.waterCharge, minimumTopupJOD: inv.minTopup,
         gameFeeJOD: inv.gameFeeApplied ? inv.gameFeeAmount : 0, loyaltyDrinkDiscountJOD: inv.loyaltyDiscount || 0,
+        // 🧾 ضريبة الخدمة (نسبة المكان) — سطرٌ مستقلّ داخلٌ في grandTotalJOD
+        ...(inv.serviceAmount > 0 ? {
+          serviceChargeJOD: inv.serviceAmount, serviceChargePercent: inv.serviceRate,
+          serviceChargeExplain: `ضريبة خدمة ${inv.serviceRate}% يفرضها المكان: تُحسب على الطلبات والماء فقط — لا على دخوليّة اللعبة ولا على تكملة الحدّ الأدنى. إن عرضت البنود فاذكرها سطراً باسمها «ضريبة خدمة ${inv.serviceRate}%».`,
+        } : {}),
         grandTotalJOD: inv.grandTotal, paid: !!pr?.is_paid, invoiceNo: pr?.invoice_no ?? null,
         note: 'إن imageSent=true فقد وصلته صورة ملفّه للتوّ: قل له ذلك ولخّص ما حُصّل (paidInvoices) وما بقي (remainingJOD) بسطرين — لا تعِد البنود كلّها. وإلّا اعرضها بنوداً قصيرة والإجماليّ بوضوح. الأرقام من النظام حرفيّاً بلا أيّ حساب منك. إن سأل عن الحدّ الأدنى فاشرح من minimumChargeExplain بلطف واقترح أن يطلب الآن. طرق الدفع من paymentMethods؛ وتفاصيل كليك (cliq) تُكتب كما هي إن طلبها.',
       };

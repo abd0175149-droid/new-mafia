@@ -1,0 +1,202 @@
+/* ══════════════════════════════════════════════════════
+   متابعة الحجوزات — أصناف الصفحة وحدها (res-*)
+   الرموز والمكوّنات العامّة من ../whatsapp/wa.css — لا لون هنا خارج المتغيّرات.
+   الهاتف < 768 · عمود وسطيّ 768–1199 · لوحة بثلاثة أعمدة ≥ 1200 (الصنف res-desk يضعه المكوّن)
+   ══════════════════════════════════════════════════════ */
+
+.res-root { max-width: 640px; margin-inline: auto; padding-bottom: 104px; }
+.res-root.res-desk { max-width: none; padding-bottom: 0; display: flex; flex-direction: column; gap: var(--space-4); }
+@media (max-width: 767px) { .res-root { margin-inline: -12px; margin-top: -12px; } }
+
+/* ── الرأس الثابت ── */
+.res-head { position: sticky; z-index: 30; display: flex; flex-direction: column; gap: var(--space-2); padding: var(--space-2) var(--space-3); background: var(--bg-000); border-bottom: 1px solid var(--line); }
+.res-desk .res-head { position: static; padding: 0; border: 0; background: transparent; gap: var(--space-3); }
+.res-headrow { display: flex; align-items: center; gap: var(--space-2); min-width: 0; }
+.res-headrow h1 { margin: 0; font: 700 28px/36px var(--font-display); color: var(--ink); flex: none; }
+.res-headrow .wa-select { flex: 1; min-width: 0; font-weight: 700; }
+.res-desk .res-headrow .wa-select { flex: none; width: 300px; }
+.res-desk .res-headrow .wa-search { width: 240px; flex: none; }
+.res-headrow .acts { margin-inline-start: auto; display: flex; align-items: center; gap: var(--space-2); flex: none; }
+.res-headrow a.wa-btn, .res-bar a.wa-btn { text-decoration: none; color: var(--ink); }
+.res-headrow a.wa-iconbtn { color: var(--ink-2); border: 1px solid var(--line-strong); }
+.res-clear { position: absolute; inset-inline-end: 0; top: 0; }
+.res-progress { display: flex; align-items: center; gap: var(--space-3); min-height: 20px; }
+.res-progress .wa-readbar { flex: 1; height: 8px; border-radius: 4px; direction: rtl; }
+.res-progress .sum { font: 700 13px/18px var(--font-sans); color: var(--ink); white-space: nowrap; }
+.res-progress .sum small { font: 500 12px/16px var(--font-sans); color: var(--ink-3); }
+
+/* الجنس — ثلاث بلاطات هي مرشِّحات أيضاً */
+.res-gtiles { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--space-2); }
+.res-gtile { display: flex; align-items: center; justify-content: center; gap: var(--space-2); min-height: var(--hit); padding: 0 var(--space-2); border-radius: var(--radius-md); border: 1px solid var(--line); background: var(--bg-200); color: var(--ink-2); font: 700 12px/16px var(--font-sans); cursor: pointer; --tone: var(--ink-2); --tone-soft: var(--bg-300); }
+.res-gtile b { font: 600 16px/20px var(--font-mono); color: var(--ink); }
+.res-gtile.m { --tone: var(--info); --tone-soft: var(--info-soft); }
+.res-gtile.f { --tone: var(--violet); --tone-soft: var(--violet-soft); }
+.res-gtile[aria-pressed="true"] { border-color: var(--tone); background: var(--tone-soft); color: var(--tone); }
+.res-gtile[aria-pressed="true"] b { color: var(--tone); }
+.res-desk .res-gtiles { display: flex; flex: none; }
+.res-desk .res-gtile { min-height: 36px; padding: 0 var(--space-3); border-radius: var(--radius-full); }
+.res-desk .res-gtile b { font-size: 13px; }
+.res-filters { display: flex; align-items: center; gap: var(--space-3); min-width: 0; }
+.res-filters .wa-chips { flex: 1; min-width: 0; }
+.res-root:not(.res-desk) .res-head .wa-chip { min-height: var(--hit); }
+
+/* ── القائمة ── */
+.res-list { background: var(--bg-100); }
+@media (min-width: 768px) { .res-list { border: 1px solid var(--line); border-radius: var(--radius-md); margin-top: var(--space-3); } }
+.res-ghead { position: sticky; z-index: 2; top: calc(var(--admin-top, 0px) + var(--res-head-h, 0px)); display: flex; align-items: center; gap: var(--space-2); padding: 6px var(--space-4); background: var(--bg-100); border-bottom: 1px solid var(--line); font: 700 12px/16px var(--font-sans); color: var(--ink-2); }
+.res-ghead small { font: 600 12px/16px var(--font-mono); color: var(--ink-3); }
+.res-ghead.onway { color: var(--info); } .res-ghead.silent { color: var(--warn); } .res-ghead.arrived { color: var(--ok); }
+.res-banner-btn { display: flex; width: 100%; border: 0; cursor: pointer; text-align: start; font-family: inherit; }
+.res-banner-btn > span { flex: 1; min-width: 0; }
+.res-banner-btn > .go { flex: none; font-weight: 700; text-decoration: underline; }
+
+/* صفّ الحاجز — 76 على الهاتف، 60 في أعمدة الحاسوب */
+.res-swipe { position: relative; user-select: none; touch-action: pan-y; border-bottom: 1px solid var(--line); overflow: hidden; }
+.res-swipe:last-child { border-bottom: 0; }
+.res-reveal { position: absolute; inset: 0; display: flex; align-items: center; gap: var(--space-2); padding: 0 var(--space-5); font: 700 15px/20px var(--font-sans); }
+/* RTL: الصفّ ينزاح يساراً فينكشف اليمين (بداية السطر) — هناك تُكتب «حضر» */
+.res-reveal.yes { background: var(--ok-soft); color: var(--ok); justify-content: flex-start; }
+.res-reveal.no { background: var(--danger-soft); color: var(--danger); justify-content: flex-end; }
+.res-reveal.armed { box-shadow: inset 0 0 0 1px currentColor; }
+.res-row { position: relative; display: flex; align-items: center; gap: var(--space-3); width: 100%; min-height: 76px; padding: var(--space-2) var(--space-4); border: 0; background: var(--bg-100); color: inherit; text-align: start; cursor: pointer; font-family: inherit; }
+.res-row:hover { background: var(--bg-200); }
+.res-row.late { background: var(--danger-soft); }
+.res-row[aria-current="true"] { background: var(--gold-soft); box-shadow: inset -3px 0 0 var(--gold); }
+.res-row .t { flex: 1; min-width: 0; display: block; }
+.res-row .nm { display: block; font: 700 15px/22px var(--font-sans); color: var(--ink); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.res-row .sub { display: flex; align-items: center; flex-wrap: wrap; gap: 4px 6px; margin-top: 2px; font: 400 12px/16px var(--font-sans); color: var(--ink-3); }
+.res-row .sub .ltr { font-size: 12px; }
+.res-row .sub svg.lucide { width: 13px; height: 13px; }
+.res-row .sub .ok { color: var(--ok); } .res-row .sub .info { color: var(--info); } .res-row .sub .danger { color: var(--danger); }
+.res-row .end { display: flex; flex-direction: column; align-items: flex-end; gap: 4px; flex: none; }
+.res-row.dense { min-height: 60px; padding: var(--space-2) var(--space-3); gap: var(--space-2); flex-wrap: wrap; }
+.res-row.dense .t { flex: 1 1 120px; }
+.res-row.dense .end { flex-direction: row; align-items: center; margin-inline-start: auto; }
+.res-eta { display: inline-flex; align-items: center; gap: 4px; min-height: 28px; padding: 0 var(--space-2); border-radius: var(--radius-sm); background: var(--info-soft); color: var(--info); font: 600 13px/18px var(--font-mono); direction: ltr; unicode-bidi: isolate; white-space: nowrap; }
+.res-eta.late { background: var(--danger-soft); color: var(--danger); box-shadow: inset 0 0 0 1px var(--danger); }
+.res-mark { display: grid; place-items: center; width: 32px; height: 32px; border-radius: 50%; flex: none; }
+.res-mark.yes { background: var(--ok-soft); color: var(--ok); } .res-mark.no { background: var(--danger-soft); color: var(--danger); }
+
+/* ── الشريط السفليّ وما يطفو فوقه ── */
+.res-bar { position: fixed; left: var(--res-l, 0px); right: var(--res-r, 0px); bottom: 0; z-index: 30; padding: var(--space-3) var(--space-3) max(12px, env(safe-area-inset-bottom)); background: linear-gradient(to top, var(--bg-000) 62%, transparent); }
+.res-bar > div { max-width: 616px; margin-inline: auto; display: flex; gap: var(--space-2); }
+.res-bar .wa-btn { min-height: 50px; }
+.res-bar .wa-btn.main { flex: 1; min-width: 0; font-size: 15px; }
+.res-bar .wa-btn.main > span { overflow: hidden; text-overflow: ellipsis; }
+.res-bar .wa-btn:not(.primary):not(.send) { background: var(--bg-200); }
+.res-float { position: fixed; left: calc(var(--res-l, 0px) + var(--space-3)); right: calc(var(--res-r, 0px) + var(--space-3)); bottom: 88px; z-index: 40; display: flex; justify-content: center; pointer-events: none; }
+.res-desk .res-float { bottom: var(--space-6); }
+.res-float > * { pointer-events: auto; max-width: 520px; width: 100%; }
+.res-float .wa-toast { display: flex; }
+.res-float .wa-toast > span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.res-float .wa-toast .undo { min-height: var(--hit); padding: 0 var(--space-2); font-weight: 700; }
+.res-wabar { background: var(--bg-200); border: 1px solid var(--ok); border-radius: var(--radius-md); box-shadow: var(--shadow-pop); padding: var(--space-3); display: flex; flex-direction: column; gap: var(--space-2); }
+.res-wabar .who { display: flex; align-items: center; gap: var(--space-3); }
+.res-wabar .who b { display: block; font: 700 14px/20px var(--font-sans); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.res-wabar .who span.s { display: block; font: 500 12px/16px var(--font-sans); color: var(--ok); }
+
+/* ── الورقة السفليّة (تُسحب للإغلاق) — نافذة وسطيّة من 768 ── */
+.res-scrim { position: fixed; inset: 0; z-index: 70; background: var(--scrim); display: flex; align-items: flex-end; justify-content: center; }
+.res-sheet { width: 100%; max-width: 480px; max-height: 88dvh; overflow-y: auto; background: var(--bg-100); border-radius: var(--radius-xl) var(--radius-xl) 0 0; box-shadow: var(--shadow-sheet); }
+.res-sheet > .grabwrap { position: sticky; top: 0; z-index: 1; padding: var(--space-2) 0 var(--space-1); background: var(--bg-100); }
+.res-sheet > .grabwrap > i { display: block; width: 40px; height: 4px; border-radius: 2px; margin-inline: auto; background: var(--line-strong); }
+.res-sheet > .body { padding: 0 var(--space-4) max(18px, env(safe-area-inset-bottom)); display: flex; flex-direction: column; gap: var(--space-3); }
+@media (min-width: 768px) { .res-scrim { align-items: center; } .res-sheet { border-radius: var(--radius-lg); border: 1px solid var(--line); max-height: calc(100dvh - 48px); } }
+.res-sheethead h2 { margin: 0; font: 700 20px/28px var(--font-sans); color: var(--ink); }
+.res-sheethead p { margin: 0; font: 500 13px/18px var(--font-sans); color: var(--ink-3); }
+
+/* صفّ فعل */
+.res-acts { display: flex; flex-direction: column; }
+.res-act { display: flex; align-items: center; gap: var(--space-3); width: 100%; min-height: 52px; padding: var(--space-2) 0; border: 0; border-bottom: 1px solid var(--line); background: transparent; color: var(--ink); text-align: start; cursor: pointer; font-family: inherit; }
+.res-act:last-child { border-bottom: 0; }
+.res-act[disabled] { opacity: .45; cursor: not-allowed; }
+.res-act > .ic { width: 28px; display: grid; place-items: center; color: var(--ink-2); flex: none; }
+.res-act > .t { flex: 1; min-width: 0; } .res-act > .t > b { display: block; font: 700 14px/20px var(--font-sans); } .res-act > .t > span { display: block; font: 400 12px/18px var(--font-sans); color: var(--ink-3); }
+.res-act > .go { color: var(--ink-3); flex: none; display: grid; }
+.res-act.danger, .res-act.danger > .ic { color: var(--danger); }
+.res-act.accent, .res-act.accent > .ic { color: var(--gold); }
+.res-act.ok, .res-act.ok > .ic { color: var(--ok); }
+.res-callout { display: flex; align-items: center; gap: var(--space-3); width: 100%; min-height: 56px; padding: var(--space-2) var(--space-3); border-radius: var(--radius-md); border: 1px solid var(--gold); background: var(--gold-soft); color: var(--gold); text-align: start; cursor: pointer; font-family: inherit; }
+.res-callout.ok { border-color: var(--ok); background: var(--ok-soft); color: var(--ok); }
+.res-callout.info { border-color: var(--info); background: var(--info-soft); color: var(--info); }
+.res-callout[disabled] { opacity: .45; }
+.res-callout .t { flex: 1; min-width: 0; } .res-callout .t > b { display: block; font: 700 14px/20px var(--font-sans); } .res-callout .t > span { display: block; font: 400 12px/18px var(--font-sans); color: var(--ink-2); }
+.res-counter { display: flex; align-items: center; gap: var(--space-3); font: 500 14px/20px var(--font-sans); color: var(--ink-2); }
+.res-counter > div { margin-inline-start: auto; display: flex; align-items: center; gap: var(--space-2); }
+.res-counter b { min-width: 28px; text-align: center; font: 600 18px/24px var(--font-mono); color: var(--ink); }
+.res-counter .wa-btn { width: 48px; min-height: 48px; padding: 0; }
+.res-hits { border: 1px solid var(--line); border-radius: var(--radius-md); overflow: hidden; }
+.res-hits > button { display: flex; align-items: center; gap: var(--space-3); width: 100%; min-height: 52px; padding: 0 var(--space-3); border: 0; border-bottom: 1px solid var(--line); background: var(--bg-200); color: var(--ink); text-align: start; cursor: pointer; }
+.res-hits > button:last-child { border-bottom: 0; }
+.res-hits b { display: block; font: 700 14px/20px var(--font-sans); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.res-note { margin: 0; padding: var(--space-2) var(--space-3); border-radius: var(--radius-md); background: var(--bg-200); color: var(--ink-2); font: 400 13px/20px var(--font-sans); display: flex; gap: var(--space-2); align-items: flex-start; }
+.res-fine { margin: 0; font: 500 12px/18px var(--font-sans); color: var(--ink-3); }
+.res-fine.err { color: var(--danger); } .res-fine.center { text-align: center; }
+.res-pre { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; }
+
+/* ── بطاقة الشخص: الرأس · «متى يصل؟» · الحضور · اختصارات ── */
+.res-person { display: flex; flex-direction: column; gap: var(--space-3); }
+.res-person .who { display: flex; align-items: center; gap: var(--space-3); }
+.res-person .who h2 { margin: 0; font: 700 20px/28px var(--font-sans); color: var(--ink); overflow-wrap: anywhere; }
+.res-person .who .s { font: 500 13px/18px var(--font-sans); color: var(--ink-3); }
+.res-aside .res-person .who h2 { font-size: 16px; line-height: 22px; }
+.res-badges { display: flex; flex-wrap: wrap; gap: 6px; }
+.res-etahead { font: 700 12px/16px var(--font-sans); color: var(--ink-3); margin-bottom: 6px; }
+.res-etagrid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: var(--space-2); }
+.res-etagrid .wa-btn { padding: 0 var(--space-1); }
+.res-etagrid .wa-btn[aria-pressed="true"] { border-color: var(--gold); color: var(--gold); background: var(--gold-soft); }
+.res-etarow { display: flex; gap: var(--space-2); margin-top: var(--space-2); }
+.res-etarow > * { flex: 1; min-width: 0; }
+.res-etarow .wa-input { text-align: center; font-family: var(--font-mono); direction: ltr; }
+.res-attend { display: flex; gap: var(--space-2); }
+.res-attend > .wa-btn { flex: 1; min-height: 52px; }
+.res-attend > .wa-btn.off { background: transparent; color: var(--ink-2); border-color: var(--line-strong); }
+.res-quick { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: var(--space-2); border-top: 1px solid var(--line); padding-top: var(--space-3); }
+.res-quick > * { flex-direction: column; gap: 2px; min-height: 56px; padding: 0; font-size: 12px; text-decoration: none; color: var(--ink-2) !important; }
+.res-quick > *[aria-disabled="true"] { opacity: .4; pointer-events: none; }
+.res-seg3 { display: flex; gap: var(--space-2); }
+.res-seg3 > button { flex: 1; }
+
+/* ── لوحة الحاسوب ── */
+.res-board { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)) 320px; gap: var(--space-4); align-items: start; }
+.res-main2 { display: grid; grid-template-columns: minmax(0, 1fr) 320px; gap: var(--space-4); align-items: start; }
+.res-main2 .res-list { margin-top: 0; }
+.res-desk .res-ghead { top: 0; }
+.res-col { background: var(--bg-100); border: 1px solid var(--line); border-radius: var(--radius-md); display: flex; flex-direction: column; min-width: 0; overflow: hidden; max-height: calc(100dvh - 232px); min-height: 240px; }
+.res-col.silent { border-color: var(--warn); } .res-col.onway { border-color: var(--info); } .res-col.arrived { border-color: var(--ok); }
+.res-col > .scroll { flex: 1; min-height: 0; overflow-y: auto; }
+.res-col h3 { margin: 0; padding: var(--space-3) var(--space-4); font: 700 14px/20px var(--font-sans); display: flex; align-items: center; gap: var(--space-2); border-bottom: 1px solid var(--line); flex: none; }
+.res-col h3 small { margin-inline-start: auto; font: 600 13px/18px var(--font-mono); color: var(--ink-3); }
+.res-fold { display: flex; align-items: center; gap: var(--space-2); width: 100%; min-height: var(--hit); padding: 0 var(--space-4); border: 0; border-block: 1px solid var(--line); background: transparent; color: var(--ink); font: 700 14px/20px var(--font-sans); text-align: start; cursor: pointer; }
+.res-fold small { margin-inline-start: auto; font: 600 13px/18px var(--font-mono); color: var(--ink-3); }
+.res-col .none { padding: var(--space-5) var(--space-4); text-align: center; font: 400 13px/20px var(--font-sans); color: var(--ink-3); }
+.res-aside { display: flex; flex-direction: column; gap: var(--space-4); position: sticky; top: var(--space-4); max-height: calc(100dvh - 32px); min-height: 0; }
+.res-aside > .wa-card { overflow-y: auto; min-height: 0; }
+.res-aside > .wa-card.sel { border-color: var(--gold); flex: 0 1 auto; }
+.res-aside > .wa-card.feed { flex: 1 1 200px; }
+
+/* ── «الدون يتابع» ── */
+.res-feed { display: flex; gap: var(--space-2); align-items: flex-start; padding: var(--space-2) 0; border-bottom: 1px solid var(--line); font: 400 13px/20px var(--font-sans); color: var(--ink-2); }
+.res-feed:last-child { border-bottom: 0; }
+.res-feed > .ltr { color: var(--ink-3); flex: none; min-width: 36px; }
+.res-feed > .b { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.res-feed b { color: var(--ink); }
+.res-feed .q { color: var(--ink-3); }
+.res-feed.review { background: var(--warn-soft); margin-inline: calc(-1 * var(--space-2)); padding-inline: var(--space-2); border-radius: var(--radius-sm); border-bottom-color: transparent; }
+.res-feed.review .flag { color: var(--warn); font-weight: 700; }
+.res-feed.undone .b { text-decoration: line-through; color: var(--ink-3); }
+.res-feed .lnk { display: inline-flex; align-items: center; min-height: 28px; padding: 0 6px; border: 0; background: none; color: var(--gold); font: 700 13px/20px var(--font-sans); text-decoration: underline; cursor: pointer; }
+.res-feed .lnk[disabled] { opacity: .5; }
+.res-feed .acts { display: flex; gap: var(--space-2); margin-top: 4px; }
+
+/* ── نوافذ المتابعة والصلاحيّات ── */
+.res-popbar { position: sticky; bottom: calc(-1 * var(--space-5)); margin: var(--space-2) calc(-1 * var(--space-5)) calc(-1 * var(--space-5)); border-radius: 0 0 var(--radius-lg) var(--radius-lg); z-index: 2; }
+@media (max-width: 767px) { .res-popbar { bottom: calc(-1 * (var(--space-4) + env(safe-area-inset-bottom, 0px))); margin: var(--space-2) calc(-1 * var(--space-4)) calc(-1 * (var(--space-4) + env(safe-area-inset-bottom, 0px))); padding-bottom: calc(var(--space-3) + env(safe-area-inset-bottom, 0px)); border-radius: 0; } }
+.res-count { font: 600 20px/24px var(--font-mono); color: var(--gold); }
+.res-recips > div { display: flex; align-items: center; gap: var(--space-2); min-height: 44px; padding: var(--space-1) 0; border-bottom: 1px solid var(--line); font: 500 13px/18px var(--font-sans); }
+.res-recips > div:last-child { border-bottom: 0; }
+.res-recips .n { flex: 1; min-width: 0; } .res-recips .n b { display: block; font: 700 14px/20px var(--font-sans); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; } .res-recips .n span { color: var(--ink-3); font-size: 12px; }
+.res-tpl > div { background: transparent !important; }
+.res-attend > .wa-btn.on-yes { background: var(--ok-soft); border-color: var(--ok); color: var(--ok); }
+.res-attend > .wa-btn.on-no { background: var(--danger-soft); border-color: var(--danger); color: var(--danger); }
+.res-etabox.flash { outline: 2px solid var(--gold); outline-offset: 6px; border-radius: var(--radius-sm); }

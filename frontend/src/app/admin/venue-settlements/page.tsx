@@ -27,6 +27,8 @@ interface NightRow {
 }
 interface VenueRow {
   locationId: number; name: string; nights: number; box: number; venue: number; clubVia: number;
+  /** 🧾 ضريبة الخدمة المحصَّلة — للمكان كاملةً (داخلةٌ في venue، خارج حصّة النادي) */
+  service?: number;
   direct: number; directCount: number; due: number; dueNoInvoice: number;
   ordersRecorded: number; ordersNights: number; usesInvoicing: boolean; lastInvoiceAt: string | null;
   held: number; received: number; pendingTotal: number; handovers: Handover[]; nightsDetail: NightRow[];
@@ -423,7 +425,7 @@ function VenueDetail({ v, pending, amount, amtErr, onAmount, note, onNote, savin
         <span className="vc-num text-left">{f2(tot.k)}</span>
       </div>
       <p className="mt-3.5 text-[13px] leading-[1.8]" style={{ color: TX.sub }}>
-        <Num v={f2(v.box)} size={13} /> = للمكان <Num v={f2(v.venue)} size={13} /> + للنادي <Num v={f2(v.clubVia)} size={13} />
+        <Num v={f2(v.box)} size={13} /> = للمكان <Num v={f2(v.venue)} size={13} />{(v.service ?? 0) > 0 && <> (منها ضريبة خدمة <Num v={f2(v.service ?? 0)} size={13} />)</>} + للنادي <Num v={f2(v.clubVia)} size={13} />
         {tot.f > 0 && <> (<Num v={String(tot.f)} size={13} /> دخوليّة)</>}. من فواتير محصّلة فعلاً.
       </p>
     </section>

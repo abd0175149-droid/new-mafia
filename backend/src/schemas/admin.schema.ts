@@ -68,6 +68,9 @@ export const locations = pgTable('locations', {
   // 💧 ماءٌ تلقائيّ: كلّ فاتورة لاعبٍ تحمل ماءً واحداً بسعر صنف الماء في المنيو —
   // إلا من طلب ماءً بنفسه أو عرضاً يحويه. يُحتسب ضمن استهلاك الحدّ الأدنى.
   autoWater: boolean('auto_water').default(false),
+  // 🧾 ضريبة الخدمة (2026-11-13): نسبةٌ مئويّة لكلّ مكان، 0 = بلا ضريبة خدمة. تُحسب على الطلبات
+  // والماء (بعد خصم مشروب الولاء) فقط — لا على الدخوليّة ولا على تكملة الحدّ الأدنى. كلّها للمكان.
+  serviceRate: decimal('service_rate', { precision: 5, scale: 2 }).default('0'),
   // 💳 طرق الدفع المفعّلة في المكان (2026-10-30) — تُكتب على كلّ ملفٍّ فيه مبلغ مطلوب وفي رسالة
   //    واتساب. كليك وحده بتفاصيله (طريقة التحويل · القيمة · البنك · الاسم الظاهر للمحوِّل).
   payCash: boolean('pay_cash').default(true).notNull(),
@@ -604,6 +607,8 @@ export const waBotSettings = pgTable('wa_bot_settings', {
   followup: jsonb('followup').default({}),
   // ✨ صياغة ردود الموظّفين بصوت الدون — تشغيلها وحارسها وتوقيع التحويل
   restyle: jsonb('restyle').default({}),
+  // 🕘 متابعة الوصول في صفحة الحجوزات — مفاتيح البوت، التذكير اللطيف، المتابعة الآليّة، القالب
+  arrivalFollowup: jsonb('arrival_followup').default({}),
   // 💵 أسعار جوجل الرسمية للنموذج الحالي ($ لكل مليون توكن) — التكلفة الحقيقية = توكنز فعلية × هذه الأسعار
   priceInputPer1M: decimal('price_input_per_1m', { precision: 10, scale: 4 }).default('0.10'),
   priceOutputPer1M: decimal('price_output_per_1m', { precision: 10, scale: 4 }).default('0.40'),
@@ -664,6 +669,16 @@ export const reservations = pgTable('reservations', {
   waSentAt: timestamp('wa_sent_at'),
   waSentBy: varchar('wa_sent_by', { length: 100 }).default(''),
   waMessageId: integer('wa_message_id'),                               // 📤 رسالة الحجز المرسلة من النظام ⟵ علامات التسليم
+  // 🕘 متابعة الوصول (2026-11-13): موعد الوصول المتوقّع + رسالة «متى توصل؟» + اعتذار العميل.
+  //    🔴 أعمدةٌ مستقلّة عن wa_sent_* عمداً: تلك تقود فلتر «لم تُرسل» ومنع تكرار رسالة التثبيت.
+  //    🔴 «حضر» لا يكتبه البوت أبداً — البوت يكتب الموعد والاعتذار (بعد زرّ تأكيد) فقط.
+  etaAt: timestamp('eta_at'),
+  etaSource: varchar('eta_source', { length: 8 }),                     // staff | bot
+  etaNote: text('eta_note'),                                           // كلام العميل أو ملاحظة الموظّف
+  followupSentAt: timestamp('followup_sent_at'),
+  followupMessageId: integer('followup_message_id'),                   // ⟵ wa_messages.id (علامات التسليم)
+  declinedAt: timestamp('declined_at'),
+  declinedVia: varchar('declined_via', { length: 12 }),                // followup | staff
   // 💸 سعر الدون المبكّر: السعر المقفول لحظة الحجز لأوّل promo_seats مقعداً (والباقي بسعر الفعاليّة)
   unitPrice: decimal('unit_price', { precision: 10, scale: 2 }),
   pricePromoId: integer('price_promo_id'),
@@ -671,6 +686,20 @@ export const reservations = pgTable('reservations', {
   createdAt: timestamp('created_at').defaultNow().notNull(),
   updatedAt: timestamp('updated_at').defaultNow().notNull(),
   deletedAt: timestamp('deleted_at'),
+});
+
+// ── 🕘 سجلّ متابعة الوصول: كلّ ما غيّره البوت أو الموظّف على موعد/اعتذار حجز، مع تراجع ──
+export const reservationEvents = pgTable('reservation_events', {
+  id: serial('id').primaryKey(),
+  reservationId: integer('reservation_id').notNull(),
+  activityId: integer('activity_id'),
+  at: timestamp('at').defaultNow().notNull(),
+  actor: varchar('actor', { length: 8 }).notNull(),                    // bot | staff | system
+  actorName: varchar('actor_name', { length: 100 }).default(''),
+  kind: varchar('kind', { length: 20 }).notNull(),                     // eta_set | eta_cleared | declined | followup_sent | needs_review | late_reminder | undo
+  detail: jsonb('detail').default({}),                                 // { before, after, … }
+  quote: text('quote'),                                                // نصّ العميل
+  undoneAt: timestamp('undone_at'),
 });
 
 // ── 📱 إصدار التطبيق الأصليّ (صفّ واحد، id=1) ──

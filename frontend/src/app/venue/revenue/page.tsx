@@ -31,12 +31,12 @@ interface Handover {
 }
 interface Night {
   activityId: number; activityName: string; activityDate: string;
-  collected: number; venue: number; club: number; orders: number; topup: number; water: number;
+  collected: number; venue: number; club: number; orders: number; topup: number; water: number; service?: number;
   fees: number; loyalty: number; feeCount: number; paidCount: number; freeCount: number; due: number; dueCount: number;
 }
 interface MoneyData {
   period: Period; range: { from: string; to: string };
-  totals: { collected: number; venue: number; club: number; orders: number; topup: number; water: number; fees: number; loyalty: number; feeCount: number; paidCount: number; freeCount: number };
+  totals: { collected: number; venue: number; club: number; orders: number; topup: number; water: number; service?: number; fees: number; loyalty: number; feeCount: number; paidCount: number; freeCount: number };
   nights: Night[];
   account: { collected: number; confirmed: number; pending: number; remainingForVenue: number; heldForAdmin: number; handovers: Handover[] };
   uncollected: { activityId: number; activityName: string; activityDate: string; collected: number; due: number; total: number; paidCount: number; dueCount: number }[];

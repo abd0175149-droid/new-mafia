@@ -84,6 +84,8 @@ export default function LocationsPage() {
   const [minimumCharge, setMinimumCharge] = useState('2.00');
   // 💧 ماء تلقائيّ لكلّ فاتورة
   const [autoWater, setAutoWater] = useState(false);
+  // 🧾 ضريبة الخدمة ٪ — 0 = بلا
+  const [serviceRate, setServiceRate] = useState('0');
   const [ownerUsername, setOwnerUsername] = useState('');
   const [offers, setOffers] = useState<any[]>([]);
   const [saving, setSaving] = useState(false);
@@ -168,7 +170,7 @@ export default function LocationsPage() {
     setCityId(cityFilter ? String(cityFilter) : '');
     setName(''); setRegion(''); setMapUrl(''); setOffers([]); setOwnerUsername('');
     setIsActive(true); setIsTestLocation(false); setMenuSource('');
-    setMinChargeEnabled(false); setMinimumCharge('2.00'); setAutoWater(false);
+    setMinChargeEnabled(false); setMinimumCharge('2.00'); setAutoWater(false); setServiceRate('0');
     // 🔴 بدونها يرث المكان الجديد نقطة المكان الذي فُتح قبله — سياجٌ على عنوانٍ خاطئ
     setGeoLat(null); setGeoLng(null); setGeoRadius(200);
     setIsDialogOpen(true);
@@ -186,6 +188,7 @@ export default function LocationsPage() {
     setMinChargeEnabled(loc.minChargeEnabled === true);
     setMinimumCharge(loc.minimumCharge ? String(parseFloat(loc.minimumCharge)) : '2.00');
     setAutoWater(loc.autoWater === true);
+    setServiceRate(loc.serviceRate ? String(parseFloat(loc.serviceRate) || 0) : '0');
     setMapUrl(loc.mapUrl || '');
     setGeoLat(loc.latitude === null || loc.latitude === undefined ? null : parseFloat(loc.latitude));
     setGeoLng(loc.longitude === null || loc.longitude === undefined ? null : parseFloat(loc.longitude));
@@ -199,6 +202,12 @@ export default function LocationsPage() {
   async function handleSave() {
     // 🔴 المدينةُ إلزاميّة — الخادم يردّ 400 CITY_REQUIRED بدونها، والزرُّ معطَّلٌ أصلاً
     if (!name.trim() || !cityId) return;
+    // 🧾 ضريبة الخدمة: 0–30 بخانتين عشريّتين على الأكثر (الخادم يتحقّق ثانيةً)
+    const srText = serviceRate.trim() === '' ? '0' : serviceRate.trim();
+    if (!/^\d{1,2}(\.\d{1,2})?$/.test(srText) || parseFloat(srText) > 30) {
+      alert('ضريبة الخدمة: رقمٌ بين 0 و30 بخانتين عشريّتين على الأكثر');
+      return;
+    }
     setSaving(true);
     // 🔴 `offers` لا يُرسَل إطلاقاً: normalizeOffer عرضٌ فقط وهو **فاقد** — يُسقط
     // اسم العرض ويُصفّر سعر العروض النصّيّة القديمة. إعادة إرساله كانت تجعل
@@ -215,6 +224,7 @@ export default function LocationsPage() {
       minChargeEnabled,
       minimumCharge: parseFloat(minimumCharge) >= 0 ? parseFloat(minimumCharge) : 2,
       autoWater,
+      serviceRate: parseFloat(srText),
       ownerUsername: ownerUsername.trim() || undefined,
     };
 
@@ -557,6 +567,18 @@ export default function LocationsPage() {
                     </span>
                   </span>
                 </label>
+                <div className="mt-3 pt-3 border-t border-sky-500/15">
+                  <label htmlFor="loc-service-rate" className="block text-xs text-white font-bold">🧾 ضريبة الخدمة %</label>
+                  <div className="mt-2 flex items-center gap-2">
+                    <input id="loc-service-rate" type="number" min="0" max="30" step="0.01" inputMode="decimal" value={serviceRate}
+                      onChange={e => setServiceRate(e.target.value)} dir="ltr"
+                      className="w-28 px-3 py-2 bg-gray-900/60 border border-gray-600/50 rounded-xl text-white text-sm focus:outline-none focus:ring-1 focus:ring-sky-500/30" />
+                    <span className="text-xs text-gray-400">%</span>
+                  </div>
+                  <span className="block text-[10.5px] text-gray-500 mt-1.5 leading-relaxed">
+                    0 = بلا ضريبة خدمة. تُحسب على الطلبات والماء فقط — لا على الدخوليّة ولا على تكملة الحدّ الأدنى.
+                  </span>
+                </div>
               </div>
 
               {/* ── 🧪 استعارة منيو — لمواقع الاختبار حصراً ── */}

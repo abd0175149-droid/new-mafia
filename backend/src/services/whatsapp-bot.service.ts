@@ -594,7 +594,7 @@ export async function updateBotSettings(patch: Record<string, any>, updatedBy: s
   await getBotSettings(); // ضمان وجود الصف
   const allowed = ['enabled', 'geminiApiKey', 'model', 'systemPrompt', 'knowledgeBase',
     'contextMessages', 'pauseMinutes', 'maxToolLoops', 'failMessage', 'failHandoff', 'toolsConfig',
-    'adminOnlyTools', 'priceInputPer1M', 'priceOutputPer1M', 'followup', 'restyle', 'survey'];
+    'adminOnlyTools', 'priceInputPer1M', 'priceOutputPer1M', 'followup', 'restyle', 'survey', 'arrivalFollowup'];
   const clean: any = {};
   for (const k of allowed) if (patch[k] !== undefined) clean[k] = patch[k];
   // مفتاح فارغ أو مقنّع = لا تغيير عليه
@@ -608,6 +608,11 @@ export async function updateBotSettings(patch: Record<string, any>, updatedBy: s
   if (clean.followup !== undefined) {
     const { mergeFollowup } = await import('./wa-followup.service.js');
     clean.followup = mergeFollowup(clean.followup);
+  }
+  // 🕘 إعدادات متابعة الوصول — تُنقَّح في مكانها الواحد (mergeArrivalFollowup)
+  if (clean.arrivalFollowup !== undefined) {
+    const { mergeArrivalFollowup } = await import('./arrival-followup.service.js');
+    clean.arrivalFollowup = mergeArrivalFollowup(clean.arrivalFollowup);
   }
   // ✨ وكذلك إعدادات الصياغة — الحدّ في مكانٍ واحد لا في الواجهة
   if (clean.restyle !== undefined) {
@@ -1335,7 +1340,7 @@ async function resolveBotCity(db: any, playerId: number | null | undefined, city
 //    grp_ok:<act>   تثبيتُ المجموعة من بطاقة set_group_members (يُعاد الفحص كاملاً لحظة الضغط)
 //    grp_add:<act>  «أضيف أصحابي» من إبلاغ الحاجزين ⟵ طلبُ الأسماء والأرقام
 //    grpm_ok|no:<token>  صديقٌ له حساب يؤكّد أو يرفض من واتساب
-const ANNOUNCE_BLOCKERS = /^(ask_confirmation|create_reservation|set_group_members|request_change_people|request_cancellation|cancel_|handoff_to_human|start_registration|confirm_account_link|reset_password|password_|admin_|🛡️)/;
+const ANNOUNCE_BLOCKERS = /^(set_arrival_eta|decline_attendance|flag_arrival_reply|ask_confirmation|create_reservation|set_group_members|request_change_people|request_cancellation|cancel_|handoff_to_human|start_registration|confirm_account_link|reset_password|password_|admin_|🛡️)/;
 async function handleOfferButton(conv: any, btnId: string): Promise<boolean> {
   const say = (text: string) => sendMessage({ conversationId: conv.id, text, source: 'bot' }).catch(() => {});
   let m = /^grp_ok:(\d+)$/.exec(btnId);
@@ -1436,6 +1441,8 @@ const IDENTITY_TOOLS = new Set([
   'create_reservation', 'set_group_members', 'request_cancellation', 'request_change_people', 'get_player_stats',
   'get_my_bookings', 'get_my_loyalty_card', 'get_my_game_status', 'get_my_seat', 'get_my_match_summary',
   'get_my_match_points', 'get_my_invoice', 'get_my_chips',
+  // 🕘 متابعة الوصول: كتابةٌ على حجز صاحب الرقم — بلا رقمٍ ظاهر لا كتابة
+  'set_arrival_eta', 'decline_attendance', 'flag_arrival_reply',
 ]);
 
 async function execTool(name: string, args: any, ctx: ToolCtx): Promise<any> {
@@ -1446,6 +1453,12 @@ async function execTool(name: string, args: any, ctx: ToolCtx): Promise<any> {
   //    لا تملك هذا الإثبات — تُرفض أدوات الهويّة فيها بالكود لا بالموجّه.
   if (conv?.phoneVerified === false && IDENTITY_TOOLS.has(name)) {
     return { error: 'رقم هذه المحادثة غير ظاهر لنا بعد — لا يمكن تنفيذ عملٍ على حساب. اطلب من العميل مراسلتنا من رقمه، أو حوّله للإدارة.' };
+  }
+  {
+    // 🕘 أدوات متابعة الوصول — حتميّة، على حجز المحادثة نفسها (لا معرّف من النموذج)
+    const { execArrivalTool } = await import('./arrival-followup.service.js');
+    const arr = await execArrivalTool(name, args, ctx);
+    if (arr !== undefined) return arr;
   }
   {
     const ext = await execExtTool(name, args, ctx as any, extHelpers());
@@ -3111,6 +3124,12 @@ async function buildCustomerCard(db: any, conv: any): Promise<string> {
     const st = await activeStrikes(conv.phone, conv.playerId ?? null);
     if (st.length) lines.push(`⛔ عليه ${st.length === 1 ? 'غياب' : `${st.length} غيابات`} لم يُستهلك (آخرها «${st[st.length - 1].activity_name || ''}») — حجزه القادم عبرك بالسعر العاديّ لا المبكّر. إن قال إنّه حضر: handoff_to_human بسبب «اعتراض على غياب».`);
   } catch { /* غير حرج */ }
+  // 🕘 سُئل «متى توصل؟» قبل قليل ⟵ النموذج يعرف أنّ ردّه القادم موعدٌ أو اعتذار، وبأيّ أداة
+  try {
+    const { arrivalCardLine } = await import('./arrival-followup.service.js');
+    const line = await arrivalCardLine(conv);
+    if (line) lines.push(line);
+  } catch { /* غير حرج */ }
   const notes = await db.select().from(waCustomerNotes)
     .where(eq(waCustomerNotes.phone, conv.phone))
     .orderBy(desc(waCustomerNotes.createdAt)).limit(6);
@@ -3230,6 +3249,13 @@ export async function runAgent(opts: {
   // 🔒 بوّابة أدوات «الأدمن فقط»: الساحة (dryRun) تُعامَل كأدمن لتُظهر كل الأدوات للاختبار.
   const isAdminConv = dryRun ? !!opts.asAdmin : await isAdminConversation(conv);
   const toolDecls = buildToolDeclarations(settings.toolsConfig, { adminOnlyTools: settings.adminOnlyTools, isAdmin: isAdminConv });
+  // 🕘 أدوات متابعة الوصول تُعرض فقط لمحادثةٍ سُئل صاحبها «متى توصل؟» خلال الساعات الأخيرة
+  if (!dryRun) {
+    try {
+      const { arrivalToolDeclarations } = await import('./arrival-followup.service.js');
+      toolDecls.push(...await arrivalToolDeclarations(conv));
+    } catch { /* بلا متابعة وصول */ }
+  }
   // ⚡ الترتيب مقصود: الثابت أوّلاً (الموجّه ثمّ قاعدة المعرفة) والمتغيّر آخراً — مزوّد النموذج يخزّن
   //    البادئة المشتركة تلقائيّاً (implicit caching) فتُفوتَر بخصم. كان الوقت وبطاقة العميل في الوسط
   //    فتنكسر البادئة بعد الموجّه مباشرة وتُفوتَر قاعدة المعرفة (≈نصف التوكنز) كاملةً مع كلّ نداء.
@@ -3379,6 +3405,11 @@ async function processConversation(convId: number) {
       }
       if (btnId && await handleOfferButton(conv, btnId)) return;   // 🎟️ مجموعاتُ العرض — حتميّة
       if (btnId && await handleExtButton(conv, btnId, extHelpers())) return;
+      // 🕘 تأكيد الاعتذار عن الحضور («أكّد: ما رح أحضر» / «لا، جاي») — حتميّ، والكتابة عند الضغط فقط
+      if (btnId && /^arr(no|yes):\d+$/.test(btnId)) {
+        const { handleArrivalButton } = await import('./arrival-followup.service.js');
+        if (await handleArrivalButton(conv, btnId)) return;
+      }
       if (btnId === 'res_cancel') {
         await sendMessage({ conversationId: convId, text: 'تمام، ألغيت العملية 👍 إذا حابب تشوف الفعاليات بأي وقت أنا جاهز.', source: 'bot' });
         return;

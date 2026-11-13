@@ -11,7 +11,7 @@ export interface VenueMe {
   location: {
     id: number; name: string;
     // قواعد الفاتورة للاطّلاع في ورقة «المكان» (2026-10-30)
-    rules?: { minChargeEnabled: boolean; minimumCharge: number; autoWater: boolean; geofenceSet: boolean; geofenceRadiusM: number | null };
+    rules?: { minChargeEnabled: boolean; minimumCharge: number; autoWater: boolean; serviceRate?: number; geofenceSet: boolean; geofenceRadiusM: number | null };
   } | null;
 }
 

@@ -1,9 +1,18 @@
 'use client';
 
-import { useEffect, useState, useMemo } from 'react';
+// ══════════════════════════════════════════════════════
+// تفاصيل النشاط — الخيار أ «حسب الوقت»: قبل · الليلة · بعد
+// الصفحة تفتح على المرحلة التي يعيشها النشاط الآن، وكلّ قسم آخر على بُعد نقرة
+// من قائمة «كلّ ما يخصّ هذا النشاط».
+// ══════════════════════════════════════════════════════
+
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
 import { useParams, useRouter } from 'next/navigation';
-import { motion } from 'framer-motion';
-import dynamic from 'next/dynamic';
+import Link from 'next/link';
+import {
+  ArrowRight, Armchair, Banknote, CalendarClock, CalendarX, Check, ChevronLeft, DoorOpen, FolderOpen, Gift, LayoutList,
+  ListChecks, Lock, LockOpen, MapPin, Pencil, Receipt, RefreshCw, Ticket, UserX, Users, Wallet,
+} from 'lucide-react';
 import DriveFolderBrowser from '../../components/DriveFolderBrowser';
 import EditActivityForm from '../../components/EditActivityForm';
 import BookingBonusSection from '../../components/BookingBonusSection';
@@ -11,1060 +20,48 @@ import AbsenceSection from '../../components/AbsenceSection';
 import OfferGroupsSection from '../../components/OfferGroupsSection';
 import NoShowSection from '../../components/NoShowSection';
 import CancelNoticeSection from '../../components/CancelNoticeSection';
-import { confirmActivityCancel, toastCancelStarted } from '@/lib/cancel-notice';
 import ScheduleEditor from '../../components/ScheduleEditor';
-import WhatsAppButton from '@/components/WhatsAppButton';
-import SeatMap2D from '@/components/SeatMap2D';
-import { computeRectLayout, type Numbering, type RectDoor } from '@/lib/rectLayout';
-import { checkSeatConflicts, normPhone as normSeatPhone, type PinRef } from '@/lib/seatConflicts';
-import { swalConfirm } from '@/lib/swal';
+import { confirmActivityCancel, toastCancelStarted } from '@/lib/cancel-notice';
+import { isWaitlist } from '@/lib/reservation-status';
+import { swalToast } from '@/lib/swal';
+import { Badge, Banner, Card, Empty, HBar, Meter, Pop, Skel, Tile } from '../../whatsapp/wa-ui';
+import { Acc, Show, STATUS_META, CURRENCY, ammanMinutes, apiFetch, fmtDay, fmtDayShort, fmtTime, getUser, num } from '../components/acts-shared';
+import RoomsSection from './RoomsSection';
+import SeatAssignmentSection from './SeatAssignmentSection';
+import BookingsPanel from './BookingsPanel';
+import { SeatingConstraintsPanel, TicketsSection } from './SeatingAndTickets';
+import '../../whatsapp/wa.css';
+import '../acts.css';
 
-// 🪑 محرّر القاعة ثلاثيّ الأبعاد (نفس مكوّن القالب) — تحميل كسول بلا SSR
-const SeatEditor3D = dynamic(() => import('@/components/SeatTemplate3DEditor'), {
-  ssr: false,
-  loading: () => <div className="h-full min-h-[380px] flex items-center justify-center text-gray-600">⏳ تحميل المشهد ثلاثي الأبعاد...</div>,
-});
+type Phase = 'before' | 'tonight' | 'after';
+const PHASES: ReadonlyArray<{ key: Phase; short: string; long: string }> = [
+  { key: 'before', short: 'قبل', long: 'التحضير' },
+  { key: 'tonight', short: 'الليلة', long: 'التشغيل' },
+  { key: 'after', short: 'بعد', long: 'الإغلاق' },
+];
+const DIFFICULTY: Record<string, string> = { easy: 'سهل', medium: 'متوسّط', hard: 'صعب', expert: 'خبير' };
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL || '';
-const CURRENCY = 'د.أ';
-
-function getToken() { return typeof window !== 'undefined' ? localStorage.getItem('token') : null; }
-function getUser() { try { return JSON.parse(localStorage.getItem('user') || '{}'); } catch { return {}; } }
-
-async function apiFetch(path: string, opts?: RequestInit) {
-  const token = getToken();
-  const res = await fetch(`${API_URL}${path}`, {
-    ...opts,
-    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}`, ...opts?.headers },
-  });
-  if (!res.ok) throw new Error(`API error ${res.status}`);
-  return res.json();
+/** المرحلة من الوقت والحالة: قبل الموعد بأكثر من ساعتين «قبل»، ثمّ «الليلة» حتّى ينتهي النشاط، ثمّ «بعد» */
+function derivePhase(activity: any): Phase {
+  if (!activity || activity.status === 'cancelled') return 'before';
+  if (activity.status === 'completed') return 'after';
+  const start = new Date(activity.date);
+  if (isNaN(start.getTime())) return 'before';
+  const now = Date.now();
+  if (now < start.getTime() - 2 * 3600_000) return 'before';
+  // نفس قاعدة التحديث التلقائيّ للحالة: ينتهي النشاط عند منتصف الليل التالي لموعده
+  const nextDay = new Date(start);
+  nextDay.setDate(nextDay.getDate() + 1);
+  nextDay.setHours(0, 0, 0, 0);
+  return now >= nextDay.getTime() ? 'after' : 'tonight';
 }
 
-const STATUS_MAP: Record<string, { label: string; color: string }> = {
-  planned:   { label: 'مخطط له',   color: 'bg-blue-500/15 text-blue-400 border-blue-500/20' },
-  active:    { label: 'نشط حالياً', color: 'bg-emerald-500/15 text-emerald-400 border-emerald-500/20' },
-  completed: { label: 'مكتمل',     color: 'bg-gray-500/15 text-gray-400 border-gray-500/20' },
-  cancelled: { label: 'ملغي',      color: 'bg-rose-500/15 text-rose-400 border-rose-500/20' },
+const toMin = (hhmm: string) => { const [h, m] = String(hhmm || '').split(':'); return (Number(h) || 0) * 60 + (Number(m) || 0); };
+/** وقت 24 ساعة «HH:MM» ← «7:30 م» */
+const hhmm12 = (s: string) => {
+  const t = toMin(s); const h = Math.floor(t / 60) % 24; const m = t % 60;
+  return `${h % 12 === 0 ? 12 : h % 12}:${String(m).padStart(2, '0')} ${h < 12 ? 'ص' : 'م'}`;
 };
-
-function safeDate(d: any) { return d ? new Date(d) : new Date(); }
-
-// نتيجة المباراة للعرض — تدعم كل الفائزين (مافيا/مواطن/مهرج/سفّاح)؛ "جارية" فقط حين لا فائز
-function matchResult(winner: string | null | undefined): { icon: string; label: string; iconCls: string; badgeCls: string } {
-  switch (winner) {
-    case 'MAFIA':    return { icon: '🔴', label: 'فازت المافيا',  iconCls: 'bg-rose-500/15 text-rose-400',    badgeCls: 'bg-rose-500/10 text-rose-400' };
-    case 'CITIZEN':  return { icon: '🟢', label: 'فاز المواطنون', iconCls: 'bg-emerald-500/15 text-emerald-400', badgeCls: 'bg-emerald-500/10 text-emerald-400' };
-    case 'JESTER':   return { icon: '🤡', label: 'فاز المهرج',    iconCls: 'bg-amber-500/15 text-amber-400',   badgeCls: 'bg-amber-500/10 text-amber-400' };
-    case 'ASSASSIN': return { icon: '🔪', label: 'فاز السفّاح',    iconCls: 'bg-purple-500/15 text-purple-400', badgeCls: 'bg-purple-500/10 text-purple-400' };
-    default:         return { icon: '⏳', label: 'جارية',         iconCls: 'bg-gray-500/15 text-gray-400',     badgeCls: 'bg-gray-500/10 text-gray-400' };
-  }
-}
-
-// ── CSS Donut Chart ──
-function DonutChart({ data, size = 140 }: { data: { name: string; value: number; color: string }[]; size?: number }) {
-  const total = data.reduce((s, d) => s + d.value, 0);
-  if (total === 0) return <div className="flex items-center justify-center" style={{ width: size, height: size }}><span className="text-gray-600 text-3xl">📊</span></div>;
-
-  let accumulated = 0;
-  const gradientParts = data.map(d => {
-    const start = (accumulated / total) * 100;
-    accumulated += d.value;
-    const end = (accumulated / total) * 100;
-    return `${d.color} ${start}% ${end}%`;
-  });
-
-  return (
-    <div
-      className="rounded-full relative"
-      style={{
-        width: size, height: size,
-        background: `conic-gradient(${gradientParts.join(', ')})`,
-      }}
-    >
-      <div className="absolute inset-[25%] rounded-full bg-gray-900" />
-    </div>
-  );
-}
-
-// ══════════════════════════════════════════════════════
-// 🎮 قسم الغرف المرتبطة بالنشاط (مع ملخص الألعاب)
-// ══════════════════════════════════════════════════════
-function RoomsSection({ activityId, activityName }: { activityId: number; activityName: string }) {
-  const [rooms, setRooms] = useState<any[]>([]);
-  const [summary, setSummary] = useState<any[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [adding, setAdding] = useState(false);
-  const [copiedId, setCopiedId] = useState<number | null>(null);
-  const [expandedRoom, setExpandedRoom] = useState<number | null>(null);
-  const [selectedMatch, setSelectedMatch] = useState<any | null>(null);
-
-  const [unbookedPlayers, setUnbookedPlayers] = useState<any[]>([]);
-  const [showUnbooked, setShowUnbooked] = useState(false);
-  const [loadingUnbooked, setLoadingUnbooked] = useState(false);
-
-  const fetchRooms = async () => {
-    try {
-      const [roomsData, summaryData] = await Promise.all([
-        apiFetch(`/api/activities/${activityId}/rooms`),
-        apiFetch(`/api/activities/${activityId}/rooms-summary`).catch(() => ({ rooms: [] })),
-      ]);
-      setRooms(roomsData);
-      setSummary(summaryData.rooms || []);
-    } catch (err) {
-      console.error('Failed to fetch rooms:', err);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  useEffect(() => { fetchRooms(); }, [activityId]);
-
-  const fetchUnbooked = async () => {
-    setLoadingUnbooked(true);
-    setShowUnbooked(true);
-    try {
-      const res = await apiFetch(`/api/activities/${activityId}/unbooked-players`);
-      setUnbookedPlayers(res.unbooked || []);
-    } catch (err) {
-      console.error(err);
-    } finally {
-      setLoadingUnbooked(false);
-    }
-  };
-
-  const [bookingInProgress, setBookingInProgress] = useState<number[] | 'all' | null>(null);
-
-  const handleAutoBook = async (playersToBook: any[]) => {
-    if (!(await swalConfirm(`⚠️ هل تريد إنشاء حجز تلقائي لـ ${playersToBook.length} لاعب؟`))) return;
-    
-    setBookingInProgress(playersToBook.length > 1 ? 'all' : [playersToBook[0].player_id || playersToBook[0].player_name]);
-    try {
-      await apiFetch(`/api/activities/${activityId}/auto-book`, {
-        method: 'POST',
-        body: JSON.stringify({ players: playersToBook })
-      });
-      alert('✅ تم التسجيل بنجاح!');
-      fetchUnbooked(); // إعادة التحديث
-    } catch (err: any) {
-      alert('فشل التسجيل: ' + err.message);
-    } finally {
-      setBookingInProgress(null);
-    }
-  };
-
-  const [showAddRoomForm, setShowAddRoomForm] = useState(false);
-  const [newRoomMaxPenalties, setNewRoomMaxPenalties] = useState(3);
-  const [newRoomPenaltyScope, setNewRoomPenaltyScope] = useState<'room' | 'game'>('room');
-
-  const handleAddRoom = async () => {
-    setAdding(true);
-    try {
-      const newRoom = await apiFetch(`/api/activities/${activityId}/add-room`, { 
-        method: 'POST', 
-        body: JSON.stringify({
-          maxPenalties: newRoomMaxPenalties,
-          penaltyScope: newRoomPenaltyScope,
-        }),
-      });
-      // إضافة إعدادات العقوبات للكائن المحلي (لتمريرها لـ enterRoom)
-      newRoom.maxPenalties = newRoomMaxPenalties;
-      newRoom.penaltyScope = newRoomPenaltyScope;
-      setRooms(prev => [newRoom, ...prev]);
-      setShowAddRoomForm(false);
-      fetchRooms();
-    } catch (err: any) {
-      alert('فشل إنشاء الغرفة: ' + err.message);
-    } finally {
-      setAdding(false);
-    }
-  };
-
-  const handleDeleteRoom = async (sessionId: number) => {
-    if (!(await swalConfirm('⚠️ هل تريد حذف هذه الغرفة نهائياً؟'))) return;
-    try {
-      await apiFetch(`/api/activities/${activityId}/rooms/${sessionId}`, { method: 'DELETE' });
-      setRooms(prev => prev.filter(r => r.id !== sessionId));
-      setSummary(prev => prev.filter(r => r.id !== sessionId));
-    } catch (err: any) {
-      alert('فشل الحذف: ' + err.message);
-    }
-  };
-
-  const handleCloseRoom = async (sessionId: number) => {
-    if (!(await swalConfirm('🔒 انتهت الفعالية؟ سيتم إغلاق هذه الغرفة ولن تظهر للقائد بعد الآن.'))) return;
-    try {
-      await apiFetch(`/api/activities/${activityId}/rooms/${sessionId}/close`, { method: 'PATCH' });
-      setRooms(prev => prev.map(r => r.id === sessionId ? { ...r, isActive: false, status: 'closed' } : r));
-      setSummary(prev => prev.map(r => r.id === sessionId ? { ...r, isActive: false, status: 'closed' } : r));
-    } catch (err: any) {
-      alert('فشل الإغلاق: ' + err.message);
-    }
-  };
-
-  const copyCode = (code: string, id: number) => {
-    navigator.clipboard.writeText(code);
-    setCopiedId(id);
-    setTimeout(() => setCopiedId(null), 2000);
-  };
-
-  const enterRoom = (room: any) => {
-    sessionStorage.setItem('leader_room_entry', JSON.stringify({
-      sessionCode: room.sessionCode,
-      displayPin: room.displayPin,
-      sessionName: room.sessionName,
-      sessionId: room.id,
-      activityId,
-      maxPlayers: room.maxPlayers || 10,
-      maxPenalties: room.maxPenalties || 3,
-      penaltyScope: room.penaltyScope || 'room',
-    }));
-    window.open('/leader', '_blank');
-  };
-
-  const fmtDuration = (s: number) => s > 0 ? `${Math.floor(s / 60)}د ${s % 60}ث` : '—';
-  const fmtDate = (d: string) => d ? new Date(d).toLocaleTimeString('ar-JO', { hour: '2-digit', minute: '2-digit' }) : '—';
-
-  // دمج بيانات الغرف مع الملخص
-  const mergedRooms = rooms.map(r => ({
-    ...r,
-    ...(summary.find(s => s.id === r.id) || {}),
-  }));
-
-  return (
-    <div className="space-y-4">
-      {/* ── رأس القسم ── */}
-      <div className="bg-gray-800/50 border border-gray-700/40 rounded-2xl p-5">
-        <div className="flex items-center justify-between mb-4">
-          <h3 className="text-sm font-bold text-white flex items-center gap-2">
-            🎮 غرف اللعبة
-            <span className="text-xs px-2 py-0.5 rounded-full bg-gray-700/50 text-gray-400">{rooms.length}</span>
-          </h3>
-          <div className="flex gap-2">
-            <button
-              onClick={fetchUnbooked}
-              className="text-xs px-3 py-1.5 rounded-lg border border-rose-500/30 text-rose-400 hover:bg-rose-500/10 transition"
-            >
-              ⚠️ حضروا بدون حجز
-            </button>
-            <button
-              onClick={() => setShowAddRoomForm(!showAddRoomForm)}
-              className="text-xs px-3 py-1.5 rounded-lg border border-amber-500/30 text-amber-400 hover:bg-amber-500/10 transition"
-            >
-              {showAddRoomForm ? '✕ إلغاء' : '➕ إضافة غرفة'}
-            </button>
-          </div>
-        </div>
-
-        {/* نموذج إعدادات الغرفة الجديدة */}
-        {showAddRoomForm && (
-          <div className="bg-gray-900/60 border border-amber-500/20 rounded-xl p-4 space-y-3 mb-4">
-            <p className="text-amber-400 text-xs font-bold text-center">⚖️ إعدادات العقوبات للغرفة الجديدة</p>
-            
-            {/* الحد الأقصى للعقوبات */}
-            <div className="flex items-center justify-center gap-3">
-              <span className="text-gray-400 text-xs">الحد الأقصى:</span>
-              <button onClick={() => setNewRoomMaxPenalties(Math.max(1, newRoomMaxPenalties - 1))}
-                className="w-7 h-7 bg-gray-800 border border-gray-600 rounded text-gray-300 hover:text-white hover:border-gray-500 transition text-sm">−</button>
-              <span className="text-amber-400 font-bold text-lg font-mono w-6 text-center">{newRoomMaxPenalties}</span>
-              <button onClick={() => setNewRoomMaxPenalties(Math.min(10, newRoomMaxPenalties + 1))}
-                className="w-7 h-7 bg-gray-800 border border-gray-600 rounded text-gray-300 hover:text-white hover:border-gray-500 transition text-sm">+</button>
-            </div>
-            
-            {/* نطاق العقوبات */}
-            <div className="flex justify-center gap-2">
-              <button
-                onClick={() => setNewRoomPenaltyScope('room')}
-                className={`px-4 py-1.5 rounded-lg text-xs transition ${newRoomPenaltyScope === 'room' ? 'bg-amber-500/20 text-amber-400 border border-amber-500/40' : 'bg-gray-800 text-gray-500 border border-gray-700'}`}
-              >كامل الغرفة</button>
-              <button
-                onClick={() => setNewRoomPenaltyScope('game')}
-                className={`px-4 py-1.5 rounded-lg text-xs transition ${newRoomPenaltyScope === 'game' ? 'bg-amber-500/20 text-amber-400 border border-amber-500/40' : 'bg-gray-800 text-gray-500 border border-gray-700'}`}
-              >كل لعبة</button>
-            </div>
-            <p className="text-gray-600 text-[10px] text-center">
-              {newRoomPenaltyScope === 'game' ? 'العقوبات تُصفّر تلقائياً عند بدء لعبة جديدة' : 'العقوبات تستمر طوال جلسة الغرفة'}
-            </p>
-            
-            {/* زر الإنشاء */}
-            <button
-              onClick={handleAddRoom}
-              disabled={adding}
-              className="w-full py-2 bg-amber-500/20 border border-amber-500/40 text-amber-400 rounded-lg text-sm font-bold hover:bg-amber-500/30 transition disabled:opacity-50"
-            >
-              {adding ? '⏳ جارٍ الإنشاء...' : '✅ إنشاء الغرفة'}
-            </button>
-          </div>
-        )}
-
-        {loading ? (
-          <div className="flex justify-center py-6">
-            <div className="animate-spin h-6 w-6 border-2 border-amber-500 border-t-transparent rounded-full" />
-          </div>
-        ) : mergedRooms.length > 0 ? (
-          <div className="space-y-3">
-            {mergedRooms.map((room, i) => {
-              const stats = room.stats || { totalMatches: 0, mafiaWins: 0, citizenWins: 0, totalDuration: 0 };
-              const isExpanded = expandedRoom === room.id;
-              return (
-                <motion.div key={room.id} initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: i * 0.05 }}
-                  className="bg-gray-900/50 border border-gray-700/30 rounded-xl overflow-hidden"
-                >
-                  {/* ── معلومات الغرفة ── */}
-                  <div className="flex items-center justify-between p-3.5">
-                    <div className="flex items-center gap-3.5">
-                      <div className="w-11 h-11 rounded-xl bg-amber-500/15 border border-amber-500/20 flex items-center justify-center text-xl">🕹️</div>
-                      <div>
-                        <p className="text-white font-bold text-sm">{room.sessionName}</p>
-                        <div className="flex items-center gap-3 mt-1 flex-wrap">
-                          <span className="text-xs text-gray-500 font-mono">🔑 <span className="text-amber-400 font-bold">{room.sessionCode}</span></span>
-                          <span className="text-xs text-gray-500 font-mono">🔒 PIN: <span className="text-blue-400">{room.displayPin || '—'}</span></span>
-                          <span className={`text-[10px] px-2 py-0.5 rounded-full border ${room.isActive ? 'bg-emerald-500/15 text-emerald-400 border-emerald-500/20' : 'bg-gray-500/15 text-gray-500 border-gray-600/20'}`}>
-                            {room.isActive ? '🟢 نشطة' : '⚪ مغلقة'}
-                          </span>
-                          {stats.totalMatches > 0 && (
-                            <span className="text-[10px] text-gray-500">{stats.totalMatches} مباراة</span>
-                          )}
-                        </div>
-                      </div>
-                    </div>
-
-                    <div className="flex items-center gap-2 flex-wrap">
-                      <button onClick={() => copyCode(room.sessionCode, room.id)} className="text-xs px-2.5 py-1.5 rounded-lg border border-gray-600/40 text-gray-400 hover:text-white transition" title="نسخ">
-                        {copiedId === room.id ? '✅' : '📋'}
-                      </button>
-                      <a href={`/display?sessionCode=${room.sessionCode}&pin=${room.displayPin}`} target="_blank" rel="noopener noreferrer"
-                        className="text-xs px-3 py-1.5 rounded-lg border border-cyan-500/30 text-cyan-400 hover:bg-cyan-500/10 transition">
-                        📺 العرض
-                      </a>
-                      {room.isActive && (
-                        <button onClick={() => enterRoom(room)} className="text-xs px-3 py-1.5 rounded-lg border border-emerald-500/30 text-emerald-400 hover:bg-emerald-500/10 transition">
-                          🎮 دخول
-                        </button>
-                      )}
-                      {/* ── زر انتهت الفعالية ── */}
-                      {room.isActive && (
-                        <button
-                          onClick={() => handleCloseRoom(room.id)}
-                          className="text-xs px-3 py-1.5 rounded-lg border border-rose-500/40 text-rose-400 hover:bg-rose-500/10 transition font-bold"
-                          title="إغلاق الفعالية نهائياً"
-                        >
-                          🏁 انتهت الفعالية
-                        </button>
-                      )}
-                      <button onClick={() => handleDeleteRoom(room.id)} className="text-xs px-2.5 py-1.5 rounded-lg border border-rose-500/20 text-rose-500/60 hover:text-rose-400 hover:border-rose-500/30 transition" title="حذف">
-                        🗑️
-                      </button>
-                      {stats.totalMatches > 0 && (
-                        <button onClick={() => setExpandedRoom(isExpanded ? null : room.id)}
-                          className="text-xs px-2.5 py-1.5 rounded-lg border border-amber-500/20 text-amber-400/70 hover:bg-amber-500/10 transition">
-                          {isExpanded ? '▲ إخفاء' : '▼ الألعاب'}
-                        </button>
-                      )}
-                    </div>
-                  </div>
-
-                  {/* ── إحصاءات الغرفة السريعة ── */}
-                  {stats.totalMatches > 0 && (
-                    <div className="px-3.5 pb-3 flex items-center gap-4 border-t border-white/5 pt-2.5">
-                      <div className="flex items-center gap-3 text-xs">
-                        <span className="text-gray-500">إجمالي: <span className="text-white font-bold">{stats.totalMatches}</span></span>
-                        <span className="text-rose-400">🔴 مافيا: <strong>{stats.mafiaWins}</strong></span>
-                        <span className="text-emerald-400">🟢 مواطنين: <strong>{stats.citizenWins}</strong></span>
-                        {stats.totalDuration > 0 && (
-                          <span className="text-gray-500">⏱️ {fmtDuration(stats.totalDuration)}</span>
-                        )}
-                      </div>
-                    </div>
-                  )}
-
-                  {/* ── قائمة الألعاب ── */}
-                  {isExpanded && room.matches && room.matches.length > 0 && (
-                    <div className="border-t border-white/5 px-3.5 pb-3 pt-2.5 space-y-2">
-                      <p className="text-[10px] text-gray-600 uppercase tracking-wider mb-2">📜 الألعاب</p>
-                      {room.matches.map((match: any, mi: number) => (
-                        <div key={match.id} onClick={() => setSelectedMatch(match)}
-                          className="flex items-center justify-between bg-gray-800/40 border border-gray-700/20 rounded-lg px-3 py-2 cursor-pointer hover:border-amber-500/20 transition"
-                        >
-                          <div className="flex items-center gap-2.5">
-                            <span className={`w-7 h-7 rounded-lg flex items-center justify-center text-sm ${matchResult(match.winner).iconCls}`}>
-                              {matchResult(match.winner).icon}
-                            </span>
-                            <div>
-                              <p className="text-xs text-white font-medium">لعبة {mi + 1}</p>
-                              <p className="text-[10px] text-gray-500">{match.playerCount} لاعب • {match.totalRounds} جولة • {fmtDuration(match.durationSeconds)}</p>
-                            </div>
-                          </div>
-                          <div className="flex items-center gap-2">
-                            <span className={`text-[10px] px-2 py-0.5 rounded-full ${matchResult(match.winner).badgeCls}`}>
-                              {matchResult(match.winner).label}
-                            </span>
-                            {match.endedAt && <span className="text-[10px] text-gray-600">{fmtDate(match.endedAt)}</span>}
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </motion.div>
-              );
-            })}
-          </div>
-        ) : (
-          <div className="text-center py-6 text-gray-600 text-sm">
-            <span className="text-3xl block mb-2 opacity-30">🎮</span>
-            لا توجد غرف مرتبطة بهذا النشاط
-          </div>
-        )}
-      </div>
-
-      {/* ── Modal تفاصيل مباراة ── */}
-      {selectedMatch && (
-        <div className="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 flex items-center justify-center p-4" onClick={() => setSelectedMatch(null)}>
-          <motion.div initial={{ scale: 0.9, opacity: 0 }} animate={{ scale: 1, opacity: 1 }}
-            onClick={e => e.stopPropagation()}
-            className="bg-gray-900 border border-gray-700/50 rounded-2xl p-6 max-w-sm w-full"
-          >
-            <div className="flex items-center justify-between mb-4">
-              <h3 className="text-lg font-bold text-white">تفاصيل اللعبة</h3>
-              <button onClick={() => setSelectedMatch(null)} className="text-gray-500 hover:text-white text-lg">✕</button>
-            </div>
-            <div className={`rounded-xl p-3 mb-4 text-center font-bold ${matchResult(selectedMatch.winner).badgeCls}`}>
-              {matchResult(selectedMatch.winner).icon} {matchResult(selectedMatch.winner).label}
-            </div>
-            <div className="grid grid-cols-3 gap-3">
-              {[
-                { v: selectedMatch.playerCount, l: 'لاعب' },
-                { v: selectedMatch.totalRounds, l: 'جولة' },
-                { v: fmtDuration(selectedMatch.durationSeconds), l: 'المدة' },
-              ].map((s, i) => (
-                <div key={i} className="bg-gray-800/50 rounded-xl p-3 text-center">
-                  <p className="text-lg font-bold text-white">{s.v}</p>
-                  <p className="text-xs text-gray-500">{s.l}</p>
-                </div>
-              ))}
-            </div>
-          </motion.div>
-        </div>
-      )}
-
-      {/* ── Modal اللاعبون بدون حجز ── */}
-      {showUnbooked && (
-        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4" onClick={() => setShowUnbooked(false)}>
-          <motion.div initial={{ scale: 0.95, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} onClick={e => e.stopPropagation()} className="bg-gray-900 border border-rose-500/30 rounded-2xl p-6 w-full max-w-md max-h-[80vh] flex flex-col">
-            <div className="flex items-center justify-between mb-4">
-              <h3 className="text-lg font-bold text-rose-400 flex items-center gap-2">⚠️ حضروا بدون حجز</h3>
-              <button onClick={() => setShowUnbooked(false)} className="text-gray-500 hover:text-white">✕</button>
-            </div>
-            
-            {loadingUnbooked ? (
-              <div className="flex justify-center py-10">
-                <div className="animate-spin h-8 w-8 border-2 border-rose-500 border-t-transparent rounded-full" />
-              </div>
-            ) : unbookedPlayers.length === 0 ? (
-              <div className="py-10 text-center">
-                <span className="text-4xl mb-3 block">🎉</span>
-                <p className="text-emerald-400 font-bold">جميع اللاعبين المتواجدين في الغرف لديهم حجوزات مطابقة!</p>
-              </div>
-            ) : (
-              <div className="flex-1 overflow-y-auto pr-2 space-y-3">
-                <div className="flex justify-between items-center mb-3">
-                  <p className="text-gray-400 text-sm">هؤلاء اللاعبون مسجلون في غرف اللعب لكن النظام لم يجد حجوزات تطابقهم:</p>
-                  <button
-                    onClick={() => handleAutoBook(unbookedPlayers)}
-                    disabled={bookingInProgress === 'all'}
-                    className="text-xs bg-emerald-500/20 text-emerald-400 hover:bg-emerald-500/30 px-3 py-1.5 rounded-lg border border-emerald-500/30 whitespace-nowrap disabled:opacity-50"
-                  >
-                    {bookingInProgress === 'all' ? '⏳...' : '✅ تسجيل الكل كحجز'}
-                  </button>
-                </div>
-                {unbookedPlayers.map((p, i) => {
-                  const idKey = p.player_id || p.player_name;
-                  const isLoad = Array.isArray(bookingInProgress) && bookingInProgress.includes(idKey);
-                  return (
-                    <div key={i} className="bg-gray-800/80 border border-rose-500/20 rounded-xl p-3 flex justify-between items-center">
-                      <div>
-                        <p className="text-white font-bold">{p.player_name}</p>
-                        <p className="text-xs text-gray-500 font-mono mt-0.5 flex items-center gap-2" dir="ltr">
-                          {p.phone || '—'}
-                          <WhatsAppButton phone={p.phone} size={13} />
-                        </p>
-                      </div>
-                      <button
-                        onClick={() => handleAutoBook([p])}
-                        disabled={bookingInProgress !== null}
-                        className="text-xs text-blue-400 border border-blue-500/30 hover:bg-blue-500/10 px-3 py-1 rounded-lg disabled:opacity-50 transition"
-                      >
-                        {isLoad ? '⏳...' : 'تسجيل حجز'}
-                      </button>
-                    </div>
-                  );
-                })}
-              </div>
-            )}
-          </motion.div>
-        </div>
-      )}
-    </div>
-  );
-}
-
-// ══════════════════════════════════════════════════════
-// 🎫 التذاكر المستخدمة مع هذا النشاط (من النظام المركزي)
-// ══════════════════════════════════════════════════════
-function TicketsSection({ activityId }: { activityId: number }) {
-  const [usedTickets, setUsedTickets] = useState<any[]>([]);
-  const [loading, setLoading] = useState(true);
-
-  useEffect(() => {
-    (async () => {
-      try {
-        // 1. التذاكر المربوطة بهذا النشاط (assigned)
-        const assigned = await apiFetch(`/api/tickets/by-activity/${activityId}`);
-        // 2. أيضاً التذاكر المستخدمة فعلياً في هذا النشاط (قد لا تكون مربوطة مسبقاً)
-        const all = await apiFetch(`/api/tickets?limit=500`);
-        const usedHere = (all || []).filter((t: any) => t.isUsed && Number(t.usedInActivityId) === activityId);
-        // دمج بدون تكرار
-        const merged = new Map<number, any>();
-        for (const t of [...(assigned || []), ...usedHere]) {
-          if (t.isUsed) merged.set(t.id, t);
-        }
-        setUsedTickets(Array.from(merged.values()));
-      } catch (err) {
-        console.error('Failed to fetch used tickets:', err);
-      } finally {
-        setLoading(false);
-      }
-    })();
-  }, [activityId]);
-
-  return (
-    <div className="bg-gray-800/50 border border-purple-500/20 rounded-2xl p-5">
-      <div className="flex items-center justify-between mb-4">
-        <h3 className="text-sm font-bold text-white flex items-center gap-2">
-          🎫 التذاكر المستخدمة في هذا النشاط
-          <span className="text-xs px-2 py-0.5 rounded-full bg-purple-500/15 text-purple-400 border border-purple-500/20">
-            {usedTickets.length} تذكرة
-          </span>
-        </h3>
-        <a href="/admin/tickets" className="text-xs px-3 py-1.5 rounded-lg border border-purple-500/30 text-purple-400 hover:bg-purple-500/10 transition">
-          📂 إدارة التذاكر المركزية ←
-        </a>
-      </div>
-
-      {loading ? (
-        <div className="flex justify-center py-6">
-          <div className="animate-spin h-6 w-6 border-2 border-purple-500 border-t-transparent rounded-full" />
-        </div>
-      ) : usedTickets.length > 0 ? (
-        <div className="max-h-64 overflow-y-auto border border-gray-700/30 rounded-xl">
-          <table className="w-full text-sm" dir="rtl">
-            <thead>
-              <tr className="bg-gray-900/50 text-gray-500 text-xs sticky top-0">
-                <th className="text-right px-3 py-2 font-medium">#</th>
-                <th className="text-right px-3 py-2 font-medium">رقم التذكرة</th>
-                <th className="text-right px-3 py-2 font-medium">اللاعب</th>
-                <th className="text-right px-3 py-2 font-medium">الهاتف</th>
-                <th className="text-right px-3 py-2 font-medium">البائع</th>
-                <th className="text-right px-3 py-2 font-medium">تاريخ الاستخدام</th>
-              </tr>
-            </thead>
-            <tbody>
-              {usedTickets.map((t: any, i: number) => (
-                <tr key={t.id} className="border-t border-gray-700/20 hover:bg-gray-700/10">
-                  <td className="px-3 py-2 text-gray-600 text-xs">{i + 1}</td>
-                  <td className="px-3 py-2 text-white font-mono text-xs" dir="ltr">{t.ticketNumber}</td>
-                  <td className="px-3 py-2 text-white text-xs">{t.usedByName || '—'}</td>
-                  <td className="px-3 py-2 text-gray-400 font-mono text-[10px]" dir="ltr">{t.usedByPhone || '—'}</td>
-                  <td className="px-3 py-2 text-gray-400 text-xs">{t.sellerName || '—'}</td>
-                  <td className="px-3 py-2 text-gray-500 text-[10px]">
-                    {t.usedAt ? new Date(t.usedAt).toLocaleString('ar-JO', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : '—'}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      ) : (
-        <div className="text-center py-6 text-gray-600 text-sm">
-          <span className="text-2xl block mb-2 opacity-30">🎫</span>
-          لم يتم استخدام أي تذاكر مع هذا النشاط بعد
-        </div>
-      )}
-    </div>
-  );
-}
-
-// ══════════════════════════════════════════════════════
-// 🪑 إعدادات الجلوس الذكي
-// ══════════════════════════════════════════════════════
-const CONSTRAINT_INFO: Record<string, { label: string; icon: string; desc: string; defaultEnabled: boolean }> = {
-  NO_ADJACENT_PAIRS: {
-    label: 'أزواج ممنوعة',
-    icon: '🚫',
-    desc: 'لاعبان محددان يدوياً لا يجلسان بجانب بعض',
-    defaultEnabled: true,
-  },
-  PENALTY_NEIGHBOR_AVOIDANCE: {
-    label: 'تجنب جيران المعاقب',
-    icon: '⚠️',
-    desc: 'اللاعب المعاقب لا يجلس بجانب نفس الجيران مرة أخرى',
-    defaultEnabled: true,
-  },
-  NEW_PLAYER_SEPARATION: {
-    label: 'فصل اللاعبين الجدد',
-    icon: '👶',
-    desc: 'لاعب جديد (أقل من 3 فعاليات) لا يُحاط بلاعبَين جديدَين',
-    defaultEnabled: true,
-  },
-  HIGH_RANK_SEPARATION: {
-    label: 'فصل الرتب العالية',
-    icon: '⚔️',
-    desc: 'لاعبان بتصنيف عالٍ لا يجلسان بجانب بعض',
-    defaultEnabled: false,
-  },
-  GENDER_SEPARATION: {
-    label: 'فصل الجنسين',
-    icon: '🚹',
-    desc: 'ذكر لا يجلس بجانب أنثى (أضعف قيد)',
-    defaultEnabled: false,
-  },
-};
-
-function SeatingConstraintsPanel({ activityId }: { activityId: number }) {
-  const [engineEnabled, setEngineEnabled] = useState(false);
-  const [constraints, setConstraints] = useState<any[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState(false);
-  const [saved, setSaved] = useState(false);
-
-  useEffect(() => {
-    fetchConstraints();
-  }, [activityId]);
-
-  const fetchConstraints = async () => {
-    setLoading(true);
-    try {
-      const res = await apiFetch(`/api/seating/constraints?activityId=${activityId}`);
-      setEngineEnabled(res.engineEnabled || false);
-      if (res.constraints && res.constraints.length > 0) {
-        setConstraints(res.constraints);
-      } else {
-        // إعدادات افتراضية
-        setConstraints(
-          Object.entries(CONSTRAINT_INFO).map(([type, info]) => ({
-            type,
-            enabled: info.defaultEnabled,
-            priority: type === 'NO_ADJACENT_PAIRS' ? 1 : type === 'PENALTY_NEIGHBOR_AVOIDANCE' ? 2 : type === 'NEW_PLAYER_SEPARATION' ? 3 : type === 'HIGH_RANK_SEPARATION' ? 4 : 8,
-            params: {},
-          }))
-        );
-      }
-    } catch (err: any) {
-      console.warn('Failed to fetch seating constraints:', err.message);
-      // إعدادات افتراضية عند الخطأ
-      setConstraints(
-        Object.entries(CONSTRAINT_INFO).map(([type, info]) => ({
-          type,
-          enabled: info.defaultEnabled,
-          priority: type === 'NO_ADJACENT_PAIRS' ? 1 : type === 'PENALTY_NEIGHBOR_AVOIDANCE' ? 2 : type === 'NEW_PLAYER_SEPARATION' ? 3 : type === 'HIGH_RANK_SEPARATION' ? 4 : 8,
-          params: {},
-        }))
-      );
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const saveConstraints = async (newEnabled: boolean, newConstraints: any[]) => {
-    setSaving(true);
-    setSaved(false);
-    try {
-      await apiFetch('/api/seating/constraints', {
-        method: 'PUT',
-        body: JSON.stringify({
-          activityId,
-          engineEnabled: newEnabled,
-          constraints: newConstraints,
-        }),
-      });
-      setSaved(true);
-      setTimeout(() => setSaved(false), 2000);
-    } catch (err: any) {
-      console.warn('Failed to save seating constraints:', err.message);
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  const toggleEngine = () => {
-    const next = !engineEnabled;
-    setEngineEnabled(next);
-    saveConstraints(next, constraints);
-  };
-
-  const toggleConstraint = (type: string) => {
-    const updated = constraints.map(c =>
-      c.type === type ? { ...c, enabled: !c.enabled } : c
-    );
-    setConstraints(updated);
-    saveConstraints(engineEnabled, updated);
-  };
-
-  return (
-    <div className="bg-gray-800/50 border border-gray-700/40 rounded-2xl p-5">
-      <div className="flex items-center justify-between mb-4">
-        <h3 className="text-sm font-bold text-white flex items-center gap-2">
-          🪑 إعدادات الجلوس الذكي
-          {engineEnabled && (
-            <span className="text-[10px] px-2 py-0.5 rounded-full bg-emerald-500/15 text-emerald-400 border border-emerald-500/20">
-              مفعّل
-            </span>
-          )}
-          {saved && (
-            <motion.span
-              initial={{ opacity: 0, scale: 0.8 }}
-              animate={{ opacity: 1, scale: 1 }}
-              exit={{ opacity: 0 }}
-              className="text-[10px] text-emerald-400"
-            >
-              ✓ تم الحفظ
-            </motion.span>
-          )}
-        </h3>
-        <div className="flex items-center gap-2">
-          {saving && (
-            <div className="animate-spin h-4 w-4 border-2 border-amber-500 border-t-transparent rounded-full" />
-          )}
-          <button
-            onClick={toggleEngine}
-            className={`text-xs px-4 py-2 rounded-lg font-bold transition-all border ${
-              engineEnabled
-                ? 'bg-emerald-500/15 text-emerald-400 border-emerald-500/30 hover:bg-emerald-500/25'
-                : 'bg-gray-700/30 text-gray-500 border-gray-600/30 hover:text-white hover:border-gray-500'
-            }`}
-          >
-            {engineEnabled ? '✓ المحرك الذكي مفعّل' : 'تفعيل المحرك الذكي'}
-          </button>
-        </div>
-      </div>
-
-      {!engineEnabled && !loading && (
-        <div className="text-center py-6">
-          <span className="text-3xl block mb-3 opacity-30">🪑</span>
-          <p className="text-gray-500 text-sm mb-2">المحرك الذكي معطّل حالياً</p>
-          <p className="text-gray-600 text-xs">عند التفعيل، النظام يوزع المقاعد تلقائياً حسب القيود التي تحددها</p>
-        </div>
-      )}
-
-      {loading && (
-        <div className="flex justify-center py-6">
-          <div className="animate-spin h-6 w-6 border-2 border-amber-500 border-t-transparent rounded-full" />
-        </div>
-      )}
-
-      {engineEnabled && !loading && (
-        <div className="space-y-3">
-          <p className="text-gray-500 text-xs mb-3">
-            حدد القيود التي تريد تطبيقها عند توزيع المقاعد. القيود المفعّلة تُطبّق تلقائياً عند دخول اللاعبين للغرفة.
-          </p>
-
-          {constraints.map(c => {
-            const info = CONSTRAINT_INFO[c.type];
-            if (!info) return null;
-            return (
-              <motion.div
-                key={c.type}
-                initial={{ opacity: 0, y: 5 }}
-                animate={{ opacity: 1, y: 0 }}
-                className={`flex items-center justify-between bg-gray-900/50 border rounded-xl px-4 py-3.5 transition-all cursor-pointer hover:bg-gray-900/70 ${
-                  c.enabled ? 'border-amber-500/30' : 'border-gray-700/20'
-                }`}
-                onClick={() => toggleConstraint(c.type)}
-              >
-                <div className="flex items-center gap-3 flex-1 min-w-0">
-                  <div className={`w-10 h-10 rounded-xl flex items-center justify-center text-lg shrink-0 ${
-                    c.enabled ? 'bg-amber-500/15 border border-amber-500/20' : 'bg-gray-800/50 border border-gray-700/20'
-                  }`}>
-                    {info.icon}
-                  </div>
-                  <div className="min-w-0">
-                    <p className={`text-sm font-bold ${c.enabled ? 'text-white' : 'text-gray-500'}`}>
-                      {info.label}
-                    </p>
-                    <p className="text-xs text-gray-600 mt-0.5">{info.desc}</p>
-                  </div>
-                </div>
-                <div
-                  className={`w-11 h-6 rounded-full relative transition-all shrink-0 ml-3 ${
-                    c.enabled ? 'bg-amber-500/30' : 'bg-gray-700/30'
-                  }`}
-                >
-                  <div
-                    className={`w-5 h-5 rounded-full absolute top-0.5 transition-all shadow-md ${
-                      c.enabled
-                        ? 'right-0.5 bg-amber-500'
-                        : 'left-0.5 bg-gray-600'
-                    }`}
-                  />
-                </div>
-              </motion.div>
-            );
-          })}
-
-          <div className="bg-gray-900/30 border border-gray-700/20 rounded-xl p-3 mt-3">
-            <p className="text-[10px] text-gray-600 text-center">
-              💡 القيود تُحفظ تلقائياً وتُطبّق على جميع الغرف المرتبطة بهذا النشاط
-            </p>
-          </div>
-        </div>
-      )}
-    </div>
-  );
-}
-
-// ══════════════════════════════════════════════════════
-// 🪑 قسم توزيع مقاعد النشاط — القالب المرتبط + شرائح الحاجزين + ربط مؤقّت لهذا النشاط
-// (نقر شريحة ثم نقر مقعد). يُدمج فوق تثبيت القالب عند إنشاء الروم — لا يمسّ القالب المشترك.
-// ══════════════════════════════════════════════════════
-function SeatAssignmentSection({ activityId, seatTemplateId, bookings, initialAssignments }: {
-  activityId: number; seatTemplateId: number; bookings: any[]; initialAssignments: any[];
-}) {
-  const [template, setTemplate] = useState<any>(null);
-  const [players, setPlayers] = useState<any[]>([]);
-  const [blockedPairs, setBlockedPairs] = useState<any[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [open, setOpen] = useState(false);
-
-  // تهيئة مرّة وحدة عند التركيب (النشاط محمَّل مسبقاً) — تجنّباً لإعادة التصفير عند إعادة رندر الأب
-  const [assignments, setAssignments] = useState<Record<number, PinRef>>(() => {
-    const m: Record<number, PinRef> = {};
-    (initialAssignments || []).forEach((a: any) => { if (a?.seatNumber != null) m[Number(a.seatNumber)] = { playerId: a.playerId, phone: a.phone, playerName: a.playerName }; });
-    return m;
-  });
-  const [selectedChip, setSelectedChip] = useState<string | null>(null);
-  const [selectedSeat, setSelectedSeat] = useState<number | null>(null);
-  const [viewMode, setViewMode] = useState(false); // 3D: true=دوران · false=اختيار/تعديل
-  const [saving, setSaving] = useState(false);
-  const [dirty, setDirty] = useState(false);
-
-  useEffect(() => {
-    (async () => {
-      try {
-        const [tplRes, pls, bp] = await Promise.all([
-          apiFetch(`/api/seat-templates/${seatTemplateId}`),
-          apiFetch('/api/player/all').catch(() => []),
-          apiFetch('/api/seating/blocked-pairs').catch(() => ({ pairs: [] })),
-        ]);
-        setTemplate(tplRes.template || tplRes);
-        setPlayers(Array.isArray(pls) ? pls : pls.players || []);
-        setBlockedPairs(bp.pairs || []);
-      } catch (e) { console.error(e); }
-      finally { setLoading(false); }
-    })();
-  }, [seatTemplateId]);
-
-  const samePerson = (a: any, b: any) =>
-    (a?.playerId && (b?.playerId ?? b?.id) && Number(a.playerId) === Number(b.playerId ?? b.id)) ||
-    (!!normSeatPhone(a?.phone) && normSeatPhone(a?.phone) === normSeatPhone(b?.phone)) ||
-    (!!(a?.playerName) && !!(b?.name || b?.playerName) && String(a.playerName).trim().toLowerCase() === String(b.name || b.playerName).trim().toLowerCase());
-
-  // إثراء الحاجزين بصورة/جنس من قائمة اللاعبين
-  const chips = useMemo(() => (bookings || []).map((b: any) => {
-    const pl = players.find((p: any) => (b.playerId && p.id === b.playerId) || (b.phone && normSeatPhone(p.phone) === normSeatPhone(b.phone)));
-    return {
-      key: String(b.id),
-      playerId: (b.playerId ?? pl?.id) || undefined,
-      phone: b.phone || pl?.phone || '',
-      name: b.name || pl?.name || 'ضيف',
-      avatarUrl: pl?.avatarUrl || null,
-      gender: pl?.gender,
-      genderConstraint: pl?.genderConstraint,
-      linked: !!(b.playerId || pl),
-    };
-  }), [bookings, players]);
-
-  const isRect = template?.layoutType === 'rectangle' && template?.layoutConfig?.shape === 'rectangle';
-  const layout = useMemo(() => {
-    if (!isRect || !template?.layoutConfig) return null;
-    const lc = template.layoutConfig;
-    const num: Numbering = { start: lc.numbering?.start ?? null, direction: lc.numbering?.direction || 'cw' };
-    const dz: RectDoor[] = (lc.doors || []).filter((d: any) => d && d.side && typeof d.pos === 'number')
-      .map((d: any, i: number) => ({ id: d.id || `d${i}`, side: d.side, pos: d.pos, type: d.type || 'entry' }));
-    try { return computeRectLayout(lc.sides, num, dz); } catch { return null; }
-  }, [isRect, template]);
-
-  const total = isRect ? (layout?.totalChairs || 0) : (template?.totalSeats || 0);
-  const reservedTail = Number(template?.reservedTailCount || 0);
-
-  const templatePinBySeat = useMemo(() => {
-    const m: Record<number, PinRef> = {};
-    (template?.pinnedSeats || []).forEach((p: any) => { if (p?.seatNumber != null) m[Number(p.seatNumber)] = { playerId: p.playerId, phone: p.phone, playerName: p.playerName }; });
-    return m;
-  }, [template]);
-
-  const seatNumToChairKey = (n: number): string | null => {
-    const s = layout?.seats.find((x: any) => x.seatNum === n); return s ? `${s.side}:${s.sideIndex}` : null;
-  };
-  const assignedByChair = useMemo(() => {
-    const m: Record<string, string> = {}; if (!layout) return m;
-    Object.entries(assignments).forEach(([seat, v]) => { const k = seatNumToChairKey(Number(seat)); if (k) m[k] = v.playerName || '؟'; });
-    return m;
-  }, [assignments, layout]);
-  const pinnedByChair = useMemo(() => {
-    const m: Record<string, string> = {}; if (!layout) return m;
-    Object.entries(templatePinBySeat).forEach(([seat, v]) => { const k = seatNumToChairKey(Number(seat)); if (k) m[k] = v.playerName || '؟'; });
-    return m;
-  }, [templatePinBySeat, layout]);
-  const assignedSet = useMemo(() => new Set(Object.keys(assignments).map(Number)), [assignments]);
-  const pinnedSet = useMemo(() => new Set(Object.keys(templatePinBySeat).map(Number)), [templatePinBySeat]);
-
-  const seatOfChip = (chip: any): number | null => {
-    for (const [seat, v] of Object.entries(assignments)) { if (samePerson(v, chip)) return Number(seat); }
-    return null;
-  };
-
-  const doAssign = async (seat: number, chip: any) => {
-    const occ = new Map<number, PinRef>();
-    for (let s = 1; s <= total; s++) { if (s === seat) continue; const eff = assignments[s] || templatePinBySeat[s]; if (eff) occ.set(s, eff); }
-    const occupant = assignments[seat];
-    if (occupant && !samePerson(occupant, chip)) {
-      if (!(await swalConfirm(`المقعد ${seat} مخصَّص لـ«${occupant.playerName}» — استبداله بـ«${chip.name}»؟`))) return;
-    }
-    const conflicts = checkSeatConflicts({ targetSeat: seat, cand: { playerId: chip.playerId, phone: chip.phone, name: chip.name, gender: chip.gender, genderConstraint: chip.genderConstraint }, occupiedBySeat: occ, players, blockedPairs, total });
-    if (conflicts.length > 0) {
-      if (!(await swalConfirm(`⚠️ تعارض مع شروط الجلوس:\n\n${conflicts.map(c => '• ' + c).join('\n')}\n\nتخصيص «${chip.name}» للمقعد ${seat} رغم ذلك؟`))) return;
-    }
-    setAssignments(prev => {
-      const next = { ...prev };
-      for (const [s, v] of Object.entries(next)) { if (samePerson(v, chip)) delete next[Number(s)]; } // انقل الشخص من مقعده السابق
-      next[seat] = { playerId: chip.playerId, phone: chip.phone || undefined, playerName: chip.name };
-      return next;
-    });
-    setDirty(true); setSelectedChip(null); setSelectedSeat(null);
-  };
-
-  const onSeatClick = (n: number | null) => {
-    if (n == null) { setSelectedSeat(null); return; }
-    if (selectedChip) { const chip = chips.find(c => c.key === selectedChip); if (chip) doAssign(n, chip); return; }
-    setSelectedSeat(prev => prev === n ? null : n);
-  };
-  const unassignSeat = (seat: number) => { setAssignments(prev => { const n = { ...prev }; delete n[seat]; return n; }); setDirty(true); setSelectedSeat(null); };
-  const clearAll = async () => { if (!(await swalConfirm('إزالة كل التخصيصات المؤقّتة لهذا النشاط؟'))) return; setAssignments({}); setDirty(true); };
-
-  const save = async () => {
-    setSaving(true);
-    try {
-      const arr = Object.entries(assignments).map(([seat, v]) => ({ seatNumber: Number(seat), playerId: v.playerId, phone: v.phone, playerName: v.playerName }));
-      await apiFetch(`/api/activities/${activityId}/seat-assignments`, { method: 'PUT', body: JSON.stringify({ seatAssignments: arr }) });
-      setDirty(false);
-      alert('✅ حُفظ توزيع المقاعد. يُطبَّق على الرومات الجديدة (أو عبر «تحديث المقاعد من القالب» لروم مفتوح فارغ).');
-    } catch (e: any) { alert('فشل الحفظ: ' + (e.message || '')); }
-    finally { setSaving(false); }
-  };
-
-  const selectedSeatOccupant = selectedSeat != null ? (assignments[selectedSeat] || templatePinBySeat[selectedSeat]) : null;
-  const selectedSeatIsAssigned = selectedSeat != null && !!assignments[selectedSeat];
-
-  return (
-    <div className="bg-gray-800/50 border border-gray-700/40 rounded-2xl overflow-hidden">
-      <button onClick={() => setOpen(o => !o)} className="w-full flex items-center justify-between p-5 hover:bg-gray-700/20 transition">
-        <h3 className="text-sm font-bold text-white flex items-center gap-2">
-          📐 توزيع مقاعد النشاط
-          {template && <span className="text-[11px] text-gray-500 font-normal">— {template.name} ({total} مقعد)</span>}
-          {Object.keys(assignments).length > 0 && <span className="text-[10px] px-2 py-0.5 rounded-full bg-violet-500/15 text-violet-300 border border-violet-500/30">🎯 {Object.keys(assignments).length} مخصَّص</span>}
-          {dirty && <span className="text-[10px] px-2 py-0.5 rounded-full bg-amber-500/15 text-amber-300 border border-amber-500/30">غير محفوظ</span>}
-        </h3>
-        <span className="text-gray-500">{open ? '▲' : '▼'}</span>
-      </button>
-
-      {open && (
-        <div className="px-5 pb-5">
-          {loading ? (
-            <div className="flex justify-center py-12"><div className="animate-spin h-7 w-7 border-4 border-amber-500 border-t-transparent rounded-full" /></div>
-          ) : !template ? (
-            <p className="text-gray-500 text-sm text-center py-8">تعذّر تحميل القالب المرتبط.</p>
-          ) : (
-            <>
-              <p className="text-[11px] text-gray-500 mb-3">اختر حاجزاً من القائمة ثم انقر مقعداً على النموذج لتثبيته مؤقّتاً لهذا النشاط. 🟡 تثبيت القالب الدائم · 🟣 تخصيص هذا النشاط. يُطبَّق قبل دخول اللاعبين.</p>
-              <div className="grid grid-cols-1 lg:grid-cols-[300px_1fr] gap-4">
-                {/* شرائح الحاجزين */}
-                <div className="space-y-2 max-h-[62vh] overflow-y-auto pr-1">
-                  {chips.length === 0 && <p className="text-gray-600 text-xs text-center py-6">لا حجوزات لهذا النشاط بعد.</p>}
-                  {chips.map(chip => {
-                    const seat = seatOfChip(chip);
-                    const sel = selectedChip === chip.key;
-                    return (
-                      <div key={chip.key} className={`flex items-center gap-2 rounded-xl border px-3 py-2 transition ${sel ? 'bg-violet-500/15 border-violet-500/50' : 'bg-gray-900/50 border-gray-700/30 hover:border-gray-600/50'}`}>
-                        <button onClick={() => setSelectedChip(sel ? null : chip.key)} className="flex items-center gap-2 flex-1 text-right min-w-0">
-                          <img src={chip.avatarUrl ? `${API_URL}${chip.avatarUrl}` : '/avatars/male.png'} alt="" className="w-8 h-8 rounded-full object-cover bg-gray-700 shrink-0" onError={e => { (e.target as HTMLImageElement).src = '/avatars/male.png'; }} />
-                          <span className="flex-1 min-w-0">
-                            <span className="block text-xs text-white font-bold truncate">{chip.name}</span>
-                            <span className="block text-[10px] text-gray-500" dir="ltr">{chip.phone || (chip.linked ? '' : 'ضيف')}</span>
-                          </span>
-                        </button>
-                        {seat != null ? (
-                          <span className="flex items-center gap-1 shrink-0">
-                            <span className="text-[10px] px-2 py-0.5 rounded-full bg-violet-500/20 text-violet-300 border border-violet-500/40 font-bold">🎯 {seat}</span>
-                            <button onClick={() => unassignSeat(seat)} title="إلغاء التخصيص" className="text-rose-400/70 hover:text-rose-400 text-xs">✕</button>
-                          </span>
-                        ) : sel ? (
-                          <span className="text-[10px] text-violet-300 shrink-0">انقر مقعداً…</span>
-                        ) : null}
-                      </div>
-                    );
-                  })}
-                  {Object.keys(assignments).length > 0 && (
-                    <button onClick={clearAll} className="w-full mt-2 py-1.5 text-[11px] text-rose-400/80 hover:text-rose-400 border border-rose-500/20 rounded-lg hover:bg-rose-500/5">إزالة كل التخصيصات</button>
-                  )}
-                </div>
-
-                {/* النموذج */}
-                <div>
-                  {isRect && layout ? (
-                    <div className="relative rounded-2xl overflow-hidden border border-gray-700/40" style={{ height: '62vh', minHeight: 400 }}>
-                      <button onClick={() => { setViewMode(v => !v); setSelectedSeat(null); }} className={`absolute top-3 right-3 z-10 px-4 py-2 rounded-xl text-xs font-bold border backdrop-blur transition ${viewMode ? 'bg-blue-500/25 text-blue-200 border-blue-400/40' : 'bg-violet-500/25 text-violet-200 border-violet-400/40'}`}>
-                        {viewMode ? '🔄 وضع الدوران (اضغط للتعديل)' : '✋ وضع التعديل (اضغط للدوران)'}
-                      </button>
-                      <div className="absolute bottom-3 right-3 left-3 z-10 flex items-center gap-3 text-[10px] text-gray-300 bg-black/40 backdrop-blur rounded-lg px-3 py-1.5 flex-wrap justify-center">
-                        <span className="text-emerald-400">■ فارغ</span><span className="text-amber-400">■ 📌 قالب</span><span className="text-violet-400">■ 🎯 هذا النشاط</span><span className="text-gray-400">■ مؤخر</span><span className="text-blue-400">■ محدد</span>
-                        <span>{viewMode ? '🖱️ اسحب للدوران' : '🖱️ انقر مقعداً'}</span>
-                      </div>
-                      <SeatEditor3D dims={layout.dims} seats={layout.seats} doorNodes={layout.doorNodes}
-                        pinnedByChair={pinnedByChair} assignedByChair={assignedByChair}
-                        reservedTailCount={reservedTail} viewMode={viewMode}
-                        selectedSeat={selectedSeat} selectedDoorId={null}
-                        onSelectSeat={(n) => onSeatClick(n)} onSelectDoor={() => {}} />
-                    </div>
-                  ) : (
-                    <SeatMap2D total={total} layout={template.layoutType || 'circle'} reservedTailCount={reservedTail}
-                      pinnedSet={pinnedSet} assignedSet={assignedSet} selectedSeat={selectedSeat} onSelect={onSeatClick} />
-                  )}
-
-                  {/* لوحة المقعد المحدَّد */}
-                  {selectedSeat != null && !selectedChip && (
-                    <div className="mt-3 bg-gray-900/60 border border-blue-500/30 rounded-xl p-3 flex items-center justify-between">
-                      <span className="text-xs text-white">
-                        🪑 المقعد {selectedSeat}
-                        {selectedSeatOccupant
-                          ? <> — <span className={selectedSeatIsAssigned ? 'text-violet-300' : 'text-amber-300'}>{selectedSeatIsAssigned ? '🎯' : '📌'} {selectedSeatOccupant.playerName}</span></>
-                          : <span className="text-gray-500"> — فارغ</span>}
-                      </span>
-                      {selectedSeatIsAssigned && <button onClick={() => unassignSeat(selectedSeat)} className="text-[11px] text-rose-400 hover:text-rose-300">إلغاء التخصيص</button>}
-                    </div>
-                  )}
-
-                  <button onClick={save} disabled={saving || !dirty} className="w-full mt-3 py-2.5 bg-gradient-to-r from-violet-500/80 to-indigo-600/80 text-white font-bold rounded-xl text-sm hover:opacity-90 transition disabled:opacity-40">
-                    {saving ? '⏳ جارٍ الحفظ…' : dirty ? '💾 حفظ توزيع المقاعد' : '✅ محفوظ'}
-                  </button>
-                </div>
-              </div>
-            </>
-          )}
-        </div>
-      )}
-    </div>
-  );
-}
 
 export default function ActivityDetailPage() {
   const params = useParams();
@@ -1072,6 +69,7 @@ export default function ActivityDetailPage() {
   const activityId = Number(params.id);
   const user = useMemo(() => getUser(), []);
   const isAccountant = user.role === 'accountant';
+  const isAdmin = user.role === 'admin';
 
   const [activity, setActivity] = useState<any>(null);
   const [cancelTick, setCancelTick] = useState(0);   // 📣 يعيد تحميل تقرير الإلغاء بعد الإلغاء من هنا
@@ -1083,18 +81,14 @@ export default function ActivityDetailPage() {
   const [costs, setCosts] = useState<any[]>([]);
   const [locations, setLocations] = useState<any[]>([]);
   const [staffList, setStaffList] = useState<any[]>([]);
+  const [resRows, setResRows] = useState<any[] | null>(null);   // صفوف المتابعة — لملخّص الحضور
   const [loading, setLoading] = useState(true);
-  const [bookingsOpen, setBookingsOpen] = useState(false);
-  const [bookingSearch, setBookingSearch] = useState('');
-  const [costsOpen, setCostsOpen] = useState(false);
   const [showEditForm, setShowEditForm] = useState(false);
-  // Payment modal
-  const [payModal, setPayModal] = useState<any[] | null>(null);
-  const [selectedBookings, setSelectedBookings] = useState<number[]>([]);
-  const [payAmount, setPayAmount] = useState('');
-  const [payReceiver, setPayReceiver] = useState('');
-  const [payNotes, setPayNotes] = useState('');
-  const [paySubmitting, setPaySubmitting] = useState(false);
+  const [showMenu, setShowMenu] = useState(false);
+
+  // المرحلة: لا تُحفظ بين الزيارات — كلّ فتح يبدأ من مرحلة الوقت
+  const [phaseSel, setPhaseSel] = useState<Phase | null>(null);
+  const [openSecs, setOpenSecs] = useState<Set<string> | null>(null);
 
   useEffect(() => {
     (async () => {
@@ -1125,6 +119,28 @@ export default function ActivityDetailPage() {
     })();
   }, [activityId]);
 
+  const derived = useMemo(() => derivePhase(activity), [activity]);
+  const phase: Phase = phaseSel ?? derived;
+  const open = useMemo(() => openSecs ?? new Set<string>(derived === 'tonight' ? [] : ['bookings']), [openSecs, derived]);
+
+  // ملخّص الحضور من المتابعة — يُجلب عند دخول «الليلة» ويتجدّد كلّ نصف دقيقة ما دامت ظاهرة
+  const loadAttendance = useCallback(() => {
+    apiFetch(`/api/reservations?activityId=${activityId}`)
+      .then(r => setResRows(Array.isArray(r) ? r : []))
+      .catch(() => setResRows(prev => prev ?? []));
+  }, [activityId]);
+  useEffect(() => {
+    if (!activity || phase !== 'tonight') return;
+    loadAttendance();
+    // البرنامج قد يكون عُدّل للتوّ في «قبل» — تُحدَّث نسخة القراءة
+    apiFetch(`/api/activities/${activityId}`)
+      .then(a => setActivity((prev: any) => (prev ? { ...prev, gameSchedule: a?.gameSchedule ?? prev.gameSchedule } : prev)))
+      .catch(() => {});
+    const t = setInterval(loadAttendance, 30000);
+    return () => clearInterval(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [phase, !!activity, activityId, loadAttendance]);
+
   // خرائط عدد الألعاب لكل لاعب في هذا النشاط — بالحساب (playerId) وبالهاتف (بديل)
   const gamesMaps = useMemo(() => {
     const byId: Record<number, number> = {};
@@ -1137,8 +153,37 @@ export default function ActivityDetailPage() {
     return { byId, byPhone };
   }, [playerGames]);
 
-  if (loading) return <div className="flex items-center justify-center h-96"><div className="animate-spin h-8 w-8 border-4 border-amber-500 border-t-transparent rounded-full" /></div>;
-  if (!activity) return <div className="text-center py-20 text-gray-500">النشاط غير موجود</div>;
+  const attendance = useMemo(() => {
+    const a = { arrived: 0, onWay: 0, declined: 0, silent: 0 };
+    for (const r of resRows || []) {
+      if (r.deletedAt || isWaitlist(r)) continue;
+      const n = Number(r.peopleCount) || 1;
+      // الحقول etaAt/declinedAt قد لا يرسلها الخادم بعد — تُعامَل كأنّها فارغة
+      if (r.attended === true) a.arrived += n;
+      else if (r.declinedAt ?? null) a.declined += n;
+      else if (r.etaAt ?? null) a.onWay += n;
+      else a.silent += n;
+    }
+    return a;
+  }, [resRows]);
+
+  if (loading) {
+    return (
+      <div className="wa acts-page" dir="rtl" style={{ background: 'transparent' }} aria-busy="true">
+        <Skel h={36} w="50%" /><Skel h={44} /><Skel h={220} /><Skel h={160} />
+      </div>
+    );
+  }
+  if (!activity) {
+    return (
+      <div className="wa acts-page" dir="rtl" style={{ background: 'transparent' }}>
+        <div className="wa-card">
+          <Empty icon={<CalendarX />} title="النشاط غير موجود">ربّما حُذف أو أنّ الرابط غير صحيح.</Empty>
+          <Link href="/admin/activities" className="wa-btn block">العودة إلى الأنشطة</Link>
+        </div>
+      </div>
+    );
+  }
 
   const actBookings = bookings;
   const actCosts = costs;
@@ -1151,17 +196,16 @@ export default function ActivityDetailPage() {
     return 0;
   };
   const location = locations.find(l => l.id === activity.locationId) || null;
+  const capacity = activity.maxCapacity || 20;
 
   const revenue = actBookings.reduce((s: number, b: any) => s + (b.isPaid ? Number(b.paidAmount || 0) : 0), 0);
   const expense = actCosts.reduce((s: number, c: any) => s + Number(c.amount || 0), 0);
   const profit = revenue - expense;
-  // 🔢 الحضور = صفوف الحجز + المجمَّعون (لاعبون جدد + مرافقون) — نفس صيغة المقاعد
-  //    في seatAvailability. قبل ذلك كانت السعة تُحسب ناقصةً بمن لا صفَّ حجزٍ له.
+  // 🔢 الحضور = صفوف الحجز + المجمَّعون (لاعبون جدد + مرافقون) — نفس صيغة المقاعد في seatAvailability.
   const groupedExtra = (rosterGroups?.newcomers?.count ?? 0) + (rosterGroups?.companions?.count ?? 0);
   // 👥 العدد الحقيقيّ من المصدر الموحّد (حجوزات + متابعة بلا قائمة الانتظار).
-  // 🔴 الحساب المحليّ احتياطٌ فقط: كان يجمع الحجوزات مع مجموعات المتابعة
-  //    **المثبَّتة وحدها**، فيسقط كلُّ حجزٍ غير مثبَّت — وهي ٢–٩ أشخاصٍ في كلّ
-  //    ليلةٍ تقريباً. وعلى هذا الرقم يُقال للزبون «فيه مجال» أو «امتلأنا».
+  // 🔴 الحساب المحليّ احتياطٌ فقط: كان يجمع الحجوزات مع مجموعات المتابعة **المثبَّتة وحدها**،
+  //    فيسقط كلُّ حجزٍ غير مثبَّت. وعلى هذا الرقم يُقال للزبون «فيه مجال» أو «امتلأنا».
   const totalAttendees = bookedCount?.total
     ?? (actBookings.reduce((s: number, b: any) => s + (b.count || 1), 0) + groupedExtra);
   const paidAttendees = actBookings.filter((b: any) => b.isPaid && !b.isFree).reduce((s: number, b: any) => s + (b.count || 1), 0);
@@ -1170,14 +214,26 @@ export default function ActivityDetailPage() {
   // 💸 المتوقّع بسعر كلّ حجز (المقفول بسعر الدون المبكّر وإلّا سعر الفعاليّة)
   const unpaidExpected = actBookings.filter((b: any) => !b.isPaid && !b.isFree)
     .reduce((s: number, b: any) => s + Number(b.unitPrice ?? activity?.basePrice ?? 0) * (b.count || 1), 0);
+  const seatsLeft = Math.max(0, capacity - totalAttendees);
+  const pctOfCap = (n: number) => Math.min(100, (n / capacity) * 100);
 
-  const status = STATUS_MAP[activity.status] || STATUS_MAP.planned;
+  const status = STATUS_META[activity.status] || STATUS_META.planned;
+  const schedule: any[] = Array.isArray(activity.gameSchedule) ? activity.gameSchedule : [];
+  const nowMin = ammanMinutes();
+  const isNow = (s: any) => {
+    if (derived !== 'tonight') return false;
+    const a = toMin(s.start); let b = toMin(s.end); if (b <= a) b += 1440;
+    return (nowMin >= a && nowMin < b) || (nowMin + 1440 >= a && nowMin + 1440 < b);
+  };
+  const notArrived = attendance.onWay + attendance.silent;
 
   async function toggleLock() {
     try {
       await apiFetch(`/api/activities/${activity.id}`, { method: 'PUT', body: JSON.stringify({ isLocked: !activity.isLocked }) });
       setActivity({ ...activity, isLocked: !activity.isLocked });
-    } catch {}
+    } catch (err: any) {
+      swalToast('تعذّر تغيير القفل: ' + (err.message || ''), 'error');
+    }
   }
 
   async function handleEditActivity(id: number, data: any) {
@@ -1190,801 +246,396 @@ export default function ActivityDetailPage() {
     if (cancelling) { toastCancelStarted(updated); setTimeout(() => setCancelTick(t => t + 1), 1500); }
   }
 
-  // ── Payment handlers ──
-  function openPayModal(bookingsToPay: any[]) {
-    let totalSuggested = 0;
-    bookingsToPay.forEach(booking => {
-      if (booking.offerItems?.length > 0) {
-        totalSuggested += booking.offerItems.reduce((s: number, item: any) => s + ((item.unitPrice || item.price || 0) * (item.quantity || 0)), 0);
-      } else {
-        totalSuggested += (Number(booking.unitPrice ?? activity?.basePrice ?? 0)) * (booking.count || 1);   // 💸 السعر المقفول وإلّا سعر الفعاليّة
-      }
+  const refreshBookings = () => { apiFetch(`/api/bookings?activityId=${activity.id}`).then(setBookings).catch(() => {}); };
+
+  // ── التنقّل بين المراحل والأقسام ──
+  function goPhase(p: Phase) {
+    setPhaseSel(p);
+    setOpenSecs(() => { const n = new Set(open); if (p === 'tonight') n.delete('bookings'); else n.add('bookings'); return n; });
+  }
+  const toggleSec = (id: string) => setOpenSecs(() => { const n = new Set(open); if (n.has(id)) n.delete(id); else n.add(id); return n; });
+  function jump(id: string, p?: Phase) {
+    setShowMenu(false);
+    const target = p ?? phase;
+    setPhaseSel(target);
+    setOpenSecs(() => {
+      const n = new Set(open);
+      if (p && p !== phase) { if (p === 'tonight') n.delete('bookings'); else n.add('bookings'); }
+      n.add(id);
+      return n;
     });
-
-    setPayModal(bookingsToPay);
-    setPayAmount(String(totalSuggested || ''));
-    setPayReceiver('');
-    setPayNotes(bookingsToPay.length === 1 ? (bookingsToPay[0].notes || '') : '');
+    setTimeout(() => {
+      const el = document.getElementById(`sec-${id}`);
+      if (!el) return;
+      if (el.classList.contains('acts-legacy') && el.childElementCount === 0) { swalToast('لا شيء في هذا القسم لهذا النشاط', 'info'); return; }
+      el.scrollIntoView({ behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth', block: 'start' });
+    }, 120);
   }
 
-  async function confirmPayment() {
-    if (!payModal || payModal.length === 0) return;
-    setPaySubmitting(true);
-    
-    // حساب المبلغ المتوقع لكل حجز لتوزيع المبلغ الكلي إذا تم تعديله
-    const expectedPerBooking = payModal.map(b => {
-      let expected = 0;
-      if (b.offerItems?.length > 0) {
-        expected = b.offerItems.reduce((s: number, item: any) => s + ((item.unitPrice || item.price || 0) * (item.quantity || 0)), 0);
-      } else {
-        expected = (Number(b.unitPrice ?? activity?.basePrice ?? 0)) * (b.count || 1);
-      }
-      return expected;
-    });
-    
-    const totalExpected = expectedPerBooking.reduce((a, b) => a + b, 0);
-    const actualTotalPaid = Number(payAmount) || 0;
+  // ── «كلّ ما يخصّ هذا النشاط» — كلّ الأقسام، مجموعةً حسب المرحلة ──
+  type Item = { id: string; label: string; phase?: Phase; end?: ReactNode; show?: boolean };
+  const groups: Array<{ title: string; items: Item[] }> = [
+    {
+      title: 'دائماً', items: [
+        { id: 'bookings', label: 'قائمة الحجوزات والدفع', end: unpaidAttendees > 0 ? <span className="acts-warn"><span className="ltr">{unpaidAttendees}</span> لم يدفعوا</span> : <span className="ltr">{actBookings.length}</span> },
+      ],
+    },
+    {
+      title: 'قبل · التحضير', items: [
+        { id: 'cancel', label: 'إشعار الإلغاء', phase: 'before', show: activity.status === 'cancelled' },
+        { id: 'seating', label: 'الجلوس الذكيّ', phase: 'before' },
+        { id: 'seats', label: 'توزيع المقاعد', phase: 'before', show: !!activity.seatTemplateId },
+        { id: 'tickets', label: 'التذاكر المستخدمة', phase: 'before', show: !!activity.requireTicket },
+        { id: 'bonus', label: 'مكافأة الحجز المبكّر', phase: 'before' },
+        { id: 'offers', label: 'مجموعات العروض', phase: 'before' },
+        { id: 'venue', label: 'المكان والخريطة', phase: 'before', end: location?.name },
+        { id: 'schedule', label: 'تعديل برنامج الليلة', phase: 'before', end: schedule.length ? <span className="ltr">{schedule.length}</span> : undefined },
+      ],
+    },
+    {
+      title: 'الليلة · التشغيل', items: [
+        { id: 'rooms', label: 'غرف اللعبة', phase: 'tonight' },
+        { id: 'attendance', label: 'الحضور', phase: 'tonight' },
+        { id: 'tonight-schedule', label: 'برنامج الليلة', phase: 'tonight' },
+        { id: 'money', label: 'مال الليلة حتّى الآن', phase: 'tonight' },
+      ],
+    },
+    {
+      title: 'بعد · الإغلاق', items: [
+        { id: 'finance', label: 'الملخّص الماليّ', phase: 'after', end: <span className={`ltr ${profit >= 0 ? 'acts-pos' : 'acts-neg'}`}>{num(profit)}</span> },
+        { id: 'noshow', label: 'الغياب', phase: 'after' },
+        { id: 'absence', label: 'إعفاء من عقوبة الغياب', phase: 'after' },
+        { id: 'costs', label: 'التكاليف', phase: 'after', end: <span className="ltr">{num(expense)}</span> },
+        { id: 'bonus', label: 'سجلّ مكافآت الحجز', phase: 'after' },
+        { id: 'drive', label: 'الصور والملفّات', phase: 'after' },
+      ],
+    },
+  ];
+  const menuBody = groups.map(g => (
+    <div key={g.title}>
+      <div className="grp">{g.title}</div>
+      <div className="wa-menu">
+        {g.items.filter(it => it.show !== false).map(it => (
+          <button key={`${it.phase ?? 'x'}-${it.id}`} type="button" onClick={() => jump(it.id, it.phase)}>
+            <span className="grow trunc">{it.label}</span>
+            <span className="end">{it.end}<ChevronLeft /></span>
+          </button>
+        ))}
+      </div>
+    </div>
+  ));
 
-    try {
-      const promises = payModal.map(async (booking, i) => {
-        let bookingPaid = expectedPerBooking[i];
-        
-        // توزيع المبلغ المدفوع بشكل نسبي إذا كان مختلف عن المجموع المتوقع
-        if (totalExpected > 0 && actualTotalPaid !== totalExpected) {
-           bookingPaid = Number(((expectedPerBooking[i] / totalExpected) * actualTotalPaid).toFixed(2));
-        } else if (totalExpected === 0 && actualTotalPaid > 0) {
-           bookingPaid = Number((actualTotalPaid / payModal.length).toFixed(2));
-        }
-
-        return apiFetch(`/api/bookings/${booking.id}/pay`, {
-          method: 'PUT',
-          body: JSON.stringify({
-            paidAmount: bookingPaid,
-            receivedBy: payReceiver,
-            notes: payNotes,
-          }),
-        });
-      });
-
-      const updatedBookings = await Promise.all(promises);
-      
-      setBookings(prev => prev.map(b => {
-         const updated = updatedBookings.find((u: any) => u.id === b.id);
-         return updated ? updated : b;
-      }));
-      setPayModal(null);
-      setSelectedBookings([]);
-    } catch (err: any) {
-      alert('فشل تأكيد الدفع: ' + err.message);
-    } finally {
-      setPaySubmitting(false);
-    }
-  }
-
-  // 💸 تطبيق سعر الدون المبكّر أو إزالته يدويّاً (أدمن — يُسجَّل في سجلّ الموظّفين)
-  async function toggleEarly(b: any) {
-    const on = b.unitPrice == null;
-    if (!(await swalConfirm(on ? `تطبيق سعر الدون المبكّر يدويّاً على حجز ${b.name}؟` : `إزالة سعر الدون المبكّر عن حجز ${b.name}؟ يعود لسعر الفعاليّة.`, { icon: 'question' }))) return;
-    try {
-      await apiFetch(`/api/early-price/booking/${b.id}`, { method: 'POST', body: JSON.stringify({ on }) });
-      setBookings(await apiFetch(`/api/bookings?activityId=${activityId}`));
-    } catch (e: any) { alert(`❌ ${e.message}`); }
-  }
-
-  async function handleUnpay(bookingId: number) {
-    if (!(await swalConfirm('هل تريد إلغاء تأكيد الدفع لهذا الحجز؟'))) return;
-    try {
-      const updated = await apiFetch(`/api/bookings/${bookingId}`, {
-        method: 'PUT',
-        body: JSON.stringify({ isPaid: false, paidAmount: '0' }),
-      });
-      setBookings(prev => prev.map(b => b.id === bookingId ? updated : b));
-    } catch (err: any) {
-      alert('فشل: ' + err.message);
-    }
-  }
-
-  async function handleDeleteBooking(bookingId: number) {
-    if (!(await swalConfirm('⚠️ هل تريد حذف هذا الحجز نهائياً؟'))) return;
-    try {
-      await apiFetch(`/api/bookings/${bookingId}`, { method: 'DELETE' });
-      setBookings(prev => prev.filter(b => b.id !== bookingId));
-    } catch (err: any) {
-      alert('فشل الحذف: ' + err.message);
-    }
-  }
-
-  async function handleMakeFree() {
-    if (selectedBookings.length === 0) return;
-    if (!(await swalConfirm('هل أنت متأكد من تحويل الحجوزات المحددة إلى مجانية لهذا النشاط فقط؟ ستصبح قيمة الدفع 0 ولن يطالبوا بالدفع.'))) return;
-    try {
-      const promises = selectedBookings.map(id => 
-        apiFetch(`/api/bookings/${id}`, {
-          method: 'PUT',
-          body: JSON.stringify({ isFree: true, isPaid: true, paidAmount: '0' })
-        })
-      );
-      const updated = await Promise.all(promises);
-      setBookings(prev => prev.map(b => {
-        const u = updated.find((upd: any) => upd.id === b.id);
-        return u ? u : b;
-      }));
-      setSelectedBookings([]);
-    } catch (err: any) {
-      alert('فشل التحويل: ' + err.message);
-    }
-  }
+  const menuCard = (
+    <section className="wa-card acts-menucard wa-only-desk">
+      <h3><LayoutList />كلّ ما يخصّ هذا النشاط</h3>
+      {menuBody}
+    </section>
+  );
 
   return (
-    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-6 pb-10" dir="rtl">
+    <div className="wa acts-page" dir="rtl" style={{ background: 'transparent' }}>
 
       {/* ══ Header ══ */}
-      <div className="pb-2">
-        <div className="flex items-center gap-4">
-          <button
-            onClick={() => router.push('/admin/activities')}
-            className="w-10 h-10 rounded-full border border-gray-700/50 flex items-center justify-center text-gray-400 hover:text-white hover:border-gray-500 transition shrink-0"
-          >
-            →
-          </button>
-          <div className="flex-1">
-            <div className="flex items-center gap-3 mb-1 flex-wrap justify-between">
-              <div className="flex items-center gap-3">
-                <h1 className="text-2xl font-bold text-white">{activity.name}</h1>
-                <span className={`text-[11px] px-2.5 py-1 rounded-full border ${status.color}`}>{status.label}</span>
-                {activity.isLocked && (
-                  <span className="text-[11px] px-2 py-1 rounded-full bg-rose-500/15 text-rose-400 border border-rose-500/20 flex items-center gap-1">
-                    🔒 مقفول إدارياً
-                  </span>
-                )}
-              </div>
-              <div className="flex items-center gap-2">
-                {!isAccountant && (
-                  <button
-                    onClick={() => setShowEditForm(true)}
-                    className="text-xs px-3 py-1.5 rounded-lg border border-amber-500/30 text-amber-400 hover:bg-amber-500/10 transition flex items-center gap-1.5"
-                  >
-                    ✏️ تعديل النشاط
-                  </button>
-                )}
-                {user.role === 'admin' && (
-                  <button
-                    onClick={toggleLock}
-                    className={`text-xs px-3 py-1.5 rounded-lg border transition ${
-                      activity.isLocked
-                        ? 'border-rose-500/30 text-rose-400 hover:bg-rose-500/10'
-                        : 'border-gray-600/50 text-gray-400 hover:bg-gray-800'
-                    }`}
-                  >
-                    {activity.isLocked ? '🔓 فك القفل' : '🔒 قفل النشاط'}
-                  </button>
-                )}
-              </div>
-            </div>
-            <div className="flex items-center gap-4 text-sm text-gray-500 flex-wrap">
-              <span>📅 {safeDate(activity.date).toLocaleDateString('ar-EG', { year: 'numeric', month: 'long', day: 'numeric', hour: '2-digit', minute: '2-digit' })}</span>
-              <span>🎫 {Number(activity.basePrice || 0)} {CURRENCY} / شخص</span>
-              {location && <span>📍 {location.name}</span>}
-              <span>👥 {activity.maxCapacity || 20} لاعب كحد أقصى</span>
-              <span>{{'easy':'🟢 سهل','medium':'🟡 متوسط','hard':'🔴 صعب','expert':'🟣 خبير'}[activity.difficulty as string] || '🟡 متوسط'}</span>
-            </div>
-            {activity.description && <p className="text-sm text-gray-500 mt-2">{activity.description}</p>}
-            {activity.isLocked && (
-              <div className="mt-4 p-3 bg-rose-500/10 border border-rose-500/20 rounded-xl">
-                <h4 className="font-bold text-rose-400 text-sm">🔒 هذا النشاط مقفول</h4>
-                <p className="text-xs text-rose-400/70 mt-1">يمنع إجراء أي تعديلات مالية أو إدارية. فقط المدير العام بإمكانه تغيير حالة القفل.</p>
-              </div>
+      <div className="acts-head">
+        <button type="button" className="wa-iconbtn" aria-label="رجوع للأنشطة" onClick={() => router.push('/admin/activities')}><ArrowRight className="l" /></button>
+        <div className="grow">
+          <h1>{activity.name}</h1>
+          <div className="acts-meta">
+            <span><CalendarClock className="s" />{fmtDay(activity.date)} · <span className="ltr">{fmtTime(activity.date)}</span></span>
+            {location && <span><MapPin className="s" />{location.name}</span>}
+            <span><span className="ltr">{num(activity.basePrice)}</span> {CURRENCY} للشخص</span>
+            <span><span className="ltr">{capacity}</span> مقعداً</span>
+            <span>{DIFFICULTY[activity.difficulty as string] || DIFFICULTY.medium}</span>
+          </div>
+        </div>
+        <div className="acts-acts">
+          <Badge tone={status.tone}>{activity.status === 'active' && <i className="wa-dot ok" />}{status.label}</Badge>
+          {activity.isLocked && <Badge tone="danger"><Lock />مقفول إداريّاً</Badge>}
+          {!isAccountant && (
+            <button type="button" className="wa-btn" onClick={() => setShowEditForm(true)}><Pencil />تعديل</button>
+          )}
+          {isAdmin && (
+            <button type="button" className={`wa-btn${activity.isLocked ? ' danger' : ''}`} onClick={toggleLock}>
+              {activity.isLocked ? <><LockOpen />فكّ القفل</> : <><Lock />قفل</>}
+            </button>
+          )}
+        </div>
+      </div>
+      {activity.description && <p className="muted" style={{ margin: 0 }}>{activity.description}</p>}
+      {activity.isLocked && (
+        <Banner tone="danger" icon={<Lock />}>
+          <b>هذا النشاط مقفول.</b> يُمنع أيّ تعديل ماليّ أو إداريّ. المدير العامّ وحده يغيّر حالة القفل.
+        </Banner>
+      )}
+
+      {/* ══ المراحل ══ */}
+      <div className="wa-steps acts-steps" role="tablist" aria-label="مرحلة النشاط">
+        {PHASES.map((p, i) => {
+          const done = PHASES.findIndex(x => x.key === derived) > i && phase !== p.key;
+          return (
+            <button key={p.key} type="button" role="tab" aria-selected={phase === p.key} aria-current={phase === p.key ? 'step' : undefined} className={done ? 'done' : undefined} onClick={() => goPhase(p.key)}>
+              <span className="i">{done ? <Check className="s" /> : i + 1}</span>
+              {p.short}<span className="acts-long"> · {p.long}</span>
+            </button>
+          );
+        })}
+      </div>
+      <button type="button" className="wa-btn wa-only-phone" onClick={() => setShowMenu(true)}><LayoutList />كلّ ما يخصّ هذا النشاط</button>
+
+      {/* ══ المحتوى الأساسيّ للمرحلة + العمود الجانبيّ ══ */}
+      <div className="acts-cols">
+        <div className="stack">
+          {/* ── قبل ── */}
+          <Show when={phase === 'before'}>
+            {activity.status === 'cancelled' && (
+              <div id="sec-cancel" className="acts-sec acts-legacy"><CancelNoticeSection key={cancelTick} activityId={activity.id} /></div>
             )}
-          </div>
+            <Card title={<><Users />الحجز حتّى الآن</>} aside={<><span className="ltr">{actBookings.length}</span> حجز · <span className="ltr">{seatsLeft}</span> مقعد متبقٍّ</>}>
+              <div className="row" style={{ marginBottom: 'var(--space-3)' }}>
+                <Meter pct={pctOfCap(totalAttendees)} tone={totalAttendees >= capacity ? undefined : 'gold'} style={{ flex: 1, height: 8 }} />
+                <b className="ltr">{totalAttendees}/{capacity}</b>
+              </div>
+              <div className="wa-grid3">
+                <Tile k="مدفوع" v={num(paidAttendees)} tone="ok" />
+                <Tile k="غير مدفوع" v={num(unpaidAttendees)} tone={unpaidAttendees > 0 ? 'gold' : undefined} />
+                <Tile k="مجّانيّ" v={num(freeAttendees)} />
+              </div>
+              <div className="row" style={{ marginTop: 'var(--space-3)', flexWrap: 'wrap' }}>
+                <Link href={`/admin/reservations?activityId=${activity.id}`} className="wa-btn primary"><ListChecks />افتح المتابعة</Link>
+                <button type="button" className="wa-btn" onClick={() => jump('bookings')}>قائمة الحجوزات</button>
+              </div>
+            </Card>
+          </Show>
+
+          {/* ── الليلة ── */}
+          <Show when={phase === 'tonight'}>
+            <div id="sec-rooms" className="acts-sec"><RoomsSection activityId={activity.id} /></div>
+
+            <section id="sec-attendance" className="wa-card acts-sec">
+              <h3><Users />الحضور
+                <small><button type="button" className="wa-iconbtn" aria-label="تحديث الحضور" onClick={loadAttendance}><RefreshCw /></button></small>
+              </h3>
+              {resRows == null ? <Skel h={76} /> : (
+                <div className="wa-kpis">
+                  <Tile k="وصلوا" v={num(attendance.arrived)} tone="ok" />
+                  <Tile k="في الطريق" v={num(attendance.onWay)} tone="gold" />
+                  <Tile k="لم يردّوا" v={num(attendance.silent)} tone={attendance.silent > 0 ? 'danger' : undefined} />
+                  <Tile k="مقاعد متاحة" v={num(seatsLeft)} h={attendance.declined > 0 ? <>اعتذر <span className="ltr">{attendance.declined}</span></> : undefined} />
+                </div>
+              )}
+              <div className="row" style={{ marginTop: 'var(--space-3)', flexWrap: 'wrap' }}>
+                <Link href={`/admin/reservations?activityId=${activity.id}`} className="wa-btn primary">
+                  <ListChecks />تابع من لم يصل{notArrived > 0 && <> (<span className="ltr">{notArrived}</span>)</>}
+                </Link>
+                <Link href={`/admin/reservations/door?activityId=${activity.id}`} className="wa-btn"><DoorOpen />الباب</Link>
+                {activity.seatTemplateId && (
+                  <button type="button" className="wa-btn ghost" onClick={() => jump('seats', 'before')}><Armchair />خريطة المقاعد</button>
+                )}
+              </div>
+            </section>
+
+            <section id="sec-tonight-schedule" className="wa-card acts-sec">
+              <h3><CalendarClock />برنامج الليلة
+                <small><button type="button" className="wa-btn sm" onClick={() => jump('schedule', 'before')}><Pencil />عدّل</button></small>
+              </h3>
+              {schedule.length === 0 ? (
+                <p className="muted" style={{ margin: 0 }}>لا برنامج لهذه الليلة بعد.</p>
+              ) : schedule.map((s, i) => (
+                <div key={i} className={`acts-kv${isNow(s) ? ' now' : ''}`} aria-current={isNow(s) ? 'time' : undefined}>
+                  <span><span className="ltr">{hhmm12(s.start)}</span>{isNow(s) && ' · الآن'}</span>
+                  <b>{s.label}</b>
+                </div>
+              ))}
+            </section>
+          </Show>
+
+          {/* ── بعد ── */}
+          <Show when={phase === 'after'}>
+            <section id="sec-finance" className="wa-card acts-sec">
+              <h3><Wallet />الملخّص الماليّ</h3>
+              <div className="wa-grid3">
+                <Tile k={`صافي الربح (${CURRENCY})`} v={num(profit)} tone={profit >= 0 ? 'ok' : 'danger'} />
+                <Tile k="الإيرادات" v={`+${num(revenue)}`} />
+                <Tile k="التكاليف" v={`-${num(expense)}`} />
+              </div>
+              <h3 style={{ margin: 'var(--space-4) 0 var(--space-2)' }}><Users />توزيع الحضور
+                <small><span className="ltr">{totalAttendees}/{capacity}</span> · <span className="ltr">{actBookings.length}</span> حجز · <span className="ltr">{seatsLeft}</span> مقعد متبقٍّ</small>
+              </h3>
+              <HBar label="مدفوع" pct={pctOfCap(paidAttendees)} value={paidAttendees} />
+              <HBar label="مجّانيّ" pct={pctOfCap(freeAttendees)} value={freeAttendees} tone="info" />
+              <HBar label="غير مدفوع" pct={pctOfCap(unpaidAttendees)} value={unpaidAttendees} tone="warn" />
+              <HBar label="متبقٍّ" pct={pctOfCap(seatsLeft)} value={seatsLeft} tone="gold" />
+            </section>
+          </Show>
+        </div>
+
+        <div className="stack">
+          <Show when={phase === 'tonight'}>
+            <section id="sec-money" className="wa-card acts-sec">
+              <h3><Banknote />مال الليلة حتّى الآن</h3>
+              <div className="acts-kv"><span>دخوليّة محصَّلة</span><b className="ltr">{num(revenue)}</b></div>
+              <div className="acts-kv"><span>دخوليّة غير محصَّلة (<span className="ltr">{unpaidAttendees}</span>)</span><b className={`ltr${unpaidExpected > 0 ? ' acts-warn' : ''}`}>{num(Math.round(unpaidExpected * 100) / 100)}</b></div>
+              <div className="acts-kv"><span>التكاليف المسجَّلة</span><b className="ltr">{num(expense)}</b></div>
+              <div className="acts-kv total"><span>الصافي ({CURRENCY})</span><b className={`ltr ${profit >= 0 ? 'acts-pos' : 'acts-neg'}`}>{num(profit)}</b></div>
+            </section>
+          </Show>
+          {menuCard}
         </div>
       </div>
 
-      {/* ══ نموذج التعديل ══ */}
-      {showEditForm && (
-        <EditActivityForm
-          activity={activity}
-          locations={locations}
-          onSubmit={handleEditActivity}
-          onCancel={() => setShowEditForm(false)}
-        />
-      )}
-
-      {/* ══ 📣 إشعار الإلغاء — من وصلته رسالة الإلغاء ومن لا ══ */}
-      {activity.status === 'cancelled' && <CancelNoticeSection key={cancelTick} activityId={activity.id} />}
-
-      {/* ══ إعدادات الجلوس الذكي ══ */}
-      <SeatingConstraintsPanel activityId={activity.id} />
-
-      {/* ══ 🪑 توزيع مقاعد النشاط (تخصيص مؤقّت على نموذج القالب) ══ */}
-      {activity.seatTemplateId && (
-        <SeatAssignmentSection
-          activityId={activity.id}
-          seatTemplateId={activity.seatTemplateId}
-          bookings={bookings}
-          initialAssignments={activity.seatAssignments || []}
-        />
-      )}
-
-      {/* ══ الغرف المرتبطة (متعددة) ══ */}
-      <RoomsSection activityId={activity.id} activityName={activity.name} />
-
-      {/* ══ إدارة التذاكر ══ */}
-      {activity.requireTicket && (
-        <TicketsSection activityId={activity.id} />
-      )}
-
-      {/* ══ Donut Charts ══ */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        {/* المالي */}
-        <div className="bg-gray-800/50 border border-gray-700/40 rounded-2xl p-5">
-          <h3 className="text-sm font-bold text-white mb-4 flex items-center gap-2">💰 الملخص المالي</h3>
-          <div className="flex items-center gap-6">
-            <DonutChart data={[
-              { name: 'إيرادات', value: revenue, color: '#10b981' },
-              { name: 'تكاليف', value: expense, color: '#f43f5e' },
-            ]} />
-            <div className="flex-1 space-y-3">
-              <div className="flex items-center justify-between p-2.5 bg-gray-900/60 rounded-xl">
-                <span className="text-gray-400 text-sm">صافي الربح</span>
-                <span className={`font-bold text-lg ${profit >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
-                  {profit.toLocaleString()} {CURRENCY}
-                </span>
-              </div>
-              <div className="flex items-center justify-between">
-                <span className="flex items-center gap-1.5 text-sm text-gray-500">
-                  <span className="w-2.5 h-2.5 rounded-full bg-emerald-500" /> الإيرادات
-                </span>
-                <span className="font-bold text-emerald-400">+{revenue.toLocaleString()} {CURRENCY}</span>
-              </div>
-              <div className="flex items-center justify-between">
-                <span className="flex items-center gap-1.5 text-sm text-gray-500">
-                  <span className="w-2.5 h-2.5 rounded-full bg-rose-500" /> التكاليف
-                </span>
-                <span className="font-bold text-rose-400">-{expense.toLocaleString()} {CURRENCY}</span>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        {/* الحضور */}
-        <div className="bg-gray-800/50 border border-gray-700/40 rounded-2xl p-5">
-          <h3 className="text-sm font-bold text-white mb-4 flex items-center gap-2">👥 توزيع الحضور</h3>
-          <div className="flex items-center gap-6">
-            <DonutChart data={[
-              { name: 'مدفوع', value: paidAttendees, color: '#10b981' },
-              { name: 'مجاني', value: freeAttendees, color: '#3b82f6' },
-              { name: 'غير مدفوع', value: unpaidAttendees, color: '#f59e0b' },
-              { name: 'متبقي', value: Math.max(0, (activity.maxCapacity || 20) - totalAttendees), color: '#374151' },
-            ]} />
-            <div className="flex-1 space-y-3">
-              <div className="p-2.5 bg-gray-900/60 rounded-xl">
-                <div className="flex items-center justify-between mb-1.5">
-                  <span className="text-gray-400 text-sm">إجمالي الحضور</span>
-                  <span className="font-bold text-lg text-white">
-                    {totalAttendees}<span className="text-xs text-gray-500 font-normal">/{activity.maxCapacity || 20}</span>
-                  </span>
-                </div>
-                {/* شريط التعبئة */}
-                <div className="w-full bg-gray-800 rounded-full h-2 overflow-hidden">
-                  <div
-                    className={`h-full rounded-full transition-all ${
-                      totalAttendees >= (activity.maxCapacity || 20) ? 'bg-rose-500' :
-                      totalAttendees >= (activity.maxCapacity || 20) * 0.8 ? 'bg-amber-500' : 'bg-emerald-500'
-                    }`}
-                    style={{ width: `${Math.min(100, (totalAttendees / (activity.maxCapacity || 20)) * 100)}%` }}
-                  />
-                </div>
-                <p className="text-[10px] text-gray-600 mt-1">{actBookings.length} حجز — {Math.max(0, (activity.maxCapacity || 20) - totalAttendees)} مقعد متبقي</p>
-              </div>
-              <div className="flex items-center justify-between">
-                <span className="flex items-center gap-1.5 text-sm text-gray-500"><span className="w-2.5 h-2.5 rounded-full bg-emerald-500" /> مدفوع</span>
-                <span className="font-bold text-emerald-400">{paidAttendees}</span>
-              </div>
-              <div className="flex items-center justify-between">
-                <span className="flex items-center gap-1.5 text-sm text-gray-500"><span className="w-2.5 h-2.5 rounded-full bg-blue-500" /> مجاني</span>
-                <span className="font-bold text-blue-400">{freeAttendees}</span>
-              </div>
-              <div className="flex items-center justify-between">
-                <span className="flex items-center gap-1.5 text-sm text-gray-500"><span className="w-2.5 h-2.5 rounded-full bg-amber-400" /> غير مدفوع</span>
-                <span className="font-bold text-amber-400">{unpaidAttendees}</span>
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      {/* ══ Bookings Table (Collapsible) ══ */}
-      <div className="bg-gray-800/50 border border-gray-700/40 rounded-2xl overflow-hidden">
-        <button
-          onClick={() => setBookingsOpen(!bookingsOpen)}
-          className="w-full flex items-center justify-between px-5 py-4 hover:bg-gray-700/20 transition-colors"
+      {/* ══ باقي الأقسام — كلٌّ يُفتح بنقرة ══ */}
+      <div className="acts-more">
+        <Acc
+          id="bookings" icon={<Users />} open={open.has('bookings')} onToggle={() => toggleSec('bookings')}
+          title={phase === 'after' ? 'الحجوزات والتحصيل' : 'قائمة الحجوزات والدفع'}
+          end={<>{unpaidAttendees > 0 && <span className="acts-warn">{unpaidAttendees} لم يدفعوا ·</span>}{actBookings.length} حجز</>}
         >
-          <div className="flex items-center gap-2">
-            <span className="text-lg">👥</span>
-            <span className="font-bold text-white">قائمة الحجوزات</span>
-            <span className="text-xs px-2 py-0.5 rounded-full bg-gray-700/50 text-gray-400">{actBookings.length} حجز</span>
-            {selectedBookings.length > 0 && (
-              <div className="flex items-center gap-2 mr-4">
-                <button
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    openPayModal(actBookings.filter((b: any) => selectedBookings.includes(b.id)));
-                  }}
-                  className="text-xs px-3 py-1.5 rounded-lg bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 hover:bg-emerald-500/30 transition font-bold"
-                >
-                  💰 دفع المحدد ({selectedBookings.length})
-                </button>
-                <button
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    handleMakeFree();
-                  }}
-                  className="text-xs px-3 py-1.5 rounded-lg bg-teal-500/20 text-teal-400 border border-teal-500/30 hover:bg-teal-500/30 transition font-bold"
-                >
-                  🏷️ تحويل لمجاني ({selectedBookings.length})
-                </button>
-              </div>
-            )}
-          </div>
-          <div className="flex items-center gap-3">
-            {unpaidAttendees > 0 && (
-              <span className="text-xs text-amber-400">⚠️ {unpaidAttendees} لم يدفعوا</span>
-            )}
-            <span className="text-gray-500">{bookingsOpen ? '▲' : '▼'}</span>
-          </div>
-        </button>
+          <BookingsPanel
+            activityId={activity.id} activity={activity} bookings={actBookings} setBookings={setBookings}
+            staffList={staffList} rosterGroups={rosterGroups} gamesForBooking={gamesForBooking}
+            isAdmin={isAdmin} isAccountant={isAccountant} unpaidFirst={phase === 'after'}
+            totalAttendees={totalAttendees} revenue={revenue} unpaidAttendees={unpaidAttendees} unpaidExpected={unpaidExpected}
+          />
+        </Acc>
 
-        {bookingsOpen && (
-          <div className="px-5 pb-5">
-            <div className="mb-4">
-              <input
-                type="text"
-                placeholder="🔍 بحث باسم الشخص أو رقم الهاتف..."
-                value={bookingSearch}
-                onChange={e => setBookingSearch(e.target.value)}
-                className="w-full px-4 py-2.5 bg-gray-900/50 border border-gray-700/50 rounded-xl text-white text-sm focus:outline-none focus:ring-1 focus:ring-amber-500/50 placeholder-gray-500"
+        {/* ── قبل ── */}
+        <Show when={phase === 'before'}>
+          <Acc id="seating" icon={<Armchair />} title="الجلوس الذكيّ" open={open.has('seating')} onToggle={() => toggleSec('seating')}>
+            <SeatingConstraintsPanel activityId={activity.id} />
+          </Acc>
+          {activity.seatTemplateId && (
+            <Acc id="seats" icon={<Armchair />} title="توزيع مقاعد النشاط" open={open.has('seats')} onToggle={() => toggleSec('seats')}>
+              <SeatAssignmentSection
+                activityId={activity.id}
+                seatTemplateId={activity.seatTemplateId}
+                bookings={bookings}
+                initialAssignments={activity.seatAssignments || []}
               />
+            </Acc>
+          )}
+          {activity.requireTicket && (
+            <Acc id="tickets" icon={<Ticket />} title="التذاكر المستخدمة في هذا النشاط" open={open.has('tickets')} onToggle={() => toggleSec('tickets')}>
+              <TicketsSection activityId={activity.id} />
+            </Acc>
+          )}
+          {/* مجموعات عروض الحجز — الحسمُ عند الباب على الحضور الفعليّ (تختفي حين لا مجموعات) */}
+          <div id="sec-offers" className="acts-sec acts-legacy">
+            <OfferGroupsSection activityId={activity.id} onChanged={refreshBookings} />
+          </div>
+          <Acc id="venue" icon={<MapPin />} title="المكان والخريطة" end={location?.name} open={open.has('venue')} onToggle={() => toggleSec('venue')}>
+            <div className="wa-card">
+              {location ? (
+                <div className="stack">
+                  <div className="row">
+                    <b className="grow">{location.name}</b>
+                    {location.mapUrl && <a className="wa-btn" href={location.mapUrl} target="_blank" rel="noreferrer"><MapPin />الخريطة</a>}
+                  </div>
+                  {location.offers && (location.offers as any[]).length > 0 && (
+                    <div>
+                      <div className="muted" style={{ font: '700 12px/16px var(--font-sans)' }}><Gift className="s" /> عروض المكان</div>
+                      <div className="wa-list">
+                        {(location.offers as any[]).map((offer: any, i: number) => (
+                          <div key={i}>
+                            <span className="t">{typeof offer === 'string' ? offer : offer.description || offer.name}</span>
+                            {typeof offer !== 'string' && offer.price && <Badge tone="gold"><span className="ltr">{offer.price}</span> {CURRENCY}</Badge>}
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              ) : (
+                <Empty icon={<MapPin />} title="لم يُحدَّد مكان لهذا النشاط" />
+              )}
             </div>
-            {actBookings.length > 0 ? (
-              <>
-                <div className="overflow-x-auto border border-gray-700/30 rounded-xl">
-                  <table className="w-full text-sm" dir="rtl">
-                    <thead>
-                      <tr className="bg-gray-900/50 text-gray-500 text-xs">
-                        <th className="text-right px-3 py-2.5 font-medium w-8">
-                          <input 
-                            type="checkbox" 
-                            className="rounded border-gray-600 bg-gray-700/50 text-emerald-500 focus:ring-emerald-500/30 w-3.5 h-3.5 cursor-pointer"
-                            checked={selectedBookings.length > 0 && selectedBookings.length === actBookings.filter((b: any) => !b.isPaid && !b.isFree).length}
-                            onChange={(e) => {
-                               if (e.target.checked) {
-                                 setSelectedBookings(actBookings.filter((b: any) => !b.isPaid && !b.isFree).map((b: any) => b.id));
-                               } else {
-                                 setSelectedBookings([]);
-                               }
-                            }}
-                          />
-                        </th>
-                        <th className="text-right px-3 py-2.5 font-medium">#</th>
-                        <th className="text-right px-3 py-2.5 font-medium">الاسم</th>
-                        <th className="text-right px-3 py-2.5 font-medium">الهاتف</th>
-                        <th className="text-center px-3 py-2.5 font-medium">العدد</th>
-                        <th className="text-center px-3 py-2.5 font-medium whitespace-nowrap" title="عدد الألعاب التي لعبها في هذا النشاط عبر كل الغرف">🎮 ألعاب</th>
-                        <th className="text-center px-3 py-2.5 font-medium">الحالة</th>
-                        <th className="text-center px-3 py-2.5 font-medium">المبلغ</th>
-                        <th className="text-right px-3 py-2.5 font-medium">المستلم</th>
-                        <th className="text-right px-3 py-2.5 font-medium whitespace-nowrap">وقت الحجز</th>
-                        <th className="text-right px-3 py-2.5 font-medium">ملاحظات</th>
-                        <th className="text-center px-3 py-2.5 font-medium">إجراءات</th>
-                      </tr>
-                    </thead>
+          </Acc>
+          {/* برنامج الليلة — يُطبع في كشف الحضور */}
+          <div id="sec-schedule" className="acts-sec acts-legacy">
+            <ScheduleEditor activityId={activity.id} activityDate={activity.date} initial={activity.gameSchedule || []} />
+          </div>
+        </Show>
+
+        {/* ── بعد ── */}
+        <Show when={phase === 'after'}>
+          {/* الغياب — يثبت فور نهاية الفعاليّة، و«حضر» يصحّحه */}
+          <Acc id="noshow" icon={<UserX />} title="الغياب" open={open.has('noshow')} onToggle={() => toggleSec('noshow')}>
+            <div className="acts-legacy acts-maybe"><NoShowSection activityId={activity.id} onChanged={refreshBookings} /></div>
+          </Acc>
+          <div id="sec-absence" className="acts-sec acts-legacy"><AbsenceSection activityId={activity.id} /></div>
+          <Acc
+            id="costs" icon={<Receipt />} title="تكاليف النشاط" open={open.has('costs')} onToggle={() => toggleSec('costs')}
+            end={<>{actCosts.length} بند{actCosts.length > 0 && <> · <span className="acts-neg">{num(expense)}</span></>}</>}
+          >
+            <div className="wa-card" style={{ padding: actCosts.length > 0 ? 0 : undefined }}>
+              {actCosts.length > 0 ? (
+                <div className="wa-tablewrap">
+                  <table className="wa-table cards">
+                    <thead><tr><th>#</th><th>البند</th><th>المبلغ</th><th>المدفوع بواسطة</th><th>التاريخ</th></tr></thead>
                     <tbody>
-                      {[...actBookings].filter((b: any) => 
-                        bookingSearch ? (
-                          (b.name && b.name.toLowerCase().includes(bookingSearch.toLowerCase())) || 
-                          (b.phone && b.phone.includes(bookingSearch))
-                        ) : true
-                      ).sort((a: any, b: any) => {
-                        const priority = (bk: any) => bk.isFree ? 2 : bk.isPaid ? 0 : 1;
-                        return priority(a) - priority(b);
-                      }).map((b: any, i: number) => (
-                        <tr key={b.id} className={`border-t border-gray-700/20 transition ${!b.isPaid && !b.isFree ? 'bg-amber-500/[0.03] hover:bg-amber-500/[0.06]' : 'hover:bg-gray-700/10'}`}>
-                          <td className="px-3 py-2.5">
-                            {!b.isPaid && !b.isFree && (
-                              <input 
-                                type="checkbox" 
-                                className="rounded border-gray-600 bg-gray-700/50 text-emerald-500 focus:ring-emerald-500/30 w-3.5 h-3.5 cursor-pointer"
-                                checked={selectedBookings.includes(b.id)}
-                                onChange={(e) => {
-                                  if (e.target.checked) setSelectedBookings(prev => [...prev, b.id]);
-                                  else setSelectedBookings(prev => prev.filter(id => id !== b.id));
-                                }}
-                              />
-                            )}
-                          </td>
-                          <td className="px-3 py-2.5 text-gray-600 text-xs font-mono">{i + 1}</td>
-                          <td className="px-3 py-2.5 text-white font-medium">{b.name}</td>
-                          <td className="px-3 py-2.5 text-gray-400 text-xs" dir="ltr">
-                            <span className="inline-flex items-center gap-2">
-                              {b.phone || '—'}
-                              <WhatsAppButton phone={b.phone} size={13} />
-                            </span>
-                          </td>
-                          <td className="px-3 py-2.5 text-center">
-                            <span className="bg-gray-700/50 text-gray-300 px-2 py-0.5 rounded text-xs font-bold">{b.count || 1}</span>
-                          </td>
-                          <td className="px-3 py-2.5 text-center">
-                            {(() => { const g = gamesForBooking(b); return (
-                              <span className={`px-2 py-0.5 rounded text-xs font-bold ${g > 0 ? 'bg-indigo-500/15 text-indigo-300 border border-indigo-500/25' : 'text-gray-600'}`}>
-                                {g > 0 ? `🎮 ${g}` : '—'}
-                              </span>
-                            ); })()}
-                          </td>
-                          <td className="px-3 py-2.5 text-center">
-                            <div className="flex flex-col items-center gap-1">
-                            {b.isFree ? (
-                              <span className="text-[10px] px-2 py-0.5 rounded-full bg-teal-500/15 text-teal-400 border border-teal-500/20">🏷️ مجاني</span>
-                            ) : b.isPaid ? (
-                              <span className="text-[10px] px-2 py-0.5 rounded-full bg-emerald-500/15 text-emerald-400 border border-emerald-500/20">✅ مدفوع</span>
-                            ) : (
-                              <span className="text-[10px] px-2 py-0.5 rounded-full bg-amber-500/15 text-amber-400 border border-amber-500/20 animate-pulse">⏳ غير مدفوع</span>
-                            )}
-                            {b.ticketNumber && (
-                              <span className="text-[9px] px-1.5 py-0.5 rounded bg-purple-500/15 text-purple-400 border border-purple-500/20 font-mono" dir="ltr">🎫 {b.ticketNumber}</span>
-                            )}
-                            </div>
-                          </td>
-                          <td className="px-3 py-2.5 text-center font-medium">
-                            {b.isFree ? <span className="text-gray-600">—</span> : (
-                              <span className={b.isPaid ? 'text-emerald-400' : 'text-amber-400'}>
-                                {Number(b.paidAmount || 0)} {CURRENCY}
-                              </span>
-                            )}
-                            {b.unitPrice != null && !b.isFree && (
-                              <span className="block text-[10px] text-amber-300 font-bold" title="سعر الدون المبكّر المقفول لهذا الحجز">💸 {Number(b.unitPrice)} {CURRENCY}</span>
-                            )}
-                          </td>
-                          <td className="px-3 py-2.5 text-gray-400 text-xs">{b.receivedBy || '—'}</td>
-                          <td className="px-3 py-2.5 text-xs whitespace-nowrap" title={b.createdAt ? new Date(b.createdAt).toLocaleString('ar-JO', { dateStyle: 'medium', timeStyle: 'medium' }) : undefined}>
-                            {b.createdAt ? (
-                              <>
-                                <span className="text-gray-300">{new Date(b.createdAt).toLocaleTimeString('ar-JO', { hour: '2-digit', minute: '2-digit' })}</span>
-                                <span className="block text-gray-600 text-[10px]">{new Date(b.createdAt).toLocaleDateString('ar-JO', { day: 'numeric', month: 'short', year: 'numeric' })}</span>
-                              </>
-                            ) : <span className="text-gray-600">—</span>}
-                          </td>
-                          <td className="px-3 py-2.5 text-center">
-                            <div className="flex items-center justify-center gap-1">
-                              {!b.isFree && !b.isPaid && (
-                                <button
-                                  onClick={() => openPayModal([b])}
-                                  className="text-[10px] px-2.5 py-1 rounded-lg bg-emerald-500/15 text-emerald-400 border border-emerald-500/25 hover:bg-emerald-500/25 transition font-bold"
-                                  title="تأكيد الدفع"
-                                >
-                                  💰 تأكيد دفع
-                                </button>
-                              )}
-                              {getUser()?.role === 'admin' && !b.isPaid && !b.isFree && (
-                                <button
-                                  onClick={() => toggleEarly(b)}
-                                  className={`text-[10px] px-2 py-1 rounded-lg transition ${b.unitPrice != null ? 'text-amber-300 hover:bg-amber-500/10' : 'text-gray-500 hover:text-amber-300 hover:bg-amber-500/10'}`}
-                                  title={b.unitPrice != null ? 'إزالة سعر الدون المبكّر' : 'تطبيق سعر الدون المبكّر يدويّاً'}
-                                >
-                                  {b.unitPrice != null ? '💸✕' : '💸'}
-                                </button>
-                              )}
-                              {b.isPaid && !b.isFree && !isAccountant && (
-                                <button
-                                  onClick={() => handleUnpay(b.id)}
-                                  className="text-[10px] px-2 py-1 rounded-lg text-amber-400/70 hover:text-amber-400 hover:bg-amber-500/10 transition"
-                                  title="إلغاء تأكيد الدفع"
-                                >
-                                  ↩️
-                                </button>
-                              )}
-                              {!isAccountant && (
-                                <button
-                                  onClick={() => handleDeleteBooking(b.id)}
-                                  className="text-[10px] px-2 py-1 rounded-lg text-rose-400/50 hover:text-rose-400 hover:bg-rose-500/10 transition"
-                                  title="حذف الحجز"
-                                >
-                                  🗑️
-                                </button>
-                              )}
-                            </div>
-                          </td>
+                      {actCosts.map((c: any, i: number) => (
+                        <tr key={c.id}>
+                          <td data-l="#"><span className="ltr muted">{i + 1}</span></td>
+                          <td data-l="البند"><b>{c.item}</b></td>
+                          <td data-l="المبلغ"><span><span className="ltr acts-neg">{num(c.amount)}</span> {CURRENCY}</span></td>
+                          <td data-l="المدفوع بواسطة">{c.paidBy || '—'}</td>
+                          <td data-l="التاريخ">{c.date ? fmtDayShort(c.date) : '—'}</td>
                         </tr>
                       ))}
-
-                      {/* 👥 بنودٌ مجمَّعة: من لا صفَّ حجزٍ لهم — يُشتقّون من متابعة الحجوزات.
-                          «لاعب جديد» بلا حساب في التطبيق، و«مرافق» يرافق لاعباً حاجزاً. */}
-                      {(rosterGroups?.newcomers?.count ?? 0) > 0 && (
-                        <tr className="border-t border-gray-700/20 bg-sky-500/[0.04]">
-                          <td className="py-3 px-2" />
-                          <td className="py-3 px-2 text-gray-600">—</td>
-                          <td className="py-3 px-2">
-                            <span className="text-sky-300 font-bold">🆕 لاعبون جدد</span>
-                            <p className="text-[11px] text-gray-500 mt-0.5">
-                              {rosterGroups!.newcomers.entries.map((e: any) => `${e.name}${e.people > 1 ? ` (${e.people})` : ''}`).join(' · ')}
-                            </p>
-                          </td>
-                          <td className="py-3 px-2 text-gray-600">—</td>
-                          <td className="py-3 px-2 text-center font-bold text-sky-300">{rosterGroups!.newcomers.count}</td>
-                          <td className="py-3 px-2 text-gray-600">—</td>
-                          <td className="py-3 px-2 text-[11px] text-gray-500" colSpan={6}>
-                            حجوزات مثبَّتة بلا حساب لاعب — تُحتسب من السعة ولا تظهر في التطبيق
-                          </td>
-                        </tr>
-                      )}
-                      {(rosterGroups?.companions?.count ?? 0) > 0 && (
-                        <tr className="border-t border-gray-700/20 bg-violet-500/[0.04]">
-                          <td className="py-3 px-2" />
-                          <td className="py-3 px-2 text-gray-600">—</td>
-                          <td className="py-3 px-2">
-                            <span className="text-violet-300 font-bold">👥 مرافقو لاعبين حاجزين</span>
-                            <p className="text-[11px] text-gray-500 mt-0.5">
-                              {rosterGroups!.companions.entries.map((e: any) => `مع ${e.name} (${e.people})`).join(' · ')}
-                            </p>
-                          </td>
-                          <td className="py-3 px-2 text-gray-600">—</td>
-                          <td className="py-3 px-2 text-center font-bold text-violet-300">{rosterGroups!.companions.count}</td>
-                          <td className="py-3 px-2 text-gray-600">—</td>
-                          <td className="py-3 px-2 text-[11px] text-gray-500" colSpan={6}>
-                            أشخاصٌ مع لاعبٍ حاجز — صفّ الحجز يحمل صاحبه وحده
-                          </td>
-                        </tr>
-                      )}
                     </tbody>
                   </table>
                 </div>
-                {/* Summary */}
-                <div className="mt-3 flex flex-wrap items-center gap-5 text-sm text-gray-500 bg-gray-900/30 rounded-xl p-3 border border-gray-700/20">
-                  <span>👥 <strong className="text-white">{totalAttendees}</strong> حضور</span>
-                  <span>💳 <strong className="text-emerald-400">{revenue.toLocaleString()} {CURRENCY}</strong> محصّل</span>
-                  {unpaidAttendees > 0 && (
-                    <span className="text-amber-400">⚠️ <strong>{(Math.round(unpaidExpected * 100) / 100).toLocaleString()} {CURRENCY}</strong> متوقع تحصيله</span>
-                  )}
-                </div>
-              </>
-            ) : (
-              <div className="text-center py-10 text-gray-600">
-                <span className="text-3xl block mb-2 opacity-30">👥</span>
-                لا توجد حجوزات لهذا النشاط بعد
-              </div>
-            )}
-          </div>
-        )}
-      </div>
-
-      {/* ══ 🎁 مكافأة الحجز المبكر — تحت قائمة الحجوزات مباشرةً لأنّها سكّانها ══ */}
-      {/* ══ 🗓️ برنامج الليلة — يُطبع في كشف الحضور ══ */}
-      <ScheduleEditor activityId={activity.id} activityDate={activity.date} initial={activity.gameSchedule || []} />
-
-      {/* ══ 🎟️ مجموعات عروض الحجز — الحسمُ عند الباب على الحضور الفعليّ ══ */}
-      {/* ══ 🚫 الغياب — يثبت فور نهاية الفعاليّة، و«حضر» يصحّحه ══ */}
-      <NoShowSection
-        activityId={activity.id}
-        onChanged={() => { apiFetch(`/api/bookings?activityId=${activity.id}`).then(setBookings).catch(() => {}); }}
-      />
-
-      <OfferGroupsSection
-        activityId={activity.id}
-        onChanged={() => { apiFetch(`/api/bookings?activityId=${activity.id}`).then(setBookings).catch(() => {}); }}
-      />
-
-      <AbsenceSection activityId={activity.id} />
-
-      <BookingBonusSection
-        activityId={activity.id}
-        activityName={activity.name}
-        activityDate={activity.date}
-        role={getUser()?.role}
-      />
-
-      {/* ══ Payment Confirmation Modal ══ */}
-      {payModal && (
-        <div className="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 flex items-center justify-center p-4" onClick={() => setPayModal(null)}>
-          <motion.div
-            initial={{ scale: 0.9, opacity: 0 }} animate={{ scale: 1, opacity: 1 }}
-            onClick={e => e.stopPropagation()}
-            className="bg-gray-900 border border-gray-700/50 rounded-2xl p-6 max-w-md w-full"
-            dir="rtl"
-          >
-            <div className="flex items-center justify-between mb-5">
-              <h3 className="text-lg font-bold text-white flex items-center gap-2">💰 تأكيد الدفع</h3>
-              <button onClick={() => setPayModal(null)} className="text-gray-500 hover:text-white text-lg">✕</button>
-            </div>
-
-            {/* معلومات الحجز */}
-            <div className="bg-gray-800/60 border border-gray-700/30 rounded-xl p-4 mb-5 space-y-2">
-              {payModal.length === 1 ? (
-                <>
-                  <div className="flex justify-between text-sm">
-                    <span className="text-gray-400">الاسم</span>
-                    <span className="text-white font-bold">{payModal[0].name}</span>
-                  </div>
-                  <div className="flex justify-between text-sm">
-                    <span className="text-gray-400">العدد</span>
-                    <span className="text-white">{payModal[0].count || 1} شخص</span>
-                  </div>
-                  {payModal[0].phone && (
-                    <div className="flex justify-between text-sm">
-                      <span className="text-gray-400">الهاتف</span>
-                      <span className="text-gray-300" dir="ltr">{payModal[0].phone}</span>
-                    </div>
-                  )}
-                </>
               ) : (
-                <>
-                  <div className="flex justify-between text-sm">
-                    <span className="text-gray-400">الحجوزات المحددة</span>
-                    <span className="text-white font-bold">{payModal.length} حجوزات</span>
-                  </div>
-                  <div className="flex justify-between text-sm">
-                    <span className="text-gray-400">إجمالي الأشخاص</span>
-                    <span className="text-white">{payModal.reduce((s: number, b: any) => s + (b.count || 1), 0)} شخص</span>
-                  </div>
-                </>
+                <Empty icon={<Receipt />} title="لا تكاليف مسجَّلة" />
               )}
             </div>
+          </Acc>
+        </Show>
 
-            {/* حقول التأكيد */}
-            <div className="space-y-4">
-              <div>
-                <label className="block text-xs text-gray-400 mb-1.5">المبلغ المدفوع ({CURRENCY}) *</label>
-                <input
-                  type="number" min="0" step="0.5"
-                  value={payAmount}
-                  onChange={e => setPayAmount(e.target.value)}
-                  className="w-full px-4 py-3 bg-gray-800/60 border border-gray-600/50 rounded-xl text-white text-lg font-bold text-center focus:outline-none focus:ring-2 focus:ring-emerald-500/50"
-                  autoFocus
-                />
-              </div>
+        {/* مكافأة الحجز المبكّر وسجلّها — مكوّن واحد يظهر في «قبل» و«بعد» */}
+        <Show when={phase !== 'tonight'}>
+          <div id="sec-bonus" className="acts-sec acts-legacy">
+            <BookingBonusSection
+              activityId={activity.id}
+              activityName={activity.name}
+              activityDate={activity.date}
+              role={user?.role}
+            />
+          </div>
+        </Show>
 
-              <div>
-                <label className="block text-xs text-gray-400 mb-1.5">المستلم</label>
-                <select
-                  value={payReceiver}
-                  onChange={e => setPayReceiver(e.target.value)}
-                  className="w-full px-4 py-3 bg-gray-800/60 border border-gray-600/50 rounded-xl text-white text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500/50"
-                >
-                  <option value="">اختر المستلم</option>
-                  {staffList.map((s: any) => (
-                    <option key={s.id} value={s.displayName}>{s.displayName}</option>
-                  ))}
-                </select>
-              </div>
-
-              <div>
-                <label className="block text-xs text-gray-400 mb-1.5">ملاحظات</label>
-                <input
-                  type="text"
-                  value={payNotes}
-                  onChange={e => setPayNotes(e.target.value)}
-                  placeholder="ملاحظات اختيارية..."
-                  className="w-full px-4 py-3 bg-gray-800/60 border border-gray-600/50 rounded-xl text-white placeholder-gray-600 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500/50"
-                />
-              </div>
+        <Show when={phase === 'after'}>
+          <Acc id="drive" icon={<FolderOpen />} title="الصور والملفّات" open={open.has('drive')} onToggle={() => toggleSec('drive')}>
+            <div className="acts-legacy">
+              <DriveFolderBrowser
+                driveLink={activity.driveLink || ''}
+                activityId={activity.id}
+                onDriveLinkCreated={(newLink) => setActivity((prev: any) => ({ ...prev, driveLink: newLink }))}
+              />
             </div>
+          </Acc>
+        </Show>
+      </div>
 
-            {/* أزرار */}
-            <div className="flex items-center gap-3 mt-6">
-              <button
-                onClick={confirmPayment}
-                disabled={paySubmitting || !payAmount || Number(payAmount) <= 0}
-                className="flex-1 py-3 bg-gradient-to-r from-emerald-500 to-teal-600 text-white font-bold rounded-xl hover:opacity-90 transition disabled:opacity-50 text-sm"
-              >
-                {paySubmitting ? '⏳ جاري التأكيد...' : '✅ تأكيد الدفع'}
-              </button>
-              <button
-                onClick={() => setPayModal(null)}
-                className="px-5 py-3 bg-gray-700/50 text-gray-300 rounded-xl hover:bg-gray-700/70 transition text-sm"
-              >
-                إلغاء
-              </button>
-            </div>
-          </motion.div>
-        </div>
+      {/* ══ قائمة الأقسام (هاتف) ══ */}
+      {showMenu && (
+        <Pop title="كلّ ما يخصّ هذا النشاط" onClose={() => setShowMenu(false)}>
+          <div className="acts-menucard">{menuBody}</div>
+        </Pop>
       )}
 
-      {/* ══ Costs Table (Collapsible) ══ */}
-      <div className="bg-gray-800/50 border border-gray-700/40 rounded-2xl overflow-hidden">
-        <button
-          onClick={() => setCostsOpen(!costsOpen)}
-          className="w-full flex items-center justify-between px-5 py-4 hover:bg-gray-700/20 transition-colors"
-        >
-          <div className="flex items-center gap-2">
-            <span className="text-lg">🧾</span>
-            <span className="font-bold text-white">تكاليف النشاط</span>
-            <span className="text-xs px-2 py-0.5 rounded-full bg-gray-700/50 text-gray-400">{actCosts.length} بند</span>
+      {/* ══ نموذج التعديل — مكوّن مشترك داخل نافذة ══ */}
+      {showEditForm && (
+        <Pop wide onClose={() => setShowEditForm(false)} label="تعديل النشاط">
+          <div className="wa-legacy">
+            <EditActivityForm
+              activity={activity}
+              locations={locations}
+              onSubmit={handleEditActivity}
+              onCancel={() => setShowEditForm(false)}
+            />
           </div>
-          <div className="flex items-center gap-3">
-            {actCosts.length > 0 && (
-              <span className="text-sm font-bold text-rose-400">{expense.toLocaleString()} {CURRENCY}</span>
-            )}
-            <span className="text-gray-500">{costsOpen ? '▲' : '▼'}</span>
-          </div>
-        </button>
-
-        {costsOpen && (
-          <div className="px-5 pb-5">
-            {actCosts.length > 0 ? (
-              <div className="overflow-x-auto border border-gray-700/30 rounded-xl">
-                <table className="w-full text-sm" dir="rtl">
-                  <thead>
-                    <tr className="bg-gray-900/50 text-gray-500 text-xs">
-                      <th className="text-right px-3 py-2.5 font-medium">#</th>
-                      <th className="text-right px-3 py-2.5 font-medium">البند</th>
-                      <th className="text-center px-3 py-2.5 font-medium">المبلغ</th>
-                      <th className="text-right px-3 py-2.5 font-medium">المدفوع بواسطة</th>
-                      <th className="text-right px-3 py-2.5 font-medium">التاريخ</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {actCosts.map((c: any, i: number) => (
-                      <tr key={c.id} className="border-t border-gray-700/20 hover:bg-gray-700/10 transition">
-                        <td className="px-3 py-2.5 text-gray-600 text-xs font-mono">{i + 1}</td>
-                        <td className="px-3 py-2.5 text-white font-medium">{c.item}</td>
-                        <td className="px-3 py-2.5 text-center font-bold text-rose-400">{Number(c.amount || 0).toLocaleString()} {CURRENCY}</td>
-                        <td className="px-3 py-2.5 text-gray-400">{c.paidBy || '—'}</td>
-                        <td className="px-3 py-2.5 text-gray-500 text-xs">{c.date ? safeDate(c.date).toLocaleDateString('ar-EG') : '—'}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            ) : (
-              <div className="text-center py-8 text-gray-600">
-                <span className="text-3xl block mb-2 opacity-30">🧾</span>
-                لا توجد تكاليف مسجلة
-              </div>
-            )}
-          </div>
-        )}
-      </div>
-
-      {/* ══ Location Card ══ */}
-      <div className="bg-gray-800/50 border border-gray-700/40 rounded-2xl p-5">
-        <h3 className="text-sm font-bold text-white mb-4 flex items-center gap-2">📍 مكان الفعالية</h3>
-        {location ? (
-          <div className="space-y-4">
-            <div className="flex justify-between items-start">
-              <span className="font-bold text-lg text-white">{location.name}</span>
-              {location.mapUrl && (
-                <a href={location.mapUrl} target="_blank" rel="noreferrer" className="text-blue-400 bg-blue-500/10 p-2 rounded-lg hover:bg-blue-500/20 transition text-xs">
-                  🗺️ الخريطة
-                </a>
-              )}
-            </div>
-            {location.offers && (location.offers as any[]).length > 0 && (
-              <div className="bg-gray-900/30 rounded-xl p-3 border border-gray-700/20">
-                <p className="text-xs font-bold text-gray-500 mb-2">🎁 عروض المكان</p>
-                <ul className="text-sm space-y-1.5">
-                  {(location.offers as any[]).map((offer: any, i: number) => (
-                    <li key={i} className="text-gray-300 flex items-center gap-2">
-                      <span className="w-1.5 h-1.5 rounded-full bg-amber-500" />
-                      <span>{typeof offer === 'string' ? offer : offer.description || offer.name}</span>
-                      {typeof offer !== 'string' && offer.price && (
-                        <span className="text-[10px] px-1.5 py-0.5 rounded bg-rose-500/15 text-rose-400 border border-rose-500/20">{offer.price} {CURRENCY}</span>
-                      )}
-                    </li>
-                  ))}
-                </ul>
-              </div>
-            )}
-          </div>
-        ) : (
-          <div className="text-center py-4 text-gray-600 text-sm">لم يتم تحديد مكان لهذه الفعالية</div>
-        )}
-      </div>
-
-      {/* ══ Drive Integration ══ */}
-      <DriveFolderBrowser 
-        driveLink={activity.driveLink || ''} 
-        activityId={activity.id}
-        onDriveLinkCreated={(newLink) => setActivity((prev: any) => ({ ...prev, driveLink: newLink }))}
-      />
-
-    </motion.div>
+        </Pop>
+      )}
+    </div>
   );
 }

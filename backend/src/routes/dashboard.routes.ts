@@ -5,15 +5,23 @@
 // ══════════════════════════════════════════════════════
 
 import { Router, type Request, type Response } from 'express';
-import { eq, sql, desc, gte, and, lte, isNull } from 'drizzle-orm';
+import { eq, sql, desc, gte, and, isNull } from 'drizzle-orm';
 import { getDB } from '../config/db.js';
-import { activities, bookings, costs, foundationalCosts, staff, locations, cities } from '../schemas/admin.schema.js';
+import { activities, bookings, costs, foundationalCosts, staff, locations, cities, reservations } from '../schemas/admin.schema.js';
 import { players } from '../schemas/player.schema.js';
 import { matches } from '../schemas/game.schema.js';
 import { playerSeasonStats } from '../schemas/season.schema.js';
 import { authenticate } from '../middleware/auth.js';
 
 const router = Router();
+
+/** بدايةُ اليوم بتوقيت عمّان كلحظةٍ مطلقة — الخادم يعمل بـUTC، و«اليوم» عند الطاقم يومُ عمّان. */
+function ammanDayStart(now: Date = new Date()): Date {
+  const ymd = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Amman', year: 'numeric', month: '2-digit', day: '2-digit' }).format(now);
+  const local = new Date(now.toLocaleString('en-US', { timeZone: 'Asia/Amman' })).getTime();
+  const utc = new Date(now.toLocaleString('en-US', { timeZone: 'UTC' })).getTime();
+  return new Date(Date.parse(`${ymd}T00:00:00Z`) - (local - utc));
+}
 
 const TIER_ORDER = (col: any) => sql`CASE ${col}
   WHEN 'GODFATHER' THEN 5
@@ -47,10 +55,17 @@ router.get('/stats', authenticate, async (req: Request, res: Response) => {
     }).from(bookings).where(scopedActs ? and(isNull(bookings.deletedAt), sql`${bookings.activityId} IN ${scopedActs}`) : isNull(bookings.deletedAt));
 
     // ── 2. تكاليف الأنشطة ──
+    // 🔴 كانت بلا قيد مدينة: صافي مدينةٍ واحدة كان يطرح تكاليف كلّ المدن.
+    //    بمدينة: تكاليف فعاليّات تلك المدينة وحدها. والتكاليف غير المربوطة بفعاليّة
+    //    (عامّة/لاعب/معدّات) لا مدينة لها في المخطّط — تُعاد منفصلة ولا تُطرح من صافي مدينة.
     const [costRow] = await db.select({
       totalActivityCosts: sql<number>`COALESCE(SUM(${costs.amount}::numeric), 0)`,
       costCount: sql<number>`COUNT(*)::int`,
-    }).from(costs).where(isNull(costs.deletedAt));
+    }).from(costs).where(scopedActs ? and(isNull(costs.deletedAt), sql`${costs.activityId} IN ${scopedActs}`) : isNull(costs.deletedAt));
+    const [unassignedCostRow] = await db.select({
+      total: sql<number>`COALESCE(SUM(${costs.amount}::numeric), 0)`,
+      n: sql<number>`COUNT(*)::int`,
+    }).from(costs).where(and(isNull(costs.deletedAt), isNull(costs.activityId)));
 
     // ── 3. التكاليف التأسيسية ──
     const [foundRow] = await db.select({
@@ -95,10 +110,12 @@ router.get('/stats', authenticate, async (req: Request, res: Response) => {
     }).from(staff).where(isNull(staff.deletedAt));
 
     // ── 8. أنشطة هذا الأسبوع ──
-    const weekEnd = new Date();
-    weekEnd.setDate(weekEnd.getDate() + 7);
+    // من **بداية يوم عمّان** لا من اللحظة: فعاليّة السابعة مساءً تبقى «الليلة» لمن يفتح اللوحة في التاسعة.
+    const dayStart = ammanDayStart();
+    const dayEnd = new Date(dayStart.getTime() + 86_400_000);
+    const weekEnd = new Date(dayStart.getTime() + 7 * 86_400_000);
 
-    const upcomingActivities = await db.select({
+    const upcomingRaw = await db.select({
       id: activities.id,
       name: activities.name,
       date: activities.date,
@@ -111,13 +128,60 @@ router.get('/stats', authenticate, async (req: Request, res: Response) => {
       .leftJoin(locations, eq(activities.locationId, locations.id))
       .leftJoin(cities, eq(locations.cityId, cities.id))
       .where(and(
-        gte(activities.date, new Date()),
-        lte(activities.date, weekEnd),
+        gte(activities.date, dayStart),
         isNull(activities.deletedAt),
         ...(cityFilter ? [eq(locations.cityId, cityFilter)] : []),
       ))
       .orderBy(activities.date)
-      .limit(5);
+      .limit(12);
+
+    // 👥 الحاجزون من المصدر الموحّد، والسعة بالقاعدة نفسها التي تُنشأ بها الغرفة
+    const { countBookedPeopleBatch } = await import('../services/booking-count.service.js');
+    const { resolveRoomCapacity } = await import('../services/capacity.service.js');
+    const bookedMap = await countBookedPeopleBatch(upcomingRaw.map(a => a.id));
+    const upcomingAll = await Promise.all(upcomingRaw.map(async a => ({
+      ...a,
+      booked: bookedMap.get(a.id) ?? 0,
+      capacity: await resolveRoomCapacity(a.id),
+      isToday: a.date >= dayStart && a.date < dayEnd,
+    })));
+    const upcomingActivities = upcomingAll.filter(a => a.date <= weekEnd).slice(0, 8);
+    // «الليلة»: فعاليّة اليوم، وإلّا أقرب قادمة (ولو بعد الأسبوع) — الملغاة لا تُتَّخذ محوراً
+    const focusActivity = upcomingAll.find(a => a.status !== 'cancelled') ?? null;
+
+    // 📋 حجوزات غير مثبَّتة لفعاليّات قادمة (لا تشمل قائمة الانتظار ولا من عُلّم حضوره)
+    const pendingRows = await db.select({
+      activityId: reservations.activityId,
+      name: activities.name,
+      date: activities.date,
+      count: sql<number>`COUNT(*)::int`,
+      people: sql<number>`COALESCE(SUM(GREATEST(COALESCE(${reservations.peopleCount}, 1), 1)), 0)::int`,
+    }).from(reservations)
+      .innerJoin(activities, eq(reservations.activityId, activities.id))
+      .leftJoin(locations, eq(activities.locationId, locations.id))
+      .where(and(
+        isNull(reservations.deletedAt),
+        isNull(activities.deletedAt),
+        isNull(reservations.attended),
+        sql`${reservations.status} NOT IN ('confirmed','paid_all','waitlist')`,
+        sql`${activities.status} <> 'cancelled'`,
+        gte(activities.date, dayStart),
+        ...(cityFilter ? [eq(locations.cityId, cityFilter)] : []),
+      ))
+      .groupBy(reservations.activityId, activities.name, activities.date)
+      .orderBy(activities.date);
+
+    // 💰 مال آخر 7 أيّام: الفعاليّات التي أُقيمت في النافذة — إيراد حجوزاتها المدفوعة وتكاليفها المربوطة بها
+    const weekStart = new Date(dayStart.getTime() - 6 * 86_400_000);
+    const weekActs = cityFilter
+      ? sql`(SELECT a.id FROM activities a JOIN locations l ON l.id = a.location_id WHERE l.city_id = ${cityFilter} AND a.deleted_at IS NULL AND a.date >= ${weekStart} AND a.date < ${dayEnd})`
+      : sql`(SELECT a.id FROM activities a WHERE a.deleted_at IS NULL AND a.date >= ${weekStart} AND a.date < ${dayEnd})`;
+    const [weekRev] = await db.select({
+      revenue: sql<number>`COALESCE(SUM(CASE WHEN ${bookings.isPaid} = true AND ${bookings.isFree} = false THEN ${bookings.paidAmount}::numeric ELSE 0 END), 0)`,
+    }).from(bookings).where(and(isNull(bookings.deletedAt), sql`${bookings.activityId} IN ${weekActs}`));
+    const [weekCost] = await db.select({
+      total: sql<number>`COALESCE(SUM(${costs.amount}::numeric), 0)`,
+    }).from(costs).where(and(isNull(costs.deletedAt), sql`${costs.activityId} IN ${weekActs}`));
 
     // ── 9. أفضل 5 لاعبين — 🏙️ لكلّ مدينة (لا لوحة مجمّعة — قرار ١) ──
     const { getActiveRegularSeasonId } = await import('../services/season.service.js');
@@ -182,12 +246,18 @@ router.get('/stats', authenticate, async (req: Request, res: Response) => {
     const totalRevenue = Number(financeRow.totalRevenue) || 0;
     const totalActivityCosts = Number(costRow.totalActivityCosts) || 0;
     const totalFoundational = Number(foundRow.totalFoundational) || 0;
-    const totalExpenses = totalActivityCosts + totalFoundational;
+    const unassignedCosts = Number(unassignedCostRow.total) || 0;
+    // التأسيسيّة لا تحمل مدينة: تُحسب في المصاريف الكلّيّة لنطاق «الكلّ» وحده
+    const totalExpenses = cityFilter ? totalActivityCosts : totalActivityCosts + totalFoundational;
+    // 🔒 المال للأدمن والمحاسب فقط — الخادم يحجبه لا الواجهة وحدها
+    const canSeeMoney = ['admin', 'accountant'].includes(String(req.user?.role));
+    const weekRevenue = Number(weekRev?.revenue) || 0;
+    const weekCosts = Number(weekCost?.total) || 0;
 
     res.json({
       success: true,
       // المالية
-      finance: {
+      finance: canSeeMoney ? {
         totalRevenue,
         totalActivityCosts,
         totalFoundational,
@@ -195,7 +265,12 @@ router.get('/stats', authenticate, async (req: Request, res: Response) => {
         netProfit: totalRevenue - totalActivityCosts,
         costCount: costRow.costCount,
         foundationalCount: foundRow.foundationalCount,
-      },
+        // تكاليف بلا فعاليّة (فلا مدينة لها): ضمن totalActivityCosts في «الكلّ»، وخارجها في نطاق مدينة
+        unassignedCosts,
+        unassignedCostCount: unassignedCostRow.n,
+        costsCityScoped: !!cityFilter,
+        week: { from: weekStart, to: dayEnd, revenue: weekRevenue, activityCosts: weekCosts, net: weekRevenue - weekCosts },
+      } : null,
       // الحجوزات
       bookings: {
         total: financeRow.totalBookings,
@@ -203,7 +278,7 @@ router.get('/stats', authenticate, async (req: Request, res: Response) => {
         free: financeRow.freeBookings,
         unpaid: financeRow.unpaidBookings,
         totalAttendees: financeRow.totalAttendees,
-        unpaidAmount: Number(financeRow.unpaidAmount) || 0,
+        unpaidAmount: canSeeMoney ? Number(financeRow.unpaidAmount) || 0 : null,
       },
       // الأنشطة
       activities: {
@@ -230,13 +305,15 @@ router.get('/stats', authenticate, async (req: Request, res: Response) => {
       },
       // القوائم
       upcomingActivities,
+      focusActivity,
+      attention: { pendingReservations: pendingRows },
       topPlayers,
       recentActivities,
       recentBookings,
       // 🏙️ المدن: القائمة + تقسيمٌ لكلّ مدينة + أفضل اللاعبين لكلّ مدينة
       cityId: cityFilter,
       cities: cityList.map(c => ({ id: c.id, name: c.name })),
-      byCity,
+      byCity: canSeeMoney ? byCity : Object.fromEntries(Object.entries(byCity).map(([k, v]) => [k, { ...v, revenue: null }])),
       topPlayersByCity,
     });
   } catch (err: any) {
