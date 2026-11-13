@@ -18,7 +18,7 @@ import type { Database } from '../config/db.js';
 import { orders, orderInvoices, venueHandovers } from '../schemas/fnb.schema.js';
 import { activities, bookings, locations, staff } from '../schemas/admin.schema.js';
 import { players } from '../schemas/player.schema.js';
-import { playersWhoPlayed, playersPresent, waterItemOf, SEAT_SOURCES, serviceRateOf, serviceChargeOf } from './fnb-invoice.service.js';
+import { playersWhoPlayed, playersPresent, waterItemOf, SEAT_SOURCES, serviceRateOf, serviceChargeOf, minWaivedPlayers } from './fnb-invoice.service.js';
 
 const n = (x: unknown) => { const v = parseFloat(String(x ?? '0')); return Number.isFinite(v) ? v : 0; };
 const r2 = (x: number) => Math.round(x * 100) / 100;
@@ -58,6 +58,8 @@ export interface LedgerRow {
   gameFee: number;
   grandTotal: number;
   isFree: boolean;
+  /** 💳 أُسقط عنه الحدّ الأدنى في هذه الليلة (min_charge_waivers) */
+  minWaived?: boolean;
   /** طلبٌ مفتوح لم تُصدَر له فاتورة بعد (تُصدَر عند التحصيل) */
   noInvoice: boolean;
   /** 💵 (2026-11-01) المحصَّلة: cash | card | cliq، ورقم الدفعة، واسم من دفعها إن لم يكن صاحبها */
@@ -120,6 +122,8 @@ export async function nightLedger(db: Database, locId: number, activityId: numbe
     .where(and(eq(orderInvoices.locationId, locId), eq(orderInvoices.activityId, activityId)));
 
   const playedIds = (minCharge > 0 || water) ? new Set(await playersWhoPlayed(db, activityId)) : new Set<number>();
+  // 💳 من أُسقط عنه الحدّ الأدنى الليلة — نفس قاعدة buildInvoiceData
+  const minWaivedIds = minCharge > 0 ? await minWaivedPlayers(db, activityId) : new Set<number>();
   // 🎟️ كلّ من جلس في غرف الليلة — يظهر بما عليه (رسم الدخول على الأقلّ) ولو لم يطلب ولم يلعب بعد،
   //    فيُرسل الموظّف فاتورته لمن يغادر مبكّراً (2026-10-30)
   const presentIds = new Set(await playersPresent(db, activityId));
@@ -233,7 +237,8 @@ export async function nightLedger(db: Database, locId: number, activityId: numbe
     const priorTopup = paid.reduce((s, i) => s + n(i.minTopup), 0);
     const played = playedIds.has(pid);
     const waterOpen = water && priorWater === 0 && !waterOwners.has(pid) && (openOrders.length > 0 || played || !!unpaidRow) ? water.price : 0;
-    const required = minCharge > 0 && played ? Math.max(0, minCharge - (nightTotal + waterOpen + priorWater)) : 0;
+    const minWaived = minWaivedIds.has(pid);
+    const required = minCharge > 0 && played && !minWaived ? Math.max(0, minCharge - (nightTotal + waterOpen + priorWater)) : 0;
     const topupOpen = Math.max(0, required - priorTopup);
     // الدخوليّة مرّةً في الليلة: فاتورة «لم يدفع» حملتها ⟵ لا تُحسب ثانيةً على حجزه غير المدفوع
     const feeWrittenOff = paid.some(i => i.gameFeeApplied === true && ['debt', 'loss'].includes(String((i as any).payMethod)));
@@ -260,7 +265,7 @@ export async function nightLedger(db: Database, locId: number, activityId: numbe
         loyaltyDiscount: comp ? 0 : r2(loyalty),
         serviceRate: comp ? 0 : serviceRate, serviceAmount: serviceOpen,
         gameFee: comp ? 0 : r2(fee), grandTotal: r2(openGrand),
-        isFree: bk?.isFree === true, noInvoice: !unpaidRow,
+        isFree: bk?.isFree === true, minWaived: minCharge > 0 && played && minWaived, noInvoice: !unpaidRow,
         payMethod: null, paymentId: null, paidForBy: null, groupId: groupOf.get(pid) ?? null,
         fullComp: comp, compAmount: comp ? r2(openTotal) : 0, writeoffReason: null, debtFrom: null,
       });
@@ -610,6 +615,21 @@ export async function nightAccount(db: Database, locId: number, activityId: numb
     rows: L.rows,
     items,
     waivers,
+    // 💳 من أُسقط عنه الحدّ الأدنى الليلة — آخر قرارٍ لكلّ لاعب هو النافذ
+    minWaivers: rows(await db.execute(sql`
+      SELECT * FROM (
+        SELECT DISTINCT ON (w.player_id) w.player_id, w.waived, w.reason, w.created_at,
+               COALESCE(p.name, '') AS player_name, COALESCE(NULLIF(s.display_name, ''), s.username, '') AS staff_name
+        FROM min_charge_waivers w
+        LEFT JOIN players p ON p.id = w.player_id
+        LEFT JOIN staff s ON s.id = w.staff_id
+        WHERE w.activity_id = ${activityId} AND w.location_id = ${locId}
+        ORDER BY w.player_id, w.created_at DESC, w.id DESC
+      ) x WHERE x.waived = true ORDER BY x.created_at
+    `)).map((x: any) => ({
+      playerId: Number(x.player_id), playerName: x.player_name, reason: x.reason || '',
+      staffName: x.staff_name, at: x.created_at,
+    })),
   };
 }
 

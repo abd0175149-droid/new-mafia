@@ -39,6 +39,8 @@ interface Row {
   /** 🧾 ضريبة الخدمة: النسبة ٪ والمبلغ — داخلةٌ في grandTotal */
   serviceRate?: number; serviceAmount?: number;
   isFree: boolean; noInvoice: boolean;
+  /** 💳 أُسقط عنه الحدّ الأدنى الليلة */
+  minWaived?: boolean;
   payMethod: string | null; paymentId: number | null; paidForBy: string | null; groupId: number | null;
   /** 🎁 ضيافة كاملة · 🧾 لم يدفع (السبب) · 💳 دينٌ من ليلة سابقة (تاريخها) */
   fullComp?: boolean; compAmount?: number; writeoffReason?: string | null; debtFrom?: string | null;
@@ -167,6 +169,8 @@ export default function VenueInvoicesPage() {
   const [detail, setDetail] = useState<Detail | null>(null);
   const [waiveOpen, setWaiveOpen] = useState(false);
   const [reason, setReason] = useState('');
+  const [minOpen, setMinOpen] = useState(false);
+  const [minReason, setMinReason] = useState('');
   const [printing, setPrinting] = useState(false);
   const [waBusy, setWaBusy] = useState(false);
   // 🧾 «لم يدفع» · 💳 تسديد دينٍ قديم
@@ -543,6 +547,26 @@ export default function VenueInvoicesPage() {
     }
     fetchDetail(payId, null, setDetail);
   };
+  const waiveMin = async (on: boolean) => {
+    if (!actId || payId == null || busy) return;
+    const why = minReason.trim();
+    if (on && why.length < 3) return;
+    setBusy(true);
+    const r = await apiRef.current.send(`/api/venue/invoices/${actId}/${payId}/waive-min`, 'POST', on ? { waive: true, reason: why } : { waive: false }).catch(() => null);
+    setBusy(false);
+    if (!r?.ok) { show(r?.data?.error || 'فشل الإجراء', { tone: 'bad' }); return; }
+    setMinOpen(false); setMinReason('');
+    show(on ? 'أُسقط الحدّ الأدنى' : 'أُعيد احتساب الحدّ الأدنى');
+    await reloadAll();
+    // المبلغ تغيّر بفعله هو — نعتمده بلا تنبيه
+    const id = actIdRef.current;
+    if (id) {
+      const fresh = await apiRef.current.get(`/api/venue/invoices/candidates?activityId=${id}`);
+      const row = fresh.ok ? (fresh.data.candidates as Row[]).find(x => x.kind === 'open' && x.playerId === payId) : null;
+      if (row) setSeen(s => ({ ...s, [payId]: row.grandTotal })); else backToList();
+    }
+    fetchDetail(payId, null, setDetail);
+  };
   const pickNight = (id: number) => {
     setOptionsOpen(false);
     if (id === actId) return;
@@ -707,6 +731,9 @@ export default function VenueInvoicesPage() {
     const lines = plainLines(primary);
     const canWaive = !!(detail && !detail.isPaid && !detail.bookingIsPaid && !detail.bookingIsFree && detail.gameFeeApplied);
     const canRestore = !!(detail && !detail.isPaid && !detail.bookingIsPaid && detail.bookingIsFree);
+    // 💳 الحدّ الأدنى: يُسقط ما دامت عليه تكملة، ويُعاد لمن أُسقط عنه
+    const canWaiveMin = !primary.fullComp && primary.minTopup > 0 && !primary.minWaived;
+    const canRestoreMin = !primary.fullComp && primary.minWaived === true;
     const wa = ledger?.waEnabled ? waPill(primary, ledger.wa?.[primary.playerId]) : null;
     return (
       <div className="flex flex-col gap-3.5 pb-8 max-w-[560px] mx-auto w-full">
@@ -887,6 +914,22 @@ export default function VenueInvoicesPage() {
                   <Btn kind="ghost" h={52} style={{ color: TX.sub }} disabled={busy} onClick={() => { setWaiveOpen(false); setReason(''); }}>رجوع</Btn>
                 </div>
                 <div className="text-[13px] mt-2" style={{ color: TX.dim }}>يُسجَّل باسمك ويظهر للإدارة.</div>
+              </div>
+            )}
+            {canWaiveMin && !minOpen && <Btn kind="ghost" h={52} style={{ fontSize: 15 }} disabled={busy} onClick={() => { setMinOpen(true); setWaiveOpen(false); setWoOpen(false); }}>إسقاط الحدّ الأدنى…</Btn>}
+            {canRestoreMin && <Btn kind="ghost" h={52} style={{ fontSize: 15 }} disabled={busy} onClick={() => waiveMin(false)}>إعادة احتساب الحدّ الأدنى</Btn>}
+            {canWaiveMin && minOpen && (
+              <div className="rounded-2xl p-3.5" style={{ background: 'rgba(224,73,43,.08)', border: '1px solid rgba(224,73,43,.35)' }}>
+                <label className="block text-[15px] font-extrabold" htmlFor="min-reason">لماذا يُسقط الحدّ الأدنى (<span className="vc-num">{f2(primary.minTopup)}</span>) عن {primary.playerName}؟</label>
+                <input id="min-reason" value={minReason} onChange={e => setMinReason(e.target.value)} autoFocus maxLength={200}
+                  placeholder="مثلاً: بطلب الإدارة، ضيف…"
+                  className="w-full mt-2 rounded-xl px-3 outline-none placeholder:text-[#5A6862]"
+                  style={{ height: 52, fontSize: 16, background: EM.ink, border: `1px solid ${EM.line2}`, color: EM.text }} />
+                <div className="flex gap-2 mt-2.5">
+                  <Btn kind="danger" h={52} className="flex-1" disabled={busy || minReason.trim().length < 3} onClick={() => waiveMin(true)}>{busy ? 'يُسجَّل…' : 'أسقطه'}</Btn>
+                  <Btn kind="ghost" h={52} style={{ color: TX.sub }} disabled={busy} onClick={() => { setMinOpen(false); setMinReason(''); }}>رجوع</Btn>
+                </div>
+                <div className="text-[13px] mt-2" style={{ color: TX.dim }}>لهذه الليلة وحدها · يُسجَّل باسمك ويظهر للإدارة.</div>
               </div>
             )}
           </div>

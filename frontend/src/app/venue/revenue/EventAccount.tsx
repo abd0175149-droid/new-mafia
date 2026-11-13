@@ -34,6 +34,7 @@ interface Account {
   rows: Row[];
   items: { name: string; qty: number; amount: number }[];
   waivers: { playerId: number; playerName: string; reason: string; staffName: string; at: string }[];
+  minWaivers?: { playerId: number; playerName: string; reason: string; staffName: string; at: string }[];
   /** 💵 كيف دُفع المحصَّل (2026-11-01) — «غير مسجَّل» لما حُصّل قبل تسجيل الطريقة */
   byMethod?: { cash: number; card: number; cliq: number; unknown: number };
   /** 🧾 لم يدفع (دين عليه / خسارة) بأسبابها — 2026-11-01 */
@@ -340,6 +341,22 @@ export function EventAccount({ pickId, onOpenNight }: { pickId: number | null; o
               <h2 className="text-[15.5px] font-extrabold">دخوليّات أُسقطت</h2>
               <div className="text-[12.5px] mt-0.5" style={{ color: TX.dim }}>جُعل حجزهم مجّانيّاً من الكونسول</div>
               {acc.waivers.map(w => (
+                <div key={w.playerId} className="py-2.5 mt-1.5 text-[14px]" style={{ borderTop: `1px solid ${EM.line}` }}>
+                  <div className="font-bold">{w.playerName || `لاعب #${w.playerId}`}</div>
+                  <div className="text-[12.5px]" style={{ color: TX.dim }}>
+                    {w.reason || 'بلا سبب'}{w.staffName ? ` · ${w.staffName}` : ''}{w.at ? ` · ${hhmm(w.at)}` : ''}
+                  </div>
+                </div>
+              ))}
+            </section>
+          )}
+
+          {/* ── ٧. حدٌّ أدنى أُسقط ── */}
+          {(acc.minWaivers?.length ?? 0) > 0 && (
+            <section aria-label="حدٌّ أدنى أُسقط">
+              <h2 className="text-[15.5px] font-extrabold">حدٌّ أدنى أُسقط</h2>
+              <div className="text-[12.5px] mt-0.5" style={{ color: TX.dim }}>لم تُحسب عليهم تكملة الحدّ الأدنى الليلة</div>
+              {acc.minWaivers!.map(w => (
                 <div key={w.playerId} className="py-2.5 mt-1.5 text-[14px]" style={{ borderTop: `1px solid ${EM.line}` }}>
                   <div className="font-bold">{w.playerName || `لاعب #${w.playerId}`}</div>
                   <div className="text-[12.5px]" style={{ color: TX.dim }}>

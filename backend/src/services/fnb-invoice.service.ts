@@ -113,6 +113,16 @@ async function payerNameOf(db: Database, paymentId: number, playerId: number): P
   return String(p.payer_name || '') || null;
 }
 
+/** 💳 من أُسقط عنه الحدّ الأدنى في هذه الفعاليّة — آخر قرارٍ لكلّ لاعب هو النافذ */
+export async function minWaivedPlayers(db: Database, activityId: number): Promise<Set<number>> {
+  const r: any = await db.execute(sql`
+    SELECT player_id FROM (
+      SELECT DISTINCT ON (player_id) player_id, waived FROM min_charge_waivers
+       WHERE activity_id = ${activityId} ORDER BY player_id, created_at DESC, id DESC
+    ) x WHERE x.waived = true`);
+  return new Set((r?.rows ?? r ?? []).map((x: any) => Number(x.player_id)).filter(Number.isFinite));
+}
+
 /** هل لعب اللاعب جولةً واحدة على الأقلّ في هذه الفعاليّة؟ (شرط استحقاق الحدّ الأدنى) */
 export async function playedInActivity(db: Database, activityId: number, playerId: number): Promise<boolean> {
   const r: any = await db.execute(sql`SELECT 1 FROM (${PLAYED_ROWS(activityId)}) x WHERE x.player_id = ${playerId} LIMIT 1`);
@@ -328,7 +338,9 @@ export async function buildInvoiceData(
 
   // 💳 التكملة على مستوى الليلة: الماء استهلاكٌ فعليّ فيُحتسب ضمن الحدّ — الدخوليّة خارج المقارنة.
   //    ما حُصّل من تكملةٍ سابقاً يُطرح، فلا يدفع اللاعب الحدّ مرّتين في ليلةٍ واحدة.
-  const nightRequired = minCharge > 0 && played
+  //    💳 أُسقط عنه الحدّ الأدنى لهذه الليلة (min_charge_waivers) ⟵ لا تكملة، والباقي كما هو
+  const minWaived = minCharge > 0 && played ? (await minWaivedPlayers(db, activityId)).has(playerId) : false;
+  const nightRequired = minCharge > 0 && played && !minWaived
     ? Math.max(0, minCharge - (nightOrdersTotal + waterCharge + priorWater)) : 0;
   const minTopup = Math.max(0, nightRequired - priorTopup);
 

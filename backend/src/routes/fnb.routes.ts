@@ -7,7 +7,7 @@
 import { Router, type Request, type Response } from 'express';
 import { eq, and, ne, desc, asc, isNull, inArray, gte, lte, sql } from 'drizzle-orm';
 import { getDB } from '../config/db.js';
-import { menuItems, orders, orderItems, orderInvoices, menuCategories, menuOptionGroups, menuOptionValues, serviceRequests, venueHandovers, feeWaivers } from '../schemas/fnb.schema.js';
+import { menuItems, orders, orderItems, orderInvoices, menuCategories, menuOptionGroups, menuOptionValues, serviceRequests, venueHandovers, feeWaivers, minChargeWaivers } from '../schemas/fnb.schema.js';
 import { activities, bookings, locations, staff } from '../schemas/admin.schema.js';
 import { sessions, sessionPlayers } from '../schemas/game.schema.js';
 import { players } from '../schemas/player.schema.js';
@@ -1700,6 +1700,52 @@ venueRouter.post('/invoices/:activityId/:playerId/waive-fee', authenticate, requ
         await db.update(orderInvoices).set({
           gameFeeApplied: data.gameFeeApplied,
           gameFeeAmount: data.gameFeeAmount.toFixed(2),
+          serviceRate: data.serviceRate.toFixed(2),
+          serviceAmount: data.serviceAmount.toFixed(2),
+          grandTotal: data.grandTotal.toFixed(2),
+        } as any).where(and(eq(orderInvoices.id, inv.id), eq(orderInvoices.isPaid, false)));
+      }
+    }
+
+    res.json({ success: true, waived: waive });
+  } catch (err: any) { res.status(500).json({ error: err.message }); }
+});
+
+// ── POST /invoices/:activityId/:playerId/waive-min — إسقاط الحدّ الأدنى (2026-11-14) ──
+// يُسقط تكملة الحدّ الأدنى عن لاعبٍ في هذه الليلة وحدها — طلباته والماء والدخوليّة تبقى.
+// سببٌ إلزاميّ ويُسجَّل في min_charge_waivers باسم من نفّذه، ويظهر للإدارة في «الحساب».
+// { waive: false } يعيد احتسابه. المحصَّلة لا تُمسّ: لقطتها مجمَّدة.
+venueRouter.post('/invoices/:activityId/:playerId/waive-min', authenticate, requireVenuePermission('payments.record'), async (req: Request, res: Response) => {
+  const db = getDB();
+  if (!db) return res.status(503).json({ error: 'DB unavailable' });
+  const locId = resolveVenueLocation(req, res);
+  if (!locId) return;
+  const activityId = parseInt(req.params.activityId);
+  const playerId = parseInt(req.params.playerId);
+  const waive = req.body?.waive !== false;
+  const reason = String(req.body?.reason || '').trim().slice(0, 300);
+  if (!Number.isFinite(activityId) || !Number.isFinite(playerId)) return res.status(400).json({ error: 'معرّفات غير صالحة' });
+  if (waive && reason.length < 3) return res.status(400).json({ error: 'اكتب سبب إسقاط الحدّ الأدنى' });
+
+  try {
+    const [act] = await db.select({ id: activities.id }).from(activities)
+      .where(and(eq(activities.id, activityId), eq(activities.locationId, locId), isNull(activities.deletedAt))).limit(1);
+    if (!act) return res.status(404).json({ error: 'الفعاليّة غير موجودة لهذا المكان' });
+
+    await db.insert(minChargeWaivers).values({
+      locationId: locId, activityId, playerId, waived: waive, reason, staffId: req.venueStaff!.id,
+    } as any);
+
+    // الفاتورة المفتوحة تُحدَّث مجاميعها لتوافق الحالة الجديدة
+    const [inv] = await db.select({ id: orderInvoices.id }).from(orderInvoices)
+      .where(and(eq(orderInvoices.locationId, locId), eq(orderInvoices.activityId, activityId),
+        eq(orderInvoices.playerId, playerId), eq(orderInvoices.isPaid, false)))
+      .limit(1);
+    if (inv) {
+      const data = await buildInvoiceData(db, locId, activityId, playerId);
+      if (!('error' in data)) {
+        await db.update(orderInvoices).set({
+          minTopup: data.minTopup.toFixed(2),
           serviceRate: data.serviceRate.toFixed(2),
           serviceAmount: data.serviceAmount.toFixed(2),
           grandTotal: data.grandTotal.toFixed(2),

@@ -245,3 +245,17 @@ export const feeWaivers = pgTable('fee_waivers', {
   staffId: integer('staff_id'),
   createdAt: timestamp('created_at').defaultNow().notNull(),
 });
+
+// ── 💳 سجلّ إسقاط الحدّ الأدنى عن لاعبٍ في ليلةٍ واحدة (2026-11-14، طلب المالك) ──
+// آخر قرارٍ لكلّ (فعاليّة، لاعب) هو النافذ: إسقاطٌ ثمّ إعادة احتساب = لا إسقاط.
+// يُسقط التكملة وحدها — الطلبات والماء والدخوليّة تبقى كما هي.
+export const minChargeWaivers = pgTable('min_charge_waivers', {
+  id: serial('id').primaryKey(),
+  locationId: integer('location_id').notNull(),
+  activityId: integer('activity_id').notNull(),
+  playerId: integer('player_id').notNull(),
+  waived: boolean('waived').notNull(),
+  reason: text('reason').default(''),
+  staffId: integer('staff_id'),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+});

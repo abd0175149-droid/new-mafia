@@ -1305,6 +1305,12 @@ async function main() {
         id SERIAL PRIMARY KEY, location_id INTEGER NOT NULL, activity_id INTEGER NOT NULL, player_id INTEGER NOT NULL,
         booking_id INTEGER, waived BOOLEAN NOT NULL, reason TEXT DEFAULT '', staff_id INTEGER,
         created_at TIMESTAMP DEFAULT NOW() NOT NULL)`);
+      // 💳 سجلّ إسقاط الحدّ الأدنى عن لاعبٍ في ليلة (2026-11-14)
+      await db.execute(sql`CREATE TABLE IF NOT EXISTS min_charge_waivers (
+        id SERIAL PRIMARY KEY, location_id INTEGER NOT NULL, activity_id INTEGER NOT NULL, player_id INTEGER NOT NULL,
+        waived BOOLEAN NOT NULL, reason TEXT DEFAULT '', staff_id INTEGER,
+        created_at TIMESTAMP DEFAULT NOW() NOT NULL)`);
+      await db.execute(sql`CREATE INDEX IF NOT EXISTS min_charge_waivers_act_idx ON min_charge_waivers (activity_id, player_id)`);
       await db.execute(sql`CREATE TABLE IF NOT EXISTS one_time_migrations (key VARCHAR(100) PRIMARY KEY, ran_at TIMESTAMP DEFAULT NOW() NOT NULL)`);
       // 💳 طرق الدفع لكلّ مكان + كليك + رقم واتساب المكان، وسجلّ إرسال الفواتير عبر واتساب (2026-10-30)
       await db.execute(sql`ALTER TABLE locations ADD COLUMN IF NOT EXISTS pay_cash BOOLEAN DEFAULT TRUE NOT NULL`);
