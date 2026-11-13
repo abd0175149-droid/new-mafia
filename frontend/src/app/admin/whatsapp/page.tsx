@@ -16,228 +16,34 @@ import BroadcastTab from './BroadcastTab';
 import PerformanceTab from './PerformanceTab';
 import RewardsTab from './RewardsTab';
 import BookingOffersTab from './BookingOffersTab';
-import HealthBar from './HealthBar';
+import { useWaHealth } from './HealthBar';
 import ChannelsSection from './ChannelsSection';
 import LineContactsSection from './LineContactsSection';
+import { apiFetch, getUser, API_URL, MUTE_KEY, WA_CAPTION_MAX, RANK_AR, ROLE_AR, FILTERS, SORTS, WIN_SORTS, fmtLeft, winTone, fmtTime, fmtWhen, fmtDay, intlPhone, CONV_PAGE, MSG_PAGE, isPendingMsg, chOf, CH_AR, inView, viewUnread, readInView, withoutPreview, insertByTime, windowHoursLeft, playPing, Ticks, SourceTag, messageInfoText, type InboxCh } from './wa-lib';
+import { AudioBubble, ImageBubble, OutVideoBubble, OutImageBubble, FileBubble, ConvAvatar } from './bubbles';
+import { BotSettingsView } from './BotSettings';
+import { useVisibleViewport } from '@/hooks/useVisibleViewport';
+import { Toggle, Seg, Chip, Badge, Setting, Tile, Banner, Meter, Empty, Skel, Pop, Field } from './wa-ui';
+import {
+  MessageSquare, Settings, Bell, BellOff, Search, ChevronRight, ChevronLeft, User, Bot, Megaphone, Info, Trash2,
+  Image as ImageIcon, VenetianMask, Sparkles, Send, X, Link2, Unlink, Copy, CalendarPlus, ExternalLink, Cloud, Smartphone,
+  Clock, Lock, TriangleAlert, EyeOff, Ban, BookOpen, Activity, Ticket, Gift, Shuffle, Contact, Download, CirclePause,
+  CornerUpLeft, Headset, PanelLeft, Video, NotebookPen, Pencil, Minus, Plus, Check, FlaskConical, SlidersHorizontal, type LucideIcon,
+} from 'lucide-react';
+import './wa.css';
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL || '';
-const MUTE_KEY = 'wa_inbox_muted';
-/** حدّ تعليق الصورة في واتساب — الخادم يقصّ عنده، فنُظهره قبل أن يقصّ */
-const WA_CAPTION_MAX = 1024;
-
-function getToken() { return typeof window !== 'undefined' ? localStorage.getItem('token') : null; }
-function getUser() { try { return JSON.parse(localStorage.getItem('user') || '{}'); } catch { return {}; } }
-
-async function apiFetch(path: string, opts?: RequestInit) {
-  const token = getToken();
-  // رفع الملفات: يجب ترك المتصفح يضبط Content-Type بنفسه (يحمل boundary الـ multipart)
-  const isForm = typeof FormData !== 'undefined' && opts?.body instanceof FormData;
-  const res = await fetch(`${API_URL}${path}`, {
-    ...opts,
-    headers: {
-      ...(isForm ? {} : { 'Content-Type': 'application/json' }),
-      Authorization: `Bearer ${token}`,
-      ...opts?.headers,
-    },
-  });
-  if (!res.ok) {
-    const err = await res.json().catch(() => ({}));
-    const e: any = new Error(err.error || `API error ${res.status}`);
-    e.code = err.code; e.status = res.status;
-    e.body = err;   // بعض الأخطاء تحمل بيانات (نصّا المراجعة مثلاً) لا رسالةً فقط
-    throw e;
-  }
-  return res.json();
-}
-
-// ── ثوابت العرض ──
-const RANK_AR: Record<string, string> = {
-  INFORMANT: 'مُخبر', SOLDIER: 'جندي', CAPO: 'كابو', UNDERBOSS: 'ساعد الزعيم', GODFATHER: 'العرّاب',
-};
-const ROLE_AR: Record<string, string> = {
-  GODFATHER: 'شيخ المافيا', SILENCER: 'قص المافيا', CHAMELEON: 'الحرباية', WITCH: 'الساحرة',
-  OLDER_BROTHER: 'الأخ الأكبر', MAFIA_REGULAR: 'مافيا', SHERIFF: 'الشريف', DOCTOR: 'الطبيب',
-  SNIPER: 'القناص', POLICEWOMAN: 'الشرطية', NURSE: 'الممرضة', YOUNGER_BROTHER: 'الأخ الأصغر',
-  CITIZEN: 'مواطن', JESTER: 'المهرج', ASSASSIN: 'السفّاح', MAYOR: 'العمدة',
-};
-const FILTERS = [
-  { key: 'all', label: 'الكل' },
-  { key: 'unread', label: 'غير مقروء' },
-  { key: 'open', label: '🟢 نافذة مفتوحة' },
-  { key: 'attn', label: '⚠️ تدخل' },
-  { key: 'bot', label: '🤖 بوت' },
-  { key: 'human', label: '👤 بشري' },
-] as const;
-
-// ── الترتيب ──
-// النافذة أهمّ حقيقةٍ زمنيّة في واتساب، ولم يكن في الصفحة ما يرتّب الناس بها.
-// كلّه في الخادم: الترتيب في المتصفّح يرتّب الصفحة المحمَّلة فيبدو صحيحاً وهو كاذب.
-const SORTS = [
-  { key: 'recent', label: 'الأحدث رسالةً' },
-  { key: 'closing', label: '⏳ النافذة تُغلق أوّلاً' },
-  { key: 'fresh', label: '🟢 النافذة تُغلق أخيراً' },
-  { key: 'waiting', label: '⌛ الأطول انتظاراً للردّ' },
-] as const;
-const WIN_SORTS = ['closing', 'fresh'];
-
-/** ما بقي من النافذة نصّاً قصيراً: «٢س ١٠د» */
-function fmtLeft(h: number): string {
-  const m = Math.round(h * 60);
-  return m >= 60 ? `${Math.floor(m / 60)}س ${m % 60}د` : `${m}د`;
-}
-/** لون الحالة وعنوان مجموعتها — عتبتان: ساعة، ثمّ أربع ساعات */
-function winTone(h: number): { color: string; group: string } {
-  if (h <= 0) return { color: '#6b7280', group: 'مغلقة' };
-  if (h <= 1) return { color: '#fb7185', group: 'تنتهي خلال ساعة' };
-  if (h <= 4) return { color: '#fbbf24', group: 'تنتهي اليوم' };
-  return { color: '#34d399', group: 'متّسعة' };
-}
-
-function fmtTime(d: any) {
-  if (!d) return '';
-  return new Date(d).toLocaleTimeString('ar-JO', { hour: 'numeric', minute: '2-digit' });
-}
-function fmtWhen(d: any) {
-  if (!d) return '';
-  const dt = new Date(d);
-  const today = new Date();
-  if (dt.toDateString() === today.toDateString()) return fmtTime(dt);
-  const yest = new Date(today); yest.setDate(today.getDate() - 1);
-  if (dt.toDateString() === yest.toDateString()) return 'أمس';
-  return dt.toLocaleDateString('ar-JO', { day: 'numeric', month: 'short' });
-}
-function fmtDay(d: any) {
-  const dt = new Date(d);
-  const today = new Date();
-  if (dt.toDateString() === today.toDateString()) return 'اليوم';
-  const yest = new Date(today); yest.setDate(today.getDate() - 1);
-  if (dt.toDateString() === yest.toDateString()) return 'أمس';
-  return dt.toLocaleDateString('ar-JO', { weekday: 'long', day: 'numeric', month: 'long' });
-}
-function intlPhone(local: string) { return local ? '+962 ' + local.slice(1) : ''; }
-// ══════════════════════════════════════════════════════
-// 🔀 العروض الثلاثة (كلا الرقمين · ميتا · رقم الأعمال) — قواعدُ واحدة لكلّ مسار
-// ══════════════════════════════════════════════════════
-// الخيط: رسائل الرقم المعروض وحده، مرتّبةً بالزمن. القائمة: معاينةُ ووقتُ آخر رسالةٍ على ذلك الرقم.
-// غير المقروء: unread_web جزءٌ من unreadCount (ميتا = الفرق) — فعرضُ رقمٍ لا يقرأ رسائل الآخر.
-type InboxCh = 'all' | 'cloud' | 'web';
-// 📄 الصفحات: القائمة ٢٠ محادثة والخيط ٣٠ رسالة — والأقدم يُحمَّل بالتمرير (بترتيب العرض المختار)
-const CONV_PAGE = 20;
-const MSG_PAGE = 30;
-/** ⏳ في طابور رقم الأعمال ولم يخرج بعد — لا يدخل الخيط ولا يغيّر ترتيب القائمة */
-const isPendingMsg = (m: any) => ['queued', 'sending'].includes(String(m?.status || ''));
-const chOf = (m: any): 'cloud' | 'web' => (m?.channel === 'web' ? 'web' : 'cloud');
-const CH_AR: Record<'cloud' | 'web', string> = { cloud: '☁️ رقم ميتا', web: '📱 رقم الأعمال' };
-const inView = (m: any, ch: InboxCh) => ch === 'all' || chOf(m) === ch;
-const viewUnread = (c: any, ch: InboxCh): number =>
-  ch === 'web' ? Number(c?.unreadWeb || 0)
-    : ch === 'cloud' ? Math.max(0, Number(c?.unreadCount || 0) - Number(c?.unreadWeb || 0))
-      : Number(c?.unreadCount || 0);
-/** أثر «قُرئت» في العرض الحاليّ — مرآة POST /read?channel= في الخادم */
-const readInView = (c: any, ch: InboxCh) =>
-  ch === 'web' ? { unreadCount: Math.max(0, Number(c?.unreadCount || 0) - Number(c?.unreadWeb || 0)), unreadWeb: 0 }
-    : ch === 'cloud' ? { unreadCount: Number(c?.unreadWeb || 0) }
-      : { unreadCount: 0, unreadWeb: 0 };
-/** صفّ المحادثة الخام من المقبس يحمل معاينة آخر رسالةٍ على أيّ رقم — في عرض رقمٍ واحد لا تُطبَّق */
-const withoutPreview = (c: any) => { const r = { ...(c || {}) }; delete r.lastMessageAt; delete r.lastMessagePreview; return r; };
-/** إدراجٌ بالترتيب الزمنيّ (والحيّ في آخره عادةً) */
-const insertByTime = (prev: any[], m: any) => {
-  if (prev.some(x => x.id === m.id)) return prev;
-  const t = new Date(m.createdAt).getTime();
-  let i = prev.length;
-  while (i > 0 && new Date(prev[i - 1].createdAt).getTime() > t) i--;
-  return [...prev.slice(0, i), m, ...prev.slice(i)];
-};
-function windowHoursLeft(lastInboundAt: any): number {
-  if (!lastInboundAt) return 0;
-  const left = 24 * 3600e3 - (Date.now() - new Date(lastInboundAt).getTime());
-  return Math.max(0, left / 3600e3);
-}
-
-// صوت تنبيه خفيف (WebAudio — بلا ملفات خارجية)
-let audioCtx: AudioContext | null = null;
-function playPing() {
-  try {
-    if (!audioCtx) audioCtx = new (window.AudioContext || (window as any).webkitAudioContext)();
-    const o = audioCtx.createOscillator();
-    const g = audioCtx.createGain();
-    o.connect(g); g.connect(audioCtx.destination);
-    o.type = 'sine'; o.frequency.value = 880;
-    g.gain.setValueAtTime(0.12, audioCtx.currentTime);
-    g.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + 0.35);
-    o.start(); o.stop(audioCtx.currentTime + 0.36);
-    o.frequency.setValueAtTime(1174, audioCtx.currentTime + 0.12);
-  } catch { /* الصوت ليس حرجاً */ }
-}
-
-// ── صحّات التسليم ──
-function Ticks({ status }: { status: string }) {
-  // رقم الأعمال: الرسالة في الطابور (الجماعيّ متباعد ١٥–٤٥ث، وقد يكمل غداً)
-  if (status === 'queued' || status === 'sending') return <span className="text-gray-500 text-[11px]" title={status === 'sending' ? 'تُرسل الآن' : 'في طابور رقم الأعمال'}>⏱</span>;
-  if (status === 'failed') return <span className="text-rose-400 text-[11px] font-bold">✗ فشل</span>;
-  if (status === 'read') return <span className="text-sky-400 text-xs tracking-[-2px]">✓✓</span>;
-  if (status === 'delivered') return <span className="text-gray-500 text-xs tracking-[-2px]">✓✓</span>;
-  if (status === 'sent') return <span className="text-gray-500 text-xs">✓</span>;
-  return null;
-}
-function SourceTag({ m }: { m: any }) {
-  if (m.source === 'bot') return <span className="text-sky-400 font-bold">🤖 البوت</span>;
-  // اسم الموظّف كان يُمرَّر للخادم ولا يُخزَّن، فكانت كلّ ردود البشر «موظف»
-  if (m.source === 'staff') return <span className="text-amber-400 font-bold">👤 {m.payload?.by || 'موظف'}</span>;
-  if (m.source === 'system') return <span className="text-violet-400 font-bold">⚙️ النظام</span>;
-  if (m.source === 'template') return <span className="text-violet-400 font-bold">📋 قالب</span>;
-  if (m.source === 'broadcast') return <span className="text-teal-400 font-bold">📢 بث</span>;
-  if (m.source === 'outreach') return <span className="text-teal-400 font-bold">📤 {OUTREACH_AR[m.payload?.origin] || 'من النظام'}{m.payload?.staffName ? ` · ${m.payload.staffName}` : ''}</span>;
-  return null;
-}
-
-const STATUS_AR: Record<string, string> = { sent: 'أُرسلت', delivered: 'وصلت', read: 'قُرئت', failed: 'فشلت', received: 'استُلمت', queued: 'في الطابور', sending: 'تُرسل' };
-const OUTREACH_AR: Record<string, string> = { reservations: 'من الحجوزات', analytics: 'من التحليلات', explorer: 'من المستكشف' };
-const SOURCE_AR: Record<string, string> = { customer: 'العميل', bot: 'البوت 🤖', staff: 'موظف 👤', system: 'النظام ⚙️', template: 'قالب 📋', broadcast: 'بث جماعي 📢', injected: 'بلسان العميل 🎭', outreach: 'إرسال من صفحات النظام 📤' };
-
-// «معلومات الرسالة»: النوع والمصدر والحالة بسجلها الزمني والتفاعل
-function messageInfoText(m: any): string {
-  const lines: string[] = [];
-  lines.push(`الاتجاه: ${m.direction === 'in'
-    ? (m.source === 'injected' ? `مُدخلة بلسان العميل من ${m.payload?.by || 'الإدارة'} — لم تصل العميل` : 'واردة من العميل')
-    : 'صادرة'}`);
-  lines.push(`المصدر: ${SOURCE_AR[m.source] || m.source}`);
-  lines.push(`القناة: ${m.channel === 'web' ? 'رقم الأعمال 📱' : 'ميتا ☁️'}${m.payload?.failover ? ' (بديلاً عن القناة الأخرى)' : ''}`);
-  if (m.payload?.fromPhone) lines.push('كُتبت من هاتف رقم الأعمال مباشرة');
-  if (m.payload?._emulated?.raw) lines.push(`ردّ على قائمة مرقّمة بكتابة: «${m.payload._emulated.raw}»`);
-  if (m.payload?.imported) lines.push('مستوردة من سجلّ رقم الأعمال');
-  lines.push(`النوع: ${m.msgType}`);
-  lines.push(`التوقيت: ${fmtWhen(m.createdAt)}`);
-  if (m.direction === 'out') lines.push(`الحالة: ${STATUS_AR[m.status] || m.status || '—'}`);
-  const hist = m.payload?.statusHistory;
-  if (Array.isArray(hist) && hist.length) {
-    lines.push('سجل الحالة:');
-    for (const h of hist) lines.push(`  • ${STATUS_AR[h.status] || h.status} — ${fmtTime(h.at)}`);
-  }
-  if (m.payload?.by) lines.push(`كتبها: ${m.payload.by}`);
-  if (m.payload?.styled && m.payload?.original) {
-    lines.push('');
-    lines.push('نصّ الموظّف قبل صياغة الدون:');
-    lines.push(m.payload.original);
-    lines.push('');
-  } else if (m.payload?.styleSkipped) {
-    const WHY: Record<string, string> = {
-      off: 'الصياغة مطفأة', 'no-key': 'لا مفتاح للنموذج', 'no-letters': 'نصٌّ بلا حروف (رابط أو رمز)',
-      'too-short': 'أقصر من الحدّ', timeout: 'تجاوزت الصياغة مهلتها — أُرسل نصّك',
-      empty: 'عادت الصياغة فارغة', bypass: 'عطّلها الموظّف لهذه الرسالة',
-      'approved-mine': 'الحارس اعترض واختار الموظّف نصّه', 'approved-styled': 'الحارس اعترض واختار الموظّف الصياغة',
-    };
-    const k = String(m.payload.styleSkipped);
-    lines.push(`الصياغة: ${WHY[k] || (k.startsWith('guard:') ? `أوقفها الحارس (${k.slice(6)})` : k.startsWith('error:') ? `تعذّرت (${k.slice(6)})` : k)}`);
-  }
-  if (m.payload?.signed) lines.push('تحمل توقيع التحويل (أوّل ردٍّ بشريّ في الجلسة)');
-  if (m.payload?._rendered && m.msgType === 'interactive') { lines.push(''); lines.push('كما وصلت العميل (رقم الأعمال لا يعرض الأزرار):'); lines.push(m.payload._rendered); lines.push(''); }
-  if (m.payload?.customerReaction?.emoji) lines.push(`تفاعل العميل: ${m.payload.customerReaction.emoji} (${fmtTime(m.payload.customerReaction.at)})`);
-  if (m.errorMessage) lines.push(`الخطأ: ${m.errorMessage}`);
-  if (m.deletedAt) lines.push(`محذوفة من السجل: بواسطة ${m.deletedBy || 'أدمن'} — ${fmtWhen(m.deletedAt)}`);
-  if (m.wamid) lines.push(`WAMID: ${m.wamid}`);
-  return lines.join('\n');
-}
+// ── ثلاثة أبواب: الوارد · الوصول للناس (عمل يوميّ) · الإعدادات (ضبط نادر). خمسة أقسام بدل ثمانية. ──
+type Door = 'reach' | 'admin';
+type AdminSec = 'cast' | 'offers' | 'don' | 'perf' | 'numbers';
+const DOOR_AR: Record<Door, string> = { reach: 'الوصول للناس', admin: 'الإعدادات' };
+const ADMIN_SECS: Array<{ key: AdminSec; door: Door; label: string; hint: string; Icon: LucideIcon }> = [
+  { key: 'cast', door: 'reach', label: 'البثّ', hint: 'رسالة لكثيرين، وسجلّ ما أُرسل', Icon: Megaphone },
+  { key: 'offers', door: 'reach', label: 'العروض', hint: 'جيب صحابك، السعر المبكّر، نقاط الحديث', Icon: Ticket },
+  { key: 'don', door: 'admin', label: 'الدون', hint: 'السلوك، الأدوات، الشخصيّة، المعرفة', Icon: Bot },
+  { key: 'perf', door: 'admin', label: 'الأداء والكلفة', hint: 'هل يؤدّي الدون عمله، وبكم', Icon: Activity },
+  { key: 'numbers', door: 'admin', label: 'الأرقام', hint: 'القنوات وجهات خطّ الأعمال', Icon: Shuffle },
+];
+const TONE_VAR: Record<string, string> = { ok: 'var(--ok)', warn: 'var(--warn)', danger: 'var(--danger)', closed: 'var(--ink-3)' };
 
 export default function WhatsAppInboxPage() {
   const user = useMemo(() => getUser(), []);
@@ -285,8 +91,17 @@ export default function WhatsAppInboxPage() {
   const [muted, setMuted] = useState(false);
   const [mobilePane, setMobilePane] = useState<'list' | 'chat' | 'info'>('list');
   // مستويان بدل خمسة تبويباتٍ متساوية: الوارد عملٌ يوميّ، والإدارة ضبطٌ وتحليل
-  const [mainTab, setMainTab] = useState<'chat' | 'admin'>('chat');
-  const [adminSec, setAdminSec] = useState<'don' | 'know' | 'perf' | 'cast' | 'offers' | 'bookoffers' | 'channels' | 'roster'>('don');
+  const [mainTab, setMainTab] = useState<'chat' | Door>('chat');
+  const [adminSec, setAdminSec] = useState<AdminSec>('cast');
+  // تبويبات داخل الأقسام المدموجة
+  const [donSub, setDonSub] = useState<'don' | 'know'>('don');
+  const [offSub, setOffSub] = useState<'book' | 'chat'>('book');
+  const [numSub, setNumSub] = useState<'channels' | 'roster'>('channels');
+  const [tryOpen, setTryOpen] = useState(false);
+  const [filterOpen, setFilterOpen] = useState(false);
+  const [plusOpen, setPlusOpen] = useState(false);
+  // 📱 الهاتف: الإدارة صفحة قائمة، والقسم يُفتح فوقها
+  const [secOpen, setSecOpen] = useState(false);
   const [noteDraft, setNoteDraft] = useState('');
   const [showLink, setShowLink] = useState(false);
   const [linkQ, setLinkQ] = useState('');
@@ -542,12 +357,18 @@ export default function WhatsAppInboxPage() {
         setMainTab('chat');
         openConv(id);
       } else if (tab) {
-        const SEC: Record<string, 'don' | 'know' | 'perf' | 'cast' | 'offers' | 'bookoffers' | 'channels' | 'roster'> = {
-          rewards: 'offers', offers: 'offers', bookoffers: 'bookoffers', 'booking-offers': 'bookoffers', broadcast: 'cast', cast: 'cast',
-          quality: 'perf', perf: 'perf', bot: 'don', don: 'don', know: 'know',
-          channels: 'channels', health: 'channels', roster: 'roster', contacts: 'roster',
+        // روابط قديمة (ثمانية أقسام) تُحوَّل إلى القسم المدموج وتبويبه
+        const SEC: Record<string, [Door, AdminSec, (() => void)?]> = {
+          rewards: ['reach', 'offers', () => setOffSub('chat')], offers: ['reach', 'offers', () => setOffSub('chat')],
+          bookoffers: ['reach', 'offers', () => setOffSub('book')], 'booking-offers': ['reach', 'offers', () => setOffSub('book')],
+          broadcast: ['reach', 'cast'], cast: ['reach', 'cast'],
+          quality: ['admin', 'perf'], perf: ['admin', 'perf'],
+          bot: ['admin', 'don', () => setDonSub('don')], don: ['admin', 'don', () => setDonSub('don')], know: ['admin', 'don', () => setDonSub('know')],
+          channels: ['admin', 'numbers', () => setNumSub('channels')], health: ['admin', 'numbers', () => setNumSub('channels')],
+          roster: ['admin', 'numbers', () => setNumSub('roster')], contacts: ['admin', 'numbers', () => setNumSub('roster')],
         };
-        if (SEC[tab]) { setMainTab('admin'); setAdminSec(SEC[tab]); }
+        const hit = SEC[tab];
+        if (hit) { setMainTab(hit[0]); setAdminSec(hit[1]); hit[2]?.(); setSecOpen(true); }
       }
       if (id || tab) {
         // تنظيف الرابط حتى لا يُعاد الفتح عند refresh
@@ -822,6 +643,45 @@ export default function WhatsAppInboxPage() {
     if (selId) apiFetch(`/api/whatsapp/conversations/${selId}/context`).then(setCtx).catch(() => {});
   }, [selId]);
 
+  // ── تعديل آخر حجز من لوحة العميل ──
+  // صفّ المتابعة مصدر الحقيقة (تعديله ينعكس على صفّ الحجز)؛ الحجز القديم بلا صفّ متابعة يُعدَّل مباشرة.
+  const [editBk, setEditBk] = useState<{ name: string; count: number; notes: string } | null>(null);
+  const [bkSaving, setBkSaving] = useState(false);
+  const latestBk = ctx?.latestBooking || null;
+  const reloadCtx = useCallback(() => {
+    if (selId) apiFetch(`/api/whatsapp/conversations/${selId}/context`).then(setCtx).catch(() => {});
+  }, [selId]);
+  const saveBk = useCallback(async () => {
+    if (!latestBk || !editBk) return;
+    const name = editBk.name.trim();
+    const count = Math.max(1, Math.min(50, Math.round(Number(editBk.count) || 1)));
+    if (!name) { swalToast('الاسم مطلوب', 'error'); return; }
+    setBkSaving(true);
+    try {
+      if (latestBk.kind === 'reservation') {
+        await apiFetch(`/api/reservations/${latestBk.id}`, { method: 'PUT', body: JSON.stringify({ contactName: name, peopleCount: count, notes: editBk.notes }) });
+      } else {
+        await apiFetch(`/api/bookings/${latestBk.id}`, { method: 'PUT', body: JSON.stringify({ name, count, notes: editBk.notes }) });
+      }
+      setEditBk(null);
+      swalToast('حُفظ تعديل الحجز', 'success');
+      reloadCtx();
+    } catch (e: any) { swalToast(e.message, 'error'); }
+    finally { setBkSaving(false); }
+  }, [latestBk, editBk, reloadCtx]);
+  const cancelBk = useCallback(async () => {
+    if (!latestBk) return;
+    if (!(await swalConfirm(`إلغاء حجز «${latestBk.name}»${latestBk.activityName ? ` في «${latestBk.activityName}»` : ''}؟\nيُحذف من المتابعة ومن قائمة الفعاليّة.`, { danger: true, confirmText: 'ألغِ الحجز', cancelText: 'تراجع' }))) return;
+    setBkSaving(true);
+    try {
+      await apiFetch(latestBk.kind === 'reservation' ? `/api/reservations/${latestBk.id}` : `/api/bookings/${latestBk.id}`, { method: 'DELETE' });
+      setEditBk(null);
+      swalToast('أُلغي الحجز', 'success');
+      reloadCtx();
+    } catch (e: any) { swalToast(e.message, 'error'); }
+    finally { setBkSaving(false); }
+  }, [latestBk, reloadCtx]);
+
   // ── مشتقات العرض ──
   const paused = conv?.botPausedUntil && new Date(conv.botPausedUntil).getTime() > Date.now();
   const botActive = conv?.botEnabled && !paused;
@@ -851,161 +711,168 @@ export default function WhatsAppInboxPage() {
     return out;
   }, [messages]);
 
+  const vv = useVisibleViewport();
+  const health = useWaHealth(apiFetch, () => { setMainTab('admin'); setAdminSec('numbers'); setNumSub('channels'); setSecOpen(true); });
+  // «تمّ التعامل»: يُسقط شارة التحويل للإدارة بعد أن ردّ الموظّف
+  const attentionDone = useCallback(async () => {
+    if (!conv) return;
+    try {
+      const r = await apiFetch(`/api/whatsapp/conversations/${conv.id}/attention-done`, { method: 'POST' });
+      setConv((prev: any) => ({ ...prev, ...r.conversation }));
+      setConvs(prev => prev.map(c => (c.id === conv.id ? { ...c, ...r.conversation } : c)));
+      swalToast('أُسقط التنبيه', 'success');
+    } catch (e: any) { swalToast(e.message, 'error'); }
+  }, [conv]);
+  const openByPhone = useCallback((phone: string) => {
+    apiFetch('/api/whatsapp/conversations/open-by-phone', { method: 'POST', body: JSON.stringify({ phone }) })
+      .then((r: any) => { if (r?.conversation?.id) { setMainTab('chat'); openConv(r.conversation.id); } })
+      .catch((e: any) => swalToast(e.message, 'error'));
+  }, [openConv]);
+
   if (user?.role !== 'admin') {
     return (
-      <div className="p-8 text-center text-gray-400">
-        <div className="text-4xl mb-3">🔒</div>
-        مركز محادثات واتساب متاح لحسابات الأدمن فقط.
+      <div className="wa wa-page" dir="rtl">
+        <Empty icon={<Lock />} title="للأدمن فقط">مركز محادثات واتساب متاح لحسابات الأدمن فقط.</Empty>
       </div>
     );
   }
 
-  const paneHidden = (p: 'list' | 'chat' | 'info') =>
-    `${mobilePane === p ? 'flex' : 'hidden'} md:flex`;
-
-  // 📢 البثّ على الهاتف: الصفحة كلّها تتمرّر (رأس الصفحة وشريط الصحّة والأقسام تصعد بعيداً)
-  //    بدل صندوقٍ ثابت الارتفاع يأكل نصف الشاشة — وشريطا خطوات البثّ لاصقان بالنافذة.
-  const castFlow = mainTab === 'admin' && adminSec === 'cast';
+  const convName = (c: any) => c.playerName || c.displayName || intlPhone(c.phone);
+  const goSec = (k: AdminSec) => { setMainTab(ADMIN_SECS.find(s => s.key === k)!.door); setAdminSec(k); setSecOpen(true); };
+  // فتح باب: على الحاسوب يُعرض أوّل قسم فيه إن كان القسم الحاليّ من باب آخر؛ على الهاتف تظهر قائمته
+  const goDoor = (d: Door) => {
+    setMainTab(d); setSecOpen(false);
+    if (ADMIN_SECS.find(s => s.key === adminSec)?.door !== d) setAdminSec(ADMIN_SECS.find(s => s.door === d)!.key);
+  };
+  const door: Door = mainTab === 'chat' ? 'reach' : mainTab;
+  const openFromAdmin = (id: number) => { setMainTab('chat'); openConv(id); };
+  const secMeta = ADMIN_SECS.find(s => s.key === adminSec);
+  const winT = winTone(winH);
+  const canReply = winH > 0 || conv?.windowOpen;
 
   return (
-    <div className={`${castFlow ? 'min-h-[calc(100dvh-1rem)]' : 'h-[calc(100dvh-1rem)]'} md:h-[calc(100dvh-2rem)] flex flex-col`} dir="rtl">
-      {/* ═══ رأس الصفحة + تبويبات ═══ */}
-      <div className="flex items-center gap-3 px-1 pb-3 flex-wrap">
-        <h1 className="text-xl font-bold text-white flex items-center gap-2">
-          💬 واتساب
-          {totalUnread > 0 && (
-            <span className="bg-rose-500 text-white text-xs font-bold rounded-full px-2 py-0.5">{totalUnread}</span>
-          )}
-        </h1>
-        <div className="flex items-center gap-1 bg-gray-900 border border-gray-800 rounded-xl p-1 text-sm">
-          {([['chat', 'الوارد'], ['admin', '⚙️ الإدارة']] as const).map(([k, l]) => (
-            <button
-              key={k}
-              onClick={() => setMainTab(k)}
-              className={`px-3.5 py-1 rounded-lg font-bold ${mainTab === k ? 'bg-amber-500/10 text-amber-400' : 'text-gray-400 hover:text-white'}`}
-            >{l}</button>
-          ))}
+    <div className="wa wa-page" dir="rtl" data-tab={mainTab === 'chat' ? 'chat' : 'admin'} data-pane={mobilePane} data-sec={secOpen ? 'open' : 'menu'} data-kb={vv.keyboard ? '1' : '0'}>
+      {/* ═══ الرأس: العنوان، الوارد/الإدارة، شريط الصحّة، كتم التنبيه ═══ */}
+      <div className="wa-head">
+        <h1>واتساب</h1>
+        <div className="wa-seg" role="group" aria-label="أقسام الصفحة">
+          <button type="button" aria-pressed={mainTab === 'chat'} onClick={() => setMainTab('chat')}>
+            <MessageSquare />الوارد{totalUnread > 0 && <span className="wa-count">{totalUnread}</span>}
+          </button>
+          <button type="button" aria-pressed={mainTab === 'reach'} onClick={() => goDoor('reach')}><Megaphone />الوصول للناس</button>
+          <button type="button" aria-pressed={mainTab === 'admin'} onClick={() => goDoor('admin')}><Settings />الإعدادات</button>
         </div>
-        <button
-          onClick={toggleMute}
-          className="mr-auto text-sm px-3 py-1.5 rounded-xl border border-gray-800 bg-gray-900 text-gray-300 hover:text-white"
-          title={muted ? 'تشغيل صوت التنبيه' : 'كتم صوت التنبيه'}
-        >
-          {muted ? '🔕 مكتوم' : '🔔 الصوت'}
+        <div className="wa-healthwrap">{health.strip}</div>
+        <button type="button" className={`wa-iconbtn${muted ? '' : ' on'}`} onClick={toggleMute}
+          aria-label={muted ? 'تشغيل صوت التنبيه' : 'كتم صوت التنبيه'} title={muted ? 'الصوت مكتوم — اضغط للتشغيل' : 'صوت التنبيه يعمل — اضغط للكتم'}>
+          {muted ? <BellOff /> : <Bell />}
         </button>
       </div>
+      {health.panel}
 
-      {getUser()?.role === 'admin' && <HealthBar apiFetch={apiFetch} />}
-
-      {/* ═══ الإدارة: شريطٌ جانبيّ يجمع الأقسام بمعناها ═══ */}
-      {mainTab === 'admin' && (
-        <div className={`flex-1 min-h-0 grid grid-cols-1 md:grid-cols-[190px_1fr] gap-0 ${castFlow ? 'md:overflow-hidden' : 'overflow-hidden'}`}>
-          <div className="border-l border-gray-800 p-2 flex md:flex-col gap-1 overflow-x-auto md:overflow-x-visible">
-            {([
-              ['sep', 'الدون'],
-              ['don', '🎩 السلوك والأدوات'],
-              ['know', '📚 المعرفة والتجربة'],
-              ['perf', '📈 الأداء والكلفة'],
-              ['sep', 'الوصول للناس'],
-              ['cast', '📢 البثّ'],
-              ['bookoffers', '🎟️ عروض الحجز'],
-              ['offers', '🎁 نقاط الحديث'],
-              ['sep', 'الأرقام'],
-              ['channels', '🔀 القنوات'],
-              ['roster', '📇 جهات الخطّ'],
-            ] as const).map(([k, l], i) => k === 'sep' ? (
-              <div key={'s' + i} className="hidden md:block text-[9.5px] font-bold text-gray-600 px-2.5 pt-2.5 pb-1">{l}</div>
-            ) : (
-              <button
-                key={k}
-                onClick={() => setAdminSec(k)}
-                className={`text-right whitespace-nowrap text-[12.5px] font-bold px-2.5 py-1.5 rounded-lg ${
-                  adminSec === k ? 'bg-amber-500/10 text-amber-400' : 'text-gray-400 hover:text-white hover:bg-gray-800/50'
-                }`}
-              >{l}</button>
+      {/* ═══ الإدارة ═══ */}
+      {mainTab !== 'chat' && (
+        <div className="wa-admin">
+          {/* الحاسوب: شريط جانبيّ بأقسام الباب المفتوح */}
+          <nav className="wa-sidenav" aria-label={DOOR_AR[door]}>
+            <div className="grp">{DOOR_AR[door]}</div>
+            {ADMIN_SECS.filter(s => s.door === door).map(s => (
+              <button type="button" key={s.key} aria-current={adminSec === s.key ? 'page' : undefined} onClick={() => goSec(s.key)}>
+                <s.Icon />{s.label}
+              </button>
             ))}
+          </nav>
+
+          {/* الهاتف: صفحة قائمة كاملة */}
+          <div className="wa-adminmenu">
+            <div className="wa-card" style={{ padding: 0 }}>
+              <div className="wa-menu">
+                {ADMIN_SECS.filter(s => s.door === door).map(s => (
+                  <button type="button" key={s.key} onClick={() => goSec(s.key)} style={{ minHeight: 64 }}>
+                    <s.Icon style={{ color: 'var(--gold)' }} />
+                    <span className="grow"><span style={{ display: 'block' }}>{s.label}</span>
+                      <span style={{ display: 'block', font: '400 12px/16px var(--font-sans)', color: s.key === 'numbers' && health.webIssue ? 'var(--warn)' : 'var(--ink-3)' }}>{s.key === 'numbers' && health.webIssue ? health.webIssue : s.hint}</span></span>
+                    <ChevronLeft style={{ color: 'var(--ink-3)' }} />
+                  </button>
+                ))}
+              </div>
+            </div>
           </div>
-          <div className={`${castFlow ? 'md:min-h-0 md:overflow-y-auto' : 'min-h-0 overflow-y-auto'} p-2 flex flex-col gap-3`}>
-            {adminSec === 'perf' && (
-              <PerformanceTab apiFetch={apiFetch} onOpenConv={(id: number) => { setMainTab('chat'); openConv(id); }} />
-            )}
-            {/* المكوّن يبقى مركّباً عبر القسمين فلا يضيع تعديلٌ غير محفوظ */}
-            {(['don', 'know'] as const).includes(adminSec as any) && (
-              <BotSettingsView
-                section={adminSec as any}
-                onOpenConv={(id: number) => { setMainTab('chat'); openConv(id); }}
-              />
-            )}
+
+          {/* الهاتف: شريط القسم المفتوح */}
+          <header className="wa-appbar wa-secbar">
+            <button type="button" className="wa-iconbtn" aria-label="رجوع للقائمة" onClick={() => setSecOpen(false)}><ChevronRight className="l" /></button>
+            <div className="grow"><div className="ttl">{secMeta?.label}</div></div>
+            {adminSec === 'don' && <button type="button" className="wa-btn sm" onClick={() => setTryOpen(true)}><FlaskConical />جرّبه</button>}
+          </header>
+
+          <div className="wa-content">
             {adminSec === 'cast' && <BroadcastTab apiFetch={apiFetch} />}
-            {adminSec === 'offers' && <RewardsTab apiFetch={apiFetch} />}
-            {adminSec === 'bookoffers' && <BookingOffersTab apiFetch={apiFetch} />}
-            {adminSec === 'channels' && <ChannelsSection apiFetch={apiFetch} />}
-            {adminSec === 'roster' && <LineContactsSection apiFetch={apiFetch} />}
+
+            {adminSec === 'offers' && (
+              <>
+                <Seg block label="نوع العرض" value={offSub} onChange={setOffSub} options={[['book', 'عروض الحجز والسعر المبكّر'], ['chat', 'نقاط الحديث']] as const} />
+                {offSub === 'book' ? <BookingOffersTab apiFetch={apiFetch} /> : <RewardsTab apiFetch={apiFetch} />}
+              </>
+            )}
+
+            {adminSec === 'don' && (
+              <>
+                <div className="row">
+                  <div className="grow"><Seg block label="إعدادات الدون" value={donSub} onChange={setDonSub} options={[['don', 'السلوك والأدوات'], ['know', 'الشخصيّة والمعرفة']] as const} /></div>
+                  <button type="button" className="wa-btn wa-only-desk" aria-pressed={tryOpen} onClick={() => setTryOpen(v => !v)}><FlaskConical />جرّب الدون</button>
+                </div>
+                {/* المكوّن يبقى مركّباً عبر التبويبين فلا يضيع تعديلٌ غير محفوظ */}
+                <BotSettingsView section={donSub} onOpenConv={openFromAdmin} tryOpen={tryOpen} onTryClose={() => setTryOpen(false)} />
+              </>
+            )}
+
+            {adminSec === 'perf' && <PerformanceTab apiFetch={apiFetch} onOpenConv={openFromAdmin} />}
+
+            {adminSec === 'numbers' && (
+              <>
+                <Seg block label="الأرقام" value={numSub} onChange={setNumSub} options={[['channels', 'القنوات'], ['roster', 'جهات الخطّ']] as const} />
+                {numSub === 'channels' ? <ChannelsSection apiFetch={apiFetch} /> : <LineContactsSection apiFetch={apiFetch} onOpenPhone={openByPhone} />}
+              </>
+            )}
           </div>
         </div>
       )}
 
-      {/* ═══ اللوحات الثلاث ═══ */}
-      <div className={`${mainTab === 'chat' ? 'grid' : 'hidden'} flex-1 min-h-0 grid-cols-1 md:grid-cols-[300px_1fr_280px] gap-0 bg-gray-900/60 border border-gray-800 rounded-2xl overflow-hidden`}>
+      {/* ═══ الوارد: ثلاث لوحات على الحاسوب، شاشة لكلّ لوحة على الهاتف ═══ */}
+      <div className="wa-panes" style={mainTab === 'chat' ? undefined : { display: 'none' }}>
 
-        {/* ─── لوحة المحادثات ─── */}
-        <div className={`${paneHidden('list')} flex-col min-h-0 border-l border-gray-800`}>
-          <div className="p-3 border-b border-gray-800 space-y-2">
-            {/* 🔀 أيّ رقم: ميتا · رقم الأعمال · كلاهما */}
-            <div className="flex gap-1 bg-gray-950 border border-gray-800 rounded-xl p-1 text-[11.5px] font-bold">
-              {([['all', 'كلا الرقمين'], ['cloud', '☁️ رقم ميتا'], ['web', '📱 رقم الأعمال']] as const).map(([k, l]) => (
-                <button key={k} onClick={() => setInboxCh(k)}
-                  className={`flex-1 py-1 rounded-lg ${inboxCh === k ? (k === 'web' ? 'bg-teal-500/15 text-teal-300' : k === 'cloud' ? 'bg-indigo-500/15 text-indigo-300' : 'bg-amber-500/10 text-amber-400') : 'text-gray-500 hover:text-white'}`}
-                  title={k === 'all' ? 'كلّ المحادثات وكلّ الرسائل' : k === 'cloud' ? 'المحادثات التي فيها رسائل على رقم ميتا — وتُعرض رسائله وحدها' : 'المحادثات التي فيها رسائل على رقم الأعمال — وتُعرض رسائله وحدها'}
-                >{l}</button>
-              ))}
+        {/* ─── القائمة ─── */}
+        <div className="wa-pane list">
+          <div className="tools">
+            <div className="wa-only-desk"><Seg block label="أيّ رقم" value={inboxCh} onChange={setInboxCh}
+              options={[['all', 'الرقمان'], ['cloud', <><Cloud style={{ color: 'var(--ch-meta)' }} />ميتا</>], ['web', <><Smartphone style={{ color: 'var(--ch-web)' }} />الأعمال</>]] as const} /></div>
+            <div className="row">
+              <div className="wa-search grow">
+                <Search />
+                <input className="wa-input" id="wa-q" value={q} onChange={e => setQ(e.target.value)} placeholder="بحث بالاسم أو الرقم" aria-label="بحث في المحادثات" />
+              </div>
+              <button type="button" className={`wa-iconbtn wa-only-phone${inboxCh !== 'all' || sort !== 'recent' ? ' on' : ''}`} aria-label="تصفية وترتيب" onClick={() => setFilterOpen(true)}><SlidersHorizontal /></button>
             </div>
-            <input
-              value={q}
-              onChange={e => setQ(e.target.value)}
-              placeholder="🔍 بحث بالاسم أو الرقم…"
-              className="w-full bg-gray-950 border border-gray-800 rounded-xl px-3.5 py-2 text-sm text-white placeholder-gray-600 focus:border-amber-500 outline-none"
-            />
-          </div>
-          <div className="flex gap-1.5 px-3 py-2 overflow-x-auto" style={{ scrollbarWidth: 'none' }}>
-            {FILTERS.map(f => (
-              <button
-                key={f.key}
-                onClick={() => setFilter(f.key)}
-                className={`whitespace-nowrap text-xs font-bold rounded-full px-3 py-1 border transition-colors flex items-center gap-1 ${
-                  filter === f.key
-                    ? 'bg-amber-500 text-gray-950 border-amber-500'
-                    : 'text-gray-400 border-gray-800 hover:text-white'
-                }`}
-              >
-                {f.label}
-                {counts && <span className="text-[9.5px] opacity-75 tabular-nums">{counts[f.key] ?? 0}</span>}
-              </button>
-            ))}
-          </div>
-
-          {/* الترتيب — منفصلٌ عن الفلتر، وافتراضيّه «الأحدث» فلا يتغيّر شيءٌ لمن لا يستعمله */}
-          <div className="flex items-center gap-1.5 px-3 pb-2 border-b border-gray-800">
-            <label className="text-[10px] text-gray-600 shrink-0">الترتيب</label>
-            <select
-              value={sort}
-              onChange={e => setSort(e.target.value)}
-              className={`flex-1 min-w-0 bg-gray-950 border rounded-lg px-2 py-1 text-[11.5px] outline-none cursor-pointer ${
-                sort === 'recent' ? 'border-gray-800 text-gray-300' : 'border-sky-500/60 text-sky-300'
-              }`}
-            >
-              {SORTS.map(o => <option key={o.key} value={o.key}>{o.label}</option>)}
+            <div className="wa-chips">
+              {FILTERS.map(f => <Chip key={f.key} on={filter === f.key} onClick={() => setFilter(f.key)} n={counts ? (counts[f.key] ?? 0) : undefined}>{f.label}</Chip>)}
+            </div>
+            {/* الترتيب — منفصلٌ عن الفلتر، وافتراضيّه «الأحدث» فلا يتغيّر شيءٌ لمن لا يستعمله */}
+            <select className="wa-select wa-only-desk" value={sort} onChange={e => setSort(e.target.value)} aria-label="ترتيب المحادثات"
+              style={sort === 'recent' ? undefined : { borderColor: 'var(--info)', color: 'var(--info)' }}>
+              {SORTS.map(o => <option key={o.key} value={o.key}>{o.key === 'recent' ? o.label : `الترتيب: ${o.label}`}</option>)}
             </select>
           </div>
 
-          <div className="flex-1 overflow-y-auto" onScroll={e => { const el = e.currentTarget; if (el.scrollHeight - el.scrollTop - el.clientHeight < 160) loadMoreConvs(); }}>
+          <div className="wa-scroll" onScroll={e => { const el = e.currentTarget; if (el.scrollHeight - el.scrollTop - el.clientHeight < 160) loadMoreConvs(); }}>
             {loadingConvs ? (
-              <div className="p-6 text-center text-gray-500 text-sm">جارٍ التحميل…</div>
-            ) : convs.length === 0 ? (
-              <div className="p-8 text-center text-gray-500 text-sm">
-                <div className="text-3xl mb-2">💬</div>
-                لا محادثات {filter !== 'all' || sort !== 'recent' ? 'مطابقة' : 'بعد — أول رسالة من عميل ستظهر هنا'}
+              <div style={{ padding: 'var(--space-4)', display: 'flex', flexDirection: 'column', gap: 'var(--space-4)' }}>
+                {[0, 1, 2, 3, 4].map(i => <Skel key={i} h={52} />)}
               </div>
+            ) : convs.length === 0 ? (
+              <Empty icon={<MessageSquare />} title={filter !== 'all' || sort !== 'recent' || q ? 'لا محادثات مطابقة' : 'لا محادثات بعد'}>
+                {filter !== 'all' || q ? 'جرّب فلتراً آخر أو امسح البحث.' : 'أوّل رسالة من عميل ستظهر هنا.'}
+              </Empty>
             ) : (() => {
               const winMode = WIN_SORTS.includes(sort);
               let lastGroup = '';
@@ -1016,1685 +883,510 @@ export default function WhatsAppInboxPage() {
                 const left = cWeb ? 24 : windowHoursLeft(c.cloudLastInboundAt ?? c.lastInboundAt);
                 const tn = winTone(left);
                 const head = winMode && tn.group !== lastGroup ? (lastGroup = tn.group) : null;
+                const unread = viewUnread(c, inboxCh);
                 return (
                   <div key={c.id}>
-                    {head && (
-                      <div
-                        className="sticky top-0 z-[2] px-3 py-1 text-[10px] font-bold bg-gray-900 border-b border-gray-800"
-                        style={{ color: tn.color }}
-                      >{head}</div>
-                    )}
-                    <button
-                      onClick={() => openConv(c.id)}
-                      className={`w-full text-right flex gap-2.5 px-3 py-2.5 border-b border-gray-800/60 hover:bg-gray-800/40 transition-colors ${
-                        selId === c.id ? 'bg-gray-800/60 shadow-[inset_3px_0_0_#f59e0b]' : ''
-                      }`}
-                    >
-                      <ConvAvatar c={c} size={40} />
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-1.5">
-                          <span className="font-bold text-[13px] text-white truncate">{c.playerName || c.displayName || intlPhone(c.phone)}</span>
-                          <span className="text-[10px] text-gray-500 mr-auto shrink-0">
-                            {fmtWhen(c.lastMessageAt)}
+                    {head && <div className="wa-grouphead" style={{ color: TONE_VAR[tn.tone] }}>{head}</div>}
+                    <button type="button" className={`wa-conv${unread > 0 ? ' unread' : ''}`} aria-current={selId === c.id ? 'true' : undefined} onClick={() => openConv(c.id)}>
+                      <ConvAvatar c={c} ch={cWeb ? 'web' : 'cloud'} />
+                      <span className="grow">
+                        <span className="top">
+                          <span className="name">{convName(c)}</span>
+                          <span className="when">{fmtWhen(c.lastMessageAt)}</span>
+                        </span>
+                        <span className="bot">
+                          <span className="prev">{c.lastMessagePreview || '—'}</span>
+                          {c.needsAttention && <Badge tone="danger" title="حوّلها الدون للإدارة"><Headset />تدخّل</Badge>}
+                          <span title={cBot ? 'الدون يردّ' : 'مع موظّف'} style={{ color: cBot ? 'var(--info)' : 'var(--gold)', display: 'inline-flex' }}>{cBot ? <Bot /> : <User />}</span>
+                          {unread > 0 && <span className="wa-count">{unread}</span>}
+                        </span>
+                        {/* النافذة تظهر حين تهمّ فقط: تقترب من الإغلاق أو أُغلقت */}
+                        {!cWeb && left <= 4 && (
+                          <span className="win">
+                            {left > 0 ? <><Meter pct={(left / 4) * 100} tone={tn.tone === 'warn' ? 'warn' : 'danger'} /><span className="ltr" style={{ color: TONE_VAR[tn.tone], fontSize: 12 }}>{fmtLeft(left)}</span></>
+                              : <span>النافذة مغلقة</span>}
                           </span>
-                        </div>
-                        <div className="flex items-center gap-1.5 mt-0.5">
-                          {!winMode && (
-                            <span
-                              className={`w-1.5 h-1.5 rounded-full shrink-0 ${cWeb ? 'bg-teal-300 ring-1 ring-teal-500/50' : left > 0 ? 'bg-emerald-400' : 'bg-gray-600'}`}
-                              title={cWeb ? 'يُردّ عليه من رقم الأعمال — بلا نافذة' : left > 0 ? 'نافذة الرد مفتوحة' : 'النافذة منتهية'}
-                            />
-                          )}
-                          <span className="text-xs text-gray-400 truncate flex-1">{c.lastMessagePreview || '—'}</span>
-                          {c.needsAttention && (
-                            <span className="text-[9px] font-bold rounded-full px-1.5 py-px shrink-0 bg-rose-500/15 text-rose-400 animate-pulse">⚠️</span>
-                          )}
-                          <span className={`text-[9px] font-bold rounded-full px-1.5 py-px shrink-0 ${
-                            cBot ? 'bg-sky-500/10 text-sky-400' : 'bg-amber-500/10 text-amber-400'
-                          }`}>{cBot ? '🤖' : '👤'}</span>
-                          {viewUnread(c, inboxCh) > 0 && (
-                            <span className="bg-emerald-500 text-gray-950 text-[10px] font-bold rounded-full min-w-[18px] h-[18px] flex items-center justify-center px-1 shrink-0">
-                              {viewUnread(c, inboxCh)}
-                            </span>
-                          )}
-                        </div>
-                        {/* شريطٌ يفرغ + رقمٌ صريح — لا يُعرض إلا في وضع النافذة فلا يزحم الصفّ */}
-                        {winMode && (
-                          <div className="flex items-center gap-1.5 mt-1">
-                            <span className="flex-1 h-[3px] rounded-full bg-gray-700 overflow-hidden">
-                              <span
-                                className="block h-full rounded-full"
-                                style={{ width: `${Math.max(2, Math.min(100, (left / 24) * 100))}%`, background: tn.color }}
-                              />
-                            </span>
-                            <span className="text-[10px] font-bold tabular-nums shrink-0" style={{ color: tn.color }}>
-                              {left > 0 ? fmtLeft(left) : '—'}
-                            </span>
-                          </div>
                         )}
-                      </div>
+                      </span>
                     </button>
                   </div>
                 );
               });
             })()}
             {!loadingConvs && convs.length > 0 && (
-              <div className="py-3 text-center text-[11px] text-gray-600">
-                {loadingMoreConvs ? '⏳ جارٍ تحميل الأقدم…'
-                  : convHasMore ? <button onClick={loadMoreConvs} className="hover:text-amber-400">⬇ محادثات أقدم</button>
-                    : `— ${convs.length} محادثة —`}
+              <div className="wa-foot">
+                {loadingMoreConvs ? 'جارٍ تحميل الأقدم…'
+                  : convHasMore ? <button type="button" className="wa-more" onClick={loadMoreConvs}>محادثات أقدم</button>
+                    : <span className="ltr">{convs.length}</span>}
+                {!loadingMoreConvs && !convHasMore && ' محادثة'}
               </div>
             )}
           </div>
         </div>
 
-        {/* ─── لوحة المحادثة ─── */}
-        <div className={`${paneHidden('chat')} flex-col min-h-0`}>
+        {/* ─── المحادثة ─── */}
+        <div className="wa-pane chat">
           {!conv ? (
-            <div className="flex-1 flex items-center justify-center text-gray-600 flex-col gap-3">
-              <div className="text-5xl">💬</div>
-              <div className="text-sm">اختر محادثة من القائمة</div>
-            </div>
+            <Empty icon={<MessageSquare />} title="اختر محادثة">اختر محادثة من القائمة لتقرأها وتردّ.</Empty>
           ) : (
             <>
-              {/* الرأس */}
-              <div className="flex items-center gap-3 px-4 py-2.5 border-b border-gray-800 bg-gray-900/80">
-                <button className="md:hidden text-gray-400 text-lg" onClick={() => setMobilePane('list')}>▶</button>
-                <ConvAvatar c={conv} size={36} />
-                <div className="min-w-0">
-                  <div className="font-bold text-sm text-white flex items-center gap-2 flex-wrap">
-                    {conv.playerName || conv.displayName || intlPhone(conv.phone)}
-                    {ctx?.player && (
-                      <span className="text-[10px] font-bold text-amber-400 border border-amber-500/40 rounded px-1.5">
-                        {RANK_AR[ctx.player.rankTier] || ctx.player.rankTier} · {ctx.player.rankRR}RR
-                      </span>
-                    )}
+              <div className="wa-chathead">
+                <button type="button" className="wa-iconbtn wa-only-phone" aria-label="رجوع للقائمة" onClick={() => setMobilePane('list')}><ChevronRight className="l" /></button>
+                <ConvAvatar c={conv} size="sm" />
+                <div className="grow">
+                  <div className="nm">
+                    <span className="trunc">{convName(conv)}</span>
+                    {ctx?.player && <Badge tone="gold">{RANK_AR[ctx.player.rankTier] || ctx.player.rankTier} · <span className="ltr">{ctx.player.rankRR}</span></Badge>}
                     {conv.phoneVerified === false && (
-                      <span className="text-[10px] font-bold text-amber-300 bg-amber-500/10 rounded-full px-2"
-                        title="واتساب أخفى رقم المرسل (…@lid) ولم يُعرف بعد — أدوات الحساب والأدمن معطّلة لهذه المحادثة حتّى يُعرف">🕶️ رقم مخفيّ</span>
+                      <Badge tone="warn" title="واتساب أخفى رقم المرسل ولم يُعرف بعد — أدوات الحساب والأدمن معطّلة لهذه المحادثة حتّى يُعرف"><EyeOff />رقم مخفيّ</Badge>
                     )}
                     {ctx?.optedOut && (
-                      <span className="text-[10px] font-bold text-rose-400 bg-rose-500/10 rounded-full px-2"
-                        title={ctx.optout?.byCustomer ? `أوقفها العميل بنفسه${ctx.optout?.createdAt ? ` — ${fmtWhen(ctx.optout.createdAt)}` : ''}` : (ctx.optout?.reason || '')}>
-                        🚫 {ctx.optout?.byCustomer ? 'أوقف التسويق' : 'التسويق موقوف'}
-                      </span>
+                      <Badge tone="danger" title={ctx.optout?.byCustomer ? `أوقفها العميل بنفسه${ctx.optout?.createdAt ? ` — ${fmtWhen(ctx.optout.createdAt)}` : ''}` : (ctx.optout?.reason || '')}>
+                        <Ban />{ctx.optout?.byCustomer ? 'أوقف التسويق' : 'التسويق موقوف'}
+                      </Badge>
                     )}
                   </div>
-                  <div className="text-[11px] text-gray-500" dir="ltr">{intlPhone(conv.phone)}</div>
+                  <div className="sub ltr" style={{ textAlign: 'start' }}>{intlPhone(conv.phone)}</div>
                 </div>
-                <div className="mr-auto flex items-center gap-2 shrink-0">
-                  {/* 🔗 حساب اللاعب — للمربوط وحده. لا زرَّ معطّلاً ولا زرّاً يقود إلى لا شيء. */}
+                <div className="acts">
+                  {/* حساب اللاعب — للمربوط وحده. لا زرَّ معطّلاً ولا زرّاً يقود إلى لا شيء. */}
                   {ctx?.player ? (
-                    <a
-                      href={`/admin/players/${ctx.player.id}`}
-                      className="text-[11px] font-bold rounded-lg px-2.5 py-1 border border-amber-500/50 bg-amber-500/10 text-amber-400 hover:bg-amber-500/20 whitespace-nowrap"
-                      title="فتح ملفّ اللاعب في لوحة الإدارة"
-                    >👤 حساب اللاعب ↗</a>
+                    <a href={`/admin/players/${ctx.player.id}`} className="wa-btn sm wa-only-desk" title="فتح ملفّ اللاعب في لوحة الإدارة"><User />حساب اللاعب<ExternalLink className="s" /></a>
                   ) : ctx ? (
-                    <button
-                      onClick={() => { setMobilePane('info'); setShowLink(true); }}
-                      className="text-[11px] font-bold rounded-lg px-2.5 py-1 border border-dashed border-gray-700 text-gray-500 hover:text-gray-300 whitespace-nowrap"
-                      title="الرقم غير مربوط بأيّ لاعب — لا حساب يُفتح"
-                    >🔗 ربط بلاعب</button>
+                    <button type="button" className="wa-btn sm ghost wa-only-desk" onClick={() => { setMobilePane('info'); setShowLink(true); }} title="الرقم غير مربوط بأيّ لاعب"><Link2 />ربط بلاعب</button>
                   ) : null}
-                  {/* 📣 الرسائل التسويقية — أخضر = تصله */}
-                  <button
-                    onClick={toggleMarketing}
-                    disabled={!ctx}
-                    className="flex items-center gap-1.5 text-[11px] font-bold text-gray-300 disabled:opacity-40"
-                    title={!ctx ? '' : ctx.optedOut ? 'الرسائل التسويقية موقوفة عن هذا الرقم — اضغط للتشغيل' : 'الرسائل التسويقية تصل هذا الرقم — اضغط للإيقاف'}
-                  >
-                    📣
-                    <span className={`w-9 h-5 rounded-full relative transition-colors ${ctx && !ctx.optedOut ? 'bg-emerald-500' : 'bg-gray-700'}`}>
-                      <span className={`absolute top-0.5 w-4 h-4 rounded-full bg-white transition-all ${ctx && !ctx.optedOut ? 'right-0.5' : 'right-4'}`} />
-                    </span>
+                  <button type="button" className="wa-pill" aria-pressed={!!botActive} onClick={() => toggleBot()}
+                    title={botActive ? 'الدون يردّ — اضغط لإيقافه لهذه المحادثة' : conv.botEnabled ? 'الدون متوقّف مؤقّتاً — اضغط لإيقافه نهائيّاً' : 'الدون متوقّف — اضغط لتفعيله'}>
+                    {botActive ? <Bot /> : <User />}{botActive ? 'الدون يردّ' : 'موظّف'}
                   </button>
-                  <button
-                    onClick={toggleBot}
-                    className="flex items-center gap-1.5 text-[11px] font-bold text-gray-300"
-                    title={conv.botEnabled ? 'إيقاف البوت نهائياً لهذه المحادثة' : 'تفعيل البوت'}
-                  >
-                    🤖
-                    <span className={`w-9 h-5 rounded-full relative transition-colors ${conv.botEnabled ? 'bg-emerald-500' : 'bg-gray-700'}`}>
-                      <span className={`absolute top-0.5 w-4 h-4 rounded-full bg-white transition-all ${conv.botEnabled ? 'right-0.5' : 'right-4'}`} />
-                    </span>
-                  </button>
-                  {(conv.sendVia || conv.channelPin) && (
-                    <select
-                      value={conv.channelPin || ''}
-                      onChange={e => pinChannel(e.target.value)}
-                      className="bg-gray-950 border border-gray-800 rounded-lg text-[11px] text-gray-300 px-1.5 py-1"
-                      title="من أيّ رقمٍ يخرج الردّ لهذه المحادثة"
-                    >
-                      <option value="">{conv.sendVia === 'web' ? '📱 تلقائيّ (رقم الأعمال)' : '☁️ تلقائيّ (ميتا)'}</option>
-                      <option value="web">📱 ثبّت: رقم الأعمال</option>
-                      <option value="cloud">☁️ ثبّت: ميتا</option>
-                    </select>
-                  )}
-                  <button className="hidden md:block text-gray-500 hover:text-white px-1" onClick={() => setMobilePane('info')} title="لوحة العميل">👤</button>
+                  <button type="button" className={`wa-iconbtn wa-only-narrow${mobilePane === 'info' ? ' on' : ''}`} aria-label="لوحة العميل"
+                    onClick={() => setMobilePane(mobilePane === 'info' ? 'chat' : 'info')}><PanelLeft /></button>
                 </div>
               </div>
 
-              {/* ⏳ النافذة — مكانٌ واحد يقولها: كانت تُعرض ثلاث مرّاتٍ بثلاثة أشكال */}
+              {/* النافذة — مكانٌ واحد يقولها */}
               {viaWeb ? (
-                <div className="flex items-center gap-2 px-4 py-1 border-b border-gray-800 bg-gray-950/60 text-[11px] font-bold">
-                  <span className="text-teal-300 shrink-0">📱 يُرسل عبر رقم الأعمال — بلا نافذة</span>
-                  {conv.channelPin && <span className="text-gray-500 font-normal">(مثبَّتة يدويّاً)</span>}
-                  <span className="text-gray-600 font-normal shrink-0 hidden sm:inline mr-auto">آخر رسالةٍ منه {fmtWhen(lastInView)}</span>
+                <div className="wa-winline web">
+                  <Smartphone className="s" /><span>يُرسل عبر رقم الأعمال — بلا نافذة{conv.channelPin ? ' (مثبَّت يدويّاً)' : ''}</span>
+                  <span className="grow" />
+                  <span className="rest wa-only-desk">آخر رسالة منه {fmtWhen(lastInView)}</span>
                 </div>
-              ) : (() => {
-                const tn = winTone(winH);
-                return (
-                  <div className="flex items-center gap-2 px-4 py-1 border-b border-gray-800 bg-gray-950/60 text-[11px] font-bold">
-                    <span style={{ color: tn.color }} className="shrink-0">
-                      {winH > 0 ? `⏳ النافذة تُغلق بعد ${fmtLeft(winH)}` : '🔒 النافذة مغلقة'}
-                    </span>
-                    <span className="flex-1 h-1 rounded-full bg-gray-700 overflow-hidden min-w-[40px]">
-                      <span
-                        className="block h-full rounded-full"
-                        style={{ width: `${winH > 0 ? Math.max(2, Math.min(100, (winH / 24) * 100)) : 100}%`, background: tn.color }}
-                      />
-                    </span>
-                    <span className="text-gray-600 font-normal shrink-0 hidden sm:inline">
-                      آخر رسالةٍ منه {fmtWhen(lastInView)}
-                    </span>
-                  </div>
-                );
-              })()}
+              ) : (
+                <div className={`wa-winline ${winT.tone}`}>
+                  {winH > 0 ? <Clock className="s" /> : <Lock className="s" />}
+                  <span>{winH > 0 ? <>النافذة تُغلق بعد <span className="ltr">{fmtLeft(winH)}</span></> : 'النافذة مغلقة'}</span>
+                  {winH > 0 ? <Meter pct={(winH / 24) * 100} tone={winT.tone === 'ok' ? undefined : winT.tone === 'warn' ? 'warn' : 'danger'} /> : <span className="grow" />}
+                  <span className="rest wa-only-desk">آخر رسالة منه {fmtWhen(lastInView)}</span>
+                </div>
+              )}
 
               {replyElsewhere && (
-                <div className="bg-sky-500/10 text-sky-300 text-[11px] font-bold text-center py-1 border-b border-gray-800">
-                  ↪️ ردّك هنا سيخرج من {CH_AR[replyElsewhere]} — فلن يظهر في هذا العرض (يظهر في «{CH_AR[replyElsewhere]}» و«كلا الرقمين»)
-                </div>
+                <Banner flat tone="info" icon={<CornerUpLeft />}>ردّك هنا سيخرج من {CH_AR[replyElsewhere]}، فلن يظهر في هذا العرض (يظهر في «{CH_AR[replyElsewhere]}» و«الرقمان»).</Banner>
               )}
-
-              {/* شريط الإيقاف المؤقت */}
               {conv.botEnabled && paused && (
-                <div className="bg-amber-500/10 text-amber-400 text-xs font-bold text-center py-1.5 border-b border-gray-800">
-                  ⏸️ البوت موقوف مؤقتاً بعد رد بشري — يعود {fmtTime(conv.botPausedUntil)} (كل رد يمدد 30 دقيقة)
-                </div>
+                <Banner flat tone="warn" icon={<CirclePause />}>الدون متوقّف مؤقّتاً بعد ردّ بشريّ — يعود {fmtTime(conv.botPausedUntil)} (كلّ ردّ يمدّد 30 دقيقة).</Banner>
               )}
 
-              {/* الرسائل */}
-              <div ref={threadRef} onScroll={e => { if (e.currentTarget.scrollTop < 80 && hasMore && !loadingOlder && !loadingMsgs) loadOlder(); }}
-                className="flex-1 overflow-y-auto px-4 py-3 flex flex-col gap-1.5 bg-gray-950/40">
+              {/* الخيط */}
+              <div ref={threadRef} className="wa-thread" onScroll={e => { if (e.currentTarget.scrollTop < 80 && hasMore && !loadingOlder && !loadingMsgs) loadOlder(); }}>
                 {hasMore && (
-                  <div className="self-center text-[11px] text-gray-500 mb-1">
-                    {loadingOlder ? '⏳ جارٍ تحميل الأقدم…' : (
-                      <button onClick={loadOlder} className="hover:text-amber-400 border border-gray-800 rounded-full px-4 py-1">⬆ رسائل أقدم</button>
-                    )}
-                  </div>
+                  loadingOlder ? <div className="wa-day">جارٍ تحميل الأقدم…</div>
+                    : <button type="button" className="wa-more" onClick={loadOlder}>رسائل أقدم</button>
                 )}
                 {loadingMsgs ? (
-                  <div className="flex-1 flex items-center justify-center text-gray-600 text-sm">جارٍ التحميل…</div>
-                ) : grouped.map((g, i) =>
-                  g.type === 'day' ? (
-                    <div key={'d' + i} className="self-center text-[10px] font-bold text-gray-500 bg-gray-900 border border-gray-800 rounded-full px-3.5 py-0.5 my-1.5">
-                      {g.label}
-                    </div>
-                  ) : (
-                    <div
-                      key={g.m.id}
-                      className={`group relative max-w-[78%] rounded-2xl px-3.5 py-2 text-[13.5px] leading-relaxed ${
-                        g.m.direction === 'in'
-                          ? (g.m.source === 'injected'
-                              // 🎭 ليست من العميل فعلاً — الإدارة تكلّمت بلسانه. السجل يقول الحقيقة.
-                              ? 'self-start bg-violet-950/40 border border-dashed border-violet-500/50 rounded-tr-md text-gray-100'
-                              : 'self-start bg-gray-800/80 border border-gray-700/60 rounded-tr-md text-gray-100')
-                          : 'self-end bg-emerald-950/70 border border-emerald-900 rounded-tl-md text-gray-100'
-                      } ${g.m.payload?.customerReaction?.emoji ? 'mb-2.5' : ''}`}
-                    >
-                      {g.m.source === 'injected' && (
-                        <div className="text-[10px] font-bold text-violet-300 mb-0.5">
-                          🎭 بلسان العميل — كتبها {g.m.payload?.by || 'الإدارة'} (لم تصل العميل)
-                        </div>
-                      )}
-                      {g.m.deletedAt ? (
-                        <div className="italic text-gray-500 text-[12.5px]">🗑️ حُذفت من السجل بواسطة {g.m.deletedBy || 'أدمن'}</div>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-3)' }}>
+                    <Skel h={44} w="55%" /><Skel h={64} w="70%" /><Skel h={44} w="45%" />
+                  </div>
+                ) : grouped.map((g, i) => {
+                  if (g.type === 'day') return <div key={'d' + i} className="wa-day">{g.label}</div>;
+                  const m = g.m;
+                  const out = m.direction !== 'in';
+                  const inject = !out && m.source === 'injected';
+                  const react = m.payload?.customerReaction?.emoji && !m.deletedAt;
+                  return (
+                    <div key={m.id} className={`wa-msg${out ? ' out' : ''}${inject ? ' inject' : ''}${m.status === 'failed' ? ' failed' : ''}${m.deletedAt ? ' deleted' : ''}${react ? ' has-react' : ''}`}>
+                      {/* ليست من العميل فعلاً — الإدارة تكلّمت بلسانه. السجلّ يقول الحقيقة. */}
+                      {inject && <div className="who sys"><VenetianMask />بلسان العميل — كتبها {m.payload?.by || 'الإدارة'} (لم تصل العميل)</div>}
+                      {out && <SourceTag m={m} />}
+                      {m.deletedAt ? (
+                        <p>حُذفت من السجلّ بواسطة {m.deletedBy || 'أدمن'}</p>
+                      ) : m.msgType === 'audio' && !out ? (
+                        <AudioBubble m={m} />
+                      ) : ['image', 'sticker'].includes(m.msgType) && !out ? (
+                        <ImageBubble m={m} onOpen={setLightbox} />
+                      ) : m.msgType === 'image' && out && m.payload?.image?.link ? (
+                        // صورةٌ أرسلناها نحن — رابطُنا في الحمولة يكفي، ولا وكيل
+                        <OutImageBubble m={m} onOpen={setLightbox} />
+                      ) : m.msgType === 'video' && out && m.payload?.video?.link ? (
+                        <OutVideoBubble m={m} />
+                      ) : ['video', 'document'].includes(m.msgType) && !out ? (
+                        <FileBubble m={m} />
                       ) : (
-                        g.m.msgType === 'audio' && g.m.direction === 'in' ? (
-                          <AudioBubble m={g.m} />
-                        ) : ['image', 'sticker'].includes(g.m.msgType) && g.m.direction === 'in' ? (
-                          <ImageBubble m={g.m} onOpen={setLightbox} />
-                        ) : g.m.msgType === 'image' && g.m.direction === 'out' && g.m.payload?.image?.link ? (
-                          // صورةٌ أرسلناها نحن — رابطُنا في الحمولة يكفي، ولا وكيل. صفُّ البثّ
-                          // يُرسَل بمعرّف ميتا ويُحفظ معه رابطنا للعرض (منذ 2026-09-30).
-                          <OutImageBubble m={g.m} onOpen={setLightbox} />
-                        ) : g.m.msgType === 'video' && g.m.direction === 'out' && g.m.payload?.video?.link ? (
-                          <OutVideoBubble m={g.m} />
-                        ) : ['video', 'document'].includes(g.m.msgType) && g.m.direction === 'in' ? (
-                          <FileBubble m={g.m} />
-                        ) : (
-                          <div className="whitespace-pre-wrap break-words">{g.m.body || <span className="text-gray-500 italic">[{g.m.msgType}]</span>}</div>
-                        )
+                        <p>{m.body || <span className="muted">[{m.msgType}]</span>}</p>
                       )}
-                      <div className="flex items-center gap-1.5 justify-end mt-0.5 text-[10px] text-gray-500">
-                        {/* أدوات الرسالة: معلومات + حذف (تظهر عند المرور) */}
-                        {/* كانت group-hover فقط — ولا مرورَ على الشاشات اللمسيّة والصفحة لها تخطيط موبايل */}
-                        <span className="flex items-center gap-1 ml-auto opacity-40 group-hover:opacity-100 transition-opacity">
-                          <button
-                            onClick={() => swalAlert(messageInfoText(g.m), 'info')}
-                            className="text-gray-500 hover:text-sky-400 px-0.5"
-                            title="معلومات الرسالة"
-                          >ⓘ</button>
-                          {!g.m.deletedAt && (
-                            <button
-                              onClick={() => deleteMessage(g.m)}
-                              className="text-gray-500 hover:text-rose-400 px-0.5"
-                              title="حذف من سجلنا (لا يمكن سحبها من هاتف العميل)"
-                            >🗑</button>
+                      <div className="meta">
+                        <span className="tools">
+                          <button type="button" onClick={() => swalAlert(messageInfoText(m), 'info')} aria-label="معلومات الرسالة" title="معلومات الرسالة"><Info /></button>
+                          {!m.deletedAt && (
+                            <button type="button" onClick={() => deleteMessage(m)} aria-label="حذف من السجلّ" title="حذف من سجلّنا (لا يمكن سحبها من هاتف العميل)"><Trash2 /></button>
                           )}
                         </span>
-                        {g.m.direction === 'out' && <SourceTag m={g.m} />}
-                        {g.m.payload?.styled && (
-                          <span className="text-violet-400 font-bold" title="أعاد الدون صياغتها — النصّ الأصليّ في «معلومات الرسالة»">✨ صيغت</span>
-                        )}
-                        <span>{fmtTime(g.m.createdAt)}</span>
-                        {g.m.channel === 'web' && <span className="text-teal-400/80" title="عبر رقم الأعمال">📱</span>}
-                        {g.m.direction === 'out' && <Ticks status={g.m.status} />}
+                        {m.channel === 'web' && <span title="عبر رقم الأعمال" style={{ color: 'var(--ch-web)', display: 'inline-flex' }}><Smartphone /></span>}
+                        <span>{fmtTime(m.createdAt)}</span>
+                        {out && <Ticks status={m.status} />}
                       </div>
-                      {g.m.status === 'failed' && g.m.errorMessage && (
-                        <div className="text-[10px] text-rose-400 mt-1">⚠️ {g.m.errorMessage}</div>
-                      )}
-                      {/* شارة تفاعل العميل (رياكشن) */}
-                      {g.m.payload?.customerReaction?.emoji && !g.m.deletedAt && (
-                        <span
-                          className={`absolute -bottom-3 ${g.m.direction === 'in' ? 'left-2' : 'right-2'} bg-gray-900 border border-gray-700 rounded-full px-1.5 py-0 text-[13px] shadow`}
-                          title={`تفاعل العميل ${fmtTime(g.m.payload.customerReaction.at)}`}
-                        >{g.m.payload.customerReaction.emoji}</span>
-                      )}
+                      {m.status === 'failed' && m.errorMessage && <div className="err">{m.errorMessage}</div>}
+                      {react && <span className="react" title={`تفاعل العميل ${fmtTime(m.payload.customerReaction.at)}`}>{m.payload.customerReaction.emoji}</span>}
                     </div>
-                  )
+                  );
+                })}
+                {!loadingMsgs && conv.needsAttention && (
+                  <div className="wa-handoff"><Headset /><span>حوّلها الدون للإدارة — تنتظر ردّ موظّف</span><button type="button" className="wa-btn sm" style={{ borderColor: 'var(--danger)', color: 'var(--danger)' }} onClick={attentionDone}><Check />تمّ التعامل</button></div>
                 )}
                 {!loadingMsgs && pending.length > 0 && (
-                  <div className="mt-2 pt-2 border-t border-dashed border-gray-800 flex flex-col gap-1.5">
-                    <div className="self-center text-[10.5px] font-bold text-amber-300/80 bg-amber-500/5 border border-amber-500/20 rounded-full px-3 py-0.5">
-                      ⏳ في الطابور — لم تُرسل بعد ({pending.length})
-                    </div>
+                  <>
+                    <div className="wa-day" style={{ color: 'var(--warn)' }}>في الطابور — لم تُرسل بعد (<span className="ltr">{pending.length}</span>)</div>
                     {pending.map(m => (
-                      <div key={m.id} className="self-end max-w-[78%] rounded-2xl rounded-tl-md px-3 py-1.5 text-[12.5px] bg-gray-800/40 border border-dashed border-gray-700 text-gray-400 whitespace-pre-wrap break-words">
-                        {m.msgType === 'video' ? '🎬 ' : m.msgType === 'image' ? '🖼️ ' : ''}{m.body || `[${m.msgType}]`}
-                        <div className="text-[10px] text-gray-600 mt-0.5 text-left">
-                          {m.source === 'broadcast' ? '📢 بثّ' : m.source === 'staff' ? '👤 موظّف' : m.source === 'bot' ? '🤖 الدون' : m.source} · {m.status === 'sending' ? 'يُرسل الآن…' : 'ينتظر دوره'}
+                      <div key={m.id} className="wa-msg out pending">
+                        <p>{m.body || `[${m.msgType}]`}</p>
+                        <div className="meta">
+                          {m.msgType === 'video' ? <Video /> : m.msgType === 'image' ? <ImageIcon /> : null}
+                          <span>{m.source === 'broadcast' ? 'بثّ' : m.source === 'staff' ? 'موظّف' : m.source === 'bot' ? 'الدون' : m.source} · {m.status === 'sending' ? 'يُرسل الآن…' : 'ينتظر دوره'}</span>
+                          <Clock />
                         </div>
                       </div>
                     ))}
-                  </div>
+                  </>
                 )}
               </div>
 
-              {/* صندوق الرد */}
-              <div className="border-t border-gray-800 bg-gray-900/80 p-3">
-                {winH > 0 || conv.windowOpen ? (
-                  <>
-                    {/* ⚠️ بطاقة المراجعة — تظهر حين يمسك الحارس تفصيلاً تغيّر */}
-                    {review && (
-                      <div className="mb-2.5 rounded-xl border border-rose-500/45 bg-rose-500/[0.06] p-2.5">
-                        <div className="text-[11.5px] font-bold text-rose-400 mb-2">⚠️ {review.reason} — لم تُرسل</div>
-                        <div className="bg-gray-950 border border-gray-800 border-r-2 border-r-amber-500 rounded-lg px-2.5 py-1.5 text-[12px] mb-1.5">
-                          <div className="text-[9.5px] text-gray-500 font-bold mb-0.5">نصّك</div>
-                          <div className="whitespace-pre-wrap break-words text-gray-100">{review.original}</div>
-                        </div>
-                        <div className="bg-gray-950 border border-gray-800 border-r-2 border-r-violet-500 rounded-lg px-2.5 py-1.5 text-[12px] mb-2">
-                          <div className="text-[9.5px] text-gray-500 font-bold mb-0.5">صياغة الدون</div>
-                          <div className="whitespace-pre-wrap break-words text-gray-100">{review.styled}</div>
-                        </div>
-                        <div className="flex gap-1.5 flex-wrap">
-                          <button
-                            onClick={() => doSend(review.original, { raw: true, approved: 'mine' })}
-                            disabled={sending}
-                            className="flex-1 min-w-[96px] bg-amber-500 hover:bg-amber-400 text-gray-950 font-bold rounded-lg py-1.5 text-[11.5px] disabled:opacity-50"
-                          >أرسل نصّي</button>
-                          <button
-                            onClick={() => doSend(review.styled, { raw: true, approved: 'styled' })}
-                            disabled={sending}
-                            className="flex-1 min-w-[96px] border border-gray-700 hover:border-violet-400 hover:text-violet-300 text-gray-300 font-bold rounded-lg py-1.5 text-[11.5px] disabled:opacity-50"
-                          >أرسل الصياغة</button>
-                          <button
-                            onClick={() => { setDraft(review.original); setReview(null); }}
-                            className="flex-1 min-w-[72px] border border-gray-700 hover:border-amber-500 hover:text-amber-400 text-gray-300 font-bold rounded-lg py-1.5 text-[11.5px]"
-                          >عدّل</button>
-                        </div>
+              {/* الردّ */}
+              {canReply ? (
+                <div className={`wa-composer${asCustomer ? ' inject' : ''}`}>
+                  {/* بطاقة المراجعة — تظهر حين يمسك الحارس تفصيلاً تغيّر */}
+                  {review && (
+                    <div className="wa-review" role="alert">
+                      <b style={{ color: 'var(--danger)', font: '700 13px/18px var(--font-sans)', display: 'flex', gap: 6, alignItems: 'center' }}><TriangleAlert />{review.reason} — لم تُرسل</b>
+                      <div className="q"><small>نصّك</small>{review.original}</div>
+                      <div className="q don"><small>صياغة الدون</small>{review.styled}</div>
+                      <div className="row" style={{ flexWrap: 'wrap' }}>
+                        <button type="button" className="wa-btn sm primary grow" disabled={sending} onClick={() => doSend(review.original, { raw: true, approved: 'mine' })}>أرسل نصّي</button>
+                        <button type="button" className="wa-btn sm grow" disabled={sending} onClick={() => doSend(review.styled, { raw: true, approved: 'styled' })}>أرسل الصياغة</button>
+                        <button type="button" className="wa-btn sm ghost" onClick={() => { setDraft(review.original); setReview(null); }}>عدّل</button>
                       </div>
-                    )}
-                    {/* 🖼️ الصورة المرحَّلة — مرفوعةٌ فعلاً، وما يُكتب أدناه تعليقُها */}
-                    {(img || imgBusy || imgErr) && (
-                      <div className="mb-2 flex items-center gap-2.5 rounded-xl border border-gray-800 bg-gray-950/70 px-2.5 py-2">
-                        {imgBusy ? (
-                          <div className="w-[52px] h-[52px] rounded-lg bg-gray-800/60 border border-gray-700/50 animate-pulse shrink-0" />
-                        ) : img ? (
-                          // eslint-disable-next-line @next/next/no-img-element
-                          <img
-                            src={`${API_URL}${img.url}`}
-                            alt=""
-                            onClick={() => setLightbox(`${API_URL}${img.url}`)}
-                            className="w-[52px] h-[52px] rounded-lg border border-gray-700/60 object-cover cursor-zoom-in shrink-0"
-                          />
-                        ) : null}
-                        <div className="flex-1 min-w-0 text-[11px] leading-relaxed">
-                          {imgBusy ? (
-                            <span className="text-gray-400">⏳ تُرفع وتُضغط…</span>
-                          ) : imgErr ? (
-                            <span className="text-rose-400">⚠️ {imgErr}</span>
-                          ) : img ? (
-                            <>
-                              <div className="text-emerald-300 font-bold">
-                                🖼️ صورة جاهزة · {Math.round(img.bytes / 1024)} ك.ب{img.width ? ` · ${img.width}×${img.height}` : ''}
-                              </div>
-                              <div className={capOver > 0 ? 'text-rose-400' : 'text-gray-500'}>
-                                {capOver > 0
-                                  ? `التعليق أطول من ${WA_CAPTION_MAX} حرفاً بـ${capOver} — سيُقصّ`
-                                  : 'ما تكتبه أدناه يصير تعليقها — رسالةٌ واحدة'}
-                              </div>
-                            </>
-                          ) : null}
-                        </div>
-                        {!imgBusy && (
-                          <button
-                            onClick={() => { setImg(null); setImgErr(null); }}
-                            title="إزالة الصورة"
-                            className="text-gray-500 hover:text-rose-400 text-sm px-1.5 shrink-0"
-                          >✕</button>
-                        )}
+                    </div>
+                  )}
+                  {/* الصورة المرحَّلة — مرفوعةٌ فعلاً، وما يُكتب أدناه تعليقُها */}
+                  {(img || imgBusy || imgErr) && (
+                    <div className="wa-attach">
+                      {imgBusy ? <div className="thumb wa-skel" /> : img ? (
+                        // eslint-disable-next-line @next/next/no-img-element
+                        <img src={`${API_URL}${img.url}`} alt="الصورة المرفقة" className="thumb" style={{ objectFit: 'cover', cursor: 'zoom-in' }} onClick={() => setLightbox(`${API_URL}${img.url}`)} />
+                      ) : null}
+                      <div className="grow" style={{ font: '500 13px/18px var(--font-sans)' }}>
+                        {imgBusy ? <span className="muted">تُرفع وتُضغط…</span>
+                          : imgErr ? <span style={{ color: 'var(--danger)' }}>{imgErr}</span>
+                            : img ? (
+                              <>
+                                <div style={{ color: 'var(--ok)', fontWeight: 700 }}>صورة جاهزة · <span className="ltr">{Math.round(img.bytes / 1024)}</span> ك.ب{img.width ? <> · <span className="ltr">{img.width}×{img.height}</span></> : null}</div>
+                                <div style={{ color: capOver > 0 ? 'var(--danger)' : 'var(--ink-3)', fontSize: 12 }}>
+                                  {capOver > 0 ? `التعليق أطول من ${WA_CAPTION_MAX} حرفاً بـ${capOver} — سيُقصّ` : 'ما تكتبه أدناه يصير تعليقها — رسالة واحدة'}
+                                </div>
+                              </>
+                            ) : null}
                       </div>
+                      {!imgBusy && <button type="button" className="wa-iconbtn" aria-label="إزالة الصورة" onClick={() => { setImg(null); setImgErr(null); }}><X /></button>}
+                    </div>
+                  )}
+                  <div className="line">
+                    {/* «+»: الصورة و«بلسان العميل» — النادر والملتبس لا يجاور زرّ الإرسال */}
+                    <input ref={fileRef} type="file" accept="image/jpeg,image/png" hidden tabIndex={-1}
+                      onChange={e => { const f = e.target.files?.[0]; e.target.value = ''; pickImage(f); }} />
+                    <div style={{ position: 'relative' }}>
+                      <button type="button" className={`wa-iconbtn${plusOpen || img ? ' on' : ''}${asCustomer ? ' violet on' : ''}`} aria-label="المزيد" aria-expanded={plusOpen} onClick={() => setPlusOpen(v => !v)}>{plusOpen ? <X /> : <Plus />}</button>
+                      {plusOpen && (
+                        <div className="wa-plusmenu wa-menu" role="menu">
+                          <button type="button" role="menuitem" disabled={asCustomer || imgBusy || sending} onClick={() => { setPlusOpen(false); fileRef.current?.click(); }}>
+                            <ImageIcon /><span className="grow"><span style={{ display: 'block' }}>صورة</span><span className="hint">JPG أو PNG — تصل مع تعليقها رسالة واحدة</span></span>
+                          </button>
+                          <button type="button" role="menuitem" disabled={!!img || imgBusy} onClick={() => { setPlusOpen(false); setAsCustomer(v => !v); }}>
+                            <VenetianMask style={{ color: 'var(--violet)' }} /><span className="grow"><span style={{ display: 'block' }}>{asCustomer ? 'أوقف «بلسان العميل»' : 'بلسان العميل'}</span><span className="hint">نصّك لا يصل العميل — الدون يردّ عليه بدلاً منك</span></span>
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                    {/* إطفاءُ الصياغة لهذه الرسالة — للروابط وأرقام الحوالات ورموز التحقّق */}
+                    {!asCustomer && (
+                      <button type="button" className={`wa-iconbtn violet${styleOn ? ' on' : ''}`} onClick={() => setStyleOn(v => !v)}
+                        aria-label="صياغة الدون" aria-pressed={styleOn}
+                        title={styleOn ? 'الدون يعيد صياغة ردّك بصوته — اضغط لإرسال نصّك حرفيّاً' : 'الصياغة معطّلة لهذه الرسالة — اضغط لإعادتها'}><Sparkles /></button>
                     )}
-                    <div className="flex gap-2 items-center">
-                      {/* 🖼️ إرفاق صورة — ترفع فوراً، ثمّ تصل رسالةً واحدة مع تعليقها */}
-                      {!asCustomer && (
-                        <>
-                          <input
-                            ref={fileRef}
-                            type="file"
-                            accept="image/jpeg,image/png"
-                            className="hidden"
-                            tabIndex={-1}
-                            onChange={e => { const f = e.target.files?.[0]; e.target.value = ''; pickImage(f); }}
-                          />
-                          <button
-                            onClick={() => fileRef.current?.click()}
-                            disabled={imgBusy || sending}
-                            title="إرفاق صورة (JPG أو PNG) — واتساب لا يقبل WEBP في رسالة الصورة"
-                            className={`text-xs rounded-xl px-3 py-2.5 border transition-colors shrink-0 disabled:opacity-50 ${
-                              img ? 'bg-emerald-500/15 text-emerald-300 border-emerald-500/50' : 'text-gray-500 border-gray-800 hover:text-white'}`}
-                          >{imgBusy ? '⏳' : '🖼️'}</button>
-                        </>
-                      )}
-                      {/* 🎭 وضع «بلسان العميل»: نصّك لا يصل العميل — يصله ردّ الدون عليه */}
-                      <button
-                        onClick={() => setAsCustomer(v => !v)}
-                        disabled={!!img || imgBusy}
-                        title={img || imgBusy
-                          ? 'أزل الصورة أوّلاً — وضع «بلسان العميل» نصٌّ فقط'
-                          : asCustomer
-                          ? 'وضع الحقن: ما تكتبه يصل الدون كأنه من العميل، فيردّ هو على العميل'
-                          : 'تحويل لوضع «بلسان العميل» — يجعل الدون يردّ بدلاً منك'}
-                        className={`text-xs rounded-xl px-3 py-2.5 border transition-colors shrink-0 disabled:opacity-40 disabled:cursor-not-allowed ${
-                          asCustomer ? 'bg-violet-500/15 text-violet-300 border-violet-500/50' : 'text-gray-500 border-gray-800 hover:text-white'}`}
-                      >🎭</button>
-                      {/* ✨ إطفاءُ الصياغة لهذه الرسالة — للروابط وأرقام الحوالات ورموز التحقّق */}
-                      {!asCustomer && (
-                        <button
-                          onClick={() => setStyleOn(v => !v)}
-                          title={styleOn
-                            ? 'الدون يعيد صياغة ردّك بصوته — اضغط لإرسال نصّك حرفيّاً'
-                            : 'الصياغة معطّلة لهذه الرسالة — اضغط لإعادتها'}
-                          className={`text-xs rounded-xl px-3 py-2.5 border transition-colors shrink-0 ${
-                            styleOn ? 'bg-violet-500/10 text-violet-300 border-violet-500/45' : 'text-gray-600 border-gray-800 hover:text-white'}`}
-                        >{styleOn ? '✨' : '✳'}</button>
-                      )}
-                      <input
-                        value={draft}
-                        onChange={e => setDraft(e.target.value)}
-                        onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); } }}
-                        placeholder={asCustomer ? 'اكتب بلسان العميل — الدون هو من سيردّ عليه…' : img ? 'تعليق الصورة (اختياريّ)…' : 'اكتب رداً كموظف…'}
-                        className={`flex-1 bg-gray-950 border rounded-xl px-4 py-2.5 text-sm text-white placeholder-gray-600 outline-none ${
-                          asCustomer ? 'border-violet-500/50 focus:border-violet-400' : 'border-gray-800 focus:border-amber-500'}`}
-                        disabled={sending}
-                      />
-                      <button
-                        onClick={send}
-                        disabled={sending || imgBusy || (!draft.trim() && !img)}
-                        className={`disabled:opacity-40 disabled:cursor-not-allowed text-gray-950 font-bold rounded-xl px-5 py-2.5 text-sm transition-colors ${
-                          asCustomer ? 'bg-violet-400 hover:bg-violet-300' : 'bg-emerald-500 hover:bg-emerald-400'}`}
-                      >
-                        {sending ? '…' : asCustomer ? 'للدون 🎭' : 'إرسال ◀'}
-                      </button>
-                    </div>
-                    <div className={`text-[10.5px] mt-1.5 ${asCustomer || styleOn ? 'text-violet-300' : 'text-gray-600'}`}>
-                      {asCustomer
-                        ? '🎭 وضع الحقن: نصّك لا يصل العميل إطلاقاً — يصل الدون كأنه كلام العميل، والعميل يستقبل ردّ الدون عليه. مفيد لمن اتصل هاتفياً أو سأل حضورياً.'
-                        : sending && styleOn
-                        ? '✨ يصوغها الدون…'
-                        : styleOn
-                        ? '✨ الدون يعيد صياغة ردّك بصوته قبل إرساله — بلا إضافةِ معلومة · الرد اليدوي يوقف البوت 30 دقيقة'
-                        : '✳ الصياغة معطّلة لهذه الرسالة — تُرسل بنصّك حرفياً · الرد اليدوي يوقف البوت 30 دقيقة'}
-                    </div>
-                  </>
-                ) : (
-                  <div className="bg-rose-500/10 border border-rose-500/30 text-rose-300 rounded-xl px-4 py-3 text-center text-xs font-bold">
-                    🔒 نافذة الرد المجانية (24 ساعة) منتهية
-                    <div className="font-normal text-gray-400 mt-1">
-                      انتظر رسالة جديدة من العميل — أو فعّل رقم الأعمال من «الإدارة ← القنوات» فيصل بلا نافذة
-                    </div>
+                    <textarea
+                      id="wa-draft" rows={Math.min(5, Math.max(1, draft.split('\n').length))} value={draft} disabled={sending}
+                      onChange={e => setDraft(e.target.value)}
+                      onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); } }}
+                      placeholder={asCustomer ? 'اكتب بلسان العميل — الدون يردّ عليه' : img ? 'تعليق الصورة (اختياريّ)' : 'اكتب ردّاً'}
+                      aria-label="نصّ الردّ"
+                    />
+                    <button type="button" className="sendbtn" onClick={send} disabled={sending || imgBusy || (!draft.trim() && !img)}
+                      aria-label={asCustomer ? 'أرسل للدون' : 'إرسال'} style={sending || imgBusy || (!draft.trim() && !img) ? { opacity: 0.45 } : undefined}>
+                      <Send style={{ transform: 'scaleX(-1)' }} />
+                    </button>
                   </div>
-                )}
-              </div>
+                  <div className="mode" style={asCustomer || styleOn ? { color: 'var(--violet)' } : undefined}>
+                    {asCustomer ? <><VenetianMask />نصّك لا يصل العميل — يصل الدون كأنّه كلام العميل، والعميل يستقبل ردّ الدون.</>
+                      : sending && styleOn ? <><Sparkles />يصوغها الدون…</>
+                        : styleOn ? <><Sparkles />الدون يعيد صياغة ردّك قبل إرساله، بلا إضافة معلومة · الردّ اليدويّ يوقف الدون 30 دقيقة</>
+                          : <>تُرسل بنصّك حرفيّاً · الردّ اليدويّ يوقف الدون 30 دقيقة</>}
+                  </div>
+                </div>
+              ) : (
+                <div className="wa-composer">
+                  <Banner tone="danger" icon={<Lock />}>
+                    <b>نافذة الردّ المجّانيّة (24 ساعة) منتهية.</b> {health.webReady ? 'رقم الأعمال يصل بلا نافذة.' : 'انتظر رسالة جديدة من العميل، أو اربط رقم الأعمال من «الإعدادات ← الأرقام» فيصل بلا نافذة.'}
+                  </Banner>
+                  {health.webReady && <button type="button" className="wa-btn primary block" onClick={() => pinChannel('web')}><Smartphone />أرسل من رقم الأعمال</button>}
+                </div>
+              )}
             </>
           )}
         </div>
 
         {/* ─── لوحة العميل ─── */}
-        <div className={`${paneHidden('info')} flex-col min-h-0 border-r border-gray-800 bg-gray-950/60`}>
+        <div className="wa-pane info">
           {!conv ? (
-            <div className="flex-1 flex items-center justify-center text-gray-700 text-sm">—</div>
+            <Empty icon={<User />} title="لا محادثة مختارة" />
           ) : (
-            <div className="flex-1 overflow-y-auto p-3.5 flex flex-col gap-3">
-              <button className="md:hidden self-start text-gray-400 text-sm" onClick={() => setMobilePane('chat')}>◀ رجوع للمحادثة</button>
-
-              {/* ⚡ الإجراءات أوّلاً — أكثرها استعمالاً */}
-              <div className="bg-gray-900 border border-gray-800 rounded-xl p-3.5 flex flex-col gap-2">
-                <div className="text-[10.5px] font-bold text-gray-500">⚡ إجراءات سريعة</div>
-                <button onClick={openBooking} className="w-full bg-amber-500 hover:bg-amber-400 text-gray-950 font-bold rounded-lg py-2 text-xs">
-                  + حجز جديد
-                </button>
-                {ctx?.player && (
-                  <a href={`/admin/players/${ctx.player.id}`} className="w-full text-center border border-gray-700 hover:border-amber-500 hover:text-amber-400 text-gray-300 font-bold rounded-lg py-2 text-xs">
-                    👤 فتح ملف اللاعب
-                  </a>
-                )}
-                <button
-                  onClick={() => { navigator.clipboard?.writeText(intlPhone(conv.phone)); swalToast('نُسخ الرقم 📋', 'success'); }}
-                  className="w-full border border-gray-700 hover:border-amber-500 hover:text-amber-400 text-gray-300 font-bold rounded-lg py-2 text-xs"
-                >
-                  📋 نسخ الرقم
-                </button>
-              </div>
-              {/* بطاقة اللاعب */}
-              <div className="bg-gray-900 border border-gray-800 rounded-xl p-3.5">
-                <div className="text-[10.5px] font-bold text-gray-500 mb-2.5 flex items-center justify-between">
-                  <span>🎭 اللاعب المرتبط</span>
-                  {ctx?.player && <span className="text-emerald-400 text-[9.5px]">مربوط {conv.playerId ? '' : ''}</span>}
+            <>
+              <header className="wa-appbar wa-only-narrow">
+                <button type="button" className="wa-iconbtn" aria-label="رجوع للمحادثة" onClick={() => setMobilePane('chat')}><ChevronRight className="l" /></button>
+                <div className="grow"><div className="ttl">لوحة العميل</div><div className="sub trunc">{convName(conv)}</div></div>
+              </header>
+              <div className="wa-scroll">
+                {/* الإجراءات أوّلاً — أكثرها استعمالاً */}
+                <div className="wa-sec">
+                  <button type="button" className="wa-btn primary block" onClick={openBooking}><CalendarPlus />حجز جديد</button>
+                  <div className="row">
+                    {ctx?.player && <a href={`/admin/players/${ctx.player.id}`} className="wa-btn grow"><User />ملفّ اللاعب</a>}
+                    <button type="button" className="wa-btn grow" onClick={() => { navigator.clipboard?.writeText(intlPhone(conv.phone)); swalToast('نُسخ الرقم', 'success'); }}><Copy />نسخ الرقم</button>
+                  </div>
                 </div>
-                {!ctx ? (
-                  <div className="text-center text-gray-600 text-xs py-3">جارٍ التحميل…</div>
-                ) : ctx.player ? (
-                  <>
-                    {/* الهوية: صورة حقيقية + اسم + وسوم */}
-                    <div className="flex items-center gap-2.5">
-                      <div className="w-12 h-12 rounded-full overflow-hidden bg-gradient-to-br from-amber-500 to-amber-700 text-gray-950 flex items-center justify-center font-bold shrink-0 border border-amber-500/40">
-                        {ctx.player.avatarUrl ? (
-                          // eslint-disable-next-line @next/next/no-img-element
-                          <img src={`${API_URL}${ctx.player.avatarUrl}`} alt="" className="w-full h-full object-cover" />
-                        ) : (
-                          ctx.player.name.charAt(0)
-                        )}
-                      </div>
-                      <div className="min-w-0 flex-1">
-                        <div className="font-bold text-sm text-white truncate flex items-center gap-1.5">
-                          {ctx.player.name}
-                          {ctx.player.isFree && <span className="text-[9px] font-bold bg-sky-500/10 text-sky-400 rounded px-1.5">🎁 مجاني</span>}
-                        </div>
-                        <div className="text-[10.5px] text-gray-500">
-                          لاعب #{ctx.player.id}
-                          {ctx.player.lastActiveAt && <> · آخر نشاط {fmtWhen(ctx.player.lastActiveAt)}</>}
-                        </div>
-                      </div>
-                    </div>
 
-                    {/* التقدم: الرتبة + شريط XP */}
-                    <div className="mt-2.5 bg-gray-950 border border-gray-800 rounded-lg px-2.5 py-2">
-                      <div className="flex items-center justify-between text-[11px]">
-                        <span className="font-bold text-amber-400">🎖️ {RANK_AR[ctx.player.rankTier] || ctx.player.rankTier}</span>
-                        <span className="text-gray-400 tabular-nums">{ctx.player.rankRR} RR{ctx.player.rrRequired ? ` / ${ctx.player.rrRequired}` : ''}</span>
-                      </div>
-                      <div className="flex items-center justify-between text-[10px] text-gray-500 mt-1.5">
-                        <span>مستوى {ctx.player.level}</span>
-                        <span className="tabular-nums">{ctx.player.xp}{ctx.player.nextLevelXP ? ` / ${ctx.player.nextLevelXP} XP` : ' XP'}</span>
-                      </div>
-                      {typeof ctx.player.xpProgress === 'number' && (
-                        <div className="h-1 bg-gray-800 rounded-full mt-1 overflow-hidden">
-                          <div className="h-full bg-amber-500 rounded-full" style={{ width: `${Math.min(100, ctx.player.xpProgress)}%` }} />
+                {/* التحكّم: الدون، التسويق، رقم الإرسال */}
+                <div className="wa-sec" style={{ paddingBlock: 'var(--space-1)', gap: 0 }}>
+                  <Setting title="الدون يردّ" hint={conv.botEnabled ? (paused ? `متوقّف مؤقّتاً حتّى ${fmtTime(conv.botPausedUntil)}` : 'يردّ على هذه المحادثة') : 'متوقّف نهائيّاً لهذه المحادثة'}>
+                    <Toggle on={!!conv.botEnabled} onChange={() => toggleBot()} label="الدون يردّ على هذه المحادثة" />
+                  </Setting>
+                  <Setting title="الرسائل التسويقيّة" hint={!ctx ? '…' : ctx.optedOut ? 'موقوفة عن هذا الرقم' : 'تصل هذا الرقم'}>
+                    <Toggle on={!!ctx && !ctx.optedOut} onChange={() => toggleMarketing()} disabled={!ctx} label="الرسائل التسويقيّة تصل هذا الرقم" />
+                  </Setting>
+                  {(conv.sendVia || conv.channelPin) && (
+                    <Setting title="رقم الإرسال" hint="من أيّ رقم يخرج الردّ">
+                      <select className="wa-select" style={{ width: 150 }} value={conv.channelPin || ''} onChange={e => pinChannel(e.target.value)} aria-label="رقم الإرسال لهذه المحادثة">
+                        <option value="">{conv.sendVia === 'web' ? 'تلقائيّ (الأعمال)' : 'تلقائيّ (ميتا)'}</option>
+                        <option value="web">ثبّت: الأعمال</option>
+                        <option value="cloud">ثبّت: ميتا</option>
+                      </select>
+                    </Setting>
+                  )}
+                </div>
+
+                {/* اللاعب المرتبط */}
+                <div className="wa-sec">
+                  <h3><User />اللاعب المرتبط{ctx?.player && <small style={{ color: 'var(--ok)' }}>مربوط</small>}</h3>
+                  {!ctx ? <Skel h={56} /> : ctx.player ? (
+                    <>
+                      <div className="row" style={{ gap: 'var(--space-3)' }}>
+                        <span className="wa-avatar lg linked">
+                          {ctx.player.avatarUrl
+                            // eslint-disable-next-line @next/next/no-img-element
+                            ? <img src={`${API_URL}${ctx.player.avatarUrl}`} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover', borderRadius: '50%' }} />
+                            : ctx.player.name.charAt(0)}
+                        </span>
+                        <div className="grow">
+                          <div className="row"><b className="trunc" style={{ font: '700 16px/22px var(--font-sans)' }}>{ctx.player.name}</b>{ctx.player.isFree && <Badge tone="info">مجّانيّ</Badge>}</div>
+                          <div className="muted" style={{ font: '500 12px/16px var(--font-sans)' }}>لاعب <span className="ltr">#{ctx.player.id}</span>{ctx.player.lastActiveAt && <> · آخر نشاط {fmtWhen(ctx.player.lastActiveAt)}</>}</div>
                         </div>
+                      </div>
+                      <div className="wa-xpbox">
+                        <div className="wa-kv"><span style={{ color: 'var(--gold)', fontWeight: 700 }}>{RANK_AR[ctx.player.rankTier] || ctx.player.rankTier}</span><b className="ltr">{ctx.player.rankRR}{ctx.player.rrRequired ? ` / ${ctx.player.rrRequired}` : ''} RR</b></div>
+                        <div className="wa-kv"><span>مستوى <span className="ltr">{ctx.player.level}</span></span><b className="ltr">{ctx.player.xp}{ctx.player.nextLevelXP ? ` / ${ctx.player.nextLevelXP}` : ''} XP</b></div>
+                        {typeof ctx.player.xpProgress === 'number' && <Meter pct={ctx.player.xpProgress} tone="gold" />}
+                      </div>
+                      {/* أداء الموسم الحالي — مطابق لصفحة التصنيف بواجهة اللاعب */}
+                      <div className="row muted" style={{ font: '500 12px/16px var(--font-sans)' }}><span className="grow">الموسم الحاليّ</span><span>مدى الحياة: <b className="ltr">{ctx.player.lifetimeMatches ?? 0}</b> مباراة</span></div>
+                      <div className="wa-grid3" style={{ gap: 'var(--space-2)' }}>
+                        <Tile k="مباراة" v={ctx.player.totalMatches ?? 0} />
+                        <Tile k="فوز" v={ctx.player.totalWins ?? 0} tone="ok" />
+                        <Tile k="نسبة الفوز" v={`${ctx.player.winRate ?? 0}%`} tone="gold" />
+                      </div>
+                      {ctx.player.favoriteRole && (
+                        <div className="wa-kv"><span>الأكثر لعباً (كلّ المواسم)</span><b style={{ color: 'var(--violet)' }}>{ROLE_AR[ctx.player.favoriteRole] || ctx.player.favoriteRole}</b></div>
                       )}
-                    </div>
+                      <button type="button" className="wa-btn sm ghost" onClick={() => linkPlayer(null)}><Unlink />فكّ الربط</button>
+                    </>
+                  ) : (
+                    <>
+                      <p className="muted" style={{ margin: 0, font: '400 14px/22px var(--font-sans)' }}>الرقم غير مربوط بأيّ لاعب مسجَّل.</p>
+                      {!showLink ? (
+                        <button type="button" className="wa-btn" onClick={() => setShowLink(true)}><Link2 />ربط يدويّ بلاعب</button>
+                      ) : (
+                        <>
+                          <div className="wa-search">
+                            <Search />
+                            <input className="wa-input" id="wa-linkq" value={linkQ} onChange={e => setLinkQ(e.target.value)} placeholder="ابحث بالاسم أو الرقم" aria-label="بحث عن لاعب للربط" autoFocus />
+                          </div>
+                          <div className="wa-list" style={{ maxHeight: 220, overflowY: 'auto' }}>
+                            {linkResults.map(p => (
+                              <button type="button" key={p.id} onClick={() => linkPlayer(p.id)} style={{ border: 0, borderBottom: '1px solid var(--line)', background: 'transparent', color: 'inherit', cursor: 'pointer', textAlign: 'start', width: '100%' }}>
+                                <span className="t"><b>{p.name}</b><span className="ltr">{p.phone}</span></span>
+                                {RANK_AR[p.rankTier] && <Badge tone="gold">{RANK_AR[p.rankTier]}</Badge>}
+                              </button>
+                            ))}
+                          </div>
+                          {linkQ.trim().length >= 2 && linkResults.length === 0 && <span className="muted" style={{ font: '500 12px/16px var(--font-sans)' }}>لا نتائج</span>}
+                        </>
+                      )}
+                    </>
+                  )}
+                </div>
 
-                    {/* أداء الموسم الحالي — مطابق لصفحة التصنيف بواجهة اللاعب */}
-                    <div className="text-[9px] text-gray-600 mt-2 mb-1 flex justify-between">
-                      <span>الموسم الحالي</span>
-                      <span>مدى الحياة: <b className="text-gray-400 tabular-nums">{ctx.player.lifetimeMatches ?? 0}</b> مباراة</span>
+                {/* آخر الحجوزات */}
+                <div className="wa-sec">
+                  <h3><Ticket />آخر الحجوزات{ctx?.bookings?.length ? <small className="ltr">{ctx.bookings.length}</small> : null}</h3>
+                  {latestBk && (
+                    <div className="wa-xpbox">
+                      <div className="row">
+                        <b className="grow trunc" style={{ font: '700 14px/20px var(--font-sans)' }}>{latestBk.activityName || 'حجز بلا فعاليّة'}</b>
+                        {latestBk.kind === 'reservation' && <Badge tone={latestBk.status === 'confirmed' || latestBk.status === 'paid_all' ? 'ok' : latestBk.status === 'waitlist' ? 'info' : 'warn'}>{latestBk.status === 'confirmed' || latestBk.status === 'paid_all' ? 'مثبَّت' : latestBk.status === 'waitlist' ? 'قائمة انتظار' : 'غير مثبَّت'}</Badge>}
+                      </div>
+                      <div className="muted" style={{ font: '500 12px/16px var(--font-sans)' }}>
+                        {latestBk.activityDate ? fmtDay(latestBk.activityDate) + ' · ' + fmtTime(latestBk.activityDate) : 'بلا موعد'}
+                        {latestBk.activityDate && new Date(latestBk.activityDate).getTime() < Date.now() ? ' · انتهت' : ''}
+                      </div>
+                      <div className="wa-kv"><span>باسم {latestBk.name}</span><b><span className="ltr">{latestBk.count}</span> {Number(latestBk.count) === 1 ? 'شخص' : 'أشخاص'}</b></div>
+                      {latestBk.notes && <div className="muted" style={{ font: '400 13px/20px var(--font-sans)', whiteSpace: 'pre-wrap' }}>{latestBk.notes}</div>}
+                      <button type="button" className="wa-btn block" onClick={() => setEditBk({ name: latestBk.name || '', count: Number(latestBk.count) || 1, notes: latestBk.notes || '' })}><Pencil />عدّل آخر حجز</button>
                     </div>
-                    <div className="grid grid-cols-3 gap-1.5 text-center">
-                      {[
-                        { v: ctx.player.totalMatches ?? 0, l: 'مباراة' },
-                        { v: ctx.player.totalWins ?? 0, l: 'فوز' },
-                        { v: (ctx.player.winRate ?? 0) + '%', l: 'نسبة الفوز' },
-                      ].map((s, i) => (
-                        <div key={i} className="bg-gray-950 border border-gray-800 rounded-lg py-1.5">
-                          <div className="font-bold text-sm text-white tabular-nums">{s.v}</div>
-                          <div className="text-[9px] text-gray-600">{s.l}</div>
+                  )}
+                  {!ctx ? <Skel h={40} /> : ctx.bookings?.length ? (
+                    <div className="wa-list">
+                      {ctx.bookings.map((b: any) => (
+                        <div key={b.id}>
+                          <span className="t"><b>{b.name} × <span className="ltr">{b.count}</span></b><span>{fmtWhen(b.createdAt)}</span></span>
+                          <Badge tone={b.isFree ? 'info' : b.isPaid ? 'ok' : 'danger'}>{b.isFree ? 'مجّانيّ' : b.isPaid ? 'مدفوع' : 'غير مدفوع'}</Badge>
                         </div>
                       ))}
                     </div>
-                    {ctx.player.favoriteRole && (
-                      <div className="mt-2 text-center text-[10.5px] text-gray-400 bg-gray-950 border border-gray-800 rounded-lg py-1.5">
-                        🎭 الأكثر لعباً (كل المواسم): <b className="text-violet-400">{ROLE_AR[ctx.player.favoriteRole] || ctx.player.favoriteRole}</b>
-                      </div>
-                    )}
-                    <button onClick={() => linkPlayer(null)} className="w-full mt-2.5 text-[10.5px] text-gray-600 hover:text-rose-400">فك الربط</button>
-                  </>
-                ) : (
-                  <div className="text-center py-2">
-                    <div className="text-2xl mb-1">👤</div>
-                    <div className="text-xs text-gray-500 mb-2.5">الرقم غير مربوط بأي لاعب مسجّل</div>
-                    {!showLink ? (
-                      <button onClick={() => setShowLink(true)} className="text-xs font-bold border border-gray-700 hover:border-amber-500 hover:text-amber-400 text-gray-300 rounded-lg px-3.5 py-1.5">
-                        🔗 ربط يدوي بلاعب
-                      </button>
-                    ) : (
-                      <div>
-                        <input
-                          value={linkQ}
-                          onChange={e => setLinkQ(e.target.value)}
-                          placeholder="ابحث بالاسم أو الرقم…"
-                          autoFocus
-                          className="w-full bg-gray-950 border border-gray-800 rounded-lg px-3 py-1.5 text-xs text-white placeholder-gray-600 focus:border-amber-500 outline-none"
-                        />
-                        <div className="mt-1.5 max-h-40 overflow-y-auto">
-                          {linkResults.map(p => (
-                            <button
-                              key={p.id}
-                              onClick={() => linkPlayer(p.id)}
-                              className="w-full text-right text-xs bg-gray-950 hover:bg-gray-800 border border-gray-800 rounded-lg px-2.5 py-1.5 mb-1 flex items-center gap-2"
-                            >
-                              <span className="font-bold text-white">{p.name}</span>
-                              <span className="text-gray-500" dir="ltr">{p.phone}</span>
-                              <span className="mr-auto text-[9px] text-amber-400">{RANK_AR[p.rankTier] || ''}</span>
-                            </button>
-                          ))}
-                          {linkQ.trim().length >= 2 && linkResults.length === 0 && (
-                            <div className="text-[10.5px] text-gray-600 py-1">لا نتائج</div>
-                          )}
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                )}
-              </div>
-
-              {/* آخر الحجوزات */}
-              <details open className="bg-gray-900 border border-gray-800 rounded-xl p-3.5">
-                <summary className="text-[10.5px] font-bold text-gray-500 mb-2 cursor-pointer list-none">
-                  🎫 آخر الحجوزات {ctx?.bookings?.length ? `(${ctx.bookings.length})` : ''}
-                </summary>
-                {!ctx ? null : ctx.bookings?.length ? ctx.bookings.map((b: any) => {
-                  const st = b.isFree ? { l: 'مجاني', c: 'text-sky-400 bg-sky-500/10' } : b.isPaid ? { l: 'مدفوع', c: 'text-emerald-400 bg-emerald-500/10' } : { l: 'غير مدفوع', c: 'text-rose-400 bg-rose-500/10' };
-                  return (
-                    <div key={b.id} className="flex items-center gap-2 py-1.5 border-b border-dashed border-gray-800 last:border-0 text-xs">
-                      <span className="flex-1 truncate text-gray-300">{b.name} × {b.count}</span>
-                      <span className="text-[9.5px] text-gray-600">{fmtWhen(b.createdAt)}</span>
-                      <span className={`text-[9px] font-bold rounded px-1.5 py-px ${st.c}`}>{st.l}</span>
-                    </div>
-                  );
-                }) : (
-                  <div className="text-center text-gray-600 text-[11px] py-1.5">لا حجوزات سابقة</div>
-                )}
-              </details>
-
-              {/* الملاحظات الدائمة */}
-              <details className="bg-gray-900 border border-gray-800 rounded-xl p-3.5">
-                <summary className="text-[10.5px] font-bold text-gray-500 mb-2 flex justify-between cursor-pointer list-none">
-                  <span>📝 ملاحظات دائمة {ctx?.notes?.length ? `(${ctx.notes.length})` : ''}</span>
-                  <span className="text-[9px] font-normal">ذاكرة البوت + الإدارة</span>
-                </summary>
-                {ctx?.notes?.length ? ctx.notes.map((n: any) => (
-                  <div key={n.id} className="bg-gray-950 border border-gray-800 rounded-lg px-2.5 py-1.5 mb-1.5 text-xs text-gray-300">
-                    {n.note}
-                    <div className="text-[9px] text-gray-600 mt-0.5">{n.source === 'bot' ? '🤖 البوت' : '👤 الإدارة'} · {fmtWhen(n.createdAt)}</div>
-                  </div>
-                )) : <div className="text-center text-gray-600 text-[11px] py-1">لا ملاحظات بعد</div>}
-                <div className="flex gap-1.5 mt-2">
-                  <input
-                    value={noteDraft}
-                    onChange={e => setNoteDraft(e.target.value)}
-                    onKeyDown={e => { if (e.key === 'Enter') addNote(); }}
-                    placeholder="+ ملاحظة جديدة…"
-                    className="flex-1 bg-gray-950 border border-gray-800 rounded-lg px-2.5 py-1.5 text-xs text-white placeholder-gray-600 focus:border-amber-500 outline-none"
-                  />
-                  <button onClick={addNote} disabled={!noteDraft.trim()} className="text-xs font-bold text-amber-400 border border-gray-800 rounded-lg px-2.5 disabled:opacity-30">حفظ</button>
+                  ) : !latestBk ? <span className="muted" style={{ font: '400 14px/22px var(--font-sans)' }}>لا حجوزات سابقة.</span> : null}
                 </div>
-              </details>
 
-            </div>
+                {/* الملاحظات الدائمة */}
+                <div className="wa-sec">
+                  <h3><NotebookPen />ملاحظات دائمة<small>ذاكرة الدون والإدارة</small></h3>
+                  {ctx?.notes?.length ? ctx.notes.map((n: any) => (
+                    <div key={n.id} className="wa-banner" style={{ flexDirection: 'column', gap: 2 }}>
+                      <span style={{ color: 'var(--ink)' }}>{n.note}</span>
+                      <span className="muted" style={{ fontSize: 12 }}>{n.source === 'bot' ? 'الدون' : 'الإدارة'} · {fmtWhen(n.createdAt)}</span>
+                    </div>
+                  )) : <span className="muted" style={{ font: '400 14px/22px var(--font-sans)' }}>لا ملاحظات بعد.</span>}
+                  <div className="row">
+                    <input className="wa-input grow" id="wa-note" value={noteDraft} onChange={e => setNoteDraft(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') addNote(); }} placeholder="ملاحظة جديدة" aria-label="ملاحظة جديدة" />
+                    <button type="button" className="wa-btn" onClick={addNote} disabled={!noteDraft.trim()}>حفظ</button>
+                  </div>
+                </div>
+              </div>
+            </>
           )}
         </div>
       </div>
 
-      {/* ═══ تبويبات الموبايل ═══ */}
-      <div className={`md:hidden ${mainTab === 'chat' ? 'flex' : 'hidden'} border-t border-gray-800 bg-gray-900 rounded-b-2xl -mt-px`}>
-        {([['list', '💬 المحادثات'], ['chat', '📨 المحادثة'], ['info', '👤 العميل']] as const).map(([k, l]) => (
-          <button
-            key={k}
-            onClick={() => setMobilePane(k)}
-            className={`flex-1 py-2.5 text-xs font-bold ${mobilePane === k ? 'text-amber-400 shadow-[inset_0_2px_0_#f59e0b]' : 'text-gray-500'}`}
-          >
-            {l}
-          </button>
-        ))}
-      </div>
+      {/* ═══ الهاتف: شريط التنقّل السفليّ ═══ */}
+      <nav className="wa-tabbar wa-phonebar" aria-label="تنقّل واتساب">
+        <button type="button" aria-current={mainTab === 'chat' ? 'page' : undefined} onClick={() => { setMainTab('chat'); setMobilePane('list'); }}>
+          <MessageSquare className="l" />الوارد{totalUnread > 0 && <span className="wa-count">{totalUnread}</span>}
+        </button>
+        <button type="button" aria-current={mainTab === 'reach' ? 'page' : undefined} onClick={() => goDoor('reach')}>
+          <Megaphone className="l" />الوصول
+        </button>
+        <button type="button" aria-current={mainTab === 'admin' ? 'page' : undefined} onClick={() => goDoor('admin')}>
+          <Settings className="l" />الإعدادات
+        </button>
+      </nav>
 
       {/* ═══ مكبِّر الصورة ═══ */}
       {lightbox && (
-        <div
-          className="fixed inset-0 z-[90] bg-black/90 backdrop-blur-sm flex items-center justify-center p-4"
-          onClick={() => setLightbox(null)}
-        >
-          <div className="absolute top-4 right-4 flex gap-2" onClick={e => e.stopPropagation()}>
-            <a
-              href={lightbox}
-              download="wa-image"
-              className="text-xs font-bold border border-gray-700 bg-gray-900 text-gray-300 hover:text-white rounded-lg px-3 py-1.5"
-            >⬇ تنزيل</a>
-            <button
-              onClick={() => setLightbox(null)}
-              className="text-xs font-bold border border-gray-700 bg-gray-900 text-gray-300 hover:text-white rounded-lg px-3 py-1.5"
-            >✕ إغلاق</button>
-          </div>
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src={lightbox} alt="" className="max-w-full max-h-[85vh] rounded-xl border border-gray-700" onClick={e => e.stopPropagation()} />
-        </div>
-      )}
-
-      {/* ═══ نموذج الحجز ═══ */}
-      {mainTab === 'chat' && showBookingForm && bkData && conv && (
-        <div className="fixed inset-0 z-[80] bg-black/70 backdrop-blur-sm flex items-center justify-center p-4 overflow-y-auto" onClick={() => setShowBookingForm(false)}>
-          <div onClick={e => e.stopPropagation()} className="w-full max-w-lg">
-            <BookingForm
-              activities={bkData.activities}
-              locations={bkData.locations}
-              staffList={bkData.staffList}
-              onSubmit={submitBooking}
-              onCancel={() => setShowBookingForm(false)}
-              userRole={user?.role}
-              username={user?.username}
-              initialName={conv.displayName || ''}
-              initialPhone={conv.phone || ''}
-            />
+        <div className="wa-lightbox" onClick={() => setLightbox(null)} role="dialog" aria-modal="true" aria-label="الصورة مكبَّرة">
+          <header className="wa-appbar" onClick={e => e.stopPropagation()}>
+            <button type="button" className="wa-iconbtn" aria-label="إغلاق" onClick={() => setLightbox(null)} style={{ color: 'var(--ink)' }}><X className="l" /></button>
+            <div className="grow"><div className="ttl">{conv ? convName(conv) : 'صورة'}</div></div>
+            <a href={lightbox} download="wa-image" className="wa-iconbtn" aria-label="تنزيل الصورة" style={{ color: 'var(--ink)' }}><Download className="l" /></a>
+          </header>
+          <div className="stage">
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src={lightbox} alt="" onClick={e => e.stopPropagation()} />
           </div>
         </div>
       )}
-    </div>
-  );
-}
 
-// ══════════════════════════════════════════════════════
-// 🤖 تبويب البوت — الإعدادات + ساحة الاختبار + النبض
-// ══════════════════════════════════════════════════════
-
-const MODEL_FALLBACK = ['gemini-2.5-flash', 'gemini-2.5-flash-lite', 'gemini-2.0-flash'];
-
-// ══════════════════════════════════════════════════════
-// 🧰 تصنيف الأدوات
-// ══════════════════════════════════════════════════════
-// أربعٌ وثلاثون أداةً في شبكةٍ واحدة لا تُقرأ ولا يُعرف ما ينقصها. التصنيف
-// بالمعنى لا بالترتيب الأبجديّ: الموظّف يبحث عن «شيءٍ يخصّ الحجز» لا عن
-// اسم مفتاح. والترتيب هنا هو ترتيب العرض.
-const TOOL_CATS: Array<{ key: string; label: string; tools: string[] }> = [
-  { key: 'booking', label: '🎫 الحجز والفعاليّات',
-    tools: ['activities', 'reservation', 'myBookings', 'cancellation', 'changePeople', 'schedule', 'locations'] },
-  { key: 'player', label: '👤 اللاعب وحسابه',
-    tools: ['playerStats', 'accountLink', 'register', 'passwordReset', 'loyalty', 'chips', 'leaderboard'] },
-  { key: 'game', label: '🎮 اللعبة',
-    tools: ['liveGame', 'matchHistory', 'roleGuide'] },
-  { key: 'money', label: '💵 المال والمكان',
-    tools: ['invoice', 'social'] },
-  { key: 'conv', label: '💬 إدارة المحادثة',
-    tools: ['notes', 'handoff', 'quickOptions', 'voice', 'survey'] },
-  { key: 'admin', label: '🔒 أدوات الأدمن',
-    tools: ['adminFinance', 'adminGame', 'adminPassword', 'adminBookings', 'adminLoyalty', 'adminTonight',
-            'adminChips', 'adminActivities', 'adminReports', 'adminPlayers', 'adminSeating', 'adminKb'] },
-];
-
-const TOOL_LABELS: Record<string, string> = {
-  activities: 'عرض الفعاليات (قائمة تفاعلية)',
-  reservation: 'إنشاء حجز مؤكد (بأزرار تأكيد) + مجموعات عروض الحجز',
-  myBookings: '«شو حجوزاتي؟»',
-  notes: 'الملاحظات الدائمة (الذاكرة)',
-  handoff: 'التحويل للإدارة',
-  playerStats: '«شو رتبتي؟» (إحصائيات اللاعب)',
-  passwordReset: '🔐 إعادة تعيين كلمة السر (لرقم المحادثة فقط)',
-  leaderboard: '🏆 ترتيب أفضل 10 لاعبين',
-  locations: '📍 الأماكن وروابط الخرائط',
-  social: '🔗 صفحات التواصل (إنستجرام/الموقع)',
-  accountLink: '🔐 ربط الحساب برمز تحقق (للأرقام الجديدة)',
-  cancellation: '❌ إلغاء الحجوزات (قاعدة 3 ساعات)',
-  quickOptions: '🎯 أزرار خيارات سريعة في الردود (مهمة لحملات التعريف)',
-  liveGame: '🎮 اللعبة الحية (حالة/وقت/مُقصَون/دوري)',
-  matchHistory: '📜 سجل المباريات (ملخص + تفصيل نقاط)',
-  adminFinance: '🔒 تقارير ماليّة + تحويل مجانيّ + تسجيل دفع (أدمن فقط)',
-  adminGame: '🔒 حالة اللعبة بالأدوار + إعادة توجيه حدث ليل (أدمن فقط)',
-  adminPassword: '🔒 إعادة تعيين كلمة سرّ لاعب عبر رقمه (أدمن فقط)',
-  adminBookings: '🔒 إضافة حجز للاعب + نقل حجز بين فعاليّتين (أدمن فقط)',
-  loyalty: '🎟️ بطاقة الولاء للاعب (أختامه، زياراته، مكافآته)',
-  adminLoyalty: '🔒 بطاقة الولاء للإدارة: نظرة الشهر، بطاقة لاعب، ختم يدويّ، إلغاء مكافأة (أدمن فقط)',
-  voice: '🎤 فهم الرسائل الصوتيّة (تُفرَّغ نصّاً قبل الردّ)',
-  invoice: '🧾 «شو فاتورتي؟» — فاتورة اللاعب في فعاليّته',
-  chips: '🪙 رصيد التشبس وحركاته',
-  changePeople: '✏️ تعديل عدد الأشخاص في حجز قائم (بزرّ تأكيد)',
-  schedule: '🗓️ جدول الليلة المكتوب',
-  roleGuide: '🎭 دليل الأدوار الحيّ من النظام',
-  register: '📝 تسجيل حساب لاعب من الواتساب (الموافقة على الشروط عند أوّل دخول للتطبيق)',
-  adminTonight: '🔒 لوحة الليلة بسؤال واحد (أدمن فقط)',
-  adminChips: '🔒 شحن تشبس بباقة معتمدة — موثَّق باسم الأدمن ومصدره واتساب (أدمن فقط)',
-  adminActivities: '🔒 إنشاء فعاليّة بنسخ إعدادات آخر فعاليّة في المكان (أدمن فقط)',
-  adminReports: '🔒 تقارير سريعة: اليوم / الأسبوع / الشهر (أدمن فقط)',
-  adminPlayers: '🔒 قفل/فكّ حساب، إعفاء سياج الموقع، ملاحظة على لاعب (أدمن فقط)',
-  survey: '📝 استبيان ما بعد الأمسية بأزرار (يُرسل فقط لمن نافذته مفتوحة)',
-  menu: '🍽️ منيو المكان: الأصناف والأسعار وعروض الكافيه والحدّ الأدنى — كما يراها اللاعب في التطبيق',
-  adminSeating: '🔒 الإجلاس عبر المحرّك: عرض، تعيين مقعد، منع تجاور، إعادة توزيع في اللوبي (أدمن فقط)',
-  adminKb: '🔒 تعديل قاعدة المعرفة من الواتساب: قراءة · إضافة معلومة · تصحيح نصّ — بمعاينة وزرّ تأكيد ولقطةٍ للتراجع (أدمن فقط)',
-};
-
-// ══════════════════════════════════════════════════════
-// 🎧 فقاعة الرسالة الصوتيّة — تشغيلٌ من اللوحة + تفريغٌ نصّيّ
-// ══════════════════════════════════════════════════════
-// الصوت لا يُجلب برابطٍ مباشر: Cloud API يطلب توكننا، و<audio src> لا يحمل ترويسة
-// Authorization. فنجلبه blob عبر apiFetch ثمّ نصنع رابط كائن محلّيّاً.
-function AudioBubble({ m }: { m: any }) {
-  const [url, setUrl] = useState<string | null>(null);
-  const [busy, setBusy] = useState(false);
-  const [err, setErr] = useState<string | null>(null);
-  const [txt, setTxt] = useState<string | null>(m.payload?.transcript || null);
-  const [showTxt, setShowTxt] = useState(false);
-
-  useEffect(() => () => { if (url) URL.revokeObjectURL(url); }, [url]);
-
-  const load = async () => {
-    if (url || busy) return;
-    setBusy(true); setErr(null);
-    try {
-      const res = await fetch(`${API_URL}/api/whatsapp/messages/${m.id}/media`, {
-        headers: { Authorization: `Bearer ${getToken()}` },
-      });
-      if (!res.ok) {
-        const e = await res.json().catch(() => ({}));
-        throw new Error(e.error || `تعذّر الجلب (${res.status})`);
-      }
-      setUrl(URL.createObjectURL(await res.blob()));
-    } catch (e: any) { setErr(e.message); }
-    finally { setBusy(false); }
-  };
-
-  const transcribe = async () => {
-    setBusy(true); setErr(null);
-    try {
-      const r = await apiFetch(`/api/whatsapp/messages/${m.id}/transcribe`, { method: 'POST' });
-      setTxt(r.transcript || '[غير واضح]');
-      setShowTxt(true);
-    } catch (e: any) { setErr(e.message); }
-    finally { setBusy(false); }
-  };
-
-  // التفريغ يُخزَّن في نصّ الرسالة مسبوقاً بـ🎤 — فإن كان موجوداً فهو الجسد نفسه
-  const bodyTranscript = typeof m.body === 'string' && m.body.startsWith('🎤 ') && m.body !== '🎤 رسالة صوتية'
-    ? m.body.slice(2).trim() : null;
-  const transcript = txt || bodyTranscript;
-
-  return (
-    <div className="min-w-[210px]">
-      {url ? (
-        <audio src={url} controls autoPlay className="w-full h-9" />
-      ) : (
-        <button onClick={load} disabled={busy}
-          className="flex items-center gap-2 text-[12.5px] text-gray-100 hover:text-white disabled:opacity-50">
-          <span className="w-7 h-7 rounded-full bg-emerald-600/25 border border-emerald-500/40 flex items-center justify-center">▶</span>
-          {busy ? 'جارٍ التحميل…' : '🎤 رسالة صوتيّة — اضغط للسماع'}
-        </button>
-      )}
-
-      <div className="flex items-center gap-2 mt-1">
-        {transcript ? (
-          <button onClick={() => setShowTxt(v => !v)} className="text-[10.5px] text-sky-300 hover:text-sky-200">
-            {showTxt ? '▲ إخفاء التفريغ' : '📝 عرض التفريغ'}
-          </button>
-        ) : (
-          <button onClick={transcribe} disabled={busy} className="text-[10.5px] text-sky-300 hover:text-sky-200 disabled:opacity-50">
-            {busy ? '…' : '📝 فرّغها نصّاً'}
-          </button>
-        )}
-      </div>
-
-      {showTxt && transcript && (
-        <div className="mt-1 text-[12.5px] whitespace-pre-wrap break-words bg-black/25 border border-gray-700/50 rounded-lg px-2 py-1.5">
-          {transcript}
-        </div>
-      )}
-      {err && <div className="text-[10.5px] text-rose-400 mt-1">⚠️ {err}</div>}
-    </div>
-  );
-}
-
-// ══════════════════════════════════════════════════════
-// 🖼️ فقاعة الصورة — تُعرض في مكانها من المحادثة
-// ══════════════════════════════════════════════════════
-// المسار نفسه الذي يخدم الصوت (`/messages/:id/media`) يقرأ `payload.image.id`
-// أصلاً — فالصورة كانت مدعومةً في الخادم وينقصها من يعرضها فقط.
-// 🔴 سلوك البوت لا يتغيّر: `extractInbound` يحوّل الصورة إلى نصّ «📷 صورة»
-//    ولا شيء يمرّرها إلى النموذج — فيبقى الدون يعتذر عن قراءتها.
-function ImageBubble({ m, onOpen }: { m: any; onOpen: (url: string) => void }) {
-  const [url, setUrl] = useState<string | null>(null);
-  const [err, setErr] = useState<string | null>(null);
-
-  useEffect(() => {
-    let dead = false;
-    let made: string | null = null;
-    (async () => {
-      try {
-        const res = await fetch(`${API_URL}/api/whatsapp/messages/${m.id}/media`, {
-          headers: { Authorization: `Bearer ${getToken()}` },
-        });
-        if (!res.ok) {
-          const e = await res.json().catch(() => ({}));
-          throw new Error(e.error || `تعذّر الجلب (${res.status})`);
-        }
-        made = URL.createObjectURL(await res.blob());
-        if (dead) { URL.revokeObjectURL(made); return; }
-        setUrl(made);
-      } catch (e: any) { if (!dead) setErr(e.message); }
-    })();
-    return () => { dead = true; if (made) URL.revokeObjectURL(made); };
-  }, [m.id]);
-
-  const caption = m.body && m.body !== '📷 صورة' && m.body !== '🩵 ملصق' ? m.body : '';
-  return (
-    <div className="min-w-[160px]">
-      {url ? (
-        // eslint-disable-next-line @next/next/no-img-element
-        <img
-          src={url}
-          alt=""
-          onClick={() => onOpen(url)}
-          className="rounded-xl border border-gray-700/60 cursor-zoom-in max-w-[210px] max-h-[260px] object-cover"
-        />
-      ) : err ? (
-        <div className="text-[11.5px] text-rose-400 border border-rose-500/30 bg-rose-500/5 rounded-lg px-2.5 py-2">
-          ⚠️ {err}
-        </div>
-      ) : (
-        <div className="w-[190px] h-[130px] rounded-xl bg-gray-800/60 border border-gray-700/50 animate-pulse" />
-      )}
-      {caption && <div className="mt-1.5 whitespace-pre-wrap break-words">{caption}</div>}
-      <div className="text-[10px] text-gray-500 mt-1">
-        {m.msgType === 'sticker' ? '🩵 ملصق' : '📷 صورة'} · الدون لا يقرأ الصور
-      </div>
-    </div>
-  );
-}
-
-// ══════════════════════════════════════════════════════
-// 🖼️ فقاعة الصورة الصادرة — من رابطنا مباشرةً
-// ══════════════════════════════════════════════════════
-// لا حاجة لوكيل `/messages/:id/media` هنا: `payload.image.link` هو الرابط المطلق
-// الذي سحبت ميتا الصورةَ منه، مخدومٌ عامّاً من `/uploads/` — فيُستعمل كما هو بلا
-// بادئة API_URL (هو مطلقٌ أصلاً بـPUBLIC_URL).
-/** 🎬 فيديو أرسلناه نحن (البثّ) — رابطُنا العامّ في الحمولة يكفي، كالصورة */
-function OutVideoBubble({ m }: { m: any }) {
-  const link: string = m.payload?.video?.link || '';
-  const [err, setErr] = useState(false);
-  const caption = m.body && m.body !== '🎬 فيديو' ? m.body : '';
-  return (
-    <div className="min-w-[180px]">
-      {err ? (
-        <div className="text-[11.5px] text-rose-400 border border-rose-500/30 bg-rose-500/5 rounded-lg px-2.5 py-2">
-          ⚠️ تعذّر عرض الفيديو — وصل العميل كما في السجل
-        </div>
-      ) : (
-        <video src={link} controls preload="metadata" onError={() => setErr(true)}
-          className="rounded-xl border border-emerald-900/70 max-w-[240px] max-h-[300px] bg-black" />
-      )}
-      {caption && <div className="mt-1.5 whitespace-pre-wrap break-words">{caption}</div>}
-    </div>
-  );
-}
-
-function OutImageBubble({ m, onOpen }: { m: any; onOpen: (url: string) => void }) {
-  const link: string = m.payload?.image?.link || '';
-  const [err, setErr] = useState(false);
-  const caption = m.body && m.body !== '📷 صورة' ? m.body : '';
-  return (
-    <div className="min-w-[160px]">
-      {err ? (
-        <div className="text-[11.5px] text-rose-400 border border-rose-500/30 bg-rose-500/5 rounded-lg px-2.5 py-2">
-          ⚠️ تعذّر عرض الصورة — وصلت العميل كما في السجل
-        </div>
-      ) : (
-        // eslint-disable-next-line @next/next/no-img-element
-        <img
-          src={link}
-          alt=""
-          onError={() => setErr(true)}
-          onClick={() => onOpen(link)}
-          className="rounded-xl border border-emerald-900/70 cursor-zoom-in max-w-[210px] max-h-[260px]"
-        />
-      )}
-      {caption && <div className="mt-1.5 whitespace-pre-wrap break-words">{caption}</div>}
-    </div>
-  );
-}
-
-/** فيديو أو ملفّ: حبّةُ تنزيلٍ لا مشغّل — اللوحة ليست مكان المشاهدة */
-function FileBubble({ m }: { m: any }) {
-  const [busy, setBusy] = useState(false);
-  const grab = async () => {
-    setBusy(true);
-    try {
-      const res = await fetch(`${API_URL}/api/whatsapp/messages/${m.id}/media`, {
-        headers: { Authorization: `Bearer ${getToken()}` },
-      });
-      if (!res.ok) throw new Error('تعذّر الجلب');
-      const u = URL.createObjectURL(await res.blob());
-      const a = document.createElement('a');
-      a.href = u; a.download = m.body || 'file';
-      a.click();
-      setTimeout(() => URL.revokeObjectURL(u), 5000);
-    } catch (e: any) { swalToast(e.message, 'error'); }
-    finally { setBusy(false); }
-  };
-  return (
-    <button onClick={grab} disabled={busy} className="flex items-center gap-2 text-[12.5px] text-gray-100 hover:text-white disabled:opacity-50">
-      <span className="w-7 h-7 rounded-lg bg-sky-600/25 border border-sky-500/40 flex items-center justify-center">
-        {m.msgType === 'video' ? '🎥' : '📄'}
-      </span>
-      <span className="text-right">
-        {m.body || (m.msgType === 'video' ? 'فيديو' : 'ملفّ')}
-        <small className="block text-[10px] text-gray-500">{busy ? 'جارٍ التنزيل…' : 'اضغط للتنزيل'}</small>
-      </span>
-    </button>
-  );
-}
-
-// ══════════════════════════════════════════════════════
-// 🖼️ صورة المتواصل
-// ══════════════════════════════════════════════════════
-// واتساب لا يرسل صورة العميل إطلاقاً (الويبهوك يحمل الاسم فقط، ولا endpoint لصورة
-// رقمٍ آخر في Cloud API — منعٌ مقصود من ميتا). فالمصدر الوحيد هو صورة حسابه في تطبيق
-// اللاعب إن كانت المحادثة مربوطة. ومن لا صورة له: حرفٌ بلونٍ **ثابت مشتقّ من رقمه**
-// لا رماديٌّ موحَّد — فلكلّ شخصٍ هويّة بصريّة تُميّزه في القائمة.
-const AVATAR_COLORS = [
-  'from-sky-500 to-sky-700', 'from-violet-500 to-violet-700', 'from-emerald-500 to-emerald-700',
-  'from-rose-500 to-rose-700', 'from-orange-500 to-orange-700', 'from-teal-500 to-teal-700',
-  'from-fuchsia-500 to-fuchsia-700', 'from-lime-600 to-lime-800', 'from-cyan-500 to-cyan-700',
-  'from-indigo-500 to-indigo-700',
-];
-function hueOf(key: string): string {
-  let h = 0;
-  for (let i = 0; i < key.length; i++) h = (h * 31 + key.charCodeAt(i)) >>> 0;
-  return AVATAR_COLORS[h % AVATAR_COLORS.length];
-}
-
-function ConvAvatar({ c, size = 40 }: { c: any; size?: number }) {
-  const [broken, setBroken] = useState(false);
-  const label = (c?.displayName || c?.phone || '?').trim().charAt(0) || '؟';
-  const src = c?.avatarUrl && !broken ? `${API_URL}${c.avatarUrl}` : null;
-  const cls = `rounded-full shrink-0 overflow-hidden flex items-center justify-center font-bold`;
-  const style = { width: size, height: size, fontSize: Math.round(size * 0.38) };
-
-  if (src) {
-    return (
-      <div className={`${cls} ring-2 ring-amber-500/50`} style={style} title="صورة حسابه في التطبيق">
-        {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img src={src} alt="" className="w-full h-full object-cover" onError={() => setBroken(true)} />
-      </div>
-    );
-  }
-  return (
-    <div
-      className={`${cls} bg-gradient-to-br ${c?.playerId ? 'from-amber-500 to-amber-700 text-gray-950' : `${hueOf(String(c?.phone || label))} text-white/95`}`}
-      style={style}
-      title={c?.playerId ? 'حساب لاعب مربوط — بلا صورة في التطبيق' : 'رقم غير مربوط بحساب'}
-    >{label}</div>
-  );
-}
-
-function Card({ title, children, wide }: { title: string; children: any; wide?: boolean }) {
-  return (
-    <div className={`bg-gray-900 border border-gray-800 rounded-xl p-4 ${wide ? 'md:col-span-2' : ''}`}>
-      <div className="text-[11px] font-bold text-gray-500 mb-3">{title}</div>
-      {children}
-    </div>
-  );
-}
-
-function Row({ label, children }: { label: string; children: any }) {
-  return (
-    <div className="flex items-center justify-between gap-3 py-2 border-b border-dashed border-gray-800 last:border-0">
-      <span className="text-sm text-gray-300">{label}</span>
-      {children}
-    </div>
-  );
-}
-
-function NumInput({ value, onChange, min, max }: { value: number; onChange: (n: number) => void; min: number; max: number }) {
-  return (
-    <input
-      type="number" value={value} min={min} max={max}
-      onChange={e => onChange(parseInt(e.target.value) || min)}
-      className="w-20 bg-gray-950 border border-gray-800 rounded-lg px-2 py-1 text-sm text-white text-center focus:border-amber-500 outline-none"
-    />
-  );
-}
-
-function Toggle({ on, onClick }: { on: boolean; onClick: () => void }) {
-  return (
-    <button onClick={onClick} className={`w-10 h-[22px] rounded-full relative transition-colors shrink-0 ${on ? 'bg-emerald-500' : 'bg-gray-700'}`}>
-      <span className={`absolute top-[3px] w-4 h-4 rounded-full bg-white transition-all ${on ? 'right-1' : 'right-5'}`} />
-    </button>
-  );
-}
-
-// ══════════════════════════════════════════════════════
-// ⏱️ متابعة المحادثات الصامتة — من راسلنا ولم يُثبّت حجزاً
-// ══════════════════════════════════════════════════════
-const FU_DEFAULT = {
-  enabled: false, firstAfterMinutes: 10, secondAfterHours: 12, maxSilenceHours: 6,
-  quietFromHour: 23, quietToHour: 9, maxPerDay: 60, audience: 'unbooked',
-  instructionFirst: '', instructionSecond: '',
-};
-
-function FollowupCard({ s, patch }: { s: any; patch: (k: string, v: any) => void }) {
-  const f = { ...FU_DEFAULT, ...(s.followup || {}) };
-  const set = (k: string, v: any) => patch('followup', { ...f, [k]: v });
-  const [stats, setStats] = useState<any>(null);
-  const [showTexts, setShowTexts] = useState(false);
-
-  useEffect(() => {
-    apiFetch('/api/whatsapp/bot/followup-stats').then(r => setStats(r.stats)).catch(() => {});
-  }, []);
-
-  return (
-    <Card title="⏱️ متابعة من راسلنا ولم يحجز" wide>
-      <Row label="تشغيل المتابعة الآليّة">
-        <Toggle on={!!f.enabled} onClick={() => set('enabled', !f.enabled)} />
-      </Row>
-      <p className="text-[11px] text-gray-500 leading-relaxed py-2 border-b border-dashed border-gray-800">
-        حين تسكت محادثةٌ ولم يُثبّت صاحبها حجزاً، يُكمل الدون من حيث توقّفتما — بتعليمةٍ داخليّة
-        <b className="text-gray-400"> لا يراها العميل ولا تدخل سجلّ المحادثة</b>، فيختار هو ما يقوله بحسب ما جرى بينكما.
-        متابعتان على الأكثر ثمّ صمتٌ نهائيّ، ومن يقول «مش مهتمّ» يُستثنى فوراً.
-      </p>
-
-      <Row label="المتابعة الأولى بعد (دقيقة)">
-        <NumInput value={f.firstAfterMinutes} onChange={v => set('firstAfterMinutes', v)} min={1} max={1440} />
-      </Row>
-      <Row label="المتابعة الثانية بعد (ساعة) — ٠ = واحدة فقط">
-        <NumInput value={f.secondAfterHours} onChange={v => set('secondAfterHours', v)} min={0} max={23} />
-      </Row>
-      <Row label="لا تُتابع صمتاً أقدم من (ساعة)">
-        <NumInput value={f.maxSilenceHours} onChange={v => set('maxSilenceHours', v)} min={1} max={24} />
-      </Row>
-      {/* 🔴 حقلان متجاوران في سياق RTL: الأوّل يُرسم يميناً، فيقرؤه المستخدم «إلى» ويكتب
-          فيه «من» — وقد وقع هذا فعلاً فصارت ساعات الهدوء تغطّي النهار كلّه والميزة صامتة
-          بلا خطأ ولا سجلّ. العلاج ثلاثيّ: dir=ltr يثبّت الترتيب · وسمٌ فوق كلّ حقل ·
-          وجملةٌ تقول المعنى لا الأرقام. */}
-      <Row label="ساعات الهدوء — لا متابعة فيها">
-        <div className="flex items-end gap-2" dir="ltr">
-          <div className="text-center">
-            <div className="text-[9.5px] text-gray-500 font-bold mb-0.5">من الساعة</div>
-            <NumInput value={f.quietFromHour} onChange={v => set('quietFromHour', v)} min={0} max={23} />
-          </div>
-          <span className="text-gray-600 text-xs pb-1.5">→</span>
-          <div className="text-center">
-            <div className="text-[9.5px] text-gray-500 font-bold mb-0.5">إلى الساعة</div>
-            <NumInput value={f.quietToHour} onChange={v => set('quietToHour', v)} min={0} max={23} />
-          </div>
-        </div>
-      </Row>
-      {(() => {
-        const from = Number(f.quietFromHour), to = Number(f.quietToHour);
-        const span = from === to ? 0 : (from < to ? to - from : 24 - from + to);
-        const h12 = (h: number) => `${h % 12 === 0 ? 12 : h % 12}${h < 12 ? ' صباحاً' : ' مساءً'}`;
-        return (
-          <div className={`text-[11px] py-2 border-b border-dashed border-gray-800 ${span >= 12 ? 'text-amber-300' : 'text-gray-500'}`}>
-            {span === 0
-              ? '🔔 لا ساعات هدوء — المتابعة تعمل على مدار اليوم.'
-              : `🔕 لا متابعة بين ${h12(from)} و${h12(to)} — أي ${span} ساعة صمت يوميّاً، والمتابعة تعمل في الـ${24 - span} ساعة الباقية.`}
-            {span >= 12 && ' ⚠️ هذه فترة هدوءٍ طويلة — تأكّد أنّ الحقلين ليسا معكوسين.'}
-          </div>
-        );
-      })()}
-      <Row label="سقف المتابعات اليوميّ">
-        <NumInput value={f.maxPerDay} onChange={v => set('maxPerDay', v)} min={0} max={1000} />
-      </Row>
-      <Row label="مَن يُتابَع">
-        <select value={f.audience} onChange={e => set('audience', e.target.value)}
-          className="bg-gray-950 border border-gray-800 rounded-lg px-2.5 py-1.5 text-xs text-white focus:border-amber-500 outline-none">
-          <option value="unbooked">كلّ من لم يُثبّت حجزاً</option>
-          <option value="new_only">الجدد بلا حساب فقط</option>
-        </select>
-      </Row>
-
-      {stats && (
-        <div className="flex flex-wrap gap-x-5 gap-y-1 text-[11px] text-gray-400 pt-2.5 mt-1 border-t border-gray-800">
-          <span>آخر {stats.days} أيّام:</span>
-          <span>أولى <b className="text-white">{stats.first_sent ?? 0}</b></span>
-          <span>ثانية <b className="text-white">{stats.second_sent ?? 0}</b></span>
-          <span>ردّوا <b className="text-emerald-400">{stats.replied ?? 0}</b></span>
-          <span>حجزوا بعدها <b className="text-emerald-400">{stats.booked ?? 0}</b></span>
-          <span>أوقفوها <b className="text-amber-400">{stats.stopped_by_customer ?? 0}</b></span>
-          <span className="text-gray-600">اليوم {stats.today ?? 0}</span>
-        </div>
-      )}
-
-      <button onClick={() => setShowTexts(v => !v)} className="text-[11px] text-gray-500 hover:text-white mt-2">
-        {showTexts ? '▲ إخفاء نصّ التعليمة' : '▼ تعديل نصّ التعليمة الداخليّة'}
-      </button>
-      {showTexts && (
-        <div className="space-y-2 mt-2">
-          <div>
-            <label className="text-[10px] text-gray-500 font-bold block mb-1">تعليمة المتابعة الأولى</label>
-            <textarea value={f.instructionFirst} onChange={e => set('instructionFirst', e.target.value)} rows={5}
-              placeholder="اتركه فارغاً للنصّ الافتراضيّ"
-              className="w-full bg-gray-950 border border-gray-800 rounded-lg px-2.5 py-2 text-[11px] text-white outline-none focus:border-amber-500 leading-relaxed" />
-          </div>
-          <div>
-            <label className="text-[10px] text-gray-500 font-bold block mb-1">تعليمة المتابعة الثانية</label>
-            <textarea value={f.instructionSecond} onChange={e => set('instructionSecond', e.target.value)} rows={4}
-              placeholder="اتركه فارغاً للنصّ الافتراضيّ"
-              className="w-full bg-gray-950 border border-gray-800 rounded-lg px-2.5 py-2 text-[11px] text-white outline-none focus:border-amber-500 leading-relaxed" />
-          </div>
-          <p className="text-[10px] text-gray-600">التعليمة تخاطب الدون لا العميل — اكتبها كأمرٍ له: «أرسل متابعةً واحدة قصيرة…».</p>
-        </div>
-      )}
-    </Card>
-  );
-}
-
-// `section` يقسم البطاقات على أقسام شريط الإدارة بلا فقدِ الحالة بينها:
-// المكوّن يبقى مركّباً والأقسام تُخفي ما ليس لها، فالتعديلُ غير المحفوظ لا يضيع.
-type BotSection = 'all' | 'don' | 'know' | 'perf';
-// ══════════════════════════════════════════════════════
-// ✨ إعدادات صياغة ردود الموظّفين
-// ══════════════════════════════════════════════════════
-function RestyleCard({ s, patch }: { s: any; patch: (k: string, v: any) => void }) {
-  const r = s.restyle || {};
-  const set = (k: string, v: any) => patch('restyle', { ...r, [k]: v });
-  const on = r.enabled === true;
-  const sign = r.signature !== false;
-  return (
-    <Card title="✨ صياغة ردود الموظّفين — ثبات الأسلوب أمام العميل" wide>
-      <Row label="إعادة الصياغة مفعّلة">
-        <Toggle on={on} onClick={() => set('enabled', !on)} />
-      </Row>
-      {on && (<>
-        <Row label="لا تُصَغ الردود الأقصر من (كلمة)">
-          <NumInput value={r.minWords ?? 4} onChange={n => set('minWords', n)} min={0} max={20} />
-        </Row>
-        <Row label="مهلة الصياغة (ثانية) ثمّ يُرسل نصّك">
-          <NumInput value={Math.round((r.timeoutMs ?? 4000) / 1000)} onChange={n => set('timeoutMs', n * 1000)} min={2} max={15} />
-        </Row>
-        <Row label="حين يمسك الحارس رقماً تغيّر">
-          <select
-            value={r.onGuardFail || 'review'}
-            onChange={e => set('onGuardFail', e.target.value)}
-            className="bg-gray-950 border border-gray-800 rounded-lg px-2.5 py-1.5 text-xs text-white focus:border-amber-500 outline-none"
-          >
-            <option value="review">اعرضها عليّ لأحكم (موصى)</option>
-            <option value="send_mine">أرسل نصّي كما هو</option>
-            <option value="send_styled">أرسل الصياغة رغم ذلك</option>
-          </select>
-        </Row>
-        <div className="text-[10.5px] text-gray-500 leading-relaxed mt-1 mb-2 border-t border-gray-800 pt-2">
-          الصياغة نداءٌ منفصل: <b className="text-gray-400">بلا أدوات وبلا قاعدة معرفة وبلا سجلّ المحادثة</b> — الشخصيّة والنصّ فقط.
-          ولهذا لا يمكنها أن تحجز شيئاً أو تخترع معلومة، وكلفتها جزءٌ يسير من كلفة ردٍّ عاديّ.
-          والحارس يوقف الرسالة إن سقط رقمٌ أو رابطٌ من نصّك أو ظهر جديدٌ لم تكتبه.
-        </div>
-        <Row label="توقيع أوّل ردٍّ بشريّ في الجلسة">
-          <Toggle on={sign} onClick={() => set('signature', !sign)} />
-        </Row>
-        {sign && (<>
-          <Row label="صيغة التوقيع">
-            <input
-              value={r.signatureText ?? '— {name} من الإدارة'}
-              onChange={e => set('signatureText', e.target.value)}
-              placeholder="— {name} من الإدارة"
-              className="bg-gray-950 border border-gray-800 rounded-lg px-2.5 py-1.5 text-xs text-white focus:border-amber-500 outline-none max-w-[260px] w-full"
-            />
-          </Row>
-          <Row label="يعود التوقيع بعد صمتٍ (دقيقة)">
-            <NumInput value={r.resignAfterMin ?? 30} onChange={n => set('resignAfterMin', n)} min={0} max={1440} />
-          </Row>
-          <div className="text-[10.5px] text-gray-500 leading-relaxed mt-1">
-            توقيعٌ في كلّ رسالة يكشف أنّ «الدون» عدّة أشخاص، وبلا توقيعٍ إطلاقاً لا يعرف العميل أنّ إنساناً استلم أمره.
-            فمرّةً عند انتقال الجلسة من البوت إلى إنسان — ويعود إن تولّاها موظّفٌ آخر أو طال الصمت.
-            <b className="text-gray-400"> {'{name}'} إلزاميّة</b> وإلّا رُدّت الصيغة للافتراضيّة.
-          </div>
-        </>)}
-      </>)}
-    </Card>
-  );
-}
-
-// ══════════════════════════════════════════════════════
-// 🧰 بطاقة الأدوات — مصنَّفةٌ وقابلةٌ للبحث
-// ══════════════════════════════════════════════════════
-// كلّ أداةٍ مفعّلة تزيد طول التعليمات المُرسلة مع **كلّ** ردّ، وتزيد احتمال
-// أن يختار النموذج أداةً في غير موضعها. فالعدّادُ أعلى كلّ مجموعة ليس زينةً:
-// هو ما يجعل «كم أداةً شغّالة؟» سؤالاً له جواب.
-function ToolsCard({ s, patchTool, patchAdminOnly }: {
-  s: any; patchTool: (k: string, v: boolean) => void; patchAdminOnly: (k: string, v: boolean) => void;
-}) {
-  const [q, setQ] = useState('');
-  const [open, setOpen] = useState<Record<string, boolean>>({ booking: true });
-  const cfg = s.toolsConfig || {};
-  const isOn = (k: string) => cfg[k] !== false;
-  const admin: string[] = Array.isArray(s.adminOnlyTools) ? s.adminOnlyTools : [];
-
-  // أداةٌ في TOOL_LABELS ولم تُذكر في أيّ مجموعة تسقط من الشاشة صامتةً —
-  // فتُجمع هنا تحت «غير مصنّفة» بدل أن تختفي.
-  const known = new Set(TOOL_CATS.flatMap(c => c.tools));
-  const rest = Object.keys(TOOL_LABELS).filter(k => !known.has(k));
-  const cats = rest.length ? [...TOOL_CATS, { key: 'rest', label: '❔ غير مصنّفة', tools: rest }] : TOOL_CATS;
-
-  const term = q.trim();
-  const hit = (k: string) => !term || TOOL_LABELS[k]?.includes(term) || k.toLowerCase().includes(term.toLowerCase());
-  const shown = cats
-    .map(c => ({ ...c, list: c.tools.filter(k => TOOL_LABELS[k] && hit(k)) }))
-    .filter(c => c.list.length > 0);
-
-  const total = Object.keys(TOOL_LABELS).length;
-  const onCount = Object.keys(TOOL_LABELS).filter(isOn).length;
-
-  return (
-    <Card title={`🧰 الأدوات — ${onCount} مفعّلة من ${total}`} wide>
-      <div className="flex gap-2 items-center mb-2">
-        <input
-          value={q}
-          onChange={e => setQ(e.target.value)}
-          placeholder="🔍 ابحث عن أداة…"
-          className="flex-1 bg-gray-950 border border-gray-800 rounded-lg px-3 py-1.5 text-xs text-white placeholder-gray-600 focus:border-amber-500 outline-none"
-        />
-        <button
-          onClick={() => setOpen(Object.fromEntries(cats.map(c => [c.key, true])))}
-          className="text-[11px] text-gray-500 hover:text-white border border-gray-800 rounded-lg px-2.5 py-1.5 whitespace-nowrap"
-        >افتح الكلّ</button>
-      </div>
-      <p className="text-[10.5px] text-gray-600 mb-2.5 leading-relaxed">
-        🔒 «أدمن فقط» = الأداة تظهر للأرقام المربوطة بحساب أدمن وتُحجب عن غيرهم.
-        وكلّ أداةٍ مفعّلة تُطيل تعليمات كلّ ردّ — فما لا يُستعمل يُطفأ.
-      </p>
-
-      {shown.length === 0 && <div className="text-center text-gray-600 text-xs py-3">لا أداة بهذا الاسم</div>}
-
-      {shown.map(c => {
-        const isOpen = !!term || !!open[c.key];   // البحث يفتح الكلّ مؤقّتاً
-        const on = c.list.filter(isOn).length;
-        return (
-          <div key={c.key} className="border-b border-gray-800 last:border-0 py-1">
-            <button
-              onClick={() => setOpen(o => ({ ...o, [c.key]: !isOpen }))}
-              className="w-full flex items-center gap-2 py-1.5 text-right"
-            >
-              <span className="text-[12px] font-bold text-gray-300">{c.label}</span>
-              <span className="text-[10px] text-gray-600 tabular-nums">{on}/{c.list.length}</span>
-              <span className="mr-auto text-gray-600 text-[10px]">{isOpen ? '▲' : '▼'}</span>
-            </button>
-            {isOpen && c.list.map(k => {
-              const tOn = isOn(k);
-              const tAdmin = admin.includes(k);
-              return (
-                <Row key={k} label={TOOL_LABELS[k]}>
-                  <div className="flex items-center gap-2.5">
-                    {tOn && (
-                      <button
-                        onClick={() => patchAdminOnly(k, !tAdmin)}
-                        title="إتاحة هذه الأداة للأرقام المربوطة بحساب أدمن فقط"
-                        className={`text-[10px] font-bold px-2.5 py-1 rounded-full border transition ${
-                          tAdmin ? 'bg-amber-500/15 text-amber-400 border-amber-500/40' : 'text-gray-500 border-gray-700 hover:border-gray-500'}`}
-                      >🔒 أدمن فقط</button>
-                    )}
-                    <Toggle on={tOn} onClick={() => patchTool(k, cfg[k] === false)} />
-                  </div>
-                </Row>
-              );
-            })}
-          </div>
-        );
-      })}
-    </Card>
-  );
-}
-
-function BotSettingsView({ onOpenConv, section = 'all' }: { onOpenConv?: (id: number) => void; section?: BotSection }) {
-  const show = (k: BotSection) => section === 'all' || section === k;
-  const [s, setS] = useState<any | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState(false);
-  const [keyInput, setKeyInput] = useState('');
-  const [showKey, setShowKey] = useState(false);
-  const [models, setModels] = useState<string[]>(MODEL_FALLBACK);
-  const [testingKey, setTestingKey] = useState(false);
-  const [stats, setStats] = useState<any | null>(null);
-  const [pg, setPg] = useState<Array<{ role: 'user' | 'model'; text: string; trace?: any[]; interactives?: any[] }>>([]);
-  const [pgInput, setPgInput] = useState('');
-  const [pgLoading, setPgLoading] = useState(false);
-  const [locs, setLocs] = useState<any[]>([]);
-  const pgRef = useRef<HTMLDivElement>(null);
-
-  const load = useCallback(async () => {
-    try {
-      setLoading(true);
-      const [a, b, c] = await Promise.all([
-        apiFetch('/api/whatsapp/bot/settings'),
-        apiFetch('/api/whatsapp/bot/stats').catch(() => null),
-        apiFetch('/api/whatsapp/bot/locations').catch(() => null),
-      ]);
-      setS(a.settings);
-      if (b?.stats) setStats(b.stats);
-      if (c?.locations) setLocs(c.locations);
-      if (a.settings?.model && !MODEL_FALLBACK.includes(a.settings.model)) {
-        setModels(prev => (prev.includes(a.settings.model) ? prev : [a.settings.model, ...prev]));
-      }
-    } catch (e: any) {
-      swalAlert('تعذر جلب إعدادات البوت: ' + e.message, 'error');
-    } finally {
-      setLoading(false);
-    }
-  }, []);
-  useEffect(() => { load(); }, [load]);
-
-  const patch = (k: string, v: any) => setS((prev: any) => ({ ...prev, [k]: v }));
-  const patchTool = (k: string, v: boolean) => setS((prev: any) => ({ ...prev, toolsConfig: { ...(prev.toolsConfig || {}), [k]: v } }));
-  const patchAdminOnly = (k: string, v: boolean) => setS((prev: any) => {
-    const cur: string[] = Array.isArray(prev.adminOnlyTools) ? prev.adminOnlyTools : [];
-    return { ...prev, adminOnlyTools: v ? Array.from(new Set([...cur, k])) : cur.filter((x) => x !== k) };
-  });
-
-  const save = async (extra: Record<string, any> = {}) => {
-    if (!s) return;
-    setSaving(true);
-    try {
-      const body: any = {
-        enabled: s.enabled, model: s.model, systemPrompt: s.systemPrompt, knowledgeBase: s.knowledgeBase,
-        contextMessages: s.contextMessages, pauseMinutes: s.pauseMinutes, maxToolLoops: s.maxToolLoops,
-        failMessage: s.failMessage, failHandoff: s.failHandoff, toolsConfig: s.toolsConfig,
-        adminOnlyTools: s.adminOnlyTools || [],
-        // ⏱️ إعدادات المتابعة — غيابُها من هذا الجسم كان يعني أنّ كلّ ضبطٍ لها يُرسل
-        //    ناقصاً، فيعود الخادم بالقيمة القديمة ويبدو كأنّ الصفحة «رجعت لحالها».
-        ...(s.followup !== undefined ? { followup: s.followup } : {}),
-        // ✨ وكذلك الصياغة — غيابُها من الجسم يعني عودةَ الإعدادات كما كانت
-        ...(s.restyle !== undefined ? { restyle: s.restyle } : {}),
-        ...extra,
-      };
-      if (s.priceInputPer1M !== undefined) body.priceInputPer1M = s.priceInputPer1M;
-      if (s.priceOutputPer1M !== undefined) body.priceOutputPer1M = s.priceOutputPer1M;
-      if (keyInput.trim()) body.geminiApiKey = keyInput.trim();
-      const res = await apiFetch('/api/whatsapp/bot/settings', { method: 'PUT', body: JSON.stringify(body) });
-      setS(res.settings);
-      setKeyInput('');
-      swalToast('حُفظت الإعدادات — تسري على الرسالة التالية فوراً ✅', 'success');
-    } catch (e: any) {
-      swalAlert('فشل الحفظ: ' + e.message, 'error');
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  const toggleEnabled = async () => {
-    if (!s) return;
-    const enabling = !s.enabled;
-    if (enabling && !s.hasKey && !keyInput.trim()) {
-      swalAlert('أدخل مفتاح Gemini واحفظه قبل تفعيل البوت', 'warning');
-      return;
-    }
-    const ok = await swalConfirm(
-      enabling
-        ? 'سيبدأ البوت بالرد تلقائياً على كل رسائل العملاء الواردة (في المحادثات غير الموقوفة).'
-        : 'سيتوقف البوت عن الرد في كل المحادثات فوراً.',
-      { title: enabling ? 'تفعيل البوت للجميع؟' : 'إيقاف البوت العام؟', danger: !enabling, confirmText: enabling ? 'تفعيل' : 'إيقاف' },
-    );
-    if (!ok) return;
-    patch('enabled', enabling);
-    await save({ enabled: enabling });
-  };
-
-  const testKey = async () => {
-    setTestingKey(true);
-    try {
-      const res = await apiFetch('/api/whatsapp/bot/test-key', {
-        method: 'POST',
-        body: JSON.stringify({ apiKey: keyInput.trim() || undefined }),
-      });
-      if (res.models?.length) {
-        setModels(res.models);
-        if (s && !res.models.includes(s.model)) patch('model', res.models[0]);
-      }
-      swalToast(`المفتاح صالح ✅ — ${res.models?.length || 0} نموذج متاح`, 'success');
-    } catch (e: any) {
-      swalAlert('فشل اختبار المفتاح: ' + e.message, 'error');
-    } finally {
-      setTestingKey(false);
-    }
-  };
-
-  const pgSend = async () => {
-    const text = pgInput.trim();
-    if (!text || pgLoading) return;
-    const next = [...pg, { role: 'user' as const, text }];
-    setPg(next);
-    setPgInput('');
-    setPgLoading(true);
-    try {
-      const res = await apiFetch('/api/whatsapp/bot/playground', {
-        method: 'POST',
-        body: JSON.stringify({
-          history: next.map(m => ({ role: m.role, text: m.text })),
-        }),
-      });
-      setPg(prev => [...prev, { role: 'model', text: res.text || '(بلا نص — أرسل رسالة تفاعلية)', trace: res.toolTrace, interactives: res.interactives }]);
-    } catch (e: any) {
-      setPg(prev => [...prev, { role: 'model', text: '⚠️ خطأ: ' + e.message }]);
-    } finally {
-      setPgLoading(false);
-      requestAnimationFrame(() => { if (pgRef.current) pgRef.current.scrollTop = pgRef.current.scrollHeight; });
-    }
-  };
-
-  if (loading || !s) {
-    return <div className="flex-1 flex items-center justify-center text-gray-500">جارٍ تحميل إعدادات البوت…</div>;
-  }
-
-  return (
-    // 🔴 بلا تمريرٍ خاصّ: الغلاف في صفحة الإدارة هو الذي يمرّر. تمريرٌ داخل
-    //    تمريرٍ يُنتج شريطَي تمرير متداخلين ويجعل الشريط اللاصق يلتصق بالجذر
-    //    الخطأ — وهو ما كان يقطع تبويب الأداء نصفين لكلٍّ تمريرُه.
-    <div>
-      {/* شريط الحالة والحفظ */}
-      <div className="sticky top-[var(--admin-top,0px)] z-10 bg-gray-950/95 backdrop-blur border border-gray-800 rounded-2xl px-4 py-3 mb-3 flex items-center gap-3 flex-wrap">
-        <div className="flex items-center gap-2.5">
-          <Toggle on={!!s.enabled} onClick={toggleEnabled} />
-          <div>
-            <div className={`text-sm font-bold ${s.enabled ? 'text-emerald-400' : 'text-gray-400'}`}>
-              {s.enabled ? '● البوت يعمل — يرد على العملاء' : '○ البوت مطفأ'}
-            </div>
-            <div className="text-[10.5px] text-gray-600">التفعيل يشمل كل المحادثات (عدا الموقوفة يدوياً)</div>
-          </div>
-        </div>
-        {stats && (
-          <div className="flex items-center gap-2 text-[11px] text-gray-400 mr-auto flex-wrap">
-            <span className="bg-gray-900 border border-gray-800 rounded-full px-2.5 py-1">ردود اليوم: <b className="text-white">{stats.replies24h}</b></span>
-            <span className="bg-gray-900 border border-gray-800 rounded-full px-2.5 py-1">الأسبوع: <b className="text-white">{stats.replies7d}</b></span>
-            <span className="bg-gray-900 border border-gray-800 rounded-full px-2.5 py-1">حجوزات البوت: <b className="text-emerald-400">{stats.reservations7d}</b></span>
-            <span className="bg-gray-900 border border-gray-800 rounded-full px-2.5 py-1">بحاجة تدخل: <b className="text-rose-400">{stats.attentionNow}</b></span>
-          </div>
-        )}
-        <button
-          onClick={() => save()}
-          disabled={saving}
-          className="bg-amber-500 hover:bg-amber-400 disabled:opacity-50 text-gray-950 font-bold rounded-xl px-6 py-2 text-sm"
-        >{saving ? 'جارٍ الحفظ…' : '💾 حفظ الإعدادات'}</button>
-      </div>
-
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-3 pb-6">
-        {show('don') && (<>
-        {/* المفتاح والنموذج */}
-        <Card title="🔑 الاتصال بالنموذج">
-          <Row label="Gemini API Key">
-            <div className="flex items-center gap-1.5 flex-1 max-w-[240px]">
-              <input
-                type={showKey ? 'text' : 'password'}
-                value={keyInput}
-                onChange={e => setKeyInput(e.target.value)}
-                placeholder={s.hasKey ? s.geminiApiKey : 'AIza…'}
-                className="flex-1 min-w-0 bg-gray-950 border border-gray-800 rounded-lg px-2.5 py-1.5 text-xs text-white placeholder-gray-600 focus:border-amber-500 outline-none"
-                dir="ltr"
-              />
-              <button onClick={() => setShowKey(v => !v)} className="text-gray-500 hover:text-white text-sm">{showKey ? '🙈' : '👁'}</button>
-            </div>
-          </Row>
-          <Row label="النموذج">
-            <select
-              value={s.model}
-              onChange={e => patch('model', e.target.value)}
-              className="bg-gray-950 border border-gray-800 rounded-lg px-2.5 py-1.5 text-xs text-white focus:border-amber-500 outline-none max-w-[240px]"
-              dir="ltr"
-            >
-              {models.map(m => <option key={m} value={m}>{m}</option>)}
+      {/* ═══ الهاتف: التصفية والترتيب ═══ */}
+      {filterOpen && (
+        <Pop title="تصفية وترتيب" onClose={() => setFilterOpen(false)} label="تصفية وترتيب">
+          <Field label="أيّ رقم">
+            <Seg block label="أيّ رقم" value={inboxCh} onChange={setInboxCh}
+              options={[['all', 'الرقمان'], ['cloud', <><Cloud style={{ color: 'var(--ch-meta)' }} />ميتا</>], ['web', <><Smartphone style={{ color: 'var(--ch-web)' }} />الأعمال</>]] as const} />
+          </Field>
+          <Field label="الترتيب" htmlFor="wa-sort-m">
+            <select className="wa-select" id="wa-sort-m" value={sort} onChange={e => setSort(e.target.value)}>
+              {SORTS.map(o => <option key={o.key} value={o.key}>{o.label}</option>)}
             </select>
-          </Row>
-          <div className="flex gap-2 mt-3">
-            <button onClick={testKey} disabled={testingKey} className="flex-1 border border-gray-700 hover:border-amber-500 hover:text-amber-400 text-gray-300 font-bold rounded-lg py-2 text-xs disabled:opacity-50">
-              {testingKey ? 'جارٍ الاختبار…' : '🔍 اختبار المفتاح وجلب النماذج'}
-            </button>
+          </Field>
+          <div className="acts">
+            <button type="button" className="wa-btn ghost" onClick={() => { setInboxCh('all'); setSort('recent'); }}>أعد الافتراضيّ</button>
+            <button type="button" className="wa-btn primary" onClick={() => setFilterOpen(false)}>تمّ</button>
           </div>
-          <div className="text-[10px] text-gray-600 mt-2">المفتاح من aistudio.google.com/apikey — يُخزن بالسيرفر ولا يظهر كاملاً بعد الحفظ</div>
-        </Card>
+        </Pop>
+      )}
 
-        {/* سلوك التشغيل */}
-        <Card title="⚙️ سلوك التشغيل">
-          <Row label="عدد رسائل السياق (ذاكرة المحادثة)"><NumInput value={s.contextMessages} onChange={n => patch('contextMessages', n)} min={4} max={60} /></Row>
-          <Row label="إيقاف البوت بعد رد بشري (دقائق)"><NumInput value={s.pauseMinutes} onChange={n => patch('pauseMinutes', n)} min={1} max={1440} /></Row>
-          <Row label="أقصى دورات أدوات بالرد الواحد"><NumInput value={s.maxToolLoops} onChange={n => patch('maxToolLoops', n)} min={1} max={8} /></Row>
-          <Row label="تحويل للإدارة تلقائياً عند خلل تقني"><Toggle on={!!s.failHandoff} onClick={() => patch('failHandoff', !s.failHandoff)} /></Row>
-        </Card>
-
-        {/* الأدوات */}
-        <ToolsCard s={s} patchTool={patchTool} patchAdminOnly={patchAdminOnly} />
-
-        {/* ✨ صياغة ردود الموظّفين */}
-        <RestyleCard s={s} patch={patch} />
-        {/* ⏱️ متابعة المحادثات الصامتة */}
-        <FollowupCard s={s} patch={patch} />
-
-        {/* الأماكن الفعالة */}
-        <Card title="📍 الأماكن — البوت يجيب عن الفعالة فقط (بروابط خرائطها)">
-          {locs.length === 0 ? (
-            <div className="text-center text-gray-600 text-xs py-2">لا أماكن</div>
-          ) : locs.map(l => (
-            <Row key={l.id} label={`${l.name}${l.mapUrl ? '' : ' — ⚠️ بلا رابط خريطة'}`}>
-              <Toggle
-                on={!!l.isActive}
-                onClick={async () => {
-                  try {
-                    const res = await apiFetch(`/api/whatsapp/bot/locations/${l.id}/toggle`, {
-                      method: 'POST', body: JSON.stringify({ isActive: !l.isActive }),
-                    });
-                    setLocs(prev => prev.map(x => (x.id === l.id ? { ...x, isActive: res.location.isActive } : x)));
-                  } catch (e: any) { swalAlert(e.message, 'error'); }
-                }}
-              />
-            </Row>
-          ))}
-          <div className="text-[10px] text-gray-600 mt-2">رابط الخريطة يُدار من صفحة المواقع — التفعيل هنا يسري على إجابات البوت فوراً</div>
-        </Card>
-
-        {/* رسالة الفشل */}
-        <Card title="🛡️ رسالة الخلل التقني (تُرسل للعميل عند فشل البوت)">
-          <textarea
-            value={s.failMessage}
-            onChange={e => patch('failMessage', e.target.value)}
-            rows={5}
-            className="w-full bg-gray-950 border border-gray-800 rounded-lg px-3 py-2 text-sm text-white focus:border-amber-500 outline-none resize-y leading-relaxed"
-          />
-        </Card>
-
-        {/* الشخصية */}
-        </>)}
-
-        {show('know') && (<>
-        <Card title="🎭 شخصية البوت (System Prompt)" wide>
-          <textarea
-            value={s.systemPrompt}
-            onChange={e => patch('systemPrompt', e.target.value)}
-            rows={10}
-            className="w-full bg-gray-950 border border-gray-800 rounded-lg px-3 py-2 text-[13px] text-white focus:border-amber-500 outline-none resize-y leading-relaxed"
-          />
-          <div className="text-[10px] text-gray-600 mt-1">{(s.systemPrompt || '').length} حرف</div>
-        </Card>
-
-        {/* قاعدة المعرفة */}
-        <Card title="📚 قاعدة المعرفة (Markdown — كل ما يعرفه البوت عن النادي)" wide>
-          <textarea
-            value={s.knowledgeBase}
-            onChange={e => patch('knowledgeBase', e.target.value)}
-            rows={18}
-            dir="rtl"
-            className="w-full bg-gray-950 border border-gray-800 rounded-lg px-3 py-2 text-[13px] text-white focus:border-amber-500 outline-none resize-y leading-relaxed"
-          />
-          <div className="text-[10px] text-gray-600 mt-1">{(s.knowledgeBase || '').length} حرف — التعديل يسري على الرسالة التالية فوراً بعد الحفظ</div>
-        </Card>
-
-        {/* ساحة الاختبار */}
-        <Card title="🧪 ساحة الاختبار — جرّب البوت هنا (لا يرسل شيئاً لواتساب ولا يسجل حجوزات حقيقية)" wide>
-          <div ref={pgRef} className="h-72 overflow-y-auto bg-gray-950 border border-gray-800 rounded-xl p-3 flex flex-col gap-2 mb-2">
-            {pg.length === 0 && (
-              <div className="m-auto text-center text-gray-600 text-xs">
-                <div className="text-2xl mb-1">🧪</div>
-                يستخدم الإعدادات <b>المحفوظة</b> — احفظ أولاً ثم جرّب<br />مثلاً: «شو الفعاليات القادمة؟» أو «بدي أحجز»
-              </div>
-            )}
-            {pg.map((m, i) => (
-              <div key={i} className={`max-w-[80%] rounded-xl px-3 py-2 text-[13px] leading-relaxed ${
-                m.role === 'user' ? 'self-end bg-gray-800 text-gray-100' : 'self-start bg-emerald-950/70 border border-emerald-900 text-gray-100'
-              }`}>
-                <div className="whitespace-pre-wrap">{m.text}</div>
-                {m.trace && m.trace.length > 0 && (
-                  <div className="mt-1.5 pt-1.5 border-t border-gray-800 text-[10px] text-sky-400">
-                    {m.trace.map((t: any, j: number) => <div key={j}>🔧 {t.name}({JSON.stringify(t.args)}) {t.result?.dryRun ? '· تجريبي' : '✓'}</div>)}
-                  </div>
-                )}
-                {m.interactives && m.interactives.length > 0 && (
-                  <div className="mt-1 text-[10px] text-violet-400">📋 {m.interactives.map((x: any) => x.kind === 'list' ? `قائمة (${x.preview?.length} خيار)` : 'أزرار تأكيد').join(' + ')} — ستُرسل للعميل فعلياً بالوضع الحي</div>
-                )}
-              </div>
-            ))}
-            {pgLoading && <div className="self-start text-gray-500 text-xs animate-pulse">🤖 يفكر…</div>}
+      {/* ═══ تعديل آخر حجز ═══ */}
+      {mainTab === 'chat' && editBk && latestBk && (
+        <Pop title="تعديل الحجز" onClose={() => { if (!bkSaving) setEditBk(null); }} label="تعديل الحجز">
+          <p className="muted" style={{ margin: 0, font: '400 14px/22px var(--font-sans)' }}>
+            {latestBk.activityName || 'حجز بلا فعاليّة'}{latestBk.activityDate ? ` · ${fmtDay(latestBk.activityDate)} ${fmtTime(latestBk.activityDate)}` : ''}
+          </p>
+          <Setting title="عدد الأشخاص" hint="يشمل صاحب الحجز.">
+            <div className="row">
+              <button type="button" className="wa-iconbtn" style={{ border: '1px solid var(--line-strong)' }} aria-label="أنقص" disabled={editBk.count <= 1} onClick={() => setEditBk({ ...editBk, count: Math.max(1, editBk.count - 1) })}><Minus /></button>
+              <b className="ltr" style={{ fontSize: 20, minWidth: 28, textAlign: 'center' }}>{editBk.count}</b>
+              <button type="button" className="wa-iconbtn" style={{ border: '1px solid var(--line-strong)' }} aria-label="زِد" disabled={editBk.count >= 50} onClick={() => setEditBk({ ...editBk, count: editBk.count + 1 })}><Plus /></button>
+            </div>
+          </Setting>
+          <Field label="الاسم" htmlFor="wa-bk-name"><input className="wa-input" id="wa-bk-name" value={editBk.name} onChange={e => setEditBk({ ...editBk, name: e.target.value })} /></Field>
+          <Field label="ملاحظات" htmlFor="wa-bk-notes"><textarea className="wa-textarea" id="wa-bk-notes" value={editBk.notes} onChange={e => setEditBk({ ...editBk, notes: e.target.value })} style={{ minHeight: 72 }} /></Field>
+          {latestBk.activityDate && new Date(latestBk.activityDate).getTime() < Date.now() && <Banner tone="warn" icon={<TriangleAlert />}>هذه الفعاليّة انتهت — التعديل يغيّر السجلّ فقط.</Banner>}
+          <div className="acts">
+            <button type="button" className="wa-btn danger" disabled={bkSaving} onClick={cancelBk}><Trash2 />ألغِ الحجز</button>
+            <button type="button" className="wa-btn primary" disabled={bkSaving || !editBk.name.trim()} onClick={saveBk}>{bkSaving ? 'يحفظ…' : 'حفظ'}</button>
           </div>
-          <div className="flex gap-2">
-            <input
-              value={pgInput}
-              onChange={e => setPgInput(e.target.value)}
-              onKeyDown={e => { if (e.key === 'Enter') pgSend(); }}
-              placeholder="اكتب رسالة كأنك عميل…"
-              className="flex-1 bg-gray-950 border border-gray-800 rounded-xl px-4 py-2.5 text-sm text-white placeholder-gray-600 focus:border-amber-500 outline-none"
-              disabled={pgLoading}
-            />
-            <button onClick={pgSend} disabled={pgLoading || !pgInput.trim()} className="bg-emerald-500 hover:bg-emerald-400 disabled:opacity-40 text-gray-950 font-bold rounded-xl px-5 text-sm">إرسال</button>
-            <button onClick={() => setPg([])} className="border border-gray-700 text-gray-400 hover:text-white rounded-xl px-3 text-xs" title="محادثة جديدة">🗑</button>
-          </div>
-        </Card>
-        </>)}
-      </div>
+        </Pop>
+      )}
+
+      {/* ═══ الحجز الجديد — لوح سفليّ على الهاتف، نافذة على الحاسوب ═══ */}
+      {mainTab === 'chat' && showBookingForm && bkData && conv && (
+        <Pop wide onClose={() => setShowBookingForm(false)} label="حجز جديد">
+          <BookingForm
+            activities={bkData.activities}
+            locations={bkData.locations}
+            staffList={bkData.staffList}
+            onSubmit={submitBooking}
+            onCancel={() => setShowBookingForm(false)}
+            userRole={user?.role}
+            username={user?.username}
+            initialName={conv.displayName || ''}
+            initialPhone={conv.phone || ''}
+          />
+        </Pop>
+      )}
     </div>
   );
 }
-
-// ════════════════════════════════════════════════════
-// 🚫 أُزيل من هنا: البثّ الجماعيّ والحملات ومعالج إطلاقها ومراقبتها
-// ════════════════════════════════════════════════════
-// معها الواجهة التي كانت ترفع ملفّ إكسل فيصير قائمة إرسال.
-// الخلفيّة حُذفت أولاً؛ وترك الأزرار تُشير إلى مسارات مُزالة عطلٌ لا سياسة.
-
-
-// ════════════════════════════════════════════════════
-// 🚫 أُزيل من هنا: بطاقةُ الاستهلاك والتكلفة ورسومُها
-// ════════════════════════════════════════════════════
-// انتقل محتواها إلى `PerformanceTab.tsx` مع تبويب الجودة: «هل يؤدّي الدون
-// عمله؟» و«بكم؟» نصفا سؤالٍ واحد، وكانا شاشتين لكلٍّ مدّتُها وتمريرُها.

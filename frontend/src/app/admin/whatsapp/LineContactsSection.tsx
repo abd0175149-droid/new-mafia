@@ -7,15 +7,17 @@
 // «راسلَنا» = أرسل لنا ولو مرّةً في أيّ وقت (من التاريخ المسترجَع + المباشر). و«منّا فقط» تنقسم:
 // «لم يراسلنا قطّ» حين التاريخ كاملٌ بين أيدينا، و«غير محسوم» حين بقي تاريخٌ أقدم على الهاتف.
 
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react';
+import { AlertTriangle, Contact, History, Loader2, RefreshCw, ScrollText, Search, User } from 'lucide-react';
 import { swalToast } from '@/lib/swal';
+import { Badge, Card, Empty, PageHead, Skel, type Tone } from './wa-ui';
 
 type Fetcher = (path: string, opts?: RequestInit) => Promise<any>;
-const STATUS_AR: Record<string, { t: string; cls: string; title: string }> = {
-  two_way: { t: 'راسلَنا', cls: 'bg-emerald-500/15 text-emerald-300', title: 'أرسل لنا رسالةً واحدة على الأقلّ على رقم الأعمال — الأأمن للإرسال' },
-  never: { t: 'منّا فقط · لم يراسلنا', cls: 'bg-rose-500/10 text-rose-300', title: 'التاريخ كاملٌ بين أيدينا وليس فيه إلّا رسائلنا — أيّ إرسالٍ له مراسلةٌ من طرفٍ واحد' },
-  partial: { t: 'منّا فقط · غير محسوم', cls: 'bg-amber-500/10 text-amber-300', title: 'لا رسالة منه فيما استرجعناه، وبقي تاريخٌ أقدم على الهاتف لم يُسترجع بعد' },
-  unknown: { t: '—', cls: 'bg-gray-800 text-gray-400', title: '' },
+const STATUS_AR: Record<string, { t: string; tone?: Tone; title: string }> = {
+  two_way: { t: 'راسلَنا', tone: 'ok', title: 'أرسل لنا رسالةً واحدة على الأقلّ على رقم الأعمال — الأأمن للإرسال' },
+  never: { t: 'منّا فقط · لم يراسلنا', tone: 'danger', title: 'التاريخ كاملٌ بين أيدينا وليس فيه إلّا رسائلنا — أيّ إرسالٍ له مراسلةٌ من طرفٍ واحد' },
+  partial: { t: 'منّا فقط · غير محسوم', tone: 'warn', title: 'لا رسالة منه فيما استرجعناه، وبقي تاريخٌ أقدم على الهاتف لم يُسترجع بعد' },
+  unknown: { t: '—', title: '' },
 };
 const fmtDay = (iso?: string | null) => iso ? new Date(iso).toLocaleDateString('ar-EG', { day: 'numeric', month: 'short', year: 'numeric' }) : '';
 const ago = (iso?: string | null) => {
@@ -23,9 +25,21 @@ const ago = (iso?: string | null) => {
   const m = Math.round((Date.now() - new Date(iso).getTime()) / 60e3);
   return m < 1 ? 'الآن' : m < 60 ? `قبل ${m} د` : m < 1440 ? `قبل ${Math.round(m / 60)} س` : `قبل ${Math.round(m / 1440)} ي`;
 };
-const inp = 'bg-gray-950 border border-gray-800 rounded-lg px-2.5 py-1.5 text-sm text-white focus:border-amber-500 outline-none';
+const SMALL: CSSProperties = { font: '500 12px/18px var(--font-sans)' };
+const N = ({ children }: { children: ReactNode }) => <span className="ltr" style={{ fontSize: 12 }}>{children}</span>;
 
-export default function LineContactsSection({ apiFetch }: { apiFetch: Fetcher }) {
+/** بلاطة رقم هي نفسها فلتر */
+function FilterTile({ k, v, on, onClick, tone, vColor }: { k: string; v: ReactNode; on: boolean; onClick: () => void; tone?: 'ok' | 'danger' | 'gold'; vColor?: string }) {
+  return (
+    <button type="button" className={`wa-tile${tone ? ' ' + tone : ''}`} aria-pressed={on} onClick={onClick}
+      style={{ border: `1px solid var(${on ? '--gold' : '--line'})`, textAlign: 'start', color: 'inherit', font: 'inherit', cursor: 'pointer', minHeight: 'var(--hit)' }}>
+      <div className="k">{k}</div>
+      <div className="v" style={vColor ? { color: vColor } : undefined}>{v}</div>
+    </button>
+  );
+}
+
+export default function LineContactsSection({ apiFetch, onOpenPhone }: { apiFetch: Fetcher; onOpenPhone?: (phone: string) => void }) {
   const [d, setD] = useState<any>(null);
   const [q, setQ] = useState('');
   const [status, setStatus] = useState<'' | 'two_way' | 'has_chat' | 'never' | 'partial'>('');
@@ -55,77 +69,125 @@ export default function LineContactsSection({ apiFetch }: { apiFetch: Fetcher })
   const onSearch = (v: string) => { setQ(v); setPage(0); clearTimeout(qRef.current); qRef.current = setTimeout(load, 400); };
   const st = d?.stats;
   const total = Number(d?.total || 0);
+  const rows: any[] = d?.rows || [];
 
   return (
-    <div className="space-y-3 text-sm" dir="rtl">
-      <div className="flex items-start gap-2 flex-wrap">
-        <b className="text-white text-base">📇 جهات خطّ الأعمال</b>
-        <span className="text-gray-500 text-xs">كلّ من بينه وبين رقم الأعمال محادثة — وأساس فلتر «راسلَنا» في كلّ الصفحات</span>
-        <button onClick={sync} disabled={syncing || st?.syncing} className="mr-auto px-3 py-1.5 rounded-xl bg-amber-500 text-black font-bold text-xs disabled:opacity-50">
-          {st?.syncing ? '⏳ تُزامن…' : '↻ مزامنة الآن'}
+    <>
+      <PageHead title="جهات خطّ الأعمال" sub="كلّ من بينه وبين رقم الأعمال محادثة — وأساس فلتر «راسلَنا» في كلّ الصفحات">
+        <button type="button" className="wa-btn primary" onClick={sync} disabled={syncing || st?.syncing}>
+          {st?.syncing ? <Loader2 className="animate-spin" aria-hidden="true" /> : <RefreshCw aria-hidden="true" />}
+          {st?.syncing ? 'تُزامن…' : 'مزامنة الآن'}
         </button>
-      </div>
+      </PageHead>
 
       {st && (
-        <div className="grid grid-cols-2 sm:grid-cols-6 gap-2 text-center">
-          <div className="rounded-xl border border-gray-800 p-2"><div className="text-xl font-bold text-white tabular-nums">{st.total}</div><div className="text-[11px] text-gray-400">الإجمالي</div></div>
-          <button onClick={() => { setStatus('two_way'); setPage(0); }} className="rounded-xl border border-emerald-500/30 bg-emerald-500/5 p-2"><div className="text-xl font-bold text-emerald-300 tabular-nums">{st.two_way}</div><div className="text-[11px] text-gray-400">راسلَنا (في أيّ وقت)</div></button>
-          <button onClick={() => { setStatus('never'); setPage(0); }} className="rounded-xl border border-rose-500/25 bg-rose-500/5 p-2"><div className="text-xl font-bold text-rose-300 tabular-nums">{st.never ?? 0}</div><div className="text-[11px] text-gray-400">منّا فقط · لم يراسلنا</div></button>
-          <button onClick={() => { setStatus('partial'); setPage(0); }} className="rounded-xl border border-amber-500/25 bg-amber-500/5 p-2"><div className="text-xl font-bold text-amber-300 tabular-nums">{st.partial ?? st.has_chat}</div><div className="text-[11px] text-gray-400">منّا فقط · غير محسوم</div></button>
-          <div className="rounded-xl border border-gray-800 p-2"><div className="text-xl font-bold text-amber-300 tabular-nums">{st.players}</div><div className="text-[11px] text-gray-400">لاعبون</div></div>
-          <div className="rounded-xl border border-gray-800 p-2"><div className="text-xl font-bold text-gray-300 tabular-nums">{st.others}</div><div className="text-[11px] text-gray-400">غير لاعبين</div></div>
-        </div>
-      )}
-      {st?.lastSync && (
-        <div className="text-[11px] text-gray-500">آخر مزامنة: {ago(st.lastSync.at)} · {st.lastSync.added || 0} جهة من {st.lastSync.chats || 0} محادثة{st.lastSync.error ? ` · ⚠️ ${st.lastSync.error}` : ''}</div>
-      )}
-      {st?.historyScan && (
-        <div className="text-[11px] text-gray-500">
-          📜 آخر فحصٍ لتاريخ الرسائل: {ago(st.historyScan.at)} · {st.historyScan.chats} محادثة · {st.historyScan.messages} رسالة
-          {' '}· تاريخها كامل {st.historyScan.complete} · بقي لها تاريخٌ أقدم على الهاتف {st.historyScan.partial}
+        <div className="wa-kpis" role="group" aria-label="فلاتر سريعة">
+          <FilterTile k="الإجمالي" v={st.total} on={status === '' && who === 'all'} onClick={() => { setStatus(''); setWho('all'); setPage(0); }} />
+          <FilterTile k="راسلَنا (في أيّ وقت)" v={st.two_way} tone="ok" on={status === 'two_way'} onClick={() => { setStatus('two_way'); setPage(0); }} />
+          <FilterTile k="منّا فقط · لم يراسلنا" v={st.never ?? 0} tone="danger" on={status === 'never'} onClick={() => { setStatus('never'); setPage(0); }} />
+          <FilterTile k="منّا فقط · غير محسوم" v={st.partial ?? st.has_chat} vColor="var(--warn)" on={status === 'partial'} onClick={() => { setStatus('partial'); setPage(0); }} />
+          <FilterTile k="لاعبون" v={st.players} tone="gold" on={who === 'players'} onClick={() => { setWho('players'); setPage(0); }} />
+          <FilterTile k="غير لاعبين" v={st.others} on={who === 'others'} onClick={() => { setWho('others'); setPage(0); }} />
         </div>
       )}
 
-      <div className="flex flex-wrap gap-2 items-center">
-        <input defaultValue={q} onChange={e => onSearch(e.target.value)} placeholder="🔍 بحث بالاسم أو الرقم…" className={inp + ' flex-1 min-w-[180px]'} />
-        <select value={status} onChange={e => { setStatus(e.target.value as any); setPage(0); }} className={inp}>
-          <option value="">كلّ الحالات</option><option value="two_way">راسلَنا (في أيّ وقت)</option><option value="has_chat">منّا فقط (الكلّ)</option>
-          <option value="never">منّا فقط · لم يراسلنا قطّ</option><option value="partial">منّا فقط · غير محسوم</option>
-        </select>
-        <select value={who} onChange={e => { setWho(e.target.value as any); setPage(0); }} className={inp}>
-          <option value="all">الكلّ</option><option value="players">لاعبون</option><option value="others">غير لاعبين</option>
-        </select>
-      </div>
-
-      <div className="rounded-xl border border-gray-800 overflow-hidden">
-        <div className="max-h-[52vh] overflow-y-auto divide-y divide-gray-800/70">
-          {(d?.rows || []).map((r: any) => {
-            const s = STATUS_AR[r.status] || STATUS_AR.unknown;
-            return (
-              <div key={r.phone} className="flex items-center gap-2 px-3 py-2">
-                <div className="flex-1 min-w-0">
-                  <div className="text-gray-100 truncate">{r.player_name || r.name || '—'}{r.player_id && <span className="text-[10px] text-amber-400 mr-1.5">👤 لاعب</span>}</div>
-                  <div className="text-[11px] text-gray-500"><span dir="ltr">{r.phone}</span>
-                    {r.status === 'two_way' && Number(r.inbound_count) > 0 && <span className="mr-2 text-emerald-400/80">{r.inbound_count} رسالة منه{r.first_inbound_at ? ` · أوّلها ${fmtDay(r.first_inbound_at)}` : ''}</span>}
-                  </div>
-                </div>
-                {r.unread > 0 && <span className="text-[10px] bg-rose-500/15 text-rose-300 rounded-full px-1.5">غير مقروء {r.unread}</span>}
-                <span title={s.title} className={`text-[10.5px] font-bold rounded-full px-2 py-0.5 ${s.cls}`}>{s.t}</span>
-                <span className="text-[10px] text-gray-500 w-14 text-left shrink-0">{ago(r.inbound_at || r.last_chat_at)}</span>
-              </div>
-            );
-          })}
-          {d && d.rows?.length === 0 && <div className="text-gray-500 text-center py-6">لا نتائج{st?.total === 0 ? ' — شغّل «مزامنة الآن» بعد ربط الرقم' : ''}</div>}
-        </div>
-      </div>
-
-      {total > 50 && (
-        <div className="flex items-center justify-center gap-3 text-xs">
-          <button disabled={page === 0} onClick={() => setPage(p => p - 1)} className="px-3 py-1 rounded-lg border border-gray-800 text-gray-300 disabled:opacity-40">السابق</button>
-          <span className="text-gray-500">{page * 50 + 1}–{Math.min((page + 1) * 50, total)} من {total}</span>
-          <button disabled={(page + 1) * 50 >= total} onClick={() => setPage(p => p + 1)} className="px-3 py-1 rounded-lg border border-gray-800 text-gray-300 disabled:opacity-40">التالي</button>
+      {(st?.lastSync || st?.historyScan) && (
+        <div className="stack muted" style={{ ...SMALL, gap: 'var(--space-1)' }}>
+          {st?.lastSync && (
+            <div className="row" style={{ alignItems: 'flex-start' }}>
+              <History className="s" style={{ marginTop: 3 }} aria-hidden="true" />
+              <span>
+                آخر مزامنة: {ago(st.lastSync.at)} · <N>{st.lastSync.added || 0}</N> جهة من <N>{st.lastSync.chats || 0}</N> محادثة
+                {st.lastSync.error && (
+                  <span style={{ color: 'var(--warn)' }}> · <AlertTriangle className="s" style={{ display: 'inline', verticalAlign: '-2px' }} aria-label="تحذير" /> {st.lastSync.error}</span>
+                )}
+              </span>
+            </div>
+          )}
+          {st?.historyScan && (
+            <div className="row" style={{ alignItems: 'flex-start' }}>
+              <ScrollText className="s" style={{ marginTop: 3 }} aria-hidden="true" />
+              <span>
+                آخر فحصٍ لتاريخ الرسائل: {ago(st.historyScan.at)} · <N>{st.historyScan.chats}</N> محادثة · <N>{st.historyScan.messages}</N> رسالة
+                {' '}· تاريخها كامل <N>{st.historyScan.complete}</N> · بقي لها تاريخٌ أقدم على الهاتف <N>{st.historyScan.partial}</N>
+              </span>
+            </div>
+          )}
         </div>
       )}
-    </div>
+
+      <Card style={{ padding: 0 }}>
+        <div className="flex flex-wrap gap-2 items-center" style={{ padding: 'var(--space-3) var(--space-4)', borderBottom: '1px solid var(--line)' }}>
+          <div className="wa-search" style={{ flex: '2 1 220px', minWidth: 0 }}>
+            <Search aria-hidden="true" />
+            <input defaultValue={q} onChange={e => onSearch(e.target.value)} placeholder="بحث بالاسم أو الرقم…" aria-label="بحث بالاسم أو الرقم" className="wa-input" />
+          </div>
+          <select value={status} onChange={e => { setStatus(e.target.value as any); setPage(0); }} className="wa-select" aria-label="الحالة" style={{ flex: '1 1 160px', width: 'auto', minWidth: 0 }}>
+            <option value="">كلّ الحالات</option><option value="two_way">راسلَنا (في أيّ وقت)</option><option value="has_chat">منّا فقط (الكلّ)</option>
+            <option value="never">منّا فقط · لم يراسلنا قطّ</option><option value="partial">منّا فقط · غير محسوم</option>
+          </select>
+          <select value={who} onChange={e => { setWho(e.target.value as any); setPage(0); }} className="wa-select" aria-label="لاعبون أم غيرهم" style={{ flex: '1 1 130px', width: 'auto', minWidth: 0 }}>
+            <option value="all">الكلّ</option><option value="players">لاعبون</option><option value="others">غير لاعبين</option>
+          </select>
+        </div>
+
+        {!d && (
+          <div className="stack" style={{ padding: 'var(--space-4)' }} role="status" aria-label="تحميل…">
+            <Skel h={44} /><Skel h={44} /><Skel h={44} /><Skel h={44} />
+          </div>
+        )}
+
+        {rows.length > 0 && (
+          <div className="wa-tablewrap">
+            <table className="wa-table cards">
+              <thead><tr><th>الجهة</th><th>الرقم</th><th>الرسائل منه</th><th>الحالة</th><th>آخر نشاط</th></tr></thead>
+              <tbody>
+                {rows.map((r: any) => {
+                  const s = STATUS_AR[r.status] || STATUS_AR.unknown;
+                  const nm = r.player_name || r.name;
+                  return (
+                    <tr key={r.phone} onClick={onOpenPhone ? () => onOpenPhone(r.phone) : undefined} style={onOpenPhone ? { cursor: 'pointer' } : undefined} title={onOpenPhone ? 'افتح محادثته' : undefined}>
+                      <td>
+                        <span className="row" style={{ minWidth: 0 }}>
+                          {nm ? <b className="trunc">{nm}</b> : <span className="muted">—</span>}
+                          {r.player_id && <Badge tone="gold"><User aria-hidden="true" />لاعب</Badge>}
+                        </span>
+                      </td>
+                      <td data-l="الرقم"><span className="ltr">{r.phone}</span></td>
+                      <td data-l="الرسائل منه">
+                        {r.status === 'two_way' && Number(r.inbound_count) > 0
+                          ? <span><span className="ltr">{r.inbound_count}</span> رسالة منه{r.first_inbound_at ? ` · أوّلها ${fmtDay(r.first_inbound_at)}` : ''}</span>
+                          : <span className="muted">—</span>}
+                      </td>
+                      <td data-l="الحالة">
+                        <span className="row" style={{ flexWrap: 'wrap', justifyContent: 'flex-start' }}>
+                          <Badge tone={s.tone} title={s.title}>{s.t}</Badge>
+                          {r.unread > 0 && <Badge tone="danger">غير مقروء <span className="ltr" style={{ fontSize: 12 }}>{r.unread}</span></Badge>}
+                        </span>
+                      </td>
+                      <td data-l="آخر نشاط"><span className="muted" style={{ whiteSpace: 'nowrap' }}>{ago(r.inbound_at || r.last_chat_at)}</span></td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
+
+        {d && d.rows?.length === 0 && (
+          <Empty icon={<Contact aria-hidden="true" />} title="لا نتائج">{st?.total === 0 ? 'شغّل «مزامنة الآن» بعد ربط الرقم' : undefined}</Empty>
+        )}
+
+        {total > 50 && (
+          <div className="row" style={{ padding: 'var(--space-3) var(--space-4)', borderTop: '1px solid var(--line)' }}>
+            <span className="muted grow" style={{ font: '500 13px/18px var(--font-sans)' }}>
+              <span className="ltr">{page * 50 + 1}–{Math.min((page + 1) * 50, total)}</span> من <span className="ltr">{total}</span>
+            </span>
+            <button type="button" className="wa-btn" disabled={page === 0} onClick={() => setPage(p => p - 1)}>السابق</button>
+            <button type="button" className="wa-btn" disabled={(page + 1) * 50 >= total} onClick={() => setPage(p => p + 1)}>التالي</button>
+          </div>
+        )}
+      </Card>
+    </>
   );
 }

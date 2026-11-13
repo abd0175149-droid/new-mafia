@@ -6,8 +6,12 @@
 // وضع التشغيل يُبدَّل هنا بلا نشر، والسقوف والبديل وسطر التحويل وربط رقم الأعمال واستيراد
 // تاريخه وأقفال القناتين — كلّها من شاشةٍ واحدة. كلّ حفظٍ يُسجَّل في سجلّ عمليّات الموظّفين.
 
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState, type CSSProperties } from 'react';
+import {
+  AlertTriangle, Ban, Bot, Check, Cloud, DatabaseBackup, Flame, KeyRound, Loader2, QrCode, RefreshCw, Save, Smartphone, Snowflake, Undo2, X,
+} from 'lucide-react';
 import { swalConfirm, swalToast } from '@/lib/swal';
+import { Badge, Banner, Card, Field, HBar, PageHead, Setting, Skel, Toggle, type Tone } from './wa-ui';
 
 type Fetcher = (path: string, opts?: RequestInit) => Promise<any>;
 
@@ -40,11 +44,17 @@ function QrImage({ value }: { value: string }) {
     if (value.startsWith('data:')) return;
     import('qrcode.react').then((m: any) => setSvg(() => m.QRCodeSVG || m.default)).catch(() => {});
   }, [value]);
-  if (value.startsWith('data:')) return <img src={value} alt="رمز ربط واتساب" className="w-56 h-56 bg-white p-2 rounded-xl" />;
-  return Svg ? <div className="bg-white p-3 rounded-xl inline-block"><Svg value={value} size={208} /></div> : <div className="text-gray-500">…</div>;
+  if (value.startsWith('data:')) return <img src={value} alt="رمز ربط واتساب" className="wa-qrimg" />;
+  return Svg ? <div className="wa-qrimg"><Svg value={value} size={180} /></div> : <Skel h={200} w={200} />;
 }
 
-const inp = 'bg-gray-950 border border-gray-800 rounded-lg px-2.5 py-1.5 text-sm text-white focus:border-amber-500 outline-none';
+const SUB: CSSProperties = { font: '700 14px/20px var(--font-sans)', color: 'var(--ink-2)' };
+const H3: CSSProperties = { font: '700 16px/24px var(--font-sans)', marginTop: 'var(--space-5)' };
+const NOTE: CSSProperties = { font: '400 13px/20px var(--font-sans)', margin: 0 };
+const SMALL: CSSProperties = { font: '500 12px/18px var(--font-sans)' };
+const pc = (n: any, cap: any) => (Number(cap) > 0 ? (Number(n || 0) / Number(cap)) * 100 : 0);
+const barTone = (p: number, base?: 'info') => (p >= 100 ? 'danger' : p >= 75 ? 'warn' : base);
+const frac = (n: any, cap: any) => <span style={{ whiteSpace: 'nowrap' }}>{n}/{cap ?? '—'}</span>;
 
 export default function ChannelsSection({ apiFetch }: { apiFetch: Fetcher }) {
   const [d, setD] = useState<any>(null);
@@ -68,7 +78,13 @@ export default function ChannelsSection({ apiFetch }: { apiFetch: Fetcher }) {
   const mirroring = !!d?.historyImport?.running;
   useEffect(() => { load(); const t = setInterval(load, pair || mirroring ? 5000 : 60000); pollRef.current = t; return () => clearInterval(t); }, [load, pair, mirroring]);
 
-  if (!d || !draft) return <div className="text-gray-500 p-4">⏳ تحميل القنوات…</div>;
+  if (!d || !draft) return (
+    <div className="stack" role="status" aria-label="تحميل القنوات…">
+      <Skel h={28} w={180} />
+      <Skel h={150} />
+      <Skel h={150} />
+    </div>
+  );
   const s = d.settings;
   const web = d.web || {};
   const dirty = JSON.stringify(draft) !== JSON.stringify(s);
@@ -123,194 +139,275 @@ export default function ChannelsSection({ apiFetch }: { apiFetch: Fetcher }) {
     finally { setImporting(false); }
   };
 
-  const webTone = !d.configured.web ? 'text-gray-500' : web.locked ? 'text-rose-300' : web.ready ? 'text-emerald-300' : 'text-amber-300';
+  const webTone: Tone | undefined = !d.configured.web ? undefined : web.locked ? 'danger' : web.ready ? 'ok' : 'warn';
   const ob = d.outbox;
+  const num = (path: string, value: any, label: string, min: number) => (
+    <input type="number" inputMode="numeric" min={min} value={value} onChange={e => set(path, Number(e.target.value))} className="wa-input num" dir="ltr" aria-label={label} />
+  );
+  const fnum = (id: string, label: string, path: string, value: any, min: number) => (
+    <Field label={label} htmlFor={id}>
+      <input id={id} type="number" inputMode="numeric" min={min} value={value} onChange={e => set(path, Number(e.target.value))} className="wa-input" dir="ltr" />
+    </Field>
+  );
+  const lineDefault = draft.lineDefault || 'all';
+  const hi = d.historyImport;
 
   return (
-    <div className="space-y-3 text-sm" dir="rtl">
+    <>
+      <PageHead title="القنوات" sub="ميتا (Cloud API) ورقم الأعمال (جلسة) — الوضع والسقوف والبديل والتحويل وربط رقم الأعمال من شاشةٍ واحدة." />
+
       {/* ── حالة القناتين ── */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
-        <div className="rounded-xl border border-gray-800 bg-gray-900/70 p-3 space-y-1.5">
-          <div className="flex items-center gap-2"><span className="w-2.5 h-2.5 rounded-full bg-indigo-400" /><b className="text-white">ميتا (Cloud API)</b>
-            <span className="mr-auto text-xs text-gray-500">{d.configured.cloud ? 'مهيّأة' : 'غير مهيّأة'}</span></div>
-          <div className="text-gray-400 text-xs">{d.cloud?.summary || '—'}</div>
-          {d.locks.cloud && <div className="flex flex-wrap items-center gap-2 text-rose-200 text-xs">⛔ {d.locks.cloud}<button onClick={() => resume('cloud')} className="px-2 py-0.5 rounded border border-rose-500/40 hover:bg-rose-500/10">رفع القفل</button></div>}
-        </div>
-        <div className="rounded-xl border border-gray-800 bg-gray-900/70 p-3 space-y-1.5">
-          <div className="flex items-center gap-2"><span className="w-2.5 h-2.5 rounded-full bg-emerald-400" /><b className="text-white">رقم الأعمال (جلسة)</b>
-            <span className={`mr-auto text-xs font-bold ${webTone}`}>{!d.configured.web ? 'غير مهيّأ' : STATUS_AR[web.status] || web.status}</span></div>
-          {d.configured.web && (
-            <div className="text-xs text-gray-400 flex flex-wrap gap-x-4 gap-y-1">
-              <span>الرقم: <b className="text-gray-200" dir="ltr">{web.phone ? '+' + web.phone : '—'}</b></span>
-              <span>آخر فحص حقيقيّ: <b className="text-gray-200">{web.lastProbeOk === false ? '✗' : web.lastProbeOk ? '✓' : '—'} {ago(web.lastProbeAt)}</b></span>
-              <span>آخر حدث: <b className="text-gray-200">{ago(web.lastEventAt)}</b></span>
-              <span>الويبهوك: <b className={web.webhook?.ok ? 'text-emerald-300' : 'text-amber-300'}>{web.webhook?.ok ? 'مسجّل' : web.webhook?.error || '—'}</b></span>
-            </div>
-          )}
-          {web.restriction && <div className="text-amber-200 text-xs">⚠️ قيد من واتساب: {web.restriction.kind}{web.restriction.expiresAt ? ` حتّى ${new Date(web.restriction.expiresAt).toLocaleString('ar-JO')}` : ''}</div>}
-          {web.locked && <div className="flex flex-wrap items-center gap-2 text-rose-200 text-xs">⛔ {web.locked}<button onClick={() => resume('web')} className="px-2 py-0.5 rounded border border-rose-500/40 hover:bg-rose-500/10">رفع القفل</button></div>}
-          {d.configured.web && (
-            <div className="flex flex-wrap gap-2 pt-1">
-              <button onClick={async () => { try { setD(await apiFetch('/api/whatsapp/channels/web/check', { method: 'POST' })); } catch (e: any) { swalToast(e.message, 'error'); } }} className="px-2.5 py-1 rounded-lg border border-gray-800 text-gray-300 hover:text-white text-xs">↻ افحص الآن</button>
-              {!web.linked && <>
-                <button onClick={() => startPair('qr')} className="px-2.5 py-1 rounded-lg bg-emerald-500/15 border border-emerald-500/40 text-emerald-300 font-bold text-xs">🔗 ربط برمز QR</button>
-                <input value={pairPhone} onChange={e => setPairPhone(e.target.value)} placeholder="9627XXXXXXXX" dir="ltr" className={inp + ' w-36 text-xs'} />
-                <button onClick={() => startPair('code')} className="px-2.5 py-1 rounded-lg border border-emerald-500/40 text-emerald-300 text-xs">🔢 رمز اقتران</button>
-              </>}
-            </div>
-          )}
-        </div>
+      <div className="wa-grid2">
+        <Card style={{ borderColor: 'var(--ch-meta)' }}
+          title={<><Cloud style={{ color: 'var(--ch-meta)' }} aria-hidden="true" />ميتا (Cloud API)</>}
+          aside={<Badge tone={d.configured.cloud ? 'ok' : undefined}><i className={`wa-dot ${d.configured.cloud ? 'ok' : ''}`} />{d.configured.cloud ? 'مهيّأة' : 'غير مهيّأة'}</Badge>}>
+          <div className="stack">
+            <p className="muted" style={NOTE}>{d.cloud?.summary || '—'}</p>
+            {d.locks.cloud && (
+              <Banner tone="danger" icon={<Ban aria-hidden="true" />} action="رفع القفل" onAction={() => resume('cloud')}>{d.locks.cloud}</Banner>
+            )}
+          </div>
+        </Card>
+
+        <Card style={{ borderColor: 'var(--ch-web)' }}
+          title={<><Smartphone style={{ color: 'var(--ch-web)' }} aria-hidden="true" />رقم الأعمال (جلسة)</>}
+          aside={<Badge tone={webTone}><i className={`wa-dot ${webTone || ''}`} />{!d.configured.web ? 'غير مهيّأ' : STATUS_AR[web.status] || web.status}</Badge>}>
+          <div className="stack">
+            {d.configured.web && (
+              <div>
+                <div className="wa-kv"><span>الرقم</span><b className="ltr">{web.phone ? '+' + web.phone : '—'}</b></div>
+                <div className="wa-kv"><span>آخر فحص حقيقيّ</span>
+                  <b className="row" style={{ gap: 4 }}>
+                    {web.lastProbeOk === false ? <X className="s" style={{ color: 'var(--danger)' }} aria-label="فشل" />
+                      : web.lastProbeOk ? <Check className="s" style={{ color: 'var(--ok)' }} aria-label="نجح" /> : '— '}
+                    {ago(web.lastProbeAt)}
+                  </b>
+                </div>
+                <div className="wa-kv"><span>آخر حدث</span><b>{ago(web.lastEventAt)}</b></div>
+                <div className="wa-kv"><span>الويبهوك</span>
+                  <Badge tone={web.webhook?.ok ? 'ok' : 'warn'}><i className={`wa-dot ${web.webhook?.ok ? 'ok' : 'warn'}`} />{web.webhook?.ok ? 'مسجّل' : web.webhook?.error || '—'}</Badge>
+                </div>
+              </div>
+            )}
+            {web.restriction && (
+              <Banner tone="warn" icon={<AlertTriangle aria-hidden="true" />}>
+                قيد من واتساب: {web.restriction.kind}{web.restriction.expiresAt ? ` حتّى ${new Date(web.restriction.expiresAt).toLocaleString('ar-JO')}` : ''}
+              </Banner>
+            )}
+            {web.locked && (
+              <Banner tone="danger" icon={<Ban aria-hidden="true" />} action="رفع القفل" onAction={() => resume('web')}>{web.locked}</Banner>
+            )}
+            {d.configured.web && (
+              <div className="flex flex-wrap gap-2">
+                <button type="button" className="wa-btn"
+                  onClick={async () => { try { setD(await apiFetch('/api/whatsapp/channels/web/check', { method: 'POST' })); } catch (e: any) { swalToast(e.message, 'error'); } }}>
+                  <RefreshCw aria-hidden="true" />افحص الآن
+                </button>
+                {!web.linked && <>
+                  <button type="button" className="wa-btn primary" onClick={() => startPair('qr')}><QrCode aria-hidden="true" />ربط برمز QR</button>
+                  <div className="flex gap-2 w-full">
+                    <input value={pairPhone} onChange={e => setPairPhone(e.target.value)} placeholder="9627XXXXXXXX" dir="ltr" inputMode="numeric"
+                      aria-label="رقم الأعمال لرمز الاقتران" className="wa-input grow" />
+                    <button type="button" className="wa-btn" onClick={() => startPair('code')}><KeyRound aria-hidden="true" />رمز اقتران</button>
+                  </div>
+                </>}
+              </div>
+            )}
+          </div>
+        </Card>
       </div>
 
       {pair && (
-        <div className="rounded-xl border border-emerald-500/40 bg-emerald-500/5 p-4 flex flex-col sm:flex-row gap-4 items-start">
-          {pair.busy && !pair.qr && !pair.code && <div className="text-gray-400">⏳ تجهيز الجلسة…</div>}
-          {pair.qr && <QrImage value={pair.qr} />}
-          {pair.code && <div className="text-3xl font-mono font-bold tracking-[.3em] text-white bg-gray-950 px-4 py-3 rounded-xl" dir="ltr">{pair.code}</div>}
-          <div className="text-gray-300 space-y-1 text-[13px]">
-            <b className="block text-white">على هاتف رقم الأعمال:</b>
-            <div>١) افتح واتساب للأعمال ← ⋮ ← <b>الأجهزة المرتبطة</b> ← <b>ربط جهاز</b>.</div>
-            <div>٢) {pair.mode === 'qr' ? 'امسح الرمز الظاهر هنا (يتجدّد كلّ دقيقة).' : 'اختر «الربط برقم الهاتف بدلاً من ذلك» واكتب الرمز.'}</div>
-            <div className="text-gray-500">الهاتف يبقى الجهاز الأساسيّ — أبقِه متّصلاً بالإنترنت (يُفصل الربط إن غاب نحو ١٤ يوماً).</div>
-            <button onClick={() => setPair(null)} className="text-gray-500 hover:text-white text-xs">إلغاء</button>
+        <Card style={{ borderColor: 'var(--ch-web)' }}>
+          <div className="flex flex-col md:flex-row gap-4 items-center md:items-start">
+            {pair.busy && !pair.qr && !pair.code && (
+              <div className="row muted" role="status"><Loader2 className="animate-spin" aria-hidden="true" />تجهيز الجلسة…</div>
+            )}
+            {pair.qr && <QrImage value={pair.qr} />}
+            {pair.code && (
+              <div className="stack" style={{ alignItems: 'center', textAlign: 'center', gap: 'var(--space-1)' }}>
+                <div className="muted" style={{ font: '700 12px/16px var(--font-sans)' }}>رمز الاقتران</div>
+                <span className="wa-code">{pair.code}</span>
+              </div>
+            )}
+            <div className="stack grow" style={{ gap: 'var(--space-2)' }}>
+              <b style={{ font: '700 14px/20px var(--font-sans)' }}>على هاتف رقم الأعمال:</b>
+              <ol style={{ margin: 0, paddingInlineStart: 20, font: '400 14px/24px var(--font-sans)', color: 'var(--ink-2)', listStyle: 'decimal' }}>
+                <li>افتح واتساب للأعمال ← ⋮ ← <strong>الأجهزة المرتبطة</strong> ← <strong>ربط جهاز</strong>.</li>
+                <li>{pair.mode === 'qr' ? 'امسح الرمز الظاهر هنا (يتجدّد كلّ دقيقة).' : 'اختر «الربط برقم الهاتف بدلاً من ذلك» واكتب الرمز.'}</li>
+              </ol>
+              <p className="muted" style={NOTE}>الهاتف يبقى الجهاز الأساسيّ — أبقِه متّصلاً بالإنترنت (يُفصل الربط إن غاب نحو ١٤ يوماً).</p>
+              <div><button type="button" className="wa-btn ghost" onClick={() => setPair(null)}>إلغاء</button></div>
+            </div>
           </div>
-        </div>
+        </Card>
       )}
 
       {/* ── وضع التشغيل ── */}
-      <div className="rounded-xl border border-gray-800 bg-gray-900/70 p-3">
-        <b className="text-white block mb-2">وضع التشغيل</b>
-        <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-2">
+      <Card title="وضع التشغيل" aside="التبديل فوريّ ويمكن الرجوع عنه">
+        <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-3" role="radiogroup" aria-label="وضع التشغيل">
           {d.modes.map((m: any) => (
-            <button key={m.id} onClick={() => switchMode(m.id)} disabled={saving}
-              className={`text-right rounded-xl border p-2.5 ${s.mode === m.id ? 'border-amber-500 bg-amber-500/10' : 'border-gray-800 hover:border-gray-600'}`}>
-              <b className={`block ${s.mode === m.id ? 'text-amber-300' : 'text-gray-200'}`}>{s.mode === m.id ? '● ' : ''}{MODE_INFO[m.id]?.title || m.label}</b>
-              <span className="block text-[11.5px] text-gray-500 leading-snug mt-1">{MODE_INFO[m.id]?.desc}</span>
+            <button key={m.id} type="button" className="wa-radio" role="radio" aria-checked={s.mode === m.id} disabled={saving}
+              style={{ alignItems: 'flex-start', height: '100%' }} onClick={() => switchMode(m.id)}>
+              <span className="t"><b>{MODE_INFO[m.id]?.title || m.label}</b><span>{MODE_INFO[m.id]?.desc}</span></span>
+              <span className="o" />
             </button>
           ))}
         </div>
-        <label className="flex items-center gap-2 mt-3 text-gray-300">
-          <input type="checkbox" checked={!!draft.webBot} onChange={e => set('webBot', e.target.checked)} />
-          الدون يردّ على رقم الأعمال <span className="text-gray-500 text-xs">(مطفأ = رسائل رقم الأعمال تُعرض فقط والموظّفون يردّون)</span>
-        </label>
-        <label className="flex items-start gap-2 mt-2 text-gray-300">
-          <input type="checkbox" className="mt-1" checked={!!draft.webBotKnown} onChange={e => set('webBotKnown', e.target.checked)} />
-          <span>الدون يردّ على غير اللاعبين في محادثات رقم الأعمال
-            <span className="block text-gray-500 text-xs leading-snug">مطفأ = محادثات رقم الأعمال القديمة لغير اللاعبين تُفتح والبوت مطفأ (موردون ومعارف). مفعّل = يردّ عليهم كعملاء.
-              يُطبَّق عند الحفظ على محادثاتهم القائمة أيضاً — ومن غيّرتَ بوته يدويّاً (🤖) يبقى على اختيارك.</span></span>
-        </label>
-      </div>
+      </Card>
 
       {/* ── الطابور والسقوف ── */}
-      <div className="rounded-xl border border-gray-800 bg-gray-900/70 p-3 space-y-2">
-        <b className="text-white block">طابور رقم الأعمال</b>
-        {ob && (
-          <>
-            <div className="grid grid-cols-3 gap-2 text-center">
-              {(['reply', 'timely', 'bulk'] as const).map(l => (
-                <div key={l} className="rounded-lg border border-gray-800 p-2">
-                  <div className="text-[11px] text-gray-500">{LANE_AR[l]}</div>
-                  <div className="text-white font-bold tabular-nums">{ob.sentToday[l]}{l === 'bulk' ? ` / ${ob.caps?.bulkDaily ?? s.bulk.dailyCap}` : l === 'timely' ? ` / ${s.timely.serviceDailyCap}` : ''}</div>
-                  <div className="text-[11px] text-gray-500">اليوم · في الطابور {ob.queued[l]}</div>
-                  {l === 'timely' && ob.sentToday.confirm != null && (
-                    <div className="text-[11px] text-gray-500">تثبيت الحجز <span className="tabular-nums">{ob.sentToday.confirm} / {s.timely.confirmDailyCap ?? 300}</span></div>
-                  )}
-                </div>
-              ))}
-            </div>
-            <div className="flex flex-wrap gap-x-4 gap-y-1 text-[11.5px] text-gray-400">
+      <Card title="طابور رقم الأعمال">
+        <div className="stack">
+          {ob && (
+            <div>
+              <div className="wa-kv"><span>{LANE_AR.reply} اليوم</span><b className="ltr">{ob.sentToday.reply}</b></div>
+              {(() => { const p = pc(ob.sentToday.timely, s.timely.serviceDailyCap); return <HBar label={`${LANE_AR.timely} اليوم`} pct={p} tone={barTone(p)} value={frac(ob.sentToday.timely, s.timely.serviceDailyCap)} />; })()}
+              {ob.sentToday.confirm != null && (() => { const cap = s.timely.confirmDailyCap ?? 300; const p = pc(ob.sentToday.confirm, cap); return <HBar label="تثبيت الحجز" pct={p} tone={barTone(p)} value={frac(ob.sentToday.confirm, cap)} />; })()}
+              {(() => { const cap = ob.caps?.bulkDaily ?? s.bulk.dailyCap; const p = pc(ob.sentToday.bulk, cap); return <HBar label={`${LANE_AR.bulk} اليوم`} pct={p} tone={barTone(p, 'info')} value={frac(ob.sentToday.bulk, cap)} />; })()}
+              {(() => { const p = pc(ob.sentToday.coldBulk, ob.caps?.coldDaily); return <HBar label="بارد اليوم" pct={p} tone={barTone(p, 'info')} value={frac(ob.sentToday.coldBulk, ob.caps?.coldDaily)} />; })()}
+              {(() => { const p = pc(ob.sentLastHour, ob.caps?.bulkHourly); return <HBar label="آخر ساعة" pct={p} tone={barTone(p)} value={frac(ob.sentLastHour, ob.caps?.bulkHourly)} />; })()}
+              <div className="wa-kv" style={{ flexWrap: 'wrap' }}><span>في الطابور</span>
+                <b style={{ font: '500 13px/22px var(--font-sans)' }}>
+                  {LANE_AR.reply} <span className="ltr">{ob.queued.reply}</span> · {LANE_AR.timely} <span className="ltr">{ob.queued.timely}</span> · {LANE_AR.bulk} <span className="ltr">{ob.queued.bulk}</span> · البارد <span className="ltr">{ob.queued.coldBulk}</span>
+                </b>
+              </div>
               {ob.warmup?.enabled && (
                 ob.warmup.linked
-                  ? <span>🔥 تسخين الجلسة: اليوم {ob.warmup.ageDays} — سقف اليوم {ob.caps?.bulkDaily} (البارد {ob.caps?.coldDaily})</span>
-                  : <span className="text-amber-300">🔥 التسخين: الرقم غير مربوط — لا إرسال جماعيّ حتّى يُربط</span>
+                  ? <div className="row muted" style={{ ...SMALL, marginTop: 'var(--space-2)' }}><Flame className="s" aria-hidden="true" />
+                    <span>تسخين الجلسة: اليوم <span className="ltr">{ob.warmup.ageDays}</span> — سقف اليوم <span className="ltr">{ob.caps?.bulkDaily}</span> (البارد <span className="ltr">{ob.caps?.coldDaily}</span>)</span></div>
+                  : <div style={{ marginTop: 'var(--space-2)' }}><Banner tone="warn" icon={<Flame aria-hidden="true" />}>التسخين: الرقم غير مربوط — لا إرسال جماعيّ حتّى يُربط</Banner></div>
               )}
-              <span>❄️ بارد اليوم: {ob.sentToday.coldBulk} / {ob.caps?.coldDaily} · في الطابور {ob.queued.coldBulk}</span>
-              <span>⏳ آخر ساعة: {ob.sentLastHour} / {ob.caps?.bulkHourly}</span>
             </div>
-          </>
-        )}
-        <div className="flex flex-wrap items-center gap-x-4 gap-y-2 text-gray-300">
-          <span>الجماعيّ يوميّاً <input type="number" min={0} value={draft.bulk.dailyCap} onChange={e => set('bulk.dailyCap', Number(e.target.value))} className={inp + ' w-20'} /></span>
-          <span>بالساعة <input type="number" min={1} value={draft.bulk.hourlyCap} onChange={e => set('bulk.hourlyCap', Number(e.target.value))} className={inp + ' w-16'} /></span>
-          <span>التباعد <input type="number" min={1} value={draft.bulk.gapMinSec} onChange={e => set('bulk.gapMinSec', Number(e.target.value))} className={inp + ' w-16'} /> – <input type="number" min={1} value={draft.bulk.gapMaxSec} onChange={e => set('bulk.gapMaxSec', Number(e.target.value))} className={inp + ' w-16'} /> ث</span>
-          <span>الساعات <input type="time" value={draft.bulk.from} onChange={e => set('bulk.from', e.target.value)} className={inp} /> – <input type="time" value={draft.bulk.to} onChange={e => set('bulk.to', e.target.value)} className={inp} /></span>
-        </div>
-        <div className="flex flex-wrap items-center gap-x-4 gap-y-2 text-gray-300 border-t border-gray-800/60 pt-2">
-          <span className="text-amber-300 font-bold text-[12px]">❄️ المحادثات الباردة (أوّل رسالة منّا):</span>
-          <span>يوميّاً <input type="number" min={0} value={draft.cold.dailyCap} onChange={e => set('cold.dailyCap', Number(e.target.value))} className={inp + ' w-16'} /></span>
-          <span>التباعد <input type="number" min={10} value={draft.cold.gapMinSec} onChange={e => set('cold.gapMinSec', Number(e.target.value))} className={inp + ' w-16'} /> – <input type="number" min={10} value={draft.cold.gapMaxSec} onChange={e => set('cold.gapMaxSec', Number(e.target.value))} className={inp + ' w-16'} /> ث</span>
-        </div>
-        <label className="flex items-center gap-2 text-gray-300">
-          <input type="checkbox" checked={!!draft.warmup.enabled} onChange={e => set('warmup.enabled', e.target.checked)} />
-          🔥 تسخين تدريجيّ لكلّ ربطٍ جديد <span className="text-gray-500 text-xs">(يبدأ السقف منخفضاً ويرتفع يوميّاً — أهمّ حماية بعد فكّ الربط أو التقييد)</span>
-        </label>
-        {draft.warmup.enabled && (
-          <label className="flex items-start gap-2 text-gray-300 mr-6">
-            <input type="checkbox" className="mt-1" checked={!!draft.warmup.warmExempt} onChange={e => set('warmup.warmExempt', e.target.checked)} />
-            <span>إعفاء الدافئ من التسخين <span className="block text-gray-500 text-xs leading-snug">من له محادثة معنا لا يخضع لتدرّج عمر الربط — يبقى سقفا اليوم والساعة المضبوطان أعلاه، والبارد يبقى بتدرّجه.
-              ⚠️ التسخين يحمي <b>الرقم</b> من قفزة حجمٍ بعد ربطٍ جديد أيّاً كان المستلم — الإعفاء أنسب بعد أيّامٍ من الربط بلا إنذارات.</span></span>
-          </label>
-        )}
-        <div className="flex flex-wrap items-center gap-x-4 gap-y-2 text-gray-300">
-          <span>المقيّد بوقت: تباعد <input type="number" min={0} value={draft.timely.gapMinSec} onChange={e => set('timely.gapMinSec', Number(e.target.value))} className={inp + ' w-16'} /> – <input type="number" min={0} value={draft.timely.gapMaxSec} onChange={e => set('timely.gapMaxSec', Number(e.target.value))} className={inp + ' w-16'} /> ث</span>
-          <span>سقفه اليوميّ <input type="number" min={0} value={draft.timely.serviceDailyCap} onChange={e => set('timely.serviceDailyCap', Number(e.target.value))} className={inp + ' w-20'} /></span>
-          <span>ورسائل تثبيت الحجز بسقفٍ مستقلّ <input type="number" min={0} value={draft.timely.confirmDailyCap ?? 300} onChange={e => set('timely.confirmDailyCap', Number(e.target.value))} className={inp + ' w-20'} /></span>
-          <span>المتابعة لا تتجاوز <input type="number" min={1} value={draft.followupMaxAgeHours} onChange={e => set('followupMaxAgeHours', Number(e.target.value))} className={inp + ' w-16'} /> ساعة من آخر رسالة</span>
-        </div>
-      </div>
+          )}
 
-      {/* ── البديل والتحويل والإرسال المباشر ── */}
-      <div className="rounded-xl border border-gray-800 bg-gray-900/70 p-3 space-y-2 text-gray-300">
-        <b className="text-white block">البديل بين الرقمين</b>
-        <div className="flex flex-wrap gap-4">
-          {(['reply', 'timely', 'bulk'] as const).map(l => (
-            <label key={l} className="flex items-center gap-1.5"><input type="checkbox" checked={!!draft.failover[l]} onChange={e => set(`failover.${l}`, e.target.checked)} />{LANE_AR[l]}</label>
-          ))}
-        </div>
-        <div className="text-xs text-gray-500">إن تعطّلت القناة المختارة ونافذة الأخرى مفتوحة، تخرج الرسالة من الأخرى مع سطر «نراسلك من رقمنا الآخر».</div>
-        <b className="text-white block pt-2">التحويل من رقم ميتا</b>
-        <div className="flex flex-wrap items-center gap-3">
-          <label className="flex items-center gap-1.5"><input type="checkbox" checked={!!draft.cloudRedirect.enabled} onChange={e => set('cloudRedirect.enabled', e.target.checked)} />سطر «رقمنا للحجز» في ردود ميتا</label>
-          <input value={draft.cloudRedirect.businessNumber} onChange={e => set('cloudRedirect.businessNumber', e.target.value)} placeholder="رقم الأعمال 07XXXXXXXX" dir="ltr" className={inp + ' w-44'} />
-          <label className="flex items-center gap-1.5"><input type="checkbox" checked={!!draft.cloudRedirect.oncePerDay} onChange={e => set('cloudRedirect.oncePerDay', e.target.checked)} />مرّة في اليوم لكلّ محادثة</label>
-        </div>
-        <div className="text-xs text-gray-500">يعمل في «الجلسة أوّلاً» و«الجلسة + ميتا للتحويل».</div>
-        <b className="text-white block pt-2">الإرسال المباشر من الصفحات</b>
-        <div className="flex flex-wrap items-center gap-3">
-          <label className="flex items-center gap-1.5"><input type="checkbox" checked={!!draft.outreach.direct} onChange={e => set('outreach.direct', e.target.checked)} />الحجوزات والتحليلات والمستكشف ترسل من النظام</label>
-          <span>رسالة فئة للّاعب نفسه مرّة كلّ <input type="number" min={0} value={draft.outreach.cohortFreqDays} onChange={e => set('outreach.cohortFreqDays', Number(e.target.value))} className={inp + ' w-14'} /> أيّام</span>
-        </div>
-        {/* ── الجمهور الافتراضيّ لكلّ الصفحات ── */}
-        <div className="border-t border-gray-800/60 pt-2">
-          <b className="text-white block mb-1">الجمهور الافتراضيّ في كلّ الصفحات</b>
-          <div className="text-xs text-gray-500 mb-2">يُطبَّق على التحليلات والحجوزات والمتابعة والبثّ ما لم تغيّره في الصفحة نفسها. يحمي من بدء محادثةٍ باردةٍ عن غير قصد.</div>
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
-            {(['all', 'warm', 'two_way'] as const).map(k => (
-              <button key={k} type="button" onClick={() => set('lineDefault', k)}
-                className={`text-right rounded-xl border p-2.5 ${(draft.lineDefault || 'all') === k ? 'border-amber-500 bg-amber-500/10' : 'border-gray-800 hover:border-gray-600'}`}>
-                <b className={`block ${(draft.lineDefault || 'all') === k ? 'text-amber-300' : 'text-gray-200'}`}>{(draft.lineDefault || 'all') === k ? '● ' : ''}{LINE_DEFAULT[k].t}</b>
-                <span className="block text-[11px] text-gray-500 leading-snug mt-1">{LINE_DEFAULT[k].d}</span>
-              </button>
-            ))}
+          <div style={SUB}>{LANE_AR.bulk}</div>
+          <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-3">
+            {fnum('ch-bulk-daily', 'الجماعيّ يوميّاً', 'bulk.dailyCap', draft.bulk.dailyCap, 0)}
+            {fnum('ch-bulk-hourly', 'بالساعة', 'bulk.hourlyCap', draft.bulk.hourlyCap, 1)}
+            {fnum('ch-bulk-gapmin', 'التباعد من (ث)', 'bulk.gapMinSec', draft.bulk.gapMinSec, 1)}
+            {fnum('ch-bulk-gapmax', 'التباعد إلى (ث)', 'bulk.gapMaxSec', draft.bulk.gapMaxSec, 1)}
+            <Field label="الساعات من" htmlFor="ch-bulk-from">
+              <input id="ch-bulk-from" type="time" value={draft.bulk.from} onChange={e => set('bulk.from', e.target.value)} className="wa-input" dir="ltr" />
+            </Field>
+            <Field label="الساعات إلى" htmlFor="ch-bulk-to">
+              <input id="ch-bulk-to" type="time" value={draft.bulk.to} onChange={e => set('bulk.to', e.target.value)} className="wa-input" dir="ltr" />
+            </Field>
+          </div>
+
+          <div className="row" style={{ ...SUB, color: 'var(--warn)' }}><Snowflake className="s" aria-hidden="true" />المحادثات الباردة (أوّل رسالة منّا)</div>
+          <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-3">
+            {fnum('ch-cold-daily', 'يوميّاً', 'cold.dailyCap', draft.cold.dailyCap, 0)}
+            {fnum('ch-cold-gapmin', 'التباعد من (ث)', 'cold.gapMinSec', draft.cold.gapMinSec, 10)}
+            {fnum('ch-cold-gapmax', 'التباعد إلى (ث)', 'cold.gapMaxSec', draft.cold.gapMaxSec, 10)}
+          </div>
+
+          <div>
+            <Setting title="تسخين تدريجيّ لكلّ ربطٍ جديد" hint="يبدأ السقف منخفضاً ويرتفع يوميّاً — أهمّ حماية بعد فكّ الربط أو التقييد">
+              <Toggle on={!!draft.warmup.enabled} onChange={v => set('warmup.enabled', v)} label="تسخين تدريجيّ لكلّ ربطٍ جديد" />
+            </Setting>
+            {draft.warmup.enabled && (
+              <Setting title="إعفاء الدافئ من التسخين"
+                hint={<>من له محادثة معنا لا يخضع لتدرّج عمر الربط — يبقى سقفا اليوم والساعة المضبوطان أعلاه، والبارد يبقى بتدرّجه.
+                  {' '}تنبيه: التسخين يحمي <strong>الرقم</strong> من قفزة حجمٍ بعد ربطٍ جديد أيّاً كان المستلم — الإعفاء أنسب بعد أيّامٍ من الربط بلا إنذارات.</>}>
+                <Toggle on={!!draft.warmup.warmExempt} onChange={v => set('warmup.warmExempt', v)} label="إعفاء الدافئ من التسخين" />
+              </Setting>
+            )}
+          </div>
+
+          <div style={SUB}>{LANE_AR.timely}</div>
+          <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-3">
+            {fnum('ch-timely-gapmin', 'التباعد من (ث)', 'timely.gapMinSec', draft.timely.gapMinSec, 0)}
+            {fnum('ch-timely-gapmax', 'التباعد إلى (ث)', 'timely.gapMaxSec', draft.timely.gapMaxSec, 0)}
+            {fnum('ch-timely-cap', 'سقفه اليوميّ', 'timely.serviceDailyCap', draft.timely.serviceDailyCap, 0)}
+            {fnum('ch-timely-confirm', 'سقف تثبيت الحجز', 'timely.confirmDailyCap', draft.timely.confirmDailyCap ?? 300, 0)}
+          </div>
+          <p className="muted" style={{ ...SMALL, margin: 0 }}>رسائل تثبيت الحجز بسقفٍ مستقلّ عن سقف المقيّد بوقت.</p>
+          <div>
+            <Setting title="المتابعة لا تتجاوز (ساعة)" hint="عدد الساعات من آخر رسالة">
+              {num('followupMaxAgeHours', draft.followupMaxAgeHours, 'المتابعة لا تتجاوز — ساعة من آخر رسالة', 1)}
+            </Setting>
           </div>
         </div>
+      </Card>
+
+      <div className="wa-grid2">
+        {/* ── الدون على رقم الأعمال ── */}
+        <Card title="الدون على رقم الأعمال">
+          <Setting title="الدون يردّ على رقم الأعمال" hint="مطفأ = رسائل رقم الأعمال تُعرض فقط والموظّفون يردّون">
+            <Toggle on={!!draft.webBot} onChange={v => set('webBot', v)} label="الدون يردّ على رقم الأعمال" />
+          </Setting>
+          <Setting title="الدون يردّ على غير اللاعبين في محادثات رقم الأعمال"
+            hint={<>مطفأ = محادثات رقم الأعمال القديمة لغير اللاعبين تُفتح والبوت مطفأ (موردون ومعارف). مفعّل = يردّ عليهم كعملاء.
+              {' '}يُطبَّق عند الحفظ على محادثاتهم القائمة أيضاً — ومن غيّرتَ بوته يدويّاً (<Bot className="s" style={{ display: 'inline', verticalAlign: '-2px' }} aria-label="زرّ البوت" />) يبقى على اختيارك.</>}>
+            <Toggle on={!!draft.webBotKnown} onChange={v => set('webBotKnown', v)} label="الدون يردّ على غير اللاعبين في محادثات رقم الأعمال" />
+          </Setting>
+          {d.configured.web && web.linked && (
+            <Setting title="مرآة محادثات رقم الأعمال في الوارد"
+              hint={hi?.running ? `المرآة جارية… ${hi.done || 0}/${hi.chats} محادثة · ${hi.messages} رسالة`
+                : hi ? `آخر مرّة: ${hi.chats} محادثة · ${hi.messages} رسالة` : undefined}>
+              <button type="button" className="wa-btn" disabled={importing || hi?.running} onClick={() => runImport(!!hi)}>
+                {importing || hi?.running ? <Loader2 className="animate-spin" aria-hidden="true" /> : <DatabaseBackup aria-hidden="true" />}
+                {importing ? 'يبدأ…' : hi?.running ? 'جارية…' : hi ? 'حدّثها' : 'ابدأ'}
+              </button>
+            </Setting>
+          )}
+          {hi?.error && !hi?.running && (
+            <Banner tone="warn" icon={<AlertTriangle aria-hidden="true" />}>{hi.error}</Banner>
+          )}
+        </Card>
+
+        {/* ── البديل والتحويل ── */}
+        <Card title="البديل بين الرقمين">
+          {(['reply', 'timely', 'bulk'] as const).map(l => (
+            <Setting key={l} title={LANE_AR[l]}>
+              <Toggle on={!!draft.failover[l]} onChange={v => set(`failover.${l}`, v)} label={`البديل بين الرقمين — ${LANE_AR[l]}`} />
+            </Setting>
+          ))}
+          <p className="muted" style={{ ...SMALL, margin: 'var(--space-2) 0 0' }}>إن تعطّلت القناة المختارة ونافذة الأخرى مفتوحة، تخرج الرسالة من الأخرى مع سطر «نراسلك من رقمنا الآخر».</p>
+
+          <div style={H3}>التحويل من رقم ميتا</div>
+          <Setting title="سطر «رقمنا للحجز» في ردود ميتا" hint="يعمل في «الجلسة أوّلاً» و«الجلسة + ميتا للتحويل».">
+            <Toggle on={!!draft.cloudRedirect.enabled} onChange={v => set('cloudRedirect.enabled', v)} label="سطر «رقمنا للحجز» في ردود ميتا" />
+          </Setting>
+          <Setting title="مرّة في اليوم لكلّ محادثة">
+            <Toggle on={!!draft.cloudRedirect.oncePerDay} onChange={v => set('cloudRedirect.oncePerDay', v)} label="مرّة في اليوم لكلّ محادثة" />
+          </Setting>
+          <Field label="رقم الأعمال" htmlFor="ch-redirect-number" style={{ marginTop: 'var(--space-3)' }}>
+            <input id="ch-redirect-number" value={draft.cloudRedirect.businessNumber} onChange={e => set('cloudRedirect.businessNumber', e.target.value)}
+              placeholder="07XXXXXXXX" dir="ltr" inputMode="tel" className="wa-input" />
+          </Field>
+        </Card>
       </div>
 
-      <div className="flex flex-wrap items-center gap-2">
-        <button disabled={!dirty || saving} onClick={() => save()} className="px-4 py-2 rounded-xl bg-amber-500 text-black font-bold disabled:opacity-40">{saving ? '⏳ يحفظ…' : 'احفظ الإعدادات'}</button>
-        {dirty && <button onClick={() => setDraft(structuredClone(s))} className="px-3 py-2 rounded-xl border border-gray-800 text-gray-400">تراجع</button>}
-        <span className="mr-auto" />
-        {d.configured.web && web.linked && (
-          <button disabled={importing || d.historyImport?.running} onClick={() => runImport(!!d.historyImport)} className="px-3 py-2 rounded-xl border border-gray-800 text-gray-300 hover:text-white disabled:opacity-50">
-            {importing ? '⏳ يبدأ…'
-              : d.historyImport?.running ? `⏳ المرآة جارية… ${d.historyImport.done || 0}/${d.historyImport.chats} محادثة · ${d.historyImport.messages} رسالة`
-                : d.historyImport ? `🗄️ حدّث مرآة المحادثات (آخر مرّة: ${d.historyImport.chats} محادثة · ${d.historyImport.messages} رسالة)` : '🗄️ مرآة محادثات رقم الأعمال في الوارد'}
-          </button>
-        )}
-        {d.historyImport?.error && !d.historyImport?.running && (
-          <span className="text-[11px] text-amber-300">⚠️ {d.historyImport.error}</span>
-        )}
+      {/* ── الإرسال المباشر والجمهور الافتراضيّ ── */}
+      <Card title="الإرسال المباشر من الصفحات">
+        <Setting title="الحجوزات والتحليلات والمستكشف ترسل من النظام">
+          <Toggle on={!!draft.outreach.direct} onChange={v => set('outreach.direct', v)} label="الحجوزات والتحليلات والمستكشف ترسل من النظام" />
+        </Setting>
+        <Setting title="رسالة فئة للّاعب نفسه مرّة كلّ (أيّام)">
+          {num('outreach.cohortFreqDays', draft.outreach.cohortFreqDays, 'رسالة فئة للّاعب نفسه مرّة كلّ — أيّام', 0)}
+        </Setting>
+
+        <div style={H3}>الجمهور الافتراضيّ في كلّ الصفحات</div>
+        <p className="muted" style={{ ...NOTE, margin: '4px 0 var(--space-3)' }}>يُطبَّق على التحليلات والحجوزات والمتابعة والبثّ ما لم تغيّره في الصفحة نفسها. يحمي من بدء محادثةٍ باردةٍ عن غير قصد.</p>
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-3" role="radiogroup" aria-label="الجمهور الافتراضيّ في كلّ الصفحات">
+          {(['all', 'warm', 'two_way'] as const).map(k => (
+            <button key={k} type="button" className="wa-radio" role="radio" aria-checked={lineDefault === k}
+              style={{ alignItems: 'flex-start', height: '100%' }} onClick={() => set('lineDefault', k)}>
+              <span className="t"><b>{LINE_DEFAULT[k].t}</b><span>{LINE_DEFAULT[k].d}</span></span>
+              <span className="o" />
+            </button>
+          ))}
+        </div>
+      </Card>
+
+      <div className={dirty ? 'wa-card wa-savebar row' : 'row'} style={{ flexWrap: 'wrap' }}>
+        <button type="button" className="wa-btn primary" disabled={!dirty || saving} onClick={() => save()}>
+          {saving ? <Loader2 className="animate-spin" aria-hidden="true" /> : <Save aria-hidden="true" />}{saving ? 'يحفظ…' : 'احفظ الإعدادات'}
+        </button>
+        {dirty && <button type="button" className="wa-btn ghost" onClick={() => setDraft(structuredClone(s))}><Undo2 aria-hidden="true" />تراجع</button>}
       </div>
-    </div>
+    </>
   );
 }

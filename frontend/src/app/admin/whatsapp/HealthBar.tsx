@@ -1,44 +1,24 @@
 'use client';
 
-// 🩺 شريط صحّة واتساب — حالة ميتا الحيّة + قفل الإرسال + روابط ميتا المباشرة (أدمن فقط)
-import { useCallback, useEffect, useState } from 'react';
+// شريط صحّة واتساب — حالة الرقمين في سطر واحد، يتمدّد إلى لوحة فيها السبب وروابط ميتا (أدمن فقط)
+// السطر في رأس الصفحة واللوحة تحته، فالمكوّن خطّاف يعيد القطعتين.
+import { useCallback, useEffect, useState, type ReactNode } from 'react';
+import { ChevronDown, ChevronUp, Lock, TriangleAlert, Info, RefreshCw, BellRing, ExternalLink } from 'lucide-react';
 import { swalConfirm, swalToast } from '@/lib/swal';
+import { Banner } from './wa-ui';
 
 type Fetcher = (path: string, opts?: RequestInit) => Promise<any>;
-const TONE: Record<string, { dot: string; text: string; border: string }> = {
-  ok: { dot: 'bg-emerald-400', text: 'text-emerald-300', border: 'border-gray-800' },
-  degraded: { dot: 'bg-amber-400', text: 'text-amber-300', border: 'border-amber-500/40' },
-  blocked: { dot: 'bg-rose-500 animate-pulse', text: 'text-rose-300', border: 'border-rose-500/50' },
-  unreachable: { dot: 'bg-amber-400 animate-pulse', text: 'text-amber-300', border: 'border-amber-500/40' },
-  unconfigured: { dot: 'bg-gray-500', text: 'text-gray-400', border: 'border-gray-800' },
-};
+type Lvl = 'ok' | 'warn' | 'danger' | 'off';
+const LEVEL: Record<string, Lvl> = { ok: 'ok', degraded: 'warn', blocked: 'danger', unreachable: 'warn', unconfigured: 'off' };
 const ago = (iso: string) => { const m = Math.round((Date.now() - new Date(iso).getTime()) / 60e3); return m < 1 ? 'الآن' : `قبل ${m} د`; };
 
-// 📱 سطر رقم الأعمال (جلسة OpenWA) — يظهر حين تكون القناة مهيّأة. التفاصيل والربط في «الإدارة ← القنوات»
+// رقم الأعمال (جلسة OpenWA) — يظهر حين تكون القناة مهيّأة. التفاصيل والربط في «الإدارة ← القنوات»
 const WEB_STATUS_AR: Record<string, string> = { ready: 'يعمل', qr_ready: 'ينتظر الربط', disconnected: 'مفصول', created: 'غير مربوط', unreachable: 'البوّابة لا تستجيب', failed: 'فشل', initializing: 'يبدأ…', authenticating: 'يتحقّق…' };
 const MODE_AR: Record<string, string> = { cloud_only: 'ميتا وحدها', dual: 'مزدوج', web_primary: 'الجلسة أوّلاً', web_final: 'الجلسة + ميتا للتحويل' };
-function WebLine({ apiFetch }: { apiFetch: Fetcher }) {
-  const [c, setC] = useState<any>(null);
-  useEffect(() => {
-    const load = () => apiFetch('/api/whatsapp/channels').then(setC).catch(() => {});
-    load(); const t = setInterval(load, 60e3); return () => clearInterval(t);
-  }, [apiFetch]);
-  if (!c?.configured?.web) return null;
-  const w = c.web || {};
-  const ok = w.ready && !w.locked;
-  const dot = w.locked ? 'bg-rose-500 animate-pulse' : ok ? 'bg-emerald-400' : 'bg-amber-400 animate-pulse';
-  return (
-    <a href="/admin/whatsapp?tab=channels" className="flex items-center gap-2 px-3 py-1.5 rounded-xl border border-gray-800 bg-gray-900/70 mb-2 text-xs" dir="rtl">
-      <span className={`w-2 h-2 rounded-full shrink-0 ${dot}`} />
-      <b className={ok ? 'text-emerald-300' : w.locked ? 'text-rose-300' : 'text-amber-300'}>📱 رقم الأعمال: {WEB_STATUS_AR[w.status] || w.status}{w.locked ? ' — ⛔ مقفل' : ''}</b>
-      {w.phone && <span className="text-gray-500" dir="ltr">+{w.phone}</span>}
-      <span className="mr-auto text-gray-500">الوضع: <b className="text-gray-300">{MODE_AR[c.settings?.mode] || c.settings?.mode}</b>{c.outbox ? ` · في الطابور ${c.outbox.queued.reply + c.outbox.queued.timely + c.outbox.queued.bulk}` : ''}</span>
-    </a>
-  );
-}
 
-export default function HealthBar({ apiFetch }: { apiFetch: Fetcher }) {
+export function useWaHealth(apiFetch: Fetcher, onOpenChannels: () => void): { strip: ReactNode; panel: ReactNode; webIssue: string | null; webReady: boolean } {
   const [h, setH] = useState<any>(null);
+  const [c, setC] = useState<any>(null);
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState(false);
 
@@ -46,61 +26,85 @@ export default function HealthBar({ apiFetch }: { apiFetch: Fetcher }) {
     try { setH(await apiFetch(`/api/whatsapp/health${force ? '?force=1' : ''}`)); } catch { /* الشريط غير حاجب */ }
   }, [apiFetch]);
   useEffect(() => { load(); const t = setInterval(() => load(), 120e3); return () => clearInterval(t); }, [load]);
+  useEffect(() => {
+    const loadC = () => apiFetch('/api/whatsapp/channels').then(setC).catch(() => {});
+    loadC(); const t = setInterval(loadC, 60e3); return () => clearInterval(t);
+  }, [apiFetch]);
 
-  if (!h) return <WebLine apiFetch={apiFetch} />;
-  const tone = TONE[h.level] || TONE.unconfigured;
-  const bad = h.level !== 'ok' || !!h.sendingLocked;
+  const web = c?.configured?.web ? (c.web || {}) : null;
+  const webOk = web ? web.ready && !web.locked : true;
+  const webIssue = web && !webOk ? `رقم الأعمال ${web.locked ? 'مقفل' : (WEB_STATUS_AR[web.status] || web.status)}` : null;
+  const queued = c?.outbox ? c.outbox.queued.reply + c.outbox.queued.timely + c.outbox.queued.bulk : 0;
+
+  const webReady = !!web && !!web.ready && !web.locked;
+  if (!h && !web) return { strip: null, panel: null, webIssue, webReady };
+
+  const metaLvl: Lvl = h ? (LEVEL[h.level] || 'off') : 'off';
+  const locked = !!h?.sendingLocked;
+  const lvl: Lvl = locked || metaLvl === 'danger' || web?.locked ? 'danger' : (metaLvl === 'warn' || !webOk) ? 'warn' : metaLvl === 'off' && !web ? 'off' : 'ok';
+  const bad = lvl === 'danger' || lvl === 'warn';
+  const shown = open || bad;
 
   const resume = async () => {
     if (!(await swalConfirm('رفع قفل الإرسال يدويّاً؟\nافعل ذلك فقط بعد التأكّد من صفحات ميتا أنّ المشكلة انتهت.', { confirmText: 'ارفع القفل', icon: 'warning' }))) return;
     try { await apiFetch('/api/whatsapp/sending-resume', { method: 'POST' }); swalToast('رُفع القفل', 'success'); load(true); } catch (e: any) { swalToast(e.message, 'error'); }
   };
 
-  return (
-    <>
-    <WebLine apiFetch={apiFetch} />
-    <div className={`rounded-xl border ${tone.border} bg-gray-900/70 mb-2 text-xs`} dir="rtl">
-      <button onClick={() => setOpen(o => !o)} className="w-full flex items-center gap-2 px-3 py-2 text-right">
-        <span className={`w-2 h-2 rounded-full shrink-0 ${tone.dot}`} />
-        <span className={`font-bold ${tone.text} truncate`}>{h.summary}</span>
-        {h.sendingLocked && <span className="px-1.5 py-0.5 rounded bg-rose-500/15 text-rose-300 font-bold whitespace-nowrap">⛔ الإرسال مقفل</span>}
-        <span className="mr-auto text-gray-500 whitespace-nowrap">فُحص {ago(h.checkedAt)} · {open ? 'إخفاء' : 'التفاصيل وروابط ميتا'}</span>
-      </button>
-      {(open || bad) && (
-        <div className="px-3 pb-3 space-y-2 border-t border-gray-800/70 pt-2">
-          {h.sendingLocked && (
-            <div className="flex flex-wrap items-center gap-2 text-rose-200">
-              <span>سبب القفل: {h.sendingLocked}</span>
-              <button onClick={resume} className="px-2 py-1 rounded-lg border border-rose-500/40 text-rose-200 hover:bg-rose-500/10 font-bold">رفع القفل يدويّاً</button>
-            </div>
-          )}
-          {h.issues?.length > 0 && <ul className="text-amber-200 space-y-0.5">{h.issues.map((x: string, i: number) => <li key={i}>⚠️ {x}</li>)}</ul>}
-          {open && h.notes?.length > 0 && <ul className="text-gray-500 space-y-0.5">{h.notes.map((x: string, i: number) => <li key={i}>ℹ️ {x} <span className="opacity-70">(معروف — لا يمنع العمل)</span></li>)}</ul>}
-          {open && h.phone && (
-            <div className="text-gray-400 flex flex-wrap gap-x-4 gap-y-1">
-              <span>الرقم: <b className="text-gray-200">{h.phone.status}</b></span>
-              <span>الجودة: <b className="text-gray-200">{h.phone.quality}</b></span>
-              <span>السقف: <b className="text-gray-200">{String(h.phone.tier || '').replace('TIER_', '')}/يوم</b></span>
-              <span>اسم العرض: <b className="text-gray-200">{h.phone.nameStatus}</b></span>
-              {h.waba && <><span>مراجعة الحساب: <b className="text-gray-200">{h.waba.review}</b></span><span>توثيق النشاط: <b className="text-gray-200">{h.waba.businessVerification}</b></span></>}
-            </div>
-          )}
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-1.5">
-            {(h.links || []).map((l: any) => (
-              <a key={l.url} href={l.url} target="_blank" rel="noopener noreferrer" className="block rounded-lg border border-gray-800 hover:border-amber-500/40 px-2.5 py-1.5">
-                <span className="block text-amber-400 font-bold">{l.label} ↗</span>
-                <span className="block text-gray-500 leading-snug">{l.hint}</span>
-              </a>
-            ))}
-          </div>
-          <div className="flex items-center gap-2">
-            <button disabled={busy} onClick={async () => { setBusy(true); await load(true); setBusy(false); }} className="px-2 py-1 rounded-lg border border-gray-800 text-gray-300 hover:text-white disabled:opacity-50">{busy ? '⏳ يفحص…' : '↻ افحص الآن'}</button>
-            <button onClick={async () => { try { const r = await apiFetch('/api/whatsapp/health/test-alert', { method: 'POST' }); swalToast(`أُرسل إشعار تجريبيّ إلى ${r.players} أدمن — افحص هاتفك`, 'info'); } catch (e: any) { swalToast(e.message, 'error'); } }} className="px-2 py-1 rounded-lg border border-gray-800 text-gray-300 hover:text-white">🔔 جرّب التنبيه</button>
-            <span className="text-gray-500">يُفحص تلقائيّاً كلّ 10 دقائق، وأيّ تغيّر يصلك إشعاراً على التطبيق.</span>
-          </div>
+  const strip = (
+    <button type="button" className={`wa-health${lvl === 'danger' ? ' danger' : lvl === 'warn' ? ' warn' : ''}`} aria-expanded={shown} onClick={() => setOpen(o => !o)}>
+      <i className={`wa-dot${lvl === 'off' ? '' : ` ${lvl}`}`} />
+      <span className="trunc grow">
+        <b>{locked ? 'الإرسال من رقم ميتا مقفل' : h ? h.summary : 'رقم ميتا: لا بيانات'}</b>
+        {web && <span className="wa-only-desk"> · رقم الأعمال: {WEB_STATUS_AR[web.status] || web.status}{web.locked ? ' — مقفل' : ''}</span>}
+      </span>
+      <span className="end">{h?.checkedAt && <span className="wa-only-desk">{ago(h.checkedAt)}</span>}{shown && open ? <ChevronUp /> : <ChevronDown />}</span>
+    </button>
+  );
+
+  const panel = shown ? (
+    <div className={`wa-healthpanel${lvl === 'danger' ? ' danger' : lvl === 'warn' ? ' warn' : ''}`}>
+      {locked && (
+        <Banner tone="danger" icon={<Lock />} action="ارفع القفل يدويّاً" onAction={resume}><b>سبب القفل:</b> {h.sendingLocked}</Banner>
+      )}
+      {h?.issues?.map((x: string, i: number) => <Banner key={'i' + i} tone="warn" icon={<TriangleAlert />}>{x}</Banner>)}
+      {webIssue && <Banner tone="warn" icon={<TriangleAlert />} action="افتح الأرقام" onAction={onOpenChannels}>{webIssue}.</Banner>}
+      {open && h?.notes?.map((x: string, i: number) => <Banner key={'n' + i} icon={<Info />}>{x} <span className="muted">— معروف، لا يمنع العمل.</span></Banner>)}
+      {open && (
+        <div className="wa-grid3" style={{ gap: '0 var(--space-6)' }}>
+          {h?.phone && <>
+            <div className="wa-kv"><span>الرقم</span><b>{h.phone.status}</b></div>
+            <div className="wa-kv"><span>الجودة</span><b>{h.phone.quality}</b></div>
+            <div className="wa-kv"><span>السقف اليوميّ</span><b className="ltr">{String(h.phone.tier || '').replace('TIER_', '')}</b></div>
+            <div className="wa-kv"><span>اسم العرض</span><b>{h.phone.nameStatus}</b></div>
+          </>}
+          {h?.waba && <>
+            <div className="wa-kv"><span>مراجعة الحساب</span><b>{h.waba.review}</b></div>
+            <div className="wa-kv"><span>توثيق النشاط</span><b>{h.waba.businessVerification}</b></div>
+          </>}
+          {web && <>
+            <div className="wa-kv"><span>رقم الأعمال</span><b>{WEB_STATUS_AR[web.status] || web.status}</b></div>
+            <div className="wa-kv"><span>وضع التشغيل</span><b>{MODE_AR[c.settings?.mode] || c.settings?.mode}</b></div>
+            <div className="wa-kv"><span>في الطابور</span><b className="ltr">{queued}</b></div>
+          </>}
         </div>
       )}
+      {(h?.links || []).length > 0 && (
+        <div className="wa-grid3">
+          {h.links.map((l: any) => (
+            <a key={l.url} href={l.url} target="_blank" rel="noopener noreferrer" className="wa-mlink">
+              <b>{l.label}<ExternalLink className="s" /></b><span>{l.hint}</span>
+            </a>
+          ))}
+        </div>
+      )}
+      <div className="row" style={{ flexWrap: 'wrap' }}>
+        <button type="button" className="wa-btn sm" disabled={busy} onClick={async () => { setBusy(true); await load(true); setBusy(false); }}><RefreshCw />{busy ? 'يفحص…' : 'افحص الآن'}</button>
+        <button type="button" className="wa-btn sm ghost" onClick={async () => { try { const r = await apiFetch('/api/whatsapp/health/test-alert', { method: 'POST' }); swalToast(`أُرسل إشعار تجريبيّ إلى ${r.players} أدمن — افحص هاتفك`, 'info'); } catch (e: any) { swalToast(e.message, 'error'); } }}><BellRing />جرّب التنبيه</button>
+        {web && <button type="button" className="wa-btn sm ghost" onClick={onOpenChannels}>الأرقام</button>}
+        <span className="muted grow" style={{ font: '500 12px/16px var(--font-sans)' }}>يُفحص تلقائيّاً كلّ 10 دقائق، وأيّ تغيّر يصلك إشعاراً على التطبيق.</span>
+      </div>
     </div>
-    </>
-  );
+  ) : null;
+
+  return { strip, panel, webIssue, webReady };
 }

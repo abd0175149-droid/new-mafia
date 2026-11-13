@@ -15,7 +15,7 @@ import multer from 'multer';
 import { eq, desc, and, sql, or, ilike, isNull, inArray } from 'drizzle-orm';
 import { getDB } from '../config/db.js';
 import { env } from '../config/env.js';
-import { waConversations, waMessages, waCustomerNotes, waOptouts, waMessageTemplates, bookings, locations } from '../schemas/admin.schema.js';
+import { waConversations, waMessages, waCustomerNotes, waOptouts, waMessageTemplates, bookings, locations, reservations, activities } from '../schemas/admin.schema.js';
 import { players } from '../schemas/player.schema.js';
 import { normalizeLocalPhone } from '../utils/phone.util.js';
 import { pickChannel, cloudWindowOpen } from '../services/wa-transport/router.js';
@@ -566,6 +566,35 @@ router.post('/conversations/:id/bot-toggle', authenticate, adminOnly, async (req
       });
     } catch { /* غير حاجب */ }
 
+    res.json({ success: true, conversation: { ...updated, botActive: isBotActive(updated), ...routeInfo(updated) } });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ══════════════════════════════════════════════════════
+// ✅ POST /api/whatsapp/conversations/:id/attention-done — الموظّف تعامل مع التحويل
+// ══════════════════════════════════════════════════════
+// يُسقط شارة «بحاجة تدخّل» وحدها — لا يمسّ البوت ولا إيقافه. يُسجَّل باسم صاحبه.
+router.post('/conversations/:id/attention-done', authenticate, adminOnly, async (req: Request, res: Response) => {
+  try {
+    const db = getDB();
+    if (!db) return res.status(503).json({ error: 'DB unavailable' });
+    const convId = parseInt(req.params.id);
+    const [updated] = await db.update(waConversations)
+      .set({ needsAttention: false, updatedAt: new Date() } as any)
+      .where(eq(waConversations.id, convId)).returning();
+    if (!updated) return res.status(404).json({ error: 'المحادثة غير موجودة' });
+    try {
+      const { logStaffAction } = await import('../services/staff-action-log.service.js');
+      const u = (req as any).user;
+      void logStaffAction({
+        staffId: u?.id, staffUsername: u?.username, staffRole: u?.role, source: 'rest', action: 'rest:wa-attention-done',
+        category: 'WHATSAPP_ADMIN', labelAr: 'تمّ التعامل مع تحويل للإدارة',
+        targetName: updated.displayName || updated.phone,
+        details: { conversationId: convId, phone: updated.phone },
+      });
+    } catch { /* غير حاجب */ }
     res.json({ success: true, conversation: { ...updated, botActive: isBotActive(updated), ...routeInfo(updated) } });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
@@ -1131,6 +1160,46 @@ router.get('/conversations/:id/context', authenticate, adminOnly, async (req: Re
       .orderBy(desc(bookings.createdAt))
       .limit(3);
 
+    // ── آخر حجز قابل للتعديل من لوحة العميل ──
+    // مصدر الحقيقة صفّ المتابعة (reservations): فيه العدد الكلّيّ والحالة، وتعديله يعكس نفسه على صفّ الحجز.
+    // صفّ الحجز (bookings) يُعدَّل مباشرةً فقط حين لا صفّ متابعة له (حجوزات قديمة).
+    let latest: any = null;
+    try {
+      const phoneKey = String(conv.phone || "").trim();
+      const resWho = or(
+        conv.playerId ? eq(reservations.playerId, conv.playerId) : sql`false`,
+        phoneKey ? eq(reservations.phone, phoneKey) : sql`false`,
+      );
+      const resCols = {
+        id: reservations.id, activityId: reservations.activityId, name: reservations.contactName,
+        count: reservations.peopleCount, status: reservations.status, notes: reservations.notes, createdAt: reservations.createdAt,
+      };
+      const [rLatest] = await db.select(resCols).from(reservations)
+        .where(and(resWho, isNull(reservations.deletedAt))).orderBy(desc(reservations.createdAt)).limit(1);
+      const bLatest = lastBookings[0];
+      let pick: any = rLatest ? { kind: "reservation", ...rLatest } : null;
+      if (bLatest && (!rLatest || new Date(bLatest.createdAt as any).getTime() > new Date(rLatest.createdAt as any).getTime())) {
+        const [rMirror] = bLatest.activityId
+          ? await db.select(resCols).from(reservations)
+              .where(and(resWho, isNull(reservations.deletedAt), eq(reservations.activityId, bLatest.activityId)))
+              .orderBy(desc(reservations.createdAt)).limit(1)
+          : [];
+        if (rMirror) pick = { kind: "reservation", ...rMirror };
+        else {
+          const [bFull] = await db.select({ notes: bookings.notes }).from(bookings).where(eq(bookings.id, bLatest.id)).limit(1);
+          pick = { kind: "booking", id: bLatest.id, activityId: bLatest.activityId, name: bLatest.name, count: bLatest.count, status: null, notes: bFull?.notes || "", createdAt: bLatest.createdAt };
+        }
+      }
+      if (pick) {
+        const [act] = pick.activityId
+          ? await db.select({ name: activities.name, date: activities.date }).from(activities).where(eq(activities.id, pick.activityId)).limit(1)
+          : [];
+        latest = { ...pick, notes: pick.notes || "", activityName: act?.name || "", activityDate: act?.date || null };
+      }
+    } catch (e: any) {
+      console.warn("⚠️ WA context latest booking:", e.message);
+    }
+
     // ── الملاحظات الدائمة ──
     const notes = await db
       .select().from(waCustomerNotes)
@@ -1142,7 +1211,7 @@ router.get('/conversations/:id/context', authenticate, adminOnly, async (req: Re
     const [opt] = await db.select({ id: waOptouts.id, reason: waOptouts.reason, createdAt: waOptouts.createdAt })
       .from(waOptouts).where(eq(waOptouts.phone, conv.phone)).limit(1);
 
-    res.json({ success: true, player, bookings: lastBookings, notes, optedOut: !!opt, optout: opt ? { reason: opt.reason || '', createdAt: opt.createdAt, byCustomer: isCustomerOptout(opt.reason) } : null });
+    res.json({ success: true, player, bookings: lastBookings, latestBooking: latest, notes, optedOut: !!opt, optout: opt ? { reason: opt.reason || '', createdAt: opt.createdAt, byCustomer: isCustomerOptout(opt.reason) } : null });
   } catch (err: any) {
     console.error('❌ whatsapp/context:', err.message);
     res.status(500).json({ error: err.message });

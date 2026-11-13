@@ -6,6 +6,8 @@
 // ══════════════════════════════════════════════════════
 
 import { useEffect, useState, type ReactNode } from 'react';
+import { ChevronDown, ChevronUp, Copy, Eye, FileText, Image as ImageIcon, Search, TriangleAlert, Video } from 'lucide-react';
+import { Badge, Chip, Empty, Skel, type Tone } from './wa-ui';
 
 type Fetcher = (path: string, opts?: RequestInit) => Promise<any>;
 interface ReadStats { recipients: number; read: number; delivered: number; notDelivered: number; failed: number; queued?: number }
@@ -16,14 +18,14 @@ interface Row {
   readStats: ReadStats | null; readRate: number | null;
   origin?: string; lane?: string; audienceLabel?: string;
 }
-const ORIGIN_AR: Record<string, string> = { reservations: '📤 الحجوزات', analytics: '📤 التحليلات', explorer: '📤 المستكشف' };
+const ORIGIN_AR: Record<string, string> = { reservations: 'من الحجوزات', analytics: 'من التحليلات', explorer: 'من المستكشف' };
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || '';
-const STATUS: Record<string, { label: string; cls: string }> = {
-  done: { label: 'اكتمل', cls: 'bg-emerald-500/10 text-emerald-300 border-emerald-500/30' },
-  running: { label: 'جارٍ', cls: 'bg-amber-500/10 text-amber-300 border-amber-500/30' },
-  sending: { label: '⏱ يُرسَل', cls: 'bg-teal-500/10 text-teal-300 border-teal-500/30' },
-  stopped: { label: 'أُوقف', cls: 'bg-rose-500/10 text-rose-300 border-rose-500/30' },
+const STATUS: Record<string, { label: string; tone?: Tone }> = {
+  done: { label: 'اكتمل', tone: 'ok' },
+  running: { label: 'جارٍ', tone: 'warn' },
+  sending: { label: 'يُرسَل', tone: 'info' },
+  stopped: { label: 'أُوقف', tone: 'danger' },
 };
 const STATUS_FILTERS: Array<{ key: string; label: string }> = [
   { key: '', label: 'الكلّ' }, { key: 'done', label: 'اكتمل' }, { key: 'sending', label: 'يُرسَل' }, { key: 'running', label: 'جارٍ' }, { key: 'stopped', label: 'أُوقف' },
@@ -50,12 +52,13 @@ const pct = (n: number, d: number) => d > 0 ? Math.round((n / d) * 100) : 0;
 // ══════════════════════════════════════════════════════
 // 👁 من قرأ البثّ؟ — قرأها / وصلت ولم تُقرأ / لم تصل / رفضها واتساب
 // ══════════════════════════════════════════════════════
-const READ_GROUPS: Array<{ key: string; label: string; cls: string; hint?: string }> = [
-  { key: 'read', label: '👁 قرأها', cls: 'text-sky-300' },
-  { key: 'delivered', label: '✓✓ وصلت ولم تُقرأ', cls: 'text-gray-300', hint: 'تشمل من أطفأ «إيصالات القراءة» — واتساب لا يخبرنا بقراءته أصلاً' },
-  { key: 'queued', label: '⏱ في الطابور', cls: 'text-teal-300', hint: 'لم تخرج بعد — رقم الأعمال يرسل الجماعيّ متباعداً (١٥–٤٥ث، ٢٥٠/يوم، ١٠:٠٠–٢٣:٣٠)' },
-  { key: 'notDelivered', label: '✓ لم تصل بعد', cls: 'text-amber-300', hint: 'خرجت ولم تصل الجهاز — هاتفه مطفأ أو بلا إنترنت منذ الإرسال' },
-  { key: 'failed', label: '✗ رفضها واتساب', cls: 'text-rose-300' },
+const small = { font: '500 12px/16px var(--font-sans)' } as const;
+const READ_GROUPS: Array<{ key: string; label: string; color: string; hint?: string }> = [
+  { key: 'read', label: 'قرأها', color: 'var(--info)' },
+  { key: 'delivered', label: 'وصلت ولم تُقرأ', color: 'var(--ink-2)', hint: 'تشمل من أطفأ «إيصالات القراءة» — واتساب لا يخبرنا بقراءته أصلاً' },
+  { key: 'queued', label: 'في الطابور', color: 'var(--ch-web)', hint: 'لم تخرج بعد — رقم الأعمال يرسل الجماعيّ متباعداً (١٥–٤٥ث، ٢٥٠/يوم، ١٠:٠٠–٢٣:٣٠)' },
+  { key: 'notDelivered', label: 'لم تصل بعد', color: 'var(--warn)', hint: 'خرجت ولم تصل الجهاز — هاتفه مطفأ أو بلا إنترنت منذ الإرسال' },
+  { key: 'failed', label: 'رفضها واتساب', color: 'var(--danger)' },
 ];
 function ReadReport({ id, apiFetch }: { id: number; apiFetch: Fetcher }) {
   const [rep, setRep] = useState<any>(null);
@@ -65,23 +68,23 @@ function ReadReport({ id, apiFetch }: { id: number; apiFetch: Fetcher }) {
     apiFetch(`/api/whatsapp/open-window-broadcast/${id}/report`).then((d: any) => { if (alive) setRep(d); }).catch((e: any) => { if (alive) setErr(e?.message || 'تعذّر التحميل'); });
     return () => { alive = false; };
   }, [id, apiFetch]);
-  if (err) return <p className="text-xs text-rose-300">{err}</p>;
-  if (!rep) return <p className="text-xs text-gray-500">⏳ جارٍ التحميل…</p>;
+  if (err) return <p style={{ ...small, margin: 0, color: 'var(--danger)' }}>{err}</p>;
+  if (!rep) return <div className="stack" aria-label="جارٍ التحميل…"><Skel h={18} w="40%" /><Skel h={36} /></div>;
   return (
-    <div className="space-y-2.5 text-xs">
+    <div className="stack">
       {READ_GROUPS.map(g => {
         const list = rep.recipients.filter((r: any) => r.group === g.key);
         if (!list.length) return null;
         return (
           <div key={g.key}>
-            <div className={`font-bold ${g.cls}`}>{g.label} · {list.length}</div>
-            {g.hint && <div className="text-[10.5px] text-gray-500 mb-1">{g.hint}</div>}
-            <div className="flex flex-wrap gap-1.5 mt-1">
+            <div style={{ font: '700 13px/18px var(--font-sans)', color: g.color }}>{g.label} · <span className="ltr">{list.length}</span></div>
+            {g.hint && <div className="muted" style={small}>{g.hint}</div>}
+            <div className="flex flex-wrap gap-2" style={{ marginTop: 6 }}>
               {list.map((r: any) => (
                 <a key={r.conversationId} href={`/admin/whatsapp?conv=${r.conversationId}`} target="_blank" rel="noreferrer"
                   title={`${r.phone}${r.deliveredAt ? ` · وصلت ${hm(r.deliveredAt)}` : ''}${r.readAt ? ` · قُرئت ${hm(r.readAt)}` : ''}`}
-                  className="px-2 py-1 rounded-lg border border-gray-800 bg-gray-900/70 text-gray-200 hover:border-gray-600">
-                  {r.name}{r.readAt && <span className="text-[10px] text-sky-400/80 mr-1">{hm(r.readAt)}</span>}
+                  className="wa-who">
+                  {r.name}{r.readAt && <span className="ltr muted" style={{ fontSize: 12 }}>{hm(r.readAt)}</span>}
                 </a>
               ))}
             </div>
@@ -95,23 +98,27 @@ function ReadReport({ id, apiFetch }: { id: number; apiFetch: Fetcher }) {
 /** شريطُ القراءة: قرأها / وصلت / لم تصل / رُفضت — بنسبها */
 function ReadBar({ s }: { s: ReadStats }) {
   const parts = [
-    { n: s.read, cls: 'bg-sky-400' }, { n: s.delivered, cls: 'bg-gray-400' },
-    { n: s.notDelivered, cls: 'bg-amber-400' }, { n: s.queued || 0, cls: 'bg-teal-700' }, { n: s.failed, cls: 'bg-rose-400' },
+    { n: s.read, c: 'var(--info)' }, { n: s.delivered, c: 'var(--ink-3)' },
+    { n: s.notDelivered, c: 'var(--warn)' }, { n: s.queued || 0, c: 'var(--ch-web)' }, { n: s.failed, c: 'var(--danger)' },
   ];
   return (
-    <div className="flex h-1.5 w-full overflow-hidden rounded-full bg-gray-800" dir="ltr">
-      {parts.map((p, i) => p.n > 0 && <div key={i} className={p.cls} style={{ width: `${(p.n / Math.max(1, s.recipients)) * 100}%` }} />)}
+    <div className="wa-readbar">
+      {parts.map((p, i) => p.n > 0 && <i key={i} style={{ width: `${(p.n / Math.max(1, s.recipients)) * 100}%`, background: p.c }} />)}
     </div>
   );
 }
 
-function Stat({ label, value, cls = 'text-white' }: { label: string; value: ReactNode; cls?: string }) {
+/** بلاطة رقمٍ صغيرة — `color` متغيّر لونٍ اختياريّ للقيمة */
+function Stat({ label, value, color }: { label: string; value: ReactNode; color?: string }) {
   return (
-    <div className="rounded-xl border border-gray-800 bg-gray-950/50 px-3 py-2">
-      <div className="text-[10.5px] text-gray-500">{label}</div>
-      <div className={`text-sm font-bold tabular-nums ${cls}`}>{value}</div>
+    <div className="wa-tile">
+      <div className="k">{label}</div>
+      <div className="v" style={{ fontSize: 18, lineHeight: '24px', color }}>{value}</div>
     </div>
   );
+}
+function KV({ label, children }: { label: string; children: ReactNode }) {
+  return <div className="wa-kv"><span>{label}</span><b>{children}</b></div>;
 }
 
 export default function BroadcastHistory({ apiFetch, refreshKey, onReuse }: {
@@ -158,133 +165,144 @@ export default function BroadcastHistory({ apiFetch, refreshKey, onReuse }: {
   const nums = Array.from(new Set([1, page - 1, page, page + 1, pages].filter(n => n >= 1 && n <= pages))).sort((a, b) => a - b);
 
   return (
-    <div className="rounded-2xl border border-gray-800 bg-gray-900/60 p-4 space-y-3">
+    <div className="wa-card" style={{ padding: 0 }}>
       {/* ── الرأس ── */}
-      <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
-        <h3 className="text-sm font-bold text-white">سجلّ البثّ</h3>
+      <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1" style={{ padding: 'var(--space-3) var(--space-4) 0' }}>
+        <h3 style={{ margin: 0, font: '700 16px/24px var(--font-sans)' }}>سجلّ البثّ</h3>
         {data && (
-          <span className="text-[11px] text-gray-500 tabular-nums">
-            {total} بثّاً · أُرسل {data.summary.sent} من {data.summary.targets}{data.summary.failed ? ` · فشل ${data.summary.failed}` : ''}
+          <span className="muted" style={{ font: '400 13px/20px var(--font-sans)' }}>
+            <span className="ltr">{total}</span> بثّاً · أُرسل <span className="ltr">{data.summary.sent}</span> من <span className="ltr">{data.summary.targets}</span>{data.summary.failed ? <> · فشل <span className="ltr">{data.summary.failed}</span></> : ''}
           </span>
         )}
       </div>
 
       {/* ── الأدوات ── */}
-      <div className="flex flex-wrap items-center gap-2">
-        <input value={qInput} onChange={e => setQInput(e.target.value)} placeholder="ابحث في النصّ أو المرسِل أو #الرقم"
-          className="flex-1 min-w-[180px] bg-gray-950 border border-gray-800 rounded-xl px-3 py-2 text-sm text-white placeholder:text-gray-600 focus:border-amber-500/50 outline-none" />
+      <div className="flex flex-wrap items-center gap-3" style={{ padding: 'var(--space-3) var(--space-4)', borderBottom: '1px solid var(--line)' }}>
+        <div className="wa-search grow" style={{ minWidth: 200, maxWidth: 340 }}>
+          <Search aria-hidden />
+          <input value={qInput} onChange={e => setQInput(e.target.value)} placeholder="ابحث في النصّ أو المرسِل أو #الرقم"
+            className="wa-input" aria-label="بحث في السجلّ" />
+        </div>
+        <div className="wa-chips grow" role="group" aria-label="تصفية بالحالة">
+          {STATUS_FILTERS.map(f => (
+            <Chip key={f.key || 'all'} on={status === f.key} onClick={() => { setStatus(f.key); setPage(1); }}>{f.label}</Chip>
+          ))}
+        </div>
         <select value={sortKey} onChange={e => { setSortKey(e.target.value); setPage(1); }}
-          className="bg-gray-950 border border-gray-800 rounded-xl px-3 py-2 text-sm text-white">
+          className="wa-select" aria-label="الترتيب" style={{ width: 190 }}>
           {SORTS.map(s => <option key={s.key} value={s.key}>{s.label}</option>)}
         </select>
       </div>
-      <div className="flex flex-wrap gap-1.5">
-        {STATUS_FILTERS.map(f => (
-          <button key={f.key || 'all'} onClick={() => { setStatus(f.key); setPage(1); }}
-            className={`px-3 py-1 rounded-xl text-xs font-bold border ${status === f.key ? 'bg-amber-500/10 text-amber-400 border-amber-500/40' : 'border-gray-800 text-gray-400 hover:text-white'}`}>{f.label}</button>
-        ))}
-      </div>
 
       {/* ── الجدول ── */}
-      {err && <p className="text-xs text-rose-400">⚠️ {err}</p>}
-      {loading && !data ? <p className="text-xs text-gray-500">جاري التحميل…</p> : !data?.rows.length ? (
-        <p className="text-xs text-gray-500 py-4 text-center">{q || status ? 'لا بثّ يطابق البحث.' : 'لا بثّ سابق.'}</p>
+      {err && <div className="wa-banner danger flat" role="alert"><TriangleAlert aria-hidden /><span>{err}</span></div>}
+      {loading && !data ? (
+        <div className="stack" style={{ padding: 'var(--space-4)' }} aria-label="جاري التحميل…"><Skel h={48} /><Skel h={48} /><Skel h={48} /></div>
+      ) : !data?.rows.length ? (
+        <Empty title={q || status ? 'لا بثّ يطابق البحث.' : 'لا بثّ سابق.'} />
       ) : (
-        <div className="rounded-xl border border-gray-800 overflow-hidden">
+        <div>
           {/* رأس الأعمدة — للشاشات العريضة */}
-          <div className="hidden md:grid grid-cols-[64px_minmax(0,1fr)_120px_150px_28px] gap-3 px-3 py-2 bg-gray-950/60 text-[11px] text-gray-500 font-bold">
+          <div className="hidden md:grid grid-cols-[64px_minmax(0,1fr)_120px_150px_28px] gap-3 muted"
+            style={{ padding: 'var(--space-2) var(--space-4)', font: '700 12px/16px var(--font-sans)', borderBottom: '1px solid var(--line)' }}>
             <span>البثّ</span><span>الرسالة</span><span>الإرسال</span><span>القراءة</span><span />
           </div>
-          <div className="divide-y divide-gray-800">
+          <div>
             {data.rows.map(r => {
-              const st = STATUS[r.status] || { label: r.status, cls: 'bg-gray-800 text-gray-300 border-gray-700' };
+              const st = STATUS[r.status] || { label: r.status };
               const isOpen = open === r.id;
               const rs = r.readStats;
               return (
-                <div key={r.id} className={isOpen ? 'bg-gray-950/40' : ''}>
-                  <button type="button" onClick={() => { setOpen(isOpen ? null : r.id); if (isOpen && report === r.id) setReport(null); }}
-                    className="w-full text-right grid grid-cols-[1fr_auto] md:grid-cols-[64px_minmax(0,1fr)_120px_150px_28px] gap-x-3 gap-y-2 px-3 py-3 hover:bg-gray-800/30">
+                <div key={r.id} style={{ borderBottom: '1px solid var(--line)', background: isOpen ? 'var(--bg-200)' : undefined }}>
+                  <button type="button" aria-expanded={isOpen} onClick={() => { setOpen(isOpen ? null : r.id); if (isOpen && report === r.id) setReport(null); }}
+                    className="w-full grid grid-cols-[1fr_auto] md:grid-cols-[64px_minmax(0,1fr)_120px_150px_28px] gap-x-3 gap-y-2"
+                    style={{ padding: 'var(--space-3) var(--space-4)', textAlign: 'start', background: 'transparent', border: 0, color: 'inherit', cursor: 'pointer', minHeight: 'var(--hit)' }}>
                     {/* البثّ */}
                     <div className="flex md:flex-col items-center md:items-start gap-2 md:gap-1 col-span-1">
-                      <span className="text-sm text-gray-200 font-bold tabular-nums">#{r.id}</span>
-                      <span className={`px-1.5 py-0.5 rounded border text-[10.5px] font-bold ${st.cls}`}>{st.label}</span>
+                      <b className="ltr">#{r.id}</b>
+                      <Badge tone={st.tone}>{st.label}</Badge>
                     </div>
-                    <span className="md:hidden text-gray-500 text-xs self-center">{isOpen ? '▲' : '▼'}</span>
+                    <span className="md:hidden self-center" style={{ color: isOpen ? 'var(--gold)' : 'var(--ink-3)' }}>{isOpen ? <ChevronUp aria-hidden /> : <ChevronDown aria-hidden />}</span>
                     {/* الرسالة */}
                     <div className="min-w-0 col-span-2 md:col-span-1">
-                      <div className="text-[11px] text-gray-500 flex flex-wrap gap-x-2">
+                      <div className="flex flex-wrap gap-x-2 muted" style={small}>
                         <span>{dt(r.createdAt)}</span>
                         {r.createdBy && <span>· {r.createdBy}</span>}
-                        {r.origin && ORIGIN_AR[r.origin] && <span className="text-teal-400">· {ORIGIN_AR[r.origin]}{r.audienceLabel ? ` (${r.audienceLabel})` : ''}</span>}
-                        {r.templateName && <span className="text-amber-400/70">· 📋 {r.templateName}</span>}
+                        {r.origin && ORIGIN_AR[r.origin] && <span style={{ color: 'var(--ch-web)' }}>· {ORIGIN_AR[r.origin]}{r.audienceLabel ? ` (${r.audienceLabel})` : ''}</span>}
+                        {r.templateName && <span className="row" style={{ gap: 4, color: 'var(--gold)' }}>· <FileText className="s" aria-hidden /> {r.templateName}</span>}
                       </div>
-                      <p className="text-[13px] text-gray-200 mt-0.5 truncate">{r.imageUrl ? '🖼️ ' : r.videoUrl ? '🎬 ' : ''}{r.text.split('\n').find(l => l.trim()) || '—'}</p>
+                      <p className="row" style={{ margin: '2px 0 0', gap: 6, font: '400 14px/22px var(--font-sans)' }}>
+                        {r.imageUrl ? <ImageIcon className="s" aria-label="صورة" /> : r.videoUrl ? <Video className="s" aria-label="فيديو" /> : null}
+                        <span className="trunc grow">{r.text.split('\n').find(l => l.trim()) || '—'}</span>
+                      </p>
                     </div>
                     {/* الإرسال */}
-                    <div className="text-xs tabular-nums">
-                      <div className="text-white font-bold">✓ {r.sentCount} <span className="text-gray-500 font-normal">/ {r.totalTargets}</span></div>
-                      <div className="text-[10.5px] text-gray-500">
-                        {r.skippedCount ? `تخطّي ${r.skippedCount}` : ''}{r.skippedCount && r.failedCount ? ' · ' : ''}{r.failedCount ? <span className="text-rose-300">فشل {r.failedCount}</span> : ''}
+                    <div>
+                      <div><b className="ltr">{r.sentCount} / {r.totalTargets}</b></div>
+                      <div className="muted" style={small}>
+                        {r.skippedCount ? `تخطّي ${r.skippedCount}` : ''}{r.skippedCount && r.failedCount ? ' · ' : ''}{r.failedCount ? <span style={{ color: 'var(--danger)' }}>فشل {r.failedCount}</span> : ''}
                         {!r.skippedCount && !r.failedCount ? 'بلا تخطٍّ ولا فشل' : ''}
                       </div>
                     </div>
                     {/* القراءة */}
-                    <div className="text-xs tabular-nums space-y-1">
+                    <div className="stack" style={{ gap: 4 }}>
                       {rs && rs.recipients > 0 ? (
                         <>
-                          <div className="flex items-baseline gap-1.5"><span className="text-sky-300 font-bold">👁 {pct(rs.read, rs.recipients)}٪</span><span className="text-[10.5px] text-gray-500">{rs.read} من {rs.recipients}</span></div>
+                          <div className="row"><Eye className="s" aria-hidden style={{ color: 'var(--info)' }} /><b className="ltr" style={{ color: 'var(--info)' }}>{pct(rs.read, rs.recipients)}%</b><span className="muted" style={small}>{rs.read} من {rs.recipients}</span></div>
                           <ReadBar s={rs} />
                         </>
-                      ) : <span className="text-gray-600">—</span>}
+                      ) : <span className="muted">—</span>}
                     </div>
-                    <span className="hidden md:block text-gray-500 text-xs self-center text-center">{isOpen ? '▲' : '▼'}</span>
+                    <span className="hidden md:block self-center text-center" style={{ color: isOpen ? 'var(--gold)' : 'var(--ink-3)' }}>{isOpen ? <ChevronUp aria-hidden /> : <ChevronDown aria-hidden />}</span>
                   </button>
 
                   {/* ── التفصيل ── */}
                   {isOpen && (
-                    <div className="px-3 pb-4 space-y-3">
-                      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-                        <Stat label="بدأ" value={hm(r.createdAt)} />
-                        <Stat label="انتهى" value={r.status === 'running' || r.status === 'sending' ? 'جارٍ…' : (hm(r.finishedAt) || '—')} />
-                        <Stat label="المدّة" value={dur(r.durationSec)} />
-                        <Stat label="بواسطة" value={r.createdBy || '—'} />
-                        <Stat label="المستهدفون" value={r.totalTargets} />
-                        <Stat label={r.status === 'sending' ? 'خرج فعلاً حتّى الآن' : 'أُرسل'} value={r.sentCount} cls="text-emerald-300" />
-                        <Stat label="تخطّي (نافذة أُغلقت/إيقاف)" value={r.skippedCount} cls={r.skippedCount ? 'text-amber-300' : 'text-white'} />
-                        <Stat label="فشل" value={r.failedCount} cls={r.failedCount ? 'text-rose-300' : 'text-white'} />
-                      </div>
-                      {rs && rs.recipients > 0 && (
-                        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-                          <Stat label="👁 قرأها" value={`${rs.read} · ${pct(rs.read, rs.recipients)}٪`} cls="text-sky-300" />
-                          <Stat label="✓✓ وصلت ولم تُقرأ" value={rs.delivered} cls="text-gray-200" />
-                          {(rs.queued || 0) > 0 && <Stat label="⏱ في الطابور" value={rs.queued} cls="text-teal-300" />}
-                          <Stat label="✓ لم تصل بعد" value={rs.notDelivered} cls={rs.notDelivered ? 'text-amber-300' : 'text-white'} />
-                          <Stat label="✗ رفضها واتساب" value={rs.failed} cls={rs.failed ? 'text-rose-300' : 'text-white'} />
+                    <div className="grid grid-cols-1 md:grid-cols-[340px_minmax(0,1fr)] gap-5" style={{ padding: '0 var(--space-4) var(--space-4)' }}>
+                      <div className="stack min-w-0">
+                        <div className="muted" style={small}>الرسالة كاملة{r.templateName ? ` · من القالب «${r.templateName}»` : ''}</div>
+                        <div className="wa-wamock">
+                          <div className="b">
+                            {r.imageUrl && <img src={`${API_URL}${r.imageUrl}`} alt="" />}
+                            {r.videoUrl && <video src={`${API_URL}${r.videoUrl}`} controls preload="metadata" />}
+                            {r.text}
+                          </div>
                         </div>
-                      )}
-                      <div>
-                        <div className="text-[11px] text-gray-500 mb-1">الرسالة كاملة{r.templateName ? ` · من القالب «${r.templateName}»` : ''}</div>
-                        <div className="max-w-md rounded-2xl rounded-tr-sm px-3 py-2 text-sm text-white whitespace-pre-wrap leading-relaxed" style={{ background: '#005c4b' }}>
-                          {r.imageUrl && <img src={`${API_URL}${r.imageUrl}`} alt="" className="block w-full max-h-52 object-cover rounded-xl mb-1.5" />}
-                          {r.videoUrl && <video src={`${API_URL}${r.videoUrl}`} controls preload="metadata" className="block w-full max-h-60 rounded-xl mb-1.5 bg-black" />}
-                          {r.text}
+                        <div>
+                          <KV label="بدأ"><span className="ltr">{hm(r.createdAt)}</span></KV>
+                          <KV label="انتهى">{r.status === 'running' || r.status === 'sending' ? 'جارٍ…' : (hm(r.finishedAt) ? <span className="ltr">{hm(r.finishedAt)}</span> : '—')}</KV>
+                          <KV label="المدّة">{dur(r.durationSec)}</KV>
+                          <KV label="بواسطة">{r.createdBy || '—'}</KV>
                         </div>
-                      </div>
-                      <div className="flex flex-wrap gap-2">
-                        {rs && rs.recipients > 0 && (
-                          <button onClick={() => setReport(report === r.id ? null : r.id)}
-                            className="px-3 py-1.5 rounded-xl text-xs font-bold border border-gray-700 text-gray-200 hover:bg-gray-800">
-                            {report === r.id ? 'إخفاء المستلمين' : '👁 من قرأ؟'}
-                          </button>
-                        )}
                         {onReuse && (
-                          <button onClick={() => onReuse(r.text.replace(/\n\n— لإيقاف هذه الرسائل أرسل: إيقاف$/, ''))}
-                            className="px-3 py-1.5 rounded-xl text-xs font-bold border border-gray-700 text-gray-200 hover:bg-gray-800">
-                            ✏️ استعمل النصّ في رسالةٍ جديدة
+                          <button type="button" className="wa-btn" onClick={() => onReuse(r.text.replace(/\n\n— لإيقاف هذه الرسائل أرسل: إيقاف$/, ''))}>
+                            <Copy aria-hidden />استعمل النصّ في رسالةٍ جديدة
                           </button>
                         )}
                       </div>
-                      {report === r.id && <ReadReport id={r.id} apiFetch={apiFetch} />}
+                      <div className="stack min-w-0">
+                        <div className="wa-grid4 keep2">
+                          <Stat label="المستهدفون" value={r.totalTargets} />
+                          <Stat label={r.status === 'sending' ? 'خرج فعلاً حتّى الآن' : 'أُرسل'} value={r.sentCount} color="var(--ok)" />
+                          <Stat label="تخطّي (نافذة أُغلقت/إيقاف)" value={r.skippedCount} color={r.skippedCount ? 'var(--warn)' : undefined} />
+                          <Stat label="فشل" value={r.failedCount} color={r.failedCount ? 'var(--danger)' : undefined} />
+                        </div>
+                        {rs && rs.recipients > 0 && (
+                          <div className="wa-grid4 keep2">
+                            <Stat label="قرأها" value={`${rs.read} · ${pct(rs.read, rs.recipients)}%`} color="var(--info)" />
+                            <Stat label="وصلت ولم تُقرأ" value={rs.delivered} />
+                            {(rs.queued || 0) > 0 && <Stat label="في الطابور" value={rs.queued} color="var(--ch-web)" />}
+                            <Stat label="لم تصل بعد" value={rs.notDelivered} color={rs.notDelivered ? 'var(--warn)' : undefined} />
+                            <Stat label="رفضها واتساب" value={rs.failed} color={rs.failed ? 'var(--danger)' : undefined} />
+                          </div>
+                        )}
+                        {rs && rs.recipients > 0 && (
+                          <button type="button" className="wa-btn" style={{ alignSelf: 'flex-start' }} aria-expanded={report === r.id} onClick={() => setReport(report === r.id ? null : r.id)}>
+                            <Eye aria-hidden />{report === r.id ? 'إخفاء المستلمين' : 'من قرأ؟'}
+                          </button>
+                        )}
+                        {report === r.id && <ReadReport id={r.id} apiFetch={apiFetch} />}
+                      </div>
                     </div>
                   )}
                 </div>
@@ -296,24 +314,22 @@ export default function BroadcastHistory({ apiFetch, refreshKey, onReuse }: {
 
       {/* ── الصفحات ── */}
       {total > 0 && (
-        <div className="flex flex-wrap items-center gap-2 text-xs">
-          <span className="text-gray-500 tabular-nums">عرض {from}–{to} من {total}</span>
+        <div className="flex flex-wrap items-center gap-2" style={{ padding: 'var(--space-3) var(--space-4)' }}>
+          <span className="muted" style={{ font: '400 13px/20px var(--font-sans)' }}>عرض <span className="ltr">{from}–{to}</span> من <span className="ltr">{total}</span></span>
           <select value={pageSize} onChange={e => { setPageSize(Number(e.target.value)); setPage(1); }}
-            className="bg-gray-950 border border-gray-800 rounded-lg px-2 py-1 text-xs text-white">
+            className="wa-select" aria-label="عدد الصفوف في الصفحة" style={{ width: 150 }}>
             {PAGE_SIZES.map(n => <option key={n} value={n}>{n} في الصفحة</option>)}
           </select>
-          <div className="flex items-center gap-1 mr-auto">
-            <button disabled={page <= 1} onClick={() => setPage(p => p - 1)}
-              className="px-2.5 py-1 rounded-lg border border-gray-800 text-gray-300 disabled:opacity-30 hover:bg-gray-800">السابق</button>
+          <div className="flex flex-wrap items-center gap-1" style={{ marginInlineStart: 'auto' }}>
+            <button type="button" className="wa-btn" disabled={page <= 1} onClick={() => setPage(p => p - 1)}>السابق</button>
             {nums.map((n, i) => (
-              <span key={n} className="flex items-center gap-1">
-                {i > 0 && n - nums[i - 1] > 1 && <span className="text-gray-600">…</span>}
-                <button onClick={() => setPage(n)}
-                  className={`min-w-[28px] px-2 py-1 rounded-lg border tabular-nums ${n === page ? 'border-amber-500/50 bg-amber-500/10 text-amber-400 font-bold' : 'border-gray-800 text-gray-300 hover:bg-gray-800'}`}>{n}</button>
+              <span key={n} className="row" style={{ gap: 4 }}>
+                {i > 0 && n - nums[i - 1] > 1 && <span className="muted">…</span>}
+                <button type="button" className="wa-btn" aria-current={n === page ? 'page' : undefined} onClick={() => setPage(n)}
+                  style={{ minWidth: 'var(--hit)', padding: '0 var(--space-2)', fontFamily: 'var(--font-mono)', ...(n === page ? { borderColor: 'var(--gold)', background: 'var(--gold-soft)', color: 'var(--gold)' } : null) }}>{n}</button>
               </span>
             ))}
-            <button disabled={page >= pages} onClick={() => setPage(p => p + 1)}
-              className="px-2.5 py-1 rounded-lg border border-gray-800 text-gray-300 disabled:opacity-30 hover:bg-gray-800">التالي</button>
+            <button type="button" className="wa-btn" disabled={page >= pages} onClick={() => setPage(p => p + 1)}>التالي</button>
           </div>
         </div>
       )}

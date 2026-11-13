@@ -8,7 +8,9 @@
 // الرجعيّ على الحجوزات المبكّرة القائمة (من سيتغيّر سعره ومن سيسقط ختمه) قبل الضغط.
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import { AlertTriangle, Check, Coins, Pause, Pencil, Play, Plus, Trash2, X } from 'lucide-react';
 import { swalConfirm, swalAlert } from '@/lib/swal';
+import { Badge, Banner, Card, Chip, Field, Pop, Seg, Setting, Tile, Toggle, type Tone } from './wa-ui';
 
 type Fetcher = (path: string, opts?: RequestInit) => Promise<any>;
 const H = 3600e3;
@@ -20,31 +22,11 @@ function fmtDT(v: any) {
   if (!v) return '—';
   return new Date(v).toLocaleString('ar-JO', { weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Amman' });
 }
-const STATE: Record<string, { label: string; cls: string }> = {
-  live: { label: '🟢 فعّال', cls: 'bg-emerald-500/10 text-emerald-300 border-emerald-500/30' },
-  paused: { label: '⏸️ موقوف', cls: 'bg-amber-500/10 text-amber-300 border-amber-500/30' },
-  draft: { label: '📝 مسودة', cls: 'bg-gray-700/40 text-gray-300 border-gray-600' },
+const STATE: Record<string, { label: string; tone?: Tone }> = {
+  live: { label: 'فعّال', tone: 'ok' },
+  paused: { label: 'موقوف', tone: 'warn' },
+  draft: { label: 'مسودة' },
 };
-const inputCls = 'w-full bg-gray-950 border border-gray-800 rounded-lg px-2.5 py-1.5 text-xs text-white outline-none focus:border-amber-500';
-function Field({ label, hint, children }: { label: string; hint?: string; children: any }) {
-  return (
-    <div className="min-w-0">
-      <label className="text-[11px] text-gray-400 font-bold block mb-1">{label}</label>
-      {children}
-      {hint && <div className="text-[10px] text-gray-600 mt-0.5 leading-snug">{hint}</div>}
-    </div>
-  );
-}
-function Seg({ value, options, onChange }: { value: string; options: [string, string][]; onChange: (v: string) => void }) {
-  return (
-    <div className="flex gap-1 flex-wrap">
-      {options.map(([v, l]) => (
-        <button key={v} type="button" onClick={() => onChange(v)}
-          className={`text-[11px] font-bold px-2.5 py-1 rounded-lg border ${value === v ? 'border-amber-500 text-amber-300 bg-amber-500/10' : 'border-gray-700 text-gray-400 hover:text-white'}`}>{l}</button>
-      ))}
-    </div>
-  );
-}
 function blankForm() {
   const now = Date.now();
   const end = new Date(now + 31 * 24 * H);
@@ -129,139 +111,206 @@ export default function EarlyPriceSection({ apiFetch }: { apiFetch: Fetcher }) {
     });
   }
 
-  if (err && !data) return <div className="text-xs text-rose-300 p-3">{err}</div>;
+  if (err && !data) return <Banner tone="danger" icon={<AlertTriangle />}>{err}</Banner>;
   if (!data) return null;
   const cityName = (id: number) => data.cities.find((c: any) => c.id === id)?.name || `#${id}`;
   const actName = (id: number) => data.upcoming.find((a: any) => a.id === id)?.name || `#${id}`;
 
   return (
-    <section className="rounded-2xl border border-amber-600/30 bg-gray-900/60 p-4 flex flex-col gap-3" dir="rtl">
-      <div className="flex items-start justify-between gap-3 flex-wrap">
-        <div className="min-w-0">
-          <h3 className="text-sm font-bold text-white">💸 سعر الدون المبكّر</h3>
-          <p className="text-[11px] text-gray-500 mt-1 leading-relaxed max-w-2xl">
-            من يحجز <b className="text-gray-300">عبر الدون</b> (أو يسجّله الأدمن عبر البوت) قبل اللعبة بالمهلة يدخل بسعرٍ أقلّ — لكلّ مقعدٍ في حجزه —
-            ولا تُحتسب زيارته ختم ولاء. السعر يُقفل لحظة الحجز. من حجز بنفسه ولم يحضر (أو ألغى في آخر ٦ ساعات) يُحرم منه في حجزه التالي.
-            الفترة تحكم <b className="text-gray-300">موعد الفعاليّة</b>.
-          </p>
-        </div>
-        {!form && <button onClick={() => { setPreview(null); setForm(blankForm()); }} className="text-xs font-bold px-3 py-1.5 rounded-lg bg-amber-500 text-black hover:bg-amber-400 shrink-0">＋ سعرٌ مبكّر جديد</button>}
-      </div>
+    <>
+      {/* ── الرأس ── */}
+      <Card
+        title={<><Coins />سعر الدون المبكّر</>}
+        aside={!form && (
+          <button type="button" className="wa-btn" onClick={() => { setPreview(null); setForm(blankForm()); }}><Plus />سعرٌ مبكّر جديد</button>
+        )}
+      >
+        <p style={{ margin: 0, font: '400 14px/22px var(--font-sans)', color: 'var(--ink-2)', maxWidth: '80ch' }}>
+          من يحجز <b style={{ color: 'var(--ink)' }}>عبر الدون</b> (أو يسجّله الأدمن عبر البوت) قبل اللعبة بالمهلة يدخل بسعرٍ أقلّ — لكلّ مقعدٍ في حجزه —
+          ولا تُحتسب زيارته ختم ولاء. السعر يُقفل لحظة الحجز. من حجز بنفسه ولم يحضر (أو ألغى في آخر ٦ ساعات) يُحرم منه في حجزه التالي.
+          الفترة تحكم <b style={{ color: 'var(--ink)' }}>موعد الفعاليّة</b>.
+        </p>
+        {data.offers.length === 0 && !form && <p className="muted" style={{ margin: 'var(--space-3) 0 0', fontSize: 14 }}>لا سعر مبكّر بعد.</p>}
+      </Card>
 
       {/* ── النموذج ── */}
       {form && (
-        <div className="rounded-xl border border-amber-500/30 bg-gray-950/40 p-3 flex flex-col gap-3">
-          <div className="flex items-center justify-between"><b className="text-xs text-white">{form.id ? `تعديل «${form.name}»` : 'سعرٌ مبكّر جديد'}</b><button onClick={() => setForm(null)} className="text-[11px] text-gray-400 hover:text-white">إلغاء ✕</button></div>
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-            <div className="col-span-2"><Field label="الاسم" hint="يظهر للعميل في رسائل الدون"><input id="ep-name" className={inputCls} value={form.name} onChange={e => patch('name', e.target.value)} /></Field></div>
-            <Field label="شكل السعر"><Seg value={form.mode} options={[['fixed', 'سعر ثابت'], ['off', 'خصم مبلغ']]} onChange={v => patch('mode', v)} /></Field>
-            <Field label={form.mode === 'fixed' ? 'السعر (د.أ)' : 'الخصم (د.أ)'}><input id="ep-value" type="number" min={0.5} max={50} step={0.5} className={inputCls} value={form.value} onChange={e => patch('value', Number(e.target.value))} /></Field>
-            <Field label="المهلة: ساعات قبل اللعبة"><input id="ep-lead" type="number" min={1} max={168} className={inputCls} value={form.leadHours} onChange={e => patch('leadHours', Math.max(1, parseInt(e.target.value) || 24))} /></Field>
-            <Field label="فعاليّات من (عمّان)"><input id="ep-from" type="datetime-local" className={inputCls} value={form.actFrom} onChange={e => patch('actFrom', e.target.value)} /></Field>
-            <Field label="إلى (عمّان)"><input id="ep-until" type="datetime-local" className={inputCls} value={form.actUntil} onChange={e => patch('actUntil', e.target.value)} /></Field>
-            <Field label="النطاق"><Seg value={form.scope} options={[['all', 'كلّ المدن'], ['cities', 'مدن'], ['acts', 'فعاليّات']]} onChange={v => patch('scope', v)} /></Field>
-          </div>
-          {form.scope === 'cities' && (
-            <Field label="المدن"><div className="flex gap-1.5 flex-wrap">{data.cities.map((c: any) => (
-              <button key={c.id} type="button" onClick={() => toggleIn('cityIds', c.id)} className={`text-[11px] px-2.5 py-1 rounded-lg border ${form.cityIds.includes(c.id) ? 'border-amber-500 text-amber-300 bg-amber-500/10' : 'border-gray-700 text-gray-400'}`}>{form.cityIds.includes(c.id) ? '✓ ' : ''}{c.name}</button>
-            ))}</div></Field>
-          )}
-          <Field label={form.scope === 'acts' ? 'الفعاليّات المشمولة' : 'استثناء فعاليّات'} hint={form.scope === 'acts' ? undefined : 'المستثناة تبقى بسعرها العاديّ وختمها كالمعتاد'}>
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-1.5 max-h-48 overflow-y-auto">
-              {data.upcoming.map((a: any) => {
-                const key = form.scope === 'acts' ? 'activityIds' : 'excludeIds';
-                const on = (form as any)[key].includes(a.id);
-                return (
-                  <button key={a.id} type="button" onClick={() => toggleIn(key as any, a.id)}
-                    className={`text-right rounded-lg border px-2.5 py-1.5 ${on ? (form.scope === 'acts' ? 'border-amber-500/60 bg-amber-500/10' : 'border-rose-500/60 bg-rose-500/10') : 'border-gray-800 hover:border-gray-600'}`}>
-                    <div className={`text-xs font-bold truncate ${on ? (form.scope === 'acts' ? 'text-amber-200' : 'text-rose-200') : 'text-gray-200'}`}>{on ? (form.scope === 'acts' ? '✓ ' : '✕ ') : ''}{a.name}</div>
-                    <div className="text-[10px] text-gray-500 truncate">{fmtDT(a.date)}{a.location ? ` · ${a.location}` : ''}</div>
-                  </button>
-                );
-              })}
+        <Card
+          style={{ borderColor: 'var(--gold)' }}
+          title={form.id ? `تعديل «${form.name}»` : 'سعرٌ مبكّر جديد'}
+          aside={<button type="button" className="wa-btn ghost" onClick={() => setForm(null)}><X />إلغاء</button>}
+        >
+          <div className="stack">
+            <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+              <div className="col-span-2">
+                <Field label="الاسم" hint="يظهر للعميل في رسائل الدون" htmlFor="ep-name">
+                  <input id="ep-name" className="wa-input" value={form.name} onChange={e => patch('name', e.target.value)} />
+                </Field>
+              </div>
+              <div className="col-span-2">
+                <Field label="شكل السعر">
+                  <Seg block label="شكل السعر" value={form.mode} options={[['fixed', 'سعر ثابت'], ['off', 'خصم مبلغ']]} onChange={v => patch('mode', v)} />
+                </Field>
+              </div>
+              <Field label={form.mode === 'fixed' ? 'السعر (د.أ)' : 'الخصم (د.أ)'} htmlFor="ep-value">
+                <input id="ep-value" type="number" min={0.5} max={50} step={0.5} dir="ltr" className="wa-input ltr" value={form.value} onChange={e => patch('value', Number(e.target.value))} />
+              </Field>
+              <Field label="المهلة: ساعات قبل اللعبة" htmlFor="ep-lead">
+                <input id="ep-lead" type="number" min={1} max={168} dir="ltr" className="wa-input ltr" value={form.leadHours} onChange={e => patch('leadHours', Math.max(1, parseInt(e.target.value) || 24))} />
+              </Field>
+              <div className="col-span-2">
+                <Field label="فعاليّات من (عمّان)" htmlFor="ep-from">
+                  <input id="ep-from" type="datetime-local" dir="ltr" className="wa-input ltr" value={form.actFrom} onChange={e => patch('actFrom', e.target.value)} />
+                </Field>
+              </div>
+              <div className="col-span-2">
+                <Field label="إلى (عمّان)" htmlFor="ep-until">
+                  <input id="ep-until" type="datetime-local" dir="ltr" className="wa-input ltr" value={form.actUntil} onChange={e => patch('actUntil', e.target.value)} />
+                </Field>
+              </div>
+              <div className="col-span-2">
+                <Field label="النطاق">
+                  <Seg block label="النطاق" value={form.scope} options={[['all', 'كلّ المدن'], ['cities', 'مدن'], ['acts', 'فعاليّات']]} onChange={v => patch('scope', v)} />
+                </Field>
+              </div>
             </div>
-          </Field>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-            <Field label="الدون يعلنه"><Seg value={form.announce ? '1' : '0'} options={[['1', 'نعم، مرّةً لكلّ محادثة'], ['0', 'لا']]} onChange={v => patch('announce', v === '1')} /></Field>
-            <Field label="نصّ إعلانٍ خاصّ (اختياريّ)" hint="فارغ = نصٌّ آليّ بالأرقام والمواعيد (الأدقّ)"><textarea id="ep-text" rows={2} maxLength={900} className={inputCls} value={form.announceText} onChange={e => patch('announceText', e.target.value)} /></Field>
+
+            {form.scope === 'cities' && (
+              <Field label="المدن">
+                <div className="wa-chips" style={{ flexWrap: 'wrap' }}>
+                  {data.cities.map((c: any) => (
+                    <Chip key={c.id} on={form.cityIds.includes(c.id)} onClick={() => toggleIn('cityIds', c.id)}>
+                      {form.cityIds.includes(c.id) && <Check className="s" />}{c.name}
+                    </Chip>
+                  ))}
+                </div>
+              </Field>
+            )}
+
+            <Field label={form.scope === 'acts' ? 'الفعاليّات المشمولة' : 'استثناء فعاليّات'} hint={form.scope === 'acts' ? undefined : 'المستثناة تبقى بسعرها العاديّ وختمها كالمعتاد'}>
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2 max-h-56 overflow-y-auto">
+                {data.upcoming.map((a: any) => {
+                  const key = form.scope === 'acts' ? 'activityIds' : 'excludeIds';
+                  const on = (form as any)[key].includes(a.id);
+                  return (
+                    <button key={a.id} type="button" aria-pressed={on} onClick={() => toggleIn(key as any, a.id)}
+                      className={`wa-pill${form.scope === 'acts' ? '' : ' x'}`} style={{ minHeight: 'var(--hit)', paddingBlock: 6 }}>
+                      {on && (form.scope === 'acts' ? <Check className="s" /> : <X className="s" />)}
+                      <span className="grow">
+                        <span className="trunc" style={{ display: 'block' }}>{a.name}</span>
+                        <span className="trunc" style={{ display: 'block', font: '500 12px/16px var(--font-sans)', opacity: 0.8 }}>{fmtDT(a.date)}{a.location ? ` · ${a.location}` : ''}</span>
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+            </Field>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+              <div>
+                <Setting title="الدون يعلنه" hint="مرّةً لكلّ محادثة">
+                  <Toggle on={form.announce} onChange={v => patch('announce', v)} label="الدون يعلنه" />
+                </Setting>
+              </div>
+              <Field label="نصّ إعلانٍ خاصّ (اختياريّ)" hint="فارغ = نصٌّ آليّ بالأرقام والمواعيد (الأدقّ)" htmlFor="ep-text">
+                <textarea id="ep-text" rows={2} maxLength={900} className="wa-textarea" value={form.announceText} onChange={e => patch('announceText', e.target.value)} />
+              </Field>
+            </div>
+
+            {example && (
+              <Banner tone="ok" icon={<Check />}>
+                مثال بسعر ٣ د.أ: عبر الدون قبل <span className="ltr">{n(form.leadHours)}</span> ساعة ⟵ <b><span className="ltr">{n(example.price)}</span> د.أ</b> للشخص، بلا ختم. بعد الموعد ⟵ ٣ د.أ وختمٌ كالمعتاد.
+              </Banner>
+            )}
+
+            <div className="row">
+              <button type="button" disabled={busy} onClick={save} className="wa-btn primary">{form.id ? 'حفظ التعديل' : 'حفظ مسودة'}</button>
+            </div>
           </div>
-          {example && <div className="text-[11px] text-emerald-200 bg-emerald-500/[0.06] border border-emerald-500/20 rounded-lg px-3 py-2">مثال بسعر ٣ د.أ: عبر الدون قبل {n(form.leadHours)} ساعة ⟵ <b>{n(example.price)} د.أ</b> للشخص، بلا ختم. بعد الموعد ⟵ ٣ د.أ وختمٌ كالمعتاد.</div>}
-          <div><button disabled={busy} onClick={save} className="text-xs font-bold px-4 py-1.5 rounded-lg bg-amber-500 text-black hover:bg-amber-400 disabled:opacity-50">{form.id ? 'حفظ التعديل' : 'حفظ مسودة'}</button></div>
-        </div>
+        </Card>
       )}
 
-      {/* ── معاينة التفعيل ── */}
+      {/* ── معاينة التفعيل: لوح سفليّ على الهاتف، نافذة على الحاسوب ── */}
       {preview && (
-        <div className="rounded-xl border border-emerald-500/30 bg-gray-950/40 p-3 flex flex-col gap-2">
-          <div className="flex items-center justify-between gap-2 flex-wrap"><b className="text-xs text-white">▶️ معاينة تفعيل «{preview.offer.name}»</b><button onClick={() => setPreview(null)} className="text-[11px] text-gray-400 hover:text-white">إغلاق ✕</button></div>
-          <p className="text-[11px] text-gray-400 leading-relaxed">
-            الأثر الرجعيّ على الحجوزات المبكّرة القائمة عبر الدون: يتغيّر سعر <b className="text-white">{n(preview.summary.apply)}</b> حجزاً ({n(preview.summary.seats)} مقعداً، قيمة الخصم {n(preview.summary.foregone)} د.أ)،
-            ويسقط ختم <b className="text-rose-300">{n(preview.summary.losesStamp)}</b> لاعباً مسجَّلاً على تلك الزيارة.{preview.summary.paidSkipped > 0 && <> {n(preview.summary.paidSkipped)} مدفوعة لا تُعدَّل.</>} من نافذته مفتوحة يصله إشعار.
-          </p>
+        <Pop wide onClose={() => setPreview(null)} label="معاينة التفعيل"
+          title={<span className="row"><Play style={{ color: 'var(--ok)' }} />معاينة تفعيل «{preview.offer.name}»</span>}>
+          <p style={{ margin: 0, font: '400 14px/22px var(--font-sans)', color: 'var(--ink-2)' }}>الأثر الرجعيّ على الحجوزات المبكّرة القائمة عبر الدون:</p>
+          <div className="wa-grid3">
+            <Tile tone="ok" k="حجوزات يتغيّر سعرها" v={n(preview.summary.apply)} h={<><span className="ltr">{n(preview.summary.seats)}</span> مقعداً</>} />
+            <Tile tone="gold" k="قيمة الخصم" v={n(preview.summary.foregone)} h="د.أ" />
+            <Tile tone="danger" k="يسقط ختمهم" v={n(preview.summary.losesStamp)} h="لاعباً مسجَّلاً على تلك الزيارة" />
+          </div>
+          <Banner tone="warn" icon={<AlertTriangle />}>
+            {preview.summary.paidSkipped > 0 && <><span className="ltr">{n(preview.summary.paidSkipped)}</span> مدفوعة لا تُعدَّل. </>}من نافذته مفتوحة يصله إشعار.
+          </Banner>
           {preview.rows.length > 0 && (
-            <div className="overflow-x-auto rounded-lg border border-gray-800 max-h-64 overflow-y-auto">
-              <table className="w-full text-xs">
-                <thead className="bg-gray-950 text-gray-500 text-[10.5px]"><tr><th className="text-right px-2 py-1.5">الحاجز</th><th className="text-right px-2 py-1.5">الفعاليّة</th><th className="px-2 py-1.5">العدد</th><th className="px-2 py-1.5">السعر</th><th className="text-right px-2 py-1.5">ملاحظة</th></tr></thead>
+            <div className="wa-tablewrap">
+              <table className="wa-table cards">
+                <thead><tr><th>الحاجز</th><th>الفعاليّة</th><th>العدد</th><th>السعر</th><th>ملاحظة</th></tr></thead>
                 <tbody>
                   {preview.rows.map((r: any) => (
-                    <tr key={r.reservationId} className={`border-t border-gray-800/70 ${r.paid ? 'opacity-50' : ''}`}>
-                      <td className="px-2 py-1.5 text-gray-200">{r.name}<span className="block text-[10px] text-gray-600 font-mono" dir="ltr">{r.phone}</span></td>
-                      <td className="px-2 py-1.5 text-gray-400">{r.activityName}<span className="block text-[10px] text-gray-600">حجز قبل {n(r.bookedHoursBefore)} س</span></td>
-                      <td className="px-2 py-1.5 text-center tabular-nums">{n(r.people)}</td>
-                      <td className="px-2 py-1.5 text-center tabular-nums">{r.paid ? n(r.from) : <>{n(r.from)} ⟵ <b className="text-emerald-300">{n(r.to)}</b></>}</td>
-                      <td className="px-2 py-1.5 text-[11px]">{r.paid ? <span className="text-gray-500">مدفوع — لا يُعدَّل</span> : r.losesStamp ? <span className="text-rose-300">يسقط ختمه</span> : <span className="text-gray-500">—</span>}</td>
+                    <tr key={r.reservationId} style={r.paid ? { opacity: 0.55 } : undefined}>
+                      <td data-l="الحاجز"><span><b>{r.name}</b><span className="ltr muted" style={{ display: 'block' }}>{r.phone}</span></span></td>
+                      <td data-l="الفعاليّة"><span>{r.activityName}<span className="muted" style={{ display: 'block', fontSize: 12 }}>حجز قبل <span className="ltr">{n(r.bookedHoursBefore)}</span> س</span></span></td>
+                      <td data-l="العدد"><span className="ltr">{n(r.people)}</span></td>
+                      <td data-l="السعر"><span className="ltr">{r.paid ? n(r.from) : <>{n(r.from)} → <b style={{ color: 'var(--ok)' }}>{n(r.to)}</b></>}</span></td>
+                      <td data-l="ملاحظة" style={{ fontSize: 13 }}>
+                        {r.paid ? <span className="muted">مدفوع — لا يُعدَّل</span> : r.losesStamp ? <span style={{ color: 'var(--danger)' }}>يسقط ختمه</span> : <span className="muted">—</span>}
+                      </td>
                     </tr>
                   ))}
                 </tbody>
               </table>
             </div>
           )}
-          <div className="flex gap-2 flex-wrap">
-            <button disabled={busy} onClick={doActivate} className="text-xs font-bold px-4 py-1.5 rounded-lg bg-emerald-500 text-black hover:bg-emerald-400 disabled:opacity-50">
-              🟢 فعّل{preview.summary.apply > 0 ? ` وطبّق على ${n(preview.summary.apply)} حجزاً` : ''}
+          <div className="acts">
+            <button type="button" className="wa-btn ghost" onClick={() => setPreview(null)}>إغلاق</button>
+            <button type="button" disabled={busy} onClick={doActivate} className="wa-btn send" style={{ whiteSpace: 'normal' }}>
+              <Check />فعّل{preview.summary.apply > 0 ? <> وطبّق على <span className="ltr">{n(preview.summary.apply)}</span> حجزاً</> : ''}
             </button>
           </div>
-        </div>
+        </Pop>
       )}
 
       {/* ── القائمة ── */}
-      {data.offers.length === 0 && !form && <p className="text-[11px] text-gray-500">لا سعر مبكّر بعد.</p>}
       {data.offers.map((o: any) => {
         const st = STATE[o.status] || STATE.draft;
         const s = o.stats || {};
         const scope = o.scope === 'all' ? 'كلّ المدن' : o.scope === 'cities' ? (o.cityIds || []).map(cityName).join('، ') : `${(o.activityIds || []).length} فعاليّات بعينها`;
         return (
-          <div key={o.id} className={`rounded-xl border p-3 ${o.status === 'live' ? 'border-emerald-500/30 bg-emerald-500/[0.03]' : 'border-gray-800'}`}>
-            <div className="flex items-start justify-between gap-3 flex-wrap">
-              <div className="min-w-0">
-                <div className="flex items-center gap-2 flex-wrap"><b className="text-sm text-white">{o.name}</b><span className={`text-[10.5px] font-bold px-2 py-0.5 rounded-full border ${st.cls}`}>{st.label}</span></div>
-                <div className="text-xs text-amber-200 mt-1">💸 {o.mode === 'fixed' ? `${n(o.value)} د.أ للشخص` : `خصم ${n(o.value)} د.أ`} عبر الدون قبل اللعبة بـ{n(o.leadHours)} ساعة — بلا ختم ولاء</div>
-                <div className="text-[11px] text-gray-500 mt-1">فعاليّات {fmtDT(o.actFrom)} ← {fmtDT(o.actUntil)} · {scope}{o.scope !== 'acts' && (o.excludeIds || []).length ? ` · مستثناة: ${(o.excludeIds || []).map(actName).join('، ')}` : ''}{o.activatedAt ? ` · فُعّل ${fmtDT(o.activatedAt)}` : ''}</div>
-                {(o.covered || []).length > 0 && (
-                  <div className="flex flex-wrap gap-1 mt-1.5">
-                    {o.covered.map((a: any) => (
-                      <span key={a.id} className={`text-[10.5px] px-2 py-0.5 rounded-md border ${a.open ? 'border-emerald-700/50 text-emerald-200' : 'border-gray-800 text-gray-600'}`} title={a.open ? `السعر المبكّر حتّى ${fmtDT(a.deadline)}` : 'فات موعد السعر المبكّر'}>
-                        {a.name} · {a.open ? `حتّى ${fmtDT(a.deadline)}` : 'فات الموعد'}
-                      </span>
-                    ))}
-                  </div>
-                )}
+          <Card key={o.id} style={o.status === 'live' ? { borderColor: 'var(--ok)' } : undefined}
+            title={<><Coins /><span className="trunc">{o.name}</span><Badge tone={st.tone}>{st.label}</Badge></>}>
+            <div className="stack">
+              <div style={{ font: '700 14px/22px var(--font-sans)', color: 'var(--gold)' }}>
+                {o.mode === 'fixed' ? <><span className="ltr">{n(o.value)}</span> د.أ للشخص</> : <>خصم <span className="ltr">{n(o.value)}</span> د.أ</>} عبر الدون قبل اللعبة بـ<span className="ltr">{n(o.leadHours)}</span> ساعة — بلا ختم ولاء
               </div>
-              <div className="grid grid-cols-3 gap-x-4 text-center shrink-0">
-                <div><div className="text-[10px] text-gray-500">حجوزات</div><div className="text-lg font-black text-white tabular-nums">{n(s.reservations)}</div></div>
-                <div><div className="text-[10px] text-gray-500">مقاعد</div><div className="text-lg font-black text-amber-300 tabular-nums">{n(s.seats)}</div></div>
-                <div><div className="text-[10px] text-gray-500">قيمة الخصم</div><div className="text-lg font-black text-emerald-300 tabular-nums">{n(s.foregone)}<span className="text-[10px] text-gray-500 font-normal"> د.أ</span></div></div>
+              <div className="muted" style={{ font: '500 13px/20px var(--font-sans)' }}>
+                فعاليّات {fmtDT(o.actFrom)} ← {fmtDT(o.actUntil)} · {scope}{o.scope !== 'acts' && (o.excludeIds || []).length ? ` · مستثناة: ${(o.excludeIds || []).map(actName).join('، ')}` : ''}{o.activatedAt ? ` · فُعّل ${fmtDT(o.activatedAt)}` : ''}
+              </div>
+              {(o.covered || []).length > 0 && (
+                <div className="row" style={{ flexWrap: 'wrap' }}>
+                  {o.covered.map((a: any) => (
+                    <Badge key={a.id} tone={a.open ? 'ok' : undefined} title={a.open ? `السعر المبكّر حتّى ${fmtDT(a.deadline)}` : 'فات موعد السعر المبكّر'}>
+                      {a.name} · {a.open ? `حتّى ${fmtDT(a.deadline)}` : 'فات الموعد'}
+                    </Badge>
+                  ))}
+                </div>
+              )}
+              <div className="wa-grid3">
+                <Tile k="حجوزات" v={n(s.reservations)} />
+                <Tile k="مقاعد" v={n(s.seats)} />
+                <Tile tone="gold" k="قيمة الخصم" v={n(s.foregone)} h="د.أ" />
+              </div>
+              <div className="row" style={{ flexWrap: 'wrap' }}>
+                {o.status !== 'live' && <button type="button" disabled={busy} onClick={() => openPreview(o)} className="wa-btn"><Play />معاينة التفعيل</button>}
+                {o.status === 'live' && <button type="button" disabled={busy} onClick={() => setStatus(o, 'paused')} className="wa-btn"><Pause />إيقاف</button>}
+                <button type="button" disabled={busy} onClick={() => edit(o)} className="wa-btn"><Pencil />تعديل</button>
+                {!s.reservations && o.status !== 'live' && <button type="button" disabled={busy} onClick={() => remove(o)} className="wa-btn danger"><Trash2 />حذف</button>}
               </div>
             </div>
-            <div className="flex gap-2 mt-2 flex-wrap">
-              {o.status !== 'live' && <button disabled={busy} onClick={() => openPreview(o)} className="text-xs font-bold px-3 py-1.5 rounded-lg border border-emerald-600/40 text-emerald-300 hover:bg-emerald-500/10 disabled:opacity-50">▶️ معاينة التفعيل</button>}
-              {o.status === 'live' && <button disabled={busy} onClick={() => setStatus(o, 'paused')} className="text-xs font-bold px-3 py-1.5 rounded-lg border border-amber-600/40 text-amber-300 hover:bg-amber-500/10 disabled:opacity-50">⏸️ إيقاف</button>}
-              <button disabled={busy} onClick={() => edit(o)} className="text-xs font-bold px-3 py-1.5 rounded-lg border border-gray-700 text-gray-300 hover:text-white disabled:opacity-50">✏️ تعديل</button>
-              {!s.reservations && o.status !== 'live' && <button disabled={busy} onClick={() => remove(o)} className="text-xs font-bold px-3 py-1.5 rounded-lg border border-rose-600/30 text-rose-300/80 hover:bg-rose-500/10 disabled:opacity-50">🗑️ حذف</button>}
-            </div>
-          </div>
+          </Card>
         );
       })}
-    </section>
+    </>
   );
 }

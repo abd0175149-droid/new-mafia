@@ -11,6 +11,12 @@ import Swal from 'sweetalert2';
 import { swalAlert, swalConfirm, swalToast } from '@/lib/swal';
 import BroadcastHistory from './BroadcastHistory';
 import PlayedActivityPicker from './PlayedActivityPicker';
+import {
+  Ban, CalendarCheck, Check, ChevronDown, ChevronUp, CircleCheck, CircleStop, Cloud, Dice5, DoorOpen, FileText, FlaskConical, Globe, Hand,
+  History, Hourglass, Image as ImageIcon, Info, Loader2, Megaphone, PenLine, Play, RotateCw, Save, Search, SlidersHorizontal, Smartphone,
+  Square, SquareCheck, Ticket, Trash2, TriangleAlert, Users, Video, type LucideIcon,
+} from 'lucide-react';
+import { Banner, Chip, Field, Meter, PageHead, Pop, Seg, Setting, Toggle } from './wa-ui';
 
 type Fetcher = (path: string, opts?: RequestInit) => Promise<any>;
 type Filter = 'all' | 'players' | 'visitors' | 'booked_upcoming' | 'activity' | 'not_booked_activity' | 'played';
@@ -340,10 +346,10 @@ export default function BroadcastTab({ apiFetch }: { apiFetch: Fetcher }) {
     if (d.toDateString() === ys.toDateString()) return `أمس ${t}`;
     return `${d.toLocaleDateString('ar-JO', { weekday: 'long', day: 'numeric', month: 'short' })} ${t}`;
   };
-  const LANE_TONE: Record<string, { dot: string; text: string; label: string }> = {
-    sending: { dot: 'bg-emerald-400 animate-pulse', text: 'text-emerald-300', label: '🟢 يُرسل الآن' },
-    paused: { dot: 'bg-amber-400', text: 'text-amber-300', label: '⏸️ متوقّف مؤقّتاً' },
-    idle: { dot: 'bg-gray-500', text: 'text-gray-400', label: '✓ لا شيء في الطابور' },
+  const LANE_TONE: Record<string, { dot: string; color: string; label: string }> = {
+    sending: { dot: 'ok', color: 'var(--ok)', label: 'يُرسل الآن' },
+    paused: { dot: 'warn', color: 'var(--warn)', label: 'متوقّف مؤقّتاً' },
+    idle: { dot: '', color: 'var(--ink-3)', label: 'لا شيء في الطابور' },
   };
 
   // ══════════════════════════════════════════════════════
@@ -360,6 +366,9 @@ export default function BroadcastTab({ apiFetch }: { apiFetch: Fetcher }) {
   const scrollFlowTop = () => setTimeout(() => requestAnimationFrame(() => {
     const el = rootRef.current;
     if (!el) return;
+    // مركز واتساب الجديد: الصفحة لا تتمرّر كلّها — المتمرّر هو عمود ‎.wa-content
+    const scroller = el.closest('.wa-content');
+    if (scroller) { scroller.scrollTo({ top: 0, behavior: 'instant' as ScrollBehavior }); return; }
     if (getComputedStyle(el).overflowY !== 'visible' && el.scrollHeight > el.clientHeight + 1) { el.scrollTo({ top: 0, behavior: 'instant' as ScrollBehavior }); return; }
     const anchor = stepAnchorRef.current || el;
     const top = anchor.getBoundingClientRect().top + window.scrollY - (window.innerWidth < 768 ? 64 : 0);
@@ -395,7 +404,7 @@ export default function BroadcastTab({ apiFetch }: { apiFetch: Fetcher }) {
       if (missingPlayed) return 'اختر فعاليّةً سابقة واحدة على الأقلّ';
       if (needsActivity && !activityId) return 'اختر الفعاليّة';
       if (!loading && rows.length === 0) return 'لا أحد ضمن هذا الجمهور';
-      return aud?.byChannel ? `☁️ ${aud.byChannel.cloud} · 📱 ${aud.byChannel.web}` : '';
+      return aud?.byChannel ? `ميتا ${aud.byChannel.cloud} · رقم الأعمال ${aud.byChannel.web}` : '';
     }
     if (step === 2) {
       if (imgBusy) return 'يُرفع الوسيط…';
@@ -404,25 +413,26 @@ export default function BroadcastTab({ apiFetch }: { apiFetch: Fetcher }) {
       if (actVarsUsed && !activityId) return 'النصّ فيه متغيّرات فعاليّة — اختر الفعاليّة';
       return `${body.length} / ${bodyMax} حرفاً`;
     }
-    if (blockedReason) return `⛔ ${blockedReason}`;
+    if (blockedReason) return blockedReason;
     if (missingActivity || missingPlayed) return 'ارجع وأكمل الجمهور';
-    return testedOk ? '✅ وصل الاختبار — راجعه على هاتفك ثمّ أرسل' : 'الاختبار إلزاميّ قبل الإرسال';
+    return testedOk ? 'وصل الاختبار — راجعه على هاتفك ثمّ أرسل' : 'الاختبار إلزاميّ قبل الإرسال';
   })();
+  const barDanger = step === 3 && !!blockedReason;
 
   // ── عناصر مشتركة ──
   const upcomingList = (required: boolean) => (
-    <div role="radiogroup" className="space-y-1.5">
+    <div role="radiogroup" className="stack" style={{ gap: 'var(--space-2)' }}>
       {!required && <OptionRow selected={!activityId} onClick={() => pickAct(null)} title="بلا فعاليّة قادمة" />}
       {activities.map(a => (
         <OptionRow key={a.id} selected={activityId === a.id} onClick={() => pickAct(a.id)}
           title={a.name} sub={`${a.when || fmt(a.date)}${a.venue ? ` · ${a.venue}` : ''}`} />
       ))}
-      {activities.length === 0 && <p className="text-[12.5px] text-gray-500 px-1">لا فعاليّات قادمة.</p>}
+      {activities.length === 0 && <p className="muted" style={{ ...SMALL, margin: 0 }}>لا فعاليّات قادمة.</p>}
     </div>
   );
 
   const liveStrip = live && live.broadcasts.length > 0 && (
-    <div className="space-y-2">
+    <div className="stack" style={{ gap: 'var(--space-2)' }}>
       {live.broadcasts.map(b => {
         const ln = live.lane || {};
         const tone = LANE_TONE[ln.state] || LANE_TONE.paused;
@@ -431,35 +441,37 @@ export default function BroadcastTab({ apiFetch }: { apiFetch: Fetcher }) {
         const open = liveOpen.has(b.id);
         const canStop = status?.running === b.id;
         return (
-          <div key={b.id} className="rounded-2xl border border-sky-500/25 bg-sky-500/5">
+          <div key={b.id} className="stack" style={{ gap: 'var(--space-2)' }}>
             <button type="button" onClick={() => setLiveOpen(p => { const n = new Set(p); if (n.has(b.id)) n.delete(b.id); else n.add(b.id); return n; })}
-              className="w-full text-right p-3 space-y-2" aria-expanded={open}>
-              <div className="flex items-center gap-2">
-                <span className={`w-2.5 h-2.5 rounded-full shrink-0 ${tone.dot}`} />
-                <b className="text-white text-[13.5px]">بثّ #{b.id} {b.media === 'video' ? '🎬' : b.media === 'image' ? '🖼️' : ''}</b>
-                <span className={`text-[12px] font-bold ${tone.text}`}>{b.queued === 0 ? '✓ خرجت كلّها' : tone.label}</span>
-                <span className="mr-auto text-[12.5px] text-gray-300 tabular-nums">{b.sent}/{b.total}</span>
-                <span className={`text-gray-500 text-xs transition-transform ${open ? 'rotate-180' : ''}`}>▾</span>
-              </div>
-              <div className="h-1.5 rounded-full bg-gray-800 overflow-hidden"><div className="h-full bg-sky-400" style={{ width: `${pct}%` }} /></div>
+              className="wa-health" style={{ borderColor: 'var(--info)' }} aria-expanded={open}>
+              <i className={`wa-dot ${tone.dot}`} />
+              <span className="trunc" style={{ minWidth: 0 }}>
+                <b>بثّ <bdi className="ltr">#{b.id}</bdi></b>
+                {b.media === 'video' ? <Video className="s" aria-label="فيديو" style={{ display: 'inline', marginInline: 4 }} /> : b.media === 'image' ? <ImageIcon className="s" aria-label="صورة" style={{ display: 'inline', marginInline: 4 }} /> : null}
+                {' · '}<span style={{ color: tone.color, fontWeight: 700 }}>{b.queued === 0 ? 'خرجت كلّها' : tone.label}</span>
+              </span>
+              <Meter pct={pct} tone="info" style={{ flex: 1, minWidth: 48, maxWidth: 220, marginInlineStart: 'var(--space-2)' }} />
+              <span className="end"><bdi className="ltr">{b.sent}/{b.total}</bdi>{open ? <ChevronUp aria-hidden /> : <ChevronDown aria-hidden />}</span>
             </button>
             {open && (
-              <div className="px-3 pb-3 space-y-2">
-                <div className="text-[12.5px] text-gray-400 truncate">{String(b.text || '').split('\n').find((l: string) => l.trim()) || ''}</div>
-                <div className="grid grid-cols-2 gap-x-3 gap-y-1 text-[12.5px] text-gray-300 tabular-nums">
-                  <span>أُرسل <b className="text-white">{b.sent}</b> من {b.total}</span>
-                  <span>في الطابور <b className="text-amber-200">{b.queued}</b>{b.sending ? ` (${b.sending} الآن)` : ''}</span>
-                  <span>وصل {b.delivered} · قُرئ {b.read}</span>
-                  {b.failed > 0 ? <span className="text-rose-300">فشل {b.failed}</span> : <span />}
-                  <span className="col-span-2">آخر رسالة: <b className="text-white">{fmtAt(b.lastSentAt)}</b> · بدأ {fmtAt(b.createdAt)}{b.createdBy ? ` · ${b.createdBy}` : ''}</span>
+              <div className="wa-card stack" style={{ gap: 'var(--space-2)' }}>
+                <div className="trunc muted" style={{ font: '400 13px/20px var(--font-sans)' }}>{String(b.text || '').split('\n').find((l: string) => l.trim()) || ''}</div>
+                <div className="grid grid-cols-2 gap-x-3 gap-y-1" style={{ font: '400 13px/20px var(--font-sans)', color: 'var(--ink-2)' }}>
+                  <span>أُرسل <b className="ltr" style={{ color: 'var(--ink)' }}>{b.sent}</b> من <bdi className="ltr">{b.total}</bdi></span>
+                  <span>في الطابور <b className="ltr" style={{ color: 'var(--warn)' }}>{b.queued}</b>{b.sending ? ` (${b.sending} الآن)` : ''}</span>
+                  <span>وصل <bdi className="ltr">{b.delivered}</bdi> · قُرئ <bdi className="ltr">{b.read}</bdi></span>
+                  {b.failed > 0 ? <span style={{ color: 'var(--danger)' }}>فشل <bdi className="ltr">{b.failed}</bdi></span> : <span />}
+                  <span className="col-span-2">آخر رسالة: <b style={{ color: 'var(--ink)' }}>{fmtAt(b.lastSentAt)}</b> · بدأ {fmtAt(b.createdAt)}{b.createdBy ? ` · ${b.createdBy}` : ''}</span>
                 </div>
                 {b.queued > 0 && ln.state && (
-                  <div className={`text-[12.5px] rounded-xl px-3 py-2 border ${ln.state === 'sending' ? 'border-emerald-500/25 bg-emerald-500/5 text-emerald-200' : 'border-amber-500/25 bg-amber-500/5 text-amber-100'}`}>
-                    <b>{ln.state === 'sending' ? 'يُرسل:' : 'سبب التوقّف:'}</b> {ln.reason}
-                    {ln.resumeAt && <span> — {ln.state === 'sending' ? 'التالية' : 'يستأنف'} <b>{fmtAt(ln.resumeAt)}</b></span>}
-                    {ln.code === 'daily_cap' && ln.tomorrowCap ? <span> بحدّ {ln.tomorrowCap}</span> : null}
-                    <div className="text-[11.5px] text-gray-400 mt-1 tabular-nums">
-                      اليوم {ln.todaySent}/{ln.dayCap ?? '∞'} · آخر ساعة {ln.hourSent}/{ln.hourCap} · ساعات الإرسال {ln.window}{ln.warmup ? ' · التسخين مفعّل' : ''}
+                  <div className={`wa-banner ${ln.state === 'sending' ? 'ok' : 'warn'}`}>
+                    <div>
+                      <b>{ln.state === 'sending' ? 'يُرسل:' : 'سبب التوقّف:'}</b> {ln.reason}
+                      {ln.resumeAt && <span> — {ln.state === 'sending' ? 'التالية' : 'يستأنف'} <b>{fmtAt(ln.resumeAt)}</b></span>}
+                      {ln.code === 'daily_cap' && ln.tomorrowCap ? <span> بحدّ {ln.tomorrowCap}</span> : null}
+                      <div style={{ ...SMALL, color: 'var(--ink-2)', marginTop: 4 }}>
+                        اليوم {ln.todaySent}/{ln.dayCap ?? '∞'} · آخر ساعة {ln.hourSent}/{ln.hourCap} · ساعات الإرسال {ln.window}{ln.warmup ? ' · التسخين مفعّل' : ''}
+                      </div>
                     </div>
                   </div>
                 )}
@@ -471,10 +483,10 @@ export default function BroadcastTab({ apiFetch }: { apiFetch: Fetcher }) {
                         swalToast(`▶ استُؤنف — ${r.released ? `فُكّ ${r.released} مؤجَّل، ` : ''}قيودنا تبقى سارية`, 'success');
                         setTimeout(() => apiFetch('/api/whatsapp/open-window-broadcast/live').then(d => setLive({ broadcasts: d.broadcasts || [], lane: d.lane || null })).catch(() => {}), 1500);
                       } catch (e: any) { swalToast(e.message, 'error'); }
-                    }} className="min-h-[44px] px-4 rounded-xl text-[13px] font-bold bg-emerald-500/15 text-emerald-200 border border-emerald-500/40">▶ استأنف الآن</button>
+                    }} className="wa-btn" style={{ borderColor: 'var(--ok)', color: 'var(--ok)' }}><Play aria-hidden />استأنف الآن</button>
                   )}
                   {canStop && (
-                    <button type="button" onClick={() => stop(b.id)} className="min-h-[44px] px-4 rounded-xl text-[13px] font-bold bg-rose-500/15 text-rose-300 border border-rose-500/30">⏹ أوقف البثّ</button>
+                    <button type="button" onClick={() => stop(b.id)} className="wa-btn danger"><CircleStop aria-hidden />أوقف البثّ</button>
                   )}
                 </div>
               </div>
@@ -485,27 +497,38 @@ export default function BroadcastTab({ apiFetch }: { apiFetch: Fetcher }) {
     </div>
   );
 
+  // 📱 المعاينة: كما تصل إلى أوّل مستلم — تُعرض بجانب المحرّر على الحاسوب وفي خطوة المراجعة
+  const preview = body.trim() ? (
+    <div className="stack" style={{ gap: 6 }}>
+      <div className="muted" style={LABEL}>كما تصل إلى {sample?.name || 'المستلم'}:</div>
+      <div className="wa-wamock">
+        <div className="b">
+          {img && (img.kind === 'video'
+            ? <video src={`${API_URL}${img.url}`} controls preload="metadata" />
+            : <img src={`${API_URL}${img.url}`} alt="" />)}
+          {fill(body, { ...(sample || { name: '', rank: '' }), activity: act?.name, venue: act?.venue, place: (act as any)?.place, when: act?.when })}{footer ? OPTOUT_FOOTER : ''}
+        </div>
+      </div>
+    </div>
+  ) : null;
+
   // ══ الخطوة ١: لمن؟ ══
   const stepAudience = (
-    <section className="space-y-5">
+    <section className="stack" style={{ gap: 'var(--space-4)' }}>
       <StepTitle n={1} title="لمن تُرسل؟" sub="اختر الجمهور، وضيّقه من «تضييق إضافي» إن احتجت." />
       {AUDIENCE_GROUPS.map(g => (
-        <div key={g.title}>
-          <div className="text-[12px] font-bold text-gray-500 mb-2">{g.title}</div>
-          <div role="radiogroup" className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+        <div key={g.title} className="stack" style={{ gap: 'var(--space-2)' }}>
+          <div className="muted" style={LABEL}>{g.title}</div>
+          <div role="radiogroup" aria-label={g.title} className="grid grid-cols-1 sm:grid-cols-2 gap-2">
             {g.keys.map(k => {
               const m = FILTER_META[k];
               const on = filter === k;
               return (
-                <button key={k} type="button" role="radio" aria-checked={on}
-                  onClick={() => { setFilter(k); setExcluded(new Set()); }}
-                  className={`flex items-center gap-3 text-right rounded-2xl border px-3.5 py-3 min-h-[60px] transition-colors ${on ? 'bg-amber-500/10 border-amber-500/50' : 'bg-gray-900/60 border-gray-800 hover:border-gray-700'}`}>
-                  <span className="text-xl shrink-0" aria-hidden>{m.icon}</span>
-                  <span className="flex-1 min-w-0">
-                    <span className={`block text-[14px] font-bold ${on ? 'text-amber-300' : 'text-white'}`}>{m.label}</span>
-                    <span className="block text-[12px] text-gray-500 leading-snug">{m.hint}</span>
-                  </span>
-                  <span className={`w-5 h-5 rounded-full border-2 shrink-0 ${on ? 'border-amber-400 bg-amber-400 shadow-[inset_0_0_0_3px_#1a1a1a]' : 'border-gray-600'}`} />
+                <button key={k} type="button" role="radio" aria-checked={on} className="wa-radio"
+                  onClick={() => { setFilter(k); setExcluded(new Set()); }}>
+                  <m.Icon className="l" aria-hidden />
+                  <span className="t"><b>{m.label}</b><span>{m.hint}</span></span>
+                  <span className="o" />
                 </button>
               );
             })}
@@ -517,76 +540,74 @@ export default function BroadcastTab({ apiFetch }: { apiFetch: Fetcher }) {
         <Panel title={filter === 'activity' ? 'أيّ فعاليّة؟' : 'لم يحجزوا في أيّ فعاليّة؟'}>{upcomingList(true)}</Panel>
       )}
       {filter === 'played' && (
-        <div className="space-y-3">
+        <div className="stack">
           <PlayedActivityPicker apiFetch={apiFetch} value={playedIds} onChange={ids => { setPlayedIds(ids); setExcluded(new Set()); }} />
           <Panel title="ولم يحجزوا بعد في…" sub="اختياريّ — فعاليّة قادمة تدعوهم إليها، وتُستعمل أيضاً لمتغيّرات النصّ.">
             {upcomingList(false)}
             {activityId && (
-              <Toggle checked={playedNotBooked} onChange={v => { setPlayedNotBooked(v); setExcluded(new Set()); }}
-                label={<>فقط من <b className="text-white">لم يحجز بعد</b> في «{act?.name}»</>} />
+              <Setting title={<>فقط من لم يحجز بعد في «{act?.name}»</>}>
+                <Toggle on={playedNotBooked} onChange={v => { setPlayedNotBooked(v); setExcluded(new Set()); }} label="فقط من لم يحجز بعد في الفعاليّة القادمة" />
+              </Setting>
             )}
           </Panel>
         </div>
       )}
 
-      <Disclosure title="⚙️ تضييق إضافي" badge={advancedCount} open={advOpen} onToggle={() => setAdvOpen(v => !v)}>
-        <div className="space-y-4">
+      <Disclosure title="تضييق إضافي" icon={<SlidersHorizontal aria-hidden />} badge={advancedCount} open={advOpen} onToggle={() => setAdvOpen(v => !v)}>
+        <div className="stack" style={{ gap: 'var(--space-4)' }}>
           {showChannel && (
-            <div>
-              <div className="text-[12.5px] font-bold text-gray-300 mb-1.5">القناة</div>
-              <div className="grid grid-cols-3 gap-1.5">
-                {([['all', 'الكلّ', aud?.byChannel ? (aud.byChannel.cloud + aud.byChannel.web) : null], ['cloud', '☁️ ميتا', aud?.byChannel?.cloud], ['web', '📱 رقم الأعمال', aud?.byChannel?.web]] as const).map(([k, l, n]) => (
-                  <button key={k} type="button" onClick={() => { setChannel(k); setExcluded(new Set()); }}
-                    className={`min-h-[48px] rounded-xl text-[13px] font-bold border ${channel === k ? 'bg-teal-500/10 text-teal-300 border-teal-500/40' : 'border-gray-800 text-gray-400'}`}>
-                    {l}{n != null && channel === 'all' ? <span className="block text-[11px] font-normal opacity-70 tabular-nums">{n}</span> : null}
-                  </button>
+            <div className="stack" style={{ gap: 6 }}>
+              <div style={SUBHEAD}>القناة</div>
+              <div className="wa-chips" role="group" aria-label="القناة">
+                {([['all', 'الكلّ', null, aud?.byChannel ? (aud.byChannel.cloud + aud.byChannel.web) : null], ['cloud', 'ميتا', <Cloud key="i" className="s" aria-hidden />, aud?.byChannel?.cloud], ['web', 'رقم الأعمال', <Smartphone key="i" className="s" aria-hidden />, aud?.byChannel?.web]] as Array<['all' | 'cloud' | 'web', string, ReactNode, number | null | undefined]>).map(([k, l, ic, n]) => (
+                  <Chip key={k} on={channel === k} onClick={() => { setChannel(k); setExcluded(new Set()); }} n={n != null && channel === 'all' ? n : undefined}>{ic}{l}</Chip>
                 ))}
               </div>
-              <p className="text-[12px] text-gray-500 mt-1.5">ميتا: لمن راسلنا خلال 24 ساعة فقط. رقم الأعمال: بلا نافذة، بطابورٍ متباعد.</p>
+              <p className="muted" style={{ ...SMALL, margin: 0 }}>ميتا: لمن راسلنا خلال 24 ساعة فقط. رقم الأعمال: بلا نافذة، بطابورٍ متباعد.</p>
             </div>
           )}
           {showLine && (
-            <div>
-              <div className="text-[12.5px] font-bold text-gray-300 mb-1.5">من يراسله رقم الأعمال؟</div>
-              <div role="radiogroup" className="space-y-1.5">
+            <div className="stack" style={{ gap: 6 }}>
+              <div style={SUBHEAD}>من يراسله رقم الأعمال؟</div>
+              <div role="radiogroup" className="stack" style={{ gap: 'var(--space-2)' }}>
                 {LINE_OPTS.map(o => (
                   <OptionRow key={o.key || 'def'} selected={line === o.key} onClick={() => { setLine(o.key); setExcluded(new Set()); }}
                     title={o.label} sub={o.key === '' ? 'ما ضبطته في «القنوات»' : o.key === 'all' ? 'قد يبدأ محادثةً باردة — بحذر' : undefined} />
                 ))}
               </div>
               {line === 'two_way' && (
-                <div className="mt-2.5">
-                  <div className="text-[12px] text-gray-500 mb-1.5">راسَلنا خلال:</div>
-                  <div className="flex flex-wrap gap-1.5">
+                <div className="stack" style={{ gap: 6, marginTop: 'var(--space-1)' }}>
+                  <div className="muted" style={SMALL}>راسَلنا خلال:</div>
+                  <div className="flex flex-wrap gap-2">
                     {([['', 'أيّ وقت'], ['7', '7 أيّام'], ['30', '30 يوماً'], ['90', '90 يوماً']] as const).map(([k, l]) => (
-                      <button key={k || 'any'} type="button" onClick={() => { setLineSince(k); setExcluded(new Set()); }}
-                        className={`min-h-[40px] px-3 rounded-xl text-[12.5px] font-bold border ${lineSince === k ? 'bg-emerald-500/10 text-emerald-300 border-emerald-500/40' : 'border-gray-800 text-gray-400'}`}>{l}</button>
+                      <Chip key={k || 'any'} on={lineSince === k} onClick={() => { setLineSince(k); setExcluded(new Set()); }}>{l}</Chip>
                     ))}
-                    <label className={`flex items-center gap-1.5 min-h-[40px] px-3 rounded-xl text-[12.5px] font-bold border ${/^\d{4}-/.test(lineSince) ? 'bg-emerald-500/10 text-emerald-300 border-emerald-500/40' : 'border-gray-800 text-gray-400'}`}>
+                    <label className="wa-chip" style={/^\d{4}-/.test(lineSince) ? { background: 'var(--gold-soft)', borderColor: 'var(--gold)', color: 'var(--gold)' } : undefined}>
                       منذ
                       <input type="date" value={/^\d{4}-/.test(lineSince) ? lineSince : ''} max={new Date().toISOString().slice(0, 10)}
                         onChange={e => { setLineSince(e.target.value); setExcluded(new Set()); }}
-                        className="bg-transparent text-white outline-none [color-scheme:dark]" style={{ fontSize: 16 }} aria-label="راسَلنا منذ تاريخ" />
+                        style={{ fontSize: 16, background: 'transparent', border: 0, outline: 'none', color: 'var(--ink)', colorScheme: 'dark', fontFamily: 'var(--font-mono)' }} aria-label="راسَلنا منذ تاريخ" />
                     </label>
                   </div>
-                  <p className="text-[12px] text-gray-500 mt-1.5">بحسب آخر رسالةٍ منه.</p>
+                  <p className="muted" style={{ ...SMALL, margin: 0 }}>بحسب آخر رسالةٍ منه.</p>
                 </div>
               )}
             </div>
           )}
           {sentHistory.length > 0 && (
-            <div>
-              <div className="text-[12.5px] font-bold text-gray-300 mb-1.5">استثنِ من وصلهم بثّ سابق</div>
-              <div className="space-y-1.5">
+            <div className="stack" style={{ gap: 6 }}>
+              <div style={SUBHEAD}>استثنِ من وصلهم بثّ سابق</div>
+              <div className="stack" style={{ gap: 'var(--space-2)' }}>
                 {sentHistory.map(h => {
                   const on = exB.includes(h.id);
                   return (
-                    <button key={h.id} type="button" onClick={() => { setExB(p => on ? p.filter(x => x !== h.id) : [...p, h.id]); setExcluded(new Set()); }}
-                      className={`w-full flex items-center gap-3 text-right rounded-xl border px-3 py-2 min-h-[52px] ${on ? 'bg-rose-500/10 border-rose-500/40' : 'border-gray-800'}`}>
-                      <span className={`w-5 h-5 rounded-md border-2 shrink-0 flex items-center justify-center text-[12px] ${on ? 'border-rose-400 bg-rose-500/30 text-rose-100' : 'border-gray-600'}`}>{on ? '✓' : ''}</span>
-                      <span className="flex-1 min-w-0">
-                        <span className={`block text-[13px] font-bold ${on ? 'text-rose-200' : 'text-gray-200'}`}>#{h.id} · {fmt(h.createdAt)} · {h.sentCount} مستلماً</span>
-                        <span className="block text-[12px] text-gray-500 truncate">{bodyOf(h.body).split('\n')[0]}</span>
+                    <button key={h.id} type="button" role="checkbox" aria-checked={on} className="wa-radio"
+                      onClick={() => { setExB(p => on ? p.filter(x => x !== h.id) : [...p, h.id]); setExcluded(new Set()); }}
+                      style={on ? { borderColor: 'var(--danger)', background: 'var(--danger-soft)' } : undefined}>
+                      {on ? <SquareCheck aria-hidden style={{ color: 'var(--danger)' }} /> : <Square aria-hidden style={{ color: 'var(--ink-3)' }} />}
+                      <span className="t">
+                        <b><bdi className="ltr">#{h.id}</bdi> · {fmt(h.createdAt)} · <bdi className="ltr">{h.sentCount}</bdi> مستلماً</b>
+                        <span className="trunc">{bodyOf(h.body).split('\n')[0]}</span>
                       </span>
                     </button>
                   );
@@ -594,12 +615,12 @@ export default function BroadcastTab({ apiFetch }: { apiFetch: Fetcher }) {
               </div>
             </div>
           )}
-          {!showChannel && !showLine && sentHistory.length === 0 && <p className="text-[12.5px] text-gray-500">لا خيارات إضافيّة لهذا الجمهور.</p>}
+          {!showChannel && !showLine && sentHistory.length === 0 && <p className="muted" style={{ ...SMALL, margin: 0 }}>لا خيارات إضافيّة لهذا الجمهور.</p>}
         </div>
       </Disclosure>
 
-      <Disclosure title="ℹ️ كيف يعمل البثّ؟" open={helpOpen} onToggle={() => setHelpOpen(v => !v)}>
-        <ul className="text-[13px] leading-relaxed text-gray-300 space-y-1.5 list-disc pr-4">
+      <Disclosure title="كيف يعمل البثّ؟" icon={<Info aria-hidden />} open={helpOpen} onToggle={() => setHelpOpen(v => !v)}>
+        <ul className="space-y-1.5 list-disc pr-4" style={{ margin: 0, font: '400 13px/22px var(--font-sans)', color: 'var(--ink-2)' }}>
           <li>رسالةٌ واحدة (نصّ، أو صورة/فيديو بتعليق) لكلّ من في الجمهور.</li>
           <li><b>ميتا</b>: لمن راسلنا خلال آخر 24 ساعة فقط. <b>رقم الأعمال</b>: بلا نافذة، بطابورٍ متباعد وسقفٍ يوميّ من «القنوات».</li>
           <li>لا يصل لمن كتب «إيقاف». السقف {status?.maxTargets ?? 300} مستلم للبثّ الواحد.</li>
@@ -611,305 +632,287 @@ export default function BroadcastTab({ apiFetch }: { apiFetch: Fetcher }) {
 
   // ══ الخطوة ٢: الرسالة ══
   const stepMessage = (
-    <section className="space-y-4">
+    <section className="stack" style={{ gap: 'var(--space-4)' }}>
       <StepTitle n={2} title="الرسالة" sub="اكتبها أو ابدأ من قالب، وأضف صورة أو فيديو إن شئت." />
 
-      <button type="button" onClick={() => setTplSheet(true)}
-        className="w-full flex items-center gap-3 text-right rounded-2xl border border-gray-800 bg-gray-900/60 px-3.5 min-h-[52px]">
-        <span aria-hidden>📄</span>
-        <span className="flex-1 min-w-0 text-[14px] truncate">
-          {currentTpl ? <><span className="text-gray-500">القالب: </span><b className="text-white">{currentTpl.name}</b>{tplDirty ? <span className="text-amber-300 text-[12px]"> · معدَّل</span> : null}</>
-            : <span className="text-gray-300">{tpls.length ? `ابدأ من قالب محفوظ (${tpls.length})` : 'لا قوالب محفوظة بعد'}</span>}
-        </span>
-        <span className="text-gray-500">▾</span>
-      </button>
+      <div className="wa-grid2">
+        <div className="stack" style={{ gap: 'var(--space-4)' }}>
+          <div className="row" style={{ flexWrap: 'wrap' }}>
+            <button type="button" onClick={() => setTplSheet(true)} className="wa-btn" aria-haspopup="dialog"
+              style={{ flex: '1 1 180px', minWidth: 0, justifyContent: 'flex-start' }}>
+              <FileText aria-hidden />
+              <span className="trunc" style={{ minWidth: 0, fontWeight: 500 }}>
+                {currentTpl ? <>القالب: <b>{currentTpl.name}</b>{tplDirty ? <span style={{ color: 'var(--warn)' }}> · معدَّل</span> : null}</>
+                  : (tpls.length ? `ابدأ من قالب محفوظ (${tpls.length})` : 'لا قوالب محفوظة بعد')}
+              </span>
+              <ChevronDown aria-hidden style={{ marginInlineStart: 'auto' }} />
+            </button>
+            <button type="button" onClick={saveTpl} className="wa-btn"><Save aria-hidden />{currentTpl && tplDirty ? 'حفظ التعديل' : 'حفظ كقالب'}</button>
+            {currentTpl && <button type="button" onClick={deleteTpl} aria-label="حذف القالب" title="حذف القالب" className="wa-iconbtn" style={{ color: 'var(--danger)' }}><Trash2 aria-hidden /></button>}
+          </div>
 
-      <div>
-        <textarea ref={bodyRef} value={body} onChange={e => setBody(e.target.value)} rows={8} maxLength={bodyMax} dir="rtl"
-          placeholder={'مثال:\nمسا الخير {الاسم} 🎭\nبكرا الخميس لعبة الساعة 7 بمزاج أفندينا — بقي مقاعد قليلة. احجز من هون بكلمة «احجز».'}
-          className="w-full bg-gray-950 border border-gray-800 rounded-2xl px-3.5 py-3 text-white leading-relaxed focus:border-amber-500/50 outline-none"
-          style={{ fontSize: 16 }} />
-        <div className="flex items-center gap-2 mt-1.5">
-          <span className={`text-[12px] tabular-nums ${body.length > bodyMax - 50 ? 'text-rose-400' : 'text-gray-500'}`}>
-            {body.length} / {bodyMax}{img && <span className="text-amber-400/70"> · تعليق {body.length + (footer ? OPTOUT_FOOTER.length : 0)} / {CAPTION_MAX}</span>}
-          </span>
-          <span className="mr-auto flex gap-1.5">
-            <button type="button" onClick={saveTpl} className="min-h-[36px] px-3 rounded-xl text-[12.5px] font-bold border border-gray-800 text-gray-300">💾 {currentTpl && tplDirty ? 'حفظ التعديل' : 'حفظ كقالب'}</button>
-            {currentTpl && <button type="button" onClick={deleteTpl} aria-label="حذف القالب" className="min-h-[36px] px-3 rounded-xl text-[12.5px] font-bold border border-gray-800 text-rose-300/80">🗑</button>}
-          </span>
-        </div>
-      </div>
+          <Field label="نصّ الرسالة" htmlFor="wa-cast-body"
+            hint={<>
+              <span className="ltr" style={body.length > bodyMax - 50 ? { color: 'var(--danger)' } : undefined}>{body.length} / {bodyMax}</span>
+              {img && <span style={{ color: 'var(--warn)' }}> · تعليق <span className="ltr">{body.length + (footer ? OPTOUT_FOOTER.length : 0)} / {CAPTION_MAX}</span></span>}
+            </>}>
+            <textarea id="wa-cast-body" ref={bodyRef} value={body} onChange={e => setBody(e.target.value)} rows={8} maxLength={bodyMax} dir="rtl"
+              placeholder={'مثال:\nمسا الخير {الاسم} 🎭\nبكرا الخميس لعبة الساعة 7 بمزاج أفندينا — بقي مقاعد قليلة. احجز من هون بكلمة «احجز».'}
+              className="wa-textarea" style={{ minHeight: 190 }} />
+          </Field>
 
-      {/* المتغيّرات: شريطٌ أفقيّ — يُدرج عند المؤشّر */}
-      <div>
-        <div className="text-[12px] text-gray-500 mb-1.5">أدرج في النصّ:</div>
-        <div className="flex gap-1.5 overflow-x-auto pb-1 -mx-1 px-1 [scrollbar-width:none]">
-          {VARS.map(v => (
-            <button key={v.token} type="button" onMouseDown={e => e.preventDefault()} onClick={() => insertVar(v.token)}
-              className="shrink-0 min-h-[40px] px-3 rounded-xl text-[12.5px] bg-gray-800 text-gray-200 border border-gray-700/60">{v.label}</button>
-          ))}
-        </div>
-        <Disclosure title="ما معنى المتغيّرات؟" open={varsHelp} onToggle={() => setVarsHelp(v => !v)} compact>
-          <ul className="text-[12.5px] leading-relaxed text-gray-400 space-y-1 list-disc pr-4">
-            <li>{'{الاسم}'} الاسم الأوّل، و{'{الاسم_الكامل}'} كاملاً.</li>
-            <li>{'{الرتبة}'} فارغة للزائر غير المسجّل — لا تبنِ الجملة عليها.</li>
-            <li>{'{المكان}'} اسم الكافيه، و{'{الموقع}'} الاسم والمنطقة والمدينة معاً — الأنسب لمن لم يزُرنا.</li>
-            <li>{'{الفعالية}'} و{'{المكان}'} و{'{الموقع}'} و{'{الموعد}'} تتبع الفعاليّة المختارة.</li>
-            <li>الروابط الخارجيّة مرفوضة (روابط النادي فقط).</li>
-          </ul>
-        </Disclosure>
-      </div>
+          {/* المتغيّرات: شريطٌ أفقيّ — يُدرج عند المؤشّر */}
+          <div className="stack" style={{ gap: 6 }}>
+            <div className="muted" style={LABEL}>أدرج في النصّ:</div>
+            <div className="wa-chips">
+              {VARS.map(v => (
+                <button key={v.token} type="button" onMouseDown={e => e.preventDefault()} onClick={() => insertVar(v.token)} className="wa-chip">{v.label}</button>
+              ))}
+            </div>
+            <Disclosure title="ما معنى المتغيّرات؟" open={varsHelp} onToggle={() => setVarsHelp(v => !v)} compact>
+              <ul className="space-y-1 list-disc pr-4" style={{ margin: 0, font: '400 13px/22px var(--font-sans)', color: 'var(--ink-2)' }}>
+                <li>{'{الاسم}'} الاسم الأوّل، و{'{الاسم_الكامل}'} كاملاً.</li>
+                <li>{'{الرتبة}'} فارغة للزائر غير المسجّل — لا تبنِ الجملة عليها.</li>
+                <li>{'{المكان}'} اسم الكافيه، و{'{الموقع}'} الاسم والمنطقة والمدينة معاً — الأنسب لمن لم يزُرنا.</li>
+                <li>{'{الفعالية}'} و{'{المكان}'} و{'{الموقع}'} و{'{الموعد}'} تتبع الفعاليّة المختارة.</li>
+                <li>الروابط الخارجيّة مرفوضة (روابط النادي فقط).</li>
+              </ul>
+            </Disclosure>
+          </div>
 
-      {actVarsUsed && (
-        <Panel title="الفعاليّة في النصّ" sub={needsActivity || filter === 'played' ? 'هي نفسها فعاليّة الجمهور — تغييرها هنا يغيّره.' : 'تملأ {الفعالية} و{الموعد} و{المكان} و{الموقع}.'}
-          tone={activityId ? 'default' : 'warn'}>
-          {activityId && !actListOpen ? (
-            <div className="flex items-center gap-3">
-              <span className="flex-1 min-w-0 text-[13.5px] text-white truncate">✓ {act?.name} <span className="text-gray-500">· {act?.when || (act ? fmt(act.date) : '')}</span></span>
-              <button type="button" onClick={() => setActListOpen(true)} className="min-h-[40px] px-3 rounded-xl text-[12.5px] font-bold border border-gray-800 text-gray-300">تغيير</button>
+          {actVarsUsed && (
+            <Panel title="الفعاليّة في النصّ" sub={needsActivity || filter === 'played' ? 'هي نفسها فعاليّة الجمهور — تغييرها هنا يغيّره.' : 'تملأ {الفعالية} و{الموعد} و{المكان} و{الموقع}.'}
+              tone={activityId ? 'default' : 'warn'}>
+              {activityId && !actListOpen ? (
+                <div className="row" style={{ gap: 'var(--space-3)' }}>
+                  <Check aria-hidden style={{ color: 'var(--ok)' }} />
+                  <span className="grow trunc" style={{ font: '500 14px/20px var(--font-sans)' }}>{act?.name} <span className="muted">· {act?.when || (act ? fmt(act.date) : '')}</span></span>
+                  <button type="button" onClick={() => setActListOpen(true)} className="wa-btn">تغيير</button>
+                </div>
+              ) : (
+                <div onClick={() => setActListOpen(false)}>{upcomingList(true)}</div>
+              )}
+            </Panel>
+          )}
+
+          {/* الوسيط */}
+          <input ref={imgRef} type="file" accept="image/jpeg,image/png" style={{ display: 'none' }} onChange={e => pickImg(e.target.files?.[0])} />
+          <input ref={vidRef} type="file" accept="video/mp4" style={{ display: 'none' }} onChange={e => pickVid(e.target.files?.[0])} />
+          {img ? (
+            <div className="wa-attach">
+              {img.kind === 'video'
+                ? <video src={`${API_URL}${img.url}`} muted preload="metadata" className="thumb" style={{ objectFit: 'cover' }} />
+                : <img src={`${API_URL}${img.url}`} alt="" className="thumb" style={{ objectFit: 'cover' }} />}
+              <div className="grow">
+                <div className="row" style={{ font: '700 14px/20px var(--font-sans)' }}>
+                  {img.kind === 'video' ? <Video aria-hidden /> : <ImageIcon aria-hidden />}
+                  {img.kind === 'video' ? 'فيديو' : 'صورة'} · <span className="ltr">{img.kind === 'video' ? (img.bytes / 1048576).toFixed(1) : Math.round(img.bytes / 1024)}</span> {img.kind === 'video' ? 'م.ب' : 'ك.ب'}
+                </div>
+                <div className="muted" style={SMALL}>النصّ يصير تعليقها</div>
+              </div>
+              <button type="button" onClick={() => setImg(null)} className="wa-btn danger">إزالة</button>
             </div>
           ) : (
-            <div onClick={() => setActListOpen(false)}>{upcomingList(true)}</div>
+            <div className="stack" style={{ gap: 6 }}>
+              <div className="grid grid-cols-2 gap-2">
+                <button type="button" disabled={imgBusy} onClick={() => imgRef.current?.click()} className="wa-btn">
+                  {imgBusy ? <><Loader2 aria-hidden className="animate-spin" />يُرفع…</> : <><ImageIcon aria-hidden />أضف صورة</>}
+                </button>
+                <button type="button" disabled={imgBusy} onClick={() => vidRef.current?.click()} className="wa-btn">
+                  <Video aria-hidden />أضف فيديو
+                </button>
+              </div>
+              <p className="muted" style={{ ...SMALL, margin: 0 }}>صورة JPG/PNG أو فيديو MP4 حتّى {VIDEO_MAX_MB} م.ب — رسالةٌ واحدة لا رسالتان.</p>
+            </div>
           )}
-        </Panel>
-      )}
 
-      {/* الوسيط */}
-      <input ref={imgRef} type="file" accept="image/jpeg,image/png" className="hidden" onChange={e => pickImg(e.target.files?.[0])} />
-      <input ref={vidRef} type="file" accept="video/mp4" className="hidden" onChange={e => pickVid(e.target.files?.[0])} />
-      {img ? (
-        <div className="flex items-center gap-3 rounded-2xl border border-amber-500/30 bg-amber-500/5 p-2.5">
-          {img.kind === 'video'
-            ? <video src={`${API_URL}${img.url}`} muted preload="metadata" className="w-14 h-14 rounded-xl object-cover bg-black" />
-            : <img src={`${API_URL}${img.url}`} alt="" className="w-14 h-14 rounded-xl object-cover" />}
-          <span className="flex-1 text-[13px] text-amber-100/90 tabular-nums">
-            {img.kind === 'video' ? `🎬 فيديو · ${(img.bytes / 1048576).toFixed(1)} م.ب` : `🖼️ صورة · ${Math.round(img.bytes / 1024)} ك.ب`}
-            <span className="block text-[12px] text-gray-500">النصّ يصير تعليقها</span>
-          </span>
-          <button type="button" onClick={() => setImg(null)} className="min-h-[44px] px-3 rounded-xl text-[13px] font-bold text-rose-300 border border-rose-500/30">إزالة</button>
+          <Setting title="تذييل «لإيقاف هذه الرسائل أرسل: إيقاف»" hint="يُنصح بإبقائه — البلاغات هي ما يُغلق الحسابات">
+            <Toggle on={footer} onChange={setFooter} label="تذييل الإيقاف" />
+          </Setting>
         </div>
-      ) : (
-        <div className="grid grid-cols-2 gap-2">
-          <button type="button" disabled={imgBusy} onClick={() => imgRef.current?.click()}
-            className="min-h-[52px] rounded-2xl text-[13.5px] font-bold border border-gray-800 bg-gray-900/60 text-gray-200 disabled:opacity-40">
-            {imgBusy ? '⏳ يُرفع…' : '🖼️ أضف صورة'}
-          </button>
-          <button type="button" disabled={imgBusy} onClick={() => vidRef.current?.click()}
-            className="min-h-[52px] rounded-2xl text-[13.5px] font-bold border border-gray-800 bg-gray-900/60 text-gray-200 disabled:opacity-40">
-            🎬 أضف فيديو
-          </button>
-        </div>
-      )}
-      {!img && <p className="text-[12px] text-gray-500 -mt-2">صورة JPG/PNG أو فيديو MP4 حتّى {VIDEO_MAX_MB} م.ب — رسالةٌ واحدة لا رسالتان.</p>}
 
-      <Toggle checked={footer} onChange={setFooter}
-        label={<>تذييل «لإيقاف هذه الرسائل أرسل: إيقاف» <span className="block text-[12px] text-gray-500">يُنصح بإبقائه — البلاغات هي ما يُغلق الحسابات</span></>} />
+        {/* المعاينة بجانب المحرّر — للحاسوب؛ الهاتف يراها في خطوة المراجعة */}
+        <div className="stack wa-only-desk">
+          {preview || <div className="muted" style={LABEL}>تظهر المعاينة هنا حين تكتب الرسالة.</div>}
+        </div>
+      </div>
     </section>
   );
 
   // ══ الخطوة ٣: راجع وأرسل ══
   const stepReview = (
-    <section className="space-y-4">
+    <section className="stack" style={{ gap: 'var(--space-4)' }}>
       <StepTitle n={3} title="راجع وأرسل" sub="اختبر على هاتفك أوّلاً، ثمّ اعتمد البثّ." />
 
-      <div className="rounded-2xl border border-gray-800 bg-gray-900/60 divide-y divide-gray-800/80">
-        <SummaryRow label="لمن" onEdit={() => go(1)}>
-          <span className="text-white">{audienceText}</span>
-          {advancedCount > 0 && <span className="block text-[12px] text-gray-500">+ {advancedCount} تضييق إضافي</span>}
-        </SummaryRow>
-        <SummaryRow label="العدد">
-          <b className="text-amber-300 text-[16px] tabular-nums">{targets.length}</b> <span className="text-gray-400">مستلماً</span>
-          {excluded.size > 0 && <span className="text-gray-500"> · استبعدت {excluded.size}</span>}
-          {aud?.byChannel && <span className="block text-[12px] text-gray-500">☁️ ميتا {aud.byChannel.cloud} · 📱 رقم الأعمال {aud.byChannel.web}</span>}
-          {aud?.capped && <span className="block text-[12px] text-amber-300/90">الجمهور أكبر من السقف — يُرسل لأوّل {aud.maxTargets}</span>}
-          {aud?.estimate && <span className="block text-[12px] text-teal-200/90">📱 نحو {aud.estimate.minutesFirstDay} دقيقة اليوم{aud.estimate.days > 1 ? ` — تكتمل خلال ${aud.estimate.days} أيّام (${aud.estimate.perDay} يوميّاً)` : ''}</span>}
-        </SummaryRow>
-        <SummaryRow label="الرسالة" onEdit={() => go(2)}>
-          <span className="text-white">{img ? (img.kind === 'video' ? '🎬 فيديو بتعليق' : '🖼️ صورة بتعليق') : '💬 نصّ'}</span>
-          <span className="text-gray-500"> · {footer ? 'مع تذييل الإيقاف' : 'بلا تذييل'}</span>
-          {currentTpl && !tplDirty && <span className="block text-[12px] text-gray-500">القالب «{currentTpl.name}»</span>}
-        </SummaryRow>
-      </div>
-
-      {body.trim() && (
-        <div>
-          <div className="text-[12px] text-gray-500 mb-1.5">كما تصل إلى {sample?.name || 'المستلم'}:</div>
-          <div className="rounded-2xl p-3" style={{ background: '#0b141a' }}>
-            <div className="max-w-[88%] mr-auto rounded-2xl rounded-tr-sm px-3 py-2 text-[14px] text-white whitespace-pre-wrap leading-relaxed" style={{ background: '#005c4b' }}>
-              {img && (img.kind === 'video'
-                ? <video src={`${API_URL}${img.url}`} controls preload="metadata" className="block w-full max-h-60 rounded-xl mb-1.5 bg-black" />
-                : <img src={`${API_URL}${img.url}`} alt="" className="block w-full max-h-56 object-cover rounded-xl mb-1.5" />)}
-              {fill(body, { ...(sample || { name: '', rank: '' }), activity: act?.name, venue: act?.venue, place: (act as any)?.place, when: act?.when })}{footer ? OPTOUT_FOOTER : ''}
-            </div>
+      <div className="wa-grid2">
+        <div className="stack" style={{ gap: 'var(--space-4)' }}>
+          <div className="wa-card" style={{ paddingBlock: 'var(--space-1)' }}>
+            <SummaryRow label="لمن" onEdit={() => go(1)}>
+              <b>{audienceText}</b>
+              {advancedCount > 0 && <div className="muted" style={SMALL}>+ {advancedCount} تضييق إضافي</div>}
+            </SummaryRow>
+            <SummaryRow label="العدد">
+              <b className="ltr" style={{ fontSize: 20, color: 'var(--gold)' }}>{targets.length}</b> <span style={{ color: 'var(--ink-2)' }}>مستلماً</span>
+              {excluded.size > 0 && <span className="muted"> · استبعدت {excluded.size}</span>}
+              {aud?.byChannel && <div className="muted" style={SMALL}>ميتا <bdi className="ltr">{aud.byChannel.cloud}</bdi> · رقم الأعمال <bdi className="ltr">{aud.byChannel.web}</bdi></div>}
+              {aud?.capped && <div style={{ ...SMALL, color: 'var(--warn)' }}>الجمهور أكبر من السقف — يُرسل لأوّل {aud.maxTargets}</div>}
+              {aud?.estimate && <div style={{ ...SMALL, color: 'var(--ch-web)' }}>نحو {aud.estimate.minutesFirstDay} دقيقة اليوم{aud.estimate.days > 1 ? ` — تكتمل خلال ${aud.estimate.days} أيّام (${aud.estimate.perDay} يوميّاً)` : ''}</div>}
+            </SummaryRow>
+            <SummaryRow label="الرسالة" onEdit={() => go(2)}>
+              <b>{img ? (img.kind === 'video' ? 'فيديو بتعليق' : 'صورة بتعليق') : 'نصّ'}</b>
+              <span className="muted"> · {footer ? 'مع تذييل الإيقاف' : 'بلا تذييل'}</span>
+              {currentTpl && !tplDirty && <div className="muted" style={SMALL}>القالب «{currentTpl.name}»</div>}
+            </SummaryRow>
           </div>
-        </div>
-      )}
 
-      <Disclosure title={`👥 المستلمون (${targets.length})`} badge={excluded.size || undefined} open={rcptOpen} onToggle={() => setRcptOpen(v => !v)}>
-        {err && <p className="text-[12.5px] text-rose-400 mb-2">⚠️ {err}</p>}
-        {loading ? <p className="text-[12.5px] text-gray-500">جاري التحميل…</p> : rows.length === 0 ? (
-          <p className="text-[12.5px] text-gray-500">لا أحد يمكن مراسلته ضمن هذا الجمهور.</p>
-        ) : (
-          <>
-            <div className="flex items-center gap-2 mb-2">
-              <input value={rcptQ} onChange={e => setRcptQ(e.target.value)} placeholder="ابحث باسم أو رقم…"
-                className="flex-1 min-w-0 bg-gray-950 border border-gray-800 rounded-xl px-3 py-2 text-white outline-none" style={{ fontSize: 16 }} />
-              {excluded.size > 0 && <button type="button" onClick={() => setExcluded(new Set())} className="min-h-[44px] px-3 rounded-xl text-[12.5px] border border-gray-800 text-gray-300 whitespace-nowrap">أعد ({excluded.size})</button>}
-            </div>
-            <p className="text-[12px] text-gray-500 mb-1">أزل العلامة عمّن لا تريد مراسلته.</p>
-            <div className="max-h-[50vh] overflow-y-auto divide-y divide-gray-800/70 -mx-1 px-1">
-              {rcptRows.map(r => {
-                const off = excluded.has(r.id);
-                return (
-                  <label key={r.id} className={`flex items-center gap-3 min-h-[52px] py-1.5 cursor-pointer ${off ? 'opacity-40' : ''}`}>
-                    <input type="checkbox" checked={!off} className="w-5 h-5 accent-amber-500 shrink-0"
-                      onChange={() => setExcluded(p => { const n = new Set(p); if (n.has(r.id)) n.delete(r.id); else n.add(r.id); return n; })} />
-                    <span className="flex-1 min-w-0">
-                      <span className="block text-[14px] text-white truncate">{r.name}</span>
-                      <span className="block text-[12px] text-gray-500" dir="ltr" style={{ textAlign: 'right' }}>{r.phone}{r.rank ? ` · ${r.rank}` : r.isPlayer ? '' : ' · زائر'}</span>
-                    </span>
-                    {r.via === 'web'
-                      ? <span className="text-[12px] text-teal-300 whitespace-nowrap" title="يصله من رقم الأعمال — بلا نافذة">📱</span>
-                      : <span className="text-[12px] text-gray-400 tabular-nums whitespace-nowrap" title="الوقت المتبقّي قبل إغلاق نافذته">⏳ {r.windowClosesAt ? hoursLeft(r.windowClosesAt) : '—'}</span>}
-                  </label>
-                );
-              })}
-              {rcptRows.length === 0 && <p className="text-[12.5px] text-gray-500 py-3">لا نتائج.</p>}
-            </div>
-          </>
-        )}
-      </Disclosure>
+          <Disclosure title={`المستلمون (${targets.length})`} icon={<Users aria-hidden />} badge={excluded.size || undefined} open={rcptOpen} onToggle={() => setRcptOpen(v => !v)}>
+            {err && <div className="wa-banner danger" role="alert" style={{ marginBottom: 'var(--space-2)' }}><TriangleAlert aria-hidden /><span>{err}</span></div>}
+            {loading ? <p className="muted" style={{ ...SMALL, margin: 0 }}>جاري التحميل…</p> : rows.length === 0 ? (
+              <p className="muted" style={{ ...SMALL, margin: 0 }}>لا أحد يمكن مراسلته ضمن هذا الجمهور.</p>
+            ) : (
+              <div className="stack" style={{ gap: 'var(--space-2)' }}>
+                <div className="row">
+                  <div className="wa-search grow">
+                    <Search aria-hidden />
+                    <input value={rcptQ} onChange={e => setRcptQ(e.target.value)} placeholder="ابحث باسم أو رقم…" className="wa-input" aria-label="بحث في المستلمين" />
+                  </div>
+                  {excluded.size > 0 && <button type="button" onClick={() => setExcluded(new Set())} className="wa-btn"><RotateCw aria-hidden />أعد ({excluded.size})</button>}
+                </div>
+                <p className="muted" style={{ ...SMALL, margin: 0 }}>أزل العلامة عمّن لا تريد مراسلته.</p>
+                <div style={{ maxHeight: '50vh', overflowY: 'auto' }}>
+                  {rcptRows.map(r => {
+                    const off = excluded.has(r.id);
+                    return (
+                      <label key={r.id} className="row" style={{ gap: 'var(--space-3)', minHeight: 52, paddingBlock: 6, cursor: 'pointer', borderBottom: '1px solid var(--line)', opacity: off ? 0.45 : undefined }}>
+                        <input type="checkbox" checked={!off} style={{ width: 20, height: 20, accentColor: 'var(--gold)', flex: 'none' }}
+                          onChange={() => setExcluded(p => { const n = new Set(p); if (n.has(r.id)) n.delete(r.id); else n.add(r.id); return n; })} />
+                        <span className="grow">
+                          <span className="trunc" style={{ display: 'block', font: '500 14px/20px var(--font-sans)' }}>{r.name}</span>
+                          <span className="muted" style={{ display: 'block', ...SMALL }}><span className="ltr">{r.phone}</span>{r.rank ? ` · ${r.rank}` : r.isPlayer ? '' : ' · زائر'}</span>
+                        </span>
+                        {r.via === 'web'
+                          ? <span className="wa-badge web" title="يصله من رقم الأعمال — بلا نافذة"><Smartphone aria-label="رقم الأعمال" /></span>
+                          : <span className="row muted" style={{ ...SMALL, gap: 4, whiteSpace: 'nowrap' }} title="الوقت المتبقّي قبل إغلاق نافذته"><Hourglass className="s" aria-hidden /> {r.windowClosesAt ? hoursLeft(r.windowClosesAt) : '—'}</span>}
+                      </label>
+                    );
+                  })}
+                  {rcptRows.length === 0 && <p className="muted" style={{ ...SMALL, margin: 0, paddingBlock: 'var(--space-3)' }}>لا نتائج.</p>}
+                </div>
+              </div>
+            )}
+          </Disclosure>
 
-      {/* 🧪 الاختبار الإلزاميّ */}
-      <div className={`rounded-2xl border p-3.5 space-y-2 ${testedOk ? 'border-emerald-500/30 bg-emerald-500/5' : 'border-sky-500/30 bg-sky-500/5'}`}>
-        <div className="flex items-center gap-2">
-          <span className={`w-7 h-7 rounded-full flex items-center justify-center text-[13px] font-black ${testedOk ? 'bg-emerald-500/20 text-emerald-300' : 'bg-sky-500/20 text-sky-300'}`}>{testedOk ? '✓' : '🧪'}</span>
-          <b className={`text-[14px] ${testedOk ? 'text-emerald-300' : 'text-sky-300'}`}>{testedOk ? 'وصل الاختبار' : 'الاختبار قبل الإرسال (إلزاميّ)'}</b>
+          {/* 🧪 الاختبار الإلزاميّ */}
+          <div className="wa-card stack" style={{ gap: 'var(--space-2)', borderColor: testedOk ? 'var(--ok)' : 'var(--info)', background: testedOk ? 'var(--ok-soft)' : 'var(--info-soft)' }}>
+            <div className="row" style={{ color: testedOk ? 'var(--ok)' : 'var(--info)' }}>
+              {testedOk ? <CircleCheck aria-hidden /> : <FlaskConical aria-hidden />}
+              <b style={{ font: '700 14px/20px var(--font-sans)' }}>{testedOk ? 'وصل الاختبار' : 'الاختبار قبل الإرسال (إلزاميّ)'}</b>
+            </div>
+            <p style={{ margin: 0, font: '400 13px/20px var(--font-sans)', color: 'var(--ink-2)' }}>
+              يصل من رقم الأعمال كما سيصل الناس (بالاسم والتذييل{img ? (img.kind === 'video' ? ' والفيديو' : ' والصورة') : ''}) إلى:{' '}
+              {testRcpts === null ? '…' : testRcpts.length ? <b style={{ color: 'var(--ink)' }}>{testRcpts.map(r => r.name).join('، ')}</b> : <span style={{ color: 'var(--danger)' }}>لا أرقام إداريّين مربوطة</span>}
+            </p>
+            {testedOk && <p style={{ margin: 0, font: '500 13px/20px var(--font-sans)', color: 'var(--ok)' }}>خرج {new Date(tested!.at).toLocaleTimeString('ar-JO', { hour: 'numeric', minute: '2-digit' })} — راجعوه على هواتفكم ثمّ اضغط «أرسل».</p>}
+            {tested && !testedOk && <p className="row" style={{ margin: 0, font: '500 13px/20px var(--font-sans)', color: 'var(--warn)', alignItems: 'flex-start' }}><TriangleAlert aria-hidden />تغيّرت الرسالة بعد الاختبار (أو مضى عليه 12 ساعة) — اختبر من جديد.</p>}
+            {testedOk && tested!.sentTo.some(x => !x.ok) && (
+              <p style={{ ...SMALL, margin: 0, color: 'var(--warn)' }}>{tested!.sentTo.filter(x => !x.ok).map(x => `${x.name}: ${x.error}`).join(' · ')}</p>
+            )}
+            {testedOk && (
+              <button type="button" disabled={!canTest} onClick={runTest} className="wa-btn" style={{ alignSelf: 'flex-start' }}>
+                {testing ? <><Loader2 aria-hidden className="animate-spin" />يرسل…</> : <><RotateCw aria-hidden />أعد الاختبار</>}
+              </button>
+            )}
+          </div>
+
+          {blockedReason && <Banner tone="danger" icon={<Ban aria-hidden />}><b>{blockedReason}</b></Banner>}
         </div>
-        <p className="text-[12.5px] text-gray-400 leading-relaxed">
-          يصل من رقم الأعمال كما سيصل الناس (بالاسم والتذييل{img ? (img.kind === 'video' ? ' والفيديو' : ' والصورة') : ''}) إلى:{' '}
-          {testRcpts === null ? '…' : testRcpts.length ? <b className="text-gray-200">{testRcpts.map(r => r.name).join('، ')}</b> : <span className="text-rose-300">لا أرقام إداريّين مربوطة</span>}
-        </p>
-        {testedOk && <p className="text-[12.5px] text-emerald-300">خرج {new Date(tested!.at).toLocaleTimeString('ar-JO', { hour: 'numeric', minute: '2-digit' })} — راجعوه على هواتفكم ثمّ اضغط «أرسل».</p>}
-        {tested && !testedOk && <p className="text-[12.5px] text-amber-300">⚠️ تغيّرت الرسالة بعد الاختبار (أو مضى عليه 12 ساعة) — اختبر من جديد.</p>}
-        {testedOk && tested!.sentTo.some(x => !x.ok) && (
-          <p className="text-[12px] text-amber-300/90">{tested!.sentTo.filter(x => !x.ok).map(x => `${x.name}: ${x.error}`).join(' · ')}</p>
-        )}
-        {testedOk && (
-          <button type="button" disabled={!canTest} onClick={runTest} className="min-h-[40px] px-3 rounded-xl text-[12.5px] font-bold border border-sky-500/40 text-sky-200 disabled:opacity-40">
-            {testing ? '⏳ يرسل…' : '↻ أعد الاختبار'}
-          </button>
-        )}
+
+        {preview}
       </div>
-
-      {blockedReason && <p className="text-[13px] text-rose-300 font-bold">⛔ {blockedReason}</p>}
     </section>
   );
 
   // ══ الزرّ الرئيس في الشريط السفليّ ══
-  const primary = step === 1
-    ? { label: 'التالي: الرسالة', disabled: !audienceOk || (!loading && rows.length === 0), onClick: () => go(2), tone: 'amber' }
+  const primary: { label: string; icon: ReactNode; disabled: boolean; onClick: () => void; cls: 'primary' | 'send' } = step === 1
+    ? { label: 'التالي: الرسالة', icon: null, disabled: !audienceOk || (!loading && rows.length === 0), onClick: () => go(2), cls: 'primary' }
     : step === 2
-      ? { label: 'التالي: المراجعة', disabled: !messageOk, onClick: () => go(3), tone: 'amber' }
+      ? { label: 'التالي: المراجعة', icon: null, disabled: !messageOk, onClick: () => go(3), cls: 'primary' }
       : !testedOk
-        ? { label: testing ? '⏳ يرسل الاختبار…' : '🧪 أرسل الاختبار', disabled: !canTest || !audienceOk, onClick: runTest, tone: 'sky' }
-        : { label: sending ? '⏳ جاري البدء…' : `📢 أرسل إلى ${targets.length}`, disabled: !canSend, onClick: send, tone: 'amber' };
+        ? { label: testing ? 'يرسل الاختبار…' : 'أرسل الاختبار', icon: testing ? <Loader2 aria-hidden className="animate-spin" /> : <FlaskConical aria-hidden />, disabled: !canTest || !audienceOk, onClick: runTest, cls: 'primary' }
+        : { label: sending ? 'جاري البدء…' : `أرسل إلى ${targets.length}`, icon: sending ? <Loader2 aria-hidden className="animate-spin" /> : <Megaphone aria-hidden />, disabled: !canSend, onClick: send, cls: 'send' };
 
   return (
-    <div ref={rootRef} className="flex-1 md:min-h-0 md:overflow-y-auto" dir="rtl">
-      <div className="max-w-3xl mx-auto px-0.5 pt-1 space-y-3">
-        {liveStrip}
+    <div ref={rootRef} className="stack" style={{ gap: 'var(--space-5)' }} dir="rtl">
+      {/* بثّ جديد | السجلّ */}
+      <PageHead title="البثّ">
+        <Seg<'compose' | 'history'> value={view} onChange={setView} label="عرض البثّ"
+          options={[['compose', <><PenLine aria-hidden />بثّ جديد</>], ['history', <><History aria-hidden />السجلّ</>]]} />
+      </PageHead>
 
-        {/* بثّ جديد | السجلّ */}
-        <div className="grid grid-cols-2 gap-1 p-1 rounded-2xl bg-gray-900/80 border border-gray-800" role="tablist">
-          {([['compose', '✍️ بثّ جديد'], ['history', '📜 السجلّ']] as const).map(([k, l]) => (
-            <button key={k} type="button" role="tab" aria-selected={view === k} onClick={() => setView(k)}
-              className={`min-h-[44px] rounded-xl text-[14px] font-bold transition-colors ${view === k ? 'bg-amber-500/15 text-amber-300' : 'text-gray-400'}`}>{l}</button>
-          ))}
-        </div>
+      {liveStrip}
 
-        {view === 'history' ? (
-          <div className="pb-6">
-            <BroadcastHistory apiFetch={apiFetch} refreshKey={historyTick}
-              onReuse={text => { setBody(text); setTplId(null); setView('compose'); go(audienceOk ? 2 : 1); swalToast('نُسخ النصّ إلى المحرّر', 'success'); }} />
-          </div>
-        ) : (
-          <>
-            {/* رأس الخطوات — لاصقٌ تحت شريط الإدارة على الهاتف */}
-            <div ref={stepAnchorRef} />
-            <div className="sticky top-[var(--admin-top,0px)] md:top-0 z-20 -mx-0.5 px-0.5 pt-1 pb-2 bg-[#0b0b0d]/95 backdrop-blur">
-              <ol className="grid grid-cols-3 gap-1.5">
-                {STEPS.map(s => {
-                  const on = step === s.n;
-                  const doneS = s.n < step || (s.n === 1 && audienceOk && step > 1) || (s.n === 2 && messageOk && step > 2);
-                  const reachable = canReach(s.n);
-                  return (
-                    <li key={s.n}>
-                      <button type="button" onClick={() => go(s.n)} disabled={!reachable} aria-current={on ? 'step' : undefined}
-                        className={`w-full min-h-[44px] rounded-xl border text-[12.5px] font-bold flex items-center justify-center gap-1.5 transition-colors ${on ? 'border-amber-500/50 bg-amber-500/10 text-amber-300' : doneS ? 'border-emerald-500/25 text-emerald-300/90' : 'border-gray-800 text-gray-500'} disabled:opacity-40`}>
-                        <span className={`w-5 h-5 rounded-full text-[11px] flex items-center justify-center ${on ? 'bg-amber-400 text-black' : doneS ? 'bg-emerald-500/25' : 'bg-gray-800'}`}>{doneS && !on ? '✓' : s.n}</span>
-                        {s.label}
-                      </button>
-                    </li>
-                  );
-                })}
-              </ol>
-            </div>
-
-            <div className="pb-4">
-              {step === 1 ? stepAudience : step === 2 ? stepMessage : stepReview}
-            </div>
-
-            {/* الشريط السفليّ الثابت: العدد + الرجوع + التالي */}
-            <div className="sticky bottom-0 z-20 -mx-0.5 border-t border-gray-800 bg-[#0b0b0d]/95 backdrop-blur px-2.5 pt-2.5" style={{ paddingBottom: 'calc(10px + env(safe-area-inset-bottom))' }}>
-              <div className="flex items-center gap-2">
-                {step > 1 && (
-                  <button type="button" onClick={() => go((step - 1) as Step)} className="min-h-[48px] px-3.5 rounded-xl border border-gray-800 text-[13.5px] font-bold text-gray-300">رجوع</button>
-                )}
-                <div className="flex-1 min-w-0">
-                  <div className="text-[13px] text-white">👥 <b className="tabular-nums text-amber-300">{loading ? '…' : targets.length}</b> مستلماً</div>
-                  <div className={`text-[11.5px] truncate ${barHint.startsWith('⛔') ? 'text-rose-300' : 'text-gray-500'}`}>{barHint}</div>
-                </div>
-                <button type="button" disabled={primary.disabled} onClick={primary.onClick}
-                  className={`min-h-[48px] px-4 rounded-xl text-[14px] font-black whitespace-nowrap disabled:opacity-40 disabled:cursor-not-allowed ${primary.tone === 'sky' ? 'bg-sky-500/20 text-sky-100 border border-sky-500/50' : 'text-black'}`}
-                  style={primary.tone === 'sky' ? undefined : { background: 'linear-gradient(135deg, #fbbf24, #f59e0b)' }}>
-                  {primary.label}
+      {view === 'history' ? (
+        <BroadcastHistory apiFetch={apiFetch} refreshKey={historyTick}
+          onReuse={text => { setBody(text); setTplId(null); setView('compose'); go(audienceOk ? 2 : 1); swalToast('نُسخ النصّ إلى المحرّر', 'success'); }} />
+      ) : (
+        <div className="wa-card" style={{ padding: 0 }}>
+          {/* رأس الخطوات — لاصقٌ أعلى عمود التمرير */}
+          <div ref={stepAnchorRef} />
+          <div className="wa-steps wa-sticky" style={{ paddingInline: 'var(--space-2)', background: 'var(--bg-100)', borderRadius: 'var(--radius-md) var(--radius-md) 0 0' }}>
+            {STEPS.map(s => {
+              const on = step === s.n;
+              const doneS = s.n < step || (s.n === 1 && audienceOk && step > 1) || (s.n === 2 && messageOk && step > 2);
+              const reachable = canReach(s.n);
+              return (
+                <button key={s.n} type="button" onClick={() => go(s.n)} disabled={!reachable} aria-current={on ? 'step' : undefined}
+                  className={doneS && !on ? 'done' : undefined} style={!reachable ? { opacity: 0.45, cursor: 'not-allowed' } : undefined}>
+                  <span className="i">{doneS && !on ? <Check className="s" aria-hidden /> : s.n}</span>
+                  {s.label}
                 </button>
-              </div>
+              );
+            })}
+          </div>
+
+          <div className="p-3 md:p-5">
+            {step === 1 ? stepAudience : step === 2 ? stepMessage : stepReview}
+          </div>
+
+          {/* الشريط السفليّ الثابت: العدد + الرجوع + التالي */}
+          <div className="wa-actionbar" style={{ position: 'sticky', bottom: 0, zIndex: 3, borderRadius: '0 0 var(--radius-md) var(--radius-md)' }}>
+            <div className="sum">
+              <b className="trunc"><bdi className="ltr">{loading ? '…' : targets.length}</bdi> مستلماً</b>
+              <span className="trunc" style={barDanger ? { color: 'var(--danger)' } : undefined}>{barHint}</span>
             </div>
-          </>
-        )}
-      </div>
+            {step > 1 && (
+              <button type="button" onClick={() => go((step - 1) as Step)} className="wa-btn ghost" style={{ paddingInline: 'var(--space-2)' }}>رجوع</button>
+            )}
+            <button type="button" disabled={primary.disabled} onClick={primary.onClick} className={`wa-btn ${primary.cls}`}>
+              {primary.icon}{primary.label}
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* 📄 لوح القوالب */}
       {tplSheet && (
-        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/60" onClick={() => setTplSheet(false)}>
-          <div role="dialog" aria-label="القوالب المحفوظة" onClick={e => e.stopPropagation()}
-            className="w-full sm:max-w-lg max-h-[78vh] overflow-y-auto rounded-t-3xl sm:rounded-3xl bg-[#141210] border border-gray-800 p-3"
-            style={{ paddingBottom: 'calc(12px + env(safe-area-inset-bottom))' }}>
-            <div className="w-10 h-1 rounded-full bg-gray-700 mx-auto mb-3 sm:hidden" />
-            <div className="flex items-center justify-between mb-2 px-1">
-              <b className="text-white text-[15px]">القوالب المحفوظة</b>
-              <button type="button" onClick={() => setTplSheet(false)} className="min-h-[40px] px-3 text-gray-400 text-[13px]">إغلاق</button>
-            </div>
-            <div className="space-y-1.5">
-              <OptionRow selected={tplId === null} onClick={() => { setTplId(null); setTplSheet(false); }} title="بلا قالب" sub="أكمل بالنصّ الحاليّ" />
-              {tpls.map(t => (
-                <OptionRow key={t.id} selected={tplId === t.id}
-                  onClick={() => { setTplId(t.id); setBody(t.body); setTplSheet(false); }}
-                  title={`${t.name}${t.usedCount ? ` · استُعمل ${t.usedCount}` : ''}`} sub={t.body.split('\n').find(l => l.trim()) || ''} />
-              ))}
-              {tpls.length === 0 && <p className="text-[12.5px] text-gray-500 px-1 py-2">اكتب رسالة ثمّ «💾 حفظ كقالب» لتظهر هنا.</p>}
-            </div>
+        <Pop title="القوالب المحفوظة" label="القوالب المحفوظة" onClose={() => setTplSheet(false)}>
+          <div className="stack" role="radiogroup" style={{ gap: 'var(--space-2)' }}>
+            <OptionRow selected={tplId === null} onClick={() => { setTplId(null); setTplSheet(false); }} title="بلا قالب" sub="أكمل بالنصّ الحاليّ" />
+            {tpls.map(t => (
+              <OptionRow key={t.id} selected={tplId === t.id}
+                onClick={() => { setTplId(t.id); setBody(t.body); setTplSheet(false); }}
+                title={`${t.name}${t.usedCount ? ` · استُعمل ${t.usedCount}` : ''}`} sub={t.body.split('\n').find(l => l.trim()) || ''} />
+            ))}
+            {tpls.length === 0 && <p className="muted" style={{ ...SMALL, margin: 0, paddingBlock: 'var(--space-2)' }}>اكتب رسالة ثمّ «حفظ كقالب» لتظهر هنا.</p>}
           </div>
-        </div>
+        </Pop>
       )}
     </div>
   );
 }
 
 // ══════════════════════════════════════════════════════
-// 🧩 عناصر العرض — بلا حالة، مقاسات لمس ٤٤+ وخطّ ١٢٫٥+ (قواعد الواجهة المقفلة)
+// 🧩 عناصر العرض — بلا حالة، من أصناف wa-* (مقاسات لمس ٤٤+ وخطّ ١٢+)
 // ══════════════════════════════════════════════════════
 type Step = 1 | 2 | 3;
 const STEPS: Array<{ n: Step; label: string }> = [
@@ -917,14 +920,17 @@ const STEPS: Array<{ n: Step; label: string }> = [
   { n: 2, label: 'الرسالة' },
   { n: 3, label: 'أرسل' },
 ];
-const FILTER_META: Record<Filter, { icon: string; label: string; hint: string }> = {
-  all: { icon: '🌐', label: 'الكلّ', hint: 'كلّ من يمكن مراسلته' },
-  players: { icon: '🎭', label: 'لاعبون مسجّلون', hint: 'لهم حساب في التطبيق' },
-  visitors: { icon: '👋', label: 'زوّار', hint: 'راسلونا بلا حساب' },
-  booked_upcoming: { icon: '📅', label: 'لهم حجز قادم', hint: 'في أيّ فعاليّة قادمة' },
-  activity: { icon: '🎟️', label: 'حاجزو فعاليّة', hint: 'من حجز في فعاليّة تختارها' },
-  not_booked_activity: { icon: '🚪', label: 'لم يحجزوا في فعاليّة', hint: 'لتذكير من لم يحجز بعد' },
-  played: { icon: '🎲', label: 'لعبوا معنا', hint: 'في فعاليّة سابقة — ولم يحجزوا في القادمة (اختياريّ)' },
+const SMALL = { font: '500 12px/16px var(--font-sans)' } as const;
+const LABEL = { font: '700 12px/16px var(--font-sans)' } as const;
+const SUBHEAD = { font: '700 13px/18px var(--font-sans)', color: 'var(--ink-2)' } as const;
+const FILTER_META: Record<Filter, { Icon: LucideIcon; label: string; hint: string }> = {
+  all: { Icon: Globe, label: 'الكلّ', hint: 'كلّ من يمكن مراسلته' },
+  players: { Icon: Users, label: 'لاعبون مسجّلون', hint: 'لهم حساب في التطبيق' },
+  visitors: { Icon: Hand, label: 'زوّار', hint: 'راسلونا بلا حساب' },
+  booked_upcoming: { Icon: CalendarCheck, label: 'لهم حجز قادم', hint: 'في أيّ فعاليّة قادمة' },
+  activity: { Icon: Ticket, label: 'حاجزو فعاليّة', hint: 'من حجز في فعاليّة تختارها' },
+  not_booked_activity: { Icon: DoorOpen, label: 'لم يحجزوا في فعاليّة', hint: 'لتذكير من لم يحجز بعد' },
+  played: { Icon: Dice5, label: 'لعبوا معنا', hint: 'في فعاليّة سابقة — ولم يحجزوا في القادمة (اختياريّ)' },
 };
 const AUDIENCE_GROUPS: Array<{ title: string; keys: Filter[] }> = [
   { title: 'عامّ', keys: ['all', 'players', 'visitors'] },
@@ -932,31 +938,31 @@ const AUDIENCE_GROUPS: Array<{ title: string; keys: Filter[] }> = [
   { title: 'حسب اللعب', keys: ['played'] },
 ];
 const VARS: Array<{ token: string; label: string }> = [
-  { token: '{الاسم}', label: '👤 الاسم' },
+  { token: '{الاسم}', label: 'الاسم' },
   { token: '{الاسم_الكامل}', label: 'الاسم الكامل' },
-  { token: '{الرتبة}', label: '🏅 الرتبة' },
-  { token: '{الفعالية}', label: '🎟️ الفعاليّة' },
-  { token: '{الموعد}', label: '🕗 الموعد' },
-  { token: '{المكان}', label: '📍 المكان' },
-  { token: '{الموقع}', label: '🗺️ الموقع الكامل' },
+  { token: '{الرتبة}', label: 'الرتبة' },
+  { token: '{الفعالية}', label: 'الفعاليّة' },
+  { token: '{الموعد}', label: 'الموعد' },
+  { token: '{المكان}', label: 'المكان' },
+  { token: '{الموقع}', label: 'الموقع الكامل' },
 ];
 
 function StepTitle({ n, title, sub }: { n: number; title: string; sub?: string }) {
   return (
     <div>
-      <div className="text-[12px] font-bold text-amber-400/80">الخطوة {n} من 3</div>
-      <h2 className="text-[19px] font-black text-white leading-tight">{title}</h2>
-      {sub && <p className="text-[13px] text-gray-400 mt-0.5">{sub}</p>}
+      <div style={{ ...LABEL, color: 'var(--gold)' }}>الخطوة {n} من 3</div>
+      <h3 style={{ margin: 0, font: '700 18px/26px var(--font-sans)', color: 'var(--ink)' }}>{title}</h3>
+      {sub && <p className="muted" style={{ margin: 0, font: '400 13px/20px var(--font-sans)' }}>{sub}</p>}
     </div>
   );
 }
 
 function Panel({ title, sub, children, tone = 'default' }: { title: string; sub?: string; children: ReactNode; tone?: 'default' | 'warn' }) {
   return (
-    <div className={`rounded-2xl border p-3 space-y-2.5 ${tone === 'warn' ? 'border-amber-500/40 bg-amber-500/5' : 'border-gray-800 bg-gray-950/60'}`}>
+    <div className="wa-card stack" style={tone === 'warn' ? { borderColor: 'var(--warn)' } : undefined}>
       <div>
-        <div className="text-[13.5px] font-bold text-gray-200">{title}</div>
-        {sub && <div className="text-[12px] text-gray-500">{sub}</div>}
+        <div style={{ font: '700 14px/20px var(--font-sans)' }}>{title}</div>
+        {sub && <div className="muted" style={SMALL}>{sub}</div>}
       </div>
       {children}
     </div>
@@ -965,49 +971,41 @@ function Panel({ title, sub, children, tone = 'default' }: { title: string; sub?
 
 function OptionRow({ selected, onClick, title, sub }: { selected: boolean; onClick: () => void; title: string; sub?: string }) {
   return (
-    <button type="button" role="radio" aria-checked={selected} onClick={onClick}
-      className={`w-full flex items-center gap-3 text-right rounded-xl border px-3 py-2 min-h-[52px] transition-colors ${selected ? 'bg-amber-500/10 border-amber-500/45' : 'border-gray-800 hover:border-gray-700'}`}>
-      <span className={`w-5 h-5 rounded-full border-2 shrink-0 ${selected ? 'border-amber-400 bg-amber-400 shadow-[inset_0_0_0_3px_#1a1a1a]' : 'border-gray-600'}`} />
-      <span className="flex-1 min-w-0">
-        <span className={`block text-[13.5px] font-bold truncate ${selected ? 'text-amber-200' : 'text-white'}`}>{title}</span>
-        {sub && <span className="block text-[12px] text-gray-500 truncate">{sub}</span>}
+    <button type="button" role="radio" aria-checked={selected} onClick={onClick} className="wa-radio">
+      <span className="t">
+        <b className="trunc">{title}</b>
+        {sub && <span className="trunc">{sub}</span>}
       </span>
+      <span className="o" />
     </button>
   );
 }
 
-function Toggle({ checked, onChange, label }: { checked: boolean; onChange: (v: boolean) => void; label: ReactNode }) {
+function Disclosure({ title, icon, badge, open, onToggle, children, compact }: { title: string; icon?: ReactNode; badge?: number; open: boolean; onToggle: () => void; children: ReactNode; compact?: boolean }) {
+  const chevron = open ? <ChevronUp aria-hidden /> : <ChevronDown aria-hidden />;
   return (
-    <button type="button" role="switch" aria-checked={checked} onClick={() => onChange(!checked)}
-      className="w-full flex items-center gap-3 text-right min-h-[52px] rounded-xl border border-gray-800 px-3 py-2">
-      <span className="flex-1 text-[13px] text-gray-300">{label}</span>
-      <span className={`relative w-11 h-6 rounded-full shrink-0 transition-colors ${checked ? 'bg-amber-500' : 'bg-gray-700'}`}>
-        <span className={`absolute top-0.5 w-5 h-5 rounded-full bg-white transition-all ${checked ? 'right-0.5' : 'right-[22px]'}`} />
-      </span>
-    </button>
-  );
-}
-
-function Disclosure({ title, badge, open, onToggle, children, compact }: { title: string; badge?: number; open: boolean; onToggle: () => void; children: ReactNode; compact?: boolean }) {
-  return (
-    <div className={compact ? 'mt-1' : 'rounded-2xl border border-gray-800 bg-gray-900/40'}>
-      <button type="button" onClick={onToggle} aria-expanded={open}
-        className={`w-full flex items-center gap-2 text-right ${compact ? 'min-h-[40px] text-[12.5px] text-gray-400' : 'min-h-[52px] px-3.5 text-[14px] font-bold text-gray-200'}`}>
-        <span className="flex-1">{title}</span>
-        {badge ? <span className="min-w-[22px] h-[22px] px-1.5 rounded-full bg-amber-500/20 text-amber-300 text-[12px] font-bold flex items-center justify-center">{badge}</span> : null}
-        <span className={`text-gray-500 transition-transform ${open ? 'rotate-180' : ''}`}>▾</span>
-      </button>
-      {open && <div className={compact ? 'pb-1' : 'px-3.5 pb-3.5'}>{children}</div>}
+    <div className="stack" style={{ gap: 'var(--space-2)' }}>
+      {compact ? (
+        <button type="button" onClick={onToggle} aria-expanded={open} className="wa-btn ghost" style={{ alignSelf: 'flex-start', paddingInline: 0, fontWeight: 500, fontSize: 13 }}>
+          {title}{chevron}
+        </button>
+      ) : (
+        <button type="button" onClick={onToggle} aria-expanded={open} className="wa-acc">
+          {icon}<span>{title}</span>
+          <span className="end">{badge ? <span className="wa-badge gold">{badge}</span> : null}{chevron}</span>
+        </button>
+      )}
+      {open && <div className={compact ? undefined : 'wa-card'}>{children}</div>}
     </div>
   );
 }
 
 function SummaryRow({ label, onEdit, children }: { label: string; onEdit?: () => void; children: ReactNode }) {
   return (
-    <div className="flex items-start gap-3 px-3.5 py-3">
-      <span className="w-14 shrink-0 text-[12.5px] text-gray-500 pt-0.5">{label}</span>
-      <span className="flex-1 min-w-0 text-[13.5px] leading-relaxed">{children}</span>
-      {onEdit && <button type="button" onClick={onEdit} className="shrink-0 min-h-[36px] px-2.5 rounded-lg text-[12.5px] font-bold text-amber-300/90 border border-gray-800">تعديل</button>}
+    <div className="wa-setting" style={{ alignItems: 'flex-start', gap: 'var(--space-3)' }}>
+      <span className="muted" style={{ width: 56, flex: 'none', font: '400 13px/22px var(--font-sans)' }}>{label}</span>
+      <div className="grow" style={{ font: '400 14px/22px var(--font-sans)' }}>{children}</div>
+      {onEdit && <button type="button" onClick={onEdit} className="wa-btn ghost" style={{ color: 'var(--gold)', flex: 'none' }}>تعديل</button>}
     </div>
   );
 }

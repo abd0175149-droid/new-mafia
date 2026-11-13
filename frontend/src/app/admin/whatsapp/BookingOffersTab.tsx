@@ -8,9 +8,11 @@
 // الباب على الحضور الفعليّ (من صفحة الفعاليّة). هذه الشاشة: إنشاءٌ وتحكّمٌ
 // وإبلاغُ الحاجزين مسبقاً ممّن نافذة محادثتهم مفتوحة — لا أحد غيرهم.
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
+import { AlertTriangle, Check, Gift, Lock, Megaphone, Pause, Pencil, Play, Plus, Ticket, Trash2, X } from 'lucide-react';
 import { swalConfirm, swalAlert } from '@/lib/swal';
 import EarlyPriceSection from './EarlyPriceSection';
+import { Badge, Banner, Card, Chip, Field, PageHead, Setting, Skel, Tile, Toggle, type Tone } from './wa-ui';
 
 type Fetcher = (path: string, opts?: RequestInit) => Promise<any>;
 
@@ -36,44 +38,24 @@ function ruleText(N: number, K: number, repeat: boolean) {
 }
 const freeFor = (N: number, K: number, repeat: boolean, size: number) => size < N ? 0 : (repeat ? Math.floor(size / N) : 1) * (N - K);
 
-const STATE: Record<string, { label: string; cls: string }> = {
-  live: { label: '🟢 فعّال', cls: 'bg-emerald-500/10 text-emerald-300 border-emerald-500/30' },
-  scheduled: { label: '🕒 مجدول', cls: 'bg-sky-500/10 text-sky-300 border-sky-500/30' },
-  paused: { label: '⏸️ موقوف', cls: 'bg-amber-500/10 text-amber-300 border-amber-500/30' },
-  draft: { label: '📝 مسودة', cls: 'bg-gray-700/40 text-gray-300 border-gray-600' },
-  ended: { label: '✅ انتهت نافذته', cls: 'bg-gray-800 text-gray-500 border-gray-700' },
+const STATE: Record<string, { label: string; tone?: Tone }> = {
+  live: { label: 'فعّال', tone: 'ok' },
+  scheduled: { label: 'مجدول', tone: 'info' },
+  paused: { label: 'موقوف', tone: 'warn' },
+  draft: { label: 'مسودة' },
+  ended: { label: 'انتهت نافذته' },
 };
-const KIND: Record<string, { label: string; cls: string; hint: string }> = {
-  send: { label: '💬 نافذته مفتوحة', cls: 'text-emerald-300', hint: 'تصله الرسالة الآن' },
-  closed: { label: '🔒 نافذته مغلقة', cls: 'text-amber-300', hint: 'لا رسالة (سياسة ٢٤ ساعة) — تواصلٌ يدويّ إن أردت' },
-  in_group: { label: '👥 في مجموعة', cls: 'text-sky-300', hint: 'أخذ العرض أو دخل مجموعة' },
-  optout: { label: '🚫 أوقف الرسائل', cls: 'text-rose-300', hint: 'طلب «إيقاف» — لا يُراسَل' },
-  past: { label: '⌛ فعاليّة مضت', cls: 'text-gray-500', hint: '' },
+const KIND: Record<string, { label: string; tone?: Tone; hint: string }> = {
+  send: { label: 'نافذته مفتوحة', tone: 'ok', hint: 'تصله الرسالة الآن' },
+  closed: { label: 'نافذته مغلقة', tone: 'warn', hint: 'لا رسالة (سياسة ٢٤ ساعة) — تواصلٌ يدويّ إن أردت' },
+  in_group: { label: 'في مجموعة', tone: 'info', hint: 'أخذ العرض أو دخل مجموعة' },
+  optout: { label: 'أوقف الرسائل', tone: 'danger', hint: 'طلب «إيقاف» — لا يُراسَل' },
+  past: { label: 'فعاليّة مضت', hint: '' },
 };
 
-function Field({ label, hint, children }: { label: string; hint?: string; children: any }) {
-  return (
-    <div className="min-w-0">
-      <label className="text-[11px] text-gray-400 font-bold block mb-1">{label}</label>
-      {children}
-      {hint && <div className="text-[10px] text-gray-600 mt-0.5 leading-snug">{hint}</div>}
-    </div>
-  );
-}
-const inputCls = 'w-full bg-gray-950 border border-gray-800 rounded-lg px-2.5 py-1.5 text-xs text-white outline-none focus:border-amber-500';
-function Toggle({ on, onChange, label, hint }: { on: boolean; onChange: (v: boolean) => void; label: string; hint?: string }) {
-  return (
-    <button type="button" onClick={() => onChange(!on)} className="flex items-start gap-2 text-right w-full">
-      <span className={`mt-0.5 w-9 h-5 rounded-full shrink-0 transition-colors ${on ? 'bg-emerald-500/80' : 'bg-gray-700'} relative`}>
-        <span className={`absolute top-0.5 w-4 h-4 rounded-full bg-white transition-all ${on ? 'right-0.5' : 'right-4'}`} />
-      </span>
-      <span className="min-w-0">
-        <span className="block text-xs text-gray-200">{label}</span>
-        {hint && <span className="block text-[10px] text-gray-600 leading-snug">{hint}</span>}
-      </span>
-    </button>
-  );
-}
+/** رقم/مبلغ بالأرقام — يُعزل اتّجاهه */
+const L = (x: ReactNode) => <span className="ltr">{x}</span>;
+const sub14 = { margin: 0, font: '400 14px/22px var(--font-sans)', color: 'var(--ink-2)' } as const;
 
 const PRESETS = [
   { label: '١+١', N: 2, K: 1 },
@@ -201,259 +183,281 @@ export default function BookingOffersTab({ apiFetch }: { apiFetch: Fetcher }) {
     });
   }
 
-  if (err && !data) return <div className="text-xs text-rose-300 p-3">{err}</div>;
-  if (!data) return <div className="text-xs text-gray-500 p-3">…</div>;
+  if (err && !data) return <Banner tone="danger" icon={<AlertTriangle />}>{err}</Banner>;
+  if (!data) return <Skel h={120} />;
 
   const counts = (notify?.rows || []).reduce((m: any, r: any) => { m[r.kind] = (m[r.kind] || 0) + 1; return m; }, {});
 
   return (
-    <div className="flex flex-col gap-3" dir="rtl">
-      {/* ═══ 💸 سعر الدون المبكّر ═══ */}
+    <>
+      <PageHead title="عروض الحجز" sub="السعر المبكّر عبر الدون، وعروض المجموعات «جيب صحابك»." />
+
+      {/* ═══ سعر الدون المبكّر ═══ */}
       <EarlyPriceSection apiFetch={apiFetch} />
 
       {/* ═══ الرأس ═══ */}
-      <section className="rounded-2xl border border-gray-800 bg-gray-900/60 p-4">
-        <div className="flex items-start justify-between gap-3 flex-wrap">
-          <div className="min-w-0">
-            <h3 className="text-sm font-bold text-white">🎟️ عروض الحجز الجماعيّ</h3>
-            <p className="text-[11px] text-gray-500 mt-1 leading-relaxed max-w-2xl">
-              «احجز لأصحابك وخذ واحداً ببلاش». البوت يعلن العرض مرّةً لكلّ محادثة ويشرحه بالأرقام، ولا يثبّته إلّا بعد أن يرسل العميل
-              <b className="text-gray-300"> اسم ورقم كلّ صديق</b> — فيصير لكلّ صديقٍ حجزُه المرتبط بالمجموعة. المجّانيّ يُحسم
-              <b className="text-gray-300"> عند الباب على الحضور الفعليّ</b> من صفحة الفعاليّة، والحسابات المجّانيّة والزيارات المجّانيّة لا تُكمل العدد.
-            </p>
-          </div>
-          {!form && (
-            <button onClick={() => { setNotify(null); setForm(blankForm()); }}
-              className="text-xs font-bold px-3 py-1.5 rounded-lg bg-amber-500 text-black hover:bg-amber-400 shrink-0">＋ عرضٌ جديد</button>
-          )}
-        </div>
-      </section>
+      <Card
+        title={<><Ticket />عروض الحجز الجماعيّ</>}
+        aside={!form && (
+          <button type="button" className="wa-btn primary" onClick={() => { setNotify(null); setForm(blankForm()); }}><Plus />عرضٌ جديد</button>
+        )}
+      >
+        <p style={{ ...sub14, maxWidth: '80ch' }}>
+          «احجز لأصحابك وخذ واحداً ببلاش». البوت يعلن العرض مرّةً لكلّ محادثة ويشرحه بالأرقام، ولا يثبّته إلّا بعد أن يرسل العميل
+          <b style={{ color: 'var(--ink)' }}> اسم ورقم كلّ صديق</b> — فيصير لكلّ صديقٍ حجزُه المرتبط بالمجموعة. المجّانيّ يُحسم
+          <b style={{ color: 'var(--ink)' }}> عند الباب على الحضور الفعليّ</b> من صفحة الفعاليّة، والحسابات المجّانيّة والزيارات المجّانيّة لا تُكمل العدد.
+        </p>
+        {data.offers.length === 0 && !form && <p className="muted" style={{ margin: 'var(--space-3) 0 0', fontSize: 14 }}>لا عروض بعد.</p>}
+      </Card>
 
       {/* ═══ النموذج ═══ */}
       {form && (
-        <section className="rounded-2xl border border-amber-500/30 bg-gray-900/70 p-4">
-          <div className="flex items-center justify-between gap-2 mb-3">
-            <h3 className="text-sm font-bold text-white">{form.id ? `تعديل «${form.name}»` : 'عرضٌ جديد'}</h3>
-            <button onClick={() => setForm(null)} className="text-[11px] text-gray-400 hover:text-white">إلغاء ✕</button>
-          </div>
-
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-            <div className="col-span-2">
-              <Field label="اسم العرض" hint="يظهر للعميل حرفيّاً في رسائل البوت">
-                <input id="bo-name" className={inputCls} value={form.name} onChange={e => patch('name', e.target.value)} placeholder="مثال: جيب صحابك" />
-              </Field>
-            </div>
-            <div className="col-span-2">
-              <Field label="نوع العرض">
-                <div className="flex gap-1.5 flex-wrap">
-                  {PRESETS.map(p => (
-                    <button key={p.label} type="button" onClick={() => setForm(f => f ? { ...f, groupSize: p.N, payFor: p.K } : f)}
-                      className={`text-[11px] font-bold px-2.5 py-1 rounded-lg border ${form.groupSize === p.N && form.payFor === p.K ? 'border-amber-500 text-amber-300 bg-amber-500/10' : 'border-gray-700 text-gray-400 hover:text-white'}`}>{p.label}</button>
-                  ))}
-                </div>
-              </Field>
-            </div>
-
-            <Field label="حجم المجموعة" hint="كم شخصاً مع صاحب الحجز">
-              <input id="bo-n" type="number" min={2} max={10} className={inputCls} value={form.groupSize}
-                onChange={e => { const v = Math.min(10, Math.max(2, parseInt(e.target.value) || 2)); setForm(f => f ? { ...f, groupSize: v, payFor: Math.min(f.payFor, v - 1) } : f); }} />
-            </Field>
-            <Field label="منهم يدفع" hint="والباقي ببلاش">
-              <input id="bo-k" type="number" min={1} max={form.groupSize - 1} className={inputCls} value={form.payFor}
-                onChange={e => patch('payFor', Math.min(form.groupSize - 1, Math.max(1, parseInt(e.target.value) || 1)))} />
-            </Field>
-            <div className="col-span-2 flex items-end">
-              <Toggle on={form.repeat} onChange={v => patch('repeat', v)} label={`يتكرّر مع كلّ ${form.groupSize}`}
-                hint={form.repeat ? `${form.groupSize * 2} أشخاص ⟵ ${freeFor(form.groupSize, form.payFor, true, form.groupSize * 2)} ببلاش` : `مرّة واحدة لكلّ حجز مهما كبرت المجموعة`} />
-            </div>
-
-            <Field label="الحجز يبدأ (عمّان)">
-              <input id="bo-from" type="datetime-local" className={inputCls} value={form.bookFrom} onChange={e => patch('bookFrom', e.target.value)} />
-            </Field>
-            <Field label="آخر موعد للحجز (عمّان)">
-              <input id="bo-until" type="datetime-local" className={inputCls} value={form.bookUntil} onChange={e => patch('bookUntil', e.target.value)} />
-            </Field>
-            <Field label="قبل الفعاليّة بـ (ساعات)" hint="لا عرض لحجزٍ أقرب من هذا لموعدها">
-              <input id="bo-lead" type="number" min={0} max={168} className={inputCls} value={form.leadHours} onChange={e => patch('leadHours', Math.max(0, parseInt(e.target.value) || 0))} />
-            </Field>
-            <Field label="سقف المجموعات" hint="٠ = بلا سقف · حصّةُ الحاجزين مسبقاً محفوظة داخله">
-              <input id="bo-cap" type="number" min={0} max={500} className={inputCls} value={form.maxGroups} onChange={e => patch('maxGroups', Math.max(0, parseInt(e.target.value) || 0))} />
-            </Field>
-            <Field label="مرّات للعميل الواحد" hint="على كلّ فعاليّات العرض">
-              <input id="bo-per" type="number" min={1} max={10} className={inputCls} value={form.perCustomer} onChange={e => patch('perCustomer', Math.max(1, parseInt(e.target.value) || 1))} />
-            </Field>
-            <Field label="أولويّة الحاجزين مسبقاً (ساعات)" hint="تبدأ مع أوّل إبلاغ — مقاعدهم في السقف محجوزة خلالها">
-              <input id="bo-prio" type="number" min={0} max={168} className={inputCls} value={form.priorityHours} onChange={e => patch('priorityHours', Math.max(0, parseInt(e.target.value) || 0))} />
-            </Field>
-          </div>
-
-          {/* ── الفعاليّات ── */}
-          <div className="mt-3 pt-3 border-t border-gray-800">
-            <div className="text-[11px] text-gray-400 font-bold mb-1.5">الفعاليّات <span className="font-normal text-gray-600">(مواقع الاختبار مستبعدة تلقائيّاً)</span></div>
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-1.5 max-h-56 overflow-y-auto">
-              {actChoices.map(a => {
-                const on = form.activityIds.includes(a.id);
-                return (
-                  <button key={a.id} type="button"
-                    onClick={() => patch('activityIds', on ? form.activityIds.filter(x => x !== a.id) : [...form.activityIds, a.id])}
-                    className={`text-right rounded-lg border px-2.5 py-1.5 ${on ? 'border-amber-500/60 bg-amber-500/10' : 'border-gray-800 hover:border-gray-600'}`}>
-                    <div className={`text-xs font-bold truncate ${on ? 'text-amber-200' : 'text-gray-200'}`}>{on ? '✓ ' : ''}{a.name}</div>
-                    <div className="text-[10px] text-gray-500 truncate">{fmtDT(a.date)}{a.location ? ` · ${a.location}` : ''}{a.price ? ` · ${a.price} د.أ` : ''}</div>
-                  </button>
-                );
-              })}
-              {!actChoices.length && <div className="text-[11px] text-gray-600">لا فعاليّات قادمة</div>}
-            </div>
-          </div>
-
-          {/* ── الإعلان ── */}
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mt-3 pt-3 border-t border-gray-800">
-            <div className="flex flex-col gap-2.5">
-              <Toggle on={form.announce} onChange={v => patch('announce', v)} label="البوت يعلنه لمن يحادثه"
-                hint="مرّةً واحدة لكلّ محادثة، ملحَقاً بردّه حرفيّاً — لا يُلحق بردٍّ فيه تأكيدُ حجزٍ أو إلغاء، ولا لمن في مدينةٍ أخرى" />
-              <Toggle on={form.notifyExisting} onChange={v => patch('notifyExisting', v)} label="إبلاغ الحاجزين مسبقاً"
-                hint="يظهر زرّ «📣 إبلاغ الحاجزين» — الإرسال بيدك بعد المعاينة، ولمن نافذته مفتوحة فقط" />
-            </div>
-            <Field label="نصّ إعلانٍ خاصّ (اختياريّ)" hint="فارغ = نصٌّ آليّ من الشروط أعلاه (الأدقّ). الحاجزون مسبقاً يأخذون دائماً صيغتهم بأرقام حجزهم">
-              <textarea id="bo-text" rows={3} maxLength={900} className={inputCls} value={form.announceText} onChange={e => patch('announceText', e.target.value)}
-                placeholder={`🎁 عرض «${form.name || 'الاسم'}»: ${ruleText(form.groupSize, form.payFor, form.repeat)}.`} />
-            </Field>
-          </div>
-
-          {/* ── ما سيقرؤه العميل ── */}
-          {example && (
-            <div className="mt-3 rounded-xl bg-emerald-500/[0.06] border border-emerald-500/20 px-3 py-2.5 text-xs text-emerald-100 leading-relaxed">
-              <div className="font-bold">🎁 {ruleText(form.groupSize, form.payFor, form.repeat)}</div>
-              <div className="text-[11px] text-emerald-200/80 mt-1">
-                {example.size} أشخاص ⟵ {example.free} ببلاش{example.price ? ` — يدفعون ${Math.round((example.size - example.free) * example.price * 100) / 100} د.أ بدل ${Math.round(example.size * example.price * 100) / 100}` : ''}
-                {form.repeat && ` · ${example.size2} ⟵ ${example.free2} ببلاش`}
-                {` · ${example.size - 1} ⟵ لا عرض (البوت يقترح إضافة واحد)`}
+        <Card
+          style={{ borderColor: 'var(--gold)' }}
+          title={form.id ? `تعديل «${form.name}»` : 'عرضٌ جديد'}
+          aside={<button type="button" className="wa-btn ghost" onClick={() => setForm(null)}><X />إلغاء</button>}
+        >
+          <div className="stack">
+            <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+              <div className="col-span-2">
+                <Field label="اسم العرض" hint="يظهر للعميل حرفيّاً في رسائل البوت" htmlFor="bo-name">
+                  <input id="bo-name" className="wa-input" value={form.name} onChange={e => patch('name', e.target.value)} placeholder="مثال: جيب صحابك" />
+                </Field>
               </div>
-            </div>
-          )}
+              <div className="col-span-2">
+                <Field label="نوع العرض">
+                  <div className="wa-chips" style={{ flexWrap: 'wrap', minHeight: 'var(--hit)', alignItems: 'center' }}>
+                    {PRESETS.map(p => (
+                      <Chip key={p.label} on={form.groupSize === p.N && form.payFor === p.K}
+                        onClick={() => setForm(f => f ? { ...f, groupSize: p.N, payFor: p.K } : f)}>{p.label}</Chip>
+                    ))}
+                  </div>
+                </Field>
+              </div>
 
-          <div className="flex gap-2 mt-3 flex-wrap">
-            {form.id ? (
-              <button disabled={busy} onClick={() => save()} className="text-xs font-bold px-4 py-1.5 rounded-lg bg-amber-500 text-black hover:bg-amber-400 disabled:opacity-50">حفظ التعديل</button>
-            ) : (
-              <>
-                <button disabled={busy} onClick={() => save('live')} className="text-xs font-bold px-4 py-1.5 rounded-lg bg-emerald-500 text-black hover:bg-emerald-400 disabled:opacity-50">🟢 حفظ وتفعيل</button>
-                <button disabled={busy} onClick={() => save('draft')} className="text-xs font-bold px-4 py-1.5 rounded-lg border border-gray-700 text-gray-300 hover:text-white disabled:opacity-50">📝 حفظ مسودة</button>
-              </>
+              <Field label="حجم المجموعة" hint="كم شخصاً مع صاحب الحجز" htmlFor="bo-n">
+                <input id="bo-n" type="number" min={2} max={10} dir="ltr" className="wa-input ltr" value={form.groupSize}
+                  onChange={e => { const v = Math.min(10, Math.max(2, parseInt(e.target.value) || 2)); setForm(f => f ? { ...f, groupSize: v, payFor: Math.min(f.payFor, v - 1) } : f); }} />
+              </Field>
+              <Field label="منهم يدفع" hint="والباقي ببلاش" htmlFor="bo-k">
+                <input id="bo-k" type="number" min={1} max={form.groupSize - 1} dir="ltr" className="wa-input ltr" value={form.payFor}
+                  onChange={e => patch('payFor', Math.min(form.groupSize - 1, Math.max(1, parseInt(e.target.value) || 1)))} />
+              </Field>
+              <div className="col-span-2">
+                <Setting title={<>يتكرّر مع كلّ {L(form.groupSize)}</>}
+                  hint={form.repeat ? <>{L(form.groupSize * 2)} أشخاص ⟵ {L(freeFor(form.groupSize, form.payFor, true, form.groupSize * 2))} ببلاش</> : 'مرّة واحدة لكلّ حجز مهما كبرت المجموعة'}>
+                  <Toggle on={form.repeat} onChange={v => patch('repeat', v)} label={`يتكرّر مع كلّ ${form.groupSize}`} />
+                </Setting>
+              </div>
+
+              <div className="col-span-2">
+                <Field label="الحجز يبدأ (عمّان)" htmlFor="bo-from">
+                  <input id="bo-from" type="datetime-local" dir="ltr" className="wa-input ltr" value={form.bookFrom} onChange={e => patch('bookFrom', e.target.value)} />
+                </Field>
+              </div>
+              <div className="col-span-2">
+                <Field label="آخر موعد للحجز (عمّان)" htmlFor="bo-until">
+                  <input id="bo-until" type="datetime-local" dir="ltr" className="wa-input ltr" value={form.bookUntil} onChange={e => patch('bookUntil', e.target.value)} />
+                </Field>
+              </div>
+              <Field label="قبل الفعاليّة بـ (ساعات)" hint="لا عرض لحجزٍ أقرب من هذا لموعدها" htmlFor="bo-lead">
+                <input id="bo-lead" type="number" min={0} max={168} dir="ltr" className="wa-input ltr" value={form.leadHours} onChange={e => patch('leadHours', Math.max(0, parseInt(e.target.value) || 0))} />
+              </Field>
+              <Field label="سقف المجموعات" hint="٠ = بلا سقف · حصّةُ الحاجزين مسبقاً محفوظة داخله" htmlFor="bo-cap">
+                <input id="bo-cap" type="number" min={0} max={500} dir="ltr" className="wa-input ltr" value={form.maxGroups} onChange={e => patch('maxGroups', Math.max(0, parseInt(e.target.value) || 0))} />
+              </Field>
+              <Field label="مرّات للعميل الواحد" hint="على كلّ فعاليّات العرض" htmlFor="bo-per">
+                <input id="bo-per" type="number" min={1} max={10} dir="ltr" className="wa-input ltr" value={form.perCustomer} onChange={e => patch('perCustomer', Math.max(1, parseInt(e.target.value) || 1))} />
+              </Field>
+              <Field label="أولويّة الحاجزين مسبقاً (ساعات)" hint="تبدأ مع أوّل إبلاغ — مقاعدهم في السقف محجوزة خلالها" htmlFor="bo-prio">
+                <input id="bo-prio" type="number" min={0} max={168} dir="ltr" className="wa-input ltr" value={form.priorityHours} onChange={e => patch('priorityHours', Math.max(0, parseInt(e.target.value) || 0))} />
+              </Field>
+            </div>
+
+            {/* ── الفعاليّات ── */}
+            <Field label={<>الفعاليّات <span className="muted" style={{ fontWeight: 500 }}>(مواقع الاختبار مستبعدة تلقائيّاً)</span></>}>
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2 max-h-56 overflow-y-auto">
+                {actChoices.map(a => {
+                  const on = form.activityIds.includes(a.id);
+                  return (
+                    <button key={a.id} type="button" aria-pressed={on} className="wa-pill" style={{ minHeight: 'var(--hit)', paddingBlock: 6 }}
+                      onClick={() => patch('activityIds', on ? form.activityIds.filter(x => x !== a.id) : [...form.activityIds, a.id])}>
+                      {on && <Check className="s" />}
+                      <span className="grow">
+                        <span className="trunc" style={{ display: 'block' }}>{a.name}</span>
+                        <span className="trunc" style={{ display: 'block', font: '500 12px/16px var(--font-sans)', opacity: 0.8 }}>{fmtDT(a.date)}{a.location ? ` · ${a.location}` : ''}{a.price ? ` · ${a.price} د.أ` : ''}</span>
+                      </span>
+                    </button>
+                  );
+                })}
+                {!actChoices.length && <div className="muted" style={{ fontSize: 13 }}>لا فعاليّات قادمة</div>}
+              </div>
+            </Field>
+
+            {/* ── الإعلان ── */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+              <div>
+                <Setting title="البوت يعلنه لمن يحادثه"
+                  hint="مرّةً واحدة لكلّ محادثة، ملحَقاً بردّه حرفيّاً — لا يُلحق بردٍّ فيه تأكيدُ حجزٍ أو إلغاء، ولا لمن في مدينةٍ أخرى">
+                  <Toggle on={form.announce} onChange={v => patch('announce', v)} label="البوت يعلنه لمن يحادثه" />
+                </Setting>
+                <Setting title="إبلاغ الحاجزين مسبقاً"
+                  hint="يظهر زرّ «إبلاغ الحاجزين» — الإرسال بيدك بعد المعاينة، ولمن نافذته مفتوحة فقط">
+                  <Toggle on={form.notifyExisting} onChange={v => patch('notifyExisting', v)} label="إبلاغ الحاجزين مسبقاً" />
+                </Setting>
+              </div>
+              <Field label="نصّ إعلانٍ خاصّ (اختياريّ)" hint="فارغ = نصٌّ آليّ من الشروط أعلاه (الأدقّ). الحاجزون مسبقاً يأخذون دائماً صيغتهم بأرقام حجزهم" htmlFor="bo-text">
+                <textarea id="bo-text" rows={3} maxLength={900} className="wa-textarea" value={form.announceText} onChange={e => patch('announceText', e.target.value)}
+                  placeholder={`🎁 عرض «${form.name || 'الاسم'}»: ${ruleText(form.groupSize, form.payFor, form.repeat)}.`} />
+              </Field>
+            </div>
+
+            {/* ── ما سيقرؤه العميل ── */}
+            {example && (
+              <Banner tone="ok" icon={<Gift />}>
+                <b>{ruleText(form.groupSize, form.payFor, form.repeat)}</b>
+                <span style={{ display: 'block' }}>
+                  {L(example.size)} أشخاص ⟵ {L(example.free)} ببلاش{example.price ? <> — يدفعون {L(Math.round((example.size - example.free) * example.price * 100) / 100)} د.أ بدل {L(Math.round(example.size * example.price * 100) / 100)}</> : ''}
+                  {form.repeat && <> · {L(example.size2)} ⟵ {L(example.free2)} ببلاش</>}
+                  {' · '}{L(example.size - 1)} ⟵ لا عرض (البوت يقترح إضافة واحد)
+                </span>
+              </Banner>
             )}
+
+            <div className="row" style={{ flexWrap: 'wrap' }}>
+              {form.id ? (
+                <button type="button" disabled={busy} onClick={() => save()} className="wa-btn primary">حفظ التعديل</button>
+              ) : (
+                <>
+                  <button type="button" disabled={busy} onClick={() => save('live')} className="wa-btn send"><Check />حفظ وتفعيل</button>
+                  <button type="button" disabled={busy} onClick={() => save('draft')} className="wa-btn">حفظ مسودة</button>
+                </>
+              )}
+            </div>
           </div>
-        </section>
+        </Card>
       )}
 
       {/* ═══ معاينة الإبلاغ ═══ */}
       {notify && (
-        <section className="rounded-2xl border border-sky-500/30 bg-gray-900/70 p-4">
-          <div className="flex items-center justify-between gap-2 flex-wrap">
-            <h3 className="text-sm font-bold text-white">📣 إبلاغ الحاجزين مسبقاً — «{notify.offer.name}»</h3>
-            <button onClick={() => setNotify(null)} className="text-[11px] text-gray-400 hover:text-white">إغلاق ✕</button>
-          </div>
-          <p className="text-[11px] text-gray-500 mt-1 leading-relaxed">
-            الأولويّة: {notify.offer.notifiedAt ? <>بدأت {fmtDT(notify.offer.priorityStart)} وتنتهي <b className="text-gray-300">{fmtDT(notify.offer.priorityEnd)}</b></> : <>تبدأ مع هذا الإبلاغ</>}.
-            {notify.offer.maxGroups > 0 && <> السقف {n(notify.offer.maxGroups)} · استُخدم {n(notify.used)} · محجوزٌ لهم {n(notify.reserved)}.</>}
-            {' '}من يستحقّ بعدده الحاليّ يُطلب منه أرقامُ أصحابه لتثبيته.
-          </p>
-          <div className="flex flex-wrap gap-x-4 gap-y-1 mt-2 text-[11px]">
-            {Object.entries(KIND).map(([k, v]) => counts[k] ? <span key={k} className={v.cls} title={v.hint}>{v.label}: <b className="tabular-nums">{n(counts[k])}</b></span> : null)}
-            {!notify.rows.length && <span className="text-gray-500">لا حاجزين على فعاليّات العرض</span>}
-          </div>
-          {notify.rows.length > 0 && (
-            <div className="mt-3 overflow-x-auto rounded-xl border border-gray-800">
-              <table className="w-full text-xs">
-                <thead className="bg-gray-950/60 text-gray-500 text-[10.5px]">
-                  <tr><th className="text-right px-2.5 py-1.5">الحاجز</th><th className="text-right px-2.5 py-1.5">الفعاليّة</th><th className="px-2.5 py-1.5">العدد</th><th className="text-right px-2.5 py-1.5">الحالة</th><th className="px-2.5 py-1.5"></th></tr>
-                </thead>
-                <tbody>
-                  {notify.rows.map((r: any) => {
-                    const key = `${r.activityId}:${r.phone}`;
-                    return [
-                      <tr key={key} className="border-t border-gray-800/70">
-                        <td className="px-2.5 py-1.5 text-gray-200">{r.name || '—'}<span className="block text-[10px] text-gray-600 font-mono" dir="ltr">{r.phone}</span></td>
-                        <td className="px-2.5 py-1.5 text-gray-400">{r.activityName}<span className="block text-[10px] text-gray-600">{r.activityWhen}</span></td>
-                        <td className="px-2.5 py-1.5 text-center tabular-nums text-gray-300">{r.people}{r.qualifies && <span className="block text-[9.5px] text-emerald-400">يستحقّ</span>}</td>
-                        <td className={`px-2.5 py-1.5 ${KIND[r.kind]?.cls || ''}`}>{KIND[r.kind]?.label || r.kind}</td>
-                        <td className="px-2.5 py-1.5 text-left">
-                          {r.message && <button onClick={() => setOpenMsg(openMsg === key ? null : key)} className="text-[10.5px] text-gray-500 hover:text-white">{openMsg === key ? 'إخفاء' : 'الرسالة'}</button>}
-                        </td>
-                      </tr>,
-                      openMsg === key ? (
-                        <tr key={key + ':m'}><td colSpan={5} className="px-2.5 pb-2"><pre className="whitespace-pre-wrap text-[11px] text-gray-300 bg-gray-950 rounded-lg p-2.5 font-sans leading-relaxed">{r.message}</pre></td></tr>
-                      ) : null,
-                    ];
-                  })}
-                </tbody>
-              </table>
+        <Card
+          style={{ borderColor: 'var(--info)' }}
+          title={<><Megaphone /><span className="grow">إبلاغ الحاجزين مسبقاً — «{notify.offer.name}»</span></>}
+          aside={<button type="button" className="wa-iconbtn" aria-label="إغلاق" onClick={() => setNotify(null)}><X /></button>}
+        >
+          <div className="stack">
+            <p style={sub14}>
+              الأولويّة: {notify.offer.notifiedAt ? <>بدأت {fmtDT(notify.offer.priorityStart)} وتنتهي <b style={{ color: 'var(--ink)' }}>{fmtDT(notify.offer.priorityEnd)}</b></> : <>تبدأ مع هذا الإبلاغ</>}.
+              {notify.offer.maxGroups > 0 && <> السقف {L(n(notify.offer.maxGroups))} · استُخدم {L(n(notify.used))} · محجوزٌ لهم {L(n(notify.reserved))}.</>}
+              {' '}من يستحقّ بعدده الحاليّ يُطلب منه أرقامُ أصحابه لتثبيته.
+            </p>
+            <div className="row" style={{ flexWrap: 'wrap' }}>
+              {Object.entries(KIND).map(([k, v]) => counts[k] ? <Badge key={k} tone={v.tone} title={v.hint}>{v.label}: {L(n(counts[k]))}</Badge> : null)}
+              {!notify.rows.length && <span className="muted" style={{ fontSize: 13 }}>لا حاجزين على فعاليّات العرض</span>}
             </div>
-          )}
-          <div className="flex gap-2 mt-3 flex-wrap items-center">
-            <button disabled={busy || !counts.send || notify.offer.state !== 'live'} onClick={sendNotify}
-              className="text-xs font-bold px-4 py-1.5 rounded-lg bg-sky-500 text-black hover:bg-sky-400 disabled:opacity-40">📣 أرسل لـ{n(counts.send || 0)} نافذتهم مفتوحة</button>
-            {notify.offer.state !== 'live' && <span className="text-[11px] text-amber-300">فعّل العرض أوّلاً — لا إبلاغ بعرضٍ غير فعّال</span>}
-            {counts.closed > 0 && <span className="text-[11px] text-gray-500">🔒 {n(counts.closed)} نافذتهم مغلقة: لا رسالة آليّة (قيد واتساب) — أرقامهم أعلاه للتواصل اليدويّ إن أردت.</span>}
+            {notify.rows.length > 0 && (
+              <div className="wa-tablewrap">
+                <table className="wa-table cards">
+                  <thead>
+                    <tr><th>الحاجز</th><th>الفعاليّة</th><th>العدد</th><th>الحالة</th><th></th></tr>
+                  </thead>
+                  <tbody>
+                    {notify.rows.map((r: any) => {
+                      const key = `${r.activityId}:${r.phone}`;
+                      return [
+                        <tr key={key}>
+                          <td data-l="الحاجز"><span><b>{r.name || '—'}</b><span className="ltr muted" style={{ display: 'block' }}>{r.phone}</span></span></td>
+                          <td data-l="الفعاليّة"><span>{r.activityName}<span className="muted" style={{ display: 'block', fontSize: 12 }}>{r.activityWhen}</span></span></td>
+                          <td data-l="العدد"><span className="row">{L(r.people)}{r.qualifies && <Badge tone="ok">يستحقّ</Badge>}</span></td>
+                          <td data-l="الحالة"><Badge tone={KIND[r.kind]?.tone}>{KIND[r.kind]?.label || r.kind}</Badge></td>
+                          <td>
+                            {r.message && (
+                              <button type="button" className="wa-btn ghost sm" aria-expanded={openMsg === key} onClick={() => setOpenMsg(openMsg === key ? null : key)}>
+                                {openMsg === key ? 'إخفاء' : 'الرسالة'}
+                              </button>
+                            )}
+                          </td>
+                        </tr>,
+                        openMsg === key ? (
+                          <tr key={key + ':m'}>
+                            <td colSpan={5}>
+                              <pre style={{ margin: 0, flex: 1, whiteSpace: 'pre-wrap', overflowWrap: 'anywhere', font: '400 13px/20px var(--font-sans)', color: 'var(--ink-2)', background: 'var(--bg-200)', borderRadius: 'var(--radius-sm)', padding: 'var(--space-3)' }}>{r.message}</pre>
+                            </td>
+                          </tr>
+                        ) : null,
+                      ];
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            )}
+            <div className="row" style={{ flexWrap: 'wrap' }}>
+              <button type="button" disabled={busy || !counts.send || notify.offer.state !== 'live'} onClick={sendNotify} className="wa-btn send" style={{ whiteSpace: 'normal' }}>
+                <Megaphone />أرسل لـ{L(n(counts.send || 0))} نافذتهم مفتوحة
+              </button>
+              {notify.offer.state !== 'live' && <Badge tone="warn">فعّل العرض أوّلاً — لا إبلاغ بعرضٍ غير فعّال</Badge>}
+            </div>
+            {counts.closed > 0 && (
+              <Banner icon={<Lock />}>{L(n(counts.closed))} نافذتهم مغلقة: لا رسالة آليّة (قيد واتساب) — أرقامهم أعلاه للتواصل اليدويّ إن أردت.</Banner>
+            )}
           </div>
-        </section>
+        </Card>
       )}
 
       {/* ═══ القائمة ═══ */}
-      {data.offers.length === 0 && !form && (
-        <section className="rounded-2xl border border-gray-800 bg-gray-900/60 p-4 text-[11px] text-gray-500">لا عروض بعد.</section>
-      )}
       {data.offers.map(o => {
         const st = STATE[o.state] || STATE.draft;
         const s = o.stats || {};
         return (
-          <section key={o.id} className={`rounded-2xl border p-4 ${o.state === 'live' ? 'border-emerald-500/30 bg-emerald-500/[0.03]' : 'border-gray-800 bg-gray-900/60'}`}>
-            <div className="flex items-start justify-between gap-3 flex-wrap">
-              <div className="min-w-0">
-                <div className="flex items-center gap-2 flex-wrap">
-                  <h3 className="text-sm font-bold text-white">{o.name}</h3>
-                  <span className={`text-[10.5px] font-bold px-2 py-0.5 rounded-full border ${st.cls}`}>{st.label}</span>
-                  {o.announce && o.state === 'live' && <span className="text-[10px] text-gray-500">📢 يُعلَن</span>}
-                </div>
-                <div className="text-xs text-amber-200 mt-1">🎁 {o.rule}</div>
-                <div className="text-[11px] text-gray-500 mt-1">
-                  الحجز {fmtDT(o.bookFrom)} ← {fmtDT(o.bookUntil)} · قبل الفعاليّة بـ{n(o.leadHours)} س
-                  {o.maxGroups > 0 ? ` · سقف ${n(o.maxGroups)} مجموعة` : ' · بلا سقف'} · {n(o.perCustomer)} للعميل
-                  {o.priorityHours > 0 && ` · أولويّة ${n(o.priorityHours)} س`}
-                  {o.notifiedAt && ` · أُبلغ ${fmtDT(o.notifiedAt)}`}
-                </div>
-                <div className="flex flex-wrap gap-1 mt-1.5">
+          <Card key={o.id} style={o.state === 'live' ? { borderColor: 'var(--ok)' } : undefined}
+            title={(
+              <span className="row" style={{ flexWrap: 'wrap', minWidth: 0 }}>
+                <Ticket /><span>{o.name}</span><Badge tone={st.tone}>{st.label}</Badge>
+                {o.announce && o.state === 'live' && <Badge tone="info"><Megaphone />يُعلَن</Badge>}
+              </span>
+            )}>
+            <div className="stack">
+              <div className="row" style={{ alignItems: 'flex-start', font: '700 14px/22px var(--font-sans)', color: 'var(--gold)' }}><Gift style={{ marginTop: 2 }} /><span>{o.rule}</span></div>
+              <div className="muted" style={{ font: '500 13px/20px var(--font-sans)' }}>
+                الحجز {fmtDT(o.bookFrom)} ← {fmtDT(o.bookUntil)} · قبل الفعاليّة بـ{L(n(o.leadHours))} س
+                {o.maxGroups > 0 ? <> · سقف {L(n(o.maxGroups))} مجموعة</> : ' · بلا سقف'} · {L(n(o.perCustomer))} للعميل
+                {o.priorityHours > 0 && <> · أولويّة {L(n(o.priorityHours))} س</>}
+                {o.notifiedAt && ` · أُبلغ ${fmtDT(o.notifiedAt)}`}
+              </div>
+              {(o.activities || []).length > 0 && (
+                <div className="row" style={{ flexWrap: 'wrap' }}>
                   {(o.activities || []).map((a: any) => (
-                    <a key={a.id} href={`/admin/activities/${a.id}`} className={`text-[10.5px] px-2 py-0.5 rounded-md border ${a.past ? 'border-gray-800 text-gray-600' : 'border-gray-700 text-gray-300 hover:text-white'}`}>
+                    <a key={a.id} href={`/admin/activities/${a.id}`} className="wa-who" style={a.past ? { opacity: 0.5 } : undefined}>
                       {a.name} · {fmtDT(a.date)}
                     </a>
                   ))}
                 </div>
+              )}
+              <div className="wa-grid3">
+                <Tile k="مجموعات" v={n(s.groups)} />
+                <Tile k="أصحاب مرتبطون" v={n(s.linked)} h={s.pending ? <>{L(`+${n(s.pending)}`)} بانتظار</> : undefined} />
+                <Tile tone="gold" k="مجّانيّ مُحسوم" v={n(s.given)} h={<>/ {L(n(s.promised))} موعود</>} />
               </div>
-              <div className="grid grid-cols-3 gap-x-4 gap-y-1 text-center shrink-0">
-                <div><div className="text-[10px] text-gray-500">مجموعات</div><div className="text-lg font-black text-white tabular-nums">{n(s.groups)}</div></div>
-                <div><div className="text-[10px] text-gray-500">أصحاب مرتبطون</div><div className="text-lg font-black text-sky-300 tabular-nums">{n(s.linked)}<span className="text-[10px] text-gray-500 font-normal">{s.pending ? ` +${n(s.pending)} بانتظار` : ''}</span></div></div>
-                <div><div className="text-[10px] text-gray-500">مجّانيّ مُحسوم</div><div className="text-lg font-black text-emerald-300 tabular-nums">{n(s.given)}<span className="text-[10px] text-gray-500 font-normal"> / {n(s.promised)} موعود</span></div></div>
+              <div className="row" style={{ flexWrap: 'wrap' }}>
+                {o.status !== 'live' && o.state !== 'ended' && (
+                  <button type="button" disabled={busy} onClick={() => setStatus(o, 'live')} className="wa-btn send"><Play />تفعيل</button>
+                )}
+                {o.status === 'live' && (
+                  <button type="button" disabled={busy} onClick={() => setStatus(o, 'paused')} className="wa-btn"><Pause />إيقاف</button>
+                )}
+                {o.notifyExisting && o.state !== 'ended' && (
+                  <button type="button" disabled={busy} onClick={() => openNotify(o)} className="wa-btn"><Megaphone />إبلاغ الحاجزين</button>
+                )}
+                <button type="button" disabled={busy} onClick={() => edit(o)} className="wa-btn"><Pencil />تعديل</button>
+                {!s.groups && (
+                  <button type="button" disabled={busy} onClick={() => remove(o)} className="wa-btn danger"><Trash2 />حذف</button>
+                )}
+                {s.foregone > 0 && <span className="muted" style={{ fontSize: 13 }}>قيمة المجّانيّ المحسوم: {L(n(s.foregone))} د.أ</span>}
               </div>
             </div>
-            <div className="flex gap-2 mt-3 flex-wrap">
-              {o.status !== 'live' && o.state !== 'ended' && (
-                <button disabled={busy} onClick={() => setStatus(o, 'live')} className="text-xs font-bold px-3 py-1.5 rounded-lg border border-emerald-600/40 text-emerald-300 hover:bg-emerald-500/10 disabled:opacity-50">🟢 تفعيل</button>
-              )}
-              {o.status === 'live' && (
-                <button disabled={busy} onClick={() => setStatus(o, 'paused')} className="text-xs font-bold px-3 py-1.5 rounded-lg border border-amber-600/40 text-amber-300 hover:bg-amber-500/10 disabled:opacity-50">⏸️ إيقاف</button>
-              )}
-              {o.notifyExisting && o.state !== 'ended' && (
-                <button disabled={busy} onClick={() => openNotify(o)} className="text-xs font-bold px-3 py-1.5 rounded-lg border border-sky-600/40 text-sky-300 hover:bg-sky-500/10 disabled:opacity-50">📣 إبلاغ الحاجزين</button>
-              )}
-              <button disabled={busy} onClick={() => edit(o)} className="text-xs font-bold px-3 py-1.5 rounded-lg border border-gray-700 text-gray-300 hover:text-white disabled:opacity-50">✏️ تعديل</button>
-              {!s.groups && (
-                <button disabled={busy} onClick={() => remove(o)} className="text-xs font-bold px-3 py-1.5 rounded-lg border border-rose-600/30 text-rose-300/80 hover:bg-rose-500/10 disabled:opacity-50">🗑️ حذف</button>
-              )}
-              {s.foregone > 0 && <span className="text-[11px] text-gray-500 self-center">قيمة المجّانيّ المحسوم: {n(s.foregone)} د.أ</span>}
-            </div>
-          </section>
+          </Card>
         );
       })}
-    </div>
+    </>
   );
 }
