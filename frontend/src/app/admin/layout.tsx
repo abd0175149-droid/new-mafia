@@ -42,7 +42,7 @@ const NAV_GROUPS: NavGroup[] = [
     key: 'ops', icon: '🎯', label: 'التشغيل والحجوزات',
     items: [
       { href: '/admin/activities', icon: '🎯', label: 'الأنشطة' },
-      { href: '/admin/bookings', icon: '📅', label: 'الحجوزات' },
+      // «الحجوزات» أُخفيت من القائمة 2026-11-13 (المالك لا يستعملها) — الصفحة /admin/bookings باقية
       { href: '/admin/reservations', icon: '📋', label: 'متابعة الحجوزات' },
       { href: '/admin/whatsapp', icon: '💬', label: 'واتساب', roles: ['admin'] },
       { href: '/admin/tickets', icon: '🎫', label: 'التذاكر', roles: ['admin', 'accountant'] },
@@ -284,7 +284,7 @@ export default function AdminLayout({ children }: { children: ReactNode }) {
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-gray-950 flex items-center justify-center">
+      <div className="admin-noir min-h-screen bg-gray-950 flex items-center justify-center">
         <div className="animate-spin h-8 w-8 border-4 border-amber-500 border-t-transparent rounded-full" />
       </div>
     );
@@ -294,7 +294,7 @@ export default function AdminLayout({ children }: { children: ReactNode }) {
     <AdminScopeProvider>
     {/* 📱 --admin-top: ارتفاعُ الشريط العلويّ الثابت (مع شريط الحالة في التطبيق المثبَّت) — تقيس منه
         كلُّ ترويسةٍ لاصقة في الصفحات كي لا تنزلق تحته. على الحاسوب صفر: لا شريط. */}
-    <div className="min-h-screen bg-gray-950 flex" dir="rtl"
+    <div className="admin-noir min-h-screen bg-gray-950 flex" dir="rtl"
       style={{ ['--admin-top' as any]: isMobile ? 'calc(56px + env(safe-area-inset-top, 0px))' : '0px' }}>
       {/* Mobile: Overlay backdrop */}
       {isMobile && sidebarOpen && (
