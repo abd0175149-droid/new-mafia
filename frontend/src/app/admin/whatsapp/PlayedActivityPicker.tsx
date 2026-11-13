@@ -18,8 +18,8 @@ interface Loc { id: number; name: string; count: number }
 
 const MAX = 60;   // = PLAYED_MAX_ACTIVITIES في الخادم
 const TZ = 'Asia/Amman';
-const monthOf = (iso: string) => new Date(iso).toLocaleDateString('ar-JO', { month: 'long', year: 'numeric', timeZone: TZ });
-const dayOf = (iso: string) => new Date(iso).toLocaleDateString('ar-JO', { weekday: 'short', day: 'numeric', month: 'short', timeZone: TZ });
+const monthOf = (iso: string) => new Date(iso).toLocaleDateString('ar-JO-u-nu-latn', { month: 'long', year: 'numeric', timeZone: TZ });
+const dayOf = (iso: string) => new Date(iso).toLocaleDateString('ar-JO-u-nu-latn', { weekday: 'short', day: 'numeric', month: 'short', timeZone: TZ });
 
 export default function PlayedActivityPicker({ apiFetch, value, onChange }: {
   apiFetch: Fetcher;

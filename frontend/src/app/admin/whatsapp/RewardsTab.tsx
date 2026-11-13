@@ -12,7 +12,7 @@ import { Badge, Banner, Card, Field, HBar, PageHead, Seg, Setting, Tile, Toggle,
 
 type Fetcher = (path: string, opts?: RequestInit) => Promise<any>;
 
-const n = (x: any) => Number(x || 0).toLocaleString('ar-JO');
+const n = (x: any) => Number(x || 0).toLocaleString('ar-JO-u-nu-latn');
 const KINDS = [
   { key: 'RR', label: 'نقاط رانك', unit: 'نقطة رانك' },
   { key: 'XP', label: 'نقاط خبرة', unit: 'نقطة خبرة' },
@@ -53,7 +53,7 @@ function toDate(v: any): Date {
 
 function fmtDT(v: any) {
   if (!v) return '—';
-  return toDate(v).toLocaleString('ar-JO', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Amman' });
+  return toDate(v).toLocaleString('ar-JO-u-nu-latn', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Amman' });
 }
 
 /** رقم/مبلغ بالأرقام — يُعزل اتّجاهه */

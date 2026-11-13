@@ -19,7 +19,7 @@ const STATUS_AR: Record<string, { t: string; tone?: Tone; title: string }> = {
   partial: { t: 'منّا فقط · غير محسوم', tone: 'warn', title: 'لا رسالة منه فيما استرجعناه، وبقي تاريخٌ أقدم على الهاتف لم يُسترجع بعد' },
   unknown: { t: '—', title: '' },
 };
-const fmtDay = (iso?: string | null) => iso ? new Date(iso).toLocaleDateString('ar-EG', { day: 'numeric', month: 'short', year: 'numeric' }) : '';
+const fmtDay = (iso?: string | null) => iso ? new Date(iso).toLocaleDateString('ar-JO-u-nu-latn', { day: 'numeric', month: 'short', year: 'numeric' }) : '';
 const ago = (iso?: string | null) => {
   if (!iso) return '—';
   const m = Math.round((Date.now() - new Date(iso).getTime()) / 60e3);

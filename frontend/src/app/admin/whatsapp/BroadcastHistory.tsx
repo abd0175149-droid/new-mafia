@@ -41,10 +41,10 @@ const SORTS: Array<{ key: string; label: string; sort: string; order: 'asc' | 'd
 const PAGE_SIZES = [10, 20, 50];
 
 const dt = (iso: string | null) => iso
-  ? new Date(iso).toLocaleString('ar-JO', { timeZone: 'Asia/Amman', weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })
+  ? new Date(iso).toLocaleString('ar-JO-u-nu-latn', { timeZone: 'Asia/Amman', weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })
   : '—';
 const hm = (iso: string | null) => iso
-  ? new Date(iso).toLocaleString('ar-EG', { timeZone: 'Asia/Amman', day: 'numeric', month: 'numeric', hour: 'numeric', minute: '2-digit' })
+  ? new Date(iso).toLocaleString('ar-JO-u-nu-latn', { timeZone: 'Asia/Amman', day: 'numeric', month: 'numeric', hour: 'numeric', minute: '2-digit' })
   : '';
 const dur = (s: number | null) => s == null ? '—' : s < 60 ? `${s} ث` : s < 3600 ? `${Math.floor(s / 60)} د ${s % 60} ث` : `${Math.floor(s / 3600)} س ${Math.floor((s % 3600) / 60)} د`;
 const pct = (n: number, d: number) => d > 0 ? Math.round((n / d) * 100) : 0;

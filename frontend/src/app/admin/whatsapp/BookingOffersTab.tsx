@@ -16,7 +16,7 @@ import { Badge, Banner, Card, Chip, Field, PageHead, Setting, Skel, Tile, Toggle
 
 type Fetcher = (path: string, opts?: RequestInit) => Promise<any>;
 
-const n = (x: any) => Number(x || 0).toLocaleString('ar-JO');
+const n = (x: any) => Number(x || 0).toLocaleString('ar-JO-u-nu-latn');
 const H = 3600e3;
 const JO = 3 * H;   // الأردن UTC+3 طوال العام (بلا توقيتٍ صيفيّ منذ 2022) — نفس الخادم
 
@@ -25,7 +25,7 @@ const toInput = (v: any) => { const t = new Date(v).getTime(); return isNaN(t) ?
 const fromInput = (s: string) => new Date(s + ':00+03:00').toISOString();
 function fmtDT(v: any) {
   if (!v) return '—';
-  return new Date(v).toLocaleString('ar-JO', { weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Amman' });
+  return new Date(v).toLocaleString('ar-JO-u-nu-latn', { weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Amman' });
 }
 const ORD = ['', 'الأوّل', 'الثاني', 'الثالث', 'الرابع', 'الخامس', 'السادس', 'السابع', 'الثامن', 'التاسع', 'العاشر'];
 /** نفس ruleText في الخادم — ما يقرؤه العميل حرفيّاً */

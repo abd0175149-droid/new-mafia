@@ -17,10 +17,10 @@ const H = 3600e3;
 const JO = 3 * H;
 const toInput = (v: any) => { const t = new Date(v).getTime(); return isNaN(t) ? '' : new Date(t + JO).toISOString().slice(0, 16); };
 const fromInput = (s: string) => new Date(s + ':00+03:00').toISOString();
-const n = (x: any) => Number(x || 0).toLocaleString('ar-JO');
+const n = (x: any) => Number(x || 0).toLocaleString('ar-JO-u-nu-latn');
 function fmtDT(v: any) {
   if (!v) return '—';
-  return new Date(v).toLocaleString('ar-JO', { weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Amman' });
+  return new Date(v).toLocaleString('ar-JO-u-nu-latn', { weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Amman' });
 }
 const STATE: Record<string, { label: string; tone?: Tone }> = {
   live: { label: 'فعّال', tone: 'ok' },

@@ -20,10 +20,10 @@ import type { Tone } from './wa-ui';
 
 type Fetcher = (path: string, opts?: RequestInit) => Promise<any>;
 
-const n = (x: any) => Number(x || 0).toLocaleString('ar-JO');
+const n = (x: any) => Number(x || 0).toLocaleString('ar-JO-u-nu-latn');
 const pct = (a: number, b: number) => (b ? `${Math.round((a / b) * 100)}٪` : '—');
 const secs = (ms: number | null) => (ms == null ? '—' : ms < 60000 ? `${(ms / 1000).toFixed(1)} ث` : `${Math.round(ms / 60000)} د`);
-const fmtDate = (iso: string) => new Date(iso).toLocaleString('ar-JO', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Amman' });
+const fmtDate = (iso: string) => new Date(iso).toLocaleString('ar-JO-u-nu-latn', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Amman' });
 const usd = (v: number) => (v >= 1 ? `$${v.toFixed(2)}` : v >= 0.01 ? `$${v.toFixed(3)}` : `$${v.toFixed(5)}`);
 const tok = (v: number) => (v >= 1e6 ? `${(v / 1e6).toFixed(1)}م` : v >= 1e3 ? `${Math.round(v / 1e3)}ألف` : String(v || 0));
 

@@ -191,7 +191,7 @@ export default function ChannelsSection({ apiFetch }: { apiFetch: Fetcher }) {
             )}
             {web.restriction && (
               <Banner tone="warn" icon={<AlertTriangle aria-hidden="true" />}>
-                قيد من واتساب: {web.restriction.kind}{web.restriction.expiresAt ? ` حتّى ${new Date(web.restriction.expiresAt).toLocaleString('ar-JO')}` : ''}
+                قيد من واتساب: {web.restriction.kind}{web.restriction.expiresAt ? ` حتّى ${new Date(web.restriction.expiresAt).toLocaleString('ar-JO-u-nu-latn')}` : ''}
               </Banner>
             )}
             {web.locked && (

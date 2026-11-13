@@ -75,7 +75,7 @@ function hoursLeft(iso: string) {
   const h = Math.floor(ms / 3600e3), m = Math.floor((ms % 3600e3) / 60e3);
   return h ? `${h}س ${m}د` : `${m}د`;
 }
-const fmt = (iso: string) => new Date(iso).toLocaleString('ar-JO', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Amman' });
+const fmt = (iso: string) => new Date(iso).toLocaleString('ar-JO-u-nu-latn', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Amman' });
 
 export default function BroadcastTab({ apiFetch }: { apiFetch: Fetcher }) {
   const [filter, setFilter] = useState<Filter>('all');
@@ -338,13 +338,13 @@ export default function BroadcastTab({ apiFetch }: { apiFetch: Fetcher }) {
   const fmtAt = (iso?: string | null) => {
     if (!iso) return '—';
     const d = new Date(iso), now = new Date();
-    const t = d.toLocaleTimeString('ar-JO', { hour: 'numeric', minute: '2-digit' });
+    const t = d.toLocaleTimeString('ar-JO-u-nu-latn', { hour: 'numeric', minute: '2-digit' });
     if (d.toDateString() === now.toDateString()) return `اليوم ${t}`;
     const tm = new Date(now); tm.setDate(now.getDate() + 1);
     if (d.toDateString() === tm.toDateString()) return `غداً ${t}`;
     const ys = new Date(now); ys.setDate(now.getDate() - 1);
     if (d.toDateString() === ys.toDateString()) return `أمس ${t}`;
-    return `${d.toLocaleDateString('ar-JO', { weekday: 'long', day: 'numeric', month: 'short' })} ${t}`;
+    return `${d.toLocaleDateString('ar-JO-u-nu-latn', { weekday: 'long', day: 'numeric', month: 'short' })} ${t}`;
   };
   const LANE_TONE: Record<string, { dot: string; color: string; label: string }> = {
     sending: { dot: 'ok', color: 'var(--ok)', label: 'يُرسل الآن' },
@@ -812,7 +812,7 @@ export default function BroadcastTab({ apiFetch }: { apiFetch: Fetcher }) {
               يصل من رقم الأعمال كما سيصل الناس (بالاسم والتذييل{img ? (img.kind === 'video' ? ' والفيديو' : ' والصورة') : ''}) إلى:{' '}
               {testRcpts === null ? '…' : testRcpts.length ? <b style={{ color: 'var(--ink)' }}>{testRcpts.map(r => r.name).join('، ')}</b> : <span style={{ color: 'var(--danger)' }}>لا أرقام إداريّين مربوطة</span>}
             </p>
-            {testedOk && <p style={{ margin: 0, font: '500 13px/20px var(--font-sans)', color: 'var(--ok)' }}>خرج {new Date(tested!.at).toLocaleTimeString('ar-JO', { hour: 'numeric', minute: '2-digit' })} — راجعوه على هواتفكم ثمّ اضغط «أرسل».</p>}
+            {testedOk && <p style={{ margin: 0, font: '500 13px/20px var(--font-sans)', color: 'var(--ok)' }}>خرج {new Date(tested!.at).toLocaleTimeString('ar-JO-u-nu-latn', { hour: 'numeric', minute: '2-digit' })} — راجعوه على هواتفكم ثمّ اضغط «أرسل».</p>}
             {tested && !testedOk && <p className="row" style={{ margin: 0, font: '500 13px/20px var(--font-sans)', color: 'var(--warn)', alignItems: 'flex-start' }}><TriangleAlert aria-hidden />تغيّرت الرسالة بعد الاختبار (أو مضى عليه 12 ساعة) — اختبر من جديد.</p>}
             {testedOk && tested!.sentTo.some(x => !x.ok) && (
               <p style={{ ...SMALL, margin: 0, color: 'var(--warn)' }}>{tested!.sentTo.filter(x => !x.ok).map(x => `${x.name}: ${x.error}`).join(' · ')}</p>
