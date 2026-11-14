@@ -1215,6 +1215,17 @@ async function seatAvailability(db: any, activityId: number): Promise<{ total: n
  * يُرجع null إن كانت قابلة، وإلّا نتيجةَ أداةٍ يفهمها النموذج.
  */
 const BOOKABLE_GRACE_MS = 6 * 3600e3;
+/**
+ * 🟢 الفعاليّات التي لها غرفةٌ حيّة لم تُغلق — قرار المالك 2026-11-14: ما دامت الغرفة مفتوحة فالحجز
+ * مقبول مهما مضى على موعد البداية (المتأخّرون يلحقون الجولة التالية). فشلُ القراءة ⟵ مجموعةٌ فارغة،
+ * فتبقى مهلةُ الساعات الستّ شبكةَ الأمان.
+ */
+async function liveRoomActivityIds(): Promise<Set<number>> {
+  try {
+    return new Set((await liveStatesNoTest()).map((st: any) => Number(st.activityId)).filter((n: number) => n > 0));
+  } catch { return new Set(); }
+}
+const LIVE_NOW_NOTE = 'الفعاليّة جارية الآن وبابها مفتوح: الحجز والحضور ممكنان فوراً ويلحق الجولة التالية. ⛔ ممنوع أن تقول «فات موعدها» أو «انتهى وقت الحضور» أو أن تعرض عليه يوماً آخر بدلاً منها.';
 export async function notBookable(db: any, activityId: number): Promise<any | null> {
   const [a] = await db.select({ name: activities.name, date: activities.date, status: activities.status, deletedAt: activities.deletedAt })
     .from(activities).where(eq(activities.id, activityId)).limit(1);
@@ -1222,6 +1233,8 @@ export async function notBookable(db: any, activityId: number): Promise<any | nu
   if (a.status === 'cancelled') {
     return { notBookable: true, cancelled: true, error: `فعاليّة «${a.name}» (${fmtJo(a.date)}) مُلغاة — لا حجز ولا تأكيد ولا تكلفة. اعتذر للعميل باختصار أنّها أُلغيت واعرض الفعاليات القادمة (get_available_activities).` };
   }
+  // 🟢 غرفةٌ حيّة ⟵ قابلةٌ للحجز مهما كان الوقت أو الحالة
+  if ((await liveRoomActivityIds()).has(Number(activityId))) return null;
   if (!['planned', 'active'].includes(String(a.status)) || new Date(a.date as any).getTime() < Date.now() - BOOKABLE_GRACE_MS) {
     return { notBookable: true, ended: true, error: `فعاليّة «${a.name}» كانت ${fmtJo(a.date)} وانتهت — لا حجز. قل للعميل إنّ موعدها فات (القائمة التي ضغط منها قديمة) واعرض الفعاليات القادمة (get_available_activities).` };
   }
@@ -1260,6 +1273,8 @@ async function existingBookingFor(db: any, conv: any, activityId: number): Promi
 
 async function fetchUpcomingActivities(db: any) {
   const now = new Date(Date.now() - 6 * 3600e3);
+  const liveIds = await liveRoomActivityIds();
+  const liveList = [...liveIds];
   const rows = await db
     .select({
       id: activities.id, name: activities.name, date: activities.date,
@@ -1269,7 +1284,14 @@ async function fetchUpcomingActivities(db: any) {
     })
     .from(activities)
     .leftJoin(locations, eq(activities.locationId, locations.id))
-    .where(and(inArray(activities.status, ['planned', 'active'] as any), gte(activities.date, now as any), isNull(activities.deletedAt), notTestActivity))
+    .where(and(
+      isNull(activities.deletedAt), notTestActivity,
+      or(
+        and(inArray(activities.status, ['planned', 'active'] as any), gte(activities.date, now as any)),
+        // 🟢 لها غرفةٌ حيّة ⟵ تُعرض ولو مضى موعدها بأكثر من المهلة (غير الملغاة)
+        liveList.length ? and(inArray(activities.id, liveList), sql`${activities.status} <> 'cancelled'`) : sql`false`,
+      ),
+    ))
     .orderBy(asc(activities.date))
     .limit(8);
   // 🏙️ اسم المدينة لكلّ فعاليّة — العميل في الزرقاء يريد ليالي الزرقاء
@@ -1308,6 +1330,10 @@ async function fetchUpcomingActivities(db: any) {
       location: a.locationName || '',
       city: a.cityId != null ? (cityNames.get(Number(a.cityId)) || '') : '',
       availability: av.remaining === 0 ? 'مكتملة' : av.remaining <= 5 ? 'شارفت تكتمل' : 'متاحة',
+      // 🟢 بدأت ولم تُغلق: النموذج كان يقارن «الآن» بالموعد فيستنتج وحده أنّها فاتت (إبراهيم #1358، 2026-11-13)
+      ...(new Date(a.date as any).getTime() <= Date.now()
+        ? { liveNow: true, stillOpen: liveIds.has(Number(a.id)) ? LIVE_NOW_NOTE : `موعد بدايتها مضى لكنّها ما زالت مفتوحة للحجز والحضور الليلة — ${LIVE_NOW_NOTE}` }
+        : {}),
     });
   }
   return out;
@@ -1397,6 +1423,36 @@ async function lastInboundButtonId(db: any, convId: number): Promise<string | nu
   return p?.interactive?.button_reply?.id || p?.interactive?.list_reply?.id || null;
 }
 
+/**
+ * ✅ ما الذي أكّده العميل فعلاً؟ — المصدر الوحيد لرقم الفعاليّة والعدد عند إنشاء الحجز.
+ * النموذج لا يرى رقم الفعاليّة في سجلّ المحادثة (السجلّ نصوصٌ فقط)، فكان يخمّنه حين يكتب العميل
+ * «تأكيد» بدل ضغط الزرّ، فيقع على فعاليّةٍ قديمة ويقول «انتهت» (رانيا #686، 2026-11-14).
+ *  • آخر واردٍ ضغطةُ res_confirm ⟵ ما تحمله الضغطة.
+ *  • آخر واردٍ كلمةُ موافقةٍ وبطاقةُ التأكيد أُرسلت قبل أقلّ من ١٠ دقائق ⟵ ما حُفظ مع البطاقة.
+ */
+const RESCONF_TTL_MS = 10 * 60e3;
+async function pendingResConfirm(convId: number): Promise<{ activityId: number; people: number } | null> {
+  try {
+    const { getAux } = await import('../config/redis.js');
+    const p: any = await getAux(`resconf:${convId}`);
+    if (!p || !p.activityId || Date.now() - Number(p.at || 0) > RESCONF_TTL_MS) return null;
+    return { activityId: Number(p.activityId), people: Math.max(1, Number(p.people) || 1) };
+  } catch { return null; }
+}
+async function confirmedReservationIntent(db: any, convId: number): Promise<{ activityId: number; people: number; via: 'button' | 'word' } | null> {
+  const [m] = await db.select({ payload: waMessages.payload, body: waMessages.body, msgType: waMessages.msgType }).from(waMessages)
+    .where(and(eq(waMessages.conversationId, convId), eq(waMessages.direction, 'in'))).orderBy(desc(waMessages.createdAt), desc(waMessages.id)).limit(1);
+  const p: any = m?.payload;
+  const bid = p?.interactive?.button_reply?.id || p?.interactive?.list_reply?.id || '';
+  const mm = /^res_confirm:(\d+):(\d+)$/.exec(bid);
+  if (mm) return { activityId: parseInt(mm[1]), people: Math.max(1, parseInt(mm[2]) || 1), via: 'button' };
+  if (bid || m?.msgType !== 'text') return null;
+  const { isConfirmWord } = await import('./wa-transport/menu-emulation.js');
+  if (!isConfirmWord(String(m?.body || ''))) return null;
+  const pend = await pendingResConfirm(convId);
+  return pend ? { ...pend, via: 'word' } : null;
+}
+
 /** تحويل المحادثة للإدارة: إيقاف البوت + شارة «بحاجة تدخّل» + تنبيه الأدمن (واتساب/إشعار/دفع). أداةُ النموذج وحارسُ الوعد يمرّان من هنا */
 async function performHandoff(conv: any, reasonRaw: string): Promise<void> {
   const db = getDB(); if (!db) return;
@@ -1476,7 +1532,7 @@ async function execTool(name: string, args: any, ctx: ToolCtx): Promise<any> {
       const rows = acts.slice(0, 10).map(a => ({
         id: `act:${a.id}`,
         title: a.name.slice(0, 24),
-        description: `${(a as any).earlyPrice ? '💸 ' + (a as any).earlyPrice.priceJOD + ' د.أ مبكّراً · ' : ''}${(a as any).groupOffer ? offerBadges.get(Number(a.id))!.tag + ' · ' : ''}${a.dateText}${a.location ? ' · ' + a.location : ''}${a.city ? ' · ' + a.city : ''}${a.availability === 'مكتملة' ? ' · ⛔ مكتملة' : a.availability === 'شارفت تكتمل' ? ' · ⏳ شارفت تكتمل' : ''}`.slice(0, 72),
+        description: `${(a as any).earlyPrice ? '💸 ' + (a as any).earlyPrice.priceJOD + ' د.أ مبكّراً · ' : ''}${(a as any).groupOffer ? offerBadges.get(Number(a.id))!.tag + ' · ' : ''}${(a as any).liveNow ? '🟢 جارية الآن · ' : ''}${a.dateText}${a.location ? ' · ' + a.location : ''}${a.city ? ' · ' + a.city : ''}${a.availability === 'مكتملة' ? ' · ⛔ مكتملة' : a.availability === 'شارفت تكتمل' ? ' · ⏳ شارفت تكتمل' : ''}`.slice(0, 72),
       }));
       const interactive = {
         type: 'list',
@@ -1491,7 +1547,8 @@ async function execTool(name: string, args: any, ctx: ToolCtx): Promise<any> {
       }
       return {
         activities: acts,
-        note: 'أُرسلت قائمة تفاعلية للعميل — اكتب جملة قصيرة واحدة تدعوه للاختيار من القائمة، بدون تكرار تفاصيل الفعاليات. لأسئلة توفر المقاعد: لا تجب من هنا — اسأل عن عدد الأشخاص ثم استخدم check_seat_availability.',
+        note: 'أُرسلت قائمة تفاعلية للعميل — اكتب جملة قصيرة واحدة تدعوه للاختيار من القائمة، بدون تكرار تفاصيل الفعاليات. لأسئلة توفر المقاعد: لا تجب من هنا — اسأل عن عدد الأشخاص ثم استخدم check_seat_availability.'
+          + ((acts as any[]).some(a => a.liveNow) ? ' 🟢 في القائمة فعاليّة جارية الآن (liveNow) — كلّ ما في هذه القائمة قابلٌ للحجز، والجارية تُحجز ويُحضر إليها الآن: قل له بوضوح إنّ لعبة اليوم شغّالة ويقدر يلحق. ممنوع «فات موعدها».' : ''),
       };
     }
 
@@ -1683,8 +1740,10 @@ async function execTool(name: string, args: any, ctx: ToolCtx): Promise<any> {
         ctx.interactives.push({ kind: 'buttons', preview: interactive.body.text });
       } else {
         await sendMessage({ conversationId: conv.id, interactive, source: 'bot' });
+        // ✅ ما عُرض للتأكيد يُحفظ في الخادم ١٠ دقائق — الحجز يُنشأ منه لا من ذاكرة النموذج
+        try { const { setAux } = await import('../config/redis.js'); await setAux(`resconf:${conv.id}`, { activityId, people, at: Date.now() }); } catch { /* الزرّ يكفي */ }
       }
-      return { sent: true, note: 'أُرسلت أزرار التأكيد للعميل — لا تنشئ الحجز الآن. اكتب جملة قصيرة جداً أو لا شيء، وانتظر رده.' };
+      return { sent: true, note: 'أُرسلت بطاقة التأكيد للعميل وفيها طريقة التأكيد — لا تنشئ الحجز الآن. ⛔ لا تكتب بعدها شيئاً (الأفضل)، وإن كتبت فجملةٌ واحدة قصيرة بلا أيّ تعليمات: ممنوع «ردّ بكلمة تأكيد» أو شرح طريقة التأكيد، وممنوع «أكّدتلك / تمّ الحجز» — الحجز لم يُثبَّت بعد.' };
     }
 
     case 'set_group_members': {
@@ -1721,14 +1780,27 @@ async function execTool(name: string, args: any, ctx: ToolCtx): Promise<any> {
     }
 
     case 'create_reservation': {
-      const activityId = parseInt(args.activity_id);
+      let activityId = parseInt(args.activity_id);
+      let people = Math.max(1, parseInt(args.people_count) || 1);
+      if (!dryRun) {
+        // 🔒 فرضٌ بالكود: لا حجز إلا وآخر رسالة من العميل تأكيدٌ (ضغطة الزرّ، أو كلمة موافقةٍ على بطاقةٍ حيّة).
+        //    والفعاليّة والعدد هما ما أكّده العميل، لا ما يمرّره النموذج — يُفحص **قبل** صلاحيّة الفعاليّة،
+        //    وإلّا خمّن النموذج رقماً فجاءه «انتهت» ونقلها للعميل.
+        const intent = await confirmedReservationIntent(db, conv.id);
+        if (!intent) {
+          const pend = await pendingResConfirm(conv.id);
+          return {
+            needsConfirmation: true,
+            note: pend
+              ? `لم يؤكّد العميل بعد — بطاقة التأكيد (الفعاليّة ${pend.activityId}، ${pend.people} أشخاص) ما زالت قائمة: اطلب منه بجملة قصيرة أن يكتب الرقم 1 أو كلمة «تأكيد». لا تقل إنّ الفعاليّة انتهت ولا تعرض فعاليّات أخرى.`
+              : 'لا يوجد تأكيدٌ قائم من العميل — لا يُنشأ حجز. استدعِ ask_confirmation من جديد (وإن لم تعرف معرّف الفعاليّة فاستدعِ get_available_activities أوّلاً). لا تقل إنّ الفعاليّة انتهت.',
+          };
+        }
+        activityId = intent.activityId;
+        people = intent.people;
+      }
       if (await isTestActivity(db, activityId)) return TEST_ACTIVITY_RESULT;
       { const nb = await notBookable(db, activityId); if (nb) return nb; }
-      let people = Math.max(1, parseInt(args.people_count) || 1);
-      if (!dryRun) { // العدد المعتمد هو ما ضغط عليه العميل، لا ما يمرّره النموذج
-        const mmP = /^res_confirm:(\d+):(\d+)$/.exec((await lastInboundButtonId(db, conv.id)) || '');
-        if (mmP && parseInt(mmP[1]) === activityId) people = Math.max(1, parseInt(mmP[2]) || people);
-      }
       const [act] = await db.select({ id: activities.id, name: activities.name, date: activities.date, basePrice: activities.basePrice })
         .from(activities).where(eq(activities.id, activityId)).limit(1);
       if (!act) return { error: 'الفعالية غير موجودة — أعد عرض الفعاليات' };
@@ -1736,15 +1808,6 @@ async function execTool(name: string, args: any, ctx: ToolCtx): Promise<any> {
       let totalCost = Math.round(unitCost * people * 100) / 100;
       if (dryRun) {
         return { success: true, dryRun: true, reservation: { activity: act.name, people }, note: '(ساحة اختبار — لم يُسجّل حجز حقيقي)' };
-      }
-      // 🔒 فرضٌ بالكود: لا حجز إلا وآخر رسالة من العميل هي ضغطة زرّ التأكيد لهذه الفعاليّة نفسها.
-      //    كانت القاعدة في الموجّه وحده، فإلحاح العميل أو هلوسة النموذج يكفيان لتجاوزها.
-      {
-        const bid = await lastInboundButtonId(db, conv.id);
-        const mm = /^res_confirm:(\d+):(\d+)$/.exec(bid || '');
-        if (!mm || parseInt(mm[1]) !== activityId) {
-          return { needsConfirmation: true, note: 'لم يضغط العميل زرّ «تأكيد الحجز» لهذه الفعاليّة — لا يُنشأ حجز. استدعِ ask_confirmation واطلب منه الضغط على الزرّ.' };
-        }
       }
       // 🚫 مانع التكرار لحظة الإنشاء (حتى لو تجاوز النموذج ask_confirmation)
       const dupRes = await existingBookingFor(db, conv, activityId);
@@ -1770,6 +1833,7 @@ async function execTool(name: string, args: any, ctx: ToolCtx): Promise<any> {
         notes: `${isWaitlist ? `⏳ قائمة انتظار (المتبقي ${av.remaining} من ${av.total}) — بانتظار تأكيد الإدارة. ` : ''}${args.note ? `🤖 ${args.note}` : ''}`.trim(),
         createdBy: `🤖 ${BOT_RESERVATION_TAG}`,
       } as any).returning();
+      try { const { deleteAux } = await import('../config/redis.js'); await deleteAux(`resconf:${conv.id}`); } catch { /* تنتهي وحدها */ }
       // 🪞 مرآة تفاصيل النشاط — للمؤكَّد فقط (قائمة الانتظار ليست مقعداً محجوزاً بعد)
       if (!isWaitlist) {
         await mirrorBotReservationToBookings(db, saved as any, `🤖 ${BOT_RESERVATION_TAG}`).catch((e: any) =>
@@ -1843,7 +1907,8 @@ async function execTool(name: string, args: any, ctx: ToolCtx): Promise<any> {
         note: (tplFollows
           ? `الحجز مؤكد ومسجّل. سيصل العميلَ من النظام مباشرةً بعد ردّك رسالةُ تثبيتٍ مفصّلة فيها المكان والخريطة والموعد وبرنامج الليلة والقواعد — فاكتب ردّاً قصيراً: «تمّ ✅ ثبّتنا حجزك»${costPart}، وذكّره أن الدفع في المكان، وقل إنّ التفاصيل كاملة بالرسالة التالية. لا تكرّر الموعد ولا المكان.`
           : `الحجز مؤكد ومسجّل — أبلغ العميل بالتفاصيل${costPart} وذكّره أن الدفع في المكان.`)
-          + `${epNote}${offerReminder ? ' (أُرسل للعميل عرض تذكير قبل اللعبة بساعة عبر أزرار — لا داعي لذكره نصّاً).' : ''}`,
+          + `${epNote}${offerReminder ? ' (أُرسل للعميل عرض تذكير قبل اللعبة بساعة عبر أزرار — لا داعي لذكره نصّاً).' : ''}`
+          + (msToGame <= 0 ? ` 🟢 ${LIVE_NOW_NOTE} قل له يتفضّل الآن.` : ''),
       };
     }
 
@@ -3181,6 +3246,15 @@ async function buildHistory(db: any, conv: any, limit: number, addressTitle?: st
     if (m.direction !== 'in' && addressTitle !== undefined) text = enforceAddress(text, addressTitle);
     contents.push({ role: m.direction === 'in' ? 'user' : 'model', parts: [{ text }] });
   }
+  // ✅ آخر رسالةٍ كلمةُ موافقة على بطاقة تأكيدٍ حيّة ⟵ تُلحق بها ضغطةُ التأكيد كما لو ضغط الزرّ،
+  //    فيعرف النموذج أنّ عليه إنشاء الحجز (والفعاليّةُ والعدد يُفرضان من الخادم في create_reservation)
+  try {
+    const last = rows[rows.length - 1];
+    if (last?.direction === 'in' && contents.length && contents[contents.length - 1].role === 'user') {
+      const intent = await confirmedReservationIntent(db, conv.id);
+      if (intent?.via === 'word') contents[contents.length - 1].parts[0].text += ` [اختيار:res_confirm:${intent.activityId}:${intent.people}]`;
+    }
+  } catch { /* غير حرج */ }
   // Gemini يشترط أن يبدأ السجل برسالة user
   while (contents.length && contents[0].role !== 'user') contents.shift();
   return contents;
@@ -3771,6 +3845,20 @@ ${rows.length} حجزاً × ${unit2} د.أ = *${total2} د.أ*
         if (wasHeld) flags.recovered = true;
         if (lastMsg.msgType === 'audio') flags.audio = /\[غير واضح\]|تعذّر فتح/.test(String(lastMsg.body || '')) ? 'unclear' : 'ok';
         if (await isAdminConversation(conv)) flags.admin = true;
+        // 🔎 أثرُ الأدوات: ما أرسله النموذج لكلّ أداة وخلاصةُ ما عاد — للتشخيص (كان السجلّ يحفظ الأسماء فقط،
+        //    فتعذّر الجزم بأيّ رقم فعاليّةٍ خمّنه في حالة رانيا #686). مقصوصٌ، وبلا أرقام هواتف.
+        try {
+          const cut = (v: any, n: number) => JSON.stringify(v ?? null).replace(/(?:\+?962|0)7\d{8}/g, '07••••••••').slice(0, n);
+          const tr = toolTrace.filter(t => !t.name.startsWith('🛡️')).slice(0, 8).map(t => {
+            const r: any = t.result || {};
+            const brief: any = {};
+            for (const k of ['error', 'notBookable', 'ended', 'cancelled', 'needsConfirmation', 'alreadyBooked', 'success', 'waitlist', 'enough', 'sent']) if (r[k] !== undefined) brief[k] = r[k];
+            if (Array.isArray(r.activities)) brief.activities = r.activities.map((a: any) => a.id);
+            if (r.reservation?.id) brief.reservationId = r.reservation.id;
+            return { n: t.name, a: cut(t.args, 240), r: cut(brief, 300) };
+          });
+          if (tr.length) flags.trace = tr;
+        } catch { /* غير حرج */ }
         recordBotUsage(convId, 'live', settings.model || '', usage, { replyMs: Math.max(0, Date.now() - new Date(lastMsg.createdAt).getTime()), tools: names.filter(n => !n.startsWith('🛡️')), flags }).catch(() => {});
       }
       let finalOut = enforceLinks(enforceAddress((text || '').trim(), addressTitle));

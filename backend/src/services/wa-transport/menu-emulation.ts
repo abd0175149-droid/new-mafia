@@ -122,6 +122,18 @@ export function normTitle(s: string): string {
 }
 
 /**
+ * ✅ كلمةُ موافقةٍ صريحة بدل الرقم — «تأكيد»، «أكّد»، «نعم»، «تمام»… رانيا #686 (2026-11-14) كتبت
+ * «تأكيد» بعد بطاقة الحجز فلم تُحسب ضغطةً، وضاع الحجز. تُقبل فقط لبطاقة تأكيد الحجز وضمن عمرها.
+ */
+const CONFIRM_WORDS = new Set([
+  'تاكيد', 'تاكيد الحجز', 'اكد', 'اكد الحجز', 'اكدلي', 'اكيد', 'نعم', 'اه', 'ايوه', 'ايوا', 'تمام', 'تم',
+  'ثبت', 'ثبته', 'ثبتلي', 'ثبت الحجز', 'موافق', 'اوك', 'اوكي', 'ok', 'okay', 'yes', 'confirm',
+]);
+export function isConfirmWord(text: string): boolean {
+  return CONFIRM_WORDS.has(normTitle(text));
+}
+
+/**
  * إن كانت الرسالة ردّاً على آخر قائمة: تُعاد بشكل interactive كأنّ ميتا أرسلته، ويُحذف السجلّ (استعمالٌ واحد).
  * وإلّا تُعاد كما هي وتبقى القائمة حيّة (قد يسأل العميل سؤالاً ثمّ يختار).
  */
@@ -141,6 +153,8 @@ export async function applyMenuReply(phoneOrKey: string, msg: any): Promise<any>
     const t = normTitle(raw);
     if (t) item = st.items.find(x => normTitle(x.title) === t);
   }
+  // ✅ «تأكيد» / «نعم» على بطاقة تأكيد الحجز = خيارها الأوّل (العمر يفحصه شرط الحسّاس أدناه)
+  if (!item && isConfirmWord(raw)) item = st.items.find(x => /^res_confirm:/.test(x.id));
   if (!item) return msg;
   // المعرّفات الحسّاسة (حجز، كلمة سرّ، أدوات أدمن) لا تُقبل من قائمةٍ قديمة
   if (SENSITIVE.test(item.id) && Date.now() - st.at > SENSITIVE_TTL_MS) {
