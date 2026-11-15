@@ -106,7 +106,7 @@ export default function PlayerConfrontation({ roomId, emit, on, myId, players, r
   const targetedIds = new Set(list.filter(c => c.status !== 'DECLINED' && c.status !== 'CANCELLED').map(c => c.targetPhysicalId));
 
   return (
-    <div className="mb-3 space-y-2" dir="rtl">
+    <div className="mb-3 space-y-2" dir="rtl" data-guide="conf-box">
       {/* ── المستهدَف: بطاقة الردّ ── */}
       {incoming && (
         <div className="p-4 rounded-xl border-2 border-amber-500/60 bg-amber-500/10 text-center animate-[pulse_2s_ease-in-out_infinite]">
@@ -191,6 +191,7 @@ export default function PlayerConfrontation({ roomId, emit, on, myId, players, r
       {/* ── زرّ الطلب ── */}
       {!hasLiveMine && (
         <button
+          data-guide="conf-request"
           onClick={() => { setSheet(true); setErr(''); }}
           disabled={!canRequest}
           className={`w-full flex items-center justify-center gap-2 px-3 py-2.5 rounded-xl border text-sm font-bold transition-all ${canRequest ? 'border-[#8A0303]/60 text-[#ffccd5] bg-[#8A0303]/10 hover:bg-[#8A0303]/20' : 'border-[#2a2a2a] text-[#555] bg-white/5'}`}
@@ -209,7 +210,7 @@ export default function PlayerConfrontation({ roomId, emit, on, myId, players, r
       {/* 🔴 فوق الشريط السفليّ (z-50) — كان يحجب زرّ التسجيل أسفل اللوحة */}
       {sheet && (
         <div className="fixed inset-0 z-[320] bg-black/70 backdrop-blur-sm flex items-end" onClick={() => setSheet(false)}>
-          <div className="w-full bg-[#0c0b09] border-t border-[#1f1a12] rounded-t-2xl p-4 max-h-[85dvh] overflow-auto overscroll-contain" style={{ paddingBottom: "calc(env(safe-area-inset-bottom, 0px) + 24px)" }} onClick={e => e.stopPropagation()}>
+          <div data-guide="conf-sheet" className="w-full bg-[#0c0b09] border-t border-[#1f1a12] rounded-t-2xl p-4 max-h-[85dvh] overflow-auto overscroll-contain" style={{ paddingBottom: "calc(env(safe-area-inset-bottom, 0px) + 24px)" }} onClick={e => e.stopPropagation()}>
             <div className="flex items-center justify-between mb-3">
               <span className="text-sm text-[#ffccd5] font-bold" style={{ fontFamily: 'Amiri, serif' }}>⚔️ طلب مواجهة <span className="text-[10px] font-mono text-[#808080]">(رصيدك {budget}/{conf.perPlayer})</span></span>
               <button onClick={() => setSheet(false)} className="text-[#808080] text-lg leading-none">✕</button>

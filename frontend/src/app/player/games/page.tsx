@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, Suspense } from 'react';
+import { useState, useEffect, useCallback, Suspense } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { ROLE_NAMES } from '@/lib/constants';
 import { usePlayer } from '@/context/PlayerContext';
@@ -11,6 +11,7 @@ import { useActivityPulse } from '@/hooks/useActivityPulse';
 import NightPulse from '@/components/NightPulse';
 import OrderPanel from '@/components/OrderPanel';
 import { useLoyalty, remainingAr, fmtTimeAr, fmtLeadAr, periodNameAr, arNum as arN } from '@/hooks/useLoyalty';
+import TrainingCard from '@/components/guide/TrainingCard';
 
 type Tab = 'upcoming' | 'pulse' | 'history';
 
@@ -108,6 +109,33 @@ function GamesContent() {
 
   // فتح منيو مكان الفعاليّة — OrderPanel يجلبه من النقطة العامّة بلا مصادقة
   const openMenu = (act: any) => { if (act?.locationId) setMenuFor(act); };
+
+  // 🎮 الغرف المفتوحة لحجوزاتي — تُجلب من جديد لا مرّةً عند فتح الصفحة وحدها.
+  // 🔴 كانت تُجلب مرّةً واحدة، والخادم لا يعيد إلّا غرف الفعاليّات **المحجوزة**: فمن حجز
+  //    بعد أن فُتحت الغرفة لم يظهر له زرّ «دخول ←» حتى يعيد تحميل الصفحة، ومن حجز مبكّراً
+  //    وبقيت صفحته مفتوحة لم يظهر له حين فُتحت الغرفة لاحقاً. الآن: بعد كلّ حجزٍ ناجح،
+  //    وكلّ عشرين ثانية والصفحة ظاهرة، وعند العودة إليها.
+  const refreshRooms = useCallback(async () => {
+    const token = player?.token;
+    if (!token) return;
+    try {
+      const r = await fetch('/api/player-app/my-active-rooms', { headers: { Authorization: `Bearer ${token}` } });
+      const d = await r.json();
+      if (!d?.success || !Array.isArray(d.rooms)) return;
+      const roomsMap: Record<number, any[]> = {};
+      d.rooms.forEach((x: any) => { roomsMap[x.activityId] = x.rooms || []; });
+      setActiveRoomsMap(roomsMap);
+    } catch { /* تبقى آخر قائمة */ }
+  }, [player?.token]);
+
+  useEffect(() => {
+    if (!player?.token) return;
+    const tick = () => { if (document.visibilityState === 'visible') void refreshRooms(); };
+    const t = setInterval(tick, 20_000);
+    document.addEventListener('visibilitychange', tick);
+    window.addEventListener('focus', tick);
+    return () => { clearInterval(t); document.removeEventListener('visibilitychange', tick); window.removeEventListener('focus', tick); };
+  }, [player?.token, refreshRooms]);
 
   useEffect(() => {
     if (!player) return;
@@ -230,6 +258,8 @@ function GamesContent() {
 
       if (data.success) {
         setMyBookings(prev => [...prev, data.booking]);
+        // 🎮 الغرفة قد تكون مفتوحةً أصلاً: زرّ «دخول ←» يظهر فور الحجز بلا إعادة تحميل
+        void refreshRooms();
         // 🎟️ الولاء: تأكيد تطبيق الزيارة المجّانيّة أو حكم الختم
         if (data.loyalty) {
           if (data.loyalty.freeVisitApplied) setLoyaltyToast('🎟️ طُبّقت زيارتك المجّانيّة — رسم اللعبة ٠ د.أ');
@@ -452,6 +482,8 @@ function GamesContent() {
         {/* ── Tab 1: الأنشطة ── */}
         {tab === 'upcoming' && (
           <motion.div key="upcoming" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="space-y-3 pb-6">
+            {/* 🕴️ فعاليّة التدريب — لصاحب جولة «الليلة الأولى» وحده، وتختفي عند الختم */}
+            <TrainingCard />
             {filteredActivities.length === 0 && (
               <p className="text-gray-600 text-sm text-center py-8">
                 {selectedDate ? 'لا توجد أنشطة في هذا اليوم' : 'لا توجد أنشطة قادمة حالياً'}

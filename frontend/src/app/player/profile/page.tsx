@@ -7,6 +7,7 @@ import { CropBoundary } from '@/components/CropBoundary';
 import RolesDeck from '@/components/RolesDeck';
 import DynamicMafiaCard from '@/components/DynamicMafiaCard';
 import { usePlayerCosmetics } from '@/hooks/usePlayerCosmetics';
+import { GuideProfileRow } from '@/components/guide/GuideEntries';
 
 const ROLE_NAMES_AR: Record<string,string> = {
   GODFATHER:'شيخ المافيا',SILENCER:'قص المافيا',CHAMELEON:'حرباية المافيا',
@@ -827,6 +828,9 @@ export default function PlayerProfilePage(){
             📖 كيف يعمل نظام النقاط والرتب؟
           </button>
         </div>
+
+        {/* 🕴️ جولة «الليلة الأولى» — يظهر ما دام مفتاحها يعمل في الداشبورد */}
+        <div className="mt-4"><GuideProfileRow /></div>
 
         {/* 🔐 مركز الخصوصيّة — الحقوق في مكانٍ واحد يسهل بلوغه */}
         <a

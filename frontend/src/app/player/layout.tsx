@@ -10,6 +10,7 @@ import LocationGate from '@/components/LocationGate';
 import { usePushNotifications } from '@/hooks/usePushNotifications';
 import ConsentGate from '@/components/ConsentGate';
 import WelcomeScene from '@/components/WelcomeScene';
+import { GuideProvider } from '@/components/guide/GuideProvider';
 
 // ── الصفحات التي لا تحتاج تسجيل دخول ──
 const PUBLIC_PATHS = ['/player/login', '/player/debug-push'];
@@ -432,7 +433,10 @@ function PlayerLayoutBody({ children }: { children: React.ReactNode }) {
   }
 
   // صفحات عادية — مع بار
+  // 🕴️ جولة «الليلة الأولى» تُركَّب هنا: بعد البوّابات كلّها (الموافقة، الإشعارات)، وحول
+  //    الصفحات والشريط السفليّ معاً. مطفأةً من الداشبورد لا ترسم شيئاً.
   return (
+    <GuideProvider>
     <div className="min-h-screen bg-[#050505]"
       style={{ overscrollBehavior: 'none', paddingBottom: 'calc(var(--nav-h) + 16px)' }}>
       {/* مؤشر السحب للتحديث */}
@@ -449,6 +453,7 @@ function PlayerLayoutBody({ children }: { children: React.ReactNode }) {
       <LocationGate />
       <BottomNav />
     </div>
+    </GuideProvider>
   );
 }
 

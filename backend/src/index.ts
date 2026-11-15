@@ -75,6 +75,7 @@ import resConfirmRoutes from './routes/res-confirm.routes.js';
 import photoZoneRoutes from './routes/photo-zone.routes.js';
 import leaderUiRoutes from './routes/leader-ui.routes.js';
 import playerUiRoutes from './routes/player-ui.routes.js';
+import playerGuideRoutes from './routes/player-guide.routes.js';
 import chipsRoutes from './routes/chips.routes.js';
 import loyaltyRoutes from './routes/loyalty.routes.js';
 import chipsStoreRoutes from './routes/chips-store.routes.js';
@@ -246,6 +247,7 @@ app.use('/api/admin/invoice-wa', invoiceWaRoutes);               // 🧾 مفت�
 app.use('/api/admin/wa-gate', waGateRoutes);                    // 📱 بوّابة رقم الواتساب (الداشبورد)
 app.use('/api/admin/res-confirm', resConfirmRoutes);             // 📋 رسالة تثبيت الحجز التلقائيّة (الداشبورد)
 app.use('/api/player-ui', playerUiRoutes);                       // 📱 مفتاح شاشة اللاعب الجديدة (الداشبورد)
+app.use('/api/player-guide', playerGuideRoutes);                 // 🕴️ جولة «الليلة الأولى» — المفتاح وحالة كلّ لاعب
 app.use('/api/leader-ui', leaderUiRoutes);                       // 🎛️ مفتاح قمرة الليدر (الداشبورد)
 app.use('/api/admin/photo-zone', photoZoneRoutes);              // 📸 زاوية بلا تصوير (الداشبورد)
 app.use('/api/fnb', playerFnbRouter);    // 🍽️ طلبات المنيو — جهة اللاعب

@@ -61,6 +61,13 @@ export interface RoomHost {
   leave: () => void;
   /** PlayerPhaseView للمراحل النهاريّة (النقاش، التبرير، التعادل، الإقصاء، النهاية) */
   phaseView: ReactNode;
+  // 🕴️ منافذ جولة «الليلة الأولى» — فارغةٌ في اللعب الحقيقيّ، فلا يتغيّر فيه شيء:
+  /** أعلى المشهد (نافذة القاعة في التدريب) */
+  topSlot?: ReactNode;
+  /** بين سؤال الليل وقائمته (همسة التدريب) */
+  nightHint?: ReactNode;
+  /** فوق شبكة التصويت */
+  voteHint?: ReactNode;
 }
 
 // ── رسوم خطّيّة ذهبيّة (خطّ واحد ١.٥) ──
@@ -184,6 +191,7 @@ function NightAsk({ host }: { host: RoomHost }) {
         ) : (
           <>
             <div className="q"><b>اختيارُك الليلة</b><small>اختر لاعباً ثمّ أكّد. ما يعنيه اختيارك يعرفه دورك وحدك — راجعه في «📋 مهامّي».</small></div>
+            {host.nightHint}
             <div className="pr-tgts">
               {listed.map(p => (
                 <button key={p.physicalId} type="button" className={`pr-tg ${pick === p.physicalId ? 'sel' : ''}`}
@@ -233,6 +241,7 @@ function VoteGrid({ host }: { host: RoomHost }) {
       <section className="pr-hero">{EI.ballot}<h2>من تُقصي؟</h2><p>{status}</p>
         {votingCountdown !== null && !timeUp && <span className={`pr-cnt ${votingCountdown <= 10 ? 'hot' : ''}`}>{mmss(votingCountdown)}</span>}
         {err && <p className="pr-err" role="alert">⚠️ {err}</p>}</section>
+      {host.voteHint}
       <div className="pr-vg">
         {candidates.map((c: any, i: number) => {
           const pid = c.targetPhysicalId; const p = info(pid);
@@ -471,6 +480,7 @@ export default function PlayerRoom({ host }: { host: RoomHost & { openTasksFromN
         {timerSecs !== null && timerSecs !== undefined && <span className={`pr-tm ${timerSecs <= 10 ? 'hot' : ''}`}>{mmss(timerSecs)}</span>}
       </header>
       <div className="pr-flow">
+        {host.topSlot}
         {tc && phase !== 'LOBBY' && (
           <div className="pr-teams" aria-label="الأحياء">
             <span><i style={{ background: '#ef4444' }} /><b>{tc.mafiaAlive}</b> مافيا</span>

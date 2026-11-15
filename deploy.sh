@@ -508,6 +508,23 @@ INSERT INTO interaction_rules (ability_a, ability_b, condition, resolution, resu
 SELECT 'SNIPE', 'PROTECT', 'SAME_TARGET'::interaction_condition, 'B_CANCELS_A'::interaction_resolution, 'ASSASSINATION_BLOCKED', 3
 FROM claim
 WHERE NOT EXISTS (SELECT 1 FROM interaction_rules WHERE ability_a = 'SNIPE' AND ability_b = 'PROTECT');
+
+-- 🕴️ جولة «الليلة الأولى» (2026-11-15): حالة الجولة لكلّ لاعب + لقطة الأهليّة مرّةً واحدة.
+--    guide_due: NULL = حسابٌ أُنشئ بعد اللقطة (يُقيَّم عند أوّل سؤال: لم يلعب مباراةً قط ⇒ جديد).
+--    اللقطة تَسِم من كان آخر نشاطه قبل ١ تشرين الثاني ٢٠٢٦ بتوقيت عمّان (٢١:٠٠ UTC في ٣١/١٠) أو لم ينشط
+--    قط — لأنّ last_active_at يُختم مع أوّل طلبٍ مصادَق، ففحصُه لاحقاً لا يجد عائداً واحداً.
+ALTER TABLE players ADD COLUMN IF NOT EXISTS guide_due BOOLEAN;
+ALTER TABLE players ADD COLUMN IF NOT EXISTS guide_step VARCHAR(40);
+ALTER TABLE players ADD COLUMN IF NOT EXISTS guide_started_at TIMESTAMP;
+ALTER TABLE players ADD COLUMN IF NOT EXISTS guide_deferred_at TIMESTAMP;
+ALTER TABLE players ADD COLUMN IF NOT EXISTS guide_done_at TIMESTAMP;
+WITH claim AS (
+  INSERT INTO one_time_migrations (key) VALUES ('first-night-guide-snapshot-2026-11-15')
+  ON CONFLICT DO NOTHING RETURNING key
+)
+UPDATE players SET guide_due = (last_active_at IS NULL OR last_active_at < TIMESTAMP '2026-10-31 21:00:00')
+FROM claim
+WHERE players.guide_due IS NULL;
 SQL
 then
   say "   ✅ الترحيل تمّ"

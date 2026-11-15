@@ -14,6 +14,7 @@ import InstallGuide from '@/components/InstallGuide';
 import { IcoPlate } from '@/components/fnb/icons';
 import { useLoyalty } from '@/hooks/useLoyalty';
 import { LoyaltyHomeBanner } from '@/components/LoyaltyStamps';
+import { GuideHomeBanner } from '@/components/guide/GuideEntries';
 
 // مجموعة الواتساب ليست حساب أعمال — رابط دعوة عاديّ لا يمسّه إجراء ميتا، فيبقى.
 // 🔴 المجموعةُ العامّة احتياطاً فقط: الخادمُ يقرّر أيَّ مجموعةٍ حسب مدينة
@@ -406,9 +407,12 @@ export default function HomePage() {
           </motion.div>
         )}
       </AnimatePresence>
+      {/* 🕴️ لمن أجّل جولة «الليلة الأولى» أو توقّف في منتصفها — لا شيء إن كانت مطفأة أو مُتمّة */}
+      <GuideHomeBanner />
       <motion.div
         initial={{ opacity: 0, y: 10 }}
         animate={{ opacity: 1, y: 0 }}
+        data-guide="home-card"
         className="rounded-2xl p-5 relative overflow-hidden"
         style={{
           background: 'linear-gradient(135deg, rgba(251,191,36,0.08), rgba(5,5,5,0.9))',

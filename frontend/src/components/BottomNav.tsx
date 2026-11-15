@@ -108,7 +108,8 @@ export default function BottomNav() {
       backdropFilter: 'blur(20px)',
       paddingBottom: 'var(--safe-b)',
     }}>
-      <div className="flex items-end justify-around max-w-lg mx-auto px-2" style={{ height: 'var(--nav-content-h)' }}>
+      {/* data-guide: نقاط إضاءة جولة «الليلة الأولى» — لا أثر لها خارجها */}
+      <div data-guide="nav" className="flex items-end justify-around max-w-lg mx-auto px-2" style={{ height: 'var(--nav-content-h)' }}>
         {tabs.map((tab) => {
           const isActive = pathname === tab.href || (tab.href === '/player/home' && pathname === '/player');
 
@@ -144,7 +145,7 @@ export default function BottomNav() {
           }
 
           return (
-            <Link key={tab.href} href={tab.href} className="flex flex-col items-center justify-center py-2" style={{ minWidth: '56px' }}>
+            <Link key={tab.href} href={tab.href} data-guide={`nav-${tab.icon}`} className="flex flex-col items-center justify-center py-2" style={{ minWidth: '56px' }}>
               <TabIcon icon={tab.icon} active={isActive} />
               <span className="text-[10px] mt-1" style={{ color: isActive ? '#fbbf24' : '#6b7280' }}>
                 {tab.label}

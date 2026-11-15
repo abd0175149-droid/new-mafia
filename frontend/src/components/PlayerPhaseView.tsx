@@ -742,6 +742,7 @@ export default function PlayerPhaseView({
               initial={{ opacity: 0, scale: 0.8, y: -20 }}
               animate={{ opacity: 1, scale: 1, y: 0 }}
               exit={{ opacity: 0, scale: 0.8, y: -20 }}
+              data-guide="my-turn"
               className="mx-2 mb-4 bg-gradient-to-r from-[#C5A059]/25 to-[#C5A059]/10 border-2 border-[#C5A059] rounded-2xl p-4 text-center"
               style={{ boxShadow: '0 0 30px rgba(197,160,89,0.3)' }}
             >
@@ -855,6 +856,7 @@ export default function PlayerPhaseView({
           <>
             {/* زرّ الاتفاقيات (بجانب زرّ المواجهة) — يفتح طبقةً منزلقة */}
             <button
+              data-guide="deals-btn"
               onClick={() => setDealsSheetOpen(true)}
               className="w-full mb-3 flex items-center justify-center gap-2 px-3 py-2.5 rounded-xl border border-[#C5A059]/30 text-[#C5A059] bg-[#C5A059]/5 text-sm font-bold hover:bg-[#C5A059]/10 transition-all"
             >
@@ -1068,6 +1070,7 @@ export default function PlayerPhaseView({
               key={a.targetPhysicalId}
               initial={{ scale: 0.9 }}
               animate={{ scale: 1 }}
+              data-guide="accused"
               className="bg-gradient-to-br from-red-500/15 to-red-900/10 border border-red-500/30 rounded-2xl p-5 mx-2 mb-3 text-center"
             >
               <div className="w-16 h-16 rounded-full overflow-hidden bg-red-500/20 border-2 border-red-500/50 flex items-center justify-center mx-auto mb-3">
@@ -1154,8 +1157,11 @@ export default function PlayerPhaseView({
         )}
 
         {/* سحب الصوت — يظهر بعد انتهاء التبرير لمن صوّت على المتهم */}
-        {(withdrawalActive || justTimer === 0 || justificationData?.timerFinished) && iVotedForAccused && !isPlayerDead && (
-          <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="mx-2 mt-4 bg-gradient-to-br from-blue-500/15 to-blue-900/10 border border-blue-500/30 rounded-2xl p-4 text-center">
+        {/* 🔴 `allExhausted`: متّهمٌ مُسكَت أو استنفد تبريراته ⇒ لا مؤقّتَ يبدأ ولا ينتهي، والموجّه ينتقل
+            إلى القرار مباشرةً. كان الزرّ ينتظر نهاية مؤقّتٍ لن يأتي، فلا يظهر لأحد — مع أنّ الخادم يقبل
+            السحب طوال المرحلة وشاشة الموجّه تعرض عدّاده وتنتظره. «لا أحد يبرّر» = «انتهى التبرير». */}
+        {(withdrawalActive || justTimer === 0 || justificationData?.timerFinished || justificationData?.allExhausted) && iVotedForAccused && !isPlayerDead && (
+          <motion.div data-guide="withdraw" initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="mx-2 mt-4 bg-gradient-to-br from-blue-500/15 to-blue-900/10 border border-blue-500/30 rounded-2xl p-4 text-center">
             <p className="text-blue-300 text-sm mb-2 font-bold">أنت صوّتت على هذا اللاعب</p>
             <p className="text-[#888] text-xs mb-3">هل تريد سحب صوتك؟ إذا سُحب نصفُ الأصوات أو أكثر تُعاد عملية التصويت{myWeight > 1 ? ` — صوتك يُسحب ×${myWeight}` : ''}</p>
             <p className="text-[#9a9a9a] text-xs mb-3 font-mono">{effectiveCount}/{effectiveNeeded} من الأصوات المطلوبة سُحبت</p>

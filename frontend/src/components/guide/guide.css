@@ -1,0 +1,109 @@
+/* ══════════════════════════════════════════════════════
+   🕴️ جولة «الليلة الأولى» — طبقة الدون (2026-11-15)
+   بطاقةٌ حادّة الزوايا بإطارٍ داخليّ (لغة noir-card) فوق صفحات التطبيق الحقيقيّة،
+   وضوءٌ يحجب ما حول الهدف كي لا يضيع اللاعب عن الخطوة.
+   الطبقات: الحجب 9000 · الحلقة 9001 · البطاقة 9010 · الورقة 9020 — فوق الشريط السفليّ
+   وكلّ لوحات الغرفة (≤ 400)، وتحت بوّابات التطبيق (99999).
+   ══════════════════════════════════════════════════════ */
+
+.gd-block { position: fixed; z-index: 9000; background: rgba(0, 0, 0, .64); touch-action: none; }
+.gd-guard { position: fixed; z-index: 9000; background: transparent; touch-action: none; }
+.gd-ring { position: fixed; z-index: 9001; pointer-events: none; border-radius: 14px;
+  box-shadow: 0 0 0 2px #C5A059; transition: top .25s, left .25s, width .25s, height .25s; }
+.gd-ring::after { content: ''; position: absolute; inset: -6px; border-radius: 18px; border: 2px solid rgba(226, 197, 124, .7);
+  animation: gd-pulse 1.6s ease-out infinite; }
+@keyframes gd-pulse { from { opacity: .9; transform: scale(1); } to { opacity: 0; transform: scale(1.08); } }
+
+.gd-coach { position: fixed; z-index: 9010; left: 10px; right: 10px; max-width: 520px; margin: 0 auto;
+  background: #0d0a05; border: 1px solid #C5A059; box-shadow: 0 14px 30px rgba(0, 0, 0, .8);
+  padding: 10px 12px 12px; text-align: start; direction: rtl; font-family: Tajawal, system-ui, sans-serif; }
+.gd-coach::before { content: ''; position: absolute; inset: 3px; border: 1px solid rgba(197, 160, 89, .22); pointer-events: none; }
+.gd-coach.top { top: calc(env(safe-area-inset-top, 0px) + 10px); }
+.gd-coach.bottom { bottom: calc(var(--nav-h, 64px) + 12px); }
+.gd-coach.low { bottom: calc(env(safe-area-inset-bottom, 0px) + 10px); }
+.gd-coach.mid { top: 50%; transform: translateY(-50%); }
+.gd-coach-h { position: relative; display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
+.gd-coach-h b { font-family: Amiri, serif; font-weight: 700; font-size: 17px; line-height: 1; color: #C5A059; }
+.gd-coach-h .cnt { font-family: 'JetBrains Mono', monospace; font-size: 11px; color: #7e7466; margin-inline-start: auto; }
+.gd-coach-h .later { position: relative; font-size: 12.5px; color: #9b9182; text-decoration: underline; text-underline-offset: 3px;
+  min-height: 32px; padding: 0 4px; }
+.gd-coach p { margin: 0; font-size: 14.5px; line-height: 1.7; color: #f1eadb; }
+.gd-coach p + p { margin-top: 6px; }
+.gd-coach .tip { color: #e2c57c; font-size: 13.5px; }
+.gd-coach-f { position: relative; display: flex; gap: 8px; margin-top: 10px; align-items: center; }
+.gd-coach-f button { min-height: 44px; padding: 0 16px; font-weight: 800; font-size: 14px; border: 1px solid #3a3326; color: #d8d0c2; text-align: center; }
+.gd-coach-f .go { flex: 1; background: #C5A059; border-color: #C5A059; color: #120d04; }
+.gd-coach-f .try { flex: 1; display: flex; align-items: center; gap: 8px; color: #e2c57c; font-size: 13.5px; font-weight: 700; line-height: 1.5; }
+.gd-coach-f .try::before { content: ''; width: 9px; height: 9px; flex: none; border-radius: 50%; background: #e2c57c; animation: gd-blink 1.1s infinite; }
+.gd-coach-f .skipstep { flex: none; min-height: 36px; padding: 0 10px; font-size: 12.5px; font-weight: 700; color: #9b9182; border-color: #2b2621; }
+@keyframes gd-blink { 50% { opacity: .25; } }
+.gd-coach.slim { padding: 8px 12px; }
+.gd-coach.slim .gd-coach-h { margin-bottom: 2px; }
+.gd-coach.slim .gd-coach-f { margin-top: 4px; }
+/* «همسة تدريب» — معلومةٌ لا يعطيها اللعب الحقيقيّ أبداً */
+.gd-coach.whisper { border-style: dashed; background: #0b0907; }
+.gd-coach.whisper .gd-coach-h b { font-family: Tajawal, system-ui, sans-serif; font-weight: 800; font-size: 12.5px; line-height: 1.3; color: #e2c57c; }
+
+.gd-whisper-in { margin: 6px 16px 0; padding: 8px 12px; border: 1px dashed #C5A059; background: #0b0907;
+  font-family: Tajawal, system-ui, sans-serif; font-weight: 500; font-size: 13.5px; line-height: 1.6; color: #f1eadb; text-align: start; }
+.gd-whisper-in b { display: block; font-size: 12px; color: #e2c57c; font-weight: 800; }
+.gd-whisper-in.flow { margin: 0; }
+
+/* ورقة الدون: الدعوة والختم */
+.gd-sheet { position: fixed; inset: 0; z-index: 9020; background: rgba(0, 0, 0, .84); display: grid; place-items: center;
+  padding: 14px; direction: rtl; font-family: Tajawal, system-ui, sans-serif; overflow-y: auto; }
+.gd-sheet > div { position: relative; width: 100%; max-width: 420px; background: #0d0a05; border: 1px solid #C5A059; padding: 24px 18px 18px; text-align: center; }
+.gd-sheet > div::before { content: ''; position: absolute; inset: 4px; border: 1px solid rgba(197, 160, 89, .22); pointer-events: none; }
+.gd-sheet .seal { display: grid; place-items: center; margin: 0 auto 10px; animation: gd-stamp .5s cubic-bezier(.2, 1.6, .4, 1) both; }
+@keyframes gd-stamp { from { transform: scale(1.9) rotate(-14deg); opacity: 0; } to { transform: none; opacity: 1; } }
+.gd-sheet h3 { margin: 0; font-family: Amiri, serif; font-weight: 700; font-size: 27px; line-height: 1.3; color: #C5A059; text-wrap: balance; }
+.gd-sheet p { margin: 8px 0 0; font-size: 14.5px; line-height: 1.7; color: #e6dfd2; }
+.gd-sheet ul { margin: 12px 0 0; padding: 0; list-style: none; display: grid; gap: 5px; font-size: 13.5px; color: #cdc3af; text-align: start; }
+.gd-sheet li { display: flex; gap: 8px; align-items: baseline; }
+.gd-sheet li::before { content: '◆'; color: #C5A059; font-size: 9px; }
+.gd-sheet .go { position: relative; width: 100%; min-height: 50px; margin-top: 16px; background: #C5A059; color: #120d04; font-weight: 900; font-size: 16px; text-align: center; }
+.gd-sheet .lt { position: relative; width: 100%; min-height: 44px; margin-top: 4px; color: #9b9182; font-size: 13.5px; text-align: center; }
+.gd-sheet .roles { position: relative; display: flex; flex-wrap: wrap; gap: 6px; justify-content: center; margin-top: 14px; }
+.gd-sheet .roles button { min-height: 40px; padding: 0 12px; border: 1px solid #3a3326; background: #0a0a0a; color: #efe9dc; font-size: 13.5px; font-weight: 700; }
+.gd-sheet .roles button[aria-pressed="true"] { border-color: #C5A059; color: #e2c57c; background: rgba(197, 160, 89, .1); }
+
+/* نافذة القاعة — في التدريب فقط، لأنّ المتدرّب وحده بلا شاشة قاعة */
+.gd-hall { border: 1px solid #3a3326; background: #000; padding: 5px; direction: rtl; }
+.gd-hall-l { display: flex; justify-content: space-between; align-items: center; gap: 8px; padding: 0 4px 5px; font-size: 11.5px; color: #C5A059; }
+.gd-hall-l i { font-style: normal; color: #6f675b; }
+.gd-hall-s { position: relative; min-height: 96px; display: grid; place-items: center; text-align: center; padding: 10px;
+  background: radial-gradient(circle at 50% 0, #17120b, #060606 75%); border: 1px solid #1c1a16; overflow: hidden; }
+.gd-hall-s.night { background: linear-gradient(#0b0a18, #04040a); }
+.gd-hall-s.night::before { content: ''; position: absolute; top: 12px; inset-inline-start: 22px; width: 22px; height: 22px; border-radius: 50%; box-shadow: inset -7px 0 0 #d9c58c; }
+.gd-hall-s h6 { margin: 0; font-family: Amiri, serif; font-weight: 700; font-size: 19px; line-height: 1.3; color: #C5A059; }
+.gd-hall-s p { margin: 2px 0 0; font-size: 12.5px; color: #9b9182; }
+.gd-hall-seats { display: flex; flex-wrap: wrap; gap: 5px; justify-content: center; margin-top: 6px; }
+.gd-hall-seats span { width: 24px; height: 24px; border-radius: 50%; display: grid; place-items: center;
+  font-family: 'JetBrains Mono', monospace; font-weight: 800; font-size: 10px; color: #120d04; background: #C5A059; }
+.gd-hall-seats span.me { outline: 2px solid #fff; outline-offset: 1px; }
+.gd-hall-line { display: flex; align-items: center; gap: 8px; justify-content: center; font-size: 13.5px; color: #efe9dc; margin-top: 4px; }
+.gd-hall-line img { width: 26px; height: 39px; object-fit: cover; border: 1px solid rgba(197, 160, 89, .5); }
+.gd-hall-vs { display: flex; align-items: center; justify-content: center; gap: 10px; font-size: 14px; font-weight: 800; color: #efe9dc; margin-top: 4px; }
+.gd-hall-vs i { font-style: normal; color: #d9636a; }
+.gd-hall-bar { height: 6px; border-radius: 3px; background: #3a0a0a; overflow: hidden; margin: 8px auto 0; width: 80%; }
+.gd-hall-bar i { display: block; height: 100%; background: #C5A059; transition: width .5s; }
+.gd-flip { width: 54px; aspect-ratio: 256 / 379; perspective: 500px; margin: 0 auto 4px; }
+.gd-flip > div { position: relative; width: 100%; height: 100%; transform-style: preserve-3d; animation: gd-flip 1.1s 2.2s both; }
+.gd-flip span, .gd-flip img { position: absolute; inset: 0; width: 100%; height: 100%; backface-visibility: hidden; -webkit-backface-visibility: hidden;
+  border: 1px solid rgba(197, 160, 89, .6); border-radius: 4px; }
+.gd-flip span { background: #14100a; display: grid; place-items: center; color: #C5A059; font-family: 'JetBrains Mono', monospace; font-weight: 800; font-size: 16px; }
+.gd-flip img { transform: rotateY(180deg); object-fit: cover; }
+@keyframes gd-flip { to { transform: rotateY(180deg); } }
+
+/* بطاقة فعاليّة التدريب في «الألعاب» + مداخل الجولة */
+.gd-ribbon { position: absolute; top: -1px; inset-inline-end: 14px; padding: 3px 10px; font-size: 11px; font-weight: 800;
+  background: #8A0303; color: #fff; border: 1px solid #450a0a; z-index: 1; }
+.gd-toast { position: fixed; z-index: 9030; left: 12px; right: 12px; top: calc(env(safe-area-inset-top, 0px) + 12px); max-width: 520px; margin: 0 auto;
+  background: #1a1408; border: 1px solid #C5A059; color: #f1eadb; font-size: 13.5px; line-height: 1.6; padding: 8px 12px; direction: rtl;
+  font-family: Tajawal, system-ui, sans-serif; pointer-events: none; }
+
+@media (prefers-reduced-motion: reduce) {
+  .gd-ring::after, .gd-coach-f .try::before, .gd-sheet .seal, .gd-flip > div { animation: none; }
+  .gd-flip > div { transform: rotateY(180deg); }
+  .gd-ring { transition: none; }
+}
