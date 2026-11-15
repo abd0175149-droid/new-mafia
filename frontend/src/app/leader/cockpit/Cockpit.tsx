@@ -18,6 +18,7 @@ import PhotoZoneToggle from '../PhotoZonePanel';
 import { AntiCheatToggle } from '../AntiCheatWatch';
 import { AttendanceMapToggle } from '../AttendanceMap';
 import LobbyScreen from './screens/Lobby';
+import { SeatLockEditor, lockMark, useLockState } from './screens/SeatLocks';
 import RolesScreen from './screens/Roles';
 import BindingScreen from './screens/Binding';
 import NightScreen from './screens/Night';
@@ -327,12 +328,23 @@ function SeatsSheet({ open, onClose }: { open: boolean; onClose: () => void }) {
   const { gameState, toast } = useCockpit();
   const sm = useSeatMove();
   const cells = seatCells(gameState);
+  // 🔒 إغلاق المقاعد من أيّ مرحلة: أثناء اللعب يحكم أين يجلس من يصل متأخّراً
+  const [locking, setLocking] = useState(false);
+  const locks = useLockState();
+  useEffect(() => { if (!open) setLocking(false); }, [open]);
+  if (locking) {
+    return (
+      <BottomSheet open={open} title="إغلاق المقاعد" onClose={() => setLocking(false)}>
+        <SeatLockEditor onDone={() => setLocking(false)} />
+      </BottomSheet>
+    );
+  }
   return (
     <BottomSheet open={open} title="المقاعد" onClose={() => { sm.cancelMove(); onClose(); }}>
       <Hint>{sm.movingId ? `نقل ${sm.movingId} — المس الوجهة: فارغ = نقل، مشغول = تبديل` : 'المس لاعباً ثمّ مقعده الجديد.'}</Hint>
       <div data-seat-move="1">
         <SeatGrid cells={cells}
-          mark={(c) => ({ selected: sm.movingId === c.seat, disabled: sm.busy || (!!c.spectator && !c.player) || (!!c.held && !sm.movingId) })}
+          mark={(c) => ({ ...lockMark(c, locks.map), selected: sm.movingId === c.seat, disabled: sm.busy || (!!c.spectator && !c.player) || (!!c.held && !sm.movingId) })}
           onSeat={(c) => {
             if (sm.movingId) { sm.moveTo(c.seat); return; }
             if (!c.player) { toast(c.held ? 'مقعدٌ محجوز — فكّ حجزه من اللوبي' : 'مقعدٌ فارغ — المس لاعباً أوّلاً'); return; }
@@ -340,6 +352,11 @@ function SeatsSheet({ open, onClose }: { open: boolean; onClose: () => void }) {
           }} />
       </div>
       {sm.movingId && <button type="button" onClick={() => sm.cancelMove()} className="min-h-[46px] rounded-[13px] border border-[#2a241c] bg-[#16130f] font-bold">إلغاء النقل</button>}
+      {!sm.movingId && gameState?.config?.isRemote !== true && (
+        <button type="button" onClick={() => setLocking(true)} className="min-h-[46px] rounded-[13px] border border-[#C5A059]/50 text-[#C5A059] font-bold">
+          🔒 إغلاق المقاعد{locks.closed.length ? ` — ${locks.closed.length} مغلق` : ''}
+        </button>
+      )}
     </BottomSheet>
   );
 }

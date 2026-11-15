@@ -137,10 +137,13 @@ extension JoinFlow on GameSessionController {
 
   /// 6.4 — الانضمام. **المقعد عشوائيّ بالتصميم**: `preferredSeat` لا
   /// يُرسَل أبداً، والعودة إلى مقعدٍ سابق تمرّ بالاستعادة لا بالانضمام.
+  /// `quiet` = إعادة محاولةٍ من شاشة الانتظار (🔒 لا مقعد مفتوح): لا تومض
+  /// شاشة «جاري تخصيص مقعدك» بين محاولةٍ وأخرى.
   Future<void> autoJoin({
     bool forceJoin = false,
     String? ticket,
     String? roomIdOverride,
+    bool quiet = false,
   }) async {
     final player = SessionStore.instance.player;
     final name = player?.name ?? '';
@@ -172,8 +175,10 @@ extension JoinFlow on GameSessionController {
     }
     final photo = photoAnswerFor(target);
 
-    setStep(GameStep.autoJoining);
-    setBusy(true);
+    if (!quiet) {
+      setStep(GameStep.autoJoining);
+      setBusy(true);
+    }
     clearApiError();
 
     final t = (ticket ?? ticketInput).trim();
@@ -194,7 +199,21 @@ extension JoinFlow on GameSessionController {
       'supportsSeatChoice': true,
       if (chosenSeatFor(target) != null) 'chosenSeat': chosenSeatFor(target),
     });
-    setBusy(false);
+    if (!quiet) setBusy(false);
+
+    // 🔒 لا مقعد مفتوح الآن وفي القاعة مقاعد أغلقها المنظّم: ننتظر ونعيد الطلب.
+    //    يسبق فحص «رقم المقعد»: في الاختيار اليدويّ يحمل الردّ `seatChoice` فارغاً أيضاً.
+    if (res != null && res['success'] != true && res['seatWait'] == true) {
+      openSeatWait(() => autoJoin(
+            forceJoin: forceJoin,
+            ticket: ticket,
+            roomIdOverride: roomIdOverride,
+            quiet: true,
+          ));
+      return;
+    }
+    // محاولةٌ صامتة انقطعت (بلا ردّ): نبقى على شاشة الانتظار والمؤقّت يعيدها
+    if (quiet && res == null) return;
 
     // 🖐️ الخادم يطلب رقم المقعد — أو يرفض الرقم مع السبب وقائمة المتاح
     final seatAsk = SeatChoiceAsk.tryParse(res);

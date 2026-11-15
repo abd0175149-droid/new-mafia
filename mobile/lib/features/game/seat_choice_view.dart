@@ -160,6 +160,63 @@ class _SeatChoiceQuestionState extends State<SeatChoiceQuestion> {
   }
 }
 
+/// 🔒 «لا مقعد مفتوح الآن» — المنظّم أغلق المقاعد الباقية. لا حقل ولا زرّ:
+/// المتحكّم يعيد الطلب وحده كلّ عشر ثوانٍ، ونجلس تلقائيّاً حين يُفتح مقعد.
+class SeatWaitView extends StatelessWidget {
+  const SeatWaitView({super.key, required this.onBack});
+  final VoidCallback onBack;
+
+  @override
+  Widget build(BuildContext context) =>
+      Column(mainAxisSize: MainAxisSize.min, children: [
+        const _Head(
+          title: 'لا مقعد مفتوح الآن',
+          body: 'المنظّم يفتح مقاعد جديدة — تجلس تلقائيّاً حين يُفتح مقعد، فلا تغلق التطبيق.',
+        ),
+        Semantics(
+          liveRegion: true,
+          label: 'انتظر لحظة',
+          child: Container(
+            width: double.infinity,
+            padding: const EdgeInsets.symmetric(vertical: 22, horizontal: 16),
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(16),
+              border: Border.all(color: const Color(0x4DC5A059), width: 2),
+            ),
+            child: Column(children: [
+              const SizedBox(
+                width: 34,
+                height: 34,
+                child: CircularProgressIndicator(strokeWidth: 3, color: _gold),
+              ),
+              const SizedBox(height: 14),
+              Text('انتظر لحظة',
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(
+                      fontFamily: 'Amiri',
+                      fontSize: 20,
+                      fontWeight: FontWeight.w900,
+                      color: _gold,
+                      letterSpacing: 0)),
+            ]),
+          ),
+        ),
+        const SizedBox(height: 14),
+        Semantics(
+          button: true,
+          child: GestureDetector(
+            onTap: onBack,
+            behavior: HitTestBehavior.opaque,
+            child: Container(
+              constraints: const BoxConstraints(minHeight: 44),
+              alignment: Alignment.center,
+              child: Text('رجوع', style: ar(13, color: _muted)),
+            ),
+          ),
+        ),
+      ]);
+}
+
 class _Head extends StatelessWidget {
   const _Head({required this.title, required this.body});
   final String title, body;

@@ -252,6 +252,8 @@ class _GameScreenState extends State<GameScreen> {
                     onSubmit: (v) => unawaited(_c.submitSeatChoice(v)),
                     onBack: _c.cancelSeatChoice,
                   ),
+                // 🔒 لا مقعد مفتوح الآن — ننتظر، والمتحكّم يعيد الطلب وحده
+                GameStep.seatWait => SeatWaitView(onBack: _c.cancelSeatChoice),
                 GameStep.done || GameStep.rejoined => LobbyView(controller: _c),
                 // خطوات المصادقة تصل مع الملفّ ٠٥ — الحساب هنا مسجَّلٌ أصلاً
                 _ => const _Spinner(label: 'جارٍ…'),

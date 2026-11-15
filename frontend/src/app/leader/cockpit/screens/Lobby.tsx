@@ -20,6 +20,7 @@ import AddPlayerSheet from './setup/AddPlayerSheet';
 import { SheetError, TapChip, inputCls, errMsg } from './setup/ui';
 import { SetupForm, StepRail } from './Setup';
 import { applyPlan, initialPlan, useAccountDefaults, type SetupPlan } from '../setupPlan';
+import { SeatLockEditor, SeatLockStrip, SeatLockBanner, ClosedSeatSheet, lockMark, useLockState, useSeatLockEvents } from './SeatLocks';
 
 const MIN_PLAYERS = 6;
 
@@ -53,6 +54,11 @@ export default function LobbyScreen() {
   const [kicking, setKicking] = useState(false);
   // 🎛️ الخطوة ١ «المقاعد» ⟵ الخطوة ٢ «اللعبة» — كلاهما في اللوبي، فالرجوع حرّ
   const [stage, setStage] = useState<'seats' | 'setup'>('seats');
+  // 🔒 إغلاق المقاعد: المحرّر يحلّ محلّ الشاشة، ولوحٌ للمقعد الفارغ المغلق
+  const locks = useLockState();
+  const [lockEdit, setLockEdit] = useState(false);
+  const [closedSheet, setClosedSheet] = useState<number | null>(null);
+  useSeatLockEvents();
   const account = useAccountDefaults(emit);
   const [plan, setPlan] = useState<SetupPlan | null>(null);
   useEffect(() => {
@@ -145,6 +151,8 @@ export default function LobbyScreen() {
     if (c.player) { setSheet({ kind: 'player', seat: c.seat }); return; }
     if (c.held) { setSheet({ kind: 'held', seat: c.seat }); return; }
     if (c.spectator) { setSheet({ kind: 'spectator', seat: c.seat }); return; }
+    // 🔒 فارغٌ مغلق: لوحه (افتحه / أجلِس عليه / بدّل نوع إغلاقه) — الفارغ المفتوح يبقى لمسةً واحدة للإضافة
+    if (locks.map[c.seat] !== undefined) { setClosedSheet(c.seat); return; }
     if (isRemote) { toast(`المقعد ${c.seat} فارغ`); return; }
     setAddSeat(c.seat); setAddOpen(true);
   };
@@ -162,6 +170,7 @@ export default function LobbyScreen() {
       if (c.player && pickedLive.includes(c.seat)) { m.target = true; m.topLeft = '✓'; }
       return m;
     }
+    Object.assign(m, lockMark(c, locks.map));
     if (c.player && excludedLive.includes(c.seat)) { m.ghost = true; m.label = 'مستبعد'; m.topLeft = '🚫'; }
     else if (c.player?.frozen) m.topLeft = '❄️';
     return m;
@@ -176,8 +185,20 @@ export default function LobbyScreen() {
   // 🚪 من غادر (انقطع أو جُمّد) — شريطٌ يظهر وحده، وضغطةٌ واحدة تُخرجهم
   const departed = offline.filter((n) => !excludedLive.includes(n));
 
-  const meta = `${gameState?.roomCode || ''} · ${present.length} جالس${heldList.length ? ` · ${heldList.length} محجوز` : ''}${waiting.length ? ` · ${waiting.length} ينتظر` : ''}`;
+  const doorWait = locks.waiters.length;
+  const meta = `${gameState?.roomCode || ''} · ${present.length} جالس${heldList.length ? ` · ${heldList.length} محجوز` : ''}${locks.closed.length ? ` · ${locks.closed.length} مغلق` : ''}${waiting.length + doorWait ? ` · ${waiting.length + doorWait} ينتظر` : ''}`;
   const zoneOk = pz?.report.contiguous !== false;
+
+  // 🔒 محرّر الإغلاق يحلّ محلّ الشاشة: فعله الرئيس «تمّ» في الشريط السفليّ
+  if (lockEdit) {
+    return (
+      <>
+        <Status meta={meta} />
+        <StepRail step={1} />
+        <SeatLockEditor bar onDone={() => setLockEdit(false)} />
+      </>
+    );
+  }
 
   if (stage === 'setup') {
     return (
@@ -265,10 +286,16 @@ export default function LobbyScreen() {
         </Section>
       )}
 
+      {/* ── 🔒 إغلاق المقاعد: شريط القرار ثمّ شريط الحالة ── */}
+      {!picking && sm.movingId == null && <SeatLockBanner onEdit={() => setLockEdit(true)} />}
+      {!picking && sm.movingId == null && <SeatLockStrip onEdit={() => setLockEdit(true)} />}
+
       {/* ── المقاعد ── */}
-      <Section title="تأكّد أنّ كلّ وجهٍ على رقمه" aside={sm.movingId != null ? undefined : picking ? 'المس من يخرج' : (players.length > 0
-        ? <button type="button" onClick={() => setPicking(true)} className="min-h-[44px] px-2 text-[13px] font-bold text-[#C5A059]">☑️ تحديد للطرد</button>
-        : 'المس مقعداً لأفعاله')}>
+      <Section title="تأكّد أنّ كلّ وجهٍ على رقمه" aside={sm.movingId != null ? undefined : picking ? 'المس من يخرج' : (
+        <span className="flex items-center">
+          {!isRemote && cells.length > 0 && <button type="button" onClick={() => setLockEdit(true)} className="min-h-[44px] px-2 text-[13px] font-bold text-[#C5A059]">🔒 إغلاق</button>}
+          {players.length > 0 && <button type="button" onClick={() => setPicking(true)} className="min-h-[44px] px-2 text-[13px] font-bold text-[#C5A059]">☑️ للطرد</button>}
+        </span>)}>
         <div data-seat-move="1" className="flex flex-col gap-2.5">
           {picking && sm.movingId == null && (
             <div className="flex flex-col gap-2 rounded-[13px] border border-[#d0474c]/60 bg-[#d0474c]/10 px-3 py-2.5">
@@ -301,7 +328,7 @@ export default function LobbyScreen() {
           )}
         </div>
         {players.length === 0 && <Hint>لا لاعبين بعد. شارك رمز الغرفة <b dir="ltr">{gameState?.roomCode}</b> أو أضِف لاعباً.</Hint>}
-        <Hint>⏳ محجوز · 👁 متفرّج · ○ غير متّصل · ❄️ غادر · 📵 لا يُصوَّر · النقاط الصفراء عقوبات</Hint>
+        <Hint>⏳ محجوز · 👁 متفرّج · ○ غير متّصل · ❄️ غادر · 📵 لا يُصوَّر · النقاط الصفراء عقوبات{locks.closed.length ? ' · المهشَّر مغلق (🔒 دائم، والرقم الذهبيّ دفعة)' : ''}</Hint>
         <SetRow title="عدد المقاعد" sub={cfg.maxPlayersManual ? 'سعةٌ يدويّة — القالب لا يغيّرها' : 'من القالب أو الفعاليّة'}>
           <Stepper value={maxPlayers} min={6} max={50} onChange={(n) => void setCapacity(n)} />
         </SetRow>
@@ -346,6 +373,8 @@ export default function LobbyScreen() {
       <HeldSheet seat={sheet?.kind === 'held' ? sheet.seat : null} onClose={() => setSheet(null)} />
       <SpectatorSheet seat={sheet?.kind === 'spectator' ? sheet.seat : null} onClose={() => setSheet(null)} />
       <AddPlayerSheet open={addOpen} initialSeat={addSeat} onClose={() => { setAddOpen(false); setAddSeat(null); }} />
+      <ClosedSeatSheet seat={closedSheet} onClose={() => setClosedSheet(null)}
+        onAdd={!isRemote ? (seat) => { setAddSeat(seat); setAddOpen(true); } : undefined} />
     </>
   );
 }
@@ -538,7 +567,8 @@ function SpectatorSheet({ seat, onClose }: { seat: number | null; onClose: () =>
 function PinnedSeats({ gameState, players, onResync }: { gameState: any; players: any[]; onResync: () => void }) {
   const [open, setOpen] = useState(false);
   const pinned: any[] = useMemo(() => (Array.isArray(gameState?.pinnedSeats) ? gameState.pinnedSeats : []), [gameState?.pinnedSeats]);
-  const tail = Number(gameState?.reservedTailSeats) || 0;
+  // 🔒 «المقاعد المؤخّرة» صارت دفعةً مغلقة يعرضها شريط الإغلاق — لا تُكرَّر هنا إلّا في غرفةٍ قديمة بلا إغلاق
+  const tail = gameState?.seatLocks ? 0 : Number(gameState?.reservedTailSeats) || 0;
   const doors: any[] = Array.isArray(gameState?.doors) ? gameState.doors : [];
   const doorSeats: number[] = Array.isArray(gameState?.doorSeats) ? gameState.doorSeats : [];
   if (pinned.length === 0 && !tail && doors.length === 0) return null;

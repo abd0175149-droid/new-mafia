@@ -113,6 +113,8 @@ interface GameState {
   // 📐 مقاعد القالب (Seat Template) — تُعرض كـ«المقاعد المثبّتة من القالب» في عرض الجلسة
   pinnedSeats?: any[];
   reservedTailSeats?: number;
+  /** 🔒 إغلاق المقاعد: { map, rule, pending, undo, waiters } — انظر cockpit/screens/SeatLocks.tsx */
+  seatLocks?: any;
   doors?: any[];
   doorSeats?: number[];
   luckyDrawHistory?: number[]; // 🎁 رابحو الغرفة (لاستبعادهم اختيارياً)
@@ -647,6 +649,7 @@ export default function LeaderPage() {
             // 📐 مقاعد القالب — لإظهار «المقاعد المثبّتة من القالب» في الغرفة الفارغة عند الدخول/التحديث
             pinnedSeats: data.state.pinnedSeats || [],
             reservedTailSeats: data.state.reservedTailSeats || 0,
+            seatLocks: data.state.seatLocks ?? undefined,   // 🔒 إغلاق المقاعد
             doors: data.state.doors || [],
             doorSeats: data.state.doorSeats || [],
             luckyDrawHistory: data.state.luckyDrawHistory || [], // 🎁 رابحو الغرفة (لواجهة الاستبعاد)
@@ -781,6 +784,7 @@ export default function LeaderPage() {
                     // 📐 مقاعد القالب — لإظهار «المقاعد المثبّتة من القالب» فور إنشاء الغرفة
                     pinnedSeats: st.pinnedSeats || [],
                     reservedTailSeats: st.reservedTailSeats || 0,
+                    seatLocks: st.seatLocks ?? undefined,   // 🔒 إغلاق المقاعد
                     doors: st.doors || [],
                     doorSeats: st.doorSeats || [],
                   });
@@ -929,6 +933,8 @@ export default function LeaderPage() {
         config: state.config ? { ...prev.config, ...state.config } : prev.config,
         pinnedSeats: state.pinnedSeats ?? prev.pinnedSeats,
         reservedTailSeats: state.reservedTailSeats ?? prev.reservedTailSeats,
+        // 🔒 إغلاق المقاعد — الحالة الكاملة تحمله دائماً؛ غيابه = بثٌّ لا يحمله فيبقى المعروف
+        seatLocks: state.seatLocks ?? (prev as any).seatLocks,
         doors: state.doors ?? prev.doors,
         doorSeats: state.doorSeats ?? prev.doorSeats,
         // ⚠️ nightStep عند الليدر = currentNightStep (الطابور اليدوي) حصراً. حالة الخادم
@@ -1508,6 +1514,11 @@ export default function LeaderPage() {
       });
     });
 
+    // 🔒 إغلاق المقاعد: حالةٌ صغيرة تصل وحدها (فتح دفعة، منتظر عند الباب) بلا مزامنة كاملة
+    const offSeatLocks = on('room:seat-locks', (data: any) => {
+      setGameState(prev => (prev ? ({ ...prev, seatLocks: data?.seatLocks ?? undefined } as any) : prev));
+    });
+
     // ── تحديث اسم/رقم اللاعب (عند تعديله من الليدر) ──
     const offPlayerUpdated = on('room:player-updated', (data: any) => {
       if (data.physicalId && data.name) {
@@ -1822,6 +1833,7 @@ export default function LeaderPage() {
       offGameOver();
       offGameRestarted();
       offConfigUpdated();
+      offSeatLocks();
       offPlayerUpdated();
       offAdminEliminated();
       offWithdrawalUpdate();

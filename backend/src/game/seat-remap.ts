@@ -12,6 +12,8 @@
 // يغطي هذا تلقائياً البنى الديناميكية (nightStep/pendingResolution/justificationData…).
 // ══════════════════════════════════════════════════════
 
+import { shiftForInsert as shiftSeatLocks } from './seating/seat-locks.js';
+
 // حقول رقمية قيمتها physicalId (بخلاف نمط *PhysicalId العام)
 const ID_VALUE_FIELDS = new Set([
   'physicalId',
@@ -224,6 +226,9 @@ export function applySeatInsert(state: any, plan: SeatInsertPlan): Map<number, n
       Number.isFinite(Number(pin?.seatNumber)) ? { ...pin, seatNumber: shift(Number(pin.seatNumber)) } : pin);
   }
   if (Array.isArray(state.doorSeats)) state.doorSeats = state.doorSeats.map((n: any) => shift(Number(n)));
+  // 🔒 الإغلاق على الكرسيّ: يُزاح معه (والمقاعد الجديدة تُولد مفتوحة). الجوّال لا يمسّه عمداً —
+  //    تبديل لاعبَين لا يحرّك إغلاقاً، ولذلك أسماء حقوله (map/chairs) خارج قوائمه.
+  shiftSeatLocks(state, plan.after, plan.count);
   state.config.maxPlayers = plan.newMax;
   state.config.maxPlayersManual = true;
   return idMap;

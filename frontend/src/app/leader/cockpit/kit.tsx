@@ -289,6 +289,10 @@ export interface SeatMark {
   done?: boolean;
   count?: number;             // عدد أصوات
   disabled?: boolean;
+  /** 🔒 كرسيّ أغلقه الليدر: الفارغ يُهشَّر (ليس للجلوس الآن)، و`perm` = مغلق دائماً */
+  shut?: boolean; perm?: boolean;
+  /** شارةٌ أسفل اليمين (رقم الدفعة) */
+  badge?: ReactNode;
 }
 export interface SeatCellData { seat: number; player: any | null; spectator: any | null; held: any | null }
 
@@ -327,6 +331,9 @@ export function SeatGrid({ cells, onSeat, mark, showRoles, faces }: {
         if (!p && !c.held && !c.spectator) st = 'border-dashed border-[#2a241c] bg-transparent text-[#9a8f7e]';
         if (c.held) st = 'border-[#dba640]/60 bg-[#16130f]';
         if (c.spectator && !p) st = 'border-[#63afd9]/40 bg-[#16130f]';
+        // 🔒 مغلقٌ فارغ: تهشيرٌ لا لونٌ من ألوان الحالات (أحمر الطرد، أزرق المتفرّج، كهرمانيّ الحجز)
+        const hatch = !!m.shut && !p && !c.held && !c.spectator;
+        if (hatch) st = `border-dashed ${m.perm ? 'border-[#5a4f41]' : 'border-[#4a4136]'} text-[#8b8174]`;
         if (m.done) st = 'border-[#43b27f]/55 bg-[#43b27f]/[.07]';
         if (m.need) st = 'border-[#63afd9] bg-[#63afd9]/[.12] shadow-[0_0_0_2px_rgba(99,175,217,.3)]';
         if (m.target) st = 'border-[#d0474c]/75 bg-[#d0474c]/10';
@@ -339,7 +346,8 @@ export function SeatGrid({ cells, onSeat, mark, showRoles, faces }: {
         const tl = m.topLeft ?? (c.held ? '⏳' : c.spectator && !p ? '👁' : p?.isSilenced && p.isAlive !== false ? '🔇' : p && p.isConnected === false ? '○' : null);
         const label = `مقعد ${c.seat}${p ? ' — ' + p.name : c.held ? ' — محجوز' : c.spectator ? ' — متفرّج' : ' — فارغ'}`;
         return (
-          <button key={c.seat} type="button" aria-label={label} disabled={m.disabled || !onSeat} onClick={() => onSeat?.(c)}
+          <button key={c.seat} type="button" aria-label={m.shut ? `${label} — مغلق` : label} disabled={m.disabled || !onSeat} onClick={() => onSeat?.(c)}
+            style={hatch && !m.selected && !m.target ? { backgroundImage: `repeating-linear-gradient(135deg, rgba(255,255,255,${m.perm ? '.075' : '.035'}) 0 6px, transparent 6px 12px)` } : undefined}
             className={`${base} ${st} ${dim ? 'opacity-30' : ''} ${m.ghost ? 'opacity-45' : ''} disabled:cursor-default`}>
             {faces && p && (() => {
               const src = avatarThumb(p.avatarUrl);
@@ -356,6 +364,7 @@ export function SeatGrid({ cells, onSeat, mark, showRoles, faces }: {
               : m.need ? <span className="mt-0.5 text-[11px] leading-none">⏳</span>
               : m.dot && <span className={`mt-0.5 w-[7px] h-[7px] rounded-full ${m.dot === 'ok' ? 'bg-[#43b27f]' : 'bg-[#4a4136]'}`} />}
             {!!m.count && <span className="absolute bottom-[3px] right-1 bg-[#d0474c] text-white rounded-lg text-[11.5px] font-extrabold px-[5px] leading-[17px] tabular-nums">{m.count}</span>}
+            {m.badge != null && !m.count && <span className="absolute bottom-[3px] right-1 min-w-[17px] rounded-lg bg-[#C5A059] text-[#110d08] text-[11.5px] font-extrabold px-[4px] leading-[17px] tabular-nums text-center">{m.badge}</span>}
           </button>
         );
       })}

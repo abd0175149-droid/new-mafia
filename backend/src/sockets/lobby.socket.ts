@@ -17,6 +17,7 @@ import { allocateSeat } from '../game/seat-allocator.js';
 import { reshuffleSeating } from '../game/seating/engine.js';
 import { zoneRank } from '../game/seating/photo-zone.js';
 import { resolveManualSeat, freeSeatsFor, exitDisposition, isSeatFail } from '../game/seating/manual-seat.js';
+import * as SeatLocks from '../game/seating/seat-locks.js';
 import { isManualSeatActivity, stampManualSeats } from '../services/manual-seat.service.js';
 import type { SeatConstraints } from '../game/seat-allocator.js';
 import { generateRoles, validateRoleDistribution, Role, getTeamCounts, isMafiaRole, MAFIA_ROLES, ROLE_NAMES_AR } from '../game/roles.js';
@@ -488,6 +489,27 @@ function markLeaderSeated(state: any, seats: Iterable<number>): void {
   for (const p of (state?.players || [])) if (set.has(p.physicalId)) p.leaderSeat = true;
 }
 
+// ── 🔒 إغلاق المقاعد: البثّ والمنتظرون ──────────────────
+// من وصل ولا كرسيّ مفتوح ليس في الغرفة بعد، فيدخل غرفة انتظارٍ جانبيّة تُنبَّه حين يُفتح
+// كرسيّ ليعيد طلبه (ومعها إعادة محاولةٍ بطيئة في العميل إن انقطع السوكِت).
+const seatWaitRoom = (roomId: string) => `${roomId}:seat-wait`;
+/** مفتاح «أنماطي» داخل staff.game_defaults (بجانب «قيمي» — بلا عمودٍ جديد) */
+const SEAT_PATTERNS_KEY = '_seatPatterns';
+
+function pokeSeatWaiters(io: Server, roomId: string): void {
+  io.to(seatWaitRoom(roomId)).emit('room:seats-opened', { roomId, at: Date.now() });
+}
+
+/** حالة الإغلاق للموثوقين وحدهم (الليدر والشاشة) — اللاعب لا يرى إلّا قائمة المتاح له */
+async function emitSeatLocks(
+  io: Server, roomId: string, seatLocks: any,
+  event?: { type: 'opened' | 'reclosed' | 'waiting'; chairs?: number[]; by?: 'auto' | 'leader'; name?: string } | null,
+): Promise<void> {
+  try {
+    await emitTrustedOnly(io, roomId, 'room:seat-locks', { roomId, seatLocks: seatLocks ?? null, event: event ?? null, at: Date.now() });
+  } catch { /* البثّ لا يعطّل الفعل */ }
+}
+
 async function loadSeatTemplateIntoState(state: any): Promise<boolean> {
   const db = getDB();
   const activityId = state?.activityId;
@@ -546,6 +568,9 @@ async function loadSeatTemplateIntoState(state: any): Promise<boolean> {
     }
     state.pinnedSeats = pinnedSeats;
     state.reservedTailSeats = reservedTailSeats;
+    // 🔒 «المقاعد المؤخّرة» تُحمَّل دفعةً أخيرة مغلقة — مرّةً واحدة عند أوّل تحميل:
+    //    إعادة التحميل لا تُغلق دفعةً فُتحت ولا تطمس ما قرّره الليدر.
+    if (state.seatLocks === undefined) SeatLocks.locksFromTail(state, reservedTailSeats);
     state.doors = doors;
     state.doorSeats = doorSeats;
     state.seatLayout = seatLayout;
@@ -622,6 +647,8 @@ async function resyncSeatTemplate(state: any): Promise<{
   // تحديث بيانات العرض/التوزيع من القالب الجديد
   state.pinnedSeats = newPinned;
   state.reservedTailSeats = newTail;
+  // 🔒 «تحديث من القالب» يعيد بناء دفعة المؤخّرة ما لم يكن الليدر قد عدّل الإغلاق بيده
+  SeatLocks.locksFromTail(state, newTail);
   state.doors = newDoors;
   state.doorSeats = newDoorSeats;
   {
@@ -1876,6 +1903,43 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
         seatChoice: { maxPlayers: r.maxPlayers, freeSeats: r.freeSeats },
       });
       const seatJoiner = { playerId: data.playerId ?? socket.data.authPlayer?.playerId ?? null, phone: data.phone ?? null, name: data.name };
+
+      // ══ 🔒 إغلاق المقاعد: هل للداخل كرسيّ مفتوح؟ (قبل اختيار أيّ مقعد) ══
+      // تحت قفل الغرفة: داخلان في اللحظة نفسها لا يفتحان دفعتين. القاعدة «وحدها» تفتح الدفعة
+      // التالية هنا؛ وإلّا ينتظر الداخل على شاشته ويُنبَّه الليدر، ويعيد طلبه حين يُفتح كرسيّ.
+      // المتفرّج المتأخّر لا يمرّ من هنا: مقاعد الدفعات مفضَّلةٌ له (spectatorSeatPrefs).
+      if (!joinAsSpectator && SeatLocks.readLocks(state)) {
+        const { withRoomLock } = await import('../game/state.js');
+        const gate = await withRoomLock(data.roomId, async () => {
+          const cur: any = await getRoom(data.roomId);
+          if (!cur) return null;
+          const g = SeatLocks.gateForJoiner(cur, seatJoiner, Date.now());
+          if (g.changed) await setGameState(data.roomId, cur);
+          return { ...g, locks: cur.seatLocks, cap: Number(cur.config?.maxPlayers) || state.config.maxPlayers };
+        });
+        if (gate) {
+          (state as any).seatLocks = gate.locks;   // اللقطة المحلّيّة تتبع ما فُتح تحت القفل
+          if (gate.changed) {
+            await emitSeatLocks(io, data.roomId, gate.locks,
+              gate.opened.length ? { type: 'opened', chairs: gate.opened, by: 'auto' }
+                : gate.wait ? { type: 'waiting', name: data.name } : null);
+          }
+          if (gate.opened.length) pokeSeatWaiters(io, data.roomId);
+          if (gate.wait) {
+            socket.join(seatWaitRoom(data.roomId));
+            // العميل القديم يفهم ROOM_FULL (اختيار يدويّ) أو يعرض نصّ الخطأ (توزيع آليّ) ويعيد بيده؛
+            // الجديد يقرأ seatWait فينتظر ويعيد الطلب وحده.
+            return callback({
+              success: false,
+              code: manualSeatMode && data.supportsSeatChoice === true ? 'ROOM_FULL' : 'SEAT_WAIT',
+              seatWait: true,
+              error: 'لا مقعد مفتوح الآن — انتظر لحظة، يفتح المنظّم مقاعد جديدة',
+              seatChoice: { maxPlayers: gate.cap, freeSeats: [], wait: true },
+            });
+          }
+        }
+      }
+
       let manualSeat: number | null = null;
       let manualSeatVia: 'choice' | 'pin' | null = null;
       if (manualSeatMode && data.supportsSeatChoice === true) {
@@ -1944,6 +2008,12 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
       // التحقق من تفعيل المحرك الذكي (أو وجود قالب مقاعد نشط للفعالية)
       // 📸 الزاوية تحتاج المحرّك ولو بلا قالبٍ ولا قيود (الوضع القديم عشوائيّ لا يجمع أحداً)
       const engineEnabled = (constraints && (constraints as any).engineEnabled) || hasTemplate || !!zoneCtx;
+
+      // 🔒 ما أغلقه الليدر: للّاعب كلّه مستبعد؛ وللمتفرّج المتأخّر الدائم وحده، ومقاعد
+      //    الدفعات غير المفتوحة مفضَّلةٌ له (كما كانت «المقاعد المؤخّرة»).
+      const lockPrefs: { closed: number[]; bonus?: Record<number, number> } = joinAsSpectator
+        ? SeatLocks.spectatorSeatPrefs(state)
+        : { closed: SeatLocks.closedChairs(state) };
 
       if (manualSeat !== null) {
         // 🖐️ المقعد الذي اختاره (أو ثبّته الطاقم) — لا محرّك ولا إثراء
@@ -2236,6 +2306,8 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
           spreadFromSeats,
           preferTailSeats: joinAsSpectator,
           photoZone: zoneCtx || undefined,
+          closedSeats: lockPrefs.closed,
+          seatBonus: lockPrefs.bonus,
         });
         var assignedSeat = assignedSeatResult;
         var constraintViolation = cvResult;
@@ -2258,6 +2330,8 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
             gender: data.gender || 'MALE',
           },
           preferredSeat: socket.data.role === 'leader' ? data.preferredSeat : undefined,
+          closedSeats: lockPrefs.closed,
+          seatBonus: lockPrefs.bonus,
         });
         var assignedSeat = assignedSeatResult;
         var constraintViolation = cvResult;
@@ -2301,7 +2375,8 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
         }
         if (taken.has(seat)) {
           let alt = 0;
-          for (let i = fresh.config.maxPlayers; i >= 1; i--) if (!taken.has(i)) { alt = i; break; }
+          const permClosed = new Set<number>(SeatLocks.permanentChairs(fresh));   // 🔒 الدائم لا يجلس عليه أحد
+          for (let i = fresh.config.maxPlayers; i >= 1; i--) if (!taken.has(i) && !permClosed.has(i)) { alt = i; break; }
           seat = alt || 0;
         }
         if (!seat) {
@@ -2464,6 +2539,7 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
             affinityPairs,
             spreadFromSeats: lastArrivalSeats(fresh.players as any),
             photoZone: zoneCtx || undefined,
+            closedSeats: SeatLocks.closedChairs(fresh),
           });
           if (!retry.seat || takenNow.has(retry.seat)) {
             return callback({ success: false, error: 'لا مقعد شاغر — القاعة ممتلئة' });
@@ -2474,6 +2550,27 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
         }
       }
       if (!addedState) return callback({ success: false, error: 'تعذّر إجلاسك — أعد المحاولة' });
+
+      // 🔒 بعد الجلوس: الداخل يُشطب من المنتظرين، ويُفحص هل بلغ المفتوح عتبة الفتح.
+      //    تحت القفل نفسه الذي جلس به (addPlayer) — لا يتداخل معه، ولا يعطّل الانضمام إن أخفق.
+      if (SeatLocks.readLocks(addedState)) {
+        try {
+          const { withRoomLock } = await import('../game/state.js');
+          const post = await withRoomLock(data.roomId, async () => {
+            const cur: any = await getRoom(data.roomId);
+            if (!cur || !SeatLocks.readLocks(cur)) return null;
+            const dropped = SeatLocks.dropWaiter(cur, seatJoiner);
+            const r = SeatLocks.ruleCheck(cur, Date.now());
+            if (dropped || r.changed) await setGameState(data.roomId, cur);
+            return { dropped, r, locks: cur.seatLocks };
+          });
+          if (post && (post.dropped || post.r.changed)) {
+            await emitSeatLocks(io, data.roomId, post.locks, post.r.opened.length ? { type: 'opened', chairs: post.r.opened, by: 'auto' } : null);
+            if (post.r.opened.length) pokeSeatWaiters(io, data.roomId);
+          }
+        } catch (e: any) { console.warn('⚠️ seat-locks rule check skipped:', e?.message); }
+      }
+      socket.leave(seatWaitRoom(data.roomId));
 
       // البحث عن اللاعب الفعلي (قد يكون تم ربطه بمقعد ليدر موجود)
       const actualPlayer = data.phone
@@ -3265,6 +3362,9 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
 
       const idMap = applySeatInsert(state, plan);
       await setGameState(data.roomId, state);
+      // 🔒 خريطة الإغلاق أُزيحت مع الكراسي، والمقاعد الجديدة مفتوحة — من ينتظر يعيد طلبه
+      if (SeatLocks.readLocks(state)) await emitSeatLocks(io, data.roomId, (state as any).seatLocks);
+      pokeSeatWaiters(io, data.roomId);
       const room = activeRooms.get(data.roomId);
       if (room) room.maxPlayers = newMax;
 
@@ -3477,6 +3577,7 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
         reservedTailSeats: (state as any).reservedTailSeats || 0,
         doorSeats: (state as any).doorSeats || [],
         affinityPairs,
+        closedSeats: SeatLocks.closedChairs(state),   // 🔒 «رتّب» يتجنّب المغلق ما دام في المفتوح متّسع
       },
     };
   }
@@ -3711,6 +3812,70 @@ async function readSeatLayoutOnly(activityId: any): Promise<any> {
       await emitStateSanitized(io, data.roomId, 'game:state-sync', res.st);
       if (data.noPhoto) await notifyPhotoZone(data.roomId, res.st, 'outside', Number(data.physicalId), res.owner.name);
       cb({ success: true });
+    } catch (e: any) { cb({ success: false, error: e.message }); }
+  });
+
+  // ── 🔒 إغلاق المقاعد — تحكّم الليدر الكامل (seat-locks.ts) ──
+  //   save      «تمّ» في المحرّر: خريطةٌ كاملة {كرسيّ: 0 دائم | n دفعة} + القاعدة
+  //   patch     لمسةٌ من لوح المقعد: {كرسيّ: null يفتح | 0 | n}
+  //   rule      {mode: auto|ask|off, threshold}
+  //   open-next افتح الدفعة التالية الآن · undo تراجع عن آخر فتح · later «لاحقاً» على شريط السؤال
+  // في كلّ المراحل: لا يحرّك أحداً ولا يمسّ اللعبة — أثره على من يصل بعده فقط.
+  socket.on('room:seat-locks', async (data: {
+    roomId: string; op: 'save' | 'patch' | 'rule' | 'open-next' | 'undo' | 'later';
+    map?: Record<string, number | null>; patch?: Record<string, number | null>;
+    rule?: { mode?: string; threshold?: number };
+  }, callback?: Function) => {
+    const cb = typeof callback === 'function' ? callback : () => {};
+    try {
+      if (socket.data.role !== 'leader') return cb({ success: false, error: 'Only leader' });
+      const { withRoomLock } = await import('../game/state.js');
+      const now = Date.now();
+      const out = await withRoomLock(data.roomId, async () => {
+        const cur: any = await getRoom(data.roomId);
+        if (!cur) return { err: 'Room not found' } as const;
+        let opened: number[] = [];
+        let reclosed: number[] = [];
+        switch (data.op) {
+          case 'save': opened = SeatLocks.saveLocks(cur, data.map, data.rule).opened; break;
+          case 'patch': opened = SeatLocks.patchLocks(cur, data.patch).opened; break;
+          case 'rule': {
+            const l = SeatLocks.ensureLocks(cur);
+            l.rule = SeatLocks.normalizeRule(data.rule);
+            l.origin = 'leader';
+            l.snoozed = false;
+            break;
+          }
+          case 'open-next':
+            opened = SeatLocks.openNextBatch(cur, now);
+            if (!opened.length) return { err: 'لا دفعة مغلقة باقية' } as const;
+            break;
+          case 'undo': reclosed = SeatLocks.undoLastOpen(cur); break;
+          case 'later': {
+            const l = SeatLocks.ensureLocks(cur);
+            l.pending = false;
+            l.snoozed = true;
+            break;
+          }
+          default: return { err: 'عمليّة غير معروفة' } as const;
+        }
+        // بعد تعديلٍ يدويّ تُفحص القاعدة (قد يكون المفتوح الباقي عند العتبة أصلاً) —
+        // عدا «تراجع» و«لاحقاً»: كلاهما قرارٌ بألّا يُفتح شيءٌ الآن.
+        let auto: number[] = [];
+        if (data.op === 'save' || data.op === 'patch' || data.op === 'rule') auto = SeatLocks.ruleCheck(cur, now).opened;
+        SeatLocks.pruneWaiters(cur, now);
+        await setGameState(data.roomId, cur);
+        return { locks: cur.seatLocks, opened, reclosed, auto };
+      });
+      if ('err' in out) return cb({ success: false, error: out.err });
+
+      const allOpened = [...out.opened, ...out.auto];
+      await emitSeatLocks(io, data.roomId, out.locks,
+        out.auto.length ? { type: 'opened', chairs: out.auto, by: 'auto' }
+          : out.reclosed.length ? { type: 'reclosed', chairs: out.reclosed, by: 'leader' } : null);
+      if (allOpened.length) pokeSeatWaiters(io, data.roomId);
+      console.log(`🔒 [seat-locks] ${data.op} room=${data.roomId} opened=[${allOpened.join(',')}] reclosed=[${out.reclosed.join(',')}]`);
+      cb({ success: true, seatLocks: out.locks, opened: out.opened, autoOpened: out.auto, reclosed: out.reclosed });
     } catch (e: any) { cb({ success: false, error: e.message }); }
   });
 
@@ -4222,6 +4387,7 @@ async function readSeatLayoutOnly(activityId: any): Promise<any> {
         physicalId: data.physicalId,
         totalPlayers: state.players.length,
       });
+      pokeSeatWaiters(io, data.roomId);   // 🔒 فرغ كرسيّ — من ينتظر يعيد طلبه
 
       // ── إرسال إشعار للاعب المطرود بشكل مباشر ──
       const allSockets = await io.in(data.roomId).fetchSockets();
@@ -4947,7 +5113,11 @@ async function readSeatLayoutOnly(activityId: any): Promise<any> {
         }
       }
 
-      await updateRoom(data.roomId, { players: state.players, config: state.config });
+      // 🔒 ما فوق السعة الجديدة يسقط من خريطة الإغلاق (وإلّا عاد مغلقاً لو كُبّرت لاحقاً)
+      const locksTrimmed = SeatLocks.trimToCap(state);
+      await updateRoom(data.roomId, { players: state.players, config: state.config, ...(locksTrimmed ? { seatLocks: (state as any).seatLocks } : {}) } as any);
+      if (locksTrimmed) await emitSeatLocks(io, data.roomId, (state as any).seatLocks);
+      if (newMax > oldMax) pokeSeatWaiters(io, data.roomId);   // كراسٍ جديدة مفتوحة — من ينتظر يعيد طلبه
 
       const room = activeRooms.get(data.roomId);
       if (room) {
@@ -5125,7 +5295,34 @@ async function readSeatLayoutOnly(activityId: any): Promise<any> {
       if (socket.data.role !== 'leader' || !staffId) return done({ success: false, error: 'Only leader' });
       const db = getDB();
       const [row] = await db.select({ d: staffTable.gameDefaults }).from(staffTable).where(eq(staffTable.id, staffId)).limit(1);
-      done({ success: true, defaults: (row?.d && typeof row.d === 'object') ? row.d : null });
+      // 🔒 «أنماطي» (إغلاق المقاعد) تسكن العمود نفسه تحت مفتاحٍ محجوز — لا تُحسب «قيماً محفوظة»
+      const raw: any = (row?.d && typeof row.d === 'object') ? { ...(row.d as any) } : null;
+      if (raw) delete raw[SEAT_PATTERNS_KEY];
+      done({ success: true, defaults: raw && Object.keys(raw).length ? raw : null });
+    } catch (err: any) { done({ success: false, error: err.message }); }
+  });
+
+  // ── 🔒 «أنماطي»: أنماط إغلاق المقاعد على حساب الليدر (تُستدعى بلمسة في أيّ غرفة) ──
+  socket.on('leader:seat-patterns', async (data: { save?: unknown }, callback) => {
+    const done = (r: any) => { if (typeof callback === 'function') callback(r); };
+    try {
+      const staffId = Number(socket.data.authStaff?.id);
+      if (socket.data.role !== 'leader' || !staffId) return done({ success: false, error: 'Only leader' });
+      const db = getDB();
+      const [row] = await db.select({ d: staffTable.gameDefaults }).from(staffTable).where(eq(staffTable.id, staffId)).limit(1);
+      const cur: any = (row?.d && typeof row.d === 'object') ? row.d : {};
+      if (data?.save === undefined) {
+        return done({ success: true, patterns: Array.isArray(cur[SEAT_PATTERNS_KEY]) ? cur[SEAT_PATTERNS_KEY] : [] });
+      }
+      if (!Array.isArray(data.save)) return done({ success: false, error: 'أنماطٌ غير صالحة' });
+      const clean = (data.save as any[]).slice(0, 8).map((p) => ({
+        name: String(p?.name || '').trim().slice(0, 30) || 'نمط',
+        cap: Math.min(50, Math.max(1, Math.floor(Number(p?.cap)) || 27)),
+        map: SeatLocks.normalizeMap(p?.map, 50),
+        rule: SeatLocks.normalizeRule(p?.rule),
+      }));
+      await db.update(staffTable).set({ gameDefaults: { ...cur, [SEAT_PATTERNS_KEY]: clean } } as any).where(eq(staffTable.id, staffId));
+      done({ success: true, patterns: clean });
     } catch (err: any) { done({ success: false, error: err.message }); }
   });
   socket.on('leader:save-game-defaults', async (data: { defaults?: Record<string, unknown> }, callback) => {
@@ -5136,7 +5333,12 @@ async function readSeatLayoutOnly(activityId: any): Promise<any> {
       const d = data?.defaults;
       if (!d || typeof d !== 'object' || Array.isArray(d) || JSON.stringify(d).length > 4000) return done({ success: false, error: 'قيمٌ غير صالحة' });
       const db = getDB();
-      await db.update(staffTable).set({ gameDefaults: d } as any).where(eq(staffTable.id, staffId));
+      // 🔒 «أنماطي» تسكن العمود نفسه — حفظ القيم لا يمحوها
+      const [prev] = await db.select({ d: staffTable.gameDefaults }).from(staffTable).where(eq(staffTable.id, staffId)).limit(1);
+      const keep = (prev?.d && typeof prev.d === 'object' && Array.isArray((prev.d as any)[SEAT_PATTERNS_KEY])) ? { [SEAT_PATTERNS_KEY]: (prev.d as any)[SEAT_PATTERNS_KEY] } : {};
+      const { [SEAT_PATTERNS_KEY]: _drop, ...plain } = d as any;
+      void _drop;
+      await db.update(staffTable).set({ gameDefaults: { ...plain, ...keep } } as any).where(eq(staffTable.id, staffId));
       console.log(`🎛️ staff ${staffId} saved game defaults`);
       done({ success: true });
     } catch (err: any) { done({ success: false, error: err.message }); }
@@ -6416,6 +6618,7 @@ async function readSeatLayoutOnly(activityId: any): Promise<any> {
 
         if (disposition === 'free') {
           await unbindExitedSeat();
+          pokeSeatWaiters(io, data.roomId);   // 🔒 فرغ كرسيّ — من ينتظر يعيد طلبه
           console.log(`🖐️ Manual seats: #${playerPhysId} (${playerName}) left — seat freed in room ${data.roomId}`);
         } else {
           console.log(`🖐️ Manual seats: #${playerPhysId} (${playerName}) left — seat kept (leader-assigned) in room ${data.roomId}`);
@@ -6527,6 +6730,7 @@ async function readSeatLayoutOnly(activityId: any): Promise<any> {
       // حذف اللاعب فعلياً وتحرير المقعد
       state.players.splice(playerIndex, 1);
       await setGameState(data.roomId, state);
+      pokeSeatWaiters(io, data.roomId);   // 🔒 فرغ كرسيّ — من ينتظر يعيد طلبه
 
       // تحديث العداد
       const room = activeRooms.get(data.roomId);
@@ -6767,9 +6971,10 @@ async function readSeatLayoutOnly(activityId: any): Promise<any> {
       const leftover: any[] = [];
       // 📸 بديل «أوّل فارغ» يحترم الزاوية: الرافض إلى طرف الكتلة، والقابل خارجها
       const zoneOn = !!(state as any).photoZone?.on;
+      const permClosed = new Set<number>(SeatLocks.permanentChairs(state));   // 🔒 الدائم لا يجلس عليه أحد
       const pickFree = (noPhoto: boolean): number => {
         const free: number[] = [];
-        for (let i = 1; i <= cap; i++) if (!taken.has(i)) free.push(i);
+        for (let i = 1; i <= cap; i++) if (!taken.has(i) && !permClosed.has(i)) free.push(i);
         if (!free.length) return 0;
         if (!zoneOn) return free[0];
         const occ = new Map<number, { noPhoto?: boolean }>();

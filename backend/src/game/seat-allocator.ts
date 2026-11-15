@@ -67,6 +67,10 @@ export interface AllocateParams {
   preferTailSeats?: boolean;
   /** 📸 زاوية بلا تصوير — حين تُضبط يعمل المحرّك الذكيّ ولو بلا قيود */
   photoZone?: { anchor: number; pending: number };
+  /** 🔒 كراسٍ أغلقها الليدر — تُستبعد في المحرّكَين (seat-locks.ts) */
+  closedSeats?: number[];
+  /** 🔒 مكافأة كراسٍ بعينها (المتفرّج ⟵ مقاعد الدفعات غير المفتوحة) */
+  seatBonus?: Record<number, number>;
 }
 
 // ── دالة الجوار الدائري (مربع) ──
@@ -157,6 +161,8 @@ export function allocateSeat(params: AllocateParams): { seat: number; constraint
       spreadFromSeats: params.spreadFromSeats,
       preferTailSeats: params.preferTailSeats,
       photoZone: params.photoZone,
+      closedSeats: params.closedSeats,
+      seatBonus: params.seatBonus,
     };
 
     const result = allocateSeatWithConstraints({
@@ -173,14 +179,22 @@ export function allocateSeat(params: AllocateParams): { seat: number; constraint
 
   // ═══ الوضع القديم (Legacy) ═══
   const occupiedSet = new Set(players.map(p => p.physicalId));
+  const closedSet = new Set<number>(params.closedSeats || []);   // 🔒 ما أغلقه الليدر ليس مقعداً
   const allEmpty: number[] = [];
   for (let i = 1; i <= maxPlayers; i++) {
-    if (!occupiedSet.has(i)) allEmpty.push(i);
+    if (!occupiedSet.has(i) && !closedSet.has(i)) allEmpty.push(i);
   }
 
   if (allEmpty.length === 0) {
     throw new Error(`الغرفة ممتلئة (${maxPlayers} لاعب كحد أقصى)`);
   }
+
+  // 🔒 الأعلى مكافأةً أوّلاً (مقاعد الدفعات للمتفرّج) — بلا مكافأة: القائمة كما هي
+  const bonusOf = (seat: number): number => Number(params.seatBonus?.[seat]) || 0;
+  const preferBonus = (seats: number[]): number[] => {
+    const top = Math.max(...seats.map(bonusOf));
+    return top > 0 ? seats.filter(s => bonusOf(s) === top) : seats;
+  };
 
   // 1. المقعد المفضل (rejoin)
   if (preferredSeat && allEmpty.includes(preferredSeat)) {
@@ -196,14 +210,14 @@ export function allocateSeat(params: AllocateParams): { seat: number; constraint
     );
 
     if (validSeats.length > 0) {
-      const shuffled = shuffle(validSeats);
+      const shuffled = shuffle(preferBonus(validSeats));
       return { seat: shuffled[0], constraintViolation: false };
     }
 
     console.warn(`⚠️ Seat constraints couldn't be fully satisfied — assigning random seat`);
   }
 
-  const shuffled = shuffle(allEmpty);
+  const shuffled = shuffle(preferBonus(allEmpty));
   return { seat: shuffled[0], constraintViolation: !!constraints };
 }
 

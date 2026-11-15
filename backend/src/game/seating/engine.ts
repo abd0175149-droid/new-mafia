@@ -109,10 +109,12 @@ export function allocateSeatWithConstraints(params: {
     }
   }
 
-  // حساب المقاعد الفارغة
+  // حساب المقاعد الفارغة — 🔒 ما أغلقه الليدر ليس مقعداً (يُستبعد قبل أيّ قاعدة)
+  const closedSet = new Set<number>(context.closedSeats || []);
+  const bonusOf = (seat: number): number => Number(context.seatBonus?.[seat]) || 0;
   let allEmpty: number[] = [];
   for (let i = 1; i <= maxPlayers; i++) {
-    if (!occupiedSeats.has(i)) allEmpty.push(i);
+    if (!occupiedSeats.has(i) && !closedSet.has(i)) allEmpty.push(i);
   }
 
   // تصفية المقاعد الفارغة: استبعاد المقاعد المثبتة للاعبين آخرين لم ينضموا بعد
@@ -141,7 +143,10 @@ export function allocateSeatWithConstraints(params: {
     if (preferredSeat && allEmpty.includes(preferredSeat)) {
       return { seat: preferredSeat, constraintViolation: false, violations: [], score: 1.0 };
     }
-    return { seat: shuffle(allEmpty)[0], constraintViolation: false, violations: [], score: 1.0 };
+    // 🔒 بلا قيود: الأعلى مكافأةً أوّلاً (مقاعد الدفعات للمتفرّج)، والتعادل عشوائيّ
+    const top = Math.max(...allEmpty.map(bonusOf));
+    const pool = top > 0 ? allEmpty.filter(s => bonusOf(s) === top) : allEmpty;
+    return { seat: shuffle(pool)[0], constraintViolation: false, violations: [], score: 1.0 };
   }
 
   // ── حساب نطاق المقاعد المؤخرة ──
@@ -168,6 +173,7 @@ export function allocateSeatWithConstraints(params: {
       if (context.preferTailSeats) totalScore += 2.0;
       else if (!frontFull) totalScore -= 2.0;
     }
+    totalScore += bonusOf(seat);
 
     scored.push({
       seat,
@@ -319,6 +325,12 @@ export function reshuffleSeating(params: {
       if (pins.length > 0) {
         const unreserved = allEmpty.filter(s => !isPinnedToSomeoneElse(s, player, pins));
         if (unreserved.length > 0) allEmpty = unreserved;
+      }
+      // 🔒 «رتّب» لا يُجلس أحداً على كرسيّ مغلق ما دام في المفتوح متّسع
+      //    (الجالسون أكثر من المفتوح ⇒ يُستعمل المغلق: لا يُترك لاعبٌ بلا مقعد)
+      if (context.closedSeats && context.closedSeats.length > 0) {
+        const open = allEmpty.filter(s => !context.closedSeats!.includes(s));
+        if (open.length > 0) allEmpty = open;
       }
 
       if (allEmpty.length === 0) { success = false; break; }

@@ -20,7 +20,8 @@ export interface SeatChoiceJoiner {
   name?: string | null;
 }
 
-export type SeatBlocker = 'player' | 'held' | 'spectator' | 'pinned';
+/** 'closed' = أغلقه الليدر (🔒 إغلاق المقاعد) — انظر seat-locks.ts */
+export type SeatBlocker = 'player' | 'held' | 'spectator' | 'pinned' | 'closed';
 
 export type ManualSeatCode = 'SEAT_CHOICE_REQUIRED' | 'SEAT_INVALID' | 'SEAT_TAKEN' | 'ROOM_FULL';
 
@@ -37,6 +38,16 @@ const phoneKey = (p: unknown): string => {
   return normalizeLocalPhone(raw) || raw.replace(/\D/g, '');
 };
 const nameKey = (n: unknown): string => String(n ?? '').trim().toLowerCase();
+
+/** مفتاحٌ ثابت للداخل (حساب ثمّ هاتف ثمّ اسم) — لقائمة المنتظرين في seat-locks */
+export function joinerKey(j: SeatChoiceJoiner): string {
+  const id = Number(j?.playerId);
+  if (Number.isFinite(id) && id > 0) return `p${id}`;
+  const ph = phoneKey(j?.phone);
+  if (ph) return `h${ph}`;
+  const nm = nameKey(j?.name);
+  return nm ? `n${nm}` : '';
+}
 
 /** هل هذا الشخص (لاعب/متفرّج/تثبيت) هو الداخل نفسه؟ — الحساب ثمّ الهاتف ثمّ الاسم (كمطابقة التثبيت في المحرّك) */
 export function isSamePerson(
@@ -84,15 +95,28 @@ export function blockedSeats(state: any, joiner: SeatChoiceJoiner): Map<number, 
 
   const pins: any[] = Array.isArray(state?.pinnedSeats) ? state.pinnedSeats : [];
   const present = [...players, ...specs];
+  const ownPins = new Set<number>();
   for (const pin of pins) {
     const s = Number(pin.seatNumber);
     if (!(s > 0) || out.has(s)) continue;
-    if (isSamePerson(pin, joiner, { byName: true })) continue;
+    if (isSamePerson(pin, joiner, { byName: true })) { ownPins.add(s); continue; }
     const owner = { playerId: pin.playerId, phone: pin.phone, name: pin.playerName };
     const ownerSeatedElsewhere = present.some((p: any) =>
       Number(p.physicalId) !== s && isSamePerson(p, owner, { byName: true }));
     if (ownerSeatedElsewhere) continue;
     out.set(s, 'pinned');
+  }
+
+  // 🔒 ما أغلقه الليدر (دائماً أو في دفعةٍ لم تُفتح) — عدا كرسيّاً ثُبّت للداخل نفسه:
+  //    الإغلاق يحجبه عن غيره فقط، وصاحبه يجلس فيه حين يصل.
+  const locks = state?.seatLocks?.map;
+  if (locks && typeof locks === 'object') {
+    for (const k of Object.keys(locks)) {
+      const s = Number(k);
+      const v = Number(locks[k]);
+      if (!(s > 0) || !Number.isFinite(v) || v < 0 || out.has(s) || ownPins.has(s)) continue;
+      out.set(s, 'closed');
+    }
   }
   return out;
 }
@@ -146,6 +170,8 @@ export function resolveManualSeat(state: any, joiner: SeatChoiceJoiner, chosen: 
   if (!Number.isFinite(n) || n < 1 || n > cap) return fail('SEAT_INVALID', `رقم المقعد يجب أن يكون بين 1 و ${cap}`);
 
   const why = blockedSeats(state, joiner).get(n);
+  // الرمز نفسه (SEAT_TAKEN) كي تفهمه العملاء القديمة؛ النصّ وحده يختلف
+  if (why === 'closed') return fail('SEAT_TAKEN', `المقعد ${n} مغلق الآن — اختر من المتاح`);
   if (why) return fail('SEAT_TAKEN', `المقعد ${n} محجوز — اختر رقماً آخر`);
   return { ok: true, seat: n, via: 'choice' };
 }

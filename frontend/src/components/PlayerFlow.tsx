@@ -31,7 +31,7 @@ import TeamBar from './TeamBar';
 import PlayerRoom, { useFaceOf, type SheriffResult } from './player-room/PlayerRoom';
 import { PlayerRoomBoundary } from './player-room/Boundary';
 import PhotoConsentChip from './PhotoConsentChip';
-type Step = 'code' | 'phone' | 'login' | 'register' | 'change_password' | 'ticket' | 'photo_consent' | 'seat_choice' | 'auto_joining' | 'done' | 'rejoined' | 'spectating';
+type Step = 'code' | 'phone' | 'login' | 'register' | 'change_password' | 'ticket' | 'photo_consent' | 'seat_choice' | 'seat_wait' | 'auto_joining' | 'done' | 'rejoined' | 'spectating';
 
 interface PlayerFlowProps {
   initialRoomCode?: string;
@@ -351,6 +351,8 @@ export default function PlayerFlow({ initialRoomCode = '', inviteFlag = false, i
   const [myNoPhoto, setMyNoPhoto] = useState(false);
   // 🖐️ اختيار المقعد اليدويّ: الخادم يطلب الرقم (SEAT_CHOICE_REQUIRED) ويردّ بالمتاح
   const [seatAsk, setSeatAsk] = useState<{ roomId: string; maxPlayers: number; freeSeats: number[]; args: [boolean, string | undefined, string] } | null>(null);
+  // 🔒 لا مقعد مفتوح الآن (الليدر أغلق الباقي): ننتظر ونعيد الطلب وحدنا حين يُفتح مقعد
+  const [seatWait, setSeatWait] = useState<{ roomId: string; args: [boolean, string | undefined, string] } | null>(null);
   const [seatInput, setSeatInput] = useState('');
   const [seatError, setSeatError] = useState('');
   const chosenSeatRef = useRef<{ roomId: string; seat: string } | null>(null);
@@ -638,7 +640,7 @@ export default function PlayerFlow({ initialRoomCode = '', inviteFlag = false, i
 
   // 📸 آخر خطوةٍ ثابتة (للرجوع من سؤال التصوير)، وبداية الدخول تمسح جواب المحاولة السابقة
   useEffect(() => {
-    if (step !== 'auto_joining' && step !== 'photo_consent' && step !== 'seat_choice') lastStableStepRef.current = step;
+    if (step !== 'auto_joining' && step !== 'photo_consent' && step !== 'seat_choice' && step !== 'seat_wait') lastStableStepRef.current = step;
     if (step === 'code' || step === 'phone') { photoAnswerRef.current = null; setPhotoZoneOn(false); setMyNoPhoto(false); }
   }, [step]);
 
@@ -2473,6 +2475,7 @@ export default function PlayerFlow({ initialRoomCode = '', inviteFlag = false, i
   const backFromSeatChoice = () => {
     chosenSeatRef.current = null;
     photoAnswerRef.current = null;
+    setSeatWait(null);
     setSeatAsk(null);
     setSeatInput('');
     setSeatError('');
@@ -2486,7 +2489,8 @@ export default function PlayerFlow({ initialRoomCode = '', inviteFlag = false, i
   };
 
   // ── الخطوة 4: الانضمام التلقائي للعبة ──
-  const handleAutoJoin = async (forceJoin: boolean = false, ticket?: string, roomIdOverride?: string) => {
+  // `quiet` = إعادة محاولةٍ من شاشة الانتظار: لا تومض شاشة «جاري تخصيص مقعدك» بين محاولةٍ وأخرى
+  const handleAutoJoin = async (forceJoin: boolean = false, ticket?: string, roomIdOverride?: string, quiet: boolean = false) => {
     if (!displayName) return;
     const effectiveRoomId = roomIdOverride || roomId;
     if (!effectiveRoomId) {
@@ -2494,7 +2498,7 @@ export default function PlayerFlow({ initialRoomCode = '', inviteFlag = false, i
       return;
     }
     setApiError('');
-    setStep('auto_joining');
+    if (!quiet) setStep('auto_joining');
 
     // 📸 سؤال التصوير — مرّةً لكلّ دخول؛ إعادة المحاولة (تذكرة/تأكيد) تستعمل الجواب نفسه
     let photoConsent: boolean | undefined;
@@ -2530,6 +2534,7 @@ export default function PlayerFlow({ initialRoomCode = '', inviteFlag = false, i
       photoAnswerRef.current = null; // دخلنا — الدخول القادم يسأل من جديد
       chosenSeatRef.current = null;
       setSeatAsk(null);
+      setSeatWait(null);
       setSeatInput('');
       if (typeof res?.noPhoto === 'boolean') { setPhotoZoneOn(true); setMyNoPhoto(res.noPhoto); }
 
@@ -2575,6 +2580,17 @@ export default function PlayerFlow({ initialRoomCode = '', inviteFlag = false, i
       const isTicketError = errMsg.includes('التذكرة') || errMsg.includes('ticket');
       // 🖐️ الفعاليّة باختيارٍ يدويّ: اطلب الرقم، أو أعِد الطلب مع سبب الرفض وقائمة المتاح
       const seatCode = err.response?.code;
+      // 🔒 لا مقعد مفتوح الآن وفي القاعة مقاعد أغلقها المنظّم: ننتظر، والخادم ينبّهنا حين يُفتح مقعد
+      if (err.response?.seatWait === true) {
+        chosenSeatRef.current = null;
+        setSeatAsk(null);
+        setSeatInput('');
+        setSeatError('');
+        setSeatWait({ roomId: effectiveRoomId, args: [forceJoin, ticket, effectiveRoomId] });
+        setApiError('');
+        setStep('seat_wait');
+        return;
+      }
       if (err.response?.seatChoice && ['SEAT_CHOICE_REQUIRED', 'SEAT_INVALID', 'SEAT_TAKEN', 'ROOM_FULL'].includes(seatCode)) {
         const sc = err.response.seatChoice;
         setSeatAsk({
@@ -2598,6 +2614,24 @@ export default function PlayerFlow({ initialRoomCode = '', inviteFlag = false, i
       }
     }
   };
+
+  // ── 🔒 شاشة الانتظار: نعيد الطلب حين ينبّهنا الخادم (فُتح مقعد)، ومعه محاولةٌ بطيئة كلّ 15 ثانية ──
+  // المحاولة نفسها تُبقينا في قائمة المنتظرين عند الليدر — من أغلق الصفحة يسقط منها وحده.
+  const autoJoinRef = useRef(handleAutoJoin);
+  autoJoinRef.current = handleAutoJoin;
+  const seatWaitBusyRef = useRef(false);
+  useEffect(() => {
+    if (step !== 'seat_wait' || !seatWait) return;
+    const retry = () => {
+      if (seatWaitBusyRef.current) return;
+      seatWaitBusyRef.current = true;
+      const [f, t, r] = seatWait.args;
+      Promise.resolve(autoJoinRef.current(f, t, r, true)).finally(() => { seatWaitBusyRef.current = false; });
+    };
+    const off = on ? on('room:seats-opened', retry) : undefined;
+    const timer = setInterval(retry, 15000);
+    return () => { if (typeof off === 'function') off(); clearInterval(timer); };
+  }, [step, seatWait, on]);
 
   // ── 👁️ ترقية المتفرّج إلى لاعب عند بدء اللعبة التالية ──
   useEffect(() => {
@@ -3513,6 +3547,28 @@ export default function PlayerFlow({ initialRoomCode = '', inviteFlag = false, i
                 type="button"
                 onClick={backFromSeatChoice}
                 className="w-full min-h-[44px] mt-2 text-[#808080] text-[13px] hover:text-[#C5A059] transition-colors"
+              >
+                رجوع
+              </button>
+            </motion.div>
+          )}
+
+          {/* ── 🔒 خطوة: لا مقعد مفتوح الآن — ننتظر ونجلس وحدنا حين يفتح المنظّم ── */}
+          {step === 'seat_wait' && seatWait && (
+            <motion.div key="seat_wait" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="text-center py-6">
+              <div className="text-4xl mb-3">🪑</div>
+              <h2 className="text-2xl font-black mb-4 text-white" style={{ fontFamily: 'Amiri, serif' }}>لا مقعد مفتوح الآن</h2>
+              <div className="mb-5 rounded-2xl p-5 border-2 border-dashed border-[#C5A059]/30" role="status" aria-live="polite">
+                <div className="w-10 h-10 border-3 border-[#C5A059]/30 border-t-[#C5A059] rounded-full animate-spin mx-auto mb-3" />
+                <p className="text-[#C5A059] text-lg font-black" style={{ fontFamily: 'Amiri, serif' }}>انتظر لحظة</p>
+                <p className="text-[#9a9a9a] text-[14px] leading-relaxed mt-1" style={{ fontFamily: 'Amiri, serif' }}>
+                  المنظّم يفتح مقاعد جديدة — تجلس تلقائيّاً حين يُفتح مقعد، فلا تغلق الصفحة.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={backFromSeatChoice}
+                className="w-full min-h-[44px] text-[#808080] text-[13px] hover:text-[#C5A059] transition-colors"
               >
                 رجوع
               </button>

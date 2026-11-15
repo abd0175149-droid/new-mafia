@@ -275,6 +275,9 @@ section('5) 🛡️ الحارس البنيويّ: لا محرّك لعبةٍ ي
     // وأداةُ الترقيم: «أضف مقاعد» تُزيح المتفرّجين مع اللاعبين وإلّا تصادمت المقاعد —
     // تقرأ مقاعدهم لتنقلها ولا تُدخلهم أيّ طابورٍ أو معادلة (a4dd9ac)
     if (rel.replace(/\\/g, '/').endsWith('src/game/seat-remap.ts')) return;
+    // وحساب الكراسي الشاغرة عند الباب (اختيار المقعد اليدويّ، إغلاق المقاعد): المتفرّج يشغل
+    // كرسيّاً فلا يُعرض على غيره — يُقرأ رقم كرسيّه وحده، ولا يدخل طابوراً ولا معادلة.
+    if (/src\/game\/seating\/(manual-seat|seat-locks)\.ts$/.test(rel.replace(/\\/g, '/'))) return;
     if (/\.spectators\b|getSpectators\s*\(/.test(txt)) offenders.push(rel);
   };
   ROOTS.forEach(scan);

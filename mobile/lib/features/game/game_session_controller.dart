@@ -712,6 +712,35 @@ class GameSessionController extends ChangeNotifier with WidgetsBindingObserver {
     _seatRoom = null;
     _chosenSeat = null;
     _seatPending = null;
+    endSeatWait();
+  }
+
+  // ── 🔒 لا مقعد مفتوح الآن: ننتظر ونعيد الطلب وحدنا ──
+  // المنظّم أغلق المقاعد الباقية. إعادة المحاولة كلّ عشر ثوانٍ تُجلسنا حين يُفتح
+  // مقعد، وهي نفسها ما يُبقينا في قائمة المنتظرين عنده (من يغلق التطبيق يسقط منها).
+  Timer? _seatWaitTimer;
+  bool _seatWaitBusy = false;
+
+  void openSeatWait(Future<void> Function() retry) {
+    _seatAsk = null;
+    _chosenSeat = null;
+    _step = GameStep.seatWait;
+    _seatWaitTimer ??= Timer.periodic(const Duration(seconds: 10), (_) async {
+      if (_seatWaitBusy || _step != GameStep.seatWait) return;
+      _seatWaitBusy = true;
+      try {
+        await retry();
+      } finally {
+        _seatWaitBusy = false;
+      }
+    });
+    notifyListeners();
+  }
+
+  void endSeatWait() {
+    _seatWaitTimer?.cancel();
+    _seatWaitTimer = null;
+    _seatWaitBusy = false;
   }
 
   /// «رجوع» من خطوة المقعد: لا انضمام — إلى شاشة الرمز.
@@ -1094,6 +1123,7 @@ class GameSessionController extends ChangeNotifier with WidgetsBindingObserver {
     _voteTicker?.cancel();
     _seatAlertTimer?.cancel();
     _safetyNet?.cancel();
+    endSeatWait();
     _nightTicker?.cancel();
     _nightClose?.cancel();
     _oneNightTicker?.cancel();
