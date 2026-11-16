@@ -128,6 +128,12 @@ router.post('/register', async (req: Request, res: Response) => {
       return res.status(500).json({ success: false, error: 'فشل في إنشاء الحساب' });
     }
 
+    // 🔗 حجزٌ أدخله موظّفٌ برقمه قبل أن يكون له حساب ⟵ يُربط به الآن، فيراه محجوزاً ويدخل غرفته
+    try {
+      const { linkOnAccountCreated } = await import('../services/booking-link.service.js');
+      await linkOnAccountCreated(player.id, player.phone);
+    } catch { /* الربط يُستدرَك عند أوّل قراءةٍ لحجوزاته */ }
+
     // 🎁 مكافأة الترحيب في الدفتر لا على العمود وحدَه — وإلّا محتها أوّلُ مصالحةٍ بعد أوّل مباراة.
     //    بلا مدينةٍ لا تُسجَّل الآن: تُسجَّل لحظةَ اختيار المدينة الأساسيّة (PUT /me/home-city).
     if (homeCityId) {

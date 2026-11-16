@@ -15,6 +15,7 @@ import { authenticatePlayer, requireConsent } from '../middleware/player-auth.mi
 import { buildDisplayBreakdown } from '../services/progression.service.js';
 import { getProgressionConfig } from './progression-settings.routes.js';
 import { buildActivityPulse, hasBooking } from '../services/activity-pulse.query.js';
+import { ownBookingCond, linkPhoneBookings, listPlayerBookings, claimPhoneBooking } from '../services/booking-link.service.js';
 
 const router = Router();
 
@@ -284,10 +285,8 @@ router.delete('/book/:activityId', authenticatePlayer, async (req: Request, res:
       .where(and(
         eq(bookings.activityId, activityId),
         isNull(bookings.deletedAt),
-        or(
-          eq(bookings.playerId, player.playerId),
-          player.phone ? eq(bookings.phone, player.phone) : sql`false`,
-        ),
+        // 🔗 الشرط نفسه الذي تُبنى به قائمة حجوزاته — ما يراه «✅ محجوز» يستطيع إلغاءه
+        ownBookingCond(player.playerId, player.phone),
       ))
       .limit(1);
     if (!bk) return res.status(404).json({ error: 'لا حجزَ لك في هذه الفعاليّة' });
@@ -374,16 +373,13 @@ router.post('/book', authenticatePlayer, requireConsent, async (req: Request, re
     // فالعبرة بالحضور الفعلي لا بعدد الحجوزات. سعة المقاعد تخص الغرفة فقط
     // (انظر services/capacity.service.ts — شجرة قرار سعة الغرفة).
 
-    // التحقق من عدم الحجز المسبق (بالهاتف أو playerId)
+    // التحقق من عدم الحجز المسبق (بالهاتف أو playerId) — بالشرط نفسه الذي تُبنى به قائمة حجوزاته
     const existingBooking = await db.select({ id: bookings.id })
       .from(bookings)
       .where(and(
         eq(bookings.activityId, activityId),
         isNull(bookings.deletedAt),
-        or(
-          eq(bookings.phone, player.phone),
-          player.playerId ? eq(bookings.playerId, player.playerId) : sql`false`
-        )
+        ownBookingCond(player.playerId, player.phone),
       ))
       .limit(1);
 
@@ -394,6 +390,14 @@ router.post('/book', authenticatePlayer, requireConsent, async (req: Request, re
         const acc = await acceptByAppBooking({ playerId: player.playerId ?? null, phone: player.phone, activityId });
         if (acc) return res.status(201).json({ success: true, booking: acc, loyalty: null, groupAccepted: true });
       } catch (e: any) { console.warn('⚠️ group accept on app booking:', e?.message); }
+      // 🔗 حجزٌ أُدخل برقمه قبل أن يكون له حساب ⟵ يُربط به الآن ويُعاد «تمّ».
+      //    كان يُردّ «محجوز مسبقاً» والتطبيق لا يعرض له حجزاً ولا زرّ دخول (فعاليّة ٣٩٢).
+      if (player.playerId) {
+        try {
+          const claimed = await claimPhoneBooking(player.playerId, player.phone, activityId);
+          if (claimed) return res.status(201).json({ success: true, booking: claimed, loyalty: null, linked: true });
+        } catch (e: any) { console.warn('⚠️ claim phone booking:', e?.message); }
+      }
       return res.status(409).json({ error: 'محجوز مسبقاً لهذا النشاط' });
     }
 
@@ -744,23 +748,30 @@ router.get('/my-active-rooms', authenticatePlayer, async (req: Request, res: Res
   if (!player) return res.status(401).json({ error: 'غير مصادق' });
 
   try {
-    // 1. جلب حجوزات اللاعب (بالهاتف أو playerId)
+    // 1. جلب حجوزات اللاعب القائمة (بالهاتف أو playerId) — الشرط نفسه في القائمة والحجز والإلغاء.
+    //    الملغى لا يفتح غرفة: كان الحجز المحذوف يُبقي بطاقة «غرفة مفتوحة لحجزك» ظاهرة.
     const myBookings = await db.select({
       activityId: bookings.activityId,
       activityName: activities.name,
       activityDate: activities.date,
+      activityStatus: activities.status,
+      linkedTo: bookings.playerId,
     })
       .from(bookings)
       .innerJoin(activities, eq(bookings.activityId, activities.id))
-      .where(
-        or(
-          eq(bookings.phone, player.phone),
-          player.playerId ? eq(bookings.playerId, player.playerId) : sql`false`
-        )
-      );
+      .where(and(
+        isNull(bookings.deletedAt),
+        ownBookingCond(player.playerId, player.phone),
+      ));
 
     if (myBookings.length === 0) {
       return res.json({ success: true, rooms: [] });
+    }
+
+    // 🔗 حجزٌ على رقمه بلا حساب في فعاليّةٍ قائمة ⟵ يُربط الآن (الرئيسيّة تمرّ من هنا قبل المنيو)
+    if (player.playerId && myBookings.some(b => b.linkedTo == null && ['planned', 'active'].includes(String(b.activityStatus)))) {
+      try { await linkPhoneBookings(player.playerId, player.phone); }
+      catch (e: any) { console.warn('⚠️ link on my-active-rooms:', e?.message); }
     }
 
     // 2. جلب الغرف النشطة لهذه الأنشطة
@@ -1106,20 +1117,13 @@ router.get('/:id/bookings', authenticatePlayer, async (req: Request, res: Respon
   const playerId = parseInt(req.params.id);
 
   try {
-    const playerBookings = await db.select({
-      bookingId: bookings.id,
-      activityId: bookings.activityId,
-      isPaid: bookings.isPaid,
-      isFree: bookings.isFree,
-      createdAt: bookings.createdAt,
-      activityName: activities.name,
-      activityDate: activities.date,
-      activityStatus: activities.status,
-    })
-      .from(bookings)
-      .innerJoin(activities, eq(bookings.activityId, activities.id))
-      .where(and(eq(bookings.playerId, playerId), isNull(bookings.deletedAt)))
-      .orderBy(desc(activities.date));
+    // 🔗 هذه القائمة هي ما يقرّر به التطبيق «✅ محجوز» وزرّ «دخول ←». كانت تطابق بالحساب
+    //    وحده، و«احجز» يطابق بالهاتف أيضاً — فمن حُجز له برقمه قبل أن يُنشئ حسابه رُدّ
+    //    «محجوز مسبقاً» ولم يظهر له حجز. الآن: اللاعب يقرأ قائمته هو بالشرط نفسه، وحجزُ رقمه
+    //    اليتيم يُربط به. قائمةُ لاعبٍ آخر تبقى بالحساب وحده.
+    const me = (req as any).playerAccount;
+    const self = !!me?.playerId && me.playerId === playerId;
+    const playerBookings = await listPlayerBookings(playerId, self ? (me.phone ?? '') : null);
 
     res.json({ success: true, bookings: playerBookings });
   } catch (err: any) {

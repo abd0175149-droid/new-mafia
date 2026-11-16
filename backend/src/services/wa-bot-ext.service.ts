@@ -1102,6 +1102,9 @@ export async function handleExtButton(conv: any, btnId: string, h: ExtHelpers): 
     } as any).returning({ id: players.id, name: players.name });
     if (!pl) { await say('صار خلل بإنشاء الحساب 🙏 حوّلتك للإدارة.'); return true; }
     await db.update(waConversations).set({ playerId: pl.id, displayName: pl.name, updatedAt: new Date() } as any).where(eq(waConversations.id, conv.id));
+    // 🔗 حجزٌ أدخله موظّفٌ برقمه قبل هذا الحساب ⟵ يُربط به قبل أن يفتح التطبيق (فعاليّة ٣٩٢:
+    //    سجّلت من هنا وحجزُها قائم، فقال لها التطبيق «محجوز مسبقاً» ولم يعرض حجزاً ولا زرّ دخول)
+    try { const { linkOnAccountCreated } = await import('./booking-link.service.js'); await linkOnAccountCreated(pl.id, p.phone); } catch { /* يُستدرَك عند أوّل قراءة */ }
     await say(`أهلاً فيك بالعيلة 🎭 حسابك جاهز ✅\n\n📱 رقم الدخول: ${p.phone}\n🔐 كلمة السرّ المؤقّتة: ${pwd}\n\nادخل من هون:\n${APP_LOGIN_URL}\n\nعند أوّل دخول رح يطلب منك التطبيق الموافقة على سياسة الخصوصيّة وشروط الاستخدام، وتغيير كلمة السرّ. ومعك 200 نقطة خبرة هديّة ترحيب 🎁\n\n📣 وتابع قناتنا على واتساب لأخبار الجلسات والفعاليّات والعروض أوّلاً بأوّل:\n${WA_CHANNEL_LINK}`);
     h.notifyAdmins('🆕 لاعب جديد سجّل من واتساب', `${pl.name} — ${p.phone}`, { conversationId: conv.id, url: `/admin/players/${pl.id}` }).catch(() => {});
     void alertAdminsWA(`reg:${pl.id}`, `لاعب جديد سجّل حسابه من الواتساب: ${pl.name} (${p.phone}).`, { exceptConvId: conv.id });

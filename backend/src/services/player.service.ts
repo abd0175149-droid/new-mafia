@@ -79,6 +79,10 @@ export async function createPlayer(data: {
   } as any).returning();
 
   console.log(`👤 New player created → ID: ${result[0]?.id}`);
+  // 🔗 حجزٌ أُدخل برقمه قبل هذا الحساب ⟵ يُربط به (لا يُفشل الإنشاء)
+  if (result[0]?.id) {
+    try { const { linkOnAccountCreated } = await import('./booking-link.service.js'); await linkOnAccountCreated(result[0].id, result[0].phone); } catch { /* يُستدرَك عند أوّل قراءة */ }
+  }
   return result[0] || null;
 }
 
