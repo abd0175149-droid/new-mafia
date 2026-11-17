@@ -181,7 +181,8 @@ export async function requireConsent(req: Request, res: Response, next: NextFunc
           ? 'أكمِل تاريخَ ميلادك للمتابعة'
           : st.needsGuardian
             ? 'يلزم تسجيلُ وليّ أمرٍ للمتابعة'
-            : 'يلزم قبولُ الشروط وسياسة الخصوصيّة للمتابعة',
+            // النسخ الأقدم من التطبيق (≤ 0.4.25) لا تعرض البوّابة لمن سجّل بعد الإقلاع — الجملة الثانية مخرجُه
+            : 'يلزم قبولُ الشروط وسياسة الخصوصيّة للمتابعة. إن لم تظهر صفحة الموافقة أغلِق التطبيق وافتحه من جديد.',
         needsDob: st.needsDob, needsGuardian: st.needsGuardian, isMinor: st.isMinor,
       });
       return;

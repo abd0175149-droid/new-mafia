@@ -9,6 +9,7 @@ import 'config.dart';
 import 'router.dart';
 import 'theme/theme.dart';
 import '../core/push/push_service.dart';
+import '../core/consent_signal.dart';
 import '../core/ui/atmosphere.dart';
 import '../core/ui/in_app_banner.dart';
 import '../features/gates/birthday_gate.dart';
@@ -60,28 +61,43 @@ class _MafiaAppState extends State<MafiaApp> with WidgetsBindingObserver {
     unawaited(ReleaseGate.instance.check().then((s) {
       if (mounted && s.blocked) setState(() => _blocked = s);
     }));
-    // 🔐 بوّابة الموافقة — فحصٌ عند الإقلاع
-    unawaited(_checkConsent());
+    // 🔐 بوّابة الموافقة — فحصُ الإقلاع يقع في `_onAppState` (أوّل حسمٍ للجلسة أعلاه)،
+    //    وهنا يُستمع لرفض الخادم: CONSENT_REQUIRED من أيّ نداء ⟵ فحصٌ فوريّ.
+    ConsentSignal.recheck.addListener(_onConsentSignal);
   }
 
   /// النسخة محجوبة — تحجب كلّ شيءٍ فوقها
   ReleaseStatus? _blocked;
 
-  /// 🔐 حالةُ الموافقة — تُجلب من الخادم عند الإقلاع وبعد كلّ حسمٍ للجلسة.
+  /// 🔐 حالةُ الموافقة — تُجلب من الخادم عند **كلّ تغيّرٍ للجلسة** (إقلاع · دخول ·
+  ///    تسجيل · خروج) وحين يرفض الخادم فعلاً لنقصها.
   ///    فشلُ الشبكة **لا يمنح موافقةً ولا يحجب**: نُبقيها null فتمرّ الشاشة،
   ///    والحارسُ الحقيقيّ على الخادم يرفض الخدمة لغير الموافق.
+  ///
+  /// 🔴 كانت تُفحص عند الإقلاع وحده (2026-11-17): من أنشأ حسابه أو دخل من داخل التطبيق
+  ///    لم تُفحص حالته قطّ، فقرأ «يلزم قبول الشروط» عند الانضمام ولا بوّابة أمامه يقبل
+  ///    فيها. وحالةُ حسابٍ خرج كانت تبقى لمن يدخل بعده.
   ConsentState? _consent;
 
+  /// آخر جلسةٍ فُحصت لها الموافقة — تغيّرها هو ما يُعيد الفحص.
+  SessionState? _consentSession;
+
+  /// رقم آخر فحص: ردٌّ قديم يصل بعد ردٍّ أحدث لا يكتب فوقه.
+  int _consentSeq = 0;
+
   Future<void> _checkConsent() async {
+    final seq = ++_consentSeq;
     if (_app.session != SessionState.authenticated) {
       if (mounted && _consent != null) setState(() => _consent = null);
       return;
     }
     try {
       final st = await fetchConsentState();
-      if (mounted) setState(() => _consent = st);
+      if (mounted && seq == _consentSeq) setState(() => _consent = st);
     } catch (_) { /* الشبكةُ ساقطة — لا نحجب */ }
   }
+
+  void _onConsentSignal() => unawaited(_checkConsent());
 
   /// 📱 العودة للمقدّمة تُعيد قراءة بوّابة رقم الواتساب — لاعبٌ أنهى لعبته تظهر له الآن (القرار ٢)
   @override
@@ -95,6 +111,7 @@ class _MafiaAppState extends State<MafiaApp> with WidgetsBindingObserver {
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
     _app.removeListener(_onAppState);
+    ConsentSignal.recheck.removeListener(_onConsentSignal);
     PushService.instance.pendingRoute.removeListener(_onPushRoute);
     BadgeService.instance.stop();
     super.dispose();
@@ -110,6 +127,11 @@ class _MafiaAppState extends State<MafiaApp> with WidgetsBindingObserver {
 
   void _onAppState() {
     if (mounted) setState(() {});
+    // 🔐 الجلسة تغيّرت (إقلاع · دخول · تسجيل · خروج) ⟵ تُقرأ الموافقة لصاحبها الحاليّ
+    if (_app.session != _consentSession) {
+      _consentSession = _app.session;
+      unawaited(_checkConsent());
+    }
     _consumePending();
   }
 

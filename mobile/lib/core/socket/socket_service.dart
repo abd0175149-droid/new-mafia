@@ -3,6 +3,7 @@ import 'package:flutter/foundation.dart';
 import 'package:socket_io_client/socket_io_client.dart' as io;
 
 import '../../app/config.dart';
+import '../consent_signal.dart';
 import '../storage/session_store.dart';
 
 // ══════════════════════════════════════════════════════
@@ -150,6 +151,8 @@ class SocketService {
     t = Timer(timeout, () => finish(null));
     try {
       s.emitWithAck(event, data, ack: (dynamic res) {
+        // 🔐 الخادم رفض لنقص الموافقة ⟵ تُطلب البوّابة الآن (انظر consent_signal.dart)
+        if (res is Map && ConsentSignal.isConsentRequired(res['code'])) ConsentSignal.request();
         finish(res is Map ? Map<String, dynamic>.from(res) : null);
       });
     } catch (_) {

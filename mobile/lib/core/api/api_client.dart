@@ -3,6 +3,7 @@ import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart';
 
 import '../../app/config.dart';
+import '../consent_signal.dart';
 import '../storage/session_store.dart';
 
 // ══════════════════════════════════════════════════════
@@ -121,6 +122,8 @@ class ApiClient {
       final c = d['code'];
       if (c is String) errCode = c;
     }
+    // 🔐 الخادم رفض لنقص الموافقة ⟵ تُطلب البوّابة الآن (انظر consent_signal.dart)
+    if (ConsentSignal.isConsentRequired(errCode)) ConsentSignal.request();
     throw ApiException(msg, statusCode: code, code: errCode);
   }
 }
