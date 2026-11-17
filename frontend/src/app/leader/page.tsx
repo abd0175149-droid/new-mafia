@@ -1325,6 +1325,21 @@ export default function LeaderPage() {
       setOneNightReview(null);
     });
 
+    // 🤝 لاعبٌ يطلب إلغاء ديله — لا يُحذف إلّا بتأكيد الليدر (قرار المالك 2026-11-17).
+    //    النافذة في الصفحة لا في واجهةٍ بعينها: تظهر فوق القمرة والقديمة معاً.
+    const offDealRemoveReq = on('day:deal-remove-request', async (d: any) => {
+      if (!d?.dealId || !d?.roomId) return;
+      const esc = (v: any) => String(v ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c] as string));
+      const ok = await swalConfirm(
+        `<b>#${esc(d.initiatorPhysicalId)} ${esc(d.initiatorName)}</b> يطلب إلغاء ديله على <b>#${esc(d.targetPhysicalId)} ${esc(d.targetName)}</b>.<br/><br/>بعد الإلغاء لا يستطيع تسجيل ديلٍ آخر في هذه الجولة ولا التي تليها.`,
+        { title: '🤝 طلب إلغاء ديل', confirmText: 'نعم — ألغِ الديل', cancelText: 'لا — أبقِه' });
+      if (!ok) return;
+      try {
+        const r = await emit('day:remove-deal', { roomId: d.roomId, dealId: d.dealId });
+        if (r && r.success === false) setError(r.error || 'تعذّر إلغاء الديل');
+      } catch (e: any) { setError(e?.message || 'تعذّر إلغاء الديل'); }
+    });
+
     const offMorningRecap = on('night:morning-recap', (data: any) => {
       setGameState(prev => {
         if (!prev) return prev;
@@ -1841,6 +1856,7 @@ export default function LeaderPage() {
       offNightStep();
       offNightComplete();
       offNightRestarted();
+      offDealRemoveReq();
       offMorningRecap();
       offSheriffResult();
       offAutoProgress();

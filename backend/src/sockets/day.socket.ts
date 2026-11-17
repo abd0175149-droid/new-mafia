@@ -349,9 +349,34 @@ export function registerDayEvents(io: Server, socket: Socket) {
         if (deal.initiatorPhysicalId !== socket.data.physicalId) {
           return callback({ success: false, error: 'لا يمكنك إلغاء اتفاقية ليست لك' });
         }
+
+        // 🤝 إلغاء اللاعب ديلَه يحتاج تأكيد الليدر (قرار المالك 2026-11-17): ضغطةٌ خاطئة على الهاتف
+        //    كانت تحذف الديل فوراً، وقفلُ الجولات (dealRegisteredRound) يمنع صاحبه من تسجيله ثانية
+        //    — فلا رجعة إلّا بتعديل الحالة يدويّاً. الآن يصل الليدرَ طلبٌ، وهو من ينفّذ الحذف
+        //    (مساره أدناه). الردّ success:false عمداً: العملاء الأقدم يعرضون نصّه ولا يظنّون أنّه حُذف.
+        //    الغرف البعيدة على سلوكها السابق (لا ليدر حاضراً فيها).
+        if (!state.config?.isRemote) {
+          const nameOf = (seat: number) => state.players.find((p: any) => p.physicalId === seat)?.name || '';
+          let asked = 0;
+          for (const s of await io.in(data.roomId).fetchSockets()) {
+            if (s.data?.role !== 'leader') continue;
+            s.emit('day:deal-remove-request', {
+              roomId: data.roomId, dealId: deal.id,
+              initiatorPhysicalId: deal.initiatorPhysicalId, initiatorName: nameOf(deal.initiatorPhysicalId),
+              targetPhysicalId: deal.targetPhysicalId, targetName: nameOf(deal.targetPhysicalId),
+            });
+            asked++;
+          }
+          console.log(`🤝 [deal] طلب إلغاء من صاحبه #${deal.initiatorPhysicalId} على #${deal.targetPhysicalId} — غرفة ${data.roomId} · وصل ${asked} ليدر`);
+          return callback({
+            success: false, pending: asked > 0, code: 'LEADER_CONFIRM',
+            error: asked > 0 ? 'وصل طلبك للّيدر — يُلغى الديل بعد تأكيده' : 'الليدر غير متّصل الآن — اطلب منه إلغاء الديل',
+          });
+        }
       }
 
       const stateAfter = await removeDeal(data.roomId, data.dealId);
+      console.log(`🤝 [deal] حُذف الديل ${data.dealId} — بيد ${isLeader ? 'الليدر' : 'صاحبه (غرفة بعيدة)'} · غرفة ${data.roomId}`);
 
       io.to(data.roomId).emit('day:deal-removed', {
         deals: stateAfter.votingState.deals,

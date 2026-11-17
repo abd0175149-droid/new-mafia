@@ -588,6 +588,12 @@ export default function LeaderDayView({ gameState, emit, setError }: LeaderDayVi
   };
 
   const handleRemoveDeal = async (dealId: string) => {
+    // 🤝 تأكيدٌ قبل الحذف (قرار المالك 2026-11-17): صاحب الديل لا يستطيع تسجيله ثانيةً بعد حذفه
+    const d = (gameState.votingState?.deals || []).find((x: any) => x.id === dealId);
+    const ok = await swalConfirm(
+      `يُحذف الديل${d ? ` من <b>#${d.initiatorPhysicalId}</b> على <b>#${d.targetPhysicalId}</b>` : ''}.<br/><br/>صاحبه لا يستطيع تسجيل ديلٍ آخر في هذه الجولة ولا التي تليها.`,
+      { title: '🤝 حذف الديل؟', confirmText: 'نعم — احذفه', cancelText: 'إلغاء' });
+    if (!ok) return;
     try {
       await emit('day:remove-deal', { roomId: gameState.roomId, dealId });
     } catch (err: any) {

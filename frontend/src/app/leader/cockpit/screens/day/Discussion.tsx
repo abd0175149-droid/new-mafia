@@ -186,9 +186,31 @@ function DealRows() {
 // ── 🤝 بطاقة اتفاقيّة: مَن طلبها بالأخضر ← مَن هي عليه بالأحمر ──
 function DealCard({ d, note }: { d: any; note: string }) {
   const { gameState, emit, run } = useCockpit();
+  // 🤝 تأكيدٌ قبل الحذف (قرار المالك 2026-11-17): ✕ صغيرةٌ بجانب البطاقة كانت تحذف بلمسة، وصاحب
+  //    الديل لا يستطيع تسجيله ثانيةً بعدها (قفل الجولات).
+  const [ask, setAsk] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const remove = async () => {
+    if (busy) return;
+    setBusy(true);
+    try {
+      await run(() => emit('day:remove-deal', { roomId: gameState.roomId, dealId: d.id }), 'حُذفت الاتفاقيّة');
+      setAsk(false);
+    } finally { setBusy(false); }
+  };
   return (
-    <PairCard from={d.initiatorPhysicalId} to={d.targetPhysicalId} fromLabel="🤝 طلب الديل" toLabel="🎯 الديل عليه" note={note}
-      right={<MiniBtn ariaLabel="حذف الاتفاقيّة" onClick={() => run(() => emit('day:remove-deal', { roomId: gameState.roomId, dealId: d.id }), 'حُذفت الاتفاقيّة')}>✕</MiniBtn>} />
+    <>
+      <PairCard from={d.initiatorPhysicalId} to={d.targetPhysicalId} fromLabel="🤝 طلب الديل" toLabel="🎯 الديل عليه" note={note}
+        right={<MiniBtn ariaLabel="حذف الاتفاقيّة" onClick={() => setAsk(true)}>✕</MiniBtn>} />
+      <BottomSheet open={ask} title="حذف الديل؟" onClose={() => setAsk(false)}>
+        <Hint>يُحذف ديل {d.initiatorPhysicalId} ({nameAt(gameState, d.initiatorPhysicalId)}) على {d.targetPhysicalId} ({nameAt(gameState, d.targetPhysicalId)}).</Hint>
+        <Hint>صاحبه لا يستطيع تسجيل ديلٍ آخر في هذه الجولة ولا التي تليها.</Hint>
+        <div className="flex gap-2">
+          <button type="button" disabled={busy} onClick={() => void remove()} className="flex-[2] min-h-[50px] rounded-[13px] border border-[#d0474c]/55 bg-[#16130f] text-[#f2a6a9] font-bold disabled:opacity-50">{busy ? '…' : 'نعم — احذف الديل'}</button>
+          <button type="button" disabled={busy} onClick={() => setAsk(false)} className="flex-1 min-h-[50px] rounded-[13px] border border-[#2a241c] bg-[#16130f] text-[#efe8da] font-bold disabled:opacity-50">إلغاء</button>
+        </div>
+      </BottomSheet>
+    </>
   );
 }
 
