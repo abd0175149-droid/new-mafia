@@ -7,12 +7,51 @@
 // نفسه (mafia_leader_night_sel) فينجو من تحديث الصفحة.
 // ══════════════════════════════════════════════════════
 import { useEffect, useRef, useState } from 'react';
-import { ActionBar, BottomSheet, Chip, Hint, ListRow, Section, SeatGrid, Status, seatCells, useCockpit } from '../../kit';
+import { ActionBar, BottomSheet, Btn, Chip, Hint, ListRow, Section, SeatGrid, Status, seatCells, useCockpit } from '../../kit';
+import { useHost } from '../../host';
 import { useSeatMove } from '../../../SeatMove';
 import { ACTION_ICON, useBusy } from './meta';
 
 const SEL_KEY = 'mafia_leader_night_sel';
 const clearSaved = () => { try { localStorage.removeItem(SEL_KEY); } catch { /* */ } };
+
+/**
+ * 🔁 الليل بدأ طابوراً والمقصود «الليلة الواحدة» (بُدئ من الواجهة القديمة مثلاً).
+ * يُسقط الطابور وما سُجّل فيه هذه الليلة (night:restart) ثمّ يسأل الهواتف كلّها معاً.
+ * لا يمسّ ما قبل الليل. للغرف الحضوريّة وحدها — الخادم يرفض غيرها.
+ */
+function RestartAsOne() {
+  const { gameState, emit, run } = useCockpit();
+  const host = useHost();
+  const { busy, wrap } = useBusy();
+  const [ask, setAsk] = useState(false);
+  const cfg = gameState?.config || {};
+  if (cfg.isRemote || cfg.nightMode === 'auto') return null;
+  const secs = Math.min(180, Math.max(30, Number(cfg.nightSeconds) || 60));
+  const go = () => wrap(async () => {
+    const r: any = await run(() => emit('night:restart', { roomId: gameState.roomId }));
+    if (!r) return;
+    clearSaved();
+    setAsk(false);
+    await run(() => host.oneNight.start(secs), 'وصل السؤال لكلّ الهواتف');
+  });
+  return (
+    <>
+      <Section title="🔁 بدأ الليل بالطابور خطأً؟">
+        <Hint>إن كان المقصود أن يختار اللاعبون من هواتفهم، حوّل الليل إلى «الليلة الواحدة». يُلغى الطابور وما سُجّل فيه هذه الليلة فقط.</Hint>
+        <Btn tone="line" className="w-full" disabled={busy} onClick={() => setAsk(true)}>🌙 حوّل إلى الليلة الواحدة</Btn>
+      </Section>
+      <BottomSheet open={ask} title="تحويل الليل إلى الليلة الواحدة" onClose={() => setAsk(false)}>
+        <Hint>يُلغى الطابور وكلّ ما سُجّل فيه هذه الليلة، ثمّ يصل السؤال لكلّ الهواتف معاً بمهلة {secs} ث.</Hint>
+        <Hint>لا يتغيّر شيء ممّا قبل الليل: الإقصاء والجولة وعقود السفّاح كما هي.</Hint>
+        <div className="flex gap-2">
+          <Btn tone="gold" className="flex-[2]" disabled={busy} onClick={go}>{busy ? '…' : 'نعم — ابدأ الليلة الواحدة'}</Btn>
+          <Btn className="flex-1" disabled={busy} onClick={() => setAsk(false)}>إلغاء</Btn>
+        </div>
+      </BottomSheet>
+    </>
+  );
+}
 
 export function QueueStepView() {
   const { gameState, emit, run } = useCockpit();
@@ -114,6 +153,8 @@ export function QueueStepView() {
           {targets.size === 0 && <Hint>لا هدف متاحاً لهذه القدرة — تخطَّها.</Hint>}
         </Section>
       )}
+
+      <RestartAsOne />
     </>
   );
 }
@@ -129,6 +170,7 @@ export function QueueCompleteView() {
       <Section title="⚙️ اكتمل طابور الليل">
         <Hint>سُجّلت كلّ الخطوات. الحساب يقرّر أحداث الليل ويفتح ملخّص الصباح.</Hint>
       </Section>
+      <RestartAsOne />
     </>
   );
 }

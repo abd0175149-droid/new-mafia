@@ -5,7 +5,8 @@
 
 import { Server, Socket } from 'socket.io';
 import { notifyPulseForRoom } from './activity-pulse.socket.js';
-import { setPhase, Phase } from '../game/state.js';
+import { setPhase, Phase, withRoomLock } from '../game/state.js';
+import { clearOneNightTimer } from './night-one.socket.js';
 import { getGameState, setGameState } from '../config/redis.js';
 import { resolveNight, resetNightActions, getAvailableTargets, checkPolicewomanTrigger } from '../game/night-resolver.js';
 import { Role, NIGHT_ACTIVE_ROLES, isMafiaRole, teamOfRole, getTeamCounts, MAFIA_KILL_PRIORITY } from '../game/roles.js';
@@ -867,6 +868,53 @@ export function registerNightEvents(io: Server, socket: Socket) {
       if (!state || state.phase !== Phase.NIGHT) return callback?.({ success: false, error: 'ليس في مرحلة الليل' });
       emitNightResumeState(socket, state);
       return callback?.({ success: true });
+    } catch (err: any) { callback?.({ success: false, error: err.message }); }
+  });
+
+  // ── 🔁 أعِد الليل إلى أوّله (2026-11-17) ──
+  // الحالة التي وُجدت: الليل بُدئ من الواجهة القديمة فبُني الطابور اليدويّ والمقصود «الليلة
+  // الواحدة»، ولا مخرج: `night:start` في الليل يستأنف ولا يُعيد. أُصلح يومها بتعديل الحالة يدويّاً.
+  // هذا الحدث يفعل الشيء نفسه من الواجهة: يُسقط الطابور وما سُجّل فيه **هذه الليلة**، ويُبقي الليل
+  // قائماً بلا طريقة — كما يتركه `night:start {oneNight}` تماماً — فيتبعه `night:one-start`.
+  //
+  // 🔴 لا يمسّ ما قبل الليل: الجولة، الإقصاء المكشوف، عقود السفّاح، وذاكرة الليالي السابقة
+  //    (`lastTargets`) كلّها كما هي. الرجوع إلى ما قبل الكشف كان سيعيد عرضه ويولّد عقوداً جديدة.
+  // 🔴 المحرّك الديناميكيّ وحده: فيه التسجيلُ قيدٌ في `actions` بلا أثرٍ فوريّ. المحرّك القديم
+  //    يعطّل هدف الساحرة لحظةَ تسجيله، فلا يُعاد ليله بمحوِ قيد.
+  // 🔴 ليلةٌ واحدة جارية (الهواتف تختار الآن) لا تُعاد: تُنهى مهلتها أوّلاً.
+  socket.on('night:restart', async (data: { roomId: string }, callback) => {
+    try {
+      if (socket.data.authStaff && socket.data.role !== 'player') socket.data.role = 'leader'; // 🔒 لا ترقيةَ لمقبسٍ جالسٍ لاعباً
+      if (socket.data.role !== 'leader') return callback?.({ success: false, error: 'Only leader' });
+
+      const out: { error?: string; dropped?: number; round?: number; hadQueue?: boolean } = await withRoomLock(data.roomId, async () => {
+        const state = await getGameState(data.roomId);
+        if (!state || state.phase !== Phase.NIGHT) return { error: 'ليس في مرحلة الليل' };
+        if (state.config?.nightMode === 'auto') return { error: 'الليل الآليّ لا يُعاد من هنا' };
+        if (!state.config?.useDynamicEngine) return { error: 'هذه الغرفة على المحرّك القديم — لا يُعاد ليلها' };
+        const on = state.oneNight;
+        if (on?.dispatched && !on.review) return { error: 'الليلة الواحدة جارية — أنهِ مهلتها أوّلاً' };
+
+        const dropped = Object.keys(state.dynamicNightState?.actions || {}).length;
+        const hadQueue = Array.isArray((state as any).dynamicQueue);
+        clearOneNightTimer(data.roomId);
+        delete (state as any).dynamicQueue;
+        delete (state as any).dynamicQueueIndex;
+        state.currentNightStep = null;
+        state.nightComplete = false;
+        if (state.dynamicNightState) state.dynamicNightState.actions = {};
+        else state.dynamicNightState = createDynamicNightState();
+        // مراجعةٌ معلّقة (لم تُعتمد) تُمحى مع الليل — البدء الجديد يبني خطّته من جديد
+        if (on?.dispatched) delete (state as any).oneNight;
+        await setGameState(data.roomId, state);
+        return { dropped, round: state.round, hadQueue };
+      });
+      if (out.error) return callback?.({ success: false, error: out.error });
+
+      // 📺 الموجّه والشاشة: تُمحى خطوة الطابور المعروضة (state-sync يُبقي الخطوة السابقة عمداً)
+      await emitTrustedOnly(io, data.roomId, 'night:restarted', { round: out.round });
+      console.log(`🔁 [night:restart] الليل أُعيد إلى أوّله — غرفة ${data.roomId} · جولة ${out.round} · طابور=${out.hadQueue ? 'نعم' : 'لا'} · قيودٌ أُسقطت=${out.dropped}`);
+      return callback?.({ success: true, dropped: out.dropped, hadQueue: out.hadQueue });
     } catch (err: any) { callback?.({ success: false, error: err.message }); }
   });
 

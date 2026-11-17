@@ -255,6 +255,20 @@ export default function LeaderPage() {
     return () => { alive = false; clearInterval(iv); };
   }, [isAuthenticated]);
   const setCockpit = (v: boolean) => { if (!v) setCockpitForcedOff(true); };
+  // 🔁 الواجهة القديمة بدأت الليل طابوراً والمقصود «الليلة الواحدة»: يُعاد الليل إلى أوّله ثمّ تُحدَّث
+  //    الصفحة — القمرة تعود بعد التحديث وفيها «ابدأ الليلة الواحدة». لوحة الليلة الواحدة لا تُرسم في
+  //    القديمة للغرف الحضوريّة، فلا يُعرض الزرّ إلّا والقمرة مفعَّلة (وإلّا بقي الليل بلا طريقة).
+  const restartNightAsOne = async () => {
+    if (!gameState) return;
+    const ok = await swalConfirm('يُلغى الطابور وكلّ ما سُجّل فيه هذه الليلة، ثمّ تُفتح الواجهة الجديدة لتبدأ «الليلة الواحدة».<br/><br/>لا يتغيّر شيء ممّا قبل الليل.',
+      { title: 'تحويل الليل إلى الليلة الواحدة', confirmText: 'نعم — حوّله', cancelText: 'إلغاء' });
+    if (!ok) return;
+    try {
+      const r = await emit('night:restart', { roomId: gameState.roomId });
+      if (!r?.success) { setError(r?.error || 'تعذّر إعادة الليل'); return; }
+      window.location.reload();
+    } catch (e: any) { setError(e?.message || 'تعذّر إعادة الليل'); }
+  };
   const showMafiaChatModalRef = useRef(false);
   useEffect(() => {
     showMafiaChatModalRef.current = showMafiaChatModal;
@@ -1302,6 +1316,15 @@ export default function LeaderPage() {
       });
     });
 
+    // 🔁 الليل أُعيد إلى أوّله (night:restart) — تُمحى خطوة الطابور محلّيّاً: state-sync يُبقي
+    //    الخطوة السابقة عمداً، فبلا هذا تبقى شاشة الطابور معروضةً على طابورٍ لم يعد موجوداً.
+    const offNightRestarted = on('night:restarted', () => {
+      setGameState(prev => prev ? ({ ...prev, nightStep: null, nightComplete: false } as any) : prev);
+      setOneNight(null);
+      setOneNightProgress(null);
+      setOneNightReview(null);
+    });
+
     const offMorningRecap = on('night:morning-recap', (data: any) => {
       setGameState(prev => {
         if (!prev) return prev;
@@ -1817,6 +1840,7 @@ export default function LeaderPage() {
       offRoomDeleted();
       offNightStep();
       offNightComplete();
+      offNightRestarted();
       offMorningRecap();
       offSheriffResult();
       offAutoProgress();
@@ -4915,7 +4939,8 @@ export default function LeaderPage() {
               )}
               {/* المانوال فقط — أو MORNING_RECAP (لعرض أحداث الصباح + زر معالجة التقاطعات) */}
               {((gameState.config as any).nightMode !== 'auto' || gameState.phase === 'MORNING_RECAP') && (
-                <LeaderNightView gameState={gameState} emit={emit} setError={setError} />
+                <LeaderNightView gameState={gameState} emit={emit} setError={setError}
+                  onRestartAsOne={cockpitFlag && gameState.phase === 'NIGHT' && !(gameState.config as any).isRemote ? restartNightAsOne : undefined} />
               )}
             </>
           )}

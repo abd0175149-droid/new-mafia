@@ -540,6 +540,8 @@ function DisplayPageContent() {
       if (prevStepRef.current && prevStepRef.current !== next) pushBeats([prevStepRef.current]);
       prevStepRef.current = next; setNightStepType(next);
     };
+    // 🔁 الليل أُعيد إلى أوّله: خطوة الطابور المعروضة تُمحى بلا ضربة (لم تُنفَّذ)
+    const onNightRestarted = () => { prevStepRef.current = null; setNightStepType(null); };
     const onHint = (data: any) => { setStageHint(data?.kind ? `${data.kind}#${Date.now()}` : null); };
     const onMorningManifest = (data: any) => { import('@/components/display/street/props').then(m => (data?.types || []).forEach((t: string) => m.prerenderProp(m.propFor(t)))).catch(() => {}); };
     const onOneStarted = (data: any) => {
@@ -665,6 +667,7 @@ function DisplayPageContent() {
     socket.on('game:phase-changed', onPhaseChanged);
     socket.on('night:animation', onNightAnimation);
     socket.on('night:step-info', onNightStepInfo);
+    socket.on('night:restarted', onNightRestarted);
     socket.on('night:one-started', onOneStarted);
     socket.on('display:hint', onHint);
     socket.on('display:morning-manifest', onMorningManifest);
@@ -928,6 +931,7 @@ function DisplayPageContent() {
       socket.off('game:phase-changed', onPhaseChanged);
       socket.off('night:animation', onNightAnimation);
       socket.off('night:step-info', onNightStepInfo);
+      socket.off('night:restarted', onNightRestarted);
       socket.off('night:one-started', onOneStarted);
       socket.off('display:hint', onHint);
       socket.off('display:morning-manifest', onMorningManifest);

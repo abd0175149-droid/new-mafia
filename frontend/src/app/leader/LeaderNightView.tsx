@@ -9,6 +9,8 @@ interface LeaderNightViewProps {
   gameState: any;
   emit: (event: string, payload: any) => Promise<any>;
   setError: (err: string) => void;
+  /** 🔁 الليل بدأ طابوراً والمقصود «الليلة الواحدة» — الصفحة تمرّره حين يصحّ التحويل وحده */
+  onRestartAsOne?: () => void;
 }
 
 // أيقونة + لون كل إجراء ليلي
@@ -54,7 +56,7 @@ const EVENT_META: Record<string, { icon: string; title: string; color: string; d
   PHOENIX_ASH:          { icon: '🜂', title: 'لعنة الرماد',          color: 'text-[#fb923c]', displayable: true },
 };
 
-export default function LeaderNightView({ gameState, emit, setError }: LeaderNightViewProps) {
+export default function LeaderNightView({ gameState, emit, setError, onRestartAsOne }: LeaderNightViewProps) {
   const [loading, setLoading] = useState(false);
   const [selectedTarget, setSelectedTarget] = useState<number | null>(null);
   const [revealedEvents, setRevealedEvents] = useState<Set<number>>(new Set());
@@ -1249,6 +1251,16 @@ export default function LeaderNightView({ gameState, emit, setError }: LeaderNig
             })()}
           </div>
         </div>
+
+        {/* 🔁 بدأ الليل طابوراً والمقصود «الليلة الواحدة» — يُعاد إلى أوّله (night:restart) */}
+        {onRestartAsOne && (
+          <button
+            onClick={onRestartAsOne}
+            className="w-full mb-4 py-2.5 rounded-lg text-xs font-bold border border-[#C5A059]/40 text-[#C5A059] bg-black/40 hover:bg-[#C5A059]/10 transition-colors"
+          >
+            🌙 بدأ الليل بالطابور خطأً؟ حوّله إلى «الليلة الواحدة»
+          </button>
+        )}
 
         {/* ── شريط المؤدي: أيقونة + اسم الدور + رقم واسم اللاعب ── */}
         <motion.div
