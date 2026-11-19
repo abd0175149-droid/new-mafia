@@ -8,7 +8,9 @@
 // بعد binding-complete ينتقل الخادم إلى DAY_DISCUSSION (الجولة 1) — اللعبة تبدأ بالنهار لا بالليل.
 // 🎲 الخطوة ٤ من ٤: الأدوار تُوزَّع عشوائيّاً وحدها عند الدخول (قرار المالك 2026-11-09)، والتعديلُ كما كان.
 // تعارفُ المافيا وحدُّ التكرار المتتالي انتقلا إلى صفحة «اللعبة».
-// ⚠️ الخادم لا يبثّ الحالة بعد bind/unbind/random — الحالةُ هنا محلّيّة كما في المكوّن القديم.
+// 🔗 الخادمُ يبثّ «setup:binding-updated» للموجّهين بعد كلّ ربطٍ/فكٍّ/توزيع (حادثة 2026-11-19:
+//    موجّهان وزّعا معاً فاختلط التوزيعان). كلُّ ردٍّ يحمل bindingRev، والإرسالُ يرسل آخر نسخةٍ
+//    رآها هذا الجهاز — تغيّرت من جهازٍ آخر ⇒ يرفض الخادم ويعيد التوزيع القائم ليُراجَع.
 // ══════════════════════════════════════════════════════
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Role } from '@/lib/constants';
@@ -24,7 +26,7 @@ interface Slot { key: number; role: Role; seat: number | null }
 type Assign = Record<number, Role>;
 
 export default function BindingScreen() {
-  const { gameState, emit, run, toast } = useCockpit();
+  const { gameState, emit, on, run, toast } = useCockpit();
   const roomId: string = gameState?.roomId;
   const cfg = gameState?.config || {};
   const pool: Role[] = useMemo(() => (Array.isArray(gameState?.rolesPool) ? gameState.rolesPool : []), [gameState?.rolesPool]);
@@ -39,6 +41,27 @@ export default function BindingScreen() {
   const [seatSheet, setSeatSheet] = useState<number | null>(null);
   const [busy, setBusy] = useState(false);
   const [randomDone, setRandomDone] = useState(false);
+  // 🔗 نسخةُ التوزيع التي يعرضها هذا الجهاز — تُرسل مع «أرسل الأدوار»
+  const revRef = useRef<number | null>(typeof gameState?.bindingRev === 'number' ? gameState.bindingRev : null);
+  const noteRev = (r: any) => { if (typeof r?.bindingRev === 'number') revRef.current = r.bindingRev; };
+
+  /** يعيد رسم الربط من أدوار الخادم. الكرتُ الزائد عن الحوض يظهر للموجّه بدل أن يُخفى. */
+  const applyServer = (list: Array<{ physicalId: number; role: Role | null }>, poolArr: Role[]) => {
+    const left = [...poolArr];
+    const a: Assign = {};
+    const extra: string[] = [];
+    for (const p of list) {
+      if (!p?.role) continue;
+      const i = left.indexOf(p.role);
+      if (i === -1) { extra.push(`${roleName(p.role)} (${p.physicalId})`); continue; }
+      a[Number(p.physicalId)] = p.role;
+      left.splice(i, 1);
+    }
+    setAssign(a);
+    setLocked((l) => new Set(Array.from(l).filter((s) => a[s] != null)));
+    if (extra.length) toast(`كروتٌ زائدة عن الحوض: ${extra.join(' · ')} — أعد التوزيع`, { tone: 'red' });
+    return a;
+  };
 
   // ── التهيئة من rolesPool وأدوار اللاعبين — حين يتغيّر محتوى الحوض فقط ──
   //    (المربوطُ مسبقاً يُعدّ يدويّاً فيُثبَّت، كما في المكوّن القديم)
@@ -59,6 +82,22 @@ export default function BindingScreen() {
   }, [poolKey]);
 
   useEffect(() => { if (gameState?.rolesConfirmed === true) setConfirmed(true); }, [gameState?.rolesConfirmed]);
+
+  // 🔗 جهازُ موجّهٍ آخر غيّر التوزيع ⇒ تُعاد الشاشة من الخادم (نسخةٌ أحدث فقط)
+  useEffect(() => {
+    if (!on) return;
+    return on('setup:binding-updated', (snap: any) => {
+      if (typeof snap?.bindingRev !== 'number') return;
+      if (revRef.current != null && snap.bindingRev <= revRef.current) return;
+      const changedElsewhere = revRef.current != null;
+      revRef.current = snap.bindingRev;
+      applyServer(snap.assignments || [], Array.isArray(snap.rolesPool) ? snap.rolesPool : pool);
+      setConfirmed(snap.rolesConfirmed === true);
+      setPick(null);
+      if (changedElsewhere) toast('تغيّر التوزيع من جهاز موجّهٍ آخر — الشاشة محدَّثة');
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [on, poolKey]);
 
   // ── الخانات: كلّ كرتٍ في الحوض خانة، والمقاعدُ المربوطة توزَّع على خانات دورها بالترتيب ──
   const slots: Slot[] = useMemo(() => {
@@ -87,7 +126,7 @@ export default function BindingScreen() {
     // المقاعدُ المربوطة مسبقاً (تحديث الصفحة، أو ربطٌ قبل الدخول) تُقرأ من اللاعبين لا من الحالة المحلّيّة
     if (Object.keys(assign).length > 0 || players.some((p) => !!p?.role)) { autoDealt.current = poolKey; return; }
     autoDealt.current = poolKey;
-    void randomAssign();
+    void randomAssign(true);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [poolKey, pool.length, confirmed, assign]);
 
@@ -103,8 +142,8 @@ export default function BindingScreen() {
     setAssign(nextA); setLocked(nextL); setConfirmed(false); setPick(null);
     setBusy(true);
     try {
-      if (oldSeat != null) await emit('setup:unbind-role', { roomId, physicalId: oldSeat });
-      await emit('setup:bind-role', { roomId, physicalId: seat, role: slot.role });
+      if (oldSeat != null) noteRev(await emit('setup:unbind-role', { roomId, physicalId: oldSeat }));
+      noteRev(await emit('setup:bind-role', { roomId, physicalId: seat, role: slot.role }));
     } catch (e: any) {
       setAssign(prevAssign); setLocked(prevLocked);
       toast(errMsg(e, 'تعذّر الربط'), { tone: 'red' });
@@ -120,11 +159,11 @@ export default function BindingScreen() {
     setAssign(nextA); setLocked(nextL); setConfirmed(false);
     setBusy(true);
     try {
-      await emit('setup:unbind-role', { roomId, physicalId: seat });
+      noteRev(await emit('setup:unbind-role', { roomId, physicalId: seat }));
       toast(`فُكّ «${roleName(role)}» عن المقعد ${seat}`, {
         undo: () => {
           emit('setup:bind-role', { roomId, physicalId: seat, role })
-            .then(() => { setAssign((a) => ({ ...a, [seat]: role })); setLocked((l) => new Set(l).add(seat)); setConfirmed(false); })
+            .then((r: any) => { noteRev(r); setAssign((a) => ({ ...a, [seat]: role })); setLocked((l) => new Set(l).add(seat)); setConfirmed(false); })
             .catch((e: any) => toast(errMsg(e, 'تعذّر التراجع'), { tone: 'red' }));
         },
       });
@@ -141,7 +180,7 @@ export default function BindingScreen() {
     setBusy(true);
     const done: number[] = [];
     try {
-      for (const s of seats) { await emit('setup:unbind-role', { roomId, physicalId: s }); done.push(s); }
+      for (const s of seats) { noteRev(await emit('setup:unbind-role', { roomId, physicalId: s })); done.push(s); }
       toast('مُسح كلّ الربط');
     } catch (e: any) {
       toast(errMsg(e, 'تعذّر المسح'), { tone: 'red' });
@@ -153,26 +192,24 @@ export default function BindingScreen() {
     }
   };
 
-  const randomAssign = async () => {
+  // `auto`: التوزيع التلقائيّ عند فتح الشاشة — الخادم يتخطّاه إن وزّع جهازٌ آخر قبله
+  const randomAssign = async (auto = false) => {
     if (busy) return;
     setBusy(true);
     try {
       const lockedPhysicalIds = Array.from(locked).filter((s) => assign[s] != null);
-      const res: any = await run(() => emit('setup:random-assign', { roomId, lockedPhysicalIds }));
+      const res: any = await run(() => emit('setup:random-assign', { roomId, lockedPhysicalIds, auto }));
       const st = res?.state;
       if (!st) return;
-      const left: Role[] = [...(st.rolesPool || pool)];
-      const a: Assign = {};
-      for (const p of st.players || []) {
-        if (!p?.role) continue;
-        const i = left.indexOf(p.role);
-        if (i === -1) continue;
-        a[Number(p.physicalId)] = p.role;
-        left.splice(i, 1);
+      noteRev(res);
+      applyServer(st.players || [], st.rolesPool || pool);
+      setPick(null);
+      if (res.skipped) {
+        setConfirmed(st.rolesConfirmed === true);
+        toast('التوزيع جاهز من جهاز موجّهٍ آخر — راجِعه ثمّ أرسل');
+        return;
       }
-      setAssign(a);
-      setLocked((l) => new Set(Array.from(l).filter((s) => a[s] != null)));
-      setConfirmed(false); setRandomDone(true); setPick(null);
+      setConfirmed(false); setRandomDone(true);
       toast(lockedPhysicalIds.length ? `وُزّع عشوائيّاً — ${lockedPhysicalIds.length} مثبّت بقي مكانه. راجِع ثمّ أرسل` : 'وُزّعت الأدوار عشوائيّاً — راجِع ثمّ أرسل');
     } finally { setBusy(false); }
   };
@@ -182,8 +219,17 @@ export default function BindingScreen() {
     if (unboundSpecial.length) { toast('وزّع كلّ الأدوار الخاصّة قبل الإرسال', { tone: 'red' }); return; }
     setBusy(true);
     try {
-      const r = await run(() => emit('setup:confirm-roles', { roomId }), 'وصلت الأدوار للهواتف — سلّم كروت الورق لمن يلعب بلا هاتف');
-      if (r) setConfirmed(true);
+      const r = await run(async () => {
+        try {
+          return await emit('setup:confirm-roles', { roomId, ...(revRef.current != null ? { expectedRev: revRef.current } : {}) });
+        } catch (e: any) {
+          // تغيّر التوزيع من جهازٍ آخر أو لا يطابق الحوض ⇒ يُعاد رسمُ القائم فعلاً ليُراجَع
+          const st = e?.response?.state;
+          if (st?.players) { noteRev(st); applyServer(st.players, st.rolesPool || pool); setConfirmed(false); }
+          throw e;
+        }
+      }, 'وصلت الأدوار للهواتف — سلّم كروت الورق لمن يلعب بلا هاتف');
+      if (r) { noteRev(r); setConfirmed(true); }
     } finally { setBusy(false); }
   };
 
@@ -238,14 +284,14 @@ export default function BindingScreen() {
     : `${boundSpecial} من ${special.length} أدوار خاصّة مربوطة${locked.size ? ` · ${locked.size} مثبّت` : ''}`;
 
   const primary = stage === 'random'
-    ? { label: busy ? '…' : 'وزّع الباقي عشوائيّاً', onPress: randomAssign, disabled: busy || pool.length === 0, sub: `${unboundAll.length} بلا دور · المثبّت يبقى` }
+    ? { label: busy ? '…' : 'وزّع الباقي عشوائيّاً', onPress: () => randomAssign(), disabled: busy || pool.length === 0, sub: `${unboundAll.length} بلا دور · المثبّت يبقى` }
     : stage === 'send'
       ? { label: busy ? '…' : 'أرسل الأدوار للهواتف', onPress: sendRoles, disabled: busy || unboundSpecial.length > 0, hold: true, sub: `اضغط مطوّلاً · ${slots.length} دوراً${locked.size ? ` · ${locked.size} مثبّت` : ''}` }
       : { label: busy ? '…' : 'ابدأ اللعبة', onPress: startGame, disabled: busy, hold: true, sub: 'اضغط مطوّلاً · تبدأ بنقاش الجولة 1' };
   const secondary = stage === 'random'
     ? (Object.keys(assign).length ? { label: 'مسح', onPress: clearAll, disabled: busy } : undefined)
     : stage === 'send'
-      ? { label: '🎲 أعد الخلط', onPress: randomAssign, disabled: busy }
+      ? { label: '🎲 أعد الخلط', onPress: () => randomAssign(), disabled: busy }
       : { label: '🎴 كروت الورق', onPress: openCards };
 
   return (

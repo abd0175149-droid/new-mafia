@@ -389,6 +389,8 @@ export interface GameState {
   pendingWinner?: string | null; // فوز مُعلّق (ينتظر تأكيد الليدر بعد ملخص الصباح)
   nurseActivated?: boolean; // هل الليدر فعّل الممرضة في بداية هذا الليل
   rolesConfirmed?: boolean; // هل الليدر أكد توزيع الأدوار (يمنع إرسالها للاعبين قبل التأكيد)
+  /** 🔗 رقمُ نسخة توزيع الأدوار — يرتفع مع كلّ ربطٍ/فكٍّ/توزيع (game/role-binding.ts) */
+  bindingRev?: number;
   startedAt?: string; // وقت بداية اللعبة (عند اعتماد الأدوار)
   // 🌙 لحظةُ دخول الليدر شاشة اختيار الأدوار — بدايةُ اللعبة كما يراها اللاعب.
   //    مؤقّتُ اللعبة يبقى يبدأ عند اعتماد الأدوار (مقصود)، وهذا حقلٌ للعرض فقط.
@@ -811,7 +813,14 @@ async function updatePlayerUnlocked(
 
 // ── ربط دور بلاعب ──────────────────────────────
 
-export async function bindRole(roomId: string, physicalId: number, role: Role): Promise<GameState> {
+// 🔒 ربطٌ وفكٌّ تحت قفل الغرفة — قراءةٌ ثمّ كتابة لكلّ مقعد كانت تُضيّع ربطاً حين يتزامن طلبان
+//    (حادثة 2026-11-19: توزيعان متزامنان خلطا كروت مباراتين). لا تُستدعى من داخل withRoomLock
+//    للغرفة نفسها — القفل غير متداخل؛ عدِّل الحالة في الذاكرة هناك.
+export function bindRole(roomId: string, physicalId: number, role: Role): Promise<GameState> {
+  return withRoomLock(roomId, () => bindRoleUnlocked(roomId, physicalId, role));
+}
+
+async function bindRoleUnlocked(roomId: string, physicalId: number, role: Role): Promise<GameState> {
   const state = await getGameState(roomId);
   if (!state) throw new Error(`Room ${roomId} not found`);
 
@@ -823,7 +832,11 @@ export async function bindRole(roomId: string, physicalId: number, role: Role): 
   return state;
 }
 
-export async function unbindRole(roomId: string, physicalId: number): Promise<GameState> {
+export function unbindRole(roomId: string, physicalId: number): Promise<GameState> {
+  return withRoomLock(roomId, () => unbindRoleUnlocked(roomId, physicalId));
+}
+
+async function unbindRoleUnlocked(roomId: string, physicalId: number): Promise<GameState> {
   const state = await getGameState(roomId);
   if (!state) throw new Error(`Room ${roomId} not found`);
 

@@ -11,7 +11,7 @@ import {
   verifyDisplayToken, displayAuthEnforced, pinAttemptKeyFromSocket, pinLockState, recordPinFailure, clearPinFailures, pinEquals, mintDisplayToken,
 } from '../services/display-auth.service.js';
 import { projectDisplayState } from '../services/display-state.projection.js';
-import { lastArrivalSeats, createRoom, addPlayer, updatePlayer, updateRoom, getRoom, getRoomByCode, bindRole, unbindRole, setPhase, Phase, presentPlayers, getSpectators, findSpectator } from '../game/state.js';
+import { lastArrivalSeats, createRoom, addPlayer, updatePlayer, updateRoom, getRoom, getRoomByCode, setPhase, Phase, withRoomLock, presentPlayers, getSpectators, findSpectator } from '../game/state.js';
 import type { Spectator } from '../game/state.js';
 import { allocateSeat } from '../game/seat-allocator.js';
 import { reshuffleSeating } from '../game/seating/engine.js';
@@ -38,6 +38,7 @@ import { initPhoenixState } from '../game/phoenix-engine.js';
 import { oneNightResumeFor } from './night-one.socket.js';
 import { assassinStateFor, assassinContractsPayload } from '../game/assassin-engine.js';
 import { analyzeDuplicates, isAssassinMode } from '../game/role-duplicates.js';
+import { bindingDiff, sendableIssues, exactIssues, canBindRole, bumpBindingRev, bindingSnapshot } from '../game/role-binding.js';
 import { getProgressionConfig } from '../routes/progression-settings.routes.js';
 import { sendPushToPlayer } from '../services/fcm.service.js';
 import { getDB } from '../config/db.js';
@@ -5619,6 +5620,10 @@ async function readSeatLayoutOnly(activityId: any): Promise<any> {
 
       const state = await getRoom(data.roomId);
       if (!state) return callback({ success: false, error: 'Room not found' });
+      // 🔒 الحوضُ يُعتمد قبل اللعب وحده — شاشةٌ قديمة ترسله أثناء اللعب كانت تعيد الطور إلى الربط
+      if (state.phase !== Phase.LOBBY && state.phase !== Phase.ROLE_GENERATION && state.phase !== Phase.ROLE_BINDING) {
+        return callback({ success: false, code: 'GAME_IN_PROGRESS', error: 'اللعبة جارية — لا يُعتمد حوضٌ جديد قبل انتهائها' });
+      }
 
       const aliveCount = state.players.filter((p: any) => p.isAlive !== false).length;
       const validation = validateRoleDistribution(data.roles, aliveCount);
@@ -5678,7 +5683,22 @@ async function readSeatLayoutOnly(activityId: any): Promise<any> {
         state.config.phoenixRebirths = Math.min(3, Math.max(1, data.phoenixRebirths));
       }
 
-      await updateRoom(data.roomId, { phase: Phase.ROLE_BINDING, rolesPool: data.roles, config: state.config });
+      // 🔒 تحت القفل، والطورُ يُعاد فحصه: طلبان متزامنان أو بدءٌ سبقه لا يُكتب فوقهما
+      const applied = await withRoomLock(data.roomId, async () => {
+        const fresh = await getRoom(data.roomId);
+        if (!fresh) return 'Room not found';
+        if (fresh.phase !== Phase.LOBBY && fresh.phase !== Phase.ROLE_GENERATION && fresh.phase !== Phase.ROLE_BINDING) {
+          return 'اللعبة جارية — لا يُعتمد حوضٌ جديد قبل انتهائها';
+        }
+        fresh.phase = Phase.ROLE_BINDING;
+        fresh.rolesPool = data.roles;
+        fresh.config = state.config;
+        fresh.rolesConfirmed = false;   // حوضٌ جديد ⇒ ما وصل الهواتف قبله لم يعد صالحاً
+        bumpBindingRev(fresh);
+        await setGameState(data.roomId, fresh);
+        return null;
+      });
+      if (applied) return callback({ success: false, code: 'GAME_IN_PROGRESS', error: applied });
       io.to(data.roomId).emit('game:phase-changed', { phase: Phase.ROLE_BINDING });
 
       socket.emit('setup:binding-start', {
@@ -5695,6 +5715,20 @@ async function readSeatLayoutOnly(activityId: any): Promise<any> {
     }
   });
 
+  // ══ 🔗 ربط الأدوار — كلُّ تعديلٍ تحت قفل الغرفة ويُكتب مرّةً واحدة (game/role-binding.ts) ══
+  // حادثة 2026-11-19: توزيعان متزامنان من جهازَي موجّهَين كتبا لاعباً لاعباً فاختلطا ⇒ شيخان وساحرتان.
+
+  /** للموجّهين وحدهم (فيه الأدوار): كلُّ شاشة ربطٍ مفتوحة تعيد رسم نفسها من الخادم */
+  async function emitBindingToLeaders(roomId: string, state: any) {
+    try {
+      const snap = bindingSnapshot(state);
+      const sockets = await io.in(roomId).fetchSockets();
+      for (const sk of sockets) if (sk.data?.role === 'leader') sk.emit('setup:binding-updated', snap);
+    } catch {}
+  }
+
+  const BINDING_PHASE_ERROR = 'ليس في مرحلة توزيع الأدوار — اللعبة بدأت أو لم يُعتمد الحوض بعد';
+
   // ── ربط دور بلاعب (Drag & Drop) ──────────────────
   socket.on('setup:bind-role', async (data: {
     roomId: string;
@@ -5705,10 +5739,26 @@ async function readSeatLayoutOnly(activityId: any): Promise<any> {
       if (socket.data.role !== 'leader') {
         return callback({ success: false, error: 'Only leader can bind roles' });
       }
-
-      await bindRole(data.roomId, data.physicalId, data.role);
-      callback({ success: true });
-      console.log(`🔗 Role bound: #${data.physicalId} → ${data.role}`);
+      const out: any = await withRoomLock(data.roomId, async () => {
+        const state: any = await getRoom(data.roomId);
+        if (!state) return { success: false, error: 'Room not found' };
+        if (state.phase !== Phase.ROLE_BINDING) return { success: false, code: 'NOT_BINDING', error: BINDING_PHASE_ERROR };
+        const player = state.players.find((p: any) => p.physicalId === data.physicalId);
+        if (!player) return { success: false, error: `Player #${data.physicalId} not found` };
+        const allowed = canBindRole(state, data.physicalId, data.role);
+        if (allowed.ok === false) return { success: false, code: allowed.code, error: allowed.error, bindingRev: state.bindingRev || 0 };
+        player.role = data.role;
+        state.rolesConfirmed = false;   // ما وصل الهواتف لم يعد هو التوزيع
+        bumpBindingRev(state);
+        await setGameState(data.roomId, state);
+        return { success: true, bindingRev: state.bindingRev, state };
+      });
+      const { state, ...res } = out;
+      callback(res);
+      if (out.success) {
+        console.log(`🔗 Role bound: #${data.physicalId} → ${data.role}`);
+        void emitBindingToLeaders(data.roomId, state);
+      }
     } catch (err: any) {
       callback({ success: false, error: err.message });
     }
@@ -5723,191 +5773,235 @@ async function readSeatLayoutOnly(activityId: any): Promise<any> {
       if (socket.data.role !== 'leader') {
         return callback({ success: false, error: 'Only leader can unbind roles' });
       }
-
-      await unbindRole(data.roomId, data.physicalId);
-      callback({ success: true });
-      console.log(`🔓 Role unbound: #${data.physicalId}`);
+      const out: any = await withRoomLock(data.roomId, async () => {
+        const state: any = await getRoom(data.roomId);
+        if (!state) return { success: false, error: 'Room not found' };
+        if (state.phase !== Phase.ROLE_BINDING) return { success: false, code: 'NOT_BINDING', error: BINDING_PHASE_ERROR };
+        const player = state.players.find((p: any) => p.physicalId === data.physicalId);
+        if (!player) return { success: false, error: `Player #${data.physicalId} not found` };
+        player.role = null;
+        state.rolesConfirmed = false;
+        bumpBindingRev(state);
+        await setGameState(data.roomId, state);
+        return { success: true, bindingRev: state.bindingRev, state };
+      });
+      const { state, ...res } = out;
+      callback(res);
+      if (out.success) {
+        console.log(`🔓 Role unbound: #${data.physicalId}`);
+        void emitBindingToLeaders(data.roomId, state);
+      }
     } catch (err: any) {
       callback({ success: false, error: err.message });
     }
   });
 
-  // ── توزيع عشوائي كامل للأدوار (Digital Distribution) ──
   // ── توزيع عشوائي انتقائي للأدوار (Mixed Manual/Random Distribution) ──
-  socket.on('setup:random-assign', async (data: { roomId: string; lockedPhysicalIds?: number[] }, callback) => {
+  // 🔒 يُحسب كاملاً في الذاكرة تحت القفل ثمّ يُكتب مرّةً واحدة — طلبان متزامنان يتتابعان ولا يختلطان.
+  // `auto`: التوزيع التلقائيّ عند فتح شاشة الربط — لا يكتب فوق توزيعٍ قائم (شاشةُ موجّهٍ ثانٍ
+  //         تُفتح بعد الأوّل تعرض توزيعه بدل أن تخلط عليه).
+  socket.on('setup:random-assign', async (data: { roomId: string; lockedPhysicalIds?: number[]; auto?: boolean }, callback) => {
     try {
       if (socket.data.role !== 'leader') {
         return callback({ success: false, error: 'Only leader' });
       }
 
-      const state = await getRoom(data.roomId);
-      if (!state) return callback({ success: false, error: 'Room not found' });
-      if (state.phase !== Phase.ROLE_BINDING) {
-        return callback({ success: false, error: 'ليس في مرحلة توزيع الأدوار' });
-      }
-
-      const pool = [...(state.rolesPool || [])];
-      const alivePlayers = state.players.filter((p: any) => p.isAlive !== false);
-
-      if (pool.length !== alivePlayers.length) {
-        return callback({ success: false, error: `عدد الأدوار (${pool.length}) لا يطابق عدد اللاعبين (${alivePlayers.length})` });
-      }
-
-      const lockedIds = data.lockedPhysicalIds || [];
-
-      // 1. تحديد اللاعبين المثبتين وأدوارهم
-      const lockedPlayers = alivePlayers.filter(p => lockedIds.includes(p.physicalId) && p.role !== null);
-      const lockedRoles = lockedPlayers.map(p => p.role!);
-
-      // 2. تحديد اللاعبين غير المثبتين
-      const remainingPlayers = alivePlayers.filter(p => !lockedPlayers.some(lp => lp.physicalId === p.physicalId));
-
-      // 3. بناء قائمة الأدوار المتبقية بعد استبعاد الأدوار المثبتة
-      const remainingRoles = [...pool];
-      for (const role of lockedRoles) {
-        const index = remainingRoles.indexOf(role);
-        if (index !== -1) {
-          remainingRoles.splice(index, 1);
+      const out: any = await withRoomLock(data.roomId, async () => {
+        const state: any = await getRoom(data.roomId);
+        if (!state) return { success: false, error: 'Room not found' };
+        if (state.phase !== Phase.ROLE_BINDING) {
+          return { success: false, error: 'ليس في مرحلة توزيع الأدوار' };
         }
-      }
 
-      // 4. استرجاع تاريخ الأدوار للاعبين غير المثبتين وتحديد الممنوعين من المافيا
-      const maxConsecutive = state.config.maxConsecutiveMafiaGames ?? 3;
-      const restrictedPhysicalIds: number[] = [];
+        const pool = [...(state.rolesPool || [])];
+        const alivePlayers = state.players.filter((p: any) => p.isAlive !== false);
 
-      if (maxConsecutive > 0) {
-        const { getPlayerLastRoles } = await import('../services/player.service.js');
-        for (const p of remainingPlayers) {
-          if (p.playerId) {
-            const lastRoles = await getPlayerLastRoles(p.playerId, maxConsecutive);
-            if (lastRoles.length >= maxConsecutive && lastRoles.every(r => isMafiaRole(r as Role))) {
-              restrictedPhysicalIds.push(p.physicalId);
+        if (pool.length !== alivePlayers.length) {
+          return { success: false, error: `عدد الأدوار (${pool.length}) لا يطابق عدد اللاعبين (${alivePlayers.length})` };
+        }
+
+        if (data.auto && alivePlayers.some((p: any) => !!p.role)) {
+          return { success: true, skipped: true, state, bindingRev: Number(state.bindingRev) || 0 };
+        }
+
+        const lockedIds = data.lockedPhysicalIds || [];
+
+        // 1. تحديد اللاعبين المثبتين وأدوارهم
+        const lockedPlayers = alivePlayers.filter((p: any) => lockedIds.includes(p.physicalId) && p.role !== null);
+
+        // 2. تحديد اللاعبين غير المثبتين
+        const remainingPlayers = alivePlayers.filter((p: any) => !lockedPlayers.some((lp: any) => lp.physicalId === p.physicalId));
+
+        // 3. بناء قائمة الأدوار المتبقية بعد استبعاد الأدوار المثبتة
+        //    🔒 مثبَّتٌ لا مكان لدوره في الحوض (تكرارٌ زائد) لا يُحفظ — يدخل القرعة كغيره
+        const remainingRoles = [...pool];
+        for (const lp of [...lockedPlayers]) {
+          const index = remainingRoles.indexOf(lp.role);
+          if (index !== -1) remainingRoles.splice(index, 1);
+          else { lockedPlayers.splice(lockedPlayers.indexOf(lp), 1); remainingPlayers.push(lp); }
+        }
+
+        // 4. استرجاع تاريخ الأدوار للاعبين غير المثبتين وتحديد الممنوعين من المافيا
+        const maxConsecutive = state.config.maxConsecutiveMafiaGames ?? 3;
+        const restrictedPhysicalIds: number[] = [];
+
+        if (maxConsecutive > 0) {
+          const { getPlayerLastRoles } = await import('../services/player.service.js');
+          for (const p of remainingPlayers) {
+            if (p.playerId) {
+              const lastRoles = await getPlayerLastRoles(p.playerId, maxConsecutive);
+              if (lastRoles.length >= maxConsecutive && lastRoles.every(r => isMafiaRole(r as Role))) {
+                restrictedPhysicalIds.push(p.physicalId);
+              }
             }
           }
         }
-      }
 
-      // 5. موازنة الاستبعاد لتجنب التعارض (Deadlocks)
-      const remainingMafiaRoles = remainingRoles.filter(r => isMafiaRole(r));
-      const maxRestrictedAllowed = remainingPlayers.length - remainingMafiaRoles.length;
-      
-      let finalRestrictedIds = [...restrictedPhysicalIds];
-      if (finalRestrictedIds.length > maxRestrictedAllowed) {
-        finalRestrictedIds = finalRestrictedIds.slice(0, maxRestrictedAllowed);
-      }
+        // 5. موازنة الاستبعاد لتجنب التعارض (Deadlocks)
+        const remainingMafiaRoles = remainingRoles.filter(r => isMafiaRole(r));
+        const maxRestrictedAllowed = remainingPlayers.length - remainingMafiaRoles.length;
 
-      // 6. توزيع الأدوار غير المافيا للاعبين المستبعدين أولاً
-      const restrictedPlayers = remainingPlayers.filter(p => finalRestrictedIds.includes(p.physicalId));
-      const nonRestrictedPlayers = remainingPlayers.filter(p => !finalRestrictedIds.includes(p.physicalId));
-
-      const assignableRemainingRoles = [...remainingRoles];
-
-      // إلغاء ربط جميع اللاعبين غير المثبتين
-      for (const p of remainingPlayers) {
-        if (p.role) {
-          await unbindRole(data.roomId, p.physicalId);
+        let finalRestrictedIds = [...restrictedPhysicalIds];
+        if (finalRestrictedIds.length > maxRestrictedAllowed) {
+          finalRestrictedIds = finalRestrictedIds.slice(0, maxRestrictedAllowed);
         }
-      }
 
-      // توزيع أدوار غير المافيا للاعبين المستبعدين
-      for (const player of restrictedPlayers) {
-        const nonMafiaRoleIndex = assignableRemainingRoles.findIndex(r => !isMafiaRole(r));
-        if (nonMafiaRoleIndex !== -1) {
-          const role = assignableRemainingRoles[nonMafiaRoleIndex];
-          await bindRole(data.roomId, player.physicalId, role);
-          assignableRemainingRoles.splice(nonMafiaRoleIndex, 1);
+        // 6. توزيع الأدوار غير المافيا للاعبين المستبعدين أولاً
+        const restrictedPlayers = remainingPlayers.filter((p: any) => finalRestrictedIds.includes(p.physicalId));
+        const nonRestrictedPlayers = remainingPlayers.filter((p: any) => !finalRestrictedIds.includes(p.physicalId));
+
+        const assignableRemainingRoles = [...remainingRoles];
+
+        // إلغاء ربط جميع اللاعبين غير المثبتين (في الذاكرة — الكتابة مرّة واحدة في النهاية)
+        for (const p of remainingPlayers) p.role = null;
+
+        for (const player of restrictedPlayers) {
+          const nonMafiaRoleIndex = assignableRemainingRoles.findIndex(r => !isMafiaRole(r));
+          if (nonMafiaRoleIndex !== -1) {
+            player.role = assignableRemainingRoles[nonMafiaRoleIndex];
+            assignableRemainingRoles.splice(nonMafiaRoleIndex, 1);
+          }
         }
-      }
 
-      // 7. خلط الأدوار المتبقية عشوائياً (Fisher-Yates)
-      for (let i = assignableRemainingRoles.length - 1; i > 0; i--) {
-        const j = Math.floor(Math.random() * (i + 1));
-        [assignableRemainingRoles[i], assignableRemainingRoles[j]] = [assignableRemainingRoles[j], assignableRemainingRoles[i]];
-      }
+        // 7. خلط الأدوار المتبقية عشوائياً (Fisher-Yates)
+        for (let i = assignableRemainingRoles.length - 1; i > 0; i--) {
+          const j = Math.floor(Math.random() * (i + 1));
+          [assignableRemainingRoles[i], assignableRemainingRoles[j]] = [assignableRemainingRoles[j], assignableRemainingRoles[i]];
+        }
 
-      // 8. ربط الأدوار المخلوطة باللاعبين غير المستبعدين
-      for (let i = 0; i < nonRestrictedPlayers.length; i++) {
-        await bindRole(data.roomId, nonRestrictedPlayers[i].physicalId, assignableRemainingRoles[i]);
-      }
+        // 8. ربط الأدوار المخلوطة باللاعبين غير المستبعدين
+        for (let i = 0; i < nonRestrictedPlayers.length; i++) {
+          nonRestrictedPlayers[i].role = assignableRemainingRoles[i] ?? null;
+        }
 
-      // 9. قراءة الحالة المحدثة
-      const updatedState = await getRoom(data.roomId);
+        // 9. بوّابةٌ قبل الكتابة: الناتج يطابق الحوض تماماً — وإلّا لا يُكتب شيء
+        const issue = exactIssues(bindingDiff(state));
+        if (issue) {
+          console.error(`❌ random-assign produced a mismatch in ${data.roomId}: ${issue}`);
+          return { success: false, code: 'ROLE_MISMATCH', error: issue };
+        }
 
-      // 10. إعادة تعيين حالة التأكيد لقيم جديدة
-      if (updatedState) {
-        updatedState.rolesConfirmed = false;
-        await setGameState(data.roomId, updatedState);
-      }
-
-      callback({
-        success: true,
-        state: updatedState,
+        // 10. الاعتمادُ يسقط — التوزيع الجديد لم يصل الهواتف
+        state.rolesConfirmed = false;
+        bumpBindingRev(state);
+        await setGameState(data.roomId, state);
+        return {
+          success: true, state, bindingRev: state.bindingRev,
+          _log: `🎲 Mixed role assignment complete in room ${data.roomId} — ${lockedPlayers.length} locked, ${restrictedPlayers.length} restricted, ${nonRestrictedPlayers.length} randomized (rev ${state.bindingRev})`,
+        };
       });
-      console.log(`🎲 Mixed role assignment complete in room ${data.roomId} — ${lockedPlayers.length} locked, ${restrictedPlayers.length} restricted, ${nonRestrictedPlayers.length} randomized`);
+
+      const { _log, ...res } = out;
+      callback(res);
+      if (_log) {
+        console.log(_log);
+        void emitBindingToLeaders(data.roomId, out.state);
+      } else if (out.skipped) {
+        console.log(`🎲 Auto-deal skipped in room ${data.roomId} — roles already bound (rev ${out.bindingRev})`);
+      }
     } catch (err: any) {
       callback({ success: false, error: err.message });
     }
   });
 
   // ── تأكيد الأدوار وبثها للاعبين ──────────────────
-  socket.on('setup:confirm-roles', async (data: { roomId: string }, callback) => {
+  // 🔒 تحت القفل. يُرفض إن لم يطابق التوزيعُ الحوضَ، أو إن أرسل الجهازُ نسخةً تغيّرت بعده
+  //    (`expectedRev` — اختياريّ للعملاء القدامى، والبوّابة العدديّة تحميهم على كلّ حال).
+  socket.on('setup:confirm-roles', async (data: { roomId: string; expectedRev?: number }, callback) => {
     try {
       if (socket.data.role !== 'leader') {
         return callback({ success: false, error: 'Only leader can confirm roles' });
       }
 
-      const state = await getRoom(data.roomId);
-      if (!state) return callback({ success: false, error: 'Room not found' });
-      if (state.phase !== Phase.ROLE_BINDING) {
-        return callback({ success: false, error: 'ليس في مرحلة توزيع الأدوار' });
-      }
+      const out: any = await withRoomLock(data.roomId, async () => {
+        const state: any = await getRoom(data.roomId);
+        if (!state) return { success: false, error: 'Room not found' };
+        if (state.phase !== Phase.ROLE_BINDING) {
+          return { success: false, error: 'ليس في مرحلة توزيع الأدوار' };
+        }
+        const rev = Number(state.bindingRev) || 0;
+        if (typeof data.expectedRev === 'number' && data.expectedRev !== rev) {
+          return {
+            success: false, code: 'BINDING_CHANGED', bindingRev: rev, state,
+            error: 'غيّر جهازٌ آخر توزيع الأدوار — راجِع التوزيع الظاهر الآن ثمّ أرسل',
+          };
+        }
+        const issue = sendableIssues(bindingDiff(state));
+        if (issue) {
+          console.warn(`⛔ confirm-roles refused in ${data.roomId}: ${issue}`);
+          return { success: false, code: 'ROLE_MISMATCH', error: issue, bindingRev: rev, state };
+        }
 
-      // التأكد أن كل الأدوار الخاصة موزعة
-      const unassignedSpecial = state.players.filter(
-        (p: any) => p.isAlive !== false && !p.role && 
-        (state.rolesPool || []).some((r: string) => r !== 'CITIZEN')
-      );
-      // جمع قائمة لاعبي المافيا (أرقام المقاعد) لإرسالها لأعضاء الفريق
-      const mafiaPlayers = state.players
-        .filter((p: any) => p.role && isMafiaRole(p.role as Role) && p.isAlive !== false)
-        .map((p: any) => ({ physicalId: p.physicalId, name: p.name, role: p.role, avatarUrl: p.avatarUrl || null }));
+        // جمع قائمة لاعبي المافيا (أرقام المقاعد) لإرسالها لأعضاء الفريق
+        const mafiaPlayers = state.players
+          .filter((p: any) => p.role && isMafiaRole(p.role as Role) && p.isAlive !== false)
+          .map((p: any) => ({ physicalId: p.physicalId, name: p.name, role: p.role, avatarUrl: p.avatarUrl || null }));
 
-      // بث الدور لكل لاعب متصل على جهازه فقط
-      const allSockets = await io.in(data.roomId).fetchSockets();
-      for (const s of allSockets) {
-        if (s.data.role === 'player' && s.data.physicalId) {
-          const player = state.players.find(
-            (p: any) => p.physicalId === s.data.physicalId
-          );
-          if (player?.role) {
-            const roleData: any = {
-              physicalId: player.physicalId,
-              role: player.role,
-            };
-            // إذا اللاعب من فريق المافيا → أرسل أرقام زملائه
-            if (isMafiaRole(player.role as Role) && state.config.allowMafiaReveal !== false) {
-              roleData.mafiaTeam = mafiaPlayers
-                .filter((m: any) => m.physicalId !== player.physicalId)
-                .map((m: any) => ({ physicalId: m.physicalId, name: m.name, role: m.role, avatarUrl: m.avatarUrl || null }));
+        // بث الدور لكل لاعب متصل على جهازه فقط
+        const allSockets = await io.in(data.roomId).fetchSockets();
+        for (const s of allSockets) {
+          if (s.data.role === 'player' && s.data.physicalId) {
+            const player = state.players.find(
+              (p: any) => p.physicalId === s.data.physicalId
+            );
+            if (player?.role) {
+              const roleData: any = {
+                physicalId: player.physicalId,
+                role: player.role,
+              };
+              // إذا اللاعب من فريق المافيا → أرسل أرقام زملائه
+              if (isMafiaRole(player.role as Role) && state.config.allowMafiaReveal !== false) {
+                roleData.mafiaTeam = mafiaPlayers
+                  .filter((m: any) => m.physicalId !== player.physicalId)
+                  .map((m: any) => ({ physicalId: m.physicalId, name: m.name, role: m.role, avatarUrl: m.avatarUrl || null }));
+              }
+              // 👥 تعارف الأخوين — قناة خاصة منفصلة عن فريق المافيا
+              // (الأخ الأصغر مواطن يبقى مخفياً عن باقي المافيا؛ كلٌّ يرى أخاه فقط)
+              const sibling = getSiblingInfoFor(state, player.physicalId);
+              if (sibling) roleData.sibling = sibling;
+              s.emit('player:role-assigned', roleData);
             }
-            // 👥 تعارف الأخوين — قناة خاصة منفصلة عن فريق المافيا
-            // (الأخ الأصغر مواطن يبقى مخفياً عن باقي المافيا؛ كلٌّ يرى أخاه فقط)
-            const sibling = getSiblingInfoFor(state, player.physicalId);
-            if (sibling) roleData.sibling = sibling;
-            s.emit('player:role-assigned', roleData);
           }
         }
-      }
 
-      // تحديث حالة التأكيد
-      state.rolesConfirmed = true;
-      await setGameState(data.roomId, state);
+        // تحديث حالة التأكيد
+        state.rolesConfirmed = true;
+        await setGameState(data.roomId, state);
+        return { success: true, bindingRev: rev, state };
+      });
+
+      const { state, ...res } = out;
+      if (!out.success) {
+        // الحالةُ ترجع مع الرفض كي يعيد الجهازُ رسمَ ما هو قائمٌ فعلاً (للموجّه وحده)
+        return callback({ ...res, ...(state ? { state: { players: state.players, rolesPool: state.rolesPool, bindingRev: state.bindingRev || 0 } } : {}) });
+      }
 
       // 🗣️ بداية لعبة جديدة → مسح محادثة المافيا للعبة السابقة
       try { const { deleteAux } = await import('../config/redis.js'); await deleteAux(`mafia-chat:${data.roomId}`); } catch {}
 
-      callback({ success: true });
-      console.log(`✅ Roles confirmed and sent to players in room ${data.roomId}`);
+      callback(res);
+      void emitBindingToLeaders(data.roomId, state);
+      console.log(`✅ Roles confirmed and sent to players in room ${data.roomId} (rev ${out.bindingRev})`);
     } catch (err: any) {
       callback({ success: false, error: err.message });
     }
@@ -6161,16 +6255,21 @@ async function readSeatLayoutOnly(activityId: any): Promise<any> {
         return callback({ success: false, error: 'Only leader can complete binding' });
       }
 
-      const state = await getRoom(data.roomId);
-      if (!state) return callback({ success: false, error: 'Room not found' });
+      // 🔒 بدءُ اللعبة تحت القفل: ضغطتان (أو موجّهان) لا تُنشئان مباراتين، وبوّابةُ المطابقة
+      //    التامّة للحوض هي آخرُ حارسٍ قبل أن يُسجَّل شيء.
+      const started: any = await withRoomLock(data.roomId, async () => {
+      const state: any = await getRoom(data.roomId);
+      if (!state) return { error: 'Room not found' };
+      if (state.phase !== Phase.ROLE_BINDING) {
+        return { error: state.matchId ? 'اللعبة بدأت بالفعل' : 'ليس في مرحلة توزيع الأدوار', code: 'NOT_BINDING' };
+      }
 
       // ── شرط: يجب تأكيد الأدوار أولاً ──
       if (!state.rolesConfirmed) {
-        return callback({ success: false, error: 'يجب تأكيد الأدوار أولاً قبل بدء اللعبة' });
+        return { error: 'يجب تأكيد الأدوار أولاً قبل بدء اللعبة' };
       }
 
-
-      const unboundPlayers = state.players.filter(p => !p.role && p.isAlive !== false);
+      const unboundPlayers = state.players.filter((p: any) => !p.role && p.isAlive !== false);
       if (unboundPlayers.length > 0) {
         // Calculate remaining roles in the pool
         const pool = [...(state.rolesPool || [])];
@@ -6180,28 +6279,27 @@ async function readSeatLayoutOnly(activityId: any): Promise<any> {
              if (idx !== -1) pool.splice(idx, 1);
            }
         }
-        
+
         // Are ALL remaining roles 'CITIZEN'? (Only Citizens can be auto-assigned)
         const nonCitizenRoles = pool.filter(r => r !== Role.CITIZEN);
         if (nonCitizenRoles.length > 0) {
-           return callback({
-               success: false,
-               error: `يجب توزيع الأدوار المميزة والمافيا كلياً. المتبقي: ${nonCitizenRoles.join(', ')}`,
-           });
+           return { error: `يجب توزيع الأدوار المميزة والمافيا كلياً. المتبقي: ${nonCitizenRoles.join(', ')}` };
         }
-        
+
         if (pool.length !== unboundPlayers.length) {
-            return callback({ success: false, error: 'عدد الأدوار المتبقية لا يطابق عدد اللاعبين غير المربوطين.' });
+            return { error: 'عدد الأدوار المتبقية لا يطابق عدد اللاعبين غير المربوطين.' };
         }
-        
-        // Auto-assign remaining CITIZEN roles
-        for (let i = 0; i < unboundPlayers.length; i++) {
-           await bindRole(data.roomId, unboundPlayers[i].physicalId, Role.CITIZEN);
-        }
-        
-        // Refresh state object with the updated roles from memory
-        Object.assign(state, await getRoom(data.roomId));
+
+        // Auto-assign remaining CITIZEN roles (في الذاكرة — الحالة تُكتب مرّةً واحدة أدناه)
+        for (const p of unboundPlayers) p.role = Role.CITIZEN;
         console.log(`🤖 Auto-bound ${unboundPlayers.length} citizens in room ${data.roomId}`);
+      }
+
+      // 🔒 البوّابة الأخيرة: الكروتُ المربوطة تطابق الحوض المعتمد تماماً
+      const mismatch = exactIssues(bindingDiff(state));
+      if (mismatch) {
+        console.error(`⛔ binding-complete refused in ${data.roomId}: ${mismatch}`);
+        return { error: mismatch, code: 'ROLE_MISMATCH' };
       }
 
       // ── 👥 تهيئة رابطة التوأمين فور اعتماد الأدوار (قبل أول نهار) ──
@@ -6247,7 +6345,10 @@ async function readSeatLayoutOnly(activityId: any): Promise<any> {
       // ── تغيير المرحلة قبل الحفظ والبث ──
       state.phase = Phase.DAY_DISCUSSION;
       await setGameState(data.roomId, state);
-      await setPhase(data.roomId, Phase.DAY_DISCUSSION);
+      return { state };
+      });
+      if (started.error) return callback({ success: false, code: started.code, error: started.error });
+      const state: any = started.state;
 
       await emitPhaseChangedSanitized(io, data.roomId, {
         phase: Phase.DAY_DISCUSSION,
