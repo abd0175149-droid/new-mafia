@@ -18,7 +18,7 @@ import type { Database } from '../config/db.js';
 import { orders, orderInvoices, venueHandovers } from '../schemas/fnb.schema.js';
 import { activities, bookings, locations, staff } from '../schemas/admin.schema.js';
 import { players } from '../schemas/player.schema.js';
-import { playersWhoPlayed, playersPresent, waterItemOf, SEAT_SOURCES, serviceRateOf, serviceChargeOf, minWaivedPlayers } from './fnb-invoice.service.js';
+import { playersWhoPlayed, playersPresent, waterItemOf, SEAT_SOURCES, serviceRateOf, serviceChargeOf, venueDiscountOf, minWaivedPlayers } from './fnb-invoice.service.js';
 
 const n = (x: unknown) => { const v = parseFloat(String(x ?? '0')); return Number.isFinite(v) ? v : 0; };
 const r2 = (x: number) => Math.round(x * 100) / 100;
@@ -71,6 +71,9 @@ export interface LedgerRow {
   /** 🎁 ضيافة كاملة: المستحقّ صفر وcompAmount قيمة ما قُدّم (يتحمّلها المكان) */
   fullComp: boolean;
   compAmount: number;
+  /** 🏷️ خصم المكان: المحصَّلة من لقطتها، والمفتوحة من فاتورتها بسقف قيمة المكان */
+  venueDiscount: number;
+  venueDiscountReason: string | null;
   /** 🧾 «لم يدفع»: السبب، ولصفّ الدين القديم تاريخ ليلته */
   writeoffReason: string | null;
   debtFrom: Date | null;
@@ -225,6 +228,7 @@ export async function nightLedger(db: Database, locId: number, activityId: numbe
         paidForBy: (() => { const pay = (i as any).paymentId ? payById.get(Number((i as any).paymentId)) : null; return pay && pay.payer !== pid ? pay.name : null; })(),
         groupId: null,
         fullComp: n((i as any).compAmount) > 0, compAmount: n((i as any).compAmount),
+        venueDiscount: n((i as any).venueDiscount), venueDiscountReason: (i as any).venueDiscountReason ?? null,
         writeoffReason: (i as any).writeoffReason ?? null, debtFrom: null,
       });
     }
@@ -251,8 +255,10 @@ export async function nightLedger(db: Database, locId: number, activityId: numbe
     // 🎁 ضيافة كاملة: البنود بأسعارها والمستحقّ صفر — لا دخوليّة ولا حدّ ولا ماء ولا ولاء (كبناء الفاتورة)
     const comp = compIds.has(pid);
     // 🧾 ضريبة الخدمة: نفس دالّة الفاتورة — على (الطلبات + الماء − الولاء) فقط، لا على التكملة ولا الدخوليّة
-    const serviceOpen = comp ? 0 : serviceChargeOf(serviceRate, openTotal, waterOpen, loyalty);
-    const openGrand = comp ? 0 : r2(Math.max(0, openTotal + waterOpen + topupOpen + fee - loyalty) + serviceOpen);
+    // 🏷️ خصم المكان — من الفاتورة المفتوحة، بالسقف نفسه الذي تطبّقه الفاتورة
+    const vdisc = comp ? 0 : venueDiscountOf((unpaidRow as any)?.venueDiscount, openTotal, waterOpen, loyalty);
+    const serviceOpen = comp ? 0 : serviceChargeOf(serviceRate, openTotal, waterOpen, loyalty, vdisc);
+    const openGrand = comp ? 0 : r2(Math.max(0, openTotal + waterOpen + topupOpen + fee - loyalty - vdisc) + serviceOpen);
     const hasOpen = comp ? (openOrders.length > 0 || !!unpaidRow)
       : (openOrders.length > 0 || !!unpaidRow || ((minCharge > 0 || !!water) && played && openGrand > 0)
         || (presentIds.has(pid) && openGrand > 0));
@@ -267,7 +273,9 @@ export async function nightLedger(db: Database, locId: number, activityId: numbe
         gameFee: comp ? 0 : r2(fee), grandTotal: r2(openGrand),
         isFree: bk?.isFree === true, minWaived: minCharge > 0 && played && minWaived, noInvoice: !unpaidRow,
         payMethod: null, paymentId: null, paidForBy: null, groupId: groupOf.get(pid) ?? null,
-        fullComp: comp, compAmount: comp ? r2(openTotal) : 0, writeoffReason: null, debtFrom: null,
+        fullComp: comp, compAmount: comp ? r2(openTotal) : 0,
+        venueDiscount: vdisc, venueDiscountReason: vdisc > 0 ? ((unpaidRow as any)?.venueDiscountReason ?? null) : null,
+        writeoffReason: null, debtFrom: null,
       });
     }
   }
@@ -287,6 +295,7 @@ export async function nightLedger(db: Database, locId: number, activityId: numbe
       paidById: null, paidByName: '', canUndoUntil: null, ordersCount: 0, ordersTotal: 0, minTopup: 0, waterCharge: 0,
       loyaltyDiscount: 0, serviceRate: 0, serviceAmount: 0, gameFee: 0, grandTotal: n(d.grand_total), isFree: false, noInvoice: false,
       payMethod: 'debt', paymentId: null, paidForBy: null, groupId: null, fullComp: false, compAmount: 0,
+      venueDiscount: 0, venueDiscountReason: null,
       writeoffReason: d.writeoff_reason ?? null, debtFrom: d.act_date,
     });
   }
@@ -396,6 +405,7 @@ async function paidByActivity(db: Database, locId: number, from: string, to: str
       COALESCE(SUM(i.service_amount) FILTER (WHERE ${COLLECTED}), 0)::numeric AS service,
       COALESCE(SUM(i.game_fee_amount) FILTER (WHERE ${COLLECTED}), 0)::numeric AS fees,
       COALESCE(SUM(i.loyalty_discount) FILTER (WHERE ${COLLECTED}), 0)::numeric AS loyalty,
+      COALESCE(SUM(i.venue_discount) FILTER (WHERE ${COLLECTED}), 0)::numeric AS venue_discount,
       COUNT(i.id) FILTER (WHERE ${COLLECTED} AND i.game_fee_applied AND i.game_fee_amount > 0)::int AS fee_count,
       COUNT(i.id) FILTER (WHERE ${COLLECTED})::int AS paid_count,
       (SELECT COUNT(*)::int FROM bookings b WHERE b.activity_id = a.id AND b.deleted_at IS NULL AND b.is_free = true) AS free_count

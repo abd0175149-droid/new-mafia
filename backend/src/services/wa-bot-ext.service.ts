@@ -553,7 +553,7 @@ export async function execExtTool(name: string, args: any, ctx: Ctx, h: ExtHelpe
         found: true, activity: inv.activityName, location: inv.locationName,
         lines: inv.lines.map((l: any) => ({ item: l.name, qty: l.quantity, total: l.lineTotal })),
         ordersTotalJOD: inv.ordersTotal, waterJOD: inv.waterCharge, minimumTopupJOD: inv.minTopup,
-        gameFeeJOD: inv.gameFeeApplied ? inv.gameFeeAmount : 0, loyaltyDrinkDiscountJOD: inv.loyaltyDiscount || 0,
+        gameFeeJOD: inv.gameFeeApplied ? inv.gameFeeAmount : 0, loyaltyDrinkDiscountJOD: inv.loyaltyDiscount || 0, venueDiscountJOD: inv.venueDiscount || 0,
         // 🧾 ضريبة الخدمة (نسبة المكان) — سطرٌ مستقلّ داخلٌ في grandTotalJOD
         ...(inv.serviceAmount > 0 ? {
           serviceChargeJOD: inv.serviceAmount, serviceChargePercent: inv.serviceRate,

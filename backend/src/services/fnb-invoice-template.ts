@@ -119,6 +119,8 @@ function view(data: InvoiceData, invoiceNo: number, printedByName: string, recor
   if (data.minTopup > 0) sums.push({ label: 'تكملة الحدّ الأدنى', value: fmt(data.minTopup) });
   if (data.gameFeeApplied) sums.push({ label: 'دخوليّة اللعبة', value: fmt(data.gameFeeAmount) });
   if (data.loyaltyDiscount > 0) sums.push({ label: `مشروب بطاقة الولاء${data.loyaltyItemName ? ` (${clean(data.loyaltyItemName)})` : ''}`, value: `−${fmt(data.loyaltyDiscount)}` });
+  // 🏷️ خصم المكان — قبل ضريبة الخدمة لأنّها تُحسب بعده
+  if ((data.venueDiscount || 0) > 0) sums.push({ label: 'خصم', value: `−${fmt(data.venueDiscount)}` });
   // 🧾 ضريبة الخدمة: على الطلبات والماء (بعد مشروب الولاء) — سطرٌ مستقلّ بنسبته
   if ((data.serviceAmount || 0) > 0) sums.push({ label: `ضريبة خدمة ${pct(data.serviceRate)}%`, value: fmt(data.serviceAmount) });
   if ((data.compAmount || 0) > 0) sums.push({ label: 'ضيافة كاملة', value: `−${fmt(data.compAmount || 0)}` });

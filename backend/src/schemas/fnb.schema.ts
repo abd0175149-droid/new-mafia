@@ -191,6 +191,12 @@ export const orderInvoices = pgTable('order_invoices', {
   paymentId: integer('payment_id'),
   // 🎁 ضيافة كاملة (2026-11-01): قيمة ما قُدّم مجّاناً لحساب «ضيافة كاملة» — يتحمّلها المكان، لا تُحسب دخلاً
   compAmount: decimal('comp_amount', { precision: 10, scale: 2 }).default('0'),
+  // 🏷️ خصم المكان (2026-11-20): يُطرح من قيمة الطلبات (والماء) بعد مشروب الولاء — يتحمّله المكان،
+  //    فحصّة النادي (الدخوليّة) لا تتغيّر. يُضبط على الفاتورة المفتوحة ويُجمَّد مع التحصيل.
+  venueDiscount: decimal('venue_discount', { precision: 10, scale: 2 }).default('0'),
+  venueDiscountReason: text('venue_discount_reason'),
+  venueDiscountBy: integer('venue_discount_by'),
+  venueDiscountAt: timestamp('venue_discount_at'),
   // 🧾 لم تُحصَّل (2026-11-01): pay_method = debt | loss والسبب إلزاميّ؛ الدين يُسدَّد لاحقاً فيأخذ طريقةً حقيقيّة
   writeoffReason: text('writeoff_reason'),
   debtSettledAt: timestamp('debt_settled_at'),

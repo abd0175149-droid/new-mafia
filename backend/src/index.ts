@@ -1282,6 +1282,11 @@ async function main() {
       await db.execute(sql`ALTER TABLE order_invoices ADD COLUMN IF NOT EXISTS writeoff_reason TEXT`);
       await db.execute(sql`ALTER TABLE order_invoices ADD COLUMN IF NOT EXISTS debt_settled_at TIMESTAMP`);
       await db.execute(sql`ALTER TABLE order_invoices ADD COLUMN IF NOT EXISTS debt_settled_by INTEGER`);
+      // 🏷️ خصم المكان (2026-11-20): مبلغٌ يُطرح من قيمة طلبات المكان — يتحمّله المكان لا النادي
+      await db.execute(sql`ALTER TABLE order_invoices ADD COLUMN IF NOT EXISTS venue_discount DECIMAL(10,2) DEFAULT 0`);
+      await db.execute(sql`ALTER TABLE order_invoices ADD COLUMN IF NOT EXISTS venue_discount_reason TEXT`);
+      await db.execute(sql`ALTER TABLE order_invoices ADD COLUMN IF NOT EXISTS venue_discount_by INTEGER`);
+      await db.execute(sql`ALTER TABLE order_invoices ADD COLUMN IF NOT EXISTS venue_discount_at TIMESTAMP`);
       await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_order_invoices_debt ON order_invoices(location_id, player_id) WHERE pay_method = 'debt'`);
       // 🧾 ضريبة الخدمة لكلّ مكان (2026-11-13): نسبةٌ على المكان (0 = بلا)، ولقطتها ومبلغها على الفاتورة
       await db.execute(sql`ALTER TABLE locations ADD COLUMN IF NOT EXISTS service_rate DECIMAL(5,2) DEFAULT 0`);

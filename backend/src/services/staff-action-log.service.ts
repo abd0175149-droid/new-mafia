@@ -103,6 +103,7 @@ export const ACTION_CATALOG: Record<string, { category: string; labelAr: string 
   // ── مسارات REST (تُسجَّل يدوياً من المعالجات) ──
   'rest:progression-adjust': { category: 'PROGRESSION_EDIT', labelAr: 'تعديل نقاط لاعب يدوياً' },
   'rest:geofence-exempt': { category: 'PLAYER', labelAr: 'إعفاء لاعب من سياج الموقع' },
+  'rest:venue-discount': { category: 'PLAYER', labelAr: 'خصم المكان على فاتورة لاعب' },
   // 🔴 كان غائباً فيقع القفلُ على category='OTHER' بمفتاحه الخام — أقوى قرارٍ
   //    إداريٍّ على حسابٍ لا يظهر مصنَّفاً في سجلّ الموظّفين.
   'rest:player-lock': { category: 'PLAYER', labelAr: 'قفل حساب لاعب أو فكّه' },

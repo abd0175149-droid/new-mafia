@@ -117,6 +117,7 @@ export async function collectInvoices(db: Database, p: {
           gameFeeApplied: data.gameFeeApplied, gameFeeAmount: data.gameFeeAmount.toFixed(2), grandTotal: data.grandTotal.toFixed(2),
           bookingId: data.bookingId, isPaid: true, paidAt, paidBy: p.staffId, payMethod: p.writeoff ? p.writeoff.kind : p.method, paymentId,
           compAmount: (data.compAmount || 0).toFixed(2),
+          venueDiscount: (data.venueDiscount || 0).toFixed(2),   // 🏷️ يُجمَّد بالقيمة التي حُسبت (بعد السقف)
           writeoffReason: p.writeoff ? String(p.writeoff.reason).trim().slice(0, 300) : null,
         } as any).where(and(eq(orderInvoices.id, inv.id), eq(orderInvoices.isPaid, false))).returning({ id: orderInvoices.id });
         if (!row) throw new GoneError(data.playerId, data.playerName);

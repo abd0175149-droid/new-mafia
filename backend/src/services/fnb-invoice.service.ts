@@ -60,6 +60,9 @@ export interface InvoiceData {
   /** 🎁 ضيافة كاملة: البنود ظاهرة بأسعارها، والمستحقّ صفر — compAmount قيمة ما قُدّم (يتحمّلها المكان) */
   fullComp?: boolean;
   compAmount?: number;
+  /** 🏷️ خصم المكان: يُطرح من (الطلبات + الماء − الولاء) ولا يتجاوزه، وضريبة الخدمة بعده. يتحمّله المكان. */
+  venueDiscount: number;
+  venueDiscountReason?: string | null;
 }
 
 export interface PaymentInfo {
@@ -78,10 +81,21 @@ export function serviceRateOf(raw: unknown): number {
   const v = parseFloat(String(raw ?? '0'));
   return Number.isFinite(v) && v > 0 ? Math.min(v, 100) : 0;
 }
-export function serviceChargeOf(rate: number, ordersTotal: number, waterCharge: number, loyaltyDiscount: number): number {
+export function serviceChargeOf(rate: number, ordersTotal: number, waterCharge: number, loyaltyDiscount: number, venueDiscount = 0): number {
   if (!(rate > 0)) return 0;
-  const base = Math.max(0, ordersTotal + waterCharge - loyaltyDiscount);
+  const base = Math.max(0, ordersTotal + waterCharge - loyaltyDiscount - venueDiscount);
   return Math.round((base * rate / 100 + Number.EPSILON) * 100) / 100;
+}
+
+/**
+ * 🏷️ خصم المكان (2026-11-20) — المصدر الوحيد لسقفه (الفاتورة والدفتر يناديانها):
+ *   لا يتجاوز قيمة المكان في الفاتورة = الطلبات + الماء − مشروب الولاء. لا يمسّ الدخوليّة ولا التكملة.
+ */
+export function venueDiscountOf(requested: unknown, ordersTotal: number, waterCharge: number, loyaltyDiscount: number): number {
+  const v = parseFloat(String(requested ?? '0'));
+  if (!Number.isFinite(v) || v <= 0) return 0;
+  const cap = Math.max(0, ordersTotal + waterCharge - loyaltyDiscount);
+  return Math.round(Math.min(v, cap) * 100) / 100;
 }
 
 /** طرق الدفع من صفّ المكان — كليك يُعرض فقط مفعّلاً وبقيمةٍ مكتوبة */
@@ -268,6 +282,7 @@ export async function buildInvoiceData(
       paymentId: inv.isPaid ? ((inv as any).paymentId ?? null) : null,
       paidByName: inv.isPaid && (inv as any).paymentId ? await payerNameOf(db, Number((inv as any).paymentId), playerId) : null,
       compAmount: n((inv as any).compAmount), fullComp: n((inv as any).compAmount) > 0,
+      venueDiscount: n((inv as any).venueDiscount), venueDiscountReason: (inv as any).venueDiscountReason ?? null,
     };
   }
 
@@ -383,12 +398,15 @@ export async function buildInvoiceData(
     gameFeeApplied = false; gameFeeAmount = 0;
   }
   const minTopupFinal = fullComp ? 0 : minTopup;
-  // 🧾 ضريبة الخدمة: على ما طُلب من الكافيه فعلاً (طلبات + ماء − مشروب الولاء) — لا على التكملة ولا الدخوليّة.
+  // 🏷️ خصم المكان: محفوظٌ على الفاتورة المفتوحة، يُطرح من قيمة المكان وحدها (سقفه venueDiscountOf).
+  //    لا يدخل مقارنة الحدّ الأدنى — التكملة تُحسب من الاستهلاك قبل الخصم، فلا يولّد الخصمُ تكملة.
+  const venueDiscount = fullComp ? 0 : venueDiscountOf((openInvoice as any)?.venueDiscount, ordersTotal, waterCharge, loyaltyDiscount);
+  // 🧾 ضريبة الخدمة: على ما طُلب من الكافيه فعلاً (طلبات + ماء − مشروب الولاء − خصم المكان) — لا على التكملة ولا الدخوليّة.
   //    ليست استهلاكاً: لا تدخل مقارنة الحدّ الأدنى أعلاه. الضيافة الكاملة بلا ضريبة خدمة.
   const serviceRate = fullComp ? 0 : serviceRateOf(loc?.serviceRate);
-  const serviceAmount = fullComp ? 0 : serviceChargeOf(serviceRate, ordersTotal, waterCharge, loyaltyDiscount);
+  const serviceAmount = fullComp ? 0 : serviceChargeOf(serviceRate, ordersTotal, waterCharge, loyaltyDiscount, venueDiscount);
   const grandTotal = fullComp ? 0
-    : Math.round((Math.max(0, ordersTotal + waterCharge + minTopup + gameFeeAmount - loyaltyDiscount) + serviceAmount) * 100) / 100;
+    : Math.round((Math.max(0, ordersTotal + waterCharge + minTopup + gameFeeAmount - loyaltyDiscount - venueDiscount) + serviceAmount) * 100) / 100;
   if (presenceOnly && grandTotal <= 0) {
     return { error: priorPaid.length > 0 ? 'لا شيء مستحقّ — فواتيره محصَّلة' : 'لا شيء مستحقّ على هذا اللاعب بعد' };
   }
@@ -417,6 +435,8 @@ export async function buildInvoiceData(
     grandTotal,
     fullComp,
     compAmount: fullComp ? ordersTotal : 0,
+    venueDiscount,
+    venueDiscountReason: venueDiscount > 0 ? ((openInvoice as any)?.venueDiscountReason ?? null) : null,
     orderIds: playerOrders.map(o => o.id),
     seat: await seatOf(db, activityId, playerId),
     snapshotInvoiceId: null,

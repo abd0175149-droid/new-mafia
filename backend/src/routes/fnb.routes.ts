@@ -1757,6 +1757,75 @@ venueRouter.post('/invoices/:activityId/:playerId/waive-min', authenticate, requ
   } catch (err: any) { res.status(500).json({ error: err.message }); }
 });
 
+// ── POST /invoices/:activityId/:playerId/venue-discount — 🏷️ خصم المكان (2026-11-20) ──
+// مبلغٌ يُطرح من قيمة طلبات المكان في فاتورة اللاعب المفتوحة — يتحمّله المكان، وحصّة النادي
+// (الدخوليّة) كما هي. لا يتجاوز (الطلبات + الماء − الولاء)، وضريبة الخدمة تُحسب بعده.
+// سببٌ إلزاميّ ويُحفظ باسم من نفّذه. { amount: 0 } يلغيه. المحصَّلة لا تُمسّ: لقطتها مجمَّدة.
+venueRouter.post('/invoices/:activityId/:playerId/venue-discount', authenticate, requireVenuePermission('payments.record'), async (req: Request, res: Response) => {
+  const db = getDB();
+  if (!db) return res.status(503).json({ error: 'DB unavailable' });
+  const locId = resolveVenueLocation(req, res);
+  if (!locId) return;
+  const activityId = parseInt(req.params.activityId);
+  const playerId = parseInt(req.params.playerId);
+  const amount = Math.round((parseFloat(String(req.body?.amount ?? '')) || 0) * 100) / 100;
+  const reason = String(req.body?.reason || '').trim().slice(0, 300);
+  if (!Number.isFinite(activityId) || !Number.isFinite(playerId)) return res.status(400).json({ error: 'معرّفات غير صالحة' });
+  if (amount < 0) return res.status(400).json({ error: 'مبلغ الخصم لا يكون سالباً' });
+  if (amount > 0 && reason.length < 3) return res.status(400).json({ error: 'اكتب سبب الخصم' });
+
+  try {
+    const [act] = await db.select({ id: activities.id }).from(activities)
+      .where(and(eq(activities.id, activityId), eq(activities.locationId, locId), isNull(activities.deletedAt))).limit(1);
+    if (!act) return res.status(404).json({ error: 'الفعاليّة غير موجودة لهذا المكان' });
+
+    // الخصم يُحفظ على الفاتورة المفتوحة — تُصدَر إن لم تكن (نفس قفل الترقيم)
+    const before = await buildInvoiceData(db, locId, activityId, playerId);
+    if ('error' in before) return res.status(400).json({ error: before.error });
+    const cap = Math.max(0, before.ordersTotal + before.waterCharge - before.loyaltyDiscount);
+    if (amount > cap + 0.004) {
+      return res.status(400).json({ error: `الخصم أكبر من قيمة طلبات المكان في الفاتورة (${cap.toFixed(2)})` });
+    }
+    const invoiceNo = await issueInvoiceNumber(db, before, req.venueStaff!.id);
+    const [inv] = await db.select({ id: orderInvoices.id }).from(orderInvoices)
+      .where(and(eq(orderInvoices.locationId, locId), eq(orderInvoices.activityId, activityId),
+        eq(orderInvoices.playerId, playerId), eq(orderInvoices.isPaid, false)))
+      .limit(1);
+    if (!inv) return res.status(409).json({ error: 'الفاتورة حُصّلت للتوّ — الخصم لا يُضاف لمحصَّلة' });
+
+    await db.update(orderInvoices).set({
+      venueDiscount: amount.toFixed(2),
+      venueDiscountReason: amount > 0 ? reason : null,
+      venueDiscountBy: amount > 0 ? req.venueStaff!.id : null,
+      venueDiscountAt: amount > 0 ? new Date() : null,
+    } as any).where(and(eq(orderInvoices.id, inv.id), eq(orderInvoices.isPaid, false)));
+
+    // المجاميع المخزَّنة تتبع الخصم فوراً (القائمة والتقارير تقرؤها قبل أيّ طباعة)
+    const data = await buildInvoiceData(db, locId, activityId, playerId);
+    if (!('error' in data)) {
+      await db.update(orderInvoices).set({
+        serviceRate: data.serviceRate.toFixed(2),
+        serviceAmount: data.serviceAmount.toFixed(2),
+        grandTotal: data.grandTotal.toFixed(2),
+      } as any).where(and(eq(orderInvoices.id, inv.id), eq(orderInvoices.isPaid, false)));
+    }
+
+    try {
+      const { logStaffAction } = await import('../services/staff-action-log.service.js');
+      logStaffAction({
+        staffId: req.venueStaff!.id, staffUsername: (req as any).user?.username, staffRole: (req as any).user?.role,
+        source: 'rest', action: 'rest:venue-discount',
+        details: { locationId: locId, activityId, playerId, invoiceNo, amount, reason: amount > 0 ? reason : null },
+      } as any);
+    } catch {}
+
+    res.json({
+      success: true, invoiceNo, venueDiscount: 'error' in data ? amount : data.venueDiscount,
+      grandTotal: 'error' in data ? null : data.grandTotal,
+    });
+  } catch (err: any) { res.status(500).json({ error: err.message }); }
+});
+
 // ── GET /invoices/:activityId/print-all — كل فواتير الفعاليّة في PDF واحد ──
 // A6 لكل فاتورة متتاليةً: المفتوحة تُصدَر أرقامها (نفس قفل الترقيم)، والمحصَّلة بلقطاتها.
 venueRouter.get('/invoices/:activityId/print-all', authenticate, requireVenuePermission('invoices.print'), async (req: Request, res: Response) => {

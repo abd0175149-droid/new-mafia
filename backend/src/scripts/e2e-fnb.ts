@@ -56,7 +56,7 @@ async function main() {
     const ss = await q(sql`SELECT id FROM sessions WHERE session_name LIKE ${'%' + E2E_TAG + '%'}`);
     for (const s of ss) await q(sql`DELETE FROM session_players WHERE session_id = ${s.id}`);
     await q(sql`DELETE FROM sessions WHERE session_name LIKE ${'%' + E2E_TAG + '%'}`);
-    await q(sql`DELETE FROM players WHERE phone IN ('0700000998', '0700000996', '0700000995', '0700000994', '0700000993', '0700000992', '0700000991', '0700000990', '0700000989', '0700000988', '0700000987')`);
+    await q(sql`DELETE FROM players WHERE phone IN ('0700000998', '0700000996', '0700000995', '0700000994', '0700000993', '0700000992', '0700000991', '0700000990', '0700000989', '0700000988', '0700000987', '0700000986')`);
   }
   await cleanup();
 
@@ -881,6 +881,51 @@ async function main() {
   r = await api(vURL(`/api/venue/money/night?activityId=${act14.id}`), { headers: A });
   ok('وفي «الحساب» للفعاليّة نفسها', r.body?.prep?.count === 2 && r.body?.prep?.avgSec === 600, JSON.stringify(r.body?.prep));
   await q(sql`UPDATE locations SET min_charge_enabled = ${minSaved12.en === true}, minimum_charge = ${minSaved12.val}, auto_water = ${minSaved12.aw === true} WHERE id = ${LOC_TEST}`);
+
+  // ══ ١٥ · خصم المكان (2026-11-20) ══
+  // يُطرح من قيمة طلبات المكان وحدها، يتحمّله المكان، ضريبة الخدمة بعده، يبقى مع كلّ إعادة حساب، ويُجمَّد بالتحصيل.
+  section('١٥ · خصم المكان على الفاتورة');
+  const [locSaved15] = await q(sql`SELECT auto_water AS aw, min_charge_enabled AS en, minimum_charge AS val, service_rate AS sr FROM locations WHERE id = ${LOC_TEST}`);
+  await q(sql`UPDATE locations SET auto_water = false, min_charge_enabled = false, service_rate = 8 WHERE id = ${LOC_TEST}`);
+  const [act15] = await q(sql`INSERT INTO activities (name, date, base_price, status, location_id, menu_ordering_enabled, add_game_fee_to_bill)
+    VALUES (${E2E_TAG + ' venue discount'}, NOW(), 3.00, 'planned', ${LOC_TEST}, true, true) RETURNING id`);
+  const gV = await mkP('0700000986', 'خصم المكان');
+  await q(sql`INSERT INTO bookings (activity_id, name, phone, count, player_id, created_by, is_paid, is_free)
+    VALUES (${act15.id}, ${gV.name}, '', 1, ${gV.id}, 'e2e', false, false)`);
+  const dTok = generatePlayerToken({ playerId: gV.id, phone: '0700000986', name: gV.name });
+  const DH = { Authorization: `Bearer ${dTok}`, 'Content-Type': 'application/json' };
+  r = await api('/api/fnb/orders', { method: 'POST', headers: DH, body: JSON.stringify({ activityId: act15.id, items: [{ menuItemId: tea.id, quantity: 2 }] }) });
+  ok('اللاعب يطلب شايين (3.00)', r.body?.success === true, JSON.stringify(r.body).slice(0, 120));
+  const disc = (amount: number, reason = '') => api(vURL(`/api/venue/invoices/${act15.id}/${gV.id}/venue-discount`),
+    { method: 'POST', headers: A, body: JSON.stringify({ amount, reason }) });
+  r = await disc(2);
+  ok('خصمٌ بلا سبب ⟵ يُرفض', r.status === 400, JSON.stringify(r.body));
+  r = await disc(3.5, 'أكبر من الطلبات');
+  ok('خصمٌ أكبر من قيمة طلبات المكان ⟵ يُرفض', r.status === 400, JSON.stringify(r.body));
+  r = await disc(2, 'زبون دائم');
+  // 3.00 − 2.00 = 1.00 ⟵ خدمة 8% = 0.08 ⟵ + دخوليّة 3.00 = 4.08
+  ok('خصم 2 على طلبات 3 ⟵ 1.00 + خدمة 0.08 + دخوليّة 3.00 = 4.08', r.body?.success === true && r.body?.grandTotal === 4.08 && r.body?.venueDiscount === 2, JSON.stringify(r.body));
+  const [d15] = await q(sql`SELECT venue_discount, venue_discount_reason, venue_discount_by, grand_total, service_amount FROM order_invoices WHERE activity_id = ${act15.id} AND player_id = ${gV.id}`);
+  ok('…يُحفظ على الفاتورة بالسبب ومن نفّذه، والمجاميع المخزّنة تتبعه', d15?.venue_discount === '2.00' && d15?.venue_discount_reason === 'زبون دائم' && !!d15?.venue_discount_by && d15?.grand_total === '4.08' && d15?.service_amount === '0.08', JSON.stringify(d15));
+  r = await api(vURL(`/api/venue/invoices/${act15.id}/${gV.id}`), { headers: A });
+  ok('الفاتورة تعرض الخصم', r.body?.invoice?.venueDiscount === 2 && r.body?.invoice?.grandTotal === 4.08, JSON.stringify(r.body?.invoice && { v: r.body.invoice.venueDiscount, g: r.body.invoice.grandTotal }));
+  const L15 = async () => ((await api(vURL(`/api/venue/invoices/candidates?activityId=${act15.id}`), { headers: A })).body?.candidates ?? []) as any[];
+  let c15 = (await L15()).find(c => c.playerId === gV.id && c.kind === 'open');
+  ok('التحصيل يرى المبلغ نفسه والخصم', c15?.grandTotal === 4.08 && c15?.venueDiscount === 2, JSON.stringify(c15 && { g: c15.grandTotal, v: c15.venueDiscount }));
+  r = await api('/api/fnb/orders', { method: 'POST', headers: DH, body: JSON.stringify({ activityId: act15.id, items: [{ menuItemId: tea.id, quantity: 1 }] }) });
+  c15 = (await L15()).find(c => c.playerId === gV.id && c.kind === 'open');
+  // 4.50 − 2.00 = 2.50 ⟵ خدمة 0.20 ⟵ + 3.00 = 5.70
+  ok('طلبٌ جديد بعد الخصم ⟵ الخصم باقٍ: 2.50 + 0.20 + 3.00 = 5.70', c15?.grandTotal === 5.7 && c15?.venueDiscount === 2, JSON.stringify(c15 && { g: c15.grandTotal, v: c15.venueDiscount }));
+  r = await api(vURL(`/api/venue/invoices/${act15.id}/${gV.id}/pay`), { method: 'POST', headers: A, body: JSON.stringify({ expectedTotal: 5.7 }) });
+  const [p15] = await q(sql`SELECT is_paid, venue_discount, grand_total, game_fee_amount FROM order_invoices WHERE activity_id = ${act15.id} AND player_id = ${gV.id}`);
+  ok('التحصيل يجمّد الخصم والمبلغ، والدخوليّة كاملة (حصّة النادي لا تتأثّر)', r.body?.success === true && p15?.is_paid === true && p15?.venue_discount === '2.00' && p15?.grand_total === '5.70' && p15?.game_fee_amount === '3.00', JSON.stringify(p15));
+  r = await disc(1, 'بعد التحصيل');
+  ok('لا خصم على فاتورةٍ محصَّلة', r.status === 400 || r.status === 409, JSON.stringify({ s: r.status, e: r.body?.error }));
+  r = await api(vURL(`/api/venue/invoices/unpay/${(await q(sql`SELECT id FROM order_invoices WHERE activity_id = ${act15.id} AND player_id = ${gV.id}`))[0].id}`), { method: 'POST', headers: A });
+  r = await disc(0);
+  c15 = (await L15()).find(c => c.playerId === gV.id && c.kind === 'open');
+  ok('إعادة فتحها ثمّ خصم 0 ⟵ يلغي الخصم: 4.50 + 0.36 + 3.00 = 7.86', c15?.grandTotal === 7.86 && c15?.venueDiscount === 0, JSON.stringify(c15 && { g: c15.grandTotal, v: c15.venueDiscount, err: r.body?.error }));
+  await q(sql`UPDATE locations SET auto_water = ${locSaved15.aw === true}, min_charge_enabled = ${locSaved15.en === true}, minimum_charge = ${locSaved15.val}, service_rate = ${locSaved15.sr} WHERE id = ${LOC_TEST}`);
 
   // ══ ٨ · الخلاصة والتنظيف ══
   section('النتيجة');
