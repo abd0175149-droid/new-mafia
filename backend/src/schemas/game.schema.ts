@@ -108,6 +108,9 @@ export const matchPlayers = pgTable('match_players', {
   pulseWins: integer('pulse_wins').default(0),
   pulseVindicated: boolean('pulse_vindicated').default(false),
   pulseCorrectVotes: integer('pulse_correct_votes').default(0),
+  // 🚪 الدخول المتأخّر: جولةُ الدخول (null = من البداية) ومن جُنّد مافيا عند البوّابة
+  joinedRound: integer('joined_round'),
+  recruited: boolean('recruited').default(false),
   abilityUsed: boolean('ability_used').default(false),
   abilityCorrect: boolean('ability_correct'),
   xpEarned: integer('xp_earned').default(0),

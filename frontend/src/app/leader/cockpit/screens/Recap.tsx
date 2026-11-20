@@ -59,16 +59,21 @@ function EventsView() {
   useEffect(() => { try { localStorage.removeItem('mafia_leader_night_sel'); } catch { /* */ } }, []);
 
   const shown = (i: number) => local.has(i) || events[i]?.revealed === true;
-  const disp = events.map((e, i) => (isDisplayable(e) ? i : -1)).filter(i => i >= 0);
+  // 🔍 بند الشريف آخر الملخّص دائماً (القرار 10) — ثمّ «ابدأ النهار»
+  const isSheriff = (i: number) => events[i]?.type === 'SHERIFF_RESULT';
+  const dispAll = events.map((e, i) => (isDisplayable(e) ? i : -1)).filter(i => i >= 0);
+  const disp = [...dispAll.filter((i) => !isSheriff(i)), ...dispAll.filter(isSheriff)];
+  const order = [...events.map((_, i) => i).filter((i) => !isSheriff(i)), ...events.map((_, i) => i).filter(isSheriff)];
   const next = disp.find(i => !shown(i));
   const shownCount = disp.filter(shown).length;
   const lastShown = last ?? [...disp].reverse().find(shown) ?? null;
   const pendingWinner: string | null = gameState?.pendingWinner || null;
 
-  const display = (i: number) => wrap(async () => {
+  const display = (i: number, skip = false) => wrap(async () => {
     const replay = shown(i);
-    const r = await run(() => emit('night:display-event', { roomId: gameState.roomId, eventIndex: i }), replay ? 'أُعيد عرض الحدث' : 'عُرض على شاشة القاعة');
-    if (r) { setLocal(prev => new Set(prev).add(i)); setLast(i); }
+    const r = await run(() => emit('night:display-event', { roomId: gameState.roomId, eventIndex: i, ...(skip ? { skip: true } : {}) }),
+      skip ? 'تُخطّي بند الشريف' : replay ? 'أُعيد عرض الحدث' : isSheriff(i) ? 'عُرض سؤال الشريف — الكرت وحده' : 'عُرض على شاشة القاعة');
+    if (r) { setLocal(prev => new Set(prev).add(i)); if (!skip) setLast(i); }
   });
   const startDay = () => wrap(async () => {
     const r: any = await run(() => emit('night:end-recap', { roomId: gameState.roomId }));
@@ -78,7 +83,7 @@ function EventsView() {
 
   const replay = { label: 'إعادة العرض', disabled: busy || lastShown == null, onPress: () => { if (lastShown != null) display(lastShown); } };
   const primary = next != null
-    ? { label: 'اعرض الحدث التالي على الشاشة', disabled: busy, onPress: () => display(next) }
+    ? { label: isSheriff(next) ? '🔍 اعرض سؤال الشريف' : 'اعرض الحدث التالي على الشاشة', sub: isSheriff(next) ? '«ابدأ النهار» بعده' : undefined, disabled: busy, onPress: () => display(next) }
     : pendingWinner
       ? { label: 'اعرض النتيجة', disabled: busy, onPress: confirmEnd }
       : { label: 'ابدأ النهار', disabled: busy, onPress: startDay };
@@ -93,7 +98,8 @@ function EventsView() {
 
       {events.length === 0 ? (
         <Section title="☾ ليلةٌ هادئة"><Hint>لا أحداث هذه الليلة — لا خروج.</Hint></Section>
-      ) : events.map((e, i) => {
+      ) : order.map((i) => {
+        const e = events[i];
         const m = eventMeta(e.type);
         const can = isDisplayable(e);
         const st = !can ? <Chip tone="n">🔒 للّيدر</Chip>
@@ -102,6 +108,19 @@ function EventsView() {
           : <Chip>بالدور</Chip>;
         const color = m.tone === 'm' ? 'text-[#f2a6a9]' : m.tone === 'ok' ? 'text-[#99dcba]' : m.tone === 'c' ? 'text-[#a9d4ee]' : m.tone === 'n' ? 'text-[#f0c879]' : 'text-[#C5A059]';
         const sheriff = e.type === 'SHERIFF_RESULT' && e.extra;
+        if (sheriff) {
+          const mafia = e.extra.result === 'MAFIA';
+          return (
+            <div key={`${round}:${i}`} className={`flex flex-col gap-1.5 rounded-[13px] border px-2.5 py-2 ${i === next ? 'border-[#C5A059] bg-[#C5A059]/10' : 'border-[#2a241c] bg-[#16130f]'}`}>
+              <ListRow n="🔍" selected={false} onClick={!busy ? () => display(i) : undefined}
+                title={<span className="font-bold text-[#C5A059]">سؤال الشريف — <span style={{ color: mafia ? '#d0474c' : '#63afd9' }}>{mafia ? 'مافيا' : 'مواطن صالح'}</span></span>}
+                sub="الشاشة: الكرت وحده — بلا رقم ولا اسم"
+                right={<span className="shrink-0">{st}</span>} />
+              <Hint>🔒 للموجّه وحده: سأل عن المقعد {e.targetPhysicalId} · {e.targetName || ''}{(e.wasRandom || e.extra?.auto) ? ' · اختيار آليّ' : ''}. هذا لا يصل الشاشة.</Hint>
+              {!shown(i) && <HoldButton tone="gold" disabled={busy} className="min-h-[44px] text-[13px]" onHold={() => display(i, true)}>اضغط مطوّلاً: تخطَّ البند</HoldButton>}
+            </div>
+          );
+        }
         return (
           <ListRow key={`${round}:${i}`} n={e.targetPhysicalId || m.icon}
             selected={can && i === next}

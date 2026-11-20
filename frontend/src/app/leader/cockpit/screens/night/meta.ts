@@ -23,7 +23,7 @@ export const EVENT_META: Record<string, { icon: string; title: string; tone: EvT
   SILENCED:              { icon: '🤐', title: 'إسكات لاعب',           tone: 'c',  displayable: false },
   SNIPE_MAFIA:           { icon: '🎯', title: 'القنّاص نجح',           tone: 'g',  displayable: true },
   SNIPE_CITIZEN:         { icon: '💀', title: 'القنّاص فشل',           tone: 'm',  displayable: true },
-  SHERIFF_RESULT:        { icon: '🔍', title: 'نتيجة التحقيق',        tone: 'g',  displayable: false },
+  SHERIFF_RESULT:        { icon: '🔍', title: 'سؤال الشريف',          tone: 'g',  displayable: true },
   SHERIFF_REVENGE:       { icon: '🕵️', title: 'ثأر الشريف',           tone: 'g',  displayable: true },
   ASSASSIN_KILL:         { icon: '🔪', title: 'السفّاح اغتال',         tone: 'm',  displayable: true },
   ASSASSIN_BLOCKED:      { icon: '🛡️', title: 'حماية ضدّ السفّاح',     tone: 'ok', displayable: true },

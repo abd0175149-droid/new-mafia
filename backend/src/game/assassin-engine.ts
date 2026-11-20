@@ -399,7 +399,7 @@ export function initAssassinStates(state: GameState): AssassinState[] {
   return all;
 }
 
-function freshAssassinState(state: GameState, seat: number): AssassinState {
+export function freshAssassinState(state: GameState, seat: number): AssassinState {
   const totalRequired = state.config.assassinContractCount || 4;
   const contracts = generateContracts(state, totalRequired);
 

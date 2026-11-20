@@ -351,6 +351,13 @@ export async function resolveNightDynamic(
     const target = state.players.find(p => p.physicalId === action.targetPhysicalId);
     if (!target) continue;
 
+    // 🚪 حصانة ليلة الدخول (القرار 21): الداخلُ المتأخّر لا يُقتل في ليلته الأولى
+    if ((ability.effectType === 'ELIMINATE' || ability.effectType === 'CONDITIONAL_ELIMINATE')
+        && (target as any).lateImmuneRound != null && Number((target as any).lateImmuneRound) === Number(state.round)) {
+      events.push({ type: 'ASSASSINATION_BLOCKED', targetPhysicalId: target.physicalId, targetName: target.name, revealed: false, extra: { lateImmune: true } } as any);
+      continue;
+    }
+
     switch (ability.effectType) {
       case 'ELIMINATE': {
         // 🔪 فحص: هل المنفذ هو السفّاح؟

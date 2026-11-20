@@ -5,6 +5,7 @@
 
 import { type GameState, getAlivePlayers } from './state.js';
 import { isMafiaRole, isCitizenRole, teamOfRole } from './roles.js';
+import { blocksCityWin } from './late-entry.js';
 
 export enum WinResult {
   MAFIA_WIN = 'MAFIA',
@@ -30,6 +31,8 @@ export function checkWinCondition(state: GameState): WinResult {
 
   // فوز المواطنين: كل المافيا ماتوا
   if (aliveMafia === 0) {
+    // 🚪 مافيا قادم في دفعةٍ لم تُفتح ⇒ اللعبة مستمرّة
+    if (blocksCityWin(state)) return WinResult.GAME_CONTINUES;
     return WinResult.CITIZEN_WIN;
   }
 

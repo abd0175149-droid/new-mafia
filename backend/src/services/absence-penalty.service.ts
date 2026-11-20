@@ -80,6 +80,25 @@ async function attendanceOf(activityIds: number[]): Promise<Map<number, Set<numb
   return out;
 }
 
+/**
+ * مَن حضر الفعاليّة ولم يلعب: متفرّجٌ انتظر طوال الليلة له صفٌّ في session_players
+ * (يُكتب لحظة تسجيله متفرّجاً). الحاضرُ ليس غائباً — لكنّه لا يُعدّ «أوّل مشاركة».
+ */
+async function presenceOf(activityIds: number[]): Promise<Map<number, Set<number>>> {
+  const out = new Map<number, Set<number>>();
+  const db = getDB(); if (!db || !activityIds.length) return out;
+  const r = await db.execute(sql`
+    SELECT DISTINCT sp.player_id, s.activity_id FROM session_players sp
+      JOIN sessions s ON s.id = sp.session_id
+     WHERE s.activity_id = ANY(${'{' + activityIds.join(',') + '}'}::int[]) AND sp.player_id IS NOT NULL`);
+  for (const x of rowsOf(r)) {
+    const p = Number(x.player_id);
+    if (!out.has(p)) out.set(p, new Set());
+    out.get(p)!.add(Number(x.activity_id));
+  }
+  return out;
+}
+
 /** ترتيبُ الموسم في المدينة الآن (مَن له مباراة) */
 async function standingsOf(seasonId: number, cityId: number): Promise<Map<number, { tier: string; rr: number; name: string }>> {
   const out = new Map<number, { tier: string; rr: number; name: string }>();
@@ -145,6 +164,7 @@ async function buildPlan(opts: { activityId?: number }): Promise<AbsencePlan | {
     if (target && !acts.some(a => a.id === target!.id)) continue;   // بلا مباراة ⟵ لم تجرِ
     plan.activities.push(...(target ? acts.filter(a => a.id === target!.id) : acts));
     const att = await attendanceOf(acts.map(a => a.id));
+    const here = await presenceOf(acts.map(a => a.id));   // 👁️ متفرّجٌ حضر ولم يلعب ليس غائباً
     const stand = await standingsOf(season.id, cityId);
     const already = new Set(rowsOf(await db.execute(sql`
       SELECT player_id, reason FROM rank_bonuses WHERE season_id = ${season.id} AND reason LIKE ${`absence:s${season.id}:a%`}`))
@@ -155,7 +175,8 @@ async function buildPlan(opts: { activityId?: number }): Promise<AbsencePlan | {
       const first = acts.find(a => mine.has(a.id));          // أوّل مشاركةٍ له في المدينة هذا الموسم
       if (!first) continue;
       const candidates = target ? [target] : acts;
-      const missed = candidates.filter(a => a.date > first.date && !mine.has(a.id)
+      const seen = here.get(pid) || new Set<number>();
+      const missed = candidates.filter(a => a.date > first.date && !mine.has(a.id) && !seen.has(a.id)
         && !already.has(`${pid}|${absenceReason(season.id, a.id)}`));
       if (!missed.length) continue;
       const { steps, tier, rr } = absenceSteps(st.rr, st.tier, missed.length);

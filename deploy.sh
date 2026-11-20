@@ -525,6 +525,25 @@ WITH claim AS (
 UPDATE players SET guide_due = (last_active_at IS NULL OR last_active_at < TIMESTAMP '2026-10-31 21:00:00')
 FROM claim
 WHERE players.guide_due IS NULL;
+
+-- 🗂️ قوالب اللعبة (الخطّة الموحّدة 2026-11-20): «قوالبي» لكلّ موجّه، و«قوالب النادي» staff_id NULL.
+--    جدولٌ مستقلّ — حفظ «قيمي» القديم يمسح كلّ مفاتيح staff.game_defaults عدا أنماط المقاعد.
+CREATE TABLE IF NOT EXISTS game_templates (
+  id SERIAL PRIMARY KEY,
+  staff_id INTEGER NULL,
+  scope VARCHAR(10) NOT NULL DEFAULT 'mine',
+  name VARCHAR(60) NOT NULL,
+  plan JSONB NOT NULL,
+  is_default BOOLEAN NOT NULL DEFAULT FALSE,
+  created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMP NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS game_templates_staff_idx ON game_templates (staff_id);
+
+-- 🚪 الدخول المتأخّر (المرحلة 4): وسمُ المجنَّد ومن دخل بعد البداية في سجلّ المباراة
+ALTER TABLE match_players ADD COLUMN IF NOT EXISTS joined_round INTEGER;
+ALTER TABLE match_players ADD COLUMN IF NOT EXISTS recruited BOOLEAN DEFAULT false;
+ALTER TABLE matches ADD COLUMN IF NOT EXISTS late_entry JSONB;
 SQL
 then
   say "   ✅ الترحيل تمّ"

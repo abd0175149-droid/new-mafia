@@ -115,6 +115,8 @@ interface GameState {
   reservedTailSeats?: number;
   /** 🔒 إغلاق المقاعد: { map, rule, pending, undo, waiters } — انظر cockpit/screens/SeatLocks.tsx */
   seatLocks?: any;
+  // 🃏🚪 أداة الكروت والدخول المتأخّر والتوزيع v2
+  cardQueue?: any[]; sheriffChecked?: number[]; cardLog?: any[]; dealPins?: number[]; lateEntryLog?: any[]; reviewCardAt?: number | null;
   doors?: any[];
   doorSeats?: number[];
   luckyDrawHistory?: number[]; // 🎁 رابحو الغرفة (لاستبعادهم اختيارياً)
@@ -664,6 +666,12 @@ export default function LeaderPage() {
             pinnedSeats: data.state.pinnedSeats || [],
             reservedTailSeats: data.state.reservedTailSeats || 0,
             seatLocks: data.state.seatLocks ?? undefined,   // 🔒 إغلاق المقاعد
+            cardQueue: (data.state as any).cardQueue ?? undefined,
+            sheriffChecked: (data.state as any).sheriffChecked ?? undefined,
+            cardLog: (data.state as any).cardLog ?? undefined,
+            dealPins: (data.state as any).dealPins ?? undefined,
+            lateEntryLog: (data.state as any).lateEntryLog ?? undefined,
+            reviewCardAt: (data.state as any).reviewCardAt ?? undefined,   // 🃏🚪 أداة الكروت والدخول المتأخّر
             doors: data.state.doors || [],
             doorSeats: data.state.doorSeats || [],
             luckyDrawHistory: data.state.luckyDrawHistory || [], // 🎁 رابحو الغرفة (لواجهة الاستبعاد)
@@ -799,6 +807,12 @@ export default function LeaderPage() {
                     pinnedSeats: st.pinnedSeats || [],
                     reservedTailSeats: st.reservedTailSeats || 0,
                     seatLocks: st.seatLocks ?? undefined,   // 🔒 إغلاق المقاعد
+                    cardQueue: (st as any).cardQueue ?? undefined,
+                    sheriffChecked: (st as any).sheriffChecked ?? undefined,
+                    cardLog: (st as any).cardLog ?? undefined,
+                    dealPins: (st as any).dealPins ?? undefined,
+                    lateEntryLog: (st as any).lateEntryLog ?? undefined,
+                    reviewCardAt: (st as any).reviewCardAt ?? undefined,
                     doors: st.doors || [],
                     doorSeats: st.doorSeats || [],
                   });
@@ -949,6 +963,12 @@ export default function LeaderPage() {
         reservedTailSeats: state.reservedTailSeats ?? prev.reservedTailSeats,
         // 🔒 إغلاق المقاعد — الحالة الكاملة تحمله دائماً؛ غيابه = بثٌّ لا يحمله فيبقى المعروف
         seatLocks: state.seatLocks ?? (prev as any).seatLocks,
+        cardQueue: state.cardQueue ?? (prev as any).cardQueue,
+        sheriffChecked: state.sheriffChecked ?? (prev as any).sheriffChecked,
+        cardLog: state.cardLog ?? (prev as any).cardLog,
+        dealPins: state.dealPins ?? (prev as any).dealPins,
+        lateEntryLog: state.lateEntryLog ?? (prev as any).lateEntryLog,
+        reviewCardAt: state.reviewCardAt ?? (prev as any).reviewCardAt,
         doors: state.doors ?? prev.doors,
         doorSeats: state.doorSeats ?? prev.doorSeats,
         // ⚠️ nightStep عند الليدر = currentNightStep (الطابور اليدوي) حصراً. حالة الخادم
@@ -1808,6 +1828,17 @@ export default function LeaderPage() {
         nightActions: state.nightActions || (prev as any).nightActions,
         nightStep: state.nightStep || prev.nightStep,
         playerNightActions: state.playerNightActions || (prev as any).playerNightActions,
+        // ⚙️ الإعدادات (منها خطّة الدخول المتأخّر) وأداة الكروت تصل مع كلّ تحديث
+        config: state.config || prev.config,
+        rolesConfirmed: state.rolesConfirmed ?? (prev as any).rolesConfirmed,
+        bindingRev: state.bindingRev ?? (prev as any).bindingRev,
+        rolesPool: state.rolesPool ?? (prev as any).rolesPool,
+        cardQueue: state.cardQueue ?? (prev as any).cardQueue,
+        sheriffChecked: state.sheriffChecked ?? (prev as any).sheriffChecked,
+        cardLog: state.cardLog ?? (prev as any).cardLog,
+        dealPins: state.dealPins ?? (prev as any).dealPins,
+        lateEntryLog: state.lateEntryLog ?? (prev as any).lateEntryLog,
+        reviewCardAt: state.reviewCardAt ?? (prev as any).reviewCardAt,
       } as any : prev);
     });
 

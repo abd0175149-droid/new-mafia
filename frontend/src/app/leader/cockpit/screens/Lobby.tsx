@@ -18,8 +18,10 @@ import { useSeatMove } from '../../SeatMove';
 import { usePhotoZone } from '../../PhotoZonePanel';
 import AddPlayerSheet from './setup/AddPlayerSheet';
 import { SheetError, TapChip, inputCls, errMsg } from './setup/ui';
-import { SetupForm, StepRail } from './Setup';
-import { applyPlan, initialPlan, useAccountDefaults, type SetupPlan } from '../setupPlan';
+import { StepRail } from './Setup';
+import GameCards from './GameCards';
+import { Role } from '@/lib/constants';
+import { applyPlan, initialPlan, useTemplates, composeDeck, dealPayload, normalizePlan, type SetupPlan, type Template } from '../setupPlan';
 import { SeatLockEditor, SeatLockStrip, SeatLockBanner, ClosedSeatSheet, lockMark, useLockState, useSeatLockEvents } from './SeatLocks';
 
 const MIN_PLAYERS = 6;
@@ -59,13 +61,13 @@ export default function LobbyScreen() {
   const [lockEdit, setLockEdit] = useState(false);
   const [closedSheet, setClosedSheet] = useState<number | null>(null);
   useSeatLockEvents();
-  const account = useAccountDefaults(emit);
+  const tpl = useTemplates(emit);
   const [plan, setPlan] = useState<SetupPlan | null>(null);
   useEffect(() => {
-    if (plan || !account.loaded) return;
-    setPlan(initialPlan(cfg, account.defaults));
+    if (plan || !tpl.loaded) return;
+    setPlan(initialPlan(cfg, tpl.defaults));
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [account.loaded]);
+  }, [tpl.loaded]);
 
   // 🧹 بعد أيّ إعادة ترقيم: لا يبقى اختيارٌ يشير إلى مقعدٍ قديم
   useEffect(() => {
@@ -97,17 +99,27 @@ export default function LobbyScreen() {
     if (r) setGameState((prev: any) => (prev ? { ...prev, config: { ...prev.config, maxPlayers: n } } : prev));
   };
 
-  const start = async () => {
+  // ⟵ الخطوة ٣: الإعدادات، ثمّ تحرير المغادرين والمستبعَدين، ثمّ الحوض والتوزيع بطلبٍ واحد تحت القفل
+  const start = async (p: SetupPlan, roles: Role[]) => {
     if (busy) return;
     if (startCount < MIN_PLAYERS) { toast(`يلزم ${MIN_PLAYERS} لاعبين على الأقلّ — لديك ${startCount}`, { tone: 'red' }); return; }
+    if (roles.length !== startCount) { toast(`التركيبة ${roles.length} كرتاً لـ${startCount} لاعباً — راجِعها`, { tone: 'red' }); return; }
     setBusy(true);
     try {
-      if (plan) await applyPlan(emit, roomId, plan, { withTimer: true });
+      await applyPlan(emit, roomId, p);
       await host.startGeneration(excludedLive.length ? excludedLive : undefined);
       setExcluded([]);
+      await emit('setup:prepare-deal', dealPayload(roomId, p, roles, cfg));
     } catch (e: any) {
-      toast(errMsg(e, 'تعذّر بدء التوزيع'), { tone: 'red' });
+      toast(errMsg(e, 'تعذّر تحضير التوزيع'), { tone: 'red' });
     } finally { setBusy(false); }
+  };
+  // ⚡ ابدأ مباشرةً بقالب — يتخطّى «اللعبة والكروت» (القرار 7)
+  const quickStart = async (t: Template) => {
+    const p = normalizePlan(t.plan);
+    const deck = composeDeck(p, startCount);
+    setPlan(p);
+    await start(p, deck.roles);
   };
 
   const fixZone = async () => {
@@ -176,11 +188,6 @@ export default function LobbyScreen() {
     return m;
   };
 
-  const saveDefaults = async () => {
-    if (!plan) return;
-    try { await account.save(plan); toast('💾 صارت قيمك الافتراضيّة في كلّ الغرف'); }
-    catch (e: any) { toast(errMsg(e, 'تعذّر حفظ القيم'), { tone: 'red' }); }
-  };
 
   // 🚪 من غادر (انقطع أو جُمّد) — شريطٌ يظهر وحده، وضغطةٌ واحدة تُخرجهم
   const departed = offline.filter((n) => !excludedLive.includes(n));
@@ -201,24 +208,9 @@ export default function LobbyScreen() {
   }
 
   if (stage === 'setup') {
-    return (
-      <>
-        <Status meta={meta} />
-        <StepRail step={2} onStep={() => setStage('seats')} />
-        <ActionBar
-          primary={{
-            label: busy ? '…' : 'التالي: راجع الكروت',
-            onPress: start,
-            disabled: busy || !plan || startCount < MIN_PLAYERS,
-            sub: startCount < MIN_PLAYERS ? `يلزم ${MIN_PLAYERS} لاعبين على الأقلّ` : excludedLive.length ? `يغادر ${excludedLive.length} مستبعَد عند البدء` : `${startCount} لاعباً`,
-          }}
-          secondary={{ label: 'رجوع', onPress: () => setStage('seats') }}
-        />
-        {plan
-          ? <SetupForm plan={plan} onChange={setPlan} n={startCount} saved={account.saved} accountDefaults={account.defaults} onSaveDefaults={() => void saveDefaults()} />
-          : <Hint>تُحمَّل قيمك…</Hint>}
-      </>
-    );
+    return plan
+      ? <GameCards plan={plan} setPlan={setPlan} n={startCount} meta={meta} busy={busy} onBack={() => setStage('seats')} onNext={(p, roles) => start(p, roles)} />
+      : <><Status meta={meta} /><StepRail step={2} onStep={() => setStage('seats')} /><Hint>تُحمَّل القوالب…</Hint></>;
   }
 
   return (
@@ -227,7 +219,7 @@ export default function LobbyScreen() {
       <StepRail step={1} />
       <ActionBar
         primary={{
-          label: 'التالي: إعداد اللعبة',
+          label: 'التالي: اللعبة والكروت',
           onPress: () => {
             if (startCount < MIN_PLAYERS) { toast(`يلزم ${MIN_PLAYERS} لاعبين على الأقلّ — لديك ${startCount}`, { tone: 'red' }); return; }
             setStage('setup');
@@ -264,6 +256,27 @@ export default function LobbyScreen() {
           ? <Chip tone="ok">📵 الزاوية {pz.report.label} سليمة</Chip>
           : <TapChip tone="red" onClick={() => void fixZone()}>📵 {pz.report.outside.length} خارج الزاوية — أصلِح</TapChip>)}
       </Chips>
+
+      {/* ── 👥 العدد الفعليّ: من سيلعب الآن (الدالّة نفسها في الخادم: rosterCounts) ── */}
+      <div className="grid grid-cols-3 gap-2 text-center" aria-label="عدد اللاعبين الفعليّ">
+        <div className="rounded-xl border border-[#C5A059]/55 bg-[#C5A059]/10 py-1.5"><b className="block text-[26px] leading-tight tabular-nums text-[#C5A059]">{startCount}</b><small className="text-[12.5px]">سيلعبون</small></div>
+        <div className="rounded-xl border border-[#2a241c] bg-[#16130f] py-1.5"><b className="block text-[26px] leading-tight tabular-nums">{present.filter((p) => p.isConnected !== false && !excludedLive.includes(Number(p.physicalId))).length}</b><small className="text-[12.5px]">هاتف متّصل</small></div>
+        <div className="rounded-xl border border-[#2a241c] bg-[#16130f] py-1.5"><b className={`block text-[26px] leading-tight tabular-nums ${excludedLive.length ? 'text-[#f2a6a9]' : ''}`}>{excludedLive.length}</b><small className="text-[12.5px]">مستبعد</small></div>
+      </div>
+      {(heldList.length > 0 || waiting.length > 0 || players.some((p) => p.frozen)) && (
+        <Hint>لا يُحسب: {[heldList.length ? `${heldList.length} محجوز` : '', players.filter((p) => p.frozen).length ? `${players.filter((p) => p.frozen).length} مجمّد` : '', waiting.length ? `${waiting.length} متفرّج` : ''].filter(Boolean).join(' · ')}</Hint>
+      )}
+
+      {/* ── ⚡ ابدأ مباشرةً بقالب ── */}
+      {tpl.list.length > 0 && startCount >= MIN_PLAYERS && !picking && sm.movingId == null && (
+        <Section title="⚡ ابدأ مباشرة بقالب" aside="يتخطّى «اللعبة والكروت»">
+          <Chips>
+            {tpl.list.map((t) => (
+              <TapChip key={t.id} disabled={busy} onClick={() => void quickStart(t)}>{t.isDefault ? '⭐ ' : t.scope === 'club' ? '🏛 ' : ''}{t.name}</TapChip>
+            ))}
+          </Chips>
+        </Section>
+      )}
 
       {/* ── من ينتظر ── */}
       {waiting.map((s) => (

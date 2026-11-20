@@ -552,7 +552,7 @@ export function registerNightEvents(io: Server, socket: Socket) {
 
   // 🌙 `oneNight`: القمرة تختار طريقة الليل عند حلوله — يُجهَّز الليل كاملاً (السفّاح، التوأمان،
   //    الجولة) ولا يُبنى الطابور ولا تُبثّ خطوتُه للشاشة؛ يتبعه `night:one-start` مباشرةً.
-  socket.on('night:start', async (data: { roomId: string; oneNight?: boolean }, callback) => {
+  socket.on('night:start', async (data: { roomId: string; oneNight?: boolean; supportsLateGate?: boolean }, callback) => {
     try {
       if (socket.data.authStaff && socket.data.role !== 'player') socket.data.role = 'leader'; // 🔒 لا ترقيةَ لمقبسٍ جالسٍ لاعباً
       if (socket.data.role !== 'leader') {
@@ -572,8 +572,33 @@ export function registerNightEvents(io: Server, socket: Socket) {
       if (existing?.phase === Phase.DAY_ELIMINATION && !existing.eliminationRevealed && (existing.pendingResolution?.eliminated || []).length) {
         return callback({ success: false, error: 'اكشف نتيجة الإقصاء على شاشة العرض أوّلاً' });
       }
+      // 🚪 بوّابة الدخول المتأخّر: دفعةٌ مستحقّة مع بداية هذا الليل ⇒ الموجّه يُدخل من وصل أوّلاً
+      //    (العميل القديم لا يعرف البوّابة: الدفعةُ تُتخطّى له ولا يُحبس — والعدّاد يُصحَّح)
+      if (existing) {
+        const { dueWave } = await import('../game/late-entry.js');
+        const w = dueWave(existing);
+        if (w) {
+          if (data.supportsLateGate) {
+            const { gateInfo } = await import('./live-cards.socket.js');
+            return callback({ success: false, code: 'LATE_GATE', error: 'دفعة الدخول المتأخّر مستحقّة — أدخِل من وصل ثمّ ابدأ الليل', gate: gateInfo(existing) });
+          }
+          w.done = true; w.skipped = true; w.arrived = 0; w.mafiaDealt = 0;
+          await setGameState(data.roomId, existing);
+        }
+      }
+
       // 📱 ما بقي محبوساً عن الهواتف يُطلق قبل الليل (عدّادٌ جديد قادم)
       await flushPhoneHolds(io, data.roomId);
+
+      // 🛟 أقرب نقطةٍ آمنة: تغييرات الكروت المنتظرة تُنفَّذ قبل بناء خطّة الليل
+      {
+        const pre = await getGameState(data.roomId);
+        if (pre && Array.isArray((pre as any).cardQueue) && (pre as any).cardQueue.length) {
+          const { applySafePoint } = await import('./live-cards.socket.js');
+          await applySafePoint(io, data.roomId, pre, 'night');
+          if ((pre as any).pendingWinner) return callback({ success: false, code: 'WIN_AFTER_CARDS', error: 'حُسمت اللعبة بعد تغيير الكروت — اعرض النتيجة', pendingWinner: (pre as any).pendingWinner });
+        }
+      }
 
       const state = await resetNightActions(data.roomId);
       // 🔪 عقودُ السفّاح كما يعرفها الآن — تُعرض له حتّى نهاية ملخّص الصباح: عقدٌ يتجدّد عند
@@ -1437,6 +1462,8 @@ export function registerNightEvents(io: Server, socket: Socket) {
   socket.on('night:display-event', async (data: {
     roomId: string;
     eventIndex: number;
+    /** ⏭️ تخطٍّ بضغطٍ مطوّل: يُعلَّم «عُرض» بلا بثّ (بند الشريف — القرار 10) */
+    skip?: boolean;
   }, callback) => {
     try {
       if (socket.data.role !== 'leader') {
@@ -1448,6 +1475,24 @@ export function registerNightEvents(io: Server, socket: Socket) {
 
       const event = state.morningEvents[data.eventIndex];
       if (!event) return callback({ success: false, error: 'Event not found' });
+
+      // 🔍 بند الشريف (قرار المالك 2026-11-20): الشاشة تعرض الكرت وحده — «مواطن صالح» أو «مافيا».
+      //    لا رقم ولا اسم ولا دور: الهدفُ لا يُرسل أصلاً، فلا يظهر على الشاشة حتّى بالخطأ.
+      if (event.type === 'SHERIFF_RESULT') {
+        event.revealed = true;
+        (event as any).skipped = data.skip === true;
+        await setGameState(data.roomId, state);
+        if (!data.skip) {
+          await emitTrustedOnly(io, data.roomId, 'display:morning-event', {
+            type: 'SHERIFF_CARD',
+            extra: { result: event.extra?.result === 'MAFIA' ? 'MAFIA' : 'CITIZEN' },
+            eventKey: `${state.round}:${data.eventIndex}:SHERIFF_CARD`,
+            teamCounts: publicTeamCounts(state),
+            revealSeats: [],
+          });
+        }
+        return callback({ success: true });
+      }
 
       // 📱 أوّلُ عرضٍ للحدث: الهواتف تنتظر قلبَ البطاقة على الشاشة (phone-hold) — إعادةُ العرض لا تُعيد الحجب
       const firstShow = !event.revealed;
@@ -1582,6 +1627,12 @@ export function registerNightEvents(io: Server, socket: Socket) {
         // 👁️ انتهى الصباح: كلُّ حدثٍ صار علنيّاً — ما لم يعرضه الموجّه أعلنه بلسانه. وإلّا
         //    بقي العدّادُ والدورُ محجوبَين طوال النهار عن ميّتٍ يراه الجميع ميّتاً.
         for (const ev of state.morningEvents || []) ev.revealed = true;
+        // 🔍 من فحصهم الشريف — يستثنيهم تجنيد الدخول المتأخّر، وتحذيرٌ في أداة الكروت
+        for (const ev of state.morningEvents || []) {
+          if (ev?.type === 'SHERIFF_RESULT' && ev.targetPhysicalId != null) {
+            (state as any).sheriffChecked = Array.from(new Set([...((state as any).sheriffChecked || []), Number(ev.targetPhysicalId)]));
+          }
+        }
         state.discussionState = null;
         state.votingState = {
           totalVotesCast: 0,
@@ -1606,6 +1657,12 @@ export function registerNightEvents(io: Server, socket: Socket) {
           emitAssassinContracts(io, data.roomId, state, { currentIndex: 0 });
         }
         await setGameState(data.roomId, state);
+
+        // 🛟 «ابدأ النهار» نقطةٌ آمنة: بعد الملخّص وبند الشريف تُنفَّذ تغييرات الكروت المنتظرة
+        if (Array.isArray((state as any).cardQueue) && (state as any).cardQueue.length) {
+          const { applySafePoint } = await import('./live-cards.socket.js');
+          await applySafePoint(io, data.roomId, state, 'day');
+        }
 
         // 👮‍♀️ فحص: هل صلاحية الشرطية جاهزة؟ (بعد ملخص الليل)
         if (state.policewomanState?.isReady && !state.policewomanState.isUsed) {

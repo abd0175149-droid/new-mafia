@@ -11,6 +11,7 @@
 // ══════════════════════════════════════════════════════
 
 import { getTeamCounts, isMafiaRole, type Role, type TeamCounts } from './roles.js';
+import { incomingCounts, lateOf } from './late-entry.js';
 
 export interface RevealOptions {
   /** احسبْ كأنّ نتيجة الإقصاء النهاريّ كُشفت (لحظة «كشف الأدوار» قبل حفظ العلم). */
@@ -134,7 +135,9 @@ export function publicTeamCounts(state: any, opts: RevealOptions = {}): TeamCoun
     if (pendingTransform.has(seat)) q = { ...q, role: pendingTransform.get(seat) };
     return q;
   });
-  return getTeamCounts(players);
+  const base = getTeamCounts(players);
+  // 🚪 «قادم» علنيّ ما دامت دفعةٌ لم تُفتح (القرار 19) — العدّاد لا يكذب
+  return lateOf(state) ? { ...base, ...incomingCounts(state) } as TeamCounts : base;
 }
 
 /** المقاعدُ التي يكشفها حدثُ صباحٍ واحد — تنتظر شاشةُ العرض قلبَ بطاقاتها قبل تحديث العدّاد. */

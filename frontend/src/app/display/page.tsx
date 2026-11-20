@@ -167,7 +167,7 @@ function DisplayPageContent() {
   const [loyaltyCeleb, setLoyaltyCeleb] = useState<LoyaltyCelebrant | null>(null);
   const loyaltyTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [discussionState, setDiscussionState] = useState<any>(null);
-  const [teamCounts, setTeamCounts] = useState<{citizenAlive: number; mafiaAlive: number; neutralAlive?: number}>({citizenAlive: 0, mafiaAlive: 0, neutralAlive: 0});
+  const [teamCounts, setTeamCounts] = useState<{citizenAlive: number; mafiaAlive: number; neutralAlive?: number; incoming?: number; incomingMafia?: number}>({citizenAlive: 0, mafiaAlive: 0, neutralAlive: 0});
   const [replayData, setReplayData] = useState<any>(null);
   // 🎁 سحب «اختيار رابح» — أنيميشن الكشف على شاشة العرض
   const [lucky, setLucky] = useState<{ phase: 'spinning' | 'revealed'; winners: number[]; pool: number[]; activeId: number | null } | null>(null);
@@ -672,6 +672,10 @@ function DisplayPageContent() {
     socket.on('display:hint', onHint);
     socket.on('display:morning-manifest', onMorningManifest);
     socket.on('display:morning-event', onMorningEvent);
+    // 🚪 تحرّك العدّاد مع البوّابة أو تعديل الموجّه للخطّة
+    const onLateCounts = (d: any) => { if (d?.teamCounts) setTeamCounts(d.teamCounts); };
+    socket.on('late:counts', onLateCounts);
+    socket.on('late:entered', onLateCounts);
     socket.on('display:night-started', onNightStarted);
     socket.on('game:over', onGameOver);
     socket.on('room:config-updated', onConfigUpdated);
@@ -936,6 +940,8 @@ function DisplayPageContent() {
       socket.off('display:hint', onHint);
       socket.off('display:morning-manifest', onMorningManifest);
       socket.off('display:morning-event', onMorningEvent);
+      socket.off('late:counts', onLateCounts);
+      socket.off('late:entered', onLateCounts);
       socket.off('day:elimination-revealed', onEliminationRevealed);
       socket.off('day:voting-started', onVotingStartedCounts);
       socket.off('day:bomb-result', onSecondaryResult);
@@ -1274,6 +1280,13 @@ function DisplayPageContent() {
                 </div>
                 <div className="w-3 h-3 rounded-full bg-red-600 shadow-[0_0_8px_rgba(220,38,38,0.6)] animate-pulse" />
               </div>
+              {/* 🚪 مافيا قادم — الدخول المتأخّر (القرار 19): العدّاد لا يكذب */}
+              {(teamCounts.incomingMafia ?? 0) > 0 && (
+                <div className="text-center border-s border-[#2a2a2a] ps-3">
+                  <div className="text-2xl font-black text-red-300/80 tabular-nums" style={{ fontFamily: 'Amiri, serif' }}>+{teamCounts.incomingMafia}</div>
+                  <div className="text-[8px] font-mono text-[#777] tracking-[0.15em]">مافيا قادم</div>
+                </div>
+              )}
             </div>
 
             {/* المرحلة — يمين */}

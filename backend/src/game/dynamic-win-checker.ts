@@ -7,6 +7,7 @@ import type { GameState } from './state.js';
 import { getAlivePlayers } from './state.js';
 import { getRoleDefs, type RoleDef } from './definition-service.js';
 import { assassinStateFor } from './assassin-engine.js';
+import { blocksCityWin } from './late-entry.js';
 
 export interface NeutralResult {
   physicalId: number;
@@ -52,7 +53,8 @@ export async function checkWinConditionDynamic(state: GameState): Promise<Dynami
   if (assassinWon) {
     mainWinner = 'ASSASSIN';
   } else if (aliveMafia === 0) {
-    mainWinner = 'CITIZEN';
+    // 🚪 مافيا قادم ⇒ لا فوز للمدينة قبل البوّابة
+    mainWinner = blocksCityWin(state) ? null : 'CITIZEN';
   } else if (aliveMafia >= aliveCitizens) {
     mainWinner = 'MAFIA';
   }

@@ -33,6 +33,9 @@ export const SINGLE_ROLE_REASON: Record<string, string> = {
   WITCH: 'قائمةُ أهداف الساحرة واحدة',
 };
 
+/** أقصى نسخٍ للكرت المكرَّر (قرار المالك 2026-11-20 — القرار 5). */
+export const MAX_COPIES = 3;
+
 export interface DuplicateEntry { role: string; count: number; reason?: string }
 
 export interface DuplicateReport {
@@ -50,7 +53,8 @@ export function analyzeDuplicates(roles: (string | null | undefined)[]): Duplica
   const blocked: DuplicateEntry[] = [];
   for (const [role, count] of counts) {
     if (count < 2 || FILLER_ROLES.has(role)) continue;
-    if (DUPLICABLE_ROLES.has(role)) allowed.push({ role, count });
+    if (DUPLICABLE_ROLES.has(role) && count > MAX_COPIES) blocked.push({ role, count, reason: `أقصى ${MAX_COPIES} نسخ من الكرت الواحد` });
+    else if (DUPLICABLE_ROLES.has(role)) allowed.push({ role, count });
     else blocked.push({ role, count, reason: SINGLE_ROLE_REASON[role] || 'هذا الكرت نسخةٌ واحدة' });
   }
   return { allowed, blocked };

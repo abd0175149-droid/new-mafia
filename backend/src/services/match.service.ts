@@ -173,7 +173,9 @@ export async function finalizeMatch(state: GameState): Promise<void> {
       const won = didPlayerWin(state, { physicalId: p.physicalId, role: p.role as string }, neutralSeats);
       const isNeutralRole = p.role === 'JESTER' || p.role === 'ASSASSIN';
       const elimEntry = tracking.eliminationLog.find(e => e.physicalId === p.physicalId);
-      const roundsSurvived = elimEntry ? Math.max(0, elimEntry.round - 1) : totalRounds;
+      // 🚪 الداخلُ المتأخّر: جولاتُه من لحظة دخوله، ولا «نجا» له (لم يمرّ بالبداية)
+      const joinedRound: number | null = (p as any).lateJoinRound != null ? Number((p as any).lateJoinRound) : null;
+      const roundsSurvived = Math.max(0, (elimEntry ? Math.max(0, elimEntry.round - 1) : totalRounds) - (joinedRound != null ? joinedRound : 0));
       const dealOutcome = tracking.dealOutcomes.find(d => d.initiatorPhysicalId === p.physicalId);
       const abilityResults = tracking.abilityResults.filter(a => a.physicalId === p.physicalId);
       const playerIsMafia = isMafiaRole(p.role as any);
@@ -182,6 +184,7 @@ export async function finalizeMatch(state: GameState): Promise<void> {
       let teamElimBonus = 0;
       for (const elim of tracking.eliminationLog) {
         if (elim.physicalId === p.physicalId) continue;
+        if (joinedRound != null && elim.round < joinedRound) continue;   // 🚪 ما قبل دخوله لا يُحسب له
         if (elim.team === 'MAFIA' && !playerIsMafia) teamElimBonus += elimBonusPerKill;
         if (elim.team === 'CITIZEN' && playerIsMafia) teamElimBonus += elimBonusPerKill;
       }
@@ -209,7 +212,7 @@ export async function finalizeMatch(state: GameState): Promise<void> {
       const rewardOpts = {
         role: p.role || 'CITIZEN',
         winner: state.winner ?? null,
-        survivedToEnd: !!p.isAlive,
+        survivedToEnd: !!p.isAlive && joinedRound == null,
         roundsSurvived,
         successfulDealsCount,
         failedDealsCount,
@@ -248,6 +251,10 @@ export async function finalizeMatch(state: GameState): Promise<void> {
       const bombEvts = (tracking.bombEvents || []).filter(e => e.physicalId === p.physicalId);
       const penaltyRR = penaltyEvts.reduce((s, e) => s + (e.rr || 0), 0);
       const bombRR = bombEvts.reduce((s, e) => s + (e.rr || 0), 0);
+      // 🎖️ تعويض المجنَّد إن فاز (القرار 22): فُرض عليه فريقٌ في منتصف اللعبة
+      const recruited = (p as any).recruitedRound != null;
+      const recruitRR = recruited && won ? 10 : 0;
+      if (recruitRR && breakdown?.rr) (breakdown.rr as any).recruitBonus = recruitRR;
 
       return {
         matchId: state.matchId!,
@@ -270,7 +277,9 @@ export async function finalizeMatch(state: GameState): Promise<void> {
         abilityCorrect: abilityResults.length > 0 ? abilityResults.some(a => a.correct) : null,
         // 💾 تُحفظ القيم لكل الأدوار (حتى المحايدين) — لا أصفار بعد الآن. تُتخطّى المباريات التجريبية فقط.
         xpEarned: isTestGame ? 0 : xpEarned,
-        rrChange: isTestGame ? 0 : (rrChange + penaltyRR + bombRR),
+        rrChange: isTestGame ? 0 : (rrChange + penaltyRR + bombRR + recruitRR),
+        joinedRound,
+        recruited,
         penaltyCount: isTestGame ? 0 : penaltyEvts.length,
         penaltyRRDeduction: isTestGame ? 0 : penaltyRR,
         bombRRChange: isTestGame ? 0 : bombRR,
@@ -280,7 +289,11 @@ export async function finalizeMatch(state: GameState): Promise<void> {
     });
 
     if (playerRows.length > 0) {
-      await db.insert(matchPlayers).values(playerRows);
+      await db.insert(matchPlayers).values(playerRows as any);
+    }
+    // 🚪 وسمُ المباراة: كان فيها دخولٌ متأخّر (للإحصاء والتواطؤ)
+    if ((state as any).lateEntryLog?.length) {
+      try { await db.execute(sql`UPDATE matches SET late_entry = ${JSON.stringify({ log: (state as any).lateEntryLog, plan: state.config.lateEntry || null })}::jsonb WHERE id = ${state.matchId}`); } catch { /* */ }
     }
 
     // ── 🏆 إسناد النطاق: أونلاين إن كانت اللعبة عن بُعد، وإلا بطولة المكان أو الموسم العادي **بمدينة المكان** ──

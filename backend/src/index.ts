@@ -91,6 +91,8 @@ import { registerAuditLogging } from './services/staff-action-log.service.js';
 import { registerDayEvents } from './sockets/day.socket.js';
 import { registerNightEvents } from './sockets/night.socket.js';
 import { registerOneNightEvents } from './sockets/night-one.socket.js';
+import { registerSetupV2Events } from './sockets/setup-v2.socket.js';
+import { registerLiveCardEvents } from './sockets/live-cards.socket.js';
 import { registerMafiaChatEvents } from './sockets/mafia-chat.socket.js';
 import { registerGameEvents } from './sockets/game.socket.js';
 import { registerVoiceEvents } from './sockets/voice.socket.js';
@@ -653,6 +655,8 @@ io.on('connection', (socket) => {
   registerDayEvents(io, socket);
   registerNightEvents(io, socket);
   registerOneNightEvents(io, socket);
+  registerSetupV2Events(io, socket);
+  registerLiveCardEvents(io, socket);
   registerPhoneHoldEvents(io, socket);   // 📺 الشاشة تُبلغ بقلب البطاقات ⇒ تُطلق الهواتف
   registerGameEvents(io, socket);
   registerMafiaChatEvents(io, socket);

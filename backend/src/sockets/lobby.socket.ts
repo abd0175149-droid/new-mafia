@@ -131,7 +131,7 @@ const TOOLS_UNLOCK_MS = 10 * 60 * 1000; // 10 دقائق
  * بالسرّ من جديد عند أوّل نقلة، وفي ذروة الوصول يتكرّر ذلك مراراً.
  */
 const toolsUnlockByStaff = new Map<string, number>();
-function toolsUnlocked(socket: any): boolean {
+export function toolsUnlocked(socket: any): boolean {
   const now = Date.now();
   if ((socket?.data?.toolsUnlockedUntil || 0) > now) return true;
   // سقوطٌ على الفتح المفهرس بالموظّف: نفس الشخص على اتّصالٍ جديد بعد انقطاع
@@ -4183,6 +4183,12 @@ async function readSeatLayoutOnly(activityId: any): Promise<any> {
         return callback({ success: false, error: 'لا يمكن تعديل البيانات أثناء اللعب' });
       }
 
+      // 🔒 الإضافة الجديدة قبل البدء فقط: addPlayer بلا حارس، فلو مرّت أثناء اللعب
+      //    دخل «حيٌّ بلا دور» قوائم الأهداف والتصويت وعُدّ في الفوز.
+      if (data.isNew && state.phase !== Phase.LOBBY && state.phase !== Phase.ROLE_GENERATION) {
+        return callback({ success: false, error: 'اللعبة بدأت — أضفه متفرّجاً، أو استعمل «الدخول المتأخّر»' });
+      }
+
       if (data.isNew) {
         state = await addPlayer(data.roomId, data.physicalId, data.name);
       } else {
@@ -4370,6 +4376,30 @@ async function readSeatLayoutOnly(activityId: any): Promise<any> {
 
       const state = await getRoom(data.roomId);
       if (!state) return callback({ success: false, error: 'Room not found' });
+
+      // 🏁 أثناء اللعب: لا حذف — الحذف يُسقط دوره من الإحصاء ومن عدّاد الفرق.
+      //    يصير خارج اللعبة (ميّتاً، موسوماً بالطرد) ثمّ يُفحص الفوز.
+      const { isGameRunning, winAfterRemoval } = await import('../game/removal-win.js');
+      const kickedLive = state.players.find(p => p.physicalId === data.physicalId);
+      if (isGameRunning(state) && kickedLive && kickedLive.role) {
+        kickedLive.isAlive = false;
+        (kickedLive as any).leaderKicked = true;
+        if (state.discussionState?.speakingQueue) {
+          state.discussionState.speakingQueue = state.discussionState.speakingQueue.filter((id: number) => id !== data.physicalId);
+        }
+        const w = await winAfterRemoval(state);
+        await setGameState(data.roomId, state);
+        await emitStateSanitized(io, data.roomId, 'game:state-updated', state);
+        const ks = await io.in(data.roomId).fetchSockets();
+        for (const s of ks) {
+          if (s.data.role === 'player' && s.data.physicalId === data.physicalId) {
+            s.emit('player:penalty-ejected', { reason: 'أخرجك الموجّه من هذه اللعبة.' });
+          }
+        }
+        callback({ success: true, eliminated: true, winner: w });
+        console.log(`👑 Leader removed player #${data.physicalId} mid-game (win=${w || '-'})`);
+        return;
+      }
 
       // Remove player from Redis
       state.players = state.players.filter(p => p.physicalId !== data.physicalId);
@@ -4969,6 +4999,9 @@ async function readSeatLayoutOnly(activityId: any): Promise<any> {
           if (state.discussionState?.speakingQueue) {
             state.discussionState.speakingQueue = state.discussionState.speakingQueue.filter(id => id !== data.targetPhysicalId);
           }
+          // 🏁 الإقصاء خروجٌ كأيّ خروج: قد يحسم اللعبة
+          const { winAfterRemoval } = await import('../game/removal-win.js');
+          await winAfterRemoval(state);
         }
 
         // إبلاغ اللاعب المُقصى (يبقى في الغرفة — لا نطرده من السوكت)
@@ -5373,6 +5406,7 @@ async function readSeatLayoutOnly(activityId: any): Promise<any> {
     nightSeconds?: number;
     nurseAuto?: boolean;           // 💉 الممرّضة تتولّى بلا سؤال
     setupPlan?: Record<string, unknown>; // 🎛️ خطّة التجهيز
+    lateEntry?: { enabled?: boolean; waves?: Array<{ at?: number; count?: number; mafia?: number }>; recompute?: boolean }; // 🚪 الدخول المتأخّر
   }, callback) => {
     const done = (r: any) => { if (typeof callback === 'function') callback(r); };
     try {
@@ -5382,8 +5416,10 @@ async function readSeatLayoutOnly(activityId: any): Promise<any> {
       if (!state) return done({ success: false, error: 'Room not found' });
       const betweenGames = state.phase === Phase.LOBBY || state.phase === Phase.GAME_OVER;
 
-      if (!betweenGames && typeof data.gameTimerMinutes === 'number')
-        return done({ success: false, error: 'مؤقّت اللعبة يُضبط بين الألعاب — أثناء اللعب عدّله من شريط المؤقّت (±)' });
+      // ⏱️ المؤقّت يبدأ عند «ابدأ اللعبة» (binding-complete) — فيُقبل حتّى تلك اللحظة (الرجوع من التوزيع يعدّله)
+      const beforeStart = betweenGames || state.phase === Phase.ROLE_GENERATION || state.phase === Phase.ROLE_BINDING;
+      if (!beforeStart && typeof data.gameTimerMinutes === 'number')
+        return done({ success: false, error: 'مؤقّت اللعبة يُضبط قبل البدء — أثناء اللعب عدّله من شريط المؤقّت (±)' });
       // 🔴 يُطبَّق عند تأكيد الربط — فيجوز حتى تلك اللحظة (كما يسمح زرّ صفحة الربط نفسه)
       const beforeReveal = betweenGames || ((state.phase === Phase.ROLE_GENERATION || state.phase === Phase.ROLE_BINDING) && !(state as any).rolesConfirmed);
       if (!beforeReveal && typeof data.allowMafiaReveal === 'boolean')
@@ -5398,9 +5434,10 @@ async function readSeatLayoutOnly(activityId: any): Promise<any> {
       if (typeof data.gameName === 'string' && data.gameName.trim()) c.gameName = data.gameName.trim().slice(0, 60);
       if (typeof data.autoNightTime === 'number') c.autoNightTime = Math.min(Math.max(Math.floor(data.autoNightTime), 5), 60);
       if (typeof data.gameTimerMinutes === 'number') {
+        // ⏱️ 45 · 60 · 75 · 90 (قرار المالك 2026-11-20) — الافتراضيّ 60، ولا «بلا مؤقّت» من الواجهة الجديدة
         const m = Math.max(0, Math.floor(data.gameTimerMinutes));
         c.gameTimerEnabled = m > 0;
-        c.gameTimerMinutes = m > 0 ? m : 30;
+        c.gameTimerMinutes = m > 0 ? Math.min(180, m) : 60;
       }
       if (typeof data.maxPenalties === 'number') c.maxPenalties = Math.min(Math.max(Math.floor(data.maxPenalties), 1), 10);
       if (data.penaltyScope === 'game' || data.penaltyScope === 'room') c.penaltyScope = data.penaltyScope;
@@ -5428,6 +5465,14 @@ async function readSeatLayoutOnly(activityId: any): Promise<any> {
       if (typeof data.nightSeconds === 'number') c.nightSeconds = Math.min(180, Math.max(30, Math.floor(data.nightSeconds)));
       if (typeof data.nurseAuto === 'boolean') c.nurseAuto = data.nurseAuto;
       if (data.setupPlan && typeof data.setupPlan === 'object' && !Array.isArray(data.setupPlan) && JSON.stringify(data.setupPlan).length <= 4000) c.setupPlan = data.setupPlan;
+      // 🚪 خطّة الدخول المتأخّر تُضبط قبل البدء فقط — بعده يديرها الموجّه من «الدخول» (المرحلة 4)
+      if (data.lateEntry && typeof data.lateEntry === 'object' && (betweenGames || state.phase === Phase.ROLE_GENERATION || state.phase === Phase.ROLE_BINDING)) {
+        const { normalizeLatePlan } = await import('../game/late-entry.js');
+        const { flagOn, LIVE_CARDS } = await import('../services/feature-flags.js');
+        c.lateEntry = normalizeLatePlan(data.lateEntry, !!c.isRemote);
+        // 🎚️ مطفأ حتّى يُفعَّل المفتاح — الخطّة تُحفظ لكن لا تعمل
+        if (c.lateEntry.enabled && !(await flagOn(LIVE_CARDS))) c.lateEntry.enabled = false;
+      }
 
       await updateRoom(data.roomId, { config: c });
       // بثّ الحالة الكاملة المُعقّمة → واجهة المضيف تحدّث فوراً عبر مستمع game:state-updated
@@ -5979,6 +6024,8 @@ async function readSeatLayoutOnly(activityId: any): Promise<any> {
               // (الأخ الأصغر مواطن يبقى مخفياً عن باقي المافيا؛ كلٌّ يرى أخاه فقط)
               const sibling = getSiblingInfoFor(state, player.physicalId);
               if (sibling) roleData.sibling = sibling;
+              // 📱 إرسالٌ ثانٍ بعد تغييرٍ في التوزيع: كلُّ الهواتف تعرض «راجع بطاقتك» — لا تُعرف البطاقة التي تغيّرت
+              if (state.dealResendPending === true) roleData.reviewCard = true;
               s.emit('player:role-assigned', roleData);
             }
           }
@@ -5986,6 +6033,8 @@ async function readSeatLayoutOnly(activityId: any): Promise<any> {
 
         // تحديث حالة التأكيد
         state.rolesConfirmed = true;
+        if (state.dealResendPending === true) state.reviewCardAt = Date.now();
+        state.dealResendPending = false;
         await setGameState(data.roomId, state);
         return { success: true, bindingRev: rev, state };
       });
@@ -6022,6 +6071,7 @@ async function readSeatLayoutOnly(activityId: any): Promise<any> {
       const response: any = {
         role: player?.role || null,
         confirmed: state.rolesConfirmed || false,
+        reviewCardAt: (state as any).reviewCardAt || null,   // 📱 «راجع بطاقتك» بعد إرسالٍ ثانٍ
       };
       // إذا اللاعب مافيا → أرسل أرقام زملائه
       if (player?.role && isMafiaRole(player.role as Role) && state.config.allowMafiaReveal !== false) {
@@ -6327,6 +6377,15 @@ async function readSeatLayoutOnly(activityId: any): Promise<any> {
       // ── حفظ وقت البداية + إنشاء سجل المباراة في PostgreSQL ──
       state.startedAt = new Date().toISOString();
       state.round = 1;
+      // 🚪🃏 لكلّ لعبةٍ صفحةٌ جديدة: دفعات الخطّة تُفتح من جديد، وطابور الكروت وسجلّ الشريف يُمسحان
+      if (state.config.lateEntry?.waves) {
+        state.config.lateEntry.waves = state.config.lateEntry.waves.map((w: any) => ({ at: w.at, count: w.count, mafia: w.mafia }));
+        state.config.lateEntry.closed = false;
+        state.config.lateEntry.startPlayers = state.players.filter((p: any) => p.isAlive !== false && p.role).length;
+        state.config.lateEntry.startMafia = state.players.filter((p: any) => p.isAlive !== false && p.role && isMafiaRole(p.role as Role)).length;
+      }
+      (state as any).cardQueue = []; (state as any).sheriffChecked = []; (state as any).cardLog = []; (state as any).lateEntryLog = [];
+      for (const p of state.players as any[]) { delete p.lateJoinRound; delete p.lateImmuneRound; delete p.recruitedRound; delete p.mafiaSince; delete p.leaderKicked; delete p.handedFrom; }
       const matchId = await createMatch(state);
       if (matchId) state.matchId = matchId;
       else console.warn(`⚠️ createMatch returned null — penalty-neighbor tracking unavailable for room ${state.roomId} (match_id will be NULL)`);
@@ -6498,7 +6557,7 @@ async function readSeatLayoutOnly(activityId: any): Promise<any> {
       }
       const gtMin = typeof data.gameTimerMinutes === 'number' ? data.gameTimerMinutes : 0;
       state.config.gameTimerEnabled = gtMin > 0;
-      state.config.gameTimerMinutes = gtMin > 0 ? gtMin : 30;
+      state.config.gameTimerMinutes = gtMin > 0 ? gtMin : 60;
       if (typeof data.mafiaChatEnabled === 'boolean') {
         state.config.mafiaChatEnabled = data.mafiaChatEnabled;
       }

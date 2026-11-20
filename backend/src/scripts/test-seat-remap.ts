@@ -418,6 +418,14 @@ section('9) ➕ إضافة مقاعد فارغة بعد مقعد — مثال ا
   check('السعة الجديدة = أعلى مقعدٍ مشغول + العدد', !('error' in beyond) && beyond.newMax === 16);
 }
 
+// 🔪 مقاعد السفّاحين الشريكين تتبع النقل (ثغرة المرحلة 0)
+{
+  const st: any = { players: [{ physicalId: 3 }, { physicalId: 8 }],
+    assassinState: { assassinPhysicalId: 3, memberSeats: [3, 8], contracts: [], currentContractIndex: 0, completedCount: 0, totalRequired: 3, firstNightPassed: false, lastKillRound: null, won: false } };
+  remapPhysicalIds(st, new Map([[8, 12], [12, 8]]));
+  check('memberSeats تتبع نقل المقعد', JSON.stringify(st.assassinState.memberSeats) === '[3,12]', JSON.stringify(st.assassinState.memberSeats));
+}
+
 console.log(`\n══════════════════════════════════════`);
 console.log(`النتيجة: ${pass} نجح / ${fail} فشل  (المجموع ${pass + fail})`);
 if (fail > 0) {

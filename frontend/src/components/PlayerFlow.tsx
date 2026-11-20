@@ -286,6 +286,8 @@ export default function PlayerFlow({ initialRoomCode = '', inviteFlag = false, i
     type: 'warning' | 'penalty' | 'success' | 'info';
   } | null>(null);
   const [roleAlert, setRoleAlert] = useState(false);
+  // 📱 «راجع بطاقتك» — بعد تغيير كروتٍ أو دخولٍ متأخّر يصل السطرُ نفسه كلَّ الهواتف
+  const [reviewCard, setReviewCard] = useState(false);
   const [mafiaTeam, setMafiaTeamRaw] = useState<{physicalId: number; name: string; role: string; avatarUrl?: string | null}[]>(() => {
     if (typeof window === 'undefined') return [];
     try {
@@ -1130,7 +1132,8 @@ export default function PlayerFlow({ initialRoomCode = '', inviteFlag = false, i
     if ((step !== 'done' && step !== 'rejoined') || !on) return;
 
     // استقبال الدور من الليدر (عند تأكيد الأدوار)
-    const cleanupRole = on('player:role-assigned', (data: { role: string; mafiaTeam?: {physicalId: number; name: string; role: string; avatarUrl?: string | null}[]; sibling?: any }) => {
+    const cleanupRole = on('player:role-assigned', (data: { role: string; mafiaTeam?: {physicalId: number; name: string; role: string; avatarUrl?: string | null}[]; sibling?: any; reviewCard?: boolean }) => {
+      setReviewCard(data.reviewCard === true);
       // 🪑 إعادة دفع بعد نقل مقعد (لا لعبة جديدة): الخادم يُعيد إرسال الدور ليصل لصاحبه
       //    بالمقعد الجديد. لا يجوز عندها قلب البطاقة ولا إطلاق تنبيه الدور ولا «إحياء» ميت.
       const isSeatRepush = Date.now() < seatRemapRepushUntilRef.current;
@@ -4110,7 +4113,7 @@ export default function PlayerFlow({ initialRoomCode = '', inviteFlag = false, i
                         playerName={displayName}
                         role={assignedRole}
                         isFlipped={cardFlipped}
-                        onFlip={() => { setCardFlipped(true); setRoleAlert(false); }}
+                        onFlip={() => { setCardFlipped(true); setRoleAlert(false); if (reviewCard) { setReviewCard(false); import('@/lib/socket').then((m) => { try { m.getSocket().emit('player:card-ack', {}); } catch { /* */ } }).catch(() => {}); } }}
                         flipDurationMs={1100}
                         gender={gender === 'female' ? 'FEMALE' : 'MALE'}
                         showVoting={false}
@@ -4510,7 +4513,7 @@ export default function PlayerFlow({ initialRoomCode = '', inviteFlag = false, i
                         playerName={displayName}
                         role={assignedRole}
                         isFlipped={cardFlipped}
-                        onFlip={() => { setCardFlipped(true); setRoleAlert(false); }}
+                        onFlip={() => { setCardFlipped(true); setRoleAlert(false); if (reviewCard) { setReviewCard(false); import('@/lib/socket').then((m) => { try { m.getSocket().emit('player:card-ack', {}); } catch { /* */ } }).catch(() => {}); } }}
                         flipDurationMs={1100}
                         gender={gender === 'female' ? 'FEMALE' : 'MALE'}
                         showVoting={false}
@@ -4692,10 +4695,10 @@ export default function PlayerFlow({ initialRoomCode = '', inviteFlag = false, i
                 className="text-[#C5A059] text-xl font-black text-center mb-1"
                 style={{ fontFamily: 'Amiri, serif', textShadow: '0 0 20px rgba(197,160,89,0.5)' }}
               >
-                تم تعيين دورك!
+                {reviewCard ? 'راجع بطاقتك' : 'تم تعيين دورك!'}
               </h3>
               <p className="text-[#C5A059]/80 text-sm text-center font-bold" style={{ fontFamily: 'Amiri, serif' }}>
-                اقلب البطاقة لمعرفة هويتك السرية
+                {reviewCard ? 'دخل لاعبون أو تغيّرت كروت — اقلب بطاقتك وتأكّد منها' : 'اقلب البطاقة لمعرفة هويتك السرية'}
               </p>
 
               {/* شريط متحرك */}

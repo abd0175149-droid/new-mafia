@@ -236,7 +236,7 @@ class LobbyView extends StatelessWidget {
       //    عن الجولة — والسطر الساكن «اضغط البطاقة» لا يلفت أحداً.
       if (c.roleAlert && !c.cardFlipped && !c.isPlayerDead) ...[
         const SizedBox(height: 14),
-        const _RoleArrivedBanner(),
+        _RoleArrivedBanner(review: c.reviewCard),
       ],
 
       const SizedBox(height: 18),
@@ -356,7 +356,8 @@ class LobbyView extends StatelessWidget {
 // يهتزّ **مرّةً واحدة** عند ظهوره لا مع كلّ إعادة بناء: اللوبي يُعاد بناؤه
 // مع كلّ نبضة استطلاع، واهتزازٌ في `build` يعني هاتفاً لا يهدأ.
 class _RoleArrivedBanner extends StatefulWidget {
-  const _RoleArrivedBanner();
+  const _RoleArrivedBanner({this.review = false});
+  final bool review;
 
   @override
   State<_RoleArrivedBanner> createState() => _RoleArrivedBannerState();
@@ -410,7 +411,7 @@ class _RoleArrivedBannerState extends State<_RoleArrivedBanner>
               const Text('🎭', style: TextStyle(fontSize: 16)),
               const SizedBox(width: 8),
               Flexible(
-                child: Text('وصلَ دورك — اقلب البطاقة لمعرفة هويّتك السرّيّة',
+                child: Text(widget.review ? 'راجع بطاقتك — دخل لاعبون أو تغيّرت كروت، اقلبها وتأكّد' : 'وصلَ دورك — اقلب البطاقة لمعرفة هويّتك السرّيّة',
                     textAlign: TextAlign.center,
                     style: ar(12.5, color: _gold, weight: FontWeight.w900)),
               ),

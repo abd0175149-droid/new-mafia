@@ -10,12 +10,15 @@ import { motion, AnimatePresence } from 'framer-motion';
 import NightAnimCinematic from '@/components/NightAnimCinematic';
 import PropStage from './PropStage';
 import FitToScreen from '@/components/FitToScreen';
+import { useEffect, useState } from 'react';
+import { useRoleFaces } from '@/app/leader/cockpit/screens/Setup';
 
 interface Props { events: any[]; current: any | null; players: any[]; teamCounts?: { citizenAlive: number; mafiaAlive: number; neutralAlive?: number }; round?: number; }
 const HEADLINES: Record<string, { title: string; tone: 'blood' | 'gold' | 'ash' }> = {
   ASSASSINATION: { title: 'جريمةٌ في الحيّ', tone: 'blood' }, ASSASSINATION_BLOCKED: { title: 'نجا من الموت', tone: 'gold' }, SILENCED: { title: 'صوتٌ أُخرس', tone: 'ash' },
   SNIPE_MAFIA: { title: 'رصاصةٌ في الهدف', tone: 'gold' }, SNIPE_CITIZEN: { title: 'رصاصةٌ طائشة', tone: 'blood' }, ABILITY_DISABLED: { title: 'قدرةٌ مُعطَّلة', tone: 'ash' },
   ASSASSIN_KILL: { title: 'السفّاح ضرب', tone: 'blood' }, ASSASSIN_BLOCKED: { title: 'أفلت من السفّاح', tone: 'gold' }, SHERIFF_REVENGE: { title: 'انتقام الشريف', tone: 'gold' },
+  SHERIFF_CARD: { title: 'سؤال الشريف', tone: 'gold' },
   PHOENIX_BURN: { title: 'احترق العنقاء', tone: 'blood' }, PHOENIX_ASH: { title: 'من الرماد', tone: 'gold' }, POLICEWOMAN: { title: 'صلاحيّة الشرطيّة', tone: 'ash' }, POLICEWOMAN_EXECUTION: { title: 'إعدام الشرطيّة', tone: 'blood' },
 };
 const headline = (t: string) => HEADLINES[t] || { title: 'خبرٌ من الليل', tone: 'ash' as const };
@@ -55,10 +58,12 @@ export default function MorningReport({ events, current, players, teamCounts, ro
                 className="w-full h-full min-h-0 flex flex-col overflow-hidden rounded-3xl border border-white/15 bg-black/60 backdrop-blur-sm p-6 shadow-2xl">
                 {(() => { const h = headline(current.type); return (
                   <div className="flex items-center gap-4 mb-3 border-b border-white/15 pb-3">
-                    <PropStage type={current.type} size={96} />
+                    {current.type === 'SHERIFF_CARD' ? <span className="text-[72px] leading-none">🔍</span> : <PropStage type={current.type} size={96} />}
                     <h3 className="text-4xl font-black leading-tight" style={{ fontFamily: 'Amiri, serif', color: toneColor[h.tone] }}>{h.title}</h3>
                   </div>); })()}
-                <div className="morning-cinematic flex-1 min-h-0"><FitToScreen><NightAnimCinematic data={current} players={players} /></FitToScreen></div>
+                {current.type === 'SHERIFF_CARD'
+                  ? <div className="flex-1 min-h-0"><SheriffCard result={current.extra?.result} k={keyOf(current)} /></div>
+                  : <div className="morning-cinematic flex-1 min-h-0"><FitToScreen><NightAnimCinematic data={current} players={players} /></FitToScreen></div>}
               </motion.div>
             ) : quiet ? (
               <motion.div key="quiet" initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="w-full rounded-3xl border border-white/15 bg-black/55 backdrop-blur-sm p-8 text-center">
@@ -79,7 +84,7 @@ export default function MorningReport({ events, current, players, teamCounts, ro
             <div className="flex flex-col divide-y divide-white/10">
               {past.slice(-5).map((e, i) => { const h = headline(e.type); return (
                 <motion.div key={`${keyOf(e)}-${i}`} initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} className="py-1.5 flex items-center gap-3">
-                  <PropStage type={e.type} size={34} />
+                  {e.type === 'SHERIFF_CARD' ? <span className="text-[26px]">🔍</span> : <PropStage type={e.type} size={34} />}
                   <p className="text-base font-bold truncate" style={{ fontFamily: 'Amiri, serif', color: toneColor[h.tone] }}>{h.title}</p>
                 </motion.div>); })}
             </div>
@@ -87,6 +92,34 @@ export default function MorningReport({ events, current, players, teamCounts, ro
         )}
       </div>
       <style>{`.morning-cinematic .text-7xl, .morning-cinematic .text-8xl, .morning-cinematic .md\\:text-8xl { font-size: 3rem !important; line-height: 1 } .morning-cinematic { overflow: hidden }`}</style>
+    </div>
+  );
+}
+
+// ══════════ 🔍 سؤال الشريف — الكرت وحده ══════════
+// قرار المالك 2026-11-20: الشاشة لا تعرض رقماً ولا اسماً — فقط «مواطن صالح» أو «مافيا» بصورة الكرت
+// العاديّ (المواطن / المافيا العاديّ) فلا يُكشف دورٌ. الخادم لا يرسل الهدف أصلاً (night:display-event).
+function SheriffCard({ result, k }: { result?: string; k: string }) {
+  const faces = useRoleFaces();
+  const mafia = result === 'MAFIA';
+  const [flipped, setFlipped] = useState(false);
+  useEffect(() => { setFlipped(false); const t = setTimeout(() => setFlipped(true), 900); return () => clearTimeout(t); }, [k]);
+  const face = faces[mafia ? 'MAFIA_REGULAR' : 'CITIZEN'];
+  const col = mafia ? '#ff6b6b' : '#7fb0d6';
+  return (
+    <div className="flex h-full flex-col items-center justify-center gap-5" style={{ perspective: 1200 }}>
+      <div className="relative" style={{ width: 'min(62%, 300px)', aspectRatio: '5 / 7' }}>
+        <motion.div className="absolute inset-0" style={{ transformStyle: 'preserve-3d' }} animate={{ rotateY: flipped ? 180 : 0 }} transition={{ duration: 0.9, ease: [0.2, 0.7, 0.2, 1] }}>
+          <div className="absolute inset-0 rounded-2xl border-2 border-[#C5A059]/70 grid place-items-center" style={{ backfaceVisibility: 'hidden', background: 'repeating-linear-gradient(135deg,#1b1610 0 12px,#120f0b 12px 24px)' }}>
+            <span className="text-[90px]">🔍</span>
+          </div>
+          <div className="absolute inset-0 overflow-hidden rounded-2xl border-2" style={{ backfaceVisibility: 'hidden', transform: 'rotateY(180deg)', borderColor: col, boxShadow: `0 0 60px ${col}55` }}>
+            {face ? <img src={face} alt="" className="h-full w-full object-cover" /> : <div className="grid h-full w-full place-items-center bg-black text-[110px]">{mafia ? '🔪' : '🙂'}</div>}
+          </div>
+        </motion.div>
+      </div>
+      <motion.p initial={{ opacity: 0, y: 12 }} animate={{ opacity: flipped ? 1 : 0, y: flipped ? 0 : 12 }} transition={{ delay: 0.5 }}
+        className="text-6xl font-black" style={{ fontFamily: 'Amiri, serif', color: col }}>{mafia ? 'مافيا' : 'مواطن صالح'}</motion.p>
     </div>
   );
 }

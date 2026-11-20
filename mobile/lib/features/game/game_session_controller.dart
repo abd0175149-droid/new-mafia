@@ -84,12 +84,21 @@ class GameSessionController extends ChangeNotifier with WidgetsBindingObserver {
   /// 🔒 البطاقة قابلةٌ للقلب في نافذة كشف الدور وحدها — أي قبل بدء اللعب.
   ///    بعدها تُقفل على وجهها العلنيّ.
   bool get cardLocked =>
-      _gamePhase != null && !GamePhase.isPreGame(_gamePhase);
+      !_reviewCard && _gamePhase != null && !GamePhase.isPreGame(_gamePhase);
   set cardFlipped(bool v) {
     if (_cardFlipped == v) return;
     _cardFlipped = v;
+    // 📱 «راجع بطاقتك»: لمسُ البطاقة تأكيدٌ يصل الموجّه عدّاً (الخطّة الموحّدة 2026-11-20)
+    if (v && _reviewCard) {
+      _reviewCard = false;
+      SocketService.instance.emit('player:card-ack', {});
+    }
     notifyListeners();
   }
+
+  /// 📱 بعد تغيير كروتٍ أو دخولٍ متأخّر يصل السطرُ نفسه كلَّ الهواتف — فلا يُعرف من تغيّر.
+  bool _reviewCard = false;
+  bool get reviewCard => _reviewCard;
 
   // ── ⚖️ العقوبات (PEN-1) ──
   /// حدّ العقوبات — يأتي من الخادم مع كلّ حدث، والثابت افتراضٌ حتى أوّلها.
@@ -2234,6 +2243,20 @@ class GameSessionController extends ChangeNotifier with WidgetsBindingObserver {
       notifyListeners();
     });
 
+    // 🤝 سلّم الموجّه كرتي لمنتظر (أداة الكروت): أنتظر اللعبة القادمة في كرسيّي
+    _on('player:card-handed-over', (d) {
+      final seat = d is Map ? (d['physicalId'] as num?)?.toInt() : null;
+      _spectatorSeat = (seat != null && seat > 0) ? seat : _physicalId;
+      _assignedRole = null;
+      _cardFlipped = false;
+      _roleAlert = false;
+      _reviewCard = false;
+      setApiError(d is Map && d['message'] is String ? d['message'] as String : 'سُلّم كرتك لمنتظر — تنتظر اللعبة القادمة');
+      setStep(GameStep.spectating);
+      unawaited(_saveSession());
+      notifyListeners();
+    });
+
     _on('spectator:removed', (_) {
       _spectatorSeat = null;
       setApiError('أُزيلت من قائمة الانتظار — راجِع المنظّم');
@@ -2255,8 +2278,14 @@ class GameSessionController extends ChangeNotifier with WidgetsBindingObserver {
       //    يفتح له معرض المافيا وتبويب التشاور حتى تصحّحه أوّل مزامنة.
       //    ولا خطر على بدايةٍ حقيقية: نظافةُ المرحلة تُصفّر الدور قبلها.
       final fresh = role != _assignedRole;
+      final review = d['reviewCard'] == true;
       _assignedRole = role;
-      if (fresh) {
+      if (review) {
+        // كلّ الهواتف تقلب بطاقتها من جديد — تغيّر دورك أم لا
+        _reviewCard = true;
+        _cardFlipped = false;
+        _roleAlert = true;
+      } else if (fresh) {
         _cardFlipped = false;
         _roleAlert = true;
         _isPlayerDead = false;

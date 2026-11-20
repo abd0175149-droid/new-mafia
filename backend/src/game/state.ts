@@ -337,6 +337,8 @@ export interface GameConfig {
   nurseAuto?: boolean;
   // 🎛️ خطّةُ التجهيز كما ضبطها الليدر في صفحة «اللعبة» (تركيبة الأدوار ومعاملاتها) — تقرؤها صفحة الكروت
   setupPlan?: Record<string, unknown>;
+  /** 🚪 خطّة الدخول المتأخّر (late-entry.ts) */
+  lateEntry?: import('./late-entry.js').LateEntryState;
   witchDisableRounds?: number;     // 🧙‍♀️ عدد راوندات تعطيل الساحرة (الافتراضي 3)
   mayorVoteWeight?: number;        // 🎩 وزن صوت العمدة بعد كشفه — يحدّده الليدر (الافتراضي 2، المدى 1-4)
   autoNightTime?: number;          // ⏱️ مهلة إجراء اللاعب في الليل الأوتوماتيكي بالثواني (الافتراضي 15)
@@ -602,7 +604,7 @@ export async function createRoom(
       // 🌐 الغرف البعيدة تعمل بوضع الليل الأوتوماتيكي (اللاعبون يرسلون من أجهزتهم)؛ القاعة تبقى 'manual'
       nightMode: isRemote ? 'auto' : 'manual',
       gameTimerEnabled: false,
-      gameTimerMinutes: 30,
+      gameTimerMinutes: 60,
       useDynamicEngine: true,
       maxPenalties,
       penaltyScope,

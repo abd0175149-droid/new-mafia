@@ -118,7 +118,10 @@ export function registerMafiaChatEvents(io: Server, socket: Socket) {
       const verified = await verifyAliveMafia(socket, data?.roomId);
       if (!verified) return deny();
       const store = (await getAux(chatKey(socket.data.roomId))) || { messages: [] };
-      if (typeof callback === 'function') callback({ success: true, messages: store.messages });
+      // 🚪 الداخلُ المتأخّر/المجنَّد يرى من لحظة دخوله فقط (القرار 23)
+      const since = Number((verified.player as any)?.mafiaSince) || 0;
+      const msgs = since ? (store.messages || []).filter((m: any) => Number(m?.at ?? m?.ts ?? 0) >= since) : store.messages;
+      if (typeof callback === 'function') callback({ success: true, messages: msgs });
     } catch {
       deny();
     }

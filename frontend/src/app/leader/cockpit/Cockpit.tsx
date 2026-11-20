@@ -3,7 +3,7 @@
 // 🎛️ قمرة الليدر — الهيكل: شريط الحالة · التنبيه · مسرح المرحلة · شريط الفعل · لوح الأدوات
 //
 // المرجع: نموذج «قمرة الليدر — النموذج» المعتمد من المالك (2026-11-06).
-// 🔴 التنبيه داخل التدفّق تحت الرأس: يدفع المحتوى للأسفل ولا يغطّيه (ملاحظة المالك على النموذج).
+// 🔴 تنبيهات المراقبة في الجرس وحده (2026-11-20). شريطُ الأفعال (تراجع/خطأ) داخل التدفّق ولا يغطّي.
 // 🔴 الأدوات كلّها هنا — لا أزرار في الرأس ولا أزرار عائمة. ما لا رجعة فيه في «منطقة الخطر» بضغطٍ مطوّل.
 // ══════════════════════════════════════════════════════
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
@@ -20,14 +20,15 @@ import { AttendanceMapToggle } from '../AttendanceMap';
 import LobbyScreen from './screens/Lobby';
 import { SeatLockEditor, lockMark, useLockState } from './screens/SeatLocks';
 import RolesScreen from './screens/Roles';
-import BindingScreen from './screens/Binding';
+import DealScreen from './screens/Deal';
 import NightScreen from './screens/Night';
 import RecapScreen from './screens/Recap';
 import DayScreen from './screens/Day';
 import GameOverScreen from './screens/GameOver';
+import { CardsSheet, LateEntrySheet } from './screens/LateEntry';
 
 const PHASE_AR: Record<string, string> = {
-  LOBBY: 'اللوبي', ROLE_GENERATION: 'تركيبة الأدوار', ROLE_BINDING: 'ربط الأدوار',
+  LOBBY: 'الطاولة', ROLE_GENERATION: 'اللعبة والكروت', ROLE_BINDING: 'التوزيع والاعتماد',
   NIGHT: 'الليل', MORNING_RECAP: 'ملخّص الصباح',
   DAY_DISCUSSION: 'النقاش', DAY_VOTING: 'التصويت', DAY_JUSTIFICATION: 'التبرير',
   DAY_ELIMINATION: 'قرار الإقصاء', DAY_REVEALED: 'الكشف', DAY_TIEBREAKER: 'التعادل', GAME_OVER: 'انتهت اللعبة',
@@ -68,21 +69,9 @@ export default function Cockpit({ gameState, setGameState, emit, on, host }: Pro
     gameState, setGameState, emit, on, toast, run, peek, wide, setBar, setStatus, sheetRoot,
   }), [gameState, setGameState, emit, on, toast, run, peek, wide, sheetRoot]);
 
-  // 🔔 تنبيهٌ جديد في الجرس ⇒ شريطٌ قصير تحت الرأس (لا نافذةً تغطّي الشاشة)
-  const lastAlerts = useRef(host.alerts.length);
+  // 🔔 التنبيهات في الجرس وحده — لا شريط ولا نافذة (قرار المالك 2026-11-20: لا شيء يغطّي معلومة).
+  //    الجديدُ يظهر عدداً على الجرس فقط، ويُفتح باللمس.
   const [bellOpen, setBellOpen] = useState(false);
-  useEffect(() => {
-    if (host.alerts.length > lastAlerts.current) {
-      const a = host.alerts[0];
-      if (a) toast(
-        <span className="flex items-center gap-2.5"><b className="text-[26px] font-extrabold tabular-nums">{a.physicalId}</b>
-          <span>{a.name} فتح {a.kind === 'gallery' ? '«التعرّف على المافيا»' : '«مهامّي»'}
-            <small className="block text-[#f2a6a9]">{a.role ? `${roleName(a.role)} · ${a.teamAr || ''}` : ''}{a.wasDead ? ' · مُقصى' : ''} · دخل الجرس</small></span></span>,
-        { tone: 'red', ms: 4200 },
-      );
-    }
-    lastAlerts.current = host.alerts.length;
-  }, [host.alerts, toast]);
 
   const phase: string = gameState?.phase || 'LOBBY';
   const inGame = !['LOBBY', 'ROLE_GENERATION', 'ROLE_BINDING'].includes(phase);
@@ -95,7 +84,7 @@ export default function Cockpit({ gameState, setGameState, emit, on, host }: Pro
     switch (phase) {
       case 'LOBBY': return <LobbyScreen />;
       case 'ROLE_GENERATION': return <RolesScreen />;
-      case 'ROLE_BINDING': return <BindingScreen />;
+      case 'ROLE_BINDING': return <DealScreen />;
       case 'NIGHT': return <NightScreen />;
       case 'MORNING_RECAP': return <RecapScreen />;
       case 'GAME_OVER': return <GameOverScreen />;
@@ -153,9 +142,6 @@ export default function Cockpit({ gameState, setGameState, emit, on, host }: Pro
                 <span className="flex-1 min-w-0">{toastState.msg}</span>
                 {toastState.opts?.undo && (
                   <button type="button" onClick={() => { toastState.opts?.undo?.(); setToastState(null); }} className="shrink-0 rounded-[10px] border border-white/30 px-3 py-1.5 text-[13px]">↩ تراجع</button>
-                )}
-                {host.alerts.length > 0 && toastState.opts?.tone === 'red' && !toastState.opts?.undo && (
-                  <button type="button" onClick={() => { setToastState(null); setBellOpen(true); }} className="shrink-0 rounded-[10px] border border-white/30 px-3 py-1.5 text-[13px]">الجرس</button>
                 )}
               </div>
             )}
@@ -236,7 +222,7 @@ function GameTimerSheet({ open, onClose }: { open: boolean; onClose: () => void 
 }
 
 // ══════════ لوح الأدوات ══════════
-type ToolKey = 'names' | 'seats' | 'arrivals' | 'photo' | 'monitor' | 'attendance' | 'penalty' | 'admin' | 'end' | 'close' | 'delete' | 'timer' | null;
+type ToolKey = 'cards' | 'late' | 'names' | 'seats' | 'arrivals' | 'photo' | 'monitor' | 'attendance' | 'penalty' | 'admin' | 'end' | 'close' | 'delete' | 'timer' | null;
 
 function ToolsSheet({ open, onClose }: { open: boolean; onClose: () => void }) {
   return (
@@ -271,6 +257,8 @@ function ToolsGrid({ onPick }: { onPick: () => void }) {
         <Tile icon="🚶" label="الوصول" badge={specCount} onClick={() => pick('arrivals')} />
         <Tile icon="⚖️" label="عقوبة" onClick={() => pick('penalty')} />
         {inGame && <Tile icon="⏱" label="وقت اللعبة" onClick={() => pick('timer')} />}
+        {inGame && !['ROLE_GENERATION', 'ROLE_BINDING'].includes(phase) && <Tile icon="🃏" label="الكروت" badge={(gameState?.cardQueue || []).length} onClick={() => pick('cards')} />}
+        {inGame && !['ROLE_GENERATION', 'ROLE_BINDING'].includes(phase) && gameState?.config?.isRemote !== true && <Tile icon="🚪" label="الدخول" onClick={() => pick('late')} />}
       </div>
       <p className="m-0 text-[12.5px] font-bold text-[#9a8f7e]">القاعة</p>
       <div className="grid grid-cols-3 gap-2">
@@ -298,6 +286,8 @@ function ToolsGrid({ onPick }: { onPick: () => void }) {
 
       <SeatsSheet open={tool === 'seats'} onClose={() => setTool(null)} />
       <GameTimerSheet open={tool === 'timer'} onClose={() => setTool(null)} />
+      <CardsSheet open={tool === 'cards'} onClose={() => setTool(null)} />
+      <LateEntrySheet open={tool === 'late'} onClose={() => setTool(null)} />
       <PenaltySheet open={tool === 'penalty'} onClose={() => setTool(null)} />
       <AdminSheet open={tool === 'admin'} onClose={() => setTool(null)} />
       <ConfirmHoldSheet open={tool === 'end'} onClose={() => setTool(null)} title="إنهاء اللعبة"
@@ -447,25 +437,36 @@ function BellSheet({ open, onClose }: { open: boolean; onClose: () => void }) {
   const host = useHost();
   const { gameState } = useCockpit();
   const ago = (t: number) => { const s = Math.round((Date.now() - t) / 1000); return s < 60 ? 'الآن' : `قبل ${Math.round(s / 60)} د`; };
+  // 🔔 مجمّعة لكلّ لاعب ونوع: «فتح مهامّي ×3» سطرٌ واحد بآخر وقت
+  const groups = useMemo(() => {
+    const m = new Map<string, { a: (typeof host.alerts)[number]; n: number; idx: number[]; gate: boolean }>();
+    host.alerts.forEach((a, i) => {
+      const k = `${a.physicalId}:${a.kind}`;
+      const g = m.get(k);
+      if (g) { g.n++; g.idx.push(i); if ((a as any).duringGate) g.gate = true; }
+      else m.set(k, { a, n: 1, idx: [i], gate: !!(a as any).duringGate });
+    });
+    return Array.from(m.values());
+  }, [host.alerts]);
   return (
     <BottomSheet open={open} title="التنبيهات" onClose={onClose}>
-      {host.alerts.length === 0 ? (
+      {groups.length === 0 ? (
         <p className="text-center text-[14px] text-[#9a8f7e] py-4">لا تنبيهات. تصل هنا فتحاتُ «التعرّف على المافيا» و«مهامّي».</p>
-      ) : host.alerts.map((a, i) => {
+      ) : groups.map(({ a, n, idx, gate }) => {
         const p = (gameState?.players || []).find((x: any) => x.physicalId === a.physicalId);
         const canEliminate = !!p?.role && p.isAlive !== false && !['LOBBY', 'GAME_OVER'].includes(gameState?.phase);
         return (
-          <ListRow key={a.at + ':' + a.physicalId} n={a.physicalId}
-            title={<>{a.name} فتح {a.kind === 'gallery' ? '«التعرّف على المافيا»' : '«مهامّي»'}</>}
-            sub={`${a.role ? roleName(a.role) + ' · ' + (a.teamAr || '') : 'قبل التوزيع'}${a.wasDead ? ' · مُقصى' : ''} · ${ago(a.at)}`}
+          <ListRow key={a.physicalId + ':' + a.kind} n={a.physicalId}
+            title={<>{a.name} فتح {a.kind === 'gallery' ? '«التعرّف على المافيا»' : '«مهامّي»'}{n > 1 && <b className="ms-1 tabular-nums text-[#f2a6a9]">×{n}</b>}</>}
+            sub={`${a.role ? roleName(a.role) + ' · ' + (a.teamAr || '') : 'قبل التوزيع'}${a.wasDead ? ' · مُقصى' : ''}${gate ? ' · أثناء الدخول' : ''} · ${ago(a.at)}`}
             right={<span className="flex gap-1.5">
               {canEliminate && <HoldButton ariaLabel="اضغط مطوّلاً للإقصاء الإداريّ" className="min-h-[44px] px-3 text-[13px]" onHold={async () => { onClose(); await host.adminEliminate(a.physicalId); }}>⚡ إقصاء</HoldButton>}
-              <button type="button" aria-label="تجاهل" onClick={() => host.dismissAlert(i)} className="min-h-[44px] w-11 rounded-[12px] border border-[#2a241c] bg-[#16130f]">✓</button>
+              <button type="button" aria-label="تجاهل" onClick={() => idx.slice().reverse().forEach((i) => host.dismissAlert(i))} className="min-h-[44px] w-11 rounded-[12px] border border-[#2a241c] bg-[#16130f]">✓</button>
             </span>} />
         );
       })}
       {host.alerts.length > 0 && <button type="button" onClick={host.clearAlerts} className="min-h-[44px] rounded-[13px] border border-[#2a241c] bg-[#16130f] font-bold">مسح الكلّ</button>}
-      <Hint>تُطفأ هذه التنبيهات من الإعدادات ← المراقبة. السجلّ يبقى في سجلّ العمليّات.</Hint>
+      <Hint>تصل التنبيهات هنا وحدها، ولا يظهر شيءٌ فوق الشاشة. تُطفأ من الإعدادات ← المراقبة، والسجلّ يبقى في سجلّ العمليّات.</Hint>
     </BottomSheet>
   );
 }

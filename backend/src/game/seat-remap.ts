@@ -42,6 +42,11 @@ const ID_ARRAY_FIELDS = new Set([
   'correctVoters',
   // 🔥 مَن احترقوا بالعنقاء · 🗳️ مَن صوّتوا على المتّهم (عتبة السحب) · 💣 ضحايا قنبلةٍ محبوسة ومقاعدُ بطاقاتها
   'burned', 'votersForAccused', 'bombEliminated', 'revealSeats',
+  // 🔪 مقاعدُ السفّاحين الشريكين (assassinState.memberSeats) ونسختُها المعروضة (partnerSeats).
+  //    فاتت الجوّال: بعد نقل مقعدِ أحدهما بقي الشريكان يشيران إلى الكرسيّ القديم.
+  'memberSeats', 'partnerSeats',
+  // 🔍 من فحصهم الشريف (يستثنيهم تجنيد الدخول المتأخّر) · 🚪 من دخل/جُنّد في كلّ دفعة
+  'sheriffChecked', 'joined', 'recruited',
 ]);
 
 // قواميس مفاتيحها physicalIds (Record<physicalId, ...>)

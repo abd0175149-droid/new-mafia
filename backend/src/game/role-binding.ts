@@ -104,5 +104,6 @@ export function bindingSnapshot(state: any) {
     rolesConfirmed: state?.rolesConfirmed === true,
     rolesPool: state?.rolesPool || [],
     assignments: (state?.players || []).map((p: any) => ({ physicalId: p.physicalId, role: p.role ?? null })),
+    dealPins: Array.isArray(state?.dealPins) ? state.dealPins : [],
   };
 }

@@ -1,16 +1,16 @@
 'use client';
 // ══════════════════════════════════════════════════════
-// 🌙 بدءُ الليل — الطريقة محسومةٌ مرّةً قبل اللعبة (صفحة «اللعبة»)، فلا يُسأل الليدر كلّ ليلة
+// 🌙 بدءُ الليل — الطريقة محسومةٌ مرّةً قبل اللعبة (صفحة «اللعبة والكروت»)، فلا يُسأل الليدر كلّ ليلة
 //
-// القمرة تعمل بنمط الخادم «اليدويّ» دائماً للغرف الحضوريّة، وتقرأ من إعدادات الغرفة:
 //   • nightKind 'one' (آليّ): night:start {oneNight} ⇒ night:one-start بمهلة nightSeconds
 //   • nightKind 'queue' (يدويّ): night:start ⇒ الطابور
 //   • nurseAuto: حين يخرج كلُّ الأطبّاء تصحو الممرّضة (أو لا) بلا سؤال ⇒ night:begin-queue
-// الوضعُ الآليّ القديم يبقى للغرف البعيدة وحدها (الخادم يفرضه هناك).
+//   • 🚪 دفعة دخولٍ متأخّر مستحقّة ⇒ الخادم يعيد LATE_GATE فتُفتح البوّابة، ثمّ يُعاد البدء
 // ══════════════════════════════════════════════════════
 import { useState } from 'react';
 import { useCockpit } from './kit';
 import { useHost } from './host';
+import { LateGateSheet } from './screens/LateEntry';
 
 export type NightKind = 'one' | 'queue';
 
@@ -18,6 +18,7 @@ export function useStartNight() {
   const { gameState, emit, run, toast } = useCockpit();
   const host = useHost();
   const [busy, setBusy] = useState(false);
+  const [gate, setGate] = useState<any | null>(null);
   const cfg = gameState?.config || {};
   const isRemote = cfg.isRemote === true;
   const kind: NightKind = cfg.nightKind === 'queue' ? 'queue' : 'one';
@@ -25,7 +26,6 @@ export function useStartNight() {
   const nurseAuto = cfg.nurseAuto !== false;
 
   const ensureManual = async () => {
-    // الغرفة على «آليّ» من إعدادٍ قديم ⇒ القمرة تحوّلها يدويّاً (تختار الطريقة بنفسها)
     if (!isRemote && cfg.nightMode === 'auto') {
       await emit('room:update-settings', { roomId: gameState.roomId, nightMode: 'manual' }).catch(() => {});
     }
@@ -36,10 +36,17 @@ export function useStartNight() {
     setBusy(true);
     try {
       await ensureManual();
-      const r: any = await run(() => emit('night:start', { roomId: gameState.roomId, oneNight: kind === 'one' }));
+      let r: any;
+      try {
+        r = await emit('night:start', { roomId: gameState.roomId, oneNight: kind === 'one', supportsLateGate: true });
+      } catch (e: any) {
+        const res = e?.response;
+        if (res?.code === 'LATE_GATE' && res.gate) { setGate(res.gate); return; }
+        toast(res?.error || e?.message || 'تعذّر بدء الليل', { tone: 'red' });
+        return;
+      }
       if (!r) return;
       if (r.nurseAvailable) {
-        // 💉 محسومٌ مسبقاً — لا سؤال
         const q: any = await run(() => emit('night:begin-queue', { roomId: gameState.roomId, activateNurse: nurseAuto, oneNight: kind === 'one' }));
         if (!q) return;
         toast(nurseAuto ? '💉 الطبيب خرج — الممرّضة تصحو من هذه الليلة' : 'الطبيب خرج — الليل بلا حماية');
@@ -48,5 +55,9 @@ export function useStartNight() {
     } finally { setBusy(false); }
   };
 
-  return { open: () => void start(), element: null, busy, kind, secs };
+  const element = gate ? (
+    <LateGateSheet gate={gate} onClose={() => setGate(null)} onDone={() => { setGate(null); void start(); }} />
+  ) : null;
+
+  return { open: () => void start(), element, busy, kind, secs };
 }
