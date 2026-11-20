@@ -74,7 +74,14 @@ try {
 // ══════════════════════════════════════════════════════
 
 // ── Install: تخزين الملفات الأساسية ──
+// بعض أجهزة آيفون (نظام قديم أو «وضع القفل» Lockdown Mode) لا تعرّف caches داخل الـSW أصلاً —
+// استعماله بلا فحص يرمي ReferenceError فتفشل كلّ صفحة (2026-11-20). بلا كاش ⟵ شبكة فقط.
+const HAS_CACHES = typeof caches !== 'undefined';
+const cacheMatch = (req) => (HAS_CACHES ? caches.match(req).catch(() => undefined) : Promise.resolve(undefined));
+const cachePut = (req, res) => { if (HAS_CACHES) caches.open(CACHE_NAME).then((c) => c.put(req, res)).catch(() => {}); };
+
 self.addEventListener('install', (event) => {
+  if (!HAS_CACHES) { self.skipWaiting(); return; }
   event.waitUntil(
     caches.open(CACHE_NAME).then((cache) => {
       console.log(`📦 PWA: Caching app shell [${BUILD_HASH}]`);
@@ -87,6 +94,7 @@ self.addEventListener('install', (event) => {
 
 // ── Activate: حذف الكاشات القديمة ──
 self.addEventListener('activate', (event) => {
+  if (!HAS_CACHES) { self.clients.claim(); return; }
   event.waitUntil(
     caches.keys().then((keys) =>
       Promise.all(
@@ -155,22 +163,21 @@ self.addEventListener('fetch', (event) => {
       .then((response) => {
         // ما زال الخطأ بعد المحاولات ⟵ نسخة الكاش أفضل من صفحة 502
         if (RETRY_STATUS.includes(response.status)) {
-          return caches.match(request).then((cached) => cached || response);
+          return cacheMatch(request).then((cached) => cached || response);
         }
         // خزّن النسخة الجديدة
         if (response.ok) {
-          const clone = response.clone();
-          caches.open(CACHE_NAME).then((cache) => cache.put(request, clone));
+          cachePut(request, response.clone());
         }
         return response;
       })
       .catch(() => {
         // إذا ما في إنترنت → ارجع الكاش
-        return caches.match(request).then((cached) => {
+        return cacheMatch(request).then((cached) => {
           if (cached) return cached;
           // صفحة offline fallback
           if (request.destination === 'document') {
-            return caches.match('/player');
+            return cacheMatch('/player').then((p) => p || new Response('Offline', { status: 503 }));
           }
           return new Response('Offline', { status: 503 });
         });
