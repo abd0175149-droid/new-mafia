@@ -101,14 +101,48 @@ self.addEventListener('activate', (event) => {
   self.clients.claim();
 });
 
+// ── 🔁 إعادة المحاولة عند انقطاعٍ قصير بين الخادم وCloudflare (2026-11-20) ──
+// منذ 2026-11-19 يتبدّل مسار الإنترنت إلى حافّات Cloudflare الأوروبيّة (مرسيليا ⇄ روما)
+// فتُقطع وصلات النفق إليها ٣–٢٠ ثانية، وكلُّ طلبٍ يمرّ فيها لحظتها يعود 502.
+// الطلبات المأمونة (GET/HEAD) تُعاد هنا بصمت: ثوانٍ من الانتظار بدل صفحة خطأ.
+// الكتابة (POST…) لا تُعاد أبداً — قد تكون وصلت الخادم فتُنفَّذ مرّتين.
+const RETRY_STATUS = [502, 503, 504, 520, 521, 522, 523, 524, 530];
+const RETRY_DELAYS = [700, 1500, 3000, 5000];   // ≈ ١٠ ثوانٍ تغطّي انقطاع النفق المعتاد
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+async function fetchWithRetry(request) {
+  let last = null, lastErr = null;
+  for (let i = 0; i <= RETRY_DELAYS.length; i++) {
+    try {
+      const res = await fetch(request);
+      if (!RETRY_STATUS.includes(res.status)) return res;
+      last = res;
+    } catch (e) {
+      // الصفحة ألغت الطلب بنفسها ⟵ لا نعيده
+      if (request.signal && request.signal.aborted) throw e;
+      // لا إنترنت على الجهاز أصلاً ⟵ الكاش فوراً بلا انتظار
+      if (self.navigator && self.navigator.onLine === false) throw e;
+      lastErr = e;
+    }
+    if (i < RETRY_DELAYS.length) await sleep(RETRY_DELAYS[i]);
+  }
+  if (last) return last;
+  throw lastErr;
+}
+
 // ── Fetch: Network-first مع fallback للكاش ──
 self.addEventListener('fetch', (event) => {
   const { request } = event;
   const url = new URL(request.url);
+  const safe = request.method === 'GET' || request.method === 'HEAD';
 
-  // لا تخزن API أو Socket.IO أو uploads
+  // API: لا تُخزَّن، لكن قراءاتها تُعاد عند انقطاعٍ قصير (طلبات نفس الموقع فقط)
+  if (url.pathname.startsWith('/api/')) {
+    if (safe && url.origin === self.location.origin) event.respondWith(fetchWithRetry(request));
+    return;
+  }
+
+  // لا تخزن Socket.IO (يعيد الاتصال بنفسه) أو uploads
   if (
-    url.pathname.startsWith('/api/') ||
     url.pathname.startsWith('/socket.io/') ||
     url.pathname.startsWith('/uploads/') ||
     request.method !== 'GET'
@@ -117,8 +151,12 @@ self.addEventListener('fetch', (event) => {
   }
 
   event.respondWith(
-    fetch(request)
+    fetchWithRetry(request)
       .then((response) => {
+        // ما زال الخطأ بعد المحاولات ⟵ نسخة الكاش أفضل من صفحة 502
+        if (RETRY_STATUS.includes(response.status)) {
+          return caches.match(request).then((cached) => cached || response);
+        }
         // خزّن النسخة الجديدة
         if (response.ok) {
           const clone = response.clone();
