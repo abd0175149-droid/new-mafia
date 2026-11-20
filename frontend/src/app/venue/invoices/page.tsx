@@ -41,6 +41,8 @@ interface Row {
   isFree: boolean; noInvoice: boolean;
   /** 💳 أُسقط عنه الحدّ الأدنى الليلة */
   minWaived?: boolean;
+  /** 🏷️ خصمٌ من المكان على قيمة طلباته (لا الدخول) — بسببٍ مكتوب */
+  venueDiscount?: number; venueDiscountReason?: string | null;
   payMethod: string | null; paymentId: number | null; paidForBy: string | null; groupId: number | null;
   /** 🎁 ضيافة كاملة · 🧾 لم يدفع (السبب) · 💳 دينٌ من ليلة سابقة (تاريخها) */
   fullComp?: boolean; compAmount?: number; writeoffReason?: string | null; debtFrom?: string | null;
@@ -100,6 +102,7 @@ function plainLines(r: Row): { label: string; v: number }[] {
   if (r.waterCharge > 0) out.push({ label: 'مياه', v: r.waterCharge });
   if (r.minTopup > 0) out.push({ label: 'باقي الحدّ الأدنى', v: r.minTopup });
   if (r.loyaltyDiscount > 0) out.push({ label: 'مشروب بطاقة الولاء', v: -r.loyaltyDiscount });
+  if ((r.venueDiscount ?? 0) > 0) out.push({ label: r.venueDiscountReason ? `خصم — ${r.venueDiscountReason}` : 'خصم', v: -(r.venueDiscount ?? 0) });
   if ((r.serviceAmount ?? 0) > 0) out.push({ label: `ضريبة خدمة ${r2(r.serviceRate ?? 0)}%`, v: r.serviceAmount ?? 0 });
   if (r.gameFee > 0) out.push({ label: 'دخول اللعبة', v: r.gameFee });
   return out;
@@ -171,6 +174,10 @@ export default function VenueInvoicesPage() {
   const [reason, setReason] = useState('');
   const [minOpen, setMinOpen] = useState(false);
   const [minReason, setMinReason] = useState('');
+  // 🏷️ خصم المكان
+  const [discOpen, setDiscOpen] = useState(false);
+  const [discAmt, setDiscAmt] = useState('');
+  const [discReason, setDiscReason] = useState('');
   const [printing, setPrinting] = useState(false);
   const [waBusy, setWaBusy] = useState(false);
   // 🧾 «لم يدفع» · 💳 تسديد دينٍ قديم
@@ -334,6 +341,7 @@ export default function VenueInvoicesPage() {
     setPayId(r.playerId); setFriends([]); setShowFriends(false); setPayer(r.playerId); setOtherName('');
     setMethod('cash'); setGiven(null); setGivenText(''); setSeen({ [r.playerId]: r.grandTotal });
     setPayAlert(null); setMoreOpen(false); setItemsOpen(false); setDetail(null); setWaiveOpen(false); setReason('');
+    setDiscOpen(false); setDiscAmt(''); setDiscReason('');
     setView('pay');
     window.scrollTo({ top: 0 });
     fetchDetail(r.playerId, null, setDetail);
@@ -567,6 +575,27 @@ export default function VenueInvoicesPage() {
     }
     fetchDetail(payId, null, setDetail);
   };
+  /** 🏷️ خصمٌ على قيمة طلبات المكان — 0 يلغيه */
+  const venueDiscount = async (amount: number) => {
+    if (!actId || payId == null || busy) return;
+    const why = discReason.trim();
+    if (amount > 0 && why.length < 3) return;
+    setBusy(true);
+    const r = await apiRef.current.send(`/api/venue/invoices/${actId}/${payId}/venue-discount`, 'POST', { amount, reason: why }).catch(() => null);
+    setBusy(false);
+    if (!r?.ok) { show(r?.data?.error || 'فشل الإجراء', { tone: 'bad' }); return; }
+    setDiscOpen(false); setDiscAmt(''); setDiscReason('');
+    show(amount > 0 ? `سُجّل خصم ${f2(amount)}` : 'أُلغي الخصم');
+    await reloadAll();
+    // المبلغ تغيّر بفعله هو — نعتمده بلا تنبيه
+    const id = actIdRef.current;
+    if (id) {
+      const fresh = await apiRef.current.get(`/api/venue/invoices/candidates?activityId=${id}`);
+      const row = fresh.ok ? (fresh.data.candidates as Row[]).find(x => x.kind === 'open' && x.playerId === payId) : null;
+      if (row) setSeen(s => ({ ...s, [payId]: row.grandTotal })); else backToList();
+    }
+    fetchDetail(payId, null, setDetail);
+  };
   const pickNight = (id: number) => {
     setOptionsOpen(false);
     if (id === actId) return;
@@ -734,6 +763,12 @@ export default function VenueInvoicesPage() {
     // 💳 الحدّ الأدنى: يُسقط ما دامت عليه تكملة، ويُعاد لمن أُسقط عنه
     const canWaiveMin = !primary.fullComp && primary.minTopup > 0 && !primary.minWaived;
     const canRestoreMin = !primary.fullComp && primary.minWaived === true;
+    // 🏷️ خصم المكان: سقفه قيمة طلبات المكان (الطلبات + الماء − الولاء)، والدخول لا يُمسّ
+    const discCap = r2(Math.max(0, primary.ordersTotal + primary.waterCharge - primary.loyaltyDiscount));
+    const discNow = primary.venueDiscount ?? 0;
+    const canDisc = !primary.fullComp && friends.length === 0 && (discCap > 0 || discNow > 0);
+    const discVal = r2(parseFloat(latinDigits(discAmt)) || 0);
+    const discBad = discVal <= 0 || discVal > discCap + 0.004;
     const wa = ledger?.waEnabled ? waPill(primary, ledger.wa?.[primary.playerId]) : null;
     return (
       <div className="flex flex-col gap-3.5 pb-8 max-w-[560px] mx-auto w-full">
@@ -898,6 +933,39 @@ export default function VenueInvoicesPage() {
                   <Btn kind="ghost" h={52} style={{ color: TX.sub }} disabled={busy} onClick={() => { setWoOpen(false); setWoKind(null); setWoReason(''); }}>رجوع</Btn>
                 </div>
                 <span className="text-[12.5px]" style={{ color: TX.dim }}>يُسجَّل باسمك مع السبب ويظهر للإدارة في «الحساب».</span>
+              </div>
+            )}
+            {canDisc && !discOpen && (
+              <Btn kind="ghost" h={52} style={{ fontSize: 15 }} disabled={busy}
+                onClick={() => { setDiscOpen(true); setDiscAmt(discNow > 0 ? String(discNow) : ''); setDiscReason(primary.venueDiscountReason || ''); setWaiveOpen(false); setWoOpen(false); setMinOpen(false); }}>
+                🏷️ {discNow > 0 ? <>تعديل الخصم (<span className="vc-num">{f2(discNow)}</span>)…</> : 'خصم على الفاتورة…'}
+              </Btn>
+            )}
+            {canDisc && discNow > 0 && !discOpen && (
+              <Btn kind="ghost" h={52} style={{ fontSize: 15, color: TX.bad }} disabled={busy} onClick={() => venueDiscount(0)}>إلغاء الخصم</Btn>
+            )}
+            {canDisc && discOpen && (
+              <div className="rounded-2xl p-3.5 flex flex-col gap-2.5" style={{ background: EM.ink2, border: `1px solid ${EM.line2}` }}>
+                <span className="text-[15px] font-extrabold">خصم على فاتورة {primary.playerName}</span>
+                <span className="text-[13px]" style={{ color: TX.dim }}>يُطرح من قيمة طلبات المكان (حتى <span className="vc-num">{f2(discCap)}</span>) — دخول اللعبة لا يتغيّر، وضريبة الخدمة تُحسب بعد الخصم.</span>
+                <label className="text-[14px] font-bold" htmlFor="disc-amt">مبلغ الخصم (دينار)</label>
+                <input id="disc-amt" value={discAmt} onChange={e => setDiscAmt(e.target.value)} autoFocus inputMode="decimal" maxLength={8}
+                  placeholder="مثلاً: 3"
+                  className="w-full rounded-xl px-3 outline-none placeholder:text-[#5A6862] vc-num"
+                  style={{ height: 52, fontSize: 18, background: EM.ink, border: `1px solid ${discAmt && discBad ? '#E0492B' : EM.line2}`, color: EM.text }} />
+                {discAmt !== '' && discVal > discCap + 0.004 && <span className="text-[13px] font-bold" style={{ color: TX.bad }}>أكبر من قيمة طلبات المكان ({f2(discCap)})</span>}
+                <label className="text-[14px] font-bold" htmlFor="disc-reason">سبب الخصم</label>
+                <input id="disc-reason" value={discReason} onChange={e => setDiscReason(e.target.value)} maxLength={200}
+                  placeholder="مثلاً: خصم على الأرجيلة…"
+                  className="w-full rounded-xl px-3 outline-none placeholder:text-[#5A6862]"
+                  style={{ height: 52, fontSize: 16, background: EM.ink, border: `1px solid ${EM.line2}`, color: EM.text }} />
+                <div className="flex gap-2">
+                  <Btn kind="go" h={52} className="flex-1" disabled={busy || discBad || discReason.trim().length < 3} onClick={() => venueDiscount(discVal)}>
+                    {busy ? 'يُسجَّل…' : <>سجّل الخصم {!discBad && <span className="vc-num">{f2(discVal)}</span>}</>}
+                  </Btn>
+                  <Btn kind="ghost" h={52} style={{ color: TX.sub }} disabled={busy} onClick={() => { setDiscOpen(false); setDiscAmt(''); setDiscReason(''); }}>رجوع</Btn>
+                </div>
+                <span className="text-[12.5px]" style={{ color: TX.dim }}>يتحمّله المكان · يُسجَّل باسمك مع السبب ويظهر في الفاتورة المطبوعة.</span>
               </div>
             )}
             {canWaive && !waiveOpen && <Btn kind="ghost" h={52} style={{ fontSize: 15 }} disabled={busy} onClick={() => setWaiveOpen(true)}>إسقاط دخول اللعبة…</Btn>}
