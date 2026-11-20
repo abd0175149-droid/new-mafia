@@ -25,3 +25,12 @@ export async function flagOn(key: string): Promise<boolean> {
   return v;
 }
 export const LIVE_CARDS = 'live_cards_v1';
+
+/** 🧪 الميزة تعمل إن فُعّل مفتاحها، أو في غرفةٍ بموقع اختبار (لا رانك ولا لاعبين حقيقيّين) */
+export async function liveCardsOn(state: any): Promise<boolean> {
+  if (await flagOn(LIVE_CARDS)) return true;
+  try {
+    const { isTestScope } = await import('./match.service.js');
+    return await isTestScope(state);
+  } catch { return false; }
+}

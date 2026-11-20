@@ -29,7 +29,7 @@ import { emitStateSanitized, spectatorRoom } from './broadcast.util.js';
 import { publicTeamCounts } from '../game/public-counts.js';
 import { winAfterRemoval } from '../game/removal-win.js';
 import { addPlayerToSession } from '../services/session.service.js';
-import { flagOn, LIVE_CARDS } from '../services/feature-flags.js';
+import { liveCardsOn } from '../services/feature-flags.js';
 import {
   lateOf, dueWave, waveMafiaFor, placeMafiaCards, recruitCandidates, incomingCounts, normalizeLatePlan, nightNumber,
   type LateWave,
@@ -269,7 +269,7 @@ export function registerLiveCardEvents(io: Server, socket: Socket) {
 
   socket.on('cards:queue', async (data: { roomId: string; op: any }, cb) => {
     if (!isLeader()) return reply(cb, { success: false, error: 'Only leader' });
-    if (!(await flagOn(LIVE_CARDS))) return reply(cb, { success: false, code: 'FEATURE_OFF', error: 'أداة الكروت مطفأة — تُفعَّل بعد تحديث تطبيق الهاتف' });
+    if (!(await liveCardsOn(await getRoom(data?.roomId)))) return reply(cb, { success: false, code: 'FEATURE_OFF', error: 'أداة الكروت مطفأة — تُفعَّل بعد تحديث تطبيق الهاتف (تعمل الآن في غرف موقع الاختبار)' });
     try {
       const out = await withRoomLock(data.roomId, async () => {
         const st: any = await getRoom(data.roomId);

@@ -5468,10 +5468,10 @@ async function readSeatLayoutOnly(activityId: any): Promise<any> {
       // 🚪 خطّة الدخول المتأخّر تُضبط قبل البدء فقط — بعده يديرها الموجّه من «الدخول» (المرحلة 4)
       if (data.lateEntry && typeof data.lateEntry === 'object' && (betweenGames || state.phase === Phase.ROLE_GENERATION || state.phase === Phase.ROLE_BINDING)) {
         const { normalizeLatePlan } = await import('../game/late-entry.js');
-        const { flagOn, LIVE_CARDS } = await import('../services/feature-flags.js');
+        const { liveCardsOn } = await import('../services/feature-flags.js');
         c.lateEntry = normalizeLatePlan(data.lateEntry, !!c.isRemote);
-        // 🎚️ مطفأ حتّى يُفعَّل المفتاح — الخطّة تُحفظ لكن لا تعمل
-        if (c.lateEntry.enabled && !(await flagOn(LIVE_CARDS))) c.lateEntry.enabled = false;
+        // 🎚️ مطفأ حتّى يُفعَّل المفتاح (ويعمل في غرف موقع الاختبار) — الخطّة تُحفظ لكن لا تعمل
+        if (c.lateEntry.enabled && !(await liveCardsOn(state))) c.lateEntry.enabled = false;
       }
 
       await updateRoom(data.roomId, { config: c });
