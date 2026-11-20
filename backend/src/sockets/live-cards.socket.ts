@@ -337,6 +337,8 @@ export function registerLiveCardEvents(io: Server, socket: Socket) {
           await setGameState(data.roomId, st);
           return { success: true, skipped: true, state: st };
         }
+        // 0) مافيا الدفعة يُحسب قبل إدخالهم — وإلّا عُدّوا مرّتين (من لعب + من وصل)
+        const M = waveMafiaFor(st, w, chosen.length, data.literal === true);
         // 1) الداخلون لاعبون بكرت مواطن مبدئيّاً
         const now = Date.now();
         for (const seat of chosen) {
@@ -352,7 +354,6 @@ export function registerLiveCardEvents(io: Server, socket: Socket) {
         st.players.sort((a: any, b: any) => a.physicalId - b.physicalId);
         st.spectators = specs.filter((x: any) => !chosen.includes(Number(x.physicalId)));
         // 2) بطاقات المافيا: الداخلون أوّلاً بنصيبهم، والباقي تجنيد
-        const M = waveMafiaFor(st, w, chosen.length, data.literal === true);
         let cands = recruitCandidates(st, chosen);
         const ids = cands.map((s) => Number(st.players.find((p: any) => p.physicalId === s)?.playerId)).filter((x) => x > 0);
         const lm = await lifetimeMatches(ids);

@@ -8,6 +8,8 @@ import { getDB } from '../config/db.js';
 
 const cache = new Map<string, { v: boolean; at: number }>();
 export async function flagOn(key: string): Promise<boolean> {
+  // 🧪 الاختبار داخل العمليّة (بلا قاعدة بيانات): FORCE_FLAGS=live_cards_v1
+  if ((process.env.FORCE_FLAGS || '').split(',').includes(key)) return true;
   const c = cache.get(key);
   if (c && Date.now() - c.at < 20_000) return c.v;
   let v = false;
