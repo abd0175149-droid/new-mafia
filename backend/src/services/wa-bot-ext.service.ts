@@ -25,6 +25,7 @@ import { logStaffAction } from './staff-action-log.service.js';
 import { notTestActivity, notTestActivitySql, notTestLocationSql, isTestActivity, TEST_ACTIVITY_RESULT } from './test-location.util.js';
 import { reachableSql, webConfigured } from './wa-transport/router.js';
 import { transportSettings } from './wa-transport/settings.js';
+import { bookingPolicy } from './booking-policy.service.js';
 
 const rowsOf = (r: any): any[] => r?.rows ?? (Array.isArray(r) ? r : []);
 const GRAPH = 'https://graph.facebook.com/v20.0';
@@ -33,7 +34,8 @@ const GEMINI = 'https://generativelanguage.googleapis.com/v1beta';
 const APP_LOGIN_URL = playerLoginUrl();
 // 📣 قناة الواتساب الرسميّة (القروب العامّ أُلغي 2026-09-30) — تُرسل مع ترحيب الحساب الجديد
 const WA_CHANNEL_LINK = 'https://whatsapp.com/channel/0029VbDvCna8F2p6cjMpJW3d';
-const CHANGE_CUTOFF_MS = 3 * 3600e3;
+// مهلة تعديل العدد بنفسه — من «سياسة الحجز» (خطّة التوحيد م٢-ب)
+const changeCutoffMs = () => bookingPolicy().changeHours * 3600e3;
 const AUX_TTL_MS = 10 * 60e3;
 
 export interface ExtHelpers {
@@ -1058,7 +1060,7 @@ export async function handleExtButton(conv: any, btnId: string, h: ExtHelpers): 
       .where(and(eq(reservations.id, resId), isNull(reservations.deletedAt), notTestActivity, sql`(${reservations.phone} = ${conv.phone} ${conv.playerId ? sql`OR ${reservations.playerId} = ${conv.playerId}` : sql``})`)).limit(1);
     if (!r) { await say('ما لقيت الحجز (يمكن أُلغي) 🙏'); return true; }
     const who = conv.displayName || conv.phone;
-    if (new Date(r.date).getTime() - Date.now() < CHANGE_CUTOFF_MS) {
+    if (new Date(r.date).getTime() - Date.now() < changeCutoffMs()) {
       await db.update(waConversations).set({ needsAttention: true, updatedAt: new Date() } as any).where(eq(waConversations.id, conv.id));
       await say('الفعاليّة بعد أقلّ من 3 ساعات فما بقدر أعدّل تلقائيّاً 🙏 حوّلت طلبك للإدارة.');
       h.notifyAdmins('⚠️ طلب تعديل عدد متأخّر (<3 ساعات)', `${who} — ${r.name}: ${r.people} → ${n}`, { conversationId: conv.id, url: `/admin/whatsapp?conv=${conv.id}` }).catch(() => {});

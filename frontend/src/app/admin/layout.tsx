@@ -44,6 +44,7 @@ const NAV_GROUPS: NavGroup[] = [
       { href: '/admin/activities', icon: '🎯', label: 'الأنشطة' },
       // «الحجوزات» أُخفيت من القائمة 2026-11-13 (المالك لا يستعملها) — الصفحة /admin/bookings باقية
       { href: '/admin/reservations', icon: '📋', label: 'متابعة الحجوزات' },
+      { href: '/admin/booking-rules', icon: '📜', label: 'قواعد الحجز والعروض', roles: ['admin'] },
       { href: '/admin/whatsapp', icon: '💬', label: 'واتساب', roles: ['admin'] },
       { href: '/admin/tickets', icon: '🎫', label: 'التذاكر', roles: ['admin', 'accountant'] },
     ],

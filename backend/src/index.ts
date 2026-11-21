@@ -63,6 +63,7 @@ import contactsSyncRoutes from './routes/contacts-sync.routes.js';
 import seatingRoutes from './routes/seating.routes.js';
 import seatTemplatesRoutes from './routes/seat-templates.routes.js';
 import reservationsRoutes from './routes/reservations.routes.js';
+import bookingRulesRoutes from './routes/booking-rules.routes.js';
 import seasonsRoutes from './routes/seasons.routes.js';
 import analyticsRoutes from './routes/analytics.routes.js';
 import adminConsentsRoutes from './routes/admin-consents.routes.js';
@@ -243,6 +244,7 @@ app.use('/api/contacts-sync', contactsSyncRoutes);    // 📇 دفتر أرقا�
 app.use('/api/seating', seatingRoutes);
 app.use('/api/seat-templates', seatTemplatesRoutes);
 app.use('/api/reservations', reservationsRoutes);
+app.use('/api/booking-rules', bookingRulesRoutes);   // 📜 قواعد الحجز والعروض (خطّة التوحيد م٢-ب)
 app.use('/api/venue', venueRouter);      // 🏪 كونسول حساب المكان (منيو/طلبات/فواتير)
 app.use('/api/admin/venue-settlements', venueSettlementsRoutes); // 🤝 تسويات الأماكن (admin/manager)
 app.use('/api/admin/invoice-wa', invoiceWaRoutes);               // 🧾 مفتاح فواتير واتساب (الداشبورد)

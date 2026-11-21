@@ -295,6 +295,21 @@ router.delete('/book/:activityId', authenticatePlayer, async (req: Request, res:
       return res.status(409).json({ error: 'حجزك مدفوع — راجع الإدارة للإلغاء' });
     }
 
+    // ⏳ ق٢ (معتمد 2026-11-21): قاعدةٌ واحدة للتطبيق والدون — الإلغاء الذاتيّ حتّى مهلة «سياسة الحجز»
+    //    (٣ ساعات) قبل اللعبة، وبعدها طلبٌ للإدارة. كان التطبيق وحده يلغي حتّى البدء.
+    {
+      const { bookingPolicyFresh } = await import('../services/booking-policy.service.js');
+      const pol = await bookingPolicyFresh();
+      if (act.date && new Date(act.date).getTime() - Date.now() < pol.selfCancelHours * 3600e3) {
+        try {
+          const { sendPushToStaffByPermission } = await import('../services/fcm.service.js');
+          sendPushToStaffByPermission('bookings', '⚠️ طلب إلغاء متأخّر (تطبيق)', `${player.name} يطلب إلغاء حجزه في ${act.name} — قبل اللعبة بأقلّ من ${pol.selfCancelHours} ساعات`,
+            'booking_cancelled', { activityId: String(activityId), url: `/admin/reservations?activityId=${activityId}` });
+        } catch { /* الإشعار خدمةٌ لا شرط */ }
+        return res.status(409).json({ error: `بقي أقلّ من ${pol.selfCancelHours} ساعات على اللعبة — وصل طلب إلغائك للإدارة وسيتواصلون معك`, lateCancelRequested: true });
+      }
+    }
+
     await db.update(bookings).set({ deletedAt: new Date() } as any).where(eq(bookings.id, bk.id));
     // 🧹 عضوٌ في مجموعة عرض يخرج منها، وزيارةٌ مجّانيّة مطبَّقة تعود — الدالّة نفسها لكلّ مسارات الإلغاء
     try { const { afterBookingRemoved } = await import('../services/booking-lifecycle.service.js'); await afterBookingRemoved(bk.id); } catch { /* غير حاجب */ }

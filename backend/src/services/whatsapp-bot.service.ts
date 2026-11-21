@@ -39,6 +39,7 @@ import { withGeminiResilience } from './gemini-resilience.js';
 import { emitStateSanitized } from '../sockets/broadcast.util.js';
 import { sendPushToStaffByPermission, sendPushToPlayers } from './fcm.service.js';
 import { EXT_TOOLS_DEFAULTS, EXT_ALWAYS_ADMIN_ONLY, extToolDeclarations, execExtTool, handleExtButton, transcribePendingAudio, alertAdminsWA, auditBot, offerFreedSeat, captureSurveyNote, type ExtHelpers } from './wa-bot-ext.service.js';
+import { bookingPolicy } from './booking-policy.service.js';
 
 const GEMINI_BASE = 'https://generativelanguage.googleapis.com/v1beta';
 const BOT_RESERVATION_TAG = 'بوت واتساب';
@@ -359,8 +360,8 @@ const SOCIAL_LINKS = {
   whatsappChannel: 'https://whatsapp.com/channel/0029VbDvCna8F2p6cjMpJW3d',
 };
 
-// حد الإلغاء الذاتي: 3 ساعات قبل موعد الفعالية (قرار المالك)
-const CANCEL_CUTOFF_MS = 3 * 3600e3;
+// حد الإلغاء الذاتي: من «سياسة الحجز» (ق٢: ٣ ساعات للتطبيق والدون معاً) — كان ثابتاً هنا وحده
+const cancelCutoffMs = () => bookingPolicy().selfCancelHours * 3600e3;
 
 // 🇯🇴 توقيت الأردن ثابت UTC+3 (أُلغي التوقيت الصيفي نهاية 2022) — التخزين UTC
 // كل تاريخ يُعرض للعميل أو للنموذج يمر من هنا حصراً؛ حسابات المهل تبقى epoch-based
@@ -1215,7 +1216,7 @@ async function seatAvailability(db: any, activityId: number): Promise<{ total: n
  *    كانت تفحص موقع الاختبار والتكرار وضغطة الزرّ، لا الحالة ولا التاريخ.
  * يُرجع null إن كانت قابلة، وإلّا نتيجةَ أداةٍ يفهمها النموذج.
  */
-const BOOKABLE_GRACE_MS = 6 * 3600e3;
+const bookableGraceMs = () => bookingPolicy().bookableGraceHours * 3600e3;   // من «سياسة الحجز»
 /**
  * 🟢 الفعاليّات التي لها غرفةٌ حيّة لم تُغلق — قرار المالك 2026-11-14: ما دامت الغرفة مفتوحة فالحجز
  * مقبول مهما مضى على موعد البداية (المتأخّرون يلحقون الجولة التالية). فشلُ القراءة ⟵ مجموعةٌ فارغة،
@@ -1236,7 +1237,7 @@ export async function notBookable(db: any, activityId: number): Promise<any | nu
   }
   // 🟢 غرفةٌ حيّة ⟵ قابلةٌ للحجز مهما كان الوقت أو الحالة
   if ((await liveRoomActivityIds()).has(Number(activityId))) return null;
-  if (!['planned', 'active'].includes(String(a.status)) || new Date(a.date as any).getTime() < Date.now() - BOOKABLE_GRACE_MS) {
+  if (!['planned', 'active'].includes(String(a.status)) || new Date(a.date as any).getTime() < Date.now() - bookableGraceMs()) {
     return { notBookable: true, ended: true, error: `فعاليّة «${a.name}» كانت ${fmtJo(a.date)} وانتهت — لا حجز. قل للعميل إنّ موعدها فات (القائمة التي ضغط منها قديمة) واعرض الفعاليات القادمة (get_available_activities).` };
   }
   return null;
@@ -4101,12 +4102,12 @@ async function performCancellation(convId: number, reservationId: number) {
   const when = fmtJo(r.activityDate);
   const msLeft = new Date(r.activityDate).getTime() - Date.now();
 
-  if (msLeft < CANCEL_CUTOFF_MS) {
-    // أقل من 3 ساعات — تحويل للإدارة
+  if (msLeft < cancelCutoffMs()) {
+    // داخل مهلة الإلغاء الذاتيّ — تحويل للإدارة
     await db.update(waConversations).set({ needsAttention: true, updatedAt: new Date() } as any).where(eq(waConversations.id, convId));
     await sendMessage({
       conversationId: convId,
-      text: `الفعالية بعد أقل من 3 ساعات فما بقدر ألغي تلقائياً 🙏\nحوّلت طلبك للإدارة وراح يتواصلوا معك بأسرع وقت.`,
+      text: `الفعالية بعد أقل من ${bookingPolicy().selfCancelHours} ساعات فما بقدر ألغي تلقائياً 🙏\nحوّلت طلبك للإدارة وراح يتواصلوا معك بأسرع وقت.`,
       source: 'system',
     }).catch(() => {});
     void alertAdminsWA(`latecancel:${r.id}`, `طلب إلغاء متأخّر (<3 ساعات): ${who} — ${r.activityName} (${when}). بحاجة قرارك.`, { exceptConvId: convId });

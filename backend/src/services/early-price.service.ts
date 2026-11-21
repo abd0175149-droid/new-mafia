@@ -460,7 +460,8 @@ export async function onReservationCancelled(resId: number, opts: { byCustomer: 
        WHERE r.id = ${resId} AND ${OWN_ANY_SQL} AND (COALESCE(l.is_test_location, false) = false ${E2E_LOC ? sql`OR l.id = ${E2E_LOC}` : sql``})`);
     const x = rowsOf(r)[0]; if (!x) return;
     const left = new Date(x.date).getTime() - Date.now();
-    if (!(left > 0 && left < LATE_CANCEL_HOURS * H)) return;
+    const { bookingPolicy } = await import('./booking-policy.service.js');
+    if (!(left > 0 && left < bookingPolicy().lateCancelHours * H)) return;
     const ph = normalizeLocalPhone(x.phone || '') || null;
     const ins: any = await db.execute(sql`
       INSERT INTO no_show_strikes (player_id, phone, activity_id, reservation_id, kind, status)
