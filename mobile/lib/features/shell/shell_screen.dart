@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+
+import '../game/room_v2/room_bus.dart';
 import 'package:flutter/rendering.dart';
 import 'package:go_router/go_router.dart';
 
@@ -8,6 +10,7 @@ import '../../core/cosmetics/cosmetics_service.dart';
 import '../../core/notifications/inbox_service.dart';
 import '../../core/ui/atmosphere.dart';
 import '../../core/ui/glass_tier.dart';
+import 'bottom_nav.dart' show kCenterTab;
 import 'liquid_glass_nav.dart';
 import '../../core/location/location_service.dart';
 import '../gates/location_intro_sheet.dart';
@@ -90,6 +93,16 @@ class _ShellScreenState extends State<ShellScreen>
   }
 
   void _select(int i) {
+    // 📱 داخل الغرفة (الواجهة الجديدة): زرّ «اللعبة» يفتح أدوات اللعبة — ومن تبويبٍ آخر يعود للغرفة أوّلاً
+    if (i == kCenterTab && RoomBus.state.value.active) {
+      if (widget.shell.currentIndex != kCenterTab) {
+        widget.shell.goBranch(kCenterTab);
+        WidgetsBinding.instance.addPostFrameCallback((_) => RoomBus.requestHub());
+      } else {
+        RoomBus.requestHub();
+      }
+      return;
+    }
     // 🔴 `initialLocation: true` عند إعادة نقر التبويب النشط: يعيده إلى
     //    جذره. بدونها يبقى اللاعب عالقاً في شاشةٍ فرعية (السجل مثلاً)
     //    ونقر التبويب لا يفعل شيئاً — وهو ما يفعله كل تطبيق آخر.

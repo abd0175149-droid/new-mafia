@@ -6,6 +6,8 @@ import '../../core/ui/glass_tier.dart';
 import '../../core/ui/glass_tokens.dart';
 import 'bottom_nav.dart' show NavTab, navTabs, kCenterTab;
 import 'native_glass.dart';
+import '../game/room_v2/room_bus.dart';
+import 'dart:async';
 
 // ══════════════════════════════════════════════════════
 // 🫧 شريط التنقّل الزجاجيّ — المنصّتان معاً، والمادّة بالدرجة
@@ -63,15 +65,24 @@ class LiquidGlassNav extends StatefulWidget {
 }
 
 class _LiquidGlassNavState extends State<LiquidGlassNav> {
+  bool get _roomActive => RoomBus.state.value.active;
+  void _onBus() { if (mounted) setState(() {}); }
   /// null = لم يُحسم بعد؛ حتى يُحسم تُستعمل المحاكاة فلا يومض شيء.
   bool _native = false;
 
   @override
   void initState() {
     super.initState();
+    RoomBus.state.addListener(_onBus);
     NativeGlass.isAvailable().then((v) {
       if (mounted && v != _native) setState(() => _native = v);
     });
+  }
+
+  @override
+  void dispose() {
+    RoomBus.state.removeListener(_onBus);
+    super.dispose();
   }
 
   @override
@@ -145,7 +156,8 @@ class _LiquidGlassNavState extends State<LiquidGlassNav> {
                           // تبقى داخلها في خانته كي تحاذي بقيّة التسميات.
                           i == kCenterTab
                               ? _GlassTab(
-                                  tab: navTabs[i],
+                                  // 📱 داخل الغرفة (الواجهة الجديدة): «اللعبة» بدل «ادخل»
+                                  tab: _roomActive ? _kGameTab : navTabs[i],
                                   active: index == i,
                                   labelT: t,
                                   onTap: () => onTap(i),
@@ -162,14 +174,19 @@ class _LiquidGlassNavState extends State<LiquidGlassNav> {
                   ),
                   Positioned(
                     bottom: barH - _kCenterSize + _kCenterLift,
-                    child: _GlassCenterTab(
-                      transparent: _native,
-                      solid: solid,
-                      tab: navTabs[kCenterTab],
-                      active: index == kCenterTab,
-                      labelT: t,
-                      onTap: () => onTap(kCenterTab),
-                    ),
+                    child: Stack(clipBehavior: Clip.none, alignment: Alignment.center, children: [
+                      _GlassCenterTab(
+                        transparent: _native,
+                        solid: solid,
+                        tab: _roomActive ? _kGameTab : navTabs[kCenterTab],
+                        active: index == kCenterTab,
+                        labelT: t,
+                        onTap: () => onTap(kCenterTab),
+                        iconOverride: _roomActive ? Icons.casino_outlined : null,
+                      ),
+                      // ⏱️ حلقة وقت المرحلة وشارة السلّة — كالويب
+                      if (_roomActive) IgnorePointer(child: _RoomRing(state: RoomBus.state.value)),
+                    ]),
                   ),
                 ],
               ),
@@ -326,6 +343,7 @@ class _GlassCenterTab extends StatefulWidget {
     required this.active,
     required this.labelT,
     required this.onTap,
+    this.iconOverride,
   });
 
   final bool transparent;
@@ -336,6 +354,7 @@ class _GlassCenterTab extends StatefulWidget {
   final bool active;
   final double labelT;
   final VoidCallback onTap;
+  final IconData? iconOverride;
 
   @override
   State<_GlassCenterTab> createState() => _GlassCenterTabState();
@@ -376,7 +395,7 @@ class _GlassCenterTabState extends State<_GlassCenterTab> {
                       : null,
                 ),
                 child: Icon(
-                  a ? Icons.verified_user : Icons.verified_user_outlined,
+                  widget.iconOverride ?? (a ? Icons.verified_user : Icons.verified_user_outlined),
                   size: 26,
                   color: const Color(0xFFFBBF24),
                 ),
@@ -410,7 +429,7 @@ class _GlassCenterTabState extends State<_GlassCenterTab> {
                       ],
                     ),
                     child: Icon(
-                      a ? Icons.verified_user : Icons.verified_user_outlined,
+                      widget.iconOverride ?? (a ? Icons.verified_user : Icons.verified_user_outlined),
                       size: 26,
                       color: a ? const Color(0xFF1A1206) : const Color(0xFFFBBF24),
                     ),
@@ -450,7 +469,7 @@ class _GlassCenterTabState extends State<_GlassCenterTab> {
                   ),
                 ),
                 child: Icon(
-                  a ? Icons.verified_user : Icons.verified_user_outlined,
+                  widget.iconOverride ?? (a ? Icons.verified_user : Icons.verified_user_outlined),
                   size: 26,
                   color: a ? const Color(0xFF1A1206) : const Color(0xFFFBBF24),
                 ),
@@ -462,3 +481,45 @@ class _GlassCenterTabState extends State<_GlassCenterTab> {
     );
   }
 }
+
+/// 📱 تبويب المنتصف داخل الغرفة (الواجهة الجديدة)
+const _kGameTab = NavTab('اللعبة', Icons.casino_outlined);
+
+/// ⏱️ حلقة وقت المرحلة حول زرّ «اللعبة» + شارة السلّة — تُعاد كلّ ثانية
+class _RoomRing extends StatefulWidget {
+  const _RoomRing({required this.state});
+  final RoomBusState state;
+  @override
+  State<_RoomRing> createState() => _RoomRingState();
+}
+
+class _RoomRingState extends State<_RoomRing> {
+  Timer? _t;
+  @override
+  void initState() { super.initState(); _t = Timer.periodic(const Duration(seconds: 1), (_) { if (mounted) setState(() {}); }); }
+  @override
+  void dispose() { _t?.cancel(); super.dispose(); }
+  @override
+  Widget build(BuildContext context) {
+    final s = widget.state;
+    final ends = s.endsAt;
+    final left = ends == null ? 0 : ends.difference(DateTime.now()).inMilliseconds / 1000.0;
+    final frac = ends == null || s.totalSec <= 0 ? 0.0 : (left / s.totalSec).clamp(0.0, 1.0);
+    final hot = ends != null && left <= 10;
+    return SizedBox(
+      width: _kCenterSize + 8, height: _kCenterSize + 8,
+      child: Stack(children: [
+        if (ends != null)
+          Positioned.fill(child: CircularProgressIndicator(value: frac, strokeWidth: 3,
+              backgroundColor: const Color(0x33FBBF24), valueColor: AlwaysStoppedAnimation(hot ? const Color(0xFFEF4444) : const Color(0xFFFBBF24)))),
+        if (s.cart > 0)
+          Positioned(top: 0, left: 0, child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
+            decoration: BoxDecoration(color: const Color(0xFF8A0303), borderRadius: BorderRadius.circular(99)),
+            child: Text('${s.cart}', style: const TextStyle(fontSize: 10, color: Colors.white, fontWeight: FontWeight.bold)),
+          )),
+      ]),
+    );
+  }
+}
+

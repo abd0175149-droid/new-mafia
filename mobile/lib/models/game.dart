@@ -1527,3 +1527,27 @@ class SeatChoiceAsk {
   }
   return (on: on, noPhoto: mine);
 }
+
+/// 🕵️ نتيجة تحقيق الشريف (`night:sheriff-result`) — تظهر داخل «رسالة الليل» و«مهامّي».
+class SheriffResult {
+  const SheriffResult({required this.round, required this.isMafia, required this.targetPhysicalId, required this.targetName});
+  final int round;
+  final bool isMafia;
+  final int targetPhysicalId;
+  final String targetName;
+
+  static SheriffResult? fromJson(Object? v, {int fallbackRound = 1}) {
+    if (v is! Map || v['targetPhysicalId'] == null) return null;
+    final pid = int.tryParse('${v['targetPhysicalId']}');
+    if (pid == null) return null;
+    return SheriffResult(
+      round: int.tryParse('${v['round'] ?? ''}') ?? (fallbackRound > 0 ? fallbackRound : 1),
+      isMafia: '${v['result'] ?? v['isMafia']}' == 'MAFIA' || v['isMafia'] == true,
+      targetPhysicalId: pid,
+      targetName: '${v['targetName'] ?? ''}',
+    );
+  }
+
+  Map<String, dynamic> toJson() => {'round': round, 'result': isMafia ? 'MAFIA' : 'CITIZEN', 'targetPhysicalId': targetPhysicalId, 'targetName': targetName};
+}
+

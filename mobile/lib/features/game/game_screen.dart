@@ -14,11 +14,14 @@ import 'mafia_gallery.dart';
 import 'mayor_layers.dart';
 import 'night_view.dart';
 import 'notepad_sheet.dart';
-import '../order/order_screen.dart' show showOrderSheet;
+import '../order/order_screen.dart' show showOrderSheet, kOrderSheetRoute;
 import 'join_flow.dart';
 import '../voice/remote_voice.dart';
 import '../voice/voice_service.dart';
 import 'lobby_view.dart';
+import 'room_v2/hold_reveal.dart' show kTasksRoute, kGalleryRoute, kPrivatePanelRoute;
+import 'room_v2/player_room.dart';
+import 'room_v2/room_bus.dart';
 import 'photo_consent_view.dart';
 import 'seat_choice_view.dart';
 import 'spectator_table.dart';
@@ -80,11 +83,55 @@ class _GameScreenState extends State<GameScreen> {
     super.initState();
     _c.addListener(_onChange);
     unawaited(_boot());
+    // 📱 مفتاح «شاشة اللاعب الجديدة» — يُسأل الآن وكلّ دقيقتين (فشلٌ يُبقي الأخير)
+    PlayerUiFlag.enabled.addListener(_onUiFlag);
+    unawaited(PlayerUiFlag.refresh(force: true));
+    _uiFlagTimer = Timer.periodic(const Duration(minutes: 2), (_) => unawaited(PlayerUiFlag.refresh()));
+  }
+
+  Timer? _uiFlagTimer;
+  void _onUiFlag() { if (mounted) setState(() {}); }
+
+  bool get _v2 => roomV2Active(_c);
+
+  // 🧹 مطابقٌ للويب: تغيّرُ المرحلة يُغلق «مهامّي» والمعرض ولوحات السرّ،
+  //    وبدءُ التصويت أو سؤالِ الليل يُغلق المنيو — مرّةً عند الحافّة لا كلّ إشعار.
+  String? _phaseSeen;
+  bool _askSeen = false;
+  void _closeOnPhase() {
+    final ph = _c.gamePhase;
+    final ask = ph == GamePhase.dayVoting ||
+        (ph == GamePhase.night && !_c.isPlayerDead && ((_c.oneNight?.hasChoice ?? false) || _c.nightAction != null));
+    final names = <String>{};
+    if (_v2) {
+      if (_phaseSeen != null && ph != _phaseSeen) names.addAll(const [kTasksRoute, kGalleryRoute, kPrivatePanelRoute]);
+      if (ask && !_askSeen) names.add(kOrderSheetRoute);
+    }
+    _phaseSeen = ph;
+    _askSeen = ask;
+    if (names.isEmpty) return;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      Navigator.of(context, rootNavigator: true).popUntil((r) => !names.contains(r.settings.name));
+    });
+  }
+
+  void _openOrderFromHub() {
+    if (!_fnbReady) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('المنيو غير متاح الآن في هذه الغرفة')));
+      return;
+    }
+    unawaited(showOrderSheet(
+      context,
+      onEmptyContext: () { if (mounted) setState(() => _fnbReady = false); },
+    ).then((_) => _refreshFnbOrders()));
   }
 
   @override
   void dispose() {
     _fnbTimer?.cancel();
+    _uiFlagTimer?.cancel();
+    PlayerUiFlag.enabled.removeListener(_onUiFlag);
     _c.removeListener(_onChange);
     unawaited(VoiceService.instance.disconnect());
     _code.dispose();
@@ -162,6 +209,7 @@ class _GameScreenState extends State<GameScreen> {
   void _onChange() {
     if (!mounted) return;
     _syncVoice();
+    _closeOnPhase();
     if (_c.step == GameStep.done || _c.step == GameStep.rejoined) {
       unawaited(_checkFnb());
     }
@@ -254,7 +302,10 @@ class _GameScreenState extends State<GameScreen> {
                   ),
                 // 🔒 لا مقعد مفتوح الآن — ننتظر، والمتحكّم يعيد الطلب وحده
                 GameStep.seatWait => SeatWaitView(onBack: _c.cancelSeatChoice),
-                GameStep.done || GameStep.rejoined => LobbyView(controller: _c),
+                // 📱 الواجهة الجديدة (المفتاح مشغَّل) — مطابقةً للويب؛ وإلّا القديمة كما هي
+                GameStep.done || GameStep.rejoined => _v2
+                    ? PlayerRoomV2(controller: _c, openGallery: _openGallery, openOrder: _openOrderFromHub, cartCount: _fnbOpen)
+                    : LobbyView(controller: _c),
                 // خطوات المصادقة تصل مع الملفّ ٠٥ — الحساب هنا مسجَّلٌ أصلاً
                 _ => const _Spinner(label: 'جارٍ…'),
               },
@@ -279,16 +330,19 @@ class _GameScreenState extends State<GameScreen> {
           ),
         if (_c.switchConfirm != null) _switchModal(),
         if (_c.joinConfirmation != null) _joinModal(),
-        if (_showGalleryFab) _galleryFab(),
-        if (_c.step == GameStep.done || _c.step == GameStep.rejoined)
+        // 📱 الواجهة الجديدة: لا أزرار عائمة — الأدوات في زرّ «اللعبة» وسط الشريط السفليّ
+        if (_showGalleryFab && !_v2) _galleryFab(),
+        if ((_c.step == GameStep.done || _c.step == GameStep.rejoined) && !_v2)
           _notepadFab(),
-        if (_fnbReady &&
+        if (_fnbReady && !_v2 &&
             (_c.step == GameStep.done || _c.step == GameStep.rejoined))
           _orderFab(),
-        // 🌙 طبقة الليل تعلو كلّ شيء عدا مودال تبديل الغرفة
-        Positioned.fill(child: NightLayer(controller: _c)),
-        // 🎩 طبقات العمدة — المودال والبانر والشارة
-        Positioned.fill(child: MayorLayer(controller: _c)),
+        // 🌙 طبقة الليل تعلو كلّ شيء عدا مودال تبديل الغرفة — الجديدة شاشةٌ واحدة للجميع
+        Positioned.fill(child: _v2
+            ? NightAskV2(controller: _c, openTasks: () => unawaited(openTasksV2(context, _c)))
+            : NightLayer(controller: _c)),
+        // 🎩 طبقات العمدة — المودال والبانر والشارة (الجديدة: بلا مودال الخيار)
+        Positioned.fill(child: MayorLayer(controller: _c, hidePrompt: _v2)),
         // ⚖️ PEN-1: تنبيه المخالفة يعلو كلّ شيء — قرارٌ يخصّ اللاعب وحده
         //    ولا يُفهم متأخّراً: من أُقصي بالعقوبات كان يكتشف موته بلا سبب.
         if (_c.penaltyAlert != null)

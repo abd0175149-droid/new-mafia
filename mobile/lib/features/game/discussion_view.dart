@@ -14,8 +14,11 @@ import 'game_session_controller.dart';
 const _gold = Color(0xFFC5A059);
 
 class DiscussionBody extends StatefulWidget {
-  const DiscussionBody({super.key, required this.controller});
+  const DiscussionBody({super.key, required this.controller, this.v2 = false});
   final GameSessionController controller;
+
+  /// 📱 الواجهة الجديدة (مطابقةً للويب): بلا عنوان المرحلة، وصورة المتحدّث داخل حلقة وقته
+  final bool v2;
 
   @override
   State<DiscussionBody> createState() => _DiscussionBodyState();
@@ -60,6 +63,16 @@ class _DiscussionBodyState extends State<DiscussionBody> {
     final left = d.remaining();
     final mine = c.isMyTurnToSpeak;
     final over = left <= 0 && d.isSpeaking;
+
+    if (widget.v2) {
+      return Column(children: [
+        if (mine) _MyTurnBanner(timeUp: over),
+        if (mine) const SizedBox(height: 16),
+        _SpeakerRing(controller: c, d: d, left: left, over: over),
+        const SizedBox(height: 20),
+        _order(c, d),
+      ]);
+    }
 
     return Column(children: [
       const Text('🎤', style: TextStyle(fontSize: 28)),
@@ -419,3 +432,63 @@ class _BlinkState extends State<_Blink> with SingleTickerProviderStateMixin {
     );
   }
 }
+
+/// 🎙️ الواجهة الجديدة: صورة المتحدّث داخل حلقة وقته (ذهبيّ ⟵ برتقاليّ عند ١٠ ⟵ أحمر عند ٥) — كالويب
+class _SpeakerRing extends StatelessWidget {
+  const _SpeakerRing({required this.controller, required this.d, required this.left, required this.over});
+  final GameSessionController controller;
+  final DiscussionState d;
+  final int left;
+  final bool over;
+
+  @override
+  Widget build(BuildContext context) {
+    final id = d.currentSpeakerId!;
+    final p = controller.roster.where((x) => x.physicalId == id).firstOrNull;
+    final total = d.timeLimitSeconds > 0 ? d.timeLimitSeconds : 60;
+    final frac = d.isSpeaking ? (left / total).clamp(0.0, 1.0) : 1.0;
+    final col = d.isSpeaking && left <= 5 ? const Color(0xFFEF4444) : d.isSpeaking && left <= 10 ? const Color(0xFFF59E0B) : _gold;
+    return Container(
+      key: ValueKey(id),
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(vertical: 18, horizontal: 12),
+      decoration: BoxDecoration(color: const Color(0xFF0C0C0C), border: Border.all(color: const Color(0x33C5A059)), borderRadius: BorderRadius.circular(4)),
+      child: Column(children: [
+        SizedBox(
+          width: 116, height: 116,
+          child: Stack(alignment: Alignment.center, children: [
+            SizedBox(
+              width: 116, height: 116,
+              child: CircularProgressIndicator(value: frac, strokeWidth: 3.2, backgroundColor: const Color(0xFF1F1C18), valueColor: AlwaysStoppedAnimation(col)),
+            ),
+            ClipOval(
+              child: SizedBox(
+                width: 96, height: 96,
+                child: p?.avatarUrl != null && p!.avatarUrl!.isNotEmpty
+                    ? Image.network(p.avatarUrl!, fit: BoxFit.cover, errorBuilder: (_, __, ___) => _seatFace(id))
+                    : _seatFace(id),
+              ),
+            ),
+            Positioned(
+              bottom: 0,
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                decoration: BoxDecoration(color: Colors.black, border: Border.all(color: _gold), borderRadius: BorderRadius.circular(99)),
+                child: Text('$id', style: mono(12.5, color: _gold).copyWith(fontWeight: FontWeight.w900)),
+              ),
+            ),
+          ]),
+        ),
+        const SizedBox(height: 8),
+        Text(p?.name ?? 'لاعب #$id', style: ar(19, color: Colors.white, weight: FontWeight.w800)),
+        const SizedBox(height: 2),
+        Text('${over ? 'انتهى الوقت' : d.isSpeaking ? 'يتحدّث الآن' : 'بالانتظار'}${d.isSpeaking ? ' · ${left < 0 ? 0 : left}' : ''}',
+            style: ar(13, color: _gold)),
+      ]),
+    );
+  }
+
+  Widget _seatFace(int id) => Container(color: const Color(0xFF1A1A1A), alignment: Alignment.center,
+      child: Text('#$id', style: ar(22, color: _gold, weight: FontWeight.w900)));
+}
+

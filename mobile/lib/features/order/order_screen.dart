@@ -57,9 +57,13 @@ class OrderScreen extends StatefulWidget {
 }
 
 /// يعرض لوحة الطلب ورقةً منسدلة فوق شاشة اللعبة.
+/// اسم مسار ورقة المنيو — تُغلقها غرفة اللعب الجديدة حين يبدأ التصويت أو سؤال الليل
+const kOrderSheetRoute = 'order-sheet';
+
 Future<void> showOrderSheet(BuildContext context, {VoidCallback? onEmptyContext}) =>
     showModalBottomSheet<void>(
       context: context,
+      routeSettings: const RouteSettings(name: kOrderSheetRoute),
       // 🔴 الجذر لا الفرع: من داخل تبويبٍ في الغلاف كانت الورقة تعيش تحت
       //    شريط التنقّل فيحجب أسفلها (زرّ الإرسال وشريط السلّة)
       useRootNavigator: true,

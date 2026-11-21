@@ -82,6 +82,7 @@ Future<void> showMafiaGallery(
 }) =>
     showGeneralDialog<void>(
       context: context,
+      routeSettings: const RouteSettings(name: 'room-gallery'),
       barrierDismissible: true,
       barrierLabel: 'إغلاق',
       barrierColor: const Color(0xCC000000),

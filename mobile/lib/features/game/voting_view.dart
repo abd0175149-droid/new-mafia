@@ -4,6 +4,7 @@ import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 
 import '../../core/api/api_client.dart';
+import '../../core/api/roles_guide_service.dart';
 import '../../models/game.dart';
 import '../../models/profile.dart' show roleNameAr;
 import '../profile/profile_palette.dart';
@@ -557,8 +558,11 @@ class EliminationBody extends StatelessWidget {
     this.names = const {},
     this.revealedRoles = const {},
     this.myPhysicalId = 0,
+    this.showFace = false,
   });
 
+  /// 📱 الواجهة الجديدة: صورة الدور تنقلب تحت الاسم بعد الكشف (مطابقٌ لـ faceOf في الويب)
+  final bool showFace;
   final List<int> eliminated;
   final Map<int, String> names;
 
@@ -654,7 +658,53 @@ class EliminationBody extends StatelessWidget {
                 style: ar(14, color: _gold, weight: FontWeight.bold)),
           ),
         ],
+        if (showFace && role != null && role.isNotEmpty) _RoleFace(role: role),
       ]),
     );
   }
+}
+
+/// 🃏 وجه الدور المكشوف — يُجلَب من دليل الأدوار المخزَّن، وإن غاب فلا شيء (كالويب)
+class _RoleFace extends StatelessWidget {
+  const _RoleFace({required this.role});
+  final String role;
+
+  @override
+  Widget build(BuildContext context) => FutureBuilder<List<GuideRole>>(
+        future: RolesGuideService.instance.load(),
+        initialData: RolesGuideService.instance.cached,
+        builder: (_, snap) {
+          final url = (snap.data ?? const <GuideRole>[]).where((r) => r.id == role).firstOrNull?.faceUrl;
+          if (url == null) return const SizedBox.shrink();
+          return Padding(
+            padding: const EdgeInsets.only(top: 12),
+            child: TweenAnimationBuilder<double>(
+              tween: Tween(begin: 1, end: 0),
+              duration: const Duration(milliseconds: 900),
+              builder: (_, t, child) => Opacity(
+                opacity: 1 - t,
+                child: Transform(
+                  alignment: Alignment.center,
+                  transform: Matrix4.identity()..setEntry(3, 2, 0.001)..rotateY(t * 3.14159),
+                  child: child,
+                ),
+              ),
+              child: Container(
+                width: 170,
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: _gold.withValues(alpha: 0.55), width: 2),
+                ),
+                clipBehavior: Clip.antiAlias,
+                child: CachedNetworkImage(
+                  imageUrl: ApiClient.instance.upload(url),
+                  fit: BoxFit.contain,
+                  errorWidget: (_, __, ___) => const SizedBox.shrink(),
+                  placeholder: (_, __) => const SizedBox(height: 220, child: ColoredBox(color: Color(0xFF0E0D0C))),
+                ),
+              ),
+            ),
+          );
+        },
+      );
 }

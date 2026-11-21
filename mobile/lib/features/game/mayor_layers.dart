@@ -18,14 +18,17 @@ import 'game_session_controller.dart';
 const _gold = Color(0xFFC5A059);
 
 class MayorLayer extends StatelessWidget {
-  const MayorLayer({super.key, required this.controller});
+  const MayorLayer({super.key, required this.controller, this.hidePrompt = false});
   final GameSessionController controller;
+
+  /// 📱 الواجهة الجديدة: خيار العمدة لا يظهر على أيّ هاتف (الليدر يختاره) — كالويب
+  final bool hidePrompt;
 
   @override
   Widget build(BuildContext context) {
     final c = controller;
     return Stack(children: [
-      if (c.mayorPrompt != null) _MayorPromptModal(controller: c),
+      if (c.mayorPrompt != null && !hidePrompt) _MayorPromptModal(controller: c),
       if (c.mayorBanner != null)
         _MayorBanner(reveal: c.mayorBanner!)
       else if (c.gamePhase == GamePhase.dayVoting && c.mayorRevealedId != null)

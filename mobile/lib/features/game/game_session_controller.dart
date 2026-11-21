@@ -491,6 +491,71 @@ class GameSessionController extends ChangeNotifier with WidgetsBindingObserver {
   void _loadNotes() {
     if (_roomId.isEmpty) return;
     _notepad = Notepad.decode(_prefs?.getString(_notesKey));
+    _loadSheriff();
+  }
+
+  // ══════════════════════════════════════════════════════
+  // 📱 الواجهة الجديدة (player_ui_v2) — مطابقةً للويب (2026-11-22)
+  // ══════════════════════════════════════════════════════
+  /// تُضبط من شاشة اللعبة حين تُرسم الواجهة الجديدة: تُطفئ التصويت التلقائيّ
+  /// (الويب: «من لم يصوّت فلا صوت له»).
+  bool uiV2 = false;
+
+  /// 🕵️ نتائج تحقيق الشريف — كانت تصل الهاتف (`night:sheriff-result`) ولا يقرؤها
+  ///    التطبيق، فلم يرَ شريف الأندرويد نتيجته أبداً. تُحفظ للغرفة كي تصمد بعد إعادة الفتح.
+  List<SheriffResult> _sheriffResults = const [];
+  List<SheriffResult> get sheriffResults => _assignedRole == 'SHERIFF' ? _sheriffResults : const [];
+  String get _sheriffKey => 'mafia_sheriff_$_roomId';
+  void _loadSheriff() {
+    try {
+      final raw = _prefs?.getString(_sheriffKey);
+      if (raw == null) { _sheriffResults = const []; return; }
+      final l = jsonDecode(raw);
+      _sheriffResults = l is List ? l.map((e) => SheriffResult.fromJson(e)).whereType<SheriffResult>().toList() : const [];
+    } catch (_) { _sheriffResults = const []; }
+  }
+  void _addSheriff(SheriffResult r) {
+    final next = [..._sheriffResults.where((x) => x.round != r.round), r]..sort((a, b) => a.round.compareTo(b.round));
+    _sheriffResults = next;
+    unawaited(_prefs?.setString(_sheriffKey, jsonEncode([for (final x in next) x.toJson()])) ?? Future.value());
+    notifyListeners();
+  }
+
+  /// تصويت الواجهة الجديدة: الخادم وحده يغلق التصويت (لا نافذة عشر ثوانٍ ولا عدّاد محلّيّ يمنع)،
+  /// والتغيير مسموحٌ حتّى الإغلاق. يعيد `null` عند القبول، أو سبب الرفض ليُعرض للاعب.
+  Future<String?> castVoteV2(int index) async {
+    final v = _voting;
+    if (v == null || index < 0 || index >= v.candidates.length) return 'لا يوجد هذا المرشّح';
+    if (_isPlayerDead) return 'أنت مُقصى — لا صوت لك';
+    if (_voteSubmitting || _myVote == index) return null;
+    if (v.candidates[index].targetPhysicalId == _physicalId) return 'لا يمكنك التصويت لنفسك';
+    _voteSubmitting = true;
+    notifyListeners();
+    try {
+      final res = await SocketService.instance.ask('player:cast-vote', {
+        'roomId': _roomId, 'physicalId': _physicalId, 'candidateIndex': index,
+      });
+      if (res?['success'] != true) return (res?['error'] as String?) ?? 'لم يُقبل الصوت — حاول ثانيةً';
+      _myVote = index;
+      _lastVoteAt = DateTime.now();
+      unawaited(HapticsService.instance.voteCast());
+      return null;
+    } catch (_) {
+      return 'الاتصال ضعيف — لم يصل صوتك، المس ثانيةً';
+    } finally {
+      _voteSubmitting = false;
+      notifyListeners();
+    }
+  }
+
+  /// «مهامّي» في الواجهة الجديدة: الخادم يقرّر الفتح (المُقصى يُمنع) ويُبلَّغ الليدر.
+  Future<String?> requestTasksOpen() async {
+    try {
+      final r = await SocketService.instance.ask('player:my-tasks-open', {'roomId': _roomId});
+      final m = r as Map?;
+      if (m != null && m['success'] == false) return (m['error'] as String?) ?? 'تعذّر الفتح';
+      return null;
+    } catch (_) { return null; }
   }
 
   List<MafiaChatMessage> _chat = const [];
@@ -593,6 +658,7 @@ class GameSessionController extends ChangeNotifier with WidgetsBindingObserver {
 
   DateTime? _lastVoteAt;
   bool _voteSubmitting = false;
+  bool get voteSubmitting => _voteSubmitting;
 
   /// 🔴 نافذة تغيير الصوت **عشر ثوانٍ** — في مسار `done` وحده.
   ///    من عاد بعد انقطاع (`rejoined`) يغيّر بحريّة حتى اكتمال الاقتراع:
@@ -1835,6 +1901,8 @@ class GameSessionController extends ChangeNotifier with WidgetsBindingObserver {
 
   /// 6.8 تصويتٌ تلقائيّ عند الصفر — **بدونه تعلّق الجولة**.
   Future<void> _autoVoteIfNeeded() async {
+    // 📱 الواجهة الجديدة: لا تصويتَ تلقائيّ (كان يصيب أوّل مرشّح عن غير قصد اللاعب)
+    if (uiV2) return;
     if (_myVote != null || _isPlayerDead) return;
     if (_roomId.isEmpty || _gamePhase != GamePhase.dayVoting) return;
     final cands = _voting?.candidates ?? const <VoteCandidate>[];
@@ -2604,6 +2672,12 @@ class GameSessionController extends ChangeNotifier with WidgetsBindingObserver {
     });
 
     // ── العمدة ──
+    // 🕵️ نتيجة التحقيق للشريف وحده — كانت تُهمَل في التطبيق
+    _on('night:sheriff-result', (d) {
+      final r = SheriffResult.fromJson(d, fallbackRound: _round);
+      if (r != null) _addSheriff(r);
+    });
+
     _on('day:mayor-window', (d) {
       // 🔒 البثّ العامّ للّيدر والعرض يصل الجميع؛ المودال للعمدة وحده.
       //    فتحُه لغيره يكشف أنّ العمدة ليس هو — ويمنحه قراراً لا يملكه.

@@ -87,6 +87,7 @@ class _NotepadSheetState extends State<NotepadSheet> {
       _target = null;
       _note.clear();
     }
+    if (_tab == _Tab.chat && !c.chatVisible && !c.uiV2) _tab = _Tab.add;
     setState(() {});
     if (_tab == _Tab.chat) _scrollChatToEnd();
   }
@@ -192,10 +193,12 @@ class _NotepadSheetState extends State<NotepadSheet> {
         const SizedBox(width: 4),
         // 🗳️ للجميع — حيّاً أو مُقصى — فلا يميّز أحداً عن غطاء التشاور
         _tabBtn(_Tab.votes, '🗳️ التصويت'),
-        if (c.chatVisible) ...[
+        // 📱 الواجهة الجديدة: التبويب للجميع (مطابقٌ لـ uniform في الويب) ولا شارة —
+        //    فلا يميّز ظهورُه ولا نقطتُه المافيا عن غيرهم
+        if (c.chatVisible || c.uiV2) ...[
           const SizedBox(width: 4),
           _tabBtn(_Tab.chat, '🗣️ التشاور',
-              badge: c.chatUnread && _tab != _Tab.chat),
+              badge: !c.uiV2 && c.chatUnread && _tab != _Tab.chat),
         ],
       ]),
     );
@@ -783,7 +786,19 @@ class _NotepadSheetState extends State<NotepadSheet> {
   Widget _chatTab() {
     // 🔒 حراسةٌ مزدوجة: التبويب لا يُرسم أصلاً، وجسمُه يفحص ثانيةً —
     //    فتغيّر الأهلية أثناء الفتح (موتٌ مثلاً) يُغلق المحتوى فوراً.
-    if (!c.chatVisible) return const SizedBox.shrink();
+    if (!c.chatVisible) {
+      if (!c.uiV2) return const SizedBox.shrink();
+      return Opacity(
+        opacity: 0.4,
+        child: Center(
+          child: Column(mainAxisSize: MainAxisSize.min, children: [
+            const Text('🤫', style: TextStyle(fontSize: 46)),
+            const SizedBox(height: 12),
+            Text('لا رسائل بعد', style: ar(14, color: const Color(0xFF9CA3AF))),
+          ]),
+        ),
+      );
+    }
 
     return Column(children: [
       Expanded(
