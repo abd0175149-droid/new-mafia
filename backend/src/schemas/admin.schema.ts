@@ -194,6 +194,11 @@ export const bookings = pgTable('bookings', {
   // 💸 سعر الدون المبكّر — السعر المقفول لحظة الحجز (فارغ = سعر الفعاليّة). اقرأه عبر entryPriceSql
   unitPrice: decimal('unit_price', { precision: 10, scale: 2 }),
   pricePromoId: integer('price_promo_id'),
+  // 🧭 خطّة التوحيد م٢-أ: قناةٌ وفاعلٌ صريحان، ورابطٌ صريح بصفّ المتابعة (يملؤها مشغّلٌ عند الكتابة —
+  //    app | bot | botadmin | group | door | staff | import | system)
+  channel: varchar('channel', { length: 12 }),
+  actor: varchar('actor', { length: 120 }),
+  reservationId: integer('reservation_id'),
   createdAt: timestamp('created_at').defaultNow().notNull(),
   deletedAt: timestamp('deleted_at'),
 });
@@ -683,6 +688,9 @@ export const reservations = pgTable('reservations', {
   unitPrice: decimal('unit_price', { precision: 10, scale: 2 }),
   pricePromoId: integer('price_promo_id'),
   promoSeats: integer('promo_seats'),
+  // 🧭 خطّة التوحيد م٢-أ: قناةٌ وفاعلٌ صريحان (يملؤهما مشغّلٌ من «أُنشئ بواسطة» حتّى تكتبهما الخدمة)
+  channel: varchar('channel', { length: 12 }),
+  actor: varchar('actor', { length: 120 }),
   createdAt: timestamp('created_at').defaultNow().notNull(),
   updatedAt: timestamp('updated_at').defaultNow().notNull(),
   deletedAt: timestamp('deleted_at'),
