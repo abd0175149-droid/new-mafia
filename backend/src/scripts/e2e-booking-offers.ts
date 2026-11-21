@@ -12,7 +12,7 @@ import { sql } from 'drizzle-orm';
 import { connectDB, getDB } from '../config/db.js';
 
 const TAG = 'E2E-GROUP-OFFER';
-const PH = { owner: '0799990101', f1: '0799990102', f2: '0799990103', f3: '0799990104', old: '0799990105', stranger: '0799990106' };
+const PH = { owner: '0799990108', f1: '0799990102', f2: '0799990103', f3: '0799990104', old: '0799990105', stranger: '0799990106' };
 const ALL = Object.values(PH);
 const API = `http://localhost:${process.env.PORT || 4000}`;
 
@@ -49,9 +49,11 @@ async function main() {
     }
     await q(sql`DELETE FROM booking_offers WHERE name LIKE ${'%' + TAG + '%'}`);
     await q(sql`DELETE FROM locations WHERE name LIKE ${'%' + TAG + '%'}`);
-    const convs = await q(sql`SELECT id FROM wa_conversations WHERE phone IN ${inPh}`);
+    // محادثات الفحص وحدها (باسمه) — صدى رسالةٍ خرجت فعلاً قبل الإصلاح يبقى سجلّاً، وحذفه يعيده
+    //    صدى البوّابة بعد كلّ إعادة تشغيل
+    const convs = await q(sql`SELECT id FROM wa_conversations WHERE phone IN ${inPh} AND COALESCE(display_name,'') LIKE ${'%' + TAG + '%'}`);
     for (const c of convs) await q(sql`DELETE FROM wa_messages WHERE conversation_id = ${c.id}`);
-    await q(sql`DELETE FROM wa_conversations WHERE phone IN ${inPh}`);
+    await q(sql`DELETE FROM wa_conversations WHERE phone IN ${inPh} AND COALESCE(display_name,'') LIKE ${'%' + TAG + '%'}`);
     const pls = await q(sql`SELECT id FROM players WHERE phone IN ${inPh}`);
     for (const p of pls) {
       await q(sql`DELETE FROM player_notifications WHERE player_id = ${p.id}`).catch(() => {});
@@ -63,7 +65,8 @@ async function main() {
   // ── حارس: الأرقام لا تخصّ أحداً حقيقيّاً (قبل أيّ تنظيف — التنظيف يمحو ما يطابقها) ──
   const [clash] = await q(sql`
     SELECT (SELECT COUNT(*) FROM players WHERE phone IN ${inPh} AND name NOT LIKE ${'%' + TAG + '%'})::int
-         + (SELECT COUNT(*) FROM wa_conversations WHERE phone IN ${inPh} AND COALESCE(display_name,'') NOT LIKE ${'%' + TAG + '%'})::int
+         + (SELECT COUNT(*) FROM wa_conversations c WHERE c.phone IN ${inPh} AND COALESCE(c.display_name,'') NOT LIKE ${'%' + TAG + '%'}
+              AND EXISTS (SELECT 1 FROM wa_messages m WHERE m.conversation_id = c.id AND m.direction = 'in'))::int
          + (SELECT COUNT(*) FROM reservations r JOIN activities a ON a.id = r.activity_id WHERE r.phone IN ${inPh} AND a.name NOT LIKE ${'%' + TAG + '%'})::int
          + (SELECT COUNT(*) FROM bookings b JOIN activities a ON a.id = b.activity_id WHERE b.phone IN ${inPh} AND a.name NOT LIKE ${'%' + TAG + '%'})::int AS n`);
   if (Number(clash?.n || 0) > 0) { console.error(`❌ أحد أرقام الفحص مستخدمٌ خارج الفحص (${clash.n}) — أُلغي`); process.exit(2); }
