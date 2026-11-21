@@ -1045,6 +1045,9 @@ async function main() {
         // 👥 م٥ب: «أصحابي» و«مجموعاتي» والثقة ورموز الانضمام
         const { migrateFriends } = await import('./services/friends.service.js');
         await migrateFriends(db);
+        // 🪑 م٥: مقعدٌ لكلّ شخص بسعره وحالة دفعه
+        const { migrateSeats } = await import('./services/seats.service.js');
+        await migrateSeats(db);
         // 💸 م٤-ب: قنوات العرض ونطاق الأيّام (ق٣، ق٢٣)
         await db.execute(sql`ALTER TABLE early_price_promos ADD COLUMN IF NOT EXISTS channels JSONB DEFAULT '["bot","admin"]'::jsonb`);
         await db.execute(sql`ALTER TABLE early_price_promos ADD COLUMN IF NOT EXISTS weekdays JSONB DEFAULT '[]'::jsonb`);

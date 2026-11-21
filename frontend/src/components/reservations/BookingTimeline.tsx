@@ -37,6 +37,8 @@ function line(e: any): string {
     case 'wl_offered': return `🪑 عُرض عليه مقعد${d.mins ? ` لمدّة ${d.mins} دقيقة` : ''}`;
     case 'wl_skipped': return 'اعتذر عن المقعد المعروض — آخر الدور';
     case 'wl_expired': return 'انتهت مهلة المقعد المعروض — آخر الدور';
+    case 'seat_paid': return `💵 دُفع مقعد «${d.name || ''}» — ${d.amount} د.أ`;
+    case 'seat_claimed': return `👥 ${d.name || 'صديق'} أخذ مقعده باسمه برمز الانضمام`;
     case 'moved': return `🔀 نُقل من «${d.fromName || d.from}» إلى «${d.toName || d.to}»${d.overCap ? ' (فوق السعة)' : ''}`;
     case 'price_manual': return d.price == null ? `أُعيد للسعر العاديّ${e.reason ? ` — ${e.reason}` : ''}` : `سعرٌ يدويّ ${d.price} د.أ${e.reason ? ` — ${e.reason}` : ''}`;
     case 'over_cap': return `ثُبّت فوق السعة${e.reason ? ` — ${e.reason}` : ''}`;

@@ -574,6 +574,24 @@ router.post('/:id/loyalty-visit', authenticate, async (req: Request, res: Respon
   } catch (err: any) { res.status(500).json({ error: err.message }); }
 });
 
+// ── 🪑 م٥: مقاعد الحجز بأسعارها وحالة دفع كلٍّ منها ──
+router.get('/:id/seats', authenticate, async (req: Request, res: Response) => {
+  const id = parseInt(req.params.id);
+  if (!Number.isFinite(id)) return res.status(400).json({ error: 'معرّف غير صالح' });
+  try { const S = await import('../services/seats.service.js'); const v = await S.seatsOf(id); if (!v) return res.status(404).json({ error: 'الحجز غير موجود' }); res.json(v); }
+  catch (err: any) { res.status(500).json({ error: err.message }); }
+});
+router.post('/:id/seats/pay', authenticate, async (req: Request, res: Response) => {
+  const id = parseInt(req.params.id);
+  if (!Number.isFinite(id)) return res.status(400).json({ error: 'معرّف غير صالح' });
+  try {
+    const S = await import('../services/seats.service.js');
+    const r = req.body?.all === true ? await S.payAll(id, staffWho(req)) : await S.paySeat(id, String(req.body?.ref || ''), req.body?.amount == null || req.body?.amount === '' ? null : Number(req.body.amount), staffWho(req));
+    if (!(r as any).ok) return res.status(409).json({ error: (r as any).error || 'تعذّر' });
+    res.json({ success: true, ...r });
+  } catch (err: any) { res.status(500).json({ error: err.message }); }
+});
+
 // ── 🔀 م٦: النقل لفعاليّةٍ أخرى، والسعر اليدويّ (الأدمن) ──
 router.post('/:id/move', authenticate, async (req: Request, res: Response) => {
   const id = parseInt(req.params.id);

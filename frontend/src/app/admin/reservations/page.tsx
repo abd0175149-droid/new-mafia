@@ -772,7 +772,7 @@ export default function ReservationsPage() {
         <div><b className="ltr">{num(money.earlySeats)}</b><small>بسعرٍ مقفول</small></div>
       </div>
       {money.companionsDue > 0 && (
-        <p className="res-money-note">و<span className="ltr">{num(money.companionsDue)}</span> د.أ تقديراً لمرافقين بلا صفّ مال — خارج «المتوقَّع» حتّى توحيد المقاعد.</p>
+        <p className="res-money-note">و<span className="ltr">{num(money.companionsDue)}</span> د.أ على مقاعد أصدقاء بلا حساب ومرافقين{(money as any).seatsPaid ? <> (دُفع منها <span className="ltr">{num((money as any).seatsPaid)}</span>)</> : null} — من بطاقة كلّ حجز «المقاعد».</p>
       )}
     </div>
   );

@@ -8,7 +8,7 @@
 // ══════════════════════════════════════════════════════
 
 import { useCallback, useEffect, useState } from 'react';
-import { ArrowLeftRight, Banknote, Gift, Tag, Undo2 } from 'lucide-react';
+import { ArrowLeftRight, Gift, Tag, Undo2 } from 'lucide-react';
 import { swalAlert, swalConfirm, swalToast } from '@/lib/swal';
 import { apiFetch, withCapChoice } from '@/hooks/useReservations';
 import { Field } from './Sheet';
@@ -19,8 +19,6 @@ export default function OfferLoyaltyBox({ resId, onChanged }: { resId: number; o
   const [reason, setReason] = useState('');
   const [busy, setBusy] = useState(false);
   // 🔀 م٦: الدفع والنقل والسعر اليدويّ من بطاقة الشخص
-  const [payAmt, setPayAmt] = useState('');
-  const [payOpen, setPayOpen] = useState(false);
   const [moveOpen, setMoveOpen] = useState(false);
   const [acts, setActs] = useState<any[]>([]);
   const [moveTo, setMoveTo] = useState('');
@@ -32,20 +30,10 @@ export default function OfferLoyaltyBox({ resId, onChanged }: { resId: number; o
   const load = useCallback(async () => {
     try { setX(await apiFetch(`/api/reservations/${resId}/extras`)); } catch { setX(null); }
   }, [resId]);
-  useEffect(() => { setPick(null); setReason(''); setPayOpen(false); setMoveOpen(false); setPriceOpen(false); load(); }, [load]);
+  useEffect(() => { setPick(null); setReason(''); setMoveOpen(false); setPriceOpen(false); load(); }, [load]);
   if (!x) return null;
   const hasOffers = x.offers?.length > 0;
 
-  const pay = async () => {
-    const amt = Number(payAmt);
-    if (!(amt >= 0) || !x.bookingId) return;
-    setBusy(true);
-    try {
-      await apiFetch(`/api/bookings/${x.bookingId}/pay`, { method: 'PUT', body: JSON.stringify({ isPaid: true, paidAmount: amt, receivedBy: me?.displayName || me?.username || '' }) });
-      await done(`سُجّل دفع ${amt} د.أ`);
-    } catch (e: any) { swalAlert(e?.message || 'تعذّر', 'error'); }
-    finally { setBusy(false); }
-  };
   const openMove = async () => {
     setMoveOpen(!moveOpen);
     if (!acts.length) {
@@ -142,15 +130,8 @@ export default function OfferLoyaltyBox({ resId, onChanged }: { resId: number; o
       <div className="row">
         <span>المتوقَّع <span className="ltr">{x.expected}</span> د.أ{x.people > 1 ? ` (${x.people} أشخاص)` : ''} · {x.pay?.isFree ? 'مجّانيّ' : x.pay?.isPaid ? <>مدفوع <span className="ltr">{x.pay.paidAmount}</span> د.أ</> : 'غير مدفوع'}</span>
       </div>
-      {x.pay && !x.pay.isPaid && !x.pay.isFree && (x.feeOnBill
-        ? <p className="res-fine">الدخوليّة على فاتورة المقهى في هذه الفعاليّة — تُحصَّل من الكاشير مع الفاتورة.</p>
-        : !payOpen
-          ? <button type="button" className="wa-btn ghost block" disabled={busy} onClick={() => { setPayAmt(String(x.expected)); setPayOpen(true); }}><Banknote />سجّل دفع الدخول</button>
-          : <>
-              <Field value={payAmt} onChange={setPayAmt} placeholder="المبلغ المستلم (د.أ)" dir="ltr" inputMode="numeric" />
-              <button type="button" className="wa-btn send block" disabled={busy || !(Number(payAmt) >= 0)} onClick={pay}>ثبّت الدفع</button>
-            </>)}
-      {!x.pay && x.playerId == null && <p className="res-fine">بلا حساب لاعب — الدفع يُسجَّل من الكاشير.</p>}
+      {/* 💵 الدفع لكلّ مقعد في «المقاعد» أعلاه (م٥) */}
+      {x.feeOnBill && x.pay && !x.pay.isPaid && !x.pay.isFree && <p className="res-fine">الدخوليّة على فاتورة المقهى أيضاً — ما يُسجَّل هنا لا يُحمَّل على الفاتورة.</p>}
 
       {/* 🔀 النقل لفعاليّةٍ أخرى */}
       <button type="button" className="wa-btn ghost block" disabled={busy} onClick={openMove}><ArrowLeftRight />انقل لفعاليّةٍ أخرى</button>

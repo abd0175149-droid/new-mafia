@@ -52,7 +52,8 @@ export interface ActivityMoney {
   collected: number;            // المدفوع المسجَّل
   free: number; freeReasons: Record<string, number>;
   earlySeats: number;           // صفوف حجزٍ بسعرٍ مقفول
-  companionsDue: number;        // تقدير المرافقين خارج «المتوقَّع»
+  companionsDue: number;        // م٥: حقّ المقاعد بلا صفّ مال (أصدقاء بلا حساب ومرافقون) غير المدفوع
+  seatsPaid: number;            // م٥: المدفوع على تلك المقاعد
   groups: number; strikes: number;
 }
 
@@ -194,16 +195,12 @@ export async function activityMoney(activityId: number): Promise<ActivityMoney |
     else expected += n * (Number(b.price) || 0);
     if (Number(b.price) !== A.base) earlySeats += n;
   }
-  const { reservationTotal } = await import('./early-price.service.js');
-  let companionsDue = 0;
-  for (const r of resRows) {
-    const people = Math.max(1, Number(r.peopleCount) || 1); if (people < 2) continue;
-    const lock = { unitPrice: r.unitPrice != null ? Number(r.unitPrice) : null, promoSeats: r.promoSeats != null ? Number(r.promoSeats) : null };
-    const ownerLocked = lock.unitPrice != null && (lock.promoSeats == null || lock.promoSeats >= 1) ? lock.unitPrice : A.base;
-    companionsDue += reservationTotal(people, A.base, lock) - ownerLocked;
-  }
+  // 🪑 م٥: المقاعد بلا صفّ مال من المقاعد نفسها (كان تقديراً يحسب أصحاب الحسابات مرّتين)
+  const { dueWithoutRows } = await import('./seats.service.js');
+  const sd = await dueWithoutRows(actId);
+  const companionsDue = sd.due;
   const g: any = rowsOf(await db.execute(sql`SELECT COUNT(*)::int AS n FROM booking_groups WHERE activity_id = ${actId} AND status <> 'void'`))[0];
   let strikes = 0;
   try { strikes = Number(rowsOf(await db.execute(sql`SELECT COUNT(*)::int AS n FROM no_show_strikes WHERE activity_id = ${actId}`))[0]?.n || 0); } catch { /* بلا جدول */ }
-  return { base: A.base, expected: r2(expected), collected: r2(collected), free, freeReasons, earlySeats, companionsDue: r2(companionsDue), groups: Number(g?.n || 0), strikes };
+  return { base: A.base, expected: r2(expected), collected: r2(collected), free, freeReasons, earlySeats, companionsDue: r2(companionsDue), seatsPaid: sd.paid, groups: Number(g?.n || 0), strikes };
 }
