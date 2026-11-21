@@ -185,7 +185,7 @@ export function settleCount(t: Terms, present: Array<{ paying: boolean }>): { si
 // ══════════════════════════════════════════════════════
 // 🗄️ العروض من القاعدة
 // ══════════════════════════════════════════════════════
-function toLike(r: any): OfferLike {
+export function toLike(r: any): OfferLike {
   return {
     id: Number(r.id), name: String(r.name), status: String(r.status),
     N: Number(r.groupSize ?? r.group_size), K: Number(r.payFor ?? r.pay_for), repeat: !!r.repeat,
@@ -195,7 +195,7 @@ function toLike(r: any): OfferLike {
     notifiedAt: (r.notifiedAt ?? r.notified_at) ? new Date(r.notifiedAt ?? r.notified_at).getTime() : null,
   } as any;
 }
-function actIdsOf(r: any): number[] { const a = r.activityIds ?? r.activity_ids; return (Array.isArray(a) ? a : []).map(Number).filter(Number.isFinite); }
+export function actIdsOf(r: any): number[] { const a = r.activityIds ?? r.activity_ids; return (Array.isArray(a) ? a : []).map(Number).filter(Number.isFinite); }
 
 export async function listOfferRows(): Promise<any[]> {
   const db = getDB(); if (!db) return [];

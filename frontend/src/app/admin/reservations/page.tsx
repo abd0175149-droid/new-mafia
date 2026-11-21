@@ -41,6 +41,7 @@ import { useReservations, apiFetch, getToken, type Reservation, type ActivityMon
 import OfferGroupsSection from '../components/OfferGroupsSection';
 import NoShowSection from '../components/NoShowSection';
 import CancelledSection from '../components/CancelledSection';
+import TonightOffers from '@/components/reservations/TonightOffers';
 import ResRow from '@/components/reservations/ResRow';
 import PersonSheet, { PersonPanel } from '@/components/reservations/PersonSheet';
 import QuickAddSheet from '@/components/reservations/QuickAddSheet';
@@ -777,6 +778,7 @@ export default function ReservationsPage() {
   // 🎟️ مجموعات العروض والغياب لهذه الفعاليّة — كانا في صفحة الفعاليّة وحدها (يختفيان إن كانا فارغين)
   const offerSecs = single && actId > 0 && (
     <div className="res-legacy">
+      <TonightOffers activityId={actId} />
       <OfferGroupsSection activityId={actId} onChanged={() => R.fetchAll()} />
       <NoShowSection activityId={actId} onChanged={() => R.fetchAll()} />
       <CancelledSection key={`cx-${actId}-${R.reservations.length}`} activityId={actId} onChanged={() => R.fetchAll()} />

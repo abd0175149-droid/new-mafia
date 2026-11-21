@@ -21,12 +21,13 @@ async function api(path: string, opts?: RequestInit) {
   return body;
 }
 
-interface Policy { selfCancelHours: number; changeHours: number; bookableGraceHours: number; lateCancelHours: number }
-const FIELDS: Array<{ k: keyof Policy; title: string; hint: string; max: number }> = [
+interface Policy { selfCancelHours: number; changeHours: number; bookableGraceHours: number; lateCancelHours: number; strikeExpiryDays: number }
+const FIELDS: Array<{ k: keyof Policy; title: string; hint: string; max: number; unit?: string; step?: number }> = [
   { k: 'selfCancelHours', title: 'الإلغاء الذاتيّ حتّى', hint: 'من التطبيق والدون معاً (ق٢). بعدها يصل الطلب للإدارة. المدفوع يُلغى عبر الإدارة دائماً.', max: 72 },
   { k: 'changeHours', title: 'تعديل العدد بنفسه حتّى', hint: 'زيادة الأشخاص أو إنقاصهم من الدون. بعدها يتحوّل الطلب للإدارة.', max: 72 },
   { k: 'bookableGraceHours', title: 'الحجز بعد موعد البدء حتّى', hint: 'ساعاتٌ بعد البدء ما زال الحجز فيها مقبولاً. والغرفة المفتوحة تُحجز دائماً.', max: 24 },
   { k: 'lateCancelHours', title: 'الإلغاء المتأخّر يُحسب غياباً في آخر', hint: 'من يلغي في هذه الساعات قبل اللعبة يُحرم من السعر المبكّر في حجزه التالي.', max: 72 },
+  { k: 'strikeExpiryDays', title: 'الغياب ينتهي بعد', hint: 'غيابٌ أقدم من هذا لا يحرم من السعر المبكّر (ق٧). صفر = لا ينتهي.', max: 365, unit: 'يوم', step: 1 },
 ];
 
 // 📊 تقرير الإلغاءات (م٣): متى يلغي الناس ومن أيّ قناة — منه تُضبط مهلة الإلغاء
@@ -36,6 +37,96 @@ const BUCKETS: Array<{ k: string; label: string }> = [
 ];
 const CH: Record<string, string> = { app: '📱 التطبيق', bot: '🤖 الدون', botadmin: '🔒 أدمن البوت', staff: '👤 الإدارة', door: '🚪 الباب', group: '👥 مجموعة', system: '⚙️ النظام' };
 const ar = (n: number) => String(n).replace(/\d/g, (x) => '٠١٢٣٤٥٦٧٨٩'[Number(x)]);
+
+// 💸 م٤-أ: فهرس العروض الموحّد — كلّ العروض بشكلٍ واحد، وقاعدة الجمع ظاهرة (ق١١، ق١٣، ق١٤)
+const ST: Record<string, { t: string; c: string }> = {
+  live: { t: 'فعّال', c: 'var(--ok)' }, paused: { t: 'موقوف', c: 'var(--ink-3)' }, draft: { t: 'مسودة', c: 'var(--ink-3)' },
+  scheduled: { t: 'مجدول', c: 'var(--gold)' }, ended: { t: 'انتهى', c: 'var(--ink-3)' },
+};
+const KIND: Record<string, string> = { early: '💸 سعر مبكّر', group: '👥 مجموعة', loyalty_visit: '🎟️ زيارة ولاء', loyalty_drink: '☕ مشروب ولاء', loyalty_chips: '🪙 رقائق ولاء' };
+
+function OfferCatalog() {
+  const [rows, setRows] = useState<any[] | null>(null);
+  const [err, setErr] = useState<string | null>(null);
+  useEffect(() => { api('/api/booking-rules/offers').then(r => setRows(r.offers)).catch(e => setErr(e.message)); }, []);
+  return (
+    <Card title="فهرس العروض" aside="كلّ العروض في مكانٍ واحد">
+      <p style={{ color: 'var(--ink-2)', margin: '0 0 var(--space-2)', fontSize: 13 }}>
+        لا تُجمع العروض: يأخذ العميل الأفضل له (ق١١). الولاء حصريّ على الحجز كلّه (ق١٣)، ومشروبه لا يُطبَّق آليّاً ليلة عرض (ق١٤)،
+        وحين ينطبق عرضٌ ومكافأة معاً يرى العميل الخيارين ويختار (ق١٥).
+      </p>
+      {err ? <Banner tone="danger" flat>{err}</Banner> : !rows ? <Loader2 className="animate-spin" aria-hidden="true" /> : (
+        <div style={{ display: 'grid', gap: 6 }}>
+          {rows.map(o => (
+            <div key={o.key} style={{ border: '1px solid var(--line)', borderRadius: 'var(--radius-md)', padding: '8px 10px', display: 'grid', gap: 2, opacity: o.status === 'live' ? 1 : 0.75 }}>
+              <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+                <b style={{ fontSize: 14 }}>{o.name}</b>
+                <small style={{ color: 'var(--ink-3)' }}>{KIND[o.kind] || o.kind}</small>
+                <small style={{ color: ST[o.status]?.c, fontWeight: 700, marginInlineStart: 'auto' }}>{ST[o.status]?.t || o.status}</small>
+              </div>
+              <span style={{ fontSize: 13, color: 'var(--ink)' }}>{o.rule}</span>
+              <small style={{ color: 'var(--ink-3)' }}>النطاق: {o.scope.text} · القنوات: {o.channelsText}{o.window ? ` · ${o.window}` : ''}</small>
+              <small style={{ color: 'var(--ink-3)' }}>الجمع: {o.stackText} · <a href={o.edit} style={{ color: 'var(--gold)' }}>تعديل</a></small>
+            </div>
+          ))}
+        </div>
+      )}
+    </Card>
+  );
+}
+
+// 🧮 جرّب السعر: الدالّة الواحدة التي ستسعّر كلّ القنوات — ماذا يدفع هذا الشخص لو حجز الآن؟
+function QuoteTester() {
+  const [acts, setActs] = useState<any[]>([]);
+  const [f, setF] = useState({ activityId: '', people: 1, phone: '', channel: 'bot' });
+  const [q, setQ] = useState<any>(null);
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+  useEffect(() => {
+    api('/api/activities').then((r: any) => {
+      const list = (Array.isArray(r) ? r : r?.activities || r?.data || []).filter((a: any) => new Date(a.date).getTime() > Date.now() - 6 * 3600e3)
+        .sort((x: any, y: any) => new Date(x.date).getTime() - new Date(y.date).getTime()).slice(0, 30);
+      setActs(list); if (list[0]) setF(v => ({ ...v, activityId: String(list[0].id) }));
+    }).catch(() => {});
+  }, []);
+  const run = async () => {
+    setBusy(true); setErr(null);
+    try {
+      const qs = new URLSearchParams({ activityId: f.activityId, people: String(f.people), phone: f.phone, channel: f.channel });
+      setQ((await api(`/api/booking-rules/quote?${qs}`)).quote);
+    } catch (e: any) { setErr(e.message); } finally { setBusy(false); }
+  };
+  return (
+    <Card title="جرّب السعر" aside="قراءةٌ فقط — لا يُحجز شيء">
+      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+        <select className="wa-input" style={{ flex: '1 1 200px', minHeight: 40 }} value={f.activityId} onChange={e => setF({ ...f, activityId: e.target.value })} aria-label="الفعاليّة">
+          {acts.map(a => <option key={a.id} value={a.id}>{a.name} — {new Date(a.date).toLocaleDateString('ar-JO', { timeZone: 'Asia/Amman', weekday: 'long', day: 'numeric', month: 'numeric' })}</option>)}
+        </select>
+        <input className="wa-input" style={{ width: 70, minHeight: 40, textAlign: 'center' }} type="number" min={1} max={30} value={f.people} onChange={e => setF({ ...f, people: Number(e.target.value) || 1 })} aria-label="العدد" />
+        <input className="wa-input" style={{ width: 140, minHeight: 40 }} dir="ltr" inputMode="tel" placeholder="رقم العميل" value={f.phone} onChange={e => setF({ ...f, phone: e.target.value })} aria-label="الرقم" />
+        <select className="wa-input" style={{ width: 'auto', minHeight: 40 }} value={f.channel} onChange={e => setF({ ...f, channel: e.target.value })} aria-label="القناة">
+          <option value="bot">🤖 الدون</option><option value="app">📱 التطبيق</option><option value="admin">🔒 أدمن البوت</option><option value="staff">👤 الإدارة</option>
+        </select>
+        <button type="button" className="wa-btn primary" disabled={busy || !f.activityId} onClick={run}>{busy ? <Loader2 className="animate-spin" aria-hidden="true" /> : null} سعّر</button>
+      </div>
+      {err && <Banner tone="danger" flat>{err}</Banner>}
+      {q && (
+        <div style={{ display: 'grid', gap: 6, marginTop: 'var(--space-3)' }}>
+          {q.options.map((o: any) => (
+            <div key={o.key} style={{ display: 'flex', gap: 8, alignItems: 'baseline', flexWrap: 'wrap', padding: '6px 10px', borderRadius: 'var(--radius-md)',
+              border: `1px solid ${o.key === q.best ? 'var(--ok)' : 'var(--line)'}`, opacity: o.ok ? 1 : 0.6 }}>
+              <b style={{ fontSize: 14 }}>{o.label}</b>
+              {o.key === q.best && <small style={{ color: 'var(--ok)', fontWeight: 700 }}>الأفضل للعميل</small>}
+              <span style={{ marginInlineStart: 'auto', fontWeight: 700 }}>{o.ok ? `${ar(o.total)} د.أ` : 'لا ينطبق'}</span>
+              {o.reasons?.length > 0 && <small style={{ width: '100%', color: 'var(--ink-3)' }}>{o.reasons.join(' · ')}</small>}
+            </div>
+          ))}
+          {q.notes?.map((n: string, i: number) => <small key={i} style={{ color: q.choose ? 'var(--gold)' : 'var(--ink-3)' }}>ℹ️ {n}</small>)}
+        </div>
+      )}
+    </Card>
+  );
+}
 
 function CancelReport() {
   const [days, setDays] = useState(30);
@@ -109,13 +200,13 @@ export default function BookingRulesPage() {
           <Setting key={f.k} title={f.title} hint={`${f.hint}${d ? ` الافتراضيّ ${d[f.k]}.` : ''}`}>
             <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
               <input
-                type="number" min={0} max={f.max} step={0.5} inputMode="decimal"
+                type="number" min={0} max={f.max} step={f.step ?? 0.5} inputMode="decimal"
                 className="wa-input" style={{ width: 84, textAlign: 'center' }}
                 aria-label={f.title}
                 value={draft[f.k]}
                 onChange={e => setDraft({ ...draft, [f.k]: Number(e.target.value) })}
               />
-              <small style={{ color: 'var(--ink-3)' }}>ساعة</small>
+              <small style={{ color: 'var(--ink-3)' }}>{f.unit || 'ساعة'}</small>
             </span>
           </Setting>
         ))}
@@ -126,6 +217,8 @@ export default function BookingRulesPage() {
           {d && <button type="button" className="wa-btn" disabled={busy} onClick={() => setDraft({ ...d })}><RotateCcw aria-hidden="true" /> القيم الافتراضيّة</button>}
         </div>
       </Card>
+      <OfferCatalog />
+      <QuoteTester />
       <CancelReport />
     </div>
   );

@@ -24,6 +24,7 @@ const STATUS: Record<string, { label: string; cls: string }> = {
   active: { label: 'قائم — حجزه القادم عبر الدون بالسعر العاديّ', cls: 'text-rose-300' },
   consumed: { label: 'استُهلك', cls: 'text-gray-400' },
   waived: { label: 'أُلغي (حضر)', cls: 'text-emerald-300' },
+  expired: { label: 'انتهى — مرّ عليه أكثر من مدّة الغياب (ق٧)', cls: 'text-gray-500' },
 };
 const CH: Record<string, string> = { bot: '🤖 الدون', admin: '🔒 الأدمن عبر البوت', app: '📱 التطبيق', staff: '👤 موظّف' };
 
@@ -72,7 +73,7 @@ export default function NoShowSection({ activityId, onChanged }: { activityId: n
                 <td className="px-2 py-1.5 text-gray-300">{s.kind === 'late_cancel' ? 'إلغاء متأخّر' : 'لم يحضر'}</td>
                 <td className={`px-2 py-1.5 ${STATUS[s.status]?.cls || ''}`}>{STATUS[s.status]?.label || s.status}{s.status === 'consumed' && s.consumedIn ? ` في «${s.consumedIn}»` : ''}{s.status === 'waived' && s.waivedBy ? ` · ${s.waivedBy}` : ''}</td>
                 <td className="px-2 py-1.5 text-left">
-                  {s.status !== 'waived' && (
+                  {s.status !== 'waived' && s.status !== 'expired' && (
                     <button disabled={busy === s.id} onClick={() => waive(s)} className="text-[11px] font-bold px-2.5 py-1 rounded-lg bg-emerald-500/15 text-emerald-300 border border-emerald-500/25 hover:bg-emerald-500/25 disabled:opacity-50">حضر ✓</button>
                   )}
                 </td>

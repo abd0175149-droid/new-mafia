@@ -19,9 +19,11 @@ export interface BookingPolicy {
   bookableGraceHours: number;
   /** إلغاءٌ في آخر هذا العدد من الساعات يُحسب غياباً (يحرم من السعر المبكّر التالي) */
   lateCancelHours: number;
+  /** ق٧: الغياب ينتهي بعد هذا العدد من الأيّام (٠ = لا ينتهي) */
+  strikeExpiryDays: number;
 }
 
-export const DEFAULT_BOOKING_POLICY: BookingPolicy = { selfCancelHours: 3, changeHours: 3, bookableGraceHours: 6, lateCancelHours: 6 };
+export const DEFAULT_BOOKING_POLICY: BookingPolicy = { selfCancelHours: 3, changeHours: 3, bookableGraceHours: 6, lateCancelHours: 6, strikeExpiryDays: 45 };
 const KEY = 'booking_policy';
 
 const clamp = (v: any, d: number, min: number, max: number) => {
@@ -36,6 +38,7 @@ export function normalizePolicy(raw: any): BookingPolicy {
     changeHours: clamp(r.changeHours, d.changeHours, 0, 72),
     bookableGraceHours: clamp(r.bookableGraceHours, d.bookableGraceHours, 0, 24),
     lateCancelHours: clamp(r.lateCancelHours, d.lateCancelHours, 0, 72),
+    strikeExpiryDays: Math.round(clamp(r.strikeExpiryDays, d.strikeExpiryDays, 0, 365)),
   };
 }
 

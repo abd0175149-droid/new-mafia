@@ -175,9 +175,14 @@ export async function activeStrikes(phone: string | null | undefined, playerId: 
   const db = getDB(); if (!db) return [];
   const ph = normalizeLocalPhone(phone || '') || null;
   if (!ph && !playerId) return [];
+  // ⏳ ق٧ (معتمد): الغياب ينتهي بعد «strikeExpiryDays» يوماً من تسجيله (٠ = لا ينتهي) — بلا ترحيل:
+  //    الصفّ يبقى «active» للتاريخ، والانتهاء يُقرأ هنا، المدخل الوحيد لحكم الغياب على السعر.
+  const { bookingPolicy } = await import('./booking-policy.service.js');
+  const exp = bookingPolicy().strikeExpiryDays;
   const r: any = await db.execute(sql`
     SELECT s.*, a.name AS activity_name, a.date AS activity_date FROM no_show_strikes s LEFT JOIN activities a ON a.id = s.activity_id
      WHERE s.status = 'active' AND (${playerId ? sql`s.player_id = ${playerId} OR` : sql``} ${ph ? sql`s.phone = ${ph}` : sql`false`})
+       ${exp > 0 ? sql`AND s.created_at > NOW() - make_interval(days => ${exp})` : sql``}
      ORDER BY s.created_at ASC`);
   return rowsOf(r);
 }
@@ -500,7 +505,10 @@ export async function strikesForActivity(activityId: number): Promise<any[]> {
       FROM no_show_strikes s LEFT JOIN reservations r ON r.id = s.reservation_id
       LEFT JOIN reservations cr ON cr.id = s.consumed_by_reservation_id LEFT JOIN activities ca ON ca.id = cr.activity_id
      WHERE s.activity_id = ${activityId} ORDER BY s.id`);
-  return rowsOf(r).map((x: any) => ({ id: Number(x.id), kind: x.kind, status: x.status, playerId: x.player_id, phone: x.phone, reservationId: x.reservation_id,
+  const { bookingPolicy } = await import('./booking-policy.service.js');
+  const expMs = bookingPolicy().strikeExpiryDays * 86400e3;
+  const expired = (x: any) => x.status === 'active' && expMs > 0 && Date.now() - new Date(x.created_at).getTime() > expMs;
+  return rowsOf(r).map((x: any) => ({ id: Number(x.id), kind: x.kind, status: expired(x) ? 'expired' : x.status, playerId: x.player_id, phone: x.phone, reservationId: x.reservation_id,
     name: x.name || '', people: Number(x.people || 1), channel: channelOfTag(x.created_by), createdAt: x.created_at, waivedBy: x.waived_by, waivedAt: x.waived_at, consumedAt: x.consumed_at, consumedIn: x.consumed_in }));
 }
 
