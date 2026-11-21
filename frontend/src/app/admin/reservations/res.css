@@ -272,3 +272,6 @@
 .res-seats li .p { color: var(--ink-2); }
 .res-seats li .p.paid { color: var(--ok); }
 .res-seats li .p.free { color: var(--gold); }
+.res-seats-acts { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.res-seats-name { display: flex; gap: 6px; flex: 1 1 100%; }
+.res-seats-name .wa-input { min-width: 0; flex: 1; min-height: 36px; }

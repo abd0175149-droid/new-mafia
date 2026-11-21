@@ -592,6 +592,62 @@ router.post('/:id/seats/pay', authenticate, async (req: Request, res: Response) 
   } catch (err: any) { res.status(500).json({ error: err.message }); }
 });
 
+// ── 👥 م٥ب من المتابعة: سمِّ مرافقاً (اسم ورقم) — المجموعة نفسها والعرض يُعاد تقييمه ──
+router.post('/:id/friends', authenticate, async (req: Request, res: Response) => {
+  const id = parseInt(req.params.id);
+  if (!Number.isFinite(id)) return res.status(400).json({ error: 'معرّف غير صالح' });
+  try {
+    const db = getDB()!;
+    const [r] = await db.select().from(reservations).where(and(eq(reservations.id, id), isNull(reservations.deletedAt))).limit(1);
+    if (!r || !r.activityId) return res.status(404).json({ error: 'الحجز غير موجود' });
+    const name = String(req.body?.name || '').trim(); const phone = String(req.body?.phone || '').trim();
+    if (name.length < 2 || phone.length < 9) return res.status(400).json({ error: 'الاسم والرقم مطلوبان' });
+    const { waConversations } = await import('../schemas/admin.schema.js');
+    const [conv] = await db.select({ id: waConversations.id }).from(waConversations).where(eq(waConversations.phone, String(r.phone || ''))).limit(1);
+    const O = await import('../services/booking-offers.service.js');
+    const { sendMessage } = await import('../services/whatsapp-inbox.service.js');
+    const out = await O.commitGroup({
+      conv: { id: conv ? Number(conv.id) : (null as any), phone: String(r.phone || ''), playerId: r.playerId ?? null, displayName: r.contactName },
+      activityId: Number(r.activityId), members: [{ name, phone }], botTag: String(r.createdBy || 'staff'), contactMethod: 'المتابعة',
+      h: { sendMessage, mirrorReservation: async (d: any, saved: any) => ensureBookingForReservation(d, saved), notifyAdmins: async () => {} },
+    });
+    if (!out.ok) return res.status(409).json({ error: out.text });
+    if (r.playerId) { try { const F = await import('../services/friends.service.js'); await F.addFriend(Number(r.playerId), { name, phone, source: 'booked' }); } catch { /* تكميليّ */ } }
+    res.json({ success: true, text: out.text });
+  } catch (err: any) { res.status(500).json({ error: err.message }); }
+});
+// 🎟️ رسالة رمز الانضمام لصاحب الحجز على الواتساب (ليحوّلها لمرافقيه)
+router.post('/:id/join-code', authenticate, async (req: Request, res: Response) => {
+  const id = parseInt(req.params.id);
+  if (!Number.isFinite(id)) return res.status(400).json({ error: 'معرّف غير صالح' });
+  try {
+    const db = getDB()!;
+    const S = await import('../services/seats.service.js');
+    const v = await S.seatsOf(id); if (!v) return res.status(404).json({ error: 'الحجز غير موجود' });
+    const comp = v.seats.filter((s) => s.kind === 'companion').length;
+    if (!comp) return res.status(409).json({ error: 'لا مرافقين بلا اسم في هذا الحجز' });
+    const F = await import('../services/friends.service.js');
+    const code = await F.createJoinCode(id, comp);
+    if (!code) return res.status(500).json({ error: 'تعذّر إنشاء الرمز' });
+    const [r] = await db.select().from(reservations).where(eq(reservations.id, id)).limit(1);
+    const [a] = await db.select({ name: activities.name, date: activities.date }).from(activities).where(eq(activities.id, Number(r.activityId))).limit(1);
+    const { fmtWhen } = await import('../services/early-price.service.js');
+    const msg = F.joinMessage(code, String(r.contactName || ''), String(a?.name || ''), fmtWhen(new Date(a?.date as any).getTime()));
+    let sent = false;
+    if (req.body?.send === true) {
+      const { waConversations } = await import('../schemas/admin.schema.js');
+      const [conv] = await db.select({ id: waConversations.id }).from(waConversations).where(eq(waConversations.phone, String(r.phone || ''))).limit(1);
+      if (conv) {
+        const { sendMessage } = await import('../services/whatsapp-inbox.service.js');
+        await sendMessage({ conversationId: Number(conv.id), source: 'staff', text: `👥 لتسجّل مرافقيك بأسمائهم: حوّل الرسالة الجاية إلهم، وكلّ واحد بيبعت الرمز من رقمه بياخد مقعده باسمه.` });
+        await sendMessage({ conversationId: Number(conv.id), source: 'staff', text: msg });
+        sent = true;
+      }
+    }
+    res.json({ success: true, code, message: msg, sent });
+  } catch (err: any) { res.status(500).json({ error: err.message }); }
+});
+
 // ── 🔀 م٦: النقل لفعاليّةٍ أخرى، والسعر اليدويّ (الأدمن) ──
 router.post('/:id/move', authenticate, async (req: Request, res: Response) => {
   const id = parseInt(req.params.id);
