@@ -278,9 +278,11 @@ export async function claimJoinCode(code: string, claimer: { phone: string; name
       VALUES (${g.id}, ${j.activity_id}, ${claimer.name}, ${claimer.phone}, ${claimer.playerId}, ${bookingId}, 'joined', NOW())`);
     await tx.execute(sql`INSERT INTO booking_events (reservation_id, activity_id, channel, actor, kind, detail)
       VALUES (${res.id}, ${j.activity_id}, 'bot', ${claimer.name.slice(0, 120)}, 'seat_claimed', ${JSON.stringify({ code: c, name: claimer.name })}::jsonb)`);
-    return { ownerPhone: String(res.phone), ownerName: String(res.contact_name || '') };
+    return { ownerPhone: String(res.phone), ownerName: String(res.contact_name || ''), groupId: Number(g.id) };
   });
   if (!r) return { ok: false, text: 'كلّ المقاعد على هذا الرمز انأخذت 🙏' };
+  // 🎁 المقعد صار مسمّى ⟵ يُعاد تقييم عرض المجموعة على صاحب الحجز + المسمَّين
+  try { const O = await import('./booking-offers.service.js'); await O.refreshGroupOffer(r.groupId); } catch (e: any) { console.warn('⚠️ refresh group offer:', e?.message); }
   return { ok: true, text: `تمّ ✅ مقعدك باسمك في «${j.act_name}» مع ${kunyaFirst(r.ownerName)} 🎭`, ownerPhone: r.ownerPhone, ownerName: r.ownerName, activityName: String(j.act_name) };
 }
 

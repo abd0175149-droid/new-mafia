@@ -724,6 +724,28 @@ export async function declineInvite(token: string): Promise<{ ok: boolean; statu
 }
 
 /** نقصت المجموعة شخصاً: people_count و declared −1، وتُعاد حسبة الوعد، ويُبلَّغ صاحبها */
+/**
+ * 🎁 أعد تقييم عرض مجموعةٍ بعد أن تسمّى أحد مقاعدها (رمز الانضمام، أو «سمِّ مرافقاً»): العرض يُحسب على
+ * صاحب الحجز + المسمَّين، بالتقييم نفسه الذي يستعمله الدون. لا يغيّر عرضاً قائماً بعرضٍ آخر، ولا يلمس
+ * مجموعةً محسومةً عند الباب. يعيد العرض والمجّانيّ بعد التقييم.
+ */
+export async function refreshGroupOffer(groupId: number): Promise<{ offerId: number | null; free: number; name?: string }> {
+  const db = getDB(); if (!db) return { offerId: null, free: 0 };
+  const [g] = await db.select().from(bookingGroups).where(eq(bookingGroups.id, groupId)).limit(1);
+  if (!g || g.status !== 'claimed') return { offerId: g?.offerId ?? null, free: Number(g?.promisedFree || 0) };
+  const [c] = await db.select({ n: sql<number>`COUNT(*)::int` }).from(bookingGroupMembers)
+    .where(and(eq(bookingGroupMembers.groupId, groupId), inArray(bookingGroupMembers.status, ['booked', 'pending', 'joined'])));
+  const people = 1 + Number(c?.n || 0);
+  const ev = await evaluateForCustomer({ activityId: g.activityId, people, phone: g.ownerPhone, playerId: g.ownerPlayerId ?? null });
+  const best = ev.best;
+  if (!best || (g.offerId != null && Number(g.offerId) !== best.offerId)) return { offerId: g.offerId ?? null, free: Number(g.promisedFree || 0) };
+  const act = await loadActivity(g.activityId);
+  const terms = { N: best.terms.N, K: best.terms.K, repeat: best.terms.repeat, price: act?.price ?? 0, name: best.name, at: new Date().toISOString() };
+  await db.update(bookingGroups).set({ offerId: best.offerId, terms, promisedFree: best.free, declaredPeople: Math.max(Number(g.declaredPeople || 1), people), updatedAt: new Date() } as any)
+    .where(eq(bookingGroups.id, groupId));
+  return { offerId: best.offerId, free: best.free, name: best.name };
+}
+
 async function shrinkGroup(groupId: number, why: string): Promise<void> {
   const db = getDB(); if (!db) return;
   const [g] = await db.select().from(bookingGroups).where(eq(bookingGroups.id, groupId)).limit(1);
