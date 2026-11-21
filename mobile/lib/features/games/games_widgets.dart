@@ -269,7 +269,11 @@ class ActivityCard extends StatelessWidget {
     this.rooms,
     this.homeCityId,
     this.homeCityName,
+    this.onAddFriends,
   });
+
+  /// 👥 م٥ب: «أضف أصحاباً لحجزك» — يظهر على الفعاليّة المحجوزة
+  final VoidCallback? onAddFriends;
 
   final Activity activity;
   final bool booked, busy, bookersOpen;
@@ -414,7 +418,19 @@ class ActivityCard extends StatelessWidget {
 
   Widget _action() {
     if (booked) {
-      return _pill('✅ محجوز', const Color(0xFF4ADE80), const Color(0x1A22C55E));
+      final pill = _pill('✅ محجوز', const Color(0xFF4ADE80), const Color(0x1A22C55E));
+      if (onAddFriends == null) return pill;
+      return Row(mainAxisSize: MainAxisSize.min, children: [
+        InkWell(
+          onTap: onAddFriends,
+          borderRadius: BorderRadius.circular(8),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+            child: Text('👥 أضف أصحاب', style: ar(11, color: Tw.amber400)),
+          ),
+        ),
+        pill,
+      ]);
     }
     if (activity.isFull) {
       // مكتمل: بلا تفاعل — زرٌّ يُضغط ولا يحجز أسوأ من زرٍّ غائب

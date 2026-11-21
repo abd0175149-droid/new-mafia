@@ -16,6 +16,7 @@ import '../../models/profile.dart';
 import '../profile/profile_palette.dart';
 import 'activity_sheets.dart';
 import 'friends_picker.dart';
+import 'friends_screen.dart';
 import 'games_widgets.dart';
 
 // ══════════════════════════════════════════════════════
@@ -580,6 +581,7 @@ class GamesScreenState extends State<GamesScreen> {
           Padding(
             padding: const EdgeInsets.only(bottom: 12),
             child: ActivityCard(
+              onAddFriends: () => showAddFriendsSheet(context, a),
               activity: a,
               booked: _bookedIds.contains(a.id),
               busy: _booking == a.id,

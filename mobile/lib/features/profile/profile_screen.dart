@@ -15,6 +15,7 @@ import '../../core/storage/session_store.dart';
 import '../../core/ui/toast.dart';
 import '../../models/profile.dart';
 import '../history/history_screen.dart';
+import '../games/friends_screen.dart';
 import 'my_cosmetic_card.dart';
 import '../shell/core_status_screen.dart';
 import 'avatar_cropper.dart';
@@ -405,6 +406,23 @@ class ProfileScreenState extends State<ProfileScreen> {
             child: LeaderboardCard(rows: _leaderboard, myId: p.player.id),
           ),
         ],
+        // 👥 م٥ب: «أصحابي» و«مجموعاتي»
+        const SizedBox(height: 20),
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 16),
+          child: InkWell(
+            onTap: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => const FriendsScreen())),
+            borderRadius: BorderRadius.circular(14),
+            child: Container(
+              padding: const EdgeInsets.all(14),
+              decoration: BoxDecoration(borderRadius: BorderRadius.circular(14), color: const Color(0x08FFFFFF), border: Border.all(color: const Color(0x14FFFFFF))),
+              child: Row(children: [
+                Expanded(child: Text('👥 أصحابي ومجموعاتي', style: ar(14, weight: FontWeight.bold))),
+                Text('احجز لهم بلمسة ←', style: ar(11, color: Tw.amber400)),
+              ]),
+            ),
+          ),
+        ),
         if (p.matchHistory.isNotEmpty) ...[
           const SizedBox(height: 20),
           Padding(

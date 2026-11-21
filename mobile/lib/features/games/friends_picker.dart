@@ -7,6 +7,7 @@ import 'package:url_launcher/url_launcher.dart';
 import '../../core/api/api_client.dart';
 import '../../models/activity.dart';
 import '../profile/profile_palette.dart';
+import 'friends_screen.dart';
 
 // ══════════════════════════════════════════════════════
 // 👥 «مين جاي معك؟» — الحجز للأصحاب من قائمة محفوظة (خطّة التوحيد م٥ب · م٧)
@@ -132,6 +133,13 @@ class _FriendsPickerState extends State<FriendsPicker> {
             child: !_loaded
                 ? Text('يُحمَّل…', style: ar(12, color: Tw.gray500))
                 : Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+                    GestureDetector(
+                      onTap: () async {
+                        await Navigator.of(context, rootNavigator: true).push(MaterialPageRoute(builder: (_) => const FriendsScreen()));
+                        _loaded = false; await _load();
+                      },
+                      child: Padding(padding: const EdgeInsets.only(bottom: 8), child: Text('إدارة أصحابي ومجموعاتي ←', style: ar(11, color: Tw.amber400))),
+                    ),
                     if (_groups.isNotEmpty) ...[
                       Text('مجموعاتي', style: ar(11, color: Tw.gray500)),
                       const SizedBox(height: 6),
