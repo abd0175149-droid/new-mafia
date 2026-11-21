@@ -276,6 +276,10 @@ async function main() {
 
   } finally {
     await cleanup();   // حتّى لو انهار الفحص: لا تبقى فعاليّةٌ مؤقّتة ظاهرة
+    // إشعارات الأصدقاء تُرسل بلا انتظار (void) — قد تُنشئ محادثةً لرقم الفحص بعد التنظيف،
+    // فيوقف حارسُ الأرقام التشغيلَ التالي. تنظيفٌ ثانٍ بعد أن تهدأ.
+    await new Promise((r) => setTimeout(r, 2500));
+    await cleanup();
   }
   const [left] = await q(sql`SELECT (SELECT COUNT(*) FROM activities WHERE name LIKE ${'%' + TAG + '%'})::int + (SELECT COUNT(*) FROM players WHERE phone IN ${inPh})::int + (SELECT COUNT(*) FROM booking_offers WHERE name LIKE ${'%' + TAG + '%'})::int AS n`);
   ok('التنظيف كامل', Number(left?.n) === 0);
