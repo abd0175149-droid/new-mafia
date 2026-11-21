@@ -1134,7 +1134,12 @@ interface ToolCtx {
   dryRun: boolean;           // ساحة الاختبار: بلا كتابة وبلا إرسال
   interactives: any[];       // ما أُرسل/سيُعرض من رسائل تفاعلية
   settings: any;
+  /** قائمة الفعاليّات مؤجّلةٌ لآخر الدور — تُسقط إن عُرضت بطاقةٌ في الدور نفسه */
+  deferredList?: any;
+  cardShown?: boolean;
 }
+/** أدواتٌ تعرض بطاقة تأكيدٍ بعينها — قائمة الفعاليّات معها تشويش (عامر #1199) */
+const CARD_TOOLS = /^(request_change_people|request_cancellation|ask_confirmation|create_reservation|set_group_members)$/;
 
 // ══════════════════════════════════════════════════════
 // 🪞 مرآة حجز البوت في صفحة تفاصيل النشاط (قرار المالك 2026-07-30)
@@ -1533,6 +1538,7 @@ const IDENTITY_TOOLS = new Set([
 ]);
 
 async function execTool(name: string, args: any, ctx: ToolCtx): Promise<any> {
+  if (CARD_TOOLS.test(name)) ctx.cardShown = true;
   const db = getDB();
   if (!db) return { error: 'DB unavailable' };
   const { conv, dryRun } = ctx;
@@ -1574,7 +1580,7 @@ async function execTool(name: string, args: any, ctx: ToolCtx): Promise<any> {
       if (dryRun) {
         ctx.interactives.push({ kind: 'list', preview: rows });
       } else {
-        await sendMessage({ conversationId: conv.id, interactive, source: 'bot' });
+        ctx.deferredList = interactive;   // يُرسل آخر الدور إلّا إن عُرضت بطاقة
       }
       return {
         activities: acts,
@@ -3489,6 +3495,11 @@ export async function runAgent(opts: {
       : 'تحت أمرك 🎭 احكيلي شو حابب بالضبط وبخدمك فوراً.';
   }
 
+  if (ctx.deferredList && !ctx.dryRun) {
+    if (ctx.cardShown) toolTrace.push({ name: '🛡️ list-suppressed', args: {}, result: { reason: 'card shown this turn' } });
+    else await sendMessage({ conversationId: conv.id, interactive: ctx.deferredList, source: 'bot' }).catch(() => {});
+    ctx.deferredList = undefined;
+  }
   return { text: finalText, toolTrace, interactives: ctx.interactives, usage: usageAcc, resilience };
 }
 

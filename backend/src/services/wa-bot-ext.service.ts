@@ -589,9 +589,22 @@ export async function execExtTool(name: string, args: any, ctx: Ctx, h: ExtHelpe
       const actId = parseInt(args.activity_id); const n = Math.trunc(Number(args.new_count));
       if (!Number.isFinite(actId) || !(n >= 1 && n <= 12)) return { error: 'معرّف الفعاليّة والعدد (1–12) مطلوبان' };
       // 🧪 موقع اختبار: حجزٌ هناك لا يُعدَّل من الواتساب
-      const [r] = await db.select({ id: reservations.id, people: reservations.peopleCount, status: reservations.status, name: activities.name, date: activities.date })
+      const mine = sql`(${reservations.phone} = ${conv.phone} ${conv.playerId ? sql`OR ${reservations.playerId} = ${conv.playerId}` : sql``})`;
+      const pick = { id: reservations.id, people: reservations.peopleCount, status: reservations.status, name: activities.name, date: activities.date, actId: reservations.activityId };
+      let [r] = await db.select(pick)
         .from(reservations).innerJoin(activities, eq(reservations.activityId, activities.id))
-        .where(and(eq(reservations.activityId, actId), isNull(reservations.deletedAt), notTestActivity, sql`(${reservations.phone} = ${conv.phone} ${conv.playerId ? sql`OR ${reservations.playerId} = ${conv.playerId}` : sql``})`)).limit(1);
+        .where(and(eq(reservations.activityId, actId), isNull(reservations.deletedAt), notTestActivity, mine)).limit(1);
+      // 🔒 النموذج لا يرى معرّفات الفعاليّات في السجلّ فيخمّنها (عامر #1199: ١٢ بدل ٤١٣ ⟵ «ما لقيت حجز»):
+      //    بطاقةٌ عُرضت قبل دقائق هي المرجع، وإلّا حجزه القادم الوحيد
+      if (!r) {
+        const { getAux } = await import('../config/redis.js');
+        const pend: any = await getAux(`chgconf:${conv.id}`).catch(() => null);
+        const ids = pend?.resId && Date.now() - Number(pend.at || 0) < 10 * 60e3 ? [Number(pend.resId)] : [];
+        const up = await db.select(pick).from(reservations).innerJoin(activities, eq(reservations.activityId, activities.id))
+          .where(and(isNull(reservations.deletedAt), notTestActivity, mine, sql`${activities.date} > NOW() - INTERVAL '6 hours'`,
+            ids.length ? sql`${reservations.id} = ${ids[0]}` : sql`true`)).limit(2);
+        if (up.length === 1) r = up[0];
+      }
       if (!r) return { found: false, note: 'لا حجز له في هذه الفعاليّة — اعرض حجزاً جديداً' };
       if (Number(r.people) === n) return { same: true, note: 'العدد هو نفسه — لا تغيير' };
       // 🎟️ العددُ الجديد يستحقّ عرضاً؟ العرضُ يُثبَّت بأسماء الأصحاب وأرقامهم لا بزرّ العدد
@@ -605,6 +618,7 @@ export async function execExtTool(name: string, args: any, ctx: Ctx, h: ExtHelpe
         }
       } catch { /* بلا عرض */ }
       await show(confirmButtons(`✏️ تعديل حجزك في «${r.name}» (${h.fmtJo(r.date)})\nمن ${r.people} إلى ${n} أشخاص${offerLine}\n\nأثبّت التعديل؟`, `chgp:${r.id}:${n}`, 'ثبّت التعديل ✓', 'chg_keep'), `تعديل العدد ${r.people}→${n}`);
+      if (!dryRun) { try { const { setAux } = await import('../config/redis.js'); await setAux(`chgconf:${conv.id}`, { resId: r.id, n, at: Date.now() }); } catch { /* تكميليّ */ } }
       return { sent: true, ...(groupOffer ? { groupOffer, groupOfferHowTo: 'للعرض: اطلب اسم ورقم كلّ صديق ثمّ set_group_members — التعديلُ العاديّ لا يثبّت العرض.' } : {}), note: 'أُرسلت أزرار التأكيد — التنفيذ آليّ بعد ضغطه.' };
     }
 
@@ -1084,7 +1098,12 @@ export async function handleExtButton(conv: any, btnId: string, h: ExtHelpers): 
       const av = await h.seatAvailability(db, Number(r.actId));
       if (av.remaining < delta) { await say(`ما في متّسع للزيادة 🙏 المتبقّي ${av.remaining} مقعد بس. بتحب أحوّلك للإدارة؟`, 'bot'); return true; }
     }
-    await db.update(reservations).set({ peopleCount: n, notes: sql`COALESCE(${reservations.notes}, '') || ${` · ✏️ عُدّل العدد ${r.people}→${n} عبر البوت`}`, updatedAt: new Date() } as any).where(eq(reservations.id, r.id));
+    // 📜 سجلّ الحجز بقناة الدون وفاعله (كان يُكتب «system» بلا قناة)
+    const { withActor } = await import('./booking-commands.service.js');
+    await withActor({ channel: 'bot', actor: String(who).slice(0, 120) }, (tx: any) => tx.update(reservations).set({ peopleCount: n, notes: sql`COALESCE(${reservations.notes}, '') || ${` · ✏️ عُدّل العدد ${r.people}→${n} عبر البوت`}`, updatedAt: new Date() } as any).where(eq(reservations.id, r.id)));
+    try { const { deleteAux } = await import('../config/redis.js'); await deleteAux(`chgconf:${conv.id}`); } catch { /* تنتهي وحدها */ }
+    // 🪑 إنقاص العدد يحرّر مقاعد ⟵ الدور (ق٢٠)
+    if (delta < 0) { const Q = await import('./capacity-queue.service.js'); void Q.seatFreed(Number(r.actId), 'إنقاص العدد من الدون'); }
     // 💸 المقاعد المضافة تُقيَّم لحظة التعديل: قبل موعد السعر المبكّر بسعره، وبعده بالسعر العاديّ
     let priceLine = '';
     try {

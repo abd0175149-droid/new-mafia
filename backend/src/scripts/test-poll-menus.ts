@@ -68,6 +68,13 @@ async function main() {
   await saveMenu(KEY, short.menu, null);
   const no = await applyMenuReply(KEY, { id: 'm3', from: KEY, type: 'text', text: { body: 'لا' } });
   ok('«لا» ⟵ لا، شكراً', no.interactive?.button_reply?.id === 'rem_off', JSON.stringify(no).slice(0, 120));
+  // عامر #1199 (2026-11-21): «تثبيت» بعد بطاقة تعديل العدد ذهبت للنموذج فخمّن فعاليّةً أخرى
+  ok('«تثبيت» و«ثبت لو سمحت» و«تثبيت الحجز» موافقة', isConfirmWord('تثبيت') && isConfirmWord('ثبّت لو سمحت') && isConfirmWord('تثبيت الحجز') && isConfirmWord('اعتمد'));
+  ok('ولا تُحسب موافقةً جملةٌ طويلة أو سؤال', !isConfirmWord('تثبيت الحجز بكون قبل اللعبة بكم ساعة يا غالي؟') && !isConfirmWord('كم السعر') && !isConfirmWord('لا'));
+  const chg = renderPoll({ type: 'button', body: { text: '✏️ تعديل حجزك من 1 إلى 5 أشخاص\n\nأثبّت التعديل؟' }, action: { buttons: [{ type: 'reply', reply: { id: 'chgp:2728:5', title: 'ثبّت التعديل ✓' } }, { type: 'reply', reply: { id: 'chg_keep', title: 'إلغاء' } }] } } as any)!;
+  await saveMenu(KEY, chg.menu, null);
+  const tb = await applyMenuReply(KEY, { id: 'm4', from: KEY, type: 'text', text: { body: 'تثبيت' } });
+  ok('«تثبيت» على بطاقة التعديل ⟵ ضغطة «ثبّت التعديل»', tb.interactive?.button_reply?.id === 'chgp:2728:5', JSON.stringify(tb).slice(0, 140));
   ok('نصّ البوت للأرقام لم يتغيّر', adaptForTextMenus('أكّد من الأزرار تحت') === 'أكّد بكتابة رقم الخيار');
   ok('نصّ البوت للاستفتاء', adaptForTextMenus('اكتب رقم اختيارك', 'poll') === 'من الاستفتاء');
 
