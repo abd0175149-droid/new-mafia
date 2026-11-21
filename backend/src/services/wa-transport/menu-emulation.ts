@@ -121,6 +121,10 @@ export function renderPoll(interactive: any): PollPlan | null {
     seen.add(lab);
     return lab;
   });
+  // سؤال الاستفتاء وخياراته لا تعرض تنسيق واتساب: «*عنوان*» يظهر بنجومه — تُزال (النصّ قبله يبقى منسَّقاً)
+  const plain = (t: string) => String(t || '').replace(/[*_~]/g, '').replace(/[ \t]+/g, ' ').trim();
+  name = plain(name) || 'اختار:';
+  for (let k = 0; k < options.length; k++) options[k] = plain(options[k]) || options[k];
   return {
     pre, name: name.slice(0, POLL_NAME_MAX), options, multi: false,
     menu: { kind: base.menu!.kind, items, labels: options },
