@@ -1035,6 +1035,9 @@ async function main() {
       try {
         const { migrateBookingChannelLink } = await import('./migrations-booking-channel.js');
         await migrateBookingChannelLink(db);
+        // 📜 م٣: سجلّ الحجز، والإلغاء حالةٌ ظاهرة
+        const { migrateBookingEvents } = await import('./migrations-booking-events.js');
+        await migrateBookingEvents(db);
       } catch (e: any) { console.warn('⚠️ booking channel/link migration:', e?.message || e); }
       // ما انتهى قبل هذه الميزة يحكمه الخصمُ الرجعيّ (scripts/apply-absence-retro.ts) لا المجدول —
       // وإلّا حكم المجدولُ آخرَ أربعة أيّام منفردةً قبله وتضاعفت الإشعارات. ما زال يلعب يبقى للحكم عند نهايته.

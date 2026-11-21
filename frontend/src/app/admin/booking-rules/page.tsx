@@ -29,6 +29,56 @@ const FIELDS: Array<{ k: keyof Policy; title: string; hint: string; max: number 
   { k: 'lateCancelHours', title: 'الإلغاء المتأخّر يُحسب غياباً في آخر', hint: 'من يلغي في هذه الساعات قبل اللعبة يُحرم من السعر المبكّر في حجزه التالي.', max: 72 },
 ];
 
+// 📊 تقرير الإلغاءات (م٣): متى يلغي الناس ومن أيّ قناة — منه تُضبط مهلة الإلغاء
+const BUCKETS: Array<{ k: string; label: string }> = [
+  { k: 'gt24', label: 'قبل يومٍ فأكثر' }, { k: 'h6_24', label: '٦–٢٤ ساعة' }, { k: 'h3_6', label: '٣–٦ ساعات' },
+  { k: 'lt3', label: 'أقلّ من ٣' }, { k: 'after', label: 'بعد البدء' },
+];
+const CH: Record<string, string> = { app: '📱 التطبيق', bot: '🤖 الدون', botadmin: '🔒 أدمن البوت', staff: '👤 الإدارة', door: '🚪 الباب', group: '👥 مجموعة', system: '⚙️ النظام' };
+const ar = (n: number) => String(n).replace(/\d/g, (x) => '٠١٢٣٤٥٦٧٨٩'[Number(x)]);
+
+function CancelReport() {
+  const [days, setDays] = useState(30);
+  const [r, setR] = useState<any>(null);
+  const [err, setErr] = useState<string | null>(null);
+  useEffect(() => { setR(null); api(`/api/reservations/reports/cancellations?days=${days}`).then(setR).catch(e => setErr(e.message)); }, [days]);
+  const chans = r ? Array.from(new Set<string>(r.rows.map((x: any) => x.channel))) : [];
+  const cell = (c: string, b: string) => r?.rows.find((x: any) => x.channel === c && x.bucket === b);
+  const total = r ? r.rows.reduce((s: number, x: any) => s + x.n, 0) : 0;
+  return (
+    <Card title="تقرير الإلغاءات" aside={
+      <select className="wa-input" style={{ width: 'auto', minHeight: 36 }} value={days} onChange={e => setDays(Number(e.target.value))} aria-label="المدّة">
+        <option value={7}>آخر ٧ أيّام</option><option value={30}>آخر ٣٠ يوماً</option><option value={90}>آخر ٩٠ يوماً</option>
+      </select>}>
+      {err ? <Banner tone="danger" flat>{err}</Banner> : !r ? <div style={{ padding: 'var(--space-3)' }}><Loader2 className="animate-spin" aria-hidden="true" /></div> : total === 0 ? (
+        <p style={{ color: 'var(--ink-3)', padding: 'var(--space-2) 0', margin: 0 }}>لا إلغاءات مسجّلة في هذه المدّة — يبدأ التسجيل بالسبب والقناة من هذا الإصدار.</p>
+      ) : (
+        <div style={{ overflowX: 'auto' }}>
+          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+            <thead><tr style={{ color: 'var(--ink-3)', fontSize: 12 }}>
+              <th style={{ textAlign: 'start', padding: '6px 4px' }}>القناة</th>
+              {BUCKETS.map(b => <th key={b.k} style={{ padding: '6px 4px', fontWeight: 600 }}>{b.label}</th>)}
+            </tr></thead>
+            <tbody>{chans.map(c => (
+              <tr key={c} style={{ borderTop: '1px solid var(--line)' }}>
+                <td style={{ padding: '6px 4px', whiteSpace: 'nowrap' }}>{CH[c] || c}</td>
+                {BUCKETS.map(b => { const x = cell(c, b.k); return (
+                  <td key={b.k} style={{ textAlign: 'center', padding: '6px 4px', color: x ? (b.k === 'lt3' || b.k === 'after' ? 'var(--danger)' : 'var(--ink)') : 'var(--ink-3)' }}>
+                    {x ? <>{ar(x.n)}<small style={{ color: 'var(--ink-3)' }}> ({ar(x.people)} شخص)</small></> : '—'}
+                  </td>); })}
+              </tr>))}</tbody>
+          </table>
+          {r.reasons?.length > 0 && (
+            <p style={{ color: 'var(--ink-2)', margin: 'var(--space-3) 0 0', fontSize: 13 }}>
+              أكثر الأسباب: {r.reasons.map((x: any) => `${x.reason} (${ar(x.n)})`).join(' · ')}
+            </p>
+          )}
+        </div>
+      )}
+    </Card>
+  );
+}
+
 export default function BookingRulesPage() {
   const [p, setP] = useState<Policy | null>(null);
   const [d, setD] = useState<Policy | null>(null);
@@ -76,6 +126,7 @@ export default function BookingRulesPage() {
           {d && <button type="button" className="wa-btn" disabled={busy} onClick={() => setDraft({ ...d })}><RotateCcw aria-hidden="true" /> القيم الافتراضيّة</button>}
         </div>
       </Card>
+      <CancelReport />
     </div>
   );
 }

@@ -27,6 +27,7 @@ import { Badge, Banner } from '@/app/admin/whatsapp/wa-ui';
 import { Sheet, SheetHead, ActionRow, Field, Counter, PrimaryButton } from './Sheet';
 import { initial, latin } from './ResRow';
 import EtaControls from './EtaControls';
+import BookingTimeline from './BookingTimeline';
 import { arrivalGroup, etaLabel, followupState, hm, peopleLabel, type ResEvent } from './arrival';
 import type { Reservation } from '@/hooks/useReservations';
 
@@ -35,6 +36,9 @@ const STATUSES: { v: ResStatus; label: string }[] = [
   { v: 'confirmed', label: 'مثبّت' },
   { v: 'waitlist', label: 'قائمة انتظار' },
 ];
+
+/** أسباب الإلغاء الأكثر تكراراً — زرٌّ بدل الكتابة */
+const CANCEL_REASONS = ['اعتذر العميل', 'غيّر الموعد', 'لم يردّ', 'حجزٌ مكرّر', 'الفعاليّة ممتلئة', 'طلب الإدارة'];
 
 export type PersonAction = 'confirm' | 'unconfirm' | 'delete' | 'wa' | 'save';
 
@@ -48,7 +52,8 @@ export interface PersonProps {
   onAttend: (id: number, v: boolean | null) => void;
   onConfirm: (r: Reservation, confirmed: boolean) => void;
   onUpdate: (id: number, patch: Record<string, any>) => Promise<void>;
-  onDelete: (id: number) => Promise<void>;
+  /** ❌ إلغاءٌ بسبب (يظهر تحت «ملغى») أو 🗑️ حذف إدخالٍ خاطئ — ق٩ */
+  onDelete: (id: number, opts?: { mode?: 'cancel' | 'mistake'; reason?: string }) => Promise<void>;
   onEta: (id: number, etaAt: string | null) => Promise<boolean>;
   /** تفتح واتساب وتُعلّم الصفَّ مُرسَلاً — الصفحةُ تملك شريطَ التأكيد عند العودة */
   onWaSend: (r: Reservation) => void;
@@ -59,7 +64,8 @@ export interface PersonProps {
 export function PersonPanel({
   row, now, events, focusEta, onAttend, onConfirm, onUpdate, onDelete, onEta, onWaSend, onWaClear, afterAction,
 }: PersonProps & { row: Reservation; afterAction: (a: PersonAction) => void }) {
-  const [mode, setMode] = useState<'view' | 'edit'>('view');
+  const [mode, setMode] = useState<'view' | 'edit' | 'cancel'>('view');
+  const [reason, setReason] = useState('');
   const [name, setName] = useState('');
   const [phone, setPhone] = useState('');
   const [contact, setContact] = useState('');
@@ -112,11 +118,41 @@ export function PersonPanel({
     afterAction('unconfirm');
   };
 
-  const del = async () => {
-    if (!(await swalConfirm(`حذف حجز «${row.contactName}»؟`, { confirmText: 'احذف', danger: true }))) return;
-    try { await onDelete(row.id); afterAction('delete'); }
-    catch (e: any) { swalAlert('فشل الحذف: ' + (e?.message || ''), 'error'); }
+  const cancelIt = async () => {
+    setBusy(true);
+    try { await onDelete(row.id, { mode: 'cancel', reason: reason.trim() }); setMode('view'); afterAction('delete'); }
+    catch (e: any) { swalAlert('فشل الإلغاء: ' + (e?.message || ''), 'error'); }
+    finally { setBusy(false); }
   };
+  const mistake = async () => {
+    if (!(await swalConfirm(`حذف حجز «${row.contactName}» كإدخالٍ خاطئ؟\n\nلا يظهر تحت «ملغى» ولا يُسترجع. للإلغاء الحقيقيّ اختر سبباً بدلاً من هذا.`, { confirmText: 'احذف نهائيّاً', danger: true }))) return;
+    setBusy(true);
+    try { await onDelete(row.id, { mode: 'mistake' }); setMode('view'); afterAction('delete'); }
+    catch (e: any) { swalAlert('فشل الحذف: ' + (e?.message || ''), 'error'); }
+    finally { setBusy(false); }
+  };
+
+  if (mode === 'cancel') {
+    return (
+      <div className="res-person">
+        <SheetHead title="إلغاء الحجز" sub={row.contactName} />
+        <p className="res-fine">يبقى ظاهراً تحت «ملغى» بسببه ومن ألغاه، ويمكن استرجاعه. مقعده يُعرض على أوّل المنتظرين.</p>
+        <div className="res-reasons" role="group" aria-label="سبب الإلغاء">
+          {CANCEL_REASONS.map(r => (
+            <button key={r} type="button" className="wa-pill" aria-pressed={reason === r} onClick={() => setReason(reason === r ? '' : r)}>{r}</button>
+          ))}
+        </div>
+        <Field value={reason} onChange={setReason} placeholder="سببٌ آخر (اختياريّ)" />
+        <PrimaryButton onClick={cancelIt} disabled={busy}>
+          <X />{busy ? 'يُلغى…' : 'ألغِ الحجز'}
+        </PrimaryButton>
+        <button type="button" className="wa-btn block" onClick={() => setMode('view')}>رجوع</button>
+        <button type="button" className="wa-btn block danger res-mistake" disabled={busy} onClick={mistake}>
+          <Trash2 />احذف — إدخالٌ خاطئ
+        </button>
+      </div>
+    );
+  }
 
   if (mode === 'edit') {
     return (
@@ -247,8 +283,10 @@ export function PersonPanel({
           <ActionRow icon={<Undo2 />} title="إلغاء التثبيت"
             sub="يحذف حجزَ اللاعب من تطبيقه — بتأكيد" onClick={unconfirm} />
         )}
-        <ActionRow icon={<Trash2 />} title="حذف الحجز" sub="بتأكيد" tone="danger" onClick={del} />
+        <ActionRow icon={<Trash2 />} title="إلغاء الحجز" sub="بسبب — يبقى تحت «ملغى» ويُسترجع" tone="danger" onClick={() => { setReason(''); setMode('cancel'); }} />
       </div>
+
+      <BookingTimeline key={row.id} resId={row.id} />
     </div>
   );
 }

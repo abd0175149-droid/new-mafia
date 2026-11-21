@@ -310,29 +310,31 @@ router.delete('/book/:activityId', authenticatePlayer, async (req: Request, res:
       }
     }
 
-    await db.update(bookings).set({ deletedAt: new Date() } as any).where(eq(bookings.id, bk.id));
+    const appWho = { channel: 'app' as const, actor: String(player.name || `لاعب #${player.playerId}`).slice(0, 120) };
+    const Cmd = await import('../services/booking-commands.service.js');
+    await Cmd.withActor(appWho, (tx) => tx.update(bookings).set({ deletedAt: new Date() } as any).where(eq(bookings.id, bk.id)));
     // 🧹 عضوٌ في مجموعة عرض يخرج منها، وزيارةٌ مجّانيّة مطبَّقة تعود — الدالّة نفسها لكلّ مسارات الإلغاء
     try { const { afterBookingRemoved } = await import('../services/booking-lifecycle.service.js'); await afterBookingRemoved(bk.id); } catch { /* غير حاجب */ }
-    // 💸 إلغاء اللاعب بنفسه: في آخر ٦ ساعات = غياب، وغيابٌ استهلكه حجزُه يعود قائماً (قبل إرجاع المتابعة «غير مثبّت»)
+    // ❌ م٣ (ق٩): حجز المتابعة لشخصٍ واحد يُلغى بالأمر الموحّد — يظهر تحت «ملغى» بسببه وقناته
+    //    (والغياب على الإلغاء المتأخّر داخله). حجزٌ لعدّة أشخاص يعود «غير مثبّت» كما كان:
+    //    مرافقوه قد يأتون، والموظّف يقرّر.
     try {
-      const rs = await db.select({ id: reservations.id }).from(reservations).where(and(
+      const rs = await db.select({ id: reservations.id, peopleCount: reservations.peopleCount }).from(reservations).where(and(
         eq(reservations.activityId, activityId), isNull(reservations.deletedAt),
         or(eq(reservations.playerId, player.playerId), player.phone ? eq(reservations.phone, player.phone) : sql`false`),
       ));
       const { onReservationCancelled } = await import('../services/early-price.service.js');
-      for (const r of rs) await onReservationCancelled(r.id, { byCustomer: true });
-    } catch (e: any) { console.warn('⚠️ early-price app cancel:', e?.message); }
-    // 🔗 المرآة — نفس ما يفعله حذفُ الموظّف وفكُّ التثبيت
-    await db.update(reservations).set({
-      appConfirmed: false, appConfirmedAt: null, status: 'pending', updatedAt: new Date(),
-    } as any).where(and(
-      eq(reservations.activityId, activityId),
-      isNull(reservations.deletedAt),
-      or(
-        eq(reservations.playerId, player.playerId),
-        player.phone ? eq(reservations.phone, player.phone) : sql`false`,
-      ),
-    ));
+      for (const r of rs) {
+        if (Number(r.peopleCount || 1) <= 1) { await Cmd.cancelReservation(r.id, appWho, 'ألغاه اللاعب من التطبيق', { byCustomer: true }); continue; }
+        // 💸 في آخر ٦ ساعات = غياب، وغيابٌ استهلكه حجزُه يعود قائماً
+        await onReservationCancelled(r.id, { byCustomer: true });
+        // 🔗 المرآة — نفس ما يفعله فكُّ التثبيت
+        await Cmd.withActor(appWho, (tx) => tx.update(reservations).set({
+          appConfirmed: false, appConfirmedAt: null, status: 'pending', updatedAt: new Date(),
+        } as any).where(eq(reservations.id, r.id)));
+      }
+    } catch (e: any) { console.warn('⚠️ app cancel → follow-up:', e?.message); }
+    try { const B = await import('../services/whatsapp-bot.service.js'); void B.offerFreedSeatFor(activityId); } catch { /* تكميليّ */ }
 
     console.log(`❌ [player-app] اللاعب #${player.playerId} ألغى حجزه في الفعاليّة #${activityId}`);
 

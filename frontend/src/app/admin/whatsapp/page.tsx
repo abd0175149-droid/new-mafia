@@ -674,7 +674,10 @@ export default function WhatsAppInboxPage() {
     if (!(await swalConfirm(`إلغاء حجز «${latestBk.name}»${latestBk.activityName ? ` في «${latestBk.activityName}»` : ''}؟\nيُحذف من المتابعة ومن قائمة الفعاليّة.`, { danger: true, confirmText: 'ألغِ الحجز', cancelText: 'تراجع' }))) return;
     setBkSaving(true);
     try {
-      await apiFetch(latestBk.kind === 'reservation' ? `/api/reservations/${latestBk.id}` : `/api/bookings/${latestBk.id}`, { method: 'DELETE' });
+      await apiFetch(latestBk.kind === 'reservation' ? `/api/reservations/${latestBk.id}` : `/api/bookings/${latestBk.id}`,
+        latestBk.kind === 'reservation'
+          ? { method: 'DELETE', body: JSON.stringify({ mode: 'cancel', reason: 'ألغاه الموظّف من المحادثة' }) }
+          : { method: 'DELETE' });
       setEditBk(null);
       swalToast('أُلغي الحجز', 'success');
       reloadCtx();

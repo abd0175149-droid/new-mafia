@@ -1438,6 +1438,11 @@ async function handleOfferButton(conv: any, btnId: string): Promise<boolean> {
   return false;
 }
 
+/** 🪑 مقعدٌ تحرّر من أيّ مسار (إلغاء موظّف/تطبيق) ⟵ أوّل المنتظرين يُعرض عليه — ق٢٠ */
+export async function offerFreedSeatFor(activityId: number): Promise<boolean> {
+  return offerFreedSeat(Number(activityId), extHelpers());
+}
+
 function extHelpers(): ExtHelpers {
   return { sendMessage, isAdminConversation, notifyAdmins, fmtJo, seatAvailability, mirrorReservation: mirrorBotReservationToBookings as any };
 }
@@ -4137,18 +4142,26 @@ async function performCancellation(convId: number, reservationId: number) {
     return;
   }
 
-  // ≥3 ساعات — إلغاء تلقائي (حذف ناعم كما يفعل النظام)
-  await db.update(reservations).set({ deletedAt: new Date() } as any).where(eq(reservations.id, r.id));
-  void onReservationDeleted(r.id);   // 🎟️ مجموعةُ عرضٍ على هذا الحجز تبطل، وحجوزاتُ أصحابه تبقى مستقلّة
-  import('./reservation-confirm.service.js').then(m => m.cancelReservationConfirm(r.id, 'ألغاه العميل قبل الإرسال')).catch(() => {});
-  void onReservationCancelled(r.id, { byCustomer: true });   // 💸 إلغاءٌ في آخر ٦ ساعات = غياب؛ وغيابٌ استهلكه يعود قائماً
-  // إلغاء فعلي من كل القنوات: إن كان الحجز مربوطاً بحجز تطبيق (مرآة أو مترقٍّ)
+  // ≥3 ساعات — إلغاءٌ تلقائيّ بالأمر الموحّد (م٣/ق٩): يبقى ظاهراً تحت «ملغى» بسببه وقناته، والآثار
+  // كلّها هناك (المرآة، المجموعة، رسالة التثبيت، والغياب على الإلغاء المتأخّر لأنّه من العميل)
+  const actorWho = { channel: 'bot' as const, actor: String(who).slice(0, 120) };
+  const { cancelReservation, withActor } = await import('./booking-commands.service.js');
+  const cx = await cancelReservation(r.id, actorWho, 'ألغاه العميل من الدون', { byCustomer: true });
+  if (!cx.ok) {
+    await sendMessage({ conversationId: convId, text: 'ما لقيت هذا الحجز (يمكن أُلغي سابقاً) 🙏', source: 'system' }).catch(() => {});
+    return;
+  }
+  // إلغاء فعلي من كل القنوات: إن كان الحجز مربوطاً بحجز تطبيق (مرآة أو مترقٍّ) لم تُزله المرآة
   // يُلغى حجز التطبيق أيضاً — وإلا بقي العميل محسوباً بالمقاعد وحاجزاً بالتطبيق
   if (linked.length) {
-    await db.update(bookings).set({ deletedAt: new Date() } as any).where(inArray(bookings.id, linked.map((b: any) => b.id)));
-    // 🧹 الزيارة المجّانيّة تعود والعضو يخرج من مجموعته — كان إلغاء الدون ينساهما
-    const { afterBookingRemoved } = await import('./booking-lifecycle.service.js');
-    for (const b of linked) await afterBookingRemoved(b.id);
+    const alive = await db.select({ id: bookings.id }).from(bookings)
+      .where(and(inArray(bookings.id, linked.map((b: any) => b.id)), isNull(bookings.deletedAt)));
+    if (alive.length) {
+      await withActor(actorWho, (tx) => tx.update(bookings).set({ deletedAt: new Date() } as any).where(inArray(bookings.id, alive.map((b: any) => b.id))));
+      // 🧹 الزيارة المجّانيّة تعود والعضو يخرج من مجموعته
+      const { afterBookingRemoved } = await import('./booking-lifecycle.service.js');
+      for (const b of alive) await afterBookingRemoved(b.id);
+    }
   }
   await sendMessage({
     conversationId: convId,

@@ -444,34 +444,65 @@ router.put('/:id', authenticate, async (req: Request, res: Response) => {
   res.json({ ...row, bookingSync, notified });
 });
 
-// DELETE /api/reservations/:id (soft delete)
+// DELETE /api/reservations/:id — ❌ إلغاءٌ بسبب (يبقى ظاهراً تحت «ملغى»)، أو 🗑️ حذف إدخالٍ خاطئ (ق٩)
+//   الجسم أو الاستعلام: mode = 'cancel' (الافتراض) | 'mistake'، reason = سبب الإلغاء
+//   كلّ الآثار (المرآة، الزيارة المجّانيّة، المجموعة، رسالة التثبيت، الغياب) في الأوامر الموحّدة.
 router.delete('/:id', authenticate, async (req: Request, res: Response) => {
-  const db = getDB();
-  if (!db) return res.status(503).json({ error: 'قاعدة البيانات غير متوفرة' });
-
   const id = parseInt(req.params.id);
-  const existing = await db.select().from(reservations)
-    .where(and(eq(reservations.id, id), isNull(reservations.deletedAt))).limit(1);
-  if (existing.length === 0) return res.status(404).json({ error: 'الحجز غير موجود' });
-
-  // 🔗 المرآة قبل الحذف — بعده يصير الصفُّ محذوفاً فلا شيء يدلّ على حجزه.
-  //    كان الحذف يُسقط صفَّ المتابعة وحده ويترك صفَّ الحجز حيّاً، فيبقى اللاعب
-  //    «محجوزاً» في تطبيقه وقد مُحي حجزُه من المتابعة — وهو ثالثُ مسارٍ يكسر
-  //    المرآة بعد حذف الحجز وفكّ التثبيت. الثلاثة الآن تمرّ بالدالّة نفسها.
-  let bookingSync: boolean | null = null;
+  if (!Number.isFinite(id)) return res.status(400).json({ error: 'معرّف غير صالح' });
+  const mode = String(req.body?.mode ?? req.query.mode ?? 'cancel') === 'mistake' ? 'mistake' : 'cancel';
+  const reason = String(req.body?.reason ?? req.query.reason ?? '').trim().slice(0, 200);
+  const staff = (req as any).user;
+  const who = { channel: 'staff' as const, actor: String(staff?.displayName || staff?.username || 'الإدارة') };
   try {
-    bookingSync = await removeBookingForReservation(db, existing[0] as any);
+    const C = await import('../services/booking-commands.service.js');
+    const r = mode === 'mistake' ? await C.deleteReservation(id, who) : await C.cancelReservation(id, who, reason || 'ألغاه الموظّف');
+    if (!r.ok) return res.status(404).json({ error: r.error || 'الحجز غير موجود' });
+    // 🪑 مقعدٌ تحرّر — أوّل المنتظرين يُعرض عليه (كما يفعل إلغاء الدون)
+    if (mode === 'cancel') try {
+      const [row] = await getDB()!.select({ activityId: reservations.activityId }).from(reservations).where(eq(reservations.id, id)).limit(1);
+      if (row?.activityId) { const B = await import('../services/whatsapp-bot.service.js'); void B.offerFreedSeatFor(Number(row.activityId)); }
+    } catch { /* تكميليّ */ }
+    res.json({ success: true, mode, bookingRemoved: r.bookingRemoved ?? null });
   } catch (err: any) {
-    console.error('❌ reservation delete → booking sync:', err.message);
+    console.error('❌ reservation delete:', err.message);
+    res.status(500).json({ error: err.message });
   }
+});
 
-  await db.update(reservations).set({ deletedAt: new Date() } as any).where(eq(reservations.id, id));
-  import('../services/reservation-confirm.service.js').then(m => m.cancelReservationConfirm(id, 'حُذف الحجز قبل الإرسال')).catch(() => {});
-  // 👥 مجموعةُ عرضٍ على هذا الحجز تبطل، وحجوزاتُ أصحابه تبقى مستقلّة
-  import('../services/booking-offers.service.js').then(m => m.onReservationDeleted(id)).catch(() => {});
-  // 💸 حذفُ الموظّف ليس إلغاءً متأخّراً من العميل — لكن غيابٌ استهلكه هذا الحجز يعود قائماً
-  import('../services/early-price.service.js').then(m => m.onReservationCancelled(id, { byCustomer: false })).catch(() => {});
-  res.json({ success: true, bookingRemoved: bookingSync });
+// ── ❌ الملغى لفعاليّة (قسم «ملغى» في المتابعة) ──
+router.get('/cancelled/:activityId', authenticate, async (req: Request, res: Response) => {
+  const aid = parseInt(req.params.activityId);
+  if (!Number.isFinite(aid)) return res.status(400).json({ error: 'معرّف غير صالح' });
+  try { const C = await import('../services/booking-commands.service.js'); res.json(await C.cancelledFor(aid)); }
+  catch (err: any) { res.status(500).json({ error: err.message }); }
+});
+
+// ── ↩️ استرجاع حجزٍ ملغى ──
+router.post('/:id/restore', authenticate, async (req: Request, res: Response) => {
+  const id = parseInt(req.params.id);
+  if (!Number.isFinite(id)) return res.status(400).json({ error: 'معرّف غير صالح' });
+  const staff = (req as any).user;
+  try {
+    const C = await import('../services/booking-commands.service.js');
+    const r = await C.restoreReservation(id, { channel: 'staff', actor: String(staff?.displayName || staff?.username || 'الإدارة') });
+    if (!r.ok) return res.status(409).json({ error: r.error });
+    res.json({ success: true });
+  } catch (err: any) { res.status(500).json({ error: err.message }); }
+});
+
+// ── 📜 الخطّ الزمنيّ لحجز ──
+router.get('/:id/timeline', authenticate, async (req: Request, res: Response) => {
+  const id = parseInt(req.params.id);
+  if (!Number.isFinite(id)) return res.status(400).json({ error: 'معرّف غير صالح' });
+  try { const C = await import('../services/booking-commands.service.js'); res.json(await C.timelineOf(id)); }
+  catch (err: any) { res.status(500).json({ error: err.message }); }
+});
+
+// ── 📊 تقرير الإلغاءات (بالقناة والتوقيت قبل اللعبة) ──
+router.get('/reports/cancellations', authenticate, authorize('admin'), async (req: Request, res: Response) => {
+  try { const C = await import('../services/booking-commands.service.js'); res.json(await C.cancellationReport(Number(req.query.days) || 30)); }
+  catch (err: any) { res.status(500).json({ error: err.message }); }
 });
 
 // ── GET /roster-groups/:activityId — مجموعات قائمة حجوزات الفعاليّة ──

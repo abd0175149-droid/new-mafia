@@ -40,6 +40,7 @@ import {
 import { useReservations, apiFetch, getToken, type Reservation, type ActivityMoney } from '@/hooks/useReservations';
 import OfferGroupsSection from '../components/OfferGroupsSection';
 import NoShowSection from '../components/NoShowSection';
+import CancelledSection from '../components/CancelledSection';
 import ResRow from '@/components/reservations/ResRow';
 import PersonSheet, { PersonPanel } from '@/components/reservations/PersonSheet';
 import QuickAddSheet from '@/components/reservations/QuickAddSheet';
@@ -778,6 +779,7 @@ export default function ReservationsPage() {
     <div className="res-legacy">
       <OfferGroupsSection activityId={actId} onChanged={() => R.fetchAll()} />
       <NoShowSection activityId={actId} onChanged={() => R.fetchAll()} />
+      <CancelledSection key={`cx-${actId}-${R.reservations.length}`} activityId={actId} onChanged={() => R.fetchAll()} />
     </div>
   );
 

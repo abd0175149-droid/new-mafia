@@ -378,8 +378,9 @@ export function useReservations(opts?: { live?: boolean }) {
     await fetchAll();
   }, [fetchAll]);
 
-  const removeRow = useCallback(async (id: number) => {
-    await apiFetch(`/api/reservations/${id}`, { method: 'DELETE' });
+  // ❌ ق٩: «cancel» يبقى ظاهراً تحت «ملغى» بسببه، و«mistake» حذفٌ لإدخالٍ خاطئ
+  const removeRow = useCallback(async (id: number, opts?: { mode?: 'cancel' | 'mistake'; reason?: string }) => {
+    await apiFetch(`/api/reservations/${id}`, { method: 'DELETE', body: JSON.stringify({ mode: opts?.mode || 'cancel', reason: opts?.reason || '' }) });
     await fetchAll();
   }, [fetchAll]);
 

@@ -691,6 +691,11 @@ export const reservations = pgTable('reservations', {
   // 🧭 خطّة التوحيد م٢-أ: قناةٌ وفاعلٌ صريحان (يملؤهما مشغّلٌ من «أُنشئ بواسطة» حتّى تكتبهما الخدمة)
   channel: varchar('channel', { length: 12 }),
   actor: varchar('actor', { length: 120 }),
+  // ❌ م٣ (ق٩): الإلغاء حالةٌ ظاهرة — يبقى deleted_at كما هو، وهذه تميّز الملغى بسببه عن الإدخال الخاطئ
+  cancelledAt: timestamp('cancelled_at'),
+  cancelReason: varchar('cancel_reason', { length: 200 }),
+  cancelledBy: varchar('cancelled_by', { length: 120 }),
+  cancelChannel: varchar('cancel_channel', { length: 12 }),
   createdAt: timestamp('created_at').defaultNow().notNull(),
   updatedAt: timestamp('updated_at').defaultNow().notNull(),
   deletedAt: timestamp('deleted_at'),
