@@ -231,3 +231,71 @@ export function ConvAvatar({ c, size = 'md', ch }: { c: any; size?: 'sm' | 'md' 
     </span>
   );
 }
+
+// ══════════════════════════════════════════════════════
+// 🔘 رسالة الخيارات — أزرار ميتا، أو قائمة، أو استفتاء رقم الأعمال، أو قائمة مرقّمة
+// ══════════════════════════════════════════════════════
+// كان الخيط يعرض نصّ الرسالة وحده، فيرى الموظّف «اختر الفعالية المناسبة:» بلا الخيارات ولا
+// الاستفتاء — والعميل رآها كاملة. الخيارات في الحمولة نفسها (payload.interactive)، وطريقة
+// وصولها: _pollName = استفتاء، _rendered بلا استفتاء = قائمة مرقّمة، وإلّا أزرار ميتا وقائمتها.
+export interface IxOption { id: string; title: string; description?: string }
+export function ixOptions(payload: any): IxOption[] {
+  const i = payload?.interactive || {};
+  if (i.type === 'button') return (i.action?.buttons || []).map((b: any) => b?.reply || b).filter((r: any) => r?.id).map((r: any) => ({ id: String(r.id), title: String(r.title || '') }));
+  if (i.type === 'list') return (i.action?.sections || []).flatMap((s: any) => s?.rows || []).filter((r: any) => r?.id)
+    .map((r: any) => ({ id: String(r.id), title: String(r.title || ''), ...(r.description ? { description: String(r.description) } : {}) }));
+  return [];
+}
+/** معرّف الخيار الذي ردّ به العميل (زرّ، أو صفّ قائمة، أو استفتاء، أو رقمٌ كتبه) */
+export function ixReplyId(payload: any): string | null {
+  const i = payload?.interactive || {};
+  const r = i.button_reply || i.list_reply || null;
+  return r?.id ? String(r.id) : null;
+}
+const KEYS = ['1️⃣', '2️⃣', '3️⃣', '4️⃣', '5️⃣', '6️⃣', '7️⃣', '8️⃣', '9️⃣', '🔟'];
+
+export function InteractiveBubble({ m, chosenId }: { m: any; chosenId?: string | null }) {
+  const p = m.payload || {};
+  const i = p.interactive || {};
+  const opts = ixOptions(p);
+  const poll = !!p._pollName;
+  const numbered = !poll && !!p._rendered && m.channel === 'web';
+  const kind = poll ? '📊 استفتاء' : numbered ? '🔢 قائمة مرقّمة' : i.type === 'list' ? `☰ قائمة${i.action?.button ? ` «${i.action.button}»` : ''}` : '🔘 أزرار';
+  const header = i.header?.text ? String(i.header.text) : '';
+  const body = String(i.body?.text || m.body || '');
+  const footer = i.footer?.text ? String(i.footer.text) : '';
+  return (
+    <div className="wa-ix">
+      {header && <b className="hd">{header}</b>}
+      {body && <p>{body}</p>}
+      {opts.length > 0 && (
+        <div className={`opts${poll ? ' poll' : ''}`} role="list" aria-label={kind}>
+          <span className="lbl">{kind} · ما رآه العميل</span>
+          {opts.map((o, k) => (
+            <span key={o.id} role="listitem" className={`opt${chosenId === o.id ? ' on' : ''}`}>
+              <i aria-hidden="true">{poll ? (chosenId === o.id ? '◉' : '○') : numbered ? KEYS[k] || `${k + 1}.` : '›'}</i>
+              <span>{o.title}{o.description && <small>{o.description}</small>}</span>
+              {chosenId === o.id && <em>اختاره</em>}
+            </span>
+          ))}
+        </div>
+      )}
+      {footer && <small className="ft">{footer}</small>}
+    </div>
+  );
+}
+
+/** ردّ العميل على خيارات: ماذا اختار، وكيف (ضغط الاستفتاء، أو كتب الرقم، أو زرّ ميتا) */
+export function ChoiceReplyBubble({ m }: { m: any }) {
+  const p = m.payload || {};
+  const i = p.interactive || {};
+  const r = i.button_reply || i.list_reply || {};
+  const e = p._emulated || {};
+  const via = e.poll ? 'ضغطه في الاستفتاء' : e.n ? `كتب الرقم «${e.raw ?? e.n}»` : e.raw ? `كتب «${e.raw}»` : m.channel === 'web' ? 'اختاره' : 'ضغط الزرّ';
+  return (
+    <div className="wa-ix reply">
+      <p>↩️ اختار: <b>{r.title || m.body}</b>{r.description && <small> — {r.description}</small>}</p>
+      <small className="ft">{via}</small>
+    </div>
+  );
+}

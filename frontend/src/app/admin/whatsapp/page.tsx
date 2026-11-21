@@ -20,7 +20,7 @@ import { useWaHealth } from './HealthBar';
 import ChannelsSection from './ChannelsSection';
 import LineContactsSection from './LineContactsSection';
 import { apiFetch, getUser, API_URL, MUTE_KEY, WA_CAPTION_MAX, RANK_AR, ROLE_AR, FILTERS, SORTS, WIN_SORTS, fmtLeft, winTone, fmtTime, fmtWhen, fmtDay, intlPhone, CONV_PAGE, MSG_PAGE, isPendingMsg, chOf, CH_AR, inView, viewUnread, readInView, withoutPreview, insertByTime, windowHoursLeft, playPing, Ticks, SourceTag, messageInfoText, type InboxCh } from './wa-lib';
-import { AudioBubble, ImageBubble, OutVideoBubble, OutImageBubble, FileBubble, ConvAvatar } from './bubbles';
+import { AudioBubble, ImageBubble, OutVideoBubble, OutImageBubble, FileBubble, ConvAvatar, InteractiveBubble, ChoiceReplyBubble, ixOptions, ixReplyId } from './bubbles';
 import { BotSettingsView } from './BotSettings';
 import { useVisibleViewport } from '@/hooks/useVisibleViewport';
 import { Toggle, Seg, Chip, Badge, Setting, Tile, Banner, Meter, Empty, Skel, Pop, Field } from './wa-ui';
@@ -711,6 +711,22 @@ export default function WhatsAppInboxPage() {
     return out;
   }, [messages]);
 
+  // 🔘 أيّ خيارٍ اختاره العميل من كلّ رسالة خيارات: ردُّه يُطابق أقرب رسالة خياراتٍ قبله فيها معرّفه
+  const chosenOf = useMemo(() => {
+    const map = new Map<number, string>();
+    const outs: any[] = [];
+    for (const m of messages) {
+      if (m.msgType !== 'interactive') continue;
+      if (m.direction !== 'in') { outs.push(m); continue; }
+      const rid = ixReplyId(m.payload);
+      if (!rid) continue;
+      for (let k = outs.length - 1; k >= 0; k--) {
+        if (ixOptions(outs[k].payload).some(o => o.id === rid)) { if (!map.has(outs[k].id)) map.set(outs[k].id, rid); break; }
+      }
+    }
+    return map;
+  }, [messages]);
+
   const vv = useVisibleViewport();
   const [offline, setOffline] = useState(false);
   useEffect(() => {
@@ -1034,6 +1050,10 @@ export default function WhatsAppInboxPage() {
                         <OutVideoBubble m={m} />
                       ) : ['video', 'document'].includes(m.msgType) && !out ? (
                         <FileBubble m={m} />
+                      ) : m.msgType === 'interactive' && out ? (
+                        <InteractiveBubble m={m} chosenId={chosenOf.get(m.id)} />
+                      ) : m.msgType === 'interactive' && !out ? (
+                        <ChoiceReplyBubble m={m} />
                       ) : (
                         <p>{m.body || <span className="muted">[{m.msgType}]</span>}</p>
                       )}
