@@ -15,6 +15,7 @@ import '../../models/city.dart';
 import '../../models/profile.dart';
 import '../profile/profile_palette.dart';
 import 'activity_sheets.dart';
+import 'friends_picker.dart';
 import 'games_widgets.dart';
 
 // ══════════════════════════════════════════════════════
@@ -268,10 +269,10 @@ class GamesScreenState extends State<GamesScreen> {
       homeCityName: _homeCityName,
     );
     if (choice == null || !mounted) return;
-    await _book(a, choice.offerIndex, useLoyaltyReward: choice.useLoyaltyReward);
+    await _book(a, choice.offerIndex, useLoyaltyReward: choice.useLoyaltyReward, friends: choice.friends);
   }
 
-  Future<void> _book(Activity a, int? offerId, {bool useLoyaltyReward = true}) async {
+  Future<void> _book(Activity a, int? offerId, {bool useLoyaltyReward = true, FriendsSelection? friends}) async {
     setState(() => _booking = a.id);
     try {
       final r = await ApiClient.instance.post('/api/player-app/book', body: {
@@ -279,6 +280,7 @@ class GamesScreenState extends State<GamesScreen> {
         if (offerId != null) 'offerId': offerId,
         // 🎟️ الخادم يطبّق الزيارة المجّانيّة افتراضاً — تُرسل عند الإطفاء فقط
         if (!useLoyaltyReward) 'useLoyaltyReward': false,
+        if (friends != null && !friends.isEmpty) ...friends.toJson(),
       });
       if (!mounted) return;
 
@@ -290,6 +292,17 @@ class GamesScreenState extends State<GamesScreen> {
         if (loy is Map && loy['freeVisitApplied'] == true) {
           MafiaToast.show(context, '🎟️ طُبّقت زيارتك المجّانيّة — رسم اللعبة ٠ د.أ');
           unawaited(LoyaltyApi.instance.refresh());
+        }
+        // 👥 الأصحاب: رسالة رمز الانضمام للمرافقين، أو نتيجة المجموعة
+        final fr = r['friends'];
+        if (fr is Map) {
+          if (fr['ok'] == false) {
+            MafiaToast.show(context, 'حجزك ثبت ✓ — الأصحاب: ${fr['error'] ?? 'تعذّر'}');
+          } else if (fr['joinCode'] != null) {
+            unawaited(showJoinMessage(context, '🎭 حجزتلك مقعد معي في «${a.name}».\nلتثبّت مقعدك باسمك ابعت للدون على واتساب:\nانضمام ${fr['joinCode']}'));
+          } else if (fr['text'] != null) {
+            MafiaToast.show(context, '${fr['text']}'.split('\n').first);
+          }
         }
         _load();
         return;

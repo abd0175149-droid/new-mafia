@@ -350,6 +350,20 @@ class ActivityCard extends StatelessWidget {
                     _capacityBar(a),
                     // 🎟️ سطر الختم — لا يصل `loyaltyCutoffAt` إلّا والميزة
                     //    مفعّلة، فغيابُه يعني صمتاً لا سطراً فارغاً.
+                    // 🎁 عرض المجموعة على الفعاليّة (م٧) — يراه اللاعب قبل الحجز
+                    if (a.groupOffer != null) ...[
+                      const SizedBox(height: 8),
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                        decoration: BoxDecoration(
+                          borderRadius: BorderRadius.circular(8),
+                          color: const Color(0x14FBBF24),
+                          border: Border.all(color: const Color(0x4DFBBF24)),
+                        ),
+                        child: Text('${a.groupOffer!.tag} · «${a.groupOffer!.name}»: ${a.groupOffer!.rule}',
+                            style: ar(11, color: Tw.amber400)),
+                      ),
+                    ],
                     if (a.loyaltyCutoffAt != null) ...[
                       const SizedBox(height: 6),
                       LoyaltyCutoffLine(cutoffAt: a.loyaltyCutoffAt!),

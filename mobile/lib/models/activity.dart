@@ -82,7 +82,11 @@ class Activity {
     this.locationRegion,
     this.loyaltyCutoffAt,
     this.loyaltyMinLeadHours,
+    this.groupOffer,
   });
+
+  /// 🎁 عرض مجموعةٍ فعّال على هذه الفعاليّة (اللمة احلا: ٢ بسعر ١) — `null` بلا عرض.
+  final GroupOfferBadge? groupOffer;
 
   final int id;
   final String name;
@@ -152,6 +156,20 @@ class Activity {
             : DateTime.tryParse('${j['loyaltyCutoffAt']}'),
         loyaltyMinLeadHours:
             j['loyaltyMinLeadHours'] == null ? null : _i(j['loyaltyMinLeadHours']),
+        groupOffer: j['groupOffer'] is Map
+            ? GroupOfferBadge.fromJson(Map<String, dynamic>.from(j['groupOffer'] as Map))
+            : null,
+      );
+}
+
+/// 🎁 شارة عرض المجموعة كما يرسلها الخادم (`offerBadgesFor`).
+class GroupOfferBadge {
+  const GroupOfferBadge({required this.name, required this.rule, required this.tag});
+  final String name, rule, tag;
+  factory GroupOfferBadge.fromJson(Map<String, dynamic> j) => GroupOfferBadge(
+        name: (j['name'] ?? '').toString(),
+        rule: (j['rule'] ?? '').toString(),
+        tag: (j['tag'] ?? '🎁').toString(),
       );
 }
 

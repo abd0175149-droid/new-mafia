@@ -9,6 +9,7 @@ import '../loyalty/loyalty_widgets.dart';
 import '../order/order_widgets.dart' show kEmeraldText;
 import '../profile/profile_palette.dart';
 import 'location_menu_sheet.dart';
+import 'friends_picker.dart';
 
 
 // ══════════════════════════════════════════════════════
@@ -314,9 +315,11 @@ class _DetailsSheet extends StatelessWidget {
 /// `false` حين يطفئ اللاعب تطبيق زيارته المجّانيّة على هذا الحجز — الخادم
 /// يطبّقها افتراضاً، فلا تُرسل إلّا عند الإطفاء.
 class BookingChoice {
-  const BookingChoice({this.offerIndex, this.useLoyaltyReward = true});
+  const BookingChoice({this.offerIndex, this.useLoyaltyReward = true, this.friends});
   final int? offerIndex;
   final bool useLoyaltyReward;
+  /// 👥 م٥ب: «مين جاي معك؟» — `null` أو فارغة = لنفسه فقط
+  final FriendsSelection? friends;
 }
 
 /// تعيد اختيار اللاعب، أو `null` إلغاءً.
@@ -357,6 +360,7 @@ class _ConfirmSheet extends StatefulWidget {
 class _ConfirmSheetState extends State<_ConfirmSheet> {
   int? _offer;
   bool _error = false;
+  final FriendsSelection _friends = FriendsSelection();
 
   // 🎟️ الزيارة المجّانيّة: تُطبَّق افتراضاً — من يريد ادّخارها يطفئها
   bool _useFreeVisit = true;
@@ -380,6 +384,7 @@ class _ConfirmSheetState extends State<_ConfirmSheet> {
     Navigator.of(context).pop(BookingChoice(
       offerIndex: _offer,
       useLoyaltyReward: _freeVisit == null || _useFreeVisit,
+      friends: _friends.isEmpty ? null : _friends,
     ));
   }
 
@@ -428,6 +433,8 @@ class _ConfirmSheetState extends State<_ConfirmSheet> {
               const SizedBox(height: 10),
               _freeVisitBox(_freeVisit!),
             ],
+            // 👥 م٥ب: مين جاي معك؟ — والعرض يظهر بسعره من الخادم
+            FriendsPicker(activity: a, selection: _friends),
             if (a.offers.isNotEmpty) _offerPicker(a),
             if (_error) ...[
               const SizedBox(height: 12),
