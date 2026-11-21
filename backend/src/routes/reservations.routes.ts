@@ -84,7 +84,26 @@ router.get('/', authenticate, async (req: Request, res: Response) => {
     const { attachFollowupStatus } = await import('../services/arrival-followup.service.js');
     await attachFollowupStatus(rows as any[]);
   } catch { rows.forEach((r: any) => { if (r.followupStatus === undefined) r.followupStatus = null; }); }
+  // 💸 المال والعروض والختم على كلّ صفّ (قراءةٌ فقط — خطّة التوحيد م١ب). لفعاليّةٍ واحدة فقط:
+  //    «كلّ الفعاليّات» آلاف الصفوف، والمالك يعمل على فعاليّةٍ بعينها.
+  if (req.query.activityId && req.query.activityId !== 'all') {
+    try {
+      const { attachMoney } = await import('../services/followup-money.service.js');
+      await attachMoney(rows as any[]);
+    } catch (e: any) { console.warn('⚠️ follow-up money:', e?.message); }
+  }
   res.json(rows);
+});
+
+// GET /api/reservations/money/:activityId — رأس الفعاليّة: المتوقَّع والمحصَّل والمجّانيّ بأسبابه
+// والمقاعد بسعرٍ مقفول، بالأرقام نفسها التي تحسبها صفحة الفعاليّة (خطّة التوحيد م١ب)
+router.get('/money/:activityId', authenticate, async (req: Request, res: Response) => {
+  try {
+    const { activityMoney } = await import('../services/followup-money.service.js');
+    const m = await activityMoney(parseInt(req.params.activityId));
+    if (!m) return res.status(404).json({ error: 'الفعاليّة غير موجودة' });
+    res.json(m);
+  } catch (e: any) { res.status(500).json({ error: e?.message || 'خطأ' }); }
 });
 
 // ══════════════════════════════════════════════════════

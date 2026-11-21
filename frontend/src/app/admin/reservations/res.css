@@ -200,3 +200,17 @@
 .res-attend > .wa-btn.on-yes { background: var(--ok-soft); border-color: var(--ok); color: var(--ok); }
 .res-attend > .wa-btn.on-no { background: var(--danger-soft); border-color: var(--danger); color: var(--danger); }
 .res-etabox.flash { outline: 2px solid var(--gold); outline-offset: 6px; border-radius: var(--radius-sm); }
+
+/* 💸 المال والعروض والختم (خطّة التوحيد م١ب) — قراءةٌ فقط */
+.res-row .sub.money { margin-top: 3px; }
+.res-row .sub.money .wa-badge { font-size: 11px; }
+.res-moneywrap { padding: var(--space-2) var(--space-4) 0; display: grid; gap: 4px; }
+.res-money { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 6px; }
+.res-money > div { border: 1px solid var(--line); background: var(--bg-100); border-radius: var(--radius-md); padding: 6px 8px; display: grid; min-width: 0; }
+.res-money b { font: 600 15px/22px var(--font-mono); color: var(--ink); }
+.res-money small { font: 500 11px/15px var(--font-sans); color: var(--ink-3); overflow-wrap: anywhere; }
+.res-money-note { margin: 0; font: 400 11px/16px var(--font-sans); color: var(--ink-3); }
+.res-legacy { padding: var(--space-2) var(--space-4) 0; display: grid; gap: var(--space-2); }
+.res-legacy:empty { display: none; }
+.res-legacy > div { background: var(--bg-100) !important; border-color: var(--line) !important; border-radius: var(--radius-md) !important; box-shadow: none !important; }
+@media (max-width: 380px) { .res-money { grid-template-columns: repeat(2, minmax(0, 1fr)); } }

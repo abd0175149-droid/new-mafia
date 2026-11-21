@@ -62,6 +62,24 @@ export interface Reservation {
   declinedVia?: string | null;
 }
 
+/** 💸 المال والعروض والختم على صفّ المتابعة — يُلحقها الخادم لفعاليّةٍ واحدة (خطّة التوحيد م١ب) */
+export interface RowMoney {
+  channel: 'app' | 'bot' | 'botadmin' | 'group' | 'door' | 'staff';
+  base: number; unit: number; people: number;
+  ownerDue: number; companionsDue: number; total: number;
+  pay: 'paid' | 'free' | 'unpaid' | 'none';
+  paidAmount: number;
+  freeReason: 'loyalty' | 'freeacc' | 'group' | 'other' | null;
+  offers: Array<{ k: 'early' | 'group' | 'loyalty' | 'freeacc'; label: string }>;
+  stamp: { k: 'stamped' | 'eligible' | 'promo' | 'channel' | 'late' | 'noaccount' | 'location'; label: string } | null;
+}
+/** رأس الفعاليّة في المتابعة — الأرقام نفسها في صفحة الفعاليّة */
+export interface ActivityMoney {
+  base: number; expected: number; collected: number;
+  free: number; freeReasons: Record<string, number>;
+  earlySeats: number; companionsDue: number; groups: number; strikes: number;
+}
+
 export interface Activity {
   id: number; name: string; date: string; status: string; locationId: number | null; gameSchedule?: any[];
   /** 🏙️ من `/api/activities` — تُلحق باسم الفعاليّة في القوائم حين تتوفّر */

@@ -20,11 +20,40 @@
 import { useRef, useState } from 'react';
 import { motion } from 'framer-motion';
 import {
-  Armchair, BellOff, BookUser, Check, CheckCheck, Clock, Smartphone, StickyNote, X,
+  Armchair, BellOff, BookUser, Check, CheckCheck, Clock, Coins, Smartphone, StickyNote, X,
 } from 'lucide-react';
 import { statusMeta, resStatus, isWaSent, waAgo } from '@/lib/reservation-status';
 import { Badge } from '@/app/admin/whatsapp/wa-ui';
-import type { Reservation } from '@/hooks/useReservations';
+import type { Reservation, RowMoney } from '@/hooks/useReservations';
+
+// 💸 سطر المال (خطّة التوحيد م١ب): القناة، والدفع، والعرض، والختم — قراءةٌ فقط
+const CH_LABEL: Record<RowMoney['channel'], [string, 'info' | 'violet' | 'gold' | 'ok' | undefined]> = {
+  app: ['التطبيق', undefined], bot: ['الدون', 'info'], botadmin: ['أدمن البوت', 'violet'],
+  group: ['مجموعة الدون', 'info'], door: ['الباب', 'ok'], staff: ['موظّف', 'gold'],
+};
+const FREE_LABEL: Record<string, string> = { loyalty: 'زيارة الولاء', freeacc: 'حساب مجّانيّ', group: 'عرض مجموعة', other: 'مجّانيّ' };
+const jd = (x: number) => String(Math.round((Number(x) || 0) * 100) / 100);
+function MoneyLine({ m }: { m: RowMoney }) {
+  const ch = CH_LABEL[m.channel] || CH_LABEL.staff;
+  return (
+    <span className="sub money">
+      <Badge tone={ch[1]}>{ch[0]}</Badge>
+      {m.pay === 'paid' && <Badge tone="ok"><Coins /> مدفوع <span className="ltr">{jd(m.paidAmount)}</span></Badge>}
+      {m.pay === 'unpaid' && <Badge tone="warn"><Coins /> غير مدفوع <span className="ltr">{jd(m.ownerDue)}</span></Badge>}
+      {m.pay === 'free' && <Badge tone="violet">مجّانيّ · {FREE_LABEL[m.freeReason || 'other']}</Badge>}
+      {m.pay === 'none' && <span title="لا صفّ مال قبل التثبيت — هذا سعر الشخص"><Coins /> <span className="ltr">{jd(m.unit)}</span> د.أ للشخص</span>}
+      {m.companionsDue > 0 && (
+        <span title="تقديرٌ لحقّ المرافقين — بلا صفّ مال حتّى توحيد المقاعد">+ <span className="ltr">{jd(m.companionsDue)}</span> مرافقون</span>
+      )}
+      {m.offers.filter(o => o.k === 'early' || o.k === 'group').map(o => (
+        <Badge key={o.k} tone={o.k === 'early' ? 'info' : 'violet'}>{o.k === 'early' ? '💸' : '🎁'} {o.label}</Badge>
+      ))}
+      {m.stamp && (
+        <Badge tone={m.stamp.k === 'stamped' || m.stamp.k === 'eligible' ? 'ok' : undefined}>✦ {m.stamp.label}</Badge>
+      )}
+    </span>
+  );
+}
 import { arrivalGroup, etaLabel, followupState, hm, num, peopleLabel } from './arrival';
 
 const AR = ['٠', '١', '٢', '٣', '٤', '٥', '٦', '٧', '٨', '٩'];
@@ -180,6 +209,7 @@ export default function ResRow({ r, now, onOpen, onAttend, dense, selected, swip
             {r.remindOptIn === false && <span title="طلب عدم إرسال تذكيرات"><BellOff /></span>}
             {r.notes && <span title={r.notes}><StickyNote /></span>}
           </span>
+          {(r as any).money && <MoneyLine m={(r as any).money as RowMoney} />}
         </span>
 
         {(eta || fu || group === 'arrived' || group === 'declined') && (

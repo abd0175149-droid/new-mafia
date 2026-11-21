@@ -37,7 +37,9 @@ import { swalAlert, swalConfirm, swalToast } from '@/lib/swal';
 import {
   attendOrder, genderSplit, isPending, isWaitlist, matchesSearch, normPhoneKey, needsWa,
 } from '@/lib/reservation-status';
-import { useReservations, apiFetch, getToken, type Reservation } from '@/hooks/useReservations';
+import { useReservations, apiFetch, getToken, type Reservation, type ActivityMoney } from '@/hooks/useReservations';
+import OfferGroupsSection from '../components/OfferGroupsSection';
+import NoShowSection from '../components/NoShowSection';
 import ResRow from '@/components/reservations/ResRow';
 import PersonSheet, { PersonPanel } from '@/components/reservations/PersonSheet';
 import QuickAddSheet from '@/components/reservations/QuickAddSheet';
@@ -357,6 +359,15 @@ export default function ReservationsPage() {
 
   const single = !!R.activityId && R.activityId !== 'all';
   const actId = single ? Number(R.activityId) : 0;
+
+  // 💸 مال الفعاليّة — يُعاد مع كلّ تحديثٍ للصفوف (دفعٌ سُجّل، حجزٌ أُلغي)
+  const [money, setMoney] = useState<ActivityMoney | null>(null);
+  useEffect(() => {
+    if (!actId) { setMoney(null); return; }
+    let alive = true;
+    apiFetch(`/api/reservations/money/${actId}`).then(m => { if (alive) setMoney(m); }).catch(() => { if (alive) setMoney(null); });
+    return () => { alive = false; };
+  }, [actId, R.reservations]);
 
   // تغيّرت الفعاليّة ⟵ العرض الافتراضيّ لها، ولا يبقى شخصٌ من فعاليّةٍ أخرى محدَّداً
   useEffect(() => {
@@ -747,8 +758,33 @@ export default function ReservationsPage() {
     </button>
   );
 
+  // 💸 رأس المال للفعاليّة (خطّة التوحيد م١ب) — قراءةٌ فقط، والأرقام نفسها في صفحة الفعاليّة
+  const FREE_R: Record<string, string> = { loyalty: 'ولاء', freeacc: 'حساب مجّانيّ', group: 'مجموعة', other: 'أخرى' };
+  const moneyBar = single && money && (
+    <div className="res-moneywrap">
+      <div className="res-money" aria-label="مال الفعاليّة">
+        <div><b className="ltr">{num(money.expected)}</b><small>المتوقَّع د.أ</small></div>
+        <div><b className="ltr">{num(money.collected)}</b><small>المحصَّل د.أ</small></div>
+        <div><b className="ltr">{num(money.free)}</b><small>مجّانيّ{Object.keys(money.freeReasons).length ? ': ' + Object.entries(money.freeReasons).map(([k, n]) => `${num(n)} ${FREE_R[k] || k}`).join('، ') : ''}</small></div>
+        <div><b className="ltr">{num(money.earlySeats)}</b><small>بسعرٍ مقفول</small></div>
+      </div>
+      {money.companionsDue > 0 && (
+        <p className="res-money-note">و<span className="ltr">{num(money.companionsDue)}</span> د.أ تقديراً لمرافقين بلا صفّ مال — خارج «المتوقَّع» حتّى توحيد المقاعد.</p>
+      )}
+    </div>
+  );
+  // 🎟️ مجموعات العروض والغياب لهذه الفعاليّة — كانا في صفحة الفعاليّة وحدها (يختفيان إن كانا فارغين)
+  const offerSecs = single && actId > 0 && (
+    <div className="res-legacy">
+      <OfferGroupsSection activityId={actId} onChanged={() => R.fetchAll()} />
+      <NoShowSection activityId={actId} onChanged={() => R.fetchAll()} />
+    </div>
+  );
+
   const groupedList = (
     <div className="res-list">
+      {moneyBar}
+      {offerSecs}
       {pendingBanner}
       {feedBanner}
       {single
