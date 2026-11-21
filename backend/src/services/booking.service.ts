@@ -3,85 +3,12 @@
 // ربط الحجوزات باللاعبين تلقائياً عبر رقم الهاتف
 // ══════════════════════════════════════════════════════
 
-import { eq, and } from 'drizzle-orm';
+import { eq } from 'drizzle-orm';
 import { getDB } from '../config/db.js';
-import { bookings, activities } from '../schemas/admin.schema.js';
-import { sessionPlayers, sessions } from '../schemas/game.schema.js';
+import { bookings } from '../schemas/admin.schema.js';
 
-// ── مطابقة حجز مع لاعب عبر رقم الهاتف ────────────
-
-export async function matchBookingToPlayer(
-  sessionId: number,
-  phone: string,
-): Promise<{ bookingId: number; activityId: number } | null> {
-  const db = getDB();
-  if (!db || !phone) return null;
-
-  try {
-    // 1. ابحث عن النشاط المرتبط بالغرفة
-    const session = await db.select()
-      .from(sessions)
-      .where(eq(sessions.id, sessionId))
-      .limit(1);
-
-    if (!session[0]?.activityId) return null;
-
-    const activityId = session[0].activityId;
-
-    // 2. ابحث عن حجز بنفس رقم الهاتف في هذا النشاط
-    const booking = await db.select()
-      .from(bookings)
-      .where(
-        and(
-          eq(bookings.activityId, activityId),
-          eq(bookings.phone, phone),
-          eq(bookings.checkedIn, false),
-        ),
-      )
-      .limit(1);
-
-    if (booking.length === 0) return null;
-
-    return {
-      bookingId: booking[0].id,
-      activityId,
-    };
-  } catch (err: any) {
-    console.error('❌ matchBookingToPlayer failed:', err.message);
-    return null;
-  }
-}
-
-// ── تسجيل حضور (Check-in): ربط الحجز واللاعب ────────
-
-export async function checkInPlayer(
-  bookingId: number,
-  sessionPlayerId: number,
-): Promise<boolean> {
-  const db = getDB();
-  if (!db) return false;
-
-  try {
-    // تحديث الحجز
-    await db.update(bookings)
-      .set({
-        checkedIn: true,
-        playerId: sessionPlayerId,
-      } as any)
-      .where(eq(bookings.id, bookingId));
-
-    // تحديث session_player
-    await db.update(sessionPlayers)
-      .set({ bookingId } as any)
-      .where(eq(sessionPlayers.id, sessionPlayerId));
-
-    console.log(`✅ Check-in: Booking #${bookingId} ↔ Player #${sessionPlayerId}`);
-    return true;
-  } catch (err: any) {
-    console.error('❌ checkInPlayer failed:', err.message);
-    return false;
-  }
-}
+// م٨ (خطّة توحيد الحجز، 2026-11-21): أُزيلت matchBookingToPlayer و checkInPlayer — بلا مستدعٍ،
+// والربط صار صريحاً (bookings.reservation_id ومشغّلات م٢-أ، و ownBookingCond).
 
 // ── إحصائيات الحضور لنشاط معين ────────────────────
 

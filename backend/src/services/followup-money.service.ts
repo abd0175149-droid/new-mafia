@@ -167,7 +167,8 @@ export async function attachMoney(rows: any[]): Promise<void> {
     if (fr === 'loyalty') offers.push({ k: 'loyalty', label: 'زيارة الولاء' });
     if (fr === 'freeacc') offers.push({ k: 'freeacc', label: 'حساب مجّانيّ' });
     r.money = {
-      channel: channelOfCreatedBy(r.createdBy), base: A.base, unit: r2(unit), people,
+      // م٨: القناة من العمود الصريح (م٢-أ)؛ الوسم النصّيّ احتياطٌ لصفٍّ بلا قناة
+      channel: (['app', 'bot', 'botadmin', 'group', 'door', 'staff'].includes(String((r as any).channel)) ? (r as any).channel : channelOfCreatedBy(r.createdBy)) as FollowChannel, base: A.base, unit: r2(unit), people,
       ownerDue, companionsDue, total: r2(unit + companionsDue), pay,
       paidAmount: b && b.is_paid ? r2(Number(b.paid_amount) || 0) : 0, freeReason: fr, offers,
       stamp: await stampOf(ctx, r, b),
