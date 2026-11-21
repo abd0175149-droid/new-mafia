@@ -250,6 +250,19 @@ router.post('/', authenticate, async (req: Request, res: Response) => {
     if (d) return res.status(409).json({ error: `«${d.name || contactName}» له حجزٌ في هذه الفعاليّة ${d.via} — لا يُكرَّر.`, duplicate: d });
   }
 
+  // 🪑 م٥ج (ق١، ق٢٢): فعاليّةٌ سقفها مشغَّل ولا يكفي المتاح ⟵ الموظّف يختار: قائمة الانتظار، أو
+  //    «ثبّت فوق السعة» بزرٍّ صريح يُكتب في سجلّ الحجز. السقف مطفأ ⟵ كما كان.
+  let toWaitlist = false; let overCap = false;
+  if (activityId) {
+    const Q = await import('../services/capacity-queue.service.js');
+    const f = await Q.fits(Number(activityId), Number(peopleCount) || 1);
+    if (!f.ok) {
+      if (req.body?.toWaitlist) toWaitlist = true;
+      else if (req.body?.overCap) overCap = true;
+      else return res.status(409).json({ code: 'CAP_FULL', remaining: f.info.remaining, total: f.info.total, error: `الفعاليّة ممتلئة — المتاح ${f.info.remaining} من ${f.info.total}` });
+    }
+  }
+
   const result = await db.insert(reservations).values({
     activityId: activityId || null,
     contactName,
@@ -257,10 +270,14 @@ router.post('/', authenticate, async (req: Request, res: Response) => {
     phone: phone || '',
     peopleCount: peopleCount || 1,
     playerId: linkedPlayerId,
-    status: 'pending',
+    status: toWaitlist ? 'waitlist' : 'pending',
     notes: notes || '',
     createdBy: createdByName,
   } as any).returning();
+  if (overCap) {
+    await db.execute(sql`INSERT INTO booking_events (reservation_id, activity_id, channel, actor, kind, detail, reason)
+      VALUES (${result[0].id}, ${result[0].activityId}, 'staff', ${createdByName.slice(0, 120)}, 'over_cap', '{}'::jsonb, ${String(req.body?.reason || 'أُضيف فوق السعة').slice(0, 200)})`).catch(() => {});
+  }
 
   res.status(201).json(result[0]);
 });
@@ -358,8 +375,38 @@ router.put('/:id', authenticate, async (req: Request, res: Response) => {
     console.warn('⚠️ arrival patch on PUT:', e?.message);
   }
 
+  // 🪑 م٥ج: زيادة العدد أو التثبيت من الانتظار في فعاليّةٍ سقفها مشغَّل ⟵ يكفي المتاح، أو «فوق السعة» صراحةً
+  let putOverCap = false;
+  {
+    const ex = existing[0];
+    const nextPeople = updates.peopleCount !== undefined ? Number(updates.peopleCount) || 1 : Number(ex.peopleCount) || 1;
+    const nextStatus = updates.status ?? ex.status;
+    const wasCounted = ex.status !== 'waitlist';
+    const need = nextStatus === 'waitlist' ? 0 : wasCounted ? Math.max(0, nextPeople - (Number(ex.peopleCount) || 1)) : nextPeople;
+    if (need > 0 && ex.activityId) {
+      const Q = await import('../services/capacity-queue.service.js');
+      const f = await Q.fits(Number(ex.activityId), need, { exceptResId: id });
+      if (!f.ok) {
+        if (req.body?.overCap) putOverCap = true;
+        else return res.status(409).json({ code: 'CAP_FULL', remaining: f.info.remaining, total: f.info.total, error: `الفعاليّة ممتلئة — المتاح ${f.info.remaining} من ${f.info.total}` });
+      }
+    }
+    if (nextStatus !== 'waitlist') { updates.wlOfferedAt = null; updates.wlOfferUntil = null; }
+  }
+
   const result = await db.update(reservations).set(updates).where(eq(reservations.id, id)).returning();
   const row = result[0];
+  if (putOverCap) {
+    await db.execute(sql`INSERT INTO booking_events (reservation_id, activity_id, channel, actor, kind, detail, reason)
+      VALUES (${id}, ${row.activityId}, 'staff', ${String(req.user?.displayName || req.user?.username || 'الإدارة').slice(0, 120)}, 'over_cap', '{}'::jsonb, ${String(req.body?.reason || 'ثُبّت فوق السعة').slice(0, 200)})`).catch(() => {});
+  }
+  // 🪑 ق٢٠: مقعدٌ تحرّر (إنقاص العدد، أو خرج من العدّ إلى الانتظار) ⟵ الدور
+  {
+    const ex = existing[0];
+    const before = ex.status === 'waitlist' ? 0 : Number(ex.peopleCount) || 1;
+    const after = row.status === 'waitlist' ? 0 : Number(row.peopleCount) || 1;
+    if (after < before && row.activityId) { const Q = await import('../services/capacity-queue.service.js'); void Q.seatFreed(Number(row.activityId), 'إنقاص العدد'); }
+  }
 
   // 📋 سجلّ المتابعة + إشارةٌ لحظيّة لكلّ من يفتح الصفحة (أيّ تغييرٍ في الحضور/الموعد/الاعتذار)
   try {
@@ -458,11 +505,7 @@ router.delete('/:id', authenticate, async (req: Request, res: Response) => {
     const C = await import('../services/booking-commands.service.js');
     const r = mode === 'mistake' ? await C.deleteReservation(id, who) : await C.cancelReservation(id, who, reason || 'ألغاه الموظّف');
     if (!r.ok) return res.status(404).json({ error: r.error || 'الحجز غير موجود' });
-    // 🪑 مقعدٌ تحرّر — أوّل المنتظرين يُعرض عليه (كما يفعل إلغاء الدون)
-    if (mode === 'cancel') try {
-      const [row] = await getDB()!.select({ activityId: reservations.activityId }).from(reservations).where(eq(reservations.id, id)).limit(1);
-      if (row?.activityId) { const B = await import('../services/whatsapp-bot.service.js'); void B.offerFreedSeatFor(Number(row.activityId)); }
-    } catch { /* تكميليّ */ }
+    // 🪑 المقعد المتحرّر يشغّل الدور داخل الأمر (seatFreed)
     res.json({ success: true, mode, bookingRemoved: r.bookingRemoved ?? null });
   } catch (err: any) {
     console.error('❌ reservation delete:', err.message);
@@ -528,6 +571,40 @@ router.post('/:id/loyalty-visit', authenticate, async (req: Request, res: Respon
     const r = await C.setLoyaltyVisit(id, req.body?.on !== false, staffWho(req), String(req.body?.reason || ''));
     if (!r.ok) return res.status(409).json({ error: r.error });
     res.json({ success: true, ...r });
+  } catch (err: any) { res.status(500).json({ error: err.message }); }
+});
+
+// ── 🪑 م٥ج: السعة وقائمة الانتظار (ق١، ق٢٠، ق٢٢) ──
+router.get('/capacity/:activityId', authenticate, async (req: Request, res: Response) => {
+  const aid = parseInt(req.params.activityId);
+  if (!Number.isFinite(aid)) return res.status(400).json({ error: 'معرّف غير صالح' });
+  try {
+    const Q = await import('../services/capacity-queue.service.js');
+    const { bookingPolicy } = await import('../services/booking-policy.service.js');
+    res.json({ ...(await Q.capInfo(aid)), queue: await Q.queueOf(aid), holdMinutes: bookingPolicy().waitlistHoldMinutes });
+  } catch (err: any) { res.status(500).json({ error: err.message }); }
+});
+router.put('/capacity/:activityId', authenticate, authorize('admin'), async (req: Request, res: Response) => {
+  const aid = parseInt(req.params.activityId);
+  if (!Number.isFinite(aid)) return res.status(400).json({ error: 'معرّف غير صالح' });
+  try { const Q = await import('../services/capacity-queue.service.js'); res.json(await Q.setCap(aid, req.body?.on === true, staffWho(req))); }
+  catch (err: any) { res.status(500).json({ error: err.message }); }
+});
+router.post('/capacity/:activityId/run', authenticate, async (req: Request, res: Response) => {
+  const aid = parseInt(req.params.activityId);
+  if (!Number.isFinite(aid)) return res.status(400).json({ error: 'معرّف غير صالح' });
+  try { const Q = await import('../services/capacity-queue.service.js'); res.json({ offered: await Q.runQueue(aid, 'من المتابعة') }); }
+  catch (err: any) { res.status(500).json({ error: err.message }); }
+});
+// ثبّت من الانتظار (إن كفى المتاح أو كان معروضاً عليه)، أو فوق السعة بسبب (ق٢٢)
+router.post('/:id/waitlist-take', authenticate, async (req: Request, res: Response) => {
+  const id = parseInt(req.params.id);
+  if (!Number.isFinite(id)) return res.status(400).json({ error: 'معرّف غير صالح' });
+  try {
+    const Q = await import('../services/capacity-queue.service.js');
+    const r = await Q.takeFromQueue(id, staffWho(req), { overCap: req.body?.overCap === true, reason: String(req.body?.reason || '') });
+    if (!r.ok) return res.status(409).json({ error: r.error, code: r.code, remaining: r.remaining });
+    res.json({ success: true });
   } catch (err: any) { res.status(500).json({ error: err.message }); }
 });
 

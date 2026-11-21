@@ -1196,15 +1196,14 @@ export async function mirrorBotReservationToBookings(
 // 🧪 مواقعُ الاختبار (قرار المالك 2026-09-27 — البوت عرض فعاليّة «Test Location» على العملاء): أيّ فعاليّةٍ في موقعٍ
 //    موسومٍ is_test_location لا يراها البوت في القوائم ولا يقبلها بالمعرّف في أيّ أداة — للعميل والأدمن سواء.
 //    تطبيقُ اللاعب يخفيها للحسابات العاديّة (player-app.routes) والتقارير تستثنيها (reports/helpers notTestActivity).
-async function seatAvailability(db: any, activityId: number): Promise<{ total: number; booked: number; remaining: number }> {
-  const { resolveRoomCapacity } = await import('./capacity.service.js');
-  const total = await resolveRoomCapacity(activityId);
-  // 🔴 الصيغةُ كانت مكتوبةً هنا نسخةً ثانية. صارت في booking-count.service —
-  //    مصدرٌ واحد يخدم البوت وتطبيق اللاعب معاً، فلا يفترق رقمٌ عن رقم.
-  const { countBookedPeople } = await import('./booking-count.service.js');
-  const booked = await countBookedPeople(activityId);
-  return { total, booked, remaining: Math.max(0, total - booked) };
+async function seatAvailability(db: any, activityId: number): Promise<{ total: number; booked: number; remaining: number; capped: boolean }> {
+  // 🪑 م٥ج (ق١): قاعدة سعةٍ واحدة لكلّ القنوات — السقف مطفأ (الافتراض) ⟵ بلا سقف، فلا «مكتملة» ولا
+  //    انتظار من الدون. مشغَّل ⟵ المتاح = السعة − المحجوز − المعروض على الدور ضمن مهلته.
+  const { capInfo } = await import('./capacity-queue.service.js');
+  const c = await capInfo(activityId);
+  return { total: c.total, booked: c.booked, remaining: c.enabled ? c.remaining : UNCAPPED, capped: c.enabled };
 }
+const UNCAPPED = 999;
 
 // 🚫 مانع تكرار الحجوزات: حجز واحد لكل عميل بالفعالية عبر كل القنوات
 // (تطبيق / بوت / يدوي / قائمة انتظار) — بمطابقة الهاتف أو حساب اللاعب
@@ -2785,7 +2784,9 @@ async function execTool(name: string, args: any, ctx: ToolCtx): Promise<any> {
       if (dupRes) return { error: `«${name}» (${phone}) محجوز أصلاً في «${act.name}» — ${dupRes.people} أشخاص (${dupRes.status}). للتعديل: انقل الحجز أو ألغِه ثم أعد الحجز.` };
 
       const av = await seatAvailability(db, actId);
-      const seatNote = av.remaining >= people
+      const seatNote = !av.capped
+        ? `بلا سقف لهذه الفعاليّة (محجوز ${av.booked} من سعة القاعة ${av.total})`
+        : av.remaining >= people
         ? `المقاعد كافية (${av.remaining} متاح من ${av.total})`
         : `⚠️ المتبقي ${av.remaining} فقط من ${av.total} — الإضافة ستتجاوز السعة`;
 
@@ -2858,7 +2859,9 @@ async function execTool(name: string, args: any, ctx: ToolCtx): Promise<any> {
       if (dupTo) return { error: `له حجز أصلاً في «${toAct.name}» — لا يصحّ حجزان لنفس الفعاليّة` };
 
       const av = await seatAvailability(db, toId);
-      const seatNote = av.remaining >= src.people
+      const seatNote = !av.capped
+        ? `بلا سقف لهذه الفعاليّة (محجوز ${av.booked} من سعة القاعة ${av.total})`
+        : av.remaining >= src.people
         ? `المقاعد كافية (${av.remaining} متاح من ${av.total})`
         : `⚠️ المتبقي ${av.remaining} فقط من ${av.total} — النقل سيتجاوز السعة`;
 
@@ -4197,8 +4200,7 @@ async function performCancellation(convId: number, reservationId: number) {
   notifyAdmins('❌ إلغاء حجز عبر البوت', `${who} — ${r.activityName} (${when}) — ${r.peopleCount} أشخاص`, { conversationId: convId, url: `/admin/reservations?activityId=${r.activityId}`, tag: `wa-conv-${convId}` }).catch(() => {});
   sendPushToStaffByPermission('bookings', '❌ إلغاء حجز من بوت واتساب', `${who} — ${r.activityName} — ${r.peopleCount} أشخاص`, 'reservation', { route: `/admin/reservations?activityId=${r.activityId}` }).catch(() => {});
   console.log(`❌ WA bot: reservation #${r.id} cancelled (conv ${convId})`);
-  // 🪑 مقعدٌ تحرّر ⟵ أوّل المنتظرين (ممّن نافذته مفتوحة) يُعرض عليه بزرّ
-  void offerFreedSeat(Number(r.activityId), extHelpers());
+  // 🪑 المقعد المتحرّر يشغّل الدور داخل cancelReservation (seatFreed) — لكلّ القنوات
 }
 
 // ══════════════════════════════════════════════════════

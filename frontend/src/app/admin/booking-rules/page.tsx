@@ -21,13 +21,14 @@ async function api(path: string, opts?: RequestInit) {
   return body;
 }
 
-interface Policy { selfCancelHours: number; changeHours: number; bookableGraceHours: number; lateCancelHours: number; strikeExpiryDays: number }
+interface Policy { selfCancelHours: number; changeHours: number; bookableGraceHours: number; lateCancelHours: number; strikeExpiryDays: number; waitlistHoldMinutes: number }
 const FIELDS: Array<{ k: keyof Policy; title: string; hint: string; max: number; unit?: string; step?: number }> = [
   { k: 'selfCancelHours', title: 'الإلغاء الذاتيّ حتّى', hint: 'من التطبيق والدون معاً (ق٢). بعدها يصل الطلب للإدارة. المدفوع يُلغى عبر الإدارة دائماً.', max: 72 },
   { k: 'changeHours', title: 'تعديل العدد بنفسه حتّى', hint: 'زيادة الأشخاص أو إنقاصهم من الدون. بعدها يتحوّل الطلب للإدارة.', max: 72 },
   { k: 'bookableGraceHours', title: 'الحجز بعد موعد البدء حتّى', hint: 'ساعاتٌ بعد البدء ما زال الحجز فيها مقبولاً. والغرفة المفتوحة تُحجز دائماً.', max: 24 },
   { k: 'lateCancelHours', title: 'الإلغاء المتأخّر يُحسب غياباً في آخر', hint: 'من يلغي في هذه الساعات قبل اللعبة يُحرم من السعر المبكّر في حجزه التالي.', max: 72 },
   { k: 'strikeExpiryDays', title: 'الغياب ينتهي بعد', hint: 'غيابٌ أقدم من هذا لا يحرم من السعر المبكّر (ق٧). صفر = لا ينتهي.', max: 365, unit: 'يوم', step: 1 },
+  { k: 'waitlistHoldMinutes', title: 'مهلة المقعد المعروض من قائمة الانتظار', hint: 'ق٢٠: في فعاليّةٍ سقفها مشغَّل، المقعد الذي يفرغ يُحجز لأوّل الدور هذه المدّة، ثمّ يُعرض على التالي.', max: 240, unit: 'دقيقة', step: 5 },
 ];
 
 // 📊 تقرير الإلغاءات (م٣): متى يلغي الناس ومن أيّ قناة — منه تُضبط مهلة الإلغاء

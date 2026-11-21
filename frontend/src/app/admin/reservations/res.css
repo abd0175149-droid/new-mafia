@@ -244,3 +244,18 @@
 .res-offerbox .h { display: flex; align-items: center; gap: 8px; font: 700 13px/20px var(--font-sans); color: var(--ink-2); }
 .res-offerbox .h svg { width: 16px; height: 16px; }
 .res-offerbox .row { font: 600 14px/20px var(--font-sans); color: var(--ink); }
+
+/* 🪑 السعة وقائمة الانتظار (م٥ج) */
+.res-legacy > .res-cap { background: var(--bg-100) !important; }
+.res-cap { border: 1px solid var(--line); border-radius: var(--radius-md); padding: 8px 10px; display: grid; gap: 6px; }
+.res-cap .top { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; font: 500 13px/20px var(--font-sans); color: var(--ink-2); }
+.res-cap .top svg { width: 16px; height: 16px; }
+.res-cap .top b { color: var(--ink); }
+.res-cap .top .wa-btn { margin-inline-start: auto; }
+.res-cap .top .wa-btn + .wa-btn { margin-inline-start: 0; }
+.res-cap .q { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; }
+.res-cap .q li { display: flex; align-items: center; gap: 8px; min-height: 40px; border-top: 1px solid var(--line); font: 600 13px/18px var(--font-sans); }
+.res-cap .q .n { width: 22px; text-align: center; color: var(--gold); font-family: var(--font-mono); }
+.res-cap .q .who { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.res-cap .q small { color: var(--ink-3); font-weight: 400; }
+.res-cap .q small.off { color: var(--gold); }

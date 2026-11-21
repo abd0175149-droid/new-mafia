@@ -992,6 +992,18 @@ export async function handleExtButton(conv: any, btnId: string, h: ExtHelpers): 
   if (btnId === 'ext_cancel') { await say('تمام، ألغيت العمليّة 👍'); return true; }
   if (btnId === 'chg_keep') { await say('تمام، حجزك زي ما هو 👌', 'bot'); return true; }
   if (btnId === 'wl_skip') { await say('تمام — بتضلّ على قائمة الانتظار، وبنخبّرك لو فضي مقعد تاني 🙏', 'bot'); return true; }
+  // 🪑 م٥ج: «لا، شكراً» على مقعدٍ معروض بمهلة ⟵ آخر الدور، ويُعرض على التالي
+  {
+    const ms = /^wl_skip:(\d+)$/.exec(btnId);
+    if (ms) {
+      const resId = parseInt(ms[1]);
+      const [r] = await db.select({ id: reservations.id }).from(reservations).where(and(eq(reservations.id, resId), isNull(reservations.deletedAt),
+        sql`(${reservations.phone} = ${conv.phone} ${conv.playerId ? sql`OR ${reservations.playerId} = ${conv.playerId}` : sql``})`)).limit(1);
+      if (r) { const Q = await import('./capacity-queue.service.js'); await Q.releaseOffer(resId, 'skip', { channel: 'bot', actor: String(conv.displayName || conv.phone) }); }
+      await say('تمام — بتضلّ على قائمة الانتظار، وبنخبّرك لو فضي مقعد تاني 🙏', 'bot');
+      return true;
+    }
+  }
 
   // 📚 حفظ تعديل المعرفة — حتميّ: لقطةٌ قبل الكتابة، وفحصُ تغيّرٍ متزامن، وتراجعٌ بزرّ
   if (/^admkb:(\d+)$/.test(btnId)) {
@@ -1132,14 +1144,13 @@ export async function handleExtButton(conv: any, btnId: string, h: ExtHelpers): 
       sql`(${reservations.phone} = ${conv.phone} ${conv.playerId ? sql`OR ${reservations.playerId} = ${conv.playerId}` : sql``})`)).limit(1);
     if (!r) { await say('ما لقيت حجز الانتظار 🙏'); return true; }
     if (r.status !== 'waitlist') { await say('حجزك مثبَّت أصلاً ✅', 'bot'); return true; }
-    const av = await h.seatAvailability(db, Number(r.activityId));
-    if (av.remaining < Number(r.peopleCount || 1)) { await say('للأسف انحجز المقعد قبل لحظات 🙏 بتضلّ على قائمة الانتظار وبنخبّرك أوّل ما يفضى.', 'bot'); return true; }
-    const [saved] = await db.update(reservations).set({ status: 'confirmed', notes: sql`COALESCE(${reservations.notes}, '') || ' · ✅ ثُبّت من قائمة الانتظار عبر البوت'`, updatedAt: new Date() } as any).where(eq(reservations.id, r.id)).returning();
-    await h.mirrorReservation(db, saved, '🤖 بوت واتساب').catch(() => {});
+    // 🪑 م٥ج: صاحب العرض ساري المهلة يثبَّت دائماً (مقعده محجوزٌ له)، وغيره إن كفى المتاح — أمرٌ واحد لكلّ القنوات
+    const Q = await import('./capacity-queue.service.js');
+    const tk = await Q.takeFromQueue(r.id, { channel: 'bot', actor: String(conv.displayName || conv.phone) });
+    if (!tk.ok) { await say('للأسف انحجز المقعد قبل لحظات 🙏 بتضلّ على قائمة الانتظار وبنخبّرك أوّل ما يفضى.', 'bot'); return true; }
     const [a] = await db.select({ name: activities.name, date: activities.date }).from(activities).where(eq(activities.id, Number(r.activityId))).limit(1);
-    // 📋 رسالة التثبيت تتبع هذا الردّ بثوانٍ (المفتاح مطفأ ⟵ الردّ وحده كما كان)
-    const { scheduleReservationConfirm } = await import('./reservation-confirm.service.js');
-    const tplFollows = (await scheduleReservationConfirm(r.id, 'wl_take')).scheduled;
+    // 📋 رسالة التثبيت جُدولت داخل takeFromQueue (المفتاح مطفأ ⟵ الردّ وحده كما كان)
+    const tplFollows = !!tk.confirmScheduled;
     await say(`تمّ ✅ حجزك مؤكَّد في «${a?.name || ''}» — ${a ? h.fmtJo(a.date) : ''} لـ${r.peopleCount} أشخاص. الدفع بالمكان 🎭${tplFollows ? '\nالتفاصيل كاملة بالرسالة الجاية 👇' : ''}`, 'bot');
     h.notifyAdmins('✅ تثبيت من قائمة الانتظار عبر البوت', `${conv.displayName || conv.phone} — ${a?.name || ''}`, { conversationId: conv.id, url: `/admin/reservations?activityId=${r.activityId}` }).catch(() => {});
     return true;

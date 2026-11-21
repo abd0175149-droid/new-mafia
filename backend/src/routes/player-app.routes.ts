@@ -334,7 +334,7 @@ router.delete('/book/:activityId', authenticatePlayer, async (req: Request, res:
         } as any).where(eq(reservations.id, r.id)));
       }
     } catch (e: any) { console.warn('⚠️ app cancel → follow-up:', e?.message); }
-    try { const B = await import('../services/whatsapp-bot.service.js'); void B.offerFreedSeatFor(activityId); } catch { /* تكميليّ */ }
+    try { const Q = await import('../services/capacity-queue.service.js'); void Q.seatFreed(activityId, 'إلغاء من التطبيق'); } catch { /* تكميليّ */ }
 
     console.log(`❌ [player-app] اللاعب #${player.playerId} ألغى حجزه في الفعاليّة #${activityId}`);
 
@@ -420,6 +420,35 @@ router.post('/book', authenticatePlayer, requireConsent, async (req: Request, re
       }
       return res.status(409).json({ error: 'محجوز مسبقاً لهذا النشاط' });
     }
+
+    // 🪑 م٥ج (ق١): فعاليّةٌ سقفها مشغَّل وامتلأت ⟵ قائمة الانتظار بالدور (لا مقعد في التطبيق بعد).
+    //    السقف مطفأ (الافتراض) ⟵ بلا سقف كما كان. حجزٌ أدخلته الإدارة له مسبقاً يُربط ولا ينتظر.
+    try {
+      const Q = await import('../services/capacity-queue.service.js');
+      if (await Q.capEnabled(activityId)) {
+        const [mine] = await db.select({ id: reservations.id, status: reservations.status }).from(reservations).where(and(
+          eq(reservations.activityId, activityId), isNull(reservations.deletedAt),
+          or(player.playerId ? eq(reservations.playerId, player.playerId) : sql`false`, player.phone ? eq(reservations.phone, player.phone) : sql`false`),
+        )).limit(1);
+        const pos = async (id: number) => ((await Q.queueOf(activityId)).find((x: any) => Number(x.id) === id)?.position) ?? null;
+        if (mine?.status === 'waitlist') {
+          return res.status(409).json({ error: `أنت على قائمة الانتظار${(await pos(mine.id)) ? ` بالدور ${await pos(mine.id)}` : ''} — بنبلغك أوّل ما يفضى مقعد`, waitlisted: true });
+        }
+        if (!mine && !(await Q.fits(activityId, 1)).ok) {
+          const [w] = await db.insert(reservations).values({
+            activityId, contactName: player.name, phone: player.phone || '', peopleCount: 1, playerId: player.playerId ?? null,
+            status: 'waitlist', notes: '⏳ قائمة انتظار — الفعاليّة ممتلئة (حجز من التطبيق)', createdBy: 'player-app',
+          } as any).returning({ id: reservations.id });
+          // ق٢١: السعر يُقفل لحظة دخول الانتظار
+          try { const { applyOnNewReservation } = await import('../services/early-price.service.js'); await applyOnNewReservation(w.id); } catch { /* تكميليّ */ }
+          try {
+            const { sendPushToStaffByPermission } = await import('../services/fcm.service.js');
+            sendPushToStaffByPermission('bookings', '⏳ قائمة انتظار (تطبيق)', `${player.name} — الفعاليّة ممتلئة`, 'reservation', { url: `/admin/reservations?activityId=${activityId}` });
+          } catch { /* خدمة */ }
+          return res.status(409).json({ error: `الفعاليّة ممتلئة — سجّلناك على قائمة الانتظار${(await pos(w.id)) ? ` بالدور ${await pos(w.id)}` : ''}، وبنبلغك أوّل ما يفضى مقعد`, waitlisted: true });
+        }
+      }
+    } catch (e: any) { console.warn('⚠️ app cap check:', e?.message); }
 
     // التحقق من حالة الحساب المجاني
     let isFreeAccount = false;

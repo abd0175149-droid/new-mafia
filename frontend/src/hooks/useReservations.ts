@@ -14,7 +14,7 @@
 // ══════════════════════════════════════════════════════
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { swalAlert } from '@/lib/swal';
+import { swalAlert, swalPick } from '@/lib/swal';
 import { getSocket } from '@/lib/socket';
 import {
   isConfirmed, isPending, matchesSearch, attendOrder, countRows, needsWa,
@@ -98,9 +98,26 @@ export async function apiFetch(path: string, opts?: RequestInit) {
   if (!res.ok) {
     const err = await res.json().catch(() => ({}));
     // `status` على الخطأ: الصفحة تُخفي الميزة التي لم تصل الخادم بعد (404) بدل أن تتعطّل
-    throw Object.assign(new Error(err.error || `API error ${res.status}`), { status: res.status });
+    throw Object.assign(new Error(err.error || `API error ${res.status}`), { status: res.status, code: err.code, body: err });
   }
   return res.json();
+}
+
+/**
+ * 🪑 م٥ج (ق٢٢): فعاليّةٌ سقفها مشغَّل وامتلأت ⟵ الخادم يردّ CAP_FULL، والموظّف يختار صراحةً:
+ * «ثبّت فوق السعة» (يُكتب في سجلّ الحجز) أو «قائمة الانتظار» (للإضافة الجديدة). غير ذلك يُرمى كما هو.
+ */
+export async function withCapChoice<T>(send: (extra: Record<string, any>) => Promise<T>, opts: { allowWaitlist?: boolean } = {}): Promise<T> {
+  try { return await send({}); }
+  catch (e: any) {
+    if (e?.code !== 'CAP_FULL') throw e;
+    const pick = await swalPick<'over' | 'wait'>('الفعاليّة ممتلئة',
+      `المتاح ${e.body?.remaining ?? 0} من ${e.body?.total ?? '?'} — السقف مشغَّل لهذه الفعاليّة.`,
+      [{ value: 'over', label: 'ثبّت فوق السعة' }, ...(opts.allowWaitlist ? [{ value: 'wait' as const, label: 'ضعه في قائمة الانتظار' }] : [])]);
+    if (pick === 'over') return send({ overCap: true, reason: 'ثُبّت فوق السعة من المتابعة' });
+    if (pick === 'wait') return send({ toWaitlist: true });
+    throw Object.assign(new Error('أُلغي — الفعاليّة ممتلئة'), { cancelled: true });
+  }
 }
 
 export type AttendFilter = 'all' | 'attended' | 'noShow' | 'unmarked';
@@ -299,9 +316,9 @@ export function useReservations(opts?: { live?: boolean }) {
     const prev = r.status;
     setReservations(p => p.map(x => (x.id === r.id ? { ...x, status: next } : x)));
     try {
-      const res = await apiFetch(`/api/reservations/${r.id}`, {
-        method: 'PUT', body: JSON.stringify({ status: next }),
-      });
+      const res: any = await withCapChoice((x) => apiFetch(`/api/reservations/${r.id}`, {
+        method: 'PUT', body: JSON.stringify({ status: next, ...x }),
+      }));
       // نتيجةُ المزامنة كانت تُعاد وتُهمَل، فيظنّ الموظّف أنّ حجزاً أُنشئ
       // بينما الرقمُ غير مربوطٍ بحساب (يُحتسب ضمن «لاعبون جدد»).
       if (res?.bookingSync === 'unlinked') {
@@ -312,7 +329,7 @@ export function useReservations(opts?: { live?: boolean }) {
       return true;
     } catch (err: any) {
       setReservations(p => p.map(x => (x.id === r.id ? { ...x, status: prev } : x)));
-      swalAlert('فشل تغيير الحالة: ' + (err?.message || ''), 'error');
+      if (!err?.cancelled) swalAlert('فشل تغيير الحالة: ' + (err?.message || ''), 'error');
       return false;
     }
   }, []);
@@ -374,7 +391,7 @@ export function useReservations(opts?: { live?: boolean }) {
   }, [reservations, fetchAll]);
 
   const updateRow = useCallback(async (id: number, patch: Record<string, any>) => {
-    await apiFetch(`/api/reservations/${id}`, { method: 'PUT', body: JSON.stringify(patch) });
+    await withCapChoice((x) => apiFetch(`/api/reservations/${id}`, { method: 'PUT', body: JSON.stringify({ ...patch, ...x }) }));
     await fetchAll();
   }, [fetchAll]);
 
@@ -385,7 +402,7 @@ export function useReservations(opts?: { live?: boolean }) {
   }, [fetchAll]);
 
   const createRow = useCallback(async (body: Record<string, any>) => {
-    await apiFetch('/api/reservations', { method: 'POST', body: JSON.stringify(body) });
+    await withCapChoice((x) => apiFetch('/api/reservations', { method: 'POST', body: JSON.stringify({ ...body, ...x }) }), { allowWaitlist: true });
     await fetchAll();
   }, [fetchAll]);
 

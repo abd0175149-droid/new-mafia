@@ -45,6 +45,8 @@ export async function cancelReservation(resId: number, who: Who, reason: string,
     cancelledBy: String(who.actor || '').slice(0, 120), cancelChannel: who.channel, updatedAt: new Date(),
   } as any).where(eq(reservations.id, resId)));
   await afterReservationGone(resId, !!opts.byCustomer, 'أُلغي الحجز قبل الإرسال');
+  // 🪑 ق٢٠: المقعد المتحرّر يشغّل الدور — من أيّ قناة (المنتظر الملغى لا يحرّر مقعداً)
+  if (r.status !== 'waitlist') { const Q = await import('./capacity-queue.service.js'); void Q.seatFreed(Number(r.activityId), 'إلغاء'); }
   return { ok: true, bookingRemoved };
 }
 
@@ -60,6 +62,7 @@ export async function deleteReservation(resId: number, who: Who): Promise<{ ok: 
   } catch (e: any) { console.warn('⚠️ delete → booking sync:', e?.message); }
   await asActor(who, (tx) => tx.update(reservations).set({ deletedAt: new Date(), updatedAt: new Date() } as any).where(eq(reservations.id, resId)));
   await afterReservationGone(resId, false, 'حُذف الحجز قبل الإرسال');
+  if (r.status !== 'waitlist') { const Q = await import('./capacity-queue.service.js'); void Q.seatFreed(Number(r.activityId), 'حذف'); }
   return { ok: true, bookingRemoved };
 }
 

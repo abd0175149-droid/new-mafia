@@ -42,6 +42,7 @@ import OfferGroupsSection from '../components/OfferGroupsSection';
 import NoShowSection from '../components/NoShowSection';
 import CancelledSection from '../components/CancelledSection';
 import TonightOffers from '@/components/reservations/TonightOffers';
+import CapacityBar from '@/components/reservations/CapacityBar';
 import ResRow from '@/components/reservations/ResRow';
 import PersonSheet, { PersonPanel } from '@/components/reservations/PersonSheet';
 import QuickAddSheet from '@/components/reservations/QuickAddSheet';
@@ -778,6 +779,7 @@ export default function ReservationsPage() {
   // 🎟️ مجموعات العروض والغياب لهذه الفعاليّة — كانا في صفحة الفعاليّة وحدها (يختفيان إن كانا فارغين)
   const offerSecs = single && actId > 0 && (
     <div className="res-legacy">
+      <CapacityBar key={`cap-${actId}`} activityId={actId} isAdmin={isAdmin} onChanged={() => R.fetchAll()} />
       <TonightOffers activityId={actId} />
       <OfferGroupsSection activityId={actId} onChanged={() => R.fetchAll()} />
       <NoShowSection activityId={actId} onChanged={() => R.fetchAll()} />

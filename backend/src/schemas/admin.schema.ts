@@ -133,6 +133,7 @@ export const activities = pgTable('activities', {
   enabledOfferIds: jsonb('enabled_offer_ids').default([]),
   isLocked: boolean('is_locked').default(false),
   maxCapacity: integer('max_capacity').default(20),
+  capEnabled: boolean('cap_enabled').default(false),                     // ق١: سقفٌ اختياريّ — مطفأ = بلا سقف في كلّ القنوات
   difficulty: varchar('difficulty', { length: 20 }).default('medium'),
   // ── نظام التذاكر والمقاعد ──
   requireTicket: boolean('require_ticket').default(false),
@@ -696,6 +697,10 @@ export const reservations = pgTable('reservations', {
   cancelReason: varchar('cancel_reason', { length: 200 }),
   cancelledBy: varchar('cancelled_by', { length: 120 }),
   cancelChannel: varchar('cancel_channel', { length: 12 }),
+  // 🪑 م٥ج: الدور (wl_rank_at، وإلّا وقت الإنشاء) والمقعد المعروض بمهلة
+  wlRankAt: timestamp('wl_rank_at'),
+  wlOfferedAt: timestamp('wl_offered_at'),
+  wlOfferUntil: timestamp('wl_offer_until'),
   createdAt: timestamp('created_at').defaultNow().notNull(),
   updatedAt: timestamp('updated_at').defaultNow().notNull(),
   deletedAt: timestamp('deleted_at'),

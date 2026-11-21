@@ -1472,6 +1472,10 @@ router.put('/:id', authenticate, async (req: Request, res: Response) => {
     } catch { /* غير حاجب */ }
   }
 
+  // 🪑 م٥ج (ق٢٠): رفع السعة يحرّر مقاعد ⟵ الدور
+  if (maxCapacity !== undefined && result[0]?.id) {
+    import('../services/capacity-queue.service.js').then(Q => Q.seatFreed(Number(result[0].id), 'رُفعت السعة')).catch(() => {});
+  }
   res.json(cancelNotice ? { ...result[0], cancelNotice } : result[0]);
 });
 

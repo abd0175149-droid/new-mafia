@@ -1038,6 +1038,10 @@ async function main() {
         // 📜 م٣: سجلّ الحجز، والإلغاء حالةٌ ظاهرة
         const { migrateBookingEvents } = await import('./migrations-booking-events.js');
         await migrateBookingEvents(db);
+        // 🪑 م٥ج: السقف الاختياريّ وقائمة الانتظار بالدور (ق١، ق٢٠)
+        const { migrateCapacityQueue, startQueueJobs } = await import('./services/capacity-queue.service.js');
+        await migrateCapacityQueue(db);
+        startQueueJobs();
         // 💸 م٤-ب: قنوات العرض ونطاق الأيّام (ق٣، ق٢٣)
         await db.execute(sql`ALTER TABLE early_price_promos ADD COLUMN IF NOT EXISTS channels JSONB DEFAULT '["bot","admin"]'::jsonb`);
         await db.execute(sql`ALTER TABLE early_price_promos ADD COLUMN IF NOT EXISTS weekdays JSONB DEFAULT '[]'::jsonb`);
