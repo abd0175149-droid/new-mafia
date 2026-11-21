@@ -72,6 +72,7 @@ export function normalizeSettings(raw: any): TransportSettings {
     },
     followupMaxAgeHours: num(r.followupMaxAgeHours, d.followupMaxAgeHours, 1, 24 * 30),
     lineDefault: LINE_FILTERS.includes(r.lineDefault) ? r.lineDefault : d.lineDefault,
+    menus: r.menus === 'numbers' ? 'numbers' : r.menus === 'poll' ? 'poll' : d.menus,
   };
 }
 

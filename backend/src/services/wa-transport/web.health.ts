@@ -37,6 +37,8 @@ export interface WebHealth {
   disconnectReason: string | null;
   restriction: { kind: string; code?: string; expiresAt: string | null } | null;
   webhook: { ok: boolean; error?: string; at: string } | null;
+  /** 📊 البوّابة قبلت الاشتراك في أصوات الاستفتاء (poll.vote) — شرط إرسال الخيارات استفتاءً */
+  pollVotes: boolean;
   locked: string | null;
   /** يوم ربط الرقم الحاليّ (ISO) — يُصفَّر عند كلّ فكّ ربط (LOGOUT): به يُحسب تدرّج التسخين */
   linkedAt: string | null;
@@ -46,8 +48,13 @@ export interface WebHealth {
 const state: WebHealth = {
   configured: false, status: 'unknown', phone: null, pushName: null, linked: false, ready: false,
   lastProbeAt: null, lastProbeOk: null, probeFailStreak: 0, lastEventAt: null, lastEvent: null,
-  disconnectReason: null, restriction: null, webhook: null, locked: null, linkedAt: null, checkedAt: new Date().toISOString(),
+  disconnectReason: null, restriction: null, webhook: null, pollVotes: false, locked: null, linkedAt: null, checkedAt: new Date().toISOString(),
 };
+
+/** هل تصلنا أصوات الاستفتاء؟ بلاها لا يُرسل استفتاءٌ أبداً — يبقى العميل على الأرقام */
+export function pollVotesReady(): boolean { return state.pollVotes && !!state.webhook?.ok; }
+const POLL_EVENT = 'poll.vote';
+let pollRetryAt = 0;
 
 /** أيّام منذ ربط الرقم الحاليّ (٠ في يوم الربط). ∞ إن لم يكن مربوطاً بعد — فالتسخين يمنع الإرسال */
 export function webSessionAgeDays(): number {
@@ -123,6 +130,7 @@ export async function onSessionEvent(event: string, d: any): Promise<void> {
       break;
     case 'session.authenticated':
       await applyStatus('ready', { phone: String(d.phone || '').replace(/\D/g, '') || state.phone, pushName: d.pushName ?? state.pushName });
+      pollRetryAt = 0;   // بوّابةٌ أُعيد تشغيلها قد تكون صارت تعرف الأصوات — نسأل من جديد
       void ensureWebhook();
       void tick();
       // 📇 ربطٌ جديد ⟵ مزامنةٌ كاملة لسجلّ جهات الخطّ (بعد لحظات ليستقرّ المحرّك)
@@ -164,13 +172,25 @@ export async function ensureWebhook(): Promise<void> {
   try {
     const list = await gw.listWebhooks();
     // الإنشاء لا يقبل `active` (whitelist صارم ⟵ 400)؛ التحديث يقبله
-    const body = { url: env.OPENWA_WEBHOOK_URL, events: WEBHOOK_EVENTS, secret: env.OPENWA_WEBHOOK_SECRET, retryCount: 5 };
+    // 📊 نطلب أصوات الاستفتاء أيضاً. بوّابةٌ لا تعرف الحدث ترفض الطلب كلّه (400)، فنعيده بدونه
+    //    ونبقى على القوائم المرقّمة — لا استفتاء بلا أصواتٍ ترجع (خطّة التوحيد م١ج).
     const hit = list.find((w: any) => w?.url === env.OPENWA_WEBHOOK_URL);
-    if (!hit) await gw.createWebhook(body);
-    else {
-      const same = Array.isArray(hit.events) && WEBHOOK_EVENTS.every(e => hit.events.includes(e)) && hit.active !== false && (hit.retryCount ?? 5) === 5;
-      if (!same) await gw.updateWebhook(String(hit.id), { ...body, active: true });
-    }
+    const withPoll = !(Date.now() < pollRetryAt);
+    const send = async (events: string[]) => {
+      const body = { url: env.OPENWA_WEBHOOK_URL, events, secret: env.OPENWA_WEBHOOK_SECRET, retryCount: 5 };
+      if (!hit) return gw.createWebhook(body);
+      const same = Array.isArray(hit.events) && events.every(e => hit.events.includes(e)) && hit.active !== false && (hit.retryCount ?? 5) === 5;
+      if (!same) return gw.updateWebhook(String(hit.id), { ...body, active: true });
+    };
+    if (withPoll) {
+      try { await send([...WEBHOOK_EVENTS, POLL_EVENT]); state.pollVotes = true; }
+      catch (e: any) {
+        if (Number(e?.status) !== 400) throw e;
+        console.warn('⚠️ WA web: البوّابة لا تعرف poll.vote — الخيارات تبقى أرقاماً:', e?.message);
+        state.pollVotes = false; pollRetryAt = Date.now() + 3600e3;
+        await send(WEBHOOK_EVENTS);
+      }
+    } else { state.pollVotes = false; await send(WEBHOOK_EVENTS); }
     state.webhook = { ok: true, at: new Date().toISOString() };
   } catch (e: any) {
     state.webhook = { ok: false, error: String(e?.message || e), at: new Date().toISOString() };
@@ -238,7 +258,8 @@ export async function startWebHealth(): Promise<void> {
   await tick().catch(() => {});
   timer = setInterval(() => {
     void tick().catch(() => {});
-    if (!state.webhook?.ok) void ensureWebhook();
+    // 📊 أصواتٌ لم تُقبل بعد ⟵ نعيد السؤال بعد مهلة الساعة (بوّابةٌ رُقّيت دون حدث مصادقة)
+    if (!state.webhook?.ok || (!state.pollVotes && Date.now() >= pollRetryAt)) void ensureWebhook();
   }, 2 * 60e3);
   timer.unref?.();
   console.log(`📱 WA web session monitor started (${state.status}${state.phone ? ` · ${state.phone}` : ''})`);

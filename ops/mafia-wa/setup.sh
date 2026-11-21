@@ -37,8 +37,15 @@ echo "  ✔ الأسرار في .env (600)"
 
 # 2) التشغيل
 set -a; . ./.env; set +a
-docker image inspect "wbagent-openwa:${OPENWA_VERSION:-0.24.0}" >/dev/null 2>&1 \
-  || { echo "✗ صورة wbagent-openwa:${OPENWA_VERSION:-0.24.0} غير موجودة — شغّل ~/wbagent/deploy.sh أوّلاً"; exit 1; }
+# 📊 صورةٌ مثبَّتة باسمٍ خاصّ تحمل رقعة الأصوات (poll.vote) — تُشتقّ مرّةً من wbagent-openwa المرقّعة
+TAG="mafia-openwa:${MAFIA_OPENWA_TAG:-0.24.0-votes}"
+if ! docker image inspect "$TAG" >/dev/null 2>&1; then
+  SRC="wbagent-openwa:${OPENWA_VERSION:-0.24.0}"
+  docker image inspect "$SRC" >/dev/null 2>&1 || { echo "✗ صورة $SRC غير موجودة — شغّل ~/wbagent/deploy.sh أوّلاً"; exit 1; }
+  docker image inspect -f '{{index .Config.Labels "wbagent.patches"}}' "$SRC" | grep -q votes \
+    || { echo "✗ $SRC بلا رقعة الأصوات (votes) — الاستفتاء لن تعود أصواته"; exit 1; }
+  docker tag "$SRC" "$TAG" && echo "  ✔ ثُبّتت $TAG من $SRC"
+fi
 docker compose up -d 2>&1 | tail -3
 ok=0
 for i in $(seq 1 60); do docker exec mafia-wa-gateway curl -fsS http://localhost:2785/api/health/ready >/dev/null 2>&1 && ok=1 && break; sleep 3; done

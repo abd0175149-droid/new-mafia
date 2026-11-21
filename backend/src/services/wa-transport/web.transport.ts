@@ -20,7 +20,8 @@ import { buildCloudBody, WA_CAPTION_MAX } from './cloud.transport.js';
 import { transportSettings } from './settings.js';
 import { channelSuspendedReason } from './locks.js';
 import { isWebReady, webConfigured } from './router.js';
-import { renderInteractive, saveMenu } from './menu-emulation.js';
+import { renderInteractive, renderPoll, saveMenu } from './menu-emulation.js';
+import { pollVotesReady } from './web.health.js';
 import * as gw from './openwa.client.js';
 import type { Lane, OutboundContent } from './types.js';
 
@@ -57,14 +58,37 @@ interface OutboxContent {
   videoPath?: string;
   caption?: string;
   location?: { latitude: number; longitude: number; description?: string; address?: string };
-  menu?: { kind: 'button' | 'list'; items: any[] } | null;
+  menu?: { kind: 'button' | 'list'; items: any[]; labels?: string[] } | null;
   menuKey?: string;
+  // 📊 الاستفتاء (خطّة التوحيد م١ج): نصٌّ قبله إن طال، والسؤال والخيارات، والنصّ المرقّم احتياطاً
+  pollPre?: string;
+  pollName?: string;
+  pollOptions?: string[];
+  pollMulti?: boolean;
+  fallbackText?: string;
+}
+
+/** الخيارات تُرسل استفتاءً؟ المفتاح في «القنوات» مفعّل، والبوّابة قبلت الاشتراك في الأصوات */
+export function pollMenusOn(): boolean {
+  return transportSettings().menus === 'poll' && pollVotesReady();
 }
 
 /** يحوّل محتوى رسالة إلى ما ترسله البوّابة (والأزرار إلى قائمة مرقّمة) */
 export function toOutboxContent(conv: any, c: OutboundContent): { content: OutboxContent; rendered: string } {
   const chatId = webChatIdOf(conv);
   if (c.interactive) {
+    // 📊 حتّى ١٢ خياراً ⟵ استفتاءٌ يُضغط بدل «اكتب رقم الخيار»
+    if (pollMenusOn()) {
+      const p = renderPoll(c.interactive);
+      if (p) {
+        const rendered = `${p.pre ? p.pre + '\n\n' : ''}📊 ${p.name}\n${p.options.join('\n')}`;
+        return {
+          content: { kind: 'poll', chatId, pollPre: p.pre || undefined, pollName: p.name, pollOptions: p.options, pollMulti: p.multi,
+            fallbackText: p.fallbackText, menu: p.menu, menuKey: conv.phone },
+          rendered,
+        };
+      }
+    }
     const r = renderInteractive(c.interactive);
     return { content: { kind: 'text', chatId, text: r.text, menu: r.menu, menuKey: conv.phone }, rendered: r.text };
   }
@@ -105,7 +129,9 @@ export async function enqueueWeb(saved: any, conv: any, c: OutboundContent, lane
     try { const { isColdLocal } = await import('./line-roster.js'); cold = await isColdLocal(conv.phone); }
     catch { cold = !conv?.webLastInboundAt && !conv?.web_last_inbound_at; }
   }
-  const payload = { ...(saved.payload || {}), _rendered: rendered, _lane: lane, ...(cold ? { _cold: true } : {}) };
+  // _pre/_pollName: صدى رسالتَي الاستفتاء يُعرف بهما فلا يُحسب كتابةً من هاتف الرقم (توقف البوت)
+  const payload = { ...(saved.payload || {}), _rendered: rendered, _lane: lane, ...(cold ? { _cold: true } : {}),
+    ...(content.kind === 'poll' ? { _pollName: content.pollName, ...(content.pollPre ? { _pre: content.pollPre } : {}) } : {}) };
   const [row] = await db.update(waMessages).set({ payload } as any).where(eq(waMessages.id, saved.id)).returning();
   await db.execute(sql`INSERT INTO wa_outbox (message_id, lane, cold, priority, not_before, content)
     VALUES (${saved.id}, ${lane}, ${cold}, ${priority ?? LANE_PRIORITY[lane]}, NOW(), ${JSON.stringify(content)}::jsonb)
@@ -285,6 +311,18 @@ async function sendOne(job: any): Promise<void> {
     wamid = await gw.send('video', { chatId: c.chatId, base64, mimetype: 'video/mp4', ...(c.caption ? { caption: c.caption } : {}) }, idem);
   } else if (c.kind === 'location' && c.location) {
     wamid = await gw.send('location', { chatId: c.chatId, ...c.location }, idem);
+  } else if (c.kind === 'poll' && c.pollOptions?.length) {
+    // 📊 النصّ الطويل أوّلاً (مفتاح منع التكرار خاصّ به فلا يُعاد عند إعادة المحاولة)، ثمّ الاستفتاء
+    if (c.pollPre) await gw.send('text', { chatId: c.chatId, text: c.pollPre }, `${idem}-pre`);
+    try {
+      wamid = await gw.send('poll', { chatId: c.chatId, name: c.pollName || 'اختار:', options: c.pollOptions, allowMultipleAnswers: !!c.pollMulti }, idem);
+    } catch (e: any) {
+      // رفضت البوّابة الاستفتاء ⟵ القائمة المرقّمة نفسها، كي لا يبقى العميل بلا خيارات
+      if (!(e instanceof gw.GatewayError) || e.status < 400 || e.status >= 500) throw e;
+      console.warn('⚠️ WA poll refused — numbered fallback:', e.message);
+      wamid = await gw.send('text', { chatId: c.chatId, text: c.fallbackText || c.pollName || '' }, `${idem}-num`);
+      if (c.menu) delete c.menu.labels;
+    }
   } else {
     wamid = await gw.send('text', { chatId: c.chatId, text: c.text || '' }, idem);
   }

@@ -54,6 +54,9 @@ export interface TransportSettings {
   followupMaxAgeHours: number;
   /** فلتر الجمهور الافتراضيّ في كلّ الصفحات: all | warm (له محادثة) | two_way (راسلَنا) */
   lineDefault: LineFilter;
+  /** 📊 خيارات الدون على رقم الأعمال: استفتاءٌ يُضغط (المعتمد 2026-11-21) أو قائمةٌ مرقّمة.
+   *  الاستفتاء يُرسل فقط حين تقبل البوّابة الاشتراك في الأصوات — وإلّا أرقام (خطّة التوحيد م١ج). */
+  menus: 'poll' | 'numbers';
 }
 
 /** فلتر القرب من خطّ الأعمال — مشترَكٌ عبر كلّ الصفحات */
@@ -75,6 +78,7 @@ export const DEFAULT_TRANSPORT_SETTINGS: TransportSettings = {
   outreach: { direct: true, cohortFreqDays: 3 },
   followupMaxAgeHours: 48,
   lineDefault: 'all',   // يُبدَّل إلى warm من «القنوات» للفترة الحسّاسة
+  menus: 'poll',
 };
 
 /** محتوى رسالة صادرة — نفس حقول SendMessageInput */

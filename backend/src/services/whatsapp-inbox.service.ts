@@ -886,7 +886,8 @@ export async function sendMessage(input: SendMessageInput) {
     // 🧹 رقم الأعمال بلا أزرار: نصوص البوت والنظام تُصاغ لقائمةٍ مرقّمة («من الأزرار تحت» ⟵ «بكتابة رقم الخيار»)
     if (!hasInteractive && (input.source === 'bot' || input.source === 'system') && content.text) {
       const { adaptForTextMenus } = await import('./wa-transport/menu-emulation.js');
-      content.text = adaptForTextMenus(content.text);
+      const { pollMenusOn } = await import('./wa-transport/web.transport.js');
+      content.text = adaptForTextMenus(content.text, pollMenusOn() ? 'poll' : 'numbers');
     }
     const stored = buildWebStoredPayload(conv, content);
     [saved] = await db

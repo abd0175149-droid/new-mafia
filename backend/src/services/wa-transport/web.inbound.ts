@@ -243,6 +243,15 @@ async function onOutgoing(d: any): Promise<string> {
 
   // صدىً لم يُكتب معرّفه بعد: صفٌّ صادرٌ حديث بلا معرّف بالنصّ نفسه
   const bodyText = String(d.body || '').trim();
+  // 📊 صدى رسالتَي الاستفتاء (النصّ قبله، والاستفتاء نفسه) — صفّنا يحمل معرّف الاستفتاء وحده،
+  //    فالنصّ الذي قبله يُعرف بنصّه، وإلّا حُسب كتابةً من هاتف الرقم وأوقف البوت
+  if (conv && bodyText) {
+    const pollEcho: any = await db.execute(sql`SELECT 1 FROM wa_messages
+      WHERE conversation_id = ${(conv as any).id} AND channel = 'web' AND direction = 'out'
+        AND created_at > NOW() - INTERVAL '10 minutes'
+        AND (payload->>'_pre' = ${bodyText} OR payload->>'_pollName' = ${bodyText}) LIMIT 1`);
+    if ((pollEcho?.rows ?? pollEcho ?? []).length) return 'own';
+  }
   if (conv) {
     const recent = await db.select({ id: waMessages.id, body: waMessages.body, payload: waMessages.payload }).from(waMessages)
       .where(and(eq(waMessages.conversationId, (conv as any).id), eq(waMessages.channel, 'web'), eq(waMessages.direction, 'out'),
@@ -337,6 +346,43 @@ export async function flushPendingAcks(wamid: string): Promise<void> {
   for (const a of list) await applyWebStatus(wamid, String(a.status || ''), new Date(a.at));
 }
 
+// ── 📊 أصوات الاستفتاء (خطّة التوحيد م١ج) ──────────────
+// الحدث من رقعة البوّابة: { pollMessageId, chatId, voter, selectedOptions:[نصّ الخيار], at }
+// ومن OpenWA الرسميّ ٠٫٢٦ فأحدث بأسماء قد تختلف — نقبل الشكلين.
+async function onPollVote(d: any): Promise<string> {
+  const pollId = String(d.pollMessageId || d.messageId || d.pollId || d.parentMessageId || '');
+  const chatId = String(d.chatId || d.from || d.voter || d.senderId || '');
+  if (!pollId || !['user', 'lid'].includes(jidKind(chatId))) return 'ignored';
+  const voter = String(d.voter || d.senderId || '');
+  if (voter && (await isOwnJid(voter))) return 'own';
+  const raw = Array.isArray(d.selectedOptions) ? d.selectedOptions : Array.isArray(d.selected) ? d.selected : [];
+  const selected = raw.map((o: any) => (typeof o === 'string' ? o : o?.name ?? o?.text ?? o?.localId ?? '')).map(String).filter(Boolean);
+  const who = await resolveIdentity(chatId, d.senderPhone);
+  if (!who) return 'no-identity';
+  const { applyPollVote } = await import('./menu-emulation.js');
+  const at = Number(d.at) || Date.now();
+  const vid = 'owa-pv-' + crypto.createHash('sha256').update(`${pollId}|${voter}|${selected.join('|')}|${at}`).digest('hex').slice(0, 24);
+  const out = await applyPollVote(who.key, pollId, selected, { id: vid, from: who.key, timestamp: String(Math.floor(at / 1000)) });
+  if (out.status === 'ignore') return 'vote-ignored';
+  const db = getDB(); if (!db) return 'no-db';
+  const norm = who.key.startsWith('lid:') ? { local: who.key } : normalizeAnyPhone(who.key);
+  const [conv] = norm ? await db.select().from(waConversations).where(eq(waConversations.phone, norm.local)).limit(1) : [];
+  if (out.status === 'apply') {
+    const s = transportSettings();
+    const { ingestInbound } = await import('../whatsapp-inbox.service.js');
+    await ingestInbound(out.msg, [], 'web', { webChatId: who.chatId, phoneVerified: who.verified, suppressBot: s.mode === 'cloud_only' || !s.webBot });
+    return 'vote';
+  }
+  // ردٌّ قصير واحد: تغيير الصوت بعد اعتماده، أو صوتٌ على خياراتٍ قديمة
+  if (!conv) return 'vote-noconv';
+  const text = out.status === 'first'
+    ? `اعتمدنا اختيارك الأوّل «${out.title}» 👍 إذا بدك تغيّره اكتبلي «عدّل».`
+    : 'هاي خيارات قديمة 🙏 اختار من آخر رسالة.';
+  const { sendMessage } = await import('../whatsapp-inbox.service.js');
+  await sendMessage({ conversationId: (conv as any).id, text, source: 'system' }).catch(() => {});
+  return out.status === 'first' ? 'vote-changed' : 'vote-old';
+}
+
 // ── التفاعلات ─────────────────────────────────────────
 async function onReaction(d: any): Promise<string> {
   const chatId = String(d.chatId || '');
@@ -385,6 +431,7 @@ export async function handleOpenWaEvent(ev: OpenWaEnvelope): Promise<string> {
     case 'message.ack': return onAck(d);
     case 'message.failed': return onAck({ ...d, status: 'failed' });
     case 'message.reaction': return onReaction(d);
+    case 'poll.vote': return onPollVote(d);
     case 'message.revoked': {
       const db = getDB(); if (!db) return 'no-db';
       const ids = [d.revokedId, d.messageId, d.id].filter(Boolean).map(String);

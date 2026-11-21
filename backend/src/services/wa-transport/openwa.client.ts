@@ -109,9 +109,9 @@ export async function media(chatId: string, msgId: string): Promise<{ buf: Buffe
 export const markRead = (chatId: string) => S('POST', '/chats/read', { chatId }).catch(() => null);
 
 // ── الإرسال ───────────────────────────────────────────
-export type SendKind = 'text' | 'image' | 'video' | 'location' | 'reply' | 'audio' | 'document';
+export type SendKind = 'text' | 'image' | 'video' | 'location' | 'reply' | 'audio' | 'document' | 'poll';
 const SEND_PATH: Record<SendKind, string> = {
-  text: 'send-text', image: 'send-image', video: 'send-video', location: 'send-location', reply: 'reply', audio: 'send-audio', document: 'send-document',
+  text: 'send-text', image: 'send-image', video: 'send-video', location: 'send-location', reply: 'reply', audio: 'send-audio', document: 'send-document', poll: 'send-poll',
 };
 /** يعيد معرّف الرسالة عند واتساب (true_9627…@c.us_3EB0…). Idempotency-Key يمنع الإرسال المزدوج عند الإعادة */
 export async function send(kind: SendKind, body: any, idempotencyKey?: string): Promise<string | null> {

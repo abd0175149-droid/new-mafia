@@ -342,6 +342,13 @@ export default function ChannelsSection({ apiFetch }: { apiFetch: Fetcher }) {
               {' '}يُطبَّق عند الحفظ على محادثاتهم القائمة أيضاً — ومن غيّرتَ بوته يدويّاً (<Bot className="s" style={{ display: 'inline', verticalAlign: '-2px' }} aria-label="زرّ البوت" />) يبقى على اختيارك.</>}>
             <Toggle on={!!draft.webBotKnown} onChange={v => set('webBotKnown', v)} label="الدون يردّ على غير اللاعبين في محادثات رقم الأعمال" />
           </Setting>
+          {/* 📊 خطّة التوحيد م١ج: الخيارات استفتاءٌ يُضغط بدل «اكتب رقم الخيار» */}
+          <Setting title="خيارات الدون استفتاءً"
+            hint={web.pollVotes
+              ? 'البوّابة تُرجع الأصوات: كلّ رسالة خيارات (حتّى ١٢ خياراً) تصل استفتاءً يضغطه العميل، وكتابة الرقم تبقى تعمل. مطفأ = قائمة مرقّمة كما كانت.'
+              : 'البوّابة لا تُرجع أصوات الاستفتاء بعد — الخيارات تُرسل أرقاماً حتّى تُقبل الأصوات، مهما كان المفتاح.'}>
+            <Toggle on={draft.menus !== 'numbers'} onChange={v => set('menus', v ? 'poll' : 'numbers')} label="خيارات الدون استفتاءً" />
+          </Setting>
           {d.configured.web && web.linked && (
             <Setting title="مرآة محادثات رقم الأعمال في الوارد"
               hint={hi?.running ? `المرآة جارية… ${hi.done || 0}/${hi.chats} محادثة · ${hi.messages} رسالة`

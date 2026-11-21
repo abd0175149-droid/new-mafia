@@ -11,7 +11,9 @@
 #   ⚠ مجمّعات دوكر الافتراضيّة مستنفدة على هذا الخادم ⇒ مدى صريح (10.120 لـwbagent، 10.121 لـwbhub).
 #
 # المنفذ: 127.0.0.1:4130 للوحة OpenWA وحدها (عبر نفق ssh عند الحاجة). لا نطاق عامّ.
-# الصورة: wbagent-openwa:<الإصدار> المرقّعة (إيصالات القراءة) يبنيها deploy.sh في ~/wbagent.
+# الصورة: mafia-openwa:0.24.0-votes — صورة wbagent-openwa المرقّعة (إيصالات القراءة + أصوات الاستفتاء poll.vote)
+#   مثبَّتةً باسمٍ خاصّ (خطّة توحيد الحجز م١ج، 2026-11-21): إعادة بناء wbagent-openwa قد تتخطّى رقعة الأصوات
+#   بصمت إن تغيّرت مراسيها، فلا تُؤخذ المافيا بها. للترقية: OpenWA ≥0.26 يرسل poll.vote رسميّاً — عندها تُحذف الرقعة.
 # ════════════════════════════════════════════════════════════════
 name: mafiawa
 
@@ -21,7 +23,7 @@ x-logging: &logging
 
 services:
   gateway:
-    image: wbagent-openwa:${OPENWA_VERSION:-0.24.0}
+    image: mafia-openwa:${MAFIA_OPENWA_TAG:-0.24.0-votes}
     pull_policy: never
     container_name: mafia-wa-gateway
     restart: unless-stopped

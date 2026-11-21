@@ -32,6 +32,7 @@ import { players } from '../schemas/player.schema.js';
 import { ROLE_NAMES_AR } from '../game/roles.js';
 import { sendMessage, isBotActive, isFreeWindowOpen, notifyAdmins } from './whatsapp-inbox.service.js';
 import { pickChannel, webConfigured } from './wa-transport/router.js';
+import { pollMenusOn } from './wa-transport/web.transport.js';
 import { transportSettings } from './wa-transport/settings.js';
 import { claimsHandoff } from './wa-handoff-guard.js';
 import { withGeminiResilience } from './gemini-resilience.js';
@@ -3330,6 +3331,13 @@ function channelNote(conv: any): string {
   try {
     if (!conv?.id || conv.waPhone === undefined) return '';
     if (pickChannel(conv, 'reply').channel !== 'web') return '';
+    // 📊 الخيارات تصل استفتاءً يُضغط (خطّة التوحيد م١ج) — حين تقبل البوّابة الأصوات
+    if (pollMenusOn()) {
+      return '\n───── قناة هذه المحادثة: رقم الأعمال (واتساب عاديّ) ─────\n'
+        + '⚠️ لا أزرار ميتا هنا: كلّ ما ترسله الأدوات من أزرار أو قوائم (حتّى ١٢ خياراً) يصل العميل «استفتاءً» يضغط أحد خياراته، وكلّ خيارٍ مرقّم. '
+        + 'فقل «اختار من الاستفتاء» أو «اضغط اختيارك» — لا «من الأزرار تحت» ولا «اكتب رقم اختيارك». '
+        + 'وبعد رسالة الخيارات لا تكتب نصّاً يكرّرها.';
+    }
     return '\n───── قناة هذه المحادثة: رقم الأعمال (واتساب عاديّ) ─────\n'
       + '⚠️ لا أزرار ولا قوائم تفاعليّة هنا. كلّ ما ترسله الأدوات من أزرار أو قوائم يصل العميل نصّاً مرقّماً (1️⃣ 2️⃣ …) ويختار بكتابة الرقم. '
       + 'فلا تقل «اضغط الزرّ» ولا «من الأزرار تحت» ولا «اختر من القائمة» — قل «اكتب رقم اختيارك» أو «ردّ برقم الخيار». '
