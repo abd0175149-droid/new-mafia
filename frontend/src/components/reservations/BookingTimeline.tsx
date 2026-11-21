@@ -34,6 +34,8 @@ function line(e: any): string {
     case 'unpaid': return 'أُلغي تعليم الدفع';
     case 'loyalty': return '🎁 طُبّقت مكافأة الولاء';
     case 'loyalty_back': return '🎁 أُعيدت مكافأة الولاء';
+    case 'offer_manual': return d.promoId == null ? `أُزيل العرض يدويّاً${e.reason ? ` — ${e.reason}` : ''}` : `طُبّق «${d.name || 'عرض'}» يدويّاً بـ${d.price} د.أ${e.reason ? ` — ${e.reason}` : ''}`;
+    case 'loyalty_manual': return `${d.on === false ? 'أُعيدت زيارة الولاء' : '🎟️ طُبّقت زيارة الولاء'}${e.reason ? ` — ${e.reason}` : ''}`;
     case 'eta_set': return `وقت الوصول${e.reason ? ` — «${e.reason}»` : ''}`;
     case 'eta_cleared': return 'أُزيل وقت الوصول';
     case 'declined': return 'اعتذر عن الحضور';

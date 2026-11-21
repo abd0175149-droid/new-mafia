@@ -65,7 +65,17 @@ export interface PromoLike {
   id: number; name: string; status: PromoStatus; mode: 'fixed' | 'off'; value: number; leadHours: number;
   actFrom: number; actUntil: number; scope: 'all' | 'cities' | 'acts'; cityIds: number[]; activityIds: number[]; excludeIds: number[];
   activatedAt: number | null;
+  /** ق٣: قنوات العرض (من الشاشة) — الافتراض الدون وأدمن البوت، كما كان */
+  channels: Channel[];
+  /** ق٢٣: أيّام الأسبوع (٠ الأحد … ٦ السبت، بتوقيت عمّان) — فارغة = كلّ الأيّام */
+  weekdays: number[];
 }
+export const DEFAULT_PROMO_CHANNELS: Channel[] = ['bot', 'admin'];
+const CHANNEL_AR: Record<Channel, string> = { bot: 'الدون', admin: 'أدمن البوت', app: 'التطبيق', staff: 'الإدارة' };
+export const WEEKDAY_AR = ['الأحد', 'الإثنين', 'الثلاثاء', 'الأربعاء', 'الخميس', 'الجمعة', 'السبت'];
+/** يوم الأسبوع بتوقيت عمّان (UTC+3 ثابت) */
+export const ammanWeekday = (t: number) => new Date(t + 3 * 3600e3).getUTCDay();
+export const channelsText = (cs: Channel[]) => cs.map(c => CHANNEL_AR[c] || c).join(' و');
 export interface ActLite { id: number; name: string; date: number; price: number; cityId: number | null; isTest: boolean; status: string; locationName: string }
 export interface EarlyCtx { now: number; bookedAt: number; channel: Channel; strikes: number; freeAccount?: boolean; retro?: boolean }
 export interface Reason { code: string; text: string }
@@ -91,6 +101,7 @@ export function inScope(p: PromoLike, a: ActLite): Reason | null {
   if (p.scope === 'cities' && !(a.cityId != null && p.cityIds.includes(Number(a.cityId)))) return { code: 'scope', text: 'مدينة الفعاليّة خارج العرض' };
   if (p.scope === 'acts' && !p.activityIds.includes(a.id)) return { code: 'scope', text: 'الفعاليّة ليست ضمن العرض' };
   if (p.scope !== 'acts' && p.excludeIds.includes(a.id)) return { code: 'excluded', text: 'الفعاليّة مستثناة من العرض' };
+  if (p.scope !== 'acts' && p.weekdays?.length && !p.weekdays.includes(ammanWeekday(a.date))) return { code: 'scope', text: `العرض أيّام ${p.weekdays.map(d => WEEKDAY_AR[d]).join(' و')} فقط` };
   return null;
 }
 export function judgeEarly(p: PromoLike, a: ActLite, c: EarlyCtx): EarlyVerdict {
@@ -103,7 +114,8 @@ export function judgeEarly(p: PromoLike, a: ActLite, c: EarlyCtx): EarlyVerdict 
   if (!['planned', 'active'].includes(a.status)) R.push({ code: 'closed', text: 'الفعاليّة غير مفتوحة للحجز' });
   if (a.date < p.actFrom || a.date > p.actUntil) R.push({ code: 'window', text: 'الفعاليّة خارج فترة العرض' });
   const sc = inScope(p, a); if (sc) R.push(sc);
-  if (c.channel !== 'bot' && c.channel !== 'admin') R.push({ code: 'channel', text: 'العرض للحجز عبر الدون فقط' });
+  const chs = p.channels?.length ? p.channels : DEFAULT_PROMO_CHANNELS;
+  if (!chs.includes(c.channel)) R.push({ code: 'channel', text: `العرض للحجز عبر ${channelsText(chs)} فقط` });
   if (!c.retro && p.activatedAt && c.bookedAt < p.activatedAt) R.push({ code: 'before', text: 'الحجز قبل تفعيل العرض' });
   if (a.date - c.bookedAt < p.leadHours * H) R.push({ code: 'lead', text: `الحجز قبل اللعبة بأقلّ من ${p.leadHours} ساعة` });
   if (!(base > 0) || price >= base) R.push({ code: 'noop', text: 'لا فرق عن السعر العاديّ' });
@@ -145,6 +157,8 @@ export function toPromo(r: any): PromoLike {
     scope: (['all', 'cities', 'acts'].includes(r.scope) ? r.scope : 'all') as any,
     cityIds: ids(r.cityIds ?? r.city_ids), activityIds: ids(r.activityIds ?? r.activity_ids), excludeIds: ids(r.excludeIds ?? r.exclude_ids),
     activatedAt: (r.activatedAt ?? r.activated_at) ? new Date(r.activatedAt ?? r.activated_at).getTime() : null,
+    channels: (() => { const cs = (Array.isArray(r.channels) ? r.channels : []).filter((c: any) => ['bot', 'admin', 'app'].includes(c)); return cs.length ? cs : [...DEFAULT_PROMO_CHANNELS]; })(),
+    weekdays: ids(r.weekdays).filter(d => d >= 0 && d <= 6),
   };
 }
 let cache: { at: number; rows: any[] } | null = null;
@@ -304,7 +318,8 @@ export async function applyOnNewReservation(resId: number): Promise<ApplyResult>
     const [r] = await db.select().from(reservations).where(eq(reservations.id, resId)).limit(1);
     if (!r || !r.activityId) return { applied: false };   // قائمة الانتظار تُقفل أيضاً: السعر لحظة الحجز لا لحظة تأكيد الإدارة
     const channel = channelOfTag(r.createdBy);
-    if (channel !== 'bot' && channel !== 'admin') return { applied: false };
+    // ق٤: حجز الموظّف بالسعر العاديّ (والعرض يدويّاً بسبب). باقي القنوات يحكمها «قنوات العرض» (ق٣)
+    if (channel === 'staff') return { applied: false };
     const q = await earlyQuote({ activityId: r.activityId, phone: r.phone, playerId: r.playerId, channel, bookedAt: new Date(r.createdAt as any).getTime() });
     if (q.best) {
       await lockPerson(r.id, q.best.promoId, q.best.price, Math.max(1, Number(r.peopleCount || 1)));
@@ -339,7 +354,8 @@ export async function onPeopleChanged(resId: number, newPeople: number): Promise
   try {
     const [r] = await db.select().from(reservations).where(eq(reservations.id, resId)).limit(1);
     if (!r || r.pricePromoId == null || !r.activityId) return;
-    const q = await earlyQuote({ activityId: r.activityId, phone: r.phone, playerId: r.playerId, channel: channelOfTag(r.createdBy) === 'admin' ? 'admin' : 'bot', ignoreStrikes: true });
+    const ch0 = channelOfTag(r.createdBy);
+    const q = await earlyQuote({ activityId: r.activityId, phone: r.phone, playerId: r.playerId, channel: ch0 === 'staff' ? 'bot' : ch0, ignoreStrikes: true });
     const seats = Number(r.promoSeats ?? r.peopleCount ?? 1);
     const next = q.best ? newPeople : Math.min(seats, newPeople);
     await db.update(reservations).set({ promoSeats: next } as any).where(eq(reservations.id, resId));
@@ -352,7 +368,7 @@ export async function onReservationMoved(resId: number): Promise<void> {
     const [r] = await db.select().from(reservations).where(eq(reservations.id, resId)).limit(1);
     if (!r || !r.activityId) return;
     const channel = channelOfTag(r.createdBy);
-    const q = (channel === 'bot' || channel === 'admin')
+    const q = channel !== 'staff'
       ? await earlyQuote({ activityId: r.activityId, phone: r.phone, playerId: r.playerId, channel, ignoreStrikes: true })
       : null;
     if (q?.best) await lockPerson(r.id, q.best.promoId, q.best.price, Math.max(1, Number(r.peopleCount || 1)));
@@ -604,6 +620,51 @@ export async function activate(promoId: number, by: string, applyRetro: boolean)
 // ══════════════════════════════════════════════════════
 // 🛠️ تدخّلُ الأدمن على حجزٍ بعينه (قرار ٨) — يُسجَّل في سجلّ الموظّفين
 // ══════════════════════════════════════════════════════
+/**
+ * ق٤ (معتمد): «طبّق عرضاً» من المتابعة — الموظّف يطبّق عرض سعرٍ مبكّر على حجزٍ بعينه (أو يزيله) بسبب.
+ * يتجاوز القناة والمهلة (هذا معنى اليدويّ)، لا الفعاليّة: العرض يجب أن يشملها. المدفوع لا يُمسّ.
+ * يكتب السبب سطراً في سجلّ الحجز.
+ */
+export async function setReservationOffer(resId: number, promoId: number | null, reason: string, who: { channel: 'staff'; actor: string }):
+  Promise<{ ok: boolean; error?: string; price?: number; base?: number; name?: string }> {
+  const db = getDB(); if (!db) return { ok: false, error: 'DB unavailable' };
+  const [r] = await db.select().from(reservations).where(and(eq(reservations.id, resId), isNull(reservations.deletedAt))).limit(1);
+  if (!r || !r.activityId) return { ok: false, error: 'الحجز غير موجود' };
+  const why = String(reason || '').trim().slice(0, 200);
+  if (!why) return { ok: false, error: 'اكتب سبب تطبيق العرض أو إزالته' };
+  const paid = await db.select({ id: bookings.id }).from(bookings).where(and(eq(bookings.activityId, r.activityId), isNull(bookings.deletedAt),
+    eq(bookings.isPaid, true), sql`COALESCE(${bookings.isFree}, false) = false`, sql`COALESCE(${bookings.paidAmount}, 0) > 0`,
+    sql`(${bookings.reservationId} = ${r.id} ${r.playerId ? sql`OR ${bookings.playerId} = ${r.playerId}` : sql``})`)).limit(1);
+  if (paid.length) return { ok: false, error: 'الحجز مدفوع — عدّل المبلغ من نافذة الدفع' };
+  const a = await actLite(r.activityId); if (!a) return { ok: false, error: 'الفعاليّة غير موجودة' };
+  const { withActor } = await import('./booking-commands.service.js');
+  let price: number | undefined; let name = '';
+  if (promoId == null) {
+    await withActor(who, (tx) => tx.update(reservations).set({ unitPrice: null, pricePromoId: null, promoSeats: null, updatedAt: new Date() } as any).where(eq(reservations.id, r.id)));
+    await withActor(who, (tx) => tx.update(bookings).set({ unitPrice: null, pricePromoId: null } as any).where(and(eq(bookings.activityId, r.activityId), isNull(bookings.deletedAt), sql`(${bookings.reservationId} = ${r.id} ${r.playerId ? sql`OR ${bookings.playerId} = ${r.playerId}` : sql``})`)));
+  } else {
+    const row = (await promoRows()).find(x => Number(x.id) === Number(promoId));
+    if (!row) return { ok: false, error: 'العرض غير موجود' };
+    const p = toPromo(row);
+    if (a.date < p.actFrom || a.date > p.actUntil || inScope(p, a)) return { ok: false, error: 'العرض لا يشمل هذه الفعاليّة' };
+    price = promoPrice(p, a.price); name = p.name;
+    if (!(price < a.price)) return { ok: false, error: 'لا فرق عن السعر العاديّ' };
+    await withActor(who, (tx) => tx.update(reservations).set({ unitPrice: String(price), pricePromoId: p.id, promoSeats: Math.max(1, Number(r.peopleCount || 1)), updatedAt: new Date() } as any).where(eq(reservations.id, r.id)));
+    await withActor(who, (tx) => tx.update(bookings).set({ unitPrice: String(price), pricePromoId: p.id } as any).where(and(eq(bookings.activityId, r.activityId), isNull(bookings.deletedAt), sql`(${bookings.reservationId} = ${r.id} ${r.playerId ? sql`OR ${bookings.playerId} = ${r.playerId}` : sql``})`)));
+  }
+  await db.execute(sql`INSERT INTO booking_events (reservation_id, activity_id, channel, actor, kind, detail, reason)
+    VALUES (${r.id}, ${r.activityId}, 'staff', ${who.actor.slice(0, 120)}, 'offer_manual', ${JSON.stringify({ promoId, price: price ?? null, name })}::jsonb, ${why})`).catch(() => {});
+  invalidateEarlyCache();
+  return { ok: true, price, base: a.price, name };
+}
+
+/** العروض التي يمكن تطبيقها يدويّاً على فعاليّة (فعّالة وتشملها) — لزرّ «طبّق عرضاً» */
+export async function manualOffersFor(activityId: number): Promise<Array<{ id: number; name: string; price: number; base: number }>> {
+  const a = await actLite(activityId); if (!a) return [];
+  return (await livePromos()).filter(p => a.date >= p.actFrom && a.date <= p.actUntil && !inScope(p, a))
+    .map(p => ({ id: p.id, name: p.name, price: promoPrice(p, a.price), base: a.price })).filter(x => x.price < x.base);
+}
+
 export async function setBookingEarly(bookingId: number, on: boolean): Promise<{ ok: boolean; error?: string; price?: number }> {
   const db = getDB(); if (!db) return { ok: false, error: 'DB unavailable' };
   const [b] = await db.select().from(bookings).where(and(eq(bookings.id, bookingId), isNull(bookings.deletedAt))).limit(1);
@@ -692,6 +753,7 @@ export async function markEarlyAnnounced(convId: number, keys: string[]): Promis
 export interface PromoInput {
   name: string; mode: 'fixed' | 'off'; value: number; leadHours: number; actFrom: string | Date; actUntil: string | Date;
   scope: 'all' | 'cities' | 'acts'; cityIds?: number[]; activityIds?: number[]; excludeIds?: number[]; announce?: boolean; announceText?: string;
+  channels?: Channel[]; weekdays?: number[];
 }
 export async function validatePromo(i: PromoInput): Promise<string | null> {
   const name = String(i.name || '').trim();
@@ -706,6 +768,7 @@ export async function validatePromo(i: PromoInput): Promise<string | null> {
   if (!['all', 'cities', 'acts'].includes(i.scope)) return 'النطاق غير معروف';
   if (i.scope === 'cities' && !ids(i.cityIds).length) return 'اختر مدينةً واحدة على الأقلّ';
   if (i.scope === 'acts' && !ids(i.activityIds).length) return 'اختر فعاليّةً واحدة على الأقلّ';
+  if (i.channels !== undefined && !(Array.isArray(i.channels) && i.channels.some(c => ['bot', 'admin', 'app'].includes(c)))) return 'اختر قناةً واحدة على الأقلّ';
   return null;
 }
 export function promoValues(i: PromoInput) {
@@ -714,6 +777,8 @@ export function promoValues(i: PromoInput) {
     actFrom: new Date(i.actFrom), actUntil: new Date(i.actUntil), scope: i.scope,
     cityIds: [...new Set(ids(i.cityIds))], activityIds: [...new Set(ids(i.activityIds))], excludeIds: [...new Set(ids(i.excludeIds))],
     announce: i.announce !== false, announceText: String(i.announceText || '').slice(0, 900),
+    channels: (() => { const cs = (Array.isArray(i.channels) ? i.channels : DEFAULT_PROMO_CHANNELS).filter(c => ['bot', 'admin', 'app'].includes(c)); return cs.length ? [...new Set(cs)] : [...DEFAULT_PROMO_CHANNELS]; })(),
+    weekdays: [...new Set(ids(i.weekdays).filter(d => d >= 0 && d <= 6))].sort(),
   };
 }
 export async function promoStats(promoId: number): Promise<any> {

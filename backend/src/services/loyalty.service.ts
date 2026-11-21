@@ -532,6 +532,10 @@ export async function drinkDiscountFor(db: any, playerId: number, locationId: nu
   // فاتورةٌ سبق أن استُخدمت عليها مكافأة (محصَّلة) — تُعاد من لقطتها في المسار المنادي
   const rw = await availableReward(playerId, 'free_drink');
   if (!rw) return none;
+  // ق١٤ (معتمد 2026-11-21): مكافأةٌ واحدة في الليلة، والمشروب لا يُطبَّق آليّاً ليلة عرض —
+  //    كان يُخصم على الفاتورة ولو دخل اللاعب بسعرٍ مبكّر أو مجّاناً بعرض مجموعة أو بزيارة ولاء.
+  //    المكافأة لا تُستهلك فتبقى له لليلةٍ أخرى.
+  if (await offerNightFor(db, playerId, activityId)) return none;
   const cats = cfg.rewards.freeDrink.categories;
   if (!cats.length) return none;
   const r: any = await db.execute(sql`
@@ -551,6 +555,27 @@ export async function drinkDiscountFor(db: any, playerId: number, locationId: nu
   const discount = Math.min(Number(row.price) || 0, cap);
   if (discount <= 0) return none;
   return { discount: Math.round(discount * 100) / 100, rewardId: Number(rw.id), itemName: String(row.name) };
+}
+
+/**
+ * ليلة عرضٍ لهذا اللاعب؟ (ق١٤) — دخل بسعرٍ مقفول (مبكّر أو عرضٌ يدويّ)، أو بزيارة ولاء، أو هو في
+ * مجموعة عرضٍ قائمة لهذه الفعاليّة (صاحبها أو عضوٌ فيها).
+ */
+export async function offerNightFor(db: any, playerId: number, activityId: number): Promise<boolean> {
+  try {
+    const r: any = await db.execute(sql`
+      SELECT (
+        EXISTS (SELECT 1 FROM bookings b WHERE b.activity_id = ${activityId} AND b.player_id = ${playerId} AND b.deleted_at IS NULL
+                  AND (b.unit_price IS NOT NULL OR b.loyalty_reward_id IS NOT NULL))
+        OR EXISTS (SELECT 1 FROM reservations r WHERE r.activity_id = ${activityId} AND r.player_id = ${playerId} AND r.deleted_at IS NULL
+                  AND r.unit_price IS NOT NULL)
+        OR EXISTS (SELECT 1 FROM booking_groups g WHERE g.activity_id = ${activityId} AND g.status <> 'void' AND g.owner_player_id = ${playerId})
+        OR EXISTS (SELECT 1 FROM booking_group_members m JOIN booking_groups g ON g.id = m.group_id
+                    WHERE m.activity_id = ${activityId} AND g.status <> 'void' AND m.status NOT IN ('declined', 'removed')
+                      AND (m.player_id = ${playerId} OR m.booking_id IN (SELECT id FROM bookings WHERE activity_id = ${activityId} AND player_id = ${playerId})))
+      ) AS hit`);
+    return rowsOf(r)[0]?.hit === true;
+  } catch { return false; }
 }
 
 /** عند تحصيل الفاتورة: تثبيت استخدام مكافأة المشروب */

@@ -527,6 +527,12 @@ async function handleInboundMessage(db: any, msg: any, contacts: any[], channel:
     catch (err: any) { console.warn('⚠️ WA reminder button:', err.message); }
     return; // لا نمرّر ضغطة زرّ التذكير للبوت
   }
+  // ── 🎟️ زرّ زيارة الولاء (ق٦) — معالجة حتميّة ──
+  if (remindBtnId && remindBtnId.startsWith('wa_lv:')) {
+    try { await handleLoyaltyVisitButton(db, updatedConv, remindBtnId); }
+    catch (err: any) { console.warn('⚠️ WA loyalty visit button:', err.message); }
+    return;
+  }
 
   // ── ⏱️ رفضٌ صريح للمتابعة («مش مهتمّ»، «بعدين») ⟵ لا متابعة أخرى لهذه المحادثة ──
   import('./wa-followup.service.js')
@@ -562,6 +568,28 @@ async function handleInboundMessage(db: any, msg: any, contacts: any[], channel:
   if (isBotActive(updatedConv) && !opts.suppressBot) {
     forwardToBot(updatedConv);
   }
+}
+
+// 🎟️ زيارة الولاء من الدون (wa_lv:use|keep:<reservationId>) — الحجز يخصّ رقم المحادثة أو حسابها
+async function handleLoyaltyVisitButton(db: any, conv: any, id: string): Promise<void> {
+  const [, act, rid] = id.split(':');
+  const resId = parseInt(rid);
+  if (!resId) return;
+  const [res] = await db.select({ id: reservations.id, phone: reservations.phone, playerId: reservations.playerId })
+    .from(reservations).where(eq(reservations.id, resId)).limit(1);
+  if (!res || !(samePhone(res.phone, conv.phone) || (conv.playerId && res.playerId === conv.playerId))) return;
+  if (act !== 'use') {
+    await sendMessage({ conversationId: conv.id, source: 'system', text: 'تمام 👌 زيارتك المجّانيّة محفوظة لمرّة جاية.' }).catch(() => {});
+    return;
+  }
+  const C = await import('./booking-commands.service.js');
+  const r = await C.setLoyaltyVisit(resId, true, { channel: 'bot', actor: String(conv.displayName || conv.phone).slice(0, 120) }, 'اختارها العميل من الدون');
+  await sendMessage({
+    conversationId: conv.id, source: 'system',
+    text: r.ok
+      ? `تمّ 🎟️ طبّقنا زيارتك المجّانيّة — دخولك هالمرّة علينا.${r.removedOffer ? '\n(السعر المبكّر ما بينجمع معها، فمرافقوك بالسعر العاديّ.)' : ''}`
+      : `ما قدرت أطبّقها 🙏 ${r.error || ''}`.trim(),
+  }).catch(() => {});
 }
 
 // 🔔 تفعيل/إلغاء تذكير الحجز عبر زرّ العميل (wa_remind:on|off:<reservationId>)

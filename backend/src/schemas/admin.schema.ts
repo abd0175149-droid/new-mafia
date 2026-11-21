@@ -810,6 +810,8 @@ export const bookingOffers = pgTable('booking_offers', {
   bookUntil: timestamp('book_until').notNull(),
   leadHours: integer('lead_hours').default(0).notNull(),                 // الحجز قبل الفعاليّة بـX ساعة على الأقلّ
   activityIds: jsonb('activity_ids').default([]).notNull(),
+  weekdays: jsonb('weekdays').default([]),                               // ق٢٣: كلّ فعاليّات هذه الأيّام في نافذة الحجز تُضاف تلقائيّاً
+  excludeIds: jsonb('exclude_ids').default([]),                          // ق٢٣: مستثناة لا تُضاف
   maxGroups: integer('max_groups').default(0).notNull(),                 // 0 = بلا سقف
   perCustomer: integer('per_customer').default(1).notNull(),
   priorityHours: integer('priority_hours').default(24).notNull(),        // حصّةُ الحاجزين مسبقاً بعد الإبلاغ
@@ -879,6 +881,8 @@ export const earlyPricePromos = pgTable('early_price_promos', {
   announce: boolean('announce').default(true),
   announceText: text('announce_text').default(''),
   activatedAt: timestamp('activated_at'),                                 // أوّل تفعيل — لا غياب يُحكم قبله
+  channels: jsonb('channels').default(['bot', 'admin']),                 // ق٣: قنوات العرض من الشاشة
+  weekdays: jsonb('weekdays').default([]),                               // ق٢٣: أيّام الأسبوع (فارغة = كلّها)
   createdBy: varchar('created_by', { length: 100 }).default(''),
   createdAt: timestamp('created_at').defaultNow().notNull(),
   updatedAt: timestamp('updated_at').defaultNow().notNull(),

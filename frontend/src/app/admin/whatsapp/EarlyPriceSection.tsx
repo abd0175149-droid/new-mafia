@@ -27,6 +27,8 @@ const STATE: Record<string, { label: string; tone?: Tone }> = {
   paused: { label: 'موقوف', tone: 'warn' },
   draft: { label: 'مسودة' },
 };
+const DAYS_AR = ['الأحد', 'الإثنين', 'الثلاثاء', 'الأربعاء', 'الخميس', 'الجمعة', 'السبت'];
+const CH_AR: Record<string, string> = { bot: 'الدون', admin: 'أدمن البوت', app: 'التطبيق' };
 function blankForm() {
   const now = Date.now();
   const end = new Date(now + 31 * 24 * H);
@@ -34,6 +36,7 @@ function blankForm() {
     id: null as number | null, name: 'سعر الدون المبكّر', mode: 'fixed', value: 2, leadHours: 24,
     actFrom: toInput(now), actUntil: toInput(end), scope: 'all', cityIds: [] as number[], activityIds: [] as number[], excludeIds: [] as number[],
     announce: true, announceText: '',
+    channels: ['bot', 'admin'] as string[], weekdays: [] as number[],
   };
 }
 
@@ -50,6 +53,9 @@ export default function EarlyPriceSection({ apiFetch }: { apiFetch: Fetcher }) {
   }, [apiFetch]);
   useEffect(() => { load(); }, [load]);
   const patch = (k: string, v: any) => setForm(f => f ? { ...f, [k]: v } : f);
+  const toggleList = (k: 'channels' | 'weekdays', v: any) => setForm(f => {
+    if (!f) return f; const cur = (f as any)[k] as any[]; return { ...f, [k]: cur.includes(v) ? cur.filter(x => x !== v) : [...cur, v] };
+  });
   const toggleIn = (k: 'cityIds' | 'activityIds' | 'excludeIds', id: number) => setForm(f => {
     if (!f) return f; const cur = f[k]; return { ...f, [k]: cur.includes(id) ? cur.filter(x => x !== id) : [...cur, id] };
   });
@@ -108,6 +114,8 @@ export default function EarlyPriceSection({ apiFetch }: { apiFetch: Fetcher }) {
       id: o.id, name: o.name, mode: o.mode, value: Number(o.value), leadHours: o.leadHours, actFrom: toInput(o.actFrom), actUntil: toInput(o.actUntil),
       scope: o.scope, cityIds: (o.cityIds || []).map(Number), activityIds: (o.activityIds || []).map(Number), excludeIds: (o.excludeIds || []).map(Number),
       announce: o.announce !== false, announceText: o.announceText || '',
+      channels: Array.isArray(o.channels) && o.channels.length ? o.channels : ['bot', 'admin'],
+      weekdays: Array.isArray(o.weekdays) ? o.weekdays.map(Number) : [],
     });
   }
 
@@ -181,6 +189,28 @@ export default function EarlyPriceSection({ apiFetch }: { apiFetch: Fetcher }) {
                   {data.cities.map((c: any) => (
                     <Chip key={c.id} on={form.cityIds.includes(c.id)} onClick={() => toggleIn('cityIds', c.id)}>
                       {form.cityIds.includes(c.id) && <Check className="s" />}{c.name}
+                    </Chip>
+                  ))}
+                </div>
+              </Field>
+            )}
+
+            <Field label="القنوات" hint="ق٣: من أين يُحجز بهذا السعر. حجز الموظّف دائماً بالسعر العاديّ، والعرض عليه يدويّاً من المتابعة «طبّق عرضاً».">
+              <div className="wa-chips" style={{ flexWrap: 'wrap' }}>
+                {(['bot', 'admin', 'app'] as const).map(c => (
+                  <Chip key={c} on={form.channels.includes(c)} onClick={() => toggleList('channels', c)}>
+                    {form.channels.includes(c) && <Check className="s" />}{CH_AR[c]}
+                  </Chip>
+                ))}
+              </div>
+            </Field>
+
+            {form.scope !== 'acts' && (
+              <Field label="أيّام الأسبوع" hint="ق٢٣: بلا اختيار = كلّ الأيّام. مثال: الأحد وحده.">
+                <div className="wa-chips" style={{ flexWrap: 'wrap' }}>
+                  {DAYS_AR.map((d, i) => (
+                    <Chip key={i} on={form.weekdays.includes(i)} onClick={() => toggleList('weekdays', i)}>
+                      {form.weekdays.includes(i) && <Check className="s" />}{d}
                     </Chip>
                   ))}
                 </div>
@@ -276,13 +306,15 @@ export default function EarlyPriceSection({ apiFetch }: { apiFetch: Fetcher }) {
       {data.offers.map((o: any) => {
         const st = STATE[o.status] || STATE.draft;
         const s = o.stats || {};
-        const scope = o.scope === 'all' ? 'كلّ المدن' : o.scope === 'cities' ? (o.cityIds || []).map(cityName).join('، ') : `${(o.activityIds || []).length} فعاليّات بعينها`;
+        const scope = (o.scope === 'all' ? 'كلّ المدن' : o.scope === 'cities' ? (o.cityIds || []).map(cityName).join('، ') : `${(o.activityIds || []).length} فعاليّات بعينها`)
+          + (o.scope !== 'acts' && (o.weekdays || []).length ? ` · أيّام ${(o.weekdays || []).map((d: number) => DAYS_AR[d]).join(' و')}` : '');
+        const chText = (Array.isArray(o.channels) && o.channels.length ? o.channels : ['bot', 'admin']).map((c: string) => CH_AR[c] || c).join(' و');
         return (
           <Card key={o.id} style={o.status === 'live' ? { borderColor: 'var(--ok)' } : undefined}
             title={<><Coins /><span className="trunc">{o.name}</span><Badge tone={st.tone}>{st.label}</Badge></>}>
             <div className="stack">
               <div style={{ font: '700 14px/22px var(--font-sans)', color: 'var(--gold)' }}>
-                {o.mode === 'fixed' ? <><span className="ltr">{n(o.value)}</span> د.أ للشخص</> : <>خصم <span className="ltr">{n(o.value)}</span> د.أ</>} عبر الدون قبل اللعبة بـ<span className="ltr">{n(o.leadHours)}</span> ساعة — بلا ختم ولاء
+                {o.mode === 'fixed' ? <><span className="ltr">{n(o.value)}</span> د.أ للشخص</> : <>خصم <span className="ltr">{n(o.value)}</span> د.أ</>} عبر {chText} قبل اللعبة بـ<span className="ltr">{n(o.leadHours)}</span> ساعة — بلا ختم ولاء
               </div>
               <div className="muted" style={{ font: '500 13px/20px var(--font-sans)' }}>
                 فعاليّات {fmtDT(o.actFrom)} ← {fmtDT(o.actUntil)} · {scope}{o.scope !== 'acts' && (o.excludeIds || []).length ? ` · مستثناة: ${(o.excludeIds || []).map(actName).join('، ')}` : ''}{o.activatedAt ? ` · فُعّل ${fmtDT(o.activatedAt)}` : ''}

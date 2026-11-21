@@ -455,6 +455,7 @@ router.post('/book', authenticatePlayer, requireConsent, async (req: Request, re
       await linkOnAppBooking({ playerId: player.playerId ?? null, phone: player.phone, activityId, bookingId: result[0].id });
     } catch (e: any) { console.warn('⚠️ group link on app booking:', e?.message); }
 
+    let newAppResId: number | null = null;   // صفّ متابعةٍ أنشأه هذا الحجز (لا القائم مسبقاً) — له يُقفل المبكّر
     // 📋 حجز المتابعة: حجز اللاعب بنفسه من التطبيق = تثبيتٌ تلقائيّ (أقوى تأكيدٍ من ردّ الواتساب).
     // إن وُجد حجزٌ مُدخَل مسبقاً (يدويّاً) → يُوسم ويُثبَّت ويُربط بحسابه. وإن لم يوجد → يُنشأ
     // «مثبّتاً» مباشرةً (لا «غير مثبّت») بالوسم نفسه.
@@ -485,6 +486,7 @@ router.post('/book', authenticatePlayer, requireConsent, async (req: Request, re
           appConfirmedAt: new Date(),
         } as any).returning({ id: reservations.id });
         confirmResId = ins?.id ?? null;
+        newAppResId = confirmResId;
       } else {
         const ex = existingRes[0];
         await db.update(reservations).set({
@@ -510,6 +512,21 @@ router.post('/book', authenticatePlayer, requireConsent, async (req: Request, re
 
     // 🎟️ بطاقة الولاء: هل يُحتسب هذا الحجز ختماً؟ وهل لديه زيارة مجّانيّة تُطبَّق؟
     let loyalty: any = null;
+    // 💸 ق٣: السعر المبكّر في التطبيق إن أضاف المالك «التطبيق» لقنوات العرض — يُقفل قبل حكم الختم
+    //    (المبكّر بلا ختم). وزيارة الولاء حصريّة (ق١٣): من طلبها (الافتراض) لا يأخذ المبكّر معها.
+    let earlyApplied: any = null;
+    if (newAppResId && !isFreeAccount) {
+      try {
+        let wantsVisit = false;
+        if (player.playerId && req.body?.useLoyaltyReward !== false) {
+          const L = await import('../services/loyalty.service.js');
+          const cfg = await L.getLoyaltyConfig();
+          wantsVisit = cfg.enabled && cfg.rewards.freeVisit.enabled && L.isLocationEnabled(cfg, activity.locationId ?? null)
+            && !!(await L.availableReward(Number(player.playerId), 'free_visit'));
+        }
+        if (!wantsVisit) { const { applyOnNewReservation } = await import('../services/early-price.service.js'); earlyApplied = await applyOnNewReservation(newAppResId); }
+      } catch (e: any) { console.warn('⚠️ app early price:', e?.message); }
+    }
     try {
       const { bookingOutcome, applyFreeVisit } = await import('../services/loyalty.service.js');
       loyalty = await bookingOutcome(player.playerId, { id: activity.id, date: activity.date as any, locationId: activity.locationId ?? null }, new Date(result[0].createdAt || Date.now()));
@@ -519,7 +536,7 @@ router.post('/book', authenticatePlayer, requireConsent, async (req: Request, re
       }
     } catch (e: any) { console.warn('⚠️ loyalty on booking:', e?.message); }
 
-    res.status(201).json({ success: true, booking: result[0], loyalty });
+    res.status(201).json({ success: true, booking: result[0], loyalty, earlyPrice: earlyApplied?.applied ? { price: earlyApplied.price, base: earlyApplied.base, name: earlyApplied.name } : null });
 
     // 🔔 Push للموظفين (حجز جديد من تطبيق اللاعب) + تأكيد للاعب
     import('../services/fcm.service.js').then(({ sendPushToStaffByPermission, sendPushToPlayer }) => {

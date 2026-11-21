@@ -1833,7 +1833,7 @@ async function execTool(name: string, args: any, ctx: ToolCtx): Promise<any> {
       }
       if (await isTestActivity(db, activityId)) return TEST_ACTIVITY_RESULT;
       { const nb = await notBookable(db, activityId); if (nb) return nb; }
-      const [act] = await db.select({ id: activities.id, name: activities.name, date: activities.date, basePrice: activities.basePrice })
+      const [act] = await db.select({ id: activities.id, name: activities.name, date: activities.date, basePrice: activities.basePrice, locationId: activities.locationId })
         .from(activities).where(eq(activities.id, activityId)).limit(1);
       if (!act) return { error: 'الفعالية غير موجودة — أعد عرض الفعاليات' };
       let unitCost = Number(act.basePrice || 0);
@@ -1928,6 +1928,31 @@ async function execTool(name: string, args: any, ctx: ToolCtx): Promise<any> {
         } catch (e: any) { console.warn('⚠️ WA reminder offer:', e.message); }
       }
 
+      // 🎟️ ق٦ + ق١٥ (معتمدان): زيارة الولاء من الدون بزرّ — والعميل يختار بينها وبين السعر المبكّر.
+      //    لا تُطبَّق وحدها: لا تُستهلك المكافأة إلّا إن ضغط «استعملها».
+      let loyaltyOffered = false;
+      if (conv.playerId && msToGame > 0) {
+        try {
+          const L = await import('./loyalty.service.js');
+          const cfg = await L.getLoyaltyConfig();
+          const locOk = cfg.enabled && cfg.rewards.freeVisit.enabled && L.isLocationEnabled(cfg, act.locationId ?? null);
+          if (locOk && await L.availableReward(Number(conv.playerId), 'free_visit')) {
+            await sendMessage({ conversationId: conv.id, source: 'bot', interactive: {
+              type: 'button',
+              body: { text: ep.applied
+                ? `🎟️ عندك زيارة مجّانيّة من بطاقة الولاء.\nحجزك الآن بالسعر المبكّر ${ep.price} د.أ للشخص — بتحب تستعمل زيارتك بدلها؟ دخولك يصير مجّاناً، والعرض ما بينجمع معها${people > 1 ? ' فيرجع مرافقوك للسعر العاديّ' : ''}.`
+                : `🎟️ عندك زيارة مجّانيّة من بطاقة الولاء — بتستعملها لهذا الحجز؟ دخولك يصير مجّاناً.` },
+              action: { buttons: [
+                { type: 'reply', reply: { id: `wa_lv:use:${saved.id}`, title: 'استعملها 🎟️' } },
+                { type: 'reply', reply: { id: `wa_lv:keep:${saved.id}`, title: 'أحتفظ بها' } },
+              ] },
+            } });
+            ctx.interactives.push({ kind: 'buttons', preview: 'زرّ زيارة الولاء' });
+            loyaltyOffered = true;
+          }
+        } catch (e: any) { console.warn('⚠️ WA loyalty visit offer:', e?.message); }
+      }
+
       // 📋 رسالة التثبيت (المكان والخريطة والموعد والبرنامج والقواعد) تخرج من النظام بعد ردّك بثوانٍ —
       //    فالردّ قصير لا يكرّرها (قرار المالك 2026-10-30). المفتاح مطفأ ⟵ الردّ الكامل كما كان.
       const { scheduleReservationConfirm } = await import('./reservation-confirm.service.js');
@@ -1940,6 +1965,7 @@ async function execTool(name: string, args: any, ctx: ToolCtx): Promise<any> {
           ? `الحجز مؤكد ومسجّل. سيصل العميلَ من النظام مباشرةً بعد ردّك رسالةُ تثبيتٍ مفصّلة فيها المكان والخريطة والموعد وبرنامج الليلة والقواعد — فاكتب ردّاً قصيراً: «تمّ ✅ ثبّتنا حجزك»${costPart}، وذكّره أن الدفع في المكان، وقل إنّ التفاصيل كاملة بالرسالة التالية. لا تكرّر الموعد ولا المكان.`
           : `الحجز مؤكد ومسجّل — أبلغ العميل بالتفاصيل${costPart} وذكّره أن الدفع في المكان.`)
           + `${epNote}${offerReminder ? ' (أُرسل للعميل عرض تذكير قبل اللعبة بساعة عبر أزرار — لا داعي لذكره نصّاً).' : ''}`
+          + (loyaltyOffered ? ' (أُرسل له زرّ زيارة الولاء المجّانيّة — لا تذكرها نصّاً ولا تقل إنّها طُبّقت).' : '')
           + (msToGame <= 0 ? ` 🟢 ${LIVE_NOW_NOTE} قل له يتفضّل الآن.` : ''),
       };
     }

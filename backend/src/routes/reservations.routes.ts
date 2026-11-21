@@ -499,6 +499,38 @@ router.get('/:id/timeline', authenticate, async (req: Request, res: Response) =>
   catch (err: any) { res.status(500).json({ error: err.message }); }
 });
 
+// ── 💸 م٤-ب: عروض هذا الحجز وولاؤه (بطاقة الشخص) ──
+const staffWho = (req: Request) => { const u = (req as any).user; return { channel: 'staff' as const, actor: String(u?.displayName || u?.username || 'الإدارة') }; };
+router.get('/:id/extras', authenticate, async (req: Request, res: Response) => {
+  const id = parseInt(req.params.id);
+  if (!Number.isFinite(id)) return res.status(400).json({ error: 'معرّف غير صالح' });
+  try { const C = await import('../services/booking-commands.service.js'); const x = await C.reservationExtras(id); if (!x) return res.status(404).json({ error: 'الحجز غير موجود' }); res.json(x); }
+  catch (err: any) { res.status(500).json({ error: err.message }); }
+});
+// ق٤: «طبّق عرضاً» بسبب — promoId = null يزيله
+router.post('/:id/offer', authenticate, async (req: Request, res: Response) => {
+  const id = parseInt(req.params.id);
+  if (!Number.isFinite(id)) return res.status(400).json({ error: 'معرّف غير صالح' });
+  const promoId = req.body?.promoId == null ? null : Number(req.body.promoId);
+  try {
+    const E = await import('../services/early-price.service.js');
+    const r = await E.setReservationOffer(id, Number.isFinite(promoId as any) ? promoId : null, String(req.body?.reason || ''), staffWho(req));
+    if (!r.ok) return res.status(409).json({ error: r.error });
+    res.json({ success: true, ...r });
+  } catch (err: any) { res.status(500).json({ error: err.message }); }
+});
+// ق٦: زيارة الولاء من الباب/المتابعة — on=false يعيدها متاحة
+router.post('/:id/loyalty-visit', authenticate, async (req: Request, res: Response) => {
+  const id = parseInt(req.params.id);
+  if (!Number.isFinite(id)) return res.status(400).json({ error: 'معرّف غير صالح' });
+  try {
+    const C = await import('../services/booking-commands.service.js');
+    const r = await C.setLoyaltyVisit(id, req.body?.on !== false, staffWho(req), String(req.body?.reason || ''));
+    if (!r.ok) return res.status(409).json({ error: r.error });
+    res.json({ success: true, ...r });
+  } catch (err: any) { res.status(500).json({ error: err.message }); }
+});
+
 // ── 📊 تقرير الإلغاءات (بالقناة والتوقيت قبل اللعبة) ──
 router.get('/reports/cancellations', authenticate, authorize('admin'), async (req: Request, res: Response) => {
   try { const C = await import('../services/booking-commands.service.js'); res.json(await C.cancellationReport(Number(req.query.days) || 30)); }

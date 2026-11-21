@@ -28,6 +28,7 @@ import { Sheet, SheetHead, ActionRow, Field, Counter, PrimaryButton } from './Sh
 import { initial, latin } from './ResRow';
 import EtaControls from './EtaControls';
 import BookingTimeline from './BookingTimeline';
+import OfferLoyaltyBox from './OfferLoyaltyBox';
 import { arrivalGroup, etaLabel, followupState, hm, peopleLabel, type ResEvent } from './arrival';
 import type { Reservation } from '@/hooks/useReservations';
 
@@ -285,6 +286,8 @@ export function PersonPanel({
         )}
         <ActionRow icon={<Trash2 />} title="إلغاء الحجز" sub="بسبب — يبقى تحت «ملغى» ويُسترجع" tone="danger" onClick={() => { setReason(''); setMode('cancel'); }} />
       </div>
+
+      <OfferLoyaltyBox key={`ol-${row.id}`} resId={row.id} />
 
       <BookingTimeline key={row.id} resId={row.id} />
     </div>

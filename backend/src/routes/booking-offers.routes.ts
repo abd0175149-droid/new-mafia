@@ -15,6 +15,7 @@ import {
   listOfferRows, offerStats, offerState, ruleText, validateOffer, offerValues, loadActivity,
   notifyPreview, notifySend, groupsForActivity, settleGroup, removeMember,
   inviteInfo, acceptInvite, declineInvite, type OfferInput,
+  syncOfferWeekdays,
 } from '../services/booking-offers.service.js';
 
 const router = Router();
@@ -95,7 +96,8 @@ router.post('/', authenticate, adminOnly, async (req: Request, res: Response) =>
     const bad = await validateOffer(input);
     if (bad) return res.status(400).json({ error: bad });
     const status = input.status === 'live' ? 'live' : 'draft';
-    const [row] = await db.insert(bookingOffers).values({ ...offerValues(input), status, createdBy: actorOf(req) } as any).returning();
+    let [row] = await db.insert(bookingOffers).values({ ...offerValues(input), status, createdBy: actorOf(req) } as any).returning();
+    if (await syncOfferWeekdays(row.id)) [row] = await db.select().from(bookingOffers).where(eq(bookingOffers.id, row.id));
     await refreshBot();
     res.json({ success: true, offer: row });
   } catch (err: any) { res.status(500).json({ error: err.message }); }
@@ -109,9 +111,10 @@ router.put('/:id', authenticate, adminOnly, async (req: Request, res: Response) 
     const bad = await validateOffer(input);
     if (bad) return res.status(400).json({ error: bad });
     // المجموعاتُ القائمة تحمل نسخةً من شروطها (terms) — تعديلُ العرض لا يغيّر ما وُعد به أحد
-    const [row] = await db.update(bookingOffers).set({ ...offerValues(input), updatedAt: new Date() } as any)
+    let [row] = await db.update(bookingOffers).set({ ...offerValues(input), updatedAt: new Date() } as any)
       .where(and(eq(bookingOffers.id, id), isNull(bookingOffers.deletedAt))).returning();
     if (!row) return res.status(404).json({ error: 'العرض غير موجود' });
+    if (await syncOfferWeekdays(row.id)) [row] = await db.select().from(bookingOffers).where(eq(bookingOffers.id, row.id));
     await refreshBot();
     res.json({ success: true, offer: row });
   } catch (err: any) { res.status(500).json({ error: err.message }); }

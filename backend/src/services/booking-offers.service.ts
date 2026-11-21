@@ -1057,6 +1057,37 @@ export function startBookingOfferJobs(): void {
   if (jobsStarted) return; jobsStarted = true;
   setTimeout(() => { void purgeStaleMembers().catch(() => {}); }, 60e3);
   setInterval(() => { void purgeStaleMembers().catch(() => {}); }, 6 * H);
+  // 📅 ق٢٣: فعاليّةٌ جديدة في يوم العرض تنضمّ إليه دون أن يفتح أحدٌ العرض
+  setTimeout(() => { void syncOfferWeekdays().catch(() => {}); }, 90e3);
+  setInterval(() => { void syncOfferWeekdays().catch(() => {}); }, 10 * 60e3);
+}
+
+/**
+ * 📅 ق٢٣ (معتمد): عرضٌ مربوطٌ بأيّام ⟵ كلّ فعاليّةٍ في تلك الأيّام (بتوقيت عمّان) بين بداية العرض
+ * ونهايته تُضاف إلى قائمته، إلّا المستثناة واختبار والملغاة. لا يُزيل شيئاً: القائمة تبقى المصدر
+ * الذي يقرؤه المحرّك، فلا يتغيّر التقييم ولا الحصص.
+ */
+export async function syncOfferWeekdays(offerId?: number): Promise<number> {
+  const db = getDB(); if (!db) return 0;
+  const offers = rowsOf(await db.execute(sql`SELECT id, activity_ids, weekdays, exclude_ids, book_from, book_until FROM booking_offers
+     WHERE deleted_at IS NULL AND jsonb_array_length(COALESCE(weekdays, '[]'::jsonb)) > 0 ${offerId ? sql`AND id = ${offerId}` : sql``}`));
+  let added = 0;
+  for (const o of offers) {
+    const days = dayList(o.weekdays);
+    if (!days.length) continue;
+    const have = new Set(actIdsOf(o));
+    const ex = new Set((Array.isArray(o.exclude_ids) ? o.exclude_ids : []).map(Number));
+    const acts = rowsOf(await db.execute(sql`SELECT a.id FROM activities a LEFT JOIN locations l ON l.id = a.location_id
+       WHERE a.deleted_at IS NULL AND a.status IN ('planned', 'active') AND COALESCE(l.is_test_location, false) = false
+         AND a.date >= ${new Date(o.book_from)} AND a.date <= ${new Date(o.book_until)}
+         AND EXTRACT(DOW FROM a.date + INTERVAL '3 hours')::int = ANY(${`{${days.join(',')}}`}::int[])`));
+    const add = acts.map((a: any) => Number(a.id)).filter((id: number) => !have.has(id) && !ex.has(id));
+    if (!add.length) continue;
+    await db.execute(sql`UPDATE booking_offers SET activity_ids = ${JSON.stringify([...have, ...add])}::jsonb, updated_at = NOW() WHERE id = ${o.id}`);
+    added += add.length;
+    console.log(`📅 offer #${o.id}: +${add.length} activity(ies) by weekday`);
+  }
+  return added;
 }
 
 // ══════════════════════════════════════════════════════
@@ -1066,7 +1097,10 @@ export interface OfferInput {
   name: string; groupSize: number; payFor: number; repeat: boolean; bookFrom: string | Date; bookUntil: string | Date;
   leadHours: number; activityIds: number[]; maxGroups: number; perCustomer: number; priorityHours: number;
   announce: boolean; announceText?: string; notifyExisting: boolean; status?: string;
+  /** ق٢٣: كلّ فعاليّات هذه الأيّام (٠ الأحد … ٦ السبت) بين بداية العرض ونهايته تُضاف تلقائيّاً */
+  weekdays?: number[]; excludeIds?: number[];
 }
+const dayList = (v: any) => [...new Set((Array.isArray(v) ? v : []).map(Number).filter((d: number) => Number.isInteger(d) && d >= 0 && d <= 6))].sort();
 export async function validateOffer(i: OfferInput): Promise<string | null> {
   const name = String(i.name || '').trim();
   if (name.length < 2 || name.length > 120) return 'الاسم مطلوب (٢–١٢٠ حرفاً)';
@@ -1076,7 +1110,7 @@ export async function validateOffer(i: OfferInput): Promise<string | null> {
   const f = new Date(i.bookFrom).getTime(), u = new Date(i.bookUntil).getTime();
   if (!isFinite(f) || !isFinite(u) || u <= f) return 'آخر موعدٍ للحجز يجب أن يكون بعد بدايته';
   const ids = (i.activityIds || []).map(Number).filter(Number.isFinite);
-  if (!ids.length) return 'اختر فعاليّةً واحدة على الأقلّ';
+  if (!ids.length && !dayList(i.weekdays).length) return 'اختر فعاليّةً أو يوماً من الأسبوع';
   for (const id of ids) { const a = await loadActivity(id); if (!a) return `الفعاليّة ${id} غير موجودة`; if (a.status === 'cancelled') return `«${a.name}» ملغاة — لا عروض عليها`; if (a.isTest && a.status !== 'completed') return `«${a.name}» في موقع اختبار — لا عروض عليها`; }
   const lead = Number(i.leadHours), cap = Number(i.maxGroups), per = Number(i.perCustomer), prio = Number(i.priorityHours);
   if (!(lead >= 0 && lead <= 168)) return 'المهلة بين ٠ و١٦٨ ساعة';
@@ -1090,7 +1124,9 @@ export function offerValues(i: OfferInput) {
   return {
     name: String(i.name).trim(), groupSize: Number(i.groupSize), payFor: Number(i.payFor), repeat: !!i.repeat,
     bookFrom: new Date(i.bookFrom), bookUntil: new Date(i.bookUntil), leadHours: Number(i.leadHours),
-    activityIds: [...new Set((i.activityIds || []).map(Number).filter(Number.isFinite))], maxGroups: Number(i.maxGroups),
+    activityIds: [...new Set((i.activityIds || []).map(Number).filter(Number.isFinite))]
+      .filter((id) => !(i.excludeIds || []).map(Number).includes(id)), maxGroups: Number(i.maxGroups),
+    weekdays: dayList(i.weekdays), excludeIds: [...new Set((i.excludeIds || []).map(Number).filter(Number.isFinite))],
     perCustomer: Number(i.perCustomer), priorityHours: Number(i.priorityHours), announce: !!i.announce,
     announceText: String(i.announceText || '').slice(0, 900), notifyExisting: !!i.notifyExisting,
   };

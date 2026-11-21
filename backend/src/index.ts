@@ -1038,6 +1038,11 @@ async function main() {
         // 📜 م٣: سجلّ الحجز، والإلغاء حالةٌ ظاهرة
         const { migrateBookingEvents } = await import('./migrations-booking-events.js');
         await migrateBookingEvents(db);
+        // 💸 م٤-ب: قنوات العرض ونطاق الأيّام (ق٣، ق٢٣)
+        await db.execute(sql`ALTER TABLE early_price_promos ADD COLUMN IF NOT EXISTS channels JSONB DEFAULT '["bot","admin"]'::jsonb`);
+        await db.execute(sql`ALTER TABLE early_price_promos ADD COLUMN IF NOT EXISTS weekdays JSONB DEFAULT '[]'::jsonb`);
+        await db.execute(sql`ALTER TABLE booking_offers ADD COLUMN IF NOT EXISTS weekdays JSONB DEFAULT '[]'::jsonb`);
+        await db.execute(sql`ALTER TABLE booking_offers ADD COLUMN IF NOT EXISTS exclude_ids JSONB DEFAULT '[]'::jsonb`);
       } catch (e: any) { console.warn('⚠️ booking channel/link migration:', e?.message || e); }
       // ما انتهى قبل هذه الميزة يحكمه الخصمُ الرجعيّ (scripts/apply-absence-retro.ts) لا المجدول —
       // وإلّا حكم المجدولُ آخرَ أربعة أيّام منفردةً قبله وتضاعفت الإشعارات. ما زال يلعب يبقى للحكم عند نهايته.

@@ -64,6 +64,7 @@ const PRESETS = [
   { label: '٣+١', N: 4, K: 3 },
 ];
 
+const DAYS_AR = ['الأحد', 'الإثنين', 'الثلاثاء', 'الأربعاء', 'الخميس', 'الجمعة', 'السبت'];
 function blankForm() {
   const now = Date.now();
   return {
@@ -71,6 +72,7 @@ function blankForm() {
     bookFrom: toInput(now), bookUntil: toInput(now + 3 * 24 * H), leadHours: 3,
     activityIds: [] as number[], maxGroups: 0, perCustomer: 1, priorityHours: 24,
     announce: true, announceText: '', notifyExisting: true,
+    weekdays: [] as number[], excludeIds: [] as number[],
   };
 }
 
@@ -180,6 +182,7 @@ export default function BookingOffersTab({ apiFetch }: { apiFetch: Fetcher }) {
       bookFrom: toInput(o.bookFrom), bookUntil: toInput(o.bookUntil), leadHours: o.leadHours,
       activityIds: (o.activityIds || []).map(Number), maxGroups: o.maxGroups, perCustomer: o.perCustomer,
       priorityHours: o.priorityHours, announce: !!o.announce, announceText: o.announceText || '', notifyExisting: !!o.notifyExisting,
+      weekdays: Array.isArray(o.weekdays) ? o.weekdays.map(Number) : [], excludeIds: Array.isArray(o.excludeIds) ? o.excludeIds.map(Number) : [],
     });
   }
 
@@ -274,6 +277,20 @@ export default function BookingOffersTab({ apiFetch }: { apiFetch: Fetcher }) {
               </Field>
             </div>
 
+            {/* ── 📅 ق٢٣: أيّام الأسبوع — كلّ فعاليّات هذه الأيّام بين بداية العرض ونهايته تنضمّ تلقائيّاً ── */}
+            <Field label="أيّام العرض (اختياريّ)" hint="مثال: «اللمة» يوم الأحد وحده — كلّ فعاليّة أحدٍ بين بداية العرض ونهايته تنضمّ تلقائيّاً، حتّى التي تُنشأ لاحقاً. إزالة فعاليّة منها تستثنيها.">
+              <div className="wa-chips" style={{ flexWrap: 'wrap' }}>
+                {DAYS_AR.map((d, i) => {
+                  const on = form.weekdays.includes(i);
+                  return (
+                    <Chip key={i} on={on} onClick={() => patch('weekdays', on ? form.weekdays.filter(x => x !== i) : [...form.weekdays, i])}>
+                      {on && <Check className="s" />}{d}
+                    </Chip>
+                  );
+                })}
+              </div>
+            </Field>
+
             {/* ── الفعاليّات ── */}
             <Field label={<>الفعاليّات <span className="muted" style={{ fontWeight: 500 }}>(مواقع الاختبار مستبعدة تلقائيّاً)</span></>}>
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2 max-h-56 overflow-y-auto">
@@ -281,7 +298,13 @@ export default function BookingOffersTab({ apiFetch }: { apiFetch: Fetcher }) {
                   const on = form.activityIds.includes(a.id);
                   return (
                     <button key={a.id} type="button" aria-pressed={on} className="wa-pill" style={{ minHeight: 'var(--hit)', paddingBlock: 6 }}
-                      onClick={() => patch('activityIds', on ? form.activityIds.filter(x => x !== a.id) : [...form.activityIds, a.id])}>
+                      onClick={() => setForm(f => {
+                        if (!f) return f;
+                        // ق٢٣: إزالة فعاليّة من عرضٍ مربوطٍ بأيّام تستثنيها (وإلّا أعادتها المزامنة)، وإعادتها تلغي الاستثناء
+                        const ids = on ? f.activityIds.filter(x => x !== a.id) : [...f.activityIds, a.id];
+                        const ex = on ? (f.weekdays.length ? Array.from(new Set([...f.excludeIds, a.id])) : f.excludeIds) : f.excludeIds.filter(x => x !== a.id);
+                        return { ...f, activityIds: ids, excludeIds: ex };
+                      })}>
                       {on && <Check className="s" />}
                       <span className="grow">
                         <span className="trunc" style={{ display: 'block' }}>{a.name}</span>
