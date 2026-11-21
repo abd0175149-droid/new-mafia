@@ -87,7 +87,10 @@ export default function QuickAddSheet({
         playerId,
       });
       onClose();
-    } catch (e: any) { setErr('فشل التسجيل: ' + (e?.message || '')); }
+    } catch (e: any) {
+      // 409 = للشخص حجزٌ في الفعاليّة من قناةٍ أخرى (التطبيق، مجموعة صاحبه، دخول الغرفة) — رسالة الخادم تقول من أين
+      setErr(e?.status === 409 ? String(e?.message || 'له حجزٌ في هذه الفعاليّة.') : 'فشل التسجيل: ' + (e?.message || ''));
+    }
     finally { setBusy(false); }
   };
 

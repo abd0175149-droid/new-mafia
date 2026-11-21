@@ -151,7 +151,7 @@ router.post('/', authenticate, async (req: Request, res: Response) => {
   import('../services/fcm.service.js').then(({ sendPushToStaffByPermission }) => {
     sendPushToStaffByPermission('bookings', '🎟️ حجز جديد', `حجز جديد باسم ${name}`, 'new_booking', {
       targetId: `booking-${booking.id}`,
-      url: '/admin/bookings',
+      url: booking.activityId ? `/admin/reservations?activityId=${booking.activityId}` : '/admin/reservations',
     });
   }).catch(() => {});
 });
@@ -246,8 +246,8 @@ router.delete('/:id', authenticate, async (req: Request, res: Response) => {
   if (existing.length === 0) return res.status(404).json({ error: 'الحجز غير موجود' });
 
   await db.update(bookings).set({ deletedAt: new Date() } as any).where(eq(bookings.id, id));
-  // 👥 عضوٌ في مجموعة عرض ⟵ يخرج منها وتصغر ويُبلَّغ صاحبها
-  import('../services/booking-offers.service.js').then(m => m.onBookingDeleted(id)).catch(() => {});
+  // 🧹 العضو يخرج من مجموعته، والزيارة المجّانيّة تعود لبطاقته (كانت تبقى مستهلكة هنا)
+  import('../services/booking-lifecycle.service.js').then(m => m.afterBookingRemoved(id)).catch(() => {});
 
   // 🔗 مرآة المتابعة — بدونها يبقى الطرفان يقولان قولين مختلفين:
   //    صفُّ المتابعة يظلّ «مثبَّتاً» و`app_confirmed=true`، ومعناه «لصاحبه صفُّ حجز»

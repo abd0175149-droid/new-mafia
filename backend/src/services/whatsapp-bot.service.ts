@@ -1241,6 +1241,31 @@ export async function notBookable(db: any, activityId: number): Promise<any | nu
   return null;
 }
 
+/**
+ * 💸 صفوف الحجز غير المدفوعة بسعر دخولها الحقيقيّ: السعر المقفول (المبكّر) وإلّا سعر الفعاليّة.
+ * أدوات المال في الدون (التقرير، وتثبيت التحصيل، وزرّ المُحصِّل) كانت تضرب بسعر الفعاليّة،
+ * فحجزٌ بسعر ٢ يُسجَّل مدفوعاً ٣ ويتضخّم المتوقَّع — وصفحة الفعاليّة والفاتورة تقرآن الصحيح.
+ * الآن المصدر واحد: entryPriceSql (خطّة التوحيد، م١).
+ */
+export async function unpaidWithEntryPrice(db: any, activityId: number): Promise<Array<{ id: number; count: number; price: number }>> {
+  const { entryPriceSql } = await import('./early-price.service.js');
+  const r: any = await db.execute(sql.raw(`
+    SELECT b.id, COALESCE(b.count, 1) AS count, ${entryPriceSql('b', 'a')} AS price
+      FROM bookings b JOIN activities a ON a.id = b.activity_id
+     WHERE b.activity_id = ${Math.trunc(Number(activityId)) || 0} AND b.deleted_at IS NULL
+       AND NOT COALESCE(b.is_free, false) AND NOT COALESCE(b.is_paid, false)
+     ORDER BY b.id`));
+  const rows: any[] = r?.rows ?? (Array.isArray(r) ? r : []);
+  return rows.map((x) => ({ id: Number(x.id), count: Math.max(1, Number(x.count) || 1), price: Number(x.price) || 0 }));
+}
+const sumDue = (rows: Array<{ count: number; price: number }>) => Math.round(rows.reduce((t, b) => t + b.count * b.price, 0) * 100) / 100;
+/** «٥ × ٣ د.أ» حين يتساوى السعر، وإلّا تفصيلٌ بالأسعار: «٣ × ٢ + ٢ × ٣» */
+function dueBreakdown(rows: Array<{ count: number; price: number }>): string {
+  const by = new Map<number, number>();
+  for (const b of rows) by.set(b.price, (by.get(b.price) || 0) + b.count);
+  return [...by.entries()].sort((x, y) => x[0] - y[0]).map(([p, n]) => `${n} × ${p}`).join(' + ');
+}
+
 async function existingBookingFor(db: any, conv: any, activityId: number): Promise<{ source: string; people: number; status: string } | null> {
   const [resRow] = await db
     .select({ people: reservations.peopleCount, status: reservations.status, createdBy: reservations.createdBy })
@@ -1854,7 +1879,7 @@ async function execTool(name: string, args: any, ctx: ToolCtx): Promise<any> {
           '⏳ قائمة انتظار — يحتاج تأكيد الإدارة',
           `${conv.displayName || conv.phone} — ${people} أشخاص — ${act.name} (المتبقي ${av.remaining})`,
           'reservation',
-          { route: '/admin/reservations' },
+          { route: `/admin/reservations?activityId=${activityId}` },
         ).catch(() => {});
         void alertAdminsWA(`waitlist:${saved.id}`, `قائمة انتظار: ${conv.displayName || conv.phone} — ${people} أشخاص في ${act.name} (المتبقّي ${av.remaining}). يحتاج تأكيدك.`, { exceptConvId: conv.id });
         notifyAdmins('⏳ حجز قائمة انتظار من البوت', `${conv.displayName || conv.phone} — ${people} أشخاص — ${act.name} (المتبقي ${av.remaining} من ${av.total})`, { conversationId: conv.id, url: `/admin/whatsapp?conv=${conv.id}`, tag: `wa-conv-${conv.id}` }).catch(() => {});
@@ -1871,9 +1896,9 @@ async function execTool(name: string, args: any, ctx: ToolCtx): Promise<any> {
         '🤖 حجز جديد من بوت واتساب',
         `${conv.displayName || conv.phone} — ${people} أشخاص — ${act.name}`,
         'reservation',
-        { route: '/admin/reservations' },
+        { route: `/admin/reservations?activityId=${activityId}` },
       ).catch(() => {});
-      notifyAdmins('🤖 حجز مؤكد من البوت', `${conv.displayName || conv.phone} — ${people} أشخاص — ${act.name}`, { conversationId: conv.id, url: '/admin/reservations', tag: `wa-conv-${conv.id}` }).catch(() => {});
+      notifyAdmins('🤖 حجز مؤكد من البوت', `${conv.displayName || conv.phone} — ${people} أشخاص — ${act.name}`, { conversationId: conv.id, url: `/admin/reservations?activityId=${activityId}`, tag: `wa-conv-${conv.id}` }).catch(() => {});
 
       // 🔔 عرض «تذكير قبل اللعبة بساعة». الموافقة ضمنيّة افتراضاً؛ زرّ «لا شكراً» للاستبعاد.
       //   • ميتا: فقط إذا كانت اللعبة خلال ≤24 ساعة — عندها نضمن أن نافذة الإرسال ستبقى مفتوحة وقت التذكير.
@@ -2667,16 +2692,19 @@ async function execTool(name: string, args: any, ctx: ToolCtx): Promise<any> {
       //    بلا هذا الرقم كان التقرير يقول «الإيراد صفر» لليلةٍ امتلأ صندوقُها
       //    ولم يُسجَّل تحصيلُها — وهو ما وقع فعلاً في آب ٢٠٢٦ سبعةَ عشر يوماً.
       const unit = Number(act.basePrice || 0);
-      const expected = cancelledAct ? 0 : Math.round(unpaidB.reduce((s, b) => s + ppl(b) * unit, 0) * 100) / 100;
+      // 💸 بسعر دخول كلّ صفّ (المقفول وإلّا سعر الفعاليّة) — لا بسعر الفعاليّة وحده
+      const dueRows = cancelledAct ? [] : await unpaidWithEntryPrice(db, act.id);
+      const expected = sumDue(dueRows);
+      const lockedN = dueRows.filter((b) => b.price !== unit).length;
       const out: any = {
         activity: act.name, activityId: act.id, dateText: fmtJo(act.date), ...(cancelledAct ? { status: 'ملغاة' } : {}),
         players: bks.length, people: bks.reduce((s, b) => s + ppl(b), 0),
         free: freeB.length, freePeople: freeB.reduce((s, b) => s + ppl(b), 0),
         paid: paidB.length, unpaid: unpaidB.length,
-        revenueJOD: revenue, unitPriceJOD: unit,
+        revenueJOD: revenue, unitPriceJOD: unit, ...(lockedN ? { lockedPriceRows: lockedN } : {}),
         expectedFromUnpaidJOD: expected, totalIfAllPaidJOD: Math.round((revenue + expected) * 100) / 100,
         note: `تقرير «${act.name}»: ${bks.length} حجز (${bks.reduce((s, b) => s + ppl(b), 0)} شخص) — مجانيّون ${freeB.length}، مدفوع ${paidB.length}، غير مدفوع ${unpaidB.length}. `
-          + `المسجَّل ${revenue} د.أ${expected > 0 ? `، والمتوقَّع من غير المدفوعين ${expected} د.أ (${unpaidB.length} × ${unit}) فيصير المجموع ${Math.round((revenue + expected) * 100) / 100} د.أ` : ''}. `
+          + `المسجَّل ${revenue} د.أ${expected > 0 ? `، والمتوقَّع من غير المدفوعين ${expected} د.أ (${dueBreakdown(dueRows)}${lockedN ? ` — ${lockedN} منهم بسعرٍ مقفول` : ''}) فيصير المجموع ${Math.round((revenue + expected) * 100) / 100} د.أ` : ''}. `
           + (expected > 0 ? 'اذكر المتوقَّع صراحةً واعرض أن تثبّت التحصيل عبر admin_mark_activity_paid. ' : '')
           + (cancelledAct ? '⚠️ الفعاليّة مُلغاة: قل ذلك أوّلاً، وغير المدفوعين فيها ليسوا ذمماً — لا تعرض تحصيلاً. ' : '')
           + 'اعرضها منظّمة بنقاط قصيرة.',
@@ -2848,13 +2876,12 @@ async function execTool(name: string, args: any, ctx: ToolCtx): Promise<any> {
       const [act] = await db.select({ name: activities.name, basePrice: activities.basePrice })
         .from(activities).where(eq(activities.id, actId)).limit(1);
       if (!act) return { error: 'الفعاليّة غير موجودة' };
-      const bks = await db.select({ id: bookings.id, count: bookings.count, isFree: bookings.isFree, isPaid: bookings.isPaid })
-        .from(bookings).where(and(eq(bookings.activityId, actId), isNull(bookings.deletedAt)));
-      const unpaidRows = bks.filter((b) => !b.isFree && !b.isPaid);
+      // 💸 بسعر دخول كلّ صفّ (المقفول وإلّا سعر الفعاليّة)
+      const unpaidRows = await unpaidWithEntryPrice(db, actId);
       const unpaid = unpaidRows.length;
       if (unpaid === 0) return { note: `ما في حجوزات غير مدفوعة في «${act.name}» — الكل مدفوع أو مجانيّ.` };
       const unit = Number(act.basePrice || 0);
-      const expected = Math.round(unpaidRows.reduce((t, b) => t + Number(b.count || 1) * unit, 0) * 100) / 100;
+      const expected = sumDue(unpaidRows);
 
       // 🔴 «مَن حصّل؟» سؤالٌ لا افتراض: كان المُستلِم يُكتب اسمَ صاحب المحادثة
       //    دائماً، والأدمن قد يسجّل تحصيلاً قبضه غيرُه. والقائمة تضمن اسماً
@@ -2865,7 +2892,7 @@ async function execTool(name: string, args: any, ctx: ToolCtx): Promise<any> {
           await sendMessage({ conversationId: conv.id, source: 'bot', interactive: {
             type: 'list',
             body: { text: `«${act.name}»
-${unpaid} حجزاً غير مدفوع × ${unit} د.أ = ${expected} د.أ
+${unpaid} حجزاً غير مدفوع: ${dueBreakdown(unpaidRows)} = ${expected} د.أ
 
 مين حصّل المبلغ؟` },
             action: {
@@ -3535,22 +3562,19 @@ async function processConversation(convId: number) {
         }
         // 🔴 يُعاد الحساب الآن لا يُؤخذ من الرسالة: بين العرض والضغط قد يُسجَّل
         //    دفعٌ من اللوحة، فالرقمُ المعروض في التأكيد هو رقمُ اللحظة.
-        const rows = await db.select({ count: bookings.count }).from(bookings)
-          .where(and(eq(bookings.activityId, actId), isNull(bookings.deletedAt),
-            eq(bookings.isFree, false), eq(bookings.isPaid, false)));
+        const rows = await unpaidWithEntryPrice(db, actId);   // 💸 بسعر دخول كلّ صفّ
         if (!rows.length) {
           await sendMessage({ conversationId: convId, text: `ما ضلّ حجزٌ غير مدفوع في «${a2.name}» — غالباً سُجّل من اللوحة.`, source: 'system' });
           return;
         }
-        const unit2 = Number(a2.basePrice || 0);
-        const total2 = Math.round(rows.reduce((t, b) => t + Number(b.count || 1) * unit2, 0) * 100) / 100;
+        const total2 = sumDue(rows);
         const nm = String(who.displayName || who.username || '').trim();
         await sendMessage({ conversationId: convId, source: 'bot', interactive: {
           type: 'button',
           body: { text: `تثبيت التحصيل؟
 
 «${a2.name}»
-${rows.length} حجزاً × ${unit2} د.أ = *${total2} د.أ*
+${rows.length} حجزاً: ${dueBreakdown(rows)} = *${total2} د.أ*
 المُحصِّل: ${nm}` },
           action: { buttons: [
             { type: 'reply', reply: { id: `adminpaid:${actId}:${staffId}`, title: `ثبّت ${total2} د.أ ✅`.slice(0, 20) } },
@@ -3587,18 +3611,18 @@ ${rows.length} حجزاً × ${unit2} د.أ = *${total2} د.أ*
           const [act] = await db.select({ name: activities.name, basePrice: activities.basePrice })
             .from(activities).where(eq(activities.id, actId)).limit(1);
           const unit = Number(act?.basePrice || 0);
-          const bks = await db.select({ id: bookings.id, count: bookings.count })
-            .from(bookings).where(and(eq(bookings.activityId, actId), isNull(bookings.deletedAt), eq(bookings.isFree, false), eq(bookings.isPaid, false)));
+          // 💸 كلّ صفٍّ يُسجَّل بسعر دخوله — المقفول وإلّا سعر الفعاليّة (كان يُسجَّل بسعر الفعاليّة دائماً)
+          const bks = await unpaidWithEntryPrice(db, actId);
           for (const b of bks) {
             await db.update(bookings)
-              .set({ isPaid: true, paidAmount: String(Math.round(unit * Number(b.count || 1) * 100) / 100), receivedBy: rcv } as any)
-              .where(eq(bookings.id, b.id));
+              .set({ isPaid: true, paidAmount: String(Math.round(b.price * b.count * 100) / 100), receivedBy: rcv } as any)
+              .where(and(eq(bookings.id, b.id), eq(bookings.isPaid, false)));
           }
           // مُستلِمُ الفعاليّة يطغى على مُستلِم الحجز في تقرير التسوية — يُكتب
           // على الفارغ وحده كي لا يُمحى ضبطٌ سابق من صفحة المالية.
           await db.update(activities).set({ receivedBy: rcv } as any)
             .where(and(eq(activities.id, actId), sql`COALESCE(${activities.receivedBy}, '') = ''`));
-          const totalPaid = Math.round(bks.reduce((t, b) => t + unit * Number(b.count || 1), 0) * 100) / 100;
+          const totalPaid = sumDue(bks);
           await sendMessage({ conversationId: convId, text: `تمّ ✅ «${act?.name || 'الفعاليّة'}»
 سُجّل الدفع لـ${bks.length} حجزاً — *${totalPaid} د.أ*
 المُحصِّل: ${rcv}`, source: 'system' });
@@ -4079,7 +4103,28 @@ async function performCancellation(convId: number, reservationId: number) {
     }).catch(() => {});
     void alertAdminsWA(`latecancel:${r.id}`, `طلب إلغاء متأخّر (<3 ساعات): ${who} — ${r.activityName} (${when}). بحاجة قرارك.`, { exceptConvId: convId });
     notifyAdmins('⚠️ طلب إلغاء متأخر (<3 ساعات)', `${who} — ${r.activityName} (${when})`, { conversationId: convId, url: `/admin/whatsapp?conv=${convId}`, tag: `wa-conv-${convId}` }).catch(() => {});
-    sendPushToStaffByPermission('bookings', '⚠️ طلب إلغاء متأخر من واتساب', `${who} — ${r.activityName}`, 'reservation', { route: '/admin/reservations' }).catch(() => {});
+    sendPushToStaffByPermission('bookings', '⚠️ طلب إلغاء متأخر من واتساب', `${who} — ${r.activityName}`, 'reservation', { route: `/admin/reservations?activityId=${r.activityId}` }).catch(() => {});
+    return;
+  }
+
+  // 💰 حجزٌ مدفوع لا يُلغيه الدون — مالٌ يحتاج يداً بشريّة، كما يفعل التطبيق (خطّة التوحيد، م١).
+  //    كان الدون يحذف صفّ الحجز ولو دُفع، فيضيع أثر المال. (المجّانيّ ليس مدفوعاً.)
+  const linked = (r.appConfirmed || r.createdBy === 'player-app')
+    ? await db.select({ id: bookings.id, isPaid: bookings.isPaid, isFree: bookings.isFree }).from(bookings).where(and(
+        eq(bookings.activityId, r.activityId),
+        isNull(bookings.deletedAt),
+        or(eq(bookings.phone, conv.phone), conv.playerId ? eq(bookings.playerId, conv.playerId) : sql`false`),
+      ))
+    : [];
+  if (linked.some((b: any) => b.isPaid === true && b.isFree !== true)) {
+    await db.update(waConversations).set({ needsAttention: true, updatedAt: new Date() } as any).where(eq(waConversations.id, convId));
+    await sendMessage({
+      conversationId: convId,
+      text: `حجزك مدفوع، فإلغاؤه عن طريق الإدارة 🙏\nحوّلت طلبك وراح يتواصلوا معك بأسرع وقت.`,
+      source: 'system',
+    }).catch(() => {});
+    void alertAdminsWA(`paidcancel:${r.id}`, `طلب إلغاء حجزٍ مدفوع: ${who} — ${r.activityName} (${when}). بحاجة قرارك.`, { exceptConvId: convId });
+    notifyAdmins('💰 طلب إلغاء حجز مدفوع', `${who} — ${r.activityName} (${when})`, { conversationId: convId, url: `/admin/whatsapp?conv=${convId}`, tag: `wa-conv-${convId}` }).catch(() => {});
     return;
   }
 
@@ -4090,20 +4135,19 @@ async function performCancellation(convId: number, reservationId: number) {
   void onReservationCancelled(r.id, { byCustomer: true });   // 💸 إلغاءٌ في آخر ٦ ساعات = غياب؛ وغيابٌ استهلكه يعود قائماً
   // إلغاء فعلي من كل القنوات: إن كان الحجز مربوطاً بحجز تطبيق (مرآة أو مترقٍّ)
   // يُلغى حجز التطبيق أيضاً — وإلا بقي العميل محسوباً بالمقاعد وحاجزاً بالتطبيق
-  if (r.appConfirmed || r.createdBy === 'player-app') {
-    await db.update(bookings).set({ deletedAt: new Date() } as any).where(and(
-      eq(bookings.activityId, r.activityId),
-      isNull(bookings.deletedAt),
-      or(eq(bookings.phone, conv.phone), conv.playerId ? eq(bookings.playerId, conv.playerId) : sql`false`),
-    ));
+  if (linked.length) {
+    await db.update(bookings).set({ deletedAt: new Date() } as any).where(inArray(bookings.id, linked.map((b: any) => b.id)));
+    // 🧹 الزيارة المجّانيّة تعود والعضو يخرج من مجموعته — كان إلغاء الدون ينساهما
+    const { afterBookingRemoved } = await import('./booking-lifecycle.service.js');
+    for (const b of linked) await afterBookingRemoved(b.id);
   }
   await sendMessage({
     conversationId: convId,
     text: `تم إلغاء حجزك ✅\n${r.activityName} — ${when}\nنتمنى نشوفك بفعالية جاية قريباً 🎭`,
     source: 'system',
   });
-  notifyAdmins('❌ إلغاء حجز عبر البوت', `${who} — ${r.activityName} (${when}) — ${r.peopleCount} أشخاص`, { conversationId: convId, url: '/admin/reservations', tag: `wa-conv-${convId}` }).catch(() => {});
-  sendPushToStaffByPermission('bookings', '❌ إلغاء حجز من بوت واتساب', `${who} — ${r.activityName} — ${r.peopleCount} أشخاص`, 'reservation', { route: '/admin/reservations' }).catch(() => {});
+  notifyAdmins('❌ إلغاء حجز عبر البوت', `${who} — ${r.activityName} (${when}) — ${r.peopleCount} أشخاص`, { conversationId: convId, url: `/admin/reservations?activityId=${r.activityId}`, tag: `wa-conv-${convId}` }).catch(() => {});
+  sendPushToStaffByPermission('bookings', '❌ إلغاء حجز من بوت واتساب', `${who} — ${r.activityName} — ${r.peopleCount} أشخاص`, 'reservation', { route: `/admin/reservations?activityId=${r.activityId}` }).catch(() => {});
   console.log(`❌ WA bot: reservation #${r.id} cancelled (conv ${convId})`);
   // 🪑 مقعدٌ تحرّر ⟵ أوّل المنتظرين (ممّن نافذته مفتوحة) يُعرض عليه بزرّ
   void offerFreedSeat(Number(r.activityId), extHelpers());

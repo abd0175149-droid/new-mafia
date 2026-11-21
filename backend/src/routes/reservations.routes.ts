@@ -222,6 +222,15 @@ router.post('/', authenticate, async (req: Request, res: Response) => {
   let linkedPlayerId: number | null = playerId ? Number(playerId) : null;
   if (!linkedPlayerId && phone) linkedPlayerId = await findPlayerByPhone(db, phone);
 
+  // 🚫 منع التكرار من أيّ قناة (خطّة التوحيد، م١): الواجهة تفحص صفوف المتابعة المحمَّلة
+  //    وحدها، فلا ترى صديقاً حجزه صاحبُه في مجموعة عرض، ولا من سجّله دخولُ الغرفة.
+  //    الخادم يفحص الجدولين معاً — صفوف المتابعة وصفوف الحجز — بالحساب أو بالرقم.
+  {
+    const { existingBookingAnywhere } = await import('../services/reservation-booking.service.js');
+    const d = await existingBookingAnywhere(db, Number(activityId) || 0, linkedPlayerId, String(phone || ''));
+    if (d) return res.status(409).json({ error: `«${d.name || contactName}» له حجزٌ في هذه الفعاليّة ${d.via} — لا يُكرَّر.`, duplicate: d });
+  }
+
   const result = await db.insert(reservations).values({
     activityId: activityId || null,
     contactName,

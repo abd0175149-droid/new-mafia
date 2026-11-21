@@ -296,8 +296,8 @@ router.delete('/book/:activityId', authenticatePlayer, async (req: Request, res:
     }
 
     await db.update(bookings).set({ deletedAt: new Date() } as any).where(eq(bookings.id, bk.id));
-    // 👥 عضوٌ في مجموعة عرض ألغى ⟵ يخرج منها وتصغر ويُبلَّغ صاحبها
-    import('../services/booking-offers.service.js').then(m => m.onBookingDeleted(bk.id)).catch(() => {});
+    // 🧹 عضوٌ في مجموعة عرض يخرج منها، وزيارةٌ مجّانيّة مطبَّقة تعود — الدالّة نفسها لكلّ مسارات الإلغاء
+    try { const { afterBookingRemoved } = await import('../services/booking-lifecycle.service.js'); await afterBookingRemoved(bk.id); } catch { /* غير حاجب */ }
     // 💸 إلغاء اللاعب بنفسه: في آخر ٦ ساعات = غياب، وغيابٌ استهلكه حجزُه يعود قائماً (قبل إرجاع المتابعة «غير مثبّت»)
     try {
       const rs = await db.select({ id: reservations.id }).from(reservations).where(and(
@@ -307,11 +307,6 @@ router.delete('/book/:activityId', authenticatePlayer, async (req: Request, res:
       const { onReservationCancelled } = await import('../services/early-price.service.js');
       for (const r of rs) await onReservationCancelled(r.id, { byCustomer: true });
     } catch (e: any) { console.warn('⚠️ early-price app cancel:', e?.message); }
-    // 🎟️ زيارة مجّانيّة كانت مطبَّقة على هذا الحجز → تعود متاحة
-    if ((bk as any).loyaltyRewardId) {
-      try { const { releaseFreeVisit } = await import('../services/loyalty.service.js'); await releaseFreeVisit(bk.id); } catch { /* غير حاجب */ }
-    }
-
     // 🔗 المرآة — نفس ما يفعله حذفُ الموظّف وفكُّ التثبيت
     await db.update(reservations).set({
       appConfirmed: false, appConfirmedAt: null, status: 'pending', updatedAt: new Date(),
@@ -332,7 +327,7 @@ router.delete('/book/:activityId', authenticatePlayer, async (req: Request, res:
       sendPushToStaffByPermission(
         'bookings', '❌ إلغاء حجز (تطبيق)',
         `${player.name} ألغى حجزه في ${act.name}`,
-        'booking_cancelled', { activityId: String(activityId), url: '/admin/reservations' },
+        'booking_cancelled', { activityId: String(activityId), url: `/admin/reservations?activityId=${activityId}` },
       );
     } catch { /* الإشعار خدمةٌ لا شرط */ }
 
@@ -368,6 +363,14 @@ router.post('/book', authenticatePlayer, requireConsent, async (req: Request, re
 
     if (actRows.length === 0) return res.status(404).json({ error: 'النشاط غير موجود' });
     const activity = actRows[0];
+
+    // 🚫 الفحص نفسه الذي يستعمله الدون: ملغاةٌ أو منتهيةٌ لا تُحجز (الغرفة الحيّة تُحجز دائماً).
+    //    الواجهة كانت تُخفيها وحدها، والخادم يقبل حجزها لو وصله الطلب (خطّة التوحيد، م١).
+    {
+      const { notBookable } = await import('../services/whatsapp-bot.service.js');
+      const nb = await notBookable(db, Number(activityId));
+      if (nb) return res.status(409).json({ error: nb.cancelled ? 'أُلغيت هذه الفعاليّة — لا حجز فيها' : nb.ended ? 'انتهت هذه الفعاليّة — لا حجز فيها' : 'الفعاليّة غير متاحة للحجز' });
+    }
 
     // 🎟️ الحجز مفتوح بلا سقف (قرار تشغيلي): اللاعبون يتناوبون بين الألعاب،
     // فالعبرة بالحضور الفعلي لا بعدد الحجوزات. سعة المقاعد تخص الغرفة فقط
@@ -505,7 +508,7 @@ router.post('/book', authenticatePlayer, requireConsent, async (req: Request, re
     import('../services/fcm.service.js').then(({ sendPushToStaffByPermission, sendPushToPlayer }) => {
       sendPushToStaffByPermission('bookings', '🎟️ حجز جديد (تطبيق)', `${player.name} حجز في ${activity.name}`, 'new_booking', {
         targetId: `booking-${result[0].id}`,
-        url: '/admin/bookings',
+        url: `/admin/reservations?activityId=${activity.id}`,
       });
       if (player.playerId) {
         sendPushToPlayer(player.playerId, '✅ تم الحجز', `تم تأكيد حجزك في ${activity.name}`, 'booking_confirmed', {

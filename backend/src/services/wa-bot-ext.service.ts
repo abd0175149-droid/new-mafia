@@ -1084,7 +1084,7 @@ export async function handleExtButton(conv: any, btnId: string, h: ExtHelpers): 
       }
     } catch { /* بلا سعر مبكّر */ }
     await say(`تمّ ✅ حجزك في «${r.name}» صار لـ${n} أشخاص — ${h.fmtJo(r.date)}.${priceLine}`, 'bot');
-    h.notifyAdmins('✏️ تعديل عدد عبر البوت', `${who} — ${r.name}: ${r.people} → ${n}`, { conversationId: conv.id, url: '/admin/reservations' }).catch(() => {});
+    h.notifyAdmins('✏️ تعديل عدد عبر البوت', `${who} — ${r.name}: ${r.people} → ${n}`, { conversationId: conv.id, url: `/admin/reservations?activityId=${r.actId}` }).catch(() => {});
     return true;
   }
 
@@ -1139,7 +1139,7 @@ export async function handleExtButton(conv: any, btnId: string, h: ExtHelpers): 
     const { scheduleReservationConfirm } = await import('./reservation-confirm.service.js');
     const tplFollows = (await scheduleReservationConfirm(r.id, 'wl_take')).scheduled;
     await say(`تمّ ✅ حجزك مؤكَّد في «${a?.name || ''}» — ${a ? h.fmtJo(a.date) : ''} لـ${r.peopleCount} أشخاص. الدفع بالمكان 🎭${tplFollows ? '\nالتفاصيل كاملة بالرسالة الجاية 👇' : ''}`, 'bot');
-    h.notifyAdmins('✅ تثبيت من قائمة الانتظار عبر البوت', `${conv.displayName || conv.phone} — ${a?.name || ''}`, { conversationId: conv.id, url: '/admin/reservations' }).catch(() => {});
+    h.notifyAdmins('✅ تثبيت من قائمة الانتظار عبر البوت', `${conv.displayName || conv.phone} — ${a?.name || ''}`, { conversationId: conv.id, url: `/admin/reservations?activityId=${r.activityId}` }).catch(() => {});
     return true;
   }
 

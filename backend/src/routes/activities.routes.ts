@@ -533,7 +533,19 @@ router.post('/:id/auto-book', authenticate, async (req: Request, res: Response) 
       };
     });
 
-    const inserted = await db.insert(bookings).values(newBookings).returning({ id: bookings.id, phone: bookings.phone, playerId: bookings.playerId });
+    const inserted = await db.insert(bookings).values(newBookings).returning({ id: bookings.id, phone: bookings.phone, playerId: bookings.playerId, name: bookings.name, count: bookings.count });
+    // 📋 من دخل الغرفة بلا حجز يظهر في «متابعة الحجوزات» حاضراً — كان صفّ الحجز يُنشأ وحده
+    //    فيغيب عن المتابعة (٥ صفوف في ٦٠ يوماً). الدالّة نفسها التي تكمّل حجز الموظّف:
+    //    صفّ متابعةٍ قائم للشخص يُثبَّت ويُربط، وإلّا يُنشأ مثبَّتاً (خطّة التوحيد، م١).
+    try {
+      const { ensureReservationForBooking } = await import('../services/reservation-booking.service.js');
+      const { reservations } = await import('../schemas/admin.schema.js');
+      for (const b of inserted) {
+        const r = await ensureReservationForBooking(db as any, { id: b.id, activityId, name: b.name, phone: b.phone, count: b.count, playerId: b.playerId ?? null },
+          { createdBy: 'النظام (Auto-Sync)', contactMethod: 'الباب', notes: 'دخل الغرفة بدون حجز' });
+        await db.update(reservations).set({ attended: true } as any).where(eq(reservations.id, r.reservationId));
+      }
+    } catch (e: any) { console.warn('⚠️ auto-book → follow-up rows:', e?.message); }
     // 👥 من سجّله صاحبُه في مجموعة عرض ودخل الغرفة ⟵ يُربط بها (الحضور الفعليّ هو أساس العرض)
     import('../services/booking-offers.service.js').then(async ({ linkOnAppBooking }) => {
       for (const b of inserted) if (b.phone) await linkOnAppBooking({ playerId: b.playerId ?? null, phone: b.phone, activityId, bookingId: b.id }).catch(() => {});

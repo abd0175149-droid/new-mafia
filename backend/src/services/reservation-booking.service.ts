@@ -136,7 +136,37 @@ export async function removeBookingForReservation(db: Database, r: ResRow): Prom
   if (!automated) return false;
 
   await db.update(bookings).set({ deletedAt: new Date() } as any).where(eq(bookings.id, existing.id));
+  // 🧹 الزيارة المجّانيّة تعود، والعضو يخرج من مجموعته — فكّ التثبيت والحذف كانا ينسيانهما
+  const { afterBookingRemoved } = await import('./booking-lifecycle.service.js');
+  await afterBookingRemoved(existing.id);
   return true;
+}
+
+/**
+ * 🚫 هل للشخص حجزٌ في الفعاليّة من أيّ قناة؟ يفحص الجدولين معاً — صفوف المتابعة وصفوف الحجز —
+ * بالحساب أو بالرقم المطبَّع. «متابعة الحجوزات» كانت تفحص صفوفها المحمَّلة وحدها، فلا ترى صديقاً
+ * حجزه صاحبُه في مجموعة عرض، ولا من سجّله دخولُ الغرفة (خطّة التوحيد، م١).
+ */
+export async function existingBookingAnywhere(db: Database, activityId: number, playerId: number | null, phone: string):
+  Promise<{ kind: 'res' | 'bk'; name: string; status: string; via: string } | null> {
+  const actId = Math.trunc(Number(activityId)) || 0;
+  const { normalizeLocalPhone } = await import('../utils/phone.util.js');
+  const ph = normalizeLocalPhone(String(phone || '')) || String(phone || '').trim();
+  if (!actId || (!playerId && !ph)) return null;
+  const who = sql`(${playerId ? sql`player_id = ${playerId} OR` : sql``} ${ph ? sql`phone = ${ph}` : sql`false`})`;
+  const r: any = await db.execute(sql`
+    SELECT 'res' AS kind, contact_name AS name, status, created_by AS by FROM reservations
+     WHERE activity_id = ${actId} AND deleted_at IS NULL AND ${who}
+    UNION ALL
+    SELECT 'bk' AS kind, name, CASE WHEN is_paid THEN 'paid' ELSE 'booked' END AS status, created_by AS by FROM bookings
+     WHERE activity_id = ${actId} AND deleted_at IS NULL AND ${who}
+    LIMIT 1`);
+  const d = (r?.rows ?? r ?? [])[0];
+  if (!d) return null;
+  const by = String(d.by || '');
+  const via = by === 'player-app' ? 'من التطبيق' : by.startsWith('👥') ? 'ضمن مجموعة صاحبه'
+    : by.includes('Auto-Sync') ? 'بدخوله الغرفة' : by.startsWith('🤖') ? 'من الدون' : by.startsWith('🔒') ? 'من أدمن البوت' : 'من الإدارة';
+  return { kind: d.kind, name: String(d.name || ''), status: String(d.status || ''), via };
 }
 
 /**
