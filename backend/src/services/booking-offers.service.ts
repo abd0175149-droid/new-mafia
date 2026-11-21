@@ -737,8 +737,12 @@ export const offerTestHooks: { send: null | ((m: any) => Promise<any>) } = { sen
 async function tellOwner(groupId: number, text: string): Promise<void> {
   try {
     const db = getDB(); if (!db) return;
-    const [g] = await db.select({ conversationId: bookingGroups.conversationId, ownerPhone: bookingGroups.ownerPhone }).from(bookingGroups).where(eq(bookingGroups.id, groupId)).limit(1);
+    const [g] = await db.select({ conversationId: bookingGroups.conversationId, ownerPhone: bookingGroups.ownerPhone, activityId: bookingGroups.activityId }).from(bookingGroups).where(eq(bookingGroups.id, groupId)).limit(1);
     if (!g) return;
+    // 🧪 فعاليّات الفحص (اسمها يبدأ بـ🧪) لا يخرج منها شيءٌ لعميل — فحص العروض يقبل الدعوة عبر الخادم
+    //    الحيّ، فكان «فلان أكّد» يصل رقم الفحص فعلاً على رقم الأعمال (2026-11-21)
+    const [a] = await db.select({ name: activities.name }).from(activities).where(eq(activities.id, g.activityId)).limit(1);
+    if (String(a?.name || '').startsWith('🧪')) return;
     let convId = g.conversationId;
     if (!convId) { const [c] = await db.select({ id: waConversations.id }).from(waConversations).where(eq(waConversations.phone, g.ownerPhone)).limit(1); convId = c?.id; }
     if (!convId) return;
