@@ -356,7 +356,89 @@ router.delete('/book/:activityId', authenticatePlayer, async (req: Request, res:
 });
 
 
-// ── 🎟️ POST /book — حجز نشاط (لنفسه فقط) ──
+
+// ══════════════════════════════════════════════════════
+// 👥 م٥ب: «أصحابي» و«مجموعاتي» والحجز للأصحاب (ق١٥–ق١٨، ق٢٥)
+// ══════════════════════════════════════════════════════
+const ownerOf = (req: Request) => { const p = (req as any).playerAccount; return { playerId: Number(p.playerId), phone: String(p.phone || ''), name: String(p.name || '') }; };
+
+router.get('/friends', authenticatePlayer, async (req: Request, res: Response) => {
+  try { const F = await import('../services/friends.service.js'); res.json({ success: true, ...(await F.friendsOf(ownerOf(req).playerId)) }); }
+  catch (err: any) { res.status(500).json({ error: err.message }); }
+});
+router.post('/friends', authenticatePlayer, async (req: Request, res: Response) => {
+  try {
+    const F = await import('../services/friends.service.js');
+    const r = await F.addFriend(ownerOf(req).playerId, { playerId: req.body?.playerId ?? null, name: req.body?.name, phone: req.body?.phone, source: req.body?.source || 'manual' });
+    if (!r.ok) return res.status(400).json({ error: r.error });
+    res.json({ success: true, ...(await F.friendsOf(ownerOf(req).playerId)) });
+  } catch (err: any) { res.status(500).json({ error: err.message }); }
+});
+router.delete('/friends/:id', authenticatePlayer, async (req: Request, res: Response) => {
+  try { const F = await import('../services/friends.service.js'); await F.removeFriend(ownerOf(req).playerId, parseInt(req.params.id)); res.json({ success: true, ...(await F.friendsOf(ownerOf(req).playerId)) }); }
+  catch (err: any) { res.status(500).json({ error: err.message }); }
+});
+router.post('/friends/groups', authenticatePlayer, async (req: Request, res: Response) => {
+  try {
+    const F = await import('../services/friends.service.js');
+    const r = await F.saveGroup(ownerOf(req).playerId, String(req.body?.name || ''), Array.isArray(req.body?.keys) ? req.body.keys : [], req.body?.id ? Number(req.body.id) : null);
+    if (!r.ok) return res.status(400).json({ error: r.error });
+    res.json({ success: true, ...(await F.friendsOf(ownerOf(req).playerId)) });
+  } catch (err: any) { res.status(500).json({ error: err.message }); }
+});
+router.delete('/friends/groups/:id', authenticatePlayer, async (req: Request, res: Response) => {
+  try { const F = await import('../services/friends.service.js'); await F.deleteGroup(ownerOf(req).playerId, parseInt(req.params.id)); res.json({ success: true, ...(await F.friendsOf(ownerOf(req).playerId)) }); }
+  catch (err: any) { res.status(500).json({ error: err.message }); }
+});
+// معاينة «مين جاي معك؟»: السعر والعرض ومن محجوزٌ أصلاً — قبل الضغط
+router.post('/book/preview', authenticatePlayer, async (req: Request, res: Response) => {
+  try {
+    const F = await import('../services/friends.service.js');
+    const r = await F.previewFriendsBooking(ownerOf(req), { activityId: Number(req.body?.activityId), keys: req.body?.keys || [], newFriends: req.body?.newFriends || [], companions: Number(req.body?.companions) || 0 });
+    if (!r.ok) return res.status(400).json({ error: r.error });
+    res.json({ success: true, ...r });
+  } catch (err: any) { res.status(500).json({ error: err.message }); }
+});
+// أضف أصحاباً لحجزٍ قائم (أو مرافقين برمز انضمام)
+router.post('/book/:activityId/friends', authenticatePlayer, requireConsent, async (req: Request, res: Response) => {
+  const activityId = parseInt(req.params.activityId);
+  if (!Number.isFinite(activityId)) return res.status(400).json({ error: 'معرّف غير صالح' });
+  try {
+    const db = getDB()!;
+    const o = ownerOf(req);
+    const [mine] = await db.select({ id: reservations.id }).from(reservations).where(and(eq(reservations.activityId, activityId), isNull(reservations.deletedAt),
+      or(eq(reservations.playerId, o.playerId), o.phone ? eq(reservations.phone, o.phone) : sql`false`))).limit(1);
+    if (!mine) return res.status(404).json({ error: 'احجز لنفسك أوّلاً ثمّ أضف أصحابك' });
+    const { bookingPolicyFresh } = await import('../services/booking-policy.service.js');
+    const pol = await bookingPolicyFresh();
+    const [act] = await db.select({ date: activities.date }).from(activities).where(eq(activities.id, activityId)).limit(1);
+    if (act?.date && new Date(act.date).getTime() - Date.now() < pol.changeHours * 3600e3) return res.status(409).json({ error: `بقي أقلّ من ${pol.changeHours} ساعات — التعديل عبر الإدارة` });
+    const F = await import('../services/friends.service.js');
+    const r = await F.bookForFriends(o, { activityId, keys: req.body?.keys || [], newFriends: req.body?.newFriends || [], companions: Number(req.body?.companions) || 0, payer: req.body?.payer === 'owner' ? 'owner' : 'each' });
+    if (!r.ok) return res.status(409).json({ error: r.error });
+    res.json({ success: true, ...r });
+  } catch (err: any) { res.status(500).json({ error: err.message }); }
+});
+// 🎟️ رمز انضمامٍ لمرافقين بلا اسم (ق٢٥) — ورسالةٌ جاهزة للتحويل
+router.post('/book/:activityId/join-code', authenticatePlayer, async (req: Request, res: Response) => {
+  const activityId = parseInt(req.params.activityId);
+  try {
+    const db = getDB()!;
+    const o = ownerOf(req);
+    const [mine] = await db.select({ id: reservations.id, people: reservations.peopleCount }).from(reservations).where(and(eq(reservations.activityId, activityId), isNull(reservations.deletedAt),
+      or(eq(reservations.playerId, o.playerId), o.phone ? eq(reservations.phone, o.phone) : sql`false`))).limit(1);
+    if (!mine) return res.status(404).json({ error: 'لا حجز لك في هذه الفعاليّة' });
+    const F = await import('../services/friends.service.js');
+    const seats = Math.max(1, Math.min(10, Number(req.body?.seats) || Math.max(1, Number(mine.people || 1) - 1)));
+    const code = await F.createJoinCode(Number(mine.id), seats);
+    if (!code) return res.status(500).json({ error: 'تعذّر إنشاء الرمز' });
+    const [act] = await db.select({ name: activities.name, date: activities.date }).from(activities).where(eq(activities.id, activityId)).limit(1);
+    const { fmtWhen } = await import('../services/early-price.service.js');
+    res.json({ success: true, code, message: F.joinMessage(code, o.name, String(act?.name || ''), fmtWhen(new Date(act?.date as any).getTime())) });
+  } catch (err: any) { res.status(500).json({ error: err.message }); }
+});
+
+// ── 🎟️ POST /book — حجز نشاط (لنفسه، ومعه أصحابه إن اختارهم — م٥ب) ──
 //
 // 🔴 أُلغي حجبُ الاستبيان (قرارُ المالك). كان المُسنَدُ الحاجب يقيس على
 //    الإنتاج ٢١٥ من ٢٤١ لاعباً نشطاً محجوبين في اللحظة نفسِها — تسعةً من كلّ
@@ -565,7 +647,18 @@ router.post('/book', authenticatePlayer, requireConsent, async (req: Request, re
       }
     } catch (e: any) { console.warn('⚠️ loyalty on booking:', e?.message); }
 
-    res.status(201).json({ success: true, booking: result[0], loyalty, earlyPrice: earlyApplied?.applied ? { price: earlyApplied.price, base: earlyApplied.base, name: earlyApplied.name } : null });
+    // 👥 م٥ب: «مين جاي معك؟» — أصحابٌ بأسمائهم ومرافقون، بالأمر نفسه الذي يستعمله الدون
+    let friends: any = null;
+    const fk = Array.isArray(req.body?.keys) ? req.body.keys : []; const nf = Array.isArray(req.body?.newFriends) ? req.body.newFriends : [];
+    const comp = Math.max(0, Math.trunc(Number(req.body?.companions) || 0));
+    if (fk.length || nf.length || comp) {
+      try {
+        const F = await import('../services/friends.service.js');
+        friends = await F.bookForFriends({ playerId: Number(player.playerId), phone: String(player.phone || ''), name: String(player.name || '') },
+          { activityId, keys: fk, newFriends: nf, companions: comp, payer: req.body?.payer === 'owner' ? 'owner' : 'each' });
+      } catch (e: any) { friends = { ok: false, error: e?.message }; }
+    }
+    res.status(201).json({ success: true, booking: result[0], loyalty, friends, earlyPrice: earlyApplied?.applied ? { price: earlyApplied.price, base: earlyApplied.base, name: earlyApplied.name } : null });
 
     // 🔔 Push للموظفين (حجز جديد من تطبيق اللاعب) + تأكيد للاعب
     import('../services/fcm.service.js').then(({ sendPushToStaffByPermission, sendPushToPlayer }) => {
@@ -691,6 +784,9 @@ router.get('/activities/upcoming', async (req: Request, res: Response) => {
     try { const { activityHints } = await import('../services/loyalty.service.js'); const h = await activityHints(); loyaltyCfg = h.enabled ? h.cfg : null; } catch { /* بلا تلميح */ }
     const { cutoffFor: loyaltyCutoff, isLocationEnabled: loyaltyLoc } = await import('../services/loyalty.service.js');
 
+    // 🎁 م٧: عروض المجموعة الفعّالة على كلّ فعاليّة — يراها اللاعب قبل الحجز (اللمة احلا: ٢ بسعر ١)
+    let groupBadges = new Map<number, any>();
+    try { const { offerBadgesFor } = await import('../services/booking-offers.service.js'); groupBadges = await offerBadgesFor(filtered.map((a: any) => Number(a.id))); } catch { /* بلا عروض */ }
     const enriched = await Promise.all(filtered.map(async (act) => {
 
       // 🎯 توحيد 2026-08-06: العروض مسارٌ مهجور يخدم الفعاليّات القديمة فقط.
@@ -711,6 +807,7 @@ router.get('/activities/upcoming', async (req: Request, res: Response) => {
         maxPlayers: act.maxCapacity || 20,
         loyaltyCutoffAt: loyaltyCfg && loyaltyLoc(loyaltyCfg, act.locationId) ? loyaltyCutoff(loyaltyCfg, act.date as any).toISOString() : null,
         loyaltyMinLeadHours: loyaltyCfg && loyaltyLoc(loyaltyCfg, act.locationId) ? loyaltyCfg.minLeadHours : null,
+        groupOffer: groupBadges.get(Number(act.id)) || null,
       };
     }));
 

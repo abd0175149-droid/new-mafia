@@ -551,11 +551,15 @@ export async function commitGroup(p: {
           createdBy: GROUP_BOOKING_TAG, groupId, notes: `👥 ضمن مجموعة ${ownerName}`,
         } as any).returning();
         status = 'booked'; bookingId = b.id;
-        invites.push({ playerId: m.playerId, token, name: m.name });
+        // ق١٧: «اقبل دائماً من فلان» ⟵ يُثبَّت مقعده بلا سؤال (ويصله إشعارٌ بأنّه انضاف)
+        let trusted = false;
+        try { const F = await import('./friends.service.js'); trusted = await F.trusts(m.playerId, p.conv.playerId ?? null); } catch { /* بلا ثقة */ }
+        if (trusted) status = 'joined';
+        else invites.push({ playerId: m.playerId, token, name: m.name });
       }
       await tx.insert(bookingGroupMembers).values({
         groupId, activityId: p.activityId, name: m.name, phone: m.phone, playerId: m.playerId || null,
-        bookingId, status, inviteToken: status === 'booked' ? token : null,
+        bookingId, status, inviteToken: status === 'booked' || (status === 'joined' && m.playerId && !m.existingBookingId) ? token : null,
         acceptedAt: status === 'joined' ? new Date() : null,
       } as any).onConflictDoNothing();
     }
@@ -607,7 +611,9 @@ export async function commitGroup(p: {
 }
 
 async function inviteMember(playerId: number, token: string, ownerName: string, act: ActivityInfo, h: CommitHelpers) {
-  const first = String(ownerName || '').split(/\s+/)[0] || 'صديقك';
+  if (String(act?.name || '').startsWith('🧪')) return;   // فعاليّات الفحص لا تُرسل لأحد
+  const { kunyaFirst } = await import('./friends.service.js');
+  const first = kunyaFirst(ownerName);   // «أبو لين» لا «أبو» (كان: الكلمة الأولى وحدها)
   const url = `/g/${token}`;
   try {
     const { sendPushToPlayer } = await import('./fcm.service.js');
@@ -680,15 +686,23 @@ export async function inviteInfo(token: string): Promise<any | null> {
   const act = await loadActivity(m.activityId);
   return {
     status: m.status, memberName: m.name,
-    ownerFirstName: String(g?.ownerName || '').split(/\s+/)[0] || '',
+    ownerFirstName: (await import('./friends.service.js')).kunyaFirst(String(g?.ownerName || '')),
+    ownerPlayerId: g?.ownerPlayerId ?? null,
     activity: act ? { name: act.name, when: fmtWhen(act.date), location: act.locationName } : null,
     past: act ? new Date(act.date).getTime() < Date.now() : true,
   };
 }
-export async function acceptInvite(token: string): Promise<{ ok: boolean; status: string }> {
+export async function acceptInvite(token: string, opts: { always?: boolean } = {}): Promise<{ ok: boolean; status: string }> {
   const db = getDB(); if (!db) return { ok: false, status: 'error' };
   const [m] = await db.select().from(bookingGroupMembers).where(eq(bookingGroupMembers.inviteToken, token)).limit(1);
   if (!m) return { ok: false, status: 'not_found' };
+  // ق١٧: «اقبل دائماً من فلان»
+  if (opts.always && m.playerId) {
+    try {
+      const [g] = await db.select({ ownerPlayerId: bookingGroups.ownerPlayerId }).from(bookingGroups).where(eq(bookingGroups.id, m.groupId)).limit(1);
+      if (g?.ownerPlayerId) { const F = await import('./friends.service.js'); await F.setTrust(Number(m.playerId), Number(g.ownerPlayerId), true); }
+    } catch { /* تكميليّ */ }
+  }
   if (m.status === 'joined') return { ok: true, status: 'joined' };
   if (m.status !== 'booked') return { ok: false, status: m.status };
   await acceptMember(m);
@@ -703,6 +717,8 @@ export async function declineInvite(token: string): Promise<{ ok: boolean; statu
   if (m.bookingId) await db.update(bookings).set({ deletedAt: new Date() } as any)
     .where(and(eq(bookings.id, m.bookingId), eq(bookings.createdBy, GROUP_BOOKING_TAG)));
   await db.update(bookingGroupMembers).set({ status: 'declined', updatedAt: new Date() } as any).where(eq(bookingGroupMembers.id, m.id));
+  // ق١٦: «مش أنا» ⟵ يخرج الرقم من قوائم الأصحاب
+  try { const F = await import('./friends.service.js'); if (m.phone) await F.forgetPhoneEverywhere(String(m.phone)); } catch { /* تكميليّ */ }
   await shrinkGroup(m.groupId, `⚠️ الرقم اللي سجّلته لـ«${m.name}» ردّ «مش أنا» — شلته من المجموعة.`);
   return { ok: true, status: 'declined' };
 }

@@ -527,6 +527,28 @@ async function handleInboundMessage(db: any, msg: any, contacts: any[], channel:
     catch (err: any) { console.warn('⚠️ WA reminder button:', err.message); }
     return; // لا نمرّر ضغطة زرّ التذكير للبوت
   }
+  // ── 👥 «انضمام XXXXXX» — مقعدٌ باسم المرسل في حجز صاحب الرمز (ق٢٥) — حتميّ بلا نموذج ──
+  if (msgType === 'text') {
+    const jm = /^\s*(?:انضمام|انضم|join)\s*[:：\-]?\s*([A-Za-z0-9]{6})\s*$/i.exec(String(body || ''));
+    if (jm) {
+      try {
+        const F = await import('./friends.service.js');
+        const r = await F.claimJoinCode(jm[1], { phone: updatedConv.phone, name: String(updatedConv.displayName || updatedConv.phone), playerId: updatedConv.playerId ?? null });
+        await sendMessage({ conversationId: updatedConv.id, source: 'system', text: r.text }).catch(() => {});
+        if (r.ok && r.ownerPhone) {
+          const [oc] = await db.select({ id: waConversations.id }).from(waConversations).where(eq(waConversations.phone, r.ownerPhone)).limit(1);
+          if (oc) await sendMessage({ conversationId: oc.id, source: 'system', text: `👥 ${updatedConv.displayName || 'صديقك'} أخذ مقعده باسمه في «${r.activityName}» ✅` }).catch(() => {});
+        }
+      } catch (err: any) { console.warn('⚠️ join code claim:', err?.message); }
+      return;
+    }
+  }
+  // ── 👤 جهة اتّصال مُشارَكة (ق٢٦): تُحفظ في «أصحابي» ويُعرض «ضيفه لحجزي» ──
+  if (msgType === 'contacts') {
+    try { if (await handleSharedContact(db, updatedConv, msg)) return; }
+    catch (err: any) { console.warn('⚠️ shared contact:', err?.message); }
+  }
+
   // ── 🎟️ زرّ زيارة الولاء (ق٦) — معالجة حتميّة ──
   if (remindBtnId && remindBtnId.startsWith('wa_lv:')) {
     try { await handleLoyaltyVisitButton(db, updatedConv, remindBtnId); }
@@ -568,6 +590,48 @@ async function handleInboundMessage(db: any, msg: any, contacts: any[], channel:
   if (isBotActive(updatedConv) && !opts.suppressBot) {
     forwardToBot(updatedConv);
   }
+}
+
+/** جهة اتّصال من ميتا ({name, phones}) أو من رقم الأعمال (vcard) ⟵ اسمٌ ورقمٌ محلّيّ */
+function parseSharedContacts(msg: any): Array<{ name: string; phone: string }> {
+  const out: Array<{ name: string; phone: string }> = [];
+  for (const c of (Array.isArray(msg?.contacts) ? msg.contacts : [])) {
+    if (c?.vcard) {
+      const v = String(c.vcard);
+      const fn = /\nFN[^:]*:(.+)/i.exec(v)?.[1]?.trim() || /\nN[^:]*:([^;\n]+)/i.exec(v)?.[1]?.trim() || '';
+      const tel = /(?:waid=(\d+))|TEL[^:]*:([+\d\s\-()]+)/i.exec(v);
+      const ph = (tel?.[1] || tel?.[2] || '').replace(/\D/g, '');
+      if (fn && ph) out.push({ name: fn.slice(0, 100), phone: ph });
+    } else {
+      const nm = String(c?.name?.formatted_name || c?.name?.first_name || '').trim();
+      const ph = String(c?.phones?.[0]?.wa_id || c?.phones?.[0]?.phone || '').replace(/\D/g, '');
+      if (nm && ph) out.push({ name: nm.slice(0, 100), phone: ph });
+    }
+  }
+  return out;
+}
+async function handleSharedContact(db: any, conv: any, msg: any): Promise<boolean> {
+  const { normalizeLocalPhone } = await import('../utils/phone.util.js');
+  const list = parseSharedContacts(msg).map((c) => ({ name: c.name, phone: normalizeLocalPhone(c.phone) || '' })).filter((c) => c.phone);
+  if (!list.length) return false;
+  const c = list[0];
+  if (conv.playerId) { try { const F = await import('./friends.service.js'); await F.addFriend(Number(conv.playerId), { name: c.name, phone: c.phone, source: 'contact' }); } catch { /* تكميليّ */ } }
+  const up = await db.execute(sql`SELECT r.id, r.activity_id, a.name, a.date FROM reservations r JOIN activities a ON a.id = r.activity_id
+     WHERE r.deleted_at IS NULL AND a.date > NOW() AND (r.phone = ${conv.phone} ${conv.playerId ? sql`OR r.player_id = ${conv.playerId}` : sql``}) ORDER BY a.date LIMIT 2`);
+  const rows: any[] = (up as any).rows ?? up;
+  if (rows.length !== 1) {
+    await sendMessage({ conversationId: conv.id, source: 'system', text: `👤 وصلني «${c.name}»${conv.playerId ? ' وحفظته بأصحابك ✅' : ''}.${rows.length ? ' عندك أكثر من حجز قادم — احكيلي أيّ فعاليّة بدك تضيفه عليها.' : ''}` }).catch(() => {});
+    return true;
+  }
+  const crypto = await import('crypto');
+  const key = crypto.randomBytes(6).toString('hex');
+  const { setAux } = await import('../config/redis.js');
+  await setAux(`wa-ctadd:${conv.id}:${key}`, { name: c.name, phone: c.phone, activityId: Number(rows[0].activity_id), at: Date.now() });
+  await sendMessage({ conversationId: conv.id, source: 'bot', interactive: {
+    type: 'button', body: { text: `👤 وصلني «${c.name}»${conv.playerId ? ' وحفظته بأصحابك' : ''}.\nبتحب أضيفه لحجزك في «${rows[0].name}»؟` },
+    action: { buttons: [{ type: 'reply', reply: { id: `ctadd:${key}`, title: 'ضيفه لحجزي ✓' } }, { type: 'reply', reply: { id: 'chg_keep', title: 'لا، بس احفظه' } }] },
+  } }).catch(() => {});
+  return true;
 }
 
 // 🎟️ زيارة الولاء من الدون (wa_lv:use|keep:<reservationId>) — الحجز يخصّ رقم المحادثة أو حسابها

@@ -36,10 +36,10 @@ export default function GroupInvitePage() {
       .catch(e => setErr(e.message));
   }, [token]);
 
-  async function act(kind: 'accept' | 'decline') {
+  async function act(kind: 'accept' | 'decline', always = false) {
     setBusy(true); setErr(null);
     try {
-      const r = await fetch(`${API_URL}/api/booking-offers/invite/${encodeURIComponent(token)}/${kind}`, { method: 'POST' });
+      const r = await fetch(`${API_URL}/api/booking-offers/invite/${encodeURIComponent(token)}/${kind}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ always }) });
       const b = await r.json().catch(() => ({}));
       if (!r.ok) throw new Error(b.error || 'صار خلل — جرّب بعد شوي');
       setDone(kind === 'accept' ? 'joined' : 'declined');
@@ -85,6 +85,11 @@ export default function GroupInvitePage() {
             <button disabled={busy} onClick={() => act('accept')}
               className="w-full py-3 rounded-xl font-bold text-black disabled:opacity-50" style={{ background: '#C5A059' }}>
               تمام، جاي ✓
+            </button>
+            {/* ق١٧: «اقبل دائماً من فلان» — حجوزاته لك تُثبَّت بلا سؤال بعد اليوم */}
+            <button disabled={busy} onClick={() => act('accept', true)}
+              className="w-full py-2.5 rounded-xl text-[13px] font-bold disabled:opacity-50" style={{ color: '#C5A059', border: '1px solid rgba(197,160,89,.4)' }}>
+              تمام، واقبل دائماً من {owner}
             </button>
             <button disabled={busy} onClick={() => act('decline')}
               className="w-full py-3 rounded-xl font-bold text-gray-300 border border-gray-700 hover:border-gray-500 disabled:opacity-50">

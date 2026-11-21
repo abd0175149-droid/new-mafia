@@ -37,12 +37,13 @@ router.get('/invite/:token', async (req: Request, res: Response) => {
   } catch (err: any) { res.status(500).json({ error: err.message }); }
 });
 router.post('/invite/:token/accept', async (req: Request, res: Response) => {
+  (req as any)._always = req.body?.always === true;
   if (!TOKEN.test(req.params.token)) return res.status(404).json({ error: 'الرابط غير صالح' });
   try {
     const info = await inviteInfo(req.params.token);
     if (!info) return res.status(404).json({ error: 'الرابط غير صالح أو انتهت صلاحيّته' });
     if (info.past) return res.status(410).json({ error: 'الفعاليّة انتهت' });
-    const r = await acceptInvite(req.params.token);
+    const r = await acceptInvite(req.params.token, { always: (req as any)._always === true });
     if (!r.ok) return res.status(409).json({ error: r.status === 'removed' || r.status === 'declined' ? 'هالحجز انلغى' : 'ما قدرنا نثبّت — راجع صاحبك' });
     res.json({ success: true, status: r.status });
   } catch (err: any) { res.status(500).json({ error: err.message }); }

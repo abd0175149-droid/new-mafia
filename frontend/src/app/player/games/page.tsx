@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback, Suspense } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { ROLE_NAMES } from '@/lib/constants';
 import { usePlayer } from '@/context/PlayerContext';
+import FriendsPicker, { emptyFriends, hasFriends, type FriendsValue } from '@/components/player/FriendsPicker';
 import { useSearchParams } from 'next/navigation';
 import { useModalScrollLock } from '@/hooks/useModalScrollLock';
 import { getCachedFix } from '@/hooks/useGeolocation';
@@ -49,6 +50,11 @@ function GamesContent() {
   const [selectedDate, setSelectedDate] = useState<string | null>(null); // null = الكل
   const [selectedActivity, setSelectedActivity] = useState<any>(null);
   const [confirmBooking, setConfirmBooking] = useState<any>(null);
+  // 👥 م٥ب: «مين جاي معك؟» — في الحجز الجديد، وفي «أضف أصحاب» لحجزٍ قائم
+  const [friendsVal, setFriendsVal] = useState<FriendsValue>(emptyFriends());
+  const [addFriendsFor, setAddFriendsFor] = useState<any>(null);
+  const [friendsBusy, setFriendsBusy] = useState(false);
+  const [joinMsg, setJoinMsg] = useState<string | null>(null);
   const [confirmCancel, setConfirmCancel] = useState<any>(null);
   const [cancelLoading, setCancelLoading] = useState(false);
   const [selectedOffer, setSelectedOffer] = useState<number | null>(null);
@@ -252,11 +258,18 @@ function GamesContent() {
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${player.token}`,
         },
-        body: JSON.stringify({ activityId, offerId, useLoyaltyReward: useFreeVisit }),
+        body: JSON.stringify({ activityId, offerId, useLoyaltyReward: useFreeVisit, ...(hasFriends(friendsVal) ? friendsVal : {}) }),
       });
       const data = await res.json();
 
       if (data.success) {
+        // 👥 الأصحاب: نتيجة المجموعة، ورسالة رمز الانضمام للمرافقين بلا اسم
+        if (data.friends) {
+          if (data.friends.ok === false) alert(`حجزك ثبت ✓ لكن الأصحاب: ${data.friends.error || 'تعذّر'}`);
+          else if (data.friends.joinCode) setJoinMsg(`🎭 حجزتلك مقعد معي في «${activities.find((a: any) => a.id === activityId)?.name || ''}».\nلتثبّت مقعدك باسمك ابعت للدون على واتساب:\nانضمام ${data.friends.joinCode}`);
+          else if (data.friends.text) setLoyaltyToast(String(data.friends.text).split('\n')[0]);
+        }
+        setFriendsVal(emptyFriends());
         setMyBookings(prev => [...prev, data.booking]);
         // 🎮 الغرفة قد تكون مفتوحةً أصلاً: زرّ «دخول ←» يظهر فور الحجز بلا إعادة تحميل
         void refreshRooms();
@@ -577,6 +590,22 @@ function GamesContent() {
                         </div>
                       </div>
                     </div>
+
+                    {/* 🎁 م٧: عرض المجموعة على هذه الفعاليّة — يراه اللاعب قبل الحجز */}
+                    {act.groupOffer && (
+                      <div className="mt-2.5 px-2.5 py-1.5 rounded-lg text-[11px] flex items-center justify-between gap-2" style={{ background: 'rgba(251,191,36,0.08)', border: '1px solid rgba(251,191,36,0.3)', color: '#fcd34d' }}>
+                        <span>{act.groupOffer.tag} · «{act.groupOffer.name}»: {act.groupOffer.rule}</span>
+                        {!booked ? <span className="opacity-80 shrink-0">احجز مع أصحابك</span> : (
+                          <button type="button" onClick={() => { setFriendsVal(emptyFriends()); setAddFriendsFor(act); }} className="shrink-0 underline">أضف أصحابك</button>
+                        )}
+                      </div>
+                    )}
+                    {booked && !act.groupOffer && (
+                      <button type="button" onClick={() => { setFriendsVal(emptyFriends()); setAddFriendsFor(act); }}
+                        className="mt-2.5 w-full px-2.5 py-1.5 rounded-lg text-[11px] text-right" style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.08)', color: '#d1d5db' }}>
+                        👥 أضف أصحاباً لحجزك
+                      </button>
+                    )}
 
                     {/* 🎟️ سطر الختم: يظهر فقط حين تكون الميزة مفعَّلة (loyaltyCutoffAt من الخادم) */}
                     {act.loyaltyCutoffAt && loyalty.data?.enabled && !booked && (() => {
@@ -1031,6 +1060,45 @@ function GamesContent() {
       </AnimatePresence>
 
       <AnimatePresence>
+        {/* 👥 أضف أصحاباً لحجزٍ قائم */}
+        {addFriendsFor && player && (
+          <div className="fixed top-0 left-0 right-0 bottom-20 z-40 bg-black/90 backdrop-blur-md flex items-end sm:items-center justify-center sm:p-4" onClick={() => setAddFriendsFor(null)}>
+            <div className="w-full max-w-sm rounded-t-3xl sm:rounded-2xl p-6" style={{ background: 'linear-gradient(to bottom, #111827, #000)', borderTop: '1px solid rgba(255,255,255,0.1)' }} onClick={(e) => e.stopPropagation()}>
+              <h3 className="text-white text-lg font-bold mb-1 text-center">أضف أصحاباً لحجزك</h3>
+              <p className="text-gray-400 text-sm text-center mb-4">{addFriendsFor.name}</p>
+              <FriendsPicker activityId={addFriendsFor.id} token={player.token} value={friendsVal} onChange={setFriendsVal} groupOffer={addFriendsFor.groupOffer} />
+              <button type="button" disabled={friendsBusy || !hasFriends(friendsVal)} className="w-full py-3 rounded-xl font-bold text-black disabled:opacity-40" style={{ background: '#fbbf24' }}
+                onClick={async () => {
+                  setFriendsBusy(true);
+                  try {
+                    const r = await fetch(`/api/player-app/book/${addFriendsFor.id}/friends`, { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${player.token}` }, body: JSON.stringify(friendsVal) });
+                    const d = await r.json();
+                    if (!d.success) { alert(d.error || 'تعذّر'); return; }
+                    if (d.joinCode) setJoinMsg(`🎭 حجزتلك مقعد معي في «${addFriendsFor.name}».\nلتثبّت مقعدك باسمك ابعت للدون على واتساب:\nانضمام ${d.joinCode}`);
+                    else if (d.text) setLoyaltyToast(String(d.text).split('\n')[0]);
+                    setAddFriendsFor(null); setFriendsVal(emptyFriends()); void refreshRooms();
+                  } catch { alert('تعذّر الاتصال'); } finally { setFriendsBusy(false); }
+                }}>
+                {friendsBusy ? '…' : 'أضفهم لحجزي'}
+              </button>
+            </div>
+          </div>
+        )}
+        {/* 🎟️ رسالة رمز الانضمام — تُحوَّل للمرافقين */}
+        {joinMsg && (
+          <div className="fixed inset-0 z-50 bg-black/90 flex items-center justify-center p-4" onClick={() => setJoinMsg(null)}>
+            <div className="w-full max-w-sm rounded-2xl p-5 space-y-3" style={{ background: '#111827', border: '1px solid rgba(251,191,36,0.3)' }} onClick={(e) => e.stopPropagation()}>
+              <h3 className="text-amber-400 font-bold text-center">حوّل هالرسالة لمرافقيك</h3>
+              <p className="text-[13px] text-gray-200 whitespace-pre-line leading-relaxed">{joinMsg}</p>
+              <p className="text-[11px] text-gray-500">كلّ واحد بيبعت الرمز من رقمه بياخد مقعده باسمه، وبيوصلك إشعار.</p>
+              <div className="flex gap-2">
+                <a href={`https://api.whatsapp.com/send?text=${encodeURIComponent(joinMsg)}`} target="_blank" rel="noreferrer" className="flex-1 text-center py-2.5 rounded-xl font-bold text-black" style={{ background: '#25D366' }}>شارك على واتساب</a>
+                <button type="button" onClick={() => { navigator.clipboard?.writeText(joinMsg).catch(() => {}); }} className="px-4 py-2.5 rounded-xl text-white" style={{ background: 'rgba(255,255,255,0.08)' }}>نسخ</button>
+              </div>
+            </div>
+          </div>
+        )}
+
         {confirmBooking && (
           <motion.div
             initial={{ opacity: 0 }}
@@ -1096,6 +1164,11 @@ function GamesContent() {
                   </div>
                   <p className="text-[11px] text-gray-400 mt-1">{useFreeVisit ? 'تُطبَّق على هذا الحجز: رسم اللعبة ٠ د.أ.' : 'لن تُستخدم الآن — تبقى لحجزٍ لاحق.'}</p>
                 </div>
+              )}
+
+              {/* 👥 م٥ب: مين جاي معك؟ */}
+              {player && !confirmBooking.isTestLocation && (
+                <FriendsPicker activityId={confirmBooking.id} token={player.token} value={friendsVal} onChange={setFriendsVal} groupOffer={confirmBooking.groupOffer} />
               )}
 
               {/* 🍽️ منيو المكان — يطّلع عليه قبل تأكيد الحجز */}

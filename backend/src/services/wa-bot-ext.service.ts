@@ -302,6 +302,9 @@ export function extToolDeclarations(t: Record<string, any>): any[] {
   if (t.invoice) d.push({ name: 'get_my_invoice', description: 'فاتورة العميل نفسه في فعاليّة الليلة أو آخر فعاليّة (خلال 36 ساعة): طلباته من المنيو، الماء، تكملة الحدّ الأدنى، رسم اللعبة، خصم مشروب الولاء، الإجماليّ، ما حُصّل منه وما بقي، وطرق الدفع. «شو فاتورتي؟ كم عليّ؟ بدي اعرف حسابي، بدي امشي». وأيضاً «ليش ضايفين ٢ دينار / شو الحدّ الأدنى». تُرسل له صورة ملفّه تلقائيّاً إن كان الإرسال مفعّلاً.', parameters: O({}) });
   if (t.chips) d.push({ name: 'get_my_chips', description: 'رصيد تشبس العميل وآخر حركاته وما يكفيه رصيده من الخزنة. «كم تشبس معي؟». الشراء من التطبيق فقط.', parameters: O({}) });
   if (t.changePeople) d.push({ name: 'request_change_people', description: 'تعديل عدد الأشخاص في حجزٍ قائم للعميل بدل الإلغاء وإعادة الحجز. تعرض أزرار تأكيد والتنفيذ آليّ بعد ضغطه (قاعدة الـ3 ساعات نفسها، وفحص السعة عند الزيادة).', parameters: O({ activity_id: { type: 'NUMBER', description: 'معرّف الفعاليّة المحجوزة' }, new_count: { type: 'NUMBER', description: 'العدد الجديد (1–12)' } }, ['activity_id', 'new_count']) });
+  // 👥 م٧ب (ق٢٥، ق٢٧): رمز انضمامٍ للمرافقين بلا اسم، و«شيل فلان» من المجموعة
+  if (t.changePeople) d.push({ name: 'create_join_code', description: 'رمز انضمامٍ لحجز العميل القادم: رسالةٌ جاهزة يحوّلها لأصحابه، ومن يرسل الرمز من رقمه يأخذ مقعداً باسمه ويُبلَّغ صاحب الحجز. استعمله حين يقول «احجزلي ٤» ولا يعرف أرقامهم، أو بعد زيادة العدد.', parameters: O({ seats: { type: 'NUMBER', description: 'عدد المقاعد على الرمز (1–10)' } }, ['seats']) });
+  if (t.changePeople) d.push({ name: 'remove_group_member', description: '«شيل فلان» من مجموعة حجز العميل القادم — تعرض زرّ تأكيد، والتنفيذ آليّ بعد ضغطه (يُنقص العدد ويحرّر المقعد).', parameters: O({ name: { type: 'STRING', description: 'اسم الصديق كما كتبه العميل' } }, ['name']) });
   if (t.schedule) d.push({ name: 'get_tonight_schedule', description: 'جدول الليلة المكتوب لفعاليّة (كم لعبة، متى تبدأ كلّ واحدة، الاستراحات) — لفعاليّة العميل المحجوزة القادمة إن لم يُحدَّد معرّف. الجدول تقديريّ وقد ينزاح.', parameters: O({ activity_id: { type: 'NUMBER', description: 'معرّف الفعاليّة (اختياريّ)' } }) });
   if (t.roleGuide) d.push({ name: 'get_role_guide', description: 'الدليل الحيّ للأدوار من النظام: بلا اسم يعيد قائمة الأدوار المفعَّلة بفريق كلٍّ منها؛ وباسم دورٍ يعيد شرحه الكامل ونصائحه وقيوده وشرط فوزه. استخدمه عند أيّ شرح مفصّل لدور — هو أحدث من قاعدة المعرفة. لا يعيد أعداد لاعبين ولا عتبات، ولا تذكرها أنت.', parameters: O({ role_name: { type: 'STRING', description: 'اسم الدور بالعربيّة كما ذكره العميل (اختياريّ)' } }) });
   if (t.register) d.push({ name: 'start_registration', description: 'إنشاء حساب لاعب جديد لرقم هذه المحادثة (للزائر غير المسجَّل حصراً). اجمع منه أوّلاً: الاسم الكامل، الجنس، تاريخ الميلاد — سؤالاً واحداً بكلّ رسالة — ثمّ استدعِها فتعرض ملخّصاً وأزرار تأكيد. الحساب يُنشأ آليّاً بعد ضغطه وتصله كلمة سرّ مؤقّتة. الموافقة على سياسة الخصوصيّة والشروط تتمّ داخل التطبيق عند أوّل دخول — لا تطلبها أنت.', parameters: O({ full_name: { type: 'STRING', description: 'الاسم كما يريده في حسابه' }, gender: { type: 'STRING', description: 'male أو female' }, dob: { type: 'STRING', description: 'تاريخ الميلاد بصيغة YYYY-MM-DD' } }, ['full_name', 'gender', 'dob']) });
@@ -620,6 +623,36 @@ export async function execExtTool(name: string, args: any, ctx: Ctx, h: ExtHelpe
       await show(confirmButtons(`✏️ تعديل حجزك في «${r.name}» (${h.fmtJo(r.date)})\nمن ${r.people} إلى ${n} أشخاص${offerLine}\n\nأثبّت التعديل؟`, `chgp:${r.id}:${n}`, 'ثبّت التعديل ✓', 'chg_keep'), `تعديل العدد ${r.people}→${n}`);
       if (!dryRun) { try { const { setAux } = await import('../config/redis.js'); await setAux(`chgconf:${conv.id}`, { resId: r.id, n, at: Date.now() }); } catch { /* تكميليّ */ } }
       return { sent: true, ...(groupOffer ? { groupOffer, groupOfferHowTo: 'للعرض: اطلب اسم ورقم كلّ صديق ثمّ set_group_members — التعديلُ العاديّ لا يثبّت العرض.' } : {}), note: 'أُرسلت أزرار التأكيد — التنفيذ آليّ بعد ضغطه.' };
+    }
+
+    case 'create_join_code': {
+      const seats = Math.max(1, Math.min(10, Math.trunc(Number(args.seats) || 1)));
+      const up = await db.select({ id: reservations.id, actId: reservations.activityId, name: activities.name, date: activities.date }).from(reservations).innerJoin(activities, eq(reservations.activityId, activities.id))
+        .where(and(isNull(reservations.deletedAt), notTestActivity, sql`${activities.date} > NOW()`, sql`(${reservations.phone} = ${conv.phone} ${conv.playerId ? sql`OR ${reservations.playerId} = ${conv.playerId}` : sql``})`)).limit(2);
+      if (up.length !== 1) return { found: false, note: up.length ? 'له أكثر من حجز قادم — اسأله أيّ فعاليّة' : 'لا حجز قادم له — احجز أوّلاً' };
+      if (dryRun) return { sent: true, dryRun: true };
+      const F = await import('./friends.service.js');
+      const code = await F.createJoinCode(Number(up[0].id), seats);
+      if (!code) return { error: 'تعذّر إنشاء الرمز' };
+      await h.sendMessage({ conversationId: conv.id, source: 'bot', text: F.joinMessage(code, String(conv.displayName || ''), String(up[0].name), h.fmtJo(up[0].date)) });
+      return { sent: true, code, note: 'أُرسلت الرسالة الجاهزة — قل له: «حوّل الرسالة اللي فوق لأصحابك، وكلّ واحد بيبعت الرمز من رقمه بياخد مقعده باسمه». لا تكرّر الرمز.' };
+    }
+
+    case 'remove_group_member': {
+      const want = String(args.name || '').trim();
+      if (!want) return { error: 'اسم الصديق مطلوب' };
+      const rows = await db.execute(sql`
+        SELECT m.id, m.name, r.id AS res_id, a.name AS act_name, a.date FROM booking_group_members m JOIN booking_groups g ON g.id = m.group_id
+          JOIN reservations r ON r.id = g.reservation_id JOIN activities a ON a.id = r.activity_id
+         WHERE g.status <> 'void' AND m.status IN ('booked', 'pending', 'joined') AND r.deleted_at IS NULL AND a.date > NOW()
+           AND (r.phone = ${conv.phone} ${conv.playerId ? sql`OR r.player_id = ${conv.playerId}` : sql``})`);
+      const list: any[] = (rows as any).rows ?? rows;
+      const norm = (x: string) => String(x).replace(/[ًٌٍَُِّْـ]/g, '').replace(/[أإآ]/g, 'ا').replace(/ة/g, 'ه').replace(/ى/g, 'ي').trim().toLowerCase();
+      const hit = list.filter((m) => norm(m.name).includes(norm(want)) || norm(want).includes(norm(m.name)));
+      if (hit.length !== 1) return { found: false, members: list.map((m) => m.name), note: hit.length ? 'أكثر من صديق بهذا الاسم — اسأله أيّهم' : 'لا صديق بهذا الاسم في مجموعته — اعرض عليه الأسماء المسجّلة' };
+      const m = hit[0];
+      await show(confirmButtons(`🗑️ أشيل «${m.name}» من حجزك في «${m.act_name}» (${h.fmtJo(m.date)})؟\nبينقص العدد واحد ومقعده بيفضى.`, `grprm:${m.id}`, 'شيله ✓', 'chg_keep'), `شيل ${m.name}`);
+      return { sent: true, note: 'أُرسلت أزرار التأكيد — التنفيذ آليّ بعد ضغطه.' };
     }
 
     case 'get_tonight_schedule': {
@@ -1077,6 +1110,36 @@ export async function handleExtButton(conv: any, btnId: string, h: ExtHelpers): 
   }
 
   // ✏️ تعديل عدد الأشخاص
+  // 👥 «شيل فلان» بعد التأكيد (ق٢٧) — المهلة نفسها، والمقعد المحرَّر يشغّل الدور
+  m = /^grprm:(\d+)$/.exec(btnId);
+  if (m) {
+    const memberId = parseInt(m[1]);
+    const r0: any = await db.execute(sql`SELECT m.id, m.name, a.date, a.id AS act_id FROM booking_group_members m JOIN booking_groups g ON g.id = m.group_id
+      JOIN reservations r ON r.id = g.reservation_id JOIN activities a ON a.id = r.activity_id
+      WHERE m.id = ${memberId} AND (r.phone = ${conv.phone} ${conv.playerId ? sql`OR r.player_id = ${conv.playerId}` : sql``})`);
+    const x = (r0.rows ?? r0)[0];
+    if (!x) { await say('ما لقيت هذا الصديق بحجزك 🙏'); return true; }
+    if (new Date(x.date).getTime() - Date.now() < changeCutoffMs()) { await say('الفعاليّة قريبة فما بقدر أعدّل تلقائيّاً 🙏 حوّلت طلبك للإدارة.'); return true; }
+    const O = await import('./booking-offers.service.js');
+    const rr = await O.removeMember(memberId);
+    if (!rr.ok) { await say(`ما قدرت أشيله 🙏 ${rr.error || ''}`.trim()); return true; }
+    await say(`تمّ ✅ شلت «${x.name}» من حجزك.`, 'bot');
+    const Q = await import('./capacity-queue.service.js'); void Q.seatFreed(Number(x.act_id), 'شيل صديق من الدون');
+    return true;
+  }
+
+  // 👤 جهة اتّصال مُشارَكة ⟵ «ضيفه لحجزي» (ق٢٦)
+  m = /^ctadd:([a-f0-9]{12})$/.exec(btnId);
+  if (m) {
+    const p = await unstash(`wa-ctadd:${conv.id}:${m[1]}`);
+    if (!p) { await say('انتهت صلاحيّة الطلب — شارك جهة الاتصال كمان مرّة 🙏', 'bot'); return true; }
+    const O = await import('./booking-offers.service.js');
+    const r = await O.commitGroup({ conv, activityId: Number(p.activityId), members: [{ name: p.name, phone: p.phone }], botTag: '🤖 بوت واتساب', contactMethod: 'بوت واتساب',
+      h: { sendMessage: h.sendMessage, mirrorReservation: h.mirrorReservation, notifyAdmins: h.notifyAdmins } as any });
+    await say(r.ok ? r.text : `ما قدرت أضيفه 🙏 ${r.text}`, 'bot');
+    return true;
+  }
+
   m = /^chgp:(\d+):(\d+)$/.exec(btnId);
   if (m) {
     const resId = parseInt(m[1]); const n = parseInt(m[2]);
@@ -1117,6 +1180,17 @@ export async function handleExtButton(conv: any, btnId: string, h: ExtHelpers): 
       }
     } catch { /* بلا سعر مبكّر */ }
     await say(`تمّ ✅ حجزك في «${r.name}» صار لـ${n} أشخاص — ${h.fmtJo(r.date)}.${priceLine}`, 'bot');
+    // 👥 ق٢٥: المقاعد المضافة بلا أسماء ⟵ رسالةٌ جاهزة برمز انضمام يحوّلها لأصحابه، فيأخذ كلٌّ مقعده باسمه
+    if (delta > 0) {
+      try {
+        const F = await import('./friends.service.js');
+        const code = await F.createJoinCode(r.id, delta);
+        if (code) {
+          await say(`👥 لتسجّل أصحابك بأسمائهم: حوّل الرسالة الجاية إلهم، وكلّ واحد بيبعت الرمز من رقمه بياخد مقعده باسمه (أو ابعتلي اسم ورقم كلّ واحد، أو شاركني جهة الاتصال تبعه).`, 'bot');
+          await say(F.joinMessage(code, String(conv.displayName || who), String(r.name), h.fmtJo(r.date)), 'bot');
+        }
+      } catch (e: any) { console.warn('⚠️ join code after change:', e?.message); }
+    }
     h.notifyAdmins('✏️ تعديل عدد عبر البوت', `${who} — ${r.name}: ${r.people} → ${n}`, { conversationId: conv.id, url: `/admin/reservations?activityId=${r.actId}` }).catch(() => {});
     return true;
   }
