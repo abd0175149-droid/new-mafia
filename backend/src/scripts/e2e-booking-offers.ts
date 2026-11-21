@@ -90,6 +90,9 @@ async function main() {
   ok('جُهّز مكانٌ وفعاليّةٌ (٥ د.أ) وعرضُ ٣ بسعر ٢ وثلاثة لاعبين ومحادثةٌ مغلقة النافذة', !!(loc?.id && A && O && pO?.id && conv?.id));
 
   const sent: any[] = []; const admins: any[] = [];
+  // 🔒 لا إرسال حقيقيّ أبداً: رقم الأعمال بلا نافذة، فـ«فلان أكّد» كان يصل رقم الفحص فعلاً
+  const told: any[] = [];
+  S.offerTestHooks.send = async (m: any) => { told.push(m); return {} as any; };
   const h = {
     sendMessage: async (m: any) => { sent.push(m); return {} as any; },
     notifyAdmins: async (...a: any[]) => { admins.push(a); },

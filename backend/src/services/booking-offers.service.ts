@@ -728,6 +728,12 @@ async function shrinkGroup(groupId: number, why: string): Promise<void> {
   void tellOwner(groupId, msg);
 }
 /** رسالةٌ لصاحب المجموعة إن كانت نافذته مفتوحة — وإلّا تكفي صفحةُ الفعاليّة للموظّفين */
+/**
+ * للفحص وحده: يستبدل الإرسال الحقيقيّ في tellOwner. على رقم الأعمال لا نافذة تمنع الإرسال،
+ * فكان e2e-booking-offers يوصل «فلان أكّد…» فعلاً إلى رقم الفحص (2026-11-21).
+ */
+export const offerTestHooks: { send: null | ((m: any) => Promise<any>) } = { send: null };
+
 async function tellOwner(groupId: number, text: string): Promise<void> {
   try {
     const db = getDB(); if (!db) return;
@@ -736,7 +742,7 @@ async function tellOwner(groupId: number, text: string): Promise<void> {
     let convId = g.conversationId;
     if (!convId) { const [c] = await db.select({ id: waConversations.id }).from(waConversations).where(eq(waConversations.phone, g.ownerPhone)).limit(1); convId = c?.id; }
     if (!convId) return;
-    const { sendMessage } = await import('./whatsapp-inbox.service.js');
+    const sendMessage = offerTestHooks.send ?? (await import('./whatsapp-inbox.service.js')).sendMessage;
     await sendMessage({ conversationId: convId, text, source: 'system' }).catch(() => {});
   } catch { /* غير حاجب */ }
 }
