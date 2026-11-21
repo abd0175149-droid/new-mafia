@@ -178,8 +178,14 @@ export async function reservationExtras(resId: number) {
       visit.available = visit.enabled && !!(await L.availableReward(Number(r.playerId), 'free_visit'));
     } catch { /* الولاء غير متاح */ }
   }
+  const [act] = rowsOf(await db.execute(sql`SELECT base_price, add_game_fee_to_bill FROM activities WHERE id = ${r.activityId}`));
+  const { reservationTotal } = await import('./early-price.service.js');
+  const people = Math.max(1, Number(r.peopleCount || 1));
+  const expected = reservationTotal(people, Number(act?.base_price || 0), { unitPrice: r.unitPrice != null ? Number(r.unitPrice) : null, promoSeats: r.promoSeats ?? null });
   return {
     reservationId: r.id, activityId: r.activityId, playerId: r.playerId ?? null, bookingId: bk?.id ?? null, paid,
+    pay: bk ? { isPaid: bk.is_paid === true, isFree: bk.is_free === true, paidAmount: Number(bk.paid_amount || 0) } : null,
+    expected, people, base: Number(act?.base_price || 0), feeOnBill: act?.add_game_fee_to_bill === true,
     lock: r.unitPrice != null ? { promoId: r.pricePromoId ?? null, unitPrice: Number(r.unitPrice), seats: r.promoSeats ?? null } : null,
     offers: await E.manualOffersFor(Number(r.activityId)),
     visit,
@@ -225,5 +231,71 @@ export async function setLoyaltyVisit(resId: number, on: boolean, who: Who, reas
   }
   await db.execute(sql`INSERT INTO booking_events (reservation_id, booking_id, activity_id, channel, actor, kind, detail, reason)
     VALUES (${r.id}, ${bk.id}, ${r.activityId}, ${who.channel}, ${who.actor.slice(0, 120)}, 'loyalty_manual', ${JSON.stringify({ on: false })}::jsonb, ${String(reason || '').slice(0, 200) || null})`).catch(() => {});
+  return { ok: true };
+}
+
+// ══════════════════════════════════════════════════════
+// 🔀 م٦: النقل لفعاليّةٍ أخرى، والسعر اليدويّ — من بطاقة الشخص (والدون يمرّ بالأمر نفسه)
+// ══════════════════════════════════════════════════════
+
+/**
+ * نقل حجزٍ لفعاليّةٍ أخرى: لا يتكرّر في الوجهة، ويحترم سقفها (أو «فوق السعة» صراحةً)، وينقل صفّ حجزه
+ * المرتبط، ويعيد تقييم السعر المبكّر، ويجدول رسالة تثبيتٍ للموعد الجديد، ويحرّر مقعده في القديمة.
+ */
+export async function moveReservation(resId: number, toActivityId: number, who: Who, opts: { overCap?: boolean; reason?: string } = {}):
+  Promise<{ ok: boolean; error?: string; code?: string; remaining?: number; movedBookings?: number }> {
+  const db = getDB(); if (!db) return { ok: false, error: 'DB unavailable' };
+  const [r] = await db.select().from(reservations).where(and(eq(reservations.id, resId), isNull(reservations.deletedAt))).limit(1);
+  if (!r) return { ok: false, error: 'الحجز غير موجود' };
+  const to = Math.trunc(Number(toActivityId));
+  if (!to || to === Number(r.activityId)) return { ok: false, error: 'اختر فعاليّةً أخرى' };
+  const [act] = rowsOf(await db.execute(sql`SELECT a.id, a.name, a.status, a.date, COALESCE(l.is_test_location, false) AS is_test FROM activities a LEFT JOIN locations l ON l.id = a.location_id WHERE a.id = ${to} AND a.deleted_at IS NULL`));
+  if (!act) return { ok: false, error: 'الفعاليّة غير موجودة' };
+  if (!['planned', 'active'].includes(String(act.status))) return { ok: false, error: 'الفعاليّة غير مفتوحة للحجز' };
+  const { existingBookingAnywhere } = await import('./reservation-booking.service.js');
+  const dup = await existingBookingAnywhere(db as any, to, r.playerId ?? null, String(r.phone || ''));
+  if (dup) return { ok: false, error: `له حجزٌ في «${act.name}» ${dup.via} — لا يُكرَّر` };
+  if (r.status !== 'waitlist') {
+    const Q = await import('./capacity-queue.service.js');
+    const f = await Q.fits(to, Number(r.peopleCount || 1));
+    if (!f.ok && !opts.overCap) return { ok: false, code: 'CAP_FULL', remaining: f.info.remaining, error: `«${act.name}» ممتلئة — المتاح ${f.info.remaining}` };
+  }
+  const from = Number(r.activityId);
+  const [fromAct] = rowsOf(await db.execute(sql`SELECT name FROM activities WHERE id = ${from}`));
+  let movedBookings = 0;
+  await asActor(who, async (tx) => {
+    await tx.update(reservations).set({ activityId: to, updatedAt: new Date(),
+      notes: sql`COALESCE(${reservations.notes}, '') || ${` · 🔀 نُقل من «${fromAct?.name || from}» (${who.actor})`}` } as any).where(eq(reservations.id, r.id));
+    const upd = rowsOf(await tx.execute(sql`UPDATE bookings SET activity_id = ${to} WHERE activity_id = ${from} AND deleted_at IS NULL
+      AND (reservation_id = ${r.id} ${r.playerId ? sql`OR player_id = ${r.playerId}` : sql``}) RETURNING id`));
+    movedBookings = upd.length;
+  });
+  await db.execute(sql`INSERT INTO booking_events (reservation_id, activity_id, channel, actor, kind, detail, reason)
+    VALUES (${r.id}, ${to}, ${who.channel}, ${who.actor.slice(0, 120)}, 'moved', ${JSON.stringify({ from, to, fromName: fromAct?.name || '', toName: act.name, overCap: !!opts.overCap })}::jsonb, ${String(opts.reason || '').slice(0, 200) || null})`).catch(() => {});
+  try { const E = await import('./early-price.service.js'); await E.onReservationMoved(r.id); } catch { /* تكميليّ */ }
+  try { const O = await import('./booking-offers.service.js'); await O.onReservationDeleted(r.id); } catch { /* مجموعة العرض كانت للفعاليّة القديمة */ }
+  try { const C = await import('./reservation-confirm.service.js'); await C.scheduleReservationConfirm(r.id, 'move', who.actor); } catch { /* تكميليّ */ }
+  if (r.status !== 'waitlist') { const Q = await import('./capacity-queue.service.js'); void Q.seatFreed(from, 'نُقل حجز'); }
+  return { ok: true, movedBookings };
+}
+
+/** 💵 سعرٌ يدويّ للشخص في هذا الحجز (الأدمن، بسبب) — null يعيده للسعر العاديّ */
+export async function setReservationPrice(resId: number, price: number | null, who: Who, reason: string): Promise<{ ok: boolean; error?: string }> {
+  const db = getDB(); if (!db) return { ok: false, error: 'DB unavailable' };
+  const why = String(reason || '').trim().slice(0, 200);
+  if (!why) return { ok: false, error: 'اكتب سبب السعر اليدويّ' };
+  const [r] = await db.select().from(reservations).where(and(eq(reservations.id, resId), isNull(reservations.deletedAt))).limit(1);
+  if (!r) return { ok: false, error: 'الحجز غير موجود' };
+  if (price != null && !(Number.isFinite(price) && price >= 0 && price <= 100)) return { ok: false, error: 'السعر بين ٠ و١٠٠ د.أ' };
+  const bk = await liveBookingOf(r);
+  if (bk && bk.is_paid === true && bk.is_free !== true && Number(bk.paid_amount || 0) > 0) return { ok: false, error: 'الحجز مدفوع — عدّل المبلغ من نافذة الدفع' };
+  const v = price == null ? null : String(Math.round(price * 100) / 100);
+  await asActor(who, async (tx) => {
+    await tx.update(reservations).set({ unitPrice: v, pricePromoId: null, promoSeats: price == null ? null : Math.max(1, Number(r.peopleCount || 1)), updatedAt: new Date() } as any).where(eq(reservations.id, r.id));
+    if (bk) await tx.execute(sql`UPDATE bookings SET unit_price = ${v}, price_promo_id = NULL WHERE id = ${bk.id}`);
+  });
+  await db.execute(sql`INSERT INTO booking_events (reservation_id, activity_id, channel, actor, kind, detail, reason)
+    VALUES (${r.id}, ${r.activityId}, ${who.channel}, ${who.actor.slice(0, 120)}, 'price_manual', ${JSON.stringify({ price })}::jsonb, ${why})`).catch(() => {});
+  try { const E = await import('./early-price.service.js'); E.invalidateEarlyCache(); } catch { /* */ }
   return { ok: true };
 }

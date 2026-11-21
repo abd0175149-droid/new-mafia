@@ -574,6 +574,29 @@ router.post('/:id/loyalty-visit', authenticate, async (req: Request, res: Respon
   } catch (err: any) { res.status(500).json({ error: err.message }); }
 });
 
+// ── 🔀 م٦: النقل لفعاليّةٍ أخرى، والسعر اليدويّ (الأدمن) ──
+router.post('/:id/move', authenticate, async (req: Request, res: Response) => {
+  const id = parseInt(req.params.id);
+  if (!Number.isFinite(id)) return res.status(400).json({ error: 'معرّف غير صالح' });
+  try {
+    const C = await import('../services/booking-commands.service.js');
+    const r = await C.moveReservation(id, Number(req.body?.toActivityId), staffWho(req), { overCap: req.body?.overCap === true, reason: String(req.body?.reason || '') });
+    if (!r.ok) return res.status(409).json({ error: r.error, code: r.code, remaining: r.remaining });
+    res.json({ success: true, ...r });
+  } catch (err: any) { res.status(500).json({ error: err.message }); }
+});
+router.post('/:id/price', authenticate, authorize('admin'), async (req: Request, res: Response) => {
+  const id = parseInt(req.params.id);
+  if (!Number.isFinite(id)) return res.status(400).json({ error: 'معرّف غير صالح' });
+  try {
+    const C = await import('../services/booking-commands.service.js');
+    const price = req.body?.price == null || req.body?.price === '' ? null : Number(req.body.price);
+    const r = await C.setReservationPrice(id, price, staffWho(req), String(req.body?.reason || ''));
+    if (!r.ok) return res.status(409).json({ error: r.error });
+    res.json({ success: true });
+  } catch (err: any) { res.status(500).json({ error: err.message }); }
+});
+
 // ── 🪑 م٥ج: السعة وقائمة الانتظار (ق١، ق٢٠، ق٢٢) ──
 router.get('/capacity/:activityId', authenticate, async (req: Request, res: Response) => {
   const aid = parseInt(req.params.activityId);

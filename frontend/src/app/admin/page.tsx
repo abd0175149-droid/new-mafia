@@ -423,7 +423,7 @@ export default function AdminDashboard() {
                   </Link>
                 )}
                 {unpaid > 0 && (
-                  <Link href="/admin/bookings">
+                  <Link href="/admin/reservations">
                     <Coins className="dash-ic-warn" aria-hidden="true" />
                     <span className="grow">{counted(unpaid, 'حجز واحد غير مدفوع', 'حجزان غير مدفوعين', 'حجوزات غير مدفوعة', 'حجزاً غير مدفوع')}</span>
                     <span className="end">

@@ -8,9 +8,9 @@
 // ══════════════════════════════════════════════════════
 
 import { useCallback, useEffect, useState } from 'react';
-import { Gift, Tag, Undo2 } from 'lucide-react';
+import { ArrowLeftRight, Banknote, Gift, Tag, Undo2 } from 'lucide-react';
 import { swalAlert, swalConfirm, swalToast } from '@/lib/swal';
-import { apiFetch } from '@/hooks/useReservations';
+import { apiFetch, withCapChoice } from '@/hooks/useReservations';
 import { Field } from './Sheet';
 
 export default function OfferLoyaltyBox({ resId, onChanged }: { resId: number; onChanged?: () => void }) {
@@ -18,13 +18,65 @@ export default function OfferLoyaltyBox({ resId, onChanged }: { resId: number; o
   const [pick, setPick] = useState<number | 'none' | null>(null);
   const [reason, setReason] = useState('');
   const [busy, setBusy] = useState(false);
+  // 🔀 م٦: الدفع والنقل والسعر اليدويّ من بطاقة الشخص
+  const [payAmt, setPayAmt] = useState('');
+  const [payOpen, setPayOpen] = useState(false);
+  const [moveOpen, setMoveOpen] = useState(false);
+  const [acts, setActs] = useState<any[]>([]);
+  const [moveTo, setMoveTo] = useState('');
+  const [priceOpen, setPriceOpen] = useState(false);
+  const [price, setPrice] = useState('');
+  const [priceWhy, setPriceWhy] = useState('');
+  const me = (() => { try { return JSON.parse(localStorage.getItem('user') || '{}'); } catch { return {}; } })();
+  const isAdmin = me?.role === 'admin';
   const load = useCallback(async () => {
     try { setX(await apiFetch(`/api/reservations/${resId}/extras`)); } catch { setX(null); }
   }, [resId]);
-  useEffect(() => { setPick(null); setReason(''); load(); }, [load]);
+  useEffect(() => { setPick(null); setReason(''); setPayOpen(false); setMoveOpen(false); setPriceOpen(false); load(); }, [load]);
   if (!x) return null;
   const hasOffers = x.offers?.length > 0;
-  if (!x.lock && !hasOffers && !x.visit?.available && !x.visit?.applied) return null;
+
+  const pay = async () => {
+    const amt = Number(payAmt);
+    if (!(amt >= 0) || !x.bookingId) return;
+    setBusy(true);
+    try {
+      await apiFetch(`/api/bookings/${x.bookingId}/pay`, { method: 'PUT', body: JSON.stringify({ isPaid: true, paidAmount: amt, receivedBy: me?.displayName || me?.username || '' }) });
+      await done(`سُجّل دفع ${amt} د.أ`);
+    } catch (e: any) { swalAlert(e?.message || 'تعذّر', 'error'); }
+    finally { setBusy(false); }
+  };
+  const openMove = async () => {
+    setMoveOpen(!moveOpen);
+    if (!acts.length) {
+      try {
+        const r: any = await apiFetch('/api/activities');
+        const list = (Array.isArray(r) ? r : r?.activities || []).filter((a: any) => ['planned', 'active'].includes(a.status) && Number(a.id) !== Number(x.activityId)
+          && new Date(a.date).getTime() > Date.now() - 6 * 3600e3).sort((p: any, q: any) => new Date(p.date).getTime() - new Date(q.date).getTime()).slice(0, 20);
+        setActs(list); if (list[0]) setMoveTo(String(list[0].id));
+      } catch { /* بلا قائمة */ }
+    }
+  };
+  const move = async () => {
+    if (!moveTo) return;
+    const a = acts.find((z) => String(z.id) === moveTo);
+    if (!(await swalConfirm(`نقل الحجز إلى «${a?.name || ''}»؟\nيُنقل معه مقعده في التطبيق، ويُعاد تقييم السعر المبكّر، وتصله رسالة تثبيت للموعد الجديد.`, { confirmText: 'انقل' }))) return;
+    setBusy(true);
+    try {
+      await withCapChoice((extra) => apiFetch(`/api/reservations/${resId}/move`, { method: 'POST', body: JSON.stringify({ toActivityId: Number(moveTo), ...extra }) }));
+      swalToast('نُقل الحجز', 'success'); onChanged?.();
+    } catch (e: any) { if (!e?.cancelled) swalAlert(e?.message || 'تعذّر', 'error'); }
+    finally { setBusy(false); }
+  };
+  const setManual = async (clear: boolean) => {
+    setBusy(true);
+    try {
+      await apiFetch(`/api/reservations/${resId}/price`, { method: 'POST', body: JSON.stringify({ price: clear ? null : Number(price), reason: priceWhy || (clear ? 'أُعيد للسعر العاديّ' : '') }) });
+      setPriceOpen(false); setPrice(''); setPriceWhy('');
+      await done(clear ? 'عاد للسعر العاديّ' : 'حُفظ السعر اليدويّ');
+    } catch (e: any) { swalAlert(e?.message || 'تعذّر', 'error'); }
+    finally { setBusy(false); }
+  };
 
   const done = async (msg: string) => { swalToast(msg, 'success'); setPick(null); setReason(''); await load(); onChanged?.(); };
   const applyOffer = async () => {
@@ -51,7 +103,7 @@ export default function OfferLoyaltyBox({ resId, onChanged }: { resId: number; o
 
   return (
     <div className="res-offerbox">
-      <div className="h"><Tag />العرض والولاء</div>
+      <div className="h"><Tag />المال والعروض</div>
       {x.paid && <p className="res-fine">الحجز مدفوع — تعديل السعر من نافذة الدفع.</p>}
       <div className="row">
         <span>{x.visit?.applied ? '🎟️ زيارة ولاء — دخوله مجّاناً' : x.lock ? `💸 بسعر ${x.lock.unitPrice} د.أ للشخص` : 'بالسعر العاديّ'}</span>
@@ -84,6 +136,43 @@ export default function OfferLoyaltyBox({ resId, onChanged }: { resId: number; o
         <button type="button" className="wa-btn ghost block" disabled={busy} onClick={() => visit(false)}>
           <Undo2 />أعد زيارة الولاء إليه
         </button>
+      )}
+
+      {/* 💵 الدفع — صفّ حجز صاحبه (المرافقون بلا صفوف مالٍ حتّى م٥) */}
+      <div className="row">
+        <span>المتوقَّع <span className="ltr">{x.expected}</span> د.أ{x.people > 1 ? ` (${x.people} أشخاص)` : ''} · {x.pay?.isFree ? 'مجّانيّ' : x.pay?.isPaid ? <>مدفوع <span className="ltr">{x.pay.paidAmount}</span> د.أ</> : 'غير مدفوع'}</span>
+      </div>
+      {x.pay && !x.pay.isPaid && !x.pay.isFree && (x.feeOnBill
+        ? <p className="res-fine">الدخوليّة على فاتورة المقهى في هذه الفعاليّة — تُحصَّل من الكاشير مع الفاتورة.</p>
+        : !payOpen
+          ? <button type="button" className="wa-btn ghost block" disabled={busy} onClick={() => { setPayAmt(String(x.expected)); setPayOpen(true); }}><Banknote />سجّل دفع الدخول</button>
+          : <>
+              <Field value={payAmt} onChange={setPayAmt} placeholder="المبلغ المستلم (د.أ)" dir="ltr" inputMode="numeric" />
+              <button type="button" className="wa-btn send block" disabled={busy || !(Number(payAmt) >= 0)} onClick={pay}>ثبّت الدفع</button>
+            </>)}
+      {!x.pay && x.playerId == null && <p className="res-fine">بلا حساب لاعب — الدفع يُسجَّل من الكاشير.</p>}
+
+      {/* 🔀 النقل لفعاليّةٍ أخرى */}
+      <button type="button" className="wa-btn ghost block" disabled={busy} onClick={openMove}><ArrowLeftRight />انقل لفعاليّةٍ أخرى</button>
+      {moveOpen && (
+        <>
+          <select className="wa-input" value={moveTo} onChange={(e) => setMoveTo(e.target.value)} aria-label="الفعاليّة">
+            {acts.map((a) => <option key={a.id} value={a.id}>{a.name} — {new Date(a.date).toLocaleDateString('ar-JO', { timeZone: 'Asia/Amman', weekday: 'long', day: 'numeric', month: 'numeric' })}</option>)}
+          </select>
+          <button type="button" className="wa-btn send block" disabled={busy || !moveTo} onClick={move}>انقل الحجز</button>
+        </>
+      )}
+
+      {/* 💵 سعرٌ يدويّ — للأدمن وحده، بسبب */}
+      {isAdmin && !x.paid && !x.visit?.applied && (
+        !priceOpen
+          ? <button type="button" className="wa-btn ghost block" disabled={busy} onClick={() => setPriceOpen(true)}>سعرٌ يدويّ للشخص</button>
+          : <>
+              <Field value={price} onChange={setPrice} placeholder="السعر للشخص (د.أ)" dir="ltr" inputMode="numeric" />
+              <Field value={priceWhy} onChange={setPriceWhy} placeholder="السبب (إلزاميّ)" />
+              <button type="button" className="wa-btn send block" disabled={busy || price === '' || !priceWhy.trim()} onClick={() => setManual(false)}>احفظ السعر</button>
+              {x.lock && <button type="button" className="wa-btn ghost block" disabled={busy} onClick={() => setManual(true)}>أعده للسعر العاديّ</button>}
+            </>
       )}
     </div>
   );

@@ -3819,25 +3819,11 @@ ${rows.length} حجزاً: ${dueBreakdown(rows)} = *${total2} د.أ*
           .from(activities).where(eq(activities.id, p.toId)).limit(1);
         const [fromAct] = await db.select({ name: activities.name }).from(activities).where(eq(activities.id, p.fromId)).limit(1);
 
-        await db.update(reservations).set({
-          activityId: p.toId,
-          notes: `${res.notes ? res.notes + ' · ' : ''}🔀 نُقل من «${fromAct?.name || p.fromId}» بقرار الأدمن`,
-        } as any).where(eq(reservations.id, res.id));
-
-        // مرآة حجز التطبيق مربوطة بالفعاليّة القديمة — تُنقل معها وإلا بقي المقعد
-        // محسوباً على الفعاليّة القديمة وضاع من الجديدة (نفس منطق الإلغاء المتتالي)
-        let movedMirror = 0;
-        if (res.appConfirmed || res.createdBy === 'player-app') {
-          const upd = await db.update(bookings).set({ activityId: p.toId } as any).where(and(
-            eq(bookings.activityId, p.fromId),
-            isNull(bookings.deletedAt),
-            or(eq(bookings.phone, p.phone), res.playerId ? eq(bookings.playerId, res.playerId) : sql`false`),
-          )).returning({ id: bookings.id });
-          movedMirror = upd.length;
-        }
-        await onReservationMoved(res.id);   // 💸 السعر المبكّر يُعاد تقييمه على الفعاليّة الجديدة لحظة النقل
-        // 📋 موعدٌ ومكانٌ جديدان ⟵ رسالة تثبيت للفعاليّة الجديدة إن كان مثبّتاً (والمنتظر للقديمة يسقط)
-        import('./reservation-confirm.service.js').then(m => m.scheduleReservationConfirm(res.id, 'move', conv.displayName || 'أدمن البوت')).catch(() => {});
+        // 🔀 م٦: الأمر الموحّد (صفّ الحجز المرتبط، السعر المبكّر، رسالة التثبيت، الدور، السجلّ) — الأدمن سلطةٌ صريحة فوق السعة
+        const { moveReservation } = await import('./booking-commands.service.js');
+        const mv = await moveReservation(res.id, Number(p.toId), { channel: 'botadmin', actor: String(conv.displayName || 'أدمن البوت').slice(0, 120) }, { overCap: true, reason: 'بقرار الأدمن عبر البوت' });
+        if (!mv.ok) { await sendMessage({ conversationId: convId, text: `ما نقلت 🙏 ${mv.error || ''}`.trim(), source: 'system' }); return; }
+        const movedMirror = mv.movedBookings || 0;
         const mirrorNote = movedMirror ? `\n(نُقل معه ${movedMirror} حجز تطبيق)` : '';
         await sendMessage({ conversationId: convId, text: `تمّ ✅ نُقل حجز ${p.phone} (${res.peopleCount} أشخاص) من «${fromAct?.name || ''}» إلى «${toAct?.name || ''}» ${toAct ? `(${fmtJo(toAct.date)})` : ''}.${mirrorNote}`, source: 'system' });
         console.log(`🔒 WA bot ADMIN move-booking res=${res.id} ${p.fromId}→${p.toId} by conv ${convId}`);

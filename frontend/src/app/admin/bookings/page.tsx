@@ -40,6 +40,13 @@ function getBookingStatus(b: any): 'paid' | 'free' | 'unpaid' {
 }
 
 export default function BookingsPage() {
+  // 🧭 ق١٠ (خطّة التوحيد م٦): كلّ أفعال الحجز صارت في «متابعة الحجوزات» — الصفحة القديمة تحوّل إليها.
+  //    ?legacy=1 يفتحها كما هي للطوارئ.
+  useEffect(() => {
+    try {
+      if (new URLSearchParams(window.location.search).get('legacy') !== '1') window.location.replace('/admin/reservations');
+    } catch { /* تبقى */ }
+  }, []);
   const user = useMemo(() => getUser(), []);
 
   // ── Data ──
