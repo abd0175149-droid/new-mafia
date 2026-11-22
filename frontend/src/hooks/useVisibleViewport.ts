@@ -15,6 +15,12 @@
 //
 // ويُضاف «تنبيهٌ» عند إغلاق اللوحة: تمريرٌ بنقطةٍ ذهاباً وإياباً يجبر iOS على إعادة
 // حساب المنظور (الحلّ المعروف للانزياح العالق) — بلا أثرٍ مرئيّ في غيره.
+//
+// 🔴 iOS 26 (2026-11-22، الشريط عاد يطفو ~٣٧٥ نقطة — ارتفاعُ اللوحة): في التطبيق المثبَّت
+//    يبقى منظورُ التخطيط كلُّه منكمشاً بعد أن تُغلق اللوحة — innerHeight وvisualViewport
+//    معاً — فلا فرقَ بينهما يُقاس، والتنبيهُ لا يُصلحه. على الهاتف المثبَّت لا شيءَ غير
+//    اللوحة يُقصِّر الشاشة، فنحفظ أطولَ ارتفاعٍ رأيناه لهذا العرض («الشاشةُ كاملة») ونُنزل
+//    المثبَّتَ أسفل إليه. (WebKit 297779 · منتدى آبل 800125)
 // ══════════════════════════════════════════════════════
 
 import { useEffect, useState } from 'react';
@@ -25,12 +31,33 @@ const ZERO: VisibleViewport = { shiftTop: 0, shiftBottom: 0, keyboard: false };
 const isEditable = (el: Element | null) =>
   !!el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || (el as HTMLElement).isContentEditable);
 
+/** هاتفٌ والتطبيقُ مثبَّتٌ على الشاشة الرئيسيّة — لا شريطَ متصفّحٍ يُغيّر الارتفاع، ولا نوافذَ تُصغَّر */
+const standalonePhone = () => {
+  try {
+    const sa = (navigator as Navigator & { standalone?: boolean }).standalone === true
+      || window.matchMedia('(display-mode: standalone)').matches;
+    return sa && Math.min(screen.width, screen.height) < 600;
+  } catch { return false; }
+};
+
+// 📏 «الشاشةُ كاملة»: أطولُ innerHeight رأيناه لهذا العرض بلا كتابة — يبقى بين الصفحات
+//    (مستوى الوحدة)، ويُصفَّر بالدوران. لا يتجاوز الشاشةَ نفسها (لحظاتُ الدوران تكذب).
+let fullW = 0, fullH = 0;
+function noteFull(): number {
+  const w = window.innerWidth, h = window.innerHeight;
+  if (Math.abs(w - fullW) > 1) { fullW = w; fullH = 0; }
+  const cap = Math.abs(w - screen.width) < 2 ? screen.height : Math.abs(w - screen.height) < 2 ? screen.width : h;
+  if (!isEditable(document.activeElement)) fullH = Math.max(fullH, Math.min(h, cap));
+  return fullH;
+}
+
 export function useVisibleViewport(): VisibleViewport {
   const [v, setV] = useState<VisibleViewport>(ZERO);
 
   useEffect(() => {
     const vv = typeof window !== 'undefined' ? window.visualViewport : null;
     if (!vv) return;
+    const pinned = standalonePhone();
     let raf = 0;
     const measure = () => {
       cancelAnimationFrame(raf);
@@ -38,11 +65,17 @@ export function useVisibleViewport(): VisibleViewport {
         // مكبَّرٌ بالقرص؟ لا نلاحق — التكبير قرارُ المستخدم والإزاحةُ فيه طبيعيّة
         if (vv.scale > 1.01) { setV(p => (p === ZERO ? p : ZERO)); return; }
         const top = Math.round(vv.offsetTop);
-        const gap = Math.round(window.innerHeight - (vv.offsetTop + vv.height));   // >0: شيءٌ يغطّي الأسفل (اللوحة)
-        const keyboard = gap > 120 && isEditable(document.activeElement);
+        const ih = window.innerHeight;
+        const gap = Math.round(ih - (vv.offsetTop + vv.height));   // >0: شيءٌ يغطّي الأسفل (اللوحة)
+        const full = pinned ? noteFull() : 0;
+        const lost = full ? Math.round(full - ih) : 0;              // >0: منظورٌ منكمشٌ عن الشاشة (لوحةٌ مفتوحة أو عالقة)
+        const keyboard = isEditable(document.activeElement) && (gap > 120 || lost > 120);
+        // أسفلُ ما يُرى فعلاً: أسفلُ المنظور المرئيّ — وفي الهاتف المثبَّت أسفلُ الشاشة كاملة
+        const seen = Math.max(vv.height, full);
+        const down = Math.round(vv.offsetTop + seen - ih);
         const next: VisibleViewport = {
           shiftTop: top > 2 ? top : 0,
-          shiftBottom: !keyboard && gap < -2 ? -gap : 0,
+          shiftBottom: !keyboard && down > 2 ? down : 0,
           keyboard,
         };
         setV(p => (p.shiftTop === next.shiftTop && p.shiftBottom === next.shiftBottom && p.keyboard === next.keyboard ? p : next));
@@ -61,6 +94,7 @@ export function useVisibleViewport(): VisibleViewport {
     measure();
     vv.addEventListener('resize', measure);
     vv.addEventListener('scroll', measure);
+    window.addEventListener('resize', measure);
     window.addEventListener('scroll', measure, { passive: true });
     window.addEventListener('focusin', measure);
     window.addEventListener('focusout', onFocusOut);
@@ -69,6 +103,7 @@ export function useVisibleViewport(): VisibleViewport {
       cancelAnimationFrame(raf);
       vv.removeEventListener('resize', measure);
       vv.removeEventListener('scroll', measure);
+      window.removeEventListener('resize', measure);
       window.removeEventListener('scroll', measure);
       window.removeEventListener('focusin', measure);
       window.removeEventListener('focusout', onFocusOut);
