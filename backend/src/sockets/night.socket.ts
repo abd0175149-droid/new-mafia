@@ -840,6 +840,25 @@ export function registerNightEvents(io: Server, socket: Socket) {
       io.to(data.roomId).emit('game:phase-changed', { phase: Phase.NIGHT, teamCounts: publicTeamCounts(state) });
       io.to(data.roomId).emit('display:night-started');
 
+      // 🔪👥 تجهيزُ أدوار الليل كما في night:start — هذا المسار كان يتخطّاها (2026-11-22):
+      //    night:start يعود مبكّراً حين يخرج كلُّ طبيبٍ والممرّضةُ حيّة، فلا يُهيَّأ السفّاح
+      //    ولا التوأمان ⇒ السفّاحُ بلا عقودٍ ولا خطوةِ اغتيال طوال اللعبة، واختيارُه يُحسب
+      //    اختيارَ لاعبٍ بلا دور. (لعبة 965: الطبيب خرج بالقنبلة نهارَ الجولة الأولى.)
+      //    الجولةُ زِيدت في night:start قبل العودة ⇒ «أوّلُ ليلة» هنا = الجولة ≤ 2.
+      const firstNight = (state.round || 1) <= 2;
+      if (!state.assassinState || firstNight) {
+        const inited = initAssassinStates(state);
+        if (inited.length) console.log(`🔪 [nurse] Assassin initialized: ${inited.length} state(s), ${inited[0].totalRequired} contracts`);
+      }
+      emitAssassinContracts(io, data.roomId, state);
+      if (firstNight && !state.twinState) {
+        const twinState = initTwinState(state);
+        if (twinState) {
+          state.twinState = twinState;
+          console.log(`👥 [nurse] Twin Bond initialized: Older #${twinState.olderBrotherPhysicalId} ↔ Younger #${twinState.youngerBrotherPhysicalId}`);
+        }
+      }
+
       await setGameState(data.roomId, state);
 
       // 🌙 الليلة الواحدة بعد قرار الممرّضة — لا طابور، يتبعها night:one-start
@@ -1475,6 +1494,8 @@ export function registerNightEvents(io: Server, socket: Socket) {
 
       const event = state.morningEvents[data.eventIndex];
       if (!event) return callback({ success: false, error: 'Event not found' });
+      // 🔒 للموجّه وحده — لا يصل الشاشة مهما طُلب (فعلُ معطَّلٍ أُلغي)
+      if ((event.type as string) === 'ABILITY_VOIDED') return callback({ success: false, error: 'هذا البند للموجّه وحده' });
 
       // 🔍 بند الشريف (قرار المالك 2026-11-20): الشاشة تعرض الكرت وحده — «مواطن صالح» أو «مافيا».
       //    لا رقم ولا اسم ولا دور: الهدفُ لا يُرسل أصلاً، فلا يظهر على الشاشة حتّى بالخطأ.

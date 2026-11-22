@@ -22,6 +22,7 @@ const EVENT_META: Record<string, { icon: string; title: string; color: string; d
   ASSASSIN_KILL:         { icon: '🔪', title: 'السفّاح اغتال', color: 'text-[#e0728a]', displayable: true },
   ASSASSIN_BLOCKED:      { icon: '🛡️', title: 'حماية ضدّ السفّاح', color: 'text-[#8fc3ea]', displayable: true },
   ABILITY_DISABLED:      { icon: '🧙‍♀️', title: 'تعطيل قدرة', color: 'text-[#b98be0]', displayable: true },
+  ABILITY_VOIDED:        { icon: '🚫', title: 'فعلٌ لم يُنفَّذ (صاحبه معطَّل)', color: 'text-[#888]', displayable: false },
   POLICEWOMAN_EXECUTION: { icon: '👮‍♀️', title: 'إعدام الشرطية', color: 'text-[#b98be0]', displayable: true },
   TWIN_SUICIDE:          { icon: '🩸', title: 'انتحار التوأم', color: 'text-[#e08a8a]', displayable: true },
   TWIN_TRANSFORM:        { icon: '🌑', title: 'الصحوة المظلمة', color: 'text-[#b98be0]', displayable: true },

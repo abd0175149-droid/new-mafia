@@ -264,6 +264,19 @@ export async function resolveNightDynamic(
     const performer = state.players.find(p => p.physicalId === action.performerPhysicalId);
     if (performer?.disabledUntilRound != null && performer.disabledUntilRound >= (state.round || 1)) {
       cancelledActions.add(actionKey(action));
+      // 🔒 للموجّه وحده (2026-11-22): القنّاصُ المعطَّل يقنص على هاتفه ولا يحدث شيء —
+      //    فيرى الموجّهُ في المراجعة قنصاً ثمّ لا يجده في الصباح. السطرُ يقول لماذا.
+      //    لا يُعرض على الشاشة ولا يصل الهواتف (displayable:false في الواجهات).
+      const target = state.players.find(p => p.physicalId === action.targetPhysicalId);
+      events.push({
+        type: 'ABILITY_VOIDED' as any,
+        targetPhysicalId: action.targetPhysicalId as number,
+        targetName: target?.name,
+        performerPhysicalId: performer.physicalId,
+        performerName: performer.name,
+        revealed: false,
+        extra: { abilityId: action.abilityId, performerRole: performer.role, disabledUntilRound: performer.disabledUntilRound },
+      } as any);
     }
   }
 

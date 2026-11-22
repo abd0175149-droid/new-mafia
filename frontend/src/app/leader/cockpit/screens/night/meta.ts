@@ -28,6 +28,7 @@ export const EVENT_META: Record<string, { icon: string; title: string; tone: EvT
   ASSASSIN_KILL:         { icon: '🔪', title: 'السفّاح اغتال',         tone: 'm',  displayable: true },
   ASSASSIN_BLOCKED:      { icon: '🛡️', title: 'حماية ضدّ السفّاح',     tone: 'ok', displayable: true },
   ABILITY_DISABLED:      { icon: '🔮', title: 'تعطيل قدرة',           tone: 'c',  displayable: true },
+  ABILITY_VOIDED:        { icon: '🚫', title: 'فعلٌ لم يُنفَّذ — صاحبه معطَّل', tone: 'n', displayable: false },
   TWIN_SUICIDE:          { icon: '🩸', title: 'انتحار التوأم',         tone: 'm',  displayable: true },
   TWIN_TRANSFORM:        { icon: '🌑', title: 'الصحوة المظلمة',        tone: 'm',  displayable: true },
   PHOENIX_REBIRTH:       { icon: '🔥', title: 'العنقاء نهض من رماده', tone: 'n',  displayable: false },
@@ -71,6 +72,10 @@ export function eventDetail(e: any): string {
       break;
     case 'ASSASSIN_BLOCKED': parts.push(`${t} — أُنقذ من السفّاح`); break;
     case 'ABILITY_DISABLED': parts.push(`${t} — قدرته معطّلة`); break;
+    case 'ABILITY_VOIDED':
+      parts.push(`${x.abilityId === 'SNIPE' ? 'قنص' : x.abilityId === 'ASSASSINATE' ? 'اغتيال السفّاح' : x.abilityId === 'KILL' ? 'اغتيال' : 'فعل'} ${who(e.performerPhysicalId, e.performerName)} على ${t}`);
+      parts.push(`عطّلته الساحرة حتى الجولة ${x.disabledUntilRound ?? '؟'} — لم يحدث شيء`);
+      return parts.filter(Boolean).join(' · ');
     case 'TWIN_SUICIDE': parts.push(`${t} — بعد موت أخيه الأصغر`); break;
     case 'TWIN_TRANSFORM': parts.push(`${t} — صار مافيا${x.newRoleName ? ` (${x.newRoleName})` : ''}`); break;
     default: if (t) parts.push(`${t}${role}`);

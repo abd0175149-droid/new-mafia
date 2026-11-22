@@ -46,6 +46,7 @@ const EVENT_META: Record<string, { icon: string; title: string; color: string; d
   ASSASSIN_KILL:        { icon: '🔪', title: 'السفّاح اغتال',     color: 'text-[#DC143C]', displayable: true },
   ASSASSIN_BLOCKED:     { icon: '🛡️', title: 'حماية ضد السفّاح',   color: 'text-[#2E5C31]', displayable: true },
   ABILITY_DISABLED:     { icon: '🔮', title: 'تعطيل قدرة',        color: 'text-[#9333ea]', displayable: true },
+  ABILITY_VOIDED:       { icon: '🚫', title: 'فعلٌ لم يُنفَّذ (صاحبه معطَّل)', color: 'text-[#888]', displayable: false },
   TWIN_SUICIDE:         { icon: '🩸', title: 'انتحار التوأم',      color: 'text-[#8A0303]', displayable: true },
   TWIN_TRANSFORM:       { icon: '🌑', title: 'الصحوة المظلمة',     color: 'text-[#6b21a8]', displayable: true },
   // 🔥 نهوضُ العنقاء — للموجّه وحده: يعرف لماذا لم يمت أحد، والقاعةُ ترى
