@@ -7,6 +7,7 @@ import '../../core/api/api_client.dart';
 import '../../core/security/secret_watermark.dart';
 import '../../models/game.dart';
 import '../../models/profile.dart';
+import '../guide/guide_targets.dart';
 import '../profile/profile_palette.dart';
 
 // ══════════════════════════════════════════════════════
@@ -249,7 +250,7 @@ class _MafiaTeamGalleryState extends State<MafiaTeamGallery>
               child: Center(
                 child: ConstrainedBox(
                   constraints: const BoxConstraints(maxWidth: 420),
-                  child: Container(
+                  child: GuideTarget(id: 'team-gallery', child: Container(
                     padding: const EdgeInsets.fromLTRB(12, 10, 12, 12),
                     decoration: BoxDecoration(
                       borderRadius: BorderRadius.circular(20),
@@ -273,7 +274,15 @@ class _MafiaTeamGalleryState extends State<MafiaTeamGallery>
                       const SizedBox(height: 10),
                       // الشبكة فوق الزرّ — اليد لا تغطّي شيئاً
                       Expanded(
-                        child: _wm(_RevealArea(
+                        child: _revealed ? GuideTarget(id: 'team-on', child: _wm(_RevealArea(
+                          revealed: _revealed,
+                          slotCount: _slotCount,
+                          identities: _revealed ? _identities() : const [],
+                          sibling: _revealed ? widget.sibling : null,
+                          contracts: _revealed && widget.isAssassin
+                              ? widget.contracts
+                              : null,
+                        ))) : _wm(_RevealArea(
                           revealed: _revealed,
                           slotCount: _slotCount,
                           identities: _revealed ? _identities() : const [],
@@ -284,16 +293,16 @@ class _MafiaTeamGalleryState extends State<MafiaTeamGallery>
                         )),
                       ),
                       const SizedBox(height: 12),
-                      _HoldButton(
+                      GuideTarget(id: 'team-btn', child: _HoldButton(
                         listenerKey: _buttonKey,
                         pressed: _revealed,
                         onDown: _down,
                         onMove: _move,
                         onUp: _end,
                         onCancel: _end,
-                      ),
+                      )),
                     ]),
-                  ),
+                  )),
                 ),
               ),
             ),

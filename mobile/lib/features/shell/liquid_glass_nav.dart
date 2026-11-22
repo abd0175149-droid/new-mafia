@@ -7,6 +7,7 @@ import '../../core/ui/glass_tokens.dart';
 import 'bottom_nav.dart' show NavTab, navTabs, kCenterTab;
 import 'native_glass.dart';
 import '../game/room_v2/room_bus.dart';
+import '../guide/guide_targets.dart';
 import 'dart:async';
 
 // ══════════════════════════════════════════════════════
@@ -110,7 +111,7 @@ class _LiquidGlassNavState extends State<LiquidGlassNav> {
             // الانكماش فيضيق الشريط بنسبةٍ توازي نقصان ارتفاعه.
             padding: EdgeInsets.fromLTRB(
               lerpDouble(38, 16, t)!, 0, lerpDouble(38, 16, t)!, 8),
-            child: SizedBox(
+            child: GuideTarget(id: 'nav', child: SizedBox(
               // الزرّ المركزيّ يعلو الكبسولة، فيُحجز له ارتفاعه هنا
               // وإلا قُصّ — العطل نفسه الموثَّق في الشريط الكلاسيكيّ.
               //
@@ -163,18 +164,18 @@ class _LiquidGlassNavState extends State<LiquidGlassNav> {
                                   onTap: () => onTap(i),
                                   iconInsteadPlaceholder: true,
                                 )
-                              : _GlassTab(
+                              : GuideTarget(id: _kNavIds[i], child: _GlassTab(
                                   tab: navTabs[i],
                                   active: index == i,
                                   labelT: t,
                                   onTap: () => onTap(i),
-                                ),
+                                )),
                       ],
                     ),
                   ),
                   Positioned(
                     bottom: barH - _kCenterSize + _kCenterLift,
-                    child: Stack(clipBehavior: Clip.none, alignment: Alignment.center, children: [
+                    child: GuideTarget(id: _roomActive ? 'nav-game' : 'nav-join', child: Stack(clipBehavior: Clip.none, alignment: Alignment.center, children: [
                       _GlassCenterTab(
                         transparent: _native,
                         solid: solid,
@@ -186,11 +187,11 @@ class _LiquidGlassNavState extends State<LiquidGlassNav> {
                       ),
                       // ⏱️ حلقة وقت المرحلة وشارة السلّة — كالويب
                       if (_roomActive) IgnorePointer(child: _RoomRing(state: RoomBus.state.value)),
-                    ]),
+                    ])),
                   ),
                 ],
               ),
-            ),
+            )),
           ),
         ),
       ),
@@ -484,6 +485,8 @@ class _GlassCenterTabState extends State<_GlassCenterTab> {
 
 /// 📱 تبويب المنتصف داخل الغرفة (الواجهة الجديدة)
 const _kGameTab = NavTab('اللعبة', Icons.casino_outlined);
+/// 🕴️ أسماء نقاط الإضاءة لتبويبات الشريط — بترتيب navTabs
+const _kNavIds = ['nav-home', 'nav-games', 'nav-join', 'nav-rank', 'nav-profile'];
 
 /// ⏱️ حلقة وقت المرحلة حول زرّ «اللعبة» + شارة السلّة — تُعاد كلّ ثانية
 class _RoomRing extends StatefulWidget {

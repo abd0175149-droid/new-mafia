@@ -1,3 +1,4 @@
+import '../features/guide/training/training_room.dart' show GuideRoomGate;
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 
@@ -206,12 +207,15 @@ GoRouter buildRouter(AppConfig config) {
                 key: gamesTabKey,
                 focusActivityId: int.tryParse(s.uri.queryParameters['activityId'] ?? ''),
               )),
+          // 🕴️ غرفة التدريب تُعرض في هذا التبويب ما دامت جولة «الليلة الأولى» فيها
           _branch(
               Routes.join,
-              (_, s) => GameScreen(
-                    initialRoomCode: s.uri.queryParameters['code'],
-                    invite: s.uri.queryParameters['invite'] == '1',
-                    inviterName: s.uri.queryParameters['by'],
+              (_, s) => GuideRoomGate(
+                    child: GameScreen(
+                      initialRoomCode: s.uri.queryParameters['code'],
+                      invite: s.uri.queryParameters['invite'] == '1',
+                      inviterName: s.uri.queryParameters['by'],
+                    ),
                   )),
           // `?city=` يصل من إشعار ترقيةٍ بمدينتها — يفتح اللوحة عليها
           _branch(

@@ -17,6 +17,8 @@ import '../../models/night.dart';
 import '../../models/notepad.dart';
 import '../../models/vote_history.dart';
 
+part 'sim_session.dart';
+
 // ══════════════════════════════════════════════════════
 // 🎮 متحكّم جلسة اللعب — الملفّ 20
 // ══════════════════════════════════════════════════════
@@ -549,6 +551,19 @@ class GameSessionController extends ChangeNotifier with WidgetsBindingObserver {
   }
 
   /// «مهامّي» في الواجهة الجديدة: الخادم يقرّر الفتح (المُقصى يُمنع) ويُبلَّغ الليدر.
+  /// 🃏 أدوار هذه الطاولة لدليل الأدوار — null قبل البدء أو عند الفشل (فيُعرض الدليل كلّه).
+  ///    تستبدلها جلسة التدريب بأدوار طاولتها.
+  Future<List<String>?> rolesInPlayIds() async {
+    try {
+      final res = await SocketService.instance.ask('game:roles-in-play', const {});
+      if (res != null && res['started'] == true && res['roleIds'] is List) {
+        final l = (res['roleIds'] as List).map((e) => '$e').toList();
+        if (l.isNotEmpty) return l;
+      }
+    } catch (_) {}
+    return null;
+  }
+
   Future<String?> requestTasksOpen() async {
     try {
       final r = await SocketService.instance.ask('player:my-tasks-open', {'roomId': _roomId});

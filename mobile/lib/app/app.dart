@@ -1,3 +1,4 @@
+import '../features/guide/guide_host.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
@@ -186,6 +187,9 @@ class _MafiaAppState extends State<MafiaApp> with WidgetsBindingObserver {
               fit: StackFit.expand,
               children: [
                 child ?? const SizedBox.shrink(),
+                // 🕴️ جولة «الليلة الأولى» — فوق كلّ المسارات (الأوراق والحوارات) وتحت البوّابات:
+                //    تنتظر حتى تُغلق كلّها، ومطفأةً من الداشبورد لا ترسم شيئاً
+                GuideHost(blocked: _showWelcome || _showGate || _showLocationGate || _showBirthday || _showConsent || _showWaGate || _blocked != null),
                 // 🚶 شاشة الترحيب فوق كلّ شيء عند كلّ فتحٍ للتطبيق (مسجَّلاً أم لا) — قرار المالك 2026-09-12
                 if (_showWelcome) Positioned.fill(child: WelcomeScene(onDone: () => setState(() => _showWelcome = false))),
                 if (_showGate) const Positioned.fill(child: _Gate()),

@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 import '../../models/game.dart';
 import '../profile/profile_palette.dart';
 import 'game_session_controller.dart';
+import '../guide/guide_targets.dart';
 
 // ══════════════════════════════════════════════════════
 // 🎤 مرحلة النقاش — §4.2 في الملفّ ٢٥
@@ -66,9 +67,9 @@ class _DiscussionBodyState extends State<DiscussionBody> {
 
     if (widget.v2) {
       return Column(children: [
-        if (mine) _MyTurnBanner(timeUp: over),
+        if (mine) GuideTarget(id: 'my-turn', child: _MyTurnBanner(timeUp: over)),
         if (mine) const SizedBox(height: 16),
-        _SpeakerRing(controller: c, d: d, left: left, over: over),
+        GuideTarget(id: 'disc-speaker', child: _SpeakerRing(controller: c, d: d, left: left, over: over)),
         const SizedBox(height: 20),
         _order(c, d),
       ]);

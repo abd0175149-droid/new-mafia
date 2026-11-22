@@ -6,7 +6,6 @@ import '../../../core/api/game_config_service.dart';
 import '../../../core/api/roles_guide_service.dart';
 import '../../../core/cosmetics/cosmetics_service.dart';
 import '../../../core/security/secret_watermark.dart';
-import '../../../core/socket/socket_service.dart';
 import '../../../core/storage/session_store.dart';
 import '../../../models/game.dart';
 import '../../cosmetics/mafia_card_view.dart';
@@ -21,6 +20,7 @@ import '../my_tasks_sheet.dart' show showMyTasks;
 import '../notepad_sheet.dart';
 import '../roles_deck_sheet.dart';
 import '../voting_view.dart';
+import '../../guide/guide_targets.dart';
 import 'hold_reveal.dart';
 import 'room_bus.dart';
 
@@ -61,11 +61,15 @@ String _watermark(GameSessionController c) {
 }
 
 class PlayerRoomV2 extends StatefulWidget {
-  const PlayerRoomV2({super.key, required this.controller, required this.openGallery, required this.openOrder, this.cartCount = 0});
+  const PlayerRoomV2({super.key, required this.controller, required this.openGallery, required this.openOrder, this.cartCount = 0, this.topSlot, this.openNotes, this.voteHint});
   final GameSessionController controller;
   final VoidCallback openGallery;
   final VoidCallback openOrder;
   final int cartCount;
+  /// 🕴️ غرفة التدريب وحدها: نافذة القاعة تحت الشريط العلويّ، وبديل المفكّرة، وهمسة التصويت
+  final Widget? topSlot;
+  final VoidCallback? openNotes;
+  final Widget? voteHint;
   @override
   State<PlayerRoomV2> createState() => _PlayerRoomV2State();
 }
@@ -81,7 +85,7 @@ class _PlayerRoomV2State extends State<PlayerRoomV2> {
   void initState() {
     super.initState();
     c.uiV2 = true;
-    RoomBus.setHubOpener(() => openRoomHub(context, c, openGallery: widget.openGallery, openOrder: widget.openOrder, cartCount: widget.cartCount));
+    RoomBus.setHubOpener(() => openRoomHub(context, c, openGallery: widget.openGallery, openOrder: widget.openOrder, cartCount: widget.cartCount, openNotes: widget.openNotes));
     _tick = Timer.periodic(const Duration(seconds: 1), (_) { if (mounted) { _syncBus(); setState(() {}); } });
     WidgetsBinding.instance.addPostFrameCallback((_) => _syncBus());
   }
@@ -89,7 +93,7 @@ class _PlayerRoomV2State extends State<PlayerRoomV2> {
   @override
   void didUpdateWidget(covariant PlayerRoomV2 old) {
     super.didUpdateWidget(old);
-    RoomBus.setHubOpener(() => openRoomHub(context, c, openGallery: widget.openGallery, openOrder: widget.openOrder, cartCount: widget.cartCount));
+    RoomBus.setHubOpener(() => openRoomHub(context, c, openGallery: widget.openGallery, openOrder: widget.openOrder, cartCount: widget.cartCount, openNotes: widget.openNotes));
   }
 
   @override
@@ -132,7 +136,7 @@ class _PlayerRoomV2State extends State<PlayerRoomV2> {
       textDirection: TextDirection.rtl,
       child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, mainAxisSize: MainAxisSize.min, children: [
         // ── الشريط العلويّ: المقعد، المرحلة، الوقت ──
-        Container(
+        GuideTarget(id: 'room-top', child: Container(
           padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
           decoration: const BoxDecoration(color: _panel, border: Border(bottom: BorderSide(color: Color(0x33C5A059)))),
           child: Row(children: [
@@ -154,11 +158,12 @@ class _PlayerRoomV2State extends State<PlayerRoomV2> {
             if (t != null)
               Text(mmss(t.secs), style: mono(18, color: t.secs <= 10 ? const Color(0xFFEF4444) : _gold).copyWith(fontWeight: FontWeight.w900)),
           ]),
-        ),
+        )),
         const SizedBox(height: 10),
+        if (widget.topSlot != null) ...[widget.topSlot!, const SizedBox(height: 10)],
         // ── الأحياء بالفرق ──
         if (ph != GamePhase.lobby && ((mafia ?? 0) + (cit ?? 0)) > 0)
-          Padding(
+          GuideTarget(id: 'room-teams', child: Padding(
             padding: const EdgeInsets.only(bottom: 10),
             child: Row(mainAxisAlignment: MainAxisAlignment.center, children: [
               _teamPill(const Color(0xFFEF4444), mafia ?? 0, 'مافيا'),
@@ -166,7 +171,7 @@ class _PlayerRoomV2State extends State<PlayerRoomV2> {
               _teamPill(const Color(0xFF60A5FA), cit ?? 0, 'مواطنون'),
               if ((neu ?? 0) > 0) ...[const SizedBox(width: 14), _teamPill(const Color(0xFFA78BFA), neu!, 'مستقلّ')],
             ]),
-          ),
+          )),
         if (c.isPlayerDead && ph != GamePhase.gameOver)
           Container(
             margin: const EdgeInsets.only(bottom: 10),
@@ -211,7 +216,7 @@ class _PlayerRoomV2State extends State<PlayerRoomV2> {
           icon: has ? Icons.style_outlined : Icons.shield_outlined,
           title: has ? 'تم تعيين مهمّتك' : ph == GamePhase.roleGeneration ? 'جاري تجهيز الأدوار' : 'اكتمل التشفير',
           text: has ? 'غطِّ الشاشة بكفّك واضغط البطاقة مطوّلاً فتنقلب — والمسها مرّةً لتعيدها.' : 'ضع هاتفك أمامك وتابع شاشة القاعة — يوزّع الليدر الأدوار بعد قليل.',
-          child: PeekCardV2(controller: c),
+          child: GuideTarget(id: 'room-card', child: PeekCardV2(controller: c)),
         );
       case GamePhase.night:
         return _hero(icon: Icons.nightlight_outlined, title: 'الليل يسدل ستاره',
@@ -223,7 +228,7 @@ class _PlayerRoomV2State extends State<PlayerRoomV2> {
         return _hero(
           icon: Icons.wb_sunny_outlined, title: 'الصباح يطلّ', text: 'تُكشف أحداث الليلة على شاشة القاعة — تابِعْ معها.',
           child: HoldRevealButton(
-            title: '📨 رسالة الليل', hint: 'وصلت كلَّ الهواتف معاً — اضغط مطوّلاً وغطِّ بكفّك', panelTitle: '📨 رسالة الليل', watermark: _watermark(c),
+            title: '📨 رسالة الليل', hint: 'وصلت كلَّ الهواتف معاً — اضغط مطوّلاً وغطِّ بكفّك', panelTitle: '📨 رسالة الليل', watermark: _watermark(c), guideId: 'night-msg',
             onShow: c.enterSecretScreen, onHide: c.leaveSecretScreen,
             builder: (_) => mine != null
                 ? Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
@@ -241,11 +246,11 @@ class _PlayerRoomV2State extends State<PlayerRoomV2> {
           ),
         );
       case GamePhase.dayVoting:
-        return VoteGridV2(controller: c);
+        return VoteGridV2(controller: c, hint: widget.voteHint);
       case GamePhase.dayDiscussion:
         return Column(children: [
           DiscussionBody(controller: c, v2: true),
-          if (alive) ...[const SizedBox(height: 20), ConfrontationPanel(controller: c), DealsButton(controller: c)],
+          if (alive) ...[const SizedBox(height: 20), ConfrontationPanel(controller: c), GuideTarget(id: 'deals-btn', child: DealsButton(controller: c))],
         ]);
       case GamePhase.dayJustification:
         return JustificationBody(controller: c);
@@ -319,16 +324,18 @@ class _PeekCardV2State extends State<PeekCardV2> with WidgetsBindingObserver {
     );
     if (!peekable) return card;
     return _open
-        ? GestureDetector(onTap: _close, child: SecretWatermark(label: _watermark(c), opacity: 0.08, child: card))
+        ? GuideTarget(id: 'room-card-open', child: GestureDetector(onTap: _close, child: SecretWatermark(label: _watermark(c), opacity: 0.08, child: card)))
         : LongHold(onOpen: _openCard, child: card);
   }
 }
 
 // ══ 🌙 الليل — شاشةٌ واحدة للجميع (طبقةٌ فوق الغرفة) ══
 class NightAskV2 extends StatefulWidget {
-  const NightAskV2({super.key, required this.controller, required this.openTasks});
+  const NightAskV2({super.key, required this.controller, required this.openTasks, this.hint});
   final GameSessionController controller;
   final VoidCallback openTasks;
+  /// 🕴️ همسة التدريب بين السؤال والقائمة — في غرفة التدريب وحدها
+  final Widget? hint;
   @override
   State<NightAskV2> createState() => _NightAskV2State();
 }
@@ -414,6 +421,7 @@ class _NightAskV2State extends State<NightAskV2> {
                           Text('اختر لاعباً ثمّ أكّد. ما يعنيه اختيارك يعرفه دورك وحدك — راجعه في «📋 مهامّي».', style: ar(12.5, color: _muted)),
                         ]),
                       ),
+                      if (widget.hint != null) widget.hint!,
                       const SizedBox(height: 10),
                       Expanded(
                         child: ListView(padding: const EdgeInsets.symmetric(horizontal: 14), children: [
@@ -461,7 +469,7 @@ class _NightAskV2State extends State<NightAskV2> {
             Padding(
               padding: const EdgeInsets.fromLTRB(14, 4, 14, 12),
               child: Row(children: [
-                Expanded(child: OutlinedButton(style: _outline(), onPressed: () => _openRolesInPlay(context), child: Text('🃏 الأدوار', style: ar(13, color: _gold)))),
+                Expanded(child: OutlinedButton(style: _outline(), onPressed: () => _openRolesInPlay(context, c), child: Text('🃏 الأدوار', style: ar(13, color: _gold)))),
                 const SizedBox(width: 8),
                 Expanded(child: OutlinedButton(style: _outline(), onPressed: widget.openTasks, child: Text('📋 مهامّي', style: ar(13, color: _gold)))),
               ]),
@@ -501,23 +509,17 @@ class _Avatar extends StatelessWidget {
       );
 }
 
-Future<void> _openRolesInPlay(BuildContext ctx) async {
-  List<String>? ids;
-  try {
-    final res = await SocketService.instance.ask('game:roles-in-play', const {});
-    if (res != null && res['started'] == true && res['roleIds'] is List) {
-      final l = (res['roleIds'] as List).map((e) => '$e').toList();
-      if (l.isNotEmpty) ids = l;
-    }
-  } catch (_) {}
+Future<void> _openRolesInPlay(BuildContext ctx, GameSessionController c) async {
+  final ids = await c.rolesInPlayIds();
   if (!ctx.mounted) return;
   await showRolesDeck(ctx, roleIds: ids);
 }
 
 // ══ 🗳️ التصويت — شبكةٌ من عمودين، اللمسة تصوّت والتغيير حتّى الإغلاق ══
 class VoteGridV2 extends StatefulWidget {
-  const VoteGridV2({super.key, required this.controller});
+  const VoteGridV2({super.key, required this.controller, this.hint});
   final GameSessionController controller;
+  final Widget? hint;
   @override
   State<VoteGridV2> createState() => _VoteGridV2State();
 }
@@ -566,9 +568,10 @@ class _VoteGridV2State extends State<VoteGridV2> {
         ]),
       ),
       const SizedBox(height: 10),
-      GridView.count(
-        crossAxisCount: 2, shrinkWrap: true, physics: const NeverScrollableScrollPhysics(),
-        mainAxisSpacing: 8, crossAxisSpacing: 8, childAspectRatio: 0.82,
+      if (widget.hint != null) ...[widget.hint!, const SizedBox(height: 10)],
+      // عمودان والخليّة تطول مع محتواها (كشبكة الويب) — بارتفاعٍ ثابت كانت أرقام
+      // المصوّتين تفيض حين يجتمعون على مرشّحٍ واحد
+      _TwoCols(
         children: [
           for (var i = 0; i < cands.length; i++) () {
             final x = cands[i];
@@ -613,15 +616,35 @@ class _VoteGridV2State extends State<VoteGridV2> {
   }
 }
 
+class _TwoCols extends StatelessWidget {
+  const _TwoCols({required this.children});
+  final List<Widget> children;
+  @override
+  Widget build(BuildContext context) => Column(children: [
+        for (var i = 0; i < children.length; i += 2)
+          Padding(
+            padding: EdgeInsets.only(bottom: i + 2 < children.length ? 8 : 0),
+            child: IntrinsicHeight(
+              child: Row(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+                Expanded(child: children[i]),
+                const SizedBox(width: 8),
+                Expanded(child: i + 1 < children.length ? children[i + 1] : const SizedBox.shrink()),
+              ]),
+            ),
+          ),
+      ]);
+}
+
 // ══ 🧰 أدوات اللعبة (زرّ «اللعبة» في منتصف الشريط) ══
-Future<void> openRoomHub(BuildContext context, GameSessionController c, {required VoidCallback openGallery, required VoidCallback openOrder, int cartCount = 0}) {
+Future<void> openRoomHub(BuildContext context, GameSessionController c, {required VoidCallback openGallery, required VoidCallback openOrder, int cartCount = 0, VoidCallback? openNotes}) {
   return showModalBottomSheet<void>(
     context: context,
     useRootNavigator: true,
+    routeSettings: const RouteSettings(name: kHubRoute),
     backgroundColor: Colors.transparent,
     builder: (ctx) => Directionality(
       textDirection: TextDirection.rtl,
-      child: Container(
+      child: GuideTarget(id: 'room-hub', child: Container(
         padding: EdgeInsets.fromLTRB(16, 14, 16, 16 + MediaQuery.viewPaddingOf(ctx).bottom),
         decoration: const BoxDecoration(color: Color(0xFF0C0C0C), border: Border(top: BorderSide(color: Color(0x80C5A059)))),
         child: Column(mainAxisSize: MainAxisSize.min, children: [
@@ -632,16 +655,16 @@ Future<void> openRoomHub(BuildContext context, GameSessionController c, {require
           GridView.count(
             crossAxisCount: 3, shrinkWrap: true, physics: const NeverScrollableScrollPhysics(), mainAxisSpacing: 8, crossAxisSpacing: 8, childAspectRatio: 1.25,
             children: [
-              _hubTile(Icons.groups_outlined, 'الفريق', () { Navigator.of(ctx).pop(); openGallery(); }, red: true),
-              _hubTile(Icons.assignment_outlined, 'مهامّي', () { Navigator.of(ctx).pop(); unawaited(openTasksV2(context, c)); }),
-              _hubTile(Icons.edit_note, 'المفكّرة', () { Navigator.of(ctx).pop(); unawaited(showNotepad(context, c)); }),
+              GuideTarget(id: 'hub-team', child: _hubTile(Icons.groups_outlined, 'الفريق', () { Navigator.of(ctx).pop(); openGallery(); }, red: true)),
+              GuideTarget(id: 'hub-tasks', child: _hubTile(Icons.assignment_outlined, 'مهامّي', () { Navigator.of(ctx).pop(); unawaited(openTasksV2(context, c)); })),
+              _hubTile(Icons.edit_note, 'المفكّرة', () { Navigator.of(ctx).pop(); if (openNotes != null) { openNotes(); } else { unawaited(showNotepad(context, c)); } }),
               _hubTile(Icons.restaurant_outlined, 'المنيو', () { Navigator.of(ctx).pop(); openOrder(); }, badge: cartCount),
-              _hubTile(Icons.style_outlined, 'الأدوار', () { Navigator.of(ctx).pop(); unawaited(_openRolesInPlay(context)); }),
+              GuideTarget(id: 'hub-roles', child: _hubTile(Icons.style_outlined, 'الأدوار', () { Navigator.of(ctx).pop(); unawaited(_openRolesInPlay(context, c)); })),
               _hubTile(Icons.logout, 'خروج', () { Navigator.of(ctx).pop(); unawaited(_leaveSheet(context, c)); }, red: true),
             ],
           ),
         ]),
-      ),
+      )),
     ),
   );
 }
@@ -690,7 +713,7 @@ Future<void> openTasksV2(BuildContext context, GameSessionController c) async {
             ]))
           else ...[
             HoldRevealButton(
-              title: 'دورك ومهامّك', panelTitle: '📋 مهامّي', watermark: _watermark(c),
+              title: 'دورك ومهامّك', panelTitle: '📋 مهامّي', watermark: _watermark(c), guideId: 'tasks-hold',
               onShow: c.enterSecretScreen, onHide: c.leaveSecretScreen,
               builder: (_) => _TasksBody(controller: c),
             ),

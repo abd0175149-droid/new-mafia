@@ -8,6 +8,8 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../../core/ui/glass.dart';
 
 import '../../app/router.dart';
+import '../guide/guide_entries.dart';
+import '../guide/guide_targets.dart';
 import '../../app/theme/theme.dart';
 import '../../core/api/api_client.dart';
 import '../../core/api/loyalty_api.dart';
@@ -198,7 +200,9 @@ class _HomeScreenState extends State<HomeScreen> {
             if (_loading) const _Loading()
             else if (_failed) _error()
             else ...[
-              _ProfileCard(profile: _profile!),
+              // 🕴️ لمن أجّل جولة «الليلة الأولى» أو توقّف في منتصفها
+              const GuideHomeBanner(),
+              GuideTarget(id: 'home-card', child: _ProfileCard(profile: _profile!)),
               const SizedBox(height: 16),
               _StatsGrid(stats: _profile!.stats),
               // 🌐 الاستضافة عن بُعد — يظهر للحسابات المصرّح لها وحدها

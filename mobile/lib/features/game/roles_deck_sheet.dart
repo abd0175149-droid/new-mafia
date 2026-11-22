@@ -46,6 +46,7 @@ Future<void> showRolesDeck(
 }) =>
     showModalBottomSheet<void>(
       context: context,
+      routeSettings: const RouteSettings(name: 'room-roles'),
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
       builder: (_) => RolesDeckSheet(roleIds: roleIds),

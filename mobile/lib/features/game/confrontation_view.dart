@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import '../../models/game.dart';
 import '../profile/profile_palette.dart';
 import 'game_session_controller.dart';
+import '../guide/guide_targets.dart';
 
 // ══════════════════════════════════════════════════════
 // ⚔️ مواجهة النهار الوجاهيّة — جانب اللاعب
@@ -58,10 +59,10 @@ class _ConfrontationPanelState extends State<ConfrontationPanel> {
 
     return Column(children: [
       if (incoming != null) ...[
-        _IncomingCard(controller: c, conf: incoming),
+        GuideTarget(id: 'conf-box', child: _IncomingCard(controller: c, conf: incoming)),
         const SizedBox(height: 10),
       ] else if (mine != null && mine.isPending) ...[
-        _info(
+        GuideTarget(id: 'conf-box', child: _info(
           '⚔️ طلبت مواجهة ${_name(c, mine.targetPhysicalId)}',
           mine.timedOut
               ? 'انقضت مهلة الردّ — القرار لليدر'
@@ -69,10 +70,10 @@ class _ConfrontationPanelState extends State<ConfrontationPanel> {
           border: _gold.withValues(alpha: 0.4),
           fill: _gold.withValues(alpha: 0.05),
           titleColor: _gold,
-        ),
+        )),
         const SizedBox(height: 10),
       ] else if (mine != null && mine.isAccepted && active == null) ...[
-        _info(
+        GuideTarget(id: 'conf-box', child: _info(
           '✓ المواجهة مقبولة',
           mine.requesterPhysicalId == c.physicalId
               ? 'ستواجه ${_name(c, mine.targetPhysicalId)} بعد آخر متحدّث — الليدر يبدؤها'
@@ -80,11 +81,11 @@ class _ConfrontationPanelState extends State<ConfrontationPanel> {
           border: const Color(0xFF22C55E).withValues(alpha: 0.4),
           fill: const Color(0xFF22C55E).withValues(alpha: 0.06),
           titleColor: const Color(0xFF4ADE80),
-        ),
+        )),
         const SizedBox(height: 10),
       ],
       if (active != null) ...[
-        _ActiveCard(controller: c, conf: active),
+        GuideTarget(id: 'conf-box', child: _ActiveCard(controller: c, conf: active)),
         const SizedBox(height: 10),
       ],
       if (declined != null && mine == null && incoming == null) ...[
@@ -98,7 +99,7 @@ class _ConfrontationPanelState extends State<ConfrontationPanel> {
         const SizedBox(height: 10),
       ],
       if (mine == null && incoming == null) ...[
-        _RequestButton(controller: c, enabled: blocked == null),
+        GuideTarget(id: 'conf-request', child: _RequestButton(controller: c, enabled: blocked == null)),
         if (blocked != null) ...[
           const SizedBox(height: 4),
           Text('🔒 $blocked',
@@ -175,8 +176,10 @@ class _RequestButton extends StatelessWidget {
                   color: enabled ? _blood.withValues(alpha: 0.6) : const Color(0xFF2A2A2A)),
             ),
             child: Row(mainAxisAlignment: MainAxisAlignment.center, children: [
-              Text('⚔️ اطلب مواجهة',
-                  style: ar(14, color: enabled ? _rose : const Color(0xFF555555), weight: FontWeight.bold)),
+              Flexible(
+                child: Text('⚔️ اطلب مواجهة', maxLines: 1, overflow: TextOverflow.ellipsis,
+                    style: ar(14, color: enabled ? _rose : const Color(0xFF555555), weight: FontWeight.bold)),
+              ),
               const SizedBox(width: 8),
               Container(
                 padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
@@ -427,7 +430,7 @@ Future<void> showConfrontationSheet(BuildContext context, GameSessionController 
       backgroundColor: Colors.transparent,
       isScrollControlled: true,
       barrierColor: const Color(0xB3000000),
-      builder: (_) => _ConfrontationSheet(controller: c),
+      builder: (_) => GuideTarget(id: 'conf-sheet', child: _ConfrontationSheet(controller: c)),
     );
 
 class _ConfrontationSheet extends StatefulWidget {

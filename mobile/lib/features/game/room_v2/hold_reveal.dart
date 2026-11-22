@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 
 import '../../../core/security/secret_watermark.dart';
+import '../../guide/guide_targets.dart';
 import '../../profile/profile_palette.dart';
 
 // ══════════════════════════════════════════════════════
@@ -19,6 +20,8 @@ const kAutoClose = Duration(seconds: 45);
 const kPrivatePanelRoute = 'room-private';
 const kTasksRoute = 'room-tasks';
 const kGalleryRoute = 'room-gallery';
+const kHubRoute = 'room-hub';
+const kRolesRoute = 'room-roles';
 
 /// يكتشف الضغط المطوّل بمهلة الويب نفسها (٣٥٠ مث) — بلا اعتماد على مهلة النظام
 class LongHold extends StatefulWidget {
@@ -53,7 +56,9 @@ class _LongHoldState extends State<LongHold> {
 
 /// زرّ الظرف: «📨 رسالة الليل» أو «دورك ومهامّك» — الشكل واحدٌ للجميع
 class HoldRevealButton extends StatelessWidget {
-  const HoldRevealButton({super.key, required this.title, this.hint, required this.panelTitle, required this.watermark, required this.builder, this.onOpen, this.onShow, this.onHide});
+  const HoldRevealButton({super.key, required this.title, this.hint, required this.panelTitle, required this.watermark, required this.builder, this.onOpen, this.onShow, this.onHide, this.guideId});
+  /// 🕴️ اسم نقطة الإضاءة لجولة «الليلة الأولى» — لا أثر له في اللعب
+  final String? guideId;
   final VoidCallback? onShow, onHide;
   final String title;
   final String? hint;
@@ -68,7 +73,7 @@ class HoldRevealButton extends StatelessWidget {
           onOpen?.call();
           unawaited(showPrivatePanel(context, title: panelTitle, watermark: watermark, builder: builder, onShow: onShow, onHide: onHide));
         },
-        child: Container(
+        child: _maybeTarget(guideId, Container(
           width: double.infinity,
           padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 18),
           decoration: BoxDecoration(
@@ -81,9 +86,11 @@ class HoldRevealButton extends StatelessWidget {
             const SizedBox(height: 4),
             Text(hint ?? 'اضغط مطوّلاً — وغطِّ الشاشة بكفّك', textAlign: TextAlign.center, style: ar(12, color: const Color(0xFF8D8271))),
           ]),
-        ),
+        )),
       );
 }
+
+Widget _maybeTarget(String? id, Widget child) => id == null ? child : GuideTarget(id: id, child: child);
 
 /// لوحة السرّ: أعلى الشاشة، فوق كلّ شيء، تُمرَّر، وزرّ «إخفاء» كبير أسفلها.
 Future<void> showPrivatePanel(BuildContext context, {required String title, required String watermark, required WidgetBuilder builder,
@@ -131,7 +138,7 @@ class _PrivatePanelState extends State<_PrivatePanel> with WidgetsBindingObserve
   void dispose() { _auto?.cancel(); WidgetsBinding.instance.removeObserver(this); super.dispose(); }
 
   @override
-  Widget build(BuildContext context) => Directionality(
+  Widget build(BuildContext context) => GuideTarget(id: 'private-panel', child: Directionality(
         textDirection: TextDirection.rtl,
         child: SafeArea(
           child: Material(
@@ -169,5 +176,5 @@ class _PrivatePanelState extends State<_PrivatePanel> with WidgetsBindingObserve
             ]),
           ),
         ),
-      );
+      ));
 }

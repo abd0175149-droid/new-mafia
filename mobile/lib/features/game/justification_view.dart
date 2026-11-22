@@ -7,6 +7,7 @@ import '../../core/api/api_client.dart';
 import '../../models/game.dart';
 import '../profile/profile_palette.dart';
 import 'game_session_controller.dart';
+import '../guide/guide_targets.dart';
 
 // ══════════════════════════════════════════════════════
 // ⚖️ التبرير وسحب الصوت — §4.3 في الملفّ ٢٥
@@ -55,14 +56,14 @@ class _JustificationBodyState extends State<JustificationBody> {
             letterSpacing: 0,
           )),
       const SizedBox(height: 16),
-      for (final a in j.accused) _accusedCard(a, j.topVotes),
+      for (final a in j.accused) GuideTarget(id: 'accused', child: _accusedCard(a, j.topVotes)),
       if ((c.justTimer ?? 0) > 0) ...[
         const SizedBox(height: 8),
         _timerPill(c.justTimer!),
       ],
       if (c.canShowWithdrawal) ...[
         const SizedBox(height: 16),
-        _WithdrawCard(controller: c),
+        GuideTarget(id: 'withdraw', child: _WithdrawCard(controller: c)),
       ],
     ]);
   }

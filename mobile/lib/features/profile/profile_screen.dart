@@ -23,6 +23,7 @@ import 'profile_palette.dart';
 import 'profile_sections.dart';
 import 'profile_settings.dart';
 import 'progress_guide.dart';
+import '../guide/guide_entries.dart';
 
 // ══════════════════════════════════════════════════════
 // 👤 الملفّ الشخصيّ — الملفّ 13
@@ -453,6 +454,8 @@ class ProfileScreenState extends State<ProfileScreen> {
         ),
         const SizedBox(height: 20),
         Center(child: _guideButton(p.progression.rankTier)),
+        // 🕴️ جولة «الليلة الأولى» — يظهر ما دام مفتاحها يعمل في الداشبورد
+        const GuideProfileRow(),
         const SizedBox(height: 16),
         Center(child: _logoutButton()),
       ];

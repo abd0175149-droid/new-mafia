@@ -742,6 +742,22 @@ class _GameScreenState extends State<GameScreen> {
       );
 }
 
+/// 🕴️ قشرة شاشة اللعب وسبينرها لغرفة التدريب — الشكل نفسه بلا نسخ
+class GameShellFrame extends StatelessWidget {
+  const GameShellFrame({super.key, required this.child});
+  final Widget child;
+  @override
+  Widget build(BuildContext context) => _Shell(child: child);
+}
+
+class GameSpinner extends StatelessWidget {
+  const GameSpinner({super.key, required this.label, this.sub});
+  final String label;
+  final String? sub;
+  @override
+  Widget build(BuildContext context) => _Spinner(label: label, sub: sub);
+}
+
 // ══════════════════════════════════════════════════════
 // القشرة — §4.0
 // ══════════════════════════════════════════════════════

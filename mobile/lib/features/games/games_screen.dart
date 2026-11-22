@@ -18,6 +18,7 @@ import 'activity_sheets.dart';
 import 'friends_picker.dart';
 import 'friends_screen.dart';
 import 'games_widgets.dart';
+import '../guide/guide_entries.dart';
 
 // ══════════════════════════════════════════════════════
 // 🎮 الألعاب والحجوزات — الملفّ 14
@@ -555,7 +556,13 @@ class GamesScreenState extends State<GamesScreen> {
     );
   }
 
-  Widget _activitiesList() {
+  Widget _activitiesList() => Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+        // 🕴️ فعاليّة التدريب — لصاحب جولة «الليلة الأولى» وحده، وتختفي عند الختم
+        if (_upcomingTab) const TrainingCard(),
+        _activitiesListInner(),
+      ]);
+
+  Widget _activitiesListInner() {
     final list = _visible;
     if (list.isEmpty) {
       return Padding(
