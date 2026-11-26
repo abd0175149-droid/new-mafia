@@ -1496,6 +1496,28 @@ async function main() {
       await db.execute(sql`
         UPDATE role_definitions SET card_template_id = 'mayor_card', card_overrides = '{"icon":{"type":"EMOJI","value":"🎩"}}'::jsonb
         WHERE id = 'MAYOR' AND card_template_id = 'master'`);
+      // 🔮 كروت موسم النبوءة (2026-11-26) — إدراجٌ آمن لا يمسّ صفّاً قائماً.
+      //    gen_min_players=99 و gen_max_count=0: لا يولّدها أيّ مولّدٍ تلقائيّ (والمولّد يستثنيها بالكود أيضاً).
+      //    القدراتُ تُضاف في مراحلها، والوجوه حين تصل الرسوم (قرار البناء ب٨).
+      await db.execute(sql`
+        INSERT INTO role_definitions (id, name_ar, name_en, team, abilities, gen_priority, gen_max_count, gen_min_players, gen_is_required, card_template_id, description, card_overrides)
+        VALUES
+          ('ORACLE', 'العرّاف', 'Oracle', 'CITIZEN', '[]'::jsonb, 90, 0, 99, false, 'master',
+           'مرّةً في اللعبة يفتح صندوقاً من صندوقين: في أحدهما مافيا وفي الآخر مواطن. صباحاً تُسجَّل «صفقة النبوءة» على الاسم الذي رآه',
+           '{"icon":{"type":"lucide","value":"Eye"}}'::jsonb),
+          ('DECEIVER', 'المُضلّل', 'Deceiver', 'MAFIA', '[]'::jsonb, 90, 0, 99, false, 'master',
+           'مرّةً في اللعبة يضع قناعاً على بريء: أوّل من يقرؤه يراه مافيا',
+           '{"icon":{"type":"lucide","value":"VenetianMask"}}'::jsonb),
+          ('CUP_READER', 'قارئة الفنجان', 'Cup Reader', 'NEUTRAL', '[]'::jsonb, 90, 0, 99, false, 'master',
+           'كلّ ليلةٍ تقرأ من ستعدمه المدينة غداً. إن صدقت حتّى عتبتها رحلت فائزةً وختمت قدر الغد',
+           '{"icon":{"type":"lucide","value":"Coffee"}}'::jsonb),
+          ('DIVIDED', 'المنقسم', 'Divided', 'CITIZEN', '[]'::jsonb, 90, 0, 99, false, 'master',
+           'يبدأ مواطناً، وفي الليلة الثانية يختار: يبقى مع المدينة، أو يعبر إلى المافيا',
+           '{"icon":{"type":"lucide","value":"Split"}}'::jsonb),
+          ('GUARANTOR', 'الكفيل', 'Guarantor', 'CITIZEN', '[]'::jsonb, 90, 0, 99, false, 'master',
+           'مرّةً في اللعبة يكفل من حكمت عليه المدينة: إن كان مواطناً نجا، وإلّا مات الكفيل معه',
+           '{"icon":{"type":"lucide","value":"Handshake"}}'::jsonb)
+        ON CONFLICT (id) DO NOTHING`);
       console.log('✅ players remote-access + reservations.player_id + analytics + fnb tables + MAYOR role ensured');
     }
   } catch (err: any) {

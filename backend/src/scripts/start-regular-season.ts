@@ -12,6 +12,7 @@
 // التشغيل:
 //   docker compose exec -T backend npx tsx src/scripts/start-regular-season.ts --name "اسم الموسم"
 //   أضف --dry-run لفحص الجاهزية بلا أي كتابة.
+//   🔮 تفعيل المسودّة المعلّقة (موسم النبوءة): --from-draft بدل --name — الاسم والمحتوى من المسودّة.
 // ══════════════════════════════════════════════════════
 
 import { connectDB, getDB } from '../config/db.js';
@@ -19,23 +20,38 @@ import { connectRedis, getAllGameStates } from '../config/redis.js';
 
 const args = process.argv.slice(2);
 const DRY_RUN = args.includes('--dry-run');
+const FROM_DRAFT = args.includes('--from-draft');
 const nameIdx = args.indexOf('--name');
-const SEASON_NAME = nameIdx >= 0 ? String(args[nameIdx + 1] || '').trim() : '';
+let SEASON_NAME = nameIdx >= 0 ? String(args[nameIdx + 1] || '').trim() : '';
 
 // مراحل تعني أن لعبةً جارية فعلاً (لا يجوز التبديل أثناءها)
 const IDLE_PHASES = new Set(['LOBBY', 'GAME_OVER']);
 
 async function main() {
-  if (!SEASON_NAME) {
-    console.error('❌ اسم الموسم مطلوب:  --name "اسم الموسم"');
+  if (FROM_DRAFT && SEASON_NAME) {
+    console.error('❌ إمّا --from-draft (الاسم من المسودّة) أو --name — لا الاثنان معاً');
+    process.exit(1);
+  }
+  if (!FROM_DRAFT && !SEASON_NAME) {
+    console.error('❌ اسم الموسم مطلوب:  --name "اسم الموسم"  (أو --from-draft لتفعيل المسودّة)');
     process.exit(1);
   }
 
-  console.log(`🏆 بدء موسم عادي جديد: «${SEASON_NAME}» — الوضع: ${DRY_RUN ? '🔍 فحص فقط (بلا كتابة)' : '⚠️  تنفيذ فعليّ'}`);
+  console.log(`🏆 بدء موسم عادي جديد: «${SEASON_NAME || '(من المسودّة)'}» — الوضع: ${DRY_RUN ? '🔍 فحص فقط (بلا كتابة)' : '⚠️  تنفيذ فعليّ'}`);
 
   await connectRedis();
   await connectDB();
   if (!getDB()) { console.error('❌ قاعدة البيانات غير متاحة'); process.exit(1); }
+
+  // 🔮 المسودّة: تُقرأ قبل الحرّاس كي يُطبع اسمها ومحتواها في الفحص
+  let draft: { id: number; name: string; contentPack: string } | null = null;
+  if (FROM_DRAFT) {
+    const { getPendingSeasonDraft } = await import('../services/season.service.js');
+    draft = await getPendingSeasonDraft();
+    if (!draft) { console.error('❌ لا مسودّة معلّقة للتفعيل'); process.exit(1); }
+    SEASON_NAME = draft.name;
+    console.log(`🔮 المسودّة #${draft.id}: «${draft.name}» — المحتوى ${draft.contentPack}`);
+  }
 
   const { getActiveRegularSeasonId, startRegularSeason } = await import('../services/season.service.js');
   const { finalizeIfDecided } = await import('../services/match.service.js');
@@ -82,7 +98,13 @@ async function main() {
   }
 
   // ── 3) التبديل (تثبيت الأرشيف + إنهاء + موسم جديد + تصفير) ──
-  const season = await startRegularSeason(SEASON_NAME);
+  let season;
+  if (draft) {
+    const { activateSeasonDraft } = await import('../services/season.service.js');
+    season = await activateSeasonDraft(draft.id);
+  } else {
+    season = await startRegularSeason(SEASON_NAME);
+  }
   console.log(`🎉 بدأ الموسم «${season.name}» — id=${season.id}, رقم الموسم=${season.seasonNumber}`);
   console.log('   (أُنهي الموسم السابق بعد تثبيت أرشيفه، وصُفّر رانك الجميع)');
   process.exit(0);

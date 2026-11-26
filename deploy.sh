@@ -544,6 +544,24 @@ CREATE INDEX IF NOT EXISTS game_templates_staff_idx ON game_templates (staff_id)
 ALTER TABLE match_players ADD COLUMN IF NOT EXISTS joined_round INTEGER;
 ALTER TABLE match_players ADD COLUMN IF NOT EXISTS recruited BOOLEAN DEFAULT false;
 ALTER TABLE matches ADD COLUMN IF NOT EXISTS late_entry JSONB;
+
+-- 🔮 موسم النبوءة (2026-11-26): محتوى الموسم + مسودّته. المسودّة في جدولٍ مستقلّ فلا تظهر في أيّ
+--    قائمة مواسم ولا تأخذ رقماً قبل تفعيلها (أداة التبديل --from-draft). تُنشأ مرّةً واحدة بمفتاح.
+ALTER TABLE seasons ADD COLUMN IF NOT EXISTS content_pack VARCHAR(30);
+CREATE TABLE IF NOT EXISTS season_drafts (
+  id SERIAL PRIMARY KEY,
+  name VARCHAR(100) NOT NULL,
+  content_pack VARCHAR(30) NOT NULL,
+  created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+  activated_season_id INTEGER,
+  activated_at TIMESTAMP
+);
+WITH claim AS (
+  INSERT INTO one_time_migrations (key) VALUES ('prophecy-season-draft-2026-11-26')
+  ON CONFLICT DO NOTHING RETURNING key
+)
+INSERT INTO season_drafts (name, content_pack)
+SELECT 'النبوءة', 'PROPHECY' FROM claim;
 SQL
 then
   say "   ✅ الترحيل تمّ"

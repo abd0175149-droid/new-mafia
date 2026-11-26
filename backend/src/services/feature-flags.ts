@@ -34,3 +34,36 @@ export async function liveCardsOn(state: any): Promise<boolean> {
     return await isTestScope(state);
   } catch { return false; }
 }
+
+// ══════════════════════════════════════════════════════
+// 🔮 موسم النبوءة (2026-11-26) — الموسمُ يُبنى مسودّةً ولا يمسّ الموسم النشط
+//
+// الكروت الخمسة تعمل في غرفةٍ إذا:
+//   • كان الموسم العاديّ النشط يحمل محتوى «النبوءة» (seasons.content_pack = 'PROPHECY')، أو
+//   • كانت الغرفة في موقع اختبار (قبل التفعيل: هنا وحدها)، أو
+//   • فُتح المفتاح prophecy_v1 يدويّاً (طوارئ/تجربة).
+// ويُحسب ذلك مرّةً عند تحضير التوزيع ويُحفظ في config.prophecy — لا تتغيّر قواعد مباراةٍ جارية
+// إن فُعّل الموسم في منتصفها.
+// ولكلّ كرتٍ مفتاحُ إطفاء: card_off_<ROLE> = {"enabled": true} يمنعه وحده من التوزيع.
+// ══════════════════════════════════════════════════════
+export const PROPHECY = 'prophecy_v1';
+export const PROPHECY_PACK = 'PROPHECY';
+
+export async function prophecyOn(state: any): Promise<boolean> {
+  if (await flagOn(PROPHECY)) return true;
+  try {
+    const { getActiveContentPack } = await import('./season.service.js');
+    if ((await getActiveContentPack()) === PROPHECY_PACK) return true;
+  } catch { /* لا موسم ⇒ نكمل إلى فحص موقع الاختبار */ }
+  try {
+    const { isTestScope } = await import('./match.service.js');
+    return await isTestScope(state);
+  } catch { return false; }
+}
+
+/** الكروت المطفأة بمفاتيحها (card_off_<ROLE>) من بين أدوار النبوءة */
+export async function prophecyCardsOff(roles: readonly string[]): Promise<string[]> {
+  const off: string[] = [];
+  for (const r of roles) if (await flagOn(`card_off_${r}`)) off.push(r);
+  return off;
+}

@@ -14,13 +14,16 @@ import { ActionBar, Status, Section, Chips, Chip, Hint, Btn, BottomSheet, Seg, S
 import { TapChip, inputCls, errMsg } from './setup/ui';
 import { StepRail, TeamBar, useRoleFaces, roleAr } from './Setup';
 import {
-  MINUTES, M_ORDER, C_ORDER, autoMafia, composeDeck, extrasAllowed, samePlan, normalizePlan,
-  type SetupPlan, type Template, type LateWave, useTemplates,
+  MINUTES, M_ORDER, C_ORDER, M_ORDER_P, C_ORDER_P, PROPHECY_CARDS, READER_AUTO_FROM, DIVIDED_AUTO_FROM,
+  autoMafia, composeDeck, extrasAllowed, samePlan, normalizePlan, useDeckFeatures,
+  type SetupPlan, type Template, type LateWave, type DeckFeatures, useTemplates,
 } from '../setupPlan';
 
 const iconOf = (r: string) => ROLE_ICONS[r as Role] || '🎭';
 const FILL = new Set<string>([Role.CITIZEN, Role.MAFIA_REGULAR]);
 const ADDABLE: Role[] = [...M_ORDER, ...C_ORDER, Role.JESTER, Role.ASSASSIN];
+/** 🔮 ما يُضاف حين يفتح الخادم كروت النبوءة للغرفة (والمطفأ بمفتاحه لا يُعرض) */
+const addableFor = (f: DeckFeatures): Role[] => (f.prophecy ? [...ADDABLE, ...PROPHECY_CARDS.filter((r) => !f.off.includes(r))] : ADDABLE);
 
 export function lateIncoming(plan: SetupPlan) {
   if (!plan.late?.enabled) return null;
@@ -46,8 +49,9 @@ export default function GameCards({ plan, setPlan, n, meta, onBack, onNext, busy
   const [sheet, setSheet] = useState<null | { kind: 'card'; r: Role } | { kind: 'add' } | { kind: 'save' } | { kind: 'tpls' }>(null);
   const [tplOn, setTplOn] = useState<number | null>(null);
   const isRemote = gameState?.config?.isRemote === true;
+  const feat = useDeckFeatures(emit, gameState?.roomId);
 
-  const deck = useMemo(() => composeDeck(plan, n, (r) => roleAr(r)), [plan, n]);
+  const deck = useMemo(() => composeDeck(plan, n, (r) => roleAr(r), feat), [plan, n, feat]);
   const roles = deck.roles;
   const dup = useMemo(() => analyzeDuplicates(roles), [roles]);
   const remoteDup = isRemote && dup.allowed.length > 0;
@@ -209,10 +213,10 @@ export default function GameCards({ plan, setPlan, n, meta, onBack, onNext, busy
         </div>
       </details>
 
-      {sheet?.kind === 'card' && <CardSheet r={sheet.r} plan={plan} setPlan={setPlan} count={cnt(sheet.r)} warn={deck.warn} onClose={() => setSheet(null)} />}
+      {sheet?.kind === 'card' && <CardSheet r={sheet.r} plan={plan} setPlan={setPlan} count={cnt(sheet.r)} warn={deck.warn} n={n} feat={feat} onClose={() => setSheet(null)} />}
       {sheet?.kind === 'add' && (
         <BottomSheet open title="أضف كرتاً" onClose={() => setSheet(null)}>
-          {ADDABLE.filter((r) => !(roles.includes(r) && !DUPLICABLE_ROLES.has(r))).map((r) => {
+          {addableFor(feat).filter((r) => !(roles.includes(r) && !DUPLICABLE_ROLES.has(r))).map((r) => {
             const has = roles.includes(r);
             return (
               <ListRow key={r} n={iconOf(r)} title={roleAr(r)} sub={has ? `نسخة إضافيّة (${cnt(r) + 1})` : SINGLE_ROLE_REASON[r] ? 'نسخة واحدة' : 'جديد'}
@@ -229,10 +233,12 @@ export default function GameCards({ plan, setPlan, n, meta, onBack, onNext, busy
 }
 
 // ══════════ لوح الكرت: عدد النسخ وشروطه ══════════
-function CardSheet({ r, plan, setPlan, count, warn, onClose }: { r: Role; plan: SetupPlan; setPlan: (p: SetupPlan) => void; count: number; warn: string[]; onClose: () => void }) {
+function CardSheet({ r, plan, setPlan, count, warn, n, feat, onClose }: { r: Role; plan: SetupPlan; setPlan: (p: SetupPlan) => void; count: number; warn: string[]; n: number; feat: DeckFeatures; onClose: () => void }) {
   const c = plan.cards;
   const isAuto = c[r] === undefined;
-  const ordered = M_ORDER.includes(r) || C_ORDER.includes(r);
+  const ordered = (feat.prophecy ? [...M_ORDER_P, ...C_ORDER_P] : [...M_ORDER, ...C_ORDER]).includes(r);
+  const isProphecy = PROPHECY_CARDS.includes(r);
+  // 🔮 الكفيل يدويٌّ وحده (قرار المالك ٣٩): لا «تلقائيّ» له
   const setV = (v: number | undefined) => { const cards = { ...c }; if (v === undefined) delete cards[r]; else cards[r] = v; setPlan({ ...plan, cards }); };
   const single = !!SINGLE_ROLE_REASON[r];
   const nn = isAuto ? count : (c[r] as number);
@@ -242,8 +248,13 @@ function CardSheet({ r, plan, setPlan, count, warn, onClose }: { r: Role; plan: 
       {single ? (
         <>
           <Hint>نسخة واحدة فقط: {SINGLE_ROLE_REASON[r]}.</Hint>
-          <Seg value={isAuto ? 'auto' : (c[r] as number) > 0 ? 'on' : 'off'} onChange={(v) => setV(v === 'auto' ? undefined : v === 'on' ? 1 : 0)}
-            options={[{ v: 'auto', l: 'تلقائيّ' }, { v: 'on', l: 'دائماً' }, { v: 'off', l: 'مطفأ' }]} />
+          {r === Role.GUARANTOR ? (
+            <Seg value={(c[r] ?? 0) > 0 ? 'on' : 'off'} onChange={(v) => setV(v === 'on' ? 1 : 0)}
+              options={[{ v: 'on', l: 'في اللعبة' }, { v: 'off', l: 'خارجها' }]} />
+          ) : (
+            <Seg value={isAuto ? 'auto' : (c[r] as number) > 0 ? 'on' : 'off'} onChange={(v) => setV(v === 'auto' ? undefined : v === 'on' ? 1 : 0)}
+              options={[{ v: 'auto', l: 'تلقائيّ' }, { v: 'on', l: 'دائماً' }, { v: 'off', l: 'مطفأ' }]} />
+          )}
         </>
       ) : (
         <>
@@ -284,6 +295,34 @@ function CardSheet({ r, plan, setPlan, count, warn, onClose }: { r: Role; plan: 
       )}
       {r === Role.PHOENIX && (
         <SetRow title={<b className="text-[14px]">🔥 مرّات بعث العنقاء</b>}><Stepper value={plan.phoenix} min={1} max={3} onChange={(v) => setPlan({ ...plan, phoenix: v })} /></SetRow>
+      )}
+      {isProphecy && <Hint>🔮 من كروت موسم النبوءة. {
+        r === Role.ORACLE ? 'يدخل تلقائيّاً سادساً في المدينة، من ١٠ لاعبين.'
+        : r === Role.DECEIVER ? 'يدخل تلقائيّاً خامساً في المافيا، من ١٧ لاعباً.'
+        : r === Role.CUP_READER ? `مستقلّةٌ تدخل تلقائيّاً من ${READER_AUTO_FROM} لاعباً.`
+        : r === Role.DIVIDED ? `يأخذ خانة مواطنٍ عاديّ، ويدخل تلقائيّاً من ${DIVIDED_AUTO_FROM} لاعباً.`
+        : 'كرتٌ اختياريّ تضيفه بيدك، يأخذ خانة مواطنٍ عاديّ، وخارج قصّة الموسم.'
+      }</Hint>}
+      {r === Role.ORACLE && (
+        <SetRow title={<b className="text-[14px]">📜 الوصيّة</b>} sub="إن سقط بنبوءةٍ كاذبة يُفتح الصندوق الآخر برقمه على الشاشة">
+          <Switch label="الوصيّة" checked={plan.testament} onChange={(v) => setPlan({ ...plan, testament: v })} />
+        </SetRow>
+      )}
+      {r === Role.CUP_READER && (
+        <>
+          <Hint><b className="text-[#efe8da]">☕ عتبة القارئة</b> — كم قراءةً تصدق حتّى ترحل فائزة</Hint>
+          <Seg value={plan.cupThreshold ?? 0} onChange={(v) => setPlan({ ...plan, cupThreshold: v === 0 ? null : v })} options={[
+            { v: 0, l: 'تلقائيّ', sub: n >= 24 ? '٣ لهذه الطاولة' : '٢ لهذه الطاولة' }, { v: 2, l: '٢' }, { v: 3, l: '٣' }, { v: 4, l: '٤' },
+          ]} />
+        </>
+      )}
+      {r === Role.DECEIVER && (
+        <>
+          <Hint><b className="text-[#efe8da]">🎭 الأقنعة</b> — {n >= 24 ? 'قناعان متاحان لأنّ الطاولة ٢٤ فأكثر' : 'قناعٌ واحد، والقناعان من ٢٤ لاعباً'}</Hint>
+          <Seg value={n >= 24 ? plan.masks : 1} onChange={(v) => setPlan({ ...plan, masks: v === 2 ? 2 : 1 })} options={[
+            { v: 1, l: 'قناعٌ واحد' }, ...(n >= 24 ? [{ v: 2, l: 'قناعان' }] : []),
+          ]} />
+        </>
       )}
       {r === Role.NURSE && (
         <Seg value={plan.nurseAuto ? 'auto' : 'off'} onChange={(v) => setPlan({ ...plan, nurseAuto: v === 'auto' })} options={[

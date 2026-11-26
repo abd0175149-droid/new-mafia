@@ -48,7 +48,7 @@ export function StepRail({ step, onStep }: { step: 1 | 2 | 3; onStep?: (s: numbe
   );
 }
 
-const MAFIA = ['GODFATHER', 'SILENCER', 'CHAMELEON', 'WITCH', 'OLDER_BROTHER', 'MAFIA_REGULAR'];
+const MAFIA = ['GODFATHER', 'SILENCER', 'CHAMELEON', 'WITCH', 'OLDER_BROTHER', 'MAFIA_REGULAR', 'DECEIVER'];
 export function teamCounts(roles: string[]) {
   const M = roles.filter((r) => MAFIA.includes(r)).length;
   const N = roles.filter((r) => r === Role.JESTER || r === Role.ASSASSIN).length;

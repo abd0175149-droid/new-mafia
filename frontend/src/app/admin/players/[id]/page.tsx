@@ -40,6 +40,7 @@ const ROLE_LABELS: Record<string, string> = {
   OLDER_BROTHER: 'الأخ الأكبر', MAFIA_REGULAR: 'مافيا عادي', SHERIFF: 'الشريف', DOCTOR: 'الطبيب',
   SNIPER: 'القناص', POLICEWOMAN: 'الشرطية', NURSE: 'الممرضة', MAYOR: 'العمدة', CITIZEN: 'مواطن صالح',
   YOUNGER_BROTHER: 'الأخ الأصغر', JESTER: 'المهرج', ASSASSIN: 'السفّاح', PHOENIX: 'العنقاء',
+  ORACLE: 'العرّاف', DECEIVER: 'المُضلّل', CUP_READER: 'قارئة الفنجان', DIVIDED: 'المنقسم', GUARANTOR: 'الكفيل',
 };
 
 /** أسبابُ القفل — قائمةٌ مغلقة (قرارُ المالك) */

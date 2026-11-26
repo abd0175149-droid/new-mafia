@@ -1300,7 +1300,7 @@ router.get('/:id/matches', authenticatePlayer, async (req: Request, res: Respons
   if (!db) return res.status(503).json({ error: 'DB unavailable' });
 
   const playerId = parseInt(req.params.id);
-  const MAFIA_ROLES = ['GODFATHER', 'SILENCER', 'CHAMELEON', 'MAFIA_REGULAR'];
+  const MAFIA_ROLES = ['GODFATHER', 'SILENCER', 'CHAMELEON', 'MAFIA_REGULAR', 'DECEIVER'];
 
   try {
     const playerMatches = await db.select({

@@ -210,6 +210,19 @@ async function runAutoMigrations(pool: pg.Pool): Promise<void> {
       CREATE UNIQUE INDEX IF NOT EXISTS idx_one_active_tournament_per_location
       ON seasons (location_id) WHERE status = 'ACTIVE' AND type = 'TOURNAMENT'
     `);
+    // 🔮 محتوى الموسم + مسودّات المواسم (موسم النبوءة 2026-11-26) — قبل أيّ قراءةٍ للمواسم،
+    //    لأنّ مخطّط seasons في الكود صار يحمل content_pack (وإلّا سقطت كلّ قراءةٍ حتّى يجري ترحيل النشر).
+    await client.query(`ALTER TABLE seasons ADD COLUMN IF NOT EXISTS content_pack VARCHAR(30)`);
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS season_drafts (
+        id                  SERIAL PRIMARY KEY,
+        name                VARCHAR(100) NOT NULL,
+        content_pack        VARCHAR(30) NOT NULL,
+        created_at          TIMESTAMP DEFAULT NOW() NOT NULL,
+        activated_season_id INTEGER,
+        activated_at        TIMESTAMP
+      )
+    `);
 
     await client.query(`
       CREATE TABLE IF NOT EXISTS player_season_stats (

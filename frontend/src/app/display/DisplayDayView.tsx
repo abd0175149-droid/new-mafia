@@ -1424,7 +1424,7 @@ function RevealCeremony({ players, revealedRoles, revealType, notes }: {
   revealedRoles: any[];
   revealType: string;
 }) {
-  const MAFIA_ROLES = ['GODFATHER', 'SILENCER', 'CHAMELEON', 'WITCH', 'OLDER_BROTHER', 'MAFIA_REGULAR'];
+  const MAFIA_ROLES = ['GODFATHER', 'SILENCER', 'CHAMELEON', 'WITCH', 'OLDER_BROTHER', 'MAFIA_REGULAR', 'DECEIVER'];
   const CARD_DELAY = 5; // ثوانٍ بين كل لاعب
   // 📐 الكرت يملأ 68% من ارتفاع المنطقة الصالحة (وأقلّ إن تعدّد المُقصَون وضاق العرض)
   const vpr = useDisplayViewport();
@@ -1771,7 +1771,7 @@ function BombCeremony({ players, bombData }: {
   players: any[];
   bombData: BombData;
 }) {
-  const MAFIA_ROLES = ['GODFATHER', 'SILENCER', 'CHAMELEON', 'WITCH', 'OLDER_BROTHER', 'MAFIA_REGULAR'];
+  const MAFIA_ROLES = ['GODFATHER', 'SILENCER', 'CHAMELEON', 'WITCH', 'OLDER_BROTHER', 'MAFIA_REGULAR', 'DECEIVER'];
   const CARD_DELAY = BOMB_CARD_MS / 1000; // ثوانٍ بين كل لاعب
   // 🎩 مَن فجّر: الشيخُ كُشف قبل لحظات — يُسمّى هنا كي تعرف القاعةُ أنّ هؤلاء خرجوا معه
   const gfId = bombData.godfatherPhysicalId ?? null;

@@ -4923,7 +4923,7 @@ export default function PlayerFlow({ initialRoomCode = '', inviteFlag = false, i
           // يُحسب على جهاز اللاعب نفسه فقط (لا يُبثّ شيء)؛ والسيرفر يتحقق سيادياً على كل عملية.
           mafiaChatEnabled &&
           !isPlayerDead &&
-          (['GODFATHER', 'SILENCER', 'CHAMELEON', 'WITCH', 'OLDER_BROTHER', 'MAFIA_REGULAR'].includes(assignedRole || '') || mafiaTeam.length > 0) &&
+          (['GODFATHER', 'SILENCER', 'CHAMELEON', 'WITCH', 'OLDER_BROTHER', 'MAFIA_REGULAR', 'DECEIVER'].includes(assignedRole || '') || mafiaTeam.length > 0) &&
           // ROLE_BINDING مسموحة: امتلاك assignedRole يعني أن الأدوار اعتُمدت ووُزّعت فعلاً
           !['LOBBY', 'ROLE_GENERATION', 'GAME_OVER'].includes(gamePhase || '')
         }

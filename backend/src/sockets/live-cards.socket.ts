@@ -18,7 +18,7 @@ import { sql } from 'drizzle-orm';
 import { getRoom, withRoomLock, Phase, getSpectators } from '../game/state.js';
 import { setGameState } from '../config/redis.js';
 import { getDB } from '../config/db.js';
-import { Role, isMafiaRole, teamOfRole, ROLE_NAMES_AR } from '../game/roles.js';
+import { Role, isMafiaRole, teamOfRole, ROLE_NAMES_AR, isProphecyRole } from '../game/roles.js';
 import { analyzeDuplicates, DUPLICABLE_ROLES } from '../game/role-duplicates.js';
 import { remapPhysicalIds } from '../game/seat-remap.js';
 import { initMayorState } from '../game/mayor-engine.js';
@@ -281,6 +281,11 @@ export function registerLiveCardEvents(io: Server, socket: Socket) {
         if (raw.kind === 'handover') op.spectatorSeat = Number(raw.spectatorSeat);
         const v = validateOp(st, op);
         if (v.ok === false) return { success: false, error: v.error };
+        // 🔮 كروت النبوءة خارج أداة الكروت في نسختها الأولى (قرار البناء ب٦): لا تُعطى ولا تُنقل
+        const seatRole = (n: any) => (st.players || []).find((p: any) => Number(p.physicalId) === Number(n))?.role;
+        if ((op.role && isProphecyRole(op.role)) || [op.seat, op.b].some((x: any) => x != null && isProphecyRole(seatRole(x)))) {
+          return { success: false, code: 'PROPHECY_CARD', error: 'كروت موسم النبوءة لا تُغيَّر أثناء اللعب بعد' };
+        }
         op.cross = v.cross;
         if (v.cross) {
           const { toolsUnlocked } = await import('./lobby.socket.js');

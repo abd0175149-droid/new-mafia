@@ -13,6 +13,7 @@ export enum Role {
   WITCH = 'WITCH',                   // الساحرة 🧙‍♀️
   OLDER_BROTHER = 'OLDER_BROTHER',   // 👥 الأخ الأكبر (توأم مافيا)
   MAFIA_REGULAR = 'MAFIA_REGULAR',   // مافيا عادي
+  DECEIVER = 'DECEIVER',             // 🎭 المُضلّل «مغيّر الأقدار» — موسم النبوءة
 
   // فريق المواطنين
   SHERIFF = 'SHERIFF',               // الشريف
@@ -24,10 +25,24 @@ export enum Role {
   CITIZEN = 'CITIZEN',               // مواطن صالح
   YOUNGER_BROTHER = 'YOUNGER_BROTHER', // 👥 الأخ الأصغر (توأم مواطن)
   PHOENIX = 'PHOENIX',               // 🔥 العنقاء — لا يُغتال، ومَن مدّ يده احترق
+  ORACLE = 'ORACLE',                 // 🔮 العرّاف — موسم النبوءة
+  DIVIDED = 'DIVIDED',               // ⚖️ المنقسم — يبدأ مواطناً ويختار فريقه في الليلة الثانية
+  GUARANTOR = 'GUARANTOR',           // 🤝 الكفيل — كرتٌ اختياريّ يضيفه الموجّه، خارج القصّة
 
   // فريق محايد
   JESTER = 'JESTER',                 // المهرج 🤡
   ASSASSIN = 'ASSASSIN',             // السفّاح 🔪
+  CUP_READER = 'CUP_READER',         // ☕ قارئة الفنجان — موسم النبوءة
+}
+
+// ── 🔮 كروت موسم النبوءة (2026-11-26) ───────────────
+// لا تعمل إلّا في غرفةٍ فُتح لها محتوى الموسم (config.prophecy) — انظر services/feature-flags.ts.
+// كلّها نسخةٌ واحدة (role-duplicates)، وتفرض المحرّك الديناميكيّ وتُقفل النمط الآليّ (قرار البناء ب١).
+export const PROPHECY_ROLES: Role[] = [
+  Role.ORACLE, Role.DECEIVER, Role.CUP_READER, Role.DIVIDED, Role.GUARANTOR,
+];
+export function isProphecyRole(role: Role | string | null | undefined): boolean {
+  return !!role && (PROPHECY_ROLES as string[]).includes(role as string);
 }
 
 // ── تصنيف الفرق ────────────────────────────────────
@@ -39,6 +54,7 @@ export const MAFIA_ROLES: Role[] = [
   Role.WITCH,
   Role.OLDER_BROTHER,
   Role.MAFIA_REGULAR,
+  Role.DECEIVER,
 ];
 
 export const CITIZEN_ROLES: Role[] = [
@@ -53,11 +69,16 @@ export const CITIZEN_ROLES: Role[] = [
   // 🔥 مواطنٌ بلا قدرةٍ ليليّة — فالشريفُ يراه «مواطن» بلا استثناءٍ مضاف،
   //    والساحرةُ تبلغه (استهدافُها للمواطنين والمستقلّين)، وارتدادُ الصفقة يقع عليه.
   Role.PHOENIX,
+  // 🔮 النبوءة: المنقسم مواطنٌ حتّى يعبر (حين يعبر يتحوّل دورُه نفسُه إلى دورٍ مافيا، كالأخ الأصغر)
+  Role.ORACLE,
+  Role.DIVIDED,
+  Role.GUARANTOR,
 ];
 
 export const NEUTRAL_ROLES: Role[] = [
   Role.JESTER,
   Role.ASSASSIN,
+  Role.CUP_READER,
 ];
 
 // ── 🔫 سلسلة وراثة الاغتيال — المصدر الموحّد ──
@@ -79,6 +100,7 @@ export const MAFIA_KILL_PRIORITY: Role[] = [
   Role.CHAMELEON,     // بلا قدرةٍ ليليّة — وارثٌ نظيف
   Role.MAFIA_REGULAR, // بلا قدرةٍ ليليّة — وارثٌ نظيف
   Role.OLDER_BROTHER, // 👥 يملك الاغتيال أصلاً — لا يزدوج
+  Role.DECEIVER,      // 🎭 قناعُه مرّةً واحدة — بعدها وارثٌ نظيف؛ وقبلها: الاغتيال أوّلاً ثمّ القناع
   Role.SILENCER,      // ⚠️ إسكاتٌ + اغتيال
   Role.WITCH,         // ⚠️ تعطيلٌ + اغتيال — آخرُ الاحتمالات
 ];
@@ -137,6 +159,11 @@ export const ROLE_NAMES_AR: Record<Role, string> = {
   [Role.PHOENIX]: 'العنقاء',
   [Role.JESTER]: 'المهرج',
   [Role.ASSASSIN]: 'السفّاح',
+  [Role.DECEIVER]: 'المُضلّل',
+  [Role.ORACLE]: 'العرّاف',
+  [Role.DIVIDED]: 'المنقسم',
+  [Role.GUARANTOR]: 'الكفيل',
+  [Role.CUP_READER]: 'قارئة الفنجان',
 };
 
 // ── خوارزمية التوليد ────────────────────────────────

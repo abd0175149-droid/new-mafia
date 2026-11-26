@@ -10,7 +10,7 @@
 
 import { eq, and, sql, desc, isNull, inArray } from 'drizzle-orm';
 import { getDB } from '../config/db.js';
-import { seasons, playerSeasonStats } from '../schemas/season.schema.js';
+import { seasons, playerSeasonStats, seasonDrafts } from '../schemas/season.schema.js';
 import { players } from '../schemas/player.schema.js';
 import { matches } from '../schemas/game.schema.js';
 import { activities, locations, cities } from '../schemas/admin.schema.js';
@@ -43,7 +43,34 @@ export const NO_SCOPE: RankScope = { seasonId: null, isRegular: false, cityId: n
 // ── كاش الموسم العادي النشط (يُبطَل عند تغيّر المواسم) ──
 let activeRegularCache: { id: number; at: number } | null = null;
 let activeOnlineCache: { id: number | null; at: number } | null = null;
-export function invalidateSeasonCache() { activeRegularCache = null; activeOnlineCache = null; }
+let contentPackCache: { pack: string | null; at: number } | null = null;
+export function invalidateSeasonCache() { activeRegularCache = null; activeOnlineCache = null; contentPackCache = null; }
+
+// ── 🔮 محتوى الموسم العاديّ النشط ('PROPHECY' أو null) — كاش 30 ثانية ──
+export async function getActiveContentPack(): Promise<string | null> {
+  if (contentPackCache && Date.now() - contentPackCache.at < 30000) return contentPackCache.pack;
+  const db = getDB();
+  if (!db) return null;
+  const [row] = await db.select({ pack: seasons.contentPack })
+    .from(seasons)
+    .where(and(eq(seasons.type, 'REGULAR'), eq(seasons.status, 'ACTIVE')))
+    .limit(1);
+  const pack = row?.pack ?? null;
+  contentPackCache = { pack, at: Date.now() };
+  return pack;
+}
+
+// ── 🔮 المسودّة المعلّقة (أحدث مسودّةٍ لم تُفعَّل) ──
+export async function getPendingSeasonDraft(): Promise<{ id: number; name: string; contentPack: string } | null> {
+  const db = getDB();
+  if (!db) return null;
+  const [row] = await db.select({ id: seasonDrafts.id, name: seasonDrafts.name, contentPack: seasonDrafts.contentPack })
+    .from(seasonDrafts)
+    .where(isNull(seasonDrafts.activatedSeasonId))
+    .orderBy(desc(seasonDrafts.id))
+    .limit(1);
+  return row || null;
+}
 
 // ── جلب الموسم العادي النشط (مع كاش 30 ثانية) ──
 export async function getActiveRegularSeasonId(): Promise<number | null> {
@@ -472,7 +499,7 @@ export async function endSeason(seasonId: number): Promise<void> {
 
 // ── بدء موسم عادي جديد: يثبّت أرشيف الحالي (كلّ مدنه) + ينهيه + يصفّر مرآة players.* + يبدأ موسماً ──
 // ⚠️ يجب ألا تكون هناك مباريات جارية (يفحصها المُستدعي).
-export async function startRegularSeason(name: string, createdBy?: number): Promise<SeasonRow> {
+export async function startRegularSeason(name: string, createdBy?: number, opts?: { contentPack?: string | null }): Promise<SeasonRow> {
   const db = getDB();
   if (!db) throw new Error('DB unavailable');
 
@@ -498,6 +525,7 @@ export async function startRegularSeason(name: string, createdBy?: number): Prom
   const [{ maxNum }] = await db.select({ maxNum: sql<number>`COALESCE(MAX(${seasons.seasonNumber}),0)::int` }).from(seasons);
   const [row] = await db.insert(seasons).values({
     name, seasonNumber: (maxNum || 0) + 1, type: 'REGULAR', status: 'ACTIVE', createdBy: createdBy ?? null,
+    contentPack: opts?.contentPack ?? null,
   } as any).returning();
 
   // 3) تصفير مرآة players.* (التقدّم فقط — لا تُلمس الهوية ولا lifetime_matches ولا home_city_id)
@@ -511,6 +539,19 @@ export async function startRegularSeason(name: string, createdBy?: number): Prom
 
   invalidateSeasonCache();
   return row as any;
+}
+
+// ── 🔮 تفعيل مسودّة: موسمٌ عاديّ جديد باسمها ومحتواها (الحرّاس نفسها في المُستدعي) ──
+export async function activateSeasonDraft(draftId: number, createdBy?: number): Promise<SeasonRow> {
+  const db = getDB();
+  if (!db) throw new Error('DB unavailable');
+  const [draft] = await db.select().from(seasonDrafts).where(eq(seasonDrafts.id, draftId)).limit(1);
+  if (!draft) throw new Error(`لا مسودّة بالرقم ${draftId}`);
+  if (draft.activatedSeasonId) throw new Error(`المسودّة «${draft.name}» فُعّلت سابقاً (الموسم #${draft.activatedSeasonId})`);
+  const row = await startRegularSeason(draft.name, createdBy, { contentPack: draft.contentPack });
+  await db.update(seasonDrafts).set({ activatedSeasonId: row.id, activatedAt: new Date() } as any).where(eq(seasonDrafts.id, draftId));
+  invalidateSeasonCache();
+  return row;
 }
 
 // ── بدء موسم أونلاين جديد: ينهي الأونلاين الحاليّ + يبدأ موسماً أونلاين (لا يمسّ players.* ولا الرانك الوجاهيّ) ──

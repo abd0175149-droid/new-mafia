@@ -14,6 +14,7 @@ import {
   User, HeartPulse, Shield, Syringe, Crosshair,
   BadgeAlert, Skull, Crown, Drama, Scissors,
   Flame, Ghost, Eye, Zap, Sword, Heart, Landmark,
+  VenetianMask, Coffee, Split, Handshake,
   type LucideIcon,
 } from 'lucide-react';
 
@@ -30,6 +31,7 @@ const LUCIDE_ICONS: Record<string, LucideIcon> = {
   User, HeartPulse, Shield, Syringe, Crosshair,
   BadgeAlert, Skull, Crown, Drama, Scissors,
   Flame, Ghost, Eye, Zap, Sword, Heart, Landmark,
+  VenetianMask, Coffee, Split, Handshake,   // 🔮 كروت النبوءة
 };
 
 function getLucideIcon(name: string): LucideIcon {
@@ -222,6 +224,7 @@ export default function DynamicMafiaCard({
       GODFATHER: Crown, SILENCER: Scissors, CHAMELEON: Drama,
       MAFIA_REGULAR: Skull, SHERIFF: Shield, DOCTOR: HeartPulse,
       SNIPER: Crosshair, POLICEWOMAN: BadgeAlert, NURSE: Syringe, MAYOR: Landmark, CITIZEN: User,
+      ORACLE: Eye, DECEIVER: VenetianMask, CUP_READER: Coffee, DIVIDED: Split, GUARANTOR: Handshake,
     };
     RoleIcon = role ? (classicIcons[role] || User) : User;
   }

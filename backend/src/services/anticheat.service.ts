@@ -21,7 +21,7 @@
 import { sql } from 'drizzle-orm';
 import { getDB } from '../config/db.js';
 
-const MAFIA_ROLES = ['GODFATHER', 'SILENCER', 'CHAMELEON', 'WITCH', 'OLDER_BROTHER', 'MAFIA_REGULAR'];
+const MAFIA_ROLES = ['GODFATHER', 'SILENCER', 'CHAMELEON', 'WITCH', 'OLDER_BROTHER', 'MAFIA_REGULAR', 'DECEIVER'];
 const MIN_PAIR_MATCHES = 5;    // حدٌّ أدنى للعيّنة الزوجيّة كي تُحسب
 const MIN_CITIZEN_DEALS = 6;   // حدٌّ أدنى لاتفاقيّات المواطن كي تُحسب دقّتها
 

@@ -4,6 +4,7 @@
 // ══════════════════════════════════════════════════════
 
 import { getRoleDefs, type RoleDef } from './definition-service.js';
+import { isProphecyRole } from './roles.js';
 
 export interface DynamicGeneratedRoles {
   mafiaRoles: string[];      // role IDs
@@ -27,7 +28,9 @@ export async function generateRolesDynamic(
     throw new Error('يجب أن يكون عدد اللاعبين 6 على الأقل');
   }
 
-  const allRoles = await getRoleDefs();
+  // 🔮 كروت النبوءة لا تُولَّد تلقائيّاً أبداً: تدخل من وصفة الإعداد وحدها، وخلف مفتاح الموسم.
+  //    (بلا هذا لدخلت الغرفَ الحقيقيّة من جدول التعريفات بمجرّد إضافتها إليه.)
+  const allRoles = (await getRoleDefs()).filter(r => !isProphecyRole(r.id));
 
   // تصنيف الأدوار حسب الفريق
   const mafiaPool = allRoles

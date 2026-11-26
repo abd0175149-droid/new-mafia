@@ -38,10 +38,19 @@ export enum Role {
   PHOENIX = 'PHOENIX',
   JESTER = 'JESTER',
   ASSASSIN = 'ASSASSIN',
+  // 🔮 موسم النبوءة (2026-11-26) — تظهر في الإعداد فقط حين يفتحها الخادم للغرفة
+  ORACLE = 'ORACLE',
+  DECEIVER = 'DECEIVER',
+  CUP_READER = 'CUP_READER',
+  DIVIDED = 'DIVIDED',
+  GUARANTOR = 'GUARANTOR',
 }
 
-export const MAFIA_ROLES = [Role.GODFATHER, Role.SILENCER, Role.CHAMELEON, Role.WITCH, Role.OLDER_BROTHER, Role.MAFIA_REGULAR];
-export const NEUTRAL_ROLES = [Role.JESTER, Role.ASSASSIN];
+export const MAFIA_ROLES = [Role.GODFATHER, Role.SILENCER, Role.CHAMELEON, Role.WITCH, Role.OLDER_BROTHER, Role.MAFIA_REGULAR, Role.DECEIVER];
+export const NEUTRAL_ROLES = [Role.JESTER, Role.ASSASSIN, Role.CUP_READER];
+/** 🔮 كروت موسم النبوءة — نسخةٌ واحدة لكلٍّ منها، وخلف مفتاح الموسم */
+export const PROPHECY_ROLES = [Role.ORACLE, Role.DECEIVER, Role.CUP_READER, Role.DIVIDED, Role.GUARANTOR];
+export const isProphecyRole = (r: string | null | undefined) => !!r && (PROPHECY_ROLES as string[]).includes(r);
 
 export function isMafiaRole(role: Role): boolean {
   return MAFIA_ROLES.includes(role);
@@ -69,6 +78,11 @@ export const ROLE_NAMES: Record<Role, string> = {
   [Role.PHOENIX]: 'العنقاء',
   [Role.JESTER]: 'المهرج',
   [Role.ASSASSIN]: 'السفّاح',
+  [Role.ORACLE]: 'العرّاف',
+  [Role.DECEIVER]: 'المُضلّل',
+  [Role.CUP_READER]: 'قارئة الفنجان',
+  [Role.DIVIDED]: 'المنقسم',
+  [Role.GUARANTOR]: 'الكفيل',
 };
 
 export const ROLE_ICONS: Record<Role, string> = {
@@ -89,6 +103,11 @@ export const ROLE_ICONS: Record<Role, string> = {
   [Role.PHOENIX]: '🔥',
   [Role.JESTER]: '🤡',
   [Role.ASSASSIN]: '🔪',
+  [Role.ORACLE]: '📜',
+  [Role.DECEIVER]: '🎭',
+  [Role.CUP_READER]: '☕',
+  [Role.DIVIDED]: '⚖️',
+  [Role.GUARANTOR]: '🤝',
 };
 
 // ── المراحل ────────────────────────────────────

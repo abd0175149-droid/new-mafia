@@ -19,10 +19,25 @@ export const seasons = pgTable('seasons', {
   status: varchar('status', { length: 20 }).notNull().default('ACTIVE'), // ACTIVE | ENDED
   // نسخة من إعدادات التقدّم وقت الموسم (لإعادة الحساب التاريخي بدقة)
   progressionConfigSnapshot: varchar('progression_config_snapshot', { length: 20 }),
+  // 🔮 محتوى الموسم: الكروت والقواعد التي يفتحها (null = اللعبة الأساسيّة). 'PROPHECY' = موسم النبوءة
+  contentPack: varchar('content_pack', { length: 30 }),
   startedAt: timestamp('started_at').defaultNow().notNull(),
   endedAt: timestamp('ended_at'),
   createdBy: integer('created_by'), // staff.id
   createdAt: timestamp('created_at').defaultNow().notNull(),
+});
+
+// ── 🔮 Season Drafts (مسودّات المواسم) ─────────────
+// موسمٌ مُعَدٌّ لم يبدأ بعد. في جدولٍ مستقلّ عن seasons عمداً: لا يظهر في أيّ قائمة مواسم،
+// ولا يأخذ رقماً، ولا تُحسب له مباراة. يُفعَّل بأداة التبديل (--from-draft) فيصير موسماً عاديّاً
+// نشطاً بمحتواه، ويُختم activated_season_id.
+export const seasonDrafts = pgTable('season_drafts', {
+  id: serial('id').primaryKey(),
+  name: varchar('name', { length: 100 }).notNull(),
+  contentPack: varchar('content_pack', { length: 30 }).notNull(),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+  activatedSeasonId: integer('activated_season_id'),
+  activatedAt: timestamp('activated_at'),
 });
 
 // ── Player Season Stats (إحصاءات اللاعب لكل موسم) ────

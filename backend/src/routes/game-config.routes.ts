@@ -168,7 +168,13 @@ router.get('/roles-guide', async (_req: Request, res: Response) => {
     const abilityById = new Map<string, any>(abilities.map((a: any) => [a.id, a]));
     const tplById = new Map<string, any>(templates.map((t: any) => [t.id, t]));
 
-    const data = roles.map((r: any) => {
+    // 🔮 كروت النبوءة لا تظهر في دليل اللاعب قبل أن يُفعَّل موسمها — المسودّة سرٌّ حتّى إطلاقها
+    const { getActiveContentPack } = await import('../services/season.service.js');
+    const { isProphecyRole } = await import('../game/roles.js');
+    const prophecyLive = (await getActiveContentPack()) === 'PROPHECY';
+    const shown = prophecyLive ? roles : roles.filter((r: any) => !isProphecyRole(r.id));
+
+    const data = shown.map((r: any) => {
       const tpl = r.cardTemplateId ? tplById.get(r.cardTemplateId) : null;
       // تجاوزُ الدور يعلو القالب — هكذا يقرأها DynamicMafiaCard تماماً
       const secret = r.cardOverrides?.secretFace ?? tpl?.secretFace ?? null;

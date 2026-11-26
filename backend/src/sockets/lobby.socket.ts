@@ -20,7 +20,7 @@ import { resolveManualSeat, freeSeatsFor, exitDisposition, isSeatFail } from '..
 import * as SeatLocks from '../game/seating/seat-locks.js';
 import { isManualSeatActivity, stampManualSeats } from '../services/manual-seat.service.js';
 import type { SeatConstraints } from '../game/seat-allocator.js';
-import { generateRoles, validateRoleDistribution, Role, getTeamCounts, isMafiaRole, MAFIA_ROLES, ROLE_NAMES_AR } from '../game/roles.js';
+import { generateRoles, validateRoleDistribution, Role, getTeamCounts, isMafiaRole, MAFIA_ROLES, ROLE_NAMES_AR, isProphecyRole } from '../game/roles.js';
 import { generateRolesDynamic } from '../game/dynamic-role-generator.js';
 import { getGameState, setGameState, deleteGameState } from '../config/redis.js';
 import { createMatch, finalizeIfDecided } from '../services/match.service.js';
@@ -5429,6 +5429,9 @@ async function readSeatLayoutOnly(activityId: any): Promise<any> {
       // 🃏 كرتٌ مكرَّر في هذه اللعبة ⇒ الوضعُ الآليّ مقفل حتّى نهايتها
       if (!betweenGames && data.nightMode === 'auto' && state.config.duplicateRoles)
         return done({ success: false, code: 'DUPLICATE_ROLES_LOCK', error: 'في اللعبة كرتٌ مكرَّر — الوضع الآليّ مقفل حتّى نهايتها. استعمل «الليلة الواحدة» أو الطابور اليدويّ' });
+      // 🔮 كروت النبوءة لا تعمل في الوضع الآليّ القديم (قرار البناء ب١)
+      if (!betweenGames && data.nightMode === 'auto' && (state.config as any).prophecyCards)
+        return done({ success: false, code: 'PROPHECY_LOCK', error: 'في اللعبة كرتٌ من موسم النبوءة — الوضع الآليّ مقفل حتّى نهايتها. استعمل «الليلة الواحدة» أو الطابور اليدويّ' });
 
       const c = state.config;
       if (typeof data.gameName === 'string' && data.gameName.trim()) c.gameName = data.gameName.trim().slice(0, 60);
@@ -5513,6 +5516,9 @@ async function readSeatLayoutOnly(activityId: any): Promise<any> {
       const midGame = state.phase !== Phase.LOBBY && state.phase !== Phase.GAME_OVER;
       if (!data.useDynamicEngine && midGame && state.config.duplicateRoles) {
         return callback({ success: false, code: 'DUPLICATE_ROLES_LOCK', error: 'في اللعبة كرتٌ مكرَّر — المحرّك القديم لا يدعمه' });
+      }
+      if (!data.useDynamicEngine && midGame && (state.config as any).prophecyCards) {
+        return callback({ success: false, code: 'PROPHECY_LOCK', error: 'في اللعبة كرتٌ من موسم النبوءة — المحرّك القديم لا يدعمه' });
       }
 
       state.config.useDynamicEngine = data.useDynamicEngine;
@@ -5675,6 +5681,12 @@ async function readSeatLayoutOnly(activityId: any): Promise<any> {
       if (!validation.valid) {
         return callback({ success: false, error: validation.error });
       }
+
+      // 🔮 صفحة الأدوار القديمة لا تعرف كروت النبوءة — تُوزَّع من صفحة الإعداد الجديدة وحدها
+      if ((data.roles || []).some((r: any) => isProphecyRole(r))) {
+        return callback({ success: false, code: 'PROPHECY_LEGACY', error: 'كروت موسم النبوءة تُوزَّع من صفحة الإعداد الجديدة («اللعبة والكروت») وحدها' });
+      }
+      (state.config as any).prophecyCards = false;
 
       // 🃏 الكروت المكرّرة (قرار المالك 2026-11-06): الممنوعُ يُرفض، والمسموحُ لا يُعتمد إلّا بتأكيد الليدر
       const dup = analyzeDuplicates(data.roles);

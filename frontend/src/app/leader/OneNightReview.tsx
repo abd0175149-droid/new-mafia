@@ -31,9 +31,10 @@ const ROLE_AR: Record<string, string> = {
   SHERIFF: 'الشريف', DOCTOR: 'الطبيب', NURSE: 'الممرّضة', SNIPER: 'القنّاص',
   POLICEWOMAN: 'الشرطيّة', MAYOR: 'العمدة', CITIZEN: 'مواطنٌ صالح',
   YOUNGER_BROTHER: 'الأخ الأصغر', JESTER: 'المهرّج', ASSASSIN: 'السفّاح',
+  ORACLE: 'العرّاف', DECEIVER: 'المُضلّل', CUP_READER: 'قارئة الفنجان', DIVIDED: 'المنقسم', GUARANTOR: 'الكفيل',
 };
-const MAFIA = new Set(['GODFATHER', 'SILENCER', 'CHAMELEON', 'WITCH', 'OLDER_BROTHER', 'MAFIA_REGULAR']);
-const NEUTRAL = new Set(['JESTER', 'ASSASSIN']);
+const MAFIA = new Set(['GODFATHER', 'SILENCER', 'CHAMELEON', 'WITCH', 'OLDER_BROTHER', 'MAFIA_REGULAR', 'DECEIVER']);
+const NEUTRAL = new Set(['JESTER', 'ASSASSIN', 'CUP_READER']);
 const teamColor = (r: string | null) =>
   !r ? '#8d8271' : MAFIA.has(r) ? '#d9636a' : NEUTRAL.has(r) ? '#d7a73f' : '#5db98c';
 

@@ -494,7 +494,7 @@ export default function ProgressionPage() {
                   <div className="space-y-3">
                     {playerMatches.length === 0 ? <p className="text-gray-500 text-sm text-center py-10">لم يلعب أي مباراة بعد.</p> : null}
                     {playerMatches.map((m: any) => {
-                      const isMafia = ['GODFATHER', 'SILENCER', 'CHAMELEON', 'WITCH', 'OLDER_BROTHER', 'MAFIA_REGULAR'].includes(m.role || '');
+                      const isMafia = ['GODFATHER', 'SILENCER', 'CHAMELEON', 'WITCH', 'OLDER_BROTHER', 'MAFIA_REGULAR', 'DECEIVER'].includes(m.role || '');
                       const won = (isMafia && m.matchWinner === 'MAFIA') || (!isMafia && m.matchWinner === 'CITIZEN');
                       const isSelected = selMatch?.mpId === m.mpId;
                       return (

@@ -43,6 +43,7 @@ export const ROLE_AR: Record<string, string> = {
   OLDER_BROTHER: 'الأخ الأكبر', MAFIA_REGULAR: 'مافيا', SHERIFF: 'الشريف', DOCTOR: 'الطبيب',
   SNIPER: 'القناص', POLICEWOMAN: 'الشرطية', NURSE: 'الممرضة', YOUNGER_BROTHER: 'الأخ الأصغر',
   CITIZEN: 'مواطن', JESTER: 'المهرج', ASSASSIN: 'السفّاح', MAYOR: 'العمدة',
+  ORACLE: 'العرّاف', DECEIVER: 'المُضلّل', CUP_READER: 'قارئة الفنجان', DIVIDED: 'المنقسم', GUARANTOR: 'الكفيل',
 };
 export const FILTERS = [
   { key: 'all', label: 'الكلّ' },

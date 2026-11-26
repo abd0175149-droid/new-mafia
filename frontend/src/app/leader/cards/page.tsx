@@ -22,9 +22,10 @@ const ROLE_NAMES_AR: Record<string, string> = {
   YOUNGER_BROTHER: 'الأخ الأصغر',
   JESTER: 'المهرج',
   ASSASSIN: 'السفّاح',
+  ORACLE: 'العرّاف', DECEIVER: 'المُضلّل', CUP_READER: 'قارئة الفنجان', DIVIDED: 'المنقسم', GUARANTOR: 'الكفيل',
 };
 
-const MAFIA_ROLES = ['GODFATHER', 'SILENCER', 'CHAMELEON', 'WITCH', 'OLDER_BROTHER', 'MAFIA_REGULAR'];
+const MAFIA_ROLES = ['GODFATHER', 'SILENCER', 'CHAMELEON', 'WITCH', 'OLDER_BROTHER', 'MAFIA_REGULAR', 'DECEIVER'];
 
 interface PlayerData {
   physicalId: number;

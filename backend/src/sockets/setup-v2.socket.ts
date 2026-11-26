@@ -20,6 +20,8 @@ import { getRoom, withRoomLock, Phase } from '../game/state.js';
 import { setGameState } from '../config/redis.js';
 import { getDB } from '../config/db.js';
 import { bindingSnapshot } from '../game/role-binding.js';
+import { PROPHECY_ROLES } from '../game/roles.js';
+import { prophecyOn, prophecyCardsOff } from '../services/feature-flags.js';
 import {
   applyPoolRules, dealRandom, livePins, touchDeal, swapSeatRoles, pinRoleToSeat, changeSeatCard,
   dealReview, reopenDeck, rosterCounts, type PoolParams,
@@ -71,12 +73,27 @@ export function registerSetupV2Events(io: Server, socket: Socket) {
     return null;
   }
 
+  // ── 🔮 ما تفتحه هذه الغرفة من كروت الموسم (تقرؤه صفحة «اللعبة والكروت» قبل أن تعرضها) ──
+  socket.on('setup:features', async (data: { roomId: string }, cb) => {
+    if (!isLeader()) return reply(cb, { success: false, error: 'Only leader' });
+    try {
+      const state: any = await getRoom(data?.roomId);
+      if (!state) return reply(cb, { success: false, error: 'Room not found' });
+      const prophecy = await prophecyOn(state);
+      const off = prophecy ? await prophecyCardsOff(PROPHECY_ROLES) : [];
+      reply(cb, { success: true, prophecy, prophecyOff: off, isRemote: state.config?.isRemote === true });
+    } catch (err: any) { reply(cb, { success: false, error: err.message }); }
+  });
+
   // ── الحوض + التوزيع بطلبٍ واحد ──
   socket.on('setup:prepare-deal', async (data: PoolParams & { roomId: string; keepPins?: boolean }, cb) => {
     const state = await onDeal(data?.roomId, cb, async (st: any) => {
       if (st.rolesConfirmed === true && st.phase === Phase.ROLE_BINDING) {
         return { ok: false, code: 'ALREADY_SENT', error: 'وصلت الكروت الهواتف — ارجع من التوزيع أوّلاً ثمّ أعد التحضير' };
       }
+      // 🔮 محتوى الموسم يُحسب هنا مرّةً لكلّ توزيع ويثبت طوال اللعبة
+      st.config.prophecy = await prophecyOn(st);
+      st.config.prophecyOff = await prophecyCardsOff(PROPHECY_ROLES);
       const rules = applyPoolRules(st, data);
       if (rules.ok === false) return rules;
       const keep = data.keepPins !== false ? livePins(st).filter((s) => {

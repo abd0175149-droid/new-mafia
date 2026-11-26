@@ -9,7 +9,7 @@
 // الدوالّ هنا تعدّل كائن الحالة في الذاكرة ولا تحفظ — المستدعي يحفظ تحت withRoomLock.
 // ══════════════════════════════════════════════════════
 
-import { Role, isMafiaRole, teamOfRole, validateRoleDistribution, ROLE_NAMES_AR } from './roles.js';
+import { Role, isMafiaRole, teamOfRole, validateRoleDistribution, ROLE_NAMES_AR, isProphecyRole } from './roles.js';
 import { analyzeDuplicates, isAssassinMode } from './role-duplicates.js';
 import { bindingDiff, exactIssues, sendableIssues, bumpBindingRev } from './role-binding.js';
 
@@ -25,9 +25,36 @@ export interface PoolParams {
   confirmDuplicates?: boolean;
   supportsDuplicatePrompt?: boolean;
   assassinMode?: 'RIVALS' | 'PARTNERS';
+  // 🔮 إعدادات كروت النبوءة (تُحفظ مع الوصفة كمدّة العمدة ورصيد العنقاء)
+  oracleTestament?: boolean;   // «الوصيّة» — قرار المالك ٦: مفتاحٌ في إعدادات كرت العرّاف
+  cupThreshold?: number;       // عتبة القارئة يدويّاً (فارغ = من حجم الطاولة: ٢ حتّى ٢٣، و٣ من ٢٤)
+  deceiverMasks?: number;      // قناعان اختياريّاً من ٢٤ لاعباً (قرار ٨)
 }
 
 export type Fail = { ok: false; code: string; error: string; duplicates?: any };
+
+/**
+ * 🔮 قواعد كروت النبوءة على حوضٍ (مشتركةٌ بين التحضير وتغيير كرت مقعد):
+ *   • لا تدخل إلّا غرفةً فُتح لها المحتوى (config.prophecy — يُحسب عند التحضير) ولا كرتاً مطفأً بمفتاحه.
+ *   • لا غرف عن بُعد في النسخة الأولى (قرار البناء ب٦).
+ *   • تفرض المحرّك الديناميكيّ وتُقفل النمط الآليّ القديم (قرار البناء ب١).
+ * تكتب config.prophecyCards (هل في الحوض كرتٌ منها) — يقرؤه قفلُ النمط أثناء اللعب.
+ */
+export function prophecyPoolRules(c: any, roles: string[]): ({ ok: true; nightModeSwitched: boolean } | Fail) {
+  const pro = Array.from(new Set(roles.filter((r) => isProphecyRole(r))));
+  if (!pro.length) { c.prophecyCards = false; return { ok: true, nightModeSwitched: false }; }
+  if (c.prophecy !== true) {
+    return { ok: false, code: 'PROPHECY_OFF', error: `كروت موسم النبوءة لم تُفتح لهذه الغرفة: ${pro.map(nameOf).join('، ')}` };
+  }
+  const off = pro.filter((r) => (c.prophecyOff || []).includes(r));
+  if (off.length) return { ok: false, code: 'CARD_OFF', error: `كرتٌ مطفأٌ مؤقّتاً: ${off.map(nameOf).join('، ')}` };
+  if (c.isRemote) return { ok: false, code: 'PROPHECY_REMOTE', error: 'الغرف عن بُعد لا تدعم كروت النبوءة بعد' };
+  c.prophecyCards = true;
+  c.useDynamicEngine = true;
+  let nightModeSwitched = false;
+  if (c.nightMode === 'auto') { c.nightMode = 'manual'; nightModeSwitched = true; }
+  return { ok: true, nightModeSwitched };
+}
 
 /** يتحقّق من الحوض ويكتب معاملاته في config — منطقُ setup:roles-confirmed نفسه. */
 export function applyPoolRules(state: any, data: PoolParams): ({ ok: true; nightModeSwitched: boolean; duplicateRoles: boolean } | Fail) {
@@ -52,8 +79,10 @@ export function applyPoolRules(state: any, data: PoolParams): ({ ok: true; night
         : 'في التوزيع كرتٌ مكرّر — حدّث صفحة الليدر (Ctrl+F5) ليظهر سؤال التأكيد' };
   }
   const c = state.config;
+  const pro = prophecyPoolRules(c, roles);
+  if (pro.ok === false) return pro;
   c.duplicateRoles = dup.allowed.length > 0;
-  let nightModeSwitched = false;
+  let nightModeSwitched = pro.nightModeSwitched;
   if (c.duplicateRoles) {
     c.useDynamicEngine = true;
     if (c.nightMode === 'auto') { c.nightMode = 'manual'; nightModeSwitched = true; }
@@ -66,6 +95,13 @@ export function applyPoolRules(state: any, data: PoolParams): ({ ok: true; night
   if (data.witchDisableRounds !== undefined) c.witchDisableRounds = Math.min(6, Math.max(1, Math.floor(Number(data.witchDisableRounds)) || 3));
   if (data.mayorVoteWeight !== undefined) c.mayorVoteWeight = Math.min(4, Math.max(1, Math.floor(Number(data.mayorVoteWeight)) || 2));
   if (data.phoenixRebirths !== undefined) c.phoenixRebirths = Math.min(3, Math.max(1, Math.floor(Number(data.phoenixRebirths)) || 1));
+  // 🔮 إعدادات النبوءة — تُحفظ دائماً (تنتقل مع الغرفة) وتُقرأ فقط حين يكون كرتُها في الحوض
+  if (data.oracleTestament !== undefined) c.oracleTestament = data.oracleTestament === true;
+  if (data.cupThreshold !== undefined) {
+    const n = Math.floor(Number(data.cupThreshold));
+    if (Number.isFinite(n) && n >= 1) c.cupThreshold = Math.min(5, n); else delete c.cupThreshold;
+  }
+  if (data.deceiverMasks !== undefined) c.deceiverMasks = Number(data.deceiverMasks) === 2 && aliveCount >= 24 ? 2 : 1;
   return { ok: true, nightModeSwitched, duplicateRoles: c.duplicateRoles };
 }
 
@@ -183,6 +219,8 @@ export function changeSeatCard(state: any, seat: number, role: string): { ok: tr
   const bad = dup.blocked.find(d => d.role === role);
   if (bad) return { ok: false, code: 'DUPLICATE_ROLES_BLOCKED', error: `«${nameOf(role)}» لا يتكرّر — ${bad.reason}` };
   if (dup.allowed.some(d => d.role === role) && state.config.isRemote) return { ok: false, code: 'DUPLICATE_ROLES_REMOTE', error: 'الغرف عن بُعد لا تدعم الكروت المكرّرة' };
+  const pro = prophecyPoolRules(state.config, pool);
+  if (pro.ok === false) return pro;
   const from = p.role;
   p.role = role;
   state.rolesPool = pool;

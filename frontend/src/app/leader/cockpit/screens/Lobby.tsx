@@ -21,7 +21,7 @@ import { SheetError, TapChip, inputCls, errMsg } from './setup/ui';
 import { StepRail } from './Setup';
 import GameCards from './GameCards';
 import { Role } from '@/lib/constants';
-import { applyPlan, initialPlan, useTemplates, composeDeck, dealPayload, normalizePlan, type SetupPlan, type Template } from '../setupPlan';
+import { applyPlan, initialPlan, useTemplates, composeDeck, dealPayload, normalizePlan, useDeckFeatures, type SetupPlan, type Template } from '../setupPlan';
 import { SeatLockEditor, SeatLockStrip, SeatLockBanner, ClosedSeatSheet, lockMark, useLockState, useSeatLockEvents } from './SeatLocks';
 
 const MIN_PLAYERS = 6;
@@ -34,6 +34,7 @@ type SheetState =
 
 export default function LobbyScreen() {
   const { gameState, emit, run, toast, setGameState } = useCockpit();
+  const feat = useDeckFeatures(emit, gameState?.roomId);
   const host = useHost();
   const sm = useSeatMove();
   const pz = usePhotoZone(gameState);
@@ -117,7 +118,7 @@ export default function LobbyScreen() {
   // ⚡ ابدأ مباشرةً بقالب — يتخطّى «اللعبة والكروت» (القرار 7)
   const quickStart = async (t: Template) => {
     const p = normalizePlan(t.plan);
-    const deck = composeDeck(p, startCount);
+    const deck = composeDeck(p, startCount, undefined, feat);
     setPlan(p);
     await start(p, deck.roles);
   };

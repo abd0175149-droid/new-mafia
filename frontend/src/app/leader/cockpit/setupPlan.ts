@@ -43,6 +43,12 @@ export interface SetupPlan {
   consec: number;
   just: number;
   late: LatePlan;
+  /** 🔮 «الوصيّة» للعرّاف (قرار المالك ٦: مفعّلة، والموجّه يطفئها من إعدادات الكرت) */
+  testament: boolean;
+  /** 🔮 عتبة قارئة الفنجان: null = من حجم الطاولة (٢ حتّى ٢٣، و٣ من ٢٤) */
+  cupThreshold: number | null;
+  /** 🔮 أقنعة المُضلّل: ١، أو ٢ من ٢٤ لاعباً */
+  masks: 1 | 2;
 }
 
 export const MINUTES = [45, 60, 75, 90] as const;
@@ -53,12 +59,25 @@ export const BUILTIN_PLAN: SetupPlan = {
   minutes: 60, penalties: 3, nightKind: 'one', nightSecs: 60,
   bomb: true, chat: true, conf: true, reveal: true, consec: 3, just: 2,
   late: { enabled: false, waves: [], recompute: true },
+  testament: true, cupThreshold: null, masks: 1,
 };
 
 /** ترتيبُ الدخول التلقائيّ */
 export const M_ORDER: Role[] = [Role.GODFATHER, Role.SILENCER, Role.CHAMELEON, Role.WITCH];
 export const C_ORDER: Role[] = [Role.SHERIFF, Role.DOCTOR, Role.SNIPER, Role.POLICEWOMAN, Role.NURSE, Role.MAYOR, Role.PHOENIX];
 export const N_CARDS: Role[] = [Role.JESTER, Role.ASSASSIN];
+
+// ── 🔮 موسم النبوءة: الترتيب حين يفتح الخادم المحتوى للغرفة (قرارات المالك ١٣ و٢٤) ──
+//    المُضلّل خامساً في المافيا (من ١٧)، والعرّاف سادساً في المواطنين (من ١٠).
+//    القارئة مستقلّةٌ تلقائيّة من ١٦، والمنقسم يأخذ خانة مواطنٍ من ١٨، والكفيل يدويٌّ وحده (قرار ٣٩).
+export const M_ORDER_P: Role[] = [...M_ORDER, Role.DECEIVER];
+export const C_ORDER_P: Role[] = [Role.SHERIFF, Role.DOCTOR, Role.SNIPER, Role.POLICEWOMAN, Role.NURSE, Role.ORACLE, Role.MAYOR, Role.PHOENIX];
+export const PROPHECY_CARDS: Role[] = [Role.ORACLE, Role.DECEIVER, Role.CUP_READER, Role.DIVIDED, Role.GUARANTOR];
+export const READER_AUTO_FROM = 16;
+export const DIVIDED_AUTO_FROM = 18;
+/** ما يفتحه الخادم لهذه الغرفة (setup:features) */
+export interface DeckFeatures { prophecy: boolean; off: string[] }
+export const NO_FEATURES: DeckFeatures = { prophecy: false, off: [] };
 const FILL = new Set<Role>([Role.CITIZEN, Role.MAFIA_REGULAR]);
 
 const clampN = (v: unknown, lo: number, hi: number, d: number) => {
@@ -113,6 +132,9 @@ export function normalizePlan(raw: any, base: SetupPlan = BUILTIN_PLAN): SetupPl
     consec: clampN(r.consec ?? base.consec, 0, 5, 3),
     just: clampN(r.just ?? base.just, 1, 5, 2),
     late: { enabled: lr?.enabled === true && waves.length > 0, waves, recompute: lr?.recompute !== false },
+    testament: typeof r.testament === 'boolean' ? r.testament : base.testament,
+    cupThreshold: r.cupThreshold == null ? null : clampN(r.cupThreshold, 1, 5, 2),
+    masks: Number(r.masks) === 2 ? 2 : 1,
   };
 }
 
@@ -126,17 +148,23 @@ export const extrasAllowed = (n: number) => n >= 10;
 export interface Deck { roles: Role[]; warn: string[] }
 
 /** التركيبة من الوصفة وعدد اللاعبين (منقولةٌ من النموذج المعتمد composeW) */
-export function composeDeck(plan: SetupPlan, n: number, roleName: (r: Role) => string = (r) => r): Deck {
+export function composeDeck(plan: SetupPlan, n: number, roleName: (r: Role) => string = (r) => r, feat: DeckFeatures = NO_FEATURES): Deck {
   const warn: string[] = [];
   if (n <= 0) return { roles: [], warn };
-  const c = plan.cards || {};
+  // 🔮 كروت النبوءة: بلا محتوى الموسم (أو بمفتاح إطفاء) تُعامَل كأنّها مطفأة حتّى لو حفظها قالب
+  const P = feat.prophecy === true;
+  const c: Partial<Record<Role, number>> = { ...(plan.cards || {}) };
+  for (const r of PROPHECY_CARDS) if (!P || feat.off.includes(r)) c[r] = 0;
+  const mOrder = P ? M_ORDER_P : M_ORDER;
+  const cOrder = P ? C_ORDER_P : C_ORDER;
   const ex = extrasAllowed(n);
   const twins = plan.twins && ex;
   const J = c[Role.JESTER] || 0;
   const A = ex ? (c[Role.ASSASSIN] || 0) : 0;
   if (!ex && (c[Role.ASSASSIN] || 0) > 0) warn.push('السفّاح يحتاج 10 لاعبين على الأقلّ، فلم يدخل.');
   if (!ex && plan.twins) warn.push('الأخوان يحتاجان 10 لاعبين على الأقلّ.');
-  const neutral = J + A;
+  const R = P ? Math.min(1, c[Role.CUP_READER] ?? (n >= READER_AUTO_FROM ? 1 : 0)) : 0;
+  const neutral = J + A + R;
   const mt = Math.max(1, Math.min(Math.max(1, n - neutral - 1), plan.mafia ?? autoMafia(n)));
   const fill = (order: Role[], slots: number, filler: Role): Role[] => {
     const fixed: Role[] = [];
@@ -147,13 +175,25 @@ export function composeDeck(plan: SetupPlan, n: number, roleName: (r: Role) => s
     while (res.length < slots) res.push(filler);
     return res;
   };
-  const out: Role[] = [...fill(M_ORDER, mt - (twins ? 1 : 0), Role.MAFIA_REGULAR)];
+  const out: Role[] = [...fill(mOrder, mt - (twins ? 1 : 0), Role.MAFIA_REGULAR)];
   if (twins) out.push(Role.OLDER_BROTHER);
   const cit = Math.max(0, n - mt - neutral);
-  out.push(...fill(C_ORDER, cit - (twins ? 1 : 0), Role.CITIZEN));
+  out.push(...fill(cOrder, cit - (twins ? 1 : 0), Role.CITIZEN));
   if (twins && cit > 0) out.push(Role.YOUNGER_BROTHER);
+  // 🔮 المنقسم (تلقائيّ من ١٨) والكفيل (يدويّ وحده) يأخذان خانة مواطنٍ عاديّ
+  if (P) {
+    const swaps: Role[] = [];
+    if (Math.min(1, c[Role.DIVIDED] ?? (n >= DIVIDED_AUTO_FROM ? 1 : 0)) > 0) swaps.push(Role.DIVIDED);
+    if (Math.min(1, c[Role.GUARANTOR] ?? 0) > 0) swaps.push(Role.GUARANTOR);
+    for (const r of swaps) {
+      const i = out.lastIndexOf(Role.CITIZEN);
+      if (i === -1) warn.push(`لا مكان لـ«${roleName(r)}»: كلّ خانات المدينة مشغولة بكروتٍ مميّزة.`);
+      else out[i] = r;
+    }
+  }
   for (let i = 0; i < J; i++) out.push(Role.JESTER);
   for (let i = 0; i < A; i++) out.push(Role.ASSASSIN);
+  for (let i = 0; i < R; i++) out.push(Role.CUP_READER);
   if (A > 0) {
     const targets = out.filter((r) => !FILL.has(r) && r !== Role.ASSASSIN).length;
     if (plan.contracts > targets) warn.push(`عقود السفّاح ${plan.contracts} وأهدافها المتاحة ${targets} فقط (الأدوار المميّزة عدا السفّاح).`);
@@ -207,7 +247,26 @@ export function dealPayload(roomId: string, plan: SetupPlan, roles: Role[], cfg:
     // الكروت المكرّرة تُرى بصورها وعددها في الصفحة نفسها، والاعتماد الختاميّ يعرضها مع شروطها
     confirmDuplicates: true,
     assassinMode: assassins >= 2 ? plan.assassinMode : undefined,
+    // 🔮 إعدادات النبوءة — تُرسل حين يكون كرتُها في التوزيع
+    oracleTestament: roles.includes(Role.ORACLE) ? plan.testament : undefined,
+    cupThreshold: roles.includes(Role.CUP_READER) ? (plan.cupThreshold ?? 0) : undefined,
+    deceiverMasks: roles.includes(Role.DECEIVER) ? plan.masks : undefined,
   };
+}
+
+/** 🔮 ما يفتحه الخادم لهذه الغرفة من كروت الموسم — يُسأل مرّةً عند فتح الصفحة */
+export function useDeckFeatures(emit: Emit, roomId: string | undefined): DeckFeatures {
+  const [f, setF] = useState<DeckFeatures>(NO_FEATURES);
+  useEffect(() => {
+    if (!roomId) return;
+    let alive = true;
+    emit('setup:features', { roomId })
+      .then((r: any) => { if (alive && r?.success) setF({ prophecy: r.prophecy === true, off: Array.isArray(r.prophecyOff) ? r.prophecyOff : [] }); })
+      .catch(() => {});
+    return () => { alive = false; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [roomId]);
+  return f;
 }
 
 // ══════════ 🗂️ القوالب ══════════

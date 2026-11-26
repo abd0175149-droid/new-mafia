@@ -20,8 +20,8 @@ export const BOT_NAMES: Record<number, string> = { 1: 'أحمد', 2: 'سارة',
 export const ROOM_CODE = '0101';
 export const GAME_NAME = 'ليلة تجريبيّة';
 
-const MAFIA = ['GODFATHER', 'SILENCER', 'CHAMELEON', 'WITCH', 'OLDER_BROTHER', 'MAFIA_REGULAR'];
-const NEUTRAL = ['JESTER', 'ASSASSIN'];
+const MAFIA = ['GODFATHER', 'SILENCER', 'CHAMELEON', 'WITCH', 'OLDER_BROTHER', 'MAFIA_REGULAR', 'DECEIVER'];
+const NEUTRAL = ['JESTER', 'ASSASSIN', 'CUP_READER'];
 export const isMafia = (r: string) => MAFIA.includes(r);
 export const teamOf = (r: string): Team => (MAFIA.includes(r) ? 'MAFIA' : NEUTRAL.includes(r) ? 'NEUTRAL' : 'CITIZEN');
 
