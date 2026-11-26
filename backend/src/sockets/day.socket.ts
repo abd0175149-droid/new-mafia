@@ -23,6 +23,7 @@ import { checkWinConditionDynamic, checkNeutralVoteWin } from '../game/dynamic-w
 import { isMafiaRole, teamOfRole, getTeamCounts } from '../game/roles.js';
 import { isProphecyDeal, prophecyOwnerSeat, recordProphecyPassed, closeProphecy } from '../game/oracle-engine.js';
 import { kafalaEligible, openKafalaWindow, closeKafalaWindow, applyKafala } from '../game/guarantor-engine.js';
+import { flipLineFor } from '../game/prophecy-content.js';
 import { cupOnCityExecution } from '../game/cup-engine.js';
 import { getGameState, setGameState } from '../config/redis.js';
 import { checkPolicewomanTrigger } from '../game/night-resolver.js';
@@ -1226,6 +1227,8 @@ export function registerDayEvents(io: Server, socket: Socket) {
         // 🔮 موسم النبوءة — علنيّةٌ بعد القلب: رحيلُ القارئة وفناجينها، وحكمُ الكفالة
         cup: pr.cup || null,
         kafala: pr.kafala || null,
+        // 📜 سطرُ كلّ دورٍ حين يُقلب (قرار ٣٣) — في غرفة الموسم وحدها، وإلّا فارغ
+        flipLines: Object.fromEntries((revealedRolesOut as any[]).map((r: any) => [r.physicalId, flipLineFor(currentState, r.role)]).filter(([, l]) => !!l)),
       };
       // 📺 الموجّه والشاشة الآن — يبدأ مشهدُ الكشف
       await emitTrustedOnly(io, data.roomId, 'day:elimination-revealed', revealPayload);

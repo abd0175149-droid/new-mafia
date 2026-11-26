@@ -42,6 +42,10 @@ export default function ProphecyDayBanner() {
         push({ key: 'prophecy', icon: '📜', tone: trueP ? 'gold' : 'blood',
           text: trueP ? 'صدقت النبوءة' : `كذبت النبوءة${deal.testamentPhysicalId != null ? ` — الوصيّة: رقم ${deal.testamentPhysicalId}` : ''}` }, 20000);
       }
+      // 📜 سطرُ كلّ دورٍ حين يُقلب (قرار ٣٣) — بعد أن يُقلب الكرت بلحظة
+      for (const [seat, line] of Object.entries(d?.flipLines || {})) {
+        setTimeout(() => push({ key: `flip-${seat}`, icon: '📜', text: `${seat} — ${line}`, tone: 'gold' }, 12000), 4000);
+      }
       const c = d?.cup;
       if (c?.departed) push({ key: 'cup', icon: '☕', text: `رحلت قارئة الفنجان فائزة — صدق فنجانها في: ${(c.hits || []).join('، ')}`, tone: 'gold' }, 20000);
     };

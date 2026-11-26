@@ -25,6 +25,16 @@ async function prophecySeason(): Promise<{ id: number; startedAt: Date } | null>
   return r[0] ? { id: Number(r[0].id), startedAt: new Date(r[0].started_at) } : null;
 }
 
+// 📜 سطرُ الافتتاح (قرار ٣٣): الموجّه يفتتح كلّ لعبةٍ بسطر الأسبوع — بلا موسمٍ نشط الأسبوع الأوّل
+router.get('/week', async (_req: Request, res: Response) => {
+  try {
+    const { seasonWeek, WEEK_LINES } = await import('../game/prophecy-content.js');
+    const s = await prophecySeason();
+    const week = seasonWeek(s?.startedAt ?? null);
+    res.json({ success: true, active: !!s, week, line: WEEK_LINES[week - 1] });
+  } catch (e: any) { res.status(500).json({ error: e.message }); }
+});
+
 router.get('/ledger', async (_req: Request, res: Response) => {
   try {
     const db = getDB(); if (!db) return res.status(503).json({ error: 'DB unavailable' });

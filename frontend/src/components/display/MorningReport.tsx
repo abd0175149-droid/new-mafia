@@ -69,6 +69,8 @@ export default function MorningReport({ events, current, players, teamCounts, ro
                   : isProphecyMorning(current.type)
                   ? <div className="flex-1 min-h-0"><ProphecyMorningCard ev={current} players={players} /></div>
                   : <div className="morning-cinematic flex-1 min-h-0"><FitToScreen><NightAnimCinematic data={current} players={players} /></FitToScreen></div>}
+                {/* 📜 سطرُ الدور حين يُقلب (موسم النبوءة) */}
+                {current.flipLine && <motion.p initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 3 }} className="mt-3 text-center text-2xl text-[#ffe7a8]" style={{ fontFamily: 'Amiri, serif' }}>{current.flipLine}</motion.p>}
               </motion.div>
             ) : quiet ? (
               <motion.div key="quiet" initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="w-full rounded-3xl border border-white/15 bg-black/55 backdrop-blur-sm p-8 text-center">

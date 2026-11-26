@@ -32,6 +32,7 @@ import { addPhoneHold, armPhoneHolds, flushPhoneHolds, dropPhoneHolds, HOLD_MS }
 import { publicTeamCounts, seatsRevealedBy } from '../game/public-counts.js';
 import { placeProphecyDeal } from '../game/oracle-engine.js';
 import { markDividedAnnounced } from '../game/divided-engine.js';
+import { flipLineFor } from '../game/prophecy-content.js';
 import {
   initAssassinStates, assassinRecipients, assassinContractsPayload, anyAssassinWon, markAssassinFirstNightPassed,
 } from '../game/assassin-engine.js';
@@ -1563,6 +1564,8 @@ export function registerNightEvents(io: Server, socket: Socket) {
         // 👁️ العدّادُ بعد هذا الكشف، ومقاعدُ البطاقات التي يكشفها — الشاشةُ تطبّقه عند قلبها لا قبله
         teamCounts: publicTeamCounts(state),
         revealSeats: seatsRevealedBy(state, event),
+        // 📜 سطرُ الدور حين يُقلب كرتُ ميّت الليل (موسم النبوءة وحده)
+        flipLine: seatsRevealedBy(state, event).length ? flipLineFor(state, (event.extra as any)?.targetRole) : null,
       });
       await armPhoneHolds(io, data.roomId);
 

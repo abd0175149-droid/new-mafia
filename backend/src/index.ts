@@ -1522,6 +1522,18 @@ async function main() {
            'مرّةً في اللعبة يكفل من حكمت عليه المدينة: إن كان مواطناً نجا، وإلّا مات الكفيل معه',
            '{"icon":{"type":"lucide","value":"Handshake"}}'::jsonb)
         ON CONFLICT (id) DO NOTHING`);
+      // 📖 نصوص «مهامّي» للكروت الخمسة (المرحلة ٩) — تُكتب إن كانت فارغة وحدها: لا فوق تعديل الإدارة
+      {
+        const { ROLE_TEXTS } = await import('./game/prophecy-content.js');
+        for (const [id, t] of Object.entries(ROLE_TEXTS)) {
+          await db.execute(sql`
+            UPDATE role_definitions SET one_liner = ${t.oneLiner}, how_it_works = ${t.howItWorks},
+              tips = ${JSON.stringify(t.tips)}::jsonb, extra_limits = ${JSON.stringify(t.extraLimits)}::jsonb,
+              interacts_with = ${JSON.stringify(t.interactsWith)}::jsonb, phase_notes = ${JSON.stringify(t.phaseNotes)}::jsonb,
+              acts_in_phases = ${JSON.stringify(t.actsInPhases)}::jsonb
+            WHERE id = ${id} AND one_liner IS NULL`);
+        }
+      }
       // 🎭 قدرةُ القناع (المرحلة ١): ليلاً، على غير المافيا وغير النفس، قبل التحقيق (أولويّة ٢)، تُتخطّى.
       //    effect_type = PASSIVE (لا قيمة جديدة في التعداد) — المحرّك يميّزها بمعرّفها.
       //    وربطُها بالمُضلّل مرّةً: لا يُكتب فوق تعديلٍ يدويّ لاحق من لوحة الإدارة.

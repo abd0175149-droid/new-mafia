@@ -47,6 +47,7 @@ const ROLE_AR: Record<string, string> = {
   SHERIFF: 'الشريف', DOCTOR: 'الطبيب', NURSE: 'الممرّضة', SNIPER: 'القنّاص',
   POLICEWOMAN: 'الشرطيّة', MAYOR: 'العمدة', CITIZEN: 'مواطنٌ صالح',
   YOUNGER_BROTHER: 'الأخ الأصغر', JESTER: 'المهرّج', ASSASSIN: 'السفّاح',
+  PHOENIX: 'العنقاء', DECEIVER: 'المُضلّل', ORACLE: 'العرّاف', CUP_READER: 'قارئة الفنجان', DIVIDED: 'المنقسم', GUARANTOR: 'الكفيل',
 };
 
 const TARGET_AR: Record<string, string> = {

@@ -117,16 +117,29 @@ export function ProphecyNightPanel() {
 }
 
 // ══════════ النهار ══════════
+const API_URL = process.env.NEXT_PUBLIC_API_URL || '';
+/** 📜 سطرُ الافتتاح (قرار ٣٣) — يقرؤه الموجّه أوّل النهار الأوّل */
+function useWeekLine(on: boolean) {
+  const [w, setW] = useState<{ week: number; line: string } | null>(null);
+  useEffect(() => {
+    if (!on) return;
+    fetch(`${API_URL}/api/prophecy/week`).then(r => r.json()).then(j => { if (j?.line) setW({ week: j.week, line: j.line }); }).catch(() => {});
+  }, [on]);
+  return w;
+}
+
 export function ProphecyDayPanel() {
   const { gameState, emit, run } = useCockpit();
   const gs = gameState;
   const [busy, setBusy] = useState(false);
+  const opening = useWeekLine(!!gs?.config?.prophecy && (gs?.round || 1) === 1 && gs?.phase === 'DAY_DISCUSSION');
   if (!gs) return null;
   const o = gs.oracleState;
   const deals: any[] = gs.votingState?.deals || [];
   const pd = deals.find((x: any) => x?.kind === 'PROPHECY' || String(x?.id || '').startsWith('prophecy-'));
   const testament = o?.testamentPhysicalId;
-  if (!pd && !testament) return null;
+  const openingShown = !!opening && (gs.round || 1) === 1 && gs.phase === 'DAY_DISCUSSION';
+  if (!pd && !testament && !openingShown) return null;
   const withdraw = async () => {
     if (busy || !o) return;
     setBusy(true);
@@ -135,6 +148,9 @@ export function ProphecyDayPanel() {
   };
   return (
     <Section title="📜 النبوءة" aside="🔒 صاحبها للموجّه وحده">
+      {openingShown && (
+        <ListRow n="📜" title={<span style={{ fontFamily: 'Amiri, serif' }}>{opening!.line}</span>} sub={`سطر الافتتاح — الأسبوع ${opening!.week}: اقرأه للقاعة قبل النقاش`} />
+      )}
       {pd && (
         <>
           <ListRow n={pd.targetPhysicalId} title={<>صفقة النبوءة على {pd.targetPhysicalId} {nameAt(gs, pd.targetPhysicalId)}</>}
