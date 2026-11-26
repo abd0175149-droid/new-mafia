@@ -8,14 +8,16 @@ import RolesDeck from '@/components/RolesDeck';
 import DynamicMafiaCard from '@/components/DynamicMafiaCard';
 import { usePlayerCosmetics } from '@/hooks/usePlayerCosmetics';
 import { GuideProfileRow } from '@/components/guide/GuideEntries';
+import ProphecyScrollCard from '@/components/ProphecyScrollCard';
 
 const ROLE_NAMES_AR: Record<string,string> = {
   GODFATHER:'شيخ المافيا',SILENCER:'قص المافيا',CHAMELEON:'حرباية المافيا',
   MAFIA_REGULAR:'مافيا عادي',SHERIFF:'الشريف',DOCTOR:'الطبيب',
   SNIPER:'القناص',POLICEWOMAN:'الشرطية',NURSE:'الممرضة',MAYOR:'العمدة',CITIZEN:'مواطن صالح',
   WITCH:'الساحرة',OLDER_BROTHER:'الأخ الأكبر',YOUNGER_BROTHER:'الأخ الأصغر',JESTER:'المهرج',ASSASSIN:'السفّاح',
+  PHOENIX:'العنقاء',DECEIVER:'المُضلّل',ORACLE:'العرّاف',CUP_READER:'قارئة الفنجان',DIVIDED:'المنقسم',GUARANTOR:'الكفيل',
 };
-const MAFIA_ROLES = ['GODFATHER','SILENCER','CHAMELEON','WITCH','OLDER_BROTHER','MAFIA_REGULAR'];
+const MAFIA_ROLES = ['GODFATHER','SILENCER','CHAMELEON','WITCH','OLDER_BROTHER','MAFIA_REGULAR','DECEIVER'];
 
 const RANK_TIERS_ORDER = ['INFORMANT','SOLDIER','CAPO','UNDERBOSS','GODFATHER'];
 // 🏙️ ألوان المدن: المدينة ١ عنبريّة، وسائر المدن زرقاء — الأسماء من الخادم وحده
@@ -76,7 +78,7 @@ function cropAndResizeImage(file: File, targetSize = 512): Promise<string> {
 // ══════════════════════════════════════════════
 function MatchHistorySection({ matchHistory }: { matchHistory: any[] }) {
   const [expandedIdx, setExpandedIdx] = useState<number | null>(null);
-  const MAFIA = ['GODFATHER','SILENCER','CHAMELEON','WITCH','OLDER_BROTHER','MAFIA_REGULAR'];
+  const MAFIA = ['GODFATHER','SILENCER','CHAMELEON','WITCH','OLDER_BROTHER','MAFIA_REGULAR','DECEIVER'];
 
   return (
     <motion.div initial={{opacity:0}} animate={{opacity:1}} transition={{delay:0.5}}
@@ -833,6 +835,7 @@ export default function PlayerProfilePage(){
         </div>
 
         {/* 🕴️ جولة «الليلة الأولى» — يظهر ما دام مفتاحها يعمل في الداشبورد */}
+        <ProphecyScrollCard headers={getAuthHeaders} />
         <div className="mt-4"><GuideProfileRow /></div>
 
         {/* 🔐 مركز الخصوصيّة — الحقوق في مكانٍ واحد يسهل بلوغه */}

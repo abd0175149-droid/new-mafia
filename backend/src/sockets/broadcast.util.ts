@@ -202,7 +202,10 @@ export async function emitGameOver(io: Server, roomId: string, payload: any): Pr
     try {
       const { getRoom } = await import('../game/state.js');
       const { prophecyRevealFor } = await import('../game/prophecy-reveal.js');
-      payload = { ...payload, prophecyReveal: prophecyRevealFor(await getRoom(roomId)) };
+      const st = await getRoom(roomId);
+      const { prophecyLedgerLine } = await import('../game/prophecy-skills.js');
+      // 🔮 الكشف، وسطرُ هذه الليلة في سجلّ المخطوطتين («كتبت هذه الليلة سطراً في مخطوطة الصدق»)
+      payload = { ...payload, prophecyReveal: prophecyRevealFor(st), prophecyLedger: st ? prophecyLedgerLine(st as any) : null };
     } catch { /* الكشف إضافةٌ — لا يُسقط نهاية اللعبة */ }
   }
   const pub = { ...payload, players: Array.isArray(payload?.players) ? payload.players.map(({ phone, ...p }: any) => { void phone; return p; }) : payload?.players };

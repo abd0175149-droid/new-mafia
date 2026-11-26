@@ -1521,6 +1521,7 @@ export default function LeaderPage() {
           players: data.players || prev.players,
           // 🔮 ما فعلته كروت النبوءة (null بلا الموسم)
           prophecyReveal: data.prophecyReveal ?? null,
+          prophecyLedger: data.prophecyLedger ?? null,
         } as any;
       });
     });

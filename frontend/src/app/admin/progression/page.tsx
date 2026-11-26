@@ -76,6 +76,16 @@ const ACTION_CATEGORIES = [
       { key: 'assassinLoss', label: 'خسارة السفّاح', icon: '🗡️', type: 'BOTH', desc: 'خصم على السفّاح عند فشله/موته' },
       { key: 'assassinContractComplete', label: 'إنجاز عقد سفّاح', icon: '🎯', type: 'BOTH', desc: 'نقاط لكل عقد اغتيال يُنجزه السفّاح' },
     ]
+  },
+  {
+    id: 'prophecy', label: '🔮 موسم النبوءة — مكافآت المهارة',
+    actions: [
+      { key: 'prophecyTrue', label: 'نبوءةٌ صادقة', icon: '📜', type: 'BOTH', desc: 'للعرّاف حين تمرّ صفقة نبوءته ويُعدم بها مافيا' },
+      { key: 'prophecyVoteRight', label: 'صوتٌ مع الحقيقة', icon: '🗳️', type: 'BOTH', desc: 'لمن صوّت مع النبوءة الصادقة، أو لغيرها حين مرّت كاذبة — مرّةً في المباراة' },
+      { key: 'frameLanded', label: 'تلفيقٌ نافذ', icon: '🎭', type: 'BOTH', desc: 'للمُضلّل حين تُعدم المدينة من احترق قناعه خلال يومين' },
+      { key: 'cupReaderWin', label: 'رحيل القارئة فائزة', icon: '☕', type: 'BOTH', desc: 'لقارئة الفنجان حين تبلغ عتبتها وترحل' },
+      { key: 'cupReaderLoss', label: 'خسارة القارئة', icon: '🫖', type: 'BOTH', desc: 'لقارئة الفنجان إن لم ترحل حتّى نهاية اللعبة' },
+    ]
   }
 ];
 

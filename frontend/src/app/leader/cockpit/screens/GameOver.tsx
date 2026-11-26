@@ -9,7 +9,7 @@ import { useEffect, useState } from 'react';
 import { useSeatMove } from '../../SeatMove';
 import { ActionBar, BottomSheet, Btn, Hint, ListRow, Section, SeatGrid, SetRow, Status, Switch, roleName, seatCells, useCockpit } from '../kit';
 import { useHost } from '../host';
-import { prophecyRevealLines } from '@/lib/prophecy-reveal';
+import { ledgerSentence, prophecyRevealLines } from '@/lib/prophecy-reveal';
 
 const WINNER: Record<string, { icon: string; label: string; color: string }> = {
   MAFIA: { icon: '🩸', label: 'فوز المافيا', color: '#d0474c' },
@@ -51,7 +51,7 @@ export default function GameOverScreen() {
       </div>
 
       {gameState?.prophecyReveal && (
-        <Section title="🔮 ما فعلته كروت النبوءة" aside="يُعرض على الشاشة أيضاً">
+        <Section title="🔮 ما فعلته كروت النبوءة" aside={ledgerSentence(gameState.prophecyLedger) || 'يُعرض على الشاشة أيضاً'}>
           {prophecyRevealLines(gameState.prophecyReveal, (s) => players.find(p => p.physicalId === s)?.name || '').map((l, i) => (
             <ListRow key={i} n={l.icon} title={l.title} sub={l.text} />
           ))}

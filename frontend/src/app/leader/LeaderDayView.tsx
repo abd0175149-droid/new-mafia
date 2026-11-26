@@ -2139,8 +2139,8 @@ export default function LeaderDayView({ gameState, emit, setError }: LeaderDayVi
     const isMayorRevote = gameState.votingState?.mayorRevote === true;
 
     // عداد الفرق
-    const citizenCount = alivePlayers.filter((p: any) => !['GODFATHER','SILENCER','CHAMELEON','WITCH','OLDER_BROTHER','MAFIA_REGULAR'].includes(p.role)).length;
-    const mafiaCount = alivePlayers.filter((p: any) => ['GODFATHER','SILENCER','CHAMELEON','WITCH','OLDER_BROTHER','MAFIA_REGULAR'].includes(p.role)).length;
+    const citizenCount = alivePlayers.filter((p: any) => !['GODFATHER','SILENCER','CHAMELEON','WITCH','OLDER_BROTHER','MAFIA_REGULAR','DECEIVER'].includes(p.role)).length;
+    const mafiaCount = alivePlayers.filter((p: any) => ['GODFATHER','SILENCER','CHAMELEON','WITCH','OLDER_BROTHER','MAFIA_REGULAR','DECEIVER'].includes(p.role)).length;
 
     // حالة التصويت (عادي / إعادة / حسم)
     const votingLabel = gameState.votingState?.tieBreakerLevel >= 2 ? 'NARROWED' 

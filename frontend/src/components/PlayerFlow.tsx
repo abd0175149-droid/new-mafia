@@ -20,6 +20,7 @@ import RoomCodeCard from '@/components/RoomCodeCard';
 import { useGameState } from '@/hooks/useGameState';
 import { usePlayerCosmetics } from '@/hooks/usePlayerCosmetics';
 import { ROLE_NAMES, MAFIA_ROLES } from '@/lib/constants';
+import { setLastProphecy } from '@/lib/prophecy-reveal';
 import { Users } from 'lucide-react';
 import MafiaTeamGallery from './MafiaTeamGallery';
 import SecretWatermark from './SecretWatermark';
@@ -1524,6 +1525,7 @@ export default function PlayerFlow({ initialRoomCode = '', inviteFlag = false, i
     // الـ full reset يحصل فقط عند game:started
     const cleanupGameOver = on('game:over', (data: any) => {
       console.log('🏁 Game over — clearing voting only');
+      setLastProphecy(data);   // 🔮 سطرُ الليلة في سجلّ المخطوطتين وما فعلته الكروت (null بلا الموسم)
       if (data && Array.isArray(data.players)) setGameOverData({ winner: data.winner ?? null, players: data.players });
       setGamePhase('GAME_OVER');
       setPhaseOverride('GAME_OVER');

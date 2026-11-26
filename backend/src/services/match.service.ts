@@ -14,6 +14,7 @@ import { getProgressionConfig, DEFAULT_CONFIG } from '../routes/progression-sett
 import type { GameState } from '../game/state.js';
 import { neutralWinnerSeats, didPlayerWin } from '../game/win-attribution.js';
 import { assassinStateFor } from '../game/assassin-engine.js';
+import { prophecySkillsFor, scrollMarksFor, prophecyLedgerLine } from '../game/prophecy-skills.js';
 
 // 🧪 هل الغرفة في موقع اختبار؟ — من مكان فعاليّتها، أو من مكانها الصريح (غرفة «بدون نشاط» بمكان)
 export async function isTestScope(state: GameState): Promise<boolean> {
@@ -230,6 +231,8 @@ export async function finalizeMatch(state: GameState): Promise<void> {
         assassinContractsCompleted: assassinStateFor(state, p.physicalId)?.completedCount
           ?? (p.role === 'ASSASSIN' ? state.assassinState?.completedCount || 0 : 0),
         neutralWon: isNeutralRole ? won : null,
+        // 🔮 مهارات موسم النبوءة — أصفارٌ في مباراةٍ بلا كروته
+        ...(() => { const s = prophecySkillsFor(state, p.physicalId); return { prophecyTrueCount: s.prophecyTrue, prophecyVoteRightCount: s.prophecyVoteRight, frameLandedCount: s.frameLanded }; })(),
       };
       const { xpEarned: baseXp, rrChange } = computeMatchReward(rewardOpts, cfg);
       // 🧮 تفصيل النقاط المُجمّد (مكوّنات مُسمّاة تطابق المجموع) — للعرض الدقيق لاحقاً
@@ -306,6 +309,25 @@ export async function finalizeMatch(state: GameState): Promise<void> {
     await db.update(matches).set({ seasonId: seasonId ?? null, cityId: cityId ?? null } as any).where(eq(matches.id, state.matchId));
     if (!seasonId && !isTestGame) {
       console.warn(`⚠️ [finalizeMatch] Match #${state.matchId} has NO rank scope (no venue/season) — recorded but UNRANKED`);
+    }
+    // 🔮 سجلّ المخطوطتين و«مخطوطتك». مباراةُ التجربة تُكتب موسومةً (is_test) لصفحة المقاييس وحدها —
+    //    لا تدخل سجلّ المدن ولا مخطوطة أحد.
+    {
+      try {
+        const led = prophecyLedgerLine(state);
+        if (led) {
+          const { prophecyRevealFor } = await import('../game/prophecy-reveal.js');
+          await db.execute(sql`INSERT INTO prophecy_ledger (match_id, season_id, city_id, line, truth, mask, withdrawn, summary, is_test)
+            VALUES (${state.matchId}, ${seasonId ?? null}, ${cityId ?? null}, ${led.line}, ${led.truth}, ${led.mask}, ${led.withdrawn}, ${JSON.stringify(prophecyRevealFor(state))}::jsonb, ${!!isTestGame})
+            ON CONFLICT (match_id) DO NOTHING`);
+          if (!isTestGame) for (const [seat, m] of scrollMarksFor(state)) {
+            const pid = state.players.find(x => x.physicalId === seat)?.playerId;
+            if (!pid || (!m.truth && !m.mask)) continue;
+            await db.execute(sql`INSERT INTO prophecy_marks (match_id, player_id, season_id, city_id, truth, mask)
+              VALUES (${state.matchId}, ${pid}, ${seasonId ?? null}, ${cityId ?? null}, ${m.truth}, ${m.mask}) ON CONFLICT DO NOTHING`);
+          }
+        }
+      } catch (e: any) { console.warn(`⚠️ [finalizeMatch] prophecy ledger #${state.matchId}:`, e?.message); }
     }
     // 🪙 لقطة عدّاد المباريات **قبل** زيادته — هي معيار «أول مباراة» لقطرة الترحيب.
     // تُقرأ هنا حصراً لأن السطور التالية تزيد العدّاد فيضيع المعيار.

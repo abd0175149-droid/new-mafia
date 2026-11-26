@@ -5,6 +5,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { ROLE_NAMES, MAFIA_ROLES } from '@/lib/constants';
 import PlayerConfrontation from './PlayerConfrontation';
 import { withdrawalNumbers, voterWeight } from '@/lib/voteCounts';
+import { getLastProphecy, ledgerSentence, prophecyRevealLines } from '@/lib/prophecy-reveal';
 
 interface PlayerPhaseViewProps {
   gamePhase: string | null;
@@ -1330,6 +1331,9 @@ export default function PlayerPhaseView({
           </p>
         </div>
 
+        {/* 🔮 موسم النبوءة: سطرُ الليلة في سجلّ المخطوطتين، وما فعلته الكروت (قرارا ٣١ و٣٣) */}
+        <ProphecyGameOver players={allPlayers} />
+
         {/* كشف أدوار الجميع */}
         {allPlayers.length > 0 && (
           <div className="grid grid-cols-3 gap-2 px-2">
@@ -1356,4 +1360,18 @@ export default function PlayerPhaseView({
 
   // ── لا مرحلة خاصة — لا نعرض شيء ──
   return null;
+}
+
+// 🔮 نهاية مباراة نبوءة على الهاتف — لا شيء بلا الموسم
+function ProphecyGameOver({ players }: { players: any[] }) {
+  const last = getLastProphecy();
+  const sentence = ledgerSentence(last?.ledger);
+  const lines = prophecyRevealLines(last?.reveal, (s) => players.find((p: any) => p.physicalId === s)?.name || '');
+  if (!sentence && !lines.length) return null;
+  return (
+    <div className="mx-2 mb-4 rounded-xl border border-[#C5A059]/30 bg-black/50 p-3" dir="rtl">
+      {sentence && <p className="text-center text-[15px] font-bold text-[#C5A059]" style={{ fontFamily: 'Amiri, serif' }}>📜 {sentence}</p>}
+      {lines.map((l, i) => <p key={i} className="mt-1.5 text-[12.5px] text-[#d8cfbf]">{l.icon} {l.text}</p>)}
+    </div>
+  );
 }

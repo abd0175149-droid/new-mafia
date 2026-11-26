@@ -556,7 +556,7 @@ function DisplayPageContent() {
       setGameTimerData(null);
       setGameTimerRemaining(0);
       setWinner(data.winner);
-      setProphecyReveal(data.prophecyReveal || null);
+      setProphecyReveal(data.prophecyReveal || data.prophecyLedger ? { rv: data.prophecyReveal || null, ledger: data.prophecyLedger || null } : null);
       setPhase(Phase.GAME_OVER);
       if (data.players) setPlayers(data.players);
       // 🔊 نغمةُ الفوز من الموجّه (game:over) — تصل مرآةً؛ والخلفيّةُ تُوقَف من هناك
@@ -1843,7 +1843,7 @@ function DisplayPageContent() {
           );
         })()}
 
-        {phase === Phase.GAME_OVER && revealWinner && prophecyReveal && <ProphecyRevealPanel rv={prophecyReveal} players={players} />}
+        {phase === Phase.GAME_OVER && revealWinner && prophecyReveal && <ProphecyRevealPanel rv={prophecyReveal.rv} ledger={prophecyReveal.ledger} players={players} />}
         {phase === Phase.GAME_OVER && winner && revealWinner && (() => {
           const isJesterWin = winner === 'JESTER';
           const isAssassinWin = winner === 'ASSASSIN';

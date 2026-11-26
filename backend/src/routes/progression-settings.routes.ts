@@ -36,6 +36,12 @@ const DEFAULT_CONFIG = {
     assassinWin: 80,               // 🔪 فوز السفّاح (أكمل كل العقود)
     assassinLoss: 10,              // 🔪 خسارة (مات/انتهت اللعبة)
     assassinContractComplete: 15,  // 🔪 لكل عقد مُنجز
+    // 🔮 موسم النبوءة — مكافآت المهارة (game/prophecy-skills)
+    prophecyTrue: 30,              // 📜 العرّاف: نبوءةٌ صادقة
+    prophecyVoteRight: 10,         // 🗳️ صوّت مع الصادقة أو ضدّ الكاذبة
+    frameLanded: 30,               // 🎭 المُضلّل: تلفيقٌ نافذ
+    cupReaderWin: 50,              // ☕ رحلت فائزة (كالمهرّج حتّى يُعدَّل)
+    cupReaderLoss: 0,
   },
   rr: {
     teamWin: 20,
@@ -59,6 +65,12 @@ const DEFAULT_CONFIG = {
     assassinWin: 30,               // 🔪
     assassinLoss: -15,             // 🔪
     assassinContractComplete: 10,  // 🔪
+    // 🔮 موسم النبوءة
+    prophecyTrue: 10,
+    prophecyVoteRight: 3,
+    frameLanded: 10,
+    cupReaderWin: 30,
+    cupReaderLoss: -10,
   },
   ranks: {
     INFORMANT: { rrRequired: 100 },

@@ -223,6 +223,34 @@ async function runAutoMigrations(pool: pg.Pool): Promise<void> {
         activated_at        TIMESTAMP
       )
     `);
+    // 🔮 سجلّ المخطوطتين (سطرٌ لكلّ مباراة نبوءة) و«مخطوطتك» (علامات كلّ مصوّت) — لا تُكتب إلّا لمباراة نبوءة
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS prophecy_ledger (
+        match_id   INTEGER PRIMARY KEY,
+        season_id  INTEGER,
+        city_id    INTEGER,
+        line       VARCHAR(10) NOT NULL,
+        truth      INTEGER NOT NULL DEFAULT 0,
+        mask       INTEGER NOT NULL DEFAULT 0,
+        withdrawn  INTEGER NOT NULL DEFAULT 0,
+        summary    JSONB,
+        is_test    BOOLEAN NOT NULL DEFAULT FALSE,
+        created_at TIMESTAMP DEFAULT NOW() NOT NULL
+      )
+    `);
+    await client.query(`CREATE INDEX IF NOT EXISTS idx_prophecy_ledger_scope ON prophecy_ledger (season_id, city_id)`);
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS prophecy_marks (
+        match_id   INTEGER NOT NULL,
+        player_id  INTEGER NOT NULL,
+        season_id  INTEGER,
+        city_id    INTEGER,
+        truth      INTEGER NOT NULL DEFAULT 0,
+        mask       INTEGER NOT NULL DEFAULT 0,
+        PRIMARY KEY (match_id, player_id)
+      )
+    `);
+    await client.query(`CREATE INDEX IF NOT EXISTS idx_prophecy_marks_player ON prophecy_marks (player_id, season_id)`);
 
     await client.query(`
       CREATE TABLE IF NOT EXISTS player_season_stats (

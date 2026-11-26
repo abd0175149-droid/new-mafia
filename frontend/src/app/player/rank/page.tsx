@@ -6,6 +6,7 @@ import { ROLE_NAMES } from '@/lib/constants';
 import { usePlayer } from '@/context/PlayerContext';
 import { RANK_NAMES_AR, RANK_BADGES, RANK_COLORS } from '@/lib/ranks';
 import { useModalScrollLock } from '@/hooks/useModalScrollLock';
+import ProphecyLedgerCard from '@/components/ProphecyLedgerCard';
 
 type Tab = 'leaderboard' | 'coplayers' | 'howto';
 
@@ -314,6 +315,9 @@ export default function RankPage() {
           50% { box-shadow: 0 0 25px rgba(${tone.glow},0.6), 0 0 50px rgba(${tone.glow},0.3), 0 0 70px rgba(${tone.glow},0.1); }
         }
       `}</style>
+
+      {/* 🔮 موسم النبوءة — لا شيء بلاه */}
+      <ProphecyLedgerCard />
 
       <div className="flex items-center justify-between gap-2 mb-4 flex-wrap">
         <h1 className="text-white text-lg font-bold">🏆 التصنيف والرتب</h1>

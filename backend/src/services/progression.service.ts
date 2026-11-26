@@ -181,6 +181,10 @@ export function computeMatchReward(opts: {
   assassinContractsCompleted: number;
   /** 🃏 فوزُ هذا المحايد بعينه (مهرّجٌ أو سفّاحٌ مكرَّر). غائبٌ = فوزُ فريقه كما كان. */
   neutralWon?: boolean | null;
+  /** 🔮 مهاراتُ موسم النبوءة (game/prophecy-skills) — غائبةٌ = صفر، فلا يتغيّر شيءٌ بلا الموسم */
+  prophecyTrueCount?: number;
+  prophecyVoteRightCount?: number;
+  frameLandedCount?: number;
 }, cfg?: any): { xpEarned: number; rrChange: number; won: boolean } {
   const c = cfg || DEFAULT_CONFIG;
   const role = opts.role;
@@ -255,7 +259,17 @@ export function computeMatchReward(opts: {
     abilityIncorrectCount: opts.abilityIncorrectCount,
   }, c, roleAb ? { correctRr: roleAb.correctRr, wrongRr: roleAb.wrongRr } : undefined);
 
-  return { won, xpEarned, rrChange };
+  const ps = prophecySkillPoints(opts, c);
+  return { won, xpEarned: xpEarned + ps.xp, rrChange: rrChange + ps.rr };
+}
+
+/** 🔮 نقاط مهارات النبوءة — مصدرٌ واحد للمجموع والتفصيل (مفاتيحها في إعدادات التقدّم) */
+function prophecySkillPoints(opts: { prophecyTrueCount?: number; prophecyVoteRightCount?: number; frameLandedCount?: number }, c: any) {
+  const cx = c?.xp || {}, cr = c?.rr || {};
+  const t = opts.prophecyTrueCount || 0, v = Math.min(1, opts.prophecyVoteRightCount || 0), f = opts.frameLandedCount || 0;
+  const xp = { prophecyTrue: t * (cx.prophecyTrue ?? 30), prophecyVoteRight: v * (cx.prophecyVoteRight ?? 10), frameLanded: f * (cx.frameLanded ?? 30) };
+  const rr = { prophecyTrue: t * (cr.prophecyTrue ?? 10), prophecyVoteRight: v * (cr.prophecyVoteRight ?? 3), frameLanded: f * (cr.frameLanded ?? 10) };
+  return { xpParts: xp, rrParts: rr, xp: xp.prophecyTrue + xp.prophecyVoteRight + xp.frameLanded, rr: rr.prophecyTrue + rr.prophecyVoteRight + rr.frameLanded };
 }
 
 // ══════════════════════════════════════════════════════
@@ -270,6 +284,7 @@ export function computeMatchBreakdown(opts: {
   abilityCorrectCount: number; abilityIncorrectCount: number; teamEliminationBonus: number;
   assassinContractsCompleted: number;
   neutralWon?: boolean | null;
+  prophecyTrueCount?: number; prophecyVoteRightCount?: number; frameLandedCount?: number;
 }, cfg?: any): { won: boolean; team: 'MAFIA' | 'CITIZEN' | 'NEUTRAL'; xp: Record<string, number>; rr: Record<string, number> } {
   const c = cfg || DEFAULT_CONFIG;
   const cx = c.xp || DEFAULT_CONFIG.xp;
@@ -303,9 +318,14 @@ export function computeMatchBreakdown(opts: {
   const abCorrXp = roleAb?.correctXp ?? cx.abilityCorrect, abWrongXp = roleAb?.wrongXp ?? cx.abilityIncorrect;
   const abCorrRr = roleAb?.correctRr ?? cr.abilityCorrect, abWrongRr = roleAb?.wrongRr ?? cr.abilityIncorrect;
 
+  // 🔮 بنود النبوءة تُضاف وحدها إن كان لها قيمة — مباراةٌ بلا الموسم تفصيلُها كما كان حرفيّاً
+  const ps = prophecySkillPoints(opts, c);
+  const pxp = Object.fromEntries(Object.entries(ps.xpParts).filter(([, n]) => n !== 0));
+  const prr = Object.fromEntries(Object.entries(ps.rrParts).filter(([, n]) => n !== 0));
   return {
     won, team: isMafia ? 'MAFIA' : 'CITIZEN',
     xp: {
+      ...pxp,
       participation: cx.participation,
       teamWin: won ? cx.teamWin : 0,
       survival: opts.roundsSurvived * cx.survivalPerRound,
@@ -323,6 +343,7 @@ export function computeMatchBreakdown(opts: {
       teamElimBonus: opts.teamEliminationBonus,
     },
     rr: {
+      ...prr,
       teamResult: won ? cr.teamWin : cr.teamLoss,
       dealSuccess: opts.successfulDealsCount * cr.citizenDealOnMafia,
       dealFailed: opts.failedDealsCount * cr.failedDeal,

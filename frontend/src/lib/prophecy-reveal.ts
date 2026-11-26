@@ -64,3 +64,13 @@ export function prophecyRevealLines(rv: any, nameOf?: (seat: number) => string):
   }
   return out;
 }
+
+// ── آخر نهاية لعبة (للهاتف): PlayerFlow يحفظها عند game:over، وشاشة النهاية تقرؤها ──
+let _last: { reveal: any; ledger: any } | null = null;
+export function setLastProphecy(data: any) { _last = data?.prophecyReveal || data?.prophecyLedger ? { reveal: data.prophecyReveal || null, ledger: data.prophecyLedger || null } : null; }
+export function getLastProphecy() { return _last; }
+/** «كتبت هذه الليلة سطراً في مخطوطة الصدق» — أو في الأخرى (قرار ٣٣) */
+export function ledgerSentence(ledger: any): string | null {
+  if (!ledger?.line) return null;
+  return ledger.line === 'TRUTH' ? 'كتبت هذه الليلة سطراً في مخطوطة الصدق' : 'كتبت هذه الليلة سطراً في مخطوطة القناع';
+}

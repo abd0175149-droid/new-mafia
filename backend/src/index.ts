@@ -48,6 +48,7 @@ import soundsRoutes from './routes/sounds.routes.js';
 import reportsRoutes from './routes/reports.routes.js';
 import printLayoutRoutes from './routes/print-layout.routes.js';
 import gameConfigRoutes from './routes/game-config.routes.js';
+import prophecyRoutes from './routes/prophecy.routes.js';   // 🔮 سجلّ المخطوطتين و«مخطوطتك» ومقاييس الكروت
 import ticketsRoutes from './routes/tickets.routes.js';
 import progressionSettingsRoutes from './routes/progression-settings.routes.js';
 import anticheatRoutes from './routes/anticheat.routes.js';
@@ -228,6 +229,7 @@ app.use('/api/reports', reportsRoutes);
 app.use('/api/print-layouts', printLayoutRoutes);
 app.use('/api/staff-action-log', staffActionLogRoutes);
 app.use('/api/game-config', gameConfigRoutes);
+app.use('/api/prophecy', prophecyRoutes);
 app.use('/api/tickets', ticketsRoutes);
 app.use('/api/progression-settings', progressionSettingsRoutes);
 app.use('/api/anticheat', anticheatRoutes);

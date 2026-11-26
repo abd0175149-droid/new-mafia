@@ -72,6 +72,7 @@ const NAV_GROUPS: NavGroup[] = [
       { href: '/admin/game-config', icon: '🧩', label: 'الأدوار والشخصيات', roles: ['admin'] },
       { href: '/admin/progression', icon: '🏆', label: 'نظام التقدم', roles: ['admin'] },
       { href: '/admin/seasons', icon: '🗓️', label: 'المواسم', roles: ['admin'] },
+      { href: '/admin/prophecy', icon: '🔮', label: 'مقاييس النبوءة', roles: ['admin'] },
       { href: '/admin/sounds', icon: '🔊', label: 'المؤثرات الصوتية', roles: ['admin', 'manager'] },
       { href: '/admin/seat-templates', icon: '📐', label: 'قوالب المقاعد', roles: ['admin', 'manager'] },
     ],
