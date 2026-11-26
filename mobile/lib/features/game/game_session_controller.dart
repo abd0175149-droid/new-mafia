@@ -1017,6 +1017,17 @@ class GameSessionController extends ChangeNotifier with WidgetsBindingObserver {
   /// يُشغَّل حين يصير `physicalId` معروفاً — تستعمله شاشات المراحل.
   int get mySeat => _physicalId;
 
+  // ── 🔮 موسم النبوءة: حالة الظرف وأفعال الكروت (prophecy_tasks.dart) ──
+  /// حالةُ «الظرف» عند فتحه — النداء نفسه لكلّ الأدوار، فلا يميّز أحداً.
+  Future<Map<String, dynamic>?> prophecyState() => SocketService.instance.ask('room:get-my-state', {
+        'roomId': _roomId,
+        if (_playerId != null) 'playerId': _playerId,
+        if (_phone != null && _phone!.isNotEmpty) 'phone': _phone,
+      });
+  /// فعلُ كرت (oracle:open · oracle:withdraw · cup:public · cup:seal · divided:choose) — المقعد من المقبس.
+  Future<Map<String, dynamic>?> prophecySend(String event, Map<String, dynamic> data) =>
+      SocketService.instance.ask(event, {'roomId': _roomId, ...data});
+
   // ══════════════════════════════════════════════════════
   // مدخلات الدخول وحالته — يقودها تدفّق الملفّ 21
   // ══════════════════════════════════════════════════════
@@ -2362,13 +2373,15 @@ class GameSessionController extends ChangeNotifier with WidgetsBindingObserver {
       //    ولا خطر على بدايةٍ حقيقية: نظافةُ المرحلة تُصفّر الدور قبلها.
       final fresh = role != _assignedRole;
       final review = d['reviewCard'] == true;
+      // ⚖️ عبورُ المنقسم ليلاً (موسم النبوءة): الدور يتبدّل بصمت — لا تنبيه ولا قلب بطاقة.
+      final quiet = d['divided'] != null;
       _assignedRole = role;
       if (review) {
         // كلّ الهواتف تقلب بطاقتها من جديد — تغيّر دورك أم لا
         _reviewCard = true;
         _cardFlipped = false;
         _roleAlert = true;
-      } else if (fresh) {
+      } else if (fresh && !quiet) {
         _cardFlipped = false;
         _roleAlert = true;
         _isPlayerDead = false;

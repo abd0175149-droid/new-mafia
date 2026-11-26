@@ -117,14 +117,22 @@ class RolesGuideService {
 
   /// يُجلَب مرّةً ويُحفَظ: المحتوى يتغيّر بتعديلٍ إداريٍّ نادر، وإعادةُ الجلب
   /// مع كلّ فتحةٍ هدرٌ على شبكة قاعة.
-  Future<List<GuideRole>> load({bool force = false}) {
+  Future<List<GuideRole>> load({bool force = false, String? room}) {
+    // 🔮 غرفةٌ فُتح لها موسم النبوءة قبل تفعيله يعرف دليلُها كروتَه (الخادم يقرّر) — مخبّأٌ على حدة
+    if (room != null && room.isNotEmpty) {
+      final hit = _byRoom[room];
+      if (!force && hit != null) return Future.value(hit);
+      return _fetch(room: room);
+    }
     if (!force && _cache != null) return Future.value(_cache);
     return _inflight ??= _fetch().whenComplete(() => _inflight = null);
   }
 
-  Future<List<GuideRole>> _fetch() async {
+  final Map<String, List<GuideRole>> _byRoom = {};
+
+  Future<List<GuideRole>> _fetch({String? room}) async {
     try {
-      final r = await ApiClient.instance.get('/api/game-config/roles-guide');
+      final r = await ApiClient.instance.get(room == null ? '/api/game-config/roles-guide' : '/api/game-config/roles-guide?room=${Uri.encodeQueryComponent(room)}');
       final list = (r is Map ? r['data'] : r) as List?;
       if (list == null) return _cache ?? const [];
       final out = list
@@ -132,6 +140,7 @@ class RolesGuideService {
           .map((e) => GuideRole.fromJson(Map<String, dynamic>.from(e)))
           .toList()
         ..sort((a, b) => a.genPriority.compareTo(b.genPriority));
+      if (room != null) { _byRoom[room] = out; return out; }
       _cache = out;
       return out;
     } catch (_) {

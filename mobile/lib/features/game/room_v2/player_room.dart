@@ -12,6 +12,7 @@ import '../../cosmetics/mafia_card_view.dart';
 import '../../profile/profile_palette.dart';
 import '../confrontation_view.dart';
 import '../deals_sheet.dart';
+import 'prophecy_tasks.dart';
 import '../discussion_view.dart';
 import '../game_session_controller.dart';
 import '../justification_view.dart';
@@ -595,7 +596,7 @@ class _VoteGridV2State extends State<VoteGridV2> {
                     _Avatar(pid: pid, url: p?.avatarUrl ?? x.avatarUrl, size: 54),
                     const SizedBox(height: 6),
                     Text(p?.name ?? (x.name.isNotEmpty ? x.name : 'لاعب #$pid'), maxLines: 1, overflow: TextOverflow.ellipsis, style: ar(14, color: Colors.white, weight: FontWeight.bold)),
-                    if (x.type == 'DEAL') Text('🤝 ديل من #${x.initiatorPhysicalId ?? ''}', style: ar(11, color: const Color(0xFFD9C79A))),
+                    if (x.type == 'DEAL') Text((x.id ?? '').startsWith('prophecy-') ? '📜 صفقة النبوءة' : '🤝 ديل من #${x.initiatorPhysicalId ?? ''}', style: ar(11, color: const Color(0xFFD9C79A))),
                     const SizedBox(height: 4),
                     ClipRRect(borderRadius: BorderRadius.circular(2), child: LinearProgressIndicator(value: x.votes / top, minHeight: 4, backgroundColor: const Color(0xFF1F1C18), valueColor: const AlwaysStoppedAnimation(Color(0xFF8A0303)))),
                     const SizedBox(height: 3),
@@ -731,12 +732,12 @@ class _TasksBody extends StatelessWidget {
   final GameSessionController controller;
   @override
   Widget build(BuildContext context) => FutureBuilder<List<GuideRole>>(
-        future: RolesGuideService.instance.load(),
+        future: RolesGuideService.instance.load(room: controller.roomId),
         builder: (_, snap) {
           final c = controller;
           final r = (snap.data ?? const <GuideRole>[]).where((x) => x.id == c.assignedRole).firstOrNull;
           if (snap.connectionState != ConnectionState.done && r == null) return const Padding(padding: EdgeInsets.all(24), child: Center(child: CircularProgressIndicator()));
-          if (r == null) return Text('لم تُوزَّع الأدوار بعد.', style: ar(13, color: _muted));
+          if (r == null) return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [Text('لم تُوزَّع الأدوار بعد.', style: ar(13, color: _muted)), ProphecyTasksV2(controller: c)]);
           final k = _phaseNoteKey[c.gamePhase ?? ''] ?? 'night';
           final col = _teamC[r.team] ?? _gold;
           final ac = c.assassinContracts;
@@ -770,6 +771,8 @@ class _TasksBody extends StatelessWidget {
             if (r.id == 'SHERIFF' && c.sheriffResults.isNotEmpty)
               blk('نتائج تحقيقك', [for (final s in c.sheriffResults) Text('الليلة ${s.round}: #${s.targetPhysicalId} ${s.targetName} — ${s.isMafia ? 'مافيا 🔴' : 'ليس مافيا 🔵'}', style: ar(13.5, color: _ink2))]),
             if (c.gallerySibling != null) blk('أخوك', [Text('#${c.gallerySibling!.physicalId} ${c.gallerySibling!.name}', style: ar(13.5, color: _ink2))]),
+            // 🔮 كروت موسم النبوءة — داخل الظرف وحده
+            ProphecyTasksV2(controller: c),
           ]);
         },
       );

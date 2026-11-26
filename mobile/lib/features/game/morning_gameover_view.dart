@@ -132,6 +132,17 @@ class GameOverBody extends StatelessWidget {
         Text(sub,
             style: ar(12,
                 color: const Color(0xFF9A9A9A), weight: FontWeight.bold)),
+        // 🔮 موسم النبوءة: سطرُ الليلة في سجلّ المخطوطتين (قرار ٣٣) — لا شيء بلا الموسم
+        if (data['prophecyLedger'] is Map && (data['prophecyLedger'] as Map)['line'] != null) ...[
+          const SizedBox(height: 14),
+          Text(
+            (data['prophecyLedger'] as Map)['line'] == 'TRUTH'
+                ? '📜 كتبت هذه الليلة سطراً في مخطوطة الصدق'
+                : '📜 كتبت هذه الليلة سطراً في مخطوطة القناع',
+            textAlign: TextAlign.center,
+            style: const TextStyle(fontFamily: 'Amiri', fontSize: 16, fontWeight: FontWeight.w700, color: Color(0xFFC5A059)),
+          ),
+        ],
         if (players.isNotEmpty) ...[
           const SizedBox(height: 20),
           // 🔴 الكشف الوحيد المسموح هنا: `players` من حمولة نهاية الجيم
