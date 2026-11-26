@@ -19,6 +19,7 @@ import type { GameState, Player } from './state.js';
 import { Role, MAFIA_KILL_PRIORITY } from './roles.js';
 import { getAbilitiesForRole, getAbilityDefs } from './definition-service.js';
 import { canSeatAssassinate } from './assassin-engine.js';
+import { canSeatMask } from './deceiver-engine.js';
 
 /** فعلٌ واحدٌ في الليلة: مقعدٌ × قدرة. */
 export interface NightSlot {
@@ -73,7 +74,8 @@ export async function buildNightPlan(state: GameState): Promise<NightSlot[]> {
       disabled: isDisabled(p, round),
       // 🔴 القنصُ لا يُختار عشوائيّاً: قنصُ مواطنٍ يقتل القنّاصَ معه، فرميةُ نردٍ
       //    من الخادم قد تُخرج لاعبَين لأنّ صاحبَها تأخّر عن المهلة.
-      noRandom: abilityId === 'SNIPE',
+      // 🎭 ولا القناع: مرّةً في اللعبة، فرميةُ نردٍ تُحرقه بلا قرار صاحبه.
+      noRandom: abilityId === 'SNIPE' || abilityId === 'MASK',
     });
   };
 
@@ -88,6 +90,8 @@ export async function buildNightPlan(state: GameState): Promise<NightSlot[]> {
       if (roleId === 'NURSE' && a.id === 'PROTECT' && !state.nurseActivated) continue;
       // 🔪 بالمقعد: لكلّ سفّاحٍ عقودُه وحالتُه (المتنافسون) — أوّلَ ليلةٍ لا قتل، ومَن أكمل عقودَه لا يقتل
       if (roleId === 'ASSASSIN' && a.id === 'ASSASSINATE' && !canSeatAssassinate(state, p.physicalId)) continue;
+      // 🎭 القناعُ ما بقي للمُضلّل قناع
+      if (a.id === 'MASK' && !canSeatMask(state, p.physicalId)) continue;
       push(p.physicalId, a.id);
     }
   }

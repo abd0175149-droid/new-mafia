@@ -55,6 +55,9 @@ const EVENT_META: Record<string, { icon: string; title: string; color: string; d
   // 🔥 مَن مدّ يدَه إلى العنقاء — خروجٌ حقيقيّ يُعرض في القاعة كأيّ إقصاءٍ ليليّ
   PHOENIX_BURN:         { icon: '🔥', title: 'احترق بنار العنقاء',  color: 'text-[#f97316]', displayable: true },
   PHOENIX_ASH:          { icon: '🜂', title: 'لعنة الرماد',          color: 'text-[#fb923c]', displayable: true },
+  // 🎭 قناعُ المُضلّل — للموجّه وحده
+  MASK_PLACED:          { icon: '🎭', title: 'قناع المُضلّل وُضع',     color: 'text-[#DC143C]', displayable: false },
+  MASK_BURNED:          { icon: '🎭', title: 'قرأ الشريفُ قناعاً',      color: 'text-[#DC143C]', displayable: false },
 };
 
 export default function LeaderNightView({ gameState, emit, setError, onRestartAsOne }: LeaderNightViewProps) {

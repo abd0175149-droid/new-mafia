@@ -19,6 +19,7 @@ import { applyPhoenix, isPhoenixDisabled, BURNING_ABILITIES, PHOENIX_SUPERSEDED,
 import { checkPolicewomanTrigger } from './night-resolver.js';
 import { killHolderSeat } from './night-plan.js';
 import { canSeatAssassinate, assassinStateFor, checkContractCompletion, completeContract, checkAssassinWin } from './assassin-engine.js';
+import { canSeatMask, placeMask, readThroughMask } from './deceiver-engine.js';
 
 // ── أنواع ────────────────────────────────────────────
 
@@ -97,6 +98,8 @@ export async function buildNightQueue(state: GameState): Promise<{abilityId: str
         // 🔪 السفّاح: ممنوع القتل أول ليلة
         // 🔪 بالمقعد — لكلّ سفّاحٍ حالتُه (أوّلَ ليلةٍ لا قتل، ومَن أكمل عقودَه لا يقتل)
         if (roleId === 'ASSASSIN' && ability.id === 'ASSASSINATE' && !canSeatAssassinate(state, player.physicalId)) continue;
+        // 🎭 القناعُ ما دام له قناعٌ باقٍ (مرّةً، أو مرّتين من ٢٤)
+        if (ability.id === 'MASK' && !canSeatMask(state, player.physicalId)) continue;
 
         queue.push({
           abilityId: ability.id,
@@ -465,6 +468,21 @@ export async function resolveNightDynamic(
         if (target.role === 'ASSASSIN') {
           revealedTeam = 'CITIZEN';
         }
+        // 🎭 قناعُ المُضلّل: أوّلُ قراءةٍ تلمسه تنقلب ويحترق (ثأرُ الشريف يبقى بالحقيقة)
+        const masked = readThroughMask(state, target.physicalId, revealedTeam, 'SHERIFF');
+        revealedTeam = masked.shown;
+        if (masked.mask) {
+          const decSeat = (state as any).deceiverState?.deceiverPhysicalId as number | undefined;
+          events.push({
+            type: 'MASK_BURNED',
+            targetPhysicalId: target.physicalId,
+            targetName: target.name,
+            performerPhysicalId: decSeat,
+            performerName: state.players.find(p => p.physicalId === decSeat)?.name,
+            revealed: false,
+            extra: { shownAs: masked.shown, burnedBy: 'SHERIFF', placedRound: masked.mask.placedRound },
+          } as any);
+        }
 
         events.push({
           type: 'SHERIFF_RESULT',
@@ -521,6 +539,25 @@ export async function resolveNightDynamic(
       case 'BLOCK_ELIMINATE':
         // الحماية — لا تأثير مباشر، التأثير يأتي من قواعد التفاعل
         break;
+
+      case 'PASSIVE': {
+        // 🎭 القناع (أولويّته قبل التحقيق): قراءةُ الليلة نفسها تلمسه إن وقعت عليه
+        if (action.abilityId !== 'MASK') break;
+        const mask = placeMask(state, action.performerPhysicalId, target.physicalId);
+        if (mask) {
+          const performer = state.players.find(p => p.physicalId === action.performerPhysicalId);
+          events.push({
+            type: 'MASK_PLACED',
+            targetPhysicalId: target.physicalId,
+            targetName: target.name,
+            performerPhysicalId: action.performerPhysicalId,
+            performerName: performer?.name,
+            revealed: false,
+            extra: { targetRole: target.role, masksLeft: (state as any).deceiverState?.masksLeft ?? 0 },
+          } as any);
+        }
+        break;
+      }
     }
 
     // تحديث آخر هدف — بمفتاح اللاعب والقدرة (انظر قيد excludeLastTarget أعلاه)

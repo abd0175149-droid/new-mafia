@@ -203,7 +203,7 @@ const NIGHT_EVENT_AR: Record<string, string> = {
   SNIPE_MAFIA: 'قنص مافيا', SNIPE_CITIZEN: 'قنص مواطن (القناص مات معه)', SILENCED: 'إسكات',
   SHERIFF_REVENGE: 'خرج مع الشريف (سأل عنه وقُتل في ليلته)',
   SHERIFF_RESULT: 'نتيجة تحقيق الشريف', ASSASSIN_KILL: 'اغتيال السفّاح', ASSASSIN_BLOCKED: 'اغتيال سفّاح محبَط',
-  ABILITY_DISABLED: 'قدرة معطّلة (الساحرة)', ABILITY_VOIDED: 'فعلٌ أُلغي — صاحبه معطّل (للموجّه)', TWIN_SUICIDE: 'انتحار التوأم', TWIN_TRANSFORM: 'تحوّل التوأم',
+  ABILITY_DISABLED: 'قدرة معطّلة (الساحرة)', ABILITY_VOIDED: 'فعلٌ أُلغي — صاحبه معطّل (للموجّه)', MASK_PLACED: 'قناع المُضلّل وُضع (للموجّه)', MASK_BURNED: 'قرأ الشريف قناعاً (للموجّه)', TWIN_SUICIDE: 'انتحار التوأم', TWIN_TRANSFORM: 'تحوّل التوأم',
 };
 const RETARGET_DEATH_TYPES = new Set(['ASSASSINATION', 'ASSASSIN_KILL']); // قتلٌ مباشر — إعادة توجيه آمنة
 const RETARGET_SILENCE_TYPES = new Set(['SILENCED']);                     // إسكات — نقل العلم

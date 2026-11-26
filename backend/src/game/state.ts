@@ -219,7 +219,7 @@ export interface NightActions {
 }
 
 export interface MorningEvent {
-  type: 'ASSASSINATION' | 'ASSASSINATION_BLOCKED' | 'PROTECTION_FAILED' | 'SNIPE_MAFIA' | 'SNIPE_CITIZEN' | 'SILENCED' | 'SHERIFF_RESULT' | 'SHERIFF_REVENGE' | 'ASSASSIN_KILL' | 'ASSASSIN_BLOCKED' | 'ABILITY_DISABLED' | 'TWIN_SUICIDE' | 'TWIN_TRANSFORM' | 'PHOENIX_REBIRTH' | 'PHOENIX_BURN' | 'PHOENIX_ASH';
+  type: 'ASSASSINATION' | 'ASSASSINATION_BLOCKED' | 'PROTECTION_FAILED' | 'SNIPE_MAFIA' | 'SNIPE_CITIZEN' | 'SILENCED' | 'SHERIFF_RESULT' | 'SHERIFF_REVENGE' | 'ASSASSIN_KILL' | 'ASSASSIN_BLOCKED' | 'ABILITY_DISABLED' | 'TWIN_SUICIDE' | 'TWIN_TRANSFORM' | 'PHOENIX_REBIRTH' | 'PHOENIX_BURN' | 'PHOENIX_ASH' | 'MASK_PLACED' | 'MASK_BURNED';
   targetPhysicalId: number;
   targetName: string;
   performerPhysicalId?: number;  // من نفذ هذا الإجراء
@@ -462,6 +462,8 @@ export interface GameState {
   } | null;
   // 🔥 حالةُ العنقاء — لا تُبَثّ للاعبين ولا لشاشة العرض إطلاقاً (الرصيدُ للموجّه وحده)
   phoenixState?: { seat: number; rebirthsLeft: number; burned: number[] } | null;
+  // 🎭 قناعُ المُضلّل (موسم النبوءة) — سرٌّ مطلق كالعنقاء: لا للهواتف ولا للمتفرّجين
+  deceiverState?: import('./deceiver-engine.js').DeceiverState | null;
   // ── Auto Night Mode — تتبع إرسال اللاعبين ──
   playerNightActions: {
     submitted: Record<number, boolean>; // physicalId → هل أرسل إجراءه

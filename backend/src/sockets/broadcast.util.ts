@@ -45,6 +45,12 @@ export function stripSecrets(state: any): any {
     phoenixState: undefined,
     // 🜂 وقائمةُ مؤهَّلي اللعنة تفضح مَن صوّت على مَن — سرٌّ حتى عن شاشة العرض.
     pendingAshCurse: undefined,
+    // 🔮 حالاتُ كروت النبوءة كلّها سرّ (القناع، الصندوقان، الفناجين، الانقسام، الكفالة)
+    deceiverState: undefined,
+    oracleState: undefined,
+    cupState: undefined,
+    dividedState: undefined,
+    guarantorState: undefined,
   };
 }
 

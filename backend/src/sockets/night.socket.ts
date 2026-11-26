@@ -1398,6 +1398,15 @@ export function registerNightEvents(io: Server, socket: Socket) {
             round: state.round || 1,
           });
         }
+        // 🎭 المُضلّل يعرف صباحاً أنّ قناعه احترق — بلا من قرأه ولا بأيّ قدرة (قرار المالك ١٧).
+        //    الهاتفُ يحبسه في ظرفه حتّى «رسالة الليل» كنتيجة الشريف.
+        for (const ev of events as any[]) {
+          if (ev?.type !== 'MASK_BURNED' || ev.performerPhysicalId == null) continue;
+          findPlayerSocket(io, data.roomId, ev.performerPhysicalId).emit('night:deceiver-notice', {
+            maskBurned: true,
+            round: state.round || 1,
+          });
+        }
 
         // 👥 إشعار المافيا/الأصغر إن حدث تحوّل
         notifyTwinTransform(io, data.roomId, state);
@@ -1496,6 +1505,8 @@ export function registerNightEvents(io: Server, socket: Socket) {
       if (!event) return callback({ success: false, error: 'Event not found' });
       // 🔒 للموجّه وحده — لا يصل الشاشة مهما طُلب (فعلُ معطَّلٍ أُلغي)
       if ((event.type as string) === 'ABILITY_VOIDED') return callback({ success: false, error: 'هذا البند للموجّه وحده' });
+      // 🎭 قناعُ المُضلّل لا يُعرض على الشاشة أبداً — وجودُه نفسُه سرّ
+      if ((event.type as string) === 'MASK_PLACED' || (event.type as string) === 'MASK_BURNED') return callback({ success: false, error: 'هذا البند للموجّه وحده' });
 
       // 🔍 بند الشريف (قرار المالك 2026-11-20): الشاشة تعرض الكرت وحده — «مواطن صالح» أو «مافيا».
       //    لا رقم ولا اسم ولا دور: الهدفُ لا يُرسل أصلاً، فلا يظهر على الشاشة حتّى بالخطأ.

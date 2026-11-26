@@ -34,6 +34,9 @@ export const EVENT_META: Record<string, { icon: string; title: string; tone: EvT
   PHOENIX_REBIRTH:       { icon: '🔥', title: 'العنقاء نهض من رماده', tone: 'n',  displayable: false },
   PHOENIX_BURN:          { icon: '🔥', title: 'احترق بنار العنقاء',   tone: 'n',  displayable: true },
   PHOENIX_ASH:           { icon: '🜂', title: 'لعنة الرماد',          tone: 'n',  displayable: true },
+  // 🎭 قناعُ المُضلّل — للموجّه وحده دائماً: القاعةُ لا تعرف أنّ قناعاً وُضع أو احترق
+  MASK_PLACED:           { icon: '🎭', title: 'قناع المُضلّل وُضع',     tone: 'm',  displayable: false },
+  MASK_BURNED:           { icon: '🎭', title: 'قرأ الشريفُ قناعاً',      tone: 'm',  displayable: false },
 };
 export const eventMeta = (type: string) => EVENT_META[type] || { icon: '❓', title: type, tone: 'g' as EvTone, displayable: true };
 /** كما في القديم: النوع المجهول يُعدّ قابلاً للعرض */
@@ -76,6 +79,8 @@ export function eventDetail(e: any): string {
       parts.push(`${x.abilityId === 'SNIPE' ? 'قنص' : x.abilityId === 'ASSASSINATE' ? 'اغتيال السفّاح' : x.abilityId === 'KILL' ? 'اغتيال' : 'فعل'} ${who(e.performerPhysicalId, e.performerName)} على ${t}`);
       parts.push(`عطّلته الساحرة حتى الجولة ${x.disabledUntilRound ?? '؟'} — لم يحدث شيء`);
       return parts.filter(Boolean).join(' · ');
+    case 'MASK_PLACED': parts.push(`على ${t}${role} — أوّلُ قراءةٍ تلمسه تنقلب`); break;
+    case 'MASK_BURNED': parts.push(`${t} — رآه الشريف ${x.shownAs === 'MAFIA' ? 'مافيا' : 'مواطناً'} والقناعُ احترق`); break;
     case 'TWIN_SUICIDE': parts.push(`${t} — بعد موت أخيه الأصغر`); break;
     case 'TWIN_TRANSFORM': parts.push(`${t} — صار مافيا${x.newRoleName ? ` (${x.newRoleName})` : ''}`); break;
     default: if (t) parts.push(`${t}${role}`);

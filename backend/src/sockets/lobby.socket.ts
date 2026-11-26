@@ -35,6 +35,7 @@ import { startGameTimer, clearGameTimer, getRemainingSeconds, restoreGameTimer }
 import { initTwinState, getSiblingInfoFor } from '../game/twin-engine.js';
 import { initMayorState, mayorVoteWeight, configuredMayorWeight } from '../game/mayor-engine.js';
 import { initPhoenixState } from '../game/phoenix-engine.js';
+import { initDeceiverState } from '../game/deceiver-engine.js';
 import { oneNightResumeFor } from './night-one.socket.js';
 import { assassinStateFor, assassinContractsPayload } from '../game/assassin-engine.js';
 import { analyzeDuplicates, isAssassinMode } from '../game/role-duplicates.js';
@@ -6264,6 +6265,17 @@ async function readSeatLayoutOnly(activityId: any): Promise<any> {
         // بيانات الإقصاء المعلّقة (لاستعادة شاشة الإقصاء عند reconnect)
         // 🔒 قبل «كشف الأدوار»: مَن خرج (الأرقام) وحدها — لا أدوار ولا أسباب ولا صفقة
         pendingResolution: state.phase === 'DAY_ELIMINATION' ? publicPendingResolution(state) || null : null,
+        // 🎭 ظرفُ المُضلّل (موسم النبوءة): أقنعتُه ومصيرُها — معلومتُه هو وحده.
+        //    حالةٌ لا حدث: بلاها يضيع خبرُ «احترق قناعك» على هاتفٍ أُعيد تحميله (درس شاشة الليل).
+        deceiverNotice: (() => {
+          const d: any = (state as any).deceiverState;
+          if (!(shouldShowRole && player.role === 'DECEIVER' && d && d.deceiverPhysicalId === player.physicalId)) return null;
+          return {
+            masksLeft: d.masksLeft,
+            masks: (d.masks || []).map((m: any) => ({ targetPhysicalId: m.targetPhysicalId, burned: !!m.burned, burnedRound: m.burnedRound ?? null })),
+            maskBurnedRound: d.burnNoticeRound ?? null,
+          };
+        })(),
         // عقود السفّاح
         //    🔪 من بدء الليل حتّى نهاية ملخّص الصباح: العقودُ كما كانت عند البدء (night:start)
         //    🔪🔪 بالمقعد: اللقطةُ `{ [seat]: … }` (والشكلُ القديم — لقطةٌ واحدة — للعبةٍ بدأت قبله)
@@ -6385,6 +6397,9 @@ async function readSeatLayoutOnly(activityId: any): Promise<any> {
       // رصيدُ البعث يُقرأ هنا من إعدادات الطاولة، فيثبت طوال اللعبة ولا يتأثّر
       // بتغييرٍ لاحقٍ في الإعدادات.
       state.phoenixState = initPhoenixState(state);
+
+      // ── 🎭 قناعُ المُضلّل (موسم النبوءة) — يُعاد دائماً، null إن لا مُضلّل ──
+      state.deceiverState = initDeceiverState(state);
 
       // ── حفظ وقت البداية + إنشاء سجل المباراة في PostgreSQL ──
       state.startedAt = new Date().toISOString();
