@@ -26,6 +26,7 @@
 import type { GameState, MorningEvent } from './state.js';
 import { Role, isMafiaRole, isNeutralRole } from './roles.js';
 import { activeMaskOn, readThroughMask } from './deceiver-engine.js';
+import { undecidedDividedSeat } from './divided-engine.js';
 
 export const PROPHECY_FIRST_ROUND = 3;
 export const PROPHECY_DEAL_PREFIX = 'prophecy-';
@@ -128,7 +129,9 @@ export function openProphecyAtNightStart(state: GameState, events: MorningEvent[
     } as any);
     return;
   }
-  const alive = state.players.filter(p => p.isAlive && p.role && p.physicalId !== o.oraclePhysicalId && !isNeutralRole(p.role as string));
+  // ⚖️ منقسمٌ لم يحسم فريقه ليلةَ اختياره لا يُسحب: لا مافيا هو بعد ولا مواطن
+  const undecided = undecidedDividedSeat(state);
+  const alive = state.players.filter(p => p.isAlive && p.role && p.physicalId !== o.oraclePhysicalId && p.physicalId !== undecided && !isNeutralRole(p.role as string));
   const maskedCitizen = (p: any) => !isMafiaRole(p.role as Role) && !!activeMaskOn(state, p.physicalId);
   const mafiaPool = alive.filter(p => isMafiaRole(p.role as Role) || maskedCitizen(p));
   const citizenPool = alive.filter(p => !isMafiaRole(p.role as Role) && !maskedCitizen(p));

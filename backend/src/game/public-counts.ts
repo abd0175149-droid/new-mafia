@@ -12,6 +12,7 @@
 
 import { getTeamCounts, isMafiaRole, type Role, type TeamCounts } from './roles.js';
 import { incomingCounts, lateOf } from './late-entry.js';
+import { dividedPendingCross } from './divided-engine.js';
 
 export interface RevealOptions {
   /** احسبْ كأنّ نتيجة الإقصاء النهاريّ كُشفت (لحظة «كشف الأدوار» قبل حفظ العلم). */
@@ -128,6 +129,9 @@ export function publicTeamCounts(state: any, opts: RevealOptions = {}): TeamCoun
       && (hidden.has(Number(t.olderBrotherPhysicalId)) || roleHidden.has(Number(t.olderBrotherPhysicalId)))) {
     pendingTransform.set(Number(t.youngerBrotherPhysicalId), 'YOUNGER_BROTHER');
   }
+  // ⚖️ المنقسم العابر يُعدّ مواطناً حتّى يُعرض إعلان الصباح (قرار ٣٧: العدّ يتحرّك مع الإعلان لا قبله)
+  const dv = dividedPendingCross(state);
+  if (dv != null) pendingTransform.set(Number(dv), 'DIVIDED');
   const players = (state?.players || []).map((p: any) => {
     const seat = Number(p.physicalId);
     let q = p;

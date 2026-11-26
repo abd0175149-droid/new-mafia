@@ -223,7 +223,7 @@ export interface NightActions {
 }
 
 export interface MorningEvent {
-  type: 'ASSASSINATION' | 'ASSASSINATION_BLOCKED' | 'PROTECTION_FAILED' | 'SNIPE_MAFIA' | 'SNIPE_CITIZEN' | 'SILENCED' | 'SHERIFF_RESULT' | 'SHERIFF_REVENGE' | 'ASSASSIN_KILL' | 'ASSASSIN_BLOCKED' | 'ABILITY_DISABLED' | 'TWIN_SUICIDE' | 'TWIN_TRANSFORM' | 'PHOENIX_REBIRTH' | 'PHOENIX_BURN' | 'PHOENIX_ASH' | 'MASK_PLACED' | 'MASK_BURNED' | 'PROPHECY_OPENED' | 'PROPHECY_BURNED' | 'PROPHECY_UNAVAILABLE' | 'CUP_READ' | 'CUP_PUBLIC' | 'CUP_SEAL' | 'CUP_SEAL_BURNED';
+  type: 'ASSASSINATION' | 'ASSASSINATION_BLOCKED' | 'PROTECTION_FAILED' | 'SNIPE_MAFIA' | 'SNIPE_CITIZEN' | 'SILENCED' | 'SHERIFF_RESULT' | 'SHERIFF_REVENGE' | 'ASSASSIN_KILL' | 'ASSASSIN_BLOCKED' | 'ABILITY_DISABLED' | 'TWIN_SUICIDE' | 'TWIN_TRANSFORM' | 'PHOENIX_REBIRTH' | 'PHOENIX_BURN' | 'PHOENIX_ASH' | 'MASK_PLACED' | 'MASK_BURNED' | 'PROPHECY_OPENED' | 'PROPHECY_BURNED' | 'PROPHECY_UNAVAILABLE' | 'CUP_READ' | 'CUP_PUBLIC' | 'CUP_SEAL' | 'CUP_SEAL_BURNED' | 'DIVIDED_SIDE';
   targetPhysicalId: number;
   targetName: string;
   performerPhysicalId?: number;  // من نفذ هذا الإجراء
@@ -472,6 +472,8 @@ export interface GameState {
   oracleState?: import('./oracle-engine.js').OracleState | null;
   // ☕ فناجين القارئة وختمُها (موسم النبوءة) — سرٌّ مطلق
   cupState?: import('./cup-engine.js').CupState | null;
+  // ⚖️ اختيارُ المنقسم وهويّتُه الأولى (موسم النبوءة) — سرٌّ مطلق
+  dividedState?: import('./divided-engine.js').DividedState | null;
   // ── Auto Night Mode — تتبع إرسال اللاعبين ──
   playerNightActions: {
     submitted: Record<number, boolean>; // physicalId → هل أرسل إجراءه

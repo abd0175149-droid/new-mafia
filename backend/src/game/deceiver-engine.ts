@@ -27,6 +27,9 @@ export interface DeceiverMask {
   burnedBy?: 'SHERIFF' | 'ORACLE';
   /** ماذا رأى القارئ (بعد القلب). */
   shownAs?: 'MAFIA' | 'CITIZEN';
+  /** ⚖️ سقط حين عبر صاحبُه المنقسم إلى المافيا — لم يُقرأ فلم يحترق (divided-engine). */
+  lifted?: boolean;
+  liftedRound?: number;
 }
 
 export interface DeceiverState {
@@ -58,7 +61,7 @@ export function canSeatMask(state: GameState, seat: number): boolean {
 /** القناعُ القائم على مقعد (غير المحترق)، إن وُجد. */
 export function activeMaskOn(state: GameState, seat: number): DeceiverMask | undefined {
   const d = (state as any).deceiverState as DeceiverState | null | undefined;
-  return d?.masks.find(m => m.targetPhysicalId === seat && !m.burned);
+  return d?.masks.find(m => m.targetPhysicalId === seat && !m.burned && !m.lifted);
 }
 
 /**

@@ -20,6 +20,7 @@ import { Role, MAFIA_KILL_PRIORITY } from './roles.js';
 import { getAbilitiesForRole, getAbilityDefs } from './definition-service.js';
 import { canSeatAssassinate } from './assassin-engine.js';
 import { canSeatMask } from './deceiver-engine.js';
+import { crossedDividedSeat } from './divided-engine.js';
 
 /** فعلٌ واحدٌ في الليلة: مقعدٌ × قدرة. */
 export interface NightSlot {
@@ -40,11 +41,14 @@ export const slotKey = (seat: number, abilityId: string) => `${seat}:${abilityId
 
 /** حاملُ الاغتيال الليلة — أوّلُ حيٍّ في سلسلة الوراثة، أو null. */
 export function killHolderSeat(state: GameState): number | null {
+  // ⚖️ المنقسم العابر آخرُ السلسلة: لا يحمل الاغتيال إلّا إن لم يبقَ من المافيا غيره
+  const crossed = crossedDividedSeat(state);
   for (const role of MAFIA_KILL_PRIORITY) {
-    const p = state.players.find(x => x.role === role && x.isAlive);
+    const p = state.players.find(x => x.role === role && x.isAlive && x.physicalId !== crossed);
     if (p) return p.physicalId;
   }
-  return null;
+  const last = crossed == null ? null : state.players.find(x => x.physicalId === crossed && x.isAlive);
+  return last ? last.physicalId : null;
 }
 
 const isDisabled = (p: Player, round: number) =>

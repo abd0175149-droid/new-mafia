@@ -31,6 +31,7 @@ import { emitGameOver } from './broadcast.util.js';
 import { addPhoneHold, armPhoneHolds, flushPhoneHolds, dropPhoneHolds, HOLD_MS } from './phone-hold.js';
 import { publicTeamCounts, seatsRevealedBy } from '../game/public-counts.js';
 import { placeProphecyDeal } from '../game/oracle-engine.js';
+import { markDividedAnnounced } from '../game/divided-engine.js';
 import {
   initAssassinStates, assassinRecipients, assassinContractsPayload, anyAssassinWon, markAssassinFirstNightPassed,
 } from '../game/assassin-engine.js';
@@ -1541,6 +1542,8 @@ export function registerNightEvents(io: Server, socket: Socket) {
       // 📱 أوّلُ عرضٍ للحدث: الهواتف تنتظر قلبَ البطاقة على الشاشة (phone-hold) — إعادةُ العرض لا تُعيد الحجب
       const firstShow = !event.revealed;
       event.revealed = true;
+      // ⚖️ إعلانُ المنقسم: العدّاد العلنيّ يتحرّك معه (العدّ أدناه يُحسب بعده)
+      if ((event.type as string) === 'DIVIDED_SIDE') markDividedAnnounced(state);
       if (firstShow) {
         const seats = seatsRevealedBy(state, event);
         if (seats.length) addPhoneHold(state, { id: `night:${state.round}:${data.eventIndex}`, seats, fallbackMs: HOLD_MS.night });
@@ -1671,6 +1674,8 @@ export function registerNightEvents(io: Server, socket: Socket) {
         // 👁️ انتهى الصباح: كلُّ حدثٍ صار علنيّاً — ما لم يعرضه الموجّه أعلنه بلسانه. وإلّا
         //    بقي العدّادُ والدورُ محجوبَين طوال النهار عن ميّتٍ يراه الجميع ميّتاً.
         for (const ev of state.morningEvents || []) ev.revealed = true;
+        // ⚖️ أعلنه الموجّه بلسانه إن لم يعرضه — الصباح انتهى
+        markDividedAnnounced(state);
         // 🔍 من فحصهم الشريف — يستثنيهم تجنيد الدخول المتأخّر، وتحذيرٌ في أداة الكروت
         for (const ev of state.morningEvents || []) {
           if (ev?.type === 'SHERIFF_RESULT' && ev.targetPhysicalId != null) {
@@ -1967,6 +1972,7 @@ export function registerNightEvents(io: Server, socket: Socket) {
       (state as any).deceiverState = null;
       (state as any).oracleState = null;
       (state as any).cupState = null;
+      (state as any).dividedState = null;
       // 💣 تنظيف حالة القنبلة والإقصاء المعلق والتتبع
       state.pendingBomb = null;
       state.pendingResolution = null;

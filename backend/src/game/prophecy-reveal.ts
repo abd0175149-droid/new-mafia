@@ -7,11 +7,13 @@
 //   masks:  على من وُضع كلّ قناع، ومن قرأه، وماذا رأى، وهل أعدمته المدينة بعدها بيومين
 //           («أعدمتموه لأنّكم رأيتم قناعه» — وهو نفسه شرط مكافأة «تلفيقٌ نافذ» في مرحلة الرانك).
 //   oracle: الصندوقان معاً، وأيّهما فُتح، والنتيجة، والوصيّة.
+//   divided: من كان المنقسم، وأيّ جانبٍ اختار (أو بقي لأنّه لم يختر).
 // ══════════════════════════════════════════════════════
 
 import type { GameState } from './state.js';
 import { prophecyReveal } from './oracle-engine.js';
 import { cupSummary } from './cup-engine.js';
+import { dividedSummary } from './divided-engine.js';
 
 /** نافذة «التلفيق النافذ»: إعدامٌ بيد المدينة خلال يومين من احتراق القناع */
 export const FRAME_WINDOW_DAYS = 2;
@@ -29,6 +31,8 @@ export function prophecyRevealFor(state: GameState | null | undefined) {
       targetPhysicalId: m.targetPhysicalId, targetName: nameOf(m.targetPhysicalId),
       placedRound: m.placedRound, burned: !!m.burned, burnedBy: m.burnedBy ?? null, burnedRound: m.burnedRound ?? null,
       shownAs: m.shownAs ?? null,
+      // ⚖️ سقط حين عبر صاحبُه المنقسم (لم يُقرأ)
+      lifted: !!m.lifted,
       // أُعدم بيد المدينة بعد أن قُرئ قناعُه، خلال النافذة
       executedBecauseOfMask: !!(m.burned && ex != null && m.burnedRound != null && ex >= m.burnedRound && ex - m.burnedRound <= FRAME_WINDOW_DAYS),
     };
@@ -46,6 +50,8 @@ export function prophecyRevealFor(state: GameState | null | undefined) {
   } : null;
 
   const cup = cupSummary(state);
-  if (!masks.length && !oracle && !cup) return null;
-  return { deceiverPhysicalId: d?.deceiverPhysicalId ?? null, masks, oracle, cup };
+  const dv = dividedSummary(state);
+  const divided = dv ? { ...dv, name: nameOf(dv.dividedPhysicalId) } : null;
+  if (!masks.length && !oracle && !cup && !divided) return null;
+  return { deceiverPhysicalId: d?.deceiverPhysicalId ?? null, masks, oracle, cup, divided };
 }

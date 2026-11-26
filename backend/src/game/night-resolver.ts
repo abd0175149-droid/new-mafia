@@ -11,13 +11,17 @@ import {
 } from './state.js';
 import { getGameState, setGameState } from '../config/redis.js';
 import { Role, isMafiaRole, isNeutralRole, teamOfRole, MAFIA_KILL_PRIORITY } from './roles.js';
+import { crossedDividedSeat } from './divided-engine.js';
 
 function findAssassinator(state: GameState, excludePhysicalId?: number) {
+  // ⚖️ المنقسم العابر آخرُ السلسلة (divided-engine)
+  const crossed = crossedDividedSeat(state);
   for (const role of MAFIA_KILL_PRIORITY) {
     const p = state.players.find(pl =>
-      pl.role === role && pl.isAlive && (excludePhysicalId == null || pl.physicalId !== excludePhysicalId));
+      pl.role === role && pl.isAlive && pl.physicalId !== crossed && (excludePhysicalId == null || pl.physicalId !== excludePhysicalId));
     if (p) return p;
   }
+  if (crossed != null && crossed !== excludePhysicalId) return state.players.find(pl => pl.physicalId === crossed && pl.isAlive);
   return undefined;
 }
 import { checkWinCondition, WinResult } from './win-checker.js';

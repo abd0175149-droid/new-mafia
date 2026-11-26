@@ -22,6 +22,7 @@ import { canSeatAssassinate, assassinStateFor, checkContractCompletion, complete
 import { canSeatMask, placeMask, readThroughMask } from './deceiver-engine.js';
 import { openProphecyAtNightStart, settleProphecyAtNightEnd, expireProphecyIfUnresolved } from './oracle-engine.js';
 import { recordCupRead, applyCupSeal } from './cup-engine.js';
+import { settleDividedAtNightEnd } from './divided-engine.js';
 
 // ── أنواع ────────────────────────────────────────────
 
@@ -661,6 +662,9 @@ export async function resolveNightDynamic(
 
   // ═══ 🔮 العرّاف: تحترق النبوءة إن مات هو أو صاحب الاسم قبل الصباح ═══
   settleProphecyAtNightEnd(state, events);
+
+  // ═══ ⚖️ المنقسم: من لم يختر في ليلته بقي مع المدينة، وإعلانُ الجانب صباحاً بلا رقمه ═══
+  settleDividedAtNightEnd(state, events);
 
   return events;
 }
