@@ -22,6 +22,7 @@ import { checkWinCondition, WinResult } from '../game/win-checker.js';
 import { checkWinConditionDynamic, checkNeutralVoteWin } from '../game/dynamic-win-checker.js';
 import { isMafiaRole, teamOfRole, getTeamCounts } from '../game/roles.js';
 import { isProphecyDeal, prophecyOwnerSeat, recordProphecyPassed, closeProphecy } from '../game/oracle-engine.js';
+import { kafalaEligible, openKafalaWindow, closeKafalaWindow, applyKafala } from '../game/guarantor-engine.js';
 import { cupOnCityExecution } from '../game/cup-engine.js';
 import { getGameState, setGameState } from '../config/redis.js';
 import { checkPolicewomanTrigger } from '../game/night-resolver.js';
@@ -913,35 +914,109 @@ export function registerDayEvents(io: Server, socket: Socket) {
         io.to(data.roomId).emit('day:withdrawal-result', { revote: false });
       }
 
-      // ── 🎩 نافذة العمدة — قبل تطبيق أيّ أثر (قرار ⑦: فائز واحد فقط) ──
-      // نفرز النتيجة بلا تنفيذ؛ إن تأهّل العمدة تُفتح نافذة سرّية (ليدر + هاتف العمدة)
-      // ولا يُستدعى resolveVoting إلا بعد قراره — فلا حاجة لأيّ تراجعٍ عن مهرج/قنبلة/توأمين.
-      if (!(data as any).skipMayor) {
-        const stateNow = await getGameState(data.roomId);
-        // 🎩 نافذةٌ مفتوحةٌ أصلاً (ضغطةٌ ثانية على «تنفيذ الإقصاء»): تُعاد إرسالُها كما هي — لا
-        //    لقطةَ جديدة تُبدّل ما يراه العمدةُ على هاتفه أثناء تفكيره.
-        if (stateNow?.mayorState?.window && !stateNow.mayorState.vetoUsed) {
-          const openWin = stateNow.mayorState.window;
-          await emitMayorWindow(io, data.roomId, stateNow, openWin);
-          return callback({ success: true, mayorWindow: true, resent: true, window: sanitizeWindowForLeader(stateNow, openWin) });
-        }
-        if (stateNow && isMayorEligible(stateNow)) {
-          const sort = await getVoteResult(data.roomId);
-          if (sort.type === 'SINGLE_WINNER' && sort.topVotes > 0) {
-            const window = openMayorWindow(stateNow, sort.topCandidates[0], sort.topVotes);
-            await setGameState(data.roomId, stateNow);
-            await emitMayorWindow(io, data.roomId, stateNow, window);
-            // مزامنة الحالة (الليدر يرى النافذة بعد إعادة الاتصال؛ نسخ اللاعبين تُجرَّد منها)
-            await emitStateSanitized(io, data.roomId, 'game:state-sync', stateNow);
-            console.log(`🎩 Mayor window opened in room ${data.roomId} — would-be: ${JSON.stringify(window.winner)}`);
-            return callback({ success: true, mayorWindow: true, window: sanitizeWindowForLeader(stateNow, window) });
+      // ── 🤝 نافذة الكفالة — بعد الفرز وقبل العمدة (ب٥: يسجّلها الموجّه). بلا كفيلٍ في الطاولة لا شيء هنا ──
+      if (!(data as any).skipKafala) {
+        const stK: any = await getGameState(data.roomId);
+        const gk = stK?.guarantorState;
+        if (stK && gk && !gk.used) {
+          if (gk.window) {
+            await emitKafalaWindow(io, data.roomId, gk.window);
+            return callback({ success: true, kafalaWindow: true, resent: true, window: gk.window });
+          }
+          const sortK = await getVoteResult(data.roomId);
+          if (sortK.type === 'SINGLE_WINNER' && sortK.topVotes > 0) {
+            const w: any = sortK.topCandidates[0];
+            const winner = { type: w.type, targetPhysicalId: w.targetPhysicalId, id: w.id, kind: w.kind, initiatorPhysicalId: w.initiatorPhysicalId ?? null };
+            if (kafalaEligible(stK, winner)) {
+              const win = openKafalaWindow(stK, winner, sortK.topVotes);
+              await setGameState(data.roomId, stK);
+              await emitKafalaWindow(io, data.roomId, win);
+              return callback({ success: true, kafalaWindow: true, window: win });
+            }
           }
         }
       }
 
-      // ── الخطوة 3: تنفيذ الإقصاء فعلياً ──
-      const result = await performElimination(io, data.roomId);
-      callback({ success: true, result });
+      return callback(await mayorThenEliminate(io, data.roomId, !!(data as any).skipMayor));
+    } catch (err: any) {
+      callback({ success: false, error: err.message });
+    }
+  });
+
+  // ── 🤝 قرار الكفالة (الموجّه وحده — ب٥): تمرير ⇒ نافذة العمدة/الإعدام كالمعتاد · «أكفله» ⇒ الحكم بالحقيقة ──
+  socket.on('day:kafala-decision', async (data: { roomId: string; decision: 'PASS' | 'GUARANTEE' }, callback) => {
+    try {
+      if (socket.data.role !== 'leader') return callback({ success: false, error: 'Only leader' });
+      const state: any = await getGameState(data.roomId);
+      if (!state) return callback({ success: false, error: 'Room not found' });
+      const g = state.guarantorState;
+      if (!g?.window) return callback({ success: false, error: 'لا نافذة كفالةٍ مفتوحة' });
+      // 🔴 النافذةُ لهذه الجولة وحدها: إن تغيّر الطور أو الفائز يُرفض القرار المتأخّر
+      const sortNow = await getVoteResult(data.roomId);
+      const top: any = sortNow.type === 'SINGLE_WINNER' ? sortNow.topCandidates[0] : null;
+      if (state.phase !== Phase.DAY_JUSTIFICATION || !top || top.type !== g.window.winner.type || top.targetPhysicalId !== g.window.winner.targetPhysicalId) {
+        closeKafalaWindow(state, false);
+        await setGameState(data.roomId, state);
+        await emitKafalaWindowClosed(io, data.roomId);
+        return callback({ success: false, error: 'انتهت نافذة الكفالة — تغيّرت الجولة' });
+      }
+      if (data.decision === 'PASS') {
+        closeKafalaWindow(state, true);
+        await setGameState(data.roomId, state);
+        await emitKafalaWindowClosed(io, data.roomId);
+        return callback({ passed: true, ...(await mayorThenEliminate(io, data.roomId, false)) });
+      }
+      if (data.decision !== 'GUARANTEE') return callback({ success: false, error: 'قرارٌ غير معروف' });
+
+      const r = applyKafala(state);
+      if (r.ok === false) return callback({ success: false, error: r.error });
+      clearRevealGrace(data.roomId);
+      const announce = { guarantorPhysicalId: g.guarantorPhysicalId, targetPhysicalId: r.winner.targetPhysicalId, viaDeal: r.winner.type === 'DEAL' };
+
+      if (r.outcome === 'FAILED') {
+        // مافيا أو مستقلّ: يمضي الإعدام كما لو لا كفالة، والكفيلُ يموت معه (resolveVoting) — بلا عمدة
+        await setGameState(data.roomId, state);
+        await emitKafalaWindowClosed(io, data.roomId);
+        io.to(data.roomId).emit('day:kafala', announce);   // «كفله رقم …» — النتيجة مع قلب الكرت
+        const result = await performElimination(io, data.roomId);
+        console.log(`🤝 Kafala FAILED in room ${data.roomId} — #${announce.targetPhysicalId} executed, guarantor #${announce.guarantorPhysicalId} dies`);
+        return callback({ success: true, outcome: 'FAILED', result });
+      }
+
+      // مواطن: ينجو، ولا يُعدم أحدٌ اليوم. هدفُ صفقةٍ ⇒ الصفقة كلّها تُلغى (قرار ٤٠)
+      if (r.winner.type === 'DEAL') {
+        if (isProphecyDeal(r.winner as any)) closeProphecy(state, 'GUARANTEED');
+        else {
+          const vs = state.votingState;
+          vs.deals = (vs.deals || []).filter((d: any) => d.id !== r.winner.id);
+          vs.candidates = (vs.candidates || []).filter((c: any) => !(c.type === 'DEAL' && c.id === r.winner.id));
+        }
+      }
+      const savedName = String(state.players.find((p: any) => p.physicalId === r.winner.targetPhysicalId)?.name || '');
+      stampVoteOutcome(state, { type: 'KAFALA_SAVED', savedPhysicalId: r.winner.targetPhysicalId, savedName });
+      const kafala = { ...announce, outcome: 'SAVED' as const };
+      state.pendingResolution = {
+        eliminated: [], revealedRoles: [], causes: [], deal: null,
+        winResult: WinResult.GAME_CONTINUES, type: 'KAFALA_SAVED', neutralWin: null, kafala,
+      };
+      state.eliminationRevealed = false;
+      state.heldBombResult = null;
+      state.withdrawalState = null;
+      state.justificationData = null;
+      state.phase = Phase.DAY_ELIMINATION;
+      await setGameState(data.roomId, state);
+      await setPhase(data.roomId, Phase.DAY_ELIMINATION);
+      emitVoteHistory(io, data.roomId, state);
+      await emitKafalaWindowClosed(io, data.roomId);
+      io.to(data.roomId).emit('day:kafala', announce);
+      await emitPhaseChangedSanitized(io, data.roomId, { phase: Phase.DAY_ELIMINATION, state });
+      await emitEliminationPending(io, data.roomId, {
+        eliminated: [], revealedRoles: [], causes: [], deal: null, winResult: WinResult.GAME_CONTINUES,
+        type: 'KAFALA_SAVED', pendingBomb: null, neutralWin: null, kafala,
+      });
+      await emitStateSanitized(io, data.roomId, 'game:state-sync', state);
+      console.log(`🤝 Kafala SAVED in room ${data.roomId} — #${announce.targetPhysicalId} spared by #${announce.guarantorPhysicalId}`);
+      return callback({ success: true, outcome: 'SAVED' });
     } catch (err: any) {
       callback({ success: false, error: err.message });
     }
@@ -2299,6 +2374,52 @@ async function emitExecutionManifest(io: Server, roomId: string, state: any, cou
 
 // تنفيذ الإقصاء فعليّاً (المسار الأصليّ حرفيّاً) — يُستدعى من execute-elimination
 // ومن day:mayor-decision(PASS) حتى لا يتكرّر المنطق.
+// ── 🎩 نافذة العمدة ثمّ الإعدام — ذيلُ «تنفيذ الإقصاء»، ويُستدعى أيضاً بعد تمرير الكفالة ──
+// نفرز النتيجة بلا تنفيذ؛ إن تأهّل العمدة تُفتح نافذة سرّية (ليدر + هاتف العمدة)
+// ولا يُستدعى resolveVoting إلا بعد قراره — فلا حاجة لأيّ تراجعٍ عن مهرج/قنبلة/توأمين.
+async function mayorThenEliminate(io: Server, roomId: string, skipMayor: boolean): Promise<any> {
+  if (!skipMayor) {
+    const stateNow = await getGameState(roomId);
+    // 🎩 نافذةٌ مفتوحةٌ أصلاً (ضغطةٌ ثانية على «تنفيذ الإقصاء»): تُعاد إرسالُها كما هي — لا
+    //    لقطةَ جديدة تُبدّل ما يراه العمدةُ على هاتفه أثناء تفكيره.
+    if (stateNow?.mayorState?.window && !stateNow.mayorState.vetoUsed) {
+      const openWin = stateNow.mayorState.window;
+      await emitMayorWindow(io, roomId, stateNow, openWin);
+      return { success: true, mayorWindow: true, resent: true, window: sanitizeWindowForLeader(stateNow, openWin) };
+    }
+    if (stateNow && isMayorEligible(stateNow)) {
+      const sort = await getVoteResult(roomId);
+      if (sort.type === 'SINGLE_WINNER' && sort.topVotes > 0) {
+        const window = openMayorWindow(stateNow, sort.topCandidates[0], sort.topVotes);
+        await setGameState(roomId, stateNow);
+        await emitMayorWindow(io, roomId, stateNow, window);
+        // مزامنة الحالة (الليدر يرى النافذة بعد إعادة الاتصال؛ نسخ اللاعبين تُجرَّد منها)
+        await emitStateSanitized(io, roomId, 'game:state-sync', stateNow);
+        console.log(`🎩 Mayor window opened in room ${roomId} — would-be: ${JSON.stringify(window.winner)}`);
+        return { success: true, mayorWindow: true, window: sanitizeWindowForLeader(stateNow, window) };
+      }
+    }
+  }
+  // ── الخطوة 3: تنفيذ الإقصاء فعلياً ──
+  const result = await performElimination(io, roomId);
+  return { success: true, result };
+}
+
+// ── 🤝 نافذة الكفالة للموجّه وحده (ب٥) — لا للشاشة ولا للهواتف: الكفيل يقف في القاعة ──
+async function emitKafalaWindow(io: Server, roomId: string, window: any): Promise<void> {
+  for (const s of await io.in(roomId).fetchSockets()) if (s.data?.role === 'leader') s.emit('day:kafala-window', window);
+}
+async function emitKafalaWindowClosed(io: Server, roomId: string): Promise<void> {
+  for (const s of await io.in(roomId).fetchSockets()) if (s.data?.role === 'leader') s.emit('day:kafala-window-closed', {});
+}
+
+/** 🤝 نتيجةُ كفالة هذه الجولة للحمولة الموثوقة (null بلا كفيل) */
+function kafalaOf(state: any): any {
+  const r = state?.guarantorState?.result;
+  if (!r || r.round !== (state.round || 1) || r.outcome !== 'FAILED') return null;
+  return { guarantorPhysicalId: state.guarantorState.guarantorPhysicalId, targetPhysicalId: r.targetPhysicalId, viaDeal: !!r.viaDeal, outcome: 'FAILED' };
+}
+
 async function performElimination(io: Server, roomId: string) {
   const result = await resolveVoting(roomId);
 
@@ -2325,6 +2446,7 @@ async function performElimination(io: Server, roomId: string) {
         type: result.type,
         neutralWin: result.neutralWin || null,
         cup: result.cup || null,   // ☕ يُعلن بعد قلب الكرت
+        kafala: kafalaOf(stateAfter), // 🤝 كفالةٌ فشلت: الكفيل مات معه — يُعلن بعد قلب الكرت
       } as any;
       stateAfter.eliminationRevealed = false;
       stateAfter.heldBombResult = null;
@@ -2344,6 +2466,7 @@ async function performElimination(io: Server, roomId: string) {
       pendingBomb: stateAfter?.pendingBomb || null,
       neutralWin: result.neutralWin || null,
       cup: result.cup || null,
+      kafala: kafalaOf(stateAfter),
     });
     await emitExecutionManifest(io, roomId, stateAfter, result.eliminated.length, result.causes);
     console.log(`📦 elimination-pending sent — pendingBomb: ${JSON.stringify(stateAfter?.pendingBomb || null)}${result.neutralWin?.won ? ' — 🤡 JESTER WIN!' : ''}`);

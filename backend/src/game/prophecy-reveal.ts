@@ -14,6 +14,7 @@ import type { GameState } from './state.js';
 import { prophecyReveal } from './oracle-engine.js';
 import { cupSummary } from './cup-engine.js';
 import { dividedSummary } from './divided-engine.js';
+import { guarantorSummary } from './guarantor-engine.js';
 
 /** نافذة «التلفيق النافذ»: إعدامٌ بيد المدينة خلال يومين من احتراق القناع */
 export const FRAME_WINDOW_DAYS = 2;
@@ -52,6 +53,7 @@ export function prophecyRevealFor(state: GameState | null | undefined) {
   const cup = cupSummary(state);
   const dv = dividedSummary(state);
   const divided = dv ? { ...dv, name: nameOf(dv.dividedPhysicalId) } : null;
-  if (!masks.length && !oracle && !cup && !divided) return null;
-  return { deceiverPhysicalId: d?.deceiverPhysicalId ?? null, masks, oracle, cup, divided };
+  const guarantor = guarantorSummary(state);
+  if (!masks.length && !oracle && !cup && !divided && !guarantor) return null;
+  return { deceiverPhysicalId: d?.deceiverPhysicalId ?? null, masks, oracle, cup, divided, guarantor };
 }

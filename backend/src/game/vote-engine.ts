@@ -14,6 +14,7 @@ import { checkNeutralVoteWin, type NeutralResult } from './dynamic-win-checker.j
 import { processTwinBond, applySuicide, applyTransform } from './twin-engine.js';
 import { isProphecyDeal, prophecyOwnerSeat, recordProphecyPassed } from './oracle-engine.js';
 import { cupOnCityExecution, type CupHit } from './cup-engine.js';
+import { takeKafalaDeath } from './guarantor-engine.js';
 
 // ── 🎩 درعُ العمدة ──────────────────────────────
 
@@ -218,7 +219,7 @@ export async function getVoteResult(roomId: string): Promise<VoteSortResult> {
 // ── حسم النتيجة (مع إقصاء فعلي) ──────────────────
 
 /** 🎬 سببُ كلّ خروجٍ في هذا الإقصاء — تحتاجه شاشةُ القاعة لتعرف مَن سقط عند الجدار ومَن سقط من بين الحشد */
-export type EliminationCause = 'DAY_VOTE' | 'DEAL' | 'DEAL_BACKFIRE' | 'TWIN_SUICIDE' | 'ELIMINATE_ALL' | 'CUP_DEPARTED';
+export type EliminationCause = 'DAY_VOTE' | 'DEAL' | 'DEAL_BACKFIRE' | 'TWIN_SUICIDE' | 'ELIMINATE_ALL' | 'CUP_DEPARTED' | 'KAFALA';
 export interface VoteResolution {
   type: 'ELIMINATION' | 'DEAL_ELIMINATION' | 'TIE';
   eliminated: number[];        // physicalIds المقصيين
@@ -272,6 +273,9 @@ export async function resolveVoting(roomId: string): Promise<VoteResolution> {
   const causes: { physicalId: number; by: EliminationCause }[] = [];
   let deal: VoteResolution['deal'] = null;
   let cup: CupHit | null = null;
+  // 🤝 كفالةٌ فشلت على هذا المحكوم (مافيا/مستقلّ): الكفيل يموت معه — قبل أيّ إعدام، فلا تختاره
+  //    قنبلةُ الشيخ وهو ميّتٌ أصلاً. بلا كفيلٍ في الطاولة: null دائماً ولا شيء يتغيّر.
+  const kafalaDead = takeKafalaDeath(state, winner.targetPhysicalId);
   /** ☕ إعدامٌ بيد المدينة: هل صدق الفنجان؟ إن رحلت القارئة يُقلب كرتُها مع المُعدَم */
   const cupCheck = (seat: number) => {
     const h = cupOnCityExecution(state, seat);
@@ -449,6 +453,14 @@ export async function resolveVoting(roomId: string): Promise<VoteResolution> {
         }
       }
     }
+  }
+
+  // 🤝 الكفيل الذي مات مع مكفوله — يُقلب كرتُه معه
+  if (kafalaDead != null) {
+    eliminated.push(kafalaDead);
+    revealedRoles.push({ physicalId: kafalaDead, role: 'GUARANTOR' });
+    causes.push({ physicalId: kafalaDead, by: 'KAFALA' });
+    checkPolicewomanTrigger(state, kafalaDead);
   }
 
   // 👥 معالجة ارتباط التوأمين بعد الإقصاء بالتصويت (قبل فحص الفوز)

@@ -1973,6 +1973,7 @@ export function registerNightEvents(io: Server, socket: Socket) {
       (state as any).oracleState = null;
       (state as any).cupState = null;
       (state as any).dividedState = null;
+      (state as any).guarantorState = null;
       // 💣 تنظيف حالة القنبلة والإقصاء المعلق والتتبع
       state.pendingBomb = null;
       state.pendingResolution = null;

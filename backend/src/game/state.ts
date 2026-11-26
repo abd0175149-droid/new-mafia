@@ -474,6 +474,8 @@ export interface GameState {
   cupState?: import('./cup-engine.js').CupState | null;
   // ⚖️ اختيارُ المنقسم وهويّتُه الأولى (موسم النبوءة) — سرٌّ مطلق
   dividedState?: import('./divided-engine.js').DividedState | null;
+  // 🤝 الكفيل (كرتٌ اختياريّ) — نافذتُه وحكمُه
+  guarantorState?: import('./guarantor-engine.js').GuarantorState | null;
   // ── Auto Night Mode — تتبع إرسال اللاعبين ──
   playerNightActions: {
     submitted: Record<number, boolean>; // physicalId → هل أرسل إجراءه

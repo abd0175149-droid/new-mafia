@@ -39,6 +39,7 @@ import { initDeceiverState } from '../game/deceiver-engine.js';
 import { initOracleState } from '../game/oracle-engine.js';
 import { initCupState } from '../game/cup-engine.js';
 import { initDividedState, dividedNoticeFor } from '../game/divided-engine.js';
+import { initGuarantorState } from '../game/guarantor-engine.js';
 import { oneNightResumeFor } from './night-one.socket.js';
 import { assassinStateFor, assassinContractsPayload } from '../game/assassin-engine.js';
 import { analyzeDuplicates, isAssassinMode } from '../game/role-duplicates.js';
@@ -6294,6 +6295,12 @@ async function readSeatLayoutOnly(activityId: any): Promise<any> {
         // 🔮 ظرفُ العرّاف: هل استُعملت النبوءة، وماذا رأى، وما طلبُه الليلة — معلومتُه هو وحده
         // ⚖️ ظرفُ المنقسم: هل يختار الليلة، وماذا اختار — يُطابق بالمقعد (دورُه يتغيّر إن عبر)
         dividedNotice: shouldShowRole ? dividedNoticeFor(state as any, player.physicalId) : null,
+        // 🤝 ظرفُ الكفيل: هل استُعملت كفالته — معلومتُه هو
+        guarantorNotice: (() => {
+          const g: any = (state as any).guarantorState;
+          if (!(shouldShowRole && g && g.guarantorPhysicalId === player.physicalId)) return null;
+          return { used: !!g.used, outcome: g.result?.outcome ?? null };
+        })(),
         oracleNotice: (() => {
           const o: any = (state as any).oracleState;
           if (!(shouldShowRole && player.role === 'ORACLE' && o && o.oraclePhysicalId === player.physicalId)) return null;
@@ -6438,6 +6445,8 @@ async function readSeatLayoutOnly(activityId: any): Promise<any> {
       state.cupState = initCupState(state);
       // ── ⚖️ المنقسم — هويّتُه الأولى تُحفظ هنا قبل أن يتغيّر دورُه إن عبر ──
       state.dividedState = initDividedState(state);
+      // ── 🤝 الكفيل (اختياريّ) — null إن لم يضفه الموجّه، وحينها لا أثر له في أيّ مسار ──
+      state.guarantorState = initGuarantorState(state);
 
       // ── حفظ وقت البداية + إنشاء سجل المباراة في PostgreSQL ──
       state.startedAt = new Date().toISOString();
@@ -7256,6 +7265,7 @@ async function readSeatLayoutOnly(activityId: any): Promise<any> {
     (state as any).oracleState = null;
     (state as any).cupState = null;
     (state as any).dividedState = null;
+    (state as any).guarantorState = null;
     state.votingState = {
       totalVotesCast: 0,
       deals: [],

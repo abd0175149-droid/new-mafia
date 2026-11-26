@@ -23,7 +23,9 @@ export type VoteRoundKind = 'DAY' | 'TIE_REVOTE' | 'TIE_NARROW' | 'WITHDRAWAL_RE
 export type VoteOutcomeType =
   | 'ELIMINATED' | 'NO_ELIMINATION' | 'TIE'
   | 'TIE_REVOTE' | 'TIE_NARROW' | 'TIE_CANCEL' | 'TIE_ELIMINATE_ALL'
-  | 'WITHDRAWN' | 'MAYOR_SAVED' | 'MAYOR_POSTPONED' | 'RESTARTED';
+  | 'WITHDRAWN' | 'MAYOR_SAVED' | 'MAYOR_POSTPONED' | 'RESTARTED'
+  // 🤝 نجا المحكوم بكفالة الكفيل (موسم النبوءة) — لا موت
+  | 'KAFALA_SAVED';
 
 export interface VoteHistoryVoter {
   voterPhysicalId: number;
@@ -189,6 +191,7 @@ export function stampRevealOutcome(state: GameState): boolean {
   const e = current(state); if (!e) return false;
   const pr: any = (state as any).pendingResolution || {};
   if (pr.type === 'MAYOR_POSTPONED') return stampVoteOutcome(state, { type: 'MAYOR_POSTPONED' });
+  if (pr.type === 'KAFALA_SAVED') return stampVoteOutcome(state, { type: 'KAFALA_SAVED' });
   const eliminated: number[] = Array.isArray(pr.eliminated) ? pr.eliminated.map(Number) : [];
   // إقصاءُ المتعادلين يُختم هنا مع الكشف (لا عند القرار — 2026-10-09). النبضُ يمرّ بالمسار نفسه
   // بمتعادلٍ واحد فهو «أُقصي» لا «إقصاء المتعادلين»
