@@ -22,6 +22,7 @@ import { checkWinCondition, WinResult } from '../game/win-checker.js';
 import { checkWinConditionDynamic, checkNeutralVoteWin } from '../game/dynamic-win-checker.js';
 import { isMafiaRole, teamOfRole, getTeamCounts } from '../game/roles.js';
 import { isProphecyDeal, prophecyOwnerSeat, recordProphecyPassed, closeProphecy } from '../game/oracle-engine.js';
+import { cupOnCityExecution } from '../game/cup-engine.js';
 import { getGameState, setGameState } from '../config/redis.js';
 import { checkPolicewomanTrigger } from '../game/night-resolver.js';
 import { armAshCurse, applyAshCurse } from '../game/phoenix-engine.js';
@@ -1570,12 +1571,23 @@ export function registerDayEvents(io: Server, socket: Socket) {
         const dealBackfireIds = new Set<number>();
         const twinSuicideIds = new Set<number>();
 
+        let tieCup: any = null;
         if (data.tiedCandidates) {
           for (const candidate of data.tiedCandidates) {
             const target = state.players.find((p: any) => p.physicalId === candidate.targetPhysicalId);
             if (target) {
               eliminated.push(target.physicalId);
               revealedRoles.push({ physicalId: target.physicalId, role: target.role || 'UNKNOWN' });
+              // ☕ إقصاءُ المتعادلين إعدامٌ بيد المدينة — يُحسب لفنجان القارئة
+              const cupHit = cupOnCityExecution(state as any, target.physicalId);
+              if (cupHit) {
+                tieCup = cupHit;
+                const rs = (state as any).cupState?.readerPhysicalId;
+                if (cupHit.departed && rs != null && !eliminated.includes(rs)) {
+                  eliminated.push(rs);
+                  revealedRoles.push({ physicalId: rs, role: 'CUP_READER' });
+                }
+              }
 
               // قاعدة الاتفاقية: إذا المستهدف **مواطن صالح** → المُبادر يُقصى أيضاً.
               // 🔴 نفس تصحيح vote-engine: المحايد (مهرّج/سفّاح) ليس مواطناً فلا يُردّ الصفقة.
@@ -1716,6 +1728,7 @@ export function registerDayEvents(io: Server, socket: Socket) {
           winResult,
           type: 'ELIMINATE_ALL',
           neutralWin: neutralWin || null,
+          cup: tieCup,
         } as any;
         state.eliminationRevealed = false;
         state.heldBombResult = null;
@@ -2311,6 +2324,7 @@ async function performElimination(io: Server, roomId: string) {
         winResult: result.winResult,
         type: result.type,
         neutralWin: result.neutralWin || null,
+        cup: result.cup || null,   // ☕ يُعلن بعد قلب الكرت
       } as any;
       stateAfter.eliminationRevealed = false;
       stateAfter.heldBombResult = null;
@@ -2329,6 +2343,7 @@ async function performElimination(io: Server, roomId: string) {
       type: result.type,
       pendingBomb: stateAfter?.pendingBomb || null,
       neutralWin: result.neutralWin || null,
+      cup: result.cup || null,
     });
     await emitExecutionManifest(io, roomId, stateAfter, result.eliminated.length, result.causes);
     console.log(`📦 elimination-pending sent — pendingBomb: ${JSON.stringify(stateAfter?.pendingBomb || null)}${result.neutralWin?.won ? ' — 🤡 JESTER WIN!' : ''}`);

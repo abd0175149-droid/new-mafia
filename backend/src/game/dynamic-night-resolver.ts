@@ -21,6 +21,7 @@ import { killHolderSeat } from './night-plan.js';
 import { canSeatAssassinate, assassinStateFor, checkContractCompletion, completeContract, checkAssassinWin } from './assassin-engine.js';
 import { canSeatMask, placeMask, readThroughMask } from './deceiver-engine.js';
 import { openProphecyAtNightStart, settleProphecyAtNightEnd, expireProphecyIfUnresolved } from './oracle-engine.js';
+import { recordCupRead, applyCupSeal } from './cup-engine.js';
 
 // ── أنواع ────────────────────────────────────────────
 
@@ -547,6 +548,8 @@ export async function resolveNightDynamic(
         break;
 
       case 'PASSIVE': {
+        // ☕ قراءة الفنجان: مَن ستعدمه المدينة غداً
+        if (action.abilityId === 'READ_CUP') { recordCupRead(state, action.performerPhysicalId, target.physicalId, events); break; }
         // 🎭 القناع (أولويّته قبل التحقيق): قراءةُ الليلة نفسها تلمسه إن وقعت عليه
         if (action.abilityId !== 'MASK') break;
         const mask = placeMask(state, action.performerPhysicalId, target.physicalId);
@@ -605,12 +608,16 @@ export async function resolveNightDynamic(
     if (revenge) events.push(revenge);
   }
 
+  // ═══ ☕ قدرُ الغد: الختمُ يُنفَّذ بعد أفعال الليلة كلّها وقبل الشرطيّة والتوأمين ═══
+  //    (موتُ المختوم يُحسب في عتبة الشرطيّة ورابط الأخوين، وحمايةُ الطبيب لا تمنعه)
+  applyCupSeal(state, events);
+
   // ═══ 👮‍♀️ فحص تفعيل الشرطية لكل من مات هذه الليلة (مطابق للمحرك القديم) ═══
   // (كان مفقوداً في المحرك الديناميكي — فلم تكن تُفعّل الشرطية عند قتلها ليلاً ولا تُحتسب
   //  وفيات المواطنين نحو عتبتها. هذا إصلاح لتطابق سلوك المحرك القديم.)
   const deadThisNight: number[] = [];
   for (const ev of events) {
-    if (['ASSASSINATION', 'SNIPE_MAFIA', 'SNIPE_CITIZEN', 'ASSASSIN_KILL', 'SHERIFF_REVENGE', 'PHOENIX_BURN'].includes(ev.type)) {
+    if (['ASSASSINATION', 'SNIPE_MAFIA', 'SNIPE_CITIZEN', 'ASSASSIN_KILL', 'SHERIFF_REVENGE', 'PHOENIX_BURN', 'CUP_SEAL'].includes(ev.type)) {
       // إزالة التكرار: قد يظهر نفس اللاعب في حدثين (اغتيال المافيا + اغتيال السفّاح على نفس الهدف)
       if (!deadThisNight.includes(ev.targetPhysicalId)) deadThisNight.push(ev.targetPhysicalId);
       if (ev.type === 'SNIPE_CITIZEN' && ev.extra?.sniperPhysicalId) {

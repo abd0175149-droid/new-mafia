@@ -11,6 +11,7 @@
 
 import type { GameState } from './state.js';
 import { prophecyReveal } from './oracle-engine.js';
+import { cupSummary } from './cup-engine.js';
 
 /** نافذة «التلفيق النافذ»: إعدامٌ بيد المدينة خلال يومين من احتراق القناع */
 export const FRAME_WINDOW_DAYS = 2;
@@ -44,6 +45,7 @@ export function prophecyRevealFor(state: GameState | null | undefined) {
     testamentPhysicalId: o.testamentPhysicalId,
   } : null;
 
-  if (!masks.length && !oracle) return null;
-  return { deceiverPhysicalId: d?.deceiverPhysicalId ?? null, masks, oracle };
+  const cup = cupSummary(state);
+  if (!masks.length && !oracle && !cup) return null;
+  return { deceiverPhysicalId: d?.deceiverPhysicalId ?? null, masks, oracle, cup };
 }

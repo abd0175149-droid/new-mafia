@@ -57,7 +57,14 @@ const EVENT_META: Record<string, { icon: string; title: string; color: string; d
   PHOENIX_ASH:          { icon: '🜂', title: 'لعنة الرماد',          color: 'text-[#fb923c]', displayable: true },
   // 🎭 قناعُ المُضلّل — للموجّه وحده
   MASK_PLACED:          { icon: '🎭', title: 'قناع المُضلّل وُضع',     color: 'text-[#DC143C]', displayable: false },
-  MASK_BURNED:          { icon: '🎭', title: 'قرأ الشريفُ قناعاً',      color: 'text-[#DC143C]', displayable: false },
+  MASK_BURNED:          { icon: '🎭', title: 'احترق قناع',             color: 'text-[#DC143C]', displayable: false },
+  PROPHECY_OPENED:      { icon: '📜', title: 'العرّاف فتح صندوقاً',     color: 'text-[#8fa3d6]', displayable: false },
+  PROPHECY_BURNED:      { icon: '📜', title: 'احترقت النبوءة',          color: 'text-[#888]',    displayable: false },
+  PROPHECY_UNAVAILABLE: { icon: '📜', title: 'لا صندوقين الليلة',       color: 'text-[#888]',    displayable: false },
+  CUP_READ:             { icon: '☕', title: 'قراءة الفنجان',            color: 'text-[#c98a4b]', displayable: false },
+  CUP_PUBLIC:           { icon: '☕', title: 'الفنجان المكشوف',          color: 'text-[#c98a4b]', displayable: true },
+  CUP_SEAL:             { icon: '☕', title: 'فُتح ختمُ قدر الغد',       color: 'text-[#c98a4b]', displayable: true },
+  CUP_SEAL_BURNED:      { icon: '☕', title: 'احترق الختم',              color: 'text-[#888]',    displayable: false },
 };
 
 export default function LeaderNightView({ gameState, emit, setError, onRestartAsOne }: LeaderNightViewProps) {

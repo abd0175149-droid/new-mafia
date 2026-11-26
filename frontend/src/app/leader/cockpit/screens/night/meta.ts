@@ -36,7 +36,16 @@ export const EVENT_META: Record<string, { icon: string; title: string; tone: EvT
   PHOENIX_ASH:           { icon: '🜂', title: 'لعنة الرماد',          tone: 'n',  displayable: true },
   // 🎭 قناعُ المُضلّل — للموجّه وحده دائماً: القاعةُ لا تعرف أنّ قناعاً وُضع أو احترق
   MASK_PLACED:           { icon: '🎭', title: 'قناع المُضلّل وُضع',     tone: 'm',  displayable: false },
-  MASK_BURNED:           { icon: '🎭', title: 'قرأ الشريفُ قناعاً',      tone: 'm',  displayable: false },
+  MASK_BURNED:           { icon: '🎭', title: 'احترق قناع',             tone: 'm',  displayable: false },
+  // 🔮 العرّاف — للموجّه وحده: ما في الصندوقين سرٌّ حتّى نهاية اللعبة
+  PROPHECY_OPENED:       { icon: '📜', title: 'العرّاف فتح صندوقاً',     tone: 'c',  displayable: false },
+  PROPHECY_BURNED:       { icon: '📜', title: 'احترقت النبوءة',          tone: 'n',  displayable: false },
+  PROPHECY_UNAVAILABLE:  { icon: '📜', title: 'لا صندوقين الليلة',       tone: 'n',  displayable: false },
+  // ☕ القارئة: قراءتُها للموجّه، والمكشوفةُ وقدرُ الغد للقاعة
+  CUP_READ:              { icon: '☕', title: 'قراءة الفنجان',            tone: 'n',  displayable: false },
+  CUP_PUBLIC:            { icon: '☕', title: 'الفنجان المكشوف',          tone: 'n',  displayable: true },
+  CUP_SEAL:              { icon: '☕', title: 'فُتح ختمُ قدر الغد',       tone: 'n',  displayable: true },
+  CUP_SEAL_BURNED:       { icon: '☕', title: 'احترق الختم',              tone: 'n',  displayable: false },
 };
 export const eventMeta = (type: string) => EVENT_META[type] || { icon: '❓', title: type, tone: 'g' as EvTone, displayable: true };
 /** كما في القديم: النوع المجهول يُعدّ قابلاً للعرض */
@@ -80,7 +89,12 @@ export function eventDetail(e: any): string {
       parts.push(`عطّلته الساحرة حتى الجولة ${x.disabledUntilRound ?? '؟'} — لم يحدث شيء`);
       return parts.filter(Boolean).join(' · ');
     case 'MASK_PLACED': parts.push(`على ${t}${role} — أوّلُ قراءةٍ تلمسه تنقلب`); break;
-    case 'MASK_BURNED': parts.push(`${t} — رآه الشريف ${x.shownAs === 'MAFIA' ? 'مافيا' : 'مواطناً'} والقناعُ احترق`); break;
+    case 'MASK_BURNED': parts.push(`${t} — ${x.burnedBy === 'ORACLE' ? 'سُحب في صندوق العرّاف' : `رآه الشريف ${x.shownAs === 'MAFIA' ? 'مافيا' : 'مواطناً'}`} والقناعُ احترق`); break;
+    case 'PROPHECY_OPENED': parts.push(`الصندوق «${x.box === 'B' ? 'ب' : 'أ'}»: ${t}${role} — ${x.fromMafiaBox ? 'من حوض المافيا' : 'من حوض المواطنين'}`); break;
+    case 'PROPHECY_BURNED': parts.push(x.reason === 'ORACLE_DIED' ? 'مات العرّاف ليلة الفتح' : `مات ${t} قبل الصباح`); break;
+    case 'CUP_READ': parts.push(`${t}${x.isPublic ? ' — مكشوفة' : ''}`); break;
+    case 'CUP_PUBLIC': parts.push(`«${t} سيُعدم اليوم»`); break;
+    case 'CUP_SEAL': parts.push(`${t}${role} — يُعدم أوّل النهار بلا تصويت`); break;
     case 'TWIN_SUICIDE': parts.push(`${t} — بعد موت أخيه الأصغر`); break;
     case 'TWIN_TRANSFORM': parts.push(`${t} — صار مافيا${x.newRoleName ? ` (${x.newRoleName})` : ''}`); break;
     default: if (t) parts.push(`${t}${role}`);

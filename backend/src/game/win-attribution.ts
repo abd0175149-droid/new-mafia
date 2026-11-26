@@ -17,6 +17,7 @@ import type { RoleDef } from './definition-service.js';
 import { isMafiaRole, type Role } from './roles.js';
 import { evaluateNeutralWins } from './dynamic-win-checker.js';
 import { assassinWinnerSeats } from './assassin-engine.js';
+import { cupWonSeat } from './cup-engine.js';
 
 /**
  * مقاعدُ الفائزين من المحايدين حين يكون الفائز محايداً — أو null إن فاز فريق.
@@ -45,6 +46,8 @@ export function didPlayerWin(
   neutralSeats: Set<number> | null,
 ): boolean {
   const w = state.winner;
+  // ☕ قارئة الفنجان: تفوز برحيلها فائزةً — أيّاً كان الفائز، ومع المهرّج إن بلغت به عتبتها (قرار ٢٩)
+  if (p.role === 'CUP_READER') return cupWonSeat(state, p.physicalId);
   if (p.role === 'JESTER' || p.role === 'ASSASSIN') {
     return w === p.role && (neutralSeats ? neutralSeats.has(p.physicalId) : true);
   }
@@ -62,6 +65,7 @@ export function wonFromRow(row: { role: string; winner: string | null; won?: boo
   const w = row.winner;
   if (!w) return false;
   if (row.role === 'JESTER' || row.role === 'ASSASSIN') return w === row.role;
+  if (row.role === 'CUP_READER') return false;   // ☕ فوزُها مختومٌ دائماً (won) — لا اشتقاق لها
   if (w === 'JESTER' || w === 'ASSASSIN') return false;
   const team = row.team ?? (isMafiaRole(row.role as Role) ? 'MAFIA' : 'CITIZEN');
   return (w === 'MAFIA' && team === 'MAFIA') || (w === 'CITIZEN' && team === 'CITIZEN');

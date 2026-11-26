@@ -195,6 +195,17 @@ export function computeMatchReward(opts: {
     };
   }
 
+  // ☕ قارئة الفنجان — فوزُها رحيلُها فائزةً لا فوزُ فريق. مكافأة فوز المستقلّ المعتادة حتّى
+  //    تُضاف مفاتيحها في مرحلة الرانك (قرار المالك ٢٣).
+  if (role === 'CUP_READER') {
+    const won = opts.neutralWon === true;
+    return {
+      won,
+      xpEarned: Math.max(0, won ? (c.xp?.cupReaderWin ?? c.xp?.jesterWin ?? 50) : (c.xp?.cupReaderLoss ?? c.xp?.jesterLoss ?? 0)),
+      rrChange: won ? (c.rr?.cupReaderWin ?? c.rr?.jesterWin ?? 30) : (c.rr?.cupReaderLoss ?? c.rr?.jesterLoss ?? -10),
+    };
+  }
+
   // 🔪 السفّاح
   if (role === 'ASSASSIN') {
     const won = opts.neutralWon ?? (opts.winner === 'ASSASSIN');
@@ -270,6 +281,12 @@ export function computeMatchBreakdown(opts: {
     return { won, team: 'NEUTRAL',
       xp: { neutralResult: Math.max(0, won ? (cx.jesterWin ?? 50) : (cx.jesterLoss ?? 0)) },
       rr: { neutralResult: won ? (cr.jesterWin ?? 30) : (cr.jesterLoss ?? -10) } };
+  }
+  if (role === 'CUP_READER') {
+    const won = opts.neutralWon === true;
+    return { won, team: 'NEUTRAL',
+      xp: { neutralResult: Math.max(0, won ? (cx.cupReaderWin ?? cx.jesterWin ?? 50) : (cx.cupReaderLoss ?? cx.jesterLoss ?? 0)) },
+      rr: { neutralResult: won ? (cr.cupReaderWin ?? cr.jesterWin ?? 30) : (cr.cupReaderLoss ?? cr.jesterLoss ?? -10) } };
   }
   if (role === 'ASSASSIN') {
     const won = opts.neutralWon ?? (opts.winner === 'ASSASSIN');

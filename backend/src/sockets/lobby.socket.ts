@@ -37,6 +37,7 @@ import { initMayorState, mayorVoteWeight, configuredMayorWeight } from '../game/
 import { initPhoenixState } from '../game/phoenix-engine.js';
 import { initDeceiverState } from '../game/deceiver-engine.js';
 import { initOracleState } from '../game/oracle-engine.js';
+import { initCupState } from '../game/cup-engine.js';
 import { oneNightResumeFor } from './night-one.socket.js';
 import { assassinStateFor, assassinContractsPayload } from '../game/assassin-engine.js';
 import { analyzeDuplicates, isAssassinMode } from '../game/role-duplicates.js';
@@ -6277,6 +6278,18 @@ async function readSeatLayoutOnly(activityId: any): Promise<any> {
             maskBurnedRound: d.burnNoticeRound ?? null,
           };
         })(),
+        // ☕ ظرفُ القارئة: قراءاتُها وصدقُها وعتبتُها، والختمُ بعد رحيلها — يصلها ولو رحلت (لتختم)
+        cupNotice: (() => {
+          const c: any = (state as any).cupState;
+          if (!(player.role === 'CUP_READER' && c && c.readerPhysicalId === player.physicalId)) return null;
+          return {
+            threshold: c.threshold, hits: (c.hits || []).length, hitSeats: (c.hits || []).map((h: any) => h.targetPhysicalId),
+            lastRead: (c.reads || []).slice(-1)[0] || null, publicUsed: !!c.publicUsed, pendingPublic: !!c.pendingPublic,
+            departed: !!c.departed, departedRound: c.departedRound ?? null,
+            canSealTonight: !!c.departed && !!c.sealAvailable && state.phase === 'NIGHT' && (state.round || 1) > (c.departedRound || 0),
+            sealPhysicalId: c.sealPhysicalId ?? null, sealOutcome: c.sealOutcome ?? null,
+          };
+        })(),
         // 🔮 ظرفُ العرّاف: هل استُعملت النبوءة، وماذا رأى، وما طلبُه الليلة — معلومتُه هو وحده
         oracleNotice: (() => {
           const o: any = (state as any).oracleState;
@@ -6418,6 +6431,8 @@ async function readSeatLayoutOnly(activityId: any): Promise<any> {
       state.deceiverState = initDeceiverState(state);
       // ── 🔮 صندوقا العرّاف — كذلك ──
       state.oracleState = initOracleState(state);
+      // ── ☕ فناجين القارئة — وعتبتُها تُقرأ هنا من إعدادات الطاولة فتثبت طوال اللعبة ──
+      state.cupState = initCupState(state);
 
       // ── حفظ وقت البداية + إنشاء سجل المباراة في PostgreSQL ──
       state.startedAt = new Date().toISOString();
@@ -7234,6 +7249,7 @@ async function readSeatLayoutOnly(activityId: any): Promise<any> {
     // 🔮 حالاتُ كروت النبوءة للعبة السابقة (تُعاد عند الربط التالي)
     (state as any).deceiverState = null;
     (state as any).oracleState = null;
+    (state as any).cupState = null;
     state.votingState = {
       totalVotesCast: 0,
       deals: [],

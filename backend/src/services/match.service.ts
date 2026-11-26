@@ -171,7 +171,7 @@ export async function finalizeMatch(state: GameState): Promise<void> {
 
     const playerRows = state.players.map(p => {
       const won = didPlayerWin(state, { physicalId: p.physicalId, role: p.role as string }, neutralSeats);
-      const isNeutralRole = p.role === 'JESTER' || p.role === 'ASSASSIN';
+      const isNeutralRole = p.role === 'JESTER' || p.role === 'ASSASSIN' || p.role === 'CUP_READER';
       const elimEntry = tracking.eliminationLog.find(e => e.physicalId === p.physicalId);
       // 🚪 الداخلُ المتأخّر: جولاتُه من لحظة دخوله، ولا «نجا» له (لم يمرّ بالبداية)
       const joinedRound: number | null = (p as any).lateJoinRound != null ? Number((p as any).lateJoinRound) : null;

@@ -3,6 +3,8 @@
 //
 //   oracle:open      {roomId, box: 'A'|'B'|null, seat?}   العرّاف يختار صندوقاً الليلة (أو يلغي)
 //   oracle:withdraw  {roomId, seat?}                      حقّ الشكّ: يحرق صفقة النبوءة قبل التصويت
+//   cup:public       {roomId, on, seat?}                  القارئة تكشف قراءة الليلة (مرّةً في اللعبة)
+//   cup:seal         {roomId, target, seat?}              قدرُ الغد: تختم اسماً في الليلة التالية لرحيلها
 //
 // كلاهما من هاتف العرّاف نفسه (مقعدُه من المقبس لا من الطلب)، أو من الموجّه نيابةً عنه
 // (الطابور اليدويّ، أو عرّافٌ أشار بيده) فيُرسل `seat`.
@@ -13,6 +15,7 @@ import type { Server, Socket } from 'socket.io';
 import { getRoom, withRoomLock } from '../game/state.js';
 import { setGameState } from '../config/redis.js';
 import { requestOpen, withdrawProphecy } from '../game/oracle-engine.js';
+import { requestPublicCup, requestSeal } from '../game/cup-engine.js';
 import { emitTrustedOnly, emitStateSanitized } from './broadcast.util.js';
 import { dealLockedList } from '../game/deal-engine.js';
 
@@ -46,6 +49,37 @@ export function registerProphecyEvents(io: Server, socket: Socket) {
         }
       }
     } catch (err: any) { reply(cb, { success: false, error: err.message }); }
+  });
+
+  /** طلبٌ يعدّل حالة الغرفة تحت القفل ويُجيب صاحبه وحده (لا بثّ للغرفة) */
+  async function quiet(roomId: string, cb: any, fn: (st: any) => { ok: true } | { ok: false; error: string }, extra: any = {}) {
+    try {
+      const out = await withRoomLock(roomId, async () => {
+        const st: any = await getRoom(roomId);
+        if (!st) return { success: false, error: 'Room not found' };
+        const r = fn(st);
+        if (r.ok === false) return { success: false, error: r.error };
+        await setGameState(roomId, st);
+        return { success: true, ...extra };
+      });
+      reply(cb, out);
+      return (out as any).success === true;
+    } catch (err: any) { reply(cb, { success: false, error: err.message }); return false; }
+  }
+
+  socket.on('cup:public', async (data: { roomId: string; on: boolean; seat?: number }, cb) => {
+    const seat = seatOf(data);
+    if (seat == null) return reply(cb, { success: false, error: 'غير مصرّح' });
+    await quiet(data.roomId, cb, (st) => requestPublicCup(st, seat, data.on !== false), { on: data.on !== false });
+  });
+
+  socket.on('cup:seal', async (data: { roomId: string; target: number; seat?: number }, cb) => {
+    const seat = seatOf(data);
+    if (seat == null) return reply(cb, { success: false, error: 'غير مصرّح' });
+    const ok = await quiet(data.roomId, cb, (st) => requestSeal(st, seat, Number(data.target)), { target: Number(data.target) });
+    if (ok) for (const s of await io.in(data.roomId).fetchSockets()) {
+      if (s.data?.role === 'leader') s.emit('night:cup-seal-request', { seat, target: Number(data.target) });
+    }
   });
 
   socket.on('oracle:withdraw', async (data: { roomId: string; seat?: number }, cb) => {

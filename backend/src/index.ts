@@ -1528,6 +1528,12 @@ async function main() {
         VALUES ('MASK', 'القناع', 'Mask', 'NIGHT', 2, 'ENEMY', true, false, 1, 'PASSIVE', true, false)
         ON CONFLICT (id) DO NOTHING`);
       await db.execute(sql`UPDATE role_definitions SET abilities = '["MASK"]'::jsonb WHERE id = 'DECEIVER' AND abilities = '[]'::jsonb`);
+      // ☕ قراءةُ الفنجان (المرحلة ٣): كلّ ليلة، على أيّ حيّ غيرها، لا الهدفَ نفسه ليلتين (excludeLastTarget).
+      await db.execute(sql`
+        INSERT INTO ability_definitions (id, name_ar, name_en, phase, priority, target_type, exclude_self, exclude_last_target, max_targets, effect_type, can_skip, is_inheritable)
+        VALUES ('READ_CUP', 'قراءة الفنجان', 'Read Cup', 'NIGHT', 7, 'ANY', true, true, 1, 'PASSIVE', true, false)
+        ON CONFLICT (id) DO NOTHING`);
+      await db.execute(sql`UPDATE role_definitions SET abilities = '["READ_CUP"]'::jsonb WHERE id = 'CUP_READER' AND abilities = '[]'::jsonb`);
       console.log('✅ players remote-access + reservations.player_id + analytics + fnb tables + MAYOR role ensured');
     }
   } catch (err: any) {

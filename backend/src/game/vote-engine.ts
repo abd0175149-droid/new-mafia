@@ -13,6 +13,7 @@ import { armAshCurse } from './phoenix-engine.js';
 import { checkNeutralVoteWin, type NeutralResult } from './dynamic-win-checker.js';
 import { processTwinBond, applySuicide, applyTransform } from './twin-engine.js';
 import { isProphecyDeal, prophecyOwnerSeat, recordProphecyPassed } from './oracle-engine.js';
+import { cupOnCityExecution, type CupHit } from './cup-engine.js';
 
 // ── 🎩 درعُ العمدة ──────────────────────────────
 
@@ -217,7 +218,7 @@ export async function getVoteResult(roomId: string): Promise<VoteSortResult> {
 // ── حسم النتيجة (مع إقصاء فعلي) ──────────────────
 
 /** 🎬 سببُ كلّ خروجٍ في هذا الإقصاء — تحتاجه شاشةُ القاعة لتعرف مَن سقط عند الجدار ومَن سقط من بين الحشد */
-export type EliminationCause = 'DAY_VOTE' | 'DEAL' | 'DEAL_BACKFIRE' | 'TWIN_SUICIDE' | 'ELIMINATE_ALL';
+export type EliminationCause = 'DAY_VOTE' | 'DEAL' | 'DEAL_BACKFIRE' | 'TWIN_SUICIDE' | 'ELIMINATE_ALL' | 'CUP_DEPARTED';
 export interface VoteResolution {
   type: 'ELIMINATION' | 'DEAL_ELIMINATION' | 'TIE';
   eliminated: number[];        // physicalIds المقصيين
@@ -231,6 +232,8 @@ export interface VoteResolution {
   winResult: WinResult;
   tiedCandidates?: Candidate[]; // في حال التعادل
   neutralWin?: NeutralResult | null; // 🎭 فوز محايد (مثل المهرج)
+  /** ☕ صدق فنجانُ القارئة في هذا الإعدام (يُعلن بعد قلب الكرت)، وهل رحلت فائزة */
+  cup?: CupHit | null;
 }
 
 /**
@@ -268,6 +271,22 @@ export async function resolveVoting(roomId: string): Promise<VoteResolution> {
   const revealedRoles: { physicalId: number; role: string }[] = [];
   const causes: { physicalId: number; by: EliminationCause }[] = [];
   let deal: VoteResolution['deal'] = null;
+  let cup: CupHit | null = null;
+  /** ☕ إعدامٌ بيد المدينة: هل صدق الفنجان؟ إن رحلت القارئة يُقلب كرتُها مع المُعدَم */
+  const cupCheck = (seat: number) => {
+    const h = cupOnCityExecution(state, seat);
+    if (!h) return;
+    cup = h;
+    if (h.departed) {
+      const readerSeat = (state as any).cupState?.readerPhysicalId as number;
+      const reader = state.players.find(p => p.physicalId === readerSeat);
+      if (reader && !eliminated.includes(readerSeat)) {
+        eliminated.push(readerSeat);
+        revealedRoles.push({ physicalId: readerSeat, role: reader.role || 'CUP_READER' });
+        causes.push({ physicalId: readerSeat, by: 'CUP_DEPARTED' as any });
+      }
+    }
+  };
 
   if (winner.type === CandidateType.PLAYER) {
     // فوز لاعب عادي: يُقصى وتكشف هويته
@@ -289,6 +308,8 @@ export async function resolveVoting(roomId: string): Promise<VoteResolution> {
       });
       // ⚔️ مواجهةُ الجولة نفسها على هذا المقعد تُختم نتيجتها (أثرها للطالب عند finalizeMatch)
       stampConfrontationOutcome(state, player.physicalId);
+      // ☕ قبل القنبلة عمداً: القارئة التي رحلت الآن لا تُصيبها قنبلة الشيخ
+      cupCheck(player.physicalId);
 
       // 🜂 لعنةُ الرماد — إن أعدمت المدينةُ العنقاء أخذ معه واحداً ممّن رفعوا أيديهم
       // 🔴 على الإعدام المباشر وحده لا على الصفقة: العنقاءُ مواطنٌ صالحٌ في الصفقة،
@@ -379,6 +400,8 @@ export async function resolveVoting(roomId: string): Promise<VoteResolution> {
         round: state.round || 1,
         team: teamOfRole(target.role), // المحايد NEUTRAL — لا مكافأة إقصاء لأحد
       });
+      // ☕ هدفُ الصفقة إعدامٌ بيد المدينة — يُحسب لفنجانها (صاحبُ الصفقة المرتدّ لا يُحسب)
+      cupCheck(target.physicalId);
 
       if (targetIsPlainCitizen && initiator) {
         initiator.isAlive = false;
@@ -483,7 +506,7 @@ export async function resolveVoting(roomId: string): Promise<VoteResolution> {
 
   await setGameState(roomId, state);
 
-  return { type: winner.type === CandidateType.DEAL ? 'DEAL_ELIMINATION' : 'ELIMINATION', eliminated, revealedRoles, causes, deal, winResult, neutralWin };
+  return { type: winner.type === CandidateType.DEAL ? 'DEAL_ELIMINATION' : 'ELIMINATION', eliminated, revealedRoles, causes, deal, winResult, neutralWin, cup };
 }
 
 // ── كسر التعادل ──────────────────────────────────

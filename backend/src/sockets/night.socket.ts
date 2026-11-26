@@ -1518,7 +1518,7 @@ export function registerNightEvents(io: Server, socket: Socket) {
       // 🔒 للموجّه وحده — لا يصل الشاشة مهما طُلب (فعلُ معطَّلٍ أُلغي)
       if ((event.type as string) === 'ABILITY_VOIDED') return callback({ success: false, error: 'هذا البند للموجّه وحده' });
       // 🎭 قناعُ المُضلّل لا يُعرض على الشاشة أبداً — وجودُه نفسُه سرّ
-      if (['MASK_PLACED', 'MASK_BURNED', 'PROPHECY_OPENED', 'PROPHECY_BURNED', 'PROPHECY_UNAVAILABLE'].includes(event.type as string)) return callback({ success: false, error: 'هذا البند للموجّه وحده' });
+      if (['MASK_PLACED', 'MASK_BURNED', 'PROPHECY_OPENED', 'PROPHECY_BURNED', 'PROPHECY_UNAVAILABLE', 'CUP_READ', 'CUP_SEAL_BURNED'].includes(event.type as string)) return callback({ success: false, error: 'هذا البند للموجّه وحده' });
 
       // 🔍 بند الشريف (قرار المالك 2026-11-20): الشاشة تعرض الكرت وحده — «مواطن صالح» أو «مافيا».
       //    لا رقم ولا اسم ولا دور: الهدفُ لا يُرسل أصلاً، فلا يظهر على الشاشة حتّى بالخطأ.
@@ -1966,6 +1966,7 @@ export function registerNightEvents(io: Server, socket: Socket) {
       // 🔮 حالاتُ كروت النبوءة للعبة السابقة
       (state as any).deceiverState = null;
       (state as any).oracleState = null;
+      (state as any).cupState = null;
       // 💣 تنظيف حالة القنبلة والإقصاء المعلق والتتبع
       state.pendingBomb = null;
       state.pendingResolution = null;
