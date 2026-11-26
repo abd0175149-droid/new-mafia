@@ -120,6 +120,8 @@ export interface Deal {
   id: string;
   initiatorPhysicalId: number;
   targetPhysicalId: number;
+  /** 🔮 صفقة النبوءة: صاحبها علناً صفر، والحقيقيّ في oracleState وحدها (قرار المالك ٥) */
+  kind?: 'PROPHECY';
 }
 
 // ⚔️ مواجهة النهار الوجاهيّة — تُطلب أثناء النقاش وتُنفَّذ بعد آخر متحدّث وقبل التصويت.
@@ -170,6 +172,8 @@ export interface DealCandidate {
   targetPhysicalId: number;
   votes: number;      // 🗳️ أصوات موزونة
   voters?: number;    // 👥 عدد الأشخاص
+  /** 🔮 صفقة النبوءة — صاحبها علناً صفر */
+  kind?: 'PROPHECY';
 }
 
 export enum SpeakerStatus {
@@ -219,7 +223,7 @@ export interface NightActions {
 }
 
 export interface MorningEvent {
-  type: 'ASSASSINATION' | 'ASSASSINATION_BLOCKED' | 'PROTECTION_FAILED' | 'SNIPE_MAFIA' | 'SNIPE_CITIZEN' | 'SILENCED' | 'SHERIFF_RESULT' | 'SHERIFF_REVENGE' | 'ASSASSIN_KILL' | 'ASSASSIN_BLOCKED' | 'ABILITY_DISABLED' | 'TWIN_SUICIDE' | 'TWIN_TRANSFORM' | 'PHOENIX_REBIRTH' | 'PHOENIX_BURN' | 'PHOENIX_ASH' | 'MASK_PLACED' | 'MASK_BURNED';
+  type: 'ASSASSINATION' | 'ASSASSINATION_BLOCKED' | 'PROTECTION_FAILED' | 'SNIPE_MAFIA' | 'SNIPE_CITIZEN' | 'SILENCED' | 'SHERIFF_RESULT' | 'SHERIFF_REVENGE' | 'ASSASSIN_KILL' | 'ASSASSIN_BLOCKED' | 'ABILITY_DISABLED' | 'TWIN_SUICIDE' | 'TWIN_TRANSFORM' | 'PHOENIX_REBIRTH' | 'PHOENIX_BURN' | 'PHOENIX_ASH' | 'MASK_PLACED' | 'MASK_BURNED' | 'PROPHECY_OPENED' | 'PROPHECY_BURNED' | 'PROPHECY_UNAVAILABLE';
   targetPhysicalId: number;
   targetName: string;
   performerPhysicalId?: number;  // من نفذ هذا الإجراء
@@ -464,6 +468,8 @@ export interface GameState {
   phoenixState?: { seat: number; rebirthsLeft: number; burned: number[] } | null;
   // 🎭 قناعُ المُضلّل (موسم النبوءة) — سرٌّ مطلق كالعنقاء: لا للهواتف ولا للمتفرّجين
   deceiverState?: import('./deceiver-engine.js').DeceiverState | null;
+  // 🔮 صندوقا العرّاف ونبوءته (موسم النبوءة) — سرٌّ مطلق: لا للهواتف ولا للمتفرّجين
+  oracleState?: import('./oracle-engine.js').OracleState | null;
   // ── Auto Night Mode — تتبع إرسال اللاعبين ──
   playerNightActions: {
     submitted: Record<number, boolean>; // physicalId → هل أرسل إجراءه

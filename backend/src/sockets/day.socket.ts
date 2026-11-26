@@ -21,6 +21,7 @@ import {
 import { checkWinCondition, WinResult } from '../game/win-checker.js';
 import { checkWinConditionDynamic, checkNeutralVoteWin } from '../game/dynamic-win-checker.js';
 import { isMafiaRole, teamOfRole, getTeamCounts } from '../game/roles.js';
+import { isProphecyDeal, prophecyOwnerSeat, recordProphecyPassed, closeProphecy } from '../game/oracle-engine.js';
 import { getGameState, setGameState } from '../config/redis.js';
 import { checkPolicewomanTrigger } from '../game/night-resolver.js';
 import { armAshCurse, applyAshCurse } from '../game/phoenix-engine.js';
@@ -376,6 +377,8 @@ export function registerDayEvents(io: Server, socket: Socket) {
       }
 
       const stateAfter = await removeDeal(data.roomId, data.dealId);
+      // 🔮 الموجّه أزال صفقة النبوءة ⇒ تُغلق النبوءة (لا تعود)
+      if (isProphecyDeal({ id: data.dealId }) && closeProphecy(stateAfter as any, 'REMOVED')) await setGameState(data.roomId, stateAfter);
       console.log(`🤝 [deal] حُذف الديل ${data.dealId} — بيد ${isLeader ? 'الليدر' : 'صاحبه (غرفة بعيدة)'} · غرفة ${data.roomId}`);
 
       io.to(data.roomId).emit('day:deal-removed', {
@@ -987,6 +990,8 @@ export function registerDayEvents(io: Server, socket: Socket) {
       const window = ms.window;
       const decision = data.decision === 'REVOTE_TOP2' ? 'REVOTE' : data.decision;
       applyMayorVeto(state, decision as any);
+      // 🔮 نقضُ صفقة النبوءة يحرقها فلا تعود (قرار المالك ٣٠) — تُزال من الصفقات والمرشّحين قبل إعادة البناء
+      if (isProphecyDeal(window.winner as any)) closeProphecy(state as any, 'VETOED');
       const revealPayload = mayorRevealPayload(state);
       clearRevealGrace(data.roomId);
 
@@ -1575,9 +1580,13 @@ export function registerDayEvents(io: Server, socket: Socket) {
               // قاعدة الاتفاقية: إذا المستهدف **مواطن صالح** → المُبادر يُقصى أيضاً.
               // 🔴 نفس تصحيح vote-engine: المحايد (مهرّج/سفّاح) ليس مواطناً فلا يُردّ الصفقة.
               //    هذا مسار إقصاء المتعادلين جميعاً — لو صُحّح أحدهما دون الآخر لاختلفت القاعدة باختلاف المسار.
-              if (candidate.type === 'DEAL' && candidate.initiatorPhysicalId) {
+              // 🔮 صفقة النبوءة: صاحبُها العرّاف من حالته السرّيّة (علناً صفر) — ونتيجتُها تُسجَّل
+              const isProphecy = candidate.type === 'DEAL' && isProphecyDeal(candidate);
+              if (isProphecy) recordProphecyPassed(state as any, isMafiaRole(target.role as any));
+              const ownerSeat = isProphecy ? prophecyOwnerSeat(state as any) : candidate.initiatorPhysicalId;
+              if (candidate.type === 'DEAL' && ownerSeat) {
                 if (teamOfRole(target.role) === 'CITIZEN') {
-                  const initiator = state.players.find((p: any) => p.physicalId === candidate.initiatorPhysicalId);
+                  const initiator = state.players.find((p: any) => p.physicalId === ownerSeat);
                   if (initiator) {
                     initiator.isAlive = false;
                     eliminated.push(initiator.physicalId);

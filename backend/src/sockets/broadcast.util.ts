@@ -197,6 +197,14 @@ export function projectStateFor(state: any, viewerSeat: number | null): any {
  *    كانت `players` تُبثّ كما هي لكلّ هاتف. الموثوقون يستلمون الحمولة كاملة.
  */
 export async function emitGameOver(io: Server, roomId: string, payload: any): Promise<void> {
+  // 🔮 الكشف بعد اللعبة (قرار ٣١): الصندوقان والأقنعة — مرّةً هنا لا في كلّ مسار نهاية
+  if (payload && payload.prophecyReveal === undefined) {
+    try {
+      const { getRoom } = await import('../game/state.js');
+      const { prophecyRevealFor } = await import('../game/prophecy-reveal.js');
+      payload = { ...payload, prophecyReveal: prophecyRevealFor(await getRoom(roomId)) };
+    } catch { /* الكشف إضافةٌ — لا يُسقط نهاية اللعبة */ }
+  }
   const pub = { ...payload, players: Array.isArray(payload?.players) ? payload.players.map(({ phone, ...p }: any) => { void phone; return p; }) : payload?.players };
   await emitTrustedVariant(io, roomId, 'game:over', payload, pub);
 }

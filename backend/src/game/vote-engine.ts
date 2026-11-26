@@ -12,6 +12,7 @@ import { checkPolicewomanTrigger } from './night-resolver.js';
 import { armAshCurse } from './phoenix-engine.js';
 import { checkNeutralVoteWin, type NeutralResult } from './dynamic-win-checker.js';
 import { processTwinBond, applySuicide, applyTransform } from './twin-engine.js';
+import { isProphecyDeal, prophecyOwnerSeat, recordProphecyPassed } from './oracle-engine.js';
 
 // ── 🎩 درعُ العمدة ──────────────────────────────
 
@@ -41,6 +42,7 @@ export function buildVotingCandidates(state: GameState): { candidates: Candidate
     targetPhysicalId: d.targetPhysicalId,
     votes: 0,
     voters: 0,
+    ...(d.kind === 'PROPHECY' ? { kind: 'PROPHECY' as const } : {}),
   }));
 
   // المسكت يظهر كمرشح (يمكن التصويت ضده) ويمكنه التصويت — فقط لا يتكلم في النقاش والتبرير
@@ -221,7 +223,11 @@ export interface VoteResolution {
   eliminated: number[];        // physicalIds المقصيين
   revealedRoles: { physicalId: number; role: string }[];
   causes: { physicalId: number; by: EliminationCause }[];
-  deal?: { initiatorPhysicalId: number; targetPhysicalId: number; success: boolean } | null;
+  deal?: {
+    initiatorPhysicalId: number; targetPhysicalId: number; success: boolean;
+    /** 🔮 صفقة النبوءة — والوصيّة إن كذبت والمفتاح مفعّل: رقمُ الصندوق الآخر يُعرض على الشاشة */
+    kind?: 'PROPHECY'; testamentPhysicalId?: number | null;
+  } | null;
   winResult: WinResult;
   tiedCandidates?: Candidate[]; // في حال التعادل
   neutralWin?: NeutralResult | null; // 🎭 فوز محايد (مثل المهرج)
@@ -325,7 +331,10 @@ export async function resolveVoting(roomId: string): Promise<VoteResolution> {
   } else if (winner.type === CandidateType.DEAL) {
     // فوز اتفاقية
     const target = state.players.find(p => p.physicalId === winner.targetPhysicalId);
-    const initiator = state.players.find(p => p.physicalId === winner.initiatorPhysicalId);
+    // 🔮 صفقة النبوءة: صاحبُها العرّاف (من حالته السرّيّة)، وصاحبُها العلنيّ صفر
+    const prophecy = isProphecyDeal(winner as any);
+    const ownerSeat = prophecy ? prophecyOwnerSeat(state) : winner.initiatorPhysicalId;
+    const initiator = state.players.find(p => p.physicalId === ownerSeat);
 
     if (target) {
       target.isAlive = false;
@@ -352,7 +361,13 @@ export async function resolveVoting(roomId: string): Promise<VoteResolution> {
 
       // ── تتبع نتيجة الاتفاقية ──
       if (!state.performanceTracking) state.performanceTracking = { dealOutcomes: [], abilityResults: [], eliminationLog: [] };
-      state.performanceTracking.dealOutcomes.push({
+      // 🔮 صفقة النبوءة ليست صفقةً اختارها لاعب: لا تُحسب في صفقاته (لا مكسب ولا خصم — قرار ٤)،
+      //    ونتيجتُها في حالة العرّاف (صادقة/كاذبة + الوصيّة) وتُكافأ في مرحلة الرانك.
+      if (prophecy) {
+        recordProphecyPassed(state, targetIsMafia);
+        Object.assign(deal, { kind: 'PROPHECY', testamentPhysicalId: (state as any).oracleState?.testamentPhysicalId ?? null });
+      }
+      if (!prophecy) state.performanceTracking.dealOutcomes.push({
         initiatorPhysicalId: winner.initiatorPhysicalId!,
         targetPhysicalId: winner.targetPhysicalId,
         targetRole: target.role || 'UNKNOWN',
@@ -508,7 +523,7 @@ export async function handleTieBreaker(
         // 🔴 حقولُ المرشّح وحدها: العميل يرسل كائنات `justificationData.accused` وفيها
         //    `role` و`name` — وكانت تُحفظ كما هي وتُبثّ في day:voting-started لكلّ هاتف.
         state.votingState.candidates = tiedCandidates.map((c: any) => (c.type === CandidateType.DEAL
-          ? { type: CandidateType.DEAL, id: c.id, initiatorPhysicalId: c.initiatorPhysicalId, targetPhysicalId: c.targetPhysicalId, votes: 0, voters: 0 }
+          ? { type: CandidateType.DEAL, id: c.id, initiatorPhysicalId: c.initiatorPhysicalId, targetPhysicalId: c.targetPhysicalId, votes: 0, voters: 0, ...(isProphecyDeal(c) ? { kind: 'PROPHECY' } : {}) }
           : { type: CandidateType.PLAYER, targetPhysicalId: c.targetPhysicalId, votes: 0, voters: 0 }) as Candidate);
         state.votingState.totalVotesCast = 0;
         state.votingState.tieBreakerLevel = 2;

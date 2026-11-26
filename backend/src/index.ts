@@ -93,6 +93,7 @@ import { registerDayEvents } from './sockets/day.socket.js';
 import { registerNightEvents } from './sockets/night.socket.js';
 import { registerOneNightEvents } from './sockets/night-one.socket.js';
 import { registerSetupV2Events } from './sockets/setup-v2.socket.js';
+import { registerProphecyEvents } from './sockets/prophecy.socket.js';
 import { registerLiveCardEvents } from './sockets/live-cards.socket.js';
 import { registerMafiaChatEvents } from './sockets/mafia-chat.socket.js';
 import { registerGameEvents } from './sockets/game.socket.js';
@@ -658,6 +659,7 @@ io.on('connection', (socket) => {
   registerNightEvents(io, socket);
   registerOneNightEvents(io, socket);
   registerSetupV2Events(io, socket);
+  registerProphecyEvents(io, socket);   // 🔮 العرّاف: فتح الصندوق وحقّ الشكّ
   registerLiveCardEvents(io, socket);
   registerPhoneHoldEvents(io, socket);   // 📺 الشاشة تُبلغ بقلب البطاقات ⇒ تُطلق الهواتف
   registerGameEvents(io, socket);

@@ -20,6 +20,7 @@ import { checkPolicewomanTrigger } from './night-resolver.js';
 import { killHolderSeat } from './night-plan.js';
 import { canSeatAssassinate, assassinStateFor, checkContractCompletion, completeContract, checkAssassinWin } from './assassin-engine.js';
 import { canSeatMask, placeMask, readThroughMask } from './deceiver-engine.js';
+import { openProphecyAtNightStart, settleProphecyAtNightEnd, expireProphecyIfUnresolved } from './oracle-engine.js';
 
 // ── أنواع ────────────────────────────────────────────
 
@@ -282,6 +283,11 @@ export async function resolveNightDynamic(
       } as any);
     }
   }
+
+  // ═══ 🔮 العرّاف: نبوءةُ نهارٍ مضى ولم تُحسم تنطفئ، ثمّ يُفتح الصندوقان من أحياء البداية (قبل أيّ قتل) ═══
+  //    بعد التعطيل عمداً: عرّافٌ عطّلته الساحرة الليلة يُلغى طلبه ولا تُستهلك نبوءته.
+  expireProphecyIfUnresolved(state);
+  openProphecyAtNightStart(state, events);
 
   // ═══ فحص قواعد التفاعل (تتجاهل الإجراءات المُلغاة مسبقاً، كحماية مُعطَّلة بالساحرة) ═══
   // 🔴 كلُّ زوجٍ مطابقٍ لا أوّلُ زوجٍ: كانت `find` تأخذ أوّل إجراءٍ بكلّ قدرة، فلو
@@ -645,6 +651,9 @@ export async function resolveNightDynamic(
       }
     }
   }
+
+  // ═══ 🔮 العرّاف: تحترق النبوءة إن مات هو أو صاحب الاسم قبل الصباح ═══
+  settleProphecyAtNightEnd(state, events);
 
   return events;
 }

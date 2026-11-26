@@ -30,6 +30,7 @@ import { emitStateSanitized, emitPhaseChangedSanitized, emitLeaderOnly, emitMorn
 import { emitGameOver } from './broadcast.util.js';
 import { addPhoneHold, armPhoneHolds, flushPhoneHolds, dropPhoneHolds, HOLD_MS } from './phone-hold.js';
 import { publicTeamCounts, seatsRevealedBy } from '../game/public-counts.js';
+import { placeProphecyDeal } from '../game/oracle-engine.js';
 import {
   initAssassinStates, assassinRecipients, assassinContractsPayload, anyAssassinWon, markAssassinFirstNightPassed,
 } from '../game/assassin-engine.js';
@@ -1400,6 +1401,17 @@ export function registerNightEvents(io: Server, socket: Socket) {
         }
         // 🎭 المُضلّل يعرف صباحاً أنّ قناعه احترق — بلا من قرأه ولا بأيّ قدرة (قرار المالك ١٧).
         //    الهاتفُ يحبسه في ظرفه حتّى «رسالة الليل» كنتيجة الشريف.
+        // 🔮 العرّاف يرى الاسمَ وحده بلا فريقه — ويُحبس في ظرفه حتّى «رسالة الليل»
+        for (const ev of events as any[]) {
+          if ((ev?.type !== 'PROPHECY_OPENED' && ev?.type !== 'PROPHECY_BURNED') || ev.performerPhysicalId == null) continue;
+          findPlayerSocket(io, data.roomId, ev.performerPhysicalId).emit('night:oracle-result', {
+            burned: ev.type === 'PROPHECY_BURNED',
+            seenPhysicalId: ev.type === 'PROPHECY_OPENED' ? ev.targetPhysicalId : null,
+            seenName: ev.type === 'PROPHECY_OPENED' ? (ev.targetName || '') : '',
+            box: ev.extra?.box ?? null,
+            round: state.round || 1,
+          });
+        }
         for (const ev of events as any[]) {
           if (ev?.type !== 'MASK_BURNED' || ev.performerPhysicalId == null) continue;
           findPlayerSocket(io, data.roomId, ev.performerPhysicalId).emit('night:deceiver-notice', {
@@ -1506,7 +1518,7 @@ export function registerNightEvents(io: Server, socket: Socket) {
       // 🔒 للموجّه وحده — لا يصل الشاشة مهما طُلب (فعلُ معطَّلٍ أُلغي)
       if ((event.type as string) === 'ABILITY_VOIDED') return callback({ success: false, error: 'هذا البند للموجّه وحده' });
       // 🎭 قناعُ المُضلّل لا يُعرض على الشاشة أبداً — وجودُه نفسُه سرّ
-      if ((event.type as string) === 'MASK_PLACED' || (event.type as string) === 'MASK_BURNED') return callback({ success: false, error: 'هذا البند للموجّه وحده' });
+      if (['MASK_PLACED', 'MASK_BURNED', 'PROPHECY_OPENED', 'PROPHECY_BURNED', 'PROPHECY_UNAVAILABLE'].includes(event.type as string)) return callback({ success: false, error: 'هذا البند للموجّه وحده' });
 
       // 🔍 بند الشريف (قرار المالك 2026-11-20): الشاشة تعرض الكرت وحده — «مواطن صالح» أو «مافيا».
       //    لا رقم ولا اسم ولا دور: الهدفُ لا يُرسل أصلاً، فلا يظهر على الشاشة حتّى بالخطأ.
@@ -1674,6 +1686,8 @@ export function registerNightEvents(io: Server, socket: Socket) {
           tieBreakerLevel: 0,
           playerVotes: {},
         };
+        // 🔮 صفقة النبوءة تُسجَّل أوّلاً في النهار التالي للفتح (بلا اسم صاحبها)
+        placeProphecyDeal(state);
         // تصفير عدادات التبرير لبداية نهار جديد (الإسكات يبقى — يُصفَّر في بداية الليل التالي)
         state.players.forEach(p => {
           if (p.isAlive) {
@@ -1949,6 +1963,9 @@ export function registerNightEvents(io: Server, socket: Socket) {
         playerVotes: {},
       };
       state.policewomanState = null;
+      // 🔮 حالاتُ كروت النبوءة للعبة السابقة
+      (state as any).deceiverState = null;
+      (state as any).oracleState = null;
       // 💣 تنظيف حالة القنبلة والإقصاء المعلق والتتبع
       state.pendingBomb = null;
       state.pendingResolution = null;

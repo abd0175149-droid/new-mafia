@@ -36,6 +36,7 @@ import { initTwinState, getSiblingInfoFor } from '../game/twin-engine.js';
 import { initMayorState, mayorVoteWeight, configuredMayorWeight } from '../game/mayor-engine.js';
 import { initPhoenixState } from '../game/phoenix-engine.js';
 import { initDeceiverState } from '../game/deceiver-engine.js';
+import { initOracleState } from '../game/oracle-engine.js';
 import { oneNightResumeFor } from './night-one.socket.js';
 import { assassinStateFor, assassinContractsPayload } from '../game/assassin-engine.js';
 import { analyzeDuplicates, isAssassinMode } from '../game/role-duplicates.js';
@@ -6276,6 +6277,21 @@ async function readSeatLayoutOnly(activityId: any): Promise<any> {
             maskBurnedRound: d.burnNoticeRound ?? null,
           };
         })(),
+        // 🔮 ظرفُ العرّاف: هل استُعملت النبوءة، وماذا رأى، وما طلبُه الليلة — معلومتُه هو وحده
+        oracleNotice: (() => {
+          const o: any = (state as any).oracleState;
+          if (!(shouldShowRole && player.role === 'ORACLE' && o && o.oraclePhysicalId === player.physicalId)) return null;
+          return {
+            used: !!o.used,
+            pendingBox: o.pendingBox ?? null,
+            chosenBox: o.chosenBox ?? null,
+            seenPhysicalId: o.seenPhysicalId ?? null,
+            seenName: o.seenPhysicalId != null ? (state.players.find((x: any) => x.physicalId === o.seenPhysicalId)?.name || '') : '',
+            openedRound: o.openedRound ?? null,
+            outcome: o.outcome ?? null,
+            firstRound: 3,
+          };
+        })(),
         // عقود السفّاح
         //    🔪 من بدء الليل حتّى نهاية ملخّص الصباح: العقودُ كما كانت عند البدء (night:start)
         //    🔪🔪 بالمقعد: اللقطةُ `{ [seat]: … }` (والشكلُ القديم — لقطةٌ واحدة — للعبةٍ بدأت قبله)
@@ -6400,6 +6416,8 @@ async function readSeatLayoutOnly(activityId: any): Promise<any> {
 
       // ── 🎭 قناعُ المُضلّل (موسم النبوءة) — يُعاد دائماً، null إن لا مُضلّل ──
       state.deceiverState = initDeceiverState(state);
+      // ── 🔮 صندوقا العرّاف — كذلك ──
+      state.oracleState = initOracleState(state);
 
       // ── حفظ وقت البداية + إنشاء سجل المباراة في PostgreSQL ──
       state.startedAt = new Date().toISOString();
@@ -7213,6 +7231,9 @@ async function readSeatLayoutOnly(activityId: any): Promise<any> {
     state.matchId = undefined;
     state.startedAt = undefined;
     state.setupStartedAt = undefined;   // 🌙 وإلّا ورثت اللعبةُ التالية بدايةَ سابقتها
+    // 🔮 حالاتُ كروت النبوءة للعبة السابقة (تُعاد عند الربط التالي)
+    (state as any).deceiverState = null;
+    (state as any).oracleState = null;
     state.votingState = {
       totalVotesCast: 0,
       deals: [],

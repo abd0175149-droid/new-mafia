@@ -40,6 +40,8 @@ export interface VoteHistoryCandidate {
   name: string;
   initiatorPhysicalId?: number;
   initiatorName?: string;
+  /** 🔮 صفقة النبوءة — بلا صاحبٍ معروض (قرار المالك ٥) */
+  kind?: 'PROPHECY';
   /** الأصوات بالوزن (كما في الورقة) */
   votes: number;
   /** الأشخاص */
@@ -110,7 +112,10 @@ export function buildVoteRound(state: GameState): Omit<VoteHistoryRound, 'id' | 
       unnamed: Math.max(0, people - voters.length),
       voters,
     };
-    if (c.type === 'DEAL' && c.initiatorPhysicalId != null) {
+    if (c.type === 'DEAL' && (c.kind === 'PROPHECY' || String(c.id || '').startsWith('prophecy-'))) {
+      // 🔮 السجلّ مفتوحٌ لكلّ الغرفة: لا صاحبَ ولا رقمَه لصفقة النبوءة
+      out.kind = 'PROPHECY';
+    } else if (c.type === 'DEAL' && c.initiatorPhysicalId != null) {
       out.initiatorPhysicalId = Number(c.initiatorPhysicalId);
       out.initiatorName = nameOf(state, c.initiatorPhysicalId);
     }
