@@ -6,7 +6,7 @@
 // ══════════════════════════════════════════════════════
 import { useState } from 'react';
 import { ActionBar, Hint, HoldButton, ListRow, Section, Seg, Status, useCockpit } from '../../kit';
-import { nameAt } from './shared';
+import { isProphecyDealUi, nameAt } from './shared';
 
 type MayorChoice = 'PASS' | 'REVOTE' | 'POSTPONE';
 
@@ -17,7 +17,9 @@ export function MayorWindow({ win, onClosed, onRevote }: { win: { winner: any; t
   const w = win.winner;
   const weight = gameState.config?.mayorVoteWeight ?? 2;
   const mayorSeat = gameState.mayorState?.mayorPhysicalId ?? null;
-  const target = w.type === 'DEAL'
+  const target = w.type === 'DEAL' && isProphecyDealUi(w)
+    ? `صفقة النبوءة على ${w.targetPhysicalId} ${w.targetName || nameAt(gameState, w.targetPhysicalId)}`
+    : w.type === 'DEAL'
     ? `اتفاقيّة: ${w.initiatorPhysicalId} ${w.initiatorName || nameAt(gameState, w.initiatorPhysicalId)} ← ${w.targetPhysicalId} ${w.targetName || nameAt(gameState, w.targetPhysicalId)}`
     : `${w.targetPhysicalId} ${w.targetName || nameAt(gameState, w.targetPhysicalId)}`;
 

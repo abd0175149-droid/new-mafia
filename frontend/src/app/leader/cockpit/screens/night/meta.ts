@@ -46,6 +46,8 @@ export const EVENT_META: Record<string, { icon: string; title: string; tone: EvT
   CUP_PUBLIC:            { icon: '☕', title: 'الفنجان المكشوف',          tone: 'n',  displayable: true },
   CUP_SEAL:              { icon: '☕', title: 'فُتح ختمُ قدر الغد',       tone: 'n',  displayable: true },
   CUP_SEAL_BURNED:       { icon: '☕', title: 'احترق الختم',              tone: 'n',  displayable: false },
+  // ⚖️ المنقسم — يُعلن الجانب بلا رقمه (قرار ٣٧)، والعدّاد يتحرّك مع عرضه
+  DIVIDED_SIDE:          { icon: '⚖️', title: 'انقسم المنقسم',            tone: 'n',  displayable: true },
 };
 export const eventMeta = (type: string) => EVENT_META[type] || { icon: '❓', title: type, tone: 'g' as EvTone, displayable: true };
 /** كما في القديم: النوع المجهول يُعدّ قابلاً للعرض */
@@ -95,6 +97,7 @@ export function eventDetail(e: any): string {
     case 'CUP_READ': parts.push(`${t}${x.isPublic ? ' — مكشوفة' : ''}`); break;
     case 'CUP_PUBLIC': parts.push(`«${t} سيُعدم اليوم»`); break;
     case 'CUP_SEAL': parts.push(`${t}${role} — يُعدم أوّل النهار بلا تصويت`); break;
+    case 'DIVIDED_SIDE': parts.push(x.side === 'MAFIA' ? '«…إلى المافيا» — الشاشة بلا رقمه، والعدّاد يتغيّر مع العرض' : '«…وبقي مع المدينة» — بلا رقمه'); break;
     case 'TWIN_SUICIDE': parts.push(`${t} — بعد موت أخيه الأصغر`); break;
     case 'TWIN_TRANSFORM': parts.push(`${t} — صار مافيا${x.newRoleName ? ` (${x.newRoleName})` : ''}`); break;
     default: if (t) parts.push(`${t}${role}`);

@@ -20,6 +20,7 @@ import SecretWatermark from '../SecretWatermark';
 import HoldReveal from './HoldReveal';
 import PeekCard from './PeekCard';
 import { setRoomBus, clearRoomBus, setHubOpener } from './roomBus';
+import ProphecyTasks, { type ProphecyApi } from './ProphecyTasks';
 import { MAFIA_ROLES } from '@/lib/constants';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || '';
@@ -30,6 +31,10 @@ interface Person { physicalId: number; name: string; avatarUrl?: string | null; 
 
 export interface RoomHost {
   roomCode: string; gameName: string;
+  /** 🔮 معرّف الغرفة — لدليل الأدوار (كروت النبوءة في غرف التجربة) */
+  roomId?: string;
+  /** 🔮 أفعال كروت النبوءة وحالتها داخل الظرف — غائبةٌ في التدريب والمعاينة */
+  prophecy?: ProphecyApi;
   seat: number; displayName: string; gender: 'MALE' | 'FEMALE' | undefined; avatarUrl: string | null;
   rankTier?: string; cosmetics?: any;
   role: string | null; isDead: boolean; phase: string | null; round: number | null;
@@ -98,18 +103,20 @@ const mmss = (s: number) => { s = Math.max(0, Math.ceil(s)); return `${Math.floo
 const isMafiaRole = (r: string | null) => !!r && (MAFIA_ROLES as unknown as string[]).includes(r);
 
 // دليلُ الأدوار العامّ — نصوصُ «مهامّي» ووجوهُ الكروت
-let _guide: any[] | null = null;
-function useRolesGuide() {
-  const [g, setG] = useState<any[]>(_guide || []);
+// 🔮 `roomId`: غرفةٌ فُتح لها موسم النبوءة قبل تفعيله يعرف دليلُها كروتَه (الخادم يقرّر)
+const _guide: Record<string, any[]> = {};
+function useRolesGuide(roomId?: string | null) {
+  const k = roomId || '';
+  const [g, setG] = useState<any[]>(_guide[k] || _guide[''] || []);
   useEffect(() => {
-    if (_guide) return;
-    fetch(`${API_URL}/api/game-config/roles-guide`).then(r => r.json())
-      .then(d => { if (Array.isArray(d?.data)) { _guide = d.data; setG(d.data); } }).catch(() => {});
-  }, []);
+    if (_guide[k]) { setG(_guide[k]); return; }
+    fetch(`${API_URL}/api/game-config/roles-guide${k ? `?room=${encodeURIComponent(k)}` : ''}`).then(r => r.json())
+      .then(d => { if (Array.isArray(d?.data)) { _guide[k] = d.data; setG(d.data); } }).catch(() => {});
+  }, [k]);
   return g;
 }
-export function useFaceOf() {
-  const g = useRolesGuide();
+export function useFaceOf(roomId?: string | null) {
+  const g = useRolesGuide(roomId);
   return (roleId: string) => {
     const r = g.find((x: any) => x.id === roleId);
     const u = r?.face?.thumbUrl || r?.face?.url;
@@ -253,7 +260,9 @@ function VoteGrid({ host }: { host: RoomHost }) {
               onClick={() => { if (self) { setErr('لا يمكنك التصويت لنفسك'); return; } if (!voteSubmitting) vote(i); }}>
               <Avatar p={p as any} seat={pid} />
               <b>{(p as any)?.name || `لاعب #${pid}`}</b>
-              {c.type === 'DEAL' && <span className="text-[11.5px] text-[#d9c79a]">🤝 ديل من #{c.initiatorPhysicalId}</span>}
+              {c.type === 'DEAL' && (c.kind === 'PROPHECY' || String(c.id || '').startsWith('prophecy-')
+                ? <span className="text-[11.5px] text-[#d9c79a]">📜 صفقة النبوءة</span>
+                : <span className="text-[11.5px] text-[#d9c79a]">🤝 ديل من #{c.initiatorPhysicalId}</span>)}
               <span className="pr-vb"><i style={{ width: `${((c.votes || 0) / top) * 100}%` }} /></span>
               <span className="pr-vn">{c.votes || 0} صوت</span>
               {voters.length > 0 && <span className="pr-voters">{voters.map(v => <span key={v}>{v}</span>)}</span>}
@@ -355,7 +364,8 @@ function Sheet({ title, onClose, children }: { title: string; onClose: () => voi
 
 function TasksBody({ host, guide }: { host: RoomHost; guide: any[] }) {
   const r = guide.find((x: any) => x.id === host.role);
-  if (!r) return <p className="text-center text-[#8d8271] text-[13px]">لم تُوزَّع الأدوار بعد.</p>;
+  const prophecy = <ProphecyTasks api={host.prophecy} phase={host.phase} roster={host.roster} seat={host.seat} />;
+  if (!r) return <><p className="text-center text-[#8d8271] text-[13px]">لم تُوزَّع الأدوار بعد.</p>{prophecy}</>;
   const k = PHASE_NOTE_KEY[host.phase || ''] || 'night';
   const c = TEAM_C[r.team] || '#c5a059';
   const ac = host.assassinContracts;
@@ -386,12 +396,13 @@ function TasksBody({ host, guide }: { host: RoomHost; guide: any[] }) {
       {host.sibling && (
         <div className="pr-blk"><h5>أخوك</h5><p>#{host.sibling.physicalId} {host.sibling.name}</p></div>
       )}
+      {prophecy}
     </>
   );
 }
 
 export default function PlayerRoom({ host }: { host: RoomHost & { openTasksFromNight?: () => void } }) {
-  const guide = useRolesGuide();
+  const guide = useRolesGuide(host.roomId);
   const [sheet, setSheet] = useState<null | 'hub' | 'gal' | 'tasks' | 'leave'>(null);
   const [tasksBlocked, setTasksBlocked] = useState<string | null>(null);
   const phase = host.phase || 'LOBBY';

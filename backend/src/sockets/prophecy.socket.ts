@@ -98,7 +98,10 @@ export function registerProphecyEvents(io: Server, socket: Socket) {
   socket.on('cup:public', async (data: { roomId: string; on: boolean; seat?: number }, cb) => {
     const seat = seatOf(data);
     if (seat == null) return reply(cb, { success: false, error: 'غير مصرّح' });
-    await quiet(data.roomId, cb, (st) => requestPublicCup(st, seat, data.on !== false), { on: data.on !== false });
+    const ok = await quiet(data.roomId, cb, (st) => requestPublicCup(st, seat, data.on !== false), { on: data.on !== false });
+    if (ok) for (const s of await io.in(data.roomId).fetchSockets()) {
+      if (s.data?.role === 'leader') s.emit('night:cup-public-request', { seat, on: data.on !== false });
+    }
   });
 
   socket.on('cup:seal', async (data: { roomId: string; target: number; seat?: number }, cb) => {

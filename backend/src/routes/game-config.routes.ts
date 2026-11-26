@@ -152,7 +152,7 @@ router.get('/roles', async (_req: Request, res: Response) => {
 // 🔴 عامٌّ بلا مصادقة كسابقه: هذه معرفةٌ عامّةٌ قبل بدء اللعبة. وتقييدُ
 //    «أدوار هذه الطاولة» يجري في السوكِت حيث تُعرَف الغرفةُ وطورُها.
 // ══════════════════════════════════════════════
-router.get('/roles-guide', async (_req: Request, res: Response) => {
+router.get('/roles-guide', async (req: Request, res: Response) => {
   const db = getDB();
   if (!db) return res.status(503).json({ error: 'DB unavailable' });
   try {
@@ -171,7 +171,18 @@ router.get('/roles-guide', async (_req: Request, res: Response) => {
     // 🔮 كروت النبوءة لا تظهر في دليل اللاعب قبل أن يُفعَّل موسمها — المسودّة سرٌّ حتّى إطلاقها
     const { getActiveContentPack } = await import('../services/season.service.js');
     const { isProphecyRole } = await import('../game/roles.js');
-    const prophecyLive = (await getActiveContentPack()) === 'PROPHECY';
+    let prophecyLive = (await getActiveContentPack()) === 'PROPHECY';
+    // 🧪 غرفةٌ فُتح لها الموسم قبل تفعيله (موقع التجربة، أو المفتاح): دليلُها يعرف كروتها.
+    //    `?room=` معرّف الغرفة — لا يكشف شيئاً: قائمةُ الكروت الممكنة لا مَن يحملها.
+    const room = typeof req.query.room === 'string' ? req.query.room.slice(0, 80) : '';
+    if (!prophecyLive && room) {
+      try {
+        const { getRoom } = await import('../game/state.js');
+        const { prophecyOn } = await import('../services/feature-flags.js');
+        const st: any = await getRoom(room);
+        if (st && (st.config?.prophecy === true || await prophecyOn(st))) prophecyLive = true;
+      } catch { /* غرفةٌ مجهولة ⇒ الدليل العامّ */ }
+    }
     const shown = prophecyLive ? roles : roles.filter((r: any) => !isProphecyRole(r.id));
 
     const data = shown.map((r: any) => {

@@ -14,6 +14,8 @@ import { nameAt, playerAt, usePrimaryHint } from './shared';
 const CAUSE_AR: Record<string, string> = {
   DAY_VOTE: 'بالتصويت', DEAL: 'باتفاقيّة', DEAL_BACKFIRE: 'ارتدّت عليه اتفاقيّته', ELIMINATE_ALL: 'إقصاء المتعادلين',
   TWIN_SUICIDE: 'لحق بأخيه', GODFATHER_BOMB: 'قنبلة الشيخ',
+  // 🔮 موسم النبوءة
+  KAFALA: 'مات مع مكفوله', CUP_DEPARTED: 'رحلت فائزةً بفناجينها',
 };
 
 function FlipCard({ seat, name, role, flipped, small, cause }: { seat: number; name: string; role?: string | null; flipped: boolean; small?: boolean; cause?: string }) {
@@ -59,7 +61,11 @@ export default function Reveal() {
   const causeOf = (id: number) => { const c = causes.find((x: any) => x.physicalId === id); return c ? CAUSE_AR[c.by] : undefined; };
   const roleOf = (id: number) => roleMap[id] || playerAt(gameState, id)?.role || null;
 
-  const postponed = !revealed && pending?.type === 'MAYOR_POSTPONED';
+  const postponed = !revealed && (pending?.type === 'MAYOR_POSTPONED' || pending?.type === 'KAFALA_SAVED');
+  // 🤝 نجا المحكوم بالكفالة (موسم النبوءة) — لا موت اليوم
+  const kafala = src?.kafala || pending?.kafala || null;
+  const kafalaSaved = (src?.type || pending?.type) === 'KAFALA_SAVED';
+  const cup = src?.cup || pending?.cup || null;
   const bomb = gameState.pendingBomb;
   const bombKey = bomb ? `${gameState.round}:${bomb.godfatherPhysicalId}` : '';
   const [bombSent, setBombSent] = useState('');
@@ -95,7 +101,13 @@ export default function Reveal() {
     <>
       <Status meta={revealed ? 'قُلب الكرت على شاشة القاعة' : postponed ? 'العمدة أجّل الإعدام' : bombActive ? '💣 الشيخ يُقصى — قرار القنبلة أوّلاً' : 'الكرت مقلوبٌ على الشاشة بانتظارك'} />
 
-      {postponed || (revealed && ids.length === 0) ? (
+      {kafalaSaved ? (
+        <Section title="🤝 نجا بالكفالة — لا موت اليوم">
+          <Hint>
+            كفل <b className="text-[#efe8da]">{kafala?.guarantorPhysicalId} {nameAt(gameState, kafala?.guarantorPhysicalId)}</b> المحكومَ <b className="text-[#efe8da]">{kafala?.targetPhysicalId} {nameAt(gameState, kafala?.targetPhysicalId)}</b> — وكان بريئاً فنجا.{kafala?.viaDeal ? ' والصفقة كلّها أُلغيت.' : ''} {revealed ? '' : 'الشاشة تعلن الحكم حين تكشفه.'}
+          </Hint>
+        </Section>
+      ) : postponed || (revealed && ids.length === 0) ? (
         <Section title="🎩 لا موت اليوم">
           <Hint>
             {gameState.mayorState?.mayorPhysicalId
@@ -109,6 +121,12 @@ export default function Reveal() {
             <FlipCard key={id} seat={id} name={nameAt(gameState, id) || '—'} role={roleOf(id)} flipped={flipped} small={small} cause={causeOf(id)} />
           ))}
         </div>
+      )}
+      {kafala && !kafalaSaved && (
+        <Hint className="text-center">🤝 كفله {kafala.guarantorPhysicalId} ولم يكن بريئاً — يُعدم ويموت الكفيل معه، ويُقلب كرتاهما معاً.</Hint>
+      )}
+      {cup?.departed && (
+        <Hint className="text-center">☕ صدق فنجانها للمرّة {cup.count} من {cup.threshold} — رحلت القارئة فائزةً، وتُعرض فناجينها: {(cup.hits || []).join('، ')}. تختم قدر الغد في الليلة القادمة.</Hint>
       )}
       {!revealed && !postponed && ids.length > 0 && (
         <Hint className="text-center">{peek ? '👁 تُرى الأدوار لك وحدك ما دمت تضغط.' : 'دورُه يظهر لك هنا بعد الكشف — أو اضغط 👁 مطوّلاً.'}</Hint>
@@ -148,7 +166,7 @@ export default function Reveal() {
 
       {!revealed ? (
         postponed ? (
-          <ActionBar primary={{ label: 'أعلن قرار العمدة على الشاشة', disabled: busy || !pending, onPress: triggerReveal }} />
+          <ActionBar primary={{ label: kafalaSaved ? 'أعلن حكم الكفالة على الشاشة' : 'أعلن قرار العمدة على الشاشة', disabled: busy || !pending, onPress: triggerReveal }} />
         ) : bombActive ? (
           <ActionBar primary={{ label: '💣 قرار القنبلة', onPress: () => setBombOpen(true) }} />
         ) : (

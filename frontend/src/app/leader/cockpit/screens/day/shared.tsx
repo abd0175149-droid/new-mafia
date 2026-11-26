@@ -123,6 +123,9 @@ export function PenalizedRow() {
  * 🤝⚔️ زوجٌ من لاعبَين: الطالب بالأخضر ← المطلوب بالأحمر — رقمٌ كبير واسمٌ تحته.
  * يُستعمل للاتفاقيّات والمواجهات معاً فيُقرأ اتّجاه الطلب بنظرة.
  */
+/** 🔮 صفقة النبوءة: صاحبها العلنيّ صفر — الحقيقيّ في حالة العرّاف (للموجّه) */
+export const isProphecyDealUi = (d: any) => d?.kind === 'PROPHECY' || String(d?.id || '').startsWith('prophecy-');
+
 export function PairCard({ from, to, fromLabel, toLabel, note, right, children, live }: {
   from: number; to: number; fromLabel: ReactNode; toLabel: ReactNode;
   note?: ReactNode; right?: ReactNode; children?: ReactNode; live?: boolean;

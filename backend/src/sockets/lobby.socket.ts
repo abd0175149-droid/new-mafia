@@ -6313,6 +6313,10 @@ async function readSeatLayoutOnly(activityId: any): Promise<any> {
             openedRound: o.openedRound ?? null,
             outcome: o.outcome ?? null,
             firstRound: 3,
+            // 📜 حقّ الشكّ: صفقتُه في النهار ولم يُفتح التصويت بعد
+            canWithdraw: !o.outcome && state.phase === 'DAY_DISCUSSION'
+              && (state.votingState?.deals || []).some((d: any) => d?.kind === 'PROPHECY' || String(d?.id || '').startsWith('prophecy-')),
+            canOpenTonight: !o.used && state.phase === 'NIGHT' && (state.round || 1) >= 3,
           };
         })(),
         // عقود السفّاح

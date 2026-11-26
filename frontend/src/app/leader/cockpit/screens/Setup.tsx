@@ -10,20 +10,22 @@ import { Role, ROLE_NAMES } from '@/lib/constants';
 const API_URL = process.env.NEXT_PUBLIC_API_URL || '';
 
 // وجوهُ الكروت من دليل الأدوار العامّ (مخبّأة للجلسة)
-let _faces: Record<string, string> | null = null;
-export function useRoleFaces(): Record<string, string> {
-  const [f, setF] = useState<Record<string, string>>(_faces || {});
+// 🔮 `roomId`: غرفةٌ فُتح لها موسم النبوءة قبل تفعيله تأخذ وجوه كروته أيضاً
+const _faces: Record<string, Record<string, string>> = {};
+export function useRoleFaces(roomId?: string | null): Record<string, string> {
+  const k = roomId || '';
+  const [f, setF] = useState<Record<string, string>>(_faces[k] || _faces[''] || {});
   useEffect(() => {
-    if (_faces) return;
-    fetch(`${API_URL}/api/game-config/roles-guide`).then((r) => r.json()).then((d) => {
+    if (_faces[k]) { setF(_faces[k]); return; }
+    fetch(`${API_URL}/api/game-config/roles-guide${k ? `?room=${encodeURIComponent(k)}` : ''}`).then((r) => r.json()).then((d) => {
       const m: Record<string, string> = {};
       for (const x of Array.isArray(d?.data) ? d.data : []) {
         const u = x?.face?.thumbUrl || x?.face?.url;
         if (x?.id && u) m[x.id] = `${API_URL}${u}`;
       }
-      _faces = m; setF(m);
+      _faces[k] = m; setF(m);
     }).catch(() => {});
-  }, []);
+  }, [k]);
   return f;
 }
 

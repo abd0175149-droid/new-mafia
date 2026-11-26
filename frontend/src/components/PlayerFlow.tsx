@@ -1137,8 +1137,11 @@ export default function PlayerFlow({ initialRoomCode = '', inviteFlag = false, i
       // 🪑 إعادة دفع بعد نقل مقعد (لا لعبة جديدة): الخادم يُعيد إرسال الدور ليصل لصاحبه
       //    بالمقعد الجديد. لا يجوز عندها قلب البطاقة ولا إطلاق تنبيه الدور ولا «إحياء» ميت.
       const isSeatRepush = Date.now() < seatRemapRepushUntilRef.current;
+      // ⚖️ عبورُ المنقسم ليلاً (موسم النبوءة): الدور يتبدّل بصمت — لا تنبيه ولا اهتزازٌ طويل
+      //    تسمعه الطاولة والعيونُ مغمضة. هو اختار للتوّ، ويرى دوره الجديد في الظرف.
+      const quietSwap = !!(data as any).divided;
       setAssignedRole(data.role);
-      if (!isSeatRepush) {
+      if (!isSeatRepush && !quietSwap) {
         setCardFlipped(false);
         setRoleAlert(true);
         setIsPlayerDead(false); // ← reset: لعبة جديدة = حي
@@ -1147,7 +1150,7 @@ export default function PlayerFlow({ initialRoomCode = '', inviteFlag = false, i
       // يجب مسح أي فريق مافيا قديم محفوظ من لعبة سابقة — وإلّا رآه الأخ الأصغر قبل تحوّله.
       setMafiaTeam(data.mafiaTeam || []);
       setSibling(data.sibling || null); // 👥 الأخ (null لغير الأخوين)
-      if (!isSeatRepush && navigator.vibrate) navigator.vibrate([100, 50, 200, 50, 300]);
+      if (!isSeatRepush && !quietSwap && navigator.vibrate) navigator.vibrate([100, 50, 200, 50, 300]);
     });
 
     // 👥 تحديث قائمة فريق المافيا (عند تحوّل الأخ الأصغر — دون لمس بطاقة اللاعب)
@@ -1864,7 +1867,7 @@ export default function PlayerFlow({ initialRoomCode = '', inviteFlag = false, i
   }, [step, emit, roomId, playerId, phone, physicalId, displayName, assignedRole, isPlayerDead, votingPlayersInfo]);
 
   // 📱 هل نرسم الواجهة الجديدة؟ (المفتاح العامّ + غرفة حضوريّة + داخل الغرفة + لم يفشل الرسم)
-  const faceOf = useFaceOf();
+  const faceOf = useFaceOf(roomId);
   const v2Active = playerUiV2 && !playerUiForcedOff && !isRemote && (step === 'done' || step === 'rejoined');
 
   // 📱 المفتاح يُقرأ عند الفتح ثمّ كلّ دقيقة — بلا إعادة فتح الصفحة
@@ -2986,7 +2989,12 @@ export default function PlayerFlow({ initialRoomCode = '', inviteFlag = false, i
       ) : v2Active ? (
         <PlayerRoomBoundary onFail={() => setPlayerUiForcedOff(true)}>
           <PlayerRoom host={{
-            roomCode, gameName,
+            roomCode, gameName, roomId,
+            // 🔮 كروت النبوءة داخل الظرف: الحالة من get-my-state، والأفعال بمقعد المقبس
+            prophecy: {
+              fetchState: () => emit('room:get-my-state', { roomId, playerId: playerId || undefined, phone: phone ? (phone.startsWith('0') ? phone : '0' + phone) : undefined }),
+              send: (event: string, data: any) => emit(event, { roomId, ...data }),
+            },
             seat: parseInt(physicalId) || 0, displayName, gender: gender === 'female' ? 'FEMALE' : gender === 'male' ? 'MALE' : undefined,
             avatarUrl: avatarUrl || null, rankTier: myRankTier || undefined, cosmetics: myCosmetics,
             role: assignedRole, isDead: isPlayerDead, phase: gamePhase, round: phasePollData?.round ?? null,

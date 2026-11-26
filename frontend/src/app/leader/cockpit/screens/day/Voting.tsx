@@ -9,7 +9,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { useSeatMove } from '../../../SeatMove';
 import { candidateCounts } from '@/lib/voteCounts';
 import { ActionBar, Chip, Chips, Hint, PendingSeats, Section, SeatGrid, Status, seatCells, useCockpit, useDeadline, useLocalCountdown } from '../../kit';
-import { MiniBtn, TeamCounts, aliveOf, nameAt } from './shared';
+import { MiniBtn, TeamCounts, aliveOf, isProphecyDealUi, nameAt } from './shared';
 
 export default function Voting() {
   const { gameState, emit, run, toast } = useCockpit();
@@ -139,7 +139,7 @@ export default function Voting() {
           <Chips>
             {deals.map((d: any) => {
               const cc = candidateCounts(d);
-              return <Chip key={d.id || d.targetPhysicalId} tone="g">{d.initiatorPhysicalId} ← {d.targetPhysicalId} · {cc.votes} صوت{cc.differs ? ` (${cc.voters} مصوّت)` : ''}</Chip>;
+              return <Chip key={d.id || d.targetPhysicalId} tone="g">{isProphecyDealUi(d) ? '📜 النبوءة' : d.initiatorPhysicalId} ← {d.targetPhysicalId} · {cc.votes} صوت{cc.differs ? ` (${cc.voters} مصوّت)` : ''}</Chip>;
             })}
           </Chips>
         </Section>

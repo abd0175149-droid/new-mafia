@@ -16,6 +16,7 @@ import Voting from './day/Voting';
 import Justification, { TieBreaker, type JustState, type PulseSuggestion } from './day/Justify';
 import Reveal from './day/Reveal';
 import { AshCurse, MayorWindow } from './day/Overlays';
+import { KafalaWindow, ProphecyDayPanel } from './Prophecy';
 import { PenalizedRow, nameAt } from './day/shared';
 
 export default function DayScreen() {
@@ -51,18 +52,25 @@ export default function DayScreen() {
   // ── 🎩 نافذة العمدة + 🗳️ اقتراح النبض — اشتراكٌ مباشر كما في LeaderDayView ──
   const [mayorLocal, setMayorLocal] = useState<any>(null);
   const [pulse, setPulse] = useState<PulseSuggestion>(null);
+  const [kafalaLocal, setKafalaLocal] = useState<any>(null);
   useEffect(() => {
     const offs = [
       on('day:mayor-window', (p: any) => { if (p?.winner) setMayorLocal({ winner: p.winner, topVotes: p.topVotes }); }),
       on('day:mayor-window-closed', () => setMayorLocal(null)),
       on('day:mayor-revealed', () => setMayorLocal(null)),
       on('day:tie', (d: any) => setPulse(d?.pulseSuggestion || null)),
+      // 🤝 نافذة الكفالة (موسم النبوءة) — للموجّه وحده
+      on('day:kafala-window', (p: any) => { if (p?.winner) setKafalaLocal(p); }),
+      on('day:kafala-window-closed', () => setKafalaLocal(null)),
       on('day:voting-started', () => setPulse(null)),
     ];
     return () => offs.forEach(f => f());
   }, [on]);
   // 🪑 بعد نقل مقعد: نافذة الخادم (mayorState) هي البديل المحدَّث
-  useEffect(() => { if (seatMove.remapVersion) setMayorLocal(null); }, [seatMove.remapVersion]);
+  useEffect(() => { if (seatMove.remapVersion) { setMayorLocal(null); setKafalaLocal(null); } }, [seatMove.remapVersion]);
+  // 🤝 الكفالة: الحدث المباشر، أو نافذة الخادم بعد إعادة الاتصال
+  const gw = gameState?.guarantorState?.window || null;
+  const kafalaWindow = gameState?.guarantorState?.used ? null : (kafalaLocal || gw);
 
   const ms = gameState?.mayorState || null;
   const describe = (c: any) => c ? {
@@ -81,11 +89,12 @@ export default function DayScreen() {
 
   let body;
   if (gameState?.pendingAshCurse) body = <AshCurse />;
+  else if (kafalaWindow?.winner && phase === 'DAY_JUSTIFICATION') body = <KafalaWindow win={kafalaWindow} onClosed={() => setKafalaLocal(null)} onMayorWindow={(w) => { if (w?.winner) setMayorLocal(w); }} />;
   else if (mayorWindow?.winner) body = <MayorWindow win={mayorWindow} onClosed={() => { setMayorLocal(null); setDismissed(srvKey); }} onRevote={resetJust} />;
   else switch (phase) {
     case 'DAY_DISCUSSION': body = <Discussion />; break;
     case 'DAY_VOTING': body = <Voting />; break;
-    case 'DAY_JUSTIFICATION': body = <Justification js={js} pulse={pulse} onMayorWindow={(w) => { if (w?.winner) setMayorLocal(w); }} />; break;
+    case 'DAY_JUSTIFICATION': body = <Justification js={js} pulse={pulse} onMayorWindow={(w) => { if (w?.winner) setMayorLocal(w); }} onKafalaWindow={(w) => { if (w?.winner) setKafalaLocal(w); }} />; break;
     case 'DAY_ELIMINATION':
     case 'DAY_REVEALED': body = <Reveal />; break;
     case 'DAY_TIEBREAKER': body = <TieBreaker js={js} pulse={pulse} />; break;
@@ -98,9 +107,11 @@ export default function DayScreen() {
     );
   }
 
+  const prophecyDay = phase === 'DAY_DISCUSSION' || phase === 'DAY_VOTING';
   return (
     <>
       {body}
+      {prophecyDay && <ProphecyDayPanel />}
       <PenalizedRow />
     </>
   );

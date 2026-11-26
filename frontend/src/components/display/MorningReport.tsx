@@ -12,6 +12,7 @@ import PropStage from './PropStage';
 import FitToScreen from '@/components/FitToScreen';
 import { useEffect, useState } from 'react';
 import { useRoleFaces } from '@/app/leader/cockpit/screens/Setup';
+import { PROPHECY_HEADLINES, ProphecyMorningCard, isProphecyMorning } from './ProphecyMorning';
 
 interface Props { events: any[]; current: any | null; players: any[]; teamCounts?: { citizenAlive: number; mafiaAlive: number; neutralAlive?: number }; round?: number; }
 const HEADLINES: Record<string, { title: string; tone: 'blood' | 'gold' | 'ash' }> = {
@@ -21,7 +22,9 @@ const HEADLINES: Record<string, { title: string; tone: 'blood' | 'gold' | 'ash' 
   SHERIFF_CARD: { title: 'سؤال الشريف', tone: 'gold' },
   PHOENIX_BURN: { title: 'احترق العنقاء', tone: 'blood' }, PHOENIX_ASH: { title: 'من الرماد', tone: 'gold' }, POLICEWOMAN: { title: 'صلاحيّة الشرطيّة', tone: 'ash' }, POLICEWOMAN_EXECUTION: { title: 'إعدام الشرطيّة', tone: 'blood' },
 };
-const headline = (t: string) => HEADLINES[t] || { title: 'خبرٌ من الليل', tone: 'ash' as const };
+const headline = (t: string) => HEADLINES[t] || PROPHECY_HEADLINES[t] || { title: 'خبرٌ من الليل', tone: 'ash' as const };
+/** 🔮 بطاقات النبوءة بأيقونتها لا بأداة المشهد ثلاثيّة الأبعاد */
+const propIcon = (t: string) => PROPHECY_HEADLINES[t]?.icon;
 const toneColor = { blood: '#ff6b6b', gold: '#C5A059', ash: '#c7b9ff' };
 const GOLD = { fontFamily: 'Amiri, serif', background: 'linear-gradient(180deg, #f6e7bd 0%, #C5A059 52%, #7d5f2a 100%)', WebkitBackgroundClip: 'text', backgroundClip: 'text', color: 'transparent', filter: 'drop-shadow(0 2px 0 rgba(0,0,0,.85)) drop-shadow(0 0 22px rgba(197,160,89,.35))' } as const;
 const keyOf = (e: any) => e?.eventKey ?? `${e?.type}:${e?.targetPhysicalId ?? ''}`;
@@ -58,11 +61,13 @@ export default function MorningReport({ events, current, players, teamCounts, ro
                 className="w-full h-full min-h-0 flex flex-col overflow-hidden rounded-3xl border border-white/15 bg-black/60 backdrop-blur-sm p-6 shadow-2xl">
                 {(() => { const h = headline(current.type); return (
                   <div className="flex items-center gap-4 mb-3 border-b border-white/15 pb-3">
-                    {current.type === 'SHERIFF_CARD' ? <span className="text-[72px] leading-none">🔍</span> : <PropStage type={current.type} size={96} />}
+                    {current.type === 'SHERIFF_CARD' ? <span className="text-[72px] leading-none">🔍</span> : propIcon(current.type) ? <span className="text-[72px] leading-none">{propIcon(current.type)}</span> : <PropStage type={current.type} size={96} />}
                     <h3 className="text-4xl font-black leading-tight" style={{ fontFamily: 'Amiri, serif', color: toneColor[h.tone] }}>{h.title}</h3>
                   </div>); })()}
                 {current.type === 'SHERIFF_CARD'
                   ? <div className="flex-1 min-h-0"><SheriffCard result={current.extra?.result} k={keyOf(current)} /></div>
+                  : isProphecyMorning(current.type)
+                  ? <div className="flex-1 min-h-0"><ProphecyMorningCard ev={current} players={players} /></div>
                   : <div className="morning-cinematic flex-1 min-h-0"><FitToScreen><NightAnimCinematic data={current} players={players} /></FitToScreen></div>}
               </motion.div>
             ) : quiet ? (
@@ -84,7 +89,7 @@ export default function MorningReport({ events, current, players, teamCounts, ro
             <div className="flex flex-col divide-y divide-white/10">
               {past.slice(-5).map((e, i) => { const h = headline(e.type); return (
                 <motion.div key={`${keyOf(e)}-${i}`} initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} className="py-1.5 flex items-center gap-3">
-                  {e.type === 'SHERIFF_CARD' ? <span className="text-[26px]">🔍</span> : <PropStage type={e.type} size={34} />}
+                  {e.type === 'SHERIFF_CARD' ? <span className="text-[26px]">🔍</span> : propIcon(e.type) ? <span className="text-[26px]">{propIcon(e.type)}</span> : <PropStage type={e.type} size={34} />}
                   <p className="text-base font-bold truncate" style={{ fontFamily: 'Amiri, serif', color: toneColor[h.tone] }}>{h.title}</p>
                 </motion.div>); })}
             </div>

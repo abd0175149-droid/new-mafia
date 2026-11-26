@@ -44,7 +44,7 @@ export default function GameCards({ plan, setPlan, n, meta, onBack, onNext, busy
   nextLabel?: string;
 }) {
   const { emit, toast, gameState } = useCockpit();
-  const faces = useRoleFaces();
+  const faces = useRoleFaces(gameState?.roomId);
   const tpl = useTemplates(emit);
   const [sheet, setSheet] = useState<null | { kind: 'card'; r: Role } | { kind: 'add' } | { kind: 'save' } | { kind: 'tpls' }>(null);
   const [tplOn, setTplOn] = useState<number | null>(null);

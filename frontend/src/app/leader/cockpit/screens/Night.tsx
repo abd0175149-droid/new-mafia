@@ -15,6 +15,7 @@ import { useHost } from '../host';
 import ReviewView, { type ReviewRow } from './night/Review';
 import { QueueCompleteView, QueueStepView, SheriffSheet } from './night/Queue';
 import { useBusy } from './night/meta';
+import { ProphecyNightPanel } from './Prophecy';
 
 export default function NightScreen() {
   const { gameState, emit } = useCockpit();
@@ -57,6 +58,8 @@ export default function NightScreen() {
   return (
     <>
       {body}
+      {/* 🔮 كروت النبوءة — لا شيء بلا الموسم */}
+      <ProphecyNightPanel />
       <SheriffSheet />
     </>
   );

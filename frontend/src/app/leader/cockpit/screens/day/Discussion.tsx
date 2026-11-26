@@ -11,7 +11,7 @@ import {
   ActionBar, BigTimer, BottomSheet, Hint, ListRow, Section, Seg, SeatGrid, Status, seatCells, useCockpit,
 } from '../../kit';
 import { ConfFull, ConfRequests, useConfrontations } from './Confront';
-import { AdjRow, MiniBtn, PairCard, TeamCounts, aliveOf, nameAt, playerAt } from './shared';
+import { AdjRow, MiniBtn, PairCard, TeamCounts, aliveOf, isProphecyDealUi, nameAt, playerAt } from './shared';
 
 export default function Discussion() {
   const { gameState } = useCockpit();
@@ -200,7 +200,8 @@ function DealCard({ d, note }: { d: any; note: string }) {
   };
   return (
     <>
-      <PairCard from={d.initiatorPhysicalId} to={d.targetPhysicalId} fromLabel="🤝 طلب الديل" toLabel="🎯 الديل عليه" note={note}
+      <PairCard from={isProphecyDealUi(d) ? (gameState.oracleState?.oraclePhysicalId ?? 0) : d.initiatorPhysicalId} to={d.targetPhysicalId}
+        fromLabel={isProphecyDealUi(d) ? '📜 النبوءة · 🔒 العرّاف' : '🤝 طلب الديل'} toLabel={isProphecyDealUi(d) ? '🎯 النبوءة عليه' : '🎯 الديل عليه'} note={note}
         right={<MiniBtn ariaLabel="حذف الاتفاقيّة" onClick={() => setAsk(true)}>✕</MiniBtn>} />
       <BottomSheet open={ask} title="حذف الديل؟" onClose={() => setAsk(false)}>
         <Hint>يُحذف ديل {d.initiatorPhysicalId} ({nameAt(gameState, d.initiatorPhysicalId)}) على {d.targetPhysicalId} ({nameAt(gameState, d.targetPhysicalId)}).</Hint>

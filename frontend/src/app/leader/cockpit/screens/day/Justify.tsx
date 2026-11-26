@@ -9,7 +9,7 @@
 import { useState } from 'react';
 import { withdrawalNumbers, voterWeight } from '@/lib/voteCounts';
 import { ActionBar, BigTimer, Chip, Chips, Hint, HoldButton, ListRow, Section, Seg, Status, roleName, teamOf, useCockpit, useDeadline } from '../../kit';
-import { AdjRow, MiniBtn, nameAt, playerAt } from './shared';
+import { AdjRow, MiniBtn, isProphecyDealUi, nameAt, playerAt } from './shared';
 
 export interface JustState {
   idx: number; started: boolean; allDone: boolean; dur: number;
@@ -20,7 +20,7 @@ export type PulseSuggestion = { physicalId: number; pct: number; winnerPhysicalI
 
 const lockTone = (role?: string | null) => (teamOf(role) === 'M' ? 'text-[#f2a6a9]' : teamOf(role) === 'N' ? 'text-[#f0c879]' : 'text-[#a9d4ee]');
 
-export default function Justification({ js, pulse, onMayorWindow }: { js: JustState; pulse: PulseSuggestion; onMayorWindow: (w: any) => void }) {
+export default function Justification({ js, pulse, onMayorWindow, onKafalaWindow }: { js: JustState; pulse: PulseSuggestion; onMayorWindow: (w: any) => void; onKafalaWindow?: (w: any) => void }) {
   const { gameState } = useCockpit();
   const jd = gameState.justificationData;
   if (!jd) return (
@@ -34,7 +34,7 @@ export default function Justification({ js, pulse, onMayorWindow }: { js: JustSt
   const showDecision = jd.allExhausted || js.allDone;
   const cur = !showDecision ? canJustify[js.idx] : null;
   if (cur) return <Defense js={js} cur={cur} list={canJustify} />;
-  return <Decision js={js} pulse={pulse} onMayorWindow={onMayorWindow} />;
+  return <Decision js={js} pulse={pulse} onMayorWindow={onMayorWindow} onKafalaWindow={onKafalaWindow} />;
 }
 
 // ── دفاعُ متّهم ──
@@ -103,7 +103,7 @@ function Defense({ js, cur, list }: { js: JustState; cur: any; list: any[] }) {
 }
 
 // ── القرار ──
-function Decision({ js, pulse, onMayorWindow }: { js: JustState; pulse: PulseSuggestion; onMayorWindow: (w: any) => void }) {
+function Decision({ js, pulse, onMayorWindow, onKafalaWindow }: { js: JustState; pulse: PulseSuggestion; onMayorWindow: (w: any) => void; onKafalaWindow?: (w: any) => void }) {
   const { gameState, emit, run, toast } = useCockpit();
   const roomId = gameState.roomId;
   const jd = gameState.justificationData;
@@ -124,6 +124,7 @@ function Decision({ js, pulse, onMayorWindow }: { js: JustState; pulse: PulseSug
     setBusy(true);
     try {
       const res: any = await run(() => emit('day:execute-elimination', { roomId, skipWithdrawal: true }));
+      if (res?.kafalaWindow) onKafalaWindow?.(res.window || null);   // 🤝 موسم النبوءة: الكفالة قبل العمدة
       if (res?.mayorWindow) onMayorWindow(res.window || null);
       if (res?.revote) { js.reset(); toast('🗳️ بلغ السحبُ النصاب — تُعاد عمليّة التصويت'); }
     } finally { setBusy(false); }
@@ -141,7 +142,7 @@ function Decision({ js, pulse, onMayorWindow }: { js: JustState; pulse: PulseSug
         return (
           <ListRow key={a.targetPhysicalId} n={a.targetPhysicalId}
             title={<>{a.name || p?.name} — {jd.topVotes} أصوات</>}
-            sub={<><span className={lockTone(a.role)}>🔒 {roleName(a.role)}</span> · تبرير {a.justificationCount || 0}/{maxJ}{a.type === 'DEAL' && a.initiatorPhysicalId ? ` · اتفاقيّة من ${a.initiatorPhysicalId}` : ''}</>}
+            sub={<><span className={lockTone(a.role)}>🔒 {roleName(a.role)}</span> · تبرير {a.justificationCount || 0}/{maxJ}{a.type === 'DEAL' && isProphecyDealUi(a) ? ' · 📜 صفقة النبوءة' : a.type === 'DEAL' && a.initiatorPhysicalId ? ` · اتفاقيّة من ${a.initiatorPhysicalId}` : ''}</>}
             right={<Chip tone="m">{isTie ? 'متعادل' : 'المُقصى'}</Chip>} />
         );
       })}

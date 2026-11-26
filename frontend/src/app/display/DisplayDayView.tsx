@@ -3,6 +3,7 @@
 import { useEffect, useState, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { getSocket } from '@/lib/socket';
+import ProphecyDayBanner from '@/components/display/ProphecyDayBanner';
 import MafiaCard from '@/components/MafiaCard';
 import CircularTimer from '@/components/CircularTimer';
 import Image from 'next/image';
@@ -580,6 +581,8 @@ export default function DisplayDayView({ roomId, players, initialDiscussionState
     <div className="w-full mx-auto grid [&>*]:col-start-1 [&>*]:row-start-1 items-center justify-items-center px-4 py-2">
       {/* ⚔️ مواجهة النهار — شريط الطلبات، إعلان الرفض، وطبقة التنفيذ (على مستوى الصفحة) */}
       <DisplayConfrontation roomId={roomId} players={players as any} />
+      {/* 🔮 الكفالة، ورحيل القارئة، وحرق صفقة النبوءة — شريطٌ أعلى الشاشة */}
+      <ProphecyDayBanner />
       {/* 🎩 مشهد كشف العمدة — يعلو كلّ شيء لثوانٍ */}
       <AnimatePresence>
         {mayorScene && (
@@ -927,7 +930,7 @@ export default function DisplayDayView({ roomId, players, initialDiscussionState
                     <div className={`relative ${isFirst ? 'ring-2 ring-[#8A0303] ring-offset-2 ring-offset-black rounded-2xl shadow-[0_0_30px_rgba(138,3,3,0.4)] animate-pulse' : ''}`}>
                       {isDeal && (
                         <div className="absolute -top-2 left-1/2 -translate-x-1/2 bg-[#8A0303] text-white text-[8px] font-mono px-3 py-0.5 font-bold tracking-widest rounded-full z-30 border border-[#ff4444]/50">
-                          DEAL
+                          {(candidate as any).kind === 'PROPHECY' ? '📜 نبوءة' : 'DEAL'}
                         </div>
                       )}
                       {/* 🗳️ شارة نبض المواجهة (المستوى ٢) */}
@@ -1162,7 +1165,7 @@ export default function DisplayDayView({ roomId, players, initialDiscussionState
                         cosmetics={(p as any)?.cosmetics}
                       />
                       {acc.type === 'DEAL' && (
-                        <div className="absolute -top-2 left-1/2 -translate-x-1/2 bg-[#8A0303] text-white text-[8px] font-mono px-4 py-0.5 tracking-widest rounded-full z-30">DEAL</div>
+                        <div className="absolute -top-2 left-1/2 -translate-x-1/2 bg-[#8A0303] text-white text-[8px] font-mono px-4 py-0.5 tracking-widest rounded-full z-30">{acc.kind === 'PROPHECY' ? '📜 نبوءة' : 'DEAL'}</div>
                       )}
                     </div>
 
@@ -1325,7 +1328,14 @@ export default function DisplayDayView({ roomId, players, initialDiscussionState
               style={{ background: 'radial-gradient(circle at center, rgba(197,160,89,0.18) 0%, transparent 70%)' }}
             />
 
-            {mayorPostponed ? (
+            {revealType === 'KAFALA_SAVED' ? (
+              <>
+                <motion.div animate={{ scale: [1, 1.15, 1] }} transition={{ repeat: Infinity, duration: 2 }} className="text-9xl mb-8">🤝</motion.div>
+                <h2 className="text-6xl font-black text-[#C5A059] mb-6" style={{ fontFamily: 'Amiri, serif', textShadow: '0 0 30px rgba(197,160,89,0.4)' }}>الحكمُ بالحقيقة</h2>
+                <motion.p animate={{ opacity: [0.3, 1, 0.3] }} transition={{ duration: 2, repeat: Infinity }}
+                  className="text-[#C5A059]/80 text-3xl" style={{ fontFamily: 'Amiri, serif' }}>هل كان بريئاً؟</motion.p>
+              </>
+            ) : mayorPostponed ? (
               <>
                 <motion.div
                   animate={{ scale: [1, 1.15, 1] }}
@@ -1359,7 +1369,13 @@ export default function DisplayDayView({ roomId, players, initialDiscussionState
 
         {/* REVEALED — كشف الهوية السينمائي (تأجيل العمدة: لا كروت — نبقي مشهد اللا-إعدام) */}
         {phase === 'REVEALED' && (
-          revealedRoles.length === 0 && mayorPostponed ? (
+          revealedRoles.length === 0 && revealType === 'KAFALA_SAVED' ? (
+            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="text-center">
+              <div className="text-9xl mb-8">🤝</div>
+              <h2 className="text-6xl font-black text-[#7fb0d6] mb-4" style={{ fontFamily: 'Amiri, serif' }}>كان بريئاً — نجا بالكفالة</h2>
+              <p className="text-[#9a8f7d] text-2xl" style={{ fontFamily: 'Amiri, serif' }}>«صدّق… حتّى آخر نَفَس» — لا موت اليوم</p>
+            </motion.div>
+          ) : revealedRoles.length === 0 && mayorPostponed ? (
             <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="text-center">
               <div className="text-9xl mb-8">🎩</div>
               <h2 className="text-6xl font-black text-[#C5A059] mb-4" style={{ fontFamily: 'Amiri, serif' }}>العمدة أجّل الإعدام</h2>

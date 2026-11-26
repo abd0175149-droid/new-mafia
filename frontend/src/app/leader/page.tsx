@@ -1519,6 +1519,8 @@ export default function LeaderPage() {
           winner: data.winner,
           matchId: data.matchId ?? (prev as any).matchId,
           players: data.players || prev.players,
+          // 🔮 ما فعلته كروت النبوءة (null بلا الموسم)
+          prophecyReveal: data.prophecyReveal ?? null,
         } as any;
       });
     });

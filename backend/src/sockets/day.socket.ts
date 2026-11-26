@@ -1223,6 +1223,9 @@ export function registerDayEvents(io: Server, socket: Socket) {
         teamCounts: currentState ? publicTeamCounts(currentState, { revealElimination: true }) : undefined,
         revealSeats: eliminatedIds,
         confrontationNotes: currentState ? confrontationNotes(currentState, eliminatedIds) : {},   // 🗳️ «وُوجه وخسر النبض»
+        // 🔮 موسم النبوءة — علنيّةٌ بعد القلب: رحيلُ القارئة وفناجينها، وحكمُ الكفالة
+        cup: pr.cup || null,
+        kafala: pr.kafala || null,
       };
       // 📺 الموجّه والشاشة الآن — يبدأ مشهدُ الكشف
       await emitTrustedOnly(io, data.roomId, 'day:elimination-revealed', revealPayload);

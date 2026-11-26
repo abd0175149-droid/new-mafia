@@ -9,6 +9,7 @@ import { useEffect, useState } from 'react';
 import { useSeatMove } from '../../SeatMove';
 import { ActionBar, BottomSheet, Btn, Hint, ListRow, Section, SeatGrid, SetRow, Status, Switch, roleName, seatCells, useCockpit } from '../kit';
 import { useHost } from '../host';
+import { prophecyRevealLines } from '@/lib/prophecy-reveal';
 
 const WINNER: Record<string, { icon: string; label: string; color: string }> = {
   MAFIA: { icon: '🩸', label: 'فوز المافيا', color: '#d0474c' },
@@ -48,6 +49,14 @@ export default function GameOverScreen() {
         <b className="text-[30px] leading-tight" style={{ fontFamily: 'Amiri, serif', color: w?.color || '#C5A059' }}>{w?.label || 'انتهت اللعبة'}</b>
         <span className="text-[13px] text-[#9a8f7e]">{gameState?.round || 0} جولات · {players.filter(p => p.isAlive).length} أحياء في النهاية</span>
       </div>
+
+      {gameState?.prophecyReveal && (
+        <Section title="🔮 ما فعلته كروت النبوءة" aside="يُعرض على الشاشة أيضاً">
+          {prophecyRevealLines(gameState.prophecyReveal, (s) => players.find(p => p.physicalId === s)?.name || '').map((l, i) => (
+            <ListRow key={i} n={l.icon} title={l.title} sub={l.text} />
+          ))}
+        </Section>
+      )}
 
       <Section title="الأدوار" aside={excluded.length ? `${excluded.length} مستبعد من التالية` : undefined}>
         <SeatGrid cells={cells} showRoles

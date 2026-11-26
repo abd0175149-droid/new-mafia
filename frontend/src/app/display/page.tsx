@@ -14,6 +14,7 @@ import MafiaCard from '@/components/MafiaCard';
 import NightAnimCinematic from '@/components/NightAnimCinematic';
 import NightScene, { oneNightSchedule } from '@/components/display/NightScene';
 import MorningReport from '@/components/display/MorningReport';
+import ProphecyRevealPanel from '@/components/display/ProphecyRevealPanel';
 import StreetStage, { type StageMode } from '@/components/display/StreetStage';
 import type { NightBeat } from '@/components/display/NightScene';
 import EliminationFx from '@/components/EliminationFx';
@@ -105,6 +106,8 @@ function DisplayPageContent() {
   const [displayMaxPenalties, setDisplayMaxPenalties] = useState(3);
   const [phase, setPhase] = useState<Phase>(Phase.LOBBY);
   const [winner, setWinner] = useState<string | null>(null);
+  // 🔮 ما فعلته كروت النبوءة (null بلا الموسم)
+  const [prophecyReveal, setProphecyReveal] = useState<any>(null);
   // 🏆 كشف الفائز: نبدأ بمرحلة تشويق (يعمل فيها صوت الفوز) ثم نكشف الكروت بعد 5 ثوانٍ
   const [revealWinner, setRevealWinner] = useState(false);
   const winnerRevealTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -553,6 +556,7 @@ function DisplayPageContent() {
       setGameTimerData(null);
       setGameTimerRemaining(0);
       setWinner(data.winner);
+      setProphecyReveal(data.prophecyReveal || null);
       setPhase(Phase.GAME_OVER);
       if (data.players) setPlayers(data.players);
       // 🔊 نغمةُ الفوز من الموجّه (game:over) — تصل مرآةً؛ والخلفيّةُ تُوقَف من هناك
@@ -1839,6 +1843,7 @@ function DisplayPageContent() {
           );
         })()}
 
+        {phase === Phase.GAME_OVER && revealWinner && prophecyReveal && <ProphecyRevealPanel rv={prophecyReveal} players={players} />}
         {phase === Phase.GAME_OVER && winner && revealWinner && (() => {
           const isJesterWin = winner === 'JESTER';
           const isAssassinWin = winner === 'ASSASSIN';
