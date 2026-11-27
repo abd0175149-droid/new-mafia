@@ -16,7 +16,7 @@
 // ══════════════════════════════════════════════════════
 
 import type { GameState, Player } from './state.js';
-import { Role, MAFIA_KILL_PRIORITY } from './roles.js';
+import { Role, MAFIA_KILL_PRIORITY, NO_RANDOM_ABILITIES } from './roles.js';
 import { getAbilitiesForRole, getAbilityDefs } from './definition-service.js';
 import { canSeatAssassinate } from './assassin-engine.js';
 import { canSeatMask } from './deceiver-engine.js';
@@ -79,7 +79,7 @@ export async function buildNightPlan(state: GameState): Promise<NightSlot[]> {
       // 🔴 القنصُ لا يُختار عشوائيّاً: قنصُ مواطنٍ يقتل القنّاصَ معه، فرميةُ نردٍ
       //    من الخادم قد تُخرج لاعبَين لأنّ صاحبَها تأخّر عن المهلة.
       // 🎭 ولا القناع: مرّةً في اللعبة، فرميةُ نردٍ تُحرقه بلا قرار صاحبه.
-      noRandom: abilityId === 'SNIPE' || abilityId === 'MASK',
+      noRandom: NO_RANDOM_ABILITIES.has(abilityId),
     });
   };
 

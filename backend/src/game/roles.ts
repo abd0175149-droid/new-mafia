@@ -105,6 +105,13 @@ export const MAFIA_KILL_PRIORITY: Role[] = [
   Role.WITCH,         // ⚠️ تعطيلٌ + اغتيال — آخرُ الاحتمالات
 ];
 
+/**
+ * قدراتٌ لا يُختار لها هدفٌ عشوائيّ عند انتهاء المهلة، ويُتاح لصاحبها التخطّي صراحةً.
+ * 🔴 مصدرٌ واحد لخطّة الليل (`night-plan.ts`) ولقيود دليل الأدوار — كان الدليل
+ *    يقرأ `canSkip` من القاعدة فيَعِد القصَّ والساحرة بتخطٍّ لا تعطيهما إيّاه الليلةُ الواحدة.
+ */
+export const NO_RANDOM_ABILITIES: ReadonlySet<string> = new Set(['SNIPE', 'MASK']);
+
 // الأدوار التي لها قدرات ليلية
 export const NIGHT_ACTIVE_ROLES: Role[] = [
   Role.GODFATHER,

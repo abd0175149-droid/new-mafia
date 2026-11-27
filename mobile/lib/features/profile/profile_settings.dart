@@ -206,13 +206,8 @@ class _SettingsAccordionState extends State<SettingsAccordion> {
             // 🃏 PROFILE-1: المودال موجودٌ ويُفتح من **لوبي المباراة وحده**،
             //    فمن أراد مراجعة الأدوار خارج اللعبة لا يجد إليها سبيلاً —
             //    وهي أوّل ما يحتاجه لاعبٌ جديد قبل أن يجلس على الطاولة.
-            Builder(
-              builder: (ctx) => _linkRow('🃏 تعرّف على الكروت والأدوار', Tw.amber500,
-                  () => unawaited(showRolesDeck(ctx))),
-            ),
-            const SizedBox(height: 6),
-            Text('كلّ الأدوار وقدراتها — راجعها قبل الجلسة القادمة.',
-                style: ar(9, color: Tw.gray600)),
+            // 🃏 بطاقةُ الدليل بلغة الشاشة الجديدة (2026-11-27) — نظيرُ زرّ «ملفّي» في الويب
+            const RolesGuideEntry(),
             _divider(),
             _sectionTitle('🔔 الإشعارات'),
             const SizedBox(height: 8),

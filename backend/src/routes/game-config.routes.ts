@@ -184,13 +184,14 @@ router.get('/roles-guide', async (req: Request, res: Response) => {
       } catch { /* غرفةٌ مجهولة ⇒ الدليل العامّ */ }
     }
     const shown = prophecyLive ? roles : roles.filter((r: any) => !isProphecyRole(r.id));
+    const visible = new Set<string>(shown.map((r: any) => r.id));
 
     const data = shown.map((r: any) => {
       const tpl = r.cardTemplateId ? tplById.get(r.cardTemplateId) : null;
       // تجاوزُ الدور يعلو القالب — هكذا يقرأها DynamicMafiaCard تماماً
       const secret = r.cardOverrides?.secretFace ?? tpl?.secretFace ?? null;
       const url = secret?.customImageUrl || null;
-      const dec = decorateRole(r, abilityById);
+      const dec = decorateRole(r, abilityById, visible);
       return {
         id: dec.id, nameAr: dec.nameAr, nameEn: dec.nameEn, team: dec.team,
         genPriority: dec.genPriority,

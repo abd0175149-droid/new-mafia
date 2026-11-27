@@ -11,6 +11,8 @@
 //    تشغل مكاناً ولا تقول شيئاً.
 // ══════════════════════════════════════════════════════
 
+import { MAFIA_KILL_PRIORITY, NO_RANDOM_ABILITIES } from '../game/roles.js';
+
 export interface RoleLimit {
   text: string;
   /** مولَّدٌ من حقول القدرة — لا يُحرَّر ولا يكذب. */
@@ -86,10 +88,20 @@ export interface AbilityRow {
 /**
  * القيودُ المولَّدة لدورٍ واحد.
  *
- * 🔴 لا تُبَثّ قاعدةٌ صامتة: `canSkip=false` هي حالةُ الأغلبيّة فلا تُذكر،
- *    و`true` استثناءٌ يُذكر. ذكرُ الافتراضيّ في كلّ دورٍ يُغرق المهمَّ بالمعتاد.
+ * 🔴 التخطّي والاختيارُ العشوائيّ من المحرّك (`NO_RANDOM_ABILITIES`) لا من `canSkip`:
+ *    القنّاصُ يتخطّى، وغيرُه يُختار عنه عشوائيّاً إن انتهى الوقت — وهذا يُقال صراحةً.
  */
-export function buildAutoLimits(abilities: AbilityRow[]): RoleLimit[] {
+/**
+ * سياقُ التوليد: الدورُ صاحبُ القيود، والأدوارُ الظاهرةُ في الدليل.
+ * بلا دورٍ (معاينةُ الإدارة لقدرةٍ مجرّدة) يبقى التوليدُ عامّاً.
+ */
+export interface LimitContext {
+  roleId?: string | null;
+  /** أدوارُ الدليل المعروضة — سلسلةُ الوراثة لا تُسمّي دوراً مخفيّاً (كروتُ موسمٍ لم يُطلق). */
+  visible?: ReadonlySet<string> | null;
+}
+
+export function buildAutoLimits(abilities: AbilityRow[], ctx: LimitContext = {}): RoleLimit[] {
   const out: RoleLimit[] = [];
   const seen = new Set<string>();
   const push = (text: string) => {
@@ -100,6 +112,10 @@ export function buildAutoLimits(abilities: AbilityRow[]): RoleLimit[] {
   };
 
   for (const a of abilities) {
+    // 🔪 الاغتيالُ لحامل السلسلة وحده (`killHolderSeat`): الأخُ الأكبر يحمله في تعريف دوره
+    //    ولا يغتال إلّا حين تصله السلسلة — قيودُه على كارته كانت تَعِده باغتيالٍ كلَّ ليلة.
+    if (a.id === 'KILL' && ctx.roleId && ctx.roleId !== MAFIA_KILL_PRIORITY[0]) continue;
+
     if (a.targetType && TARGET_AR[a.targetType]) push(TARGET_AR[a.targetType]);
     if (a.excludeSelf) push('لا يمكنك اختيار نفسك');
     if (a.excludeLastTarget) push('لا تكرّر هدفَ الليلة الماضية');
@@ -108,12 +124,19 @@ export function buildAutoLimits(abilities: AbilityRow[]): RoleLimit[] {
     if (Number.isFinite(max) && max > 1) push(`حتّى ${max} أهدافٍ في الليلة الواحدة`);
     else if (a.targetType && a.targetType !== 'NONE') push('هدفٌ واحدٌ في الليلة الواحدة');
 
-    if (a.canSkip) push('يمكنك ألّا تفعل شيئاً هذه الليلة');
+    // ⏱️ التخطّي كما تعطيه الليلةُ الواحدة لا كما يقوله `canSkip` في القاعدة: مَن ليس في
+    //    NO_RANDOM يُختار عنه عشوائيّاً عند انتهاء المهلة (`fillMissing` في night-one.socket.ts).
+    const atNight = a.phase === 'NIGHT' || a.phase === 'BOTH';
+    if (atNight && NO_RANDOM_ABILITIES.has(a.id)) push('يمكنك ألّا تفعل شيئاً هذه الليلة');
+    else if (atNight && a.targetType && a.targetType !== 'NONE') push('إن انتهى الوقت ولم تختر اختير عنك لاعبٌ عشوائيّاً');
     if (a.effectType && EFFECT_AR[a.effectType]) push(EFFECT_AR[a.effectType]);
     if (a.deceptionRule) push(a.deceptionRule);
 
     if (a.isInheritable) {
-      const chain = asArray(a.inheritanceOrder).map((r) => ROLE_AR[r] || r);
+      // 🔴 سلسلةُ الاغتيال من المحرّك (`MAFIA_KILL_PRIORITY`) لا من `inheritanceOrder` في القاعدة:
+      //    ذلك الحقل لا يقرؤه المحرّك، وكان ترتيبُه مقلوباً فكذب الكارتُ على حامله.
+      const order: string[] = a.id === 'KILL' ? [...MAFIA_KILL_PRIORITY] : asArray(a.inheritanceOrder);
+      const chain = order.filter((r) => !ctx.visible || ctx.visible.has(r)).map((r) => ROLE_AR[r] || r);
       push(chain.length
         ? `تنتقل بعد موتك بالترتيب: ${chain.join(' ← ')}`
         : 'تنتقل قدرتُك إلى غيرك بعد موتك');
@@ -123,9 +146,9 @@ export function buildAutoLimits(abilities: AbilityRow[]): RoleLimit[] {
 }
 
 /** القيودُ كاملةً: المولَّدةُ أوّلاً ثمّ المكتوبةُ يداً — والوسمُ يفرّق بينهما في الواجهة. */
-export function buildLimits(abilities: AbilityRow[], extra: any): RoleLimit[] {
+export function buildLimits(abilities: AbilityRow[], extra: any, ctx: LimitContext = {}): RoleLimit[] {
   return [
-    ...buildAutoLimits(abilities),
+    ...buildAutoLimits(abilities, ctx),
     ...asArray(extra).map((text) => ({ text, auto: false })),
   ];
 }
@@ -161,7 +184,7 @@ export function deriveActsIn(abilities: AbilityRow[]): PhaseKey[] {
  * يُثري صفَّ دورٍ بمحتوى العرض. لا يرمي أبداً: دورٌ بلا محتوى يصل بحقولٍ
  * فارغة والواجهةُ تُسقط أقسامَه — وهو أفضل من شاشةٍ لا تُفتح.
  */
-export function decorateRole(role: any, abilityById: Map<string, AbilityRow>): any {
+export function decorateRole(role: any, abilityById: Map<string, AbilityRow>, visible?: ReadonlySet<string> | null): any {
   const abilities: AbilityRow[] = asArray(role?.abilities)
     .map((id) => abilityById.get(id))
     .filter(Boolean) as AbilityRow[];
@@ -173,7 +196,7 @@ export function decorateRole(role: any, abilityById: Map<string, AbilityRow>): a
 
   return {
     ...role,
-    limits: buildLimits(abilities, role?.extraLimits),
+    limits: buildLimits(abilities, role?.extraLimits, { roleId: role?.id, visible }),
     tips: asArray(role?.tips),
     interactsWith: asArray(role?.interactsWith),
     phaseNotes: normalizePhaseNotes(role?.phaseNotes),

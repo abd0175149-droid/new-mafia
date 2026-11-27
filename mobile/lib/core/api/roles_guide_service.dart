@@ -47,6 +47,7 @@ class GuideRole {
     this.winLine,
     this.faceUrl,
     this.faceFullUrl,
+    this.faceSmUrl,
     this.limits = const [],
     this.tips = const [],
     this.interactsWith = const [],
@@ -60,6 +61,9 @@ class GuideRole {
 
   /// الأصلُ للتكبير — المصغَّرُ يبهت ملءَ الشاشة، والتنزيلُ هنا بضغطةٍ صريحة.
   final String? faceFullUrl;
+
+  /// الأصغرُ (٢٥٦بك) — لرقائق شريط القفز والتقاطعات ومروحة زرّ الدخول.
+  final String? faceSmUrl;
   final List<RoleLimit> limits;
   final List<String> tips, interactsWith, actsIn;
   final Map<String, String> phaseNotes;
@@ -75,6 +79,7 @@ class GuideRole {
     // المصغَّرُ أوّلاً والأصلُ احتياط — وإن غاب الاثنان فالأيقونة
     final rel = face is Map ? (face['thumbUrl'] ?? face['url']) : null;
     final full = face is Map ? (face['url'] ?? face['thumbUrl']) : null;
+    final sm = face is Map ? (face['thumbSmUrl'] ?? face['thumbUrl'] ?? face['url']) : null;
     final notes = <String, String>{};
     if (j['phaseNotes'] is Map) {
       (j['phaseNotes'] as Map).forEach((k, v) {
@@ -94,6 +99,7 @@ class GuideRole {
           ? null : '${j['winConditionDescription']}'.trim(),
       faceUrl: rel == null ? null : '$rel',
       faceFullUrl: full == null ? null : '$full',
+      faceSmUrl: sm == null ? null : '$sm',
       limits: (j['limits'] is List)
           ? (j['limits'] as List).whereType<Map>().map((m) =>
               RoleLimit('${m['text']}', m['auto'] == true)).toList()

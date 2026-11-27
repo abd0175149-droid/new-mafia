@@ -1,25 +1,24 @@
 'use client';
 
 // ══════════════════════════════════════════════════════
-// 🃏 دليلُ الأدوار — كارتٌ بملء الشاشة (السيناريو المعتمَد)
+// 🃏 دليلُ الأدوار — بلغة شاشة اللاعب الجديدة (2026-11-27، اعتمده المالك)
 //
-// 🔴 وجهُ الكارت هو **الملفّ نفسه** الذي يراه اللاعب حين يقلب بطاقته في اللعبة،
-//    لا شبيهٌ له. والوجهُ السرّيُّ صورةٌ خالصةٌ بلا اسمٍ ولا رقم، فيصلح للعرض
-//    في دليلٍ كما هو.
+// 🔴 القراءةُ كانت الشكوى: النصّ الطويل كان تجوال ٣٠٠ بحجم ١٣٫٥ على الداكن فيذوب،
+//    ونصفُ النصوص تحت ١٢٫٥، والنصّ محبوسٌ في صندوقٍ يُمرَّر داخل ورقةٍ تُمرَّر.
+//    الآن: تجوال ٥٠٠ بحجم ١٦ والعناوين أميري، وتمريرٌ واحد للورقة كلّها، وكلُّ زرٍّ ٤٤.
 //
-// 🔴 ويُطلَب **المصغَّر** لا الأصل: الأصلُ ~٢ ميغابايت، وستّةَ عشرَ منه ٣٢ ميغا
-//    على شبكة قاعة. والأصلُ يبقى لكشف البطاقة — أكثرِ لحظةٍ يراها اللاعب.
-//    وإن غاب المصغَّر (لم يُولَّد بعد) يعود الأصلُ فيثقل ولا ينكسر شيء.
+// 🔴 وجهُ الكارت هو **الملفّ نفسه** الذي يراه اللاعب حين يقلب بطاقته في اللعبة.
+//    ويُطلَب **المصغَّر** لا الأصل (٧٢٠بك ~٦٠ك.ب بدل ~٢م.ب)، والأصلُ للتكبير وحده.
 //
-// 🔴 وشريطُ القفز يعالج عيبَ الكروت الوحيد: بلاه يحتاج الوصولُ إلى دورٍ بعينه
-//    ستَّ إيماءات. ضغطةٌ واحدة تكفي.
-//
-// 🔴 وبعد بدء اللعبة تُعرض أدوارُ هذه الطاولة وحدها (قرارُ المالك). القائمةُ
-//    تأتي من الخادم لا من حالةٍ محلّيّة — تركيبةُ اللعبة معلومةٌ ثمينة.
+// 🔴 قراراتُ المالك المقفلة باقية:
+//    • يُفتح على **شيخ المافيا دائماً** لا على دور صاحب الجهاز — نظرةٌ عابرة تكشفه.
+//    • لا علامةَ لدورك في أيّ مكان — ولا في شريط القفز.
+//    • بعد بدء اللعبة تُعرض أدوارُ هذه الطاولة وحدها، والقائمةُ من الخادم.
+//    • الكارتُ الحقيقيّ مع شريط قفزٍ (رقاقةٌ لكلّ دور بصورته).
 // ══════════════════════════════════════════════════════
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { motion, AnimatePresence } from 'framer-motion';
+import './roles-deck.css';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || '';
 const MEDIA_URL = process.env.NEXT_PUBLIC_SOCKET_URL || API_URL || '';
@@ -39,11 +38,12 @@ export interface GuideRole {
   face: { url: string; thumbUrl?: string; thumbSmUrl?: string } | null;
 }
 
-const TEAMS = {
-  MAFIA: { ar: 'المافيا', c: '#d9636a' },
-  CITIZEN: { ar: 'المواطنون', c: '#5db98c' },
-  NEUTRAL: { ar: 'المستقلّون', c: '#d7a73f' },
-} as const;
+type Team = 'MAFIA' | 'CITIZEN' | 'NEUTRAL';
+const TEAMS: Record<Team, { ar: string; one: string; c: string }> = {
+  MAFIA: { ar: 'المافيا', one: 'فريق المافيا', c: '#d9636a' },
+  CITIZEN: { ar: 'المواطنون', one: 'فريق المواطنين', c: '#5db98c' },
+  NEUTRAL: { ar: 'المستقلّون', one: 'مستقلّ', c: '#d7a73f' },
+};
 
 const FALLBACK_ICON: Record<string, string> = {
   GODFATHER: '🎩', SILENCER: '🤫', CHAMELEON: '🦎', WITCH: '🧙‍♀️',
@@ -52,24 +52,79 @@ const FALLBACK_ICON: Record<string, string> = {
   YOUNGER_BROTHER: '👦', CITIZEN: '👤', JESTER: '🃏', ASSASSIN: '🗡️',
 };
 
-const abs = (rel?: string | null) =>
-  !rel ? null : (/^https?:\/\//i.test(rel) ? rel : `${MEDIA_URL}${rel}`);
-
-/** للعرض: المصغَّر، ويعود للأصل إن لم يُولَّد. */
-function faceSrc(face: GuideRole['face']): string | null {
-  return abs(face?.thumbUrl || face?.url);
-}
+/** متى يعمل الدور — من `actsIn`. الوسمُ الكاذب أسوأ من غيابه، فلا شيء يُستنتج هنا. */
+const ACT_AR: Record<string, string> = { night: 'ليلاً', voting: 'في التصويت', justification: 'في التبرير', dead: 'بعد إقصائه' };
 
 /**
- * للتكبير: **الأصل** لا المصغَّر.
- * 🔴 المصغَّر ٧٢٠بك يكفي كارتاً بعرض ٢١٥ نقطة، ويبهت ملءَ الشاشة. وتنزيلُ
- *    الأصل هنا مقصود: ضغطةٌ صريحة على صورةٍ واحدة، لا ستّةَ عشرَ تلقائيّاً.
+ * أسماءُ الأدوار كما تُكتب في نصوص «يتقاطع مع» — لتصير الإشارةُ رقاقةً تنقل إلى الدور.
+ * 🔴 تُطابَق بعد نزع الحركات والشدّة («القنّاصُ» = «القناص»)، وبحدودِ كلمة: «مواطناً»
+ *    لا تطابق «مواطن صالح».
  */
-function faceFull(face: GuideRole['face']): string | null {
-  return abs(face?.url || face?.thumbUrl);
+const ALIAS: Record<string, string[]> = {
+  GODFATHER: ['شيخ المافيا', 'الشيخ'], SILENCER: ['قص المافيا', 'القص'], CHAMELEON: ['حرباية المافيا', 'الحرباية', 'الحرباء'],
+  WITCH: ['الساحرة'], OLDER_BROTHER: ['الأخ الأكبر'], YOUNGER_BROTHER: ['الأخ الأصغر'], MAFIA_REGULAR: ['مافيا عادي'],
+  SHERIFF: ['الشريف'], DOCTOR: ['الطبيب'], NURSE: ['الممرضة'], SNIPER: ['القناص'], POLICEWOMAN: ['الشرطية'],
+  MAYOR: ['العمدة'], PHOENIX: ['العنقاء'], JESTER: ['المهرج'], ASSASSIN: ['السفاح'], CITIZEN: ['مواطن صالح', 'المواطن الصالح'],
+};
+const norm = (s: string) => s.replace(/[ً-ْـ]/g, '');
+const isAr = (ch?: string) => !!ch && /[ء-ي]/.test(ch);
+function firstMention(text: string, selfId: string): string | null {
+  const t = norm(text);
+  let best: { id: string; at: number } | null = null;
+  for (const [id, names] of Object.entries(ALIAS)) {
+    if (id === selfId) continue;
+    for (const n of names) {
+      let at = t.indexOf(n);
+      while (at >= 0 && (isAr(t[at - 1]) || isAr(t[at + n.length]))) at = t.indexOf(n, at + 1);
+      if (at >= 0 && (!best || at < best.at)) best = { id, at };
+    }
+  }
+  return best?.id ?? null;
+}
+
+const abs = (rel?: string | null) =>
+  !rel ? null : (/^https?:\/\//i.test(rel) ? rel : `${MEDIA_URL}${rel}`);
+/** للعرض: المصغَّر، ويعود للأصل إن لم يُولَّد. */
+const faceSrc = (f: GuideRole['face']) => abs(f?.thumbUrl || f?.url);
+/** للرقائق: الأصغر (٢٥٦بك). */
+const faceSm = (f: GuideRole['face']) => abs(f?.thumbSmUrl || f?.thumbUrl || f?.url);
+/** للتكبير: **الأصل** — ضغطةٌ صريحة على صورةٍ واحدة، لا ستّةَ عشرَ تلقائيّاً. */
+const faceFull = (f: GuideRole['face']) => abs(f?.url || f?.thumbUrl);
+
+// ── أيقوناتٌ خطّيّة (لغة الشاشة الجديدة — لا إيموجي) ──
+const P: Record<string, string> = {
+  cards: 'M8 4h9a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2zM6 7 3.6 8a1.5 1.5 0 0 0-.8 2l3.2 7.6M12.5 9.5 14 12l-1.5 2.5L11 12z',
+  x: 'M6 6l12 12M18 6 6 18', prev: 'M9 6l6 6-6 6', next: 'M15 6l-6 6 6 6', chevL: 'M15 6l-6 6 6 6',
+  zoom: 'M11 5a6 6 0 1 0 0 12 6 6 0 0 0 0-12zM20 20l-4.5-4.5M11 8.5v5M8.5 11h5',
+  night: 'M20 14.5A8 8 0 0 1 9.5 4a8 8 0 1 0 10.5 10.5z', voting: 'M4 12l5 5L20 6', justification: 'M4 6h16v10H9l-5 4z',
+  dead: 'M8 21V10a4 4 0 0 1 8 0v11M6 21h12M12 8v5M10 10.5h4',
+  how: 'M12 4a8 8 0 1 0 0 16 8 8 0 0 0 0-16zM12 11v5M12 8h.01', lim: 'M12 3l8 4v5c0 4.5-3.4 8-8 9-4.6-1-8-4.5-8-9V7z',
+  ix: 'M7 7h10l-3-3M17 17H7l3 3', tip: 'M9 18h6M10 21h4M12 3a6 6 0 0 0-3.5 10.9V16h7v-2.1A6 6 0 0 0 12 3z',
+  win: 'M8 4h8v5a4 4 0 0 1-8 0zM8 6H5a3 3 0 0 0 3 4M16 6h3a3 3 0 0 1-3 4M12 13v4M9 21h6M10 17h4v4h-4z',
+};
+function Ic({ k }: { k: string }) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.6} strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+      <path d={P[k]} />
+    </svg>
+  );
 }
 
 let _cache: GuideRole[] | null = null;
+let _inflight: Promise<GuideRole[] | null> | null = null;
+
+/** الدليلُ مرّةً للجلسة — يشترك فيه الدليلُ وزرُّ الدخول (مروحةُ الكروت). */
+function loadGuide(): Promise<GuideRole[] | null> {
+  if (_cache) return Promise.resolve(_cache);
+  if (!_inflight) {
+    _inflight = fetch(`${API_URL}/api/game-config/roles-guide`)
+      .then((r) => r.json())
+      .then((d) => (Array.isArray(d?.data) ? (_cache = d.data as GuideRole[]) : null))
+      .catch(() => null)
+      .finally(() => { _inflight = null; });
+  }
+  return _inflight;
+}
 
 export default function RolesDeck({ open, onClose, roleIds }: {
   open: boolean;
@@ -80,78 +135,58 @@ export default function RolesDeck({ open, onClose, roleIds }: {
   const [all, setAll] = useState<GuideRole[]>(_cache || []);
   const [loading, setLoading] = useState(!_cache);
   const [error, setError] = useState(false);
-  const [team, setTeam] = useState<'MAFIA' | 'CITIZEN' | 'NEUTRAL'>('MAFIA');
+  const [team, setTeam] = useState<Team>('MAFIA');
   const [idx, setIdx] = useState(0);
-  const touch = useRef<{ x: number; y: number } | null>(null);
-  /** صورةُ التكبير — الكارتُ في الدليل صغير، ومَن أراد التفاصيل يضغطه. */
   const [zoom, setZoom] = useState<string | null>(null);
-  const jumpRef = useRef<HTMLDivElement | null>(null);
+  const touch = useRef<{ x: number; y: number } | null>(null);
+  const bodyRef = useRef<HTMLDivElement | null>(null);
+  const stripRef = useRef<HTMLDivElement | null>(null);
+  const closeRef = useRef<HTMLButtonElement | null>(null);
 
   useEffect(() => {
     if (!open || _cache) return;
     setLoading(true); setError(false);
-    fetch(`${API_URL}/api/game-config/roles-guide`)
-      .then(r => r.json())
-      .then(d => {
-        if (Array.isArray(d?.data)) { _cache = d.data; setAll(d.data); }
-        else setError(true);
-      })
-      .catch(() => setError(true))
-      .finally(() => setLoading(false));
+    loadGuide().then((d) => { if (d) setAll(d); else setError(true); }).finally(() => setLoading(false));
   }, [open]);
 
-  // أدوارُ الطاولة إن حُدِّدت — والترتيبُ يبقى ترتيبَ التوليد لا ترتيبَ الوصول
+  // أدوارُ الطاولة إن حُدِّدت — والترتيبُ ترتيبُ التوليد لا ترتيبُ الوصول
   const pool = useMemo(() => {
-    const list = roleIds && roleIds.length
-      ? all.filter(r => roleIds.includes(r.id))
-      : all;
+    const list = roleIds && roleIds.length ? all.filter((r) => roleIds.includes(r.id)) : all;
     return [...list].sort((a, b) => a.genPriority - b.genPriority);
   }, [all, roleIds]);
+  const inPool = useMemo(() => new Set(pool.map((r) => r.id)), [pool]);
+  const byId = useMemo(() => new Map(all.map((r) => [r.id, r])), [all]);
+  const teamsPresent = useMemo(() => (['MAFIA', 'CITIZEN', 'NEUTRAL'] as Team[]).filter((t) => pool.some((r) => r.team === t)), [pool]);
+  const list = useMemo(() => pool.filter((r) => r.team === team), [pool, team]);
 
-  const teamsPresent = useMemo(
-    () => (['MAFIA', 'CITIZEN', 'NEUTRAL'] as const).filter(t => pool.some(r => r.team === t)),
-    [pool],
-  );
-
-  const list = useMemo(() => pool.filter(r => r.team === team), [pool, team]);
-
-  // ══════════════════════════════════════════════════
-  // 🔴 يُفتح على **شيخ المافيا دائماً** — لا على دور صاحب الجهاز.
-  //
-  // كان يُفتح على دورك بحجّة أنّ مَن يفتح الدليل وسط جولةٍ يبحث عن نفسه.
-  // وهي حجّةٌ خاطئة: نظرةٌ عابرة على الشاشة تكشف دورَ صاحبها فوراً، والدليلُ
-  // يُفتح في قاعةٍ لا في خلوة. ونقطةُ الفتح ثابتةٌ للجميع فلا تقول شيئاً عن أحد.
-  //
-  // 🔴 ولا يُشترط وجودُ الشيخ: بعد بدء اللعبة تُعرض أدوارُ الطاولة وحدها وقد لا
-  //    يكون فيها. فالبدائلُ بالترتيب: الشيخ ← أوّلُ مافيويّ ← أوّلُ ما في القائمة.
-  // ══════════════════════════════════════════════════
+  // 🔴 يُفتح على **شيخ المافيا دائماً** — ثمّ أوّلِ مافيويّ ثمّ أوّلِ ما في القائمة (قد لا يكون في الطاولة)
   const opened = useRef(false);
   useEffect(() => {
     if (!open) { opened.current = false; return; }
     if (opened.current || !pool.length) return;
     opened.current = true;
-    const anchor = pool.find(r => r.id === 'GODFATHER')
-      ?? pool.find(r => r.team === 'MAFIA')
-      ?? pool[0];
-    const t = anchor.team;
-    setTeam(t);
-    const within = pool.filter(r => r.team === t);
-    setIdx(Math.max(0, within.findIndex(r => r.id === anchor.id)));
+    const anchor = pool.find((r) => r.id === 'GODFATHER') ?? pool.find((r) => r.team === 'MAFIA') ?? pool[0];
+    setTeam(anchor.team);
+    setIdx(Math.max(0, pool.filter((r) => r.team === anchor.team).findIndex((r) => r.id === anchor.id)));
+    requestAnimationFrame(() => closeRef.current?.focus({ preventScroll: true }));
   }, [open, pool]);
 
   const go = useCallback((d: number) => {
-    setIdx(i => {
-      const n = list.length;
-      if (!n) return 0;
-      return (i + d + n) % n;
-    });
+    setIdx((i) => { const n = list.length; return n ? (i + d + n) % n : 0; });
   }, [list.length]);
+
+  const jumpTo = useCallback((id: string) => {
+    const r = pool.find((x) => x.id === id);
+    if (!r) return;
+    setTeam(r.team);
+    setIdx(pool.filter((x) => x.team === r.team).findIndex((x) => x.id === id));
+  }, [pool]);
 
   useEffect(() => {
     if (!open) return;
     const onKey = (e: KeyboardEvent) => {
-      // 🔴 التكبيرُ يُغلق أوّلاً: Escape يجب أن يُنهي الطبقة العليا لا الشاشة كلَّها
-      if (e.key === 'Escape') { if (zoom) { setZoom(null); return; } onClose(); return; }
+      // 🔴 التكبيرُ يُغلق أوّلاً: Escape يُنهي الطبقة العليا لا الشاشة كلَّها
+      if (e.key === 'Escape') { if (zoom) setZoom(null); else onClose(); return; }
       if (e.key === 'ArrowRight') go(-1);
       if (e.key === 'ArrowLeft') go(1);
     };
@@ -159,21 +194,23 @@ export default function RolesDeck({ open, onClose, roleIds }: {
     return () => window.removeEventListener('keydown', onKey);
   }, [open, onClose, go, zoom]);
 
-  // يُبقي الرقاقةَ الجارية مرئيّةً في شريط القفز
+  // دورٌ جديد ⇒ رأسُ النصّ، والرقاقةُ الجارية في وسط الشريط
   useEffect(() => {
-    const el = jumpRef.current?.querySelector<HTMLElement>('[data-on="1"]');
-    el?.scrollIntoView({ block: 'nearest', inline: 'center', behavior: 'smooth' });
-  }, [idx, team]);
+    if (bodyRef.current) bodyRef.current.scrollTop = 0;
+    const strip = stripRef.current;
+    const on = strip?.querySelector<HTMLElement>('[aria-current="true"]');
+    if (strip && on) {
+      // 🔴 بالمستطيلات لا بـ offsetLeft: اتّجاهُ RTL يقلب إشارة scrollLeft بين المتصفّحات
+      const a = on.getBoundingClientRect(), s = strip.getBoundingClientRect();
+      strip.scrollBy({ left: (a.left + a.width / 2) - (s.left + s.width / 2) });
+    }
+  }, [idx, team, open]);
 
   useEffect(() => { if (!open) setZoom(null); }, [open]);
 
   // ══════════════════════════════════════════════════
-  // 🔒 قفلُ السكرول خلف اللوحة — كلُّ سكرولٍ داخلها وحدها
-  //
-  // 🔴 `position: fixed` على الجسم يقفز بالصفحة إلى أعلاها ما لم نحفظ الموضع
-  //    ونُعِدْه عند الإغلاق: كان اللاعب يفتح الدليل ويغلقه فيجد نفسه في رأس
-  //    الصفحة. و`top` السالبة تُبقيه بصريّاً حيث كان.
-  // 🔴 و`modal-open` هو العرفُ القائم في المستودع — يُطفئ «اسحب لتحديث» أيضاً.
+  // 🔒 قفلُ السكرول خلف اللوحة — `position: fixed` على الجسم يقفز بالصفحة إلى أعلاها ما لم
+  //    نحفظ الموضع ونُعِده. و`modal-open` هو العرفُ القائم — يُطفئ «اسحب لتحديث» أيضاً.
   // ══════════════════════════════════════════════════
   useEffect(() => {
     if (!open) return;
@@ -189,13 +226,11 @@ export default function RolesDeck({ open, onClose, roleIds }: {
 
   if (!open) return null;
 
-  const cur = list[Math.min(idx, Math.max(0, list.length - 1))];
-  const c = cur ? TEAMS[cur.team].c : '#c5a059';
-  const src = cur ? faceSrc(cur.face) : null;
+  const i = Math.min(idx, Math.max(0, list.length - 1));
+  const cur = list[i];
+  const tc = cur ? TEAMS[cur.team] : null;
 
-  const onTouchStart = (e: React.TouchEvent) => {
-    touch.current = { x: e.touches[0].clientX, y: e.touches[0].clientY };
-  };
+  const onTouchStart = (e: React.TouchEvent) => { touch.current = { x: e.touches[0].clientX, y: e.touches[0].clientY }; };
   const onTouchEnd = (e: React.TouchEvent) => {
     if (!touch.current) return;
     const dx = e.changedTouches[0].clientX - touch.current.x;
@@ -205,203 +240,142 @@ export default function RolesDeck({ open, onClose, roleIds }: {
     if (Math.abs(dx) > 55 && Math.abs(dx) > Math.abs(dy) * 1.6) go(dx > 0 ? -1 : 1);
   };
 
+  const Lines = ({ items }: { items: string[] }) => (
+    <ul>{items.map((t, k) => <li key={k}><i /><span>{t}</span></li>)}</ul>
+  );
+
   return (
-    <div className="fixed inset-0 z-[300] flex items-end sm:items-center justify-center" dir="rtl">
-      <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
-        onClick={onClose} className="absolute inset-0 bg-black/85 backdrop-blur-sm"
-        style={{ touchAction: 'none' }} />
-
-      <motion.div initial={{ y: 24, opacity: 0 }} animate={{ y: 0, opacity: 1 }}
-        className="relative w-full sm:max-w-md h-[92dvh] sm:h-[86vh] flex flex-col rounded-t-3xl sm:rounded-3xl overflow-hidden border border-[#2b2621]"
-        style={{ background: '#0a0a0b' }}>
-
-        {/* الرأس */}
-        <div className="flex items-center gap-2.5 px-4 py-3 border-b border-[#221f1a] shrink-0" style={{ background: '#0d0c0b' }}>
-          <span className="text-base">🃏</span>
-          <b className="text-[16.5px] flex-1" style={{ fontFamily: 'Amiri, serif', color: '#c5a059' }}>الأدوار</b>
-          {roleIds && roleIds.length ? (
-            <span className="text-[10px] px-2 py-0.5 rounded-md border border-[#2b2621] text-[#8d8271]">
-              أدوارُ هذه الطاولة
-            </span>
-          ) : null}
-          <button onClick={onClose} aria-label="إغلاق"
-            className="w-8 h-8 rounded-lg border border-[#2b2621] text-[#7e7466] hover:text-white grid place-items-center text-sm">✕</button>
+    <div className="rd-root">
+      <div className="rd-scrim" onClick={onClose} />
+      <div className="rd-sheet" role="dialog" aria-modal="true" aria-labelledby="rd-title">
+        <div className="rd-grab" />
+        <div className="rd-hd">
+          <Ic k="cards" />
+          <div className="rd-tt">
+            <h4 id="rd-title">دليل الأدوار</h4>
+            {cur && tc && <small>{tc.ar} · <b>{i + 1}</b> من <b>{list.length}</b></small>}
+          </div>
+          {roleIds && roleIds.length ? <span className="rd-badge">أدوار هذه الطاولة</span> : null}
+          <button ref={closeRef} type="button" className="rd-x" onClick={onClose} aria-label="إغلاق الدليل"><Ic k="x" /></button>
         </div>
 
-        {/* رقائق الفرق */}
         {teamsPresent.length > 1 && (
-          <div className="flex gap-1.5 px-4 pt-3 shrink-0">
-            {teamsPresent.map(tk => {
-              const on = team === tk;
-              return (
-                <button key={tk} onClick={() => { setTeam(tk as any); setIdx(0); }}
-                  className="text-[12.5px] font-bold px-3 py-1.5 rounded-full border transition"
-                  style={on
-                    ? { background: TEAMS[tk].c, borderColor: TEAMS[tk].c, color: '#0a0a0b' }
-                    : { borderColor: '#2b2621', color: '#8d8271' }}>
-                  {TEAMS[tk].ar} {pool.filter(r => r.team === tk).length}
+          <div className="rd-teams" role="tablist" aria-label="الفرق">
+            {teamsPresent.map((t) => (
+              <button key={t} type="button" role="tab" aria-selected={team === t} onClick={() => { setTeam(t); setIdx(0); }}>
+                <i style={{ background: TEAMS[t].c }} />{TEAMS[t].ar}<em>{pool.filter((r) => r.team === t).length}</em>
+              </button>
+            ))}
+          </div>
+        )}
+
+        {loading && <div className="rd-state"><div className="rd-spin" /></div>}
+        {!loading && error && <div className="rd-state"><p>تعذّر تحميل الأدوار. تحقّق من الاتّصال وأعد فتح الدليل.</p></div>}
+        {!loading && !error && !cur && <div className="rd-state"><p>لا أدوارَ لعرضها.</p></div>}
+
+        {!loading && !error && cur && tc && (
+          <>
+            <div className="rd-body" ref={bodyRef} onTouchStart={onTouchStart} onTouchEnd={onTouchEnd}>
+              <div className="rd-hero">
+                <button type="button" className="rd-card" style={{ borderColor: `${tc.c}66`, cursor: cur.face ? 'zoom-in' : 'default' }}
+                  aria-label={`تكبير كارت ${cur.nameAr}`}
+                  onClick={() => { const z = faceFull(cur.face); if (z) setZoom(z); }}>
+                  {faceSrc(cur.face)
+                    ? <><img src={faceSrc(cur.face)!} alt={`كارت ${cur.nameAr}`} decoding="async" /><span className="rd-zm"><Ic k="zoom" /></span></>
+                    : <span className="rd-fb">{FALLBACK_ICON[cur.id] || '🎭'}</span>}
                 </button>
-              );
-            })}
-          </div>
-        )}
-
-        {loading && (
-          <div className="flex-1 grid place-items-center">
-            <div className="w-8 h-8 border-4 border-[#c5a059] border-t-transparent rounded-full animate-spin" />
-          </div>
-        )}
-
-        {!loading && error && (
-          <div className="flex-1 grid place-items-center text-center px-8">
-            <p className="text-[14px] text-[#8d8271]">تعذّر تحميل الأدوار — تحقّق من الاتّصال وأعد المحاولة.</p>
-          </div>
-        )}
-
-        {!loading && !error && !cur && (
-          <div className="flex-1 grid place-items-center text-center px-8">
-            <p className="text-[14px] text-[#8d8271]">لا أدوارَ لعرضها.</p>
-          </div>
-        )}
-
-        {!loading && !error && cur && (
-          <div className="flex-1 flex flex-col px-4 pb-3 pt-3 min-h-0"
-            onTouchStart={onTouchStart} onTouchEnd={onTouchEnd}>
-
-            <AnimatePresence mode="wait">
-              <motion.div key={cur.id}
-                initial={{ opacity: 0, x: 18 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -18 }}
-                transition={{ duration: 0.16 }}
-                className="flex-1 flex flex-col min-h-0 rounded-2xl border p-4"
-                style={{ borderColor: '#2b2621', background: 'linear-gradient(165deg,#16130f,#0c0b0a)' }}>
-
-                {/* ══════════════════════════════════════════
-                    وجهُ الكارت الحقيقيّ — كاملاً بلا قصّ
-                    🔴 كان صندوقاً عرضيّاً (ارتفاعُه ١٦٨ وعرضُه عرضُ اللوحة)
-                       بـobject-cover، والصورةُ كارتٌ **طوليّ** ٧٢٠×١٠٧٣.
-                       فالتغطيةُ تملأ العرض وتقصّ نحو ثلثَي الطول — يظهر وسطُ
-                       الكارت وحده. الصندوقُ صار يتبع نسبةَ الكارت، والارتفاعُ
-                       محدودٌ بالشاشة فيبقى للنصّ مكان.
-                    🔴 وcontain لا cover: رفعُ صورةٍ بنسبةٍ أخرى غداً يُحاط
-                       بفراغٍ ولا يُقصّ. القصُّ الصامت هو ما أنتج هذا البلاغ.
-                    ══════════════════════════════════════════ */}
-                <button type="button" onClick={() => { const z = faceFull(cur.face); if (z) setZoom(z); }}
-                  aria-label="تكبير صورة الكارت"
-                  className="shrink-0 mx-auto rounded-xl overflow-hidden grid place-items-center"
-                  style={{
-                    // 🔴 أصغرُ ٢٠٪ من ٣٦dvh/٣٢٠ — الفارقُ يذهب كلُّه إلى النصّ تحته
-                    height: 'min(29dvh, 256px)', aspectRatio: '720 / 1073',
-                    border: `1px solid ${c}44`, background: '#0e0d0c',
-                    cursor: src ? 'zoom-in' : 'default',
-                  }}>
-                  {src ? (
-                    <img src={src} alt={cur.nameAr} loading="lazy" decoding="async"
-                      className="w-full h-full object-contain" />
-                  ) : (
-                    <span className="text-4xl opacity-80">{FALLBACK_ICON[cur.id] || '🎭'}</span>
-                  )}
-                </button>
-
-                <h3 className="text-center mt-3 text-[28px] leading-tight font-black"
-                  style={{ fontFamily: 'Amiri, serif', color: c }}>{cur.nameAr}</h3>
-                <p className="text-center text-[11px] tracking-[0.22em] text-[#645c50]" dir="ltr">{cur.nameEn}</p>
-
-                {cur.oneLiner && (
-                  <p className="text-center text-[14.5px] leading-relaxed text-[#cdc3af] font-light mt-2">{cur.oneLiner}</p>
-                )}
-
-                <div className="flex-1 overflow-y-auto mt-3 pt-3 border-t border-[#221f1a] space-y-3"
-                  style={{ overscrollBehavior: 'contain', WebkitOverflowScrolling: 'touch' }}>
-                  {cur.howItWorks && (
-                    <Block title="كيف يعمل"><p className="text-[14px] leading-[1.85] text-[#b3a996] font-light">{cur.howItWorks}</p></Block>
-                  )}
-                  {cur.limits.length > 0 && (
-                    <Block title="القيود"><Lines items={cur.limits.map(l => ({ text: l.text, tag: l.auto }))} /></Block>
-                  )}
-                  {cur.interactsWith.length > 0 && (
-                    <Block title="يتقاطع مع"><Lines items={cur.interactsWith.map(text => ({ text }))} /></Block>
-                  )}
-                  {cur.tips.length > 0 && (
-                    <Block title="نصائح"><Lines items={cur.tips.map(text => ({ text }))} /></Block>
-                  )}
-                  {cur.winConditionDescription && (
-                    <div className="rounded-lg px-3 py-2 text-[12.5px] leading-relaxed font-light"
-                      style={{ background: 'rgba(197,160,89,.07)', border: '1px solid rgba(197,160,89,.2)', color: '#c5a059' }}>
-                      🏆 {cur.winConditionDescription}
+                <div className="rd-who">
+                  <span className="rd-tpill" style={{ color: tc.c, borderColor: `${tc.c}55`, background: `${tc.c}14` }}>
+                    <i style={{ background: tc.c }} />{tc.one}
+                  </span>
+                  <h3>{cur.nameAr}</h3>
+                  {cur.actsIn?.some((k) => ACT_AR[k]) && (
+                    <div className="rd-acts" aria-label="متى يعمل">
+                      {cur.actsIn.filter((k) => ACT_AR[k]).map((k) => <span key={k}><Ic k={k} />{ACT_AR[k]}</span>)}
                     </div>
                   )}
                 </div>
-              </motion.div>
-            </AnimatePresence>
+              </div>
 
-            {/* التنقّل */}
-            <div className="flex items-center gap-2.5 mt-3 shrink-0">
-              <button onClick={() => go(-1)} aria-label="السابق"
-                className="w-9 h-9 rounded-xl border border-[#2b2621] text-[#c5a059] grid place-items-center"
-                style={{ background: '#151310' }}>›</button>
-              <span className="flex-1 text-center text-[11px] text-[#645c50] font-mono tabular-nums" dir="ltr">
-                {Math.min(idx, list.length - 1) + 1} / {list.length}
-              </span>
-              <button onClick={() => go(1)} aria-label="التالي"
-                className="w-9 h-9 rounded-xl border border-[#2b2621] text-[#c5a059] grid place-items-center"
-                style={{ background: '#151310' }}>‹</button>
+              {cur.oneLiner && <p className="rd-one">{cur.oneLiner}</p>}
+              {cur.winConditionDescription && (
+                <div className="rd-blk rd-win"><h5><Ic k="win" />شرط الفوز</h5><p>{cur.winConditionDescription}</p></div>
+              )}
+              {cur.howItWorks && <div className="rd-blk"><h5><Ic k="how" />كيف يعمل</h5><p>{cur.howItWorks}</p></div>}
+              {cur.limits.length > 0 && <div className="rd-blk"><h5><Ic k="lim" />القيود</h5><Lines items={cur.limits.map((l) => l.text)} /></div>}
+              {cur.interactsWith.length > 0 && (
+                <div className="rd-blk"><h5><Ic k="ix" />يتقاطع مع</h5>
+                  <div className="rd-ix">
+                    {cur.interactsWith.map((tx, k) => {
+                      const mid = firstMention(tx, cur.id);
+                      const m = mid ? byId.get(mid) : null;
+                      const ok = !!m && inPool.has(m.id);
+                      return (
+                        <div key={k}>
+                          {m && (
+                            <button type="button" className="rd-men" disabled={!ok} onClick={() => jumpTo(m.id)}
+                              title={ok ? undefined : 'ليس في هذه الطاولة'}>
+                              {faceSm(m.face) && <img src={faceSm(m.face)!} alt="" loading="lazy" />}{m.nameAr}{ok && <Ic k="chevL" />}
+                            </button>
+                          )}
+                          <p>{tx}</p>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+              {cur.tips.length > 0 && <div className="rd-blk"><h5><Ic k="tip" />نصائح</h5><Lines items={cur.tips} /></div>}
             </div>
 
-            {/* شريطُ القفز — ضغطةٌ واحدة إلى أيّ دور */}
-            <div ref={jumpRef} className="flex gap-1.5 overflow-x-auto mt-2 pb-1 shrink-0"
-              style={{ overscrollBehavior: 'contain' }}>
-              {/* 🔴 ولا وسمَ لدورك هنا: النجمةُ كانت تُعلّمه في الشريط — وهو
-                  التسريبُ نفسُه في موضعٍ أصغر. الرقاقاتُ متساويةٌ كلُّها. */}
-              {list.map((r, k) => {
-                const on = k === Math.min(idx, list.length - 1);
-                return (
-                  <button key={r.id} onClick={() => setIdx(k)} data-on={on ? '1' : '0'}
-                    className="shrink-0 text-[11.5px] px-2.5 py-1 rounded-lg border whitespace-nowrap transition"
-                    style={on
-                      ? { background: '#efe9dc', color: '#0a0a0b', borderColor: '#efe9dc', fontWeight: 700 }
-                      : { borderColor: '#2b2621', color: '#8d8271' }}>
-                    {r.nameAr}
-                  </button>
-                );
-              })}
+            <div className="rd-ft">
+              <button type="button" className="rd-arrow" onClick={() => go(-1)} aria-label="الدور السابق"><Ic k="prev" /></button>
+              <div className="rd-strip-w">
+                {/* 🔴 لا وسمَ لدورك هنا — الرقاقاتُ متساويةٌ كلُّها */}
+                <div className="rd-strip" ref={stripRef} aria-label="القفز إلى دور">
+                  {list.map((r, k) => (
+                    <button key={r.id} type="button" className="rd-chip" aria-current={k === i} onClick={() => setIdx(k)}>
+                      {faceSm(r.face) && <img src={faceSm(r.face)!} alt="" loading="lazy" />}{r.nameAr}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              <button type="button" className="rd-arrow" onClick={() => go(1)} aria-label="الدور التالي"><Ic k="next" /></button>
             </div>
-          </div>
+          </>
         )}
-      </motion.div>
+      </div>
 
-      {/* 🔍 التكبير — الصورةُ كاملةً على الشاشة، ضغطةٌ تُغلقها */}
+      {/* 🔍 التكبير — الصورةُ كاملةً، ضغطةٌ تُغلقها */}
       {zoom && (
-        <div onClick={() => setZoom(null)}
-          className="fixed inset-0 z-[310] bg-black/95 flex items-center justify-center p-4"
-          style={{ cursor: 'zoom-out' }}>
-          <img src={zoom} alt="" className="max-w-full max-h-full object-contain rounded-xl" />
-          <button onClick={() => setZoom(null)} aria-label="إغلاق"
-            className="absolute top-4 left-4 w-9 h-9 rounded-xl border border-[#2b2621] text-[#cdc3af] grid place-items-center"
-            style={{ background: 'rgba(21,19,16,0.9)' }}>✕</button>
+        <div className="rd-zoom" onClick={() => setZoom(null)}>
+          <img src={zoom} alt="" />
+          <button type="button" className="rd-x" onClick={() => setZoom(null)} aria-label="إغلاق التكبير"><Ic k="x" /></button>
         </div>
       )}
     </div>
   );
 }
 
-function Block({ title, children }: { title: string; children: React.ReactNode }) {
+/**
+ * 🃏 زرُّ الدخول في «ملفّي» — بطاقةٌ داكنةٌ بخطٍّ ذهبيّ ومروحةٌ من ثلاثة كروتٍ حقيقيّة.
+ * الكروتُ الثلاثة ثابتةٌ للجميع (الشيخ، الشريف، المهرّج) فلا تقول شيئاً عن أحد.
+ */
+export function RolesGuideEntry({ onOpen }: { onOpen: () => void }) {
+  const [guide, setGuide] = useState<GuideRole[] | null>(_cache);
+  useEffect(() => { if (!_cache) loadGuide().then((d) => { if (d) setGuide(d); }); }, []);
+  const fan = ['GODFATHER', 'SHERIFF', 'JESTER']
+    .map((id) => guide?.find((r) => r.id === id))
+    .filter((r): r is GuideRole => !!r && !!faceSm(r.face));
+  const n = guide?.length ?? 0;
   return (
-    <div>
-      <h5 className="text-[11.5px] tracking-[0.1em] font-bold mb-1.5" style={{ color: '#c5a059' }}>{title}</h5>
-      {children}
-    </div>
-  );
-}
-
-function Lines({ items }: { items: { text: string; tag?: boolean }[] }) {
-  return (
-    <ul className="space-y-1">
-      {items.map((l, i) => (
-        <li key={i} className="text-[13.5px] leading-[1.75] text-[#b3a996] font-light flex gap-1.5">
-          <span className="shrink-0" style={{ color: '#c5a059' }}>—</span>
-          <span>{l.text}</span>
-        </li>
-      ))}
-    </ul>
+    <button type="button" className="rd-entry" onClick={onOpen} aria-haspopup="dialog">
+      <span className="rd-fan" aria-hidden>{fan.map((r) => <img key={r.id} src={faceSm(r.face)!} alt="" />)}</span>
+      <span className="rd-etx">
+        <b>دليل الأدوار</b>
+        <small>{n ? `${n} دوراً: ` : ''}كيف يعمل كلٌّ منها، وقيوده، ومع من يتقاطع</small>
+      </span>
+      <Ic k="chevL" />
+    </button>
   );
 }

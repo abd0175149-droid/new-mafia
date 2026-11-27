@@ -4,7 +4,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import Link from 'next/link';
 import { ImageCropper } from '@/components/ImageCropper';
 import { CropBoundary } from '@/components/CropBoundary';
-import RolesDeck from '@/components/RolesDeck';
+import RolesDeck, { RolesGuideEntry } from '@/components/RolesDeck';
 import DynamicMafiaCard from '@/components/DynamicMafiaCard';
 import { usePlayerCosmetics } from '@/hooks/usePlayerCosmetics';
 import { GuideProfileRow } from '@/components/guide/GuideEntries';
@@ -667,16 +667,9 @@ export default function PlayerProfilePage(){
           </motion.div>
         )}
 
-        {/* ═══ ROLES GUIDE BUTTON ═══ */}
-        <motion.div initial={{opacity:0}} animate={{opacity:1}} transition={{delay:0.55}}
-          className="flex justify-center mb-5">
-          <button
-            onClick={() => setRolesModalOpen(true)}
-            className="flex items-center justify-center gap-3 w-full px-6 py-4 rounded-2xl bg-gradient-to-r from-gray-800 to-gray-900 hover:from-gray-700 hover:to-gray-800 border border-white/10 text-white font-bold transition-all shadow-lg"
-          >
-            <span className="text-xl">🃏</span>
-            تعرف على الكروت والأدوار
-          </button>
+        {/* ═══ 🃏 دليل الأدوار — بطاقةٌ بلغة الشاشة الجديدة (2026-11-27) ═══ */}
+        <motion.div initial={{opacity:0}} animate={{opacity:1}} transition={{delay:0.55}} className="mb-5">
+          <RolesGuideEntry onOpen={() => setRolesModalOpen(true)} />
         </motion.div>
 
         {/* ═══ MATCH HISTORY ═══ */}
