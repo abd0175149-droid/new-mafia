@@ -4,7 +4,7 @@
 // مرتبطة بموقع محدّد (إحصاءات مستقلة تماماً).
 // ══════════════════════════════════════════════════════
 
-import { pgTable, serial, varchar, integer, timestamp } from 'drizzle-orm/pg-core';
+import { pgTable, serial, varchar, integer, timestamp, jsonb } from 'drizzle-orm/pg-core';
 
 // ── Seasons (المواسم) ───────────────────────────────
 // type: REGULAR = الموسم العادي (locationId = null) | TOURNAMENT = بطولة مرتبطة بموقع
@@ -35,6 +35,8 @@ export const seasonDrafts = pgTable('season_drafts', {
   id: serial('id').primaryKey(),
   name: varchar('name', { length: 100 }).notNull(),
   contentPack: varchar('content_pack', { length: 30 }).notNull(),
+  // قصّة الموسم وما يخصّه للإدارة (الفصول والسرّ…) — في القاعدة لا في الكود لأنّ المستودع عامّ
+  content: jsonb('content'),
   createdAt: timestamp('created_at').defaultNow().notNull(),
   activatedSeasonId: integer('activated_season_id'),
   activatedAt: timestamp('activated_at'),

@@ -223,6 +223,7 @@ async function runAutoMigrations(pool: pg.Pool): Promise<void> {
         activated_at        TIMESTAMP
       )
     `);
+    await client.query(`ALTER TABLE season_drafts ADD COLUMN IF NOT EXISTS content JSONB`);
     // 🔮 سجلّ المخطوطتين (سطرٌ لكلّ مباراة نبوءة) و«مخطوطتك» (علامات كلّ مصوّت) — لا تُكتب إلّا لمباراة نبوءة
     await client.query(`
       CREATE TABLE IF NOT EXISTS prophecy_ledger (

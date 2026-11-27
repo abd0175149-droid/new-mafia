@@ -556,6 +556,8 @@ CREATE TABLE IF NOT EXISTS season_drafts (
   activated_season_id INTEGER,
   activated_at TIMESTAMP
 );
+-- قصّة الموسم للإدارة (الفصول والسرّ) — في القاعدة لا في الكود لأنّ المستودع عامّ (2026-11-27)
+ALTER TABLE season_drafts ADD COLUMN IF NOT EXISTS content JSONB;
 WITH claim AS (
   INSERT INTO one_time_migrations (key) VALUES ('prophecy-season-draft-2026-11-26')
   ON CONFLICT DO NOTHING RETURNING key

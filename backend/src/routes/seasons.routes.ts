@@ -3,16 +3,47 @@
 // ══════════════════════════════════════════════════════
 
 import { Router, type Request, type Response } from 'express';
-import { authenticate, managerOrAbove } from '../middleware/auth.js';
+import { authenticate, managerOrAbove, adminOnly } from '../middleware/auth.js';
 import {
   listSeasons, getSeasonLeaderboard, getActiveRegularSeasonId, getActiveRegularSeason, getSeasonCityStats,
   startRegularSeason, startTournamentSeason, startOnlineSeason, getActiveOnlineSeasonId, endSeason, renameSeason,
+  getPendingSeasonDraft, activateSeasonDraft,
 } from '../services/season.service.js';
+import { getSeasonDraftOverview, setProphecyCardOff } from '../services/season-draft.service.js';
 import { getActiveRooms } from '../sockets/lobby.socket.js';
 import { getDB } from '../config/db.js';
 import { sql } from 'drizzle-orm';
 
 const router = Router();
+
+/** الغرف التي تمنع تبديل الموسم: أيّ غرفةٍ بمرحلةٍ غير «انتهت اللعبة» */
+function busyRooms() {
+  return getActiveRooms()
+    .filter((r: any) => r && r.phase && r.phase !== 'GAME_OVER')
+    .map((r: any) => ({ roomId: r.roomId, roomCode: r.roomCode, phase: r.phase, gameName: r.config?.gameName }));
+}
+
+// 🧮 تسوية الغرف المنتهية غير المحتسبة قبل التبديل — غرفة في GAME_OVER تمرّ من حارس الغرف،
+// ولو بقيت مباراتها بلا احتساب لاحتُسبت لاحقاً في **الموسم الجديد** (الموسم يُحسم لحظة الاحتساب)
+// فتُسرّب لعبةً من الموسم المنتهي إلى الجديد. نحسمها الآن: محسومة ⇒ تُحتسب للموسم القديم، بلا فائز ⇒ تُلغى.
+async function settleFinishedRooms() {
+  try {
+    const { getGameState } = await import('../config/redis.js');
+    const { finalizeIfDecided } = await import('../services/match.service.js');
+    let settled = 0;
+    for (const room of getActiveRooms()) {
+      const roomId = (room as any)?.roomId;
+      if (!roomId) continue;
+      const state = await getGameState(roomId).catch(() => null);
+      if (!state?.matchId) continue;
+      await finalizeIfDecided(state).catch(() => {});
+      settled++;
+    }
+    if (settled > 0) console.log(`🧮 [seasons] Settled ${settled} pending room match(es) before starting a new regular season`);
+  } catch (settleErr: any) {
+    console.warn('⚠️ [seasons] Pre-switch settle failed:', settleErr?.message || settleErr);
+  }
+}
 
 // 🏙️ نطاق لوحة الترتيب: الموسم العادي يشترط مدينةً (400 بدونها)؛ البطولة/الأونلاين بلا مدينة
 async function leaderboardScope(seasonId: number, rawCity: unknown): Promise<{ cityId: number | null } | { error: string; code: string }> {
@@ -101,6 +132,61 @@ router.get('/active', authenticate, async (_req: Request, res: Response) => {
   }
 });
 
+// ══════════════════════════════════════════════════════
+// 🔮 الموسم القادم (المسودّة): التفاصيل، ومفاتيح الكروت، والتفعيل
+// ══════════════════════════════════════════════════════
+
+// كلّ ما يخصّ الموسم القادم: الحالة، والكروت، والقصّة، والجاهزيّة (للإدارة وحدها — فيها سرّ الموسم)
+router.get('/drafts/overview', authenticate, managerOrAbove, async (_req: Request, res: Response) => {
+  try {
+    res.json({ success: true, ...(await getSeasonDraftOverview()) });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// مفتاح إطفاء كرت: { off: true } يمنعه من التوزيع في كلّ الغرف، و{ off: false } يعيده
+router.put('/drafts/cards/:role', authenticate, adminOnly, async (req: Request, res: Response) => {
+  try {
+    if (typeof req.body?.off !== 'boolean') return res.status(400).json({ error: 'off مطلوب (true/false)' });
+    const by = (req as any).user?.displayName || (req as any).user?.username || '';
+    await setProphecyCardOff(String(req.params.role), req.body.off, by);
+    res.json({ success: true });
+  } catch (err: any) {
+    res.status(err.status || 500).json({ error: err.message });
+  }
+});
+
+// تفعيل المسودّة — فحصٌ بلا كتابة افتراضيّاً ({ dryRun: true })؛ التنفيذ يشترط { dryRun: false, confirmName: <اسم الموسم> }.
+// التنفيذ = بدء موسمٍ عاديّ جديد: يُنهي الموسم النشط بعد تثبيت أرشيفه ويصفّر رانك الجميع (الحرّاس نفسها).
+router.post('/drafts/:id/activate', authenticate, adminOnly, async (req: Request, res: Response) => {
+  try {
+    const id = parseInt(req.params.id);
+    if (isNaN(id)) return res.status(400).json({ error: 'معرّف غير صالح' });
+    const draft = await getPendingSeasonDraft();
+    if (!draft || draft.id !== id) return res.status(409).json({ error: 'لا مسودّة معلّقة بهذا الرقم — ربّما فُعّلت من قبل' });
+    const dryRun = req.body?.dryRun !== false;
+    const activeRooms = busyRooms();
+    const current = await getActiveRegularSeason();
+    const cities = current ? await getSeasonCityStats(current.id).catch(() => []) : [];
+
+    if (dryRun) {
+      return res.json({ success: true, dryRun: true, ok: activeRooms.length === 0, activeRooms, draft, current: current ? { ...current, cities } : null });
+    }
+    if (String(req.body?.confirmName || '').trim() !== draft.name) {
+      return res.status(400).json({ error: `للتأكيد اكتب اسم الموسم كما هو: ${draft.name}` });
+    }
+    if (activeRooms.length > 0) {
+      return res.status(409).json({ error: 'يجب إنهاء كل الفعاليات/المباريات الجارية أولاً قبل تفعيل الموسم', activeRooms });
+    }
+    await settleFinishedRooms();
+    const season = await activateSeasonDraft(id, (req as any).user?.id);
+    res.json({ success: true, season, message: `بدأ موسم «${season.name}»` });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // ── لوحة ترتيب موسم محدّد ──
 router.get('/:id/leaderboard', authenticate, async (req: Request, res: Response) => {
   try {
@@ -122,33 +208,11 @@ router.post('/regular/start', authenticate, managerOrAbove, async (req: Request,
     if (!name || !String(name).trim()) return res.status(400).json({ error: 'اسم الموسم مطلوب' });
 
     // 🛑 حارس: لا يُسمح ببدء موسم عادي جديد وهناك مباريات/غرف جارية
-    const activeRooms = getActiveRooms().filter((r: any) => r && r.phase && r.phase !== 'GAME_OVER');
+    const activeRooms = busyRooms();
     if (activeRooms.length > 0) {
-      return res.status(409).json({
-        error: 'يجب إنهاء كل الفعاليات/المباريات الجارية أولاً قبل بدء موسم جديد',
-        activeRooms: activeRooms.map((r: any) => ({ roomId: r.roomId, roomCode: r.roomCode, phase: r.phase, gameName: r.config?.gameName })),
-      });
+      return res.status(409).json({ error: 'يجب إنهاء كل الفعاليات/المباريات الجارية أولاً قبل بدء موسم جديد', activeRooms });
     }
-
-    // 🧮 تسوية الغرف المنتهية غير المحتسبة قبل التبديل — غرفة في GAME_OVER تمرّ من الحارس أعلاه،
-    // ولو بقيت مباراتها بلا احتساب لاحتُسبت لاحقاً في **الموسم الجديد** (الموسم يُحسم لحظة الاحتساب)
-    // فتُسرّب لعبةً من الموسم المنتهي إلى الجديد. نحسمها الآن: محسومة ⇒ تُحتسب للموسم القديم، بلا فائز ⇒ تُلغى.
-    try {
-      const { getGameState } = await import('../config/redis.js');
-      const { finalizeIfDecided } = await import('../services/match.service.js');
-      let settled = 0;
-      for (const room of getActiveRooms()) {
-        const roomId = (room as any)?.roomId;
-        if (!roomId) continue;
-        const state = await getGameState(roomId).catch(() => null);
-        if (!state?.matchId) continue;
-        await finalizeIfDecided(state).catch(() => {});
-        settled++;
-      }
-      if (settled > 0) console.log(`🧮 [seasons] Settled ${settled} pending room match(es) before starting a new regular season`);
-    } catch (settleErr: any) {
-      console.warn('⚠️ [seasons] Pre-switch settle failed:', settleErr?.message || settleErr);
-    }
+    await settleFinishedRooms();
 
     const userId = (req as any).user?.id;
     const season = await startRegularSeason(String(name).trim(), userId);

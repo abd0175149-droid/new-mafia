@@ -5,6 +5,7 @@ import { swalConfirm } from '@/lib/swal';
 import CityBadge, { CitySegment } from '@/components/admin/CityBadge';
 import { useCities } from '@/hooks/useCities';
 import { rankName, rankBadge } from '@/lib/ranks';
+import SeasonDraftPanel from '@/components/admin/SeasonDraftPanel';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || '';
 function getToken() { return typeof window !== 'undefined' ? localStorage.getItem('token') : null; }
@@ -196,6 +197,9 @@ export default function SeasonsPage() {
             </button>
           </div>
         </div>
+
+        {/* 🔮 الموسم القادم: المسودّة في جدولٍ مستقلّ فلا تظهر في القائمة — هنا كلّ ما يخصّها */}
+        <SeasonDraftPanel apiFetch={apiFetch} onChanged={load} />
 
         {/* 🏆 الترتيب — داخل الصفحة لا في نافذةٍ منبثقة؛ للموسم العاديّ مفتاحُ مدينة */}
         {(board || boardLoading) && (
