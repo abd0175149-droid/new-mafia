@@ -5,6 +5,7 @@
 // هذا القسم يعرضها كاملة: الحالة، والكروت بوجوهها ومفاتيحها، والقصّة، والجاهزيّة، والتفعيل.
 // ══════════════════════════════════════════════════════
 import { useCallback, useEffect, useState } from 'react';
+import { motion, AnimatePresence } from 'framer-motion';
 import { swalConfirm } from '@/lib/swal';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || '';
@@ -14,7 +15,7 @@ const dateAr = (d?: string | null) => (d ? new Date(d).toLocaleDateString('ar-EG
 type Team = 'CITIZEN' | 'MAFIA' | 'NEUTRAL';
 interface Card {
   role: string; nameAr: string; character: string | null; team: Team; teamLabel: string; entry: string;
-  slogan: string; pitch: string; ability: string[]; flipLine: string | null; face: string | null;
+  slogan: string; pitch: string; ability: string[]; flipLine: string | null; face: string | null; faceThumb: string | null;
   registered: boolean; off: boolean; offBy: string | null; offAt: string | null;
 }
 interface Chapter { week: number; act: string; title: string; text: string; hall?: string }
@@ -57,6 +58,7 @@ export default function SeasonDraftPanel({ apiFetch, onChanged }: {
   const [error, setError] = useState('');
   const [tab, setTab] = useState<Tab>('cards');
   const [busyRole, setBusyRole] = useState<string | null>(null);
+  const [viewer, setViewer] = useState<number | null>(null);   // نافذة الكرت الكاملة
 
   const load = useCallback(async () => {
     try {
@@ -130,11 +132,17 @@ export default function SeasonDraftPanel({ apiFetch, onChanged }: {
       </div>
 
       <div className="p-4 md:p-6">
-        {tab === 'cards' && <CardsTab cards={data.cards} busyRole={busyRole} onToggle={toggleCard} />}
+        {tab === 'cards' && <CardsTab cards={data.cards} busyRole={busyRole} onToggle={toggleCard} onOpen={setViewer} />}
         {tab === 'story' && <StoryTab story={data.story} weekLines={data.weekLines} currentWeek={data.week} />}
         {tab === 'status' && <StatusTab data={data} />}
         {tab === 'activate' && data.status === 'DRAFT' && <ActivateTab data={data} apiFetch={apiFetch} onDone={async () => { await load(); onChanged?.(); }} />}
       </div>
+
+      <AnimatePresence>
+        {viewer !== null && data.cards[viewer] && (
+          <CardViewer cards={data.cards} index={viewer} story={data.story} onNav={setViewer} onClose={() => setViewer(null)} />
+        )}
+      </AnimatePresence>
     </section>
   );
 }
@@ -169,18 +177,21 @@ function Stat({ label, value, warn }: { label: string; value: string; warn?: boo
 }
 
 // ── الكروت ──
-function CardsTab({ cards, busyRole, onToggle }: { cards: Card[]; busyRole: string | null; onToggle: (c: Card) => void }) {
+function CardsTab({ cards, busyRole, onToggle, onOpen }: { cards: Card[]; busyRole: string | null; onToggle: (c: Card) => void; onOpen: (i: number) => void }) {
   return (
     <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4">
-      {cards.map(c => (
+      {cards.map((c, idx) => (
         <article key={c.role} className={`rounded-2xl border overflow-hidden flex flex-col ${c.off ? 'border-[#333] opacity-70' : 'border-[#2a2a2a]'} bg-[#0f0f14]`}>
-          <div className="relative aspect-[2/3] max-h-72 bg-gradient-to-b from-[#1a1712] to-[#0a0a0a] flex items-center justify-center overflow-hidden">
-            {c.face
-              ? <img src={`${API_URL}${c.face}`} alt={c.nameAr} className="w-full h-full object-cover" loading="lazy" />
+          {/* الكرت كاملاً بنسبته (٢:٣) — الضغط يفتح نافذة الصورة والقصّة */}
+          <button type="button" onClick={() => onOpen(idx)} aria-label={`عرض ${c.nameAr} كاملاً`}
+            className="group relative aspect-[2/3] w-full bg-gradient-to-b from-[#1a1712] to-[#0a0a0a] flex items-center justify-center overflow-hidden cursor-zoom-in">
+            {c.faceThumb
+              ? <img src={`${API_URL}${c.faceThumb}`} alt={c.nameAr} className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-[1.03]" loading="lazy" />
               : <div className="text-center px-4"><div className="text-4xl mb-2 opacity-60">🔮</div><p className="text-[11px] text-[#777]">الوجه بانتظار الرسم</p></div>}
+            <span className="absolute inset-x-0 bottom-0 py-2 text-[11px] text-[#f0e2bd] bg-gradient-to-t from-black/85 to-transparent opacity-0 group-hover:opacity-100 group-focus-visible:opacity-100 transition-opacity">⤢ الصورة كاملة والقصّة</span>
             <span className={`absolute top-2 right-2 text-[10px] px-2 py-0.5 rounded-full border backdrop-blur ${TEAM_STYLE[c.team]}`}>{c.teamLabel}</span>
             {c.off && <span className="absolute top-2 left-2 text-[10px] px-2 py-0.5 rounded-full border border-red-500/50 bg-black/70 text-red-300">مطفأ</span>}
-          </div>
+          </button>
           <div className="p-4 flex-1 flex flex-col">
             <h3 className="text-lg font-black text-[#C5A059]" style={{ fontFamily: 'Amiri, serif' }}>
               {c.character ? `${c.character} · ${c.nameAr}` : c.nameAr}
@@ -202,6 +213,122 @@ function CardsTab({ cards, busyRole, onToggle }: { cards: Card[]; busyRole: stri
           </div>
         </article>
       ))}
+    </div>
+  );
+}
+
+// ── نافذة الكرت: الصورة كاملة يساراً، والتفاصيل والقصّة يميناً (فوق بعضهما على الهاتف) ──
+function CardViewer({ cards, index, story, onNav, onClose }: {
+  cards: Card[]; index: number; story: Overview['story'];
+  onNav: (i: number) => void; onClose: () => void;
+}) {
+  const c = cards[index];
+  const n = cards.length;
+  const next = useCallback(() => onNav((index + 1) % n), [index, n, onNav]);
+  const prev = useCallback(() => onNav((index - 1 + n) % n), [index, n, onNav]);
+
+  // Esc يغلق، والأسهم تتنقّل (في العربيّة: السهم الأيسر = التالي)
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose();
+      else if (e.key === 'ArrowLeft') next();
+      else if (e.key === 'ArrowRight') prev();
+    };
+    window.addEventListener('keydown', onKey);
+    const overflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    return () => { window.removeEventListener('keydown', onKey); document.body.style.overflow = overflow; };
+  }, [next, prev, onClose]);
+
+  const person = c.character ? story?.characters.find(x => x.name === c.character) : null;
+  const chapter = c.character ? story?.chapters.find(x => x.title === c.character) : null;
+
+  return (
+    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+      className="fixed inset-0 z-[70] bg-black/85 backdrop-blur-sm flex items-center justify-center p-0 md:p-6" onClick={onClose}
+      role="dialog" aria-modal="true" aria-label={c.nameAr}>
+      <motion.div key={c.role} initial={{ scale: 0.97, y: 12, opacity: 0 }} animate={{ scale: 1, y: 0, opacity: 1 }} exit={{ scale: 0.97, opacity: 0 }}
+        transition={{ duration: 0.22, ease: [0.2, 0.8, 0.2, 1] }}
+        className="relative w-full max-w-6xl h-full md:h-auto md:max-h-[92vh] grid grid-cols-1 md:grid-cols-2 bg-gradient-to-b from-[#14110b] to-[#0a0a0a] md:border md:border-[#C5A059]/30 md:rounded-2xl overflow-y-auto md:overflow-hidden shadow-[0_30px_80px_rgba(0,0,0,0.6)]"
+        onClick={e => e.stopPropagation()} dir="rtl">
+
+        {/* زرّ الإغلاق */}
+        <button onClick={onClose} aria-label="إغلاق"
+          className="absolute top-3 left-3 z-10 w-9 h-9 rounded-full bg-black/70 border border-white/15 text-white hover:bg-black/90">✕</button>
+
+        {/* التفاصيل — يميناً */}
+        <div className="order-last md:order-first md:overflow-y-auto md:max-h-[92vh] p-5 md:p-8">
+          <div className="flex items-center gap-2 flex-wrap">
+            <span className={`text-[11px] px-2.5 py-0.5 rounded-full border ${TEAM_STYLE[c.team]}`}>{c.teamLabel}</span>
+            {c.off && <span className="text-[11px] px-2.5 py-0.5 rounded-full border border-red-500/50 text-red-300">مطفأ: لا يدخل التوزيع</span>}
+            <span className="text-[11px] text-[#777] mr-auto">{ar(index + 1)} من {ar(n)}</span>
+          </div>
+          <h2 className="mt-3 text-4xl font-black text-[#C5A059] leading-tight" style={{ fontFamily: 'Amiri, serif' }}>{c.nameAr}</h2>
+          {person && <p className="text-sm text-[#bfae86] mt-1">{person.name} · {person.role}</p>}
+          <p className="text-lg text-[#e6dcc4] mt-3" style={{ fontFamily: 'Amiri, serif' }}>{c.slogan}</p>
+
+          <ViewerSection title={person ? 'الشخصيّة' : 'حكايته'}>
+            <p className="text-[15px] text-[#e6dcc4] leading-loose" style={{ fontFamily: 'Amiri, serif' }}>{c.pitch}</p>
+            {person && (
+              <>
+                <p className="text-sm text-[#cfc3a6] leading-relaxed mt-3">{person.text}</p>
+                <p className="text-[12px] text-[#9a8a66] mt-2">رحلته في الموسم: {person.journey}</p>
+              </>
+            )}
+          </ViewerSection>
+
+          {chapter && (
+            <ViewerSection title={`فصله في القصّة · الأسبوع ${ar(chapter.week)}`}>
+              <p className="text-[15px] text-[#e6dcc4] leading-loose" style={{ fontFamily: 'Amiri, serif' }}>{chapter.text}</p>
+            </ViewerSection>
+          )}
+
+          <ViewerSection title="القدرة">
+            <ul className="space-y-2">
+              {c.ability.map((a, i) => <li key={i} className="text-sm text-[#ddd] leading-relaxed flex gap-2"><span className="text-[#C5A059] shrink-0">◆</span><span>{a}</span></li>)}
+            </ul>
+          </ViewerSection>
+
+          <div className="mt-6 grid grid-cols-1 sm:grid-cols-2 gap-2">
+            <div className="p-3 rounded-xl border border-[#2a2a2a] bg-black/30">
+              <p className="text-[10px] text-[#888]">متى يدخل التوزيع</p>
+              <p className="text-xs text-[#ddd] mt-1 leading-relaxed">{c.entry}</p>
+            </div>
+            {c.flipLine && (
+              <div className="p-3 rounded-xl border border-[#2a2a2a] bg-black/30">
+                <p className="text-[10px] text-[#888]">سطره حين يُقلب على الشاشة</p>
+                <p className="text-sm text-[#d8c9a3] mt-1" style={{ fontFamily: 'Amiri, serif' }}>{c.flipLine}</p>
+              </div>
+            )}
+          </div>
+
+          {/* التنقّل بين الكروت */}
+          <div className="mt-6 flex items-center justify-between gap-2">
+            <button onClick={prev} className="text-xs text-[#C5A059] border border-[#C5A059]/40 rounded-lg px-3 py-2 hover:bg-[#C5A059]/10">→ {cards[(index - 1 + n) % n].nameAr}</button>
+            <button onClick={next} className="text-xs text-[#C5A059] border border-[#C5A059]/40 rounded-lg px-3 py-2 hover:bg-[#C5A059]/10">{cards[(index + 1) % n].nameAr} ←</button>
+          </div>
+        </div>
+
+        {/* الصورة كاملة — يساراً */}
+        <div className="order-first md:order-last relative bg-[radial-gradient(ellipse_at_center,#2a2214_0%,#0a0a0a_70%)] flex items-center justify-center p-4 md:p-6 md:max-h-[92vh]">
+          {c.face
+            ? <img src={`${API_URL}${c.face}`} alt={c.nameAr} className="max-h-[70vh] md:max-h-[calc(92vh-3rem)] w-auto max-w-full object-contain rounded-xl shadow-[0_20px_60px_rgba(0,0,0,0.7)]" />
+            : <div className="py-24 text-center"><div className="text-6xl opacity-60">🔮</div><p className="text-sm text-[#777] mt-3">الوجه بانتظار الرسم</p></div>}
+          {c.face && (
+            <a href={`${API_URL}${c.face}`} target="_blank" rel="noreferrer"
+              className="absolute bottom-3 left-3 text-[11px] text-[#f0e2bd] bg-black/60 border border-white/10 rounded-full px-3 py-1 hover:bg-black/80">↗ بحجمها الأصليّ</a>
+          )}
+        </div>
+      </motion.div>
+    </motion.div>
+  );
+}
+
+function ViewerSection({ title, children }: { title: string; children: React.ReactNode }) {
+  return (
+    <div className="mt-6">
+      <p className="text-[11px] tracking-wide text-[#9a8a66] mb-2 pb-1.5 border-b border-[#C5A059]/15">{title}</p>
+      {children}
     </div>
   );
 }

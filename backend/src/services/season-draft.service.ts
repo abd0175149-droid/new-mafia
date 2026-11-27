@@ -11,6 +11,7 @@ import { getDB } from '../config/db.js';
 import { PROPHECY } from './feature-flags.js';
 import { PROPHECY_CARD_INFO } from '../game/prophecy-cards.js';
 import { FLIP_LINES, WEEK_LINES, seasonWeek } from '../game/prophecy-content.js';
+import { thumbUrls } from './card-face-thumbs.service.js';
 
 const rowsOf = (r: any): any[] => (Array.isArray(r) ? r : r?.rows || []);
 const ar = (n: number) => n.toLocaleString('ar-EG');
@@ -70,6 +71,8 @@ export async function getSeasonDraftOverview() {
       nameAr: def?.name_ar ?? info.role,
       registered: !!def,
       face: def?.face || null,
+      // مصغّر ٧٢٠ للشبكة (الأصل حتّى ٣ ميغابايت)، والأصل لنافذة العرض الكاملة
+      faceThumb: def?.face ? (thumbUrls(def.face).thumbUrl || def.face) : null,
       flipLine: FLIP_LINES[info.role] || null,
       off: off?.value?.enabled === true,
       offBy: off?.value?.by || null,
