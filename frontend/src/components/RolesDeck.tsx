@@ -144,7 +144,10 @@ export default function RolesDeck({ open, onClose, roleIds }: {
   const closeRef = useRef<HTMLButtonElement | null>(null);
 
   useEffect(() => {
-    if (!open || _cache) return;
+    if (!open) return;
+    // 🔴 المخزَّن قد يكون امتلأ بعد تركيب هذا المكوّن (زرُّ الدخول يجلب الدليل لمروحته) —
+    //    فالحالةُ تُؤخذ منه هنا، وإلّا بقي الدليلُ على «جارٍ التحميل» بقائمةٍ فارغة.
+    if (_cache) { setAll(_cache); setLoading(false); setError(false); return; }
     setLoading(true); setError(false);
     loadGuide().then((d) => { if (d) setAll(d); else setError(true); }).finally(() => setLoading(false));
   }, [open]);
