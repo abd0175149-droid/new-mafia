@@ -466,7 +466,7 @@ class _RolesDeckSheetState extends State<RolesDeckSheet> {
                       borderRadius: BorderRadius.circular(10),
                       onTap: ok ? () => _jumpTo(pool, m.id) : null,
                       child: Container(
-                        constraints: const BoxConstraints(minHeight: 40),
+                        constraints: const BoxConstraints(minHeight: _tap),
                         padding: const EdgeInsetsDirectional.fromSTEB(4, 3, 10, 3),
                         decoration: BoxDecoration(
                           color: const Color(0xFF171512),

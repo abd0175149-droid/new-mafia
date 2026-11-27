@@ -71,7 +71,7 @@
 .rd-blk.rd-win p { color: #efe9dc; }
 .rd-ix { display: grid; gap: 8px; }
 .rd-ix > div { display: grid; gap: 4px; }
-.rd-men { justify-self: start; display: inline-flex; align-items: center; gap: 7px; min-height: 36px; padding: 3px 4px 3px 10px; border-radius: 10px;
+.rd-men { justify-self: start; display: inline-flex; align-items: center; gap: 7px; min-height: 44px; padding: 3px 4px 3px 10px; border-radius: 10px;
   border: 1px solid #2c2822; background: #171512; font-size: 14px; font-weight: 700; color: #efe9dc; }
 .rd-men img { width: 20px; height: 30px; border-radius: 3px; object-fit: cover; }
 .rd-men svg { width: 14px; height: 14px; color: #C5A059; }
