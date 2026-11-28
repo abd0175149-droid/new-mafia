@@ -36,8 +36,8 @@ export default function LaunchControl() {
   }
 
   if (error === 'auth') {
-    return <div className="ctl"><h1>أزرار الليلة</h1><div className="now">سجّل دخولك بحساب الليدر أوّلاً، ثمّ ارجع لهذه الصفحة.</div>
-      <Link className="b" style={{ display: 'block', textAlign: 'center', marginTop: 12 }} href="/leader/login">دخول الليدر</Link></div>;
+    return <div className="ctl"><h1>أزرار الليلة</h1><div className="now">هذه الصفحة لحساب الأدمن في لوحة التحكّم فقط. سجّل دخولك به، وترجع لهنا وحدها.</div>
+      <Link className="b" style={{ display: 'block', textAlign: 'center', marginTop: 12 }} href="/admin/login?next=/launch/control">دخول الأدمن</Link></div>;
   }
   if (!s) return <div className="ctl"><h1>أزرار الليلة</h1><div className="now">{error || 'جارٍ التحميل…'}</div></div>;
 

@@ -40,7 +40,9 @@ export default function AdminLoginPage() {
       localStorage.setItem('leader_name', data.profile?.displayName || username);
 
       // 🏪 حساب المكان → كونسول المكان مباشرةً (لا صفحات إدارة النادي)
-      window.location.href = data.profile?.role === 'location_owner' ? '/venue' : '/admin';
+      // رجوعٌ لصفحات ليلة الإطلاق فقط (لا تحويل لأيّ عنوان آخر)
+      const next = new URLSearchParams(window.location.search).get('next') || '';
+      window.location.href = data.profile?.role === 'location_owner' ? '/venue' : (/^\/launch\/(control|sound)$/.test(next) ? next : '/admin');
     } catch (err) {
       setError('خطأ في الاتصال بالسيرفر');
     } finally {

@@ -6,7 +6,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 export const API = process.env.NEXT_PUBLIC_API_URL || '';
 
 export const staffToken = () => {
-  try { return localStorage.getItem('leader_token') || localStorage.getItem('token') || ''; } catch { return ''; }
+  try { return localStorage.getItem('token') || localStorage.getItem('leader_token') || ''; } catch { return ''; }
 };
 
 export function useLaunch<T = any>(pollMs = 800, staff = false) {

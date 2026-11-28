@@ -87,7 +87,7 @@ export default function LaunchSound() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [s?.seq, armed]);
 
-  if (error === 'auth') return <div className="ctl"><h1>لابتوب الصوت</h1><div className="now">سجّل دخولك بحساب الليدر أوّلاً.</div><Link className="b" style={{ display: 'block', textAlign: 'center', marginTop: 12 }} href="/leader/login">دخول الليدر</Link></div>;
+  if (error === 'auth') return <div className="ctl"><h1>لابتوب الصوت</h1><div className="now">هذه الصفحة لحساب الأدمن في لوحة التحكّم فقط. سجّل دخولك به، وترجع لهنا وحدها.</div><Link className="b" style={{ display: 'block', textAlign: 'center', marginTop: 12 }} href="/admin/login?next=/launch/sound">دخول الأدمن</Link></div>;
   return (
     <div className="ctl">
       <h1>لابتوب الصوت</h1>
