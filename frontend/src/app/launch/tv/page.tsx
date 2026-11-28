@@ -5,25 +5,32 @@ import { useLaunch, countdown, toAr, cardSrc, type Line, type Card } from '../us
 
 const SPIN_S = 7;
 
-function Frame() { return <div className="frame" aria-hidden />; }
+function Stage() { return <><div className="cone" aria-hidden /><div className="smoke" aria-hidden /><div className="vign" aria-hidden /><div className="frame" aria-hidden /></>; }
+
+function Qr({ t1, t2 }: { t1: string; t2: string }) {
+  return (
+    <div className="cd-qr">
+      <img src="/launch/qr-launch.svg" alt="" />
+      <div className="t1">{t1}</div><div className="t2">{t2}</div>
+    </div>
+  );
+}
 
 function Countdown({ s, now }: { s: any; now: number }) {
   const left = s.breakAt ? new Date(s.breakAt).getTime() - now : null;
   const total = Object.values(s.poll?.counts || {}).reduce((a: number, b: any) => a + Number(b || 0), 0) as number;
+  const poll = !!(s.poll?.open && s.poll?.question);
   return (
     <>
-      <div className="center" style={{ paddingBottom: '17vh' }}>
-        <img className="seal breath" src="/launch/seal-intact.webp" alt="" style={{ width: '16vw' }} />
+      <div className={`cd-main ${poll ? 'withpoll' : ''}`}>
+        <img className="seal breath" src="/launch/seal-intact.webp" alt="" />
         <div className="tonight">الليلة</div>
         <div className="big ls-gold">الختم يُكسر</div>
         <div className="clock">{left == null ? 'الساعة ٨' : left > 0 ? countdown(left) : 'الآن'}</div>
       </div>
-      <div className="qr">
-        <img src="/launch/qr-launch.svg" alt="" />
-        <div><div className="t1">امسح… واستلم ورقتك المختومة</div><div className="t2">تُفتح على جوّالك لحظة كسر الختم</div></div>
-      </div>
-      {s.poll?.open && s.poll?.question && (
-        <div className="poll">
+      <Qr t1="امسح… واستلم ورقتك المختومة" t2="تُفتح على جوّالك لحظة كسر الختم" />
+      {poll && (
+        <div className="cd-poll">
           <div className="q">{s.poll.question}</div>
           {(s.poll.options || []).map((o: any) => {
             const n = Number(s.poll.counts?.[o.key] || 0); const pct = total ? Math.round((n / total) * 100) : 0;
@@ -34,7 +41,7 @@ function Countdown({ s, now }: { s: any; now: number }) {
               </div>
             );
           })}
-          <div className="tonight" style={{ fontSize: '1.3vw' }}>{toAr(total)} صوتاً · صوّت من الرمز</div>
+          <div className="votes">{toAr(total)} صوتاً · صوّت من الرمز</div>
         </div>
       )}
     </>
@@ -54,11 +61,11 @@ function Break({ s, e }: { s: any; e: number }) {
   return (
     <>
       {e >= 1.3 && e < 3.2 && <div className="flash" />}
-      <div className="center" style={{ justifyContent: big ? 'center' : 'flex-start', paddingTop: big ? 0 : '5vh' }}>
+      <div className="center" style={{ justifyContent: big ? 'center' : 'flex-start', paddingTop: big ? 0 : '5vh', paddingBottom: big ? '18vh' : 0 }}>
         {!cracked
-          ? <img className={`seal ${e >= 0.6 ? 'crack' : ''}`} src="/launch/seal-intact.webp" alt="" />
-          : <img className="seal fadein" src="/launch/seal-broken.webp" alt="" style={{ width: big ? '23vw' : '7vw', transition: 'width 1.2s ease' }} />}
-        {e >= 2 && s.title && <div className="wordmark ls-gold fadein" style={{ fontSize: big ? '9vw' : '3.8vw', transition: 'font-size 1.2s ease' }}>{s.title}</div>}
+          ? <img className={`seal ${e >= 0.6 ? 'crack' : ''}`} src="/launch/seal-intact.webp" alt="" style={{ width: '18vw' }} />
+          : <img className="seal fadein" src="/launch/seal-broken.webp" alt="" style={{ width: big ? '18vw' : '7vw', transition: 'width 1.2s ease' }} />}
+        {e >= 2 && s.title && <div className="wordmark ls-gold fadein" style={{ fontSize: big ? '7.5vw' : '3.8vw', transition: 'font-size 1.2s ease' }}>{s.title}</div>}
         {verse.length > 0 && <div className="verse" style={{ marginTop: '1.5vh' }}>{verse.map((l, i) => <span key={i}>{l.text}</span>)}</div>}
         {t > endT && s.motto && <div className="motto fadein" style={{ marginTop: '2.5vh' }}>{s.motto}</div>}
       </div>
@@ -136,7 +143,7 @@ function Predict({ s, e }: { s: any; e: number }) {
   const answer = p.answer;
   return (
     <>
-      <div className="center" style={{ paddingBottom: closed ? 0 : '10vh' }}>
+      <div className={closed ? 'center' : 'cd-main pq-main'}>
         <div className="tonight">{closed ? (answer ? 'وتحقّقت النبوءة' : 'أُغلق باب النبوءات') : 'اكتب نبوءتك'}</div>
         <div className="pq ls-gold" style={{ marginTop: '2vh' }}>{p.question}</div>
         <div className="opts">
@@ -148,12 +155,7 @@ function Predict({ s, e }: { s: any; e: number }) {
           {answer ? <>صدقت نبوءة <b>{toAr(p.correct || 0)}</b> من <b>{toAr(p.count || 0)}</b></> : <><b>{toAr(p.count || 0)}</b> نبوءة مختومة</>}
         </div>
       </div>
-      {!closed && (
-        <div className="qr">
-          <img src="/launch/qr-launch.svg" alt="" />
-          <div><div className="t1">امسح… واكتب نبوءتك</div><div className="t2">من صدقت نبوءته يدخل السحب</div></div>
-        </div>
-      )}
+      {!closed && <Qr t1="امسح… واكتب نبوءتك" t2="من صدقت نبوءته يدخل السحب" />}
     </>
   );
 }
@@ -173,14 +175,14 @@ function Draw({ s, e }: { s: any; e: number }) {
 }
 
 export default function LaunchTV() {
-  const { state: s, serverNow, error } = useLaunch<any>(600);
+  const { state: s, serverNow, error } = useLaunch<any>(600, false, 'tv');
   const now = serverNow();
   const e = s ? (now - s.stageAt) / 1000 : 0;
-  const view = useMemo(() => s?.stage, [s?.stage]);
-  if (!s) return <div className="tv"><Frame /><div className="center"><div className="club">{error ? 'جارٍ الاتّصال…' : ''}</div></div></div>;
+  const view = useMemo(() => (s ? `${s.stage}:${s.seq}` : ''), [s?.stage, s?.seq]);
+  if (!s) return <div className="tv"><Stage /><div className="center"><div className="club">{error ? 'جارٍ الاتّصال…' : ''}</div></div></div>;
   return (
     <div className="tv" key={view}>
-      <Frame />
+      <Stage />
       {s.stage === 'idle' && <div className="center"><img className="logo" src="/launch/logo-gold.svg" alt="" /><div className="club" style={{ marginTop: '2vh' }}>نادي المافيا</div></div>}
       {s.stage === 'countdown' && <Countdown s={s} now={now} />}
       {s.stage === 'break' && <Break s={s} e={e} />}

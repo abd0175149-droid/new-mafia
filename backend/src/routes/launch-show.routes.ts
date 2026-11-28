@@ -7,7 +7,7 @@
 import { Router, type Request, type Response } from 'express';
 import { authenticate, adminOnly } from '../middleware/auth.js';
 import { rateLimit } from '../middleware/rate-limit.js';
-import { publicState, staffState, control, vote, predict, cardAsset, audioFile, normPhone } from '../services/launch-show.service.js';
+import { publicState, staffState, control, vote, predict, cardAsset, audioFile, normPhone, touch, touchSound } from '../services/launch-show.service.js';
 
 const router = Router();
 const noStore = (res: Response) => res.set('Cache-Control', 'no-store, max-age=0');
@@ -16,6 +16,7 @@ const DEVICE = /^[\w-]{8,64}$/;
 
 router.get('/state', async (req: Request, res: Response) => {
   noStore(res);
+  touch(String(req.query.r || ''), String(req.query.c || ''));
   try { res.json(await publicState(String(req.query.k || ''))); } catch (e) { fail(res, e); }
 });
 
@@ -44,8 +45,9 @@ router.get('/asset/card/:key', async (req: Request, res: Response) => {
 });
 
 // ── الطاقم ──
-router.get('/control/state', authenticate, adminOnly, async (_req: Request, res: Response) => {
+router.get('/control/state', authenticate, adminOnly, async (req: Request, res: Response) => {
   noStore(res);
+  if (req.query.r === 'sound') touchSound(String(req.query.p || ''));
   try { res.json(await staffState()); } catch (e) { fail(res, e); }
 });
 router.post('/control', authenticate, adminOnly, async (req: Request, res: Response) => {

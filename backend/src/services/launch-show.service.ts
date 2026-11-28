@@ -24,7 +24,7 @@ const rows = (r: any): any[] => r?.rows ?? (Array.isArray(r) ? r : []);
 
 interface Row {
   stage: Stage; seq: number; stage_at: string; card_index: number; poll_open: boolean;
-  answer: string | null; winner: any; content: any; updated_at: string;
+  answer: string | null; winner: any; content: any; updated_at: string; last_action: string | null;
 }
 
 let cache: { at: number; row: Row } | null = null;
@@ -44,6 +44,7 @@ export async function ensureLaunchTables(db: any) {
     updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
   )`);
   await db.execute(sql`INSERT INTO launch_show (id) VALUES (1) ON CONFLICT (id) DO NOTHING`);
+  await db.execute(sql`ALTER TABLE launch_show ADD COLUMN IF NOT EXISTS last_action VARCHAR(16)`);
   await db.execute(sql`CREATE TABLE IF NOT EXISTS launch_poll_votes (
     device_id VARCHAR(64) PRIMARY KEY, choice VARCHAR(24) NOT NULL, created_at TIMESTAMPTZ NOT NULL DEFAULT now()
   )`);
@@ -56,7 +57,7 @@ export async function ensureLaunchTables(db: any) {
 async function load(fresh = false): Promise<Row> {
   if (!fresh && cache && Date.now() - cache.at < CACHE_MS) return cache.row;
   const db = getDB(); if (!db) throw new Error('قاعدة البيانات غير متّصلة');
-  const [r] = rows(await db.execute(sql`SELECT stage, seq, stage_at, card_index, poll_open, answer, winner, content, updated_at FROM launch_show WHERE id = 1`));
+  const [r] = rows(await db.execute(sql`SELECT stage, seq, stage_at, card_index, poll_open, answer, winner, content, updated_at, last_action FROM launch_show WHERE id = 1`));
   if (!r) throw new Error('عرض الإطلاق غير مهيّأ');
   cache = { at: Date.now(), row: r };
   return r;
@@ -78,6 +79,19 @@ async function cachedCounts() {
 }
 
 const cardsOf = (c: any): any[] => Array.isArray(c?.cards) ? c.cards : [];
+
+// ── الحضور: من يتّصل الآن (للأضواء في جهاز الليدر) — في الذاكرة فقط، لا يُحفظ ──
+const seen = { tv: new Map<string, number>(), guest: new Map<string, number>() };
+let soundSeen = { at: 0, playing: '' };
+export function touch(role: string, id: string) {
+  if ((role === 'tv' || role === 'guest') && /^[\w-]{6,64}$/.test(id)) seen[role].set(id, Date.now());
+}
+export function touchSound(playing: string) { soundSeen = { at: Date.now(), playing: String(playing || '').slice(0, 40) }; }
+function presence() {
+  const now = Date.now();
+  const cnt = (m: Map<string, number>, ms: number) => { let n = 0; for (const [k, t] of m) { if (now - t < ms) n++; else if (now - t > 600_000) m.delete(k); } return n; };
+  return { tvs: cnt(seen.tv, 9000), guests: cnt(seen.guest, 25_000), sound: { alive: now - soundSeen.at < 6000, playing: now - soundSeen.at < 6000 ? soundSeen.playing : '' } };
+}
 
 /** كم كرتاً كُشف حتّى الآن (يحكم الصور والبيانات) */
 function revealedCards(r: Row): number {
@@ -135,13 +149,13 @@ export async function staffState() {
   return {
     stage: r.stage, seq: r.seq, stageAt: new Date(r.stage_at).getTime(), now: Date.now(), cardIndex: r.card_index,
     pollOpen: r.poll_open, answer: r.answer, winner: r.winner ? { name: r.winner.name, phone: r.winner.phone, at: r.winner.at } : null,
-    counts: k, stages: STAGES,
+    counts: k, stages: STAGES, lastAction: r.last_action, presence: presence(),
     content: r.content || {},
     hasContent: !!(r.content && Object.keys(r.content).length),
   };
 }
 
-async function write(patch: Partial<{ stage: Stage; card_index: number; poll_open: boolean; answer: string | null; winner: any }>, bump = true) {
+async function write(patch: Partial<{ stage: Stage; card_index: number; poll_open: boolean; answer: string | null; winner: any }>, bump = true, action = '') {
   const db = getDB(); if (!db) throw new Error('قاعدة البيانات غير متّصلة');
   const cur = await load(true);
   const stage = patch.stage ?? cur.stage;
@@ -151,7 +165,7 @@ async function write(patch: Partial<{ stage: Stage; card_index: number; poll_ope
   const winner = patch.winner !== undefined ? patch.winner : cur.winner;
   if (bump) {
     await db.execute(sql`UPDATE launch_show SET stage = ${stage}, card_index = ${card}, poll_open = ${poll}, answer = ${answer},
-      winner = ${winner == null ? null : JSON.stringify(winner)}::jsonb, seq = seq + 1, stage_at = now(), updated_at = now() WHERE id = 1`);
+      winner = ${winner == null ? null : JSON.stringify(winner)}::jsonb, seq = seq + 1, stage_at = now(), updated_at = now(), last_action = ${action || null} WHERE id = 1`);
   } else {
     await db.execute(sql`UPDATE launch_show SET stage = ${stage}, card_index = ${card}, poll_open = ${poll}, answer = ${answer},
       winner = ${winner == null ? null : JSON.stringify(winner)}::jsonb, updated_at = now() WHERE id = 1`);
@@ -169,27 +183,37 @@ export async function control(action: string, body: any) {
     case 'goto': {
       const s = String(body?.stage || '');
       if (!STAGES.includes(s as Stage)) throw new Error('مرحلة غير معروفة');
-      await write({ stage: s as Stage, card_index: s === 'cards' ? -1 : r.card_index, poll_open: s === 'countdown' ? r.poll_open : false });
+      await write({ stage: s as Stage, card_index: s === 'cards' ? -1 : r.card_index, poll_open: s === 'countdown' ? r.poll_open : false }, true, 'goto');
       break;
     }
     case 'card_next': {
-      if (r.stage !== 'cards') { await write({ stage: 'cards', card_index: -1 }); break; }
-      if (r.card_index + 1 >= nCards) { await write({ stage: 'lineup' }); break; }
-      await write({ card_index: r.card_index + 1 });
+      if (r.stage !== 'cards') { await write({ stage: 'cards', card_index: -1 }, true, 'next'); break; }
+      if (r.card_index + 1 >= nCards) { await write({ stage: 'lineup' }, true, 'next'); break; }
+      await write({ card_index: r.card_index + 1 }, true, 'next');
       break;
     }
     case 'card_prev': {
-      if (r.stage === 'lineup') { await write({ stage: 'cards', card_index: nCards - 1 }); break; }
+      if (r.stage === 'lineup') { await write({ stage: 'cards', card_index: nCards - 1 }, true, 'back'); break; }
       if (r.stage !== 'cards') throw new Error('لسنا في مرحلة الكروت');
-      await write({ card_index: Math.max(-1, r.card_index - 1) });
+      await write({ card_index: Math.max(-1, r.card_index - 1) }, true, 'back');
       break;
     }
+    case 'back': {   // رجوع خطوة: داخل الكروت كرتاً، وغير ذلك مرحلةً (بلا تشغيل صوت)
+      if (r.stage === 'cards' && r.card_index >= 0) { await write({ card_index: r.card_index - 1 }, true, 'back'); break; }
+      if (r.stage === 'lineup') { await write({ stage: 'cards', card_index: nCards - 1 }, true, 'back'); break; }
+      const i = rank(r.stage); if (i <= 0) throw new Error('هذه أوّل مرحلة');
+      let prev = STAGES[i - 1];
+      if (prev === 'draw' || prev === 'result') prev = 'predict_closed';
+      await write({ stage: prev, card_index: prev === 'cards' ? nCards - 1 : r.card_index, answer: rank(prev) < rank('result') ? null : r.answer, winner: rank(prev) < rank('draw') ? null : r.winner }, true, 'back');
+      break;
+    }
+    case 'replay': await write({}, true, 'replay'); break;   // يعيد مقطع المرحلة الحاليّة وتوقيتها على كلّ الشاشات
     case 'poll': await write({ poll_open: !!body?.open }, false); break;
     case 'answer': {
       const a = String(body?.answer || '');
       const keys = (r.content?.predict?.options || []).map((o: any) => o.key);
       if (!keys.includes(a)) throw new Error('جواب غير معروف');
-      await write({ stage: 'result', answer: a, winner: null });
+      await write({ stage: 'result', answer: a, winner: null }, true, 'answer');
       break;
     }
     case 'draw': {
@@ -201,13 +225,13 @@ export async function control(action: string, body: any) {
       if (!pool.length) throw new Error('لا يوجد من توقّع صحّاً (أو استُبعد الجميع)');
       const w = pool[randomInt(pool.length)];
       const names = pool.map((p: any) => firstName(p.name)).slice(0, 60);
-      await write({ stage: 'draw', winner: { name: firstName(w.name), fullName: w.name, phone: w.phone, at: Date.now(), pool: names, excluded: exclude } });
+      await write({ stage: 'draw', winner: { name: firstName(w.name), fullName: w.name, phone: w.phone, at: Date.now(), pool: names, excluded: exclude } }, true, 'draw');
       break;
     }
     case 'reset': {
       const db = getDB(); if (!db) throw new Error('قاعدة البيانات غير متّصلة');
       if (body?.wipe) { await db.execute(sql`DELETE FROM launch_poll_votes`); await db.execute(sql`DELETE FROM launch_predictions`); }
-      await write({ stage: 'idle', card_index: -1, poll_open: false, answer: null, winner: null });
+      await write({ stage: 'idle', card_index: -1, poll_open: false, answer: null, winner: null }, true, 'reset');
       break;
     }
     default: throw new Error('أمر غير معروف');

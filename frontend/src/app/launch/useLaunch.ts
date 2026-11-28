@@ -9,17 +9,24 @@ export const staffToken = () => {
   try { return localStorage.getItem('token') || localStorage.getItem('leader_token') || ''; } catch { return ''; }
 };
 
-export function useLaunch<T = any>(pollMs = 800, staff = false) {
+/** role: من يسأل (للأضواء في جهاز الليدر) — tv · guest · sound. playing: ما يشغّله لابتوب الصوت الآن */
+export function useLaunch<T = any>(pollMs = 800, staff = false, role?: 'tv' | 'guest' | 'sound', playing?: () => string) {
   const [state, setState] = useState<T | null>(null);
   const [error, setError] = useState<string | null>(null);
   const offset = useRef(0);
   const bestRtt = useRef(Infinity);
   const [, tick] = useState(0);
+  const playRef = useRef(playing); playRef.current = playing;
 
   const pull = useCallback(async () => {
     const t0 = Date.now();
     try {
-      const r = await fetch(`${API}/api/launch-show/${staff ? 'control/state' : 'state'}${staff ? '' : previewQuery()}`, {
+      const q = new URLSearchParams();
+      if (!staff) { const k = previewKey(); if (k) q.set('k', k); }
+      if (role === 'sound') { q.set('r', 'sound'); q.set('p', playRef.current?.() || ''); }
+      else if (role) { q.set('r', role); q.set('c', deviceId()); }
+      const qs = q.toString() ? `?${q}` : '';
+      const r = await fetch(`${API}/api/launch-show/${staff ? 'control/state' : 'state'}${qs}`, {
         cache: 'no-store', headers: staff ? { Authorization: `Bearer ${staffToken()}` } : undefined,
       });
       const t1 = Date.now();
@@ -34,7 +41,7 @@ export function useLaunch<T = any>(pollMs = 800, staff = false) {
       setError(null);
       setState(b);
     } catch (e: any) { setError(e?.message || 'تعذّر الاتّصال'); }
-  }, [staff]);
+  }, [staff, role]);
 
   useEffect(() => {
     let alive = true; let h: any;
@@ -49,9 +56,10 @@ export function useLaunch<T = any>(pollMs = 800, staff = false) {
 }
 
 /** مفتاح المعاينة من رابط الشاشة (?k=…) — للتجربة قبل يوم الإطلاق فقط */
-export function previewQuery() {
-  try { const k = new URLSearchParams(window.location.search).get('k'); return k ? `?k=${encodeURIComponent(k)}` : ''; } catch { return ''; }
+export function previewKey() {
+  try { return new URLSearchParams(window.location.search).get('k') || ''; } catch { return ''; }
 }
+export function previewQuery() { const k = previewKey(); return k ? `?k=${encodeURIComponent(k)}` : ''; }
 export const cardSrc = (src: string) => src + previewQuery();
 
 export const toAr = (v: number | string) => String(v).replace(/[0-9]/g, d => '٠١٢٣٤٥٦٧٨٩'[Number(d)]);

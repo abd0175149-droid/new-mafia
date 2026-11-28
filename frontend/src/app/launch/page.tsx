@@ -1,166 +1,172 @@
 'use client';
-// 📱 صفحة الضيف في ليلة الإطلاق — ورقةٌ مختومة على الجوّال تنفتح لحظة كسر الختم،
-// ثمّ الكروت كما تُكشف، ثمّ «اكتب نبوءتك». تعمل من رمز المسح، بلا تطبيق ولا دخول.
-import { useEffect, useState } from 'react';
+// 📱 صفحة الضيف في ليلة الإطلاق — «رسائل نجوى»: محادثة تصل رسائلها مع كلّ مرحلة من الليلة.
+// قبل الكسر ورقة مختومة وعدّ تنازليّ، ثمّ الحكاية سطراً سطراً مع صوت نجوى، ثمّ الكروت، ثمّ نبوءة الضيف
+// (نجوى تسأله عن اسمه ورقمه داخل المحادثة). بلا تطبيق ولا دخول، وبلا صوت على الجوّال.
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useLaunch, countdown, toAr, deviceId, API, cardSrc, type Line, type Card } from './useLaunch';
 
 const RANK = ['idle', 'countdown', 'break', 'cards', 'lineup', 'predict', 'predict_closed', 'result', 'draw', 'end'];
 const at = (s: string) => RANK.indexOf(s);
+const SPIN_S = 7;
+
+type Msg = { id: string; me?: boolean; cls?: string; body: React.ReactNode };
+type Pred = { choice: string; name: string; phone: string };
 
 function load<T>(k: string, d: T): T { try { const v = localStorage.getItem(k); return v ? JSON.parse(v) : d; } catch { return d; } }
 function save(k: string, v: any) { try { localStorage.setItem(k, JSON.stringify(v)); } catch { /* */ } }
-
-function Poll({ s }: { s: any }) {
-  const [mine, setMine] = useState<string | null>(null);
-  const [err, setErr] = useState('');
-  useEffect(() => { setMine(load('launch_poll', null)); }, []);
-  const total = Object.values(s.poll?.counts || {}).reduce((a: number, b: any) => a + Number(b || 0), 0) as number;
-  async function pick(k: string) {
-    setErr(''); setMine(k); save('launch_poll', k);
-    try {
-      const r = await fetch(`${API}/api/launch-show/poll`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ deviceId: deviceId(), choice: k }) });
-      if (!r.ok) { const b = await r.json().catch(() => ({})); throw new Error(b.error || 'لم يصل صوتك'); }
-    } catch (e: any) { setErr(e.message); }
-  }
-  return (
-    <div className="card">
-      <h2>{s.poll.question}</h2>
-      <div className="choices">
-        {(s.poll.options || []).map((o: any) => (
-          <button key={o.key} className="btn" aria-pressed={mine === o.key} onClick={() => pick(o.key)}>{o.label}</button>
-        ))}
-      </div>
-      {mine && (s.poll.options || []).map((o: any) => {
-        const n = Number(s.poll.counts?.[o.key] || 0); const pct = total ? Math.round((n / total) * 100) : 0;
-        return <div className="pbar" key={o.key}><div className="lab"><span>{o.label}</span><span>{toAr(pct)}٪</span></div><div className="trk"><div className="fill" style={{ width: `${pct}%` }} /></div></div>;
-      })}
-      {mine && !err && <div className="ok">وصل صوتك. النتيجة على شاشات القاعة.</div>}
-      {err && <div className="err">{err}</div>}
-    </div>
-  );
-}
-
-function Prophecy({ s, e }: { s: any; e: number }) {
-  const lines: Line[] = s.prophecy?.lines || [];
-  const lead = Number(s.prophecy?.lead ?? 4);
-  const live = s.stage === 'break';
-  const t = live ? e - lead : 1e9;
-  const shown = lines.filter(l => l.t <= t);
-  const done = !live || (lines.length > 0 && t > lines[lines.length - 1].t + 2);
-  return (
-    <>
-      <img src="/launch/seal-broken.webp" alt="" style={{ width: 120, display: 'block', margin: '14px auto 0' }} />
-      {s.title && <div className="wordmark ls-gold">{s.title}</div>}
-      <div className="card">
-        {shown.length === 0 && <div className="note" style={{ textAlign: 'center' }}>اسمع… الحكاية بدأت</div>}
-        {groups(shown).map((g, i) => g.kind === 'verse'
-          ? <div className="verse" key={i} style={{ margin: '10px 0' }}>{g.lines.map((l, j) => <span key={j}>{l.text}</span>)}</div>
-          : <div className="narr" key={i}>{g.lines.map((l, j) => <span key={j}>{l.text}</span>)}</div>)}
-        {done && s.motto && !String(lines[lines.length - 1]?.text || '').includes(String(s.motto).replace(/[.…]/g, '').slice(0, 8)) && <div className="motto">{s.motto}</div>}
-      </div>
-    </>
-  );
-}
-function groups(ls: Line[]) {
-  const out: { kind: string; lines: Line[] }[] = [];
-  for (const l of ls) { const k = l.kind === 'verse' ? 'verse' : 'narr'; if (out.length && out[out.length - 1].kind === k) out[out.length - 1].lines.push(l); else out.push({ kind: k, lines: [l] }); }
-  return out;
-}
-
-function Cards({ s }: { s: any }) {
-  const cards: Card[] = s.cards || [];
-  if (!cards.length) return s.stage === 'cards' ? <div className="card"><h2>{toAr(s.cardsTotal || 5)} كروت جديدة</h2><div className="note">{s.cardsIntro?.text || 'تابع الشاشة…'}</div></div> : null;
-  return (
-    <div className="card">
-      <h2>كروت الموسم الجديد</h2>
-      {[...cards].reverse().map(c => (
-        <div className="crd" key={c.key}>
-          <img src={cardSrc(c.image)} alt={c.name} />
-          <div><div className="n">{c.name}</div><div className="s">{c.slogan}</div><div className="t">{c.text}</div>{c.entry && <div className="e">{c.entry}</div>}</div>
-        </div>
-      ))}
-    </div>
-  );
-}
-
-function Predict({ s }: { s: any }) {
-  const p = s.predict || {};
-  const open = s.stage === 'predict';
-  const [mine, setMine] = useState<{ name: string; phone: string; choice: string } | null>(null);
-  const [name, setName] = useState(''); const [phone, setPhone] = useState(''); const [choice, setChoice] = useState('');
-  const [busy, setBusy] = useState(false); const [err, setErr] = useState(''); const [edit, setEdit] = useState(false);
-  useEffect(() => { const m = load<any>('launch_predict', null); if (m) { setMine(m); setName(m.name); setPhone(m.phone); setChoice(m.choice); } }, []);
-  async function submit(ev: React.FormEvent) {
-    ev.preventDefault(); setErr('');
-    if (!choice) return setErr('اختر نبوءتك');
-    setBusy(true);
-    try {
-      const r = await fetch(`${API}/api/launch-show/predict`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name, phone, choice, deviceId: deviceId() }) });
-      const b = await r.json().catch(() => ({}));
-      if (!r.ok) throw new Error(b.error || 'لم تُحفظ نبوءتك');
-      const m = { name: name.trim(), phone: b.phone || phone, choice }; setMine(m); save('launch_predict', m); setEdit(false);
-    } catch (e: any) { setErr(e.message); } finally { setBusy(false); }
-  }
-  const label = (k: string) => (p.options || []).find((o: any) => o.key === k)?.label || k;
-  const won = !!(s.winner?.tail && mine && String(mine.phone).endsWith(s.winner.tail) && s.winner.name === mine.name.split(/\s+/).slice(0, 2).join(' '));
-  return (
-    <div className="card">
-      <h2>{open ? 'اكتب نبوءتك' : 'نبوءتك'}</h2>
-      <div className="narr" style={{ fontWeight: 600 }}>{p.question}</div>
-      {open && (!mine || edit) ? (
-        <form onSubmit={submit}>
-          <div className="choices" style={{ marginTop: 12 }}>
-            {(p.options || []).map((o: any) => <button type="button" key={o.key} className="btn" aria-pressed={choice === o.key} onClick={() => setChoice(o.key)}>{o.label}</button>)}
-          </div>
-          <label htmlFor="ln">اسمك</label>
-          <input id="ln" value={name} onChange={e => setName(e.target.value)} autoComplete="name" maxLength={40} required />
-          <label htmlFor="lp">رقم جوّالك (للتواصل مع الفائز)</label>
-          <input id="lp" value={phone} onChange={e => setPhone(e.target.value)} inputMode="tel" autoComplete="tel" dir="ltr" placeholder="07XXXXXXXX" required />
-          <button className="btn primary" disabled={busy}>{busy ? 'جارٍ الختم…' : 'اختم نبوءتي'}</button>
-          {p.prize && <div className="note">{p.prize}</div>}
-          {err && <div className="err">{err}</div>}
-        </form>
-      ) : mine ? (
-        <>
-          <div className="ok">نبوءتك مختومة: «{label(mine.choice)}»</div>
-          {open && <button className="btn" style={{ marginTop: 10 }} onClick={() => setEdit(true)}>غيّر نبوءتي</button>}
-          {p.answer && <div className={p.answer === mine.choice ? 'ok' : 'note'}>{p.answer === mine.choice ? 'صدقت نبوءتك! أنت في السحب.' : `النبوءة الصحيحة: «${label(p.answer)}».`}</div>}
-          {s.winner?.name && <div className={won ? 'ok' : 'note'}>{won ? 'مبروك! اسمك ظهر على الشاشة.' : `صاحب النبوءة: ${s.winner.name}`}</div>}
-        </>
-      ) : (
-        <div className="note">{open ? '' : 'أُغلق باب النبوءات.'}</div>
-      )}
-    </div>
-  );
-}
+const first = (n: string) => String(n || '').trim().split(/\s+/)[0] || '';
 
 export default function LaunchGuest() {
-  const { state: s, serverNow, error } = useLaunch<any>(1500);
+  const { state: s, serverNow, error } = useLaunch<any>(1500, false, 'guest');
+  const [poll, setPoll] = useState<string | null>(null);
+  const [pred, setPred] = useState<Pred | null>(null);
+  const [draft, setDraft] = useState<{ choice?: string; name?: string }>({});
+  const [input, setInput] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState('');
+  const scroller = useRef<HTMLDivElement>(null);
+  const buzzed = useRef<Record<string, boolean>>({});
+
+  useEffect(() => { setPoll(load('launch_poll', null)); setPred(load('launch_predict', null)); }, []);
+  // الشاشة لا تنطفئ أثناء الليلة (حين يسمح المتصفّح)
+  useEffect(() => {
+    let lock: any = null;
+    const ask = async () => { try { if (document.visibilityState === 'visible') lock = await (navigator as any).wakeLock?.request('screen'); } catch { /* */ } };
+    ask(); document.addEventListener('visibilitychange', ask);
+    return () => { document.removeEventListener('visibilitychange', ask); try { lock?.release(); } catch { /* */ } };
+  }, []);
+
   const now = serverNow();
   const e = s ? (now - s.stageAt) / 1000 : 0;
-  if (!s) return <div className="ph"><img className="logo" src="/launch/logo-gold.svg" alt="" /><div className="club">نادي المافيا</div><div className="note">{error ? 'جارٍ الاتّصال…' : ''}</div></div>;
-  const st = at(s.stage);
-  const sealed = st < at('break');
-  const left = s.breakAt ? new Date(s.breakAt).getTime() - now : null;
+  const st = s ? at(s.stage) : -1;
+  const label = (k?: string | null) => (s?.predict?.options || []).find((o: any) => o.key === k)?.label || k || '';
+  const won = !!(s?.winner?.tail && pred && String(pred.phone).endsWith(s.winner.tail));
+  const drawDone = !!s && (s.stage !== 'draw' || e >= SPIN_S);
+
+  // الاهتزاز: لحظة كسر الختم، ولحظة فوز صاحب الجوّال
+  useEffect(() => {
+    if (!s) return;
+    const buzz = (k: string, p: number[]) => { if (buzzed.current[k]) return; buzzed.current[k] = true; try { navigator.vibrate?.(p); } catch { /* */ } };
+    if (s.stage === 'break' && e >= 0.6 && e < 6) buzz('break' + s.seq, [220, 90, 220]);
+    if (won && drawDone) buzz('win' + s.seq, [300, 120, 300, 120, 500]);
+  });
+
+  async function vote(k: string) {
+    setPoll(k); save('launch_poll', k);
+    try { await fetch(`${API}/api/launch-show/poll`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ deviceId: deviceId(), choice: k }) }); } catch { /* */ }
+  }
+  async function submit(phone: string) {
+    if (!draft.choice || !draft.name) return;
+    setBusy(true); setErr('');
+    try {
+      const r = await fetch(`${API}/api/launch-show/predict`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: draft.name, phone, choice: draft.choice, deviceId: deviceId() }) });
+      const b = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(b.error || 'ما وصلتني نبوءتك، جرّب مرّة ثانية');
+      const p = { choice: draft.choice, name: draft.name, phone: b.phone || phone }; setPred(p); save('launch_predict', p); setInput('');
+    } catch (x: any) { setErr(x.message); } finally { setBusy(false); }
+  }
+
+  // ── الرسائل: تُبنى من المرحلة والوقت، بمعرّفات ثابتة فلا تتحرّك القديمة ──
+  const view = useMemo(() => {
+    const m: Msg[] = []; let typing = false;
+    if (!s) return { m, typing };
+    const n = (id: string, body: React.ReactNode, cls = '') => m.push({ id, body, cls });
+    const me = (id: string, body: React.ReactNode) => m.push({ id, body, me: true });
+    const left = s.breakAt ? new Date(s.breakAt).getTime() - now : null;
+
+    n('hi', 'أهلاً فيك… أنا نجوى. الليلة أنا اللي بحكيلك.');
+    n('env', <div className="env-b"><img src="/launch/seal-intact.webp" alt="" /><span>ورقتك المختومة</span></div>, 'media');
+    n('wait', 'لا تفتحها قبل ما ينكسر الختم.');
+    if (st < at('break')) {
+      n('clock', left == null ? 'الختم يُكسر الساعة ٨' : left > 0 ? <>الختم يُكسر بعد <b className="num">{countdown(left)}</b></> : 'الآن…');
+      if (s.poll?.open && s.poll?.question) {
+        n('pq', s.poll.question);
+        if (poll) {
+          me('pme', (s.poll.options || []).find((o: any) => o.key === poll)?.label || poll);
+          const total = Object.values(s.poll.counts || {}).reduce((a: number, b: any) => a + Number(b || 0), 0) as number;
+          n('pres', <div className="bars">{(s.poll.options || []).map((o: any) => { const pct = total ? Math.round((Number(s.poll.counts?.[o.key] || 0) / total) * 100) : 0; return <div key={o.key}><span>{o.label}</span><i><b style={{ width: `${pct}%` }} /></i><em>{toAr(pct)}٪</em></div>; })}</div>);
+        }
+      }
+      return { m, typing };
+    }
+
+    // كسر الختم والحكاية
+    n('broken', <div className="env-b"><img src="/launch/seal-broken.webp" alt="" /><span>انكسر الختم</span></div>, 'media');
+    if (s.title) n('title', <span className="ttl">{s.title}</span>, 'gold');
+    const lines: Line[] = s.prophecy?.lines || [];
+    const live = s.stage === 'break';
+    const t = live ? e - Number(s.prophecy?.lead ?? 4) : 1e9;
+    const shown = lines.filter(l => l.t <= t);
+    shown.forEach((l, i) => n('l' + i, l.text, l.kind === 'verse' ? 'verse' : ''));
+    if (live && shown.length < lines.length && t > -1.5) typing = true;
+    if (st < at('cards')) return { m, typing };
+
+    // الكروت
+    n('ci', s.cardsIntro?.text || 'خمسة كروت جديدة تدخل المدينة…');
+    (s.cards || []).forEach((c: Card) => n('c' + c.key, <div className="crd"><img src={cardSrc(c.image)} alt={c.name} /><b>{c.name}</b><q>{c.slogan}</q><p>{c.text}</p></div>, 'card'));
+    if (s.stage === 'cards' && (s.cards || []).length < (s.cardsTotal || 5) && e > 0.5) typing = true;
+    if (st < at('predict')) return { m, typing };
+
+    // النبوءة
+    const p = s.predict || {};
+    n('pp', 'والآن… نبوءتك أنت.');
+    n('pq2', <b>{p.question}</b>);
+    if (pred) {
+      me('mc', label(pred.choice)); me('mn', pred.name);
+      n('ok', <>ختمتها عندي: «{label(pred.choice)}».{p.prize ? <span className="sub">{p.prize}</span> : null}</>);
+    } else if (s.stage === 'predict') {
+      if (draft.choice) { me('mc', label(draft.choice)); n('askn', 'وقبل ما أختمها… شو اسمك؟'); }
+      if (draft.name) { me('mn', draft.name); n('askp', 'ورقمك؟ عشان نوصلك إذا فزت.'); }
+    } else n('late', 'أُغلق باب النبوءات قبل ما توصلني نبوءتك… الليلة الجاية إلك.');
+    if (st < at('result')) return { m, typing };
+
+    if (p.answer) {
+      n('ans', <>النبوءة الصحيحة: «{label(p.answer)}». صدقت نبوءة <b className="num">{toAr(p.correct || 0)}</b> من <b className="num">{toAr(p.count || 0)}</b>.</>);
+      if (pred) n('mine', pred.choice === p.answer ? `صدقت يا ${first(pred.name)}! أنت في السحب.` : `ما صدقت هالمرّة يا ${first(pred.name)}… بس الحكاية لسّا بأوّلها.`);
+    }
+    if (st < at('draw')) return { m, typing };
+
+    n('dr', 'السحب الآن… عينك على الشاشة.');
+    if (drawDone && s.winner?.name) {
+      n('win', <>صاحب النبوءة: <b>{s.winner.name}</b></>, 'gold');
+      if (won) n('mewin', 'مبروك! هذا أنت. تعال على المسرح.', 'gold');
+    } else typing = true;
+    if (st >= at('end') && s.end?.text) n('end', s.end.text);
+    return { m, typing };
+  }, [s, now, e, st, poll, pred, draft, won, drawDone]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const count = view.m.length + (view.typing ? 1 : 0);
+  useEffect(() => { const el = scroller.current; if (el) el.scrollTo({ top: el.scrollHeight, behavior: 'smooth' }); }, [count]);
+
+  // ── أسفل الشاشة: أزرار ردّ جاهزة، أو خانة كتابة ──
+  let composer: React.ReactNode = <div className="cmp-quiet">{s ? 'نجوى تحكي… تابع الشاشة' : ''}</div>;
+  if (s && st < at('break') && s.poll?.open && !poll) composer = <div className="qr-btns">{(s.poll.options || []).map((o: any) => <button key={o.key} type="button" onClick={() => vote(o.key)}>{o.label}</button>)}</div>;
+  if (s && s.stage === 'predict' && !pred) {
+    if (!draft.choice) composer = <div className="qr-btns">{(s.predict?.options || []).map((o: any) => <button key={o.key} type="button" onClick={() => setDraft({ choice: o.key })}>{o.label}</button>)}</div>;
+    else {
+      const asking = !draft.name ? 'name' : 'phone';
+      composer = (
+        <form className="cmp-form" onSubmit={ev => { ev.preventDefault(); const v = input.trim(); if (!v) return; if (asking === 'name') { if (v.length < 2) { setErr('اكتب اسمك'); return; } setErr(''); setDraft(d => ({ ...d, name: v.slice(0, 40) })); setInput(''); } else submit(v); }}>
+          <input id="launch-input" value={input} onChange={x => setInput(x.target.value)} placeholder={asking === 'name' ? 'اسمك' : '07XXXXXXXX'} inputMode={asking === 'phone' ? 'tel' : 'text'} autoComplete={asking === 'phone' ? 'tel' : 'given-name'} dir={asking === 'phone' ? 'ltr' : 'rtl'} maxLength={40} autoFocus />
+          <button type="submit" disabled={busy} aria-label="إرسال">{busy ? '…' : 'إرسال'}</button>
+        </form>
+      );
+    }
+  }
+
   return (
-    <div className="ph">
-      <img className="logo" src="/launch/logo-gold.svg" alt="" />
-      <div className="club">نادي المافيا</div>
-      {sealed ? (
-        <>
-          <div className="env"><img className="seal" src="/launch/seal-intact.webp" alt="" /></div>
-          <div className="lock">لا تُفتح<br />قبل كسر الختم<small>ورقتك هنا. تنفتح وحدها حين يُكسر الختم أمام الجميع.</small></div>
-          {left != null && <div className="clock ls-gold">{left > 0 ? countdown(left) : 'الآن'}</div>}
-          {s.poll?.open && s.poll?.question && <Poll s={s} />}
-        </>
-      ) : (
-        <>
-          <Prophecy s={s} e={e} />
-          {st >= at('predict') && <Predict s={s} />}
-          {st >= at('cards') && <Cards s={s} />}
-          {st >= at('end') && s.end?.text && <div className="card"><div className="narr">{s.end.text}</div></div>}
-        </>
-      )}
+    <div className="ch">
+      <header className="ch-top">
+        <span className="ava" aria-hidden>ن</span>
+        <div><b>نجوى</b><small>{error && !s ? 'جارٍ الاتّصال…' : view.typing ? 'تكتب…' : 'متّصلة الآن'}</small></div>
+        <img src="/launch/logo-gold.svg" alt="نادي المافيا" className="ch-logo" />
+      </header>
+      <div className="ch-list" ref={scroller}>
+        {view.m.map(x => <div key={x.id} className={`ch-m ${x.me ? 'me' : ''} ${x.cls || ''}`}>{x.body}</div>)}
+        {view.typing && <div className="ch-m typing" aria-label="نجوى تكتب"><i /><i /><i /></div>}
+        {err && <div className="ch-err">{err}</div>}
+      </div>
+      <footer className="ch-cmp">{composer}</footer>
     </div>
   );
 }
