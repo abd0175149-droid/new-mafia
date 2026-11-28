@@ -37,14 +37,14 @@
 .tv .wordmark{font:700 9vw/1.1 var(--disp)}
 .tv .fadein{animation:ls-fade 1.4s ease both}
 @keyframes ls-fade{from{opacity:0;transform:translateY(2vh)}to{opacity:1;transform:none}}
-.tv .verse{font:700 3.3vw/1.75 var(--ruqaa);color:var(--gold2);text-shadow:0 .3vw 1.2vw rgba(0,0,0,.6)}
+.tv .verse{font:700 2.9vw/1.62 var(--ruqaa);color:var(--gold2);text-shadow:0 .3vw 1.2vw rgba(0,0,0,.6)}
 .tv .verse span{display:block;animation:ls-fade 1.2s ease both}
 .tv .caption{position:absolute;left:8vw;right:8vw;bottom:8vh;font:500 2.5vw/1.55 var(--text);color:var(--bone);text-align:center;animation:ls-fade .9s ease both}
-.tv .motto{font:700 4.2vw/1.2 var(--disp);color:var(--gold2)}
+.tv .motto{font:700 3.3vw/1.2 var(--disp);color:var(--gold2)}
 
 /* الكروت */
-.tv .cardstage{position:absolute;inset:0;display:grid;grid-template-columns:38vw 1fr;align-items:center;padding:0 8vw;gap:4vw}
-.tv .flip{width:31vw;aspect-ratio:848/1264;perspective:200vw;justify-self:center}
+.tv .cardstage{position:absolute;inset:0 0 21vh 0;display:grid;grid-template-columns:auto 1fr;align-items:center;padding:4vh 8vw 0;gap:4.5vw}
+.tv .flip{height:66vh;aspect-ratio:848/1264;perspective:200vw;justify-self:center}
 .tv .flip .in{position:relative;width:100%;height:100%;transform-style:preserve-3d;animation:ls-flip 1.3s cubic-bezier(.2,.7,.2,1) both}
 @keyframes ls-flip{from{transform:rotateY(180deg) scale(.86)}to{transform:rotateY(0) scale(1)}}
 .tv .flip .face,.tv .flip .back{position:absolute;inset:0;backface-visibility:hidden;border-radius:1.2vw;overflow:hidden;box-shadow:0 2vw 4vw rgba(0,0,0,.65)}

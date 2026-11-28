@@ -56,7 +56,7 @@ function Prophecy({ s, e }: { s: any; e: number }) {
         {groups(shown).map((g, i) => g.kind === 'verse'
           ? <div className="verse" key={i} style={{ margin: '10px 0' }}>{g.lines.map((l, j) => <span key={j}>{l.text}</span>)}</div>
           : <div className="narr" key={i}>{g.lines.map((l, j) => <span key={j}>{l.text}</span>)}</div>)}
-        {done && s.motto && <div className="motto">{s.motto}</div>}
+        {done && s.motto && !String(lines[lines.length - 1]?.text || '').includes(String(s.motto).replace(/[.…]/g, '').slice(0, 8)) && <div className="motto">{s.motto}</div>}
       </div>
     </>
   );

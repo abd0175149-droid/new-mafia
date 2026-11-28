@@ -12,8 +12,8 @@ function Countdown({ s, now }: { s: any; now: number }) {
   const total = Object.values(s.poll?.counts || {}).reduce((a: number, b: any) => a + Number(b || 0), 0) as number;
   return (
     <>
-      <div className="center">
-        <img className="seal breath" src="/launch/seal-intact.webp" alt="" />
+      <div className="center" style={{ paddingBottom: '17vh' }}>
+        <img className="seal breath" src="/launch/seal-intact.webp" alt="" style={{ width: '16vw' }} />
         <div className="tonight">الليلة</div>
         <div className="big ls-gold">الختم يُكسر</div>
         <div className="clock">{left == null ? 'الساعة ٨' : left > 0 ? countdown(left) : 'الآن'}</div>
@@ -54,13 +54,13 @@ function Break({ s, e }: { s: any; e: number }) {
   return (
     <>
       {e >= 1.3 && e < 3.2 && <div className="flash" />}
-      <div className="center" style={{ justifyContent: big ? 'center' : 'flex-start', paddingTop: big ? 0 : '7vh' }}>
+      <div className="center" style={{ justifyContent: big ? 'center' : 'flex-start', paddingTop: big ? 0 : '5vh' }}>
         {!cracked
           ? <img className={`seal ${e >= 0.6 ? 'crack' : ''}`} src="/launch/seal-intact.webp" alt="" />
-          : <img className="seal fadein" src="/launch/seal-broken.webp" alt="" style={{ width: big ? '23vw' : '10vw', transition: 'width 1.2s ease' }} />}
-        {e >= 2 && s.title && <div className="wordmark ls-gold fadein" style={{ fontSize: big ? '9vw' : '4.6vw', transition: 'font-size 1.2s ease' }}>{s.title}</div>}
-        {verse.length > 0 && <div className="verse" style={{ marginTop: '3vh' }}>{verse.map((l, i) => <span key={i}>{l.text}</span>)}</div>}
-        {t > endT && s.motto && <div className="motto fadein" style={{ marginTop: '4vh' }}>{s.motto}</div>}
+          : <img className="seal fadein" src="/launch/seal-broken.webp" alt="" style={{ width: big ? '23vw' : '7vw', transition: 'width 1.2s ease' }} />}
+        {e >= 2 && s.title && <div className="wordmark ls-gold fadein" style={{ fontSize: big ? '9vw' : '3.8vw', transition: 'font-size 1.2s ease' }}>{s.title}</div>}
+        {verse.length > 0 && <div className="verse" style={{ marginTop: '1.5vh' }}>{verse.map((l, i) => <span key={i}>{l.text}</span>)}</div>}
+        {t > endT && s.motto && <div className="motto fadein" style={{ marginTop: '2.5vh' }}>{s.motto}</div>}
       </div>
       {last && last.kind !== 'verse' && t <= endT && <div className="caption" key={last.t}>{last.text}</div>}
     </>
@@ -93,7 +93,7 @@ function Cards({ s, e }: { s: any; e: number }) {
   }
   return (
     <>
-      <div className="cardstage" style={{ paddingBottom: '14vh' }}>
+      <div className="cardstage">
         <div className="flip" key={cur.key}>
           <div className="in">
             <div className="face"><img src={cur.image} alt={cur.name} /></div>
