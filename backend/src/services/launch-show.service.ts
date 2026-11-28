@@ -87,13 +87,17 @@ function revealedCards(r: Row): number {
 }
 
 /** ما يراه العموم (التلفاز والهاتف): مقتطعٌ حسب المرحلة */
-export async function publicState() {
+export async function publicState(previewKey?: string) {
   const r = await load();
   const c = r.content || {};
-  const st = rank(r.stage);
+  // قبل يوم الإطلاق: التجربة بمحتوى حقيقيّ لا تُكشف إلّا لشاشةٍ معها مفتاح المعاينة (المحفوظ في المحتوى، لا في الكود)
+  const breakAt = c.breakAt ? new Date(c.breakAt).getTime() : 0;
+  const early = !!breakAt && Date.now() < breakAt - 3 * 3600_000;
+  const allowed = !early || (!!c.previewKey && previewKey === c.previewKey);
+  const st = allowed ? rank(r.stage) : Math.min(rank(r.stage), rank('countdown'));
   const k = await cachedCounts();
   const out: any = {
-    stage: r.stage, seq: r.seq, stageAt: new Date(r.stage_at).getTime(), now: Date.now(),
+    stage: allowed ? r.stage : (st >= rank('countdown') ? 'countdown' : r.stage), seq: allowed ? r.seq : 0, stageAt: new Date(r.stage_at).getTime(), now: Date.now(),
     cardIndex: r.card_index,
     breakAt: c.breakAt || null, qrUrl: c.qrUrl || null,
     poll: { open: !!r.poll_open, question: c.poll?.question || null, options: c.poll?.options || [], counts: k.poll },
@@ -247,8 +251,11 @@ export async function predict(input: { name: any; phone: any; choice: any; devic
 }
 
 /** صورة كرت — فقط بعد كشفه */
-export async function cardAsset(key: string): Promise<string | null> {
+export async function cardAsset(key: string, previewKey?: string): Promise<string | null> {
   const r = await load();
+  const c = r.content || {};
+  const breakAt = c.breakAt ? new Date(c.breakAt).getTime() : 0;
+  if (breakAt && Date.now() < breakAt - 3 * 3600_000 && !(c.previewKey && previewKey === c.previewKey)) return null;
   const list = cardsOf(r.content);
   const i = list.findIndex((x: any) => x.key === key);
   if (i < 0 || i >= revealedCards(r)) return null;

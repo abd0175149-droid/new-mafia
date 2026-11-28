@@ -19,7 +19,7 @@ export function useLaunch<T = any>(pollMs = 800, staff = false) {
   const pull = useCallback(async () => {
     const t0 = Date.now();
     try {
-      const r = await fetch(`${API}/api/launch-show/${staff ? 'control/state' : 'state'}`, {
+      const r = await fetch(`${API}/api/launch-show/${staff ? 'control/state' : 'state'}${staff ? '' : previewQuery()}`, {
         cache: 'no-store', headers: staff ? { Authorization: `Bearer ${staffToken()}` } : undefined,
       });
       const t1 = Date.now();
@@ -47,6 +47,12 @@ export function useLaunch<T = any>(pollMs = 800, staff = false) {
   const serverNow = useCallback(() => Date.now() + offset.current, []);
   return { state, error, serverNow, refresh: pull };
 }
+
+/** مفتاح المعاينة من رابط الشاشة (?k=…) — للتجربة قبل يوم الإطلاق فقط */
+export function previewQuery() {
+  try { const k = new URLSearchParams(window.location.search).get('k'); return k ? `?k=${encodeURIComponent(k)}` : ''; } catch { return ''; }
+}
+export const cardSrc = (src: string) => src + previewQuery();
 
 export const toAr = (v: number | string) => String(v).replace(/[0-9]/g, d => '٠١٢٣٤٥٦٧٨٩'[Number(d)]);
 

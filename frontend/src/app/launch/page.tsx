@@ -2,7 +2,7 @@
 // 📱 صفحة الضيف في ليلة الإطلاق — ورقةٌ مختومة على الجوّال تنفتح لحظة كسر الختم،
 // ثمّ الكروت كما تُكشف، ثمّ «اكتب نبوءتك». تعمل من رمز المسح، بلا تطبيق ولا دخول.
 import { useEffect, useState } from 'react';
-import { useLaunch, countdown, toAr, deviceId, API, type Line, type Card } from './useLaunch';
+import { useLaunch, countdown, toAr, deviceId, API, cardSrc, type Line, type Card } from './useLaunch';
 
 const RANK = ['idle', 'countdown', 'break', 'cards', 'lineup', 'predict', 'predict_closed', 'result', 'draw', 'end'];
 const at = (s: string) => RANK.indexOf(s);
@@ -75,7 +75,7 @@ function Cards({ s }: { s: any }) {
       <h2>كروت الموسم الجديد</h2>
       {[...cards].reverse().map(c => (
         <div className="crd" key={c.key}>
-          <img src={c.image} alt={c.name} />
+          <img src={cardSrc(c.image)} alt={c.name} />
           <div><div className="n">{c.name}</div><div className="s">{c.slogan}</div><div className="t">{c.text}</div>{c.entry && <div className="e">{c.entry}</div>}</div>
         </div>
       ))}

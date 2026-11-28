@@ -14,9 +14,9 @@ const noStore = (res: Response) => res.set('Cache-Control', 'no-store, max-age=0
 const fail = (res: Response, e: any) => res.status(e?.status || 500).json({ error: e?.message || 'خطأ' });
 const DEVICE = /^[\w-]{8,64}$/;
 
-router.get('/state', async (_req: Request, res: Response) => {
+router.get('/state', async (req: Request, res: Response) => {
   noStore(res);
-  try { res.json(await publicState()); } catch (e) { fail(res, e); }
+  try { res.json(await publicState(String(req.query.k || ''))); } catch (e) { fail(res, e); }
 });
 
 // قاعةٌ كاملة على شبكة واحدة: حدّ العنوان واسع، والضيق على الجهاز أو الرقم
@@ -37,7 +37,7 @@ router.post('/predict', predictLimit, async (req: Request, res: Response) => {
 router.get('/asset/card/:key', async (req: Request, res: Response) => {
   noStore(res);
   try {
-    const p = await cardAsset(String(req.params.key || ''));
+    const p = await cardAsset(String(req.params.key || ''), String(req.query.k || ''));
     if (!p) return res.status(404).end();
     res.sendFile(p);
   } catch { res.status(404).end(); }

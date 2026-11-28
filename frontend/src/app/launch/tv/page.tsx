@@ -1,7 +1,7 @@
 'use client';
 // 📺 شاشة التلفاز في ليلة الإطلاق — تتبع حالة السيرفر، والتوقيت كلّه من stageAt بساعة السيرفر
 import { useMemo } from 'react';
-import { useLaunch, countdown, toAr, type Line, type Card } from '../useLaunch';
+import { useLaunch, countdown, toAr, cardSrc, type Line, type Card } from '../useLaunch';
 
 const SPIN_S = 7;
 
@@ -75,7 +75,7 @@ function Cards({ s, e }: { s: any; e: number }) {
     <div className="row">
       {Array.from({ length: total }).map((_, i) => (
         <div key={i} className={`mini ${cards[i] ? '' : ''}`} style={i === s.cardIndex ? { outline: '.2vw solid #E7CD86', outlineOffset: '.3vw' } : undefined}>
-          {cards[i] ? <img src={cards[i].image} alt="" /> : <div className="cardback" style={{ position: 'absolute', inset: 0, borderRadius: '.6vw' }}><img src="/launch/logo-gold.svg" alt="" /></div>}
+          {cards[i] ? <img src={cardSrc(cards[i].image)} alt="" /> : <div className="cardback" style={{ position: 'absolute', inset: 0, borderRadius: '.6vw' }}><img src="/launch/logo-gold.svg" alt="" /></div>}
         </div>
       ))}
     </div>
@@ -96,7 +96,7 @@ function Cards({ s, e }: { s: any; e: number }) {
       <div className="cardstage">
         <div className="flip" key={cur.key}>
           <div className="in">
-            <div className="face"><img src={cur.image} alt={cur.name} /></div>
+            <div className="face"><img src={cardSrc(cur.image)} alt={cur.name} /></div>
             <div className="back cardback"><img src="/launch/logo-gold.svg" alt="" /></div>
           </div>
         </div>
@@ -120,7 +120,7 @@ function Lineup({ s }: { s: any }) {
       <div className="cards">
         {cards.map((c, i) => (
           <div className="c" key={c.key} style={{ animationDelay: `${i * 0.18}s` }}>
-            <img src={c.image} alt={c.name} />
+            <img src={cardSrc(c.image)} alt={c.name} />
             <div className="n">{c.name}</div>
             {c.entry && <div className="e">{c.entry}</div>}
           </div>
