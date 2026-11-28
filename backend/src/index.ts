@@ -59,6 +59,7 @@ import waOutreachRoutes from './routes/wa-outreach.routes.js';
 import waRewardRoutes from './routes/wa-reward.routes.js';
 import bookingOfferRoutes from './routes/booking-offers.routes.js';
 import earlyPriceRoutes from './routes/early-price.routes.js';
+import launchShowRoutes from './routes/launch-show.routes.js';
 import carddavRoutes from './routes/carddav.routes.js';
 import contactsSyncRoutes from './routes/contacts-sync.routes.js';
 import seatingRoutes from './routes/seating.routes.js';
@@ -243,6 +244,7 @@ app.use('/api/whatsapp', waOutreachRoutes);     // 📤 الإرسال المب�
 app.use('/api/whatsapp', waChannelsRoutes);     // 🔀 القناتان: الوضع، الصحّة، الربط، الاستيراد، الأقفال       // 🎁 عروض الحديث مع البوت (نقاط هديّة)
 app.use('/api/booking-offers', bookingOfferRoutes); // 🎟️ عروض الحجز الجماعيّ («جيب صحابك»)
 app.use('/api/early-price', earlyPriceRoutes);        // 💸 سعر الدون المبكّر + الغياب
+app.use('/api/launch-show', launchShowRoutes);        // 🎬 عرض ليلة الإطلاق (التلفازات + الهواتف + الصوت)
 app.use('/api/contacts-sync', contactsSyncRoutes);    // 📇 دفتر أرقام MC — إعدادات وأجهزة المزامنة
 app.use('/api/seating', seatingRoutes);
 app.use('/api/seat-templates', seatTemplatesRoutes);
@@ -1004,6 +1006,8 @@ async function main() {
       // الشخصُ في مجموعةٍ فعّالة واحدة للفعاليّة — الأسبق يثبت
       await db.execute(sql`CREATE UNIQUE INDEX IF NOT EXISTS uq_bgm_phone_activity ON booking_group_members (activity_id, phone) WHERE phone IS NOT NULL AND status IN ('booked','pending','joined')`);
       await db.execute(sql`CREATE UNIQUE INDEX IF NOT EXISTS uq_bgm_token ON booking_group_members (invite_token) WHERE invite_token IS NOT NULL`);
+      // ── 🎬 عرض ليلة الإطلاق (launch-show.service) ──
+      try { const { ensureLaunchTables } = await import('./services/launch-show.service.js'); await ensureLaunchTables(db); } catch (e: any) { console.warn('⚠️ launch show tables:', e.message); }
       await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_bgm_group ON booking_group_members (group_id)`);
       await db.execute(sql`ALTER TABLE bookings ADD COLUMN IF NOT EXISTS group_id INTEGER`);
       await db.execute(sql`ALTER TABLE bookings ADD COLUMN IF NOT EXISTS offer_free BOOLEAN DEFAULT false`);
